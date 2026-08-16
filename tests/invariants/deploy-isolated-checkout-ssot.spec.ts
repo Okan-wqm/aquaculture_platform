@@ -169,6 +169,50 @@ describe('production exact-SHA runtime bundle SSOT', () => {
     expect(compose).toContain('${DEPLOY_CERTS_DIR:-./certs}');
   });
 
+  it('pins a root-owned Node 22 host inode before any release mutation', () => {
+    expect(hostControl).toContain('AQUA_PRODUCTION_NODE_SOURCE_DEFAULT=/usr/bin/node');
+    expect(hostControl).toContain('AQUA_PRODUCTION_NODE_REQUIRED_MAJOR=22');
+    expect(hostControl).toContain('aqua_control_plane_resolve_node_authority');
+    expect(hostControl).toContain('AQUA_PRODUCTION_NODE_BIN="/proc/self/fd/');
+    expect(hostControl).toContain('source.st_nlink != 1');
+    expect(hostControl).toContain(
+      'export AQUA_PRODUCTION_NODE_BIN AQUA_PRODUCTION_NODE_FD AQUA_PRODUCTION_NODE_IDENTITY',
+    );
+
+    const runBranch = hostControl.indexOf('aqua_control_plane_run()');
+    const hostNode = hostControl.indexOf(
+      'aqua_control_plane_resolve_node_authority fresh',
+      runBranch,
+    );
+    const hostLock = hostControl.indexOf('aqua_control_plane_lock_acquire exclusive', hostNode);
+    const hostRecovery = hostControl.indexOf(
+      'aqua_control_plane_prepare_release_recovery',
+      hostNode,
+    );
+    const hostRollover = hostControl.indexOf(
+      'aqua_control_plane_prepare_bootstrap_gc_rollover',
+      hostNode,
+    );
+    const hostPublish = hostControl.indexOf('aqua_control_plane_publish_bundle', hostNode);
+    expect(runBranch).toBeGreaterThan(0);
+    expect(hostNode).toBeGreaterThan(runBranch);
+    for (const mutation of [hostLock, hostRecovery, hostRollover, hostPublish]) {
+      expect(mutation).toBeGreaterThan(hostNode);
+    }
+
+    const deployNode = deploy.indexOf('aqua_control_plane_require_node_authority');
+    expect(deployNode).toBeGreaterThan(0);
+    expect(deployNode).toBeLessThan(deploy.indexOf('aqua_control_plane_lock_acquire'));
+    expect(deployNode).toBeLessThan(deploy.indexOf('prepare_deploy_env_file'));
+
+    const verifyNode = verify.indexOf('aqua_control_plane_require_node_authority');
+    expect(verifyNode).toBeGreaterThan(0);
+    expect(verifyNode).toBeLessThan(verify.indexOf('aqua_control_plane_lock_acquire'));
+    expect(deploy).not.toMatch(/\bnode\s+"\$\{DEPLOY_SOURCE_DIR\}\/runtime\//u);
+    expect(verify).not.toMatch(/\bnode\s+"\$\{DEPLOY_SOURCE_DIR\}\/runtime\//u);
+    expect(payloadProducer).not.toContain(':NODE_BIN');
+  });
+
   it('verifies the published source marker instead of a target Git HEAD', () => {
     expect(paths).toContain('aqua_control_plane_verify_source');
     expect(verify).toContain('aqua_control_plane_verify_source');

@@ -56,7 +56,6 @@ require_command() {
 }
 
 require_command docker
-require_command node
 require_command python3
 
 # The shared-exec wrapper already holds this exact FD in the normal workflow.
@@ -66,6 +65,7 @@ require_command python3
 # prunes source material.
 configure_deploy_paths "${TARGET_SHA}"
 assert_deploy_source_bundle "${TARGET_SHA}"
+aqua_control_plane_require_node_authority
 aqua_control_plane_lock_acquire shared 120
 aqua_control_plane_lock_assert
 aqua_control_plane_guard_dr_state
@@ -439,7 +439,8 @@ log "=== Service criticality health gate ==="
 COMPOSE_FILE=docker-compose.droplet.yml \
   MANIFEST=infrastructure/deploy/service-criticality.yaml \
   POLL_INTERVAL="${POLL_INTERVAL:-10}" \
-  node "${DEPLOY_SOURCE_DIR}/runtime/check-service-health.mjs" >&2
+  "${AQUA_PRODUCTION_NODE_BIN:?production host Node authority missing}" \
+    "${DEPLOY_SOURCE_DIR}/runtime/check-service-health.mjs" >&2
 
 read -r -a ready_services <<< "${CATALOG_READINESS_SERVICES:?generated readiness service list missing}"
 

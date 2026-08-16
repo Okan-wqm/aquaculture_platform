@@ -34,6 +34,8 @@ readonly AQUA_PRODUCTION_SOURCES_ROOT_DEFAULT=/var/lib/aqua/deploy/sources
 readonly AQUA_PRODUCTION_DR_STATE_ROOT_DEFAULT=/var/lib/aqua/deploy/dr-bootstrap
 readonly AQUA_PRODUCTION_RELEASES_ROOT_DEFAULT=/var/lib/aqua/deploy/releases
 readonly AQUA_PRODUCTION_SOURCE_FORMAT=aqua-production-host-runtime-v1
+readonly AQUA_PRODUCTION_NODE_SOURCE_DEFAULT=/usr/bin/node
+readonly AQUA_PRODUCTION_NODE_REQUIRED_MAJOR=22
 readonly AQUA_PRODUCTION_DOCKER_MAX_CONTAINERS=1024
 readonly AQUA_PRODUCTION_DOCKER_PS_MAX_BYTES=$(((AQUA_PRODUCTION_DOCKER_MAX_CONTAINERS + 1) * 65))
 readonly AQUA_PRODUCTION_DOCKER_INSPECT_MAX_BYTES=33554432
@@ -43,6 +45,229 @@ readonly AQUA_PRODUCTION_DOCKER_CAPTURE_KILL_SECONDS=5
 aqua_control_plane_die() {
   printf 'FATAL: %s\n' "$*" >&2
   return 2
+}
+
+aqua_control_plane_resolve_node_authority() {
+  [ "$#" -le 1 ] || return 64
+  local authority_mode=${1:-fresh}
+  case "${authority_mode}" in
+    fresh | inherited) ;;
+    *) aqua_control_plane_die 'Production host Node authority mode is invalid.' || return ;;
+  esac
+
+  aqua_control_plane_initialize_paths || return
+  unset NODE_OPTIONS NODE_PATH LD_PRELOAD LD_LIBRARY_PATH
+
+  local node_source expected_uid expected_mode test_mode
+  if [ -n "${AQUA_CONTROL_PLANE_TEST_ROOT:-}" ]; then
+    : "${AQUA_CONTROL_PLANE_TEST_NODE_SOURCE:?test Node source required}"
+    node_source=${AQUA_CONTROL_PLANE_TEST_NODE_SOURCE}
+    expected_uid=${AQUA_CONTROL_PLANE_EXPECTED_UID}
+    expected_mode=500
+    test_mode=true
+  else
+    [ "${AQUA_CONTROL_PLANE_TEST_NODE_SOURCE+x}" != x ] || \
+      aqua_control_plane_die 'Test Node source is forbidden in production mode.' || return
+    node_source=${AQUA_PRODUCTION_NODE_SOURCE_DEFAULT}
+    expected_uid=0
+    expected_mode=755
+    test_mode=false
+  fi
+
+  case "${node_source}" in
+    /*) ;;
+    *) aqua_control_plane_die 'Production host Node source must be absolute.' || return ;;
+  esac
+
+  local opened_here=false
+  local inherited_identity=
+  if [ "${authority_mode}" = fresh ]; then
+    if [ "${AQUA_PRODUCTION_NODE_BIN+x}" = x ] || \
+       [ "${AQUA_PRODUCTION_NODE_FD+x}" = x ] || \
+       [ "${AQUA_PRODUCTION_NODE_IDENTITY+x}" = x ]; then
+      aqua_control_plane_die 'Production host Node authority outputs must not be pre-injected.' || return
+    fi
+    if ! exec {AQUA_PRODUCTION_NODE_FD}<"${node_source}"; then
+      unset AQUA_PRODUCTION_NODE_FD
+      aqua_control_plane_die 'Production host Node source could not be opened.' || return
+    fi
+    opened_here=true
+  else
+    if [ "${AQUA_PRODUCTION_NODE_BIN+x}" != x ] || \
+       [ "${AQUA_PRODUCTION_NODE_FD+x}" != x ] || \
+       [ "${AQUA_PRODUCTION_NODE_IDENTITY+x}" != x ]; then
+      aqua_control_plane_die 'Inherited production host Node authority is incomplete.' || return
+    fi
+    [[ "${AQUA_PRODUCTION_NODE_FD}" =~ ^([3-9]|[1-9][0-9]+)$ ]] || \
+      aqua_control_plane_die 'Inherited production host Node authority FD is invalid.' || return
+    [ "${AQUA_PRODUCTION_NODE_BIN}" = "/proc/self/fd/${AQUA_PRODUCTION_NODE_FD}" ] || \
+      aqua_control_plane_die 'Inherited production host Node authority path is invalid.' || return
+    [ -e "/proc/${BASHPID}/fd/${AQUA_PRODUCTION_NODE_FD}" ] || \
+      aqua_control_plane_die 'Inherited production host Node authority FD is closed.' || return
+    inherited_identity=${AQUA_PRODUCTION_NODE_IDENTITY}
+  fi
+
+  local node_identity node_version observed_identity
+  if ! node_identity=$(/usr/bin/python3 - \
+    "${node_source}" "${AQUA_PRODUCTION_NODE_FD}" "${expected_uid}" \
+    "${expected_mode}" "${test_mode}" "${authority_mode}" \
+    "${inherited_identity}" <<'NODE_AUTHORITY_PY'
+import os
+import pathlib
+import re
+import stat
+import sys
+
+path = pathlib.Path(sys.argv[1])
+descriptor = int(sys.argv[2])
+expected_uid = int(sys.argv[3])
+expected_mode = int(sys.argv[4], 8)
+test_mode = sys.argv[5] == "true"
+authority_mode = sys.argv[6]
+inherited_identity = sys.argv[7]
+
+pinned = os.fstat(descriptor)
+allowed_link_counts = {1} if authority_mode == "fresh" else {0, 1}
+if (
+    not stat.S_ISREG(pinned.st_mode)
+    or pinned.st_uid != expected_uid
+    or stat.S_IMODE(pinned.st_mode) != expected_mode
+    or pinned.st_nlink not in allowed_link_counts
+):
+    raise SystemExit("production host Node source identity is invalid")
+
+if authority_mode == "fresh":
+    if not path.is_absolute() or str(path) != os.path.normpath(path):
+        raise SystemExit("production host Node source is not canonical")
+    if test_mode:
+        trust_root = pathlib.Path("/tmp")
+    else:
+        trust_root = pathlib.Path("/")
+        if path != pathlib.Path("/usr/bin/node"):
+            raise SystemExit("production host Node source is not the fixed authority")
+    try:
+        path.relative_to(trust_root)
+    except ValueError as error:
+        raise SystemExit("production host Node authority escaped its trust root") from error
+
+    source = os.lstat(path)
+    if (
+        stat.S_ISLNK(source.st_mode)
+        or not stat.S_ISREG(source.st_mode)
+        or source.st_uid != expected_uid
+        or stat.S_IMODE(source.st_mode) != expected_mode
+        or source.st_nlink != 1
+        or (source.st_dev, source.st_ino) != (pinned.st_dev, pinned.st_ino)
+    ):
+        raise SystemExit("production host Node source identity is invalid")
+
+    current = path.parent
+    while True:
+        info = os.lstat(current)
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+            raise SystemExit(f"production host Node authority parent is not a directory: {current}")
+        sticky_tmp = test_mode and current == pathlib.Path("/tmp")
+        if sticky_tmp:
+            if info.st_uid != 0 or stat.S_IMODE(info.st_mode) != 0o1777:
+                raise SystemExit("test Node authority requires the canonical sticky /tmp boundary")
+        elif info.st_uid != expected_uid or info.st_mode & 0o022:
+            raise SystemExit(f"production host Node authority path is group/world writable: {current}")
+        if current == trust_root:
+            break
+        if current == current.parent:
+            raise SystemExit("production host Node authority trust root is unreachable")
+        current = current.parent
+else:
+    match = re.fullmatch(r"([0-9]+):([0-7]+):1:([0-9]+):([0-9]+)", inherited_identity)
+    if match is None:
+        raise SystemExit("inherited production host Node identity is malformed")
+    inherited_uid, inherited_mode, inherited_device, inherited_inode = (
+        int(match.group(1)),
+        int(match.group(2), 8),
+        int(match.group(3)),
+        int(match.group(4)),
+    )
+    if (
+        inherited_uid != expected_uid
+        or inherited_mode != expected_mode
+        or (inherited_device, inherited_inode) != (pinned.st_dev, pinned.st_ino)
+    ):
+        raise SystemExit("inherited production host Node identity is invalid")
+
+print(
+    f"{pinned.st_uid}:{stat.S_IMODE(pinned.st_mode):o}:"
+    f"{pinned.st_nlink}:{pinned.st_dev}:{pinned.st_ino}"
+)
+NODE_AUTHORITY_PY
+  ); then
+    if [ "${opened_here}" = true ]; then
+      exec {AQUA_PRODUCTION_NODE_FD}<&-
+      unset AQUA_PRODUCTION_NODE_FD
+    fi
+    aqua_control_plane_die 'Production host Node authority validation failed.' || return
+  fi
+
+  if ! node_version=$(/usr/bin/env -i \
+    PATH=/usr/bin:/bin HOME=/nonexistent LC_ALL=C \
+    "/proc/self/fd/${AQUA_PRODUCTION_NODE_FD}" --version); then
+    if [ "${opened_here}" = true ]; then
+      exec {AQUA_PRODUCTION_NODE_FD}<&-
+      unset AQUA_PRODUCTION_NODE_FD
+    fi
+    aqua_control_plane_die 'Production host Node version probe failed.' || return
+  fi
+  [[ "${node_version}" =~ ^v${AQUA_PRODUCTION_NODE_REQUIRED_MAJOR}\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+    if [ "${opened_here}" = true ]; then
+      exec {AQUA_PRODUCTION_NODE_FD}<&-
+      unset AQUA_PRODUCTION_NODE_FD
+    fi
+    aqua_control_plane_die \
+      "Production host Node authority must be canonical major version ${AQUA_PRODUCTION_NODE_REQUIRED_MAJOR}; observed ${node_version:-empty}." || return
+  }
+
+  observed_identity=$(/usr/bin/stat -Lc '%u:%a:%h:%d:%i' -- \
+    "/proc/self/fd/${AQUA_PRODUCTION_NODE_FD}") || {
+    if [ "${opened_here}" = true ]; then
+      exec {AQUA_PRODUCTION_NODE_FD}<&-
+      unset AQUA_PRODUCTION_NODE_FD
+    fi
+    aqua_control_plane_die 'Pinned production host Node identity became unreadable.' || return
+  }
+  local node_uid node_mode node_links node_device node_inode
+  local observed_uid observed_mode observed_links observed_device observed_inode
+  [[ "${node_identity}" =~ ^[0-9]+:[0-7]+:[01]:[0-9]+:[0-9]+$ ]] && \
+    [[ "${observed_identity}" =~ ^[0-9]+:[0-7]+:[01]:[0-9]+:[0-9]+$ ]] || {
+    aqua_control_plane_die 'Pinned production host Node identity encoding is invalid.' || return
+  }
+  IFS=: read -r node_uid node_mode node_links node_device node_inode <<< "${node_identity}"
+  IFS=: read -r observed_uid observed_mode observed_links observed_device observed_inode \
+    <<< "${observed_identity}"
+  [ "${node_uid}:${node_mode}:${node_device}:${node_inode}" = \
+    "${observed_uid}:${observed_mode}:${observed_device}:${observed_inode}" ] || {
+    if [ "${opened_here}" = true ]; then
+      exec {AQUA_PRODUCTION_NODE_FD}<&-
+      unset AQUA_PRODUCTION_NODE_FD
+    fi
+    aqua_control_plane_die 'Pinned production host Node identity changed during validation.' || return
+  }
+
+  if [ "${authority_mode}" = fresh ]; then
+    AQUA_PRODUCTION_NODE_BIN="/proc/self/fd/${AQUA_PRODUCTION_NODE_FD}"
+    AQUA_PRODUCTION_NODE_IDENTITY=${node_identity}
+  fi
+  readonly AQUA_PRODUCTION_NODE_BIN AQUA_PRODUCTION_NODE_FD AQUA_PRODUCTION_NODE_IDENTITY
+  export AQUA_PRODUCTION_NODE_BIN AQUA_PRODUCTION_NODE_FD AQUA_PRODUCTION_NODE_IDENTITY
+}
+
+aqua_control_plane_require_node_authority() {
+  [ "$#" -eq 0 ] || return 64
+  if [ "${AQUA_PRODUCTION_NODE_BIN+x}" = x ] || \
+     [ "${AQUA_PRODUCTION_NODE_FD+x}" = x ] || \
+     [ "${AQUA_PRODUCTION_NODE_IDENTITY+x}" = x ]; then
+    aqua_control_plane_resolve_node_authority inherited
+  else
+    aqua_control_plane_resolve_node_authority fresh
+  fi
 }
 
 aqua_control_plane_initialize_paths() {
@@ -2934,6 +3159,11 @@ aqua_control_plane_run() {
       shift
       [ "$#" -gt 0 ] || aqua_control_plane_die "${command} requires a child command." || return
       if [ "${command}" != shared-exec ]; then
+        if [ "${command}" = lock-exec ] && \
+           [ "${1:-}" = /bin/bash ] && \
+           [ "${2:-}" = scripts/deploy/droplet-up.sh ]; then
+          aqua_control_plane_resolve_node_authority fresh || return
+        fi
         aqua_control_plane_lock_acquire exclusive || return
         aqua_control_plane_prepare_release_recovery "$@" || return
         aqua_control_plane_prepare_bootstrap_gc_rollover "$@" || return

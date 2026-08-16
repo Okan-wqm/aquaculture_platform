@@ -86,6 +86,12 @@ Production deploys are controlled by ADR-033. The supported path is the
 `Deploy to DigitalOcean` GitHub Actions workflow, which calls
 `scripts/deploy/droplet-up.sh` on the droplet.
 
+The production host must provide Node.js `22.x` as the root-owned,
+single-linked executable `/usr/bin/node` with mode `0755`. The host control
+plane pins that inode before any release mutation and fails closed if the path,
+metadata, or major version differs. GitHub Actions' setup-node executable is a
+build-only authority and is never transported to the droplet.
+
 ### Automatic Deployment via GitHub Actions
 
 1. **Push to main branch or dispatch the workflow**

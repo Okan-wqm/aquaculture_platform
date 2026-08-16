@@ -60,6 +60,7 @@ interface RuntimeFixture {
   readonly mainSha: string;
   readonly controlRoot: string;
   readonly containerInspect: string;
+  readonly nodeSource: string;
 }
 
 function write(path: string, content: string): void {
@@ -197,6 +198,8 @@ fi
   const containerInspect = join(root, 'container-inspect.json');
   writeFileSync(containerInspect, '[]\n', { mode: 0o600 });
   chmodSync(containerInspect, 0o600);
+  const nodeSource = join(root, 'node-authority');
+  writeNodeAuthority(nodeSource, 'v22.7.0', 'fixture-node');
   return {
     root,
     bundle,
@@ -204,6 +207,7 @@ fi
     mainSha,
     controlRoot: join(root, 'control-root'),
     containerInspect,
+    nodeSource,
   };
 }
 
@@ -254,6 +258,7 @@ function runtimeEnv(fixture: RuntimeFixture, overrides: NodeJS.ProcessEnv = {}):
     LC_ALL: 'C',
     NODE_ENV: 'test',
     AQUA_CONTROL_PLANE_TEST_ROOT: fixture.controlRoot,
+    AQUA_CONTROL_PLANE_TEST_NODE_SOURCE: fixture.nodeSource,
     AQUA_CONTROL_PLANE_TEST_CONTAINER_INSPECT_JSON: fixture.containerInspect,
     PRODUCTION_HOST_BUNDLE_PATH: fixture.bundle,
     PRODUCTION_HOST_BUNDLE_SHA256: fixture.bundleHash,
@@ -375,7 +380,142 @@ function runSourcedControl(fixture: RuntimeFixture, body: string): SpawnSyncRetu
   });
 }
 
+function writeNodeAuthority(path: string, version: string, marker: string, mode = 0o500): void {
+  writeFileSync(
+    path,
+    `#!/bin/bash
+set -euo pipefail
+if [ "\${1:-}" = --version ]; then
+  printf '%s\\n' ${JSON.stringify(version)}
+else
+  printf '%s:%s\\n' ${JSON.stringify(marker)} "\${1:-missing}"
+fi
+`,
+    { mode },
+  );
+  chmodSync(path, mode);
+}
+
 describe('production host publisher and common lock runtime', () => {
+  it('pins one guarded Node 22 inode and rejects ambient or malformed authorities', () => {
+    const fixture = createRuntimeFixture('node-authority');
+    const nodeRoot = join(fixture.root, 'node-runtime');
+    const nodeSource = join(nodeRoot, 'node');
+    const replacement = join(nodeRoot, 'replacement');
+    const wrongVersion = join(nodeRoot, 'wrong-version');
+    const wrongMode = join(nodeRoot, 'wrong-mode');
+    const symlink = join(nodeRoot, 'node-symlink');
+    mkdirSync(nodeRoot, { mode: 0o700 });
+    chmodSync(nodeRoot, 0o700);
+    writeNodeAuthority(nodeSource, 'v22.7.0', 'pinned-node');
+    writeNodeAuthority(replacement, 'v21.9.0', 'replacement-node');
+    writeNodeAuthority(wrongVersion, 'v21.9.0', 'wrong-version');
+    writeNodeAuthority(wrongMode, 'v22.7.0', 'wrong-mode', 0o700);
+    symlinkSync(nodeSource, symlink);
+
+    const resolveNode = (
+      source: string,
+      body = 'aqua_control_plane_resolve_node_authority',
+      overrides: NodeJS.ProcessEnv = {},
+    ): SpawnSyncReturns<string> =>
+      spawnUtf8('/bin/bash', ['-c', `source "$1"; ${body}`, 'node-authority-test', CONTROL_PLANE], {
+        env: runtimeEnv(fixture, {
+          AQUA_CONTROL_PLANE_TEST_NODE_SOURCE: source,
+          ...overrides,
+        }),
+      });
+
+    try {
+      // Supply mutation paths positionally so no fixture path becomes shell syntax.
+      const pinnedWithPaths = spawnUtf8(
+        '/bin/bash',
+        [
+          '-c',
+          `source "$1"; aqua_control_plane_resolve_node_authority fresh; printf "bin=%s\\n" "$AQUA_PRODUCTION_NODE_BIN"; /usr/bin/mv -f -- "$3" "$2"; exec /bin/bash -c 'source "$1"; aqua_control_plane_require_node_authority; "$AQUA_PRODUCTION_NODE_BIN" runtime.mjs' inherited-node "$1"`,
+          'node-authority-test',
+          CONTROL_PLANE,
+          nodeSource,
+          replacement,
+        ],
+        {
+          env: runtimeEnv(fixture, {
+            AQUA_CONTROL_PLANE_TEST_NODE_SOURCE: nodeSource,
+          }),
+        },
+      );
+      expect(pinnedWithPaths.stderr).toBe('');
+      expect(pinnedWithPaths.status).toBe(0);
+      expect(pinnedWithPaths.stdout).toMatch(
+        /^bin=\/proc\/self\/fd\/[0-9]+\npinned-node:runtime\.mjs\n$/u,
+      );
+      expect(existsSync(fixture.controlRoot)).toBe(false);
+
+      for (const [source, expected] of [
+        [join(nodeRoot, 'missing'), 'source could not be opened'],
+        [wrongVersion, 'must be canonical major version 22'],
+        [wrongMode, 'source identity is invalid'],
+        [symlink, 'source identity is invalid'],
+      ] as const) {
+        const rejected = resolveNode(source);
+        expect(rejected.status).not.toBe(0);
+        expect(`${rejected.stdout}${rejected.stderr}`).toContain(expected);
+        expect(existsSync(fixture.controlRoot)).toBe(false);
+      }
+
+      const rejectedExactDeploy = runControl(
+        fixture,
+        ['lock-exec', '--', '/bin/bash', 'scripts/deploy/droplet-up.sh'],
+        { AQUA_CONTROL_PLANE_TEST_NODE_SOURCE: wrongVersion },
+      );
+      expect(rejectedExactDeploy.status).not.toBe(0);
+      expect(rejectedExactDeploy.stderr).toContain('must be canonical major version 22');
+      expect(existsSync(fixture.controlRoot)).toBe(false);
+
+      const injected = resolveNode(wrongVersion, undefined, {
+        AQUA_PRODUCTION_NODE_BIN: '/attacker/node',
+      });
+      expect(injected.status).not.toBe(0);
+      expect(`${injected.stdout}${injected.stderr}`).toContain(
+        'Node authority outputs must not be pre-injected',
+      );
+      expect(existsSync(fixture.controlRoot)).toBe(false);
+
+      const inheritedTuple = (body: string): SpawnSyncReturns<string> =>
+        spawnUtf8(
+          '/bin/bash',
+          [
+            '-c',
+            `source "$1"; ${body}`,
+            'node-inheritance-test',
+            CONTROL_PLANE,
+            fixture.nodeSource,
+          ],
+          {
+            env: runtimeEnv(fixture),
+          },
+        );
+      const tamperedPath = inheritedTuple(
+        'exec {fd}<"$2"; identity=$(/usr/bin/stat -Lc "%u:%a:%h:%d:%i" -- "$2"); export AQUA_PRODUCTION_NODE_FD=$fd AQUA_PRODUCTION_NODE_BIN=/proc/self/fd/999 AQUA_PRODUCTION_NODE_IDENTITY=$identity; aqua_control_plane_resolve_node_authority inherited',
+      );
+      expect(tamperedPath.status).not.toBe(0);
+      expect(tamperedPath.stderr).toContain('authority path is invalid');
+
+      const tamperedIdentity = inheritedTuple(
+        'exec {fd}<"$2"; export AQUA_PRODUCTION_NODE_FD=$fd AQUA_PRODUCTION_NODE_BIN=/proc/self/fd/$fd AQUA_PRODUCTION_NODE_IDENTITY=0:500:1:0:0; aqua_control_plane_resolve_node_authority inherited',
+      );
+      expect(tamperedIdentity.status).not.toBe(0);
+      expect(tamperedIdentity.stderr).toContain('authority validation failed');
+
+      const closedDescriptor = inheritedTuple(
+        'exec {fd}<"$2"; closed_fd=$fd; identity=$(/usr/bin/stat -Lc "%u:%a:%h:%d:%i" -- "$2"); exec {fd}<&-; export AQUA_PRODUCTION_NODE_FD=$closed_fd AQUA_PRODUCTION_NODE_BIN=/proc/self/fd/$closed_fd AQUA_PRODUCTION_NODE_IDENTITY=$identity; aqua_control_plane_resolve_node_authority inherited',
+      );
+      expect(closedDescriptor.status).not.toBe(0);
+      expect(closedDescriptor.stderr).toContain('authority FD is closed');
+    } finally {
+      removeFixtureRoot(fixture.root);
+    }
+  });
+
   it('keeps the GHCR credential out of publisher children and restores only the final child', () => {
     const fixture = createRuntimeFixture();
     const sentinel = 'AQUA_CONTROL_PLANE_GHCR_SENTINEL_081';
@@ -459,7 +599,9 @@ describe('production host publisher and common lock runtime', () => {
         '--',
         '/bin/bash',
         '-c',
-        'test ! -e node_modules && /usr/bin/node "$AQUA_CHECK_SERVICE_HEALTH_RUNTIME" > "$HOME/health-output" && /bin/cat "$HOME/health-output"',
+        'test ! -e node_modules && test -x "$1" && "$1" "$AQUA_CHECK_SERVICE_HEALTH_RUNTIME" > "$HOME/health-output" && /bin/cat "$HOME/health-output"',
+        'health-runtime-probe',
+        process.execPath,
       ]);
       expect(standaloneHealth.status).toBe(0);
       expect(standaloneHealth.stdout).toBe('health-runtime\n');
@@ -469,7 +611,9 @@ describe('production host publisher and common lock runtime', () => {
         '--',
         '/bin/bash',
         '-c',
-        'test ! -e node_modules && /usr/bin/node "$AQUA_ASSERT_SERVICE_SIGNALS_RUNTIME" > "$HOME/signals-output" && /bin/cat "$HOME/signals-output"',
+        'test ! -e node_modules && test -x "$1" && "$1" "$AQUA_ASSERT_SERVICE_SIGNALS_RUNTIME" > "$HOME/signals-output" && /bin/cat "$HOME/signals-output"',
+        'signals-runtime-probe',
+        process.execPath,
       ]);
       expect(standaloneSignals.status).toBe(0);
       expect(standaloneSignals.stdout).toBe('signals-runtime\n');
@@ -914,6 +1058,24 @@ describe('production host publisher and common lock runtime', () => {
       expect(blocked.status).not.toBe(0);
       expect(blocked.stderr).toContain('is unresolved at phase PREPARED');
       expect(existsSync(join(retentionRoot, 'sources', first.mainSha))).toBe(true);
+      expect(existsSync(join(retentionRoot, 'sources', second.mainSha))).toBe(false);
+
+      const wrongNodeSource = join(first.root, 'wrong-deploy-node');
+      writeNodeAuthority(wrongNodeSource, 'v21.9.0', 'wrong-deploy-node');
+      const journalBeforeRejectedDeploy = readFileSync(journalPath, 'utf8');
+      const rejectedDeploy = runControl(
+        first,
+        ['lock-exec', '--', '/bin/bash', 'scripts/deploy/droplet-up.sh'],
+        {
+          AQUA_CONTROL_PLANE_TEST_ROOT: retentionRoot,
+          AQUA_CONTROL_PLANE_TEST_NODE_SOURCE: wrongNodeSource,
+          RECOVERY_PROBE: recoveryProbe,
+        },
+      );
+      expect(rejectedDeploy.status).not.toBe(0);
+      expect(rejectedDeploy.stderr).toContain('must be canonical major version 22');
+      expect(readFileSync(journalPath, 'utf8')).toBe(journalBeforeRejectedDeploy);
+      expect(existsSync(recoveryProbe)).toBe(false);
       expect(existsSync(join(retentionRoot, 'sources', second.mainSha))).toBe(false);
 
       const recovery = runControl(

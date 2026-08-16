@@ -48,6 +48,7 @@ DEPLOY_SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 source "${DEPLOY_SCRIPT_DIR}/deploy-paths.sh"
 configure_deploy_paths "${DEPLOY_SHA}"
 assert_deploy_source_bundle "${DEPLOY_SHA}"
+aqua_control_plane_require_node_authority
 # `lock-exec` already owns this FD in the normal workflow. Reacquiring the
 # inherited open-file description is immediate; direct invocations acquire the
 # same authority before any state directory, Docker or secret mutation.
@@ -1785,7 +1786,8 @@ rollback_and_record() {
      COMPOSE_FILE=docker-compose.droplet.yml \
      MANIFEST=infrastructure/deploy/service-criticality.yaml \
      POLL_INTERVAL=10 \
-     node "${DEPLOY_SOURCE_DIR}/runtime/check-service-health.mjs" && \
+     "${AQUA_PRODUCTION_NODE_BIN:?production host Node authority missing}" \
+       "${DEPLOY_SOURCE_DIR}/runtime/check-service-health.mjs" && \
      deploy_transaction_marker_matches_prior; then
     record_release_ledger "rolled_back" "${reason}" "true" || return
     if [ "${DEPLOY_TRANSACTION_ACTIVE:-false}" = true ]; then
@@ -3305,15 +3307,16 @@ dump_nonhealthy_container_logs "pre-health-gate"
 # rollback; required failures fail the deploy without rollback so an
 # operator can inspect the rollout surface in place.
 # Warning-level failures surface as warnings.
-# Uses Node 22 built-in TypeScript type-stripping so no
-# tsc/tsx/python is required on the droplet — Node is already
-# a base dependency for the service containers.
+# The exact-SHA bundle contains standalone JavaScript, so no target-host
+# node_modules tree is required. The preflighted host Node 22 authority is
+# resolved before any release mutation and reused for every runtime gate.
 echo "=== Waiting for critical/required services ==="
 set +e
 COMPOSE_FILE=docker-compose.droplet.yml \
   MANIFEST=infrastructure/deploy/service-criticality.yaml \
   POLL_INTERVAL=10 \
-  node "${DEPLOY_SOURCE_DIR}/runtime/check-service-health.mjs"
+  "${AQUA_PRODUCTION_NODE_BIN:?production host Node authority missing}" \
+    "${DEPLOY_SOURCE_DIR}/runtime/check-service-health.mjs"
 HEALTH_STATUS=$?
 set -e
 if [ "${HEALTH_STATUS}" -eq 1 ]; then
@@ -3351,7 +3354,8 @@ echo "=== Asserting boot signals ==="
 if ! COMPOSE_FILE=docker-compose.droplet.yml \
      MANIFEST=infrastructure/deploy/required-signals.yaml \
      POLL_INTERVAL=10 \
-     node "${DEPLOY_SOURCE_DIR}/runtime/assert-service-signals.mjs"; then
+     "${AQUA_PRODUCTION_NODE_BIN:?production host Node authority missing}" \
+       "${DEPLOY_SOURCE_DIR}/runtime/assert-service-signals.mjs"; then
   echo "::error::Boot signal assertion failed. Initiating rollback."
   record_release_ledger "failed" "boot_signal"
   rollback_and_record "boot_signal" || true

@@ -16,6 +16,7 @@ interface RequiredStatusChecksManifest {
   required_status_checks: {
     strict: boolean;
     contexts: string[];
+    checks: RequiredStatusCheck[];
   };
   ci_affected_required_path_filters: string[];
   workflow_contracts: WorkflowContract[];
@@ -33,6 +34,11 @@ interface WorkflowContextContract {
   required_markers: string[];
 }
 
+interface RequiredStatusCheck {
+  context: string;
+  app_id: number;
+}
+
 interface GithubRequiredStatusChecksResponse {
   strict: boolean;
   contexts: string[];
@@ -41,6 +47,7 @@ interface GithubRequiredStatusChecksResponse {
 
 interface GithubRequiredStatusCheck {
   context: string;
+  app_id: number;
 }
 
 interface GithubBranchProtectionResponse {
@@ -141,6 +148,13 @@ function parseManifest(raw: unknown): RequiredStatusChecksManifest {
         raw.required_status_checks.contexts,
         'required_status_checks.contexts',
       ),
+      checks: requireRecordArray(
+        raw.required_status_checks.checks,
+        'required_status_checks.checks',
+      ).map((check, index) => ({
+        context: requireString(check.context, `required_status_checks.checks[${index}].context`),
+        app_id: requireNumber(check.app_id, `required_status_checks.checks[${index}].app_id`),
+      })),
     },
     ci_affected_required_path_filters: requireStringArray(
       raw.ci_affected_required_path_filters,
@@ -219,6 +233,18 @@ function checkStaticContract(manifest: RequiredStatusChecksManifest): string[] {
   for (const unexpectedContext of unexpectedValues(requiredContexts, manifestContexts)) {
     errors.push(`required_status_checks.contexts contains unmanaged context ${unexpectedContext}`);
   }
+  const manifestChecks = [...manifest.required_status_checks.checks].sort(
+    (left, right) => left.context.localeCompare(right.context) || left.app_id - right.app_id,
+  );
+  if (
+    JSON.stringify(manifestChecks.map((check) => check.context)) !==
+    JSON.stringify(manifestContexts)
+  ) {
+    errors.push('required_status_checks.checks must bind every context exactly once');
+  }
+  if (manifestChecks.some((check) => !Number.isInteger(check.app_id) || check.app_id <= 0)) {
+    errors.push('required_status_checks.checks app_id values must be positive integers');
+  }
 
   const ciAffectedPath = '.github/workflows/ci-affected.yml';
   const ciAffected = readFileSync(join(REPO_ROOT, ciAffectedPath), 'utf8');
@@ -279,6 +305,7 @@ function parseGithubRequiredStatusChecksResponse(
     contexts: requireStringArray(value.contexts, `${field}.contexts`),
     checks: requireRecordArray(value.checks, `${field}.checks`).map((check, index) => ({
       context: requireString(check.context, `${field}.checks[${index}].context`),
+      app_id: requireNumber(check.app_id, `${field}.checks[${index}].app_id`),
     })),
   };
 }
@@ -341,15 +368,30 @@ function checkLiveContract(manifest: RequiredStatusChecksManifest): string[] {
   }
 
   const expectedContexts = sortedUnique(manifest.required_status_checks.contexts);
-  const liveContexts = sortedUnique([
-    ...response.required_status_checks.contexts,
-    ...response.required_status_checks.checks.map((check) => check.context),
-  ]);
+  const liveContexts = [...response.required_status_checks.contexts].sort((left, right) =>
+    left.localeCompare(right),
+  );
+  if (JSON.stringify(liveContexts) !== JSON.stringify(expectedContexts)) {
+    errors.push(
+      `GitHub raw required status contexts=${JSON.stringify(liveContexts)}, manifest contexts=${JSON.stringify(expectedContexts)}`,
+    );
+  }
   for (const missingContext of missingValues(expectedContexts, liveContexts)) {
     errors.push(`GitHub required status checks missing ${missingContext}`);
   }
   for (const unmanagedContext of unexpectedValues(expectedContexts, liveContexts)) {
     errors.push(`GitHub required status checks contains unmanaged context ${unmanagedContext}`);
+  }
+  const expectedChecks = [...manifest.required_status_checks.checks].sort(
+    (left, right) => left.context.localeCompare(right.context) || left.app_id - right.app_id,
+  );
+  const liveChecks = [...response.required_status_checks.checks].sort(
+    (left, right) => left.context.localeCompare(right.context) || left.app_id - right.app_id,
+  );
+  if (JSON.stringify(liveChecks) !== JSON.stringify(expectedChecks)) {
+    errors.push(
+      `GitHub required status check app bindings=${JSON.stringify(liveChecks)}, manifest checks=${JSON.stringify(expectedChecks)}`,
+    );
   }
   return errors;
 }

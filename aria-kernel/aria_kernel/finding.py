@@ -39,7 +39,42 @@ from .tool_registry import GovernanceError, append_tools_governance, ensure_tool
 
 SEVERITIES = ("HIGH", "MEDIUM", "LOW", "INFORMATIONAL")
 STATUSES = ("OPEN", "IN_PROGRESS", "RESOLVED", "SUPPRESSED", "WITHDRAWN")
-CERTAINTIES = ("CONFIRMED", "OBSERVED", "SUSPECTED", "UNCERTAIN", "UNKNOWN")
+# E21-c (ORPHAN-693) — İ2 decision, measured 2026-08-16: SUSPECTED /
+# UNCERTAIN / UNKNOWN had ZERO producers (every emitter passes OBSERVED or
+# nothing; no CLI flag exposes certainty), so three of five members were a
+# dead dictionary — input vocabulary nothing could ever utter. They are
+# REMOVED, not kept "just in case": a future lower-confidence producer
+# re-adds its member in the same PR that adds the producer. CONFIRMED gains
+# its first real producer here (record_finding_reproduction — an experiment
+# that re-runs the defect deterministically), which is the whole point of
+# the Deney Masası: certainty is EARNED by reproduction, not asserted.
+CERTAINTIES = ("CONFIRMED", "OBSERVED")
+
+# E21-c — closed finding-event vocabulary. The replay fold REFUSES an
+# unknown event type instead of skipping it: pre-E21-c the fold silently
+# skipped everything but finding_emitted, which is exactly how a
+# reproduction event would have been invisible data loss. A closed set
+# makes the next new event type a deliberate schema decision, not a row
+# that vanishes on read.
+FINDING_EVENT_TYPES = (
+    "finding_emitted",
+    "finding_reproduced",
+    "finding_fix_verified",
+    "finding_status_changed",
+)
+
+# E21-c — status transition map for operator/status events. RESOLVED and
+# WITHDRAWN are terminal; SUPPRESSED can be reopened. finding_fix_verified
+# is NOT routed through this map — its proof obligations (a matched green
+# re-run of the same recipe that reproduced the defect) are stronger than
+# any hand transition, and it lands directly on RESOLVED.
+STATUS_TRANSITIONS: dict[str, frozenset[str]] = {
+    "OPEN": frozenset({"IN_PROGRESS", "SUPPRESSED", "WITHDRAWN"}),
+    "IN_PROGRESS": frozenset({"OPEN", "RESOLVED", "SUPPRESSED", "WITHDRAWN"}),
+    "SUPPRESSED": frozenset({"OPEN"}),
+    "RESOLVED": frozenset(),
+    "WITHDRAWN": frozenset(),
+}
 
 # Per CONTRACTS §6 claim_type allowlist with severity floor + min evidence count.
 CLAIM_TYPES: dict[str, dict[str, Any]] = {
@@ -494,24 +529,381 @@ def find_by_evidence_chain_id(repo_root: str | Path, chain_id: str) -> dict[str,
     return None
 
 
+def _resolve_experiment_observation(
+    *,
+    finding_id: str,
+    validation_run_id: str,
+    base_dir: str | Path | None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Resolve (observation row, experiment row) for a finding-bound run.
+
+    E21-c — the binding is DECLARED, not inferred: the experiment row must
+    carry ``finding_ref == finding_id`` (set at registration). Without that
+    check any matched observation could be stapled to any finding, and the
+    certainty upgrade would be a claim about a coincidence.
+    """
+    from .experiment import get_experiment, list_experiment_observations
+
+    observation: dict[str, Any] | None = None
+    for row in list_experiment_observations(base_dir=base_dir):
+        if row.get("validation_run_id") == validation_run_id:
+            observation = row  # last row wins — re-recorded runs supersede
+    if observation is None:
+        raise GovernanceError(
+            f"finding_experiment_observation_missing: no experiment "
+            f"observation carries validation_run_id={validation_run_id!r}"
+        )
+    experiment = get_experiment(
+        str(observation.get("experiment_id") or ""), base_dir=base_dir
+    )
+    if experiment.get("finding_ref") != finding_id:
+        raise GovernanceError(
+            f"finding_experiment_not_bound: experiment "
+            f"{experiment.get('experiment_id')!r} declares "
+            f"finding_ref={experiment.get('finding_ref')!r}, not {finding_id!r} — "
+            f"bind the experiment at registration, do not staple observations"
+        )
+    if observation.get("matched") is not True:
+        raise GovernanceError(
+            f"finding_experiment_observation_unmatched: run "
+            f"{validation_run_id!r} did not satisfy its observation contract; "
+            f"an unmatched observation proves nothing about the hypothesis"
+        )
+    return observation, experiment
+
+
+def _append_finding_event(
+    repo_root: Path,
+    event_row: dict[str, Any],
+    *,
+    governance_kind: str,
+    governance_payload: dict[str, Any],
+    base_dir: str | Path | None,
+) -> dict[str, Any]:
+    """Single chokepoint for every non-mint finding event.
+
+    Shares emit_finding's discipline: frozen-profile gate, the same
+    ``.alloc.lock`` serialization, declared-surface append, governance echo.
+    """
+    from .runtime_profile import enforce_profile_for_write
+    from .file_lock import with_exclusive_lock
+
+    enforce_profile_for_write("finding", base_dir=base_dir)
+    tools_root = ensure_tools_binding(base_dir, workspace_root=repo_root)
+    findings_dir = _findings_dir(repo_root)
+    findings_dir.mkdir(parents=True, exist_ok=True)
+    with with_exclusive_lock(findings_dir / ".alloc.lock", timeout_seconds=5.0):
+        stored = append_declared_jsonl(
+            _events_path(repo_root), event_row,
+            expected_surface="repo_finding_events",
+        )
+        _refresh_index(repo_root)
+    append_tools_governance(tools_root, governance_kind, governance_payload)
+    return stored
+
+
+def record_finding_reproduction(
+    repo_root: str | Path,
+    *,
+    finding_id: str,
+    validation_run_id: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """E21-c (ORPHAN-693) — a red run of a bound recipe CONFIRMS the finding.
+
+    Proof obligations, all structural:
+      * the observation matched its contract (the run behaved as hypothesized)
+      * the run itself FAILED — reproduction of a defect is a red run;
+        a timeout is environment noise and is refused, not rounded to red
+      * the experiment declares ``finding_ref`` == this finding
+
+    This is the first (and only) producer of certainty=CONFIRMED: the top
+    of the evidence hierarchy is re-production, not re-reading.
+    """
+    from .validation_runs_ledger import classify_validation_run_status
+
+    repo_path = Path(repo_root).resolve()
+    doc = _replay_findings(repo_path).get(finding_id)
+    if doc is None:
+        raise GovernanceError(f"finding {finding_id} not found")
+    if doc.get("status") in ("RESOLVED", "WITHDRAWN"):
+        raise GovernanceError(
+            f"finding_reproduction_on_closed_finding: {finding_id} is "
+            f"{doc.get('status')}; a defect that reproduces after resolution "
+            f"is a REGRESSION and deserves a new finding with its own trail, "
+            f"not a certainty edit on a closed one"
+        )
+    observation, experiment = _resolve_experiment_observation(
+        finding_id=finding_id, validation_run_id=validation_run_id,
+        base_dir=base_dir,
+    )
+    run_status = str(observation.get("run_status") or "")
+    if run_status != "failed":
+        raise GovernanceError(
+            f"finding_reproduction_requires_red_run: run "
+            f"{validation_run_id!r} ended {run_status!r}; only a failed run "
+            f"demonstrates the defect (classify: "
+            f"{classify_validation_run_status.__module__})"
+        )
+    event_row = {
+        "schema_version": 1,
+        "event": "finding_reproduced",
+        "event_id": f"finding:{finding_id}:reproduced:{validation_run_id}",
+        "finding_id": finding_id,
+        "experiment_id": experiment.get("experiment_id"),
+        "recipe_ref": experiment.get("recipe_ref"),
+        "validation_run_id": validation_run_id,
+        "observation_ledger_hash": observation.get("ledger_hash"),
+        "run_status": run_status,
+        "target_sha": _target_sha(repo_path),
+        "recorded_at": _utc_now(),
+    }
+    return _append_finding_event(
+        repo_path, event_row,
+        governance_kind="finding_reproduced",
+        governance_payload={
+            "finding_id": finding_id,
+            "experiment_id": experiment.get("experiment_id"),
+            "recipe_ref": experiment.get("recipe_ref"),
+            "validation_run_id": validation_run_id,
+        },
+        base_dir=base_dir,
+    )
+
+
+def record_finding_fix_verification(
+    repo_root: str | Path,
+    *,
+    finding_id: str,
+    validation_run_id: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """E21-c (ORPHAN-693) — the SAME recipe re-runs green, so the fix is real.
+
+    Structural obligations:
+      * a prior ``finding_reproduced`` event exists for this finding
+      * the green run used the SAME recipe that reproduced the defect —
+        a different recipe going green verifies nothing about this fix
+      * the observation matched AND the run status is ``ok``
+
+    The fold lands this directly on status=RESOLVED with
+    ``closes_in_commit`` from the run's unforgeable provenance — RESOLVED
+    gains its first producer whose proof is an executed experiment, not an
+    assertion in a commit message.
+    """
+    repo_path = Path(repo_root).resolve()
+    doc = _replay_findings(repo_path).get(finding_id)
+    if doc is None:
+        raise GovernanceError(f"finding {finding_id} not found")
+    if doc.get("status") in ("RESOLVED", "WITHDRAWN"):
+        raise GovernanceError(
+            f"finding_fix_verification_on_closed_finding: {finding_id} is "
+            f"already {doc.get('status')}"
+        )
+    reproduction = doc.get("reproduction")
+    if not isinstance(reproduction, dict):
+        raise GovernanceError(
+            f"finding_fix_verification_requires_reproduction: {finding_id} "
+            f"was never reproduced; verifying a fix against a defect that "
+            f"never demonstrably ran red proves nothing"
+        )
+    observation, experiment = _resolve_experiment_observation(
+        finding_id=finding_id, validation_run_id=validation_run_id,
+        base_dir=base_dir,
+    )
+    if experiment.get("recipe_ref") != reproduction.get("recipe_ref"):
+        raise GovernanceError(
+            f"finding_fix_verification_recipe_mismatch: reproduction used "
+            f"{reproduction.get('recipe_ref')!r}, verification ran "
+            f"{experiment.get('recipe_ref')!r}; the fix experiment must "
+            f"re-run the SAME recipe"
+        )
+    run_status = str(observation.get("run_status") or "")
+    if run_status != "ok":
+        raise GovernanceError(
+            f"finding_fix_verification_requires_green_run: run "
+            f"{validation_run_id!r} ended {run_status!r}"
+        )
+    event_row = {
+        "schema_version": 1,
+        "event": "finding_fix_verified",
+        "event_id": f"finding:{finding_id}:fix_verified:{validation_run_id}",
+        "finding_id": finding_id,
+        "experiment_id": experiment.get("experiment_id"),
+        "recipe_ref": experiment.get("recipe_ref"),
+        "validation_run_id": validation_run_id,
+        "observation_ledger_hash": observation.get("ledger_hash"),
+        "commit_sha": observation.get("commit_sha"),
+        "target_sha": _target_sha(repo_path),
+        "recorded_at": _utc_now(),
+    }
+    return _append_finding_event(
+        repo_path, event_row,
+        governance_kind="finding_fix_verified",
+        governance_payload={
+            "finding_id": finding_id,
+            "experiment_id": experiment.get("experiment_id"),
+            "recipe_ref": experiment.get("recipe_ref"),
+            "validation_run_id": validation_run_id,
+            "commit_sha": observation.get("commit_sha"),
+        },
+        base_dir=base_dir,
+    )
+
+
+def record_finding_status_change(
+    repo_root: str | Path,
+    *,
+    finding_id: str,
+    to_status: str,
+    reason: str,
+    actor: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """E21-c (ORPHAN-693) — operator status transitions become event rows.
+
+    STATUSES had readers (cycle_guard, debt, handoff) but NO writer could
+    reach IN_PROGRESS / SUPPRESSED / WITHDRAWN through replay — a state
+    machine whose states were unreachable. Transitions validate against
+    STATUS_TRANSITIONS at append time; the fold trusts the ledger.
+    """
+    repo_path = Path(repo_root).resolve()
+    if to_status not in STATUSES:
+        raise GovernanceError(f"invalid status: {to_status}")
+    if not isinstance(reason, str) or not reason.strip():
+        raise GovernanceError("finding_status_change_reason_required")
+    if not isinstance(actor, str) or not actor.strip():
+        raise GovernanceError("finding_status_change_actor_required")
+    _check_banned_phrases(reason, field="status_reason")
+    doc = _replay_findings(repo_path).get(finding_id)
+    if doc is None:
+        raise GovernanceError(f"finding {finding_id} not found")
+    current = str(doc.get("status") or "OPEN")
+    allowed = STATUS_TRANSITIONS.get(current, frozenset())
+    if to_status not in allowed:
+        raise GovernanceError(
+            f"finding_status_transition_invalid: {current} -> {to_status} "
+            f"(allowed from {current}: {sorted(allowed) or 'none — terminal'})"
+        )
+    event_row = {
+        "schema_version": 1,
+        "event": "finding_status_changed",
+        "event_id": f"finding:{finding_id}:status:{to_status}:{_utc_now()}",
+        "finding_id": finding_id,
+        "from_status": current,
+        "to_status": to_status,
+        "reason": reason,
+        "actor": actor,
+        "recorded_at": _utc_now(),
+    }
+    return _append_finding_event(
+        repo_path, event_row,
+        governance_kind="finding_status_changed",
+        governance_payload={
+            "finding_id": finding_id,
+            "from_status": current,
+            "to_status": to_status,
+            "actor": actor,
+        },
+        base_dir=base_dir,
+    )
+
+
+def list_fix_verified_bindings(repo_root: str | Path) -> list[dict[str, Any]]:
+    """E21-c — the permanent recipe↔finding bindings regression re-runs use.
+
+    A recipe that turned green is NOT discarded (İ1): re-running it through
+    the SAME experiment lane IS the regression fixture — no third fixture
+    system. The nightly phase (E21-d) re-runs these; a binding that goes
+    red again is a regression finding.
+    """
+    rows: list[dict[str, Any]] = []
+    for doc in _replay_findings(Path(repo_root).resolve()).values():
+        verification = doc.get("fix_verification")
+        if isinstance(verification, dict):
+            rows.append({
+                "finding_id": doc.get("finding_id"),
+                "recipe_ref": verification.get("recipe_ref"),
+                "experiment_id": verification.get("experiment_id"),
+                "evidence_chain_id": doc.get("evidence_chain_id"),
+                "commit_sha": verification.get("commit_sha"),
+            })
+    return rows
+
+
 def _replay_findings(repo_root: Path) -> dict[str, dict[str, Any]]:
+    """Fold the event ledger into current finding state.
+
+    E21-c (ORPHAN-693) — the fold speaks the FULL closed event vocabulary.
+    Pre-E21-c it skipped everything but ``finding_emitted``, so a finding
+    was frozen at mint forever: STATUSES had readers but no writer could
+    ever reach them through replay. Now:
+
+      * ``finding_reproduced``   → certainty CONFIRMED + reproduction proof
+      * ``finding_fix_verified`` → status RESOLVED + closes_in_commit
+      * ``finding_status_changed`` → operator transition (validated at
+        append time against STATUS_TRANSITIONS)
+
+    An UNKNOWN event type raises instead of skipping: silent skip is
+    invisible data loss wearing a compatibility costume.
+    """
     path = _events_path(repo_root)
     rows = load_declared_jsonl(path, expected_surface="repo_finding_events")
     findings: dict[str, dict[str, Any]] = {}
     for event in rows:
-        if event.get("event") != "finding_emitted":
-            continue
+        event_type = str(event.get("event") or "")
+        if event_type not in FINDING_EVENT_TYPES:
+            raise GovernanceError(
+                f"finding event type unknown: {event_type!r} "
+                f"(allowed: {FINDING_EVENT_TYPES}) — a reader that skips "
+                f"what it does not recognise loses data silently"
+            )
         finding_id = str(event.get("finding_id") or "")
         if not FINDING_ID_RE.match(finding_id):
             raise GovernanceError(f"finding event has invalid finding_id: {finding_id!r}")
-        record = event.get("record")
-        if not isinstance(record, dict):
-            raise GovernanceError(f"finding event {event.get('event_id')!r} missing record")
-        source_ledger_hash = event.get("ledger_hash")
-        if not isinstance(source_ledger_hash, str) or not source_ledger_hash:
-            raise GovernanceError(f"finding event {event.get('event_id')!r} missing ledger_hash")
-        doc = dict(record)
-        doc["source_event_id"] = event.get("event_id")
-        doc["source_ledger_hash"] = source_ledger_hash
-        findings[finding_id] = doc
+        if event_type == "finding_emitted":
+            record = event.get("record")
+            if not isinstance(record, dict):
+                raise GovernanceError(f"finding event {event.get('event_id')!r} missing record")
+            source_ledger_hash = event.get("ledger_hash")
+            if not isinstance(source_ledger_hash, str) or not source_ledger_hash:
+                raise GovernanceError(f"finding event {event.get('event_id')!r} missing ledger_hash")
+            doc = dict(record)
+            doc["source_event_id"] = event.get("event_id")
+            doc["source_ledger_hash"] = source_ledger_hash
+            findings[finding_id] = doc
+            continue
+        # Every non-mint event references a finding the ledger has already
+        # emitted — append order guarantees it, so a miss is corruption.
+        doc = findings.get(finding_id)
+        if doc is None:
+            raise GovernanceError(
+                f"finding event {event.get('event_id')!r} references "
+                f"{finding_id!r} before its finding_emitted row"
+            )
+        if event_type == "finding_reproduced":
+            doc["certainty"] = "CONFIRMED"
+            doc["reproduction"] = {
+                "experiment_id": event.get("experiment_id"),
+                "recipe_ref": event.get("recipe_ref"),
+                "validation_run_id": event.get("validation_run_id"),
+                "observation_ledger_hash": event.get("observation_ledger_hash"),
+                "target_sha": event.get("target_sha"),
+                "event_id": event.get("event_id"),
+            }
+        elif event_type == "finding_fix_verified":
+            doc["status"] = "RESOLVED"
+            doc["closes_in_commit"] = event.get("commit_sha")
+            doc["fix_verification"] = {
+                "experiment_id": event.get("experiment_id"),
+                "recipe_ref": event.get("recipe_ref"),
+                "validation_run_id": event.get("validation_run_id"),
+                "observation_ledger_hash": event.get("observation_ledger_hash"),
+                "commit_sha": event.get("commit_sha"),
+                "event_id": event.get("event_id"),
+            }
+        elif event_type == "finding_status_changed":
+            doc["status"] = event.get("to_status")
+            doc["status_reason"] = event.get("reason")
+            doc["status_actor"] = event.get("actor")
     return findings

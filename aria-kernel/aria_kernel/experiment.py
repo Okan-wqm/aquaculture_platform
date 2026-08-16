@@ -163,6 +163,7 @@ def register_experiment(
     hypothesis: str,
     recipe_ref: str,
     observation_contract: dict[str, Any],
+    finding_ref: str | None = None,
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
 ) -> dict[str, Any]:
@@ -172,10 +173,26 @@ def register_experiment(
     experiment pointing at a recipe that does not exist is a hypothesis
     nobody can ever test, and discovering that only when the bench runs
     turns a typo into a mystery.
+
+    E21-c (ORPHAN-693) — ``finding_ref`` binds the experiment to a
+    finding AT REGISTRATION. The finding bridge
+    (``finding.record_finding_reproduction`` / ``_fix_verification``)
+    accepts only observations whose experiment declares this binding, so
+    an arbitrary matched run can never be stapled to an arbitrary
+    finding after the fact. The format is validated here; EXISTENCE is
+    validated by the bridge, which owns the finding store.
     """
     _assert_identifier("experiment_id", experiment_id)
     if not isinstance(hypothesis, str) or not hypothesis.strip():
         raise GovernanceError("experiment_hypothesis_required")
+    if finding_ref is not None:
+        from .finding import FINDING_ID_RE
+
+        if not isinstance(finding_ref, str) or not FINDING_ID_RE.match(finding_ref):
+            raise GovernanceError(
+                f"experiment_finding_ref_invalid: {finding_ref!r} must "
+                f"match {FINDING_ID_RE.pattern}"
+            )
     recipe = get_recipe(recipe_ref, base_dir=base_dir)
     contract = _validated_observation_contract(observation_contract)
     row = {
@@ -186,6 +203,7 @@ def register_experiment(
         "hypothesis": hypothesis,
         "recipe_ref": recipe["recipe_id"],
         "observation_contract": contract,
+        "finding_ref": finding_ref,
     }
     return append_declared_jsonl(
         experiments_path(base_dir), row,

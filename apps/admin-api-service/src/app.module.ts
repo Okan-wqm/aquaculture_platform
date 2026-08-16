@@ -9,9 +9,20 @@ import {
 } from '@aquaculture/backend-common/database';
 import { LoggingModule } from '@aquaculture/backend-common/logging';
 import { ServiceMetricsModule } from '@aquaculture/backend-common/metrics';
+import {
+  RateLimitEnforcementService,
+  RateLimitGuard,
+  RateLimitModule,
+} from '@aquaculture/backend-common/rate-limit';
 import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
 import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
-import { ThrottlerGuard, ThrottlerModule } from '@aquaculture/backend-common/security';
+import {
+  ITokenRevocationReader,
+  SecurityEventService,
+  TOKEN_REVOCATION_READER,
+  TokenRevocationReaderModule,
+} from '@aquaculture/backend-common/security';
+import { RecentMfaGuard } from '@aquaculture/backend-common/guards';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
@@ -43,6 +54,7 @@ import { SystemMetricsModule } from './metrics/system-metrics.module';
 import { SystemModulesModule } from './modules/modules.module';
 import { IngestBackendPolicyModule } from './policy/policy.module';
 import { AdminApiRetentionBootstrapModule } from './retention/retention-bootstrap.module';
+import { ADMIN_RATE_LIMIT_EDGE_CONFIG } from './security/admin-rate-limit.policy';
 import { SecurityModule } from './security/security.module';
 import { SettingsModule } from './settings/settings.module';
 import { ResponseInterceptor } from './shared/response.interceptor';
@@ -53,10 +65,7 @@ import { UsersModule } from './users/users.module';
 
 const AdminSchemaVersionGate = createSchemaVersionGate('admin');
 
-const getRequiredStorageConfig = (
-  configService: ConfigService,
-  key: string,
-): string => {
+const getRequiredStorageConfig = (configService: ConfigService, key: string): string => {
   const value = configService.get<string>(key);
   if (value === undefined || value.trim().length === 0) {
     throw new Error(`Missing required object storage configuration: ${key}`);
@@ -117,8 +126,7 @@ const getAdminStoragePort = (configService: ConfigService): number => {
           migrations: [__dirname + '/migrations/[0-9]*{.ts,.js}'],
           // Single-writer deploy contract: aqua-db-migrate owns production
           // migrations. Local/E2E can still opt in explicitly.
-          migrationsRunFromEnv: (cfg) =>
-            cfg.get('DATABASE_MIGRATIONS_RUN', 'false') === 'true',
+          migrationsRunFromEnv: (cfg) => cfg.get('DATABASE_MIGRATIONS_RUN', 'false') === 'true',
         }),
     }),
     /**
@@ -142,10 +150,14 @@ const getAdminStoragePort = (configService: ConfigService): number => {
           type: 'postgres',
           host: configService.get<string>('DATABASE_HOST', 'localhost'),
           port: configService.get<number>('DATABASE_PORT', 5432),
-          username: configService.get<string>('DATABASE_READONLY_USER',
-            configService.get<string>('DATABASE_USER', 'postgres')),
-          password: configService.get<string>('DATABASE_READONLY_PASSWORD',
-            dbPassword || 'postgres'),
+          username: configService.get<string>(
+            'DATABASE_READONLY_USER',
+            configService.get<string>('DATABASE_USER', 'postgres'),
+          ),
+          password: configService.get<string>(
+            'DATABASE_READONLY_PASSWORD',
+            dbPassword || 'postgres',
+          ),
           database: configService.get<string>('DATABASE_NAME', 'aquaculture'),
           schema: configService.get<string>('DATABASE_SCHEMA', 'admin'),
           // SECURITY: No entities — this DataSource is for raw queries only
@@ -183,13 +195,17 @@ const getAdminStoragePort = (configService: ConfigService): number => {
       useFactory: buildEventBusConfig,
     }),
     LoggingModule,
-    ThrottlerModule,
-    // Redis for caching and distributed rate limiting
+    // Redis is a mandatory authorization/rate-limit authority in production.
     RedisModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) =>
-        buildRedisOptions(configService, 'admin', 'optional'),
+        buildRedisOptions(configService, 'admin', 'required'),
+    }),
+    TokenRevocationReaderModule,
+    RateLimitModule.forRoot({
+      keyPrefix: 'ratelimit:',
+      edge: ADMIN_RATE_LIMIT_EDGE_CONFIG,
     }),
     StorageModule.forRootAsync({
       imports: [ConfigModule],
@@ -274,11 +290,38 @@ const getAdminStoragePort = (configService: ConfigService): number => {
     // @UseGuards(PlatformAdminGuard) on controllers resolves the guard from the DI container
     // using the class token — NOT the APP_GUARD symbol. Without this explicit registration,
     // NestJS falls back to reflect-metadata class resolution which fails in Docker Alpine.
+    SecurityEventService,
+    {
+      provide: RecentMfaGuard,
+      useFactory: (reflector: Reflector): RecentMfaGuard => new RecentMfaGuard(reflector),
+      inject: [Reflector],
+    },
     {
       provide: PlatformAdminGuard,
-      useFactory: (reflector: Reflector, configService: ConfigService, jwtService: JwtService): PlatformAdminGuard =>
-        new PlatformAdminGuard(reflector, configService, jwtService),
-      inject: [Reflector, ConfigService, JwtService],
+      useFactory: (
+        reflector: Reflector,
+        configService: ConfigService,
+        jwtService: JwtService,
+        tokenRevocationReader: ITokenRevocationReader,
+        rateLimitEnforcement: RateLimitEnforcementService,
+        securityEvents: SecurityEventService,
+      ): PlatformAdminGuard =>
+        new PlatformAdminGuard(
+          reflector,
+          configService,
+          jwtService,
+          tokenRevocationReader,
+          rateLimitEnforcement,
+          securityEvents,
+        ),
+      inject: [
+        Reflector,
+        ConfigService,
+        JwtService,
+        TOKEN_REVOCATION_READER,
+        RateLimitEnforcementService,
+        SecurityEventService,
+      ],
     },
     {
       provide: APP_GUARD,
@@ -286,7 +329,11 @@ const getAdminStoragePort = (configService: ConfigService): number => {
     },
     {
       provide: APP_GUARD,
-      useExisting: ThrottlerGuard,
+      useExisting: RateLimitGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useExisting: RecentMfaGuard,
     },
     {
       provide: APP_INTERCEPTOR,

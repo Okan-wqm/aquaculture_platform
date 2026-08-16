@@ -1,0 +1,8 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node", "jest"],
+    "outDir": "../../../dist/out-tsc/platform/libs/admin-http-contracts-spec"
+  },
+  "include": ["src/**/*.ts", "jest.config.ts"]
+}

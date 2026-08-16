@@ -5,8 +5,13 @@
  * Token-ISSUER (auth-service) keeps its own JwtModule block.
  */
 
-export { getJwtVerifyOptions, enforceAccessTokenType, getActiveSigningKid } from './jwt-verification.utils';
-export type { JwtVerifyConfig } from './jwt-verification.utils';
+export {
+  getJwtVerifyOptions,
+  enforceAccessTokenType,
+  enforceTokenNotRevoked,
+  getActiveSigningKid,
+} from './jwt-verification.utils';
+export type { JwtVerifyConfig, VerifiedTokenRevocationCoordinates } from './jwt-verification.utils';
 
 export { PlatformJwtModule } from './platform-jwt.module';
 

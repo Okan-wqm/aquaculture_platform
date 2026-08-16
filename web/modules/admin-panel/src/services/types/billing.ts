@@ -2,6 +2,8 @@
  * Billing domain types (Plans, Subscriptions, Invoices, Discounts, Module Pricing, Custom Plans)
  */
 
+import type { PaginatedResult } from './common';
+
 // ============================================================================
 // Billing Enums
 // ============================================================================
@@ -78,7 +80,6 @@ export enum CustomPlanStatus {
   REJECTED = 'rejected',
   ACTIVE = 'active',
   EXPIRED = 'expired',
-  CANCELLED = 'cancelled',
 }
 
 // ============================================================================
@@ -592,13 +593,7 @@ export interface CustomPlanFilter {
   limit?: number;
 }
 
-export interface PaginatedCustomPlans {
-  items: CustomPlan[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
+export type PaginatedCustomPlans = PaginatedResult<CustomPlan>;
 
 export interface CreateCustomPlanDto {
   tenantId: string;

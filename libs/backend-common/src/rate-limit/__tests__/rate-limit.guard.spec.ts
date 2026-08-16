@@ -1,8 +1,10 @@
 import { ExecutionContext, HttpException, ServiceUnavailableException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { ExecutionContextHost } from '@nestjs/core/helpers/execution-context-host';
 
 import { InMemoryRateLimitStore } from '../in-memory-rate-limit.store';
+import { RateLimitEnforcementService } from '../rate-limit-enforcement.service';
 import { RateLimitGuard } from '../rate-limit.guard';
 import { RateLimitRouteConfig, RateLimitStore } from '../rate-limit.types';
 
@@ -28,11 +30,14 @@ const buildContext = (type: 'http' | 'graphql', args: unknown[]): ExecutionConte
 };
 
 describe('RateLimitGuard', () => {
-  const buildHttpContext = (options: {
-    ip?: string;
-    user?: { sub?: string; tenantId?: string };
-    body?: Record<string, unknown>;
-  } = {}): { context: ExecutionContext; setHeader: jest.Mock } => {
+  const enforcementServices: RateLimitEnforcementService[] = [];
+  const buildHttpContext = (
+    options: {
+      ip?: string;
+      user?: { sub?: string; tenantId?: string };
+      body?: Record<string, unknown>;
+    } = {},
+  ): { context: ExecutionContext; setHeader: jest.Mock } => {
     const setHeader = jest.fn();
     const request: MockRequest = {
       ip: options.ip ?? '203.0.113.1',
@@ -43,11 +48,13 @@ describe('RateLimitGuard', () => {
     return { context: buildContext('http', [request, request.res]), setHeader };
   };
 
-  const buildGqlContext = (options: {
-    ip?: string;
-    args?: Record<string, unknown>;
-    user?: { sub?: string };
-  } = {}): ExecutionContext => {
+  const buildGqlContext = (
+    options: {
+      ip?: string;
+      args?: Record<string, unknown>;
+      user?: { sub?: string };
+    } = {},
+  ): ExecutionContext => {
     const request: MockRequest = {
       ip: options.ip ?? '203.0.113.2',
       user: options.user,
@@ -66,11 +73,14 @@ describe('RateLimitGuard', () => {
     // getAllAndOverride; spying returns the per-test route config.
     const reflector = new Reflector();
     jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(config);
-    return new RateLimitGuard(reflector, store);
+    const enforcement = new RateLimitEnforcementService(new ConfigService(), store);
+    enforcementServices.push(enforcement);
+    return new RateLimitGuard(reflector, enforcement);
   };
 
   afterEach(() => {
     jest.restoreAllMocks();
+    enforcementServices.splice(0).forEach((service) => service.onModuleDestroy());
   });
 
   it('allows handlers without @RateLimit metadata (explicit-config mode)', async () => {
@@ -188,6 +198,19 @@ describe('RateLimitGuard', () => {
     await expect(guard.canActivate(context)).resolves.toBe(true);
     // Fallback still ENFORCES the window — degradation is not a bypass.
     await expect(guard.canActivate(context)).rejects.toThrow(HttpException);
+  });
+
+  it('fails CLOSED outside production when the route requires distributed state', async () => {
+    const guard = guardWith({
+      name: 'failed-auth',
+      limit: 5,
+      windowMs: 60_000,
+      requiresDistributedStore: true,
+    });
+
+    await expect(guard.canActivate(buildHttpContext().context)).rejects.toThrow(
+      ServiceUnavailableException,
+    );
   });
 
   it('expires windows over time (in-memory store)', async () => {

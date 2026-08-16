@@ -66,6 +66,8 @@ describe('useSiteList', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data?.items).toHaveLength(101);
+    expect(result.current.data).not.toHaveProperty('page');
+    expect(result.current.data).not.toHaveProperty('limit');
     expect(requestMock.mock.calls.map((call) => call[1].pagination.page)).toEqual([1, 2]);
     expect(requestMock.mock.calls[0][2].signal).toBe(requestMock.mock.calls[1][2].signal);
   });

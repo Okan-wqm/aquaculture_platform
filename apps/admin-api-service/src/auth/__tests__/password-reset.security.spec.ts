@@ -5,10 +5,14 @@
  * - DTO validation (email, password)
  * - Email enumeration prevention
  * - Auth-service delegation for reset-token/password state
- * - ThrottlePasswordReset decorator presence
+ * - Canonical distributed rate-limit metadata
  * - Public decorator presence (bypass auth for these endpoints)
  */
 import { INestApplication, ValidationPipe, HttpStatus } from '@nestjs/common';
+import {
+  RATE_LIMIT_CONFIG_KEY,
+  type RateLimitRouteConfig,
+} from '@aquaculture/backend-common/rate-limit';
 import { Test, TestingModule } from '@nestjs/testing';
 import { AUTH_PUBLIC_COMMAND_SUBJECTS } from '@platform/event-contracts';
 import { of, throwError } from 'rxjs';
@@ -57,9 +61,7 @@ describe('PasswordResetController Security', () => {
   beforeAll(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [PasswordResetController],
-      providers: [
-        { provide: 'AUTH_NATS_CLIENT', useValue: mockAuthNatsClient },
-      ],
+      providers: [{ provide: 'AUTH_NATS_CLIENT', useValue: mockAuthNatsClient }],
     }).compile();
 
     app = module.createNestApplication();
@@ -96,9 +98,7 @@ describe('PasswordResetController Security', () => {
     });
 
     it('should reject missing email', async () => {
-      const res = await request(httpServer())
-        .post('/auth/forgot-password')
-        .send({});
+      const res = await request(httpServer()).post('/auth/forgot-password').send({});
 
       expect(res.status).toBe(HttpStatus.BAD_REQUEST);
     });
@@ -145,7 +145,9 @@ describe('PasswordResetController Security', () => {
     });
 
     it('should return success even on internal error', async () => {
-      mockAuthNatsClient.send.mockReturnValueOnce(throwError(() => new Error('NATS connection failed')));
+      mockAuthNatsClient.send.mockReturnValueOnce(
+        throwError(() => new Error('NATS connection failed')),
+      );
 
       const res = await request(httpServer())
         .post('/auth/forgot-password')
@@ -161,9 +163,7 @@ describe('PasswordResetController Security', () => {
   // ========================================================================
   describe('Token security', () => {
     it('should delegate forgot password to auth-service without local token storage', async () => {
-      await request(httpServer())
-        .post('/auth/forgot-password')
-        .send({ email: 'Test@Test.COM' });
+      await request(httpServer()).post('/auth/forgot-password').send({ email: 'Test@Test.COM' });
 
       expect(mockAuthNatsClient.send).toHaveBeenCalledWith(
         AUTH_PUBLIC_COMMAND_SUBJECTS.REQUEST_PASSWORD_RESET,
@@ -172,9 +172,7 @@ describe('PasswordResetController Security', () => {
     });
 
     it('should not send raw reset URL material from admin-api', async () => {
-      await request(httpServer())
-        .post('/auth/forgot-password')
-        .send({ email: 'test@test.com' });
+      await request(httpServer()).post('/auth/forgot-password').send({ email: 'test@test.com' });
 
       const command = authCommandAt(0);
 
@@ -244,10 +242,12 @@ describe('PasswordResetController Security', () => {
   // ========================================================================
   describe('Reset password token verification', () => {
     it('should reject invalid/expired token', async () => {
-      mockAuthNatsClient.send.mockReturnValueOnce(of({
-        success: false,
-        errorCode: 'INVALID_OR_EXPIRED_TOKEN',
-      }));
+      mockAuthNatsClient.send.mockReturnValueOnce(
+        of({
+          success: false,
+          errorCode: 'INVALID_OR_EXPIRED_TOKEN',
+        }),
+      );
 
       const res = await request(httpServer())
         .post('/auth/reset-password')
@@ -291,5 +291,23 @@ describe('PasswordResetController Security', () => {
 
       expect(mockAuthNatsClient.send).not.toHaveBeenCalled();
     });
+  });
+
+  describe('distributed rate-limit contract', () => {
+    it.each(['forgotPassword', 'resetPassword'] as const)(
+      '%s carries the canonical fail-closed password-reset policy',
+      (method) => {
+        const metadata = Reflect.getMetadata(
+          RATE_LIMIT_CONFIG_KEY,
+          PasswordResetController.prototype[method],
+        ) as RateLimitRouteConfig | undefined;
+        expect(metadata).toMatchObject({
+          name: 'admin-password-reset',
+          limit: 3,
+          windowMs: 3_600_000,
+          requiresDistributedStore: true,
+        });
+      },
+    );
   });
 });

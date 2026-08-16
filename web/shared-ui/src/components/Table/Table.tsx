@@ -15,7 +15,7 @@ export interface TableProps<T extends object = Record<string, unknown>> {
   /** Tablo kolonları */
   columns: TableColumn<T>[];
   /** Tablo verileri */
-  data: T[];
+  data: readonly T[];
   /** Satır anahtarı alanı (rowKey ile aynı) */
   keyExtractor?: (row: T) => string;
   /** Satır anahtarı alanı */

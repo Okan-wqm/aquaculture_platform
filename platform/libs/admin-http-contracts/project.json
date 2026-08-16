@@ -1,0 +1,29 @@
+{
+  "name": "admin-http-contracts",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "platform/libs/admin-http-contracts/src",
+  "projectType": "library",
+  "tags": ["scope:platform", "type:lib"],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "outputs": [],
+      "options": {
+        "command": "npx tsc -p platform/libs/admin-http-contracts/tsconfig.lib.json --noEmit"
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/platform/libs/admin-http-contracts"],
+      "options": {
+        "jestConfig": "platform/libs/admin-http-contracts/jest.config.ts"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "options": {
+        "lintFilePatterns": ["platform/libs/admin-http-contracts/src/**/*.ts"]
+      }
+    }
+  }
+}

@@ -2,6 +2,8 @@
  * Scheduling Types for Workforce Planning
  */
 
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
+
 export type WeekDay = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
 
 export type WeeklyPlanStatus = 'draft' | 'published';
@@ -74,15 +76,7 @@ export interface WeeklyPlanEntry {
   notes?: string;
 }
 
-export interface WeeklyPlanConnection {
-  items: WeeklyPlan[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-  hasNextPage: boolean;
-  hasPreviousPage: boolean;
-}
+export type WeeklyPlanConnection = PaginationResultV1<WeeklyPlan>;
 
 export interface DayEntry {
   dayOfWeek: WeekDay;

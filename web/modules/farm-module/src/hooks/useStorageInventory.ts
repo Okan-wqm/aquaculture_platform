@@ -2,6 +2,7 @@
  * Storage Inventory & Stock Movements hooks for farm-module
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 
 // Types
@@ -138,13 +139,10 @@ export interface TransferStockInput {
   reason?: string;
 }
 
-interface PaginatedMovementsResponse {
-  items: StockMovement[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
+type StockMovementsPage = Pick<
+  PaginationResultV1<StockMovement>,
+  'items' | 'total' | 'page' | 'limit' | 'totalPages'
+>;
 
 // Queries
 const STORAGE_INVENTORY_QUERY = `
@@ -338,7 +336,7 @@ export function useStockMovements(filter?: {
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'stockMovements', 'list', filter),
     queryFn: async () => {
-      const data = await graphqlClient.request<{ stockMovements: PaginatedMovementsResponse }>(
+      const data = await graphqlClient.request<{ stockMovements: StockMovementsPage }>(
         STOCK_MOVEMENTS_QUERY,
         { filter, pagination: { page: 1, limit: 100 } }
       );

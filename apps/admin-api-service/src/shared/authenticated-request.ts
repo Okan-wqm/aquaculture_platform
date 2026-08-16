@@ -15,6 +15,14 @@ import { Request } from 'express';
 export interface AuthenticatedUser extends JwtUser {
   /** admin-api-local alias for the JWT subject (`sub`). */
   id: string;
+  /** Canonical effective authorization roles established by PlatformAdminGuard. */
+  roles: string[];
+  /** Verified JWT identifier required by the revocation fence. */
+  jti: string;
+  /** Verified JWT issued-at epoch seconds used by revocation and step-up age. */
+  iat: number;
+  /** Normalized MFA claim; false when the verified token did not assert MFA. */
+  mfaVerified: boolean;
   /** display name (falls back to email). */
   name?: string;
 }
@@ -58,4 +66,13 @@ export function getAuthUserEmail(req: Request): string | undefined {
 export function getAuthUserName(req: Request): string | undefined {
   const user = (req as AuthenticatedRequest).user;
   return user?.name || user?.email;
+}
+
+/**
+ * Stable, non-null label for audit/display fields that historically assumed
+ * every JWT carried email PII. Identity remains `id`; this label prefers
+ * optional presentation claims and falls back to that verified identifier.
+ */
+export function authenticatedActorLabel(user: AuthenticatedUser): string {
+  return user.name ?? user.email ?? user.id;
 }

@@ -18,27 +18,21 @@ import {
 } from '@nestjs/graphql';
 import { Logger, UseInterceptors } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
-import { Tenant, CurrentUser, CurrentUserPayload, Roles, Role } from '@aquaculture/backend-common/decorators';
 import {
-  IsBoolean,
-  IsDate,
-  IsInt,
-  IsOptional,
-  IsString,
-  IsUUID,
-  MaxLength,
-  Min,
-} from 'class-validator';
+  Tenant,
+  CurrentUser,
+  CurrentUserPayload,
+  Roles,
+  Role,
+} from '@aquaculture/backend-common/decorators';
+import { IsDate, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
 
 import { RetentionPolicy } from '../entities/retention-policy.entity';
 import { LegalHold } from '../entities/legal-hold.entity';
-import {
-  ComplianceAuditLog,
-  ComplianceAction,
-} from '../entities/compliance-audit-log.entity';
+import { ComplianceAuditLog, ComplianceAction } from '../entities/compliance-audit-log.entity';
 
 import { SetRetentionPolicyCommand } from '../commands/set-retention-policy.command';
-import { ToggleLegalHoldCommand } from '../commands/toggle-legal-hold.command';
+import { ActivateLegalHoldCommand } from '../commands/activate-legal-hold.command';
 import { GetAuditLogQuery } from '../queries/get-audit-log.query';
 import { GetRetentionPoliciesQuery } from '../queries/get-retention-policies.query';
 
@@ -120,7 +114,10 @@ registerEnumType(GqlExportFormat, { name: 'ExportFormat' });
 
 @InputType()
 export class SetRetentionPolicyInput {
-  @Field(() => String, { nullable: true, description: 'Channel ID for channel-level override. Null = tenant default.' })
+  @Field(() => String, {
+    nullable: true,
+    description: 'Channel ID for channel-level override. Null = tenant default.',
+  })
   @IsOptional()
   @IsUUID('4')
   channelId!: string | null;
@@ -132,31 +129,20 @@ export class SetRetentionPolicyInput {
 }
 
 @InputType()
-export class ToggleLegalHoldInput {
-  @Field({ description: 'True to activate, false to release.' })
-  @IsBoolean()
-  activate!: boolean;
-
-  @Field(() => String, { nullable: true, description: 'Required when releasing. The hold ID.' })
-  @IsOptional()
-  @IsUUID('4')
-  holdId!: string | null;
-
-  @Field(() => String, { nullable: true, description: 'Required when activating. Null = tenant-wide.' })
+export class ActivateLegalHoldInput {
+  @Field(() => String, { nullable: true, description: 'Null = tenant-wide.' })
   @IsOptional()
   @IsUUID('4')
   channelId!: string | null;
 
-  @Field(() => String, { nullable: true, description: 'Required when activating. Reason for the hold.' })
-  @IsOptional()
+  @Field(() => String, { description: 'Reason for the hold.' })
   @IsString()
   @MaxLength(1000)
-  reason!: string | null;
+  reason!: string;
 
-  @Field(() => String, { nullable: true, description: 'Required when activating. UUID of the legal matter (GDPR proportionality).' })
-  @IsOptional()
+  @Field(() => String, { description: 'UUID of the legal matter (GDPR proportionality).' })
   @IsUUID('4')
-  legalMatterId!: string | null;
+  legalMatterId!: string;
 
   @Field(() => String, { nullable: true, description: 'Optional description of the legal matter.' })
   @IsOptional()
@@ -164,36 +150,21 @@ export class ToggleLegalHoldInput {
   @MaxLength(1000)
   legalMatterDescription!: string | null;
 
-  @Field(() => String, { nullable: true, description: 'Optional UUID of the user/entity that requested the hold.' })
+  @Field(() => String, {
+    nullable: true,
+    description: 'Optional UUID of the user/entity that requested the hold.',
+  })
   @IsOptional()
   @IsUUID('4')
   requestedBy!: string | null;
 
-  @Field(() => Date, { nullable: true, description: 'Optional expiration date for the hold (GDPR proportionality).' })
+  @Field(() => Date, {
+    nullable: true,
+    description: 'Optional expiration date for the hold (GDPR proportionality).',
+  })
   @IsOptional()
   @IsDate()
   expiresAt!: Date | null;
-
-  /**
-   * Required when releasing — dual-approver protocol per LEGAL-MEDIUM-002.
-   * The id of a SECOND SUPER_ADMIN that countersigned the request. MUST
-   * differ from the authenticated caller. Pre-cure single-identity
-   * release was the audit gap.
-   */
-  @Field(() => String, { nullable: true, description: 'Required when releasing. ID of the second SUPER_ADMIN countersigning (dual-approver protocol).' })
-  @IsOptional()
-  @IsUUID('4')
-  approverId!: string | null;
-
-  /**
-   * Required when releasing — ≥ 50 chars per spec. Recorded on the
-   * row's `releaseReason` column for audit.
-   */
-  @Field(() => String, { nullable: true, description: 'Required when releasing. Free-text justification (≥ 50 chars).' })
-  @IsOptional()
-  @IsString()
-  @MaxLength(1000)
-  releaseReason!: string | null;
 }
 
 @InputType()
@@ -266,27 +237,19 @@ export class ComplianceResolver {
 
   @Query(() => [RetentionPolicy], { description: 'All retention policies for current tenant.' })
   @Roles(Role.TENANT_ADMIN)
-  async retentionPolicies(
-    @Tenant() tenantId: string,
-  ): Promise<RetentionPolicy[]> {
-    return this.queryBus.execute(
-      new GetRetentionPoliciesQuery(tenantId),
-    );
+  async retentionPolicies(@Tenant() tenantId: string): Promise<RetentionPolicy[]> {
+    return this.queryBus.execute(new GetRetentionPoliciesQuery(tenantId));
   }
 
   @Query(() => [LegalHold], { description: 'All legal holds for current tenant.' })
   @Roles(Role.TENANT_ADMIN)
-  async legalHolds(
-    @Tenant() tenantId: string,
-  ): Promise<LegalHold[]> {
+  async legalHolds(@Tenant() tenantId: string): Promise<LegalHold[]> {
     return this.legalHoldService.getHolds(tenantId);
   }
 
   @Query(() => ComplianceStats, { description: 'Compliance statistics.' })
   @Roles(Role.TENANT_ADMIN)
-  async complianceStats(
-    @Tenant() tenantId: string,
-  ): Promise<ComplianceStats> {
+  async complianceStats(@Tenant() tenantId: string): Promise<ComplianceStats> {
     const activeHolds = await this.legalHoldService.getActiveHolds(tenantId);
     const policies = await this.queryBus.execute<GetRetentionPoliciesQuery, RetentionPolicy[]>(
       new GetRetentionPoliciesQuery(tenantId),
@@ -310,36 +273,29 @@ export class ComplianceResolver {
     @Args('input') input: SetRetentionPolicyInput,
   ): Promise<RetentionPolicy> {
     return this.commandBus.execute(
-      new SetRetentionPolicyCommand(
-        tenantId,
-        user.sub,
-        input.channelId,
-        input.retentionDays,
-      ),
+      new SetRetentionPolicyCommand(tenantId, user.sub, input.channelId, input.retentionDays),
     );
   }
 
-  @Mutation(() => LegalHold, { description: 'Activate or release a legal hold.' })
+  @Mutation(() => LegalHold, {
+    description: 'Activate a legal hold. Release requires the platform-admin two-person workflow.',
+  })
   @Roles(Role.TENANT_ADMIN)
-  async toggleLegalHold(
+  async activateLegalHold(
     @Tenant() tenantId: string,
     @CurrentUser() user: CurrentUserPayload,
-    @Args('input') input: ToggleLegalHoldInput,
+    @Args('input') input: ActivateLegalHoldInput,
   ): Promise<LegalHold> {
     return this.commandBus.execute(
-      new ToggleLegalHoldCommand(
+      new ActivateLegalHoldCommand(
         tenantId,
         user.sub,
-        input.activate,
-        input.holdId,
         input.channelId,
         input.reason,
         input.legalMatterId,
         input.legalMatterDescription,
         input.requestedBy,
         input.expiresAt,
-        input.approverId,
-        input.releaseReason,
       ),
     );
   }

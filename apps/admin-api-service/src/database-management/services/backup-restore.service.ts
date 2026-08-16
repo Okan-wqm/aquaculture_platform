@@ -13,6 +13,10 @@ import { promisify } from 'util';
 
 import { isValidSchemaName } from '@aquaculture/backend-common/database';
 import {
+  createStandardPaginatedResult,
+  type IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
+import {
   BadRequestException,
   Injectable,
   InternalServerErrorException,
@@ -344,12 +348,7 @@ export class BackupRestoreService {
     limit?: number;
     status?: BackupStatus;
     backupType?: BackupType;
-  }): Promise<{
-    data: SchemaBackup[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  }): Promise<IStandardPaginatedResult<SchemaBackup>> {
     const { page = 1, limit = 20, status, backupType } = options;
 
     const where: Record<string, unknown> = {};
@@ -363,7 +362,7 @@ export class BackupRestoreService {
       take: limit,
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**
@@ -546,10 +545,7 @@ export class BackupRestoreService {
       });
     });
 
-    await Promise.all([
-      pipeline(pgDump.stdout, cipher, output),
-      exitPromise,
-    ]);
+    await Promise.all([pipeline(pgDump.stdout, cipher, output), exitPromise]);
     await fs.promises.appendFile(encryptedPath, cipher.getAuthTag(), { mode: 0o600 });
   }
 
@@ -704,11 +700,13 @@ export class BackupRestoreService {
   }
 
   private async cleanupExpiredRetiredBackups(now: Date): Promise<void> {
-    const expiredRetiredBackups = (await this.retiredBackupRepository.find({
-      where: {
-        expiresAt: LessThan(now),
-      },
-    })).filter((backup) => backup.status !== 'expired');
+    const expiredRetiredBackups = (
+      await this.retiredBackupRepository.find({
+        where: {
+          expiresAt: LessThan(now),
+        },
+      })
+    ).filter((backup) => backup.status !== 'expired');
 
     for (const backup of expiredRetiredBackups) {
       try {

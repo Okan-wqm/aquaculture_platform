@@ -3,6 +3,7 @@
  * Handles CRUD operations for feeds via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 
 // Enums
@@ -225,13 +226,10 @@ export interface UpdateFeedInput extends Partial<CreateFeedInput> {
   isActive?: boolean;
 }
 
-interface PaginatedResponse {
-  items: Feed[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
+type FeedsPage = Pick<
+  PaginationResultV1<Feed>,
+  'items' | 'total' | 'page' | 'limit' | 'totalPages'
+>;
 
 // GraphQL queries
 const FEEDS_LIST_QUERY = `
@@ -486,7 +484,7 @@ export function useFeedList(filter?: {
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'feeds', 'list', tenantId, filter),
     queryFn: async () => {
-      const data = await graphqlClient.request<{ feeds: PaginatedResponse }>(
+      const data = await graphqlClient.request<{ feeds: FeedsPage }>(
         FEEDS_LIST_QUERY,
         { filter, pagination: { page: 1, limit: 100 } }
       );

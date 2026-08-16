@@ -70,6 +70,10 @@ export interface VerifiedServiceIdentity {
 
 export interface JwtUser {
   sub: string;
+  /** Verified JWT id used by revocation/audit boundaries. */
+  jti?: string;
+  /** Verified JWT issued-at epoch seconds; also anchors recent MFA step-up age. */
+  iat?: number;
   tenantId?: string;
   roles?: string[];
   /** @deprecated Use `roles` array instead */

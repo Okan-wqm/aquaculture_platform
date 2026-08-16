@@ -22,16 +22,29 @@ export {
   VALIDATION_PATTERNS,
 } from './validation-patterns';
 export {
+  APPEND_ONLY_TABLES,
   COMPLIANCE_WAIVER_MARKER_RE,
+  LIFECYCLE_MUTATED_TABLES,
+  PROTECTED_TABLE_POLICIES,
   PROTECTED_SCHEMAS,
   PROTECTED_TABLE_PATTERNS,
   PROTECTED_TABLES,
+  ROW_DELETE_POLICY,
+  ROW_MUTATION_POLICY,
+  appendOnlyTableBaseNames,
   isExplicitlyProtectedTable,
   isProtectedSchema,
   isProtectedTable,
   matchesProtectedTablePattern,
+  protectedTableName,
+  rowGuardTablePoliciesForSchema,
 } from './protected-tables';
 export type {
+  AppendOnlyTable,
+  LifecycleMutatedTable,
   ProtectedSchema,
   ProtectedTable,
+  ProtectedTablePolicy,
+  RowDeletePolicy,
+  RowMutationPolicy,
 } from './protected-tables';

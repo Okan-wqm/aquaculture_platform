@@ -33,10 +33,14 @@ import {
   type TenantErasureBlockedEventType,
   type TenantErasureOutcomeEventType,
 } from '../tenant-erasure-targets';
+import { TENANT_ONBOARDING_WORKFLOW_V1 } from '../tenant-onboarding-workflow';
 
 export type TenantEventType =
   | 'TenantCreated'
   | 'TenantProvisioningRequested'
+  | 'TenantOnboardingRequested'
+  | 'TenantOnboardingAck'
+  | 'TenantOnboardingFailed'
   | 'TenantProvisioned'
   | 'TenantUpdated'
   | 'TenantStatusChanged'
@@ -89,6 +93,21 @@ const SHORT_CODE_ARRAY = {
 const NON_NEGATIVE_INT = {
   type: 'integer',
   minimum: 0,
+} as const;
+
+const POSITIVE_INT = {
+  type: 'integer',
+  minimum: 1,
+} as const;
+
+const SHA256_HEX = {
+  type: 'string',
+  pattern: '^[0-9a-f]{64}$',
+} as const;
+
+const TENANT_ONBOARDING_OWNER = {
+  type: 'string',
+  enum: [...TENANT_ONBOARDING_WORKFLOW_V1.ownerServices],
 } as const;
 
 const BOOLEAN = {
@@ -205,6 +224,66 @@ export const TENANT_EVENT_SCHEMAS = {
     'TenantProvisioningRequested',
     { operationId: UUID_SCHEMA, name: LONG_STRING, slug: STRING, moduleIds: UUID_ARRAY },
     ['operationId', 'name', 'slug', 'moduleIds'],
+  ),
+  TenantOnboardingRequested: tenantEventSchema(
+    'TenantOnboardingRequested',
+    {
+      operationId: UUID_SCHEMA,
+      attempt: POSITIVE_INT,
+      requestHash: SHA256_HEX,
+      name: LONG_STRING,
+      slug: STRING,
+      moduleIds: UUID_ARRAY,
+    },
+    ['operationId', 'attempt', 'requestHash', 'name', 'slug', 'moduleIds'],
+  ),
+  TenantOnboardingAck: tenantEventSchema(
+    'TenantOnboardingAck',
+    {
+      operationId: UUID_SCHEMA,
+      attempt: POSITIVE_INT,
+      requestEventId: UUID_SCHEMA,
+      requestHash: SHA256_HEX,
+      receiptId: UUID_SCHEMA,
+      outcomeHash: SHA256_HEX,
+      service: TENANT_ONBOARDING_OWNER,
+      acknowledgedAt: ISO_DATE_TIME,
+    },
+    [
+      'operationId',
+      'attempt',
+      'requestEventId',
+      'requestHash',
+      'receiptId',
+      'outcomeHash',
+      'service',
+      'acknowledgedAt',
+    ],
+  ),
+  TenantOnboardingFailed: tenantEventSchema(
+    'TenantOnboardingFailed',
+    {
+      operationId: UUID_SCHEMA,
+      attempt: POSITIVE_INT,
+      requestEventId: UUID_SCHEMA,
+      requestHash: SHA256_HEX,
+      receiptId: UUID_SCHEMA,
+      outcomeHash: SHA256_HEX,
+      service: TENANT_ONBOARDING_OWNER,
+      acknowledgedAt: ISO_DATE_TIME,
+      error: LONG_STRING,
+    },
+    [
+      'operationId',
+      'attempt',
+      'requestEventId',
+      'requestHash',
+      'receiptId',
+      'outcomeHash',
+      'service',
+      'acknowledgedAt',
+      'error',
+    ],
   ),
   TenantProvisioned: tenantEventSchema(
     'TenantProvisioned',

@@ -4,11 +4,19 @@
  * Super admin - tenant admin mesajlaşma sistemi.
  */
 
+import {
+  createStandardPaginatedResult,
+  type IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, IsNull, Not } from 'typeorm';
 
-import { TenantReadOnly, TenantStatus, TenantPlan } from '../../analytics/entities/external/tenant.entity';
+import {
+  TenantReadOnly,
+  TenantStatus,
+  TenantPlan,
+} from '../../analytics/entities/external/tenant.entity';
 import {
   MessageThread,
   Message,
@@ -109,12 +117,7 @@ export class MessagingService {
     limit?: number;
     status?: 'open' | 'closed' | 'all';
     hasUnread?: boolean;
-  }): Promise<{
-    data: ThreadSummary[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  }): Promise<IStandardPaginatedResult<ThreadSummary>> {
     const { page = 1, limit = 20, status = 'all', hasUnread } = options;
 
     const where: Record<string, unknown> = {
@@ -133,7 +136,7 @@ export class MessagingService {
     });
 
     // OPTIMIZED: Get last message for all threads in a single query using DISTINCT ON
-    const threadIds = threads.map(t => t.id);
+    const threadIds = threads.map((t) => t.id);
     const lastMessagesMap = new Map<string, Message>();
 
     if (threadIds.length > 0) {
@@ -168,7 +171,7 @@ export class MessagingService {
       };
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**
@@ -291,16 +294,11 @@ export class MessagingService {
   /**
    * Mark messages as read
    */
-  async markMessagesAsRead(
-    threadId: string,
-    readerType: 'admin' | 'tenant',
-  ): Promise<void> {
+  async markMessagesAsRead(threadId: string, readerType: 'admin' | 'tenant'): Promise<void> {
     const thread = await this.getThread(threadId);
 
     // Update message statuses
-    const senderTypes = readerType === 'admin'
-      ? ['tenant_admin']
-      : ['admin', 'system'];
+    const senderTypes = readerType === 'admin' ? ['tenant_admin'] : ['admin', 'system'];
 
     await this.messageRepository.update(
       {
@@ -375,9 +373,7 @@ export class MessagingService {
    */
   async getTargetTenants(criteria: AnnouncementTarget): Promise<string[]> {
     // Build query based on criteria
-    const queryBuilder = this.tenantRepository
-      .createQueryBuilder('tenant')
-      .select('tenant.id');
+    const queryBuilder = this.tenantRepository.createQueryBuilder('tenant').select('tenant.id');
 
     // Filter by specific tenant IDs if provided
     if (criteria.tenantIds?.length) {
@@ -386,7 +382,9 @@ export class MessagingService {
 
     // Exclude specific tenant IDs
     if (criteria.excludeTenantIds?.length) {
-      queryBuilder.andWhere('tenant.id NOT IN (:...excludeIds)', { excludeIds: criteria.excludeTenantIds });
+      queryBuilder.andWhere('tenant.id NOT IN (:...excludeIds)', {
+        excludeIds: criteria.excludeTenantIds,
+      });
     }
 
     // Filter by plans
@@ -405,7 +403,7 @@ export class MessagingService {
     }
 
     const tenants = await queryBuilder.getRawMany();
-    return tenants.map(t => t.tenant_id);
+    return tenants.map((t) => t.tenant_id);
   }
 
   // ============================================================================
@@ -428,8 +426,8 @@ export class MessagingService {
       this.messageRepository.count(),
     ]);
 
-    const activeThreads = threads.filter(t => !t.isClosed).length;
-    const closedThreads = threads.filter(t => t.isClosed).length;
+    const activeThreads = threads.filter((t) => !t.isClosed).length;
+    const closedThreads = threads.filter((t) => t.isClosed).length;
     const unreadMessages = threads.reduce((sum, t) => sum + t.unreadAdminCount, 0);
 
     // Calculate average response time from actual message data
@@ -456,7 +454,7 @@ export class MessagingService {
       .innerJoin(
         Message,
         'prev',
-        'prev.threadId = msg.threadId AND prev.createdAt < msg.createdAt AND prev.senderType != msg.senderType'
+        'prev.threadId = msg.threadId AND prev.createdAt < msg.createdAt AND prev.senderType != msg.senderType',
       )
       .where('msg.senderType = :adminType', { adminType: 'admin' })
       .getRawOne();

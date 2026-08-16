@@ -1,11 +1,8 @@
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  Index,
-} from 'typeorm';
+import { Check, Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
 import { ObjectType, Field, ID } from '@nestjs/graphql';
+
+export const LEGAL_HOLD_REVIEW_DEADLINE_DB_COMMENT =
+  'Review deadline only; isActive remains authoritative until an explicit two-person release.';
 
 /**
  * Legal hold entity — prevents deletion/anonymisation of messages within scope.
@@ -20,8 +17,33 @@ import { ObjectType, Field, ID } from '@nestjs/graphql';
  */
 @ObjectType()
 @Entity('legal_holds')
+@Index('uq_legal_hold_id_tenant', ['id', 'tenantId'], { unique: true })
 @Index('idx_legal_hold_tenant_active', ['tenantId', 'isActive'])
 @Index('idx_legal_hold_channel', ['channelId'], { where: '"isActive" = true' })
+@Check(
+  'chk_legal_hold_no_self_approval',
+  '"releasedByApprover" IS NULL OR "releasedByApprover" <> "releasedBy"',
+)
+@Check(
+  'chk_legal_hold_release_reason',
+  '"releaseReason" IS NULL OR char_length(btrim("releaseReason")) >= 50',
+)
+@Check(
+  'chk_legal_hold_release_state',
+  `(
+    "isActive" = true
+    AND "releasedBy" IS NULL
+    AND "releasedByApprover" IS NULL
+    AND "releaseReason" IS NULL
+    AND "releasedAt" IS NULL
+  ) OR (
+    "isActive" = false
+    AND "releasedBy" IS NOT NULL
+    AND "releasedByApprover" IS NOT NULL
+    AND "releaseReason" IS NOT NULL
+    AND "releasedAt" IS NOT NULL
+  )`,
+)
 export class LegalHold {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
@@ -91,10 +113,10 @@ export class LegalHold {
   releasedByApprover!: string | null;
 
   /**
-   * Free-text justification recorded at release time. Required to be
-   * ≥ 50 chars by the service layer; column is nullable for backward
-   * compatibility with rows released before the dual-approver protocol
-   * landed (LEGAL-MEDIUM-002).
+   * Free-text justification recorded at release time. The database requires
+   * at least 50 characters on every new or updated release. The nullable
+   * column keeps pre-protocol history readable while the release-state CHECK
+   * prevents a newly active hold from carrying forged release evidence.
    */
   @Field(() => String, { nullable: true })
   @Column({ type: 'text', nullable: true })
@@ -105,12 +127,20 @@ export class LegalHold {
   releasedAt!: Date | null;
 
   /**
-   * Optional expiration date for the hold. After this date, the hold should
-   * be reviewed and either renewed or released. Prevents indefinite blanket
-   * holds that violate GDPR proportionality.
+   * Optional review deadline for the hold. Crossing this timestamp never
+   * releases or weakens the hold: isActive remains authoritative until the
+   * explicit two-person release operation commits. The deadline only makes
+   * overdue legal review observable.
    */
-  @Field(() => Date, { nullable: true })
-  @Column({ type: 'timestamptz', nullable: true })
+  @Field(() => Date, {
+    nullable: true,
+    description: LEGAL_HOLD_REVIEW_DEADLINE_DB_COMMENT,
+  })
+  @Column({
+    type: 'timestamptz',
+    nullable: true,
+    comment: LEGAL_HOLD_REVIEW_DEADLINE_DB_COMMENT,
+  })
   expiresAt!: Date | null;
 
   @Field()

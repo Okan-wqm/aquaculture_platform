@@ -121,20 +121,47 @@ export interface MaintenanceWindow {
   id: string;
   title: string;
   description: string;
-  scope: 'global' | 'tenant' | 'service';
-  type: 'scheduled' | 'emergency' | 'rolling';
+  scope: 'global' | 'tenant' | 'service' | 'region';
+  type: 'scheduled' | 'emergency' | 'rolling_update' | 'database_migration' | 'security_patch';
   status: MaintenanceStatus;
   tenantId?: string;
-  affectedServices?: Array<{ name: string; status: string }>;
+  affectedTenants?: string[];
+  affectedServices?: Array<{
+    name: string;
+    status: 'unavailable' | 'degraded' | 'read_only';
+    message?: string;
+  }>;
+  affectedRegions?: string[];
   scheduledStart: string;
   scheduledEnd?: string;
   actualStart?: string;
   actualEnd?: string;
+  estimatedDurationMinutes: number;
   userMessage?: string;
+  internalNotes?: string;
   allowReadOnlyAccess: boolean;
   bypassForSuperAdmins: boolean;
-  createdBy: string;
+  createdBy?: string;
   createdAt: string;
+  updatedAt: string;
+}
+
+/** Exact JSON body accepted by CreateMaintenanceDto. */
+export interface CreateMaintenanceWindowInput {
+  title: string;
+  description: string;
+  scope?: MaintenanceWindow['scope'];
+  type?: MaintenanceWindow['type'];
+  tenantId?: string;
+  affectedTenants?: string[];
+  affectedServices?: MaintenanceWindow['affectedServices'];
+  scheduledStart: string;
+  scheduledEnd?: string;
+  estimatedDurationMinutes?: number;
+  userMessage?: string;
+  allowReadOnlyAccess?: boolean;
+  bypassForSuperAdmins?: boolean;
+  whitelistedIPs?: string[];
 }
 
 export interface PerformanceMetrics {
@@ -232,4 +259,15 @@ export interface JobQueue {
   activeCount: number;
   completedCount: number;
   failedCount: number;
+}
+
+export interface JobDashboard {
+  totalJobs: number;
+  pendingJobs: number;
+  runningJobs: number;
+  completedToday: number;
+  failedToday: number;
+  avgDuration: number;
+  queues: readonly JobQueue[];
+  recentJobs: readonly BackgroundJob[];
 }

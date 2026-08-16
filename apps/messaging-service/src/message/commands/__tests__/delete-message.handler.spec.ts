@@ -1,30 +1,25 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 import { Message } from '../../entities/message.entity';
 import { ChannelMemberRole } from '../../../channel/entities/channel-member.entity';
-import { LegalHoldService } from '../../../compliance/services/legal-hold.service';
+import { LegalHoldDestructiveMutationAuthority } from '../../../compliance/services/legal-hold-destructive-mutation.authority';
 import { DeleteMessageHandler } from '../delete-message.handler';
 import { DeleteMessageCommand } from '../delete-message.command';
 import {
   createMockMessage,
-  createMockRepository,
   createMockQueryRunner,
   createMockDataSource,
   fakeUuid,
   resetUuidCounter,
-  MockRepository,
   MockQueryRunner,
 } from '../../../__tests__/test-helpers';
 
 describe('DeleteMessageHandler', () => {
   let handler: DeleteMessageHandler;
-  let messageRepo: MockRepository<Message>;
   let queryRunner: MockQueryRunner;
   let mockDataSource: ReturnType<typeof createMockDataSource>;
-  let legalHoldService: { isUnderLegalHold: jest.Mock };
   let outboxPublisher: { enqueue: jest.Mock };
 
   const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -36,18 +31,15 @@ describe('DeleteMessageHandler', () => {
   beforeEach(async () => {
     resetUuidCounter();
 
-    messageRepo = createMockRepository<Message>();
     queryRunner = createMockQueryRunner();
     mockDataSource = createMockDataSource(queryRunner);
-    legalHoldService = { isUnderLegalHold: jest.fn().mockResolvedValue(false) };
     outboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         DeleteMessageHandler,
+        LegalHoldDestructiveMutationAuthority,
         { provide: DataSource, useValue: mockDataSource },
-        { provide: getRepositoryToken(Message), useValue: messageRepo },
-        { provide: LegalHoldService, useValue: legalHoldService },
         { provide: OutboxPublisher, useValue: outboxPublisher },
       ],
     }).compile();
@@ -71,10 +63,9 @@ describe('DeleteMessageHandler', () => {
     const result = await handler.execute(cmd);
 
     expect(result).toBe(true);
-    expect(legalHoldService.isUnderLegalHold).toHaveBeenCalledWith(
-      tenantId,
-      channelId,
-      queryRunner.manager,
+    expect(queryRunner.query).toHaveBeenCalledWith(
+      expect.stringContaining('pg_advisory_xact_lock'),
+      expect.any(Array),
     );
     // Verify isDeleted set to true in the save call
     const saveCalls = queryRunner.manager.save.mock.calls.filter((c) => c[0] === Message);
@@ -124,7 +115,10 @@ describe('DeleteMessageHandler', () => {
   it('sets isDeleted=true, preserves content for compliance', async () => {
     const originalContent = 'Sensitive data here';
     const msg = createMockMessage({
-      id: messageId, channelId, senderId: actorId, content: originalContent,
+      id: messageId,
+      channelId,
+      senderId: actorId,
+      content: originalContent,
     });
     queryRunner.manager.findOne.mockResolvedValue(msg);
 

@@ -3,6 +3,7 @@
  * Handles CRUD operations for suppliers via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 
 // Enums - Values must be UPPERCASE to match GraphQL enum keys
@@ -121,13 +122,10 @@ export interface UpdateSupplierInput extends Partial<CreateSupplierInput> {
   isActive?: boolean;
 }
 
-interface PaginatedResponse {
-  items: Supplier[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
+type SuppliersPage = Pick<
+  PaginationResultV1<Supplier>,
+  'items' | 'total' | 'page' | 'limit' | 'totalPages'
+>;
 
 // GraphQL queries
 const SUPPLIERS_LIST_QUERY = `
@@ -251,7 +249,7 @@ export function useSupplierList(filter?: {
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'suppliers', 'list', filter),
     queryFn: async () => {
-      const data = await graphqlClient.request<{ suppliers: PaginatedResponse }>(
+      const data = await graphqlClient.request<{ suppliers: SuppliersPage }>(
         SUPPLIERS_LIST_QUERY,
         { filter, pagination: { page: 1, limit: 100 } }
       );

@@ -43,6 +43,7 @@ describe('ImpersonationService — session-duration cap (RBAC-MEDIUM-009)', () =
     findOne: jest.Mock;
     create: jest.Mock;
     save: jest.Mock;
+    manager: { transaction: jest.Mock };
   };
 
   beforeEach(async () => {
@@ -53,22 +54,56 @@ describe('ImpersonationService — session-duration cap (RBAC-MEDIUM-009)', () =
       findOne: jest.fn(),
       count: jest.fn().mockResolvedValue(0),
       // create passes the entity through; save echoes it back with the values set.
-      create: jest.fn((v: unknown) => v),
-      save: jest.fn((v: unknown) => Promise.resolve(v)),
+      create: jest.fn((value: Record<string, unknown>) => ({
+        id: 'session-created',
+        mfaCompleted: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        ...value,
+      })),
+      save: jest.fn((value: unknown) => Promise.resolve(value)),
     };
     permissionRepo = {
       find: jest.fn().mockResolvedValue([]),
       findOne: jest.fn().mockResolvedValue(null),
-      create: jest.fn((v: unknown) => v),
-      save: jest.fn((v: unknown) => Promise.resolve(v)),
+      create: jest.fn((value: Record<string, unknown>) => ({
+        id: 'permission-created',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        ...value,
+      })),
+      save: jest.fn((value: Record<string, unknown>) =>
+        Promise.resolve({
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          ...value,
+        }),
+      ),
+      manager: { transaction: jest.fn() },
     };
+    const transactionManager = {
+      withRepository: jest.fn((repository: unknown) => {
+        if (repository === sessionRepo) return sessionRepo;
+        if (repository === permissionRepo) return permissionRepo;
+        throw new Error('Unexpected repository outside the injected transaction authority');
+      }),
+    };
+    permissionRepo.manager.transaction.mockImplementation(
+      (work: (manager: typeof transactionManager) => Promise<unknown>) => work(transactionManager),
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ImpersonationService,
         { provide: getRepositoryToken(ImpersonationSession), useValue: sessionRepo },
         { provide: getRepositoryToken(ImpersonationPermission), useValue: permissionRepo },
-        { provide: AuditLogService, useValue: { log: jest.fn().mockResolvedValue(undefined) } },
+        {
+          provide: AuditLogService,
+          useValue: {
+            log: jest.fn().mockResolvedValue(undefined),
+            logRequired: jest.fn().mockResolvedValue({ id: 'audit-1' }),
+          },
+        },
       ],
     }).compile();
 
@@ -137,6 +172,7 @@ describe('ImpersonationService — session-duration cap (RBAC-MEDIUM-009)', () =
     sessionRepo.findOne.mockResolvedValue({
       id: 'session-1',
       superAdminId: ADMIN_ID,
+      targetTenantId: TENANT_ID,
       status: ImpersonationStatus.ACTIVE,
       createdAt,
       expiresAt,
@@ -146,12 +182,15 @@ describe('ImpersonationService — session-duration cap (RBAC-MEDIUM-009)', () =
       id: 'perm-legacy',
       superAdminId: ADMIN_ID,
       isActive: true,
+      canImpersonate: true,
+      allowedTenants: [TENANT_ID],
       maxSessionDurationMinutes: 1440, // stale over-cap grant
+      maxConcurrentSessions: 3,
     });
 
     // Session is already at the 60-min ceiling → ANY extension must be refused.
-    await expect(
-      service.extendSession('session-1', 30, ADMIN_ID),
-    ).rejects.toThrow(new RegExp(`${IMPERSONATION_MAX_SESSION_MINUTES}`));
+    await expect(service.extendSession('session-1', 30, ADMIN_ID)).rejects.toThrow(
+      new RegExp(`${IMPERSONATION_MAX_SESSION_MINUTES}`),
+    );
   });
 });

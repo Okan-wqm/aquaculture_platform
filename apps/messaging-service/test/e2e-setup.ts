@@ -38,13 +38,7 @@ import { DataSource } from 'typeorm';
 
 import { AppModule } from '../src/app.module';
 import { STORAGE_OBJECT_VERIFIER } from '../src/message/services/storage-object-verifier.port';
-import { Baseline1800000000000 } from '../src/migrations/1800000000000-Baseline';
-import { CreateMessagingOutboxTable1800200000000 } from '../src/migrations/1800200000000-CreateMessagingOutboxTable';
-import { AddUserAiConsentTenantUserUnique1800300000000 } from '../src/migrations/1800300000000-AddUserAiConsentTenantUserUnique';
-import { EnforceSourceOnlyMessagingOutboxContract1800400000000 } from '../src/migrations/1800400000000-EnforceSourceOnlyMessagingOutboxContract';
-import { EnsureMessagingPartitionContract1800500000000 } from '../src/migrations/1800500000000-EnsureMessagingPartitionContract';
-import { CreateMessageSendIdempotencyLedger1800600000000 } from '../src/migrations/1800600000000-CreateMessageSendIdempotencyLedger';
-import { AddMessagesEmbeddingColumn1800700000000 } from '../src/migrations/1800700000000-AddMessagesEmbeddingColumn';
+import { MESSAGING_MIGRATIONS } from '../src/migrations/manifest';
 import { PartitionManagerService } from '../src/partition/partition-manager.service';
 import { REDIS_CLIENT } from '../src/shared/redis.provider';
 
@@ -129,19 +123,7 @@ async function ensureMessagingSourceMigrationsApplied(): Promise<void> {
       synchronize: false,
       migrationsRun: false,
       logging: false,
-      migrations: [
-        Baseline1800000000000,
-        CreateMessagingOutboxTable1800200000000,
-        AddUserAiConsentTenantUserUnique1800300000000,
-        EnforceSourceOnlyMessagingOutboxContract1800400000000,
-        EnsureMessagingPartitionContract1800500000000,
-        CreateMessageSendIdempotencyLedger1800600000000,
-        // ORPHAN-MEDIUM-055: the embedding column was missing from the E2E
-        // migration path, so the embedding-backfill sweep logged
-        // `column m.embedding does not exist` every 5 min. Keeping the E2E
-        // source-schema migrations in lockstep with production fixes that.
-        AddMessagesEmbeddingColumn1800700000000,
-      ],
+      migrations: [...MESSAGING_MIGRATIONS],
     });
 
     await dataSource.initialize();

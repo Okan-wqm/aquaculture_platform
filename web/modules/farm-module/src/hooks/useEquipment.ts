@@ -3,6 +3,7 @@
  * Handles CRUD operations for equipment via GraphQL API
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 import {
   useAuth,
   graphqlClient,
@@ -117,12 +118,10 @@ export interface UpdateEquipmentInput extends Partial<CreateEquipmentInput> {
   id: string;
 }
 
-interface PaginatedResponse {
-  items: Equipment[];
-  total: number;
-  page: number;
-  limit: number;
-}
+type EquipmentPage = Pick<
+  PaginationResultV1<Equipment>,
+  'items' | 'total' | 'page' | 'limit'
+>;
 
 // GraphQL queries
 const EQUIPMENT_LIST_QUERY = `
@@ -356,7 +355,7 @@ export function useEquipmentList(filter?: {
   return useTenantQuery(
     ['equipment', 'list', filter],
     async () => {
-      const data = await graphqlClient.request<{ equipmentList: PaginatedResponse }>(
+      const data = await graphqlClient.request<{ equipmentList: EquipmentPage }>(
         EQUIPMENT_LIST_QUERY,
         { filter, pagination: { page: 1, limit: 100 } },
       );

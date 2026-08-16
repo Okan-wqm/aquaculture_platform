@@ -71,9 +71,7 @@ describe('DataExportService', () => {
       }),
       createMockMessage({ channelId, content: 'World', attachments: [] }),
     ];
-    mockQueryRunner.manager.find
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce(messages);
+    mockQueryRunner.manager.find.mockResolvedValueOnce([]).mockResolvedValueOnce(messages);
 
     const result = await service.exportChannel(tenantId, channelId, 'json', userId);
 
@@ -91,12 +89,8 @@ describe('DataExportService', () => {
   // Exports channel history as CSV
   // -----------------------------------------------------------------------
   it('exports channel history as CSV', async () => {
-    const messages = [
-      createMockMessage({ channelId, content: 'Hello', attachments: [] }),
-    ];
-    mockQueryRunner.manager.find
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce(messages);
+    const messages = [createMockMessage({ channelId, content: 'Hello', attachments: [] })];
+    mockQueryRunner.manager.find.mockResolvedValueOnce([]).mockResolvedValueOnce(messages);
 
     const result = await service.exportChannel(tenantId, channelId, 'csv', userId);
 
@@ -118,12 +112,8 @@ describe('DataExportService', () => {
       mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       fileSize: 2048,
     });
-    const messages = [
-      createMockMessage({ channelId, attachments: [attachment] }),
-    ];
-    mockQueryRunner.manager.find
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce(messages);
+    const messages = [createMockMessage({ channelId, attachments: [attachment] })];
+    mockQueryRunner.manager.find.mockResolvedValueOnce([]).mockResolvedValueOnce(messages);
 
     const result = await service.exportChannel(tenantId, channelId, 'json', userId);
     const parsed = JSON.parse(result.data) as Array<Record<string, unknown>>;
@@ -135,9 +125,7 @@ describe('DataExportService', () => {
   // Marks legal hold data appropriately
   // -----------------------------------------------------------------------
   it('marks messages with legal hold flag when channel is under hold', async () => {
-    const messages = [
-      createMockMessage({ channelId, content: 'Held message', attachments: [] }),
-    ];
+    const messages = [createMockMessage({ channelId, content: 'Held message', attachments: [] })];
     mockQueryRunner.manager.find
       .mockResolvedValueOnce([{ tenantId, channelId, isActive: true, expiresAt: null }])
       .mockResolvedValueOnce(messages);
@@ -149,13 +137,27 @@ describe('DataExportService', () => {
     expect(result.isUnderLegalHold).toBe(true);
   });
 
-  it('marks hasLegalHold=false when no hold is active', async () => {
-    const messages = [
-      createMockMessage({ channelId, content: 'Normal message', attachments: [] }),
-    ];
+  it('marks an active hold after its review deadline as enforced', async () => {
+    const messages = [createMockMessage({ channelId, attachments: [] })];
     mockQueryRunner.manager.find
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          tenantId,
+          channelId,
+          isActive: true,
+          expiresAt: new Date('2020-01-01T00:00:00.000Z'),
+        },
+      ])
       .mockResolvedValueOnce(messages);
+
+    const result = await service.exportChannel(tenantId, channelId, 'json', userId);
+
+    expect(result.isUnderLegalHold).toBe(true);
+  });
+
+  it('marks hasLegalHold=false when no hold is active', async () => {
+    const messages = [createMockMessage({ channelId, content: 'Normal message', attachments: [] })];
+    mockQueryRunner.manager.find.mockResolvedValueOnce([]).mockResolvedValueOnce(messages);
 
     const result = await service.exportChannel(tenantId, channelId, 'json', userId);
     const parsed = JSON.parse(result.data) as Array<Record<string, unknown>>;
@@ -168,9 +170,7 @@ describe('DataExportService', () => {
   // Logs export to compliance audit
   // -----------------------------------------------------------------------
   it('logs the export operation to the compliance audit', async () => {
-    mockQueryRunner.manager.find
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([]);
+    mockQueryRunner.manager.find.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
 
     await service.exportChannel(tenantId, channelId, 'json', userId);
 

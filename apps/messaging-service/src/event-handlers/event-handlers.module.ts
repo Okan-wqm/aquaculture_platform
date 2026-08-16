@@ -16,9 +16,8 @@ import { Message } from '../message/entities/message.entity';
 import { MessageModule } from '../message/message.module';
 import { PartitionModule } from '../partition/partition.module';
 import { PresenceModule } from '../presence/presence.module';
-// ComplianceModule imported: MessagingNatsHandler.handleUserDeleted now calls
-// LegalHoldService.isUnderLegalHold() to protect held channels from anonymization.
-// ComplianceModule exports LegalHoldService so it can be injected here.
+// ComplianceModule exports the transaction-owning legal-hold mutation authority
+// used by MessagingNatsHandler.handleUserDeleted.
 // Also provides RetentionPolicyService, ComplianceAuditService, DataExportService
 // for the admin NATS handler.
 // AiModule imported: MessagingAdminNatsHandler uses AiPersonasRegistryService

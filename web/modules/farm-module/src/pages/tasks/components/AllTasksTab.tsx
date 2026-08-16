@@ -12,7 +12,7 @@ import { TaskDetailModal } from './TaskDetailModal';
 import { TaskFormModal, TaskFormData } from './TaskFormModal';
 
 interface AllTasksTabProps {
-  tasks: Task[];
+  tasks: readonly Task[];
   onToggleComplete: (taskId: string) => void;
   onToggleChecklist: (taskId: string, checklistId: string, isCompleted: boolean) => void;
   onAddNote: (taskId: string, note: string) => void;

@@ -8,35 +8,34 @@
  * types mirror the controller DTOs — the super-admin identity always comes from
  * the verified JWT, never from the request body.
  */
+import type {
+  AdminImpersonationActionV1,
+  AdminGrantImpersonationPermissionV1,
+  AdminImpersonationPermissionV1,
+  AdminImpersonationPermissionCheckV1,
+  AdminImpersonationPermissionRevocationV1,
+  AdminImpersonationPermissionsV1,
+  AdminImpersonationReasonV1,
+  AdminImpersonationSessionStatusV1,
+  AdminImpersonationSessionScopeV1,
+  AdminImpersonationSessionV1,
+  AdminImpersonationStatsV1,
+  AdminStartedImpersonationSessionV1,
+  AdminStartImpersonationRequestV1,
+} from '@platform/admin-http-contracts';
 
 /** Mirrors backend `ImpersonationStatus` — there is no 'revoked'; operator override is 'terminated'. */
-export type ImpersonationSessionStatus = 'active' | 'ended' | 'expired' | 'terminated';
+export type ImpersonationSessionStatus = AdminImpersonationSessionStatusV1;
+export type ImpersonationSessionScope = AdminImpersonationSessionScopeV1;
 
 /** Mirrors backend `ImpersonationReason` — the start endpoint validates against this enum. */
-export type ImpersonationReasonCode =
-  | 'support_request'
-  | 'debugging'
-  | 'configuration'
-  | 'onboarding_assistance'
-  | 'security_investigation'
-  | 'data_verification'
-  | 'other';
+export type ImpersonationReasonCode = AdminImpersonationReasonV1;
 
-export interface ImpersonationPermission {
-  id: string;
-  tenantId: string;
-  tenantName: string;
-  grantedBy: string;
-  grantedByEmail: string;
-  grantedAt: string;
-  expiresAt?: string;
-  maxSessionDuration: number;
-  allowedActions: string[];
-  isActive: boolean;
-  reason?: string;
-  revokedAt?: string;
-  revokedBy?: string;
-}
+export type ImpersonationPermission = AdminImpersonationPermissionV1;
+export type ImpersonationPermissionCheck = AdminImpersonationPermissionCheckV1;
+export type ImpersonationPermissionRevocation = AdminImpersonationPermissionRevocationV1;
+export type ImpersonationPermissions = AdminImpersonationPermissionsV1;
+export type GrantImpersonationPermissionRequest = AdminGrantImpersonationPermissionV1;
 
 /**
  * Read model for GET /impersonation/sessions* — the backend's
@@ -44,62 +43,25 @@ export interface ImpersonationPermission {
  * `actionsPerformed` (the action array) is intentionally omitted: the UI only
  * consumes the numeric `actionCount`.
  */
-export interface ImpersonationSession {
-  id: string;
-  superAdminId: string;
-  superAdminEmail?: string;
-  targetTenantId: string;
-  targetTenantName?: string;
-  targetUserId?: string;
-  targetUserEmail?: string;
-  status: ImpersonationSessionStatus;
-  reason: ImpersonationReasonCode;
-  reasonDetails?: string;
-  ticketReference?: string;
-  ipAddress?: string;
-  userAgent?: string;
-  mfaCompleted: boolean;
-  expiresAt: string;
-  endedAt?: string;
-  endReason?: string;
-  actionCount: number;
-  createdAt: string;
-  updatedAt: string;
-}
+export type ImpersonationSession = AdminImpersonationSessionV1;
 
 /**
  * POST /impersonation/sessions/start response — the ONLY response that carries
  * the raw impersonation token (revealed once; reads never echo it back).
  */
-export interface StartImpersonationResponse extends ImpersonationSession {
-  impersonationToken: string;
-}
+export type StartImpersonationResponse = AdminStartedImpersonationSessionV1;
 
 /**
  * POST /impersonation/sessions/start request body (backend StartImpersonationDto).
  * No admin identity fields: the backend derives superAdminId from the JWT and
  * rejects unknown properties (forbidNonWhitelisted).
  */
-export interface StartImpersonationRequest {
-  targetTenantId: string;
-  targetTenantName?: string;
-  targetUserId?: string;
-  targetUserEmail?: string;
-  reason: ImpersonationReasonCode;
-  reasonDetails?: string;
-  ticketReference?: string;
-  durationMinutes?: number;
-}
+export type StartImpersonationRequest = AdminStartImpersonationRequestV1;
 
 /**
  * One entry of a session's action log — mirrors the backend `ImpersonationAction`
  * interface ({ action, resource, resourceId?, timestamp, details? }); the
  * log-action endpoint validates exactly these fields.
  */
-export interface ImpersonationAction {
-  action: string;
-  resource: string;
-  resourceId?: string;
-  timestamp: string;
-  details?: Record<string, unknown>;
-}
+export type ImpersonationAction = AdminImpersonationActionV1;
+export type ImpersonationStats = AdminImpersonationStatsV1<ImpersonationSession>;

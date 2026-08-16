@@ -2,7 +2,8 @@
  * Attendance Management domain types
  */
 
-import type { BaseEntity, PaginatedResponse, GeoLocation } from './common.types';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
+import type { BaseEntity, GeoLocation } from './common.types';
 import type { Employee } from './employee.types';
 
 // =====================
@@ -231,8 +232,8 @@ export interface AttendanceSummaryInput {
 // Response Types
 // =====================
 
-export type AttendanceRecordConnection = PaginatedResponse<AttendanceRecord>;
-export type ShiftConnection = PaginatedResponse<Shift>;
+export type AttendanceRecordConnection = PaginationResultV1<AttendanceRecord>;
+export type ShiftConnection = PaginationResultV1<Shift>;
 
 // =====================
 // Display Helpers

@@ -9,6 +9,7 @@
 import { INestApplication } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import Redis from 'ioredis';
+import { LegalHoldReleaseOperationService } from '../src/compliance/services/legal-hold-release-operation.service';
 import {
   createE2eTestApp,
   gqlRequest,
@@ -59,11 +60,17 @@ const GET_RETENTION_POLICIES = `
   }
 `;
 
-const TOGGLE_LEGAL_HOLD = `
-  mutation ToggleLegalHold($input: ToggleLegalHoldInput!) {
-    toggleLegalHold(input: $input) {
+const ACTIVATE_LEGAL_HOLD = `
+  mutation ActivateLegalHold($input: ActivateLegalHoldInput!) {
+    activateLegalHold(input: $input) {
       id isActive legalMatterId reason channelId
     }
+  }
+`;
+
+const LEGACY_TOGGLE_LEGAL_HOLD = `
+  mutation LegacyToggleLegalHold($input: ToggleLegalHoldInput!) {
+    toggleLegalHold(input: $input) { id isActive }
   }
 `;
 
@@ -92,6 +99,7 @@ describe('Compliance (E2E)', () => {
   let httpServer: ReturnType<INestApplication['getHttpServer']>;
   let dataSource: DataSource;
   let redis: Redis;
+  let legalHoldReleaseOperations: LegalHoldReleaseOperationService;
 
   let channelId: string;
   let messageId: string;
@@ -101,6 +109,7 @@ describe('Compliance (E2E)', () => {
   beforeAll(async () => {
     ctx = await createE2eTestApp();
     ({ httpServer, dataSource, redis } = ctx);
+    legalHoldReleaseOperations = ctx.app.get(LegalHoldReleaseOperationService);
     await setupTenantSchemas(dataSource, [TENANT_A]);
     resetIdempotencyCounter();
 
@@ -176,9 +185,7 @@ describe('Compliance (E2E)', () => {
       expect(policies.length).toBeGreaterThanOrEqual(2);
 
       // Verify both tenant-wide and channel-level policies exist
-      const tenantWide = policies.find(
-        (p: { channelId: string | null }) => p.channelId === null,
-      );
+      const tenantWide = policies.find((p: { channelId: string | null }) => p.channelId === null);
       const channelLevel = policies.find(
         (p: { channelId: string | null }) => p.channelId === channelId,
       );
@@ -212,13 +219,11 @@ describe('Compliance (E2E)', () => {
 
     it('should activate a legal hold on a channel', async () => {
       const res = await gqlRequest(httpServer, TENANT_A, ADMIN_A, ['TENANT_ADMIN'])
-        .query(TOGGLE_LEGAL_HOLD, {
+        .query(ACTIVATE_LEGAL_HOLD, {
           input: {
-            activate: true,
             channelId,
             legalMatterId: LEGAL_MATTER_ID,
             reason: 'Soruşturma kapsamında kanal donduruluyor',
-            holdId: null,
             legalMatterDescription: null,
             requestedBy: null,
             expiresAt: null,
@@ -227,7 +232,7 @@ describe('Compliance (E2E)', () => {
         .expect(200);
 
       expect(res.body.errors).toBeUndefined();
-      const hold = res.body.data.toggleLegalHold;
+      const hold = res.body.data.activateLegalHold;
       expect(hold.isActive).toBe(true);
       expect(hold.legalMatterId).toBe(LEGAL_MATTER_ID);
       expect(hold.reason).toBe('Soruşturma kapsamında kanal donduruluyor');
@@ -245,27 +250,50 @@ describe('Compliance (E2E)', () => {
       expect(res.body.errors[0].message).toMatch(/legal hold/i);
     });
 
-    it('should release a legal hold', async () => {
-      const res = await gqlRequest(httpServer, TENANT_A, ADMIN_A, ['TENANT_ADMIN'])
-        .query(TOGGLE_LEGAL_HOLD, {
-          input: {
-            activate: false,
-            holdId,
-            channelId: null,
-            legalMatterId: null,
-            reason: null,
-            legalMatterDescription: null,
-            requestedBy: null,
-            expiresAt: null,
-            approverId: USER_A2,
-            releaseReason: 'Legal matter closed by counsel and preservation hold can be released safely.',
-          },
-        })
-        .expect(200);
+    it('rejects the removed single-request toggle mutation at the schema boundary', async () => {
+      const res = await gqlRequest(httpServer, TENANT_A, ADMIN_A, ['SUPER_ADMIN'])
+        .query(LEGACY_TOGGLE_LEGAL_HOLD, { input: {} })
+        .expect(400);
 
-      expect(res.body.errors).toBeUndefined();
-      const hold = res.body.data.toggleLegalHold;
-      expect(hold.isActive).toBe(false);
+      expect(res.body.errors).toBeDefined();
+      expect(JSON.stringify(res.body.errors)).toMatch(/ToggleLegalHoldInput|toggleLegalHold/);
+    });
+
+    it('releases only through a durable, two-person operation', async () => {
+      const tokenIssuedAt = new Date().toISOString();
+      const releaseReason =
+        'Legal counsel closed the matter and approved release of all preserved channel records.';
+      const operation = await legalHoldReleaseOperations.request({
+        tenantId: TENANT_A,
+        holdId,
+        requestId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        releaseReason,
+        initiator: {
+          actorId: ADMIN_A,
+          roles: ['SUPER_ADMIN'],
+          mfaVerified: true,
+          tokenIssuedAt,
+          tokenId: 'e2e-initiator-token',
+        },
+      });
+
+      expect(operation.status).toBe('PENDING');
+      const released = await legalHoldReleaseOperations.authorize({
+        tenantId: TENANT_A,
+        operationId: operation.id,
+        requestId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+        approver: {
+          actorId: USER_A2,
+          roles: ['SUPER_ADMIN'],
+          mfaVerified: true,
+          tokenIssuedAt,
+          tokenId: 'e2e-approver-token',
+        },
+      });
+
+      expect(released.status).toBe('RELEASED');
+      expect(released.initiatedBy).toBe(ADMIN_A);
+      expect(released.authorizedBy).toBe(USER_A2);
     });
 
     it('should allow message deletion after legal hold is released', async () => {
@@ -332,13 +360,11 @@ describe('Compliance (E2E)', () => {
 
     it('should reject legal hold mutation from MODULE_USER', async () => {
       const res = await gqlRequest(httpServer, TENANT_A, USER_A1, ['MODULE_USER'])
-        .query(TOGGLE_LEGAL_HOLD, {
+        .query(ACTIVATE_LEGAL_HOLD, {
           input: {
-            activate: true,
             channelId,
             legalMatterId: LEGAL_MATTER_ID,
             reason: 'Yetkisiz deneme',
-            holdId: null,
             legalMatterDescription: null,
             requestedBy: null,
             expiresAt: null,

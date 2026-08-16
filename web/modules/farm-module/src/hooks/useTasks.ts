@@ -3,6 +3,7 @@
  * Handles CRUD operations for tasks via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 import { graphqlClient, useAuth, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 import {
   Task,
@@ -123,10 +124,7 @@ export function useTasks(filter?: TaskFilterInput) {
       `;
 
       const result = await graphqlClient.request<{
-        tasks: {
-          items: Task[];
-          total: number;
-        };
+        tasks: Pick<PaginationResultV1<Task>, 'items' | 'total'>;
       }>(query, { filter });
 
       return result.tasks;

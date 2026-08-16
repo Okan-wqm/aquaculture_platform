@@ -27,12 +27,13 @@ import { Type, Transform } from 'class-transformer';
 import { IsOptional, IsNumber, IsString, IsIn, IsObject, Matches } from 'class-validator';
 import { Response, Request } from 'express';
 import { DataSource } from 'typeorm';
+import { RateLimit } from '@aquaculture/backend-common/rate-limit';
 import type { AuditLogInput } from '../../audit/audit.service';
 import { AuditLogService } from '../../audit/audit.service';
 import { AuditSeverity } from '../../audit/audit.entity';
 import { getAuthUser } from '../../shared/authenticated-request';
+import { ADMIN_RATE_LIMIT_POLICIES } from '../../security/admin-rate-limit.policy';
 
-import { ThrottleSensitive, ThrottleExport } from '@aquaculture/backend-common/security';
 import { MODULE_SCHEMAS, DEFAULT_TENANT_MODULES } from '@aquaculture/backend-common/database';
 // ============================================================================
 // Module Table Access Control
@@ -50,9 +51,7 @@ const ALLOWED_SCHEMAS = new Set(['public', 'auth', 'admin', 'billing']);
  * These tables exist in the public schema but contain tenant-specific data
  * and must not be accessible through the superadmin explorer.
  */
-const MODULE_TABLE_NAMES: Set<string> = new Set(
-  MODULE_SCHEMAS.flatMap(m => m.tables),
-);
+const MODULE_TABLE_NAMES: Set<string> = new Set(MODULE_SCHEMAS.flatMap((m) => m.tables));
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -392,7 +391,8 @@ export class DatabaseExplorerController {
 
     try {
       // Tablo bilgilerini al (DISTINCT ile duplicate önleme)
-      const tables = await queryRunner.query(`
+      const tables = await queryRunner.query(
+        `
         SELECT DISTINCT ON (t.tablename)
           t.tablename as table_name,
           t.schemaname as schema_name,
@@ -402,7 +402,9 @@ export class DatabaseExplorerController {
         LEFT JOIN pg_stat_user_tables s ON t.tablename = s.relname AND t.schemaname = s.schemaname
         WHERE t.schemaname = $1
         ORDER BY t.tablename
-      `, [schema]);
+      `,
+        [schema],
+      );
 
       // Filter out module tables from the listing
       const filteredTables = tables.filter(
@@ -540,7 +542,7 @@ export class DatabaseExplorerController {
    * Export table data to CSV or JSON
    */
   // Fix: H8 -- per-route throttle: data export is rate-limited (5 req / hour)
-  @ThrottleExport()
+  @RateLimit(ADMIN_RATE_LIMIT_POLICIES.export)
   @Get('schemas/:schema/tables/:table/export')
   async exportTableData(
     @Param('schema') schema: string,
@@ -604,10 +606,7 @@ export class DatabaseExplorerController {
 
       if (format === 'json') {
         res.setHeader('Content-Type', 'application/json');
-        res.setHeader(
-          'Content-Disposition',
-          `attachment; filename="${table}_export.json"`,
-        );
+        res.setHeader('Content-Disposition', `attachment; filename="${table}_export.json"`);
         return rows;
       }
 
@@ -635,10 +634,7 @@ export class DatabaseExplorerController {
       const buffer = Buffer.from(csvContent, 'utf-8');
 
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename="${table}_export.csv"`,
-      );
+      res.setHeader('Content-Disposition', `attachment; filename="${table}_export.csv"`);
 
       return new StreamableFile(buffer);
     } finally {
@@ -666,7 +662,7 @@ export class DatabaseExplorerController {
    * Tabloya yeni satır ekle
    */
   // Fix: H8 -- per-route throttle: DB write is sensitive (3 req / 5 min)
-  @ThrottleSensitive()
+  @RateLimit(ADMIN_RATE_LIMIT_POLICIES.sensitive)
   @Post('schemas/:schema/tables/:table/rows')
   async insertRow(
     @Param('schema') schema: string,
@@ -722,7 +718,7 @@ export class DatabaseExplorerController {
    * Tablodaki satırı güncelle
    */
   // Fix: H8 -- per-route throttle: DB write is sensitive (3 req / 5 min)
-  @ThrottleSensitive()
+  @RateLimit(ADMIN_RATE_LIMIT_POLICIES.sensitive)
   @Put('schemas/:schema/tables/:table/rows/:id')
   async updateRow(
     @Param('schema') schema: string,
@@ -791,7 +787,7 @@ export class DatabaseExplorerController {
    * Tablodaki satırı sil
    */
   // Fix: H8 -- per-route throttle: DB delete is sensitive (3 req / 5 min)
-  @ThrottleSensitive()
+  @RateLimit(ADMIN_RATE_LIMIT_POLICIES.sensitive)
   @Delete('schemas/:schema/tables/:table/rows/:id')
   async deleteRow(
     @Param('schema') schema: string,
@@ -845,10 +841,7 @@ export class DatabaseExplorerController {
    * Tablo yapısını getir
    */
   @Get('schemas/:schema/tables/:table/structure')
-  async getTableStructure(
-    @Param('schema') schema: string,
-    @Param('table') table: string,
-  ) {
+  async getTableStructure(@Param('schema') schema: string, @Param('table') table: string) {
     if (!this.isValidIdentifier(schema) || !this.isValidIdentifier(table)) {
       throw new BadRequestException('Invalid schema or table name');
     }
@@ -860,7 +853,8 @@ export class DatabaseExplorerController {
       const columns = await this.getColumnInfo(queryRunner, schema, table);
 
       // Index bilgileri
-      const indexes = await queryRunner.query(`
+      const indexes = await queryRunner.query(
+        `
         SELECT
           i.relname as index_name,
           a.attname as column_name,
@@ -873,10 +867,13 @@ export class DatabaseExplorerController {
         JOIN pg_namespace n ON n.oid = t.relnamespace
         WHERE n.nspname = $1 AND t.relname = $2
         ORDER BY i.relname
-      `, [schema, table]);
+      `,
+        [schema, table],
+      );
 
       // Constraint bilgileri
-      const constraints = await queryRunner.query(`
+      const constraints = await queryRunner.query(
+        `
         SELECT
           tc.constraint_name,
           tc.constraint_type,
@@ -892,7 +889,9 @@ export class DatabaseExplorerController {
           ON tc.constraint_name = ccu.constraint_name
           AND tc.table_schema = ccu.table_schema
         WHERE tc.table_schema = $1 AND tc.table_name = $2
-      `, [schema, table]);
+      `,
+        [schema, table],
+      );
 
       return {
         tableName: table,
@@ -915,7 +914,7 @@ export class DatabaseExplorerController {
    * SECURITY: This endpoint is extremely sensitive and should be disabled in production
    */
   // Fix: H8 -- per-route throttle: raw SQL execution is sensitive (3 req / 5 min)
-  @ThrottleSensitive()
+  @RateLimit(ADMIN_RATE_LIMIT_POLICIES.sensitive)
   @Post('query')
   async executeQuery(@Body() dto: ExecuteQueryDto) {
     const { sql, params = [] } = dto;
@@ -944,7 +943,7 @@ export class DatabaseExplorerController {
     // Remove SQL comments to prevent bypass attempts
     const sqlWithoutComments = sql
       .replace(/\/\*[\s\S]*?\*\//g, '') // Remove /* ... */ comments
-      .replace(/--.*$/gm, '');          // Remove -- comments
+      .replace(/--.*$/gm, ''); // Remove -- comments
 
     // Fix: C1 -- multi-statement SQL bypass engeli
     if (sqlWithoutComments.includes(';')) {
@@ -1081,7 +1080,8 @@ export class DatabaseExplorerController {
     schema: string,
     table: string,
   ): Promise<ColumnInfo[]> {
-    const columns = await queryRunner.query(`
+    const columns = await queryRunner.query(
+      `
       SELECT
         c.column_name,
         c.data_type,
@@ -1116,7 +1116,9 @@ export class DatabaseExplorerController {
       ) fk ON fk.column_name = c.column_name
       WHERE c.table_schema = $1 AND c.table_name = $2
       ORDER BY c.ordinal_position
-    `, [schema, table]);
+    `,
+      [schema, table],
+    );
 
     return columns.map((col: Record<string, unknown>) => ({
       columnName: col['column_name'] as string,
@@ -1143,7 +1145,8 @@ export class DatabaseExplorerController {
       return new Map();
     }
 
-    const columns = await queryRunner.query(`
+    const columns = await queryRunner.query(
+      `
       SELECT
         c.table_name,
         c.column_name,
@@ -1180,7 +1183,9 @@ export class DatabaseExplorerController {
       ) fk ON fk.table_name = c.table_name AND fk.column_name = c.column_name
       WHERE c.table_schema = $1 AND c.table_name = ANY($2)
       ORDER BY c.table_name, c.ordinal_position
-    `, [schema, tableNames]);
+    `,
+      [schema, tableNames],
+    );
 
     const result = new Map<string, ColumnInfo[]>();
 
@@ -1212,14 +1217,17 @@ export class DatabaseExplorerController {
     schema: string,
     table: string,
   ): Promise<string | null> {
-    const result = await queryRunner.query(`
+    const result = await queryRunner.query(
+      `
       SELECT kcu.column_name
       FROM information_schema.table_constraints tc
       JOIN information_schema.key_column_usage kcu
         ON tc.constraint_name = kcu.constraint_name
       WHERE tc.table_schema = $1 AND tc.table_name = $2 AND tc.constraint_type = 'PRIMARY KEY'
       LIMIT 1
-    `, [schema, table]);
+    `,
+      [schema, table],
+    );
 
     return result[0]?.column_name || null;
   }

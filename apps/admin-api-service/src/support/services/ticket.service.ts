@@ -4,6 +4,10 @@
  * Destek ticket sistemi - SLA tracking, önceliklendirme, atama.
  */
 
+import {
+  createStandardPaginatedResult,
+  type IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -110,12 +114,16 @@ export class TicketService {
    * Get SLA config for priority
    */
   private getSLAConfig(priority: TicketPriority): SLAConfig {
-    const config = DEFAULT_SLA_CONFIG.find(c => c.priority === priority);
+    const config = DEFAULT_SLA_CONFIG.find((c) => c.priority === priority);
     const defaultConfig = DEFAULT_SLA_CONFIG[2];
     if (config) return config;
     if (defaultConfig) return defaultConfig;
     // Fallback config
-    return { priority: 'medium' as TicketPriority, firstResponseMinutes: 1440, resolutionMinutes: 4320 };
+    return {
+      priority: 'medium' as TicketPriority,
+      firstResponseMinutes: 1440,
+      resolutionMinutes: 4320,
+    };
   }
 
   /**
@@ -215,13 +223,17 @@ export class TicketService {
     assignedTo?: string;
     tenantId?: string;
     search?: string;
-  }): Promise<{
-    data: SupportTicket[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
-    const { page = 1, limit = 20, status, priority, category, assignedTo, tenantId, search } = options;
+  }): Promise<IStandardPaginatedResult<SupportTicket>> {
+    const {
+      page = 1,
+      limit = 20,
+      status,
+      priority,
+      category,
+      assignedTo,
+      tenantId,
+      search,
+    } = options;
 
     const qb = this.ticketRepository.createQueryBuilder('ticket');
 
@@ -231,10 +243,9 @@ export class TicketService {
     if (assignedTo) qb.andWhere('ticket.assignedTo = :assignedTo', { assignedTo });
     if (tenantId) qb.andWhere('ticket.tenantId = :tenantId', { tenantId });
     if (search) {
-      qb.andWhere(
-        '(ticket.subject ILIKE :search OR ticket.ticketNumber ILIKE :search)',
-        { search: `%${search}%` },
-      );
+      qb.andWhere('(ticket.subject ILIKE :search OR ticket.ticketNumber ILIKE :search)', {
+        search: `%${search}%`,
+      });
     }
 
     qb.orderBy('ticket.createdAt', 'DESC');
@@ -243,7 +254,7 @@ export class TicketService {
 
     const [data, total] = await qb.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**
@@ -252,7 +263,7 @@ export class TicketService {
   async getTicketsForTenant(
     tenantId: string,
     options: { status?: TicketStatus; page?: number; limit?: number } = {},
-  ): Promise<{ data: SupportTicket[]; total: number; page: number; limit: number }> {
+  ): Promise<IStandardPaginatedResult<SupportTicket>> {
     const { page = 1, limit = 20, status } = options;
     const where: Record<string, unknown> = { tenantId };
     if (status) where.status = status;
@@ -264,7 +275,7 @@ export class TicketService {
       take: limit,
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**
@@ -273,7 +284,7 @@ export class TicketService {
   async getAssignedTickets(
     assignedTo: string,
     options: { status?: TicketStatus; page?: number; limit?: number } = {},
-  ): Promise<{ data: SupportTicket[]; total: number; page: number; limit: number }> {
+  ): Promise<IStandardPaginatedResult<SupportTicket>> {
     const { page = 1, limit = 20, status } = options;
     const where: Record<string, unknown> = { assignedTo };
     if (status) where.status = status;
@@ -285,7 +296,7 @@ export class TicketService {
       take: limit,
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**
@@ -293,7 +304,7 @@ export class TicketService {
    */
   async getUnassignedTickets(
     options: { page?: number; limit?: number } = {},
-  ): Promise<{ data: SupportTicket[]; total: number; page: number; limit: number }> {
+  ): Promise<IStandardPaginatedResult<SupportTicket>> {
     const { page = 1, limit = 20 } = options;
 
     const [data, total] = await this.ticketRepository.findAndCount({
@@ -306,7 +317,7 @@ export class TicketService {
       take: limit,
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   // ============================================================================
@@ -482,7 +493,7 @@ export class TicketService {
   async getComments(
     ticketId: string,
     options: { includeInternal?: boolean; page?: number; limit?: number } = {},
-  ): Promise<{ data: TicketComment[]; total: number; page: number; limit: number }> {
+  ): Promise<IStandardPaginatedResult<TicketComment>> {
     const { includeInternal = true, page = 1, limit = 50 } = options;
 
     const where: Record<string, unknown> = { ticketId };
@@ -495,7 +506,7 @@ export class TicketService {
       take: limit,
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   // ============================================================================
@@ -609,9 +620,9 @@ export class TicketService {
   async getTicketStats(): Promise<TicketStats> {
     const all = await this.ticketRepository.find();
 
-    const resolved = all.filter(t => t.resolvedAt);
-    const withResponse = all.filter(t => t.firstResponseAt);
-    const withRating = all.filter(t => t.satisfactionRating > 0);
+    const resolved = all.filter((t) => t.resolvedAt);
+    const withResponse = all.filter((t) => t.firstResponseAt);
+    const withRating = all.filter((t) => t.satisfactionRating > 0);
 
     // Calculate averages
     let avgFirstResponse = 0;
@@ -632,19 +643,20 @@ export class TicketService {
 
     let avgSatisfaction = 0;
     if (withRating.length > 0) {
-      avgSatisfaction = withRating.reduce((sum, t) => sum + t.satisfactionRating, 0) / withRating.length;
+      avgSatisfaction =
+        withRating.reduce((sum, t) => sum + t.satisfactionRating, 0) / withRating.length;
     }
 
     return {
       total: all.length,
-      open: all.filter(t => t.status === 'open').length,
-      inProgress: all.filter(t => t.status === 'in_progress').length,
-      waitingCustomer: all.filter(t => t.status === 'waiting_customer').length,
-      resolved: all.filter(t => t.status === 'resolved').length,
-      closed: all.filter(t => t.status === 'closed').length,
+      open: all.filter((t) => t.status === 'open').length,
+      inProgress: all.filter((t) => t.status === 'in_progress').length,
+      waitingCustomer: all.filter((t) => t.status === 'waiting_customer').length,
+      resolved: all.filter((t) => t.status === 'resolved').length,
+      closed: all.filter((t) => t.status === 'closed').length,
       avgFirstResponseMinutes: avgFirstResponse,
       avgResolutionMinutes: avgResolution,
-      slaBreachCount: all.filter(t => t.slaBreached).length,
+      slaBreachCount: all.filter((t) => t.slaBreached).length,
       avgSatisfactionRating: Math.round(avgSatisfaction * 10) / 10,
     };
   }
@@ -656,12 +668,12 @@ export class TicketService {
     const all = await this.ticketRepository.find();
 
     return {
-      technical: all.filter(t => t.category === 'technical').length,
-      billing: all.filter(t => t.category === 'billing').length,
-      feature_request: all.filter(t => t.category === 'feature_request').length,
-      bug_report: all.filter(t => t.category === 'bug_report').length,
-      general: all.filter(t => t.category === 'general').length,
-      account: all.filter(t => t.category === 'account').length,
+      technical: all.filter((t) => t.category === 'technical').length,
+      billing: all.filter((t) => t.category === 'billing').length,
+      feature_request: all.filter((t) => t.category === 'feature_request').length,
+      bug_report: all.filter((t) => t.category === 'bug_report').length,
+      general: all.filter((t) => t.category === 'general').length,
+      account: all.filter((t) => t.category === 'account').length,
     };
   }
 
@@ -674,10 +686,10 @@ export class TicketService {
     });
 
     return {
-      critical: all.filter(t => t.priority === 'critical').length,
-      high: all.filter(t => t.priority === 'high').length,
-      medium: all.filter(t => t.priority === 'medium').length,
-      low: all.filter(t => t.priority === 'low').length,
+      critical: all.filter((t) => t.priority === 'critical').length,
+      high: all.filter((t) => t.priority === 'high').length,
+      medium: all.filter((t) => t.priority === 'medium').length,
+      low: all.filter((t) => t.priority === 'low').length,
     };
   }
 }

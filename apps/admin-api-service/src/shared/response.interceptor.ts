@@ -3,34 +3,49 @@ import {
   NestInterceptor,
   ExecutionContext,
   CallHandler,
+  InternalServerErrorException,
+  StreamableFile,
 } from '@nestjs/common';
+import {
+  hasUnissuedPaginationShapeV1,
+  isStandardPaginatedResult,
+  paginationMetadataV1,
+  type PaginationMetadataV1,
+} from '@aquaculture/backend-common/pagination';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { Request } from 'express';
 
-export interface ApiResponse<T> {
-  success: boolean;
-  data: T;
-  meta?: {
-    total?: number;
-    page?: number;
-    limit?: number;
-    totalPages?: number;
-    timestamp: string;
-  };
+export interface ApiResponseMetaV1 {
+  readonly timestamp: string;
 }
+
+export type PaginatedApiResponseMetaV1 = ApiResponseMetaV1 & PaginationMetadataV1;
+
+export interface ApiResponse<T> {
+  readonly success: true;
+  readonly data: T;
+  readonly meta: ApiResponseMetaV1;
+}
+
+export interface PaginatedApiResponseV1<T> {
+  readonly success: true;
+  readonly data: readonly T[];
+  readonly meta: PaginatedApiResponseMetaV1;
+}
+
+type InterceptedResponse<T> = ApiResponse<T> | PaginatedApiResponseV1<unknown> | T;
 
 /** Routes that should NOT be wrapped in the response envelope. */
 const SKIP_PREFIXES = ['/health', '/docs', '/docs-json', '/docs-yaml'];
 
 @Injectable()
-export class ResponseInterceptor<T>
-  implements NestInterceptor<T, ApiResponse<T> | T>
-{
-  intercept(
-    context: ExecutionContext,
-    next: CallHandler,
-  ): Observable<ApiResponse<T> | T> {
+export class ResponseInterceptor<T> implements NestInterceptor<T, InterceptedResponse<T>> {
+  intercept(context: ExecutionContext, next: CallHandler): Observable<InterceptedResponse<T>> {
+    if (context.getType() !== 'http') {
+      return next.handle();
+    }
+
     const request = context.switchToHttp().getRequest<Request>();
     const url = request.url;
 
@@ -42,26 +57,27 @@ export class ResponseInterceptor<T>
     }
 
     return next.handle().pipe(
-      map((data) => {
-        // If data already has pagination info, extract it as meta
-        if (
-          data &&
-          typeof data === 'object' &&
-          'data' in data &&
-          'total' in data
-        ) {
+      map((data: T): InterceptedResponse<T> => {
+        if (data instanceof StreamableFile || Buffer.isBuffer(data)) {
+          return data;
+        }
+
+        if (isStandardPaginatedResult(data)) {
           return {
             success: true,
-            data: (data as Record<string, unknown>).data as T,
+            data: data.items,
             meta: {
-              total: (data as Record<string, unknown>).total as number,
-              page: (data as Record<string, unknown>).page as number,
-              limit: (data as Record<string, unknown>).limit as number,
-              totalPages: (data as Record<string, unknown>)
-                .totalPages as number,
+              ...paginationMetadataV1(data),
               timestamp: new Date().toISOString(),
             },
           };
+        }
+
+        if (hasUnissuedPaginationShapeV1(data)) {
+          throw new InternalServerErrorException({
+            code: 'UNISSUED_PAGINATION_RESULT',
+            message: 'Pagination results must be issued by the platform pagination authority',
+          });
         }
 
         return {
@@ -78,8 +94,6 @@ export class ResponseInterceptor<T>
   private shouldSkip(url: string): boolean {
     // Strip query string before matching
     const path = url.split('?')[0] ?? url;
-    return SKIP_PREFIXES.some(
-      (prefix) => path === prefix || path.startsWith(prefix + '/'),
-    );
+    return SKIP_PREFIXES.some((prefix) => path === prefix || path.startsWith(prefix + '/'));
   }
 }

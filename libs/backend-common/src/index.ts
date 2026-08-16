@@ -42,6 +42,7 @@ export * from './guards/tenant.guard';
 export * from './guards/tenant-permission.guard';
 export * from './guards/service-identity.guard';
 export * from './guards/token-revocation.service';
+export * from './guards/recent-mfa.guard';
 
 // Utils - Inter-service authentication
 export * from './utils/service-identity.util';
@@ -55,8 +56,15 @@ export { readSecret, bootstrapSecrets } from './config/secrets.provider';
 
 // Auth - Centralised JWT verification options + strict token type enforcement
 // All guards MUST use getJwtVerifyOptions() and enforceAccessTokenType().
-export { getJwtVerifyOptions, enforceAccessTokenType } from './auth/jwt-verification.utils';
-export type { JwtVerifyConfig } from './auth/jwt-verification.utils';
+export {
+  getJwtVerifyOptions,
+  enforceAccessTokenType,
+  enforceTokenNotRevoked,
+} from './auth/jwt-verification.utils';
+export type {
+  JwtVerifyConfig,
+  VerifiedTokenRevocationCoordinates,
+} from './auth/jwt-verification.utils';
 
 // Auth - Shared RS256 JwtModule wiring for all token-CONSUMER services.
 // Token ISSUER (auth-service) keeps its own JwtModule block; every other
@@ -113,10 +121,7 @@ export {
   AuditResult,
   AuditSeverity,
 } from './audit/audit-log.tokens';
-export type {
-  IAuditLogService,
-  CreateAuditEntryDto,
-} from './audit/audit-log.tokens';
+export type { IAuditLogService, CreateAuditEntryDto } from './audit/audit-log.tokens';
 export {
   AuditedOperation,
   AUDITED_OPERATION_KEY,

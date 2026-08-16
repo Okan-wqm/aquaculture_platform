@@ -69,6 +69,45 @@ export interface CacheEntry {
   tags?: string[];
 }
 
+export interface QueryInspectorResult {
+  readonly queries: readonly CapturedQuery[];
+  readonly summary: {
+    readonly totalQueries: number;
+    readonly totalDuration: number;
+    readonly avgDuration: number;
+    readonly slowQueries: number;
+    readonly errorCount: number;
+    readonly queryTypeBreakdown: Readonly<Record<string, number>>;
+  };
+}
+
+export interface ApiLogResult {
+  readonly calls: readonly CapturedApiCall[];
+  readonly summary: {
+    readonly totalCalls: number;
+    readonly totalDuration: number;
+    readonly avgDuration: number;
+    readonly errorCount: number;
+    readonly statusBreakdown: Readonly<Record<string, number>>;
+    readonly endpointBreakdown: readonly {
+      readonly endpoint: string;
+      readonly count: number;
+      readonly avgDuration: number;
+    }[];
+  };
+}
+
+export interface CacheInspectorResult {
+  readonly entries: readonly CacheEntry[];
+  readonly summary: {
+    readonly totalKeys: number;
+    readonly totalSizeBytes: number;
+    readonly avgTtlSeconds: number;
+    readonly expiringInHour: number;
+    readonly storeBreakdown: Readonly<Record<string, number>>;
+  };
+}
+
 export interface FeatureFlagOverride {
   id: string;
   tenantId: string;

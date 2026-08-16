@@ -12,7 +12,7 @@ import {
   TENANT_ERASURE_TARGET_SERVICE_COUNT,
   TENANT_ERASURE_TARGET_SERVICES,
 } from '../../libs/event-contracts/src/tenant-erasure-targets';
-import { TENANT_ERASURE_TARGET_PROOF_LEDGER_TABLE } from '../../platform/libs/outbox/src/outbox-migration';
+import { TENANT_ERASURE_TARGET_PROOF_LEDGER_TABLE } from '../../libs/shared-contracts/src/data-lifecycle/tenant-erasure';
 import { TENANT_ERASURE_TARGET_OPTIONS_BY_SERVICE } from '../../libs/backend-common/src/compliance/tenant-erasure/tenant-erasure-target-registry';
 import { TENANT_ERASURE_REQUEST_SUBSCRIPTION_OPTIONS } from '../../libs/backend-common/src/compliance/tenant-erasure/tenant-erasure-subscription.options';
 import { MODULE_SCHEMAS } from '../../libs/backend-common/src/database/schema-manager.service';
@@ -268,9 +268,7 @@ describe('INVARIANT (COMPLIANCE-CRITICAL-001): final TenantErased is orchestrato
 
     expect(moduleSrc).toContain('LegalHoldModule.forRoot()');
     expect(moduleSrc).toMatch(/legalHoldService:\s*LegalHoldService/);
-    expect(executorSrc).toMatch(
-      /readonly legalHoldService:\s*TenantErasureTargetLegalHold/,
-    );
+    expect(executorSrc).toMatch(/readonly legalHoldService:\s*TenantErasureTargetLegalHold/);
     expect(executorSrc).toMatch(
       /interface TenantErasureTargetLegalHold[\s\S]{0,160}assertNoHold\(tenantId: string, scope: 'tenant'\): Promise<void>/,
     );
@@ -294,10 +292,16 @@ describe('INVARIANT (COMPLIANCE-CRITICAL-001): final TenantErased is orchestrato
       'libs/backend-common/src/compliance/tenant-erasure/tenant-erasure-target-executor.ts',
     );
     const outboxMigration = repoFile('platform/libs/outbox/src/outbox-migration.ts');
+    const outboxIndex = repoFile('platform/libs/outbox/src/index.ts');
+    const dataLifecycleContract = repoFile(
+      'libs/shared-contracts/src/data-lifecycle/tenant-erasure.ts',
+    );
     const backendDatabaseIndex = repoFile('libs/backend-common/src/database/index.ts');
 
     expect(outboxMigration).toContain('TENANT_ERASURE_TARGET_PROOF_LEDGER_TABLE');
-    expect(outboxMigration).toContain('tenant_erasure_target_proofs');
+    expect(outboxMigration).toContain("from '@aquaculture/shared-contracts'");
+    expect(outboxIndex).not.toContain('TENANT_ERASURE_TARGET_PROOF_LEDGER_TABLE');
+    expect(dataLifecycleContract).toContain('tenant_erasure_target_proofs');
     expect(executorSrc).toContain('readExistingProof(event');
     expect(executorSrc).toContain('recordProofLedger(manager, proofEvent)');
     expect(executorSrc).toContain('pg_advisory_xact_lock');

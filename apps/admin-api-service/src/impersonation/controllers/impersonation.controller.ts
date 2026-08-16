@@ -15,6 +15,11 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { RateLimit } from '@aquaculture/backend-common/rate-limit';
+import {
+  ADMIN_IMPERSONATION_SESSION_SCOPES_V1,
+  type AdminImpersonationSessionScopeV1,
+} from '@platform/admin-http-contracts';
 import { Type } from 'class-transformer';
 import {
   IsString,
@@ -24,34 +29,101 @@ import {
   IsEnum,
   IsInt,
   IsArray,
+  ArrayNotEmpty,
   IsObject,
   Min,
   Max,
   MaxLength,
   IsDateString,
+  IsIn,
   ValidateNested,
 } from 'class-validator';
 import { Request } from 'express';
 import { getAuthUser } from '../../shared/authenticated-request';
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
+import { ADMIN_RATE_LIMIT_POLICIES } from '../../security/admin-rate-limit.policy';
 
-import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 import {
   ImpersonationStatus,
   ImpersonationReason,
   ImpersonationPermissions,
   IMPERSONATION_MAX_SESSION_MINUTES,
+  IMPERSONATION_MAX_CONCURRENT_SESSIONS,
+  toAdminImpersonationPermissionV1,
 } from '../entities/impersonation-session.entity';
-import {
-  ImpersonationService,
-  StartImpersonationRequest,
-} from '../services/impersonation.service';
+import { ImpersonationService, StartImpersonationRequest } from '../services/impersonation.service';
 
 // ============================================================================
 // DTOs with Validation
 // ============================================================================
 
-class GrantPermissionDto {
+export class DefaultImpersonationPermissionsDto implements ImpersonationPermissions {
+  @IsBoolean()
+  canViewData!: boolean;
+
+  @IsBoolean()
+  canModifyData!: boolean;
+
+  @IsBoolean()
+  canAccessSettings!: boolean;
+
+  @IsBoolean()
+  canManageUsers!: boolean;
+
+  @IsBoolean()
+  canViewBilling!: boolean;
+
+  @IsBoolean()
+  canExportData!: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  restrictedModules?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  allowedModules?: string[];
+}
+
+export class RequestedImpersonationPermissionsDto {
+  @IsOptional()
+  @IsBoolean()
+  canViewData?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  canModifyData?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  canAccessSettings?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  canManageUsers?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  canViewBilling?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  canExportData?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  restrictedModules?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  allowedModules?: string[];
+}
+
+export class GrantPermissionDto {
   @IsUUID('4', { message: 'Invalid super admin ID format' })
   superAdminId!: string;
 
@@ -60,10 +132,10 @@ class GrantPermissionDto {
   @MaxLength(255)
   superAdminEmail?: string;
 
-  @IsOptional()
   @IsArray()
+  @ArrayNotEmpty()
   @IsUUID('4', { each: true })
-  allowedTenants?: string[];
+  allowedTenants!: string[];
 
   @IsOptional()
   @IsArray()
@@ -71,8 +143,9 @@ class GrantPermissionDto {
   restrictedTenants?: string[];
 
   @IsOptional()
-  @IsObject()
-  defaultPermissions?: ImpersonationPermissions;
+  @ValidateNested()
+  @Type(() => DefaultImpersonationPermissionsDto)
+  defaultPermissions?: DefaultImpersonationPermissionsDto;
 
   @IsOptional()
   @IsInt()
@@ -85,7 +158,7 @@ class GrantPermissionDto {
   @IsOptional()
   @IsInt()
   @Min(1)
-  @Max(10)
+  @Max(IMPERSONATION_MAX_CONCURRENT_SESSIONS)
   maxConcurrentSessions?: number;
 
   @IsOptional()
@@ -97,10 +170,6 @@ class GrantPermissionDto {
   requireTicketReference?: boolean;
 
   @IsOptional()
-  @IsBoolean()
-  notifyTenantAdmin?: boolean;
-
-  @IsOptional()
   @IsDateString()
   expiresAt?: string;
 
@@ -110,7 +179,7 @@ class GrantPermissionDto {
   notes?: string;
 }
 
-class StartImpersonationDto {
+export class StartImpersonationDto {
   @IsUUID('4', { message: 'Invalid target tenant ID format' })
   targetTenantId!: string;
 
@@ -142,8 +211,9 @@ class StartImpersonationDto {
   ticketReference?: string;
 
   @IsOptional()
-  @IsObject()
-  permissions?: Partial<ImpersonationPermissions>;
+  @ValidateNested()
+  @Type(() => RequestedImpersonationPermissionsDto)
+  permissions?: RequestedImpersonationPermissionsDto;
 
   @IsOptional()
   @IsInt()
@@ -153,7 +223,7 @@ class StartImpersonationDto {
   durationMinutes?: number;
 }
 
-class LogActionDto {
+export class LogActionDto {
   @IsString()
   @MaxLength(100)
   action!: string;
@@ -172,20 +242,26 @@ class LogActionDto {
   details?: Record<string, unknown>;
 }
 
-class EndImpersonationDto {
+export class EndImpersonationDto {
   @IsOptional()
   @IsString()
   @MaxLength(500)
   reason?: string;
 }
 
-class TerminateSessionDto {
+export class TerminateSessionDto {
   @IsString()
   @MaxLength(500)
   reason!: string;
 }
 
-class LogResourceAccessDto {
+export class RevokePermissionDto {
+  @IsString()
+  @MaxLength(500)
+  reason!: string;
+}
+
+export class LogResourceAccessDto {
   @IsString()
   @MaxLength(100)
   resourceType!: string;
@@ -199,7 +275,7 @@ class LogResourceAccessDto {
   action!: string;
 }
 
-class ExtendSessionDto {
+export class ExtendSessionDto {
   @IsInt()
   @Min(5, { message: 'Minimum extension is 5 minutes' })
   // RBAC-MEDIUM-009 (M7): an extension can never exceed the absolute session
@@ -216,8 +292,13 @@ class QueryPermissionsDto {
   tenantId?: string;
 
   @IsOptional()
-  @IsString()
+  @IsIn(['true', 'false'])
   isActive?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  search?: string;
 
   @IsOptional()
   @Type(() => Number)
@@ -231,6 +312,15 @@ class QueryPermissionsDto {
   @Min(1)
   @Max(100)
   limit?: number;
+}
+
+class ImpersonationStatsQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(365)
+  windowDays = 30;
 }
 
 class QuerySessionsDto {
@@ -249,6 +339,15 @@ class QuerySessionsDto {
   @IsOptional()
   @IsEnum(ImpersonationReason)
   reason?: ImpersonationReason;
+
+  @IsOptional()
+  @IsIn(ADMIN_IMPERSONATION_SESSION_SCOPES_V1)
+  scope?: AdminImpersonationSessionScopeV1;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  search?: string;
 
   @IsOptional()
   @IsDateString()
@@ -291,21 +390,20 @@ export class ImpersonationController {
     return this.impersonationService.queryPermissions({
       tenantId: query.tenantId,
       isActive: query.isActive !== undefined ? query.isActive === 'true' : undefined,
+      search: query.search,
       page: query.page,
       limit: query.limit,
     });
   }
 
   @Get('stats')
-  async getStats() {
-    return this.impersonationService.getImpersonationStats();
+  async getStats(@Query() query: ImpersonationStatsQueryDto) {
+    return this.impersonationService.getImpersonationStats(query.windowDays);
   }
 
+  @RateLimit(ADMIN_RATE_LIMIT_POLICIES.sensitive)
   @Post('permissions')
-  async grantPermission(
-    @Body() dto: GrantPermissionDto,
-    @Req() req: Request,
-  ) {
+  async grantPermission(@Body() dto: GrantPermissionDto, @Req() req: Request) {
     // SECURITY FIX: Get admin ID from verified JWT token, not client-supplied headers
     const user = getAuthUser(req);
     if (!user?.id) {
@@ -320,13 +418,27 @@ export class ImpersonationController {
 
   @Get('permissions/:superAdminId')
   async getPermission(@Param('superAdminId') superAdminId: string) {
-    return this.impersonationService.getImpersonationPermission(superAdminId);
+    const permission = await this.impersonationService.getImpersonationPermission(superAdminId);
+    return permission ? toAdminImpersonationPermissionV1(permission) : null;
   }
 
+  @RateLimit(ADMIN_RATE_LIMIT_POLICIES.sensitive)
   @Post('permissions/:superAdminId/revoke')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async revokePermission(@Param('superAdminId') superAdminId: string) {
-    await this.impersonationService.revokeImpersonationPermission(superAdminId);
+  async revokePermission(
+    @Param('superAdminId') superAdminId: string,
+    @Body() dto: RevokePermissionDto,
+    @Req() req: Request,
+  ) {
+    const user = getAuthUser(req);
+    if (!user?.id) {
+      throw new UnauthorizedException('User not authenticated');
+    }
+    await this.impersonationService.revokeImpersonationPermission(
+      superAdminId,
+      user.id,
+      dto.reason,
+    );
   }
 
   @Get('permissions/:superAdminId/check/:tenantId')
@@ -334,7 +446,13 @@ export class ImpersonationController {
     @Param('superAdminId') superAdminId: string,
     @Param('tenantId') tenantId: string,
   ) {
-    return this.impersonationService.canImpersonate(superAdminId, tenantId);
+    const result = await this.impersonationService.canImpersonate(superAdminId, tenantId);
+    return {
+      ...result,
+      permission: result.permission
+        ? toAdminImpersonationPermissionV1(result.permission)
+        : undefined,
+    };
   }
 
   // ============================================================================
@@ -342,12 +460,9 @@ export class ImpersonationController {
   // ============================================================================
 
   // Fix: H8 -- per-route throttle: impersonation start is sensitive (3 req / 5 min)
-  @ThrottleSensitive()
+  @RateLimit(ADMIN_RATE_LIMIT_POLICIES.impersonationStart)
   @Post('sessions/start')
-  async startImpersonation(
-    @Body() dto: StartImpersonationDto,
-    @Req() req: Request,
-  ) {
+  async startImpersonation(@Body() dto: StartImpersonationDto, @Req() req: Request) {
     // SECURITY FIX: Get admin identity from verified JWT token, not client-supplied headers
     const user = getAuthUser(req);
     // H-08: email PII removed from JWT — only id (sub) is guaranteed present.
@@ -368,7 +483,7 @@ export class ImpersonationController {
   }
 
   // Fix: H8 -- per-route throttle: impersonation end is sensitive (3 req / 5 min)
-  @ThrottleSensitive()
+  @RateLimit(ADMIN_RATE_LIMIT_POLICIES.sensitive)
   @Post('sessions/:id/end')
   async endImpersonation(
     @Param('id') sessionId: string,
@@ -384,7 +499,7 @@ export class ImpersonationController {
   }
 
   // Fix: H8 -- per-route throttle: session terminate is sensitive (3 req / 5 min)
-  @ThrottleSensitive()
+  @RateLimit(ADMIN_RATE_LIMIT_POLICIES.sensitive)
   @Post('sessions/:id/terminate')
   async terminateSession(
     @Param('id') sessionId: string,
@@ -400,7 +515,7 @@ export class ImpersonationController {
   }
 
   // Fix: H21 -- extend session endpoint
-  @ThrottleSensitive()
+  @RateLimit(ADMIN_RATE_LIMIT_POLICIES.sensitive)
   @Post('sessions/:id/extend')
   async extendSession(
     @Param('id') sessionId: string,
@@ -411,11 +526,7 @@ export class ImpersonationController {
     if (!user?.id) {
       throw new UnauthorizedException('User not authenticated');
     }
-    return this.impersonationService.extendSession(
-      sessionId,
-      dto.additionalMinutes,
-      user.id,
-    );
+    return this.impersonationService.extendSession(sessionId, dto.additionalMinutes, user.id);
   }
 
   /**
@@ -424,10 +535,7 @@ export class ImpersonationController {
    * presented from IP B.
    */
   @Get('sessions/validate')
-  async validateSession(
-    @Headers('x-impersonation-token') token: string,
-    @Req() req: Request,
-  ) {
+  async validateSession(@Headers('x-impersonation-token') token: string, @Req() req: Request) {
     const requestIp = (req.ip || req.socket.remoteAddress) ?? undefined;
     const context = await this.impersonationService.validateSession(token, requestIp);
     return { valid: !!context, context };
@@ -440,7 +548,12 @@ export class ImpersonationController {
 
   @Get('sessions/active/count')
   async getActiveSessionCount() {
-    return { count: this.impersonationService.getActiveSessionCount() };
+    return { count: await this.impersonationService.getActiveSessionCount() };
+  }
+
+  @Get('sessions/:id/actions')
+  async getSessionActions(@Param('id') id: string) {
+    return this.impersonationService.getSessionActions(id);
   }
 
   @Get('sessions/:id')
@@ -455,6 +568,8 @@ export class ImpersonationController {
       targetTenantId: query.targetTenantId,
       status: query.status,
       reason: query.reason,
+      scope: query.scope,
+      search: query.search,
       startDate: query.startDate ? new Date(query.startDate) : undefined,
       endDate: query.endDate ? new Date(query.endDate) : undefined,
       page: query.page,
@@ -468,13 +583,18 @@ export class ImpersonationController {
 
   @Post('sessions/:id/log-action')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async logAction(@Param('id') sessionId: string, @Body() dto: LogActionDto) {
+  async logAction(@Param('id') sessionId: string, @Body() dto: LogActionDto, @Req() req: Request) {
+    const user = getAuthUser(req);
+    if (!user?.id) {
+      throw new UnauthorizedException('User not authenticated');
+    }
     await this.impersonationService.logAction(
       sessionId,
       dto.action,
       dto.resource,
       dto.resourceId,
       dto.details,
+      user.id,
     );
   }
 
@@ -483,12 +603,18 @@ export class ImpersonationController {
   async logResourceAccess(
     @Param('id') sessionId: string,
     @Body() dto: LogResourceAccessDto,
+    @Req() req: Request,
   ) {
+    const user = getAuthUser(req);
+    if (!user?.id) {
+      throw new UnauthorizedException('User not authenticated');
+    }
     await this.impersonationService.logResourceAccess(
       sessionId,
       dto.resourceType,
       dto.resourceId,
       dto.action,
+      user.id,
     );
   }
 

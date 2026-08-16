@@ -19,6 +19,9 @@ export * from './token-blacklist';
 // User Token Revocation (canonical user-level invalidation SSoT — RBAC-HIGH-001)
 export * from './user-token-revocation';
 
+// Read-only composite JTI + user-epoch enforcement capability
+export * from './token-revocation-reader';
+
 // Session Manager (Concurrent Session Limits)
 export * from './session-manager';
 

@@ -13,11 +13,7 @@ import { AdminOutboxModule } from '../outbox/admin-outbox.module';
 import { SettingsModule } from '../settings/settings.module';
 import { UsersModule } from '../users/users.module';
 
-import {
-  TenantActivity,
-  TenantNote,
-  TenantBillingInfo,
-} from './entities/tenant-activity.entity';
+import { TenantActivity, TenantNote, TenantBillingInfo } from './entities/tenant-activity.entity';
 import { Tenant, TenantInvitation } from './entities/tenant.entity';
 import { TenantErasureOperation } from './entities/tenant-erasure-operation.entity';
 import {
@@ -96,13 +92,14 @@ const QueryHandlers = [
     AdminOutboxModule,
     TenantErasureTargetModule.forService('admin-api-service'),
   ],
-  controllers: [TenantPublicController, TenantAdminController, TenantOnboardingAckHandler],
+  controllers: [TenantPublicController, TenantAdminController],
   providers: [
     ...CommandHandlers,
     ...QueryHandlers,
     TenantProvisioningService,
     TenantProvisioningWorkflowService,
     TenantProvisioningMetricsService,
+    TenantOnboardingAckHandler,
     AuthTenantProvisioningClientService,
     TenantActivityService,
     TenantDetailService,

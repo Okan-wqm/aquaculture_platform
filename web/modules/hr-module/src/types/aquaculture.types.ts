@@ -3,7 +3,8 @@
  * Work areas, offshore rotations, crew management
  */
 
-import type { BaseEntity, PaginatedResponse, GeoLocation } from './common.types';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
+import type { BaseEntity, GeoLocation } from './common.types';
 import type { Employee, WorkAreaType } from './employee.types';
 
 // =====================
@@ -217,8 +218,8 @@ export interface WorkRotationFilterInput {
 // Response Types
 // =====================
 
-export type WorkAreaConnection = PaginatedResponse<WorkArea>;
-export type WorkRotationConnection = PaginatedResponse<WorkRotation>;
+export type WorkAreaConnection = PaginationResultV1<WorkArea>;
+export type WorkRotationConnection = PaginationResultV1<WorkRotation>;
 
 // =====================
 // Display Helpers

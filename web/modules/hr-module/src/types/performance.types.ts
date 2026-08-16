@@ -2,7 +2,8 @@
  * Performance Management domain types
  */
 
-import type { BaseEntity, PaginatedResponse } from './common.types';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
+import type { BaseEntity } from './common.types';
 import type { Employee } from './employee.types';
 
 // =====================
@@ -251,9 +252,9 @@ export interface GoalFilterInput {
 // Response Types
 // =====================
 
-export type PerformanceReviewConnection = PaginatedResponse<PerformanceReview>;
-export type GoalConnection = PaginatedResponse<Goal>;
-export type EmployeeKPIConnection = PaginatedResponse<EmployeeKPI>;
+export type PerformanceReviewConnection = PaginationResultV1<PerformanceReview>;
+export type GoalConnection = PaginationResultV1<Goal>;
+export type EmployeeKPIConnection = PaginationResultV1<EmployeeKPI>;
 
 // =====================
 // Display Helpers

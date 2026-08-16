@@ -64,18 +64,6 @@ export interface TicketComment {
   createdAt: string;
 }
 
-export interface TicketReply {
-  id: string;
-  ticketId: string;
-  content: string;
-  isInternal: boolean;
-  createdBy: string;
-  createdByEmail: string;
-  createdByRole: 'customer' | 'support' | 'admin';
-  attachments: Array<{ id: string; filename: string; url: string }>;
-  createdAt: string;
-}
-
 export interface TicketStats {
   total: number;
   open: number;

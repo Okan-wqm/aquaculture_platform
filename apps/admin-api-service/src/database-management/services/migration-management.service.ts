@@ -4,12 +4,11 @@
  * Tenant schema migration yönetimi - tek tenant, toplu migration, rollback ve dry-run.
  */
 
+import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
 import {
-  Injectable,
-  Logger,
-  NotFoundException,
-  ForbiddenException,
-} from '@nestjs/common';
+  createStandardPaginatedResult,
+  type IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 
@@ -61,7 +60,7 @@ export class MigrationManagementService {
    * Get all available migrations
    */
   getAvailableMigrations(): MigrationPlan[] {
-    return MIGRATION_REGISTRY.map(m => ({
+    return MIGRATION_REGISTRY.map((m) => ({
       id: `migration_${m.version.replace(/\./g, '_')}`,
       name: m.name,
       version: m.version,
@@ -117,21 +116,16 @@ export class MigrationManagementService {
       select: ['version'],
     });
 
-    const appliedVersions = new Set(appliedMigrations.map(m => m.version));
+    const appliedVersions = new Set(appliedMigrations.map((m) => m.version));
 
     // Filter to pending migrations
-    return this.getAvailableMigrations().filter(m => !appliedVersions.has(m.version));
+    return this.getAvailableMigrations().filter((m) => !appliedVersions.has(m.version));
   }
 
   /**
    * Run migration for single tenant
    */
-  runMigration(
-    tenantId: string,
-    version: string,
-    isDryRun = false,
-    executedBy?: string,
-  ): never {
+  runMigration(tenantId: string, version: string, isDryRun = false, executedBy?: string): never {
     this.rejectRuntimeMigration(
       `Rejected runtime migration request tenant=${tenantId} version=${version} ` +
         `dryRun=${isDryRun} executedBy=${executedBy ?? 'unknown'}`,
@@ -145,11 +139,7 @@ export class MigrationManagementService {
   /**
    * Run migration for all active tenants
    */
-  runBatchMigration(
-    version: string,
-    isDryRun = false,
-    executedBy?: string,
-  ): never {
+  runBatchMigration(version: string, isDryRun = false, executedBy?: string): never {
     this.rejectRuntimeMigration(
       `Rejected runtime batch migration request version=${version} ` +
         `dryRun=${isDryRun} executedBy=${executedBy ?? 'unknown'}`,
@@ -177,13 +167,13 @@ export class MigrationManagementService {
     const migrations = await this.migrationRepository.find({
       where: {
         version,
-        tenantId: In(activeSchemas.map(s => s.tenantId)),
+        tenantId: In(activeSchemas.map((s) => s.tenantId)),
       },
     });
 
-    const migrationMap = new Map(migrations.map(m => [m.tenantId, m]));
+    const migrationMap = new Map(migrations.map((m) => [m.tenantId, m]));
 
-    const tenants = activeSchemas.map(schema => {
+    const tenants = activeSchemas.map((schema) => {
       const migration = migrationMap.get(schema.tenantId);
       return {
         tenantId: schema.tenantId,
@@ -192,9 +182,9 @@ export class MigrationManagementService {
       };
     });
 
-    const completed = tenants.filter(t => t.status === 'completed').length;
-    const failed = tenants.filter(t => t.status === 'failed').length;
-    const pending = tenants.filter(t => t.status === 'pending').length;
+    const completed = tenants.filter((t) => t.status === 'completed').length;
+    const failed = tenants.filter((t) => t.status === 'failed').length;
+    const pending = tenants.filter((t) => t.status === 'pending').length;
 
     return {
       totalTenants: tenants.length,
@@ -212,11 +202,7 @@ export class MigrationManagementService {
   /**
    * Rollback migration for tenant
    */
-  rollbackMigration(
-    tenantId: string,
-    version: string,
-    executedBy?: string,
-  ): never {
+  rollbackMigration(tenantId: string, version: string, executedBy?: string): never {
     this.rejectRuntimeMigration(
       `Rejected runtime rollback request tenant=${tenantId} version=${version} ` +
         `executedBy=${executedBy ?? 'unknown'}`,
@@ -245,12 +231,7 @@ export class MigrationManagementService {
     limit?: number;
     status?: MigrationStatus;
     version?: string;
-  }): Promise<{
-    data: SchemaMigration[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  }): Promise<IStandardPaginatedResult<SchemaMigration>> {
     const { page = 1, limit = 20, status, version } = options;
 
     const where: Record<string, unknown> = {};
@@ -264,7 +245,7 @@ export class MigrationManagementService {
       take: limit,
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**
@@ -286,13 +267,13 @@ export class MigrationManagementService {
 
     const latestVersion = MIGRATION_REGISTRY[MIGRATION_REGISTRY.length - 1]?.version || '0.0.0';
 
-    const tenantsUpToDate = allSchemas.filter(s => s.currentVersion === latestVersion).length;
+    const tenantsUpToDate = allSchemas.filter((s) => s.currentVersion === latestVersion).length;
 
     return {
       totalMigrations: allMigrations.length,
-      completed: allMigrations.filter(m => m.status === 'completed').length,
-      failed: allMigrations.filter(m => m.status === 'failed').length,
-      rolledBack: allMigrations.filter(m => m.status === 'rolled_back').length,
+      completed: allMigrations.filter((m) => m.status === 'completed').length,
+      failed: allMigrations.filter((m) => m.status === 'failed').length,
+      rolledBack: allMigrations.filter((m) => m.status === 'rolled_back').length,
       latestVersion,
       tenantsUpToDate,
       tenantsOutdated: allSchemas.length - tenantsUpToDate,

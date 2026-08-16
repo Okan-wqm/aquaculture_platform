@@ -5,6 +5,7 @@ import {
   SettingCategory,
   SettingValueType,
 } from '../entities/system-setting.entity';
+import { UpdateSystemSettingDto } from '../dto/settings.dto';
 
 export interface CreateSystemSettingDto {
   key: string;
@@ -21,15 +22,7 @@ export interface CreateSystemSettingDto {
   sortOrder?: number;
 }
 
-export interface UpdateSystemSettingDto {
-  value?: string;
-  description?: string;
-  displayName?: string;
-  isPublic?: boolean;
-  requiresRestart?: boolean;
-  sortOrder?: number;
-  updatedBy?: string;
-}
+type UpdateSystemSettingInput = UpdateSystemSettingDto & { updatedBy?: string };
 
 export interface SystemSettingResponse {
   id: string;
@@ -73,7 +66,9 @@ export class SystemSettingService {
   private readonly bootTime = new Date();
 
   seedDefaultSettings(): void {
-    this.logger.log('Skipping legacy system_settings seed; config-service owns system configuration');
+    this.logger.log(
+      'Skipping legacy system_settings seed; config-service owns system configuration',
+    );
   }
 
   getAllSettings(includePrivate = true): SettingsByCategory {
@@ -88,10 +83,7 @@ export class SystemSettingService {
     return grouped;
   }
 
-  getSettingsByCategory(
-    category: SettingCategory,
-    includePrivate = true,
-  ): SystemSettingResponse[] {
+  getSettingsByCategory(category: SettingCategory, includePrivate = true): SystemSettingResponse[] {
     const all = this.getAllSettings(includePrivate);
     return all[category] ?? [];
   }
@@ -122,7 +114,7 @@ export class SystemSettingService {
     this.throwLegacyGone();
   }
 
-  updateSetting(_key: string, _dto: UpdateSystemSettingDto): never {
+  updateSetting(_key: string, _dto: UpdateSystemSettingInput): never {
     this.throwLegacyGone();
   }
 
@@ -134,10 +126,7 @@ export class SystemSettingService {
     this.throwLegacyGone();
   }
 
-  bulkUpdate(
-    _updates: { key: string; value: string }[],
-    _updatedBy?: string,
-  ): never {
+  bulkUpdate(_updates: { key: string; value: string }[], _updatedBy?: string): never {
     this.throwLegacyGone();
   }
 
@@ -150,10 +139,7 @@ export class SystemSettingService {
     return exported;
   }
 
-  importSettings(
-    _data: Record<string, unknown>,
-    _updatedBy?: string,
-  ): never {
+  importSettings(_data: Record<string, unknown>, _updatedBy?: string): never {
     this.throwLegacyGone();
   }
 
@@ -327,7 +313,10 @@ export class SystemSettingService {
     return {
       id: `legacy:${setting.key}`,
       key: setting.key,
-      value: this.coerceByType(this.envOverrideForKey(setting.key) ?? setting.value, setting.valueType),
+      value: this.coerceByType(
+        this.envOverrideForKey(setting.key) ?? setting.value,
+        setting.valueType,
+      ),
       valueType: setting.valueType,
       category: setting.category,
       description: setting.description,
@@ -365,7 +354,10 @@ export class SystemSettingService {
       try {
         return JSON.parse(value);
       } catch {
-        return value.split(',').map((item) => item.trim()).filter(Boolean);
+        return value
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean);
       }
     }
     if (typeof defaultValue === 'object' && defaultValue !== null) {

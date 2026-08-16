@@ -20,15 +20,13 @@ import {
   TenantContextMiddleware,
   UserContextMiddleware,
 } from '@aquaculture/backend-common/middleware';
+import { RateLimitGuard, RateLimitModule } from '@aquaculture/backend-common/rate-limit';
+import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
 import {
-  RATE_LIMIT_EDGE_CONFIG,
-  RATE_LIMIT_STORE,
-  RateLimitEdgeConfig,
-  RateLimitGuard,
-  RateLimitModule,
-  RateLimitStore,
-} from '@aquaculture/backend-common/rate-limit';
-import { RedisModule, RedisService, buildRedisOptions } from '@aquaculture/backend-common/redis';
+  ITokenRevocationReader,
+  TOKEN_REVOCATION_READER,
+  TokenRevocationReaderModule,
+} from '@aquaculture/backend-common/security';
 import { ApolloGatewayDriver, ApolloGatewayDriverConfig } from '@nestjs/apollo';
 import { Module, MiddlewareConsumer, NestModule, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -41,11 +39,7 @@ import { JwtService } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { StorageModule, StorageConfig } from '@platform/storage';
 import type { DocumentNode, GraphQLSchema } from 'graphql';
-import {
-  getComplexity,
-  simpleEstimator,
-  fieldExtensionsEstimator,
-} from 'graphql-query-complexity';
+import { getComplexity, simpleEstimator, fieldExtensionsEstimator } from 'graphql-query-complexity';
 
 import { BackgroundCompositionManager } from './config/background-composition.manager';
 import { CompositionStateModule } from './config/composition-state.module';
@@ -57,11 +51,6 @@ import { AuthenticatedDataSource } from './federation/authenticated-data-source'
 import type { GatewayContext, RequestWithUser } from './federation/authenticated-data-source';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { AuthGuard } from './guards/auth.guard';
-import {
-  TokenBlacklistStore,
-  TOKEN_BLACKLIST_STORE,
-  buildGatewayTokenBlacklistStore,
-} from './guards/redis-token-blacklist.store';
 import { ApiKeyAuthStrategy } from './guards/strategies/api-key-auth.strategy';
 import { BasicAuthStrategy } from './guards/strategies/basic-auth.strategy';
 import { TenantIsolationGuard } from './guards/tenant-isolation.guard';
@@ -93,11 +82,7 @@ interface QueryComplexityOperationContext {
   schema: GraphQLSchema;
 }
 
-function positiveIntConfig(
-  configService: ConfigService,
-  key: string,
-  fallback: number,
-): number {
+function positiveIntConfig(configService: ConfigService, key: string, fallback: number): number {
   const raw = configService.get<string | number>(key, fallback);
   const parsed = typeof raw === 'number' ? raw : Number.parseInt(raw, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
@@ -260,10 +245,7 @@ function positiveIntConfig(
       driver: ApolloGatewayDriver,
       imports: [ConfigModule],
       inject: [ConfigService, CompositionStateService],
-      useFactory: (
-        configService: ConfigService,
-        compositionState: CompositionStateService,
-      ) => ({
+      useFactory: (configService: ConfigService, compositionState: CompositionStateService) => ({
         gateway: {
           /**
            * ARCH-GW-005 / ARCH-GW-006: Federated subgraph registry, composed in
@@ -303,11 +285,7 @@ function positiveIntConfig(
                 url: configService.get(subgraph.urlEnv, subgraph.localUrl),
               })),
               pollIntervalInMs: 300000, // Poll for schema changes every 5 minutes
-              maxRetries: positiveIntConfig(
-                configService,
-                'GATEWAY_COMPOSITION_MAX_RETRIES',
-                24,
-              ),
+              maxRetries: positiveIntConfig(configService, 'GATEWAY_COMPOSITION_MAX_RETRIES', 24),
               retryDelayMs: positiveIntConfig(
                 configService,
                 'GATEWAY_COMPOSITION_RETRY_DELAY_MS',
@@ -334,19 +312,21 @@ function positiveIntConfig(
           // WHY: gateway UI exposure must not rely on deprecated Apollo Playground behavior.
           // SECURITY: Disable introspection in production to prevent schema discovery attacks
           // Explicit env var allows overriding independently of NODE_ENV
-          introspection: configService.get('GRAPHQL_INTROSPECTION', 'false') === 'true' ||
+          introspection:
+            configService.get('GRAPHQL_INTROSPECTION', 'false') === 'true' ||
             configService.get('NODE_ENV') !== 'production',
           // SECURITY: Hide stack traces in production error responses (C-4)
           includeStacktraceInErrorResponses: configService.get('NODE_ENV') !== 'production',
           // SECURITY: Strip internal details from error responses in production
-          formatError: configService.get('NODE_ENV') === 'production'
-            ? (formattedError: { message: string; extensions?: Record<string, unknown> }) => ({
-                message: formattedError.message,
-                extensions: {
-                  code: formattedError.extensions?.code ?? 'INTERNAL_SERVER_ERROR',
-                },
-              })
-            : undefined,
+          formatError:
+            configService.get('NODE_ENV') === 'production'
+              ? (formattedError: { message: string; extensions?: Record<string, unknown> }) => ({
+                  message: formattedError.message,
+                  extensions: {
+                    code: formattedError.extensions?.code ?? 'INTERNAL_SERVER_ERROR',
+                  },
+                })
+              : undefined,
           // SECURITY: Query complexity limiting to prevent expensive query DoS attacks
           plugins: [
             createGraphqlOperationLimitPlugin({
@@ -354,54 +334,64 @@ function positiveIntConfig(
             }),
             {
               // Hoist Logger out of per-request closure to avoid re-instantiation per operation
-              requestDidStart: () => Promise.resolve({
-                didResolveOperation({
-                  request,
-                  document,
-                  schema,
-                }: QueryComplexityOperationContext): Promise<void> {
-                  const logger = queryComplexityLogger;
-                  const maxComplexity = configService.get<number>('GRAPHQL_MAX_COMPLEXITY', 1000);
+              requestDidStart: () =>
+                Promise.resolve({
+                  didResolveOperation({
+                    request,
+                    document,
+                    schema,
+                  }: QueryComplexityOperationContext): Promise<void> {
+                    const logger = queryComplexityLogger;
+                    const maxComplexity = configService.get<number>('GRAPHQL_MAX_COMPLEXITY', 1000);
 
-                  try {
-                    const complexity = getComplexity({
-                      schema,
-                      operationName: request.operationName ?? undefined,
-                      query: document,
-                      variables: request.variables ?? {},
-                      estimators: [
-                        fieldExtensionsEstimator(),
-                        simpleEstimator({ defaultComplexity: 1 }),
-                      ],
-                    });
+                    try {
+                      const complexity = getComplexity({
+                        schema,
+                        operationName: request.operationName ?? undefined,
+                        query: document,
+                        variables: request.variables ?? {},
+                        estimators: [
+                          fieldExtensionsEstimator(),
+                          simpleEstimator({ defaultComplexity: 1 }),
+                        ],
+                      });
 
-                    if (complexity > maxComplexity) {
-                      logger.warn(
-                        `Query complexity ${complexity} exceeds maximum allowed ${maxComplexity}`,
-                      );
-                      throw new Error(
-                        `Query is too complex: ${complexity}. Maximum allowed complexity: ${maxComplexity}`,
-                      );
-                    }
+                      if (complexity > maxComplexity) {
+                        logger.warn(
+                          `Query complexity ${complexity} exceeds maximum allowed ${maxComplexity}`,
+                        );
+                        throw new Error(
+                          `Query is too complex: ${complexity}. Maximum allowed complexity: ${maxComplexity}`,
+                        );
+                      }
 
-                    if (configService.get('NODE_ENV') !== 'production') {
-                      logger.debug(`Query complexity: ${complexity}/${maxComplexity}`);
+                      if (configService.get('NODE_ENV') !== 'production') {
+                        logger.debug(`Query complexity: ${complexity}/${maxComplexity}`);
+                      }
+                    } catch (error) {
+                      if (
+                        error instanceof Error &&
+                        error.message.includes('Query is too complex')
+                      ) {
+                        throw error;
+                      }
+                      // Log but don't fail on complexity calculation errors
+                      // (e.g., schema not available during startup)
+                      const message = error instanceof Error ? error.message : String(error);
+                      logger.warn(`Could not calculate query complexity: ${message}`);
                     }
-                  } catch (error) {
-                    if (error instanceof Error && error.message.includes('Query is too complex')) {
-                      throw error;
-                    }
-                    // Log but don't fail on complexity calculation errors
-                    // (e.g., schema not available during startup)
-                    const message = error instanceof Error ? error.message : String(error);
-                    logger.warn(`Could not calculate query complexity: ${message}`);
-                  }
-                  return Promise.resolve();
-                },
-              }),
+                    return Promise.resolve();
+                  },
+                }),
             },
           ],
-          context: ({ req, res }: { req: RequestWithUser; res: import('express').Response }): GatewayContext => {
+          context: ({
+            req,
+            res,
+          }: {
+            req: RequestWithUser;
+            res: import('express').Response;
+          }): GatewayContext => {
             // SECURITY: req.user is set by JwtMiddleware which runs before context creation.
             // JwtMiddleware verifies the JWT signature and decodes the payload.
             // This ensures req.user is available when willSendRequest forwards headers.
@@ -433,7 +423,7 @@ function positiveIntConfig(
         if (isProduction && (!accessKey || !secretKey)) {
           throw new Error(
             'CRITICAL: MINIO_ACCESS_KEY and MINIO_SECRET_KEY must be explicitly configured in production. ' +
-            'Application startup aborted to prevent use of default credentials.',
+              'Application startup aborted to prevent use of default credentials.',
           );
         }
 
@@ -445,7 +435,7 @@ function positiveIntConfig(
           const minioLogger = new Logger('StorageModule');
           minioLogger.warn(
             'Using default MinIO credentials for development. ' +
-            'Set MINIO_ACCESS_KEY and MINIO_SECRET_KEY for production.',
+              'Set MINIO_ACCESS_KEY and MINIO_SECRET_KEY for production.',
           );
         }
 
@@ -481,13 +471,14 @@ function positiveIntConfig(
     // route only; gateway signs the internal farm-service request.
     MarineRoutesModule,
 
-    // Redis for distributed rate limiting (optional, falls back to in-memory if not configured)
+    // Redis is the mandatory shared authority for revocation and rate limiting.
     RedisModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) =>
         buildRedisOptions(configService, 'gateway', 'required'),
     }),
+    TokenRevocationReaderModule,
 
     // Platform rate-limit SSoT (D2 / CRITICAL-002). Edge mode: the gateway is a
     // proxy with no decorated routes, so it supplies a config-driven tier policy
@@ -548,7 +539,7 @@ function positiveIntConfig(
         jwtService: JwtService,
         apiKeyStrategy: ApiKeyAuthStrategy,
         basicStrategy: BasicAuthStrategy,
-        tokenBlacklist: TokenBlacklistStore,
+        tokenRevocationReader: ITokenRevocationReader,
       ) =>
         new AuthGuard(
           reflector,
@@ -556,7 +547,7 @@ function positiveIntConfig(
           jwtService,
           apiKeyStrategy,
           basicStrategy,
-          tokenBlacklist,
+          tokenRevocationReader,
         ),
       inject: [
         Reflector,
@@ -564,7 +555,7 @@ function positiveIntConfig(
         JwtService,
         ApiKeyAuthStrategy,
         BasicAuthStrategy,
-        TOKEN_BLACKLIST_STORE,
+        TOKEN_REVOCATION_READER,
       ],
     },
     /**
@@ -595,28 +586,7 @@ function positiveIntConfig(
     // TenantIsolationGuard -> RateLimit) is preserved.
     {
       provide: APP_GUARD,
-      useFactory: (
-        reflector: Reflector,
-        store?: RateLimitStore,
-        edge?: RateLimitEdgeConfig,
-      ): RateLimitGuard => new RateLimitGuard(reflector, store, edge),
-      inject: [
-        Reflector,
-        { token: RATE_LIMIT_STORE, optional: true },
-        { token: RATE_LIMIT_EDGE_CONFIG, optional: true },
-      ],
-    },
-    // Redis-backed authorization marker reader. Production boot fails if an
-    // operator attempts to select the non-distributed development fallback.
-    {
-      provide: TOKEN_BLACKLIST_STORE,
-      useFactory: (redisService: RedisService, configService: ConfigService) =>
-        buildGatewayTokenBlacklistStore(
-          redisService,
-          configService.get<string>('NODE_ENV'),
-          configService.get<string>('TOKEN_BLACKLIST_USE_REDIS'),
-        ),
-      inject: [RedisService, ConfigService],
+      useExisting: RateLimitGuard,
     },
     // Request logging interceptor
     {
@@ -635,9 +605,7 @@ export class AppModule implements NestModule {
      * as a fallback when NGINX headers are not applied (e.g., direct API access,
      * development environments, or NGINX misconfiguration).
      */
-    consumer
-      .apply(SecurityHeadersMiddleware)
-      .forRoutes('*');
+    consumer.apply(SecurityHeadersMiddleware).forRoutes('*');
 
     /**
      * AUDITTRAIL-HIGH-004: low-level HTTP access log, one row per request.
@@ -653,9 +621,7 @@ export class AppModule implements NestModule {
      * rejections — the Express layer sees every request the Nest pipeline
      * would miss.
      */
-    consumer
-      .apply(AccessLogMiddleware)
-      .forRoutes('*');
+    consumer.apply(AccessLogMiddleware).forRoutes('*');
 
     consumer
       .apply(

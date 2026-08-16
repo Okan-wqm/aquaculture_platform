@@ -13,7 +13,7 @@ import {
 } from '../entities/plan-definition.entity';
 import { adminPlanLimitsFor } from '../plan-limits.util';
 
-export interface CreatePlanDto {
+export interface CreatePlanInput {
   code: string;
   name: string;
   description?: string;
@@ -35,7 +35,7 @@ export interface CreatePlanDto {
   createdBy: string;
 }
 
-export interface UpdatePlanDto {
+export interface UpdatePlanInput {
   name?: string;
   description?: string;
   shortDescription?: string;
@@ -104,10 +104,7 @@ export class PlanDefinitionService {
       query.where('plan.isActive = :isActive', { isActive: true });
     }
 
-    return query
-      .orderBy('plan.sortOrder', 'ASC')
-      .addOrderBy('plan.tier', 'ASC')
-      .getMany();
+    return query.orderBy('plan.sortOrder', 'ASC').addOrderBy('plan.tier', 'ASC').getMany();
   }
 
   /**
@@ -160,7 +157,7 @@ export class PlanDefinitionService {
   /**
    * Create a new plan definition
    */
-  async create(dto: CreatePlanDto): Promise<PlanDefinition> {
+  async create(dto: CreatePlanInput): Promise<PlanDefinition> {
     // Check for duplicate code
     const existing = await this.planRepo.findOne({ where: { code: dto.code } });
     if (existing) {
@@ -181,7 +178,7 @@ export class PlanDefinitionService {
   /**
    * Update a plan definition
    */
-  async update(id: string, dto: UpdatePlanDto): Promise<PlanDefinition> {
+  async update(id: string, dto: UpdatePlanInput): Promise<PlanDefinition> {
     const plan = await this.findById(id);
 
     // Merge partial updates for nested objects
@@ -196,11 +193,22 @@ export class PlanDefinitionService {
     }
 
     // Update simple fields
-    const simpleFields: (keyof UpdatePlanDto)[] = [
-      'name', 'description', 'shortDescription', 'visibility',
-      'isActive', 'isRecommended', 'sortOrder', 'trialDays',
-      'gracePeriodDays', 'upgradeMessage', 'downgradeWarning',
-      'icon', 'color', 'badge', 'updatedBy'
+    const simpleFields: (keyof UpdatePlanInput)[] = [
+      'name',
+      'description',
+      'shortDescription',
+      'visibility',
+      'isActive',
+      'isRecommended',
+      'sortOrder',
+      'trialDays',
+      'gracePeriodDays',
+      'upgradeMessage',
+      'downgradeWarning',
+      'icon',
+      'color',
+      'badge',
+      'updatedBy',
     ];
 
     for (const field of simpleFields) {
@@ -243,11 +251,17 @@ export class PlanDefinitionService {
 
     // Compare limits
     const limitKeys: (keyof PlanLimits)[] = [
-      'maxUsers', 'maxFarms', 'maxPonds', 'maxSensors', 'maxModules',
-      'storageGB', 'dataRetentionDays', 'apiRateLimit'
+      'maxUsers',
+      'maxFarms',
+      'maxPonds',
+      'maxSensors',
+      'maxModules',
+      'storageGB',
+      'dataRetentionDays',
+      'apiRateLimit',
     ];
 
-    const limitChanges = limitKeys.map(key => {
+    const limitChanges = limitKeys.map((key) => {
       const currentValue = currentPlan.limits[key] as number;
       const newValue = newPlan.limits[key] as number;
       let change: 'increase' | 'decrease' | 'same' = 'same';
@@ -268,9 +282,15 @@ export class PlanDefinitionService {
 
     // Compare boolean features
     const booleanFeatures: (keyof PlanLimits)[] = [
-      'alertsEnabled', 'reportsEnabled', 'customBrandingEnabled',
-      'apiAccessEnabled', 'customIntegrationsEnabled', 'ssoEnabled',
-      'auditLogEnabled', 'prioritySupport', 'dedicatedAccountManager'
+      'alertsEnabled',
+      'reportsEnabled',
+      'customBrandingEnabled',
+      'apiAccessEnabled',
+      'customIntegrationsEnabled',
+      'ssoEnabled',
+      'auditLogEnabled',
+      'prioritySupport',
+      'dedicatedAccountManager',
     ];
 
     const featureChanges: Array<{ feature: string; gaining: boolean }> = [];
@@ -283,29 +303,35 @@ export class PlanDefinitionService {
     }
 
     // Determine upgrade/downgrade
-    const hasAnyDecrease = limitChanges.some(c => c.change === 'decrease') ||
-                           featureChanges.some(c => !c.gaining);
-    const hasAnyIncrease = limitChanges.some(c => c.change === 'increase') ||
-                           featureChanges.some(c => c.gaining);
+    const hasAnyDecrease =
+      limitChanges.some((c) => c.change === 'decrease') || featureChanges.some((c) => !c.gaining);
+    const hasAnyIncrease =
+      limitChanges.some((c) => c.change === 'increase') || featureChanges.some((c) => c.gaining);
 
-    const isUpgrade = priceDifference > 0 || (priceDifference === 0 && hasAnyIncrease && !hasAnyDecrease);
-    const isDowngrade = priceDifference < 0 || (priceDifference === 0 && hasAnyDecrease && !hasAnyIncrease);
+    const isUpgrade =
+      priceDifference > 0 || (priceDifference === 0 && hasAnyIncrease && !hasAnyDecrease);
+    const isDowngrade =
+      priceDifference < 0 || (priceDifference === 0 && hasAnyDecrease && !hasAnyIncrease);
 
     // Generate warnings
     const warnings: string[] = [];
     if (isDowngrade) {
-      warnings.push(newPlan.downgradeWarning || 'Downgrading may result in loss of features or data.');
+      warnings.push(
+        newPlan.downgradeWarning || 'Downgrading may result in loss of features or data.',
+      );
 
-      const lostFeatures = featureChanges.filter(c => !c.gaining);
+      const lostFeatures = featureChanges.filter((c) => !c.gaining);
       if (lostFeatures.length > 0) {
-        warnings.push(`You will lose access to: ${lostFeatures.map(f => f.feature).join(', ')}`);
+        warnings.push(`You will lose access to: ${lostFeatures.map((f) => f.feature).join(', ')}`);
       }
 
-      const reducedLimits = limitChanges.filter(c => c.change === 'decrease');
+      const reducedLimits = limitChanges.filter((c) => c.change === 'decrease');
       if (reducedLimits.length > 0) {
         for (const limit of reducedLimits) {
           if (limit.limit === 'maxUsers') {
-            warnings.push(`User limit will decrease from ${limit.currentValue === -1 ? 'unlimited' : limit.currentValue} to ${limit.newValue}`);
+            warnings.push(
+              `User limit will decrease from ${limit.currentValue === -1 ? 'unlimited' : limit.currentValue} to ${limit.newValue}`,
+            );
           }
         }
       }
@@ -331,9 +357,10 @@ export class PlanDefinitionService {
     billingCycle: BillingCycle,
   ): ProratedPricing {
     const now = new Date();
-    const daysRemaining = Math.max(0, Math.ceil(
-      (currentPeriodEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
-    ));
+    const daysRemaining = Math.max(
+      0,
+      Math.ceil((currentPeriodEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)),
+    );
 
     const cycleDays = this.getBillingCycleDays(billingCycle);
     const dailyRateMultiplier = daysRemaining / cycleDays;
@@ -380,7 +407,7 @@ export class PlanDefinitionService {
       return;
     }
 
-    const defaultPlans: CreatePlanDto[] = [
+    const defaultPlans: CreatePlanInput[] = [
       {
         code: 'free_2024',
         name: 'Free',
@@ -391,9 +418,27 @@ export class PlanDefinitionService {
         limits: this.getDefaultLimitsForTier(PlanTier.FREE),
         pricing: {
           monthly: { basePrice: 0, perUserPrice: 0, perFarmPrice: 0, perModulePrice: 0 },
-          quarterly: { basePrice: 0, perUserPrice: 0, perFarmPrice: 0, perModulePrice: 0, discountPercent: 0 },
-          semiAnnual: { basePrice: 0, perUserPrice: 0, perFarmPrice: 0, perModulePrice: 0, discountPercent: 0 },
-          annual: { basePrice: 0, perUserPrice: 0, perFarmPrice: 0, perModulePrice: 0, discountPercent: 0 },
+          quarterly: {
+            basePrice: 0,
+            perUserPrice: 0,
+            perFarmPrice: 0,
+            perModulePrice: 0,
+            discountPercent: 0,
+          },
+          semiAnnual: {
+            basePrice: 0,
+            perUserPrice: 0,
+            perFarmPrice: 0,
+            perModulePrice: 0,
+            discountPercent: 0,
+          },
+          annual: {
+            basePrice: 0,
+            perUserPrice: 0,
+            perFarmPrice: 0,
+            perModulePrice: 0,
+            discountPercent: 0,
+          },
           currency: 'USD',
         },
         features: {
@@ -418,17 +463,47 @@ export class PlanDefinitionService {
         limits: this.getDefaultLimitsForTier(PlanTier.STARTER),
         pricing: {
           monthly: { basePrice: 99, perUserPrice: 10, perFarmPrice: 25, perModulePrice: 15 },
-          quarterly: { basePrice: 267, perUserPrice: 27, perFarmPrice: 67, perModulePrice: 40, discountPercent: 10 },
-          semiAnnual: { basePrice: 505, perUserPrice: 51, perFarmPrice: 127, perModulePrice: 76, discountPercent: 15 },
-          annual: { basePrice: 950, perUserPrice: 96, perFarmPrice: 240, perModulePrice: 144, discountPercent: 20 },
+          quarterly: {
+            basePrice: 267,
+            perUserPrice: 27,
+            perFarmPrice: 67,
+            perModulePrice: 40,
+            discountPercent: 10,
+          },
+          semiAnnual: {
+            basePrice: 505,
+            perUserPrice: 51,
+            perFarmPrice: 127,
+            perModulePrice: 76,
+            discountPercent: 15,
+          },
+          annual: {
+            basePrice: 950,
+            perUserPrice: 96,
+            perFarmPrice: 240,
+            perModulePrice: 144,
+            discountPercent: 20,
+          },
           currency: 'USD',
         },
         features: {
-          coreFeatures: ['Dashboard', 'Advanced alerts', 'Data visualization', 'Basic reports', 'Email support'],
+          coreFeatures: [
+            'Dashboard',
+            'Advanced alerts',
+            'Data visualization',
+            'Basic reports',
+            'Email support',
+          ],
           advancedFeatures: ['API access', 'Audit logs'],
           premiumFeatures: [],
           addOns: [
-            { code: 'extra_storage', name: 'Extra Storage', description: '10GB additional storage', price: 5, billingCycle: BillingCycle.MONTHLY },
+            {
+              code: 'extra_storage',
+              name: 'Extra Storage',
+              description: '10GB additional storage',
+              price: 5,
+              billingCycle: BillingCycle.MONTHLY,
+            },
           ],
         },
         trialDays: 14,
@@ -448,18 +523,60 @@ export class PlanDefinitionService {
         limits: this.getDefaultLimitsForTier(PlanTier.PROFESSIONAL),
         pricing: {
           monthly: { basePrice: 299, perUserPrice: 8, perFarmPrice: 20, perModulePrice: 12 },
-          quarterly: { basePrice: 807, perUserPrice: 22, perFarmPrice: 54, perModulePrice: 32, discountPercent: 10 },
-          semiAnnual: { basePrice: 1527, perUserPrice: 41, perFarmPrice: 102, perModulePrice: 61, discountPercent: 15 },
-          annual: { basePrice: 2870, perUserPrice: 77, perFarmPrice: 192, perModulePrice: 115, discountPercent: 20 },
+          quarterly: {
+            basePrice: 807,
+            perUserPrice: 22,
+            perFarmPrice: 54,
+            perModulePrice: 32,
+            discountPercent: 10,
+          },
+          semiAnnual: {
+            basePrice: 1527,
+            perUserPrice: 41,
+            perFarmPrice: 102,
+            perModulePrice: 61,
+            discountPercent: 15,
+          },
+          annual: {
+            basePrice: 2870,
+            perUserPrice: 77,
+            perFarmPrice: 192,
+            perModulePrice: 115,
+            discountPercent: 20,
+          },
           currency: 'USD',
         },
         features: {
-          coreFeatures: ['Dashboard', 'Advanced alerts', 'Data visualization', 'Custom reports', 'Priority email support'],
-          advancedFeatures: ['API access', 'Audit logs', 'Custom branding', 'Integrations', 'Phone support'],
+          coreFeatures: [
+            'Dashboard',
+            'Advanced alerts',
+            'Data visualization',
+            'Custom reports',
+            'Priority email support',
+          ],
+          advancedFeatures: [
+            'API access',
+            'Audit logs',
+            'Custom branding',
+            'Integrations',
+            'Phone support',
+          ],
           premiumFeatures: [],
           addOns: [
-            { code: 'extra_storage', name: 'Extra Storage', description: '50GB additional storage', price: 20, billingCycle: BillingCycle.MONTHLY },
-            { code: 'dedicated_training', name: 'Dedicated Training', description: '2-hour training session', price: 199, billingCycle: BillingCycle.MONTHLY },
+            {
+              code: 'extra_storage',
+              name: 'Extra Storage',
+              description: '50GB additional storage',
+              price: 20,
+              billingCycle: BillingCycle.MONTHLY,
+            },
+            {
+              code: 'dedicated_training',
+              name: 'Dedicated Training',
+              description: '2-hour training session',
+              price: 199,
+              billingCycle: BillingCycle.MONTHLY,
+            },
           ],
         },
         trialDays: 14,
@@ -479,15 +596,51 @@ export class PlanDefinitionService {
         limits: this.getDefaultLimitsForTier(PlanTier.ENTERPRISE),
         pricing: {
           monthly: { basePrice: 999, perUserPrice: 0, perFarmPrice: 0, perModulePrice: 0 },
-          quarterly: { basePrice: 2697, perUserPrice: 0, perFarmPrice: 0, perModulePrice: 0, discountPercent: 10 },
-          semiAnnual: { basePrice: 5095, perUserPrice: 0, perFarmPrice: 0, perModulePrice: 0, discountPercent: 15 },
-          annual: { basePrice: 9590, perUserPrice: 0, perFarmPrice: 0, perModulePrice: 0, discountPercent: 20 },
+          quarterly: {
+            basePrice: 2697,
+            perUserPrice: 0,
+            perFarmPrice: 0,
+            perModulePrice: 0,
+            discountPercent: 10,
+          },
+          semiAnnual: {
+            basePrice: 5095,
+            perUserPrice: 0,
+            perFarmPrice: 0,
+            perModulePrice: 0,
+            discountPercent: 15,
+          },
+          annual: {
+            basePrice: 9590,
+            perUserPrice: 0,
+            perFarmPrice: 0,
+            perModulePrice: 0,
+            discountPercent: 20,
+          },
           currency: 'USD',
         },
         features: {
-          coreFeatures: ['Dashboard', 'Advanced alerts', 'Data visualization', 'Custom reports', '24/7 support'],
-          advancedFeatures: ['API access', 'Audit logs', 'Custom branding', 'Integrations', 'Dedicated support'],
-          premiumFeatures: ['SSO', 'Dedicated account manager', 'Custom SLA', 'On-premise option', 'White-label'],
+          coreFeatures: [
+            'Dashboard',
+            'Advanced alerts',
+            'Data visualization',
+            'Custom reports',
+            '24/7 support',
+          ],
+          advancedFeatures: [
+            'API access',
+            'Audit logs',
+            'Custom branding',
+            'Integrations',
+            'Dedicated support',
+          ],
+          premiumFeatures: [
+            'SSO',
+            'Dedicated account manager',
+            'Custom SLA',
+            'On-premise option',
+            'White-label',
+          ],
           addOns: [],
         },
         trialDays: 30,
@@ -508,21 +661,31 @@ export class PlanDefinitionService {
 
   private getBillingCycleDays(cycle: BillingCycle): number {
     switch (cycle) {
-      case BillingCycle.MONTHLY: return 30;
-      case BillingCycle.QUARTERLY: return 90;
-      case BillingCycle.SEMI_ANNUAL: return 180;
-      case BillingCycle.ANNUAL: return 365;
-      default: return 30;
+      case BillingCycle.MONTHLY:
+        return 30;
+      case BillingCycle.QUARTERLY:
+        return 90;
+      case BillingCycle.SEMI_ANNUAL:
+        return 180;
+      case BillingCycle.ANNUAL:
+        return 365;
+      default:
+        return 30;
     }
   }
 
   private getPriceForCycle(pricing: PlanPricing, cycle: BillingCycle): number {
     switch (cycle) {
-      case BillingCycle.MONTHLY: return pricing.monthly.basePrice;
-      case BillingCycle.QUARTERLY: return pricing.quarterly.basePrice;
-      case BillingCycle.SEMI_ANNUAL: return pricing.semiAnnual.basePrice;
-      case BillingCycle.ANNUAL: return pricing.annual.basePrice;
-      default: return pricing.monthly.basePrice;
+      case BillingCycle.MONTHLY:
+        return pricing.monthly.basePrice;
+      case BillingCycle.QUARTERLY:
+        return pricing.quarterly.basePrice;
+      case BillingCycle.SEMI_ANNUAL:
+        return pricing.semiAnnual.basePrice;
+      case BillingCycle.ANNUAL:
+        return pricing.annual.basePrice;
+      default:
+        return pricing.monthly.basePrice;
     }
   }
 }

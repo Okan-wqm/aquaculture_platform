@@ -5,6 +5,10 @@
  * incident response, and real-time security monitoring.
  */
 
+import {
+  createStandardPaginatedResult,
+  type IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -225,12 +229,7 @@ export class SecurityMonitoringService implements OnModuleInit {
     startDate?: Date;
     endDate?: Date;
     searchQuery?: string;
-  }): Promise<{
-    data: SecurityEvent[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  }): Promise<IStandardPaginatedResult<SecurityEvent>> {
     const {
       page = 1,
       limit = 50,
@@ -256,10 +255,9 @@ export class SecurityMonitoringService implements OnModuleInit {
     if (startDate) qb.andWhere('event.createdAt >= :startDate', { startDate });
     if (endDate) qb.andWhere('event.createdAt <= :endDate', { endDate });
     if (searchQuery) {
-      qb.andWhere(
-        '(event.title ILIKE :search OR event.description ILIKE :search)',
-        { search: `%${searchQuery}%` },
-      );
+      qb.andWhere('(event.title ILIKE :search OR event.description ILIKE :search)', {
+        search: `%${searchQuery}%`,
+      });
     }
 
     qb.orderBy('event.createdAt', 'DESC');
@@ -268,7 +266,7 @@ export class SecurityMonitoringService implements OnModuleInit {
 
     const [data, total] = await qb.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**
@@ -371,9 +369,10 @@ export class SecurityMonitoringService implements OnModuleInit {
           factors: ['high_failure_rate', 'short_time_window'],
         },
         autoMitigated: failedByEmail >= this.config.bruteForceThreshold,
-        mitigationActions: failedByEmail >= this.config.bruteForceThreshold
-          ? ['account_locked', 'ip_blocked_temp']
-          : undefined,
+        mitigationActions:
+          failedByEmail >= this.config.bruteForceThreshold
+            ? ['account_locked', 'ip_blocked_temp']
+            : undefined,
       });
     }
 
@@ -467,9 +466,7 @@ export class SecurityMonitoringService implements OnModuleInit {
 
     // Check if current location is anomalous
     const knownCountries = new Set(
-      recentLogins
-        .filter((l) => l.geoLocation?.countryCode)
-        .map((l) => l.geoLocation!.countryCode),
+      recentLogins.filter((l) => l.geoLocation?.countryCode).map((l) => l.geoLocation!.countryCode),
     );
 
     if (knownCountries.size > 0 && !knownCountries.has(currentGeo.countryCode)) {
@@ -510,7 +507,8 @@ export class SecurityMonitoringService implements OnModuleInit {
    */
   private async checkTimeAnomaly(ipAddress: string, userId?: string): Promise<void> {
     const currentHour = new Date().getHours();
-    const isOffHours = currentHour >= this.config.offHoursEnd && currentHour < this.config.offHoursStart;
+    const isOffHours =
+      currentHour >= this.config.offHoursEnd && currentHour < this.config.offHoursStart;
 
     if (!isOffHours) return;
 
@@ -673,15 +671,8 @@ export class SecurityMonitoringService implements OnModuleInit {
 
     if (threat) {
       // Update hit count
-      await this.threatIntelRepository.increment(
-        { id: threat.id },
-        'hitCount',
-        1,
-      );
-      await this.threatIntelRepository.update(
-        { id: threat.id },
-        { lastSeenAt: new Date() },
-      );
+      await this.threatIntelRepository.increment({ id: threat.id }, 'hitCount', 1);
+      await this.threatIntelRepository.update({ id: threat.id }, { lastSeenAt: new Date() });
 
       // Create security event
       await this.createSecurityEvent({
@@ -755,12 +746,7 @@ export class SecurityMonitoringService implements OnModuleInit {
     threatLevel?: ThreatLevel;
     isActive?: boolean;
     searchQuery?: string;
-  }): Promise<{
-    data: ThreatIntelligence[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  }): Promise<IStandardPaginatedResult<ThreatIntelligence>> {
     const { page = 1, limit = 50, indicatorType, threatLevel, isActive, searchQuery } = options;
 
     const qb = this.threatIntelRepository.createQueryBuilder('threat');
@@ -769,10 +755,9 @@ export class SecurityMonitoringService implements OnModuleInit {
     if (threatLevel) qb.andWhere('threat.threatLevel = :threatLevel', { threatLevel });
     if (isActive !== undefined) qb.andWhere('threat.isActive = :isActive', { isActive });
     if (searchQuery) {
-      qb.andWhere(
-        '(threat.value ILIKE :search OR threat.description ILIKE :search)',
-        { search: `%${searchQuery}%` },
-      );
+      qb.andWhere('(threat.value ILIKE :search OR threat.description ILIKE :search)', {
+        search: `%${searchQuery}%`,
+      });
     }
 
     qb.orderBy('threat.lastSeenAt', 'DESC');
@@ -781,7 +766,7 @@ export class SecurityMonitoringService implements OnModuleInit {
 
     const [data, total] = await qb.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   // ============================================================================
@@ -818,10 +803,7 @@ export class SecurityMonitoringService implements OnModuleInit {
     const saved = await this.incidentRepository.save(incident);
 
     // Update event status
-    await this.securityEventRepository.update(
-      { id: event.id },
-      { status: 'escalated' },
-    );
+    await this.securityEventRepository.update({ id: event.id }, { status: 'escalated' });
 
     this.logger.warn(`Security incident created: ${incidentNumber}`);
 
@@ -900,12 +882,7 @@ export class SecurityMonitoringService implements OnModuleInit {
     severity?: IncidentSeverity;
     startDate?: Date;
     endDate?: Date;
-  }): Promise<{
-    data: SecurityIncident[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  }): Promise<IStandardPaginatedResult<SecurityIncident>> {
     const { page = 1, limit = 20, status, severity, startDate, endDate } = options;
 
     const qb = this.incidentRepository.createQueryBuilder('incident');
@@ -921,7 +898,7 @@ export class SecurityMonitoringService implements OnModuleInit {
 
     const [data, total] = await qb.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   // ============================================================================
@@ -964,11 +941,12 @@ export class SecurityMonitoringService implements OnModuleInit {
     const previousPeriod = await this.securityEventRepository.count({
       where: { createdAt: Between(new Date(last7d.getTime() - 7 * 24 * 60 * 60 * 1000), last7d) },
     });
-    const eventsTrend = eventsLast7d > previousPeriod * 1.1
-      ? 'increasing'
-      : eventsLast7d < previousPeriod * 0.9
-      ? 'decreasing'
-      : 'stable';
+    const eventsTrend =
+      eventsLast7d > previousPeriod * 1.1
+        ? 'increasing'
+        : eventsLast7d < previousPeriod * 0.9
+          ? 'decreasing'
+          : 'stable';
 
     // By type
     const typeStats = await this.securityEventRepository
@@ -1034,7 +1012,7 @@ export class SecurityMonitoringService implements OnModuleInit {
     // Timeline (last 30 days)
     const timeline = await this.securityEventRepository
       .createQueryBuilder('event')
-      .select("DATE(event.createdAt)", 'date')
+      .select('DATE(event.createdAt)', 'date')
       .addSelect("SUM(CASE WHEN event.threatLevel = 'critical' THEN 1 ELSE 0 END)", 'critical')
       .addSelect("SUM(CASE WHEN event.threatLevel = 'high' THEN 1 ELSE 0 END)", 'high')
       .addSelect("SUM(CASE WHEN event.threatLevel = 'medium' THEN 1 ELSE 0 END)", 'medium')

@@ -9,6 +9,7 @@
  */
 import { graphqlClient, useTenantMutation, useTenantQuery } from '@aquaculture/shared-ui';
 import type { UseQueryResult } from '@tanstack/react-query';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 
 import {
   CREATE_SITE_MUTATION,
@@ -141,12 +142,12 @@ export interface UpdateSiteInput {
   isActive?: boolean;
 }
 
-export interface PaginatedSitesResponse {
-  items: Site[];
-  total: number;
-  page: number;
-  limit: number;
-}
+type SitePageResponse = Pick<
+  PaginationResultV1<Site>,
+  'items' | 'total' | 'page' | 'limit'
+>;
+
+export type SiteListResult = Pick<PaginationResultV1<Site>, 'items' | 'total'>;
 
 export interface SiteListFilter {
   status?: string;
@@ -161,7 +162,7 @@ const MAX_SITE_LIST_PAGES = 1_000;
 const SITE_LIST_TIMEOUT_MS = 30_000;
 
 function assertSitePageContract(
-  page: PaginatedSitesResponse,
+  page: SitePageResponse,
   expectedPage: number,
   expectedTotal?: number,
 ): void {
@@ -188,7 +189,7 @@ function throwIfAborted(signal: AbortSignal): void {
 async function loadAuthorizedSitePages(
   filter: SiteListFilter | undefined,
   querySignal: AbortSignal,
-): Promise<PaginatedSitesResponse> {
+): Promise<SiteListResult> {
   const controller = new AbortController();
   const abortFromQuery = (): void => controller.abort(querySignal.reason);
   if (querySignal.aborted) {
@@ -198,9 +199,9 @@ async function loadAuthorizedSitePages(
   }
   const timeoutId = setTimeout(() => controller.abort(), SITE_LIST_TIMEOUT_MS);
 
-  const requestPage = async (page: number): Promise<PaginatedSitesResponse> => {
+  const requestPage = async (page: number): Promise<SitePageResponse> => {
     throwIfAborted(controller.signal);
-    const data = await graphqlClient.request<{ sites: PaginatedSitesResponse }>(
+    const data = await graphqlClient.request<{ sites: SitePageResponse }>(
       SITES_LIST_QUERY,
       {
         filter,
@@ -244,8 +245,6 @@ async function loadAuthorizedSitePages(
     return {
       items: [...sitesById.values()],
       total: firstPage.total,
-      page: 1,
-      limit: SITE_PAGE_SIZE,
     };
   } finally {
     clearTimeout(timeoutId);
@@ -262,8 +261,8 @@ async function loadAuthorizedSitePages(
  */
 export function useSiteList(
   filter?: SiteListFilter,
-): UseQueryResult<PaginatedSitesResponse, Error> {
-  return useTenantQuery<PaginatedSitesResponse>(
+): UseQueryResult<SiteListResult, Error> {
+  return useTenantQuery<SiteListResult>(
     ['sites', 'list', filter],
     async ({ signal }) => loadAuthorizedSitePages(filter, signal),
     { staleTime: 30000 },

@@ -4,6 +4,10 @@
  * Platform duyuru sistemi - global ve hedefli duyurular.
  */
 
+import {
+  createStandardPaginatedResult,
+  type IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -121,7 +125,7 @@ export class AnnouncementService {
 
     // Cannot update published announcements except for expiry
     if (announcement.status === 'published') {
-      if (Object.keys(data).some(key => key !== 'expiresAt')) {
+      if (Object.keys(data).some((key) => key !== 'expiresAt')) {
         throw new BadRequestException('Cannot modify published announcement');
       }
     }
@@ -197,12 +201,7 @@ export class AnnouncementService {
     limit?: number;
     status?: AnnouncementStatus;
     type?: AnnouncementType;
-  }): Promise<{
-    data: Announcement[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  }): Promise<IStandardPaginatedResult<Announcement>> {
     const { page = 1, limit = 20, status, type } = options;
 
     const where: Record<string, unknown> = {};
@@ -216,7 +215,7 @@ export class AnnouncementService {
       take: limit,
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**
@@ -235,7 +234,7 @@ export class AnnouncementService {
     });
 
     // Filter by expiry and target criteria
-    return announcements.filter(a => {
+    return announcements.filter((a) => {
       // Check expiry
       if (a.expiresAt && a.expiresAt < now) {
         return false;
@@ -254,10 +253,7 @@ export class AnnouncementService {
   /**
    * Check if tenant matches target criteria
    */
-  private matchesTargetCriteria(
-    tenantId: string,
-    criteria: AnnouncementTarget | null,
-  ): boolean {
+  private matchesTargetCriteria(tenantId: string, criteria: AnnouncementTarget | null): boolean {
     if (!criteria) return true;
 
     // Check explicit tenant inclusion
@@ -375,13 +371,10 @@ export class AnnouncementService {
   /**
    * Get pending acknowledgments for user
    */
-  async getPendingAcknowledgments(
-    tenantId: string,
-    userId: string,
-  ): Promise<Announcement[]> {
+  async getPendingAcknowledgments(tenantId: string, userId: string): Promise<Announcement[]> {
     // Get active announcements requiring acknowledgment
     const announcements = await this.getActiveAnnouncementsForTenant(tenantId);
-    const requiresAck = announcements.filter(a => a.requiresAcknowledgment);
+    const requiresAck = announcements.filter((a) => a.requiresAcknowledgment);
 
     if (requiresAck.length === 0) return [];
 
@@ -389,16 +382,16 @@ export class AnnouncementService {
     const acks = await this.acknowledgmentRepository.find({
       where: {
         userId,
-        announcementId: In(requiresAck.map(a => a.id)),
+        announcementId: In(requiresAck.map((a) => a.id)),
       },
     });
 
     const acknowledgedIds = new Set(
-      acks.filter(a => a.acknowledgedAt).map(a => a.announcementId)
+      acks.filter((a) => a.acknowledgedAt).map((a) => a.announcementId),
     );
 
     // Return announcements not yet acknowledged
-    return requiresAck.filter(a => !acknowledgedIds.has(a.id));
+    return requiresAck.filter((a) => !acknowledgedIds.has(a.id));
   }
 
   // ============================================================================
@@ -468,17 +461,17 @@ export class AnnouncementService {
 
     const stats = {
       total: all.length,
-      published: all.filter(a => a.status === 'published').length,
-      scheduled: all.filter(a => a.status === 'scheduled').length,
-      draft: all.filter(a => a.status === 'draft').length,
-      expired: all.filter(a => a.status === 'expired').length,
+      published: all.filter((a) => a.status === 'published').length,
+      scheduled: all.filter((a) => a.status === 'scheduled').length,
+      draft: all.filter((a) => a.status === 'draft').length,
+      expired: all.filter((a) => a.status === 'expired').length,
       totalViews: all.reduce((sum, a) => sum + (a.viewCount ?? 0), 0),
       totalAcknowledgments: all.reduce((sum, a) => sum + (a.acknowledgmentCount ?? 0), 0),
       byType: {
-        info: all.filter(a => a.type === 'info').length,
-        warning: all.filter(a => a.type === 'warning').length,
-        critical: all.filter(a => a.type === 'critical').length,
-        maintenance: all.filter(a => a.type === 'maintenance').length,
+        info: all.filter((a) => a.type === 'info').length,
+        warning: all.filter((a) => a.type === 'warning').length,
+        critical: all.filter((a) => a.type === 'critical').length,
+        maintenance: all.filter((a) => a.type === 'maintenance').length,
       },
     };
 

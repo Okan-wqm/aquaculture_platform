@@ -9,7 +9,21 @@
  * - Malformed/tampered token rejection
  * - JWT secret configuration validation
  */
-import { ExecutionContext, UnauthorizedException, ForbiddenException } from '@nestjs/common';
+import {
+  RateLimitAuthorityUnavailableError,
+  RateLimitEnforcementService,
+} from '@aquaculture/backend-common/rate-limit';
+import {
+  SecurityEventService,
+  TOKEN_REVOCATION_READER,
+} from '@aquaculture/backend-common/security';
+import {
+  ExecutionContext,
+  ForbiddenException,
+  HttpException,
+  ServiceUnavailableException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
@@ -25,14 +39,19 @@ jest.mock('@aquaculture/backend-common/auth', () => {
   );
   return {
     ...actual,
-    getJwtVerifyOptions: jest.fn(() => ({ secret: 'a-very-secure-test-secret-that-is-at-least-32-chars-long' })),
+    getJwtVerifyOptions: jest.fn(() => ({
+      secret: 'a-very-secure-test-secret-that-is-at-least-32-chars-long',
+    })),
   };
 });
 
 interface MockRequest {
-  headers: { authorization?: string };
+  headers: { authorization?: string; 'user-agent'?: string };
   method: string;
   url: string;
+  path: string;
+  ip: string;
+  socket: { remoteAddress?: string };
   user?: {
     sub: string;
     id: string;
@@ -40,6 +59,9 @@ interface MockRequest {
     roles: string[];
     role?: string;
     tenantId?: string;
+    mfaVerified?: boolean;
+    iat?: number;
+    jti?: string;
   };
 }
 
@@ -49,6 +71,10 @@ describe('PlatformAdminGuard', () => {
 
   let guard: PlatformAdminGuard;
   let reflector: Reflector;
+  let getRevocationStatus: jest.Mock;
+  let evaluateRateLimit: jest.Mock;
+  let publishTokenRejected: jest.Mock;
+  let publishRateLimitExceeded: jest.Mock;
 
   function createMockExecutionContext(overrides: {
     authHeader?: string;
@@ -58,11 +84,12 @@ describe('PlatformAdminGuard', () => {
     requiredRoles?: string[];
   }): ExecutionContext {
     const request: MockRequest = {
-      headers: overrides.authHeader !== undefined
-        ? { authorization: overrides.authHeader }
-        : {},
+      headers: overrides.authHeader !== undefined ? { authorization: overrides.authHeader } : {},
       method: overrides.method || 'GET',
       url: overrides.url || '/test',
+      path: overrides.url || '/test',
+      ip: '203.0.113.10',
+      socket: { remoteAddress: '203.0.113.10' },
     };
 
     const mockReflector = reflector;
@@ -77,14 +104,18 @@ describe('PlatformAdminGuard', () => {
     return {
       switchToHttp: () => ({
         getRequest: <T = MockRequest>() => request as T,
-        getResponse: () => ({}),
+        getResponse: () => ({ setHeader: jest.fn() }),
       }),
       getHandler: () => ({}),
       getClass: () => ({}),
     } as unknown as ExecutionContext;
   }
 
-  function signToken(payload: Partial<JwtPayload>, secret = TEST_JWT_SECRET, options?: jwt.SignOptions): string {
+  function signToken(
+    payload: Partial<JwtPayload>,
+    secret = TEST_JWT_SECRET,
+    options?: jwt.SignOptions,
+  ): string {
     const defaults: JwtPayload = {
       sub: 'user-123',
       email: 'admin@test.com',
@@ -99,6 +130,17 @@ describe('PlatformAdminGuard', () => {
 
   beforeEach(async () => {
     nodeEnv = 'development';
+    getRevocationStatus = jest.fn().mockResolvedValue({
+      jtiRevoked: false,
+      userEpochRevoked: false,
+    });
+    evaluateRateLimit = jest.fn().mockResolvedValue({
+      key: 'admin-failed-auth:ip:203.0.113.10',
+      entry: { count: 1, resetTime: Date.now() + 60_000 },
+      allowed: true,
+    });
+    publishTokenRejected = jest.fn().mockResolvedValue(undefined);
+    publishRateLimitExceeded = jest.fn().mockResolvedValue(undefined);
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PlatformAdminGuard,
@@ -121,6 +163,15 @@ describe('PlatformAdminGuard', () => {
               Promise.resolve(jwt.verify(token, TEST_JWT_SECRET) as JwtPayload),
             ),
           },
+        },
+        {
+          provide: TOKEN_REVOCATION_READER,
+          useValue: { getStatus: getRevocationStatus },
+        },
+        { provide: RateLimitEnforcementService, useValue: { evaluate: evaluateRateLimit } },
+        {
+          provide: SecurityEventService,
+          useValue: { publishTokenRejected, publishRateLimitExceeded },
         },
       ],
     }).compile();
@@ -165,7 +216,9 @@ describe('PlatformAdminGuard', () => {
     it('should reject requests with non-Bearer scheme', async () => {
       const context = createMockExecutionContext({ authHeader: 'Basic abc123' });
       await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
-      await expect(guard.canActivate(context)).rejects.toThrow('Invalid authorization header format');
+      await expect(guard.canActivate(context)).rejects.toThrow(
+        'Invalid authorization header format',
+      );
     });
 
     it('should reject Bearer without token', async () => {
@@ -213,9 +266,10 @@ describe('PlatformAdminGuard', () => {
       const parts = token.split('.');
       const encodedPayload = parts[1];
       if (!encodedPayload) throw new Error('JWT payload segment missing');
-      const payload = JSON.parse(
-        Buffer.from(encodedPayload, 'base64url').toString(),
-      ) as Record<string, unknown>;
+      const payload = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString()) as Record<
+        string,
+        unknown
+      >;
       payload.roles = ['HACKED_ROLE'];
       parts[1] = Buffer.from(JSON.stringify(payload)).toString('base64url');
       const tamperedToken = parts.join('.');
@@ -271,6 +325,66 @@ describe('PlatformAdminGuard', () => {
       expect(user.email).toBe('test@admin.com');
       expect(user.roles).toContain('SUPER_ADMIN');
       expect(user.tenantId).toBe('tenant-abc');
+    });
+
+    it('propagates only verified MFA/revocation claims to the canonical request user', async () => {
+      const issuedAt = Math.floor(Date.now() / 1000);
+      const token = signToken({
+        sub: 'admin-mfa',
+        mfaVerified: true,
+        iat: issuedAt,
+        jti: 'mfa-token-jti',
+      });
+      const context = createMockExecutionContext({ authHeader: `Bearer ${token}` });
+
+      await guard.canActivate(context);
+
+      expect(context.switchToHttp().getRequest<MockRequest>().user).toMatchObject({
+        sub: 'admin-mfa',
+        id: 'admin-mfa',
+        mfaVerified: true,
+        iat: issuedAt,
+        jti: 'mfa-token-jti',
+      });
+    });
+
+    it('rejects an individually revoked, otherwise-valid admin token', async () => {
+      getRevocationStatus.mockResolvedValue({
+        jtiRevoked: true,
+        userEpochRevoked: false,
+      });
+      const context = createMockExecutionContext({
+        authHeader: `Bearer ${signToken({ sub: 'revoked-admin', jti: 'revoked-jti' })}`,
+      });
+
+      await expect(guard.canActivate(context)).rejects.toThrow('Token has been revoked');
+      expect(getRevocationStatus).toHaveBeenCalledWith(
+        'revoked-jti',
+        'revoked-admin',
+        expect.any(Number),
+      );
+    });
+
+    it('rejects a token older than the user revocation epoch', async () => {
+      getRevocationStatus.mockResolvedValue({
+        jtiRevoked: false,
+        userEpochRevoked: true,
+      });
+      const context = createMockExecutionContext({
+        authHeader: `Bearer ${signToken({ sub: 'family-revoked-admin' })}`,
+      });
+
+      await expect(guard.canActivate(context)).rejects.toThrow('Token has been revoked');
+    });
+
+    it('fails closed with 503 when the revocation authority is unavailable', async () => {
+      getRevocationStatus.mockRejectedValue(new Error('redis unavailable'));
+      const context = createMockExecutionContext({
+        authHeader: `Bearer ${signToken({ sub: 'admin-redis-outage' })}`,
+      });
+
+      await expect(guard.canActivate(context)).rejects.toThrow(ServiceUnavailableException);
+      expect(evaluateRateLimit).not.toHaveBeenCalled();
     });
 
     it('attaches the canonical `sub` so the shared ThrottlerGuard recognizes the user (no anonymous-tier 429 storm)', async () => {
@@ -372,6 +486,39 @@ describe('PlatformAdminGuard', () => {
   // 5. Security Edge Cases
   // ========================================================================
   describe('Security edge cases', () => {
+    it('accounts failed authentication through the canonical distributed limiter', async () => {
+      const context = createMockExecutionContext({ authHeader: 'Bearer malformed' });
+
+      await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+      expect(evaluateRateLimit).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'admin-failed-auth', requiresDistributedStore: true }),
+        { ip: '203.0.113.10' },
+      );
+      expect(publishTokenRejected).toHaveBeenCalled();
+    });
+
+    it('returns 429 and publishes the shared event when the failed-auth budget is exhausted', async () => {
+      evaluateRateLimit.mockResolvedValue({
+        key: 'admin-failed-auth:ip:203.0.113.10',
+        entry: { count: 21, resetTime: Date.now() + 60_000 },
+        allowed: false,
+      });
+      const context = createMockExecutionContext({ authHeader: 'Bearer malformed' });
+
+      await expect(guard.canActivate(context)).rejects.toThrow(HttpException);
+      await expect(guard.canActivate(context)).rejects.toMatchObject({ status: 429 });
+      expect(publishRateLimitExceeded).toHaveBeenCalled();
+    });
+
+    it('fails closed when failed-auth distributed state is unavailable', async () => {
+      evaluateRateLimit.mockRejectedValue(
+        new RateLimitAuthorityUnavailableError('admin-failed-auth'),
+      );
+      const context = createMockExecutionContext({ authHeader: 'Bearer malformed' });
+
+      await expect(guard.canActivate(context)).rejects.toThrow(ServiceUnavailableException);
+    });
+
     it('should not leak error details for generic JWT errors', async () => {
       // Completely invalid token
       const context = createMockExecutionContext({ authHeader: 'Bearer x' });

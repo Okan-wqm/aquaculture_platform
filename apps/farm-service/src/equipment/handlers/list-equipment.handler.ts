@@ -7,6 +7,7 @@
  */
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 import { runInTenantRead, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { DataSource, EntityManager } from 'typeorm';
 import { ListEquipmentQuery } from '../queries/list-equipment.query';
@@ -23,6 +24,8 @@ const TANK_LIKE_CATEGORIES: EquipmentCategory[] = [
   EquipmentCategory.POND,
   EquipmentCategory.CAGE,
 ];
+
+type EquipmentSourcePage = Pick<PaginationResultV1<Equipment>, 'items' | 'total'>;
 
 /**
  * Map TankStatus to EquipmentStatus
@@ -91,7 +94,7 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
       const equipmentResult = await this.queryEquipmentTable(manager, tenantId, filter, sortBy, sortOrder, maxRowsNeeded);
 
       // Query tanks table if applicable with row cap
-      let tankResult: { items: Equipment[]; total: number } = { items: [], total: 0 };
+      let tankResult: EquipmentSourcePage = { items: [], total: 0 };
       if (shouldQueryTanks) {
         tankResult = await this.queryAndTransformTanks(manager, tenantId, filter, sortBy, sortOrder, maxRowsNeeded);
       }
@@ -144,7 +147,7 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
     sortBy: string,
     sortOrder: 'ASC' | 'DESC',
     maxRows?: number,
-  ): Promise<{ items: Equipment[]; total: number }> {
+  ): Promise<EquipmentSourcePage> {
     // tenantId is auto-injected by the tenant-scoped createQueryBuilder() — the manual
     // tenant predicate is dropped (the boundary + scoped repo enforce isolation).
     const queryBuilder = tenantManagerRepo(manager, Equipment, tenantId).createQueryBuilder('equipment');
@@ -249,7 +252,7 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
     sortBy: string,
     sortOrder: 'ASC' | 'DESC',
     maxRows?: number,
-  ): Promise<{ items: Equipment[]; total: number }> {
+  ): Promise<EquipmentSourcePage> {
     // tenantId is auto-injected by the tenant-scoped createQueryBuilder().
     const tankQueryBuilder = tenantManagerRepo(manager, Tank, tenantId).createQueryBuilder('tank');
     tankQueryBuilder.andWhere('tank.isActive = :isActive', { isActive: true });

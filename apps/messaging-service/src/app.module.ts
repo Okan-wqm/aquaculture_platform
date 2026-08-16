@@ -85,6 +85,7 @@ import { PinnedMessage } from './message/entities/pinned-message.entity';
 import { MessagingOutbox } from './outbox/messaging-outbox.entity';
 import { RetentionPolicy } from './compliance/entities/retention-policy.entity';
 import { LegalHold } from './compliance/entities/legal-hold.entity';
+import { LegalHoldReleaseOperation } from './compliance/entities/legal-hold-release-operation.entity';
 import { ComplianceAuditLog } from './compliance/entities/compliance-audit-log.entity';
 
 // AI entities (ADR-012 section 12)
@@ -94,21 +95,9 @@ import { KnowledgeEntry } from './ai/entities/knowledge-entry.entity';
 import { EmbeddingsMetadata } from './ai/entities/embeddings-metadata.entity';
 import { UserAiConsent } from './ai/entities/user-ai-consent.entity';
 
-// Migrations — imported as class references so webpack bundles them into main.js.
-// Glob paths ('dist/migrations/*.js') do NOT work with NX webpack builds because
-// all source files are bundled into a single output file.
-// Baseline1800000000000 plus forward repair migrations after day-one reset (ADR-030).
-import { Baseline1800000000000 } from './migrations/1800000000000-Baseline';
-import { CreateMessagingOutboxTable1800200000000 } from './migrations/1800200000000-CreateMessagingOutboxTable';
-import { AddUserAiConsentTenantUserUnique1800300000000 } from './migrations/1800300000000-AddUserAiConsentTenantUserUnique';
-import { EnforceSourceOnlyMessagingOutboxContract1800400000000 } from './migrations/1800400000000-EnforceSourceOnlyMessagingOutboxContract';
-import { EnsureMessagingPartitionContract1800500000000 } from './migrations/1800500000000-EnsureMessagingPartitionContract';
-import { CreateMessageSendIdempotencyLedger1800600000000 } from './migrations/1800600000000-CreateMessageSendIdempotencyLedger';
-import { AddMessagesEmbeddingColumn1800700000000 } from './migrations/1800700000000-AddMessagesEmbeddingColumn';
-import { CreateMessageReceiptLedger1800800000000 } from './migrations/1800800000000-CreateMessageReceiptLedger';
-import { EnsureMessagingTenantErasureProofLedger1801000000000 } from './migrations/1801000000000-EnsureMessagingTenantErasureProofLedger';
-import { DropChannelAiServiceUrl1802000000000 } from './migrations/1802000000000-DropChannelAiServiceUrl';
-import { DropTenantAiSettings1802100000000 } from './migrations/1802100000000-DropTenantAiSettings';
+// Canonical class references keep webpack bundling, runtime execution and the
+// real-database harness on one ordered migration authority.
+import { MESSAGING_MIGRATIONS } from './migrations/manifest';
 // Feature modules
 import { HealthModule } from './health/health.module';
 import { ChannelModule } from './channel/channel.module';
@@ -179,6 +168,7 @@ type QueryComplexityOperationContext = {
             MessagingOutbox,
             RetentionPolicy,
             LegalHold,
+            LegalHoldReleaseOperation,
             ComplianceAuditLog,
             MessageAnalysis,
             MessageEntityReference,
@@ -188,19 +178,7 @@ type QueryComplexityOperationContext = {
           ],
           // Class references (NOT glob paths) — webpack bundles all into main.js,
           // so 'dist/migrations/*.js' would match zero files at runtime.
-          migrations: [
-            Baseline1800000000000,
-            CreateMessagingOutboxTable1800200000000,
-            AddUserAiConsentTenantUserUnique1800300000000,
-            EnforceSourceOnlyMessagingOutboxContract1800400000000,
-            EnsureMessagingPartitionContract1800500000000,
-            CreateMessageSendIdempotencyLedger1800600000000,
-            AddMessagesEmbeddingColumn1800700000000,
-            CreateMessageReceiptLedger1800800000000,
-            EnsureMessagingTenantErasureProofLedger1801000000000,
-            DropChannelAiServiceUrl1802000000000,
-            DropTenantAiSettings1802100000000,
-          ],
+          migrations: [...MESSAGING_MIGRATIONS],
         }),
     }),
 

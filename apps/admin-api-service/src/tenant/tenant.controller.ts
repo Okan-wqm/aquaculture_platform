@@ -1,4 +1,5 @@
-import { ThrottleSensitive } from '@aquaculture/backend-common/security';
+import type { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import { RateLimit } from '@aquaculture/backend-common/rate-limit';
 import {
   Body,
   Controller,
@@ -19,6 +20,7 @@ import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { CurrentUser } from '../decorators/current-user.decorator';
+import { ADMIN_RATE_LIMIT_POLICIES } from '../security/admin-rate-limit.policy';
 
 import {
   UpdateTenantCommand,
@@ -62,7 +64,6 @@ import {
   GetExpiringTrialsQuery,
   SearchTenantsQuery,
 } from './queries/tenant.queries';
-import { PaginatedResult } from './query-handlers/tenant-query.handlers';
 import { TenantActivityService } from './services/tenant-activity.service';
 import { TenantDetailService } from './services/tenant-detail.service';
 import { TenantProvisioningWorkflowService } from './services/tenant-provisioning-workflow.service';
@@ -113,7 +114,7 @@ export class TenantPublicController {
     return this.provisioningWorkflowService.getOperation(operationId);
   }
 
-  @ThrottleSensitive()
+  @RateLimit(ADMIN_RATE_LIMIT_POLICIES.sensitive)
   @Post('provisioning/:operationId/retry')
   @ApiOperation({ summary: 'Retry a failed tenant provisioning operation' })
   @HttpCode(HttpStatus.ACCEPTED)
@@ -147,7 +148,7 @@ export class TenantAdminController {
   @ApiOperation({ summary: 'List all tenants with filtering and pagination' })
   async listTenants(
     @Query() query: ListTenantsQueryDto,
-  ): Promise<PaginatedResult<TenantListItemDto>> {
+  ): Promise<IStandardPaginatedResult<TenantListItemDto>> {
     return this.queryBus.execute(
       new ListTenantsQuery(
         {
@@ -208,7 +209,7 @@ export class TenantAdminController {
   // Bulk Operations
   // ============================================================================
 
-  @ThrottleSensitive()
+  @RateLimit(ADMIN_RATE_LIMIT_POLICIES.sensitive)
   @Post('bulk/suspend')
   @ApiOperation({ summary: 'Bulk suspend multiple tenants' })
   @HttpCode(HttpStatus.OK)
@@ -219,7 +220,7 @@ export class TenantAdminController {
     return this.detailService.bulkSuspend(dto.tenantIds, dto.reason, user.id);
   }
 
-  @ThrottleSensitive()
+  @RateLimit(ADMIN_RATE_LIMIT_POLICIES.sensitive)
   @Post('bulk/activate')
   @ApiOperation({ summary: 'Bulk activate multiple tenants' })
   @HttpCode(HttpStatus.OK)
@@ -259,7 +260,7 @@ export class TenantAdminController {
     @Param('id', ParseUUIDPipe) id: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ): Promise<{ data: TenantActivity[]; total: number; totalPages: number }> {
+  ): Promise<IStandardPaginatedResult<TenantActivity>> {
     return this.detailService.getActivitiesTimeline(id, page || 1, limit || 20);
   }
 
@@ -326,7 +327,7 @@ export class TenantAdminController {
     return this.commandBus.execute(new UpdateTenantCommand(id, dto, user.id));
   }
 
-  @ThrottleSensitive()
+  @RateLimit(ADMIN_RATE_LIMIT_POLICIES.sensitive)
   @Patch(':id/suspend')
   @ApiOperation({ summary: 'Suspend a tenant' })
   async suspendTenant(
@@ -337,7 +338,7 @@ export class TenantAdminController {
     return this.commandBus.execute(new SuspendTenantCommand(id, dto, user.id));
   }
 
-  @ThrottleSensitive()
+  @RateLimit(ADMIN_RATE_LIMIT_POLICIES.sensitive)
   @Patch(':id/activate')
   @ApiOperation({ summary: 'Activate a suspended tenant' })
   async activateTenant(
@@ -367,7 +368,7 @@ export class TenantAdminController {
     await this.commandBus.execute(new ArchiveTenantCommand(id, user.id));
   }
 
-  @ThrottleSensitive()
+  @RateLimit(ADMIN_RATE_LIMIT_POLICIES.sensitive)
   @Post(':id/erasure')
   @ApiOperation({ summary: 'Request irreversible GDPR tenant erasure' })
   @HttpCode(HttpStatus.ACCEPTED)
@@ -389,7 +390,7 @@ export class TenantAdminController {
    * the same PROVISION_TENANT_SUBSCRIPTION command tenant creation uses — safe
    * to re-invoke (billing dedups on the active subscription + command receipt).
    */
-  @ThrottleSensitive()
+  @RateLimit(ADMIN_RATE_LIMIT_POLICIES.sensitive)
   @Post(':id/reconcile-subscription')
   @ApiOperation({ summary: 'Idempotently create a missing tenant billing subscription' })
   @HttpCode(HttpStatus.OK)

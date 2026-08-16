@@ -10,6 +10,10 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import {
+  createStandardPaginatedResult,
+  type IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 import { ClientProxy } from '@nestjs/microservices';
 import { InjectDataSource } from '@nestjs/typeorm';
 import {
@@ -56,14 +60,6 @@ export interface UserDto {
   updatedAt: Date;
 }
 
-export interface PaginatedUsers {
-  data: UserDto[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
-
 export interface UserStats {
   totalUsers: number;
   activeUsers: number;
@@ -108,9 +104,8 @@ export class UsersService {
     private readonly authNatsClient: ClientProxy,
   ) {
     const configured = parseInt(process.env['AUTH_NATS_TIMEOUT_MS'] ?? '', 10);
-    this.authNatsTimeoutMs = Number.isFinite(configured) && configured > 0
-      ? configured
-      : DEFAULT_AUTH_NATS_TIMEOUT_MS;
+    this.authNatsTimeoutMs =
+      Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_AUTH_NATS_TIMEOUT_MS;
   }
 
   /**
@@ -122,7 +117,7 @@ export class UsersService {
     limit = 20,
     sortBy = 'createdAt',
     sortOrder: 'ASC' | 'DESC' = 'DESC',
-  ): Promise<PaginatedUsers> {
+  ): Promise<IStandardPaginatedResult<UserDto>> {
     const offset = (page - 1) * limit;
 
     const whereConditions: string[] = [];
@@ -153,8 +148,7 @@ export class UsersService {
       paramIndex++;
     }
 
-    const whereClause =
-      whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
+    const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
 
     // Validate sort column to prevent SQL injection
     const allowedSortColumns = [
@@ -173,9 +167,7 @@ export class UsersService {
       role: 'role',
       lastLoginAt: '"lastLoginAt"',
     };
-    const sortColumn = allowedSortColumns.includes(sortBy)
-      ? sortColumnMap[sortBy]
-      : '"createdAt"';
+    const sortColumn = allowedSortColumns.includes(sortBy) ? sortColumnMap[sortBy] : '"createdAt"';
 
     // C-2 fix: enforce safe sort order at service layer to prevent SQL injection
     const safeSortOrder = sortOrder === 'ASC' ? 'ASC' : 'DESC';
@@ -214,13 +206,7 @@ export class UsersService {
 
       const total = parseInt(countResult[0]?.total || '0', 10);
 
-      return {
-        data: users,
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      };
+      return createStandardPaginatedResult(users, total, page, limit);
     } catch (error) {
       this.logger.error(`Failed to list users: ${(error as Error).message}`);
       throw error;
@@ -241,9 +227,7 @@ export class UsersService {
         loginsResult,
       ] = await Promise.all([
         this.dataSource.query(`SELECT COUNT(*) as count FROM auth.users`),
-        this.dataSource.query(
-          `SELECT COUNT(*) as count FROM auth.users WHERE "isActive" = true`,
-        ),
+        this.dataSource.query(`SELECT COUNT(*) as count FROM auth.users WHERE "isActive" = true`),
         this.dataSource.query(`
           SELECT role, COUNT(*) as count
           FROM auth.users
@@ -325,9 +309,7 @@ export class UsersService {
         [limit],
       );
     } catch (error) {
-      this.logger.error(
-        `Failed to get recently active users: ${(error as Error).message}`,
-      );
+      this.logger.error(`Failed to get recently active users: ${(error as Error).message}`);
       throw error;
     }
   }
@@ -373,10 +355,7 @@ export class UsersService {
   /**
    * Get user's activity log
    */
-  async getUserActivity(
-    userId: string,
-    limit = 50,
-  ): Promise<UserActivity[]> {
+  async getUserActivity(userId: string, limit = 50): Promise<UserActivity[]> {
     try {
       return await this.dataSource.query(
         `
@@ -397,9 +376,7 @@ export class UsersService {
         [userId, limit],
       );
     } catch (error) {
-      this.logger.error(
-        `Failed to get user activity: ${(error as Error).message}`,
-      );
+      this.logger.error(`Failed to get user activity: ${(error as Error).message}`);
       return [];
     }
   }
@@ -427,9 +404,7 @@ export class UsersService {
         [userId],
       );
     } catch (error) {
-      this.logger.error(
-        `Failed to get user sessions: ${(error as Error).message}`,
-      );
+      this.logger.error(`Failed to get user sessions: ${(error as Error).message}`);
       return [];
     }
   }
@@ -542,10 +517,10 @@ export class UsersService {
       ...(dto.isActive !== undefined && { isActive: dto.isActive }),
     };
 
-    const result = await this.sendAuthCommand<
-      AdminUpdateUserCommand,
-      AdminUpdateUserResult
-    >(AUTH_ADMIN_COMMAND_SUBJECTS.UPDATE_USER, command);
+    const result = await this.sendAuthCommand<AdminUpdateUserCommand, AdminUpdateUserResult>(
+      AUTH_ADMIN_COMMAND_SUBJECTS.UPDATE_USER,
+      command,
+    );
 
     if (!result.success || !result.user) {
       throw this.mapUpdateError(result);
@@ -688,10 +663,9 @@ export class UsersService {
    */
   async getTenantName(tenantId: string): Promise<string | null> {
     try {
-      const result = await this.dataSource.query(
-        `SELECT name FROM tenants WHERE id = $1`,
-        [tenantId],
-      );
+      const result = await this.dataSource.query(`SELECT name FROM tenants WHERE id = $1`, [
+        tenantId,
+      ]);
       return result?.[0]?.name || null;
     } catch (error) {
       this.logger.error(`Failed to get tenant name: ${(error as Error).message}`);
@@ -722,9 +696,7 @@ export class UsersService {
           catchError((err: Error) => {
             // SECURITY: log only the subject + error message, never the
             // command payload (it contains plaintext passwords).
-            this.logger.error(
-              `NATS request failed: subject=${subject}, error=${err.message}`,
-            );
+            this.logger.error(`NATS request failed: subject=${subject}, error=${err.message}`);
             return throwError(() => err);
           }),
         ),
@@ -740,16 +712,11 @@ export class UsersService {
       }
 
       if (message.includes('not connected') || message.includes('CONN_CLOSED')) {
-        throw new ServiceUnavailableException(
-          'Auth service is currently unavailable',
-        );
+        throw new ServiceUnavailableException('Auth service is currently unavailable');
       }
 
       if (err instanceof HttpException) throw err;
-      throw new HttpException(
-        `Auth service error: ${message}`,
-        HttpStatus.BAD_GATEWAY,
-      );
+      throw new HttpException(`Auth service error: ${message}`, HttpStatus.BAD_GATEWAY);
     }
   }
 

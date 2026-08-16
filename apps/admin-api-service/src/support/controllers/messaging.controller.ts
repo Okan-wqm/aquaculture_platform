@@ -21,6 +21,7 @@ import { IsString, IsOptional, IsBoolean, IsArray, IsObject } from 'class-valida
 
 import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
 import { PlatformAdminOnly } from '../../decorators/roles.decorator';
+import { authenticatedActorLabel } from '../../shared/authenticated-request';
 import { MessageAttachment, AnnouncementTarget } from '../entities/support.entity';
 import { MessagingService } from '../services/messaging.service';
 
@@ -123,10 +124,7 @@ export class MessagingController {
   @Post('threads')
   @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
-  async createThread(
-    @Body() dto: CreateThreadDto,
-    @CurrentUser() user: CurrentUserData,
-  ) {
+  async createThread(@Body() dto: CreateThreadDto, @CurrentUser() user: CurrentUserData) {
     if (!dto.tenantId || !dto.subject || !dto.content) {
       throw new BadRequestException('tenantId, subject, and content are required');
     }
@@ -137,7 +135,7 @@ export class MessagingController {
       dto.content,
       user.id,
       'admin',
-      dto.senderName || user.email,
+      dto.senderName || authenticatedActorLabel(user),
     );
   }
 
@@ -190,7 +188,7 @@ export class MessagingController {
     return this.messagingService.addMessage(threadId, {
       senderId: user.id,
       senderType: 'admin',
-      senderName: dto.senderName || user.email,
+      senderName: dto.senderName || authenticatedActorLabel(user),
       content: dto.content,
       isInternal: dto.isInternal,
       attachments: dto.attachments,
@@ -210,10 +208,7 @@ export class MessagingController {
 
   @Post('bulk')
   @HttpCode(HttpStatus.OK)
-  async sendBulkMessage(
-    @Body() dto: BulkMessageDto,
-    @CurrentUser() user: CurrentUserData,
-  ) {
+  async sendBulkMessage(@Body() dto: BulkMessageDto, @CurrentUser() user: CurrentUserData) {
     if (!dto.subject || !dto.content) {
       throw new BadRequestException('subject and content are required');
     }
@@ -237,7 +232,7 @@ export class MessagingController {
         sendEmail: dto.sendEmail || false,
       },
       user.id,
-      user.email,
+      authenticatedActorLabel(user),
       tenantIds,
     );
   }

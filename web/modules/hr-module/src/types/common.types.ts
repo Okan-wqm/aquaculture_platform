@@ -19,22 +19,7 @@ export interface BaseEntity {
  */
 export type PaginationInput = { limit?: number; page?: number };
 
-/**
- * @deprecated Use `StandardPaginatedResult<T>` from '@aquaculture/shared-ui' instead.
- * This offset-based response does not align with the backend standard (page/totalPages/hasNextPage).
- */
-export interface PaginatedResponse<T> {
-  items: T[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-  hasNextPage: boolean;
-  hasPreviousPage: boolean;
-}
-
-// Re-export standard types for incremental migration
-export type { StandardPaginationInput, StandardPaginatedResult } from '@aquaculture/shared-ui';
+export type { StandardPaginationInput } from '@aquaculture/shared-ui';
 
 /** Date range filter */
 export interface DateRangeFilter {

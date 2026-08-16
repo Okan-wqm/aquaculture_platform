@@ -1,22 +1,20 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import {
+  createStandardPaginatedResult,
+  type IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 import { Repository, LessThanOrEqual, MoreThanOrEqual, IsNull, Or } from 'typeorm';
 
-import {
-  DEFAULT_MODULE_PRICING,
-} from '../data/default-module-pricing';
-import {
-  ModulePricing,
-  PricingMetric,
-  TierMultipliers,
-} from '../entities/module-pricing.entity';
+import { DEFAULT_MODULE_PRICING } from '../data/default-module-pricing';
+import { ModulePricing, PricingMetric, TierMultipliers } from '../entities/module-pricing.entity';
 import { PlanTier } from '../entities/plan-definition.entity';
 import { PricingMetricType } from '../entities/pricing-metric.enum';
 
 /**
  * DTO for creating/updating module pricing
  */
-export interface SetModulePricingDto {
+export interface SetModulePricingInput {
   moduleId: string;
   moduleCode: string;
   pricingMetrics: PricingMetric[];
@@ -160,19 +158,22 @@ export class ModulePricingService {
     });
 
     // Filter by effectiveTo
-    const activePricings = pricings.filter(
-      (p) => !p.effectiveTo || p.effectiveTo >= now,
-    );
+    const activePricings = pricings.filter((p) => !p.effectiveTo || p.effectiveTo >= now);
 
     // Get module info separately
     const moduleIds = [...new Set(activePricings.map((p) => p.moduleId))];
 
     // Query modules from auth.modules table
-    const modules: Array<{ id: string; name: string; description: string; icon: string; isActive: boolean }> =
-      await this.pricingRepo.manager.query(
-        `SELECT id, name, description, icon, "isActive" FROM auth.modules WHERE id = ANY($1)`,
-        [moduleIds],
-      );
+    const modules: Array<{
+      id: string;
+      name: string;
+      description: string;
+      icon: string;
+      isActive: boolean;
+    }> = await this.pricingRepo.manager.query(
+      `SELECT id, name, description, icon, "isActive" FROM auth.modules WHERE id = ANY($1)`,
+      [moduleIds],
+    );
 
     const moduleMap = new Map(modules.map((m) => [m.id, m]));
 
@@ -206,7 +207,7 @@ export class ModulePricingService {
   /**
    * Create or update module pricing
    */
-  async setModulePricing(dto: SetModulePricingDto): Promise<ModulePricing> {
+  async setModulePricing(dto: SetModulePricingInput): Promise<ModulePricing> {
     const effectiveFrom = dto.effectiveFrom || new Date();
 
     // Deactivate any overlapping pricing
@@ -249,7 +250,7 @@ export class ModulePricingService {
    */
   async updateModulePricing(
     pricingId: string,
-    updates: Partial<SetModulePricingDto>,
+    updates: Partial<SetModulePricingInput>,
   ): Promise<ModulePricing> {
     const existing = await this.pricingRepo.findOne({
       where: { id: pricingId },
@@ -284,7 +285,7 @@ export class ModulePricingService {
   async getPricingHistory(
     moduleId: string,
     options: { page?: number; limit?: number } = {},
-  ): Promise<{ data: ModulePricing[]; total: number; page: number; limit: number }> {
+  ): Promise<IStandardPaginatedResult<ModulePricing>> {
     const { page = 1, limit = 50 } = options;
 
     const [data, total] = await this.pricingRepo.findAndCount({
@@ -294,7 +295,7 @@ export class ModulePricingService {
       take: limit,
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**
@@ -366,10 +367,7 @@ export class ModulePricingService {
   /**
    * Get included quantity for a metric
    */
-  getIncludedQuantity(
-    pricing: ModulePricing,
-    metricType: PricingMetricType,
-  ): number {
+  getIncludedQuantity(pricing: ModulePricing, metricType: PricingMetricType): number {
     const metric = pricing.pricingMetrics.find((m) => m.type === metricType);
     return metric?.includedQuantity ?? 0;
   }

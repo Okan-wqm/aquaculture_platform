@@ -6,6 +6,10 @@
 
 import * as crypto from 'crypto';
 
+import {
+  ITokenRevocationReader,
+  TOKEN_REVOCATION_READER,
+} from '@aquaculture/backend-common/security';
 import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
@@ -20,7 +24,6 @@ import {
   BASIC_AUTH_KEY,
   JwtPayload,
 } from '../auth.guard';
-import { TOKEN_BLACKLIST_STORE, TokenBlacklistStore } from '../redis-token-blacklist.store';
 import { ApiKeyAuthStrategy } from '../strategies/api-key-auth.strategy';
 import { BasicAuthStrategy } from '../strategies/basic-auth.strategy';
 
@@ -88,7 +91,7 @@ interface ExceptionWithResponse extends Error {
 describe('AuthGuard', () => {
   let guard: AuthGuard;
   let reflector: Reflector;
-  let tokenBlacklist: jest.Mocked<TokenBlacklistStore>;
+  let tokenRevocationReader: jest.Mocked<ITokenRevocationReader>;
 
   const JWT_ISSUER = 'test-issuer';
   const JWT_AUDIENCE = 'test-audience';
@@ -200,9 +203,11 @@ describe('AuthGuard', () => {
   };
 
   beforeEach(async () => {
-    tokenBlacklist = {
-      isBlacklisted: jest.fn().mockResolvedValue(false),
-      isValidToken: jest.fn().mockResolvedValue(true),
+    tokenRevocationReader = {
+      getStatus: jest.fn().mockResolvedValue({
+        jtiRevoked: false,
+        userEpochRevoked: false,
+      }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -214,7 +219,7 @@ describe('AuthGuard', () => {
         { provide: JwtService, useValue: new JwtService({}) },
         ApiKeyAuthStrategy,
         BasicAuthStrategy,
-        { provide: TOKEN_BLACKLIST_STORE, useValue: tokenBlacklist },
+        { provide: TOKEN_REVOCATION_READER, useValue: tokenRevocationReader },
         {
           provide: Reflector,
           useValue: {
@@ -542,7 +547,10 @@ describe('AuthGuard', () => {
     describe('Token Blacklisting', () => {
       it('should reject blacklisted token', async () => {
         const jti = 'token-to-blacklist';
-        tokenBlacklist.isValidToken.mockResolvedValue(false);
+        tokenRevocationReader.getStatus.mockResolvedValue({
+          jtiRevoked: true,
+          userEpochRevoked: false,
+        });
 
         const token = createJwtToken({ jti });
         const context = createMockExecutionContext({
@@ -551,7 +559,7 @@ describe('AuthGuard', () => {
 
         await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
         await expectExceptionCode(() => guard.canActivate(context), 'TOKEN_REVOKED');
-        expect(tokenBlacklist.isValidToken).toHaveBeenCalledWith(
+        expect(tokenRevocationReader.getStatus).toHaveBeenCalledWith(
           jti,
           'user-123',
           expect.any(Number),

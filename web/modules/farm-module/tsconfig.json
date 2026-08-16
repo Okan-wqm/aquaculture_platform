@@ -22,7 +22,10 @@
       "@aquaculture/shared-ui": ["../../shared-ui/src"],
       "@platform/shared-ui/*": ["../../shared-ui/src/*"],
       "@aquaculture/farm-shared": ["../../../libs/farm-shared/src"],
-      "@platform/aquaculture-engines": ["../../../libs/aquaculture-engines/src/index.ts"]
+      "@platform/aquaculture-engines": ["../../../libs/aquaculture-engines/src/index.ts"],
+      "@platform/pagination-contracts": [
+        "../../../platform/libs/pagination-contracts/src/index.ts"
+      ]
     }
   },
   "include": ["src"],

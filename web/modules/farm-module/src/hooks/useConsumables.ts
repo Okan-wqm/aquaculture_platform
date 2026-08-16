@@ -3,6 +3,7 @@
  * Handles CRUD operations for consumables via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 
 export enum ConsumableCategory {
@@ -82,13 +83,10 @@ export interface UpdateConsumableInput extends Partial<CreateConsumableInput> {
   isActive?: boolean;
 }
 
-interface PaginatedResponse {
-  items: Consumable[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
+type ConsumablesPage = Pick<
+  PaginationResultV1<Consumable>,
+  'items' | 'total' | 'page' | 'limit' | 'totalPages'
+>;
 
 const CONSUMABLES_LIST_QUERY = `
   query Consumables($filter: ConsumableFilterInput, $pagination: FarmPaginationInput) {
@@ -202,7 +200,7 @@ export function useConsumableList(filter?: {
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'consumables', 'list', filter),
     queryFn: async () => {
-      const data = await graphqlClient.request<{ consumables: PaginatedResponse }>(
+      const data = await graphqlClient.request<{ consumables: ConsumablesPage }>(
         CONSUMABLES_LIST_QUERY,
         { filter, pagination: { page: 1, limit: 100 } }
       );

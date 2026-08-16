@@ -249,9 +249,7 @@ describe('INVARIANT: auth-service owns tenant lifecycle commands', () => {
     expect(service).toMatch(/this\.outboxPublisher\.enqueue\(/);
     // TenantStatusChanged is the single emission point for all five lifecycle
     // transitions, enqueued at the status-persist site in transitionTenantStatus.
-    expect(service).toContain(
-      "createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged'",
-    );
+    expect(service).toContain("createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged'");
     // First-admin UserInvited is durable + atomic with the user/invitation write.
     expect(service).toContain('enqueueFirstAdminInvite');
   });
@@ -481,15 +479,19 @@ describe('INVARIANT: platform event registry is the lifecycle SSOT', () => {
     expect(index).toContain("export * from './platform-event-registry'");
   });
 
-  it('orders onboarding ack before final tenant provisioned aliases', () => {
+  it('derives durable onboarding quorum from one workflow catalogue before activation', () => {
     const workflow = readRepoFile(
       'apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts',
     );
-    const migration = readRepoFile(
-      'apps/admin-api-service/src/migrations/1800400000000-TenantProvisioningWorkflow.ts',
-    );
+    const catalogue = readRepoFile('libs/event-contracts/src/tenant-onboarding-workflow.ts');
     const farmHandler = readRepoFile(
-      'apps/farm-service/src/water-quality/event-handlers/tenant-onboarding.event-handler.ts',
+      'apps/farm-service/src/tenant-onboarding/handlers/tenant-onboarding.event-handler.ts',
+    );
+    const farmReceipts = readRepoFile(
+      'apps/farm-service/src/tenant-onboarding/services/tenant-onboarding-receipt.service.ts',
+    );
+    const adminHandler = readRepoFile(
+      'apps/admin-api-service/src/tenant/handlers/tenant-onboarding-ack.handler.ts',
     );
     const tenantEvents = readRepoFile('libs/event-contracts/src/tenant-events.ts');
 
@@ -500,15 +502,36 @@ describe('INVARIANT: platform event registry is the lifecycle SSOT', () => {
       workflow.indexOf("'wait_for_onboarding_ack'"),
     );
     expect(workflow.indexOf("'wait_for_onboarding_ack'")).toBeLessThan(
-      workflow.indexOf("'publish_tenant_provisioned'"),
+      workflow.indexOf("'activate_tenant'"),
     );
-    expect(workflow).toContain('TENANT_ONBOARDING_REQUIRED_SERVICES');
-    expect(migration).toContain('"admin"."tenant_onboarding_acks"');
-    expect(farmHandler).toContain("subscribeWildcard('TenantOnboardingRequested'");
-    expect(farmHandler).toContain(
-      "createBaseEvent<TenantOnboardingFailedEvent>('TenantOnboardingFailed'",
-    );
-    expect(farmHandler).toContain("createBaseEvent('TenantOnboardingAck'");
+    expect(workflow).toContain('TENANT_ONBOARDING_WORKFLOW_V1.ownerServices');
+    expect(workflow).not.toContain('TENANT_ONBOARDING_REQUIRED_SERVICES');
+    expect(catalogue).toContain("ownerServices: ['farm-service']");
+    expect(farmHandler).toContain('subscription.consumerVersion');
+    expect(farmHandler).toContain('this.receipts.complete(event, claim, summaries)');
+    expect(farmHandler).not.toContain('eventBus.publish');
+    expect(farmReceipts).toContain('this.outboxPublisher.enqueue(response, manager');
+    expect(adminHandler).toContain("@Inject('EVENT_BUS')");
+    expect(adminHandler).toContain("this.dataSource.transaction('SERIALIZABLE'");
+    expect(adminHandler).not.toContain('@EventPattern');
+  });
+
+  it('keeps both JetStream runtimes and broker grants reachable for the catalogued workflow', () => {
+    const services = readRepoFile('infrastructure/nats/services.yaml');
+    const generatedNats = readRepoFile('infrastructure/docker/nats/nats.conf');
+    const adminApp = readRepoFile('apps/admin-api-service/src/app.module.ts');
+    const farmApp = readRepoFile('apps/farm-service/src/app.module.ts');
+
+    expect(adminApp).toContain('EventBusModule.forRootAsync');
+    expect(farmApp).toContain('EventBusModule.forRootAsync');
+    expect(services).toContain("- 'events.*.TenantOnboardingRequested'");
+    expect(services).toContain("- 'events.*.TenantOnboardingAck'");
+    expect(services).toContain("- 'events.*.TenantOnboardingFailed'");
+    expect(services).toContain("- '$JS.API.>'");
+    expect(services).toContain("- '_INBOX.>'");
+    expect(generatedNats).toContain('events.*.TenantOnboardingRequested');
+    expect(generatedNats).toContain('events.*.TenantOnboardingAck');
+    expect(generatedNats).toContain('events.*.TenantOnboardingFailed');
   });
 });
 

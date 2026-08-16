@@ -9,7 +9,15 @@
  * request unless the route is marked with @Public().
  */
 
-import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
+import {
+  enforceAccessTokenType,
+  enforceTokenNotRevoked,
+  getJwtVerifyOptions,
+} from '@aquaculture/backend-common/auth';
+import {
+  ITokenRevocationReader,
+  TOKEN_REVOCATION_READER,
+} from '@aquaculture/backend-common/security';
 import {
   Injectable,
   CanActivate,
@@ -25,7 +33,6 @@ import { GqlExecutionContext } from '@nestjs/graphql';
 import { JwtService } from '@nestjs/jwt';
 
 import { AuthenticatedRequest, GqlContext, JwtPayload } from '../types/index';
-import { TokenBlacklistStore, TOKEN_BLACKLIST_STORE } from './redis-token-blacklist.store';
 import { ApiKeyAuthStrategy } from './strategies/api-key-auth.strategy';
 import { BasicAuthStrategy } from './strategies/basic-auth.strategy';
 
@@ -70,8 +77,8 @@ export class AuthGuard implements CanActivate {
     @Inject(JwtService) private readonly jwtService: JwtService,
     @Inject(ApiKeyAuthStrategy) private readonly apiKeyAuthStrategy: ApiKeyAuthStrategy,
     @Inject(BasicAuthStrategy) private readonly basicAuthStrategy: BasicAuthStrategy,
-    @Inject(TOKEN_BLACKLIST_STORE)
-    private readonly tokenBlacklist: TokenBlacklistStore,
+    @Inject(TOKEN_REVOCATION_READER)
+    private readonly tokenRevocationReader: ITokenRevocationReader,
   ) {
     this.isProduction = this.configService.get<string>('NODE_ENV', 'development') === 'production';
   }
@@ -217,7 +224,8 @@ export class AuthGuard implements CanActivate {
       return false;
     }
     try {
-      return await this.tokenBlacklist.isValidToken(payload.jti, payload.sub, payload.iat);
+      await enforceTokenNotRevoked(payload, this.tokenRevocationReader, this.logger);
+      return true;
     } catch (error) {
       this.logger.error(
         JSON.stringify({

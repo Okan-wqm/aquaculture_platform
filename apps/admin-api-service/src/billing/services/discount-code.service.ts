@@ -8,6 +8,10 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
+import {
+  createStandardPaginatedResult,
+  type IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 import { Repository, LessThanOrEqual, MoreThanOrEqual, IsNull, Or } from 'typeorm';
 
 import {
@@ -18,7 +22,7 @@ import {
   DiscountDuration,
 } from '../entities/discount-code.entity';
 
-export interface CreateDiscountCodeDto {
+export interface CreateDiscountCodeInput {
   code: string;
   name: string;
   description?: string;
@@ -41,7 +45,7 @@ export interface CreateDiscountCodeDto {
   createdBy: string;
 }
 
-export interface UpdateDiscountCodeDto {
+export interface UpdateDiscountCodeInput {
   name?: string;
   description?: string;
   isActive?: boolean;
@@ -111,7 +115,7 @@ export class DiscountCodeService {
     includeExpired?: boolean;
     page?: number;
     limit?: number;
-  }): Promise<{ data: DiscountCode[]; total: number; page: number; limit: number }> {
+  }): Promise<IStandardPaginatedResult<DiscountCode>> {
     const page = options?.page || 1;
     const limit = options?.limit || 50;
     const query = this.discountCodeRepo.createQueryBuilder('dc');
@@ -126,10 +130,7 @@ export class DiscountCodeService {
 
     if (!options?.includeExpired) {
       const now = new Date();
-      query.andWhere(
-        '(dc.validUntil IS NULL OR dc.validUntil > :now)',
-        { now }
-      );
+      query.andWhere('(dc.validUntil IS NULL OR dc.validUntil > :now)', { now });
     }
 
     query.orderBy('dc.createdAt', 'DESC');
@@ -138,7 +139,7 @@ export class DiscountCodeService {
 
     const [data, total] = await query.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**
@@ -164,7 +165,7 @@ export class DiscountCodeService {
   /**
    * Create a new discount code
    */
-  async create(dto: CreateDiscountCodeDto): Promise<DiscountCode> {
+  async create(dto: CreateDiscountCodeInput): Promise<DiscountCode> {
     const normalizedCode = dto.code.toUpperCase().replace(/[^A-Z0-9]/g, '');
 
     // Check for duplicate
@@ -199,7 +200,7 @@ export class DiscountCodeService {
   /**
    * Update a discount code
    */
-  async update(id: string, dto: UpdateDiscountCodeDto): Promise<DiscountCode> {
+  async update(id: string, dto: UpdateDiscountCodeInput): Promise<DiscountCode> {
     const discountCode = await this.findById(id);
 
     Object.assign(discountCode, dto);
@@ -330,12 +331,7 @@ export class DiscountCodeService {
       currency?: string;
     } = {},
   ): Promise<ApplyDiscountResult> {
-    const validation = await this.validateCode(
-      code,
-      tenantId,
-      options.planId,
-      originalAmount,
-    );
+    const validation = await this.validateCode(code, tenantId, options.planId, originalAmount);
 
     if (!validation.valid || !validation.discountCode) {
       return {
@@ -407,7 +403,7 @@ export class DiscountCodeService {
   async getTenantRedemptions(
     tenantId: string,
     options: { page?: number; limit?: number } = {},
-  ): Promise<{ data: DiscountRedemption[]; total: number; page: number; limit: number }> {
+  ): Promise<IStandardPaginatedResult<DiscountRedemption>> {
     const { page = 1, limit = 20 } = options;
 
     const [data, total] = await this.redemptionRepo.findAndCount({
@@ -417,7 +413,7 @@ export class DiscountCodeService {
       take: limit,
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**
@@ -466,7 +462,7 @@ export class DiscountCodeService {
       expiredCodes,
       totalRedemptions: parseInt(redemptionStats?.totalRedemptions || '0', 10),
       totalDiscountAmount: parseFloat(redemptionStats?.totalDiscountAmount || '0'),
-      topCodes: topCodes.map(tc => ({
+      topCodes: topCodes.map((tc) => ({
         code: tc.code,
         redemptions: parseInt(tc.redemptions, 10),
         totalDiscount: parseFloat(tc.totalDiscount),
@@ -509,7 +505,7 @@ export class DiscountCodeService {
    */
   async bulkCreate(
     count: number,
-    template: Omit<CreateDiscountCodeDto, 'code'>,
+    template: Omit<CreateDiscountCodeInput, 'code'>,
     codePrefix?: string,
   ): Promise<DiscountCode[]> {
     const codes: DiscountCode[] = [];

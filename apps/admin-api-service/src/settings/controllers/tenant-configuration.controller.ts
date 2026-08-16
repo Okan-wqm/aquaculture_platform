@@ -15,16 +15,11 @@ import { ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { getAuthUserId } from '../../shared/authenticated-request';
 
+import { TenantConfigurationService } from '../services/tenant-configuration.service';
 import {
-  TenantConfigurationService,
-  CreateTenantConfigurationDto,
-  UpdateTenantConfigurationDto,
   CreateApiKeyDto,
+  CreateTenantConfigurationDto,
   CreateWebhookDto,
-  VerifyDomainDto,
-  UpdateBrandingDto,
-} from '../services/tenant-configuration.service';
-import {
   UpdateUserLimitsDto,
   UpdateStorageConfigDto,
   CheckStorageLimitDto,
@@ -36,14 +31,15 @@ import {
   UpdateNotificationConfigDto,
   UpdateFeatureFlagsDto,
   UpdateDataRetentionDto,
+  UpdateBrandingDto,
+  UpdateTenantConfigurationDto,
+  VerifyDomainDto,
 } from '../dto/tenant-configuration.dto';
 
 @ApiTags('Settings')
 @Controller('settings/tenant')
 export class TenantConfigurationController {
-  constructor(
-    private readonly configService: TenantConfigurationService,
-  ) {}
+  constructor(private readonly configService: TenantConfigurationService) {}
 
   // ============================================================================
   // Main Configuration CRUD
@@ -148,10 +144,7 @@ export class TenantConfigurationController {
   }
 
   @Post(':tenantId/storage/check-limit')
-  async checkStorageLimit(
-    @Param('tenantId') tenantId: string,
-    @Body() dto: CheckStorageLimitDto,
-  ) {
+  async checkStorageLimit(@Param('tenantId') tenantId: string, @Body() dto: CheckStorageLimitDto) {
     const allowed = this.configService.checkStorageLimit(tenantId, dto.additionalSizeGB);
     return { allowed };
   }
@@ -182,27 +175,18 @@ export class TenantConfigurationController {
   // ============================================================================
 
   @Post(':tenantId/api-keys')
-  async createApiKey(
-    @Param('tenantId') tenantId: string,
-    @Body() dto: CreateApiKeyDto,
-  ) {
+  async createApiKey(@Param('tenantId') tenantId: string, @Body() dto: CreateApiKeyDto) {
     return this.configService.createApiKey(tenantId, dto);
   }
 
   @Delete(':tenantId/api-keys/:keyId')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async revokeApiKey(
-    @Param('tenantId') tenantId: string,
-    @Param('keyId') keyId: string,
-  ) {
+  async revokeApiKey(@Param('tenantId') tenantId: string, @Param('keyId') keyId: string) {
     this.configService.revokeApiKey(tenantId, keyId);
   }
 
   @Post(':tenantId/api-keys/validate')
-  async validateApiKey(
-    @Param('tenantId') tenantId: string,
-    @Body() dto: ValidateApiKeyDto,
-  ) {
+  async validateApiKey(@Param('tenantId') tenantId: string, @Body() dto: ValidateApiKeyDto) {
     const result = this.configService.validateApiKey(tenantId, dto.apiKey);
     return { valid: !!result, key: result };
   }
@@ -217,10 +201,7 @@ export class TenantConfigurationController {
   }
 
   @Post(':tenantId/webhooks')
-  async createWebhook(
-    @Param('tenantId') tenantId: string,
-    @Body() dto: CreateWebhookDto,
-  ) {
+  async createWebhook(@Param('tenantId') tenantId: string, @Body() dto: CreateWebhookDto) {
     return this.configService.createWebhook(tenantId, dto);
   }
 
@@ -235,10 +216,7 @@ export class TenantConfigurationController {
 
   @Delete(':tenantId/webhooks/:webhookId')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async deleteWebhook(
-    @Param('tenantId') tenantId: string,
-    @Param('webhookId') webhookId: string,
-  ) {
+  async deleteWebhook(@Param('tenantId') tenantId: string, @Param('webhookId') webhookId: string) {
     this.configService.deleteWebhook(tenantId, webhookId);
   }
 
@@ -304,34 +282,22 @@ export class TenantConfigurationController {
   }
 
   @Post(':tenantId/security/ip-whitelist')
-  async addToIpWhitelist(
-    @Param('tenantId') tenantId: string,
-    @Body() dto: IpAddressDto,
-  ) {
+  async addToIpWhitelist(@Param('tenantId') tenantId: string, @Body() dto: IpAddressDto) {
     return this.configService.addToIpWhitelist(tenantId, dto.ip);
   }
 
   @Delete(':tenantId/security/ip-whitelist/:ip')
-  async removeFromIpWhitelist(
-    @Param('tenantId') tenantId: string,
-    @Param('ip') ip: string,
-  ) {
+  async removeFromIpWhitelist(@Param('tenantId') tenantId: string, @Param('ip') ip: string) {
     return this.configService.removeFromIpWhitelist(tenantId, ip);
   }
 
   @Post(':tenantId/security/ip-blacklist')
-  async addToIpBlacklist(
-    @Param('tenantId') tenantId: string,
-    @Body() dto: IpAddressDto,
-  ) {
+  async addToIpBlacklist(@Param('tenantId') tenantId: string, @Body() dto: IpAddressDto) {
     return this.configService.addToIpBlacklist(tenantId, dto.ip);
   }
 
   @Delete(':tenantId/security/ip-blacklist/:ip')
-  async removeFromIpBlacklist(
-    @Param('tenantId') tenantId: string,
-    @Param('ip') ip: string,
-  ) {
+  async removeFromIpBlacklist(@Param('tenantId') tenantId: string, @Param('ip') ip: string) {
     return this.configService.removeFromIpBlacklist(tenantId, ip);
   }
 
@@ -378,10 +344,7 @@ export class TenantConfigurationController {
   }
 
   @Post(':tenantId/features/modules/:moduleCode/enable')
-  async enableModule(
-    @Param('tenantId') tenantId: string,
-    @Param('moduleCode') moduleCode: string,
-  ) {
+  async enableModule(@Param('tenantId') tenantId: string, @Param('moduleCode') moduleCode: string) {
     return this.configService.enableModule(tenantId, moduleCode);
   }
 

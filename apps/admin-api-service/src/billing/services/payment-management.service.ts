@@ -1,8 +1,4 @@
-import {
-  ConflictException,
-  Injectable,
-  Logger,
-} from '@nestjs/common';
+import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
@@ -41,7 +37,7 @@ export interface PaymentFilters {
   offset?: number;
 }
 
-export interface RecordPaymentDto {
+export interface RecordPaymentInput {
   invoiceId: string;
   amount: number;
   paymentMethod: string;
@@ -50,7 +46,7 @@ export interface RecordPaymentDto {
   notes?: string;
 }
 
-export interface RefundPaymentDto {
+export interface RefundPaymentInput {
   paymentId: string;
   amount: number;
   reason: string;
@@ -193,10 +189,7 @@ export class PaymentManagementService {
   /**
    * Record a payment for an invoice
    */
-  recordPayment(
-    dto: RecordPaymentDto,
-    recordedBy: string,
-  ): never {
+  recordPayment(dto: RecordPaymentInput, recordedBy: string): never {
     void dto;
     void recordedBy;
     throw new ConflictException(
@@ -207,10 +200,7 @@ export class PaymentManagementService {
   /**
    * Refund a payment (full or partial)
    */
-  refundPayment(
-    dto: RefundPaymentDto,
-    refundedBy: string,
-  ): never {
+  refundPayment(dto: RefundPaymentInput, refundedBy: string): never {
     void dto;
     void refundedBy;
     throw new ConflictException(

@@ -9,13 +9,15 @@ import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { getJwtVerifyOptions, enforceAccessTokenType } from '@aquaculture/backend-common/auth';
+import {
+  enforceAccessTokenType,
+  enforceTokenNotRevoked,
+  getJwtVerifyOptions,
+} from '@aquaculture/backend-common/auth';
 import { IS_PUBLIC_KEY } from '@aquaculture/backend-common/decorators';
 import {
-  ITokenBlacklist,
-  IUserTokenRevocation,
-  TOKEN_BLACKLIST,
-  USER_TOKEN_REVOCATION,
+  ITokenRevocationReader,
+  TOKEN_REVOCATION_READER,
 } from '@aquaculture/backend-common/security';
 import { Request } from 'express';
 
@@ -44,9 +46,8 @@ export class JwtAuthGuard {
     @Inject(JwtService) private readonly jwtService: JwtService,
     @Inject(Reflector) private readonly reflector: Reflector,
     @Inject(ConfigService) private readonly configService: ConfigService,
-    @Inject(TOKEN_BLACKLIST) private readonly tokenBlacklist: ITokenBlacklist,
-    @Inject(USER_TOKEN_REVOCATION)
-    private readonly userTokenRevocation: IUserTokenRevocation,
+    @Inject(TOKEN_REVOCATION_READER)
+    private readonly tokenRevocationReader: ITokenRevocationReader,
   ) {
     this.isProduction = this.configService.get<string>('NODE_ENV') === 'production';
   }
@@ -83,26 +84,7 @@ export class JwtAuthGuard {
       // SECURITY: Enforce access token type — reject refresh/MFA tokens
       enforceAccessTokenType(payload, this.logger, this.isProduction);
 
-      if (
-        typeof payload.jti !== 'string' ||
-        payload.jti.trim().length === 0 ||
-        typeof payload.sub !== 'string' ||
-        payload.sub.trim().length === 0 ||
-        typeof payload.iat !== 'number' ||
-        !Number.isSafeInteger(payload.iat) ||
-        payload.iat <= 0
-      ) {
-        throw new UnauthorizedException('Invalid or expired token');
-      }
-
-      const issuedAt = new Date(payload.iat * 1000);
-      const [jtiRevoked, userTokenValid] = await Promise.all([
-        this.tokenBlacklist.isBlacklisted(payload.jti),
-        this.userTokenRevocation.isTokenValid(payload.sub, issuedAt),
-      ]);
-      if (jtiRevoked || !userTokenValid) {
-        throw new UnauthorizedException('Token has been revoked');
-      }
+      await enforceTokenNotRevoked(payload, this.tokenRevocationReader, this.logger);
 
       request.user = payload;
       return true;

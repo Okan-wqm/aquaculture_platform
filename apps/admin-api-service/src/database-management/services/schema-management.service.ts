@@ -11,6 +11,10 @@ import {
   listTenantSchemas,
   queryRowsNormalized,
 } from '@aquaculture/backend-common/database';
+import {
+  createStandardPaginatedResult,
+  type IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 import { Injectable, Logger, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -82,7 +86,7 @@ export class SchemaManagementService {
    */
   async getAllSchemas(
     options: { page?: number; limit?: number } = {},
-  ): Promise<{ data: TenantSchema[]; total: number; page: number; limit: number }> {
+  ): Promise<IStandardPaginatedResult<TenantSchema>> {
     const { page = 1, limit = 50 } = options;
 
     const [data, total] = await this.schemaRepository.findAndCount({
@@ -91,7 +95,7 @@ export class SchemaManagementService {
       take: limit,
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**
@@ -558,7 +562,6 @@ export class SchemaManagementService {
       const existingSchemas = await listTenantSchemas(this.dataSource);
 
       for (const schemaName of existingSchemas) {
-
         try {
           // Check if a tracking record already exists for this schema
           const existingRecord = await this.schemaRepository.findOne({
@@ -571,13 +574,15 @@ export class SchemaManagementService {
           }
 
           // Resolve tenantId by matching the schema name pattern against the tenants table
-          const tenantRows = queryRowsNormalized<{ id: string }>(await queryRunner.query(
-            `
+          const tenantRows = queryRowsNormalized<{ id: string }>(
+            await queryRunner.query(
+              `
             SELECT id FROM tenants
             WHERE LEFT(REPLACE(id::text, '-', ''), 16) = $1
           `,
-            [schemaName.replace('tenant_', '')],
-          ));
+              [schemaName.replace('tenant_', '')],
+            ),
+          );
 
           if (tenantRows.length === 0) {
             errors.push(`No matching tenant found for schema ${schemaName}`);

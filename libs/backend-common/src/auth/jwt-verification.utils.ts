@@ -1,7 +1,10 @@
 import { readFileSync } from 'fs';
+
 import { Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { JwtVerifyOptions } from '@nestjs/jwt';
+
+import type { ITokenRevocationReader } from '../security/token-revocation-reader';
 
 /**
  * @module JwtVerificationUtils
@@ -58,6 +61,17 @@ interface TokenTypePayload {
   jti?: string;
 }
 
+interface RevocableAccessTokenPayload {
+  sub: string;
+  jti?: string;
+  iat?: number;
+}
+
+export interface VerifiedTokenRevocationCoordinates {
+  jti: string;
+  issuedAtSeconds: number;
+}
+
 /**
  * Enforce strict access token type — SEC-COMPAT SUNSET (2026-04-12).
  *
@@ -89,10 +103,59 @@ export function enforceAccessTokenType(
         message: 'Token identifier (jti) required',
       });
     }
-    logger.warn(
-      `Token without jti for user ${payload.sub} — only permitted outside production.`,
-    );
+    logger.warn(`Token without jti for user ${payload.sub} — only permitted outside production.`);
   }
+}
+
+/**
+ * Canonical post-signature revocation fence for directly reachable JWT
+ * boundaries. Both the per-JTI marker and the monotonic user invalidation
+ * epoch are mandatory; omitting either would leave one class of already-issued
+ * token live after logout, credential reset, deletion, or RBAC reduction.
+ *
+ * Store failures deliberately propagate. A caller must deny the request (and
+ * normally surface 503) rather than reinterpret an unavailable revocation
+ * authority as "not revoked".
+ */
+export async function enforceTokenNotRevoked(
+  payload: RevocableAccessTokenPayload,
+  reader: ITokenRevocationReader,
+  logger: Logger,
+): Promise<VerifiedTokenRevocationCoordinates> {
+  const issuedAtSeconds = payload.iat;
+  if (
+    !payload.jti ||
+    typeof issuedAtSeconds !== 'number' ||
+    !Number.isSafeInteger(issuedAtSeconds) ||
+    issuedAtSeconds <= 0
+  ) {
+    throw new UnauthorizedException({
+      code: 'MISSING_REVOCATION_CLAIMS',
+      message: 'Token revocation claims are required',
+    });
+  }
+
+  const { jtiRevoked, userEpochRevoked } = await reader.getStatus(
+    payload.jti,
+    payload.sub,
+    issuedAtSeconds,
+  );
+  if (!jtiRevoked && !userEpochRevoked) {
+    return { jti: payload.jti, issuedAtSeconds };
+  }
+
+  logger.warn(
+    JSON.stringify({
+      event: 'revoked_access_token_rejected',
+      userId: payload.sub,
+      jtiRevoked,
+      userEpochRevoked,
+    }),
+  );
+  throw new UnauthorizedException({
+    code: 'TOKEN_REVOKED',
+    message: 'Token has been revoked',
+  });
 }
 
 /**
@@ -134,8 +197,8 @@ function resolvePublicKey(configService: ConfigService): {
 
   throw new Error(
     'CRITICAL SECURITY ERROR: JWT_PUBLIC_KEY or JWT_PUBLIC_KEY_PATH must be configured. ' +
-    'All services require the RSA public key to verify JWT tokens signed by auth-service. ' +
-    'Application startup aborted.',
+      'All services require the RSA public key to verify JWT tokens signed by auth-service. ' +
+      'Application startup aborted.',
   );
 }
 

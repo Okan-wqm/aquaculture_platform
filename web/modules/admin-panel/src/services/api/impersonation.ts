@@ -12,86 +12,93 @@ import type {
   PaginatedResult,
   PaginationParams,
   ImpersonationPermission,
+  GrantImpersonationPermissionRequest,
+  ImpersonationPermissionCheck,
+  ImpersonationPermissionRevocation,
   ImpersonationSession,
   ImpersonationSessionStatus,
+  ImpersonationSessionScope,
   ImpersonationReasonCode,
   StartImpersonationRequest,
   StartImpersonationResponse,
   ImpersonationAction,
+  ImpersonationStats,
 } from '../types';
 
 export const impersonationApi = {
   // Permissions
-  getPermissions: (params?: { tenantId?: string; isActive?: boolean } & PaginationParams) =>
-    apiFetch<PaginatedResult<ImpersonationPermission>>(`/impersonation/permissions?${buildQueryString(params || {})}`),
+  getPermissions: (
+    params?: { tenantId?: string; isActive?: boolean; search?: string } & PaginationParams,
+  ) =>
+    apiFetch<PaginatedResult<ImpersonationPermission>>(
+      `/impersonation/permissions?${buildQueryString(params || {})}`,
+    ),
   // Fix: backend uses superAdminId as path param (GET /permissions/:superAdminId)
-  getPermission: (superAdminId: string) => apiFetch<ImpersonationPermission>(`/impersonation/permissions/${superAdminId}`),
-  grantPermission: (data: {
-    superAdminId: string;
-    superAdminEmail?: string;
-    allowedTenants?: string[];
-    restrictedTenants?: string[];
-    defaultPermissions?: Record<string, unknown>;
-    maxSessionDurationMinutes?: number;
-    maxConcurrentSessions?: number;
-    requireReason?: boolean;
-    requireTicketReference?: boolean;
-    notifyTenantAdmin?: boolean;
-    expiresAt?: string;
-    notes?: string;
-  }) =>
-    apiFetch<ImpersonationPermission>('/impersonation/permissions', { method: 'POST', body: JSON.stringify(data) }),
-  // TODO: No backend PUT endpoint for updating permissions (only POST grant and POST revoke)
-  updatePermission: (_id: string, _data: Partial<ImpersonationPermission>) => {
-    throw new Error('Not implemented: no backend PUT endpoint for /impersonation/permissions/:id. Use grant/revoke instead.');
-  },
-  // Fix: backend uses POST /permissions/:superAdminId/revoke (no body needed, auth from JWT)
-  revokePermission: (superAdminId: string, _revokedBy?: string, _reason?: string) =>
-    apiFetch<void>(`/impersonation/permissions/${superAdminId}/revoke`, { method: 'POST' }),
+  getPermission: (superAdminId: string) =>
+    apiFetch<ImpersonationPermission | null>(`/impersonation/permissions/${superAdminId}`),
+  grantPermission: (data: GrantImpersonationPermissionRequest) =>
+    apiFetch<ImpersonationPermission>('/impersonation/permissions', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  revokePermission: (superAdminId: string, data: ImpersonationPermissionRevocation) =>
+    apiFetch<void>(`/impersonation/permissions/${superAdminId}/revoke`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
   // Fix: backend uses path params GET /permissions/:superAdminId/check/:tenantId (not query params)
   checkPermission: (tenantId: string, adminId: string) =>
-    apiFetch<{ hasPermission: boolean; permission?: ImpersonationPermission }>(`/impersonation/permissions/${adminId}/check/${tenantId}`),
+    apiFetch<ImpersonationPermissionCheck>(
+      `/impersonation/permissions/${adminId}/check/${tenantId}`,
+    ),
 
   // Sessions
   // Query params mirror backend QuerySessionsDto (superAdminId/targetTenantId,
-  // not adminId/tenantId); the list envelope is { items, total } — the backend
-  // does not wrap sessions in the page/limit/totalPages shape.
+  // not adminId/tenantId). The response uses the canonical page contract.
   getSessions: (
     params?: {
       superAdminId?: string;
       targetTenantId?: string;
       status?: ImpersonationSessionStatus;
+      scope?: ImpersonationSessionScope;
+      search?: string;
       reason?: ImpersonationReasonCode;
     } & PaginationParams,
   ) =>
-    apiFetch<{ items: ImpersonationSession[]; total: number }>(`/impersonation/sessions?${buildQueryString(params || {})}`),
+    apiFetch<PaginatedResult<ImpersonationSession>>(
+      `/impersonation/sessions?${buildQueryString(params || {})}`,
+    ),
   getSession: (id: string) => apiFetch<ImpersonationSession>(`/impersonation/sessions/${id}`),
   startSession: (data: StartImpersonationRequest) =>
-    apiFetch<StartImpersonationResponse>('/impersonation/sessions/start', { method: 'POST', body: JSON.stringify(data) }),
+    apiFetch<StartImpersonationResponse>('/impersonation/sessions/start', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
   endSession: (id: string) =>
     apiFetch<ImpersonationSession>(`/impersonation/sessions/${id}/end`, { method: 'POST' }),
   extendSession: (id: string, additionalMinutes: number) =>
-    apiFetch<ImpersonationSession>(`/impersonation/sessions/${id}/extend`, { method: 'POST', body: JSON.stringify({ additionalMinutes }) }),
+    apiFetch<ImpersonationSession>(`/impersonation/sessions/${id}/extend`, {
+      method: 'POST',
+      body: JSON.stringify({ additionalMinutes }),
+    }),
   // Backend TerminateSessionDto accepts ONLY { reason } (required); the
   // terminating admin's identity comes from the JWT, never the body.
   revokeSession: (id: string, reason: string) =>
-    apiFetch<ImpersonationSession>(`/impersonation/sessions/${id}/terminate`, { method: 'POST', body: JSON.stringify({ reason }) }),
+    apiFetch<ImpersonationSession>(`/impersonation/sessions/${id}/terminate`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }),
   getActiveSessions: () => apiFetch<ImpersonationSession[]>('/impersonation/sessions/active'),
-  // TODO: No backend GET endpoint for session actions
-  getSessionActions: (_sessionId: string): Promise<ImpersonationAction[]> => {
-    throw new Error('Not implemented: no backend GET endpoint for /impersonation/sessions/:id/actions');
-  },
+  getSessionActions: (sessionId: string): Promise<readonly ImpersonationAction[]> =>
+    apiFetch<readonly ImpersonationAction[]>(`/impersonation/sessions/${sessionId}/actions`),
   // Fix: backend uses POST /sessions/:id/log-action (not /sessions/:id/actions)
   logAction: (sessionId: string, data: Omit<ImpersonationAction, 'timestamp'>) =>
-    apiFetch<void>(`/impersonation/sessions/${sessionId}/log-action`, { method: 'POST', body: JSON.stringify(data) }),
+    apiFetch<void>(`/impersonation/sessions/${sessionId}/log-action`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 
   // Dashboard
-  getImpersonationStats: () =>
-    apiFetch<{
-      activeSessions: number;
-      totalSessions: number;
-      activePermissions: number;
-      topAdmins: Array<{ adminId: string; email: string; sessionCount: number }>;
-      recentSessions: ImpersonationSession[];
-    }>('/impersonation/stats'),
+  getImpersonationStats: (windowDays = 30) =>
+    apiFetch<ImpersonationStats>(`/impersonation/stats?${buildQueryString({ windowDays })}`),
 };

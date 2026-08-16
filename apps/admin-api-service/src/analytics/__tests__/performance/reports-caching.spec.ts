@@ -15,7 +15,6 @@ import { UserReadOnly } from '../../entities/external/user.entity';
 import { AnalyticsService } from '../../services/analytics.service';
 import { ReportsService } from '../../services/reports.service';
 
-
 // =============================================================================
 // Mock Factories
 // =============================================================================
@@ -27,17 +26,18 @@ const createMockRedisService = (): jest.Mocked<Partial<RedisService>> => ({
   deletePattern: jest.fn().mockResolvedValue(0),
 });
 
-const createMockTenant = (overrides: Partial<TenantReadOnly> = {}): TenantReadOnly => ({
-  id: 'tenant-1',
-  name: 'Test Tenant',
-  slug: 'test-tenant',
-  status: TenantStatus.ACTIVE,
-  plan: TenantPlan.STARTER,
-  maxUsers: 10,
-  createdAt: new Date('2024-01-01'),
-  updatedAt: new Date('2024-06-01'),
-  ...overrides,
-} as TenantReadOnly);
+const createMockTenant = (overrides: Partial<TenantReadOnly> = {}): TenantReadOnly =>
+  ({
+    id: 'tenant-1',
+    name: 'Test Tenant',
+    slug: 'test-tenant',
+    status: TenantStatus.ACTIVE,
+    plan: TenantPlan.STARTER,
+    maxUsers: 10,
+    createdAt: new Date('2024-01-01'),
+    updatedAt: new Date('2024-06-01'),
+    ...overrides,
+  }) as TenantReadOnly;
 
 const mockAnalyticsService = {
   getTenantMetrics: jest.fn().mockResolvedValue({
@@ -102,10 +102,12 @@ describe('ReportsService - Caching', () => {
     const mockDataSource = createMockDataSource();
 
     mockTenantRepo = {
-      find: jest.fn().mockResolvedValue([
-        createMockTenant(),
-        createMockTenant({ id: 'tenant-2', name: 'Tenant 2', status: TenantStatus.ACTIVE }),
-      ]),
+      find: jest
+        .fn()
+        .mockResolvedValue([
+          createMockTenant(),
+          createMockTenant({ id: 'tenant-2', name: 'Tenant 2', status: TenantStatus.ACTIVE }),
+        ]),
       createQueryBuilder: jest.fn().mockReturnValue({
         select: jest.fn().mockReturnThis(),
         addSelect: jest.fn().mockReturnThis(),
@@ -131,8 +133,25 @@ describe('ReportsService - Caching', () => {
         { provide: getRepositoryToken(AnalyticsSnapshot), useValue: { find: jest.fn() } },
         { provide: getRepositoryToken(TenantReadOnly), useValue: mockTenantRepo },
         { provide: getRepositoryToken(UserReadOnly), useValue: mockUserRepo },
-        { provide: getRepositoryToken(ReportDefinition), useValue: { createQueryBuilder: jest.fn(), create: jest.fn(), save: jest.fn(), findOne: jest.fn(), remove: jest.fn() } },
-        { provide: getRepositoryToken(ReportExecution), useValue: { createQueryBuilder: jest.fn(), create: jest.fn(), save: jest.fn(), findOne: jest.fn() } },
+        {
+          provide: getRepositoryToken(ReportDefinition),
+          useValue: {
+            createQueryBuilder: jest.fn(),
+            create: jest.fn(),
+            save: jest.fn(),
+            findOne: jest.fn(),
+            remove: jest.fn(),
+          },
+        },
+        {
+          provide: getRepositoryToken(ReportExecution),
+          useValue: {
+            createQueryBuilder: jest.fn(),
+            create: jest.fn(),
+            save: jest.fn(),
+            findOne: jest.fn(),
+          },
+        },
         { provide: AnalyticsService, useValue: mockAnalyticsService },
         { provide: AuditLogService, useValue: mockAuditLogService },
         { provide: DataSource, useValue: mockDataSource },
@@ -197,11 +216,7 @@ describe('ReportsService - Caching', () => {
         endDate: new Date('2024-12-31'),
       });
 
-      expect(mockRedis.setJson).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.any(Object),
-        14400,
-      );
+      expect(mockRedis.setJson).toHaveBeenCalledWith(expect.any(String), expect.any(Object), 14400);
     });
   });
 
@@ -314,8 +329,25 @@ describe('ReportsService - Caching', () => {
           { provide: getRepositoryToken(AnalyticsSnapshot), useValue: { find: jest.fn() } },
           { provide: getRepositoryToken(TenantReadOnly), useValue: mockTenantRepo },
           { provide: getRepositoryToken(UserReadOnly), useValue: mockUserRepo },
-          { provide: getRepositoryToken(ReportDefinition), useValue: { createQueryBuilder: jest.fn(), create: jest.fn(), save: jest.fn(), findOne: jest.fn(), remove: jest.fn() } },
-          { provide: getRepositoryToken(ReportExecution), useValue: { createQueryBuilder: jest.fn(), create: jest.fn(), save: jest.fn(), findOne: jest.fn() } },
+          {
+            provide: getRepositoryToken(ReportDefinition),
+            useValue: {
+              createQueryBuilder: jest.fn(),
+              create: jest.fn(),
+              save: jest.fn(),
+              findOne: jest.fn(),
+              remove: jest.fn(),
+            },
+          },
+          {
+            provide: getRepositoryToken(ReportExecution),
+            useValue: {
+              createQueryBuilder: jest.fn(),
+              create: jest.fn(),
+              save: jest.fn(),
+              findOne: jest.fn(),
+            },
+          },
           { provide: AnalyticsService, useValue: mockAnalyticsService },
           { provide: AuditLogService, useValue: mockAuditLogService },
           { provide: DataSource, useValue: createMockDataSource() },
@@ -388,9 +420,7 @@ describe('ReportsService - Caching', () => {
         endDate: new Date('2024-12-31'),
       } as unknown as Parameters<ReportsService['generateReport']>[0];
 
-      await expect(
-        service.generateReport(invalidRequest),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.generateReport(invalidRequest)).rejects.toThrow(BadRequestException);
     });
   });
 
@@ -426,7 +456,15 @@ describe('ReportsService - Caching', () => {
           { provide: getRepositoryToken(TenantReadOnly), useValue: mockTenantRepo },
           { provide: getRepositoryToken(UserReadOnly), useValue: mockUserRepo },
           { provide: getRepositoryToken(ReportDefinition), useValue: mockDefRepo },
-          { provide: getRepositoryToken(ReportExecution), useValue: { createQueryBuilder: jest.fn(), create: jest.fn(), save: jest.fn(), findOne: jest.fn() } },
+          {
+            provide: getRepositoryToken(ReportExecution),
+            useValue: {
+              createQueryBuilder: jest.fn(),
+              create: jest.fn(),
+              save: jest.fn(),
+              findOne: jest.fn(),
+            },
+          },
           { provide: AnalyticsService, useValue: mockAnalyticsService },
           { provide: AuditLogService, useValue: mockAuditLogService },
           { provide: DataSource, useValue: createMockDataSource() },
@@ -454,30 +492,27 @@ describe('ReportsService - Caching', () => {
     it('should filter by status', async () => {
       await service.getDefinitions({ status: 'active' });
 
-      expect(mockDefQueryBuilder['andWhere']).toHaveBeenCalledWith(
-        'def.status = :status',
-        { status: 'active' },
-      );
+      expect(mockDefQueryBuilder['andWhere']).toHaveBeenCalledWith('def.status = :status', {
+        status: 'active',
+      });
     });
 
     it('should filter by type', async () => {
       await service.getDefinitions({ type: 'tenant_overview' });
 
-      expect(mockDefQueryBuilder['andWhere']).toHaveBeenCalledWith(
-        'def.type = :type',
-        { type: 'tenant_overview' },
-      );
+      expect(mockDefQueryBuilder['andWhere']).toHaveBeenCalledWith('def.type = :type', {
+        type: 'tenant_overview',
+      });
     });
 
     it('should return correct pagination metadata', async () => {
-      mockDefQueryBuilder['getManyAndCount'] = jest.fn().mockResolvedValue([
-        [{ id: '1', name: 'Report 1' }],
-        15,
-      ]);
+      mockDefQueryBuilder['getManyAndCount'] = jest
+        .fn()
+        .mockResolvedValue([[{ id: '1', name: 'Report 1' }], 15]);
 
       const result = await service.getDefinitions({ page: 2, limit: 5 });
 
-      expect(result.data).toHaveLength(1);
+      expect(result.items).toHaveLength(1);
       expect(result.total).toBe(15);
       expect(result.page).toBe(2);
       expect(result.limit).toBe(5);

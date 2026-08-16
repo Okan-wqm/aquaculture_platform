@@ -5,7 +5,9 @@
  *   - GET  /messaging/compliance/stats
  *   - GET  /messaging/compliance/legal-holds
  *   - POST /messaging/compliance/legal-holds
- *   - DELETE /messaging/compliance/legal-holds/:id
+ *   - POST /messaging/compliance/legal-holds/:id/release-operations
+ *   - POST /messaging/compliance/legal-hold-release-operations/:id/authorizations
+ *   - GET  /messaging/compliance/legal-hold-release-operations
  *   - GET  /messaging/retention/policies
  *   - PUT  /messaging/retention/policies/:id
  *   - GET  /messaging/monitoring/stats  (returns 501 until real-time metrics infra)
@@ -14,38 +16,28 @@
  * @see ADR-012 Phase 3
  */
 
+import type {
+  AdminAuthorizeLegalHoldReleaseOperationV1,
+  AdminCreateLegalHoldReleaseOperationV1,
+  AdminLegalHoldReleaseOperationV1,
+  AdminLegalHoldV1,
+  AdminMessagingComplianceStatsV1,
+  AdminMessagingAuditEntryV1,
+  AdminMessagingAuditPageV1,
+  AdminMessagingAuditQueryV1,
+} from '@platform/admin-http-contracts';
+
 import { apiFetch, buildQueryString } from '../http-client';
-import type { PaginatedResult } from '../types';
 
 // ============================================================================
 // Types -- Compliance
 // ============================================================================
 
-/** Aggregated compliance statistics returned by GET /messaging/compliance/stats */
-export interface ComplianceStats {
-  messagesUnderLegalHold: number;
-  pendingRetentionCleanup: number;
-  activeExports: number;
-  complianceScore: number;
-  activeHoldsCount: number;
-  retentionPoliciesCount: number;
-  auditEntriesCount: number;
-}
-
-/** Legal hold record returned by GET /messaging/compliance/legal-holds */
-export interface LegalHold {
-  id: string;
-  tenantId: string;
-  tenantName: string;
-  channelId: string | null;
-  channelName: string | null;
-  reason: string;
-  startedBy: string;
-  startedAt: string;
-  releasedBy: string | null;
-  releasedAt: string | null;
-  isActive: boolean;
-}
+export type ComplianceStats = AdminMessagingComplianceStatsV1;
+export type LegalHold = AdminLegalHoldV1;
+export type LegalHoldReleaseOperation = AdminLegalHoldReleaseOperationV1;
+export type CreateLegalHoldReleaseOperationInput = AdminCreateLegalHoldReleaseOperationV1;
+export type AuthorizeLegalHoldReleaseOperationInput = AdminAuthorizeLegalHoldReleaseOperationV1;
 
 /** Payload for POST /messaging/compliance/legal-holds */
 export interface CreateLegalHoldInput {
@@ -83,28 +75,12 @@ export interface RetentionPolicyUpdate {
 // Types -- Audit
 // ============================================================================
 
-export interface MessagingAuditEntry {
-  id: string;
-  timestamp: string;
-  tenantId: string;
-  tenantName: string;
-  userId: string;
-  userName: string;
-  action: string;
-  details: string;
-  channelId?: string;
-  messageId?: string;
-}
+export type MessagingAuditEntry = AdminMessagingAuditEntryV1;
 
-export interface MessagingAuditFilters {
-  tenantId?: string;
-  userId?: string;
-  action?: string;
-  startDate?: string;
-  endDate?: string;
-  page?: number;
-  pageSize?: number;
-}
+export type MessagingAuditFilters = Omit<AdminMessagingAuditQueryV1, 'cursor' | 'limit'> & {
+  readonly cursor?: string | null;
+  readonly limit?: number;
+};
 
 // ============================================================================
 // Types -- Shared (used across compliance page sections)
@@ -174,24 +150,20 @@ export const messagingApi = {
   // ── Compliance Stats ──
 
   /**
-   * Fetch compliance statistics.
-   * @param tenantId - Optional tenant filter. Omit for platform-wide stats.
+   * Fetch compliance statistics for one explicit tenant boundary.
+   * @param tenantId - Required tenant UUID; platform-wide aggregation is forbidden.
    */
-  getComplianceStats: (tenantId?: string): Promise<ComplianceStats> =>
-    apiFetch<ComplianceStats>(
-      `/messaging/compliance/stats${tenantId ? `?${buildQueryString({ tenantId })}` : ''}`,
-    ),
+  getComplianceStats: (tenantId: string): Promise<ComplianceStats> =>
+    apiFetch<ComplianceStats>(`/messaging/compliance/stats?${buildQueryString({ tenantId })}`),
 
   // ── Legal Holds ──
 
   /**
-   * Fetch legal holds list.
-   * @param tenantId - Optional tenant filter. Omit for all tenants.
+   * Fetch legal holds for one explicit tenant boundary.
+   * @param tenantId - Required tenant UUID; cross-tenant listing is forbidden.
    */
-  getLegalHolds: (tenantId?: string): Promise<LegalHold[]> =>
-    apiFetch<LegalHold[]>(
-      `/messaging/compliance/legal-holds${tenantId ? `?${buildQueryString({ tenantId })}` : ''}`,
-    ),
+  getLegalHolds: (tenantId: string): Promise<readonly LegalHold[]> =>
+    apiFetch<LegalHold[]>(`/messaging/compliance/legal-holds?${buildQueryString({ tenantId })}`),
 
   /** Create a new legal hold on messaging data. */
   createLegalHold: (input: CreateLegalHoldInput): Promise<LegalHold> =>
@@ -200,15 +172,29 @@ export const messagingApi = {
       body: JSON.stringify(input),
     }),
 
-  /**
-   * Release (deactivate) an existing legal hold.
-   * @param holdId - UUID of the legal hold to release
-   * @param tenantId - Tenant that owns the hold
-   */
-  releaseLegalHold: (holdId: string, tenantId: string): Promise<void> =>
-    apiFetch<void>(
-      `/messaging/compliance/legal-holds/${holdId}?${buildQueryString({ tenantId })}`,
-      { method: 'DELETE' },
+  createLegalHoldReleaseOperation: (
+    holdId: string,
+    input: CreateLegalHoldReleaseOperationInput,
+  ): Promise<LegalHoldReleaseOperation> =>
+    apiFetch<LegalHoldReleaseOperation>(
+      `/messaging/compliance/legal-holds/${holdId}/release-operations`,
+      { method: 'POST', body: JSON.stringify(input) },
+    ),
+
+  authorizeLegalHoldReleaseOperation: (
+    operationId: string,
+    input: AuthorizeLegalHoldReleaseOperationInput,
+  ): Promise<LegalHoldReleaseOperation> =>
+    apiFetch<LegalHoldReleaseOperation>(
+      `/messaging/compliance/legal-hold-release-operations/${operationId}/authorizations`,
+      { method: 'POST', body: JSON.stringify(input) },
+    ),
+
+  getLegalHoldReleaseOperations: (
+    tenantId: string,
+  ): Promise<readonly LegalHoldReleaseOperation[]> =>
+    apiFetch<LegalHoldReleaseOperation[]>(
+      `/messaging/compliance/legal-hold-release-operations?${buildQueryString({ tenantId })}`,
     ),
 
   // ── Retention ──
@@ -234,18 +220,13 @@ export const messagingApi = {
    * IMPORTANT: This endpoint currently returns 501 (Not Implemented)
    * because real-time metrics infrastructure is not yet available.
    */
-  getMonitoringStats: (): Promise<unknown> =>
-    apiFetch<unknown>('/messaging/monitoring/stats'),
+  getMonitoringStats: (): Promise<unknown> => apiFetch<unknown>('/messaging/monitoring/stats'),
 
   // ── Audit ──
 
   /** Query messaging audit log with pagination and filters */
-  getAuditLog: (
-    filters?: MessagingAuditFilters,
-  ): Promise<PaginatedResult<MessagingAuditEntry>> =>
-    apiFetch<PaginatedResult<MessagingAuditEntry>>(
-      `/messaging/audit?${buildQueryString({ ...(filters || {}) })}`,
-    ),
+  getAuditLog: (filters: MessagingAuditFilters): Promise<AdminMessagingAuditPageV1> =>
+    apiFetch<AdminMessagingAuditPageV1>(`/messaging/audit?${buildQueryString(filters)}`),
 
   // ── Data Export ──
 
@@ -271,9 +252,7 @@ export const messagingApi = {
    * @param tenantId - UUID of the tenant
    */
   getPersonas: (tenantId: string): Promise<AiPersonaDefinition[]> =>
-    apiFetch<AiPersonaDefinition[]>(
-      `/messaging/personas?${buildQueryString({ tenantId })}`,
-    ),
+    apiFetch<AiPersonaDefinition[]>(`/messaging/personas?${buildQueryString({ tenantId })}`),
 
   /**
    * Update an AI persona configuration.
@@ -281,10 +260,7 @@ export const messagingApi = {
    * @param personaId - Persona identifier
    * @param updates - Fields to update
    */
-  updatePersona: (
-    personaId: string,
-    updates: Record<string, unknown>,
-  ): Promise<unknown> =>
+  updatePersona: (personaId: string, updates: Record<string, unknown>): Promise<unknown> =>
     apiFetch<unknown>(`/messaging/personas/${personaId}`, {
       method: 'PUT',
       body: JSON.stringify(updates),

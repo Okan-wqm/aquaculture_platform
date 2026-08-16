@@ -3,7 +3,7 @@ import { Test } from '@nestjs/testing';
 
 import { ChannelMember } from '../channel/entities/channel-member.entity';
 import { AttachmentObjectPurgeService } from '../compliance/services/attachment-object-purge.service';
-import { LegalHoldService } from '../compliance/services/legal-hold.service';
+import { LegalHoldDestructiveMutationAuthority } from '../compliance/services/legal-hold-destructive-mutation.authority';
 import { Message } from '../message/entities/message.entity';
 import { MediaService } from '../message/services/media.service';
 import { PartitionManagerService } from '../partition/partition-manager.service';
@@ -63,7 +63,7 @@ describe('MessagingNatsHandler.getMessageForBroadcast', () => {
         { provide: getRepositoryToken(Message), useValue: {} },
         { provide: getDataSourceToken(), useValue: dataSource },
         { provide: PartitionManagerService, useValue: {} },
-        { provide: LegalHoldService, useValue: {} },
+        { provide: LegalHoldDestructiveMutationAuthority, useValue: {} },
         { provide: MediaService, useValue: { generateDownloadUrl } },
         { provide: REDIS_CLIENT, useValue: {} },
         { provide: AttachmentObjectPurgeService, useValue: { purgeObjects: jest.fn() } },
@@ -160,7 +160,10 @@ describe('MessagingNatsHandler.getMessageForBroadcast', () => {
 
     const result = await handler.getMessageForBroadcast({ tenantId, channelId, messageId });
 
-    expect(generateDownloadUrl).toHaveBeenCalledWith(tenantId, `messaging/${tenantId}/c/2026/06/p.jpg`);
+    expect(generateDownloadUrl).toHaveBeenCalledWith(
+      tenantId,
+      `messaging/${tenantId}/c/2026/06/p.jpg`,
+    );
     expect(result.message?.attachments?.[0]?.downloadUrl).toBe('https://minio/signed');
     expect(result.message?.attachments?.[0]?.thumbnailUrl).toBeNull();
   });

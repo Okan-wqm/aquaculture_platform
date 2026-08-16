@@ -3,6 +3,7 @@
  * Handles CRUD operations for departments via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 
 // Types
@@ -48,12 +49,10 @@ export interface UpdateDepartmentInput extends Partial<CreateDepartmentInput> {
   isActive?: boolean;
 }
 
-interface PaginatedResponse {
-  items: Department[];
-  total: number;
-  page: number;
-  limit: number;
-}
+type DepartmentsPage = Pick<
+  PaginationResultV1<Department>,
+  'items' | 'total' | 'page' | 'limit'
+>;
 
 // GraphQL queries
 const DEPARTMENTS_LIST_QUERY = `
@@ -208,7 +207,7 @@ export function useDepartmentList(filter?: {
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'departments', 'list', tenantId, filter),
     queryFn: async () => {
-      const data = await graphqlClient.request<{ departments: PaginatedResponse }>(
+      const data = await graphqlClient.request<{ departments: DepartmentsPage }>(
         DEPARTMENTS_LIST_QUERY,
         { filter, pagination: { page: 1, limit: 100 } }
       );

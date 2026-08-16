@@ -9,26 +9,13 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan, IsNull } from 'typeorm';
 
 import { IpAccessRule } from '../entities/system-setting.entity';
+import { CreateIpAccessRuleDto, UpdateIpAccessRuleDto } from '../dto/ip-access.dto';
 
 // ============================================================================
 // DTOs
 // ============================================================================
 
-export interface CreateIpAccessRuleDto {
-  tenantId?: string;
-  ipAddress: string;
-  ruleType: 'whitelist' | 'blacklist';
-  description?: string;
-  expiresAt?: Date;
-  createdBy?: string;
-}
-
-export interface UpdateIpAccessRuleDto {
-  ipAddress?: string;
-  description?: string;
-  isActive?: boolean;
-  expiresAt?: Date | null;
-}
+type CreateIpAccessRuleInput = CreateIpAccessRuleDto & { createdBy?: string };
 
 export interface IpAccessRuleResponse {
   id: string;
@@ -80,7 +67,7 @@ export class IpAccessService {
     query.orderBy('rule.ruleType', 'ASC').addOrderBy('rule.createdAt', 'DESC');
 
     const rules = await query.getMany();
-    return rules.map(r => this.toResponse(r));
+    return rules.map((r) => this.toResponse(r));
   }
 
   /**
@@ -101,7 +88,7 @@ export class IpAccessService {
     query.orderBy('rule.createdAt', 'DESC');
 
     const rules = await query.getMany();
-    return rules.map(r => this.toResponse(r));
+    return rules.map((r) => this.toResponse(r));
   }
 
   /**
@@ -120,7 +107,7 @@ export class IpAccessService {
   /**
    * Create a new IP access rule
    */
-  async createRule(dto: CreateIpAccessRuleDto): Promise<IpAccessRuleResponse> {
+  async createRule(dto: CreateIpAccessRuleInput): Promise<IpAccessRuleResponse> {
     // Validate IP address or CIDR notation
     if (!this.isValidIpOrCidr(dto.ipAddress)) {
       throw new BadRequestException(`Invalid IP address or CIDR notation: ${dto.ipAddress}`);
@@ -136,9 +123,7 @@ export class IpAccessService {
     });
 
     if (existing) {
-      throw new ConflictException(
-        `${dto.ruleType} rule for IP "${dto.ipAddress}" already exists`
-      );
+      throw new ConflictException(`${dto.ruleType} rule for IP "${dto.ipAddress}" already exists`);
     }
 
     const rule = this.ruleRepository.create({
@@ -215,10 +200,10 @@ export class IpAccessService {
 
     // Filter out expired rules
     const now = new Date();
-    const activeRules = rules.filter(r => !r.expiresAt || new Date(r.expiresAt) > now);
+    const activeRules = rules.filter((r) => !r.expiresAt || new Date(r.expiresAt) > now);
 
     // Check blacklist first (deny takes precedence)
-    const blacklistRules = activeRules.filter(r => r.ruleType === 'blacklist');
+    const blacklistRules = activeRules.filter((r) => r.ruleType === 'blacklist');
     for (const rule of blacklistRules) {
       if (this.ipMatchesRule(ip, rule.ipAddress)) {
         await this.recordHit(rule.id);
@@ -231,7 +216,7 @@ export class IpAccessService {
     }
 
     // Check whitelist
-    const whitelistRules = activeRules.filter(r => r.ruleType === 'whitelist');
+    const whitelistRules = activeRules.filter((r) => r.ruleType === 'whitelist');
 
     // If there are whitelist rules and the IP is not in any of them, deny
     if (whitelistRules.length > 0) {
@@ -328,10 +313,7 @@ export class IpAccessService {
   /**
    * Clear all rules of a type for a tenant
    */
-  async clearRules(
-    ruleType: 'whitelist' | 'blacklist',
-    tenantId?: string,
-  ): Promise<number> {
+  async clearRules(ruleType: 'whitelist' | 'blacklist', tenantId?: string): Promise<number> {
     const query = this.ruleRepository
       .createQueryBuilder()
       .delete()
@@ -346,7 +328,9 @@ export class IpAccessService {
     const result = await query.execute();
     const deleted = result.affected || 0;
 
-    this.logger.log(`Cleared ${deleted} ${ruleType} rules${tenantId ? ` for tenant ${tenantId}` : ''}`);
+    this.logger.log(
+      `Cleared ${deleted} ${ruleType} rules${tenantId ? ` for tenant ${tenantId}` : ''}`,
+    );
     return deleted;
   }
 
@@ -391,18 +375,20 @@ export class IpAccessService {
     const rules = await query.getMany();
     const now = new Date();
 
-    const whitelistRules = rules.filter(r => r.ruleType === 'whitelist');
-    const blacklistRules = rules.filter(r => r.ruleType === 'blacklist');
-    const expiredRules = rules.filter(r => r.expiresAt && new Date(r.expiresAt) < now);
-    const activeRules = rules.filter(r => r.isActive && (!r.expiresAt || new Date(r.expiresAt) > now));
+    const whitelistRules = rules.filter((r) => r.ruleType === 'whitelist');
+    const blacklistRules = rules.filter((r) => r.ruleType === 'blacklist');
+    const expiredRules = rules.filter((r) => r.expiresAt && new Date(r.expiresAt) < now);
+    const activeRules = rules.filter(
+      (r) => r.isActive && (!r.expiresAt || new Date(r.expiresAt) > now),
+    );
 
     const totalHits = rules.reduce((sum, r) => sum + r.hitCount, 0);
 
     const mostHitRules = rules
-      .filter(r => r.hitCount > 0)
+      .filter((r) => r.hitCount > 0)
       .sort((a, b) => b.hitCount - a.hitCount)
       .slice(0, 10)
-      .map(r => this.toResponse(r));
+      .map((r) => this.toResponse(r));
 
     return {
       totalRules: rules.length,
@@ -424,7 +410,8 @@ export class IpAccessService {
    */
   private isValidIpOrCidr(ip: string): boolean {
     // IPv4 with optional CIDR
-    const ipv4Regex = /^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\/([0-9]|[1-2][0-9]|3[0-2]))?$/;
+    const ipv4Regex =
+      /^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\/([0-9]|[1-2][0-9]|3[0-2]))?$/;
 
     // IPv6 (simplified check)
     const ipv6Regex = /^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}(\/([0-9]|[1-9][0-9]|1[0-2][0-8]))?$/;

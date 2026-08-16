@@ -8,14 +8,17 @@
  */
 import { readFileSync } from 'fs';
 
+import { Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import { getJwtVerifyOptions, __resetJwtVerifyOptionsCache } from '../jwt-verification.utils';
+import {
+  enforceTokenNotRevoked,
+  getJwtVerifyOptions,
+  __resetJwtVerifyOptionsCache,
+} from '../jwt-verification.utils';
 
 jest.mock('fs', () => ({
-  readFileSync: jest.fn(
-    () => '-----BEGIN PUBLIC KEY-----\nMOCKPEM\n-----END PUBLIC KEY-----',
-  ),
+  readFileSync: jest.fn(() => '-----BEGIN PUBLIC KEY-----\nMOCKPEM\n-----END PUBLIC KEY-----'),
 }));
 
 const mockReadFileSync = readFileSync as jest.MockedFunction<typeof readFileSync>;
@@ -80,5 +83,65 @@ describe('getJwtVerifyOptions memoization (PERF-MEDIUM-001)', () => {
     const options = getJwtVerifyOptions(new ConfigService());
 
     expect(Object.isFrozen(options)).toBe(true);
+  });
+});
+
+describe('enforceTokenNotRevoked', () => {
+  const logger = new Logger('revocation-test');
+  let getStatus: jest.Mock;
+
+  beforeEach(() => {
+    getStatus = jest.fn().mockResolvedValue({
+      jtiRevoked: false,
+      userEpochRevoked: false,
+    });
+    jest.spyOn(logger, 'warn').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => jest.restoreAllMocks());
+
+  it('consults the JTI and user-epoch authorities before admitting a token', async () => {
+    await expect(
+      enforceTokenNotRevoked(
+        { sub: 'admin-1', jti: 'jti-1', iat: 2_000_000_000 },
+        { getStatus },
+        logger,
+      ),
+    ).resolves.toEqual({ jti: 'jti-1', issuedAtSeconds: 2_000_000_000 });
+    expect(getStatus).toHaveBeenCalledWith('jti-1', 'admin-1', 2_000_000_000);
+  });
+
+  it.each([
+    ['JTI marker', true, false],
+    ['user epoch', false, true],
+  ])('rejects a token revoked by the %s', async (_label, jtiRevoked, userEpochRevoked) => {
+    getStatus.mockResolvedValue({ jtiRevoked, userEpochRevoked });
+
+    await expect(
+      enforceTokenNotRevoked(
+        { sub: 'admin-1', jti: 'jti-1', iat: 2_000_000_000 },
+        { getStatus },
+        logger,
+      ),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('rejects a token whose revocation coordinates cannot be proven', async () => {
+    await expect(
+      enforceTokenNotRevoked({ sub: 'admin-1' }, { getStatus }, logger),
+    ).rejects.toMatchObject({ response: { code: 'MISSING_REVOCATION_CLAIMS' } });
+    expect(getStatus).not.toHaveBeenCalled();
+  });
+
+  it('propagates authority outages instead of treating them as not revoked', async () => {
+    getStatus.mockRejectedValue(new Error('redis unavailable'));
+
+    await expect(
+      enforceTokenNotRevoked(
+        { sub: 'admin-1', jti: 'jti-1', iat: 2_000_000_000 },
+        { getStatus },
+        logger,
+      ),
+    ).rejects.toThrow('redis unavailable');
   });
 });

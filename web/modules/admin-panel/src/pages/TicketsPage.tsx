@@ -84,7 +84,7 @@ interface SupportTeamMember {
 // ============================================================================
 
 export const TicketsPage: React.FC = () => {
-  const [tickets, setTickets] = useState<SupportTicket[]>([]);
+  const [tickets, setTickets] = useState<readonly SupportTicket[]>([]);
   const [stats, setStats] = useState<TicketStats | null>(null);
   const [supportTeam, setSupportTeam] = useState<SupportTeamMember[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<SupportTicket | null>(null);
@@ -112,7 +112,7 @@ export const TicketsPage: React.FC = () => {
 
       const result = await supportApi.getTickets(params);
       // Map API response to UI type
-      const mappedTickets: SupportTicket[] = (result.data || []).map((ticket: ApiSupportTicket) => {
+      const mappedTickets: SupportTicket[] = result.data.map((ticket: ApiSupportTicket) => {
         // Compute SLA deadlines from createdAt + slaMinutes if available
         const createdDate = new Date(ticket.createdAt);
         const slaResponseDeadline = ticket.slaResponseMinutes
@@ -174,21 +174,20 @@ export const TicketsPage: React.FC = () => {
     try {
       setCommentsLoading(true);
       const data = await supportApi.getTicketComments(ticketId);
-      // Map API response to UI type - handle flexible response format
-      const mappedComments: TicketComment[] = (data || []).map((comment: Record<string, unknown>) => ({
-        id: comment.id as string,
-        ticketId: comment.ticketId as string,
-        authorId: comment.authorId as string,
-        authorName: (comment.authorName as string) || '',
-        authorType: comment.authorType as string,
-        content: comment.content as string,
-        isInternal: comment.isInternal as boolean,
-        createdAt: comment.createdAt as string,
-        attachments: ((comment.attachments as Array<Record<string, unknown>>) || []).map((att) => ({
-          id: att.id as string,
-          filename: (att.fileName || att.filename) as string,
-          url: att.url as string,
-          size: (att.fileSize || att.size || 0) as number,
+      const mappedComments: TicketComment[] = data.data.map((comment) => ({
+        id: comment.id,
+        ticketId: comment.ticketId,
+        authorId: comment.authorId,
+        authorName: comment.authorName ?? '',
+        authorType: comment.authorType,
+        content: comment.content,
+        isInternal: comment.isInternal,
+        createdAt: comment.createdAt,
+        attachments: (comment.attachments ?? []).map((attachment) => ({
+          id: attachment.id,
+          filename: attachment.fileName,
+          url: attachment.url,
+          size: attachment.fileSize,
         })),
       }));
       setComments(mappedComments);

@@ -15,22 +15,24 @@ import { GraphQLError } from 'graphql';
 
 import { resolveEdgeRules } from './edge/edge-rule-resolver';
 import { extractClientIp } from './edge/ip-extractor';
-import { InMemoryRateLimitStore } from './in-memory-rate-limit.store';
+import {
+  RateLimitAuthorityUnavailableError,
+  RateLimitEnforcementService,
+} from './rate-limit-enforcement.service';
 import {
   EdgeRequestFacts,
   RATE_LIMIT_CONFIG_KEY,
   RATE_LIMIT_EDGE_CONFIG,
-  RATE_LIMIT_STORE,
   RateLimitEdgeConfig,
   RateLimitEntry,
   RateLimitIdentity,
   RateLimitRouteConfig,
-  RateLimitStore,
 } from './rate-limit.types';
 
 /** Minimal request surface the guard reads — HTTP and GraphQL both map to it. */
 interface RateLimitedRequest {
   ip?: string;
+  method?: string;
   /** HTTP request path (edge mode only) — used for exact-match tier bucketing. */
   url?: string;
   /** Header bag (edge mode only) — X-Forwarded-For / X-Real-IP fallback. */
@@ -71,22 +73,19 @@ interface RequestContext {
  *    by both the identity tier and the mutation tier (mirroring the gateway's
  *    previously-independent MutationRateLimitGuard, now distributed).
  *
- * Fail-closed policy: in production, when a DISTRIBUTED store was wired and is
- * unhealthy, buckets refuse rather than silently allow unlimited traffic (503).
- * Outside production the guard degrades to the in-process fallback store so
- * local development keeps working.
+ * Fail-closed policy: production always requires the distributed authority,
+ * whether it is absent or unhealthy. Individual security policies may require
+ * it in every environment. Only non-production, non-required policies may use
+ * the bounded in-process development store.
  */
 @Injectable()
 export class RateLimitGuard implements CanActivate {
   private readonly logger = new Logger(RateLimitGuard.name);
-  private readonly fallbackStore = new InMemoryRateLimitStore();
   private readonly isProduction = process.env['NODE_ENV'] === 'production';
 
   constructor(
     private readonly reflector: Reflector,
-    @Optional()
-    @Inject(RATE_LIMIT_STORE)
-    private readonly distributedStore?: RateLimitStore,
+    private readonly enforcement: RateLimitEnforcementService,
     @Optional()
     @Inject(RATE_LIMIT_EDGE_CONFIG)
     private readonly edgeConfig?: RateLimitEdgeConfig,
@@ -100,20 +99,16 @@ export class RateLimitGuard implements CanActivate {
 
     const ctx = this.extractContext(context);
 
-    // Decorator mode — explicit per-route config wins over edge config.
-    if (decoratorConfig) {
-      const identity = this.identityOf(ctx.request, ctx.args);
-      const key = this.buildKey(decoratorConfig, identity);
-      const entry = await this.countWindow(key, decoratorConfig.windowMs, decoratorConfig.name);
-      this.setInformationalHeaders(ctx.request, decoratorConfig, entry);
-      this.rejectIfOver(ctx.request, decoratorConfig, entry, false);
-      return true;
+    let edgeRuleNames = new Set<string>();
+    if (this.edgeConfig) {
+      edgeRuleNames = await this.enforceEdge(ctx, this.edgeConfig);
     }
 
-    // Edge mode — config-driven tiers (gateway). Absent for decorator-only
-    // consumers, so they short-circuit to `true` exactly as before.
-    if (this.edgeConfig) {
-      return this.enforceEdge(ctx, this.edgeConfig);
+    // Decorator policy is ADDITIVE to the application edge policy. A method-
+    // level decorator can narrow a route further, but can never replace the
+    // global identity or mutation budgets.
+    if (decoratorConfig && !edgeRuleNames.has(decoratorConfig.name)) {
+      await this.enforceRule(ctx, decoratorConfig, false, true);
     }
 
     return true;
@@ -125,7 +120,10 @@ export class RateLimitGuard implements CanActivate {
    * informational headers and throws an HTTP 429; an additive GraphQL mutation
    * tier throws a GraphQLError so GraphQL clients keep their error shape.
    */
-  private async enforceEdge(ctx: RequestContext, edgeConfig: RateLimitEdgeConfig): Promise<boolean> {
+  private async enforceEdge(
+    ctx: RequestContext,
+    edgeConfig: RateLimitEdgeConfig,
+  ): Promise<Set<string>> {
     const facts = this.buildEdgeFacts(ctx);
     const extracted = extractClientIp(facts);
     if (extracted.unverifiedForwardedFor && this.isProduction) {
@@ -148,50 +146,32 @@ export class RateLimitGuard implements CanActivate {
       if (!rule) {
         continue;
       }
-      const key = this.buildKey(rule, identity);
-      const entry = await this.countWindow(key, rule.windowMs, rule.name);
-      if (i === 0) {
-        // Only the primary tier sets X-RateLimit-* — matches the gateway, where
-        // RateLimitGuard set the headers and MutationRateLimitGuard did not.
-        this.setInformationalHeaders(ctx.request, rule, entry);
-      }
-      // Additive mutation tier (i > 0) under GraphQL throws GraphQLError.
-      this.rejectIfOver(ctx.request, rule, entry, i > 0 && ctx.isGraphql);
+      await this.enforceRule(ctx, rule, i > 0 && ctx.isGraphql, i === 0, identity);
     }
-    return true;
+    return new Set(rules.map((rule) => rule.name));
   }
 
-  /**
-   * Increment the window for `key`, applying the fail-closed policy on store
-   * failure. Shared by decorator and edge paths so both fail identically.
-   */
-  private async countWindow(
-    key: string,
-    windowMs: number,
-    bucketName: string,
-  ): Promise<RateLimitEntry> {
+  private async enforceRule(
+    ctx: RequestContext,
+    config: RateLimitRouteConfig,
+    asGraphqlError: boolean,
+    setHeaders: boolean,
+    identity: RateLimitIdentity = this.identityOf(ctx.request, ctx.args),
+  ): Promise<void> {
     try {
-      return (await this.store().incrementOrCreate(key, windowMs)).entry;
+      const evaluation = await this.enforcement.evaluate(config, identity);
+      if (setHeaders) {
+        this.setInformationalHeaders(ctx.request, config, evaluation.entry);
+      }
+      this.rejectIfOver(ctx.request, config, evaluation.entry, asGraphqlError);
     } catch (error) {
-      if (this.isProduction && this.distributedStore) {
-        // WHY fail-closed: these buckets protect login/MFA/reset/mutations — an
-        // attacker who can degrade Redis must not thereby unlock unlimited
-        // traffic (fail-open would convert an availability incident into a
-        // security incident).
-        this.logger.error(
-          `Rate-limit store unavailable — failing CLOSED for bucket '${bucketName}': ${(error as Error).message}`,
-        );
+      if (error instanceof RateLimitAuthorityUnavailableError) {
         throw new ServiceUnavailableException({
           statusCode: HttpStatus.SERVICE_UNAVAILABLE,
           message: 'Service temporarily unavailable',
         });
       }
-      // Non-production: degrade to the in-process window so development does not
-      // require Redis. The degradation is logged, never silent.
-      this.logger.warn(
-        `Rate-limit store unavailable — using in-process fallback for '${bucketName}'`,
-      );
-      return (await this.fallbackStore.incrementOrCreate(key, windowMs)).entry;
+      throw error;
     }
   }
 
@@ -236,18 +216,6 @@ export class RateLimitGuard implements CanActivate {
     );
   }
 
-  private store(): RateLimitStore {
-    if (this.distributedStore?.isHealthy()) {
-      return this.distributedStore;
-    }
-    if (this.distributedStore && this.isProduction) {
-      // Surface the unhealthy distributed store to the fail-closed branch in
-      // countWindow by returning it anyway — its next call will throw.
-      return this.distributedStore;
-    }
-    return this.distributedStore ?? this.fallbackStore;
-  }
-
   /**
    * WHY both transports: auth mutations are GraphQL while file/REST paths are
    * HTTP — one guard must read either context without the caller caring. The
@@ -273,6 +241,7 @@ export class RateLimitGuard implements CanActivate {
     const req = ctx.request;
     return {
       url: req.url,
+      method: req.method,
       headers: req.headers ?? {},
       ip: req.ip,
       remoteAddress: req.connection?.remoteAddress ?? req.socket?.remoteAddress,
@@ -297,20 +266,6 @@ export class RateLimitGuard implements CanActivate {
     };
   }
 
-  private buildKey(config: RateLimitRouteConfig, identity: RateLimitIdentity): string {
-    const custom = config.identifier?.(identity);
-    if (custom) {
-      return `${config.name}:id:${custom}`;
-    }
-    if (identity.userId) {
-      return `${config.name}:user:${identity.userId}`;
-    }
-    if (identity.tenantId && identity.ip) {
-      return `${config.name}:tenant:${identity.tenantId}:${identity.ip}`;
-    }
-    return `${config.name}:ip:${identity.ip ?? 'unknown'}`;
-  }
-
   private setInformationalHeaders(
     request: RateLimitedRequest,
     config: RateLimitRouteConfig,
@@ -326,10 +281,6 @@ export class RateLimitGuard implements CanActivate {
       'X-RateLimit-Remaining',
       Math.max(0, config.limit - entry.count).toString(),
     );
-    setHeader.call(
-      request.res,
-      'X-RateLimit-Reset',
-      Math.ceil(entry.resetTime / 1000).toString(),
-    );
+    setHeader.call(request.res, 'X-RateLimit-Reset', Math.ceil(entry.resetTime / 1000).toString());
   }
 }

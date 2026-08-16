@@ -1,16 +1,14 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
 
-export interface CurrentUserData {
-  id: string;
-  email: string;
-  roles: string[];
-  tenantId?: string;
-}
+import type { AuthenticatedRequest, AuthenticatedUser } from '../shared/authenticated-request';
+
+/** Canonical verified admin principal written by PlatformAdminGuard. */
+export type CurrentUserData = AuthenticatedUser;
 
 export const CurrentUser = createParamDecorator(
   (data: keyof CurrentUserData | undefined, ctx: ExecutionContext) => {
-    const request = ctx.switchToHttp().getRequest();
-    const user = request.user as CurrentUserData;
+    const request = ctx.switchToHttp().getRequest<AuthenticatedRequest>();
+    const user = request.user;
 
     if (!user) {
       return null;

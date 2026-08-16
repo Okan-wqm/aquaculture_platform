@@ -38,7 +38,6 @@ export {
   buildTenantErasureTargetProofLedgerUpSql,
   buildTransactionalOutboxDownSql,
   buildTransactionalOutboxUpSql,
-  TENANT_ERASURE_TARGET_PROOF_LEDGER_TABLE,
 } from './outbox-migration';
 export type {
   TenantErasureTargetProofLedgerDdlOptions,

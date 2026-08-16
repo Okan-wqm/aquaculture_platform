@@ -14,8 +14,8 @@ import {
 
 import { PricingMetric, TierMultipliers } from '../entities/module-pricing.entity';
 import { PlanTier } from '../entities/plan-definition.entity';
-import { CreateDiscountCodeDto } from '../services/discount-code.service';
-import { QuoteRequest } from '../services/pricing-calculator.service';
+import { CreateDiscountCodeInput } from '../services/discount-code.service';
+import { PricingQuoteInput } from '../services/pricing-calculator.service';
 
 // ============================================================================
 // Module Pricing
@@ -140,7 +140,7 @@ export class BulkCreateDiscountCodesDto {
   count!: number;
 
   @IsObject()
-  template!: Omit<CreateDiscountCodeDto, 'code'>;
+  template!: Omit<CreateDiscountCodeInput, 'code'>;
 
   @IsOptional()
   @IsString()
@@ -194,10 +194,10 @@ export class QuickEstimateDto {
 
 export class ComparePricingDto {
   @IsObject()
-  config1!: QuoteRequest;
+  config1!: PricingQuoteInput;
 
   @IsObject()
-  config2!: QuoteRequest;
+  config2!: PricingQuoteInput;
 }
 
 // ============================================================================

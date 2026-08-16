@@ -7,6 +7,10 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import {
+  createStandardPaginatedResult,
+  type IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 import { Repository } from 'typeorm';
 
 import {
@@ -29,7 +33,7 @@ import {
 /**
  * DTO for creating a custom plan
  */
-export interface CreateCustomPlanDto {
+export interface CreateCustomPlanInput {
   tenantId: string;
   name: string;
   description?: string;
@@ -54,7 +58,7 @@ export interface CreateCustomPlanDto {
 /**
  * DTO for updating custom plan
  */
-export interface UpdateCustomPlanDto {
+export interface UpdateCustomPlanInput {
   name?: string;
   description?: string;
   modules?: Array<{
@@ -85,17 +89,6 @@ export interface CustomPlanFilter {
 }
 
 /**
- * Paginated result
- */
-export interface PaginatedResult<T> {
-  items: T[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
-
-/**
  * Custom Plan Service
  *
  * Manages tenant-specific custom plans with:
@@ -119,7 +112,7 @@ export class CustomPlanService {
   /**
    * Create a new custom plan
    */
-  async createCustomPlan(dto: CreateCustomPlanDto): Promise<CustomPlan> {
+  async createCustomPlan(dto: CreateCustomPlanInput): Promise<CustomPlan> {
     // Calculate pricing for modules
     const { modules, monthlySubtotal, monthlyTotal } = await this.calculatePlanPricing(
       dto.modules,
@@ -184,7 +177,7 @@ export class CustomPlanService {
   /**
    * List custom plans with filters
    */
-  async listCustomPlans(filter: CustomPlanFilter): Promise<PaginatedResult<CustomPlan>> {
+  async listCustomPlans(filter: CustomPlanFilter): Promise<IStandardPaginatedResult<CustomPlan>> {
     const { tenantId, status, tier, search, page = 1, limit = 20 } = filter;
 
     const query = this.planRepo.createQueryBuilder('cp');
@@ -213,28 +206,17 @@ export class CustomPlanService {
       .take(limit)
       .getManyAndCount();
 
-    return {
-      items,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    return createStandardPaginatedResult(items, total, page, limit);
   }
 
   /**
    * Update custom plan
    */
-  async updateCustomPlan(
-    planId: string,
-    dto: UpdateCustomPlanDto,
-  ): Promise<CustomPlan> {
+  async updateCustomPlan(planId: string, dto: UpdateCustomPlanInput): Promise<CustomPlan> {
     const plan = await this.getCustomPlan(planId);
 
     if (!plan.canModify()) {
-      throw new BadRequestException(
-        `Cannot modify plan in status: ${plan.status}`,
-      );
+      throw new BadRequestException(`Cannot modify plan in status: ${plan.status}`);
     }
 
     // Recalculate if modules changed
@@ -305,9 +287,7 @@ export class CustomPlanService {
     const plan = await this.getCustomPlan(planId);
 
     if (!plan.canApprove()) {
-      throw new BadRequestException(
-        `Cannot approve plan in status: ${plan.status}`,
-      );
+      throw new BadRequestException(`Cannot approve plan in status: ${plan.status}`);
     }
 
     plan.status = CustomPlanStatus.APPROVED;
@@ -323,11 +303,7 @@ export class CustomPlanService {
   /**
    * Reject custom plan
    */
-  async rejectPlan(
-    planId: string,
-    reason: string,
-    rejectedBy: string,
-  ): Promise<CustomPlan> {
+  async rejectPlan(planId: string, reason: string, rejectedBy: string): Promise<CustomPlan> {
     const plan = await this.getCustomPlan(planId);
 
     if (plan.status !== CustomPlanStatus.PENDING_APPROVAL) {
@@ -351,9 +327,7 @@ export class CustomPlanService {
     const plan = await this.getCustomPlan(planId);
 
     if (!plan.canActivate()) {
-      throw new BadRequestException(
-        `Cannot activate plan in status: ${plan.status}`,
-      );
+      throw new BadRequestException(`Cannot activate plan in status: ${plan.status}`);
     }
 
     // Convert CustomPlanModules to SubscriptionModuleConfigs
@@ -384,9 +358,7 @@ export class CustomPlanService {
     });
 
     if (!subscriptionResult.success) {
-      throw new BadRequestException(
-        `Failed to create subscription: ${subscriptionResult.message}`,
-      );
+      throw new BadRequestException(`Failed to create subscription: ${subscriptionResult.message}`);
     }
 
     plan.subscriptionId = subscriptionResult.subscription.id;
@@ -490,9 +462,7 @@ export class CustomPlanService {
 
         const includedQty = metric.includedQuantity ?? 0;
         const billableQty =
-          metric.type === PricingMetricType.BASE_PRICE
-            ? 1
-            : Math.max(0, quantity - includedQty);
+          metric.type === PricingMetricType.BASE_PRICE ? 1 : Math.max(0, quantity - includedQty);
 
         const total = billableQty * metric.price * tierMultiplier;
 
@@ -519,11 +489,7 @@ export class CustomPlanService {
       monthlySubtotal += moduleSubtotal;
     }
 
-    const monthlyTotal = this.calculateFinalTotal(
-      monthlySubtotal,
-      discountPercent,
-      discountAmount,
-    );
+    const monthlyTotal = this.calculateFinalTotal(monthlySubtotal, discountPercent, discountAmount);
 
     return { modules, monthlySubtotal, monthlyTotal };
   }
@@ -531,10 +497,7 @@ export class CustomPlanService {
   /**
    * Get quantity value for a metric type
    */
-  private getQuantityForMetric(
-    quantities: ModuleQuantities,
-    metric: PricingMetricType,
-  ): number {
+  private getQuantityForMetric(quantities: ModuleQuantities, metric: PricingMetricType): number {
     const map: Partial<Record<PricingMetricType, keyof ModuleQuantities>> = {
       [PricingMetricType.PER_USER]: 'users',
       [PricingMetricType.PER_FARM]: 'farms',
@@ -549,7 +512,7 @@ export class CustomPlanService {
     };
 
     const field = map[metric];
-    return field ? quantities[field] ?? 0 : 0;
+    return field ? (quantities[field] ?? 0) : 0;
   }
 
   /**

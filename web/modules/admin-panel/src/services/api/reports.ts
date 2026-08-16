@@ -16,7 +16,8 @@ import type {
 
 export const reportsApi = {
   // Report Definitions
-  getReportDefinitions: () => apiFetch<ReportDefinition[]>('/reports/definitions'),
+  getReportDefinitions: () =>
+    apiFetch<PaginatedResult<ReportDefinition>>('/reports/definitions'),
   getReportDefinition: (id: string) => apiFetch<ReportDefinition>(`/reports/definitions/${id}`),
   createReportDefinition: (data: Omit<ReportDefinition, 'id' | 'createdAt' | 'lastRunAt'>) =>
     apiFetch<ReportDefinition>('/reports/definitions', { method: 'POST', body: JSON.stringify(data) }),

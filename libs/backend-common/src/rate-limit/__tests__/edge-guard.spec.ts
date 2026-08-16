@@ -1,12 +1,21 @@
-import { ExecutionContext, HttpException, Logger, ServiceUnavailableException } from '@nestjs/common';
+import {
+  ExecutionContext,
+  HttpException,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { ExecutionContextHost } from '@nestjs/core/helpers/execution-context-host';
 import { GraphQLError } from 'graphql';
 
+import { RateLimitEnforcementService } from '../rate-limit-enforcement.service';
+import { RateLimit } from '../rate-limit.decorator';
 import { RateLimitGuard } from '../rate-limit.guard';
 import { RateLimitEdgeConfig, RateLimitRouteConfig, RateLimitStore } from '../rate-limit.types';
 
 const noopHandler = (): void => undefined;
+const enforcementServices: RateLimitEnforcementService[] = [];
 
 const EDGE: RateLimitEdgeConfig = {
   tiers: {
@@ -16,6 +25,7 @@ const EDGE: RateLimitEdgeConfig = {
     login: { name: 'login', limit: 1, windowMs: 60_000 },
     marineRender: { name: 'marine-render', limit: 1, windowMs: 60_000 },
     mutations: { name: 'mutations', limit: 2, windowMs: 60_000 },
+    httpMutations: { name: 'http-mutations', limit: 2, windowMs: 60_000 },
   },
   endpointBuckets: [
     { tier: 'login', paths: ['/auth/login'] },
@@ -26,23 +36,31 @@ const EDGE: RateLimitEdgeConfig = {
     },
   ],
   mutationTier: 'mutations',
+  httpMutationTier: 'httpMutations',
 };
 
 interface EdgeRequest {
   ip?: string;
+  method?: string;
   url?: string;
   headers?: Record<string, string | string[] | undefined>;
   user?: { sub?: string; tenantId?: string };
   res: { setHeader: jest.Mock };
 }
 
-function httpContext(opts: { ip?: string; url?: string; user?: EdgeRequest['user'] }): {
+function httpContext(opts: {
+  ip?: string;
+  method?: string;
+  url?: string;
+  user?: EdgeRequest['user'];
+}): {
   context: ExecutionContext;
   setHeader: jest.Mock;
 } {
   const setHeader = jest.fn();
   const request: EdgeRequest = {
     ip: opts.ip ?? '203.0.113.50',
+    method: opts.method,
     url: opts.url,
     headers: {},
     user: opts.user,
@@ -70,14 +88,21 @@ function gqlContext(opts: {
   return host;
 }
 
-function edgeGuard(opts: { decorator?: RateLimitRouteConfig; store?: RateLimitStore } = {}): RateLimitGuard {
+function edgeGuard(
+  opts: { decorator?: RateLimitRouteConfig; store?: RateLimitStore } = {},
+): RateLimitGuard {
   const reflector = new Reflector();
   jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(opts.decorator);
-  return new RateLimitGuard(reflector, opts.store, EDGE);
+  const enforcement = new RateLimitEnforcementService(new ConfigService(), opts.store);
+  enforcementServices.push(enforcement);
+  return new RateLimitGuard(reflector, enforcement, EDGE);
 }
 
 describe('RateLimitGuard — edge mode', () => {
-  afterEach(() => jest.restoreAllMocks());
+  afterEach(() => {
+    jest.restoreAllMocks();
+    enforcementServices.splice(0).forEach((service) => service.onModuleDestroy());
+  });
 
   it('limits a non-decorated anonymous request by the anonymous tier (2/window)', async () => {
     const guard = edgeGuard();
@@ -93,7 +118,8 @@ describe('RateLimitGuard — edge mode', () => {
 
   it('applies the login tier to the exact /auth/login path (1/window)', async () => {
     const guard = edgeGuard();
-    const ctx = (): ExecutionContext => httpContext({ ip: '198.51.100.41', url: '/auth/login' }).context;
+    const ctx = (): ExecutionContext =>
+      httpContext({ ip: '198.51.100.41', url: '/auth/login' }).context;
 
     await expect(guard.canActivate(ctx())).resolves.toBe(true);
     await expect(guard.canActivate(ctx())).rejects.toThrow(HttpException);
@@ -124,20 +150,92 @@ describe('RateLimitGuard — edge mode', () => {
     await expect(guard.canActivate(context('user-2'))).resolves.toBe(true);
   });
 
-  it('decorator config WINS over edge config when both are present', async () => {
-    // Decorator name 'deco' limit 1 must apply (edge default would be 3).
-    const guard = edgeGuard({ decorator: { name: 'deco', limit: 1, windowMs: 60_000 } });
+  it('applies decorator policy additively without replacing the edge identity tier', async () => {
+    const keys: string[] = [];
+    const recording: RateLimitStore = {
+      incrementOrCreate: (key, windowMs) => {
+        keys.push(key);
+        return Promise.resolve({
+          entry: { count: 1, resetTime: Date.now() + windowMs },
+          isNew: true,
+        });
+      },
+      isHealthy: () => true,
+      clear: () => Promise.resolve(),
+      destroy: () => undefined,
+    };
+    const guard = edgeGuard({
+      decorator: { name: 'deco', limit: 1, windowMs: 60_000 },
+      store: recording,
+    });
     const ctx = (): ExecutionContext =>
       httpContext({ ip: '198.51.100.43', url: '/graphql', user: { sub: 'u1' } }).context;
 
     await expect(guard.canActivate(ctx())).resolves.toBe(true);
-    await expect(guard.canActivate(ctx())).rejects.toThrow(HttpException);
+    expect(keys).toEqual(['default:user:u1', 'deco:user:u1']);
+  });
+
+  it('keeps global identity and HTTP-mutation tiers ahead of class/method metadata', async () => {
+    @RateLimit({ name: 'class-policy', limit: 1, windowMs: 60_000 })
+    class DecoratedController {
+      @RateLimit({ name: 'method-policy', limit: 1, windowMs: 60_000 })
+      methodMutation(): string {
+        return 'method';
+      }
+
+      classMutation(): string {
+        return 'class';
+      }
+    }
+
+    const keys: string[] = [];
+    const store: RateLimitStore = {
+      incrementOrCreate: (key, windowMs) => {
+        keys.push(key);
+        return Promise.resolve({
+          entry: { count: 1, resetTime: Date.now() + windowMs },
+          isNew: true,
+        });
+      },
+      isHealthy: () => true,
+      clear: () => Promise.resolve(),
+      destroy: () => undefined,
+    };
+    const enforcement = new RateLimitEnforcementService(new ConfigService(), store);
+    enforcementServices.push(enforcement);
+    const guard = new RateLimitGuard(new Reflector(), enforcement, EDGE);
+    const contextFor = (userId: string, handler: () => void): ExecutionContext => {
+      const request: EdgeRequest = {
+        ip: '198.51.100.90',
+        method: 'POST',
+        url: '/admin/mutate',
+        headers: {},
+        user: { sub: userId },
+        res: { setHeader: jest.fn() },
+      };
+      const host = new ExecutionContextHost([request, request.res], DecoratedController, handler);
+      host.setType('http');
+      return host;
+    };
+
+    await guard.canActivate(
+      contextFor('method-user', DecoratedController.prototype.methodMutation),
+    );
+    await guard.canActivate(contextFor('class-user', DecoratedController.prototype.classMutation));
+
+    expect(keys).toEqual([
+      'default:user:method-user',
+      'http-mutations:user:method-user',
+      'method-policy:user:method-user',
+      'default:user:class-user',
+      'http-mutations:user:class-user',
+      'class-policy:user:class-user',
+    ]);
   });
 
   it('bounds a GraphQL mutation ADDITIVELY — anonymous tier (stricter) bites first as HttpException', async () => {
     const guard = edgeGuard();
-    const ctx = (): ExecutionContext =>
-      gqlContext({ ip: '198.51.100.44', parentType: 'Mutation' });
+    const ctx = (): ExecutionContext => gqlContext({ ip: '198.51.100.44', parentType: 'Mutation' });
 
     // anonymous tier = 2; the primary tier (HttpException) bounds before the
     // mutation cap would, proving the identity tier is NOT bypassed for mutations.
@@ -150,7 +248,11 @@ describe('RateLimitGuard — edge mode', () => {
     const guard = edgeGuard();
     // Authenticated tenant → tenant tier (5, loose); mutations cap = 2 bites first.
     const ctx = (): ExecutionContext =>
-      gqlContext({ ip: '198.51.100.45', user: { sub: 'u9', tenantId: 't9' }, parentType: 'Mutation' });
+      gqlContext({
+        ip: '198.51.100.45',
+        user: { sub: 'u9', tenantId: 't9' },
+        parentType: 'Mutation',
+      });
 
     await expect(guard.canActivate(ctx())).resolves.toBe(true);
     await expect(guard.canActivate(ctx())).resolves.toBe(true);
@@ -183,7 +285,10 @@ describe('RateLimitGuard — edge mode', () => {
         keys.push(key);
         const c = (counts.get(key) ?? 0) + 1;
         counts.set(key, c);
-        return Promise.resolve({ entry: { count: c, resetTime: 4_102_444_800_000 + windowMs }, isNew: c === 1 });
+        return Promise.resolve({
+          entry: { count: c, resetTime: 4_102_444_800_000 + windowMs },
+          isNew: c === 1,
+        });
       },
       isHealthy: () => true,
       clear: () => Promise.resolve(),
@@ -233,7 +338,17 @@ describe('RateLimitGuard — edge mode', () => {
     const previousEnv = process.env['NODE_ENV'];
     process.env['NODE_ENV'] = 'production';
     try {
-      const guard = edgeGuard(); // constructed under production → isProduction=true
+      const healthyStore: RateLimitStore = {
+        incrementOrCreate: (_key, windowMs) =>
+          Promise.resolve({
+            entry: { count: 1, resetTime: Date.now() + windowMs },
+            isNew: true,
+          }),
+        isHealthy: () => true,
+        clear: () => Promise.resolve(),
+        destroy: () => undefined,
+      };
+      const guard = edgeGuard({ store: healthyStore });
       const request = {
         ip: '127.0.0.1', // loopback → falls through to X-Forwarded-For
         url: '/graphql',
@@ -263,9 +378,9 @@ describe('RateLimitGuard — edge mode', () => {
     process.env['NODE_ENV'] = 'production';
     try {
       const guard = edgeGuard({ store: failingStore });
-      await expect(
-        guard.canActivate(httpContext({ url: '/graphql' }).context),
-      ).rejects.toThrow(ServiceUnavailableException);
+      await expect(guard.canActivate(httpContext({ url: '/graphql' }).context)).rejects.toThrow(
+        ServiceUnavailableException,
+      );
     } finally {
       process.env['NODE_ENV'] = previousEnv;
     }

@@ -4,6 +4,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 import { useGraphQLClient, graphqlRequest } from './useGraphQL';
 import {
   GET_SHIFTS,
@@ -30,7 +31,6 @@ import type {
   ClockOutInput,
   CreateShiftInput,
   PaginationInput,
-  PaginatedResponse,
 } from '../types';
 
 // Query Keys
@@ -64,7 +64,7 @@ export function useShifts(filter?: { isActive?: boolean; shiftType?: string }) {
   return useQuery({
     queryKey: attendanceKeys.shiftList(filter),
     queryFn: () =>
-      graphqlRequest<{ shifts: { items: Shift[]; total: number } }, unknown>(
+      graphqlRequest<{ shifts: PaginationResultV1<Shift> }, unknown>(
         client,
         GET_SHIFTS,
         { isActive: filter?.isActive, shiftType: filter?.shiftType, page: 1, limit: 100 }
@@ -102,7 +102,7 @@ export function useAttendanceRecords(
   return useQuery({
     queryKey: attendanceKeys.recordList(filter, pagination),
     queryFn: () =>
-      graphqlRequest<{ attendanceRecords: PaginatedResponse<AttendanceRecord> }, unknown>(
+      graphqlRequest<{ attendanceRecords: PaginationResultV1<AttendanceRecord> }, unknown>(
         client,
         GET_ATTENDANCE_RECORDS,
         {

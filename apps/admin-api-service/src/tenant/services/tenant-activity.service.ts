@@ -1,5 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import {
+  createStandardPaginatedResult,
+  type IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 import { Repository, Between } from 'typeorm';
 
 import {
@@ -8,6 +12,8 @@ import {
   TenantNote,
   TenantBillingInfo,
 } from '../entities/tenant-activity.entity';
+
+const DEFAULT_ACTIVITY_PAGE_SIZE = 20;
 
 export interface CreateActivityDto {
   tenantId: string;
@@ -50,22 +56,20 @@ export class TenantActivityService {
   async logActivity(dto: CreateActivityDto): Promise<TenantActivity> {
     const activity = this.activityRepository.create(dto);
     const saved = await this.activityRepository.save(activity);
-    this.logger.log(
-      `Activity logged: ${dto.activityType} for tenant ${dto.tenantId}`,
-    );
+    this.logger.log(`Activity logged: ${dto.activityType} for tenant ${dto.tenantId}`);
     return saved;
   }
 
   async getActivities(
     tenantId: string,
     options?: {
+      page?: number;
       limit?: number;
-      offset?: number;
       activityTypes?: ActivityType[];
       startDate?: Date;
       endDate?: Date;
     },
-  ): Promise<{ data: TenantActivity[]; total: number }> {
+  ): Promise<IStandardPaginatedResult<TenantActivity>> {
     const query = this.activityRepository
       .createQueryBuilder('activity')
       .where('activity.tenantId = :tenantId', { tenantId })
@@ -84,25 +88,18 @@ export class TenantActivityService {
       });
     }
 
-    // MEDIUM-006 fix: getManyAndCount() issues a single SQL round-trip.
-    // TypeORM's count sub-query ignores skip/take so `total` always reflects
-    // all matching records, preserving the BUG-003 correctness requirement.
-    // Use !== undefined so offset=0 is applied correctly (truthy check would skip it).
-    if (options?.offset !== undefined) {
-      query.skip(options.offset);
-    }
-    if (options?.limit !== undefined) {
-      query.take(options.limit);
-    }
+    const page = Math.max(1, options?.page ?? 1);
+    const limit = Math.max(1, options?.limit ?? DEFAULT_ACTIVITY_PAGE_SIZE);
 
-    const [data, total] = await query.getManyAndCount();
-    return { data, total };
+    // TypeORM's count sub-query ignores skip/take, so total always describes
+    // the complete filtered set while the data window is derived once here.
+    query.skip((page - 1) * limit).take(limit);
+
+    const [items, total] = await query.getManyAndCount();
+    return createStandardPaginatedResult(items, total, page, limit);
   }
 
-  async getRecentActivities(
-    tenantId: string,
-    limit = 20,
-  ): Promise<TenantActivity[]> {
+  async getRecentActivities(tenantId: string, limit = 20): Promise<TenantActivity[]> {
     return this.activityRepository.find({
       where: { tenantId },
       order: { createdAt: 'DESC' },
@@ -210,11 +207,7 @@ export class TenantActivityService {
   // ============================================================================
 
   // BUG-032 fix: use English for activity log titles (audit/compliance data)
-  async logTenantCreated(
-    tenantId: string,
-    tenantName: string,
-    performedBy: string,
-  ): Promise<void> {
+  async logTenantCreated(tenantId: string, tenantName: string, performedBy: string): Promise<void> {
     await this.logActivity({
       tenantId,
       activityType: ActivityType.CREATED,
@@ -256,11 +249,7 @@ export class TenantActivityService {
     });
   }
 
-  async logModuleRemoved(
-    tenantId: string,
-    moduleName: string,
-    performedBy: string,
-  ): Promise<void> {
+  async logModuleRemoved(tenantId: string, moduleName: string, performedBy: string): Promise<void> {
     await this.logActivity({
       tenantId,
       activityType: ActivityType.MODULE_REMOVED,

@@ -16,71 +16,14 @@ import {
   UserLimitsConfig,
   WebhookConfig,
 } from '../entities/tenant-configuration.entity';
-
-export interface CreateTenantConfigurationDto {
-  tenantId: string;
-  userLimits?: Partial<UserLimitsConfig>;
-  storageConfig?: Partial<StorageConfig>;
-  apiConfig?: Partial<ApiConfig>;
-  dataRetention?: Partial<DataRetentionConfig>;
-  domainConfig?: Partial<DomainConfig>;
-  brandingConfig?: Partial<BrandingConfig>;
-  securityConfig?: Partial<TenantSecurityConfig>;
-  notificationConfig?: Partial<TenantNotificationConfig>;
-  featureFlags?: Partial<FeatureFlagsConfig>;
-}
-
-export interface UpdateTenantConfigurationDto {
-  userLimits?: Partial<UserLimitsConfig>;
-  storageConfig?: Partial<StorageConfig>;
-  apiConfig?: Partial<ApiConfig>;
-  dataRetention?: Partial<DataRetentionConfig>;
-  domainConfig?: Partial<DomainConfig>;
-  brandingConfig?: Partial<BrandingConfig>;
-  securityConfig?: Partial<TenantSecurityConfig>;
-  notificationConfig?: Partial<TenantNotificationConfig>;
-  featureFlags?: Partial<FeatureFlagsConfig>;
-  updatedBy?: string;
-}
-
-export interface CreateApiKeyDto {
-  name: string;
-  permissions: string[];
-  expiresAt?: Date;
-  createdBy: string;
-}
-
-export interface CreateWebhookDto {
-  name: string;
-  url: string;
-  events: string[];
-  secret?: string;
-  headers?: Record<string, string>;
-  retryEnabled?: boolean;
-  retryCount?: number;
-}
-
-export interface VerifyDomainDto {
-  customDomain: string;
-}
-
-export interface UpdateBrandingDto {
-  logoUrl?: string;
-  faviconUrl?: string;
-  primaryColor?: string;
-  secondaryColor?: string;
-  accentColor?: string;
-  headerColor?: string;
-  fontFamily?: string;
-  companyName?: string;
-  supportEmail?: string;
-  supportPhone?: string;
-  privacyPolicyUrl?: string;
-  termsOfServiceUrl?: string;
-  customCss?: string;
-  loginBackgroundUrl?: string;
-  showPoweredBy?: boolean;
-}
+import {
+  CreateApiKeyDto,
+  CreateTenantConfigurationDto,
+  CreateWebhookDto,
+  UpdateBrandingDto,
+  UpdateTenantConfigurationDto,
+  VerifyDomainDto,
+} from '../dto/tenant-configuration.dto';
 
 export interface TenantConfigurationProvisioningRequest {
   requestId: string;
@@ -130,10 +73,7 @@ export class TenantConfigurationService {
     return this.getConfigurationByTenantId(tenantId);
   }
 
-  updateConfiguration(
-    _tenantId: string,
-    _dto: UpdateTenantConfigurationDto,
-  ): never {
+  updateConfiguration(_tenantId: string, _dto: UpdateTenantConfigurationDto): never {
     this.throwLegacyGone();
   }
 
@@ -178,18 +118,11 @@ export class TenantConfigurationService {
     return this.defaultConfiguration(tenantId).apiConfig;
   }
 
-  updateApiConfig(
-    _tenantId: string,
-    _apiConfig: Partial<ApiConfig>,
-    _updatedBy?: string,
-  ): never {
+  updateApiConfig(_tenantId: string, _apiConfig: Partial<ApiConfig>, _updatedBy?: string): never {
     this.throwLegacyGone();
   }
 
-  createApiKey(
-    _tenantId: string,
-    _dto: CreateApiKeyDto,
-  ): never {
+  createApiKey(_tenantId: string, _dto: CreateApiKeyDto): never {
     this.throwLegacyGone();
   }
 
@@ -209,11 +142,7 @@ export class TenantConfigurationService {
     this.throwLegacyGone();
   }
 
-  updateWebhook(
-    _tenantId: string,
-    _webhookId: string,
-    _updates: Partial<CreateWebhookDto>,
-  ): never {
+  updateWebhook(_tenantId: string, _webhookId: string, _updates: Partial<CreateWebhookDto>): never {
     this.throwLegacyGone();
   }
 
@@ -225,10 +154,7 @@ export class TenantConfigurationService {
     return this.defaultConfiguration(tenantId).domainConfig;
   }
 
-  initiateCustomDomainVerification(
-    _tenantId: string,
-    _dto: VerifyDomainDto,
-  ): never {
+  initiateCustomDomainVerification(_tenantId: string, _dto: VerifyDomainDto): never {
     this.throwLegacyGone();
   }
 
@@ -240,11 +166,7 @@ export class TenantConfigurationService {
     return this.defaultConfiguration(tenantId).brandingConfig;
   }
 
-  updateBranding(
-    _tenantId: string,
-    _dto: UpdateBrandingDto,
-    _updatedBy?: string,
-  ): never {
+  updateBranding(_tenantId: string, _dto: UpdateBrandingDto, _updatedBy?: string): never {
     this.throwLegacyGone();
   }
 

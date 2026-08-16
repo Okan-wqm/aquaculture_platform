@@ -1,0 +1,23 @@
+{
+  "name": "admin-http-contract-codegen",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "tools/codegen/admin-contracts",
+  "projectType": "application",
+  "implicitDependencies": ["admin-api-service", "admin-http-contracts"],
+  "tags": ["scope:platform", "type:tool"],
+  "targets": {
+    "test": {
+      "executor": "nx:run-commands",
+      "outputs": [],
+      "options": {
+        "command": "npm run codegen:admin-http-contracts:check"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "options": {
+        "lintFilePatterns": ["tools/codegen/admin-contracts/**/*.ts"]
+      }
+    }
+  }
+}

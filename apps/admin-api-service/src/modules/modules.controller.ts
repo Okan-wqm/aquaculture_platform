@@ -13,53 +13,12 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import type { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
-import { ModulesService, PaginatedModules } from './modules.service';
+import { AssignModuleDto, CreateModuleDto, UpdateModuleDto } from './dto/module-mutation.dto';
+import { ModulesService, type ModuleDto } from './modules.service';
 
-/**
- * WHY no price field: billing owns all subscription pricing (platform rule
- * D14). Per-module prices are managed through the module-pricing catalog
- * (admin.module_pricing via ModulePricingService), never through the
- * auth.modules catalogue surface. The read-side ModuleDto.price is derived
- * from that catalog.
- */
-export interface CreateModuleDto {
-  code: string;
-  name: string;
-  description?: string;
-  defaultRoute: string;
-  icon?: string;
-  isCore?: boolean;
-}
-
-export interface UpdateModuleDto {
-  name?: string;
-  description?: string;
-  defaultRoute?: string;
-  icon?: string;
-  isActive?: boolean;
-}
-
-export interface ModuleQuantitiesDto {
-  users?: number;
-  farms?: number;
-  ponds?: number;
-  sensors?: number;
-  devices?: number;
-  storageGb?: number;
-  apiCalls?: number;
-  alerts?: number;
-  reports?: number;
-  integrations?: number;
-}
-
-export interface AssignModuleDto {
-  tenantId: string;
-  moduleId: string;
-  quantities?: ModuleQuantitiesDto;
-  configuration?: Record<string, unknown>;
-  expiresAt?: Date;
-}
+export { AssignModuleDto, CreateModuleDto, UpdateModuleDto } from './dto/module-mutation.dto';
 
 @ApiTags('Modules')
 @Controller('modules')
@@ -76,7 +35,7 @@ export class ModulesController {
     @Query('search') search?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
-  ): Promise<PaginatedModules> {
+  ): Promise<IStandardPaginatedResult<ModuleDto>> {
     return this.modulesService.listModules(
       {
         isActive: isActive === 'true' ? true : isActive === 'false' ? false : undefined,
@@ -158,10 +117,7 @@ export class ModulesController {
    * Update module
    */
   @Put(':id')
-  async updateModule(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: UpdateModuleDto,
-  ) {
+  async updateModule(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateModuleDto) {
     return this.modulesService.updateModule(id, dto);
   }
 

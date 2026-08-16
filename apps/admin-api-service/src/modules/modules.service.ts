@@ -1,6 +1,10 @@
 import * as crypto from 'crypto';
 
 import {
+  createStandardPaginatedResult,
+  type IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
+import {
   BadGatewayException,
   ConflictException,
   Inject,
@@ -47,14 +51,6 @@ export interface ModuleDto {
   updatedAt: Date;
 }
 
-export interface PaginatedModules {
-  data: ModuleDto[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
-
 export interface ModuleStats {
   totalModules: number;
   activeModules: number;
@@ -95,7 +91,7 @@ export interface ModuleQuantities {
 /**
  * Assign module to tenant DTO
  */
-export interface AssignModuleDto {
+export interface AssignModuleInput {
   tenantId: string;
   moduleId: string;
   quantities?: ModuleQuantities;
@@ -141,9 +137,8 @@ export class ModulesService {
     private readonly authProvisioningClient: AuthTenantProvisioningClientService,
   ) {
     const configured = parseInt(process.env['AUTH_NATS_TIMEOUT_MS'] ?? '', 10);
-    this.timeoutMs = Number.isFinite(configured) && configured > 0
-      ? configured
-      : DEFAULT_AUTH_NATS_TIMEOUT_MS;
+    this.timeoutMs =
+      Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_AUTH_NATS_TIMEOUT_MS;
   }
 
   /**
@@ -153,7 +148,7 @@ export class ModulesService {
     filter: ModuleFilter,
     page = 1,
     limit = 50,
-  ): Promise<PaginatedModules> {
+  ): Promise<IStandardPaginatedResult<ModuleDto>> {
     const offset = (page - 1) * limit;
 
     const whereConditions: string[] = [];
@@ -178,8 +173,7 @@ export class ModulesService {
       paramIndex++;
     }
 
-    const whereClause =
-      whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
+    const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
 
     const query = `
       SELECT
@@ -217,13 +211,7 @@ export class ModulesService {
 
       const total = parseInt(countResult[0]?.total || '0', 10);
 
-      return {
-        data: modules,
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      };
+      return createStandardPaginatedResult(modules, total, page, limit);
     } catch (error) {
       this.logger.error(`Failed to list modules: ${(error as Error).message}`);
       throw error;
@@ -235,22 +223,17 @@ export class ModulesService {
    */
   async getModuleStats(): Promise<ModuleStats> {
     try {
-      const [
-        totalResult,
-        activeResult,
-        coreResult,
-        assignmentsResult,
-        usageResult,
-      ] = await Promise.all([
-        this.dataSource.query(`SELECT COUNT(*) as count FROM auth.modules`),
-        this.dataSource.query(
-          `SELECT COUNT(*) as count FROM auth.modules WHERE "isActive" = true`,
-        ),
-        this.dataSource.query(
-          `SELECT COUNT(*) as count FROM auth.modules WHERE COALESCE(is_core, false) = true`,
-        ),
-        this.dataSource.query(`SELECT COUNT(*) as count FROM auth.tenant_modules`),
-        this.dataSource.query(`
+      const [totalResult, activeResult, coreResult, assignmentsResult, usageResult] =
+        await Promise.all([
+          this.dataSource.query(`SELECT COUNT(*) as count FROM auth.modules`),
+          this.dataSource.query(
+            `SELECT COUNT(*) as count FROM auth.modules WHERE "isActive" = true`,
+          ),
+          this.dataSource.query(
+            `SELECT COUNT(*) as count FROM auth.modules WHERE COALESCE(is_core, false) = true`,
+          ),
+          this.dataSource.query(`SELECT COUNT(*) as count FROM auth.tenant_modules`),
+          this.dataSource.query(`
           SELECT
             m.id as "moduleId",
             m.name as "moduleName",
@@ -260,7 +243,7 @@ export class ModulesService {
           GROUP BY m.id, m.name
           ORDER BY "tenantsCount" DESC
         `),
-      ]);
+        ]);
 
       return {
         totalModules: parseInt(totalResult[0]?.count || '0', 10),
@@ -270,9 +253,7 @@ export class ModulesService {
         moduleUsage: usageResult,
       };
     } catch (error) {
-      this.logger.error(
-        `Failed to get module stats: ${(error as Error).message}`,
-      );
+      this.logger.error(`Failed to get module stats: ${(error as Error).message}`);
       throw error;
     }
   }
@@ -472,11 +453,7 @@ export class ModulesService {
   /**
    * Get tenants assigned to a module
    */
-  async getModuleTenants(
-    moduleId: string,
-    page = 1,
-    limit = 50,
-  ) {
+  async getModuleTenants(moduleId: string, page = 1, limit = 50) {
     const offset = (page - 1) * limit;
 
     try {
@@ -506,17 +483,9 @@ export class ModulesService {
 
       const total = parseInt(countResult[0]?.total || '0', 10);
 
-      return {
-        data: tenants,
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      };
+      return createStandardPaginatedResult(tenants, total, page, limit);
     } catch (error) {
-      this.logger.error(
-        `Failed to get module tenants: ${(error as Error).message}`,
-      );
+      this.logger.error(`Failed to get module tenants: ${(error as Error).message}`);
       throw error;
     }
   }
@@ -524,11 +493,7 @@ export class ModulesService {
   /**
    * Get all tenant-module assignments
    */
-  async getAssignments(
-    filter: { tenantId?: string; moduleId?: string },
-    page = 1,
-    limit = 50,
-  ) {
+  async getAssignments(filter: { tenantId?: string; moduleId?: string }, page = 1, limit = 50) {
     const offset = (page - 1) * limit;
     const conditions: string[] = [];
     const params: string[] = [];
@@ -543,8 +508,7 @@ export class ModulesService {
       params.push(filter.moduleId);
     }
 
-    const whereClause =
-      conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
     try {
       const [assignments, countResult] = await Promise.all([
@@ -576,17 +540,9 @@ export class ModulesService {
 
       const total = parseInt(countResult[0]?.total || '0', 10);
 
-      return {
-        data: assignments,
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      };
+      return createStandardPaginatedResult(assignments, total, page, limit);
     } catch (error) {
-      this.logger.error(
-        `Failed to get assignments: ${(error as Error).message}`,
-      );
+      this.logger.error(`Failed to get assignments: ${(error as Error).message}`);
       throw error;
     }
   }
@@ -594,29 +550,26 @@ export class ModulesService {
   /**
    * Assign module to tenant with optional quantities and configuration
    */
-  async assignModuleToTenant(dto: AssignModuleDto): Promise<TenantModuleAssignment> {
+  async assignModuleToTenant(dto: AssignModuleInput): Promise<TenantModuleAssignment> {
     try {
       const hasExtendedColumns = await this.checkExtendedColumns();
       const assignedBy = dto.assignedBy || dto.tenantId;
       await this.authProvisioningClient.assignTenantModules({
-        ...buildModuleLifecycleCommandMetadata(
-          'AssignModules',
-          dto.tenantId,
-          assignedBy,
+        ...buildModuleLifecycleCommandMetadata('AssignModules', dto.tenantId, assignedBy, {
+          moduleId: dto.moduleId,
+          quantities: dto.quantities,
+          configuration: dto.configuration,
+          expiresAt: dto.expiresAt?.toISOString(),
+        }),
+        moduleIds: [dto.moduleId],
+        modules: [
           {
             moduleId: dto.moduleId,
-            quantities: dto.quantities,
-            configuration: dto.configuration,
-            expiresAt: dto.expiresAt?.toISOString(),
+            ...(dto.quantities ? { quantities: { ...dto.quantities } } : {}),
+            ...(dto.configuration ? { configuration: dto.configuration } : {}),
+            ...(dto.expiresAt ? { expiresAt: dto.expiresAt.toISOString() } : {}),
           },
-        ),
-        moduleIds: [dto.moduleId],
-        modules: [{
-          moduleId: dto.moduleId,
-          ...(dto.quantities ? { quantities: { ...dto.quantities } } : {}),
-          ...(dto.configuration ? { configuration: dto.configuration } : {}),
-          ...(dto.expiresAt ? { expiresAt: dto.expiresAt.toISOString() } : {}),
-        }],
+        ],
         assignedBy,
       });
 
@@ -667,9 +620,7 @@ export class ModulesService {
       );
       return assignment[0];
     } catch (error) {
-      this.logger.error(
-        `Failed to assign module: ${(error as Error).message}`,
-      );
+      this.logger.error(`Failed to assign module: ${(error as Error).message}`);
       throw error;
     }
   }
@@ -695,10 +646,7 @@ export class ModulesService {
   /**
    * Remove module from tenant
    */
-  async removeModuleFromTenant(
-    tenantId: string,
-    moduleId: string,
-  ): Promise<void> {
+  async removeModuleFromTenant(tenantId: string, moduleId: string): Promise<void> {
     try {
       const result = await this.dataSource.query(
         `SELECT 1 FROM auth.tenant_modules WHERE "tenantId" = $1 AND "moduleId" = $2`,
@@ -712,12 +660,7 @@ export class ModulesService {
       }
 
       const removal = await this.authProvisioningClient.removeTenantModule({
-        ...buildModuleLifecycleCommandMetadata(
-          'RemoveModule',
-          tenantId,
-          tenantId,
-          { moduleId },
-        ),
+        ...buildModuleLifecycleCommandMetadata('RemoveModule', tenantId, tenantId, { moduleId }),
         moduleId,
         removedBy: tenantId,
       });
@@ -730,9 +673,7 @@ export class ModulesService {
       this.logger.log(`Removed module ${moduleId} from tenant ${tenantId}`);
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
-      this.logger.error(
-        `Failed to remove module: ${(error as Error).message}`,
-      );
+      this.logger.error(`Failed to remove module: ${(error as Error).message}`);
       throw error;
     }
   }
@@ -746,9 +687,7 @@ export class ModulesService {
         this.authNatsClient.send<TResult, TCommand>(subject, command).pipe(
           timeout(this.timeoutMs),
           catchError((err: Error) => {
-            this.logger.error(
-              `NATS request failed: subject=${subject}, error=${err.message}`,
-            );
+            this.logger.error(`NATS request failed: subject=${subject}, error=${err.message}`);
             return throwError(() => err);
           }),
         ),
@@ -758,7 +697,6 @@ export class ModulesService {
       throw new BadGatewayException(`Auth service error: ${message}`);
     }
   }
-
 }
 
 function buildModuleLifecycleCommandMetadata(
@@ -797,7 +735,10 @@ function stableModuleStringify(value: unknown): string {
 
   if (value && typeof value === 'object') {
     const record = value as Record<string, unknown>;
-    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableModuleStringify(record[key])}`).join(',')}}`;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableModuleStringify(record[key])}`)
+      .join(',')}}`;
   }
 
   return JSON.stringify(value);

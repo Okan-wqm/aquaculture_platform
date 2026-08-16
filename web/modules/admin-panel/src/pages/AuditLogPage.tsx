@@ -281,7 +281,7 @@ const AuditLogPage: React.FC = () => {
     return result.data;
   }, []);
 
-  const { data: tenants } = useAsyncData<Tenant[]>(fetchTenants, {
+  const { data: tenants } = useAsyncData<readonly Tenant[]>(fetchTenants, {
     cacheKey: 'audit-tenants',
     cacheTTL: 300000, // 5 minutes
   });
@@ -311,7 +311,7 @@ const AuditLogPage: React.FC = () => {
     loading,
     error,
     refresh,
-  } = useAsyncData<AuditLog[]>(fetchLogs, {
+  } = useAsyncData<readonly AuditLog[]>(fetchLogs, {
     cacheKey: `audit-logs-${JSON.stringify(debouncedFilters)}-${pagination.page}`,
     cacheTTL: 30000,
   });

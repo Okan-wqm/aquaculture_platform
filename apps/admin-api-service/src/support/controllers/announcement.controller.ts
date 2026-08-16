@@ -23,7 +23,12 @@ import { IsString, IsOptional, IsBoolean, IsObject } from 'class-validator';
 
 import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
 import { PlatformAdminOnly } from '../../decorators/roles.decorator';
-import { AnnouncementType, AnnouncementStatus, AnnouncementTarget } from '../entities/support.entity';
+import { authenticatedActorLabel } from '../../shared/authenticated-request';
+import {
+  AnnouncementType,
+  AnnouncementStatus,
+  AnnouncementTarget,
+} from '../entities/support.entity';
 import { AnnouncementService } from '../services/announcement.service';
 
 // ============================================================================
@@ -165,15 +170,12 @@ export class AnnouncementController {
       expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
       requiresAcknowledgment: dto.requiresAcknowledgment,
       createdBy: user.id,
-      createdByName: user.email,
+      createdByName: authenticatedActorLabel(user),
     });
   }
 
   @Put(':id')
-  async updateAnnouncement(
-    @Param('id') id: string,
-    @Body() dto: UpdateAnnouncementDto,
-  ) {
+  async updateAnnouncement(@Param('id') id: string, @Body() dto: UpdateAnnouncementDto) {
     return this.announcementService.updateAnnouncement(id, {
       title: dto.title,
       content: dto.content,
@@ -239,10 +241,7 @@ export class AnnouncementController {
 
   @Post(':id/view')
   @PlatformAdminOnly()
-  async recordView(
-    @Param('id') id: string,
-    @Body() dto: AcknowledgeDto,
-  ) {
+  async recordView(@Param('id') id: string, @Body() dto: AcknowledgeDto) {
     if (!dto.tenantId || !dto.userId) {
       throw new BadRequestException('tenantId and userId are required');
     }
@@ -257,10 +256,7 @@ export class AnnouncementController {
 
   @Post(':id/acknowledge')
   @PlatformAdminOnly()
-  async recordAcknowledgment(
-    @Param('id') id: string,
-    @Body() dto: AcknowledgeDto,
-  ) {
+  async recordAcknowledgment(@Param('id') id: string, @Body() dto: AcknowledgeDto) {
     if (!dto.tenantId || !dto.userId) {
       throw new BadRequestException('tenantId and userId are required');
     }

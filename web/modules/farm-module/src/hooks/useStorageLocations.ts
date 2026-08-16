@@ -2,6 +2,7 @@
  * Storage Locations hooks for farm-module
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 
 export enum StorageLocationType {
@@ -54,13 +55,10 @@ export interface UpdateStorageLocationInput extends Partial<CreateStorageLocatio
   isActive?: boolean;
 }
 
-interface PaginatedResponse {
-  items: StorageLocation[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
+type StorageLocationsPage = Pick<
+  PaginationResultV1<StorageLocation>,
+  'items' | 'total' | 'page' | 'limit' | 'totalPages'
+>;
 
 const STORAGE_LOCATIONS_LIST_QUERY = `
   query StorageLocations($filter: StorageLocationFilterInput, $pagination: FarmPaginationInput) {
@@ -157,7 +155,7 @@ export function useStorageLocationList(filter?: {
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'storageLocations', 'list', filter),
     queryFn: async () => {
-      const data = await graphqlClient.request<{ storageLocations: PaginatedResponse }>(
+      const data = await graphqlClient.request<{ storageLocations: StorageLocationsPage }>(
         STORAGE_LOCATIONS_LIST_QUERY,
         { filter, pagination: { page: 1, limit: 100 } }
       );

@@ -8,7 +8,7 @@ import type {
   PaginationParams,
   DateRangeParams,
   SupportTicket,
-  TicketReply,
+  TicketComment,
   TicketStats,
   TicketStatus,
   TicketPriority,
@@ -32,14 +32,18 @@ export const supportApi = {
   } & PaginationParams & DateRangeParams) =>
     apiFetch<PaginatedResult<SupportTicket>>(`/support/tickets?${buildQueryString(params || {})}`),
   getTicket: (id: string) => apiFetch<SupportTicket>(`/support/tickets/${id}`),
-  getTicketReplies: (ticketId: string) => apiFetch<TicketReply[]>(`/support/tickets/${ticketId}/replies`),
+  getTicketReplies: (ticketId: string) =>
+    apiFetch<PaginatedResult<TicketComment>>(`/support/tickets/${ticketId}/replies`),
   createTicket: (data: { subject: string; description: string; category: TicketCategory; priority: TicketPriority; tenantId: string; createdBy: string }) =>
     apiFetch<SupportTicket>('/support/tickets', { method: 'POST', body: JSON.stringify(data) }),
   // Fix: backend uses PUT (not PATCH)
   updateTicket: (id: string, data: Partial<{ status: TicketStatus; priority: TicketPriority; assignedTo: string; tags: string[] }>) =>
     apiFetch<SupportTicket>(`/support/tickets/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   addReply: (ticketId: string, data: { content: string; isInternal?: boolean; createdBy: string }) =>
-    apiFetch<TicketReply>(`/support/tickets/${ticketId}/replies`, { method: 'POST', body: JSON.stringify(data) }),
+    apiFetch<TicketComment>(`/support/tickets/${ticketId}/replies`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
   assignTicket: (id: string, assignedTo: string, assignedToName: string) =>
     apiFetch<SupportTicket>(`/support/tickets/${id}/assign`, { method: 'POST', body: JSON.stringify({ assignedTo, assignedToName }) }),
   // Fix: backend uses POST /support/tickets/:id/status with { status: 'closed' } (no /close endpoint)
@@ -60,7 +64,8 @@ export const supportApi = {
       body: JSON.stringify(data),
     }),
   getTicketTeam: () => apiFetch<Array<{ id: string; name: string; activeTickets: number }>>('/support/tickets/team'),
-  getTicketComments: (ticketId: string) => apiFetch<Array<{ id: string; ticketId: string; authorId: string; authorName: string; authorType: string; content: string; isInternal: boolean; attachments: unknown[]; createdAt: string }>>(`/support/tickets/${ticketId}/comments`),
+  getTicketComments: (ticketId: string) =>
+    apiFetch<PaginatedResult<TicketComment>>(`/support/tickets/${ticketId}/comments`),
   addTicketComment: (ticketId: string, data: { content: string; isInternal?: boolean }) =>
     apiFetch<unknown>(`/support/tickets/${ticketId}/comments`, { method: 'POST', body: JSON.stringify(data) }),
   updateTicketStatus: (ticketId: string, status: string, changedByName?: string) =>

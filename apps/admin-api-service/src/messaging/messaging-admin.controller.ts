@@ -16,7 +16,6 @@ import {
   Get,
   Post,
   Put,
-  Delete,
   Param,
   Body,
   Query,
@@ -32,74 +31,37 @@ import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { firstValueFrom, timeout, catchError, throwError } from 'rxjs';
 
 import { ConfigService } from '@nestjs/config';
+import { RequireRecentMfa } from '@aquaculture/backend-common/guards';
+import {
+  ADMIN_LEGAL_HOLD_RELEASE_MFA_MAX_AGE_SECONDS_V1,
+  ADMIN_MESSAGING_AUDIT_QUERY_SUBJECT_V1,
+  ADMIN_MESSAGING_RPC_SUBJECTS_V1,
+  type AdminLegalHoldReleaseOperationV1,
+  type AdminLegalHoldV1,
+  type AdminMessagingComplianceStatsV1,
+  type AdminMessagingAuditPageV1,
+  type AdminMessagingExportResultV1,
+  type AdminMessagingPersonaV1,
+  type AdminMessagingRetentionPolicyV1,
+  type AdminMessagingRpcRequestV1,
+  type AdminMessagingRpcResponseV1,
+  type AdminMessagingRpcSubjectV1,
+  type AdminRecentMfaActorV1,
+} from '@platform/admin-http-contracts';
 import { CurrentUser, CurrentUserData } from '../decorators/current-user.decorator';
+import {
+  CreateLegalHoldDto,
+  TriggerExportDto,
+  UpdateRetentionPolicyDto,
+} from './dto/messaging-admin.dto';
+import {
+  AuthorizeLegalHoldReleaseOperationDto,
+  CreateLegalHoldReleaseOperationDto,
+  LegalHoldReleaseOperationQueryDto,
+} from './dto/legal-hold-release-operation.dto';
 
 /** Default NATS request timeout when MESSAGING_NATS_TIMEOUT_MS is not configured. */
 const DEFAULT_NATS_TIMEOUT_MS = 15_000;
-
-// ── DTO Interfaces ──────────────────────────────────────────────────────
-
-interface CreateLegalHoldDto {
-  tenantId: string;
-  channelId?: string | null;
-  reason: string;
-  legalMatterId: string;
-  legalMatterDescription?: string;
-  requestedBy?: string;
-  expiresAt?: string;
-}
-
-interface UpdateRetentionPolicyDto {
-  channelId?: string | null;
-  retentionDays: number;
-}
-
-interface TriggerExportDto {
-  format?: 'csv' | 'json';
-}
-
-// ── Response Interfaces ────────────────────────────────────────────────
-
-interface ComplianceStatsResponse {
-  activeHoldsCount: number;
-  retentionPoliciesCount: number;
-  auditLogEntriesCount: number;
-}
-
-interface LegalHoldResponse {
-  id: string;
-  tenantId: string;
-  channelId: string | null;
-  reason: string;
-  isActive: boolean;
-  createdAt: string;
-}
-
-interface RetentionPolicyResponse {
-  id: string;
-  tenantId: string;
-  channelId: string | null;
-  retentionDays: number;
-}
-
-interface AuditLogResponse {
-  items: Array<{ id: string; action: string; resourceType: string; createdAt: string }>;
-  hasMore: boolean;
-  cursor: string | null;
-  totalCount: number;
-}
-
-interface ExportResponse {
-  exportId: string;
-  status: string;
-}
-
-interface PersonaResponse {
-  id: string;
-  name: string;
-  description: string;
-  isActive: boolean;
-}
 
 // ── Controller ──────────────────────────────────────────────────────────
 
@@ -130,12 +92,9 @@ export class MessagingAdminController {
   @Get('compliance/stats')
   @ApiOperation({ summary: 'Get messaging compliance statistics' })
   async getComplianceStats(
-    @Query('tenantId') tenantId: string,
-  ): Promise<ComplianceStatsResponse> {
-    return this.sendNatsRequest<ComplianceStatsResponse>(
-      'request.messaging.admin.complianceStats',
-      { tenantId },
-    );
+    @Query('tenantId', ParseUUIDPipe) tenantId: string,
+  ): Promise<AdminMessagingComplianceStatsV1> {
+    return this.sendNatsRequest(ADMIN_MESSAGING_RPC_SUBJECTS_V1.complianceStats, { tenantId });
   }
 
   // ── Legal Holds ─────────────────────────────────────────────────────
@@ -147,12 +106,9 @@ export class MessagingAdminController {
   @Get('compliance/legal-holds')
   @ApiOperation({ summary: 'List legal holds for a tenant' })
   async getLegalHolds(
-    @Query('tenantId') tenantId: string,
-  ): Promise<LegalHoldResponse[]> {
-    return this.sendNatsRequest<LegalHoldResponse[]>(
-      'request.messaging.admin.getLegalHolds',
-      { tenantId },
-    );
+    @Query('tenantId', ParseUUIDPipe) tenantId: string,
+  ): Promise<readonly AdminLegalHoldV1[]> {
+    return this.sendNatsRequest(ADMIN_MESSAGING_RPC_SUBJECTS_V1.getLegalHolds, { tenantId });
   }
 
   /**
@@ -164,41 +120,70 @@ export class MessagingAdminController {
   async createLegalHold(
     @Body() dto: CreateLegalHoldDto,
     @CurrentUser() user: CurrentUserData,
-  ): Promise<LegalHoldResponse> {
-    return this.sendNatsRequest<LegalHoldResponse>(
-      'request.messaging.admin.createLegalHold',
+  ): Promise<AdminLegalHoldV1> {
+    return this.sendNatsRequest(ADMIN_MESSAGING_RPC_SUBJECTS_V1.createLegalHold, {
+      tenantId: dto.tenantId,
+      userId: user.id,
+      channelId: dto.channelId ?? null,
+      reason: dto.reason,
+      legalMatterId: dto.legalMatterId,
+      legalMatterDescription: dto.legalMatterDescription,
+      requestedBy: dto.requestedBy,
+      expiresAt: dto.expiresAt,
+    });
+  }
+
+  /**
+   * Open a release operation. The hold remains active until a distinct admin
+   * authorizes it through their own recent-MFA session.
+   */
+  @Post('compliance/legal-holds/:id/release-operations')
+  @HttpCode(HttpStatus.CREATED)
+  @RequireRecentMfa(ADMIN_LEGAL_HOLD_RELEASE_MFA_MAX_AGE_SECONDS_V1)
+  @ApiOperation({ summary: 'Request two-person legal-hold release' })
+  async createLegalHoldReleaseOperation(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateLegalHoldReleaseOperationDto,
+    @CurrentUser() user: CurrentUserData,
+  ): Promise<AdminLegalHoldReleaseOperationV1> {
+    return this.sendNatsRequest(ADMIN_MESSAGING_RPC_SUBJECTS_V1.createLegalHoldReleaseOperation, {
+      holdId: id,
+      tenantId: dto.tenantId,
+      requestId: dto.requestId,
+      releaseReason: dto.releaseReason,
+      initiator: this.toRecentMfaActor(user),
+    });
+  }
+
+  @Post('compliance/legal-hold-release-operations/:id/authorizations')
+  @HttpCode(HttpStatus.OK)
+  @RequireRecentMfa(ADMIN_LEGAL_HOLD_RELEASE_MFA_MAX_AGE_SECONDS_V1)
+  @ApiOperation({ summary: 'Countersign and execute legal-hold release' })
+  async authorizeLegalHoldReleaseOperation(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AuthorizeLegalHoldReleaseOperationDto,
+    @CurrentUser() user: CurrentUserData,
+  ): Promise<AdminLegalHoldReleaseOperationV1> {
+    return this.sendNatsRequest(
+      ADMIN_MESSAGING_RPC_SUBJECTS_V1.authorizeLegalHoldReleaseOperation,
       {
+        operationId: id,
         tenantId: dto.tenantId,
-        userId: user.id,
-        channelId: dto.channelId ?? null,
-        reason: dto.reason,
-        legalMatterId: dto.legalMatterId,
-        legalMatterDescription: dto.legalMatterDescription,
-        requestedBy: dto.requestedBy,
-        expiresAt: dto.expiresAt,
+        requestId: dto.requestId,
+        approver: this.toRecentMfaActor(user),
       },
     );
   }
 
-  /**
-   * Release (deactivate) an existing legal hold.
-   * @param id - UUID of the legal hold to release
-   */
-  @Delete('compliance/legal-holds/:id')
-  @ApiOperation({ summary: 'Release a legal hold' })
-  async releaseLegalHold(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Query('tenantId') tenantId: string,
-    @CurrentUser() user: CurrentUserData,
-  ): Promise<LegalHoldResponse> {
-    return this.sendNatsRequest<LegalHoldResponse>(
-      'request.messaging.admin.releaseLegalHold',
-      {
-        holdId: id,
-        tenantId,
-        userId: user.id,
-      },
-    );
+  @Get('compliance/legal-hold-release-operations')
+  @ApiOperation({ summary: 'List legal-hold release operations' })
+  async getLegalHoldReleaseOperations(
+    @Query() query: LegalHoldReleaseOperationQueryDto,
+  ): Promise<readonly AdminLegalHoldReleaseOperationV1[]> {
+    return this.sendNatsRequest(ADMIN_MESSAGING_RPC_SUBJECTS_V1.getLegalHoldReleaseOperations, {
+      tenantId: query.tenantId,
+      status: query.status,
+    });
   }
 
   // ── Retention Policies ──────────────────────────────────────────────
@@ -210,12 +195,9 @@ export class MessagingAdminController {
   @Get('retention/policies')
   @ApiOperation({ summary: 'List retention policies for a tenant' })
   async getRetentionPolicies(
-    @Query('tenantId') tenantId: string,
-  ): Promise<RetentionPolicyResponse[]> {
-    return this.sendNatsRequest<RetentionPolicyResponse[]>(
-      'request.messaging.admin.getRetentionPolicies',
-      { tenantId },
-    );
+    @Query('tenantId', ParseUUIDPipe) tenantId: string,
+  ): Promise<readonly AdminMessagingRetentionPolicyV1[]> {
+    return this.sendNatsRequest(ADMIN_MESSAGING_RPC_SUBJECTS_V1.getRetentionPolicies, { tenantId });
   }
 
   /**
@@ -228,16 +210,13 @@ export class MessagingAdminController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateRetentionPolicyDto,
     @CurrentUser() user: CurrentUserData,
-  ): Promise<RetentionPolicyResponse> {
-    return this.sendNatsRequest<RetentionPolicyResponse>(
-      'request.messaging.admin.updateRetentionPolicy',
-      {
-        tenantId: id,
-        userId: user.id,
-        channelId: dto.channelId ?? null,
-        retentionDays: dto.retentionDays,
-      },
-    );
+  ): Promise<AdminMessagingRetentionPolicyV1> {
+    return this.sendNatsRequest(ADMIN_MESSAGING_RPC_SUBJECTS_V1.updateRetentionPolicy, {
+      tenantId: id,
+      userId: user.id,
+      channelId: dto.channelId ?? null,
+      retentionDays: dto.retentionDays,
+    });
   }
 
   // ── Monitoring ──────────────────────────────────────────────────────
@@ -251,7 +230,7 @@ export class MessagingAdminController {
   async getMonitoringStats(): Promise<never> {
     throw new HttpException(
       'Messaging monitoring stats not yet implemented in messaging-service. ' +
-      'Requires real-time metrics aggregation endpoint.',
+        'Requires real-time metrics aggregation endpoint.',
       HttpStatus.NOT_IMPLEMENTED,
     );
   }
@@ -267,7 +246,7 @@ export class MessagingAdminController {
   @Get('audit')
   @ApiOperation({ summary: 'Get compliance audit log entries' })
   async getAuditLog(
-    @Query('tenantId') tenantId: string,
+    @Query('tenantId', ParseUUIDPipe) tenantId: string,
     @Query('limit') limit?: string,
     @Query('cursor') cursor?: string,
     @Query('userId') userId?: string,
@@ -275,20 +254,17 @@ export class MessagingAdminController {
     @Query('resourceType') resourceType?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
-  ): Promise<AuditLogResponse> {
-    return this.sendNatsRequest<AuditLogResponse>(
-      'request.messaging.admin.getAuditLog',
-      {
-        tenantId,
-        limit: limit ? parseInt(limit, 10) : 25,
-        cursor: cursor ?? null,
-        userId,
-        action,
-        resourceType,
-        startDate,
-        endDate,
-      },
-    );
+  ): Promise<AdminMessagingAuditPageV1> {
+    return this.sendNatsRequest(ADMIN_MESSAGING_AUDIT_QUERY_SUBJECT_V1, {
+      tenantId,
+      limit: limit ? parseInt(limit, 10) : 25,
+      cursor: cursor ?? null,
+      userId,
+      action,
+      resourceType,
+      startDate,
+      endDate,
+    });
   }
 
   // ── Tenant Messaging Overview ───────────────────────────────────────
@@ -302,7 +278,7 @@ export class MessagingAdminController {
   async getTenants(): Promise<never> {
     throw new HttpException(
       'Tenant messaging overview not yet implemented in messaging-service. ' +
-      'Requires cross-tenant aggregation endpoint.',
+        'Requires cross-tenant aggregation endpoint.',
       HttpStatus.NOT_IMPLEMENTED,
     );
   }
@@ -320,15 +296,12 @@ export class MessagingAdminController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: TriggerExportDto,
     @CurrentUser() user: CurrentUserData,
-  ): Promise<ExportResponse> {
-    return this.sendNatsRequest<ExportResponse>(
-      'request.messaging.admin.triggerExport',
-      {
-        tenantId: id,
-        userId: user.id,
-        format: dto.format ?? 'json',
-      },
-    );
+  ): Promise<AdminMessagingExportResultV1> {
+    return this.sendNatsRequest(ADMIN_MESSAGING_RPC_SUBJECTS_V1.triggerExport, {
+      tenantId: id,
+      userId: user.id,
+      format: dto.format ?? 'json',
+    });
   }
 
   // ── AI Personas ─────────────────────────────────────────────────────
@@ -340,12 +313,9 @@ export class MessagingAdminController {
   @Get('personas')
   @ApiOperation({ summary: 'Get AI personas configuration' })
   async getPersonas(
-    @Query('tenantId') tenantId: string,
-  ): Promise<PersonaResponse[]> {
-    return this.sendNatsRequest<PersonaResponse[]>(
-      'request.messaging.admin.getPersonas',
-      { tenantId },
-    );
+    @Query('tenantId', ParseUUIDPipe) tenantId: string,
+  ): Promise<readonly AdminMessagingPersonaV1[]> {
+    return this.sendNatsRequest(ADMIN_MESSAGING_RPC_SUBJECTS_V1.getPersonas, { tenantId });
   }
 
   /**
@@ -355,12 +325,10 @@ export class MessagingAdminController {
    */
   @Put('personas/:id')
   @ApiOperation({ summary: 'Update AI persona configuration' })
-  async updatePersona(
-    @Param('id') _id: string,
-  ): Promise<never> {
+  async updatePersona(@Param('id') _id: string): Promise<never> {
     throw new HttpException(
       'AI persona configuration update not yet implemented in messaging-service. ' +
-      'Personas are currently static; per-tenant configuration is planned.',
+        'Personas are currently static; per-tenant configuration is planned.',
       HttpStatus.NOT_IMPLEMENTED,
     );
   }
@@ -375,21 +343,24 @@ export class MessagingAdminController {
    * @returns Response from messaging-service
    * @throws HttpException on timeout or NATS errors
    */
-  private async sendNatsRequest<T>(
-    pattern: string,
-    payload: Record<string, unknown>,
-  ): Promise<T> {
+  private async sendNatsRequest<TSubject extends AdminMessagingRpcSubjectV1>(
+    pattern: TSubject,
+    payload: AdminMessagingRpcRequestV1[TSubject],
+  ): Promise<AdminMessagingRpcResponseV1[TSubject]> {
     try {
       const result = await firstValueFrom(
-        this.natsClient.send<T>(pattern, payload).pipe(
-          timeout(this.natsTimeoutMs),
-          catchError((err: Error) => {
-            this.logger.error(
-              `NATS request failed: pattern=${pattern}, error=${err.message}`,
-            );
-            return throwError(() => err);
-          }),
-        ),
+        this.natsClient
+          .send<
+            AdminMessagingRpcResponseV1[TSubject],
+            AdminMessagingRpcRequestV1[TSubject]
+          >(pattern, payload)
+          .pipe(
+            timeout(this.natsTimeoutMs),
+            catchError((err: Error) => {
+              this.logger.error(`NATS request failed: pattern=${pattern}, error=${err.message}`);
+              return throwError(() => err);
+            }),
+          ),
       );
       return result;
     } catch (err: unknown) {
@@ -416,10 +387,28 @@ export class MessagingAdminController {
         throw err;
       }
 
+      throw new HttpException(`Messaging service error: ${message}`, HttpStatus.BAD_GATEWAY);
+    }
+  }
+
+  private toRecentMfaActor(user: CurrentUserData): AdminRecentMfaActorV1 {
+    if (
+      user.mfaVerified !== true ||
+      user.iat === undefined ||
+      user.jti === undefined ||
+      user.jti.trim().length === 0
+    ) {
       throw new HttpException(
-        `Messaging service error: ${message}`,
-        HttpStatus.BAD_GATEWAY,
+        'A recent MFA step-up access token is required',
+        HttpStatus.FORBIDDEN,
       );
     }
+    return {
+      actorId: user.id,
+      roles: user.roles,
+      mfaVerified: true,
+      tokenIssuedAt: new Date(user.iat * 1_000).toISOString(),
+      tokenId: user.jti,
+    };
   }
 }

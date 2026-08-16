@@ -52,12 +52,18 @@ export interface LegalHoldAppliedEvent extends BaseEvent {
  */
 export interface LegalHoldReleasedEvent extends BaseEvent {
   readonly eventType: 'LegalHoldReleased';
+  /** Wire-contract revision. Legal-hold release evidence is immutable at v1. */
+  readonly version: 1;
   readonly holdId: string;
-  readonly scope: string;
+  readonly scope: 'tenant' | 'channel';
   readonly resourceId: string | null;
   readonly legalMatterId: string;
-  /** auth.users.id of the releasing operator (post dual-control). */
-  readonly releasedBy: string;
+  /** Durable two-person workflow row that authorized this transition. */
+  readonly releaseOperationId: string;
+  /** auth.users.id of the operator who requested release. */
+  readonly releaseRequestedBy: string;
+  /** auth.users.id of the distinct operator who authorized release. */
+  readonly releaseAuthorizedBy: string;
   /** Free-text reason captured at release time. */
   readonly releaseReason: string;
   readonly releasedAtIso: string;

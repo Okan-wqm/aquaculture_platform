@@ -5,7 +5,10 @@
  * # WHY
  *
  * Some tables carry **compliance-critical invariants** that cannot survive a
- * `DROP TABLE`, `DROP SCHEMA … CASCADE`, or column drop. They are:
+ * `DROP TABLE`, `DROP SCHEMA … CASCADE`, or column drop. Destructive-DDL
+ * protection and row-mutation policy are deliberately modelled as separate
+ * dimensions below: a table can require retention protection while still
+ * having a legitimate mutable lifecycle.
  *
  *   - **Audit trails** — `shared.audit_logs`, `event_store.events`,
  *     `farm.farm_audit_logs`, `hr.payroll_audit`, `ai.tool_execution_audit`,
@@ -65,7 +68,7 @@
  *
  * # ADDING A NEW PROTECTED TABLE
  *
- * 1. Add the fully-qualified name to `PROTECTED_TABLES`.
+ * 1. Add one policy to `PROTECTED_TABLE_POLICIES`.
  * 2. Write an ADR explaining the compliance invariant being protected.
  * 3. Add an immutability trigger (or equivalent guard) to the next migration.
  * 4. CODEOWNERS gate review by `compliance-expert` + `security-reviewer`.
@@ -79,13 +82,44 @@
  */
 
 /**
- * Fully-qualified schema.table names that are protected from destructive
- * DDL without an explicit compliance waiver.
+ * Row-write classifications are orthogonal to destructive-DDL protection.
  *
- * Order: grouped by compliance domain (audit / legal / consent / outbox).
- * Lowercase canonical form — every comparison MUST lowercase the input.
+ * - `append-only`: UPDATE is never legal. DELETE policy is stated separately
+ *   because audit retention may delete an unheld row while WORM ledgers may
+ *   never delete a row.
+ * - `lifecycle-mutated`: the owning state machine legitimately UPDATEs rows.
+ * - `mutable`: this SSoT makes no row-write restriction; only destructive DDL
+ *   protection applies.
  */
-export const PROTECTED_TABLES = [
+export const ROW_MUTATION_POLICY = {
+  APPEND_ONLY: 'append-only',
+  LIFECYCLE_MUTATED: 'lifecycle-mutated',
+  MUTABLE: 'mutable',
+} as const;
+
+export const ROW_DELETE_POLICY = {
+  DENY: 'deny',
+  LEGAL_HOLD_RETENTION: 'legal-hold-retention',
+  ALLOW: 'allow',
+} as const;
+
+export type RowMutationPolicy = (typeof ROW_MUTATION_POLICY)[keyof typeof ROW_MUTATION_POLICY];
+export type RowDeletePolicy = (typeof ROW_DELETE_POLICY)[keyof typeof ROW_DELETE_POLICY];
+
+interface ProtectedTablePolicyDefinition {
+  readonly qualifiedName: `${string}.${string}`;
+  readonly rowMutation: RowMutationPolicy;
+  readonly rowDelete: RowDeletePolicy;
+}
+
+/**
+ * Canonical policy record for every explicitly protected table.
+ *
+ * `PROTECTED_TABLES`, `APPEND_ONLY_TABLES`, lifecycle classifications, and the
+ * migration-generator row-guard inputs are projections of this one list. A
+ * table is never re-enumerated in a second policy constant.
+ */
+export const PROTECTED_TABLE_POLICIES = [
   // ── Shared schema — cross-tenant compliance state (ADR-011 canonical 4-table set) ──
   // Aligned with SHARED_SCHEMA_TABLES in scripts/schema-registry/generate-init-schemas.ts
   // and with the CREATE TABLE statements in
@@ -96,42 +130,193 @@ export const PROTECTED_TABLES = [
   // it was a dead parallel permission catalog superseded by the auth-service
   // tenant RBAC (auth.tenant_role_permissions.panel_permissions). Archived into
   // admin.retired_config_backups + dropped by admin-api migration 1801500000000.
-  'shared.audit_logs',
-  'shared.gdpr_data_requests',
-  'shared.user_consents',
-  'shared.access_logs',
+  {
+    qualifiedName: 'shared.audit_logs',
+    rowMutation: ROW_MUTATION_POLICY.APPEND_ONLY,
+    rowDelete: ROW_DELETE_POLICY.LEGAL_HOLD_RETENTION,
+  },
+  {
+    qualifiedName: 'shared.gdpr_data_requests',
+    rowMutation: ROW_MUTATION_POLICY.LIFECYCLE_MUTATED,
+    rowDelete: ROW_DELETE_POLICY.ALLOW,
+  },
+  {
+    qualifiedName: 'shared.user_consents',
+    rowMutation: ROW_MUTATION_POLICY.LIFECYCLE_MUTATED,
+    rowDelete: ROW_DELETE_POLICY.ALLOW,
+  },
+  {
+    qualifiedName: 'shared.access_logs',
+    rowMutation: ROW_MUTATION_POLICY.APPEND_ONLY,
+    rowDelete: ROW_DELETE_POLICY.DENY,
+  },
 
   // ── Event sourcing — append-only stream of truth ──
-  'event_store.events',
-  'event_store.stored_events',
-  'event_store.snapshots',
+  {
+    qualifiedName: 'event_store.events',
+    rowMutation: ROW_MUTATION_POLICY.APPEND_ONLY,
+    rowDelete: ROW_DELETE_POLICY.DENY,
+  },
+  {
+    qualifiedName: 'event_store.stored_events',
+    rowMutation: ROW_MUTATION_POLICY.APPEND_ONLY,
+    rowDelete: ROW_DELETE_POLICY.DENY,
+  },
+  {
+    qualifiedName: 'event_store.snapshots',
+    rowMutation: ROW_MUTATION_POLICY.APPEND_ONLY,
+    rowDelete: ROW_DELETE_POLICY.DENY,
+  },
 
-  // ── Per-service audit/ledger tables (cross-tenant within tenant-scoped services) ──
-  'ai.tool_execution_audit',
-  'alert.alert_audit_log',
-  'farm.farm_audit_logs',
-  'farm.tenant_erasure_audit',
-  'hr.payroll_audit',
-  'hr.leave_ledger_entries',
-  'messaging.compliance_audit_log',
-  'messaging.legal_holds',
+  // ── Per-service protected tables (source templates and tenant fan-out) ──
+  {
+    qualifiedName: 'ai.tool_execution_audit',
+    rowMutation: ROW_MUTATION_POLICY.APPEND_ONLY,
+    rowDelete: ROW_DELETE_POLICY.DENY,
+  },
+  {
+    qualifiedName: 'alert.alert_audit_log',
+    rowMutation: ROW_MUTATION_POLICY.APPEND_ONLY,
+    rowDelete: ROW_DELETE_POLICY.DENY,
+  },
+  {
+    qualifiedName: 'farm.farm_audit_logs',
+    rowMutation: ROW_MUTATION_POLICY.APPEND_ONLY,
+    rowDelete: ROW_DELETE_POLICY.LEGAL_HOLD_RETENTION,
+  },
+  {
+    qualifiedName: 'farm.tenant_erasure_audit',
+    rowMutation: ROW_MUTATION_POLICY.APPEND_ONLY,
+    rowDelete: ROW_DELETE_POLICY.DENY,
+  },
+  {
+    qualifiedName: 'hr.payroll_audit',
+    rowMutation: ROW_MUTATION_POLICY.APPEND_ONLY,
+    rowDelete: ROW_DELETE_POLICY.DENY,
+  },
+  {
+    qualifiedName: 'hr.leave_ledger_entries',
+    rowMutation: ROW_MUTATION_POLICY.APPEND_ONLY,
+    rowDelete: ROW_DELETE_POLICY.DENY,
+  },
+  {
+    qualifiedName: 'messaging.compliance_audit_log',
+    rowMutation: ROW_MUTATION_POLICY.APPEND_ONLY,
+    rowDelete: ROW_DELETE_POLICY.DENY,
+  },
+  {
+    qualifiedName: 'messaging.legal_holds',
+    rowMutation: ROW_MUTATION_POLICY.LIFECYCLE_MUTATED,
+    rowDelete: ROW_DELETE_POLICY.DENY,
+  },
+  {
+    qualifiedName: 'messaging.legal_hold_release_operations',
+    rowMutation: ROW_MUTATION_POLICY.LIFECYCLE_MUTATED,
+    rowDelete: ROW_DELETE_POLICY.DENY,
+  },
   // ORPHAN-MEDIUM-324: sensor.sensor_audit_logs ships an append-only
   // immutability trigger + REVOKE UPDATE,DELETE (sensor Baseline) that names
   // "protected-tables-guard" in its exception, but the table was never added
   // to this SSoT — the gap the infrastructure-ledger-ssot invariant surfaced.
-  'sensor.sensor_audit_logs',
+  {
+    qualifiedName: 'sensor.sensor_audit_logs',
+    rowMutation: ROW_MUTATION_POLICY.APPEND_ONLY,
+    rowDelete: ROW_DELETE_POLICY.DENY,
+  },
   // DB-SENSOR-HIGH-003: immutable VFD runtime control-command audit ledger
   // (append-only trigger + REVOKE UPDATE,DELETE in 1807000000000).
-  'sensor.vfd_command_audit_logs',
+  {
+    qualifiedName: 'sensor.vfd_command_audit_logs',
+    rowMutation: ROW_MUTATION_POLICY.APPEND_ONLY,
+    rowDelete: ROW_DELETE_POLICY.DENY,
+  },
 
   // ── Auth audit (SOC 2 CC7.2 detective control) ──
-  'auth.audit_logs',
-  'admin.audit_logs',
-  'admin.impersonation_sessions',
+  {
+    qualifiedName: 'auth.audit_logs',
+    rowMutation: ROW_MUTATION_POLICY.APPEND_ONLY,
+    rowDelete: ROW_DELETE_POLICY.LEGAL_HOLD_RETENTION,
+  },
+  {
+    qualifiedName: 'admin.audit_logs',
+    rowMutation: ROW_MUTATION_POLICY.APPEND_ONLY,
+    rowDelete: ROW_DELETE_POLICY.LEGAL_HOLD_RETENTION,
+  },
+  {
+    qualifiedName: 'admin.impersonation_sessions',
+    rowMutation: ROW_MUTATION_POLICY.LIFECYCLE_MUTATED,
+    rowDelete: ROW_DELETE_POLICY.DENY,
+  },
 
   // ── Findings registry (review trail) ──
-  'event_store.findings',
-] as const;
+  {
+    qualifiedName: 'event_store.findings',
+    rowMutation: ROW_MUTATION_POLICY.LIFECYCLE_MUTATED,
+    rowDelete: ROW_DELETE_POLICY.ALLOW,
+  },
+] as const satisfies readonly ProtectedTablePolicyDefinition[];
+
+export type ProtectedTablePolicy = (typeof PROTECTED_TABLE_POLICIES)[number];
+export type ProtectedTable = ProtectedTablePolicy['qualifiedName'];
+export type AppendOnlyTable = Extract<
+  ProtectedTablePolicy,
+  { readonly rowMutation: 'append-only' }
+>['qualifiedName'];
+export type LifecycleMutatedTable = Extract<
+  ProtectedTablePolicy,
+  { readonly rowMutation: 'lifecycle-mutated' }
+>['qualifiedName'];
+
+/** Destructive-DDL protected names; derived from the policy SSoT. */
+export const PROTECTED_TABLES: readonly ProtectedTable[] = Object.freeze(
+  PROTECTED_TABLE_POLICIES.map((policy) => policy.qualifiedName),
+);
+
+/** Tables whose rows reject UPDATE; delete behavior remains policy-specific. */
+export const APPEND_ONLY_TABLES: readonly AppendOnlyTable[] = Object.freeze(
+  PROTECTED_TABLE_POLICIES.filter(
+    (policy): policy is Extract<ProtectedTablePolicy, { readonly rowMutation: 'append-only' }> =>
+      policy.rowMutation === ROW_MUTATION_POLICY.APPEND_ONLY,
+  ).map((policy) => policy.qualifiedName),
+);
+
+/** Tables with legitimate state-machine UPDATEs; derived, never re-listed. */
+export const LIFECYCLE_MUTATED_TABLES: readonly LifecycleMutatedTable[] = Object.freeze(
+  PROTECTED_TABLE_POLICIES.filter(
+    (
+      policy,
+    ): policy is Extract<ProtectedTablePolicy, { readonly rowMutation: 'lifecycle-mutated' }> =>
+      policy.rowMutation === ROW_MUTATION_POLICY.LIFECYCLE_MUTATED,
+  ).map((policy) => policy.qualifiedName),
+);
+
+/**
+ * Row-guard policies relevant to a service baseline for `schema`.
+ *
+ * Mutable rows with allowed deletion need no database row guard. Every other
+ * combination is materialized by the baseline tooling from this projection:
+ * strict append-only, legal-hold-aware retention, or lifecycle UPDATE with
+ * hard DELETE denied.
+ */
+export function rowGuardTablePoliciesForSchema(schema: string): readonly ProtectedTablePolicy[] {
+  const prefix = `${schema.toLowerCase()}.`;
+  return PROTECTED_TABLE_POLICIES.filter(
+    (policy) =>
+      policy.qualifiedName.startsWith(prefix) &&
+      (policy.rowMutation === ROW_MUTATION_POLICY.APPEND_ONLY ||
+        policy.rowDelete !== ROW_DELETE_POLICY.ALLOW),
+  );
+}
+
+/** Bare table name from a canonical policy record. */
+export function protectedTableName(policy: ProtectedTablePolicy): string {
+  return policy.qualifiedName.slice(policy.qualifiedName.indexOf('.') + 1);
+}
+
+/** Unique bare names, retained for callers that audit one schema at a time. */
+export function appendOnlyTableBaseNames(): string[] {
+  return [...new Set(APPEND_ONLY_TABLES.map((table) => table.slice(table.indexOf('.') + 1)))];
+}
 
 /**
  * Pattern-based protected tables. Any table matching one of these patterns
@@ -163,19 +348,14 @@ export const PROTECTED_TABLE_PATTERNS: readonly RegExp[] = [
  * The regular `-- DESTRUCTIVE:` marker (R1) is INSUFFICIENT for protected
  * tables — protected destruction needs the higher-bar waiver.
  */
-export const COMPLIANCE_WAIVER_MARKER_RE =
-  /--\s*COMPLIANCE-WAIVER:\s*\S+/i;
-
-export type ProtectedTable = (typeof PROTECTED_TABLES)[number];
+export const COMPLIANCE_WAIVER_MARKER_RE = /--\s*COMPLIANCE-WAIVER:\s*\S+/i;
 
 /**
  * Type-narrow a string against the protected list.
  */
-export function isExplicitlyProtectedTable(
-  qualifiedName: string,
-): qualifiedName is ProtectedTable {
+export function isExplicitlyProtectedTable(qualifiedName: string): qualifiedName is ProtectedTable {
   const lowered = qualifiedName.toLowerCase();
-  return (PROTECTED_TABLES as readonly string[]).includes(lowered);
+  return PROTECTED_TABLES.some((table) => table === lowered);
 }
 
 /**
@@ -198,10 +378,7 @@ export function isProtectedTable(qualifiedName: string): boolean {
   if (!qualifiedName.includes('.')) {
     return false;
   }
-  return (
-    isExplicitlyProtectedTable(qualifiedName) ||
-    matchesProtectedTablePattern(qualifiedName)
-  );
+  return isExplicitlyProtectedTable(qualifiedName) || matchesProtectedTablePattern(qualifiedName);
 }
 
 /**
@@ -214,15 +391,11 @@ export function isProtectedTable(qualifiedName: string): boolean {
  * dropped by `TenantSchemaSyncService` during tenant offboarding under
  * explicit tenant-erasure flow.
  */
-export const PROTECTED_SCHEMAS = [
-  'shared',
-  'event_store',
-  'auth',
-] as const;
+export const PROTECTED_SCHEMAS = ['shared', 'event_store', 'auth'] as const;
 
 export type ProtectedSchema = (typeof PROTECTED_SCHEMAS)[number];
 
 export function isProtectedSchema(schemaName: string): boolean {
   const lowered = schemaName.toLowerCase();
-  return (PROTECTED_SCHEMAS as readonly string[]).includes(lowered);
+  return PROTECTED_SCHEMAS.some((schema) => schema === lowered);
 }

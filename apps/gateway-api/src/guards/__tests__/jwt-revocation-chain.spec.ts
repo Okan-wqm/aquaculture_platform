@@ -1,14 +1,15 @@
 /**
  * Regression coverage for the middleware -> AuthGuard JWT revocation chain.
  *
- * A user-level invalidation can make isValidToken() false while the token's
- * individual JTI is not blacklisted. Historically JwtMiddleware left req.user
- * empty in that case, then AuthGuard re-verified the bearer and checked only
- * isBlacklisted(jti), resurrecting the revoked token. These tests pin the
+ * A user-level invalidation can reject a token while its individual JTI marker
+ * is absent. Historically JwtMiddleware left req.user empty in that case, then
+ * AuthGuard re-verified the bearer and checked only the JTI, resurrecting the
+ * revoked token. These tests pin the
  * composite JTI/user/iat contract at every entry path.
  */
 import * as crypto from 'node:crypto';
 
+import type { ITokenRevocationReader } from '@aquaculture/backend-common/security';
 import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
@@ -19,7 +20,6 @@ import express, { NextFunction, Response } from 'express';
 import { AuthenticatedRequest, JwtPayload } from '../../types/index';
 import { JwtMiddleware } from '../../middleware/jwt.middleware';
 import { AuthGuard } from '../auth.guard';
-import { TokenBlacklistStore } from '../redis-token-blacklist.store';
 import { ApiKeyAuthStrategy } from '../strategies/api-key-auth.strategy';
 import { BasicAuthStrategy } from '../strategies/basic-auth.strategy';
 
@@ -55,7 +55,7 @@ describe('JWT composite revocation chain', () => {
   let jwtService: JwtService;
   let middleware: JwtMiddleware;
   let guard: AuthGuard;
-  let tokenBlacklist: jest.Mocked<TokenBlacklistStore>;
+  let tokenRevocationReader: jest.Mocked<ITokenRevocationReader>;
   let token: string;
 
   beforeEach(() => {
@@ -67,19 +67,21 @@ describe('JWT composite revocation chain', () => {
       JWT_AUDIENCE: audience,
     });
 
-    tokenBlacklist = {
-      isBlacklisted: jest.fn().mockResolvedValue(false),
-      isValidToken: jest.fn().mockResolvedValue(false),
+    tokenRevocationReader = {
+      getStatus: jest.fn().mockResolvedValue({
+        jtiRevoked: false,
+        userEpochRevoked: true,
+      }),
     };
 
-    middleware = new JwtMiddleware(jwtService, configService, tokenBlacklist);
+    middleware = new JwtMiddleware(jwtService, configService, tokenRevocationReader);
     guard = new AuthGuard(
       new Reflector(),
       configService,
       jwtService,
       new ApiKeyAuthStrategy(configService),
       new BasicAuthStrategy(configService),
-      tokenBlacklist,
+      tokenRevocationReader,
     );
 
     token = jwtService.sign(payload, {
@@ -134,14 +136,17 @@ describe('JWT composite revocation chain', () => {
     expect(next).toHaveBeenCalledTimes(1);
     expect(request.user).toBeUndefined();
     expect(request.jwtAuthenticationFailure).toBe('TOKEN_REVOKED');
-    expect(tokenBlacklist.isValidToken).toHaveBeenCalledWith(payload.jti, payload.sub, payload.iat);
+    expect(tokenRevocationReader.getStatus).toHaveBeenCalledWith(
+      payload.jti,
+      payload.sub,
+      payload.iat,
+    );
 
     await expectRevoked(() => guard.canActivate(httpContext(request)));
 
     // The explicit middleware outcome is final. In particular, the guard must
     // not fall back to the weaker per-JTI check that says this JTI is clean.
-    expect(tokenBlacklist.isValidToken).toHaveBeenCalledTimes(1);
-    expect(tokenBlacklist.isBlacklisted).not.toHaveBeenCalled();
+    expect(tokenRevocationReader.getStatus).toHaveBeenCalledTimes(1);
   });
 
   it('uses composite user/JTI/iat validity on the full verification path', async () => {
@@ -149,8 +154,11 @@ describe('JWT composite revocation chain', () => {
 
     await expectRevoked(() => guard.canActivate(httpContext(request)));
 
-    expect(tokenBlacklist.isValidToken).toHaveBeenCalledWith(payload.jti, payload.sub, payload.iat);
-    expect(tokenBlacklist.isBlacklisted).not.toHaveBeenCalled();
+    expect(tokenRevocationReader.getStatus).toHaveBeenCalledWith(
+      payload.jti,
+      payload.sub,
+      payload.iat,
+    );
     expect(request.user).toBeUndefined();
   });
 
@@ -160,14 +168,19 @@ describe('JWT composite revocation chain', () => {
 
     await expectRevoked(() => guard.canActivate(httpContext(request)));
 
-    expect(tokenBlacklist.isValidToken).toHaveBeenCalledWith(payload.jti, payload.sub, payload.iat);
-    expect(tokenBlacklist.isBlacklisted).not.toHaveBeenCalled();
+    expect(tokenRevocationReader.getStatus).toHaveBeenCalledWith(
+      payload.jti,
+      payload.sub,
+      payload.iat,
+    );
     expect(request.user).toBeUndefined();
     expect(request.jwtAuthenticationFailure).toBe('TOKEN_REVOKED');
   });
 
   it('rechecks composite validity in the guard to close the middleware-to-guard race', async () => {
-    tokenBlacklist.isValidToken.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    tokenRevocationReader.getStatus
+      .mockResolvedValueOnce({ jtiRevoked: false, userEpochRevoked: false })
+      .mockResolvedValueOnce({ jtiRevoked: false, userEpochRevoked: true });
     const request = requestWithBearer();
     const next: NextFunction = jest.fn();
 
@@ -176,13 +189,15 @@ describe('JWT composite revocation chain', () => {
 
     await expectRevoked(() => guard.canActivate(httpContext(request)));
 
-    expect(tokenBlacklist.isValidToken).toHaveBeenCalledTimes(2);
+    expect(tokenRevocationReader.getStatus).toHaveBeenCalledTimes(2);
     expect(request.user).toBeUndefined();
     expect(request.jwtAuthenticationFailure).toBe('TOKEN_REVOKED');
   });
 
   it('marks a middleware revocation-store failure as revoked and fails closed', async () => {
-    tokenBlacklist.isValidToken.mockRejectedValueOnce(new Error('revocation backend unavailable'));
+    tokenRevocationReader.getStatus.mockRejectedValueOnce(
+      new Error('revocation backend unavailable'),
+    );
     const request = requestWithBearer();
     const next: NextFunction = jest.fn();
 
@@ -195,7 +210,9 @@ describe('JWT composite revocation chain', () => {
   });
 
   it('fails closed when a custom revocation store throws', async () => {
-    tokenBlacklist.isValidToken.mockRejectedValueOnce(new Error('revocation backend unavailable'));
+    tokenRevocationReader.getStatus.mockRejectedValueOnce(
+      new Error('revocation backend unavailable'),
+    );
     const request = requestWithBearer();
 
     await expectRevoked(() => guard.canActivate(httpContext(request)));

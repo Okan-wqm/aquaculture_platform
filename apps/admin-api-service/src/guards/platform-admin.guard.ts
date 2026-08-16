@@ -1,12 +1,30 @@
-import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
+import {
+  enforceAccessTokenType,
+  enforceTokenNotRevoked,
+  getJwtVerifyOptions,
+} from '@aquaculture/backend-common/auth';
 import { requestContextStorage } from '@aquaculture/backend-common/logging';
+import {
+  extractClientIp,
+  RateLimitAuthorityUnavailableError,
+  RateLimitEnforcementService,
+  type RateLimitEvaluation,
+} from '@aquaculture/backend-common/rate-limit';
+import {
+  ITokenRevocationReader,
+  SecurityEventService,
+  TOKEN_REVOCATION_READER,
+} from '@aquaculture/backend-common/security';
 import {
   CanActivate,
   ExecutionContext,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Inject,
   Injectable,
   Logger,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -15,7 +33,9 @@ import { JwtService } from '@nestjs/jwt';
 import * as jwt from 'jsonwebtoken';
 
 import { ROLES_KEY } from '../decorators/roles.decorator';
-// Bind the WRITER to the canonical request-user SSoT: AuthenticatedUser extends
+import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { ADMIN_RATE_LIMIT_POLICIES } from '../security/admin-rate-limit.policy';
+// Bind the verified principal to the canonical request-user SSoT: AuthenticatedUser extends
 // JwtUser, so `request.user = { ... }` below fails type-check if it omits `sub`
 // (ORPHAN-146). The shared ThrottlerGuard reads that same `sub`.
 import { AuthenticatedRequest } from '../shared/authenticated-request';
@@ -48,15 +68,37 @@ export interface JwtPayload {
   tenantId?: string;
   type?: string;
   jti?: string;
+  mfaVerified?: boolean;
   iat: number;
   exp: number;
 }
 
-export const IS_PUBLIC_KEY = 'isPublic';
+export { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 
 // Product language calls this actor "platform admin"; the auth domain
 // represents that platform-level operator with the existing SUPER_ADMIN role.
 const DEFAULT_ADMIN_ROLES = ['SUPER_ADMIN', 'super_admin'];
+
+function unauthorizedReason(exception: UnauthorizedException): string {
+  const response = exception.getResponse();
+  if (typeof response === 'string') {
+    return response;
+  }
+  if (typeof response === 'object' && response !== null && 'message' in response) {
+    const message = response.message;
+    if (typeof message === 'string') {
+      return message;
+    }
+    if (Array.isArray(message)) {
+      return message.filter((value): value is string => typeof value === 'string').join(', ');
+    }
+  }
+  return exception.message;
+}
+
+function headerValue(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
 
 @Injectable()
 export class PlatformAdminGuard implements CanActivate {
@@ -66,6 +108,12 @@ export class PlatformAdminGuard implements CanActivate {
     @Inject(Reflector) private readonly reflector: Reflector,
     @Inject(ConfigService) private readonly configService: ConfigService,
     @Inject(JwtService) private readonly jwtService: JwtService,
+    @Inject(TOKEN_REVOCATION_READER)
+    private readonly tokenRevocationReader: ITokenRevocationReader,
+    @Inject(RateLimitEnforcementService)
+    private readonly rateLimitEnforcement: RateLimitEnforcementService,
+    @Inject(SecurityEventService)
+    private readonly securityEvents: SecurityEventService,
   ) {
     // SECURITY (CRITICAL-001): JWT_SECRET length validation removed in WS2.B
     // (2026-04-14). The check was a hold-over from the HS256 era — verifyAsync
@@ -90,19 +138,21 @@ export class PlatformAdminGuard implements CanActivate {
     const authHeader = request.headers.authorization;
 
     if (!authHeader) {
-      this.logger.debug(
-        `401 Unauthorized: No authorization header provided for ${request.method} ${request.url}`,
+      return this.rejectAuthentication(
+        context,
+        request,
+        new UnauthorizedException('No authorization header provided'),
       );
-      throw new UnauthorizedException('No authorization header provided');
     }
 
     const [type, token] = authHeader.split(' ');
 
     if (type !== 'Bearer' || !token) {
-      this.logger.debug(
-        `401 Unauthorized: Invalid authorization header format for ${request.method} ${request.url}`,
+      return this.rejectAuthentication(
+        context,
+        request,
+        new UnauthorizedException('Invalid authorization header format'),
       );
-      throw new UnauthorizedException('Invalid authorization header format');
     }
 
     try {
@@ -118,6 +168,23 @@ export class PlatformAdminGuard implements CanActivate {
         this.logger,
         this.configService.get<string>('NODE_ENV') === 'production',
       );
+      let revocationCoordinates: Awaited<ReturnType<typeof enforceTokenNotRevoked>>;
+      try {
+        revocationCoordinates = await enforceTokenNotRevoked(
+          payload,
+          this.tokenRevocationReader,
+          this.logger,
+        );
+      } catch (error) {
+        if (error instanceof UnauthorizedException) {
+          throw error;
+        }
+        this.logger.error(`Token revocation authority unavailable: ${(error as Error).message}`);
+        throw new ServiceUnavailableException({
+          code: 'REVOCATION_AUTHORITY_UNAVAILABLE',
+          message: 'Authentication authority temporarily unavailable',
+        });
+      }
 
       // Normalize user roles - tekil role varsa array'e çevir
       const userRoles = payload.roles || (payload.role ? [payload.role] : []);
@@ -137,6 +204,9 @@ export class PlatformAdminGuard implements CanActivate {
         roles: userRoles,
         role: payload.role || userRoles[0],
         tenantId: payload.tenantId,
+        mfaVerified: payload.mfaVerified === true,
+        iat: revocationCoordinates.issuedAtSeconds,
+        jti: revocationCoordinates.jti,
       };
 
       const requestContext = requestContextStorage.getStore();
@@ -152,55 +222,142 @@ export class PlatformAdminGuard implements CanActivate {
         context.getHandler(),
         context.getClass(),
       ]);
-      const requiredRoles = (decoratedRoles || DEFAULT_ADMIN_ROLES)
-        .filter((role) => role.toUpperCase() === 'SUPER_ADMIN');
+      const requiredRoles = (decoratedRoles || DEFAULT_ADMIN_ROLES).filter(
+        (role) => role.toUpperCase() === 'SUPER_ADMIN',
+      );
       if (requiredRoles.length === 0) {
         requiredRoles.push('SUPER_ADMIN');
       }
 
       // Case-insensitive role check
       const hasRequiredRole = userRoles.some((userRole) =>
-        requiredRoles.some(
-          (required) => required.toUpperCase() === userRole.toUpperCase(),
-        ),
+        requiredRoles.some((required) => required.toUpperCase() === userRole.toUpperCase()),
       );
 
       if (!hasRequiredRole) {
         // SECURITY: Log user ID only -- do not include email PII in logs (H-14)
         this.logger.warn(
           `Access denied for userId=${payload.sub}: ` +
-          `has roles [${userRoles.join(', ')}], requires one of [${requiredRoles.join(', ')}]`,
+            `has roles [${userRoles.join(', ')}], requires one of [${requiredRoles.join(', ')}]`,
         );
-        throw new ForbiddenException(
-          `Access denied. Required roles: ${requiredRoles.join(', ')}`,
-        );
+        throw new ForbiddenException(`Access denied. Required roles: ${requiredRoles.join(', ')}`);
       }
 
       return true;
     } catch (error) {
-      if (error instanceof ForbiddenException || error instanceof UnauthorizedException) {
+      if (error instanceof ForbiddenException || error instanceof ServiceUnavailableException) {
         throw error;
       }
 
+      if (error instanceof UnauthorizedException) {
+        return this.rejectAuthentication(context, request, error);
+      }
+
       if (error instanceof jwt.TokenExpiredError) {
-        this.logger.debug(
-          `401 Unauthorized: Token expired for ${request.method} ${request.url}`,
+        return this.rejectAuthentication(
+          context,
+          request,
+          new UnauthorizedException('Token has expired'),
         );
-        throw new UnauthorizedException('Token has expired');
       }
 
       if (error instanceof jwt.JsonWebTokenError) {
-        this.logger.debug(
-          `401 Unauthorized: Invalid JWT token for ${request.method} ${request.url} - ${(error as Error).message}`,
+        return this.rejectAuthentication(
+          context,
+          request,
+          new UnauthorizedException('Invalid token'),
         );
-        throw new UnauthorizedException('Invalid token');
       }
 
       this.logger.error(
         `Authentication error for ${request.method} ${request.url}: ${(error as Error).message}`,
         (error as Error).stack,
       );
-      throw new UnauthorizedException('Authentication failed');
+      return this.rejectAuthentication(
+        context,
+        request,
+        new UnauthorizedException('Authentication failed'),
+      );
     }
+  }
+
+  private async rejectAuthentication(
+    context: ExecutionContext,
+    request: AuthenticatedRequest,
+    exception: UnauthorizedException,
+  ): Promise<never> {
+    const reason = unauthorizedReason(exception);
+    const client = extractClientIp({
+      url: request.url,
+      method: request.method,
+      headers: request.headers,
+      ip: request.ip,
+      remoteAddress: request.socket.remoteAddress,
+    });
+    if (client.unverifiedForwardedFor) {
+      this.logger.warn(
+        'Admin authentication IP resolved from unverified X-Forwarded-For; configure trust proxy',
+      );
+    }
+
+    this.logger.warn(
+      JSON.stringify({
+        event: 'admin_authentication_rejected',
+        method: request.method,
+        path: request.path,
+        reason,
+      }),
+    );
+
+    let evaluation: RateLimitEvaluation;
+    try {
+      evaluation = await this.rateLimitEnforcement.evaluate(ADMIN_RATE_LIMIT_POLICIES.failedAuth, {
+        ip: client.ip,
+      });
+    } catch (error) {
+      if (error instanceof RateLimitAuthorityUnavailableError) {
+        throw new ServiceUnavailableException({
+          code: 'RATE_LIMIT_AUTHORITY_UNAVAILABLE',
+          message: 'Authentication authority temporarily unavailable',
+        });
+      }
+      throw error;
+    }
+
+    const userAgent = headerValue(request.headers['user-agent']);
+    await this.securityEvents.publishTokenRejected({
+      reason,
+      ip: client.ip,
+      userAgent,
+    });
+
+    if (!evaluation.allowed) {
+      const retryAfterSeconds = Math.max(
+        1,
+        Math.ceil((evaluation.entry.resetTime - Date.now()) / 1000),
+      );
+      await this.securityEvents.publishRateLimitExceeded({
+        key: evaluation.key,
+        limit: ADMIN_RATE_LIMIT_POLICIES.failedAuth.limit,
+        windowMs: ADMIN_RATE_LIMIT_POLICIES.failedAuth.windowMs,
+        count: evaluation.entry.count,
+        ip: client.ip,
+        userAgent,
+      });
+      context
+        .switchToHttp()
+        .getResponse<{ setHeader(name: string, value: string): void }>()
+        .setHeader('Retry-After', String(retryAfterSeconds));
+      throw new HttpException(
+        {
+          code: 'TOO_MANY_FAILED_AUTH_ATTEMPTS',
+          message: 'Too many failed authentication attempts',
+          retryAfter: retryAfterSeconds,
+        },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    throw exception;
   }
 }

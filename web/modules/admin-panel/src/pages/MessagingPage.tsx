@@ -56,7 +56,7 @@ interface MessagingStats {
 // ============================================================================
 
 export const MessagingPage: React.FC = () => {
-  const [threads, setThreads] = useState<ThreadSummary[]>([]);
+  const [threads, setThreads] = useState<readonly ThreadSummary[]>([]);
   const [stats, setStats] = useState<MessagingStats | null>(null);
   const [selectedThread, setSelectedThread] = useState<ThreadSummary | null>(null);
   const [messages, setMessages] = useState<SupportMessage[]>([]);
@@ -84,7 +84,7 @@ export const MessagingPage: React.FC = () => {
 
       const result = await supportApi.getMessageThreads(params);
       // Map MessageThread to ThreadSummary
-      const mappedThreads: ThreadSummary[] = (result.data || []).map((thread: MessageThread) => ({
+      const mappedThreads: ThreadSummary[] = result.data.map((thread: MessageThread) => ({
         ...thread,
         lastMessage: thread.lastMessage || '',
         lastMessageAt: thread.lastMessageAt || '',

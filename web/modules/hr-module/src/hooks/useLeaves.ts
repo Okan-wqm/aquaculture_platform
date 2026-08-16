@@ -4,6 +4,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 import { useAuth, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 import { useGraphQLClient, graphqlRequest } from './useGraphQL';
 import {
@@ -35,7 +36,6 @@ import type {
   CreateLeaveRequestInput,
   UpdateLeaveRequestInput,
   PaginationInput,
-  PaginatedResponse,
 } from '../types';
 
 // Query Keys
@@ -142,7 +142,7 @@ export function useLeaveRequests(
   return useQuery({
     queryKey: leaveKeys.requestList(filter, pagination),
     queryFn: () =>
-      graphqlRequest<{ leaveRequests: PaginatedResponse<LeaveRequest> }, unknown>(
+      graphqlRequest<{ leaveRequests: PaginationResultV1<LeaveRequest> }, unknown>(
         client,
         GET_LEAVE_REQUESTS,
         { filter, pagination }
@@ -177,7 +177,7 @@ export function useMyLeaveRequests(
   return useQuery({
     queryKey: leaveKeys.myRequests(filter, pagination),
     queryFn: () =>
-      graphqlRequest<{ myLeaveRequests: PaginatedResponse<LeaveRequest> }, unknown>(
+      graphqlRequest<{ myLeaveRequests: PaginationResultV1<LeaveRequest> }, unknown>(
         client,
         GET_MY_LEAVE_REQUESTS,
         { filter, pagination }

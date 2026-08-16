@@ -75,6 +75,21 @@ export type ActionType =
   | 'SET_OUTPUT'
   | 'TIMER';
 
+export type ActivateLegalHoldInput = {
+  /** Null = tenant-wide. */
+  channelId?: InputMaybe<Scalars['String']['input']>;
+  /** Optional expiration date for the hold (GDPR proportionality). */
+  expiresAt?: InputMaybe<Scalars['DateTime']['input']>;
+  /** Optional description of the legal matter. */
+  legalMatterDescription?: InputMaybe<Scalars['String']['input']>;
+  /** UUID of the legal matter (GDPR proportionality). */
+  legalMatterId: Scalars['String']['input'];
+  /** Reason for the hold. */
+  reason: Scalars['String']['input'];
+  /** Optional UUID of the user/entity that requested the hold. */
+  requestedBy?: InputMaybe<Scalars['String']['input']>;
+};
+
 export type ActiveTankResponse = {
   avgWeightG: Scalars['Float']['output'];
   batchId?: Maybe<Scalars['ID']['output']>;
@@ -1213,12 +1228,19 @@ export type BatchInputType =
   | 'SMOLT';
 
 export type BatchListResponse = {
+  /** Whether there is a next page */
   hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
   hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
   items: Array<Batch>;
+  /** Items per page */
   limit: Scalars['Int']['output'];
+  /** Current page number */
   page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
   total: Scalars['Int']['output'];
+  /** Total number of pages */
   totalPages: Scalars['Int']['output'];
 };
 
@@ -2305,6 +2327,10 @@ export type ComplianceAction =
   | 'CHANNEL_ARCHIVE'
   | 'CHANNEL_CREATE'
   | 'DATA_ANONYMIZE'
+  | 'LEGAL_HOLD_ACTIVATE'
+  | 'LEGAL_HOLD_RELEASE_AUTHORIZE'
+  | 'LEGAL_HOLD_RELEASE_EXPIRE'
+  | 'LEGAL_HOLD_RELEASE_REQUEST'
   | 'LEGAL_HOLD_TOGGLE'
   | 'MEMBER_ADD'
   | 'MEMBER_REMOVE'
@@ -9316,6 +9342,8 @@ export type Mutation = {
   activateFeedingParameter: FeedingParameter;
   /** Yemleme programini aktif et */
   activateFeedingProgram: FeedingProgram;
+  /** Activate a legal hold. Release requires the platform-admin two-person workflow. */
+  activateLegalHold: LegalHold;
   activatePlcConnection: PlcConnection;
   activateSensor: RegisteredSensorType;
   activateTenant: Tenant;
@@ -9881,8 +9909,6 @@ export type Mutation = {
   testVfdConnection: VfdConnectionTestResult;
   toggleAutoRuleActive: AutoRule;
   toggleFarmWorker: Employee;
-  /** Activate or release a legal hold. */
-  toggleLegalHold: LegalHold;
   toggleRecurringTemplateActive: RecurringTemplate;
   toggleVfdAutomationRule: VfdAutomationRule;
   transferBatch: Batch;
@@ -10086,6 +10112,11 @@ export type MutationActivateFeedingParameterArgs = {
 
 export type MutationActivateFeedingProgramArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type MutationActivateLegalHoldArgs = {
+  input: ActivateLegalHoldInput;
 };
 
 
@@ -12555,11 +12586,6 @@ export type MutationToggleAutoRuleActiveArgs = {
 export type MutationToggleFarmWorkerArgs = {
   id: Scalars['ID']['input'];
   isFarmWorker: Scalars['Boolean']['input'];
-};
-
-
-export type MutationToggleLegalHoldArgs = {
-  input: ToggleLegalHoldInput;
 };
 
 
@@ -22206,29 +22232,6 @@ export type TodaysDailyOpsCounts = {
   feedingTotalCount: Scalars['Int']['output'];
   mortalityCount: Scalars['Int']['output'];
   wqReadingsCount: Scalars['Int']['output'];
-};
-
-export type ToggleLegalHoldInput = {
-  /** True to activate, false to release. */
-  activate: Scalars['Boolean']['input'];
-  /** Required when releasing. ID of the second SUPER_ADMIN countersigning (dual-approver protocol). */
-  approverId?: InputMaybe<Scalars['String']['input']>;
-  /** Required when activating. Null = tenant-wide. */
-  channelId?: InputMaybe<Scalars['String']['input']>;
-  /** Optional expiration date for the hold (GDPR proportionality). */
-  expiresAt?: InputMaybe<Scalars['DateTime']['input']>;
-  /** Required when releasing. The hold ID. */
-  holdId?: InputMaybe<Scalars['String']['input']>;
-  /** Optional description of the legal matter. */
-  legalMatterDescription?: InputMaybe<Scalars['String']['input']>;
-  /** Required when activating. UUID of the legal matter (GDPR proportionality). */
-  legalMatterId?: InputMaybe<Scalars['String']['input']>;
-  /** Required when activating. Reason for the hold. */
-  reason?: InputMaybe<Scalars['String']['input']>;
-  /** Required when releasing. Free-text justification (≥ 50 chars). */
-  releaseReason?: InputMaybe<Scalars['String']['input']>;
-  /** Optional UUID of the user/entity that requested the hold. */
-  requestedBy?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type TokenValidationResponse = {

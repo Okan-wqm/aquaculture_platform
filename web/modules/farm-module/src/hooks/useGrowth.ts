@@ -7,6 +7,7 @@
  * @module FarmModule/Hooks
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 import {
   GROWTH_MEASUREMENT_QUERY,
@@ -115,15 +116,7 @@ export interface GrowthMeasurement {
   actionCount: number;
 }
 
-export interface GrowthMeasurementConnection {
-  items: GrowthMeasurement[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-  hasNextPage: boolean;
-  hasPreviousPage: boolean;
-}
+export type GrowthMeasurementConnection = PaginationResultV1<GrowthMeasurement>;
 
 export interface GrowthMeasurementFilter {
   batchId?: string;

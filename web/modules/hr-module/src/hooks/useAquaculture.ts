@@ -5,6 +5,7 @@
 
 import { useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 import { useGraphQLClient, graphqlRequest } from './useGraphQL';
 import {
   GET_WORK_AREAS,
@@ -44,7 +45,6 @@ import type {
   CrewAssignment,
   RotationCalendarEntry,
   WorkAreaOccupancyReport,
-  PaginatedResponse,
 } from '../types';
 import { useEmployees } from './useEmployees';
 
@@ -102,7 +102,7 @@ export function useWorkAreas(filter?: WorkAreaFilterInput) {
   return useQuery({
     queryKey: workAreaKeys.list(filter),
     queryFn: () =>
-      graphqlRequest<{ workAreas: { items: WorkArea[]; total: number } }, unknown>(
+      graphqlRequest<{ workAreas: PaginationResultV1<WorkArea> }, unknown>(
         client,
         GET_WORK_AREAS,
         {
@@ -192,7 +192,7 @@ export function useWorkRotations(filter?: WorkRotationFilterInput) {
   return useQuery({
     queryKey: rotationKeys.list(filter),
     queryFn: () =>
-      graphqlRequest<{ workRotations: { items: WorkRotation[]; total: number } }, unknown>(
+      graphqlRequest<{ workRotations: PaginationResultV1<WorkRotation> }, unknown>(
         client,
         GET_WORK_ROTATIONS,
         {

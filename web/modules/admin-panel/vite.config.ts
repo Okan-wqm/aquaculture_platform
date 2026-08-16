@@ -34,6 +34,14 @@ export default defineConfig({
       '@': resolve(__dirname, 'src'),
       '@aquaculture/shared-ui': resolve(__dirname, '../../shared-ui/dist'),
       '@platform/shared-ui': resolve(__dirname, '../../shared-ui/src'),
+      '@platform/pagination-contracts': resolve(
+        __dirname,
+        '../../../platform/libs/pagination-contracts/src/index.ts',
+      ),
+      '@platform/admin-http-contracts': resolve(
+        __dirname,
+        '../../../platform/libs/admin-http-contracts/src/index.ts',
+      ),
     },
   },
   server: { port: 3004, strictPort: true, cors: true },

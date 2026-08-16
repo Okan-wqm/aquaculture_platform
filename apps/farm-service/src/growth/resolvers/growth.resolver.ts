@@ -497,7 +497,7 @@ export class GrowthResolver {
     @CurrentTenant() tenantId: string,
     @Args('batchId', { type: () => ID }) batchId: string,
     @Args('limit', { type: () => Int, nullable: true }) limit?: number,
-  ): Promise<GrowthMeasurement[]> {
+  ): Promise<readonly GrowthMeasurement[]> {
     const result = await this.queryBus.execute(
       new GetGrowthMeasurementsQuery(
         tenantId,

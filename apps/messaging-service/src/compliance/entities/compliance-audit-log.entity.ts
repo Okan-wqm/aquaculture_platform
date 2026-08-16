@@ -1,9 +1,4 @@
-import {
-  Entity,
-  PrimaryColumn,
-  Column,
-  Index,
-} from 'typeorm';
+import { Entity, PrimaryColumn, Column, Index } from 'typeorm';
 import { ObjectType, Field, ID, registerEnumType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 
@@ -22,7 +17,12 @@ export enum ComplianceAction {
   MESSAGE_EXPORT = 'message_export',
   DATA_ANONYMIZE = 'data_anonymize',
   RETENTION_SET = 'retention_set',
+  LEGAL_HOLD_ACTIVATE = 'legal_hold_activate',
+  /** Historical rows only; new writes use the typed activation/release actions. */
   LEGAL_HOLD_TOGGLE = 'legal_hold_toggle',
+  LEGAL_HOLD_RELEASE_REQUEST = 'legal_hold_release_request',
+  LEGAL_HOLD_RELEASE_AUTHORIZE = 'legal_hold_release_authorize',
+  LEGAL_HOLD_RELEASE_EXPIRE = 'legal_hold_release_expire',
 }
 
 registerEnumType(ComplianceAction, { name: 'ComplianceAction' });

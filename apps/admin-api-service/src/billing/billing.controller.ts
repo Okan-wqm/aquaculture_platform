@@ -1,4 +1,5 @@
-import { ThrottleSensitive } from '@aquaculture/backend-common/security';
+import type { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import { RateLimit } from '@aquaculture/backend-common/rate-limit';
 import {
   Body,
   Controller,
@@ -20,6 +21,7 @@ import { Request } from 'express';
 
 import { InvoiceStatus } from '../analytics/entities/external/invoice.entity';
 import { getAuthUserId } from '../shared/authenticated-request';
+import { ADMIN_RATE_LIMIT_POLICIES } from '../security/admin-rate-limit.policy';
 import { PaginationQueryDto } from '../shared/pagination-query.dto';
 
 import {
@@ -39,55 +41,39 @@ import {
   ValidateDiscountCodeDto,
   VoidInvoiceDto,
 } from './dto/billing.dto';
-import { CustomPlanStatus } from './entities/custom-plan.entity';
+import { CustomPlanQueryDto } from './dto/custom-plan-query.dto';
+import {
+  CreateCustomPlanDto,
+  CreateDiscountCodeDto,
+  CreateInvoiceRequestDto,
+  CreatePlanDto,
+  PlanChangeRequestDto,
+  QuoteRequestDto,
+  RecordPaymentDto,
+  RefundPaymentDto,
+  SetModulePricingDto,
+  UpdateCustomPlanDto,
+  UpdateDiscountCodeDto,
+  UpdatePlanDto,
+} from './dto/billing-mutation.dto';
+import { CustomPlan } from './entities/custom-plan.entity';
+import { DiscountCode, DiscountRedemption } from './entities/discount-code.entity';
 import { BillingCycle, PlanTier } from './entities/plan-definition.entity';
 import { AggregationPeriod, MeterType } from './entities/usage-aggregation-readonly.entity';
 import { BillingAdminCommandClientService } from './services/billing-admin-command-client.service';
+import { CustomPlanFilter, CustomPlanService } from './services/custom-plan.service';
+import { DiscountCodeService } from './services/discount-code.service';
+import { InvoiceFilters, InvoiceManagementService } from './services/invoice-management.service';
+import { ModulePricingService } from './services/module-pricing.service';
+import { PaymentFilters, PaymentManagementService } from './services/payment-management.service';
+import { PlanDefinitionService } from './services/plan-definition.service';
+import { PricingCalculatorService } from './services/pricing-calculator.service';
 import {
-  CreateCustomPlanDto,
-  CustomPlanFilter,
-  CustomPlanService,
-  UpdateCustomPlanDto,
-} from './services/custom-plan.service';
-import {
-  CreateDiscountCodeDto,
-  DiscountCodeService,
-  UpdateDiscountCodeDto,
-} from './services/discount-code.service';
-import {
-  InvoiceFilters,
-  InvoiceManagementService,
-} from './services/invoice-management.service';
-import {
-  ModulePricingService,
-  SetModulePricingDto,
-} from './services/module-pricing.service';
-import {
-  PaymentFilters,
-  PaymentManagementService,
-  RecordPaymentDto,
-  RefundPaymentDto,
-} from './services/payment-management.service';
-import {
-  CreatePlanDto,
-  PlanDefinitionService,
-  UpdatePlanDto,
-} from './services/plan-definition.service';
-import {
-  PricingCalculatorService,
-  QuoteRequest,
-} from './services/pricing-calculator.service';
-import {
-  PlanChangeRequest,
   SubscriptionFilters,
   SubscriptionManagementService,
   SubscriptionStatus,
 } from './services/subscription-management.service';
 import { UsageMeteringManagementService } from './services/usage-metering-management.service';
-
-interface CreateInvoiceRequest extends BillingAdminCreateInvoiceInput {
-  tenantId: string;
-}
 
 /**
  * Billing Controller
@@ -147,26 +133,25 @@ export class BillingController {
   }
 
   @Put('plans/:id')
-  async updatePlan(@Param('id') id: string, @Body() dto: UpdatePlanDto, @Req() req: Request): Promise<unknown> {
+  async updatePlan(
+    @Param('id') id: string,
+    @Body() dto: UpdatePlanDto,
+    @Req() req: Request,
+  ): Promise<unknown> {
     const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('Authentication required to update a plan');
     return this.planService.update(id, { ...dto, updatedBy: userId });
   }
 
   @Post('plans/:id/deprecate')
-  async deprecatePlan(
-    @Param('id') id: string,
-    @Req() req: Request,
-  ): Promise<unknown> {
+  async deprecatePlan(@Param('id') id: string, @Req() req: Request): Promise<unknown> {
     const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('Authentication required to deprecate a plan');
     return this.planService.deprecate(id, userId);
   }
 
   @Post('plans/compare')
-  async comparePlans(
-    @Body() dto: ComparePlansDto,
-  ): Promise<unknown> {
+  async comparePlans(@Body() dto: ComparePlansDto): Promise<unknown> {
     return this.planService.comparePlans(dto.currentPlanId, dto.newPlanId);
   }
 
@@ -194,7 +179,7 @@ export class BillingController {
     @Query('includeExpired') includeExpired?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
-  ): Promise<unknown> {
+  ): Promise<IStandardPaginatedResult<DiscountCode>> {
     return this.discountService.findAll({
       isActive: isActive !== undefined ? isActive === 'true' : undefined,
       campaignId,
@@ -224,9 +209,13 @@ export class BillingController {
   }
 
   @Post('discounts')
-  async createDiscountCode(@Body() dto: CreateDiscountCodeDto, @Req() req: Request): Promise<unknown> {
+  async createDiscountCode(
+    @Body() dto: CreateDiscountCodeDto,
+    @Req() req: Request,
+  ): Promise<unknown> {
     const userId = getAuthUserId(req);
-    if (!userId) throw new UnauthorizedException('Authentication required to create a discount code');
+    if (!userId)
+      throw new UnauthorizedException('Authentication required to create a discount code');
     return this.discountService.create({ ...dto, createdBy: userId });
   }
 
@@ -237,24 +226,21 @@ export class BillingController {
     @Req() req: Request,
   ): Promise<unknown> {
     const userId = getAuthUserId(req);
-    if (!userId) throw new UnauthorizedException('Authentication required to update a discount code');
+    if (!userId)
+      throw new UnauthorizedException('Authentication required to update a discount code');
     return this.discountService.update(id, { ...dto, updatedBy: userId });
   }
 
   @Post('discounts/:id/deactivate')
-  async deactivateDiscountCode(
-    @Param('id') id: string,
-    @Req() req: Request,
-  ): Promise<unknown> {
+  async deactivateDiscountCode(@Param('id') id: string, @Req() req: Request): Promise<unknown> {
     const userId = getAuthUserId(req);
-    if (!userId) throw new UnauthorizedException('Authentication required to deactivate a discount code');
+    if (!userId)
+      throw new UnauthorizedException('Authentication required to deactivate a discount code');
     return this.discountService.deactivate(id, userId);
   }
 
   @Post('discounts/validate')
-  async validateDiscountCode(
-    @Body() dto: ValidateDiscountCodeDto,
-  ): Promise<unknown> {
+  async validateDiscountCode(@Body() dto: ValidateDiscountCodeDto): Promise<unknown> {
     return this.discountService.validateCode(dto.code, dto.tenantId, dto.planId, dto.orderAmount);
   }
 
@@ -264,7 +250,8 @@ export class BillingController {
     @Req() req: Request,
   ): Promise<unknown> {
     const userId = getAuthUserId(req);
-    if (!userId) throw new UnauthorizedException('Authentication required to apply a discount code');
+    if (!userId)
+      throw new UnauthorizedException('Authentication required to apply a discount code');
     return this.discountService.applyDiscount(dto.code, dto.tenantId, dto.originalAmount, {
       subscriptionId: dto.subscriptionId,
       invoiceId: dto.invoiceId,
@@ -286,9 +273,7 @@ export class BillingController {
   }
 
   @Post('discounts/generate-code')
-  async generateUniqueCode(
-    @Body() dto: GenerateDiscountCodeDto,
-  ): Promise<unknown> {
+  async generateUniqueCode(@Body() dto: GenerateDiscountCodeDto): Promise<unknown> {
     const code = await this.discountService.generateUniqueCode(dto.prefix, dto.length);
     return { code };
   }
@@ -299,7 +284,8 @@ export class BillingController {
     @Req() req: Request,
   ): Promise<unknown> {
     const userId = getAuthUserId(req);
-    if (!userId) throw new UnauthorizedException('Authentication required for bulk discount creation');
+    if (!userId)
+      throw new UnauthorizedException('Authentication required for bulk discount creation');
     const safeTemplate = { ...dto.template, createdBy: userId };
     const codes = await this.discountService.bulkCreate(dto.count, safeTemplate, dto.codePrefix);
     return { success: true, count: codes.length, codes };
@@ -309,11 +295,12 @@ export class BillingController {
   // Subscriptions
   // ============================================================================
 
-  @ThrottleSensitive()
+  @RateLimit(ADMIN_RATE_LIMIT_POLICIES.sensitive)
   @Post('subscriptions')
   createSubscription(@Req() req: Request): never {
     const userId = getAuthUserId(req);
-    if (!userId) throw new UnauthorizedException('Authentication required to create a subscription');
+    if (!userId)
+      throw new UnauthorizedException('Authentication required to create a subscription');
     throw new ConflictException(
       'Subscription creation is billing-service-owned. Use tenant provisioning or a billing-service command workflow.',
     );
@@ -335,9 +322,7 @@ export class BillingController {
       search,
       limit: limit ? parseInt(limit, 10) : undefined,
       offset: offset ? parseInt(offset, 10) : undefined,
-      expiringWithinDays: expiringWithinDays
-        ? parseInt(expiringWithinDays, 10)
-        : undefined,
+      expiringWithinDays: expiringWithinDays ? parseInt(expiringWithinDays, 10) : undefined,
       pastDueOnly: pastDueOnly === 'true',
     };
 
@@ -373,15 +358,15 @@ export class BillingController {
   }
 
   @Post('subscriptions/change-plan')
-  async changePlan(@Body() request: PlanChangeRequest, @Req() req: Request): Promise<unknown> {
+  async changePlan(@Body() request: PlanChangeRequestDto, @Req() req: Request): Promise<unknown> {
     const userId = getAuthUserId(req);
-    if (!userId) throw new UnauthorizedException('Authentication required to change a subscription plan');
-    const { changedBy: _changedBy, ...safeRequest } = request as PlanChangeRequest & { changedBy?: unknown };
-    return this.billingAdminCommands.changeSubscriptionPlan(safeRequest, userId);
+    if (!userId)
+      throw new UnauthorizedException('Authentication required to change a subscription plan');
+    return this.billingAdminCommands.changeSubscriptionPlan(request, userId);
   }
 
   // Fix: H8 -- per-route throttle: subscription cancel is sensitive (3 req / 5 min)
-  @ThrottleSensitive()
+  @RateLimit(ADMIN_RATE_LIMIT_POLICIES.sensitive)
   @Post('subscriptions/tenant/:tenantId/cancel')
   async cancelSubscription(
     @Param('tenantId') tenantId: string,
@@ -389,8 +374,14 @@ export class BillingController {
     @Req() req: Request,
   ): Promise<unknown> {
     const userId = getAuthUserId(req);
-    if (!userId) throw new UnauthorizedException('Authentication required to cancel a subscription');
-    return this.billingAdminCommands.cancelSubscription(tenantId, dto.reason, dto.cancelImmediately, userId);
+    if (!userId)
+      throw new UnauthorizedException('Authentication required to cancel a subscription');
+    return this.billingAdminCommands.cancelSubscription(
+      tenantId,
+      dto.reason,
+      dto.cancelImmediately,
+      userId,
+    );
   }
 
   @Post('subscriptions/tenant/:tenantId/reactivate')
@@ -399,7 +390,8 @@ export class BillingController {
     @Req() req: Request,
   ): Promise<unknown> {
     const userId = getAuthUserId(req);
-    if (!userId) throw new UnauthorizedException('Authentication required to reactivate a subscription');
+    if (!userId)
+      throw new UnauthorizedException('Authentication required to reactivate a subscription');
     return this.billingAdminCommands.reactivateSubscription(tenantId, userId);
   }
 
@@ -414,7 +406,7 @@ export class BillingController {
     return this.billingAdminCommands.extendSubscriptionTrial(tenantId, dto.additionalDays, userId);
   }
 
-  @ThrottleSensitive()
+  @RateLimit(ADMIN_RATE_LIMIT_POLICIES.sensitive)
   @Post('subscriptions/process-renewals')
   @HttpCode(HttpStatus.OK)
   processRenewals(): never {
@@ -431,7 +423,7 @@ export class BillingController {
   async getTenantRedemptions(
     @Param('tenantId') tenantId: string,
     @Query() pagination?: PaginationQueryDto,
-  ): Promise<unknown> {
+  ): Promise<IStandardPaginatedResult<DiscountRedemption>> {
     return this.discountService.getTenantRedemptions(tenantId, {
       page: pagination?.page,
       limit: pagination?.limit,
@@ -504,25 +496,18 @@ export class BillingController {
   // ============================================================================
 
   @Post('pricing/calculate')
-  async calculatePricing(@Body() request: QuoteRequest): Promise<unknown> {
+  async calculatePricing(@Body() request: QuoteRequestDto): Promise<unknown> {
     return this.pricingCalculator.calculatePricing(request);
   }
 
   @Post('pricing/quick-estimate')
-  async getQuickEstimate(
-    @Body() dto: QuickEstimateDto,
-  ): Promise<unknown> {
+  async getQuickEstimate(@Body() dto: QuickEstimateDto): Promise<unknown> {
     return this.pricingCalculator.getQuickEstimate(dto.moduleCodes, dto.tier, dto.quantities);
   }
 
   @Post('pricing/compare')
-  async comparePricing(
-    @Body() dto: ComparePricingDto,
-  ): Promise<unknown> {
-    return this.pricingCalculator.comparePricing(
-      dto.config1,
-      dto.config2,
-    );
+  async comparePricing(@Body() dto: ComparePricingDto): Promise<unknown> {
+    return this.pricingCalculator.comparePricing(dto.config1, dto.config2);
   }
 
   // ============================================================================
@@ -531,19 +516,15 @@ export class BillingController {
 
   @Get('custom-plans')
   async listCustomPlans(
-    @Query('tenantId') tenantId?: string,
-    @Query('status') status?: CustomPlanStatus,
-    @Query('tier') tier?: PlanTier,
-    @Query('search') search?: string,
-    @Query() pagination?: PaginationQueryDto,
-  ): Promise<unknown> {
+    @Query() query: CustomPlanQueryDto,
+  ): Promise<IStandardPaginatedResult<CustomPlan>> {
     const filter: CustomPlanFilter = {
-      tenantId,
-      status,
-      tier,
-      search,
-      page: pagination?.page,
-      limit: pagination?.limit,
+      tenantId: query.tenantId,
+      status: query.status,
+      tier: query.tier,
+      search: query.search,
+      page: query.page,
+      limit: query.limit,
     };
     return this.customPlanService.listCustomPlans(filter);
   }
@@ -582,12 +563,10 @@ export class BillingController {
   }
 
   @Post('custom-plans/:planId/approve')
-  async approveCustomPlan(
-    @Param('planId') planId: string,
-    @Req() req: Request,
-  ): Promise<unknown> {
+  async approveCustomPlan(@Param('planId') planId: string, @Req() req: Request): Promise<unknown> {
     const userId = getAuthUserId(req);
-    if (!userId) throw new UnauthorizedException('Authentication required to approve a custom plan');
+    if (!userId)
+      throw new UnauthorizedException('Authentication required to approve a custom plan');
     return this.customPlanService.approvePlan(planId, userId);
   }
 
@@ -677,9 +656,9 @@ export class BillingController {
     return this.invoiceService.getTenantInvoices(tenantId);
   }
 
-  @ThrottleSensitive()
+  @RateLimit(ADMIN_RATE_LIMIT_POLICIES.sensitive)
   @Post('invoices')
-  async createInvoice(@Body() dto: CreateInvoiceRequest, @Req() req: Request): Promise<unknown> {
+  async createInvoice(@Body() dto: CreateInvoiceRequestDto, @Req() req: Request): Promise<unknown> {
     const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('Authentication required to create an invoice');
 
@@ -701,7 +680,7 @@ export class BillingController {
   }
 
   // Fix: H8 -- per-route throttle: mark invoice paid is sensitive (3 req / 5 min)
-  @ThrottleSensitive()
+  @RateLimit(ADMIN_RATE_LIMIT_POLICIES.sensitive)
   @Post('invoices/:invoiceId/mark-paid')
   async markInvoiceAsPaid(
     @Param('invoiceId') invoiceId: string,
@@ -709,13 +688,14 @@ export class BillingController {
     @Req() req: Request,
   ): Promise<unknown> {
     const userId = getAuthUserId(req);
-    if (!userId) throw new UnauthorizedException('Authentication required to mark an invoice as paid');
+    if (!userId)
+      throw new UnauthorizedException('Authentication required to mark an invoice as paid');
     const invoice = await this.billingAdminCommands.markInvoicePaid(invoiceId, dto.amount, userId);
     return { success: true, invoice };
   }
 
   // Fix: H8 -- per-route throttle: invoice void is sensitive (3 req / 5 min)
-  @ThrottleSensitive()
+  @RateLimit(ADMIN_RATE_LIMIT_POLICIES.sensitive)
   @Post('invoices/:invoiceId/void')
   async voidInvoice(
     @Param('invoiceId') invoiceId: string,
@@ -728,7 +708,7 @@ export class BillingController {
     return { success: true, invoice };
   }
 
-  @ThrottleSensitive()
+  @RateLimit(ADMIN_RATE_LIMIT_POLICIES.sensitive)
   @Post('invoices/update-overdue')
   @HttpCode(HttpStatus.OK)
   updateOverdueStatus(): never {
@@ -769,7 +749,7 @@ export class BillingController {
     return this.paymentService.getPayments(filters);
   }
 
-  @ThrottleSensitive()
+  @RateLimit(ADMIN_RATE_LIMIT_POLICIES.sensitive)
   @Post('payments')
   async recordPayment(@Body() dto: RecordPaymentDto, @Req() req: Request): Promise<unknown> {
     const userId = getAuthUserId(req);
@@ -777,7 +757,7 @@ export class BillingController {
     return this.billingAdminCommands.recordPayment(dto, userId);
   }
 
-  @ThrottleSensitive()
+  @RateLimit(ADMIN_RATE_LIMIT_POLICIES.sensitive)
   @Post('payments/refund')
   async refundPayment(@Body() dto: RefundPaymentDto, @Req() req: Request): Promise<unknown> {
     const userId = getAuthUserId(req);

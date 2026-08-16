@@ -8,6 +8,7 @@
  * - React Query for caching and invalidation
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 import {
   HARVEST_PLANS_QUERY,
@@ -180,16 +181,6 @@ export interface HarvestPlanStats {
   totalActualBiomass: number;
   upcomingCount: number;
   overdueCount: number;
-}
-
-interface PaginatedHarvestPlans {
-  items: HarvestPlan[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-  hasNextPage: boolean;
-  hasPreviousPage: boolean;
 }
 
 // ============================================================================
@@ -391,7 +382,9 @@ export function useHarvestPlanList(filter?: HarvestPlanFilterInput) {
         throw new Error('Tenant context required');
       }
 
-      const data = await graphqlClient.request<{ harvestPlans: PaginatedHarvestPlans }>(
+      const data = await graphqlClient.request<{
+        harvestPlans: PaginationResultV1<HarvestPlan>;
+      }>(
         HARVEST_PLANS_QUERY,
         { filter }
       );

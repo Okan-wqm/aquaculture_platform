@@ -22,6 +22,8 @@ const USER_ID = '22222222-2222-4222-8222-222222222222';
 const OP_ID = '33333333-3333-4333-8333-333333333333';
 const MODULE_ID = '44444444-4444-4444-8444-444444444444';
 const EVENT_ID = '55555555-5555-4555-8555-555555555555';
+const RECEIPT_ID = '66666666-6666-4666-8666-666666666666';
+const SHA256 = 'a'.repeat(64);
 
 function withBase(
   eventType: TenantEventType,
@@ -92,6 +94,35 @@ const VALID_FIXTURES: Record<TenantEventType, Record<string, unknown>> = {
     name: 'Acme Aqua',
     slug: 'acme-aqua',
     moduleIds: [MODULE_ID],
+  }),
+  TenantOnboardingRequested: withBase('TenantOnboardingRequested', {
+    operationId: OP_ID,
+    attempt: 1,
+    requestHash: SHA256,
+    name: 'Acme Aqua',
+    slug: 'acme-aqua',
+    moduleIds: [MODULE_ID],
+  }),
+  TenantOnboardingAck: withBase('TenantOnboardingAck', {
+    operationId: OP_ID,
+    attempt: 1,
+    requestEventId: EVENT_ID,
+    requestHash: SHA256,
+    receiptId: RECEIPT_ID,
+    outcomeHash: SHA256,
+    service: 'farm-service',
+    acknowledgedAt: '2026-06-12T12:00:00.000Z',
+  }),
+  TenantOnboardingFailed: withBase('TenantOnboardingFailed', {
+    operationId: OP_ID,
+    attempt: 1,
+    requestEventId: EVENT_ID,
+    requestHash: SHA256,
+    receiptId: RECEIPT_ID,
+    outcomeHash: SHA256,
+    service: 'farm-service',
+    acknowledgedAt: '2026-06-12T12:00:00.000Z',
+    error: 'feeding-protocols: seed failed',
   }),
   TenantProvisioned: withBase('TenantProvisioned', {
     operationId: OP_ID,
@@ -176,7 +207,7 @@ describe('validateTenantEvent (MEDIUM-007)', () => {
   const schemaKeys = Object.keys(TENANT_EVENT_SCHEMAS) as TenantEventType[];
 
   it('has a validator + fixture for every registered tenant event schema', () => {
-    expect(schemaKeys.length).toBe(13 + TENANT_ERASURE_TARGET_SERVICES.length * 3);
+    expect(schemaKeys.length).toBe(16 + TENANT_ERASURE_TARGET_SERVICES.length * 3);
     for (const key of schemaKeys) {
       expect(VALID_FIXTURES[key]).toBeDefined();
     }

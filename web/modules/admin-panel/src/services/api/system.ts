@@ -13,7 +13,13 @@ export const systemApi = {
   getServicesHealth: () => apiFetch<ServiceHealth[]>('/system/services/health'),
   getMetricTrends: (metric: string, interval: string) =>
     apiFetch<Array<{ timestamp: string; value: number }>>(`/system/metrics/trends?metric=${metric}&interval=${interval}`),
-  getCircuitBreakers: () => apiFetch<CircuitBreakerStatus>('/health/circuit-breakers'),
+  getCircuitBreakers: () =>
+    apiFetch<CircuitBreakerStatus>('/health/circuit-breakers', {
+      responseContract: 'raw-json',
+    }),
   resetCircuitBreaker: (name: string) =>
-    apiFetch<{ success: boolean; name: string; state: string }>(`/health/circuit-breakers/${name}/reset`, { method: 'POST' }),
+    apiFetch<{ success: boolean; name: string; state: string }>(
+      `/health/circuit-breakers/${name}/reset`,
+      { method: 'POST', responseContract: 'raw-json' },
+    ),
 };

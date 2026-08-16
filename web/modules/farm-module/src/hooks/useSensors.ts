@@ -12,6 +12,7 @@
  * the sensor list is cache-isolated per tenant.
  */
 import { useTenantQuery, graphqlClient } from '@aquaculture/shared-ui';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 
 export interface FarmSensor {
   id: string;
@@ -21,10 +22,7 @@ export interface FarmSensor {
   registrationStatus?: string;
 }
 
-interface SensorsResponse {
-  items: FarmSensor[];
-  total: number;
-}
+type SensorsResponse = Pick<PaginationResultV1<FarmSensor>, 'items' | 'total'>;
 
 // Federated `sensors` query (sensor-service). SensorPaginationInput = page/limit
 // with limit capped at 100 by the backend; limit:100 fetches the full sensor
@@ -45,7 +43,7 @@ const SENSORS_QUERY = `
 `;
 
 interface UseSensorsResult {
-  sensors: FarmSensor[];
+  sensors: readonly FarmSensor[];
   isLoading: boolean;
 }
 

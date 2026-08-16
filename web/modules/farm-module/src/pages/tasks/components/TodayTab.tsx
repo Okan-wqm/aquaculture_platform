@@ -8,7 +8,7 @@ import {
 import { TaskDetailModal } from './TaskDetailModal';
 
 interface TodayTabProps {
-  tasks: Task[];
+  tasks: readonly Task[];
   stats: TaskStats;
   onToggleComplete: (taskId: string) => void;
   onToggleChecklist: (taskId: string, checklistId: string, isCompleted: boolean) => void;

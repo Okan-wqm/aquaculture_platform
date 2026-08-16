@@ -1,25 +1,9 @@
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-  ForbiddenException,
-  Inject,
-  Optional,
-} from '@nestjs/common';
+import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import {
-  DataSource,
-  Repository,
-  IsNull,
-  EntityManager,
-  FindOptionsWhere,
-} from 'typeorm';
+import { DataSource, Repository, IsNull, EntityManager, FindOptionsWhere } from 'typeorm';
 import Redis from 'ioredis';
 
-import {
-  runInTenantTransaction,
-  tenantManagerRepo,
-} from '@aquaculture/backend-common/database';
+import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { LegalHold } from '../entities/legal-hold.entity';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
 
@@ -44,7 +28,11 @@ import { REDIS_CLIENT } from '../../shared/redis.provider';
  * confirm hold state."
  */
 export class LegalHoldCheckUnavailable extends Error {
-  constructor(message: string, public readonly tenantId: string, public readonly channelId: string | null) {
+  constructor(
+    message: string,
+    public readonly tenantId: string,
+    public readonly channelId: string | null,
+  ) {
     super(message);
     this.name = 'LegalHoldCheckUnavailable';
   }
@@ -81,21 +69,14 @@ const LEGAL_HOLD_CHECK_DEADLINE_MS = 500;
 const LEGAL_HOLD_CACHE_BREAKER_RESET_MS = 30_000;
 
 /**
- * Minimum length (chars) for activate / release reason fields.
- * Per the legal-hold-auditor agent spec § "Override protocol": "explicit
- * reason (≥ 50 chars)". Forces requesters to surface legal-matter scope +
- * originating party rather than a one-word justification (LEGAL-MEDIUM-002
- * cure).
- */
-const LEGAL_HOLD_MIN_REASON_CHARS = 50;
-
-/**
- * Manages legal holds on messaging data.
+ * Exposes legal-hold reads and invalidates their cache projection.
  *
  * When a legal hold is active, messages in scope (tenant-wide or channel-specific)
  * cannot be deleted by GDPR anonymise or retention cleanup.
  *
- * Only TENANT_ADMIN or SUPER_ADMIN may toggle legal holds.
+ * Both state mutations are deliberately absent from this surface: the
+ * activation command handler and durable two-person release-operation service
+ * own their respective transactional workflows.
  *
  * @see ADR-012 Phase 3 (Legal Hold Support)
  */
@@ -106,7 +87,7 @@ export class LegalHoldService {
   /**
    * Process-local circuit breaker for cache invalidation (LEGAL-MEDIUM-001 cure).
    *
-   * Tripped when invalidateLegalHoldCache() catches a Redis error.
+   * Tripped when invalidateLegalHoldProjection() catches a Redis error.
    * While tripped, isCacheDegraded() returns true → cache READERS
    * (when wired in Phase 9.4 platform-kernel migration) MUST treat
    * the cache as cold and re-query the DB. After the reset window
@@ -124,9 +105,11 @@ export class LegalHoldService {
   constructor(
     @InjectRepository(LegalHold)
     private readonly holdRepo: Repository<LegalHold>,
-    @Optional() @Inject(REDIS_CLIENT)
+    @Optional()
+    @Inject(REDIS_CLIENT)
     private readonly redis?: Redis,
-    @Optional() @InjectDataSource()
+    @Optional()
+    @InjectDataSource()
     private readonly dataSource?: DataSource,
   ) {}
 
@@ -143,175 +126,6 @@ export class LegalHoldService {
       return false;
     }
     return true;
-  }
-
-  /**
-   * Activate a legal hold on a tenant or specific channel.
-   *
-   * @param tenantId - Tenant identifier
-   * @param channelId - Optional channel to scope the hold (null = tenant-wide)
-   * @param reason - Human-readable reason for the hold
-   * @param userId - User activating the hold
-   * @param legalMatterId - UUID of the legal matter/regulatory request (REQUIRED for GDPR proportionality)
-   * @param options - Optional fields: legalMatterDescription, requestedBy, expiresAt
-   * @param manager Optional EntityManager for transactional callers.
-   *   BEFORE: no manager parameter -- activate() used its own injected repo,
-   *   so it was always outside the caller's transaction boundary.
-   *   WHY: ToggleLegalHoldHandler wraps activate() + audit + outbox in one
-   *   dataSource.transaction(). Without manager propagation, activate() committed
-   *   independently -- if audit or outbox save failed, the hold was already committed
-   *   but had no audit trail (ghost legal hold).
-   *   With manager: all three writes share the same transaction context.
-   */
-  async activate(
-    tenantId: string,
-    channelId: string | null,
-    reason: string,
-    userId: string,
-    legalMatterId: string,
-    options?: {
-      legalMatterDescription?: string;
-      requestedBy?: string;
-      expiresAt?: Date;
-    },
-    manager?: EntityManager,
-  ): Promise<LegalHold> {
-    // SECURITY: legalMatterId is mandatory for GDPR proportionality.
-    // A hold without a legal matter reference is a blanket freeze that violates
-    // data protection regulations.
-    // @see MSG-CRITICAL-018
-    if (!legalMatterId) {
-      throw new ForbiddenException(
-        'legalMatterId is required: a legal hold must reference a specific legal matter (GDPR proportionality)',
-      );
-    }
-
-    // Use caller's transaction manager if provided, fall back to injected
-    // request-scoped repo. The `manager` branch wraps via tenantManagerRepo
-    // so cross-tenant rows can never be written from inside a caller's
-    // transaction; the fallback `this.holdRepo` branch carries explicit
-    // `tenantId` in every downstream `where:` clause.
-    const repo = manager
-      ? tenantManagerRepo(manager, LegalHold, tenantId)
-      : this.holdRepo;
-
-    // Check for existing active hold on same scope
-    const existing = await repo.findOne({
-      where: {
-        tenantId,
-        channelId: channelId ?? IsNull(),
-        isActive: true,
-      },
-    });
-
-    if (existing) {
-      throw new ForbiddenException(
-        `An active legal hold already exists for this scope (hold ID: ${existing.id})`,
-      );
-    }
-
-    const hold = repo.create({
-      tenantId,
-      channelId,
-      reason,
-      legalMatterId,
-      legalMatterDescription: options?.legalMatterDescription ?? null,
-      requestedBy: options?.requestedBy ?? null,
-      expiresAt: options?.expiresAt ?? null,
-      startedBy: userId,
-      isActive: true,
-    });
-    const saved = await repo.save(hold);
-
-    // IMPORTANT: Invalidate any cached legal hold status on toggle to prevent
-    // stale cache from allowing deletion of held messages during the staleness window.
-    // @see MSG-MEDIUM-023
-    await this.invalidateLegalHoldCache(tenantId, channelId);
-
-    this.logger.log(
-      `Legal hold activated: id=${saved.id}, tenant=${tenantId}, ` +
-      `channel=${channelId ?? 'all'}, legalMatter=${legalMatterId}, by=${userId}`,
-    );
-    return saved;
-  }
-
-  /**
-   * Release (deactivate) an existing legal hold.
-   *
-   * # Dual-approver protocol (LEGAL-MEDIUM-002 cure)
-   *
-   * Pre-cure release was a single-identity operation: any SUPER_ADMIN
-   * with the hold's id could end the hold. The agent spec mandates
-   * "Override protocol: requires ALL of: SUPER_ADMIN role + MFA step-up
-   * (≤5min) + explicit reason (≥50 chars) + dual-approver (second
-   * SUPER_ADMIN click-through)".
-   *
-   * Post-cure release requires:
-   *   - userId  → the SUPER_ADMIN actually committing the release
-   *   - approverId → a SECOND SUPER_ADMIN that countersigned
-   *   - releaseReason ≥ 50 chars
-   *   - userId !== approverId (no self-approval)
-   *
-   * The DB has CHECK constraint `chk_legal_hold_no_self_approval`
-   * pinning the same invariant at schema level so a code regression
-   * cannot leak around it. The MFA step-up is wired via auth-service
-   * claims (the auth-security-expert follow-on).
-   *
-   * @param holdId Hold to release.
-   * @param tenantId Tenant scope (lookup is keyed on it — prevents cross-tenant release).
-   * @param userId The releaser (must equal an authenticated SUPER_ADMIN).
-   * @param approverId The countersigning second SUPER_ADMIN. MUST differ from userId.
-   * @param releaseReason ≥ 50 chars justification recorded on the row.
-   * @param manager Optional EntityManager for transactional callers (same rationale as activate).
-   */
-  async release(
-    holdId: string,
-    tenantId: string,
-    userId: string,
-    approverId: string,
-    releaseReason: string,
-    manager?: EntityManager,
-  ): Promise<LegalHold> {
-    if (approverId === userId) {
-      throw new BadRequestException('Legal hold release requires a distinct second approver');
-    }
-    if (releaseReason.trim().length < LEGAL_HOLD_MIN_REASON_CHARS) {
-      throw new BadRequestException(
-        `Legal hold release reason must be at least ${LEGAL_HOLD_MIN_REASON_CHARS} characters`,
-      );
-    }
-
-    // tenantId is required so the find below cannot match a hold that
-    // belongs to a different tenant than the caller. Without this scope,
-    // a user from Tenant A who learned a hold's id (via leaked log,
-    // forwarded ticket, etc.) could release Tenant B's hold — defeating
-    // GDPR's per-tenant retention guarantees. The tenantManagerRepo
-    // wrapper enforces the same scope structurally on the manager-branch.
-    const repo = manager
-      ? tenantManagerRepo(manager, LegalHold, tenantId)
-      : this.holdRepo;
-
-    const hold = await repo.findOne({ where: { id: holdId, tenantId } });
-    if (!hold) {
-      throw new ForbiddenException(`Legal hold not found: ${holdId}`);
-    }
-    if (!hold.isActive) {
-      throw new ForbiddenException(`Legal hold ${holdId} is already released`);
-    }
-
-    hold.isActive = false;
-    hold.releasedBy = userId;
-    hold.releasedByApprover = approverId;
-    hold.releaseReason = releaseReason;
-    hold.releasedAt = new Date();
-    const saved = await repo.save(hold);
-
-    // IMPORTANT: Invalidate cached legal hold status on release.
-    // @see MSG-MEDIUM-023
-    await this.invalidateLegalHoldCache(hold.tenantId, hold.channelId ?? null);
-
-    this.logger.log(`Legal hold released: id=${holdId}, by=${userId}`);
-    return saved;
   }
 
   /**
@@ -377,9 +191,7 @@ export class LegalHoldService {
     // Check tenant-wide hold first
     let tenantHold: LegalHold | null;
     try {
-      tenantHold = await deadline(
-        findHold({ tenantId, channelId: IsNull(), isActive: true }),
-      );
+      tenantHold = await deadline(findHold({ tenantId, channelId: IsNull(), isActive: true }));
     } catch (err: unknown) {
       if (err instanceof LegalHoldCheckUnavailable) throw err;
       // Non-deadline DB errors are also fail-CLOSED per agent spec.
@@ -390,15 +202,13 @@ export class LegalHoldService {
         channelId,
       );
     }
-    if (tenantHold && !this.isExpired(tenantHold)) return true;
+    if (tenantHold) return true;
 
     // If a specific channel is requested, also check channel-level hold
     if (channelId) {
       let channelHold: LegalHold | null;
       try {
-        channelHold = await deadline(
-          findHold({ tenantId, channelId, isActive: true }),
-        );
+        channelHold = await deadline(findHold({ tenantId, channelId, isActive: true }));
       } catch (err: unknown) {
         if (err instanceof LegalHoldCheckUnavailable) throw err;
         const message = err instanceof Error ? err.message : String(err);
@@ -408,23 +218,10 @@ export class LegalHoldService {
           channelId,
         );
       }
-      if (channelHold && !this.isExpired(channelHold)) return true;
+      if (channelHold) return true;
     }
 
     return false;
-  }
-
-  /**
-   * Check if a legal hold has expired based on its expiresAt field.
-   * Expired holds are still active (isActive=true) but should not enforce
-   * data retention. They must be explicitly reviewed and released or renewed.
-   *
-   * @param hold - The legal hold to check
-   * @returns true if the hold has an expiresAt date in the past
-   */
-  private isExpired(hold: LegalHold): boolean {
-    if (!hold.expiresAt) return false;
-    return hold.expiresAt < new Date();
   }
 
   /**
@@ -446,9 +243,7 @@ export class LegalHoldService {
           select: ['channelId'],
         });
 
-    return holds
-      .filter((h) => h.channelId !== null)
-      .map((h) => h.channelId as string);
+    return holds.filter((h) => h.channelId !== null).map((h) => h.channelId as string);
   }
 
   /**
@@ -487,17 +282,14 @@ export class LegalHoldService {
   }
 
   /**
-   * Invalidate Redis cache for legal hold status when a hold is toggled.
+   * Invalidate the Redis projection after the authoritative transaction commits.
    * Prevents stale cached legal hold status from allowing deletion of
    * messages that are now under legal hold (or vice versa).
    *
    * Cache key pattern: msg:legal_hold:{tenantId}:{channelId|'all'}
    * @see MSG-MEDIUM-023
    */
-  private async invalidateLegalHoldCache(
-    tenantId: string,
-    channelId: string | null,
-  ): Promise<void> {
+  async invalidateLegalHoldProjection(tenantId: string, channelId: string | null): Promise<void> {
     if (!this.redis) return;
 
     try {

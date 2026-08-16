@@ -73,7 +73,7 @@ export interface PricingCalculation {
 /**
  * Quote request
  */
-export interface QuoteRequest {
+export interface PricingQuoteInput {
   modules: ModuleSelection[];
   tier: PlanTier;
   billingCycle: BillingCycle;
@@ -138,7 +138,7 @@ export class PricingCalculatorService {
   /**
    * Calculate pricing for a set of modules
    */
-  async calculatePricing(request: QuoteRequest): Promise<PricingCalculation> {
+  async calculatePricing(request: PricingQuoteInput): Promise<PricingCalculation> {
     const { modules, tier, billingCycle, discountCode, taxRate = 0 } = request;
 
     const moduleBreakdowns: ModulePriceBreakdown[] = [];
@@ -384,8 +384,8 @@ export class PricingCalculatorService {
    * Compare pricing between two configurations
    */
   async comparePricing(
-    config1: QuoteRequest,
-    config2: QuoteRequest,
+    config1: PricingQuoteInput,
+    config2: PricingQuoteInput,
   ): Promise<{
     config1: PricingCalculation;
     config2: PricingCalculation;

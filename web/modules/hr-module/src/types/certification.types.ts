@@ -3,7 +3,8 @@
  * Includes aquaculture-specific certifications (diving, safety, vessel operations)
  */
 
-import type { BaseEntity, PaginatedResponse } from './common.types';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
+import type { BaseEntity } from './common.types';
 import type { Employee } from './employee.types';
 
 // =====================
@@ -276,10 +277,10 @@ export interface TrainingFilterInput {
 // Response Types
 // =====================
 
-export type CertificationTypeConnection = PaginatedResponse<CertificationType>;
-export type EmployeeCertificationConnection = PaginatedResponse<EmployeeCertification>;
-export type TrainingCourseConnection = PaginatedResponse<TrainingCourse>;
-export type TrainingEnrollmentConnection = PaginatedResponse<TrainingEnrollment>;
+export type CertificationTypeConnection = PaginationResultV1<CertificationType>;
+export type EmployeeCertificationConnection = PaginationResultV1<EmployeeCertification>;
+export type TrainingCourseConnection = PaginationResultV1<TrainingCourse>;
+export type TrainingEnrollmentConnection = PaginationResultV1<TrainingEnrollment>;
 
 // =====================
 // Display Helpers

@@ -4,6 +4,7 @@
  * Endpoints for data subject requests, compliance reports, and GDPR management.
  */
 
+import type { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import {
   Controller,
   Get,
@@ -234,6 +235,22 @@ export class ComplianceController {
   }
 
   /**
+   * Get data request statistics
+   */
+  @Get('data-requests/stats')
+  async getDataRequestStats(
+    @Query('tenantId') tenantId?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    return this.complianceService.getDataRequestStats({
+      tenantId,
+      startDate: startDate ? new Date(startDate) : undefined,
+      endDate: endDate ? new Date(endDate) : undefined,
+    });
+  }
+
+  /**
    * Get data request by ID
    */
   @Get('data-requests/:id')
@@ -247,12 +264,7 @@ export class ComplianceController {
   @Get('data-requests')
   async queryDataRequests(
     @Query() query: QueryDataRequestsDto,
-  ): Promise<{
-    data: DataRequest[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  ): Promise<IStandardPaginatedResult<DataRequest>> {
     return this.complianceService.getDataRequests({
       page: query.page ? parseInt(String(query.page), 10) : 1,
       limit: query.limit ? parseInt(String(query.limit), 10) : 20,
@@ -280,12 +292,7 @@ export class ComplianceController {
     const userId = userPayload?.id;
     if (!userId) throw new UnauthorizedException('User not authenticated');
     const userName = userPayload?.name || userPayload?.email || userId;
-    return this.complianceService.updateDataRequest(
-      id,
-      dto,
-      userId,
-      userName,
-    );
+    return this.complianceService.updateDataRequest(id, dto, userId, userName);
   }
 
   /**
@@ -301,11 +308,7 @@ export class ComplianceController {
   ): Promise<DataRequest> {
     const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
-    return this.complianceService.verifyIdentity(
-      id,
-      userId,
-      dto.verificationMethod,
-    );
+    return this.complianceService.verifyIdentity(id, userId, dto.verificationMethod);
   }
 
   /**
@@ -324,9 +327,7 @@ export class ComplianceController {
     return this.complianceService.completeDataRequest(id, {
       ...dto,
       completedBy: userId,
-      downloadExpiresAt: dto.downloadExpiresAt
-        ? new Date(dto.downloadExpiresAt)
-        : undefined,
+      downloadExpiresAt: dto.downloadExpiresAt ? new Date(dto.downloadExpiresAt) : undefined,
     });
   }
 
@@ -346,22 +347,6 @@ export class ComplianceController {
   @Get('data-requests/status/overdue')
   async getOverdueRequests(): Promise<DataRequest[]> {
     return this.complianceService.getOverdueRequests();
-  }
-
-  /**
-   * Get data request statistics
-   */
-  @Get('data-requests/stats')
-  async getDataRequestStats(
-    @Query('tenantId') tenantId?: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-  ) {
-    return this.complianceService.getDataRequestStats({
-      tenantId,
-      startDate: startDate ? new Date(startDate) : undefined,
-      endDate: endDate ? new Date(endDate) : undefined,
-    });
   }
 
   // ============================================================================
@@ -406,12 +391,7 @@ export class ComplianceController {
   @Get('reports')
   async queryReports(
     @Query() query: QueryReportsDto,
-  ): Promise<{
-    data: ComplianceReport[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  ): Promise<IStandardPaginatedResult<ComplianceReport>> {
     return this.complianceService.getComplianceReports({
       page: query.page ? parseInt(String(query.page), 10) : 1,
       limit: query.limit ? parseInt(String(query.limit), 10) : 20,

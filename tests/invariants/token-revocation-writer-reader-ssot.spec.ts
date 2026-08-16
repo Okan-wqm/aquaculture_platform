@@ -1,10 +1,10 @@
 /**
  * Distributed access-token revocation SSoT.
  *
- * Auth-service owns every revocation write. Gateway-api is an enforcement
- * point and therefore exposes only reads. The two DI tokens are deliberately
- * different capability boundaries, while their Redis namespace, typed keys,
- * key builders, and composite JTI/user/iat decision remain shared.
+ * Auth-service owns every revocation write. JWT-consuming boundaries receive
+ * one shared read-only capability. Writer and reader DI tokens are deliberately
+ * different while their Redis namespace, typed keys, key builders, and
+ * composite JTI/user/iat decision remain shared.
  */
 
 import { readFileSync } from 'node:fs';
@@ -18,8 +18,12 @@ const PATHS = {
   jtiWriter: 'libs/backend-common/src/security/token-blacklist/token-blacklist.service.ts',
   userWriter:
     'libs/backend-common/src/security/user-token-revocation/user-token-revocation.service.ts',
+  sharedReader:
+    'libs/backend-common/src/security/token-revocation-reader/token-revocation-reader.service.ts',
   authApp: 'apps/auth-service/src/app.module.ts',
-  gatewayStore: 'apps/gateway-api/src/guards/redis-token-blacklist.store.ts',
+  authGuard: 'apps/auth-service/src/modules/authentication/guards/jwt-auth.guard.ts',
+  adminApp: 'apps/admin-api-service/src/app.module.ts',
+  adminGuard: 'apps/admin-api-service/src/guards/platform-admin.guard.ts',
   gatewayGuard: 'apps/gateway-api/src/guards/auth.guard.ts',
   gatewayMiddleware: 'apps/gateway-api/src/middleware/jwt.middleware.ts',
   gatewayApp: 'apps/gateway-api/src/app.module.ts',
@@ -50,41 +54,54 @@ describe('distributed token revocation writer/read-enforcement SSoT', () => {
     expect(redis).toContain("{ scope: 'authorization'; key: AuthorizationRedisKey }");
   });
 
-  it('keeps auth as the sole writer and gateway as a read-only capability', () => {
+  it('keeps auth as the sole writer and exposes a read-only shared capability', () => {
     const writerInterface = interfaceBody(read(PATHS.writerInterface), 'ITokenBlacklist');
     const jtiWriter = read(PATHS.jtiWriter);
     const userWriter = read(PATHS.userWriter);
-    const gatewayStoreSource = read(PATHS.gatewayStore);
-    const gatewayStore = interfaceBody(gatewayStoreSource, 'TokenBlacklistStore');
-    const gatewayRedis = interfaceBody(gatewayStoreSource, 'GatewayAuthorizationRedisClient');
+    const sharedReaderSource = read(PATHS.sharedReader);
+    const sharedReader = interfaceBody(sharedReaderSource, 'ITokenRevocationReader');
+    const readerRedis = interfaceBody(sharedReaderSource, 'TokenRevocationRedisReader');
 
     expect(writerInterface).toMatch(/add\(jti: string, expiresAt: Date/);
     expect(jtiWriter).toContain('this.redis.setAuthorization(');
     expect(userWriter).toContain('this.redis.setAuthorizationMaxSafeInteger(');
 
-    expect(gatewayStore).toMatch(/isBlacklisted\(jti: string\)/);
-    expect(gatewayStore).toMatch(/isValidToken\(jti: string, userId: string, issuedAt: number\)/);
-    expect(gatewayRedis).toContain('getAuthorization(');
-    expect(gatewayRedis).toContain('mgetScoped(');
-    expect(`${gatewayStore}\n${gatewayRedis}`).not.toMatch(
+    expect(sharedReader).toContain('getStatus(');
+    expect(readerRedis).toContain('mgetScoped(');
+    expect(`${sharedReader}\n${readerRedis}`).not.toMatch(
       /\b(?:add|set|setAuthorization|setAuthorizationMaxSafeInteger|del|delete)\s*\(/,
     );
   });
 
-  it('forces gateway composite checks through the shared key builders', () => {
-    const store = read(PATHS.gatewayStore);
-    const guard = read(PATHS.gatewayGuard);
-    const middleware = read(PATHS.gatewayMiddleware);
+  it('gives every JWT consumer one shared read-only composite capability', () => {
+    const sharedReader = read(PATHS.sharedReader);
+    const readerInterface = interfaceBody(sharedReader, 'ITokenRevocationReader');
+    const readerRedis = interfaceBody(sharedReader, 'TokenRevocationRedisReader');
+    const adminApp = read(PATHS.adminApp);
+    const adminGuard = read(PATHS.adminGuard);
+    const authGuard = read(PATHS.authGuard);
+    const gatewayApp = read(PATHS.gatewayApp);
+    const gatewayGuard = read(PATHS.gatewayGuard);
+    const gatewayMiddleware = read(PATHS.gatewayMiddleware);
 
-    expect(store).toMatch(
-      /import\s*\{\s*tokenBlacklistKey,\s*userBlacklistKey\s*\}\s*from '@aquaculture\/backend-common\/security'/,
+    expect(readerInterface).toContain('getStatus(');
+    expect(readerRedis).toContain('mgetScoped(');
+    expect(`${readerInterface}\n${readerRedis}`).not.toMatch(
+      /\b(?:add|set|setAuthorization|setAuthorizationMaxSafeInteger|del|delete)\s*\(/,
     );
-    expect(store).toContain("{ scope: 'authorization', key: tokenBlacklistKey(jti) }");
-    expect(store).toContain("{ scope: 'authorization', key: userBlacklistKey(userId) }");
-    expect(store).toContain('return issuedAt > invalidatedAt;');
+    expect(sharedReader).toContain("{ scope: 'authorization', key: tokenBlacklistKey(jti) }");
+    expect(sharedReader).toContain("{ scope: 'authorization', key: userBlacklistKey(userId) }");
 
-    for (const enforcementPoint of [guard, middleware]) {
-      expect(enforcementPoint).toContain('this.tokenBlacklist.isValidToken(');
+    expect(adminApp).toContain('TokenRevocationReaderModule');
+    expect(adminApp).toContain('TOKEN_REVOCATION_READER');
+    expect(adminApp).not.toContain('TokenBlacklistModule');
+    expect(adminApp).not.toContain('UserTokenRevocationModule');
+    expect(adminGuard).toContain('enforceTokenNotRevoked(');
+    expect(gatewayApp).toContain('TokenRevocationReaderModule');
+    expect(gatewayApp).toContain('TOKEN_REVOCATION_READER');
+    expect(gatewayApp).not.toContain('TOKEN_BLACKLIST_STORE');
+    for (const enforcementPoint of [authGuard, gatewayGuard, gatewayMiddleware]) {
+      expect(enforcementPoint).toContain('enforceTokenNotRevoked(');
     }
   });
 
@@ -96,12 +113,11 @@ describe('distributed token revocation writer/read-enforcement SSoT', () => {
 
     expect(authApp).toContain('TokenBlacklistModule,');
     expect(authApp).toContain('UserTokenRevocationModule,');
-    expect(authApp).toContain('TOKEN_BLACKLIST,');
-    expect(authApp).toContain('USER_TOKEN_REVOCATION,');
+    expect(authApp).toContain('TokenRevocationReaderModule,');
+    expect(authApp).toContain('TOKEN_REVOCATION_READER,');
 
-    expect(gatewayApp).toContain('buildGatewayTokenBlacklistStore(');
-    expect(gatewayApp).toContain('TOKEN_BLACKLIST_STORE,');
-    expect(gatewayApp).not.toMatch(/\{\s*token:\s*TOKEN_BLACKLIST_STORE,\s*optional:\s*true\s*\}/);
+    expect(gatewayApp).toContain('TokenRevocationReaderModule,');
+    expect(gatewayApp).toContain('TOKEN_REVOCATION_READER,');
     expect(gatewayGuard).not.toContain('@Optional()');
     expect(gatewayMiddleware).not.toContain('@Optional()');
   });

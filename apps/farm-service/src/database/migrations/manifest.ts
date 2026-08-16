@@ -89,6 +89,7 @@ import { AddEnvironmentMetricSyncOutcomes1807200000000 } from './1807200000000-A
 import { AddSuperAdminCrossTenantAuditAction1807900000000 } from './1807900000000-AddSuperAdminCrossTenantAuditAction';
 import { AddSatelliteCoverageProvenance1808000000000 } from './1808000000000-AddSatelliteCoverageProvenance';
 import { RestoreAuditImmutabilityContract1808500000000 } from './1808500000000-RestoreAuditImmutabilityContract';
+import { CreateTenantOnboardingReceipts1808600000000 } from './1808600000000-CreateTenantOnboardingReceipts';
 
 /**
  * Canonical farm-service migration class list.
@@ -175,4 +176,5 @@ export const FARM_MIGRATIONS = [
   AddSuperAdminCrossTenantAuditAction1807900000000,
   AddSatelliteCoverageProvenance1808000000000,
   RestoreAuditImmutabilityContract1808500000000,
+  CreateTenantOnboardingReceipts1808600000000,
 ] as const;

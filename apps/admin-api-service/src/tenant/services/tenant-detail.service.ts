@@ -1,6 +1,7 @@
 import * as crypto from 'crypto';
 
 import { getTenantSchemaName } from '@aquaculture/backend-common/database';
+import type { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -13,10 +14,7 @@ import {
   ResourceUsage,
   BillingSummary,
 } from '../dto/tenant-detail.dto';
-import {
-  TenantActivity,
-  TenantBillingInfo,
-} from '../entities/tenant-activity.entity';
+import { TenantActivity, TenantBillingInfo } from '../entities/tenant-activity.entity';
 import { Tenant, TenantStatus } from '../entities/tenant.entity';
 
 import { AuthTenantProvisioningClientService } from './auth-tenant-provisioning-client.service';
@@ -51,15 +49,14 @@ export class TenantDetailService {
     tenant.hydrateCompatibilityFields();
 
     // Fetch all related data in parallel
-    const [userStats, modules, activities, notes, billing, resourceUsage] =
-      await Promise.all([
-        this.getUserStats(tenantId),
-        this.getModuleUsage(tenantId),
-        this.activityService.getRecentActivities(tenantId, 20),
-        this.activityService.getNotes(tenantId, { limit: 10 }),
-        this.getBillingSummary(tenantId, tenant),
-        this.getResourceUsage(tenant),
-      ]);
+    const [userStats, modules, activities, notes, billing, resourceUsage] = await Promise.all([
+      this.getUserStats(tenantId),
+      this.getModuleUsage(tenantId),
+      this.activityService.getRecentActivities(tenantId, 20),
+      this.activityService.getNotes(tenantId, { limit: 10 }),
+      this.getBillingSummary(tenantId, tenant),
+      this.getResourceUsage(tenant),
+    ]);
 
     return {
       // Basic Info
@@ -267,10 +264,7 @@ export class TenantDetailService {
    * derived from the validated tenant UUID and the table is a fixed literal, so
    * the identifier interpolation carries no injection surface.
    */
-  private async countTenantResource(
-    tenantId: string,
-    table: 'farms' | 'sensors',
-  ): Promise<number> {
+  private async countTenantResource(tenantId: string, table: 'farms' | 'sensors'): Promise<number> {
     const schema = getTenantSchemaName(tenantId);
     // Existence check first: a tenant whose schema has not been provisioned yet
     // (or a SUPER_ADMIN pseudo-tenant) has no farms/sensors table — that is 0
@@ -307,9 +301,7 @@ export class TenantDetailService {
     let apiCalls24h = 0;
     let apiCalls7d = 0;
     try {
-      const apiResult = await this.dataSource.query<
-        Array<{ calls_24h: string; calls_7d: string }>
-      >(
+      const apiResult = await this.dataSource.query<Array<{ calls_24h: string; calls_7d: string }>>(
         `
         SELECT
           COUNT(*) FILTER (WHERE "createdAt" > NOW() - INTERVAL '24 hours') as calls_24h,
@@ -385,9 +377,10 @@ export class TenantDetailService {
       paymentStatus: billing.paymentStatus,
       nextBillingDate: billing.nextBillingDate || null,
       lastPaymentDate: billing.lastPaymentDate || null,
-      lastPaymentAmount: billing.lastPaymentAmount !== null && billing.lastPaymentAmount !== undefined
-        ? Number(billing.lastPaymentAmount)
-        : null,
+      lastPaymentAmount:
+        billing.lastPaymentAmount !== null && billing.lastPaymentAmount !== undefined
+          ? Number(billing.lastPaymentAmount)
+          : null,
     };
   }
 
@@ -398,20 +391,8 @@ export class TenantDetailService {
     tenantId: string,
     page = 1,
     limit = 20,
-  ): Promise<{ data: TenantActivity[]; total: number; totalPages: number }> {
-    // BUG-031 fix: guard against limit=0 to prevent Math.ceil producing Infinity
-    const safeLimit = limit > 0 ? limit : 20;
-
-    const result = await this.activityService.getActivities(tenantId, {
-      limit: safeLimit,
-      offset: (page - 1) * safeLimit,
-    });
-
-    return {
-      data: result.data,
-      total: result.total,
-      totalPages: Math.ceil(result.total / safeLimit),
-    };
+  ): Promise<IStandardPaginatedResult<TenantActivity>> {
+    return this.activityService.getActivities(tenantId, { page, limit });
   }
 
   /**
@@ -434,14 +415,12 @@ export class TenantDetailService {
         .where('t.id IN (:...ids)', { ids: tenantIds })
         .getMany();
 
-      const foundIds = new Set(existingTenants.map(t => t.id));
+      const foundIds = new Set(existingTenants.map((t) => t.id));
       const activeIds = new Set(
-        existingTenants
-          .filter(t => t.status === TenantStatus.ACTIVE)
-          .map(t => t.id),
+        existingTenants.filter((t) => t.status === TenantStatus.ACTIVE).map((t) => t.id),
       );
-      const failed  = tenantIds.filter(id => !foundIds.has(id) || !activeIds.has(id));
-      const success = tenantIds.filter(id => activeIds.has(id));
+      const failed = tenantIds.filter((id) => !foundIds.has(id) || !activeIds.has(id));
+      const success = tenantIds.filter((id) => activeIds.has(id));
 
       if (success.length === 0) return { success: [], failed };
 
@@ -449,12 +428,10 @@ export class TenantDetailService {
       for (const tenantId of success) {
         try {
           await this.authProvisioningClient.suspendTenant({
-            ...buildTenantDetailLifecycleCommandMetadata(
-              'SuspendTenant',
-              tenantId,
-              performedBy,
-              { reason, bulk: true },
-            ),
+            ...buildTenantDetailLifecycleCommandMetadata('SuspendTenant', tenantId, performedBy, {
+              reason,
+              bulk: true,
+            }),
             reason,
           });
           commandSucceeded.push(tenantId);
@@ -469,7 +446,7 @@ export class TenantDetailService {
 
       // Batch-create activity log entries (single INSERT … VALUES …)
       const successIds = new Set(success);
-      const activityRows = existingTenants.filter(t => successIds.has(t.id));
+      const activityRows = existingTenants.filter((t) => successIds.has(t.id));
       if (activityRows.length > 0) {
         await this.dataSource.query(
           `INSERT INTO admin.tenant_activities
@@ -486,10 +463,10 @@ export class TenantDetailService {
              NOW(), NOW()
            FROM unnest($4::text[]) AS prev_status`,
           [
-            activityRows.map(t => t.id),
+            activityRows.map((t) => t.id),
             reason || 'Bulk suspended',
             performedBy,
-            activityRows.map(t => t.status),
+            activityRows.map((t) => t.status),
           ],
         );
       }
@@ -520,14 +497,12 @@ export class TenantDetailService {
         .where('t.id IN (:...ids)', { ids: tenantIds })
         .getMany();
 
-      const foundIds = new Set(existingTenants.map(t => t.id));
+      const foundIds = new Set(existingTenants.map((t) => t.id));
       const suspendedIds = new Set(
-        existingTenants
-          .filter(t => t.status === TenantStatus.SUSPENDED)
-          .map(t => t.id),
+        existingTenants.filter((t) => t.status === TenantStatus.SUSPENDED).map((t) => t.id),
       );
-      const failed  = tenantIds.filter(id => !foundIds.has(id) || !suspendedIds.has(id));
-      const success = tenantIds.filter(id => suspendedIds.has(id));
+      const failed = tenantIds.filter((id) => !foundIds.has(id) || !suspendedIds.has(id));
+      const success = tenantIds.filter((id) => suspendedIds.has(id));
 
       if (success.length === 0) return { success: [], failed };
 
@@ -535,12 +510,9 @@ export class TenantDetailService {
       for (const tenantId of success) {
         try {
           await this.authProvisioningClient.activateTenant({
-            ...buildTenantDetailLifecycleCommandMetadata(
-              'ActivateTenant',
-              tenantId,
-              performedBy,
-              { bulk: true },
-            ),
+            ...buildTenantDetailLifecycleCommandMetadata('ActivateTenant', tenantId, performedBy, {
+              bulk: true,
+            }),
           });
           commandSucceeded.push(tenantId);
         } catch (error) {
@@ -554,7 +526,7 @@ export class TenantDetailService {
 
       // Batch-create activity log entries
       const successIds = new Set(success);
-      const activityRows = existingTenants.filter(t => successIds.has(t.id));
+      const activityRows = existingTenants.filter((t) => successIds.has(t.id));
       if (activityRows.length > 0) {
         await this.dataSource.query(
           `INSERT INTO admin.tenant_activities
@@ -570,11 +542,7 @@ export class TenantDetailService {
              $2,
              NOW(), NOW()
            FROM unnest($3::text[]) AS prev_status`,
-          [
-            activityRows.map(t => t.id),
-            performedBy,
-            activityRows.map(t => t.status),
-          ],
+          [activityRows.map((t) => t.id), performedBy, activityRows.map((t) => t.status)],
         );
       }
 

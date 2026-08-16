@@ -1,6 +1,7 @@
 import { BILLING_ADMIN_COMMAND_SUBJECTS } from './billing-admin-commands';
 import { NOTIFICATION_COMMAND_SUBJECTS } from './notification-commands';
 import { TENANT_COMMAND_SUBJECTS } from './tenant-commands';
+import { TENANT_ONBOARDING_WORKFLOW_V1 } from './tenant-onboarding-workflow';
 
 export type PlatformRegistryKind = 'event' | 'command';
 export type PlatformPiiClass = 'none' | 'low' | 'contact-ref' | 'operational' | 'financial';
@@ -41,42 +42,51 @@ export const PLATFORM_EVENT_REGISTRY = {
     retention: 'tenant-provisioning-ledger',
   },
   TenantOnboardingRequested: {
-    type: 'TenantOnboardingRequested',
+    type: TENANT_ONBOARDING_WORKFLOW_V1.request.eventType,
     kind: 'event',
-    subject: 'events.{tenantId}.TenantOnboardingRequested',
-    producer: 'admin-api-service',
-    consumers: ['farm-service'],
+    subject: TENANT_ONBOARDING_WORKFLOW_V1.request.subject,
+    producer: TENANT_ONBOARDING_WORKFLOW_V1.request.producer,
+    consumers: TENANT_ONBOARDING_WORKFLOW_V1.ownerServices,
     schema: 'libs/event-contracts/src/tenant-events.ts#TenantOnboardingRequestedEvent',
     fixture: 'libs/event-contracts/fixtures/tenant-onboarding-requested.json',
-    acl: { publish: ['admin-api-service'], subscribe: ['farm-service'] },
+    acl: {
+      publish: [TENANT_ONBOARDING_WORKFLOW_V1.request.producer],
+      subscribe: TENANT_ONBOARDING_WORKFLOW_V1.ownerServices,
+    },
     piiClass: 'operational',
     durability: 'outbox',
     backendOnly: true,
     retention: 'tenant-provisioning-ledger',
   },
   TenantOnboardingAck: {
-    type: 'TenantOnboardingAck',
+    type: TENANT_ONBOARDING_WORKFLOW_V1.acknowledgement.eventType,
     kind: 'event',
-    subject: 'events.{tenantId}.TenantOnboardingAck',
-    producer: 'farm-service',
-    consumers: ['admin-api-service'],
+    subject: TENANT_ONBOARDING_WORKFLOW_V1.acknowledgement.subject,
+    producer: TENANT_ONBOARDING_WORKFLOW_V1.ownerServices[0],
+    consumers: [TENANT_ONBOARDING_WORKFLOW_V1.coordinatorService],
     schema: 'libs/event-contracts/src/tenant-events.ts#TenantOnboardingAckEvent',
     fixture: 'libs/event-contracts/fixtures/tenant-onboarding-ack.json',
-    acl: { publish: ['farm-service'], subscribe: ['admin-api-service'] },
+    acl: {
+      publish: TENANT_ONBOARDING_WORKFLOW_V1.ownerServices,
+      subscribe: [TENANT_ONBOARDING_WORKFLOW_V1.coordinatorService],
+    },
     piiClass: 'none',
     durability: 'outbox',
     backendOnly: true,
     retention: 'tenant-provisioning-ledger',
   },
   TenantOnboardingFailed: {
-    type: 'TenantOnboardingFailed',
+    type: TENANT_ONBOARDING_WORKFLOW_V1.failure.eventType,
     kind: 'event',
-    subject: 'events.{tenantId}.TenantOnboardingFailed',
-    producer: 'farm-service',
-    consumers: ['admin-api-service'],
+    subject: TENANT_ONBOARDING_WORKFLOW_V1.failure.subject,
+    producer: TENANT_ONBOARDING_WORKFLOW_V1.ownerServices[0],
+    consumers: [TENANT_ONBOARDING_WORKFLOW_V1.coordinatorService],
     schema: 'libs/event-contracts/src/tenant-events.ts#TenantOnboardingFailedEvent',
     fixture: 'libs/event-contracts/fixtures/tenant-onboarding-failed.json',
-    acl: { publish: ['farm-service'], subscribe: ['admin-api-service'] },
+    acl: {
+      publish: TENANT_ONBOARDING_WORKFLOW_V1.ownerServices,
+      subscribe: [TENANT_ONBOARDING_WORKFLOW_V1.coordinatorService],
+    },
     piiClass: 'operational',
     durability: 'outbox',
     backendOnly: true,

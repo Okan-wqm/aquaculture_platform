@@ -1,7 +1,8 @@
+import { MESSAGING_EVENT_REGISTRY, type MessagingEventType } from '../messaging-event-registry';
 import {
-  MESSAGING_EVENT_REGISTRY,
-  type MessagingEventType,
-} from '../messaging-event-registry';
+  ADMIN_LEGAL_HOLD_RELEASE_REASON_MAX_LENGTH_V1,
+  ADMIN_LEGAL_HOLD_RELEASE_REASON_MIN_LENGTH_V1,
+} from '@platform/admin-http-contracts';
 
 import {
   BASE_EVENT_PROPERTIES,
@@ -30,6 +31,12 @@ const ISO_DATE_TIME = {
   format: 'date-time',
 } as const;
 
+const LEGAL_HOLD_RELEASE_REASON_V1 = {
+  type: 'string',
+  minLength: ADMIN_LEGAL_HOLD_RELEASE_REASON_MIN_LENGTH_V1,
+  maxLength: ADMIN_LEGAL_HOLD_RELEASE_REASON_MAX_LENGTH_V1,
+} as const;
+
 const UUID_ARRAY = {
   type: 'array',
   items: UUID_SCHEMA,
@@ -42,9 +49,7 @@ function eventSchema(
   opts?: { allowAdditionalProperties?: boolean },
 ): Record<string, unknown> {
   const contract = MESSAGING_EVENT_REGISTRY[eventType];
-  const required = Array.from(
-    new Set([...BASE_EVENT_REQUIRED, ...contract.requiredPayloadFields]),
-  );
+  const required = Array.from(new Set([...BASE_EVENT_REQUIRED, ...contract.requiredPayloadFields]));
   return {
     type: 'object',
     additionalProperties: opts?.allowAdditionalProperties ?? false,
@@ -190,12 +195,36 @@ export const MESSAGING_EVENT_SCHEMAS = {
   }),
   LegalHoldToggled: eventSchema('LegalHoldToggled', {
     holdId: UUID_SCHEMA,
-    channelId: UUID_SCHEMA,
-    activate: { type: 'boolean' },
+    channelId: { anyOf: [UUID_SCHEMA, { type: 'null' }] },
+    activate: { const: true },
     reason: LONG_STRING,
     toggledBy: UUID_SCHEMA,
     toggledAt: ISO_DATE_TIME,
   }),
+  LegalHoldReleased: {
+    ...eventSchema('LegalHoldReleased', {
+      version: { const: 1 },
+      holdId: UUID_SCHEMA,
+      scope: { type: 'string', enum: ['tenant', 'channel'] },
+      resourceId: { anyOf: [UUID_SCHEMA, { type: 'null' }] },
+      legalMatterId: UUID_SCHEMA,
+      releaseOperationId: UUID_SCHEMA,
+      releaseRequestedBy: UUID_SCHEMA,
+      releaseAuthorizedBy: UUID_SCHEMA,
+      releaseReason: LEGAL_HOLD_RELEASE_REASON_V1,
+      releasedAtIso: ISO_DATE_TIME,
+    }),
+    allOf: [
+      {
+        if: { properties: { scope: { const: 'tenant' } } },
+        then: { properties: { resourceId: { type: 'null' } } },
+      },
+      {
+        if: { properties: { scope: { const: 'channel' } } },
+        then: { properties: { resourceId: UUID_SCHEMA } },
+      },
+    ],
+  },
   SentimentAlert: eventSchema('SentimentAlert', {
     channelId: UUID_SCHEMA,
     userId: UUID_SCHEMA,

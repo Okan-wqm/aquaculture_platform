@@ -1,13 +1,13 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  createStandardPaginatedResult,
+  type IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 
-import {
-  DebugSession,
-  DebugSessionType,
-  QueryLogType,
-} from '../entities/debug-session.entity';
+import { DebugSession, DebugSessionType, QueryLogType } from '../entities/debug-session.entity';
 
 /**
  * Debug Session Service
@@ -99,7 +99,10 @@ export class DebugSessionService {
   /**
    * Get active sessions by type for a tenant
    */
-  async getActiveSessionsByType(tenantId: string, sessionType: DebugSessionType): Promise<DebugSession[]> {
+  async getActiveSessionsByType(
+    tenantId: string,
+    sessionType: DebugSessionType,
+  ): Promise<DebugSession[]> {
     return this.debugSessionRepo.find({
       where: { tenantId, sessionType, isActive: true },
     });
@@ -114,7 +117,7 @@ export class DebugSessionService {
     isActive?: boolean;
     page?: number;
     limit?: number;
-  }): Promise<{ data: DebugSession[]; total: number; page: number; limit: number }> {
+  }): Promise<IStandardPaginatedResult<DebugSession>> {
     const page = params.page || 1;
     const limit = params.limit || 20;
     const skip = (page - 1) * limit;
@@ -136,7 +139,7 @@ export class DebugSessionService {
 
     const [data, total] = await query.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**

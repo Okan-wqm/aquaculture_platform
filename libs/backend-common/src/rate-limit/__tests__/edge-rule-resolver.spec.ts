@@ -9,12 +9,20 @@ const CONFIG: RateLimitEdgeConfig = {
     login: { name: 'login', limit: 5, windowMs: 900_000 },
     upload: { name: 'upload', limit: 10, windowMs: 60_000 },
     mutations: { name: 'mutations', limit: 30, windowMs: 60_000 },
+    httpMutations: {
+      name: 'http-mutations',
+      limit: 40,
+      windowMs: 60_000,
+      requiresDistributedStore: true,
+    },
   },
   endpointBuckets: [
     { tier: 'login', paths: ['/auth/login'] },
     { tier: 'upload', paths: ['/api/files/upload'] },
   ],
   mutationTier: 'mutations',
+  httpMutationTier: 'httpMutations',
+  exemptions: [{ methods: ['GET'], paths: ['/health/live'] }],
 };
 
 function facts(partial: Partial<EdgeRequestFacts>): EdgeRequestFacts {
@@ -64,7 +72,9 @@ describe('resolveEdgeRules — additive mutation tier (gateway MutationGuard par
 
   it('authenticated tenant mutation → [tenant, mutations]', () => {
     expect(
-      names(facts({ url: '/graphql', graphqlParentType: 'Mutation', userId: 'u1', tenantId: 't1' })),
+      names(
+        facts({ url: '/graphql', graphqlParentType: 'Mutation', userId: 'u1', tenantId: 't1' }),
+      ),
     ).toEqual(['tenant', 'mutations']);
   });
 
@@ -76,17 +86,17 @@ describe('resolveEdgeRules — additive mutation tier (gateway MutationGuard par
 
   it('no mutation rule when mutationTier is unconfigured', () => {
     const noMutation: RateLimitEdgeConfig = { ...CONFIG, mutationTier: undefined };
-    expect(resolveEdgeRules(facts({ graphqlParentType: 'Mutation' }), noMutation).map((r) => r.name)).toEqual(
-      ['anonymous'],
-    );
+    expect(
+      resolveEdgeRules(facts({ graphqlParentType: 'Mutation' }), noMutation).map((r) => r.name),
+    ).toEqual(['anonymous']);
   });
 
   it('does NOT add the mutation tier for a Subscription (exact "Mutation" match only)', () => {
     // Defensive: a refactor to a loose "contains Mutation" check would wrongly
     // rate-limit subscriptions as mutations. Only the exact parent type counts.
-    expect(names(facts({ url: '/graphql', graphqlParentType: 'Subscription', userId: 'u1' }))).toEqual([
-      'default',
-    ]);
+    expect(
+      names(facts({ url: '/graphql', graphqlParentType: 'Subscription', userId: 'u1' })),
+    ).toEqual(['default']);
   });
 
   it('an endpoint-tier request that is ALSO a GraphQL mutation stays additive [endpoint, mutations]', () => {
@@ -96,5 +106,37 @@ describe('resolveEdgeRules — additive mutation tier (gateway MutationGuard par
     expect(
       names(facts({ url: '/auth/login', graphqlParentType: 'Mutation', userId: 'u1' })),
     ).toEqual(['login', 'mutations']);
+  });
+});
+
+describe('resolveEdgeRules — HTTP mutation and exemption boundary', () => {
+  it.each(['POST', 'PUT', 'PATCH', 'DELETE'])(
+    'adds the shared mutation tier to %s without replacing identity',
+    (method) => {
+      expect(names(facts({ method, url: '/admin/resource', userId: 'u1' }))).toEqual([
+        'default',
+        'http-mutations',
+      ]);
+    },
+  );
+
+  it('propagates the distributed-store requirement from a named tier', () => {
+    expect(
+      resolveEdgeRules(facts({ method: 'POST', url: '/admin/resource' }), CONFIG)[1],
+    ).toMatchObject({
+      name: 'http-mutations',
+      requiresDistributedStore: true,
+    });
+  });
+
+  it('matches exemptions by exact method and path only', () => {
+    expect(resolveEdgeRules(facts({ method: 'GET', url: '/health/live?probe=1' }), CONFIG)).toEqual(
+      [],
+    );
+    expect(names(facts({ method: 'POST', url: '/health/live' }))).toEqual([
+      'anonymous',
+      'http-mutations',
+    ]);
+    expect(names(facts({ method: 'GET', url: '/health/live/extra' }))).toEqual(['anonymous']);
   });
 });

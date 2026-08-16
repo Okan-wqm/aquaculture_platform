@@ -16,6 +16,7 @@ import { AuditLogService } from '../../../audit/audit.service';
 import {
   ImpersonationSession,
   ImpersonationPermission,
+  ImpersonationReason,
   ImpersonationStatus,
   toSafeImpersonationSession,
 } from '../../entities/impersonation-session.entity';
@@ -27,7 +28,12 @@ const withSecrets = (overrides: Partial<ImpersonationSession> = {}): Impersonati
     superAdminId: 'admin-1',
     targetTenantId: 'tenant-1',
     status: ImpersonationStatus.ACTIVE,
+    reason: ImpersonationReason.SUPPORT_REQUEST,
+    mfaCompleted: false,
+    actionCount: 0,
     expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+    createdAt: new Date(),
+    updatedAt: new Date(),
     originalSessionToken: 'PLAINTEXT-SESSION-TOKEN',
     impersonationToken: 'HASHED-IMPERSONATION-TOKEN',
     ...overrides,
@@ -37,11 +43,20 @@ const expectNoSecrets = (obj: unknown): void => {
   expect(obj).toBeDefined();
   expect(obj as Record<string, unknown>).not.toHaveProperty('originalSessionToken');
   expect(obj as Record<string, unknown>).not.toHaveProperty('impersonationToken');
+  expect(obj as Record<string, unknown>).not.toHaveProperty('actionsPerformed');
+  expect(obj as Record<string, unknown>).not.toHaveProperty('accessedResources');
 };
 
 describe('toSafeImpersonationSession (SSoT mapper)', () => {
-  it('strips both secret columns and preserves the rest', () => {
-    const safe = toSafeImpersonationSession(withSecrets());
+  it('strips secret and detail columns while preserving the summary', () => {
+    const safe = toSafeImpersonationSession(
+      withSecrets({
+        actionsPerformed: [
+          { action: 'VIEW', resource: 'tenant', timestamp: '2026-08-15T00:00:00.000Z' },
+        ],
+        accessedResources: [],
+      }),
+    );
     expectNoSecrets(safe);
     expect(safe.id).toBe('session-1');
     expect(safe.superAdminId).toBe('admin-1');
@@ -56,12 +71,14 @@ describe('ImpersonationService — read paths never serialize tokens', () => {
     save: jest.Mock;
     count: jest.Mock;
     createQueryBuilder: jest.Mock;
+    manager: { transaction: jest.Mock };
   };
   let permissionRepo: {
     find: jest.Mock;
     findOne: jest.Mock;
     save: jest.Mock;
     count: jest.Mock;
+    manager: { transaction: jest.Mock };
   };
 
   beforeEach(async () => {
@@ -71,23 +88,45 @@ describe('ImpersonationService — read paths never serialize tokens', () => {
       findOne: jest.fn().mockResolvedValue(withSecrets()),
       // save echoes the mutated entity back — exactly what TypeORM does — so a
       // leak in the return path would surface as a failing secret assertion.
-      save: jest.fn().mockImplementation((session: ImpersonationSession) => Promise.resolve(session)),
+      save: jest
+        .fn()
+        .mockImplementation((session: ImpersonationSession) => Promise.resolve(session)),
       count: jest.fn().mockResolvedValue(0),
       createQueryBuilder: jest.fn(),
+      manager: { transaction: jest.fn() },
     };
     permissionRepo = {
       find: jest.fn().mockResolvedValue([]),
       findOne: jest.fn().mockResolvedValue(null),
       save: jest.fn(),
       count: jest.fn().mockResolvedValue(0),
+      manager: { transaction: jest.fn() },
     };
+    const transactionManager = {
+      withRepository: jest.fn((repository: unknown) => {
+        if (repository === sessionRepo) return sessionRepo;
+        if (repository === permissionRepo) return permissionRepo;
+        throw new Error('Unexpected repository outside the injected transaction authority');
+      }),
+    };
+    const runTransaction = (
+      work: (manager: typeof transactionManager) => Promise<unknown>,
+    ): Promise<unknown> => work(transactionManager);
+    sessionRepo.manager.transaction.mockImplementation(runTransaction);
+    permissionRepo.manager.transaction.mockImplementation(runTransaction);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ImpersonationService,
         { provide: getRepositoryToken(ImpersonationSession), useValue: sessionRepo },
         { provide: getRepositoryToken(ImpersonationPermission), useValue: permissionRepo },
-        { provide: AuditLogService, useValue: { log: jest.fn().mockResolvedValue(undefined) } },
+        {
+          provide: AuditLogService,
+          useValue: {
+            log: jest.fn().mockResolvedValue(undefined),
+            logRequired: jest.fn().mockResolvedValue({ id: 'audit-1' }),
+          },
+        },
       ],
     }).compile();
 
@@ -101,11 +140,9 @@ describe('ImpersonationService — read paths never serialize tokens', () => {
   });
 
   it('getActiveSessions returns safe views without token columns', async () => {
-    // Warm the in-memory active cache from persistence (onModuleInit path).
     sessionRepo.find.mockResolvedValueOnce([withSecrets()]);
-    await service.onModuleInit();
 
-    const active = service.getActiveSessions();
+    const active = await service.getActiveSessions();
     expect(active.length).toBeGreaterThan(0);
     for (const s of active) expectNoSecrets(s);
   });
@@ -116,7 +153,9 @@ describe('ImpersonationService — read paths never serialize tokens', () => {
       orderBy: jest.fn().mockReturnThis(),
       skip: jest.fn().mockReturnThis(),
       take: jest.fn().mockReturnThis(),
-      getManyAndCount: jest.fn().mockResolvedValue([[withSecrets(), withSecrets({ id: 'session-2' })], 2]),
+      getManyAndCount: jest
+        .fn()
+        .mockResolvedValue([[withSecrets(), withSecrets({ id: 'session-2' })], 2]),
     };
     sessionRepo.createQueryBuilder.mockReturnValue(qb);
 
@@ -144,14 +183,25 @@ describe('ImpersonationService — read paths never serialize tokens', () => {
   });
 
   it('extendSession returns the safe view without token columns', async () => {
-    // Recent createdAt + short extension stays inside the 60-minute default
-    // cap (no active ImpersonationPermission is mocked).
-    sessionRepo.findOne.mockResolvedValueOnce(
-      withSecrets({
-        createdAt: new Date(),
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-      }),
-    );
+    // Recent createdAt + short extension stays inside the active grant's
+    // ceiling. Extension is deliberately fail-closed when the grant is absent
+    // or revoked, so the fixture must model the authorization authority too.
+    permissionRepo.findOne.mockResolvedValueOnce({
+      id: 'permission-1',
+      superAdminId: 'admin-1',
+      isActive: true,
+      canImpersonate: true,
+      allowedTenants: ['tenant-1'],
+      maxSessionDurationMinutes: 60,
+      maxConcurrentSessions: 1,
+    });
+    const extendableSession = withSecrets({
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    });
+    sessionRepo.findOne
+      .mockResolvedValueOnce(extendableSession)
+      .mockResolvedValueOnce(extendableSession);
 
     const result = await service.extendSession('session-1', 5, 'admin-1');
     expectNoSecrets(result);
@@ -159,20 +209,52 @@ describe('ImpersonationService — read paths never serialize tokens', () => {
   });
 
   it('getImpersonationStats strips token columns from recentSessions', async () => {
-    const statsQb = {
+    const actionsQb = {
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      getRawOne: jest.fn().mockResolvedValue({ actionsLogged: '9' }),
+    };
+    const adminsQb = {
       select: jest.fn().mockReturnThis(),
       addSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
       groupBy: jest.fn().mockReturnThis(),
       addGroupBy: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
       limit: jest.fn().mockReturnThis(),
       getRawMany: jest.fn().mockResolvedValue([]),
     };
-    sessionRepo.createQueryBuilder.mockReturnValue(statsQb);
+    sessionRepo.createQueryBuilder.mockReturnValueOnce(actionsQb).mockReturnValueOnce(adminsQb);
     sessionRepo.find.mockResolvedValueOnce([withSecrets(), withSecrets({ id: 'session-2' })]);
 
     const stats = await service.getImpersonationStats();
+    expect(stats.window.days).toBe(30);
+    expect(stats.actionsLogged).toBe(9);
     expect(stats.recentSessions).toHaveLength(2);
     for (const s of stats.recentSessions) expectNoSecrets(s);
+  });
+
+  it('returns session actions only through the dedicated projection', async () => {
+    sessionRepo.findOne.mockResolvedValueOnce(
+      withSecrets({
+        actionsPerformed: [
+          {
+            action: 'VIEW',
+            resource: 'tenant',
+            timestamp: '2026-08-15T00:00:00.000Z',
+            details: { field: 'name' },
+          },
+        ],
+      }),
+    );
+
+    await expect(service.getSessionActions('session-1')).resolves.toEqual([
+      {
+        action: 'VIEW',
+        resource: 'tenant',
+        timestamp: '2026-08-15T00:00:00.000Z',
+        details: { field: 'name' },
+      },
+    ]);
   });
 });

@@ -24,7 +24,7 @@ export interface Column<T> {
 }
 
 interface DataTableProps<T> {
-  data: T[];
+  data: readonly T[];
   columns: Column<T>[];
   keyExtractor: (row: T) => string;
   isLoading?: boolean;

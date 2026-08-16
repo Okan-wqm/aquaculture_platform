@@ -4,6 +4,7 @@
  * Rapor oluşturma ve indirme endpoint'leri.
  */
 
+import type { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import {
   Controller,
   Get,
@@ -41,7 +42,15 @@ import { ReportsService } from '../services/reports.service';
 // ============================================================================
 
 class GenerateReportDto {
-  @IsIn(['tenant_overview', 'tenant_churn', 'financial_revenue', 'financial_payments', 'usage_modules', 'usage_features', 'system_performance'])
+  @IsIn([
+    'tenant_overview',
+    'tenant_churn',
+    'financial_revenue',
+    'financial_payments',
+    'usage_modules',
+    'usage_features',
+    'system_performance',
+  ])
   type!: ReportType;
 
   @IsIn(['json', 'csv', 'pdf'])
@@ -70,7 +79,15 @@ class CreateDefinitionDto {
   @IsString()
   description?: string;
 
-  @IsIn(['tenant_overview', 'tenant_churn', 'financial_revenue', 'financial_payments', 'usage_modules', 'usage_features', 'system_performance'])
+  @IsIn([
+    'tenant_overview',
+    'tenant_churn',
+    'financial_revenue',
+    'financial_payments',
+    'usage_modules',
+    'usage_features',
+    'system_performance',
+  ])
   type!: ReportType;
 
   @IsOptional()
@@ -138,7 +155,15 @@ class ExecuteReportDto {
   definitionId?: string;
 
   @IsOptional()
-  @IsIn(['tenant_overview', 'tenant_churn', 'financial_revenue', 'financial_payments', 'usage_modules', 'usage_features', 'system_performance'])
+  @IsIn([
+    'tenant_overview',
+    'tenant_churn',
+    'financial_revenue',
+    'financial_payments',
+    'usage_modules',
+    'usage_features',
+    'system_performance',
+  ])
   reportType?: ReportType;
 
   @IsOptional()
@@ -198,7 +223,7 @@ export class ReportsController {
     @Query('type') type?: ReportType,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ): Promise<{ data: ReportDefinition[]; total: number; page: number; limit: number }> {
+  ): Promise<IStandardPaginatedResult<ReportDefinition>> {
     return this.reportsService.getDefinitions({
       status,
       type,
@@ -243,7 +268,7 @@ export class ReportsController {
     @Query('reportType') reportType?: ReportType,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ): Promise<{ data: ReportExecution[]; total: number; page: number; limit: number }> {
+  ): Promise<IStandardPaginatedResult<ReportExecution>> {
     return this.reportsService.getExecutions({
       definitionId,
       status,
@@ -426,9 +451,7 @@ export class ReportsController {
   }
 
   @Get('payments')
-  async getPaymentsReport(
-    @Query('format') format: ReportFormat = 'json',
-  ): Promise<ReportResult> {
+  async getPaymentsReport(@Query('format') format: ReportFormat = 'json'): Promise<ReportResult> {
     const endDate = new Date();
     const startDate = new Date();
     startDate.setMonth(startDate.getMonth() - 1);
@@ -505,8 +528,13 @@ export class ReportsController {
     // (TypeScript types are erased at runtime — an invalid value would reach generateReport()
     // and the Content-Disposition header if the switch default did not throw).
     const allowedReportTypes: readonly ReportType[] = [
-      'tenant_overview', 'tenant_churn', 'financial_revenue',
-      'financial_payments', 'usage_modules', 'usage_features', 'system_performance',
+      'tenant_overview',
+      'tenant_churn',
+      'financial_revenue',
+      'financial_payments',
+      'usage_modules',
+      'usage_features',
+      'system_performance',
     ];
     if (!allowedReportTypes.includes(reportType)) {
       throw new BadRequestException(`Invalid report type: "${reportType}"`);
@@ -535,7 +563,10 @@ export class ReportsController {
       const filename = `${reportType}_report_${Date.now()}.pdf`;
 
       res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="${this.sanitizeFilename(filename)}"`);
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${this.sanitizeFilename(filename)}"`,
+      );
       res.setHeader('Content-Length', pdfBuffer.length);
       res.send(pdfBuffer);
     } else {
@@ -549,7 +580,10 @@ export class ReportsController {
       const filename = `${reportType}_report_${Date.now()}.csv`;
 
       res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename="${this.sanitizeFilename(filename)}"`);
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${this.sanitizeFilename(filename)}"`,
+      );
       res.send(csvReport.data);
     }
   }
@@ -576,7 +610,10 @@ export class ReportsController {
 
     res.setHeader('Content-Type', 'application/pdf');
     // BUG-040 fix: quote the filename per RFC 6266 to handle special characters safely
-    res.setHeader('Content-Disposition', `attachment; filename="${this.sanitizeFilename(filename)}"`);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${this.sanitizeFilename(filename)}"`,
+    );
     res.setHeader('Content-Length', pdfBuffer.length);
     res.send(pdfBuffer);
   }
@@ -586,10 +623,7 @@ export class ReportsController {
   // ============================================================================
 
   @Get('export/csv')
-  async exportCsv(
-    @Query('type') type: string,
-    @Res() res: Response,
-  ): Promise<void> {
+  async exportCsv(@Query('type') type: string, @Res() res: Response): Promise<void> {
     const endDate = new Date();
     const startDate = new Date();
     startDate.setMonth(startDate.getMonth() - 1);

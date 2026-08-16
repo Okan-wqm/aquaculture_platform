@@ -1,8 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import {
+  createStandardPaginatedResult,
+  type IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
+import {
   Repository,
   Between,
+  EntityManager,
   FindOptionsWhere,
   MoreThanOrEqual,
   LessThanOrEqual,
@@ -40,14 +45,6 @@ export interface AuditLogFilter {
   search?: string;
 }
 
-export interface PaginatedAuditLogs {
-  data: AuditLog[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
-
 interface ActionCountRow {
   action?: string | null;
   count: string;
@@ -83,18 +80,7 @@ export class AuditLogService {
    */
   async log(input: AuditLogInput): Promise<AuditLog | null> {
     try {
-      const auditLog = this.auditLogRepository.create({
-        ...input,
-        severity: input.severity || this.determineSeverity(input.action),
-      });
-
-      const savedLog = await this.auditLogRepository.save(auditLog);
-
-      this.logger.debug(
-        `Audit log created: ${input.action} by ${input.performedBy}`,
-      );
-
-      return savedLog;
+      return await this.logRequired(input);
     } catch (error) {
       // BUG-029 fix: return null instead of an unsaved entity that callers
       // may mistakenly treat as persisted (e.g., checking .id for existence).
@@ -108,13 +94,33 @@ export class AuditLogService {
   }
 
   /**
+   * Persist a security-critical audit fact and propagate every failure.
+   *
+   * Callers whose domain mutation must never commit without its audit fact use
+   * this method inside the same TypeORM transaction. `log()` remains the
+   * explicitly best-effort boundary for non-critical telemetry, while this
+   * method is the fail-closed authority for security workflows.
+   */
+  async logRequired(input: AuditLogInput, manager?: EntityManager): Promise<AuditLog> {
+    const repository = manager?.getRepository(AuditLog) ?? this.auditLogRepository;
+    const auditLog = repository.create({
+      ...input,
+      severity: input.severity || this.determineSeverity(input.action),
+    });
+    const savedLog = await repository.save(auditLog);
+
+    this.logger.debug(`Required audit log created: ${input.action} by ${input.performedBy}`);
+    return savedLog;
+  }
+
+  /**
    * Query audit logs with filtering and pagination
    */
   async query(
     filter: AuditLogFilter,
     page = 1,
     limit = 50,
-  ): Promise<PaginatedAuditLogs> {
+  ): Promise<IStandardPaginatedResult<AuditLog>> {
     try {
       const skip = (page - 1) * limit;
       const take = Math.min(limit, 100);
@@ -189,36 +195,18 @@ export class AuditLogService {
 
       const [data, total] = await queryBuilder.getManyAndCount();
 
-      return {
-        data,
-        total,
-        page,
-        limit: take,
-        totalPages: Math.ceil(total / take),
-      };
+      return createStandardPaginatedResult(data, total, page, take);
     } catch (error) {
-      this.logger.error(
-        `Failed to query audit logs: ${(error as Error).message}`,
-        (error as Error).stack,
-      );
-      return {
-        data: [],
-        total: 0,
-        page,
-        limit: Math.min(limit, 100),
-        totalPages: 0,
-      };
+      const cause = error instanceof Error ? error : new Error('Unknown audit query failure');
+      this.logger.error(`Failed to query audit logs: ${cause.message}`, cause.stack);
+      throw cause;
     }
   }
 
   /**
    * Get audit logs for a specific entity
    */
-  async getEntityHistory(
-    entityType: string,
-    entityId: string,
-    limit = 100,
-  ): Promise<AuditLog[]> {
+  async getEntityHistory(entityType: string, entityId: string, limit = 100): Promise<AuditLog[]> {
     return this.auditLogRepository.find({
       where: { entityType, entityId },
       order: { createdAt: 'DESC' },
@@ -280,10 +268,7 @@ export class AuditLogService {
    * "tenantId accidentally undefined" footgun, pass `null` or `undefined`
    * deliberately — the meta-audit entry records the absence.
    */
-  async getSecurityLogs(
-    tenantId?: string,
-    limit = 100,
-  ): Promise<AuditLog[]> {
+  async getSecurityLogs(tenantId?: string, limit = 100): Promise<AuditLog[]> {
     const securityActions = [
       'LOGIN_SUCCESS',
       'LOGIN_FAILED',

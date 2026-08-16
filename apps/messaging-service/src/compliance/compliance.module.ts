@@ -6,6 +6,7 @@ import { APP_INTERCEPTOR } from '@nestjs/core';
 // Entities
 import { RetentionPolicy } from './entities/retention-policy.entity';
 import { LegalHold } from './entities/legal-hold.entity';
+import { LegalHoldReleaseOperation } from './entities/legal-hold-release-operation.entity';
 import { ComplianceAuditLog } from './entities/compliance-audit-log.entity';
 
 // External entities referenced by services
@@ -14,6 +15,8 @@ import { Message } from '../message/entities/message.entity';
 // Services
 import { RetentionPolicyService } from './services/retention-policy.service';
 import { LegalHoldService } from './services/legal-hold.service';
+import { LegalHoldReleaseOperationService } from './services/legal-hold-release-operation.service';
+import { LegalHoldDestructiveMutationAuthority } from './services/legal-hold-destructive-mutation.authority';
 import { LegalHoldGuard } from './services/legal-hold.guard';
 import { ComplianceAuditService } from './services/compliance-audit.service';
 import { DataExportService } from './services/data-export.service';
@@ -21,7 +24,7 @@ import { AttachmentObjectPurgeService } from './services/attachment-object-purge
 
 // Command handlers
 import { SetRetentionPolicyHandler } from './commands/set-retention-policy.handler';
-import { ToggleLegalHoldHandler } from './commands/toggle-legal-hold.handler';
+import { ActivateLegalHoldHandler } from './commands/activate-legal-hold.handler';
 
 // Query handlers
 import { GetAuditLogHandler } from './queries/get-audit-log.handler';
@@ -33,7 +36,7 @@ import { ComplianceResolver } from './resolvers/compliance.resolver';
 // Interceptor
 import { AuditLogInterceptor } from './interceptors/audit-log.interceptor';
 
-const CommandHandlers = [SetRetentionPolicyHandler, ToggleLegalHoldHandler];
+const CommandHandlers = [SetRetentionPolicyHandler, ActivateLegalHoldHandler];
 const QueryHandlers = [GetAuditLogHandler, GetRetentionPoliciesHandler];
 
 /**
@@ -51,6 +54,7 @@ const QueryHandlers = [GetAuditLogHandler, GetRetentionPoliciesHandler];
     TypeOrmModule.forFeature([
       RetentionPolicy,
       LegalHold,
+      LegalHoldReleaseOperation,
       ComplianceAuditLog,
       Message,
     ]),
@@ -60,6 +64,8 @@ const QueryHandlers = [GetAuditLogHandler, GetRetentionPoliciesHandler];
     // Services
     RetentionPolicyService,
     LegalHoldService,
+    LegalHoldReleaseOperationService,
+    LegalHoldDestructiveMutationAuthority,
     LegalHoldGuard,
     ComplianceAuditService,
     DataExportService,
@@ -80,6 +86,8 @@ const QueryHandlers = [GetAuditLogHandler, GetRetentionPoliciesHandler];
   ],
   exports: [
     LegalHoldService,
+    LegalHoldReleaseOperationService,
+    LegalHoldDestructiveMutationAuthority,
     LegalHoldGuard,
     ComplianceAuditService,
     RetentionPolicyService,

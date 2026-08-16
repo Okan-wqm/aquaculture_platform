@@ -6,6 +6,12 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
+import type {
+  AdminImpersonationActionV1,
+  AdminImpersonationPermissionV1,
+  AdminImpersonationPermissionsV1,
+  AdminImpersonationSessionV1,
+} from '@platform/admin-http-contracts';
 
 /**
  * RBAC-MEDIUM-009 (M7): the ONE impersonation session-duration ceiling, in
@@ -17,6 +23,7 @@ import {
  * per-DTO edit.
  */
 export const IMPERSONATION_MAX_SESSION_MINUTES = 60;
+export const IMPERSONATION_MAX_CONCURRENT_SESSIONS = 10;
 
 export enum ImpersonationStatus {
   ACTIVE = 'active',
@@ -35,24 +42,9 @@ export enum ImpersonationReason {
   OTHER = 'other',
 }
 
-export interface ImpersonationPermissions {
-  canViewData: boolean;
-  canModifyData: boolean;
-  canAccessSettings: boolean;
-  canManageUsers: boolean;
-  canViewBilling: boolean;
-  canExportData: boolean;
-  restrictedModules?: string[];
-  allowedModules?: string[];
-}
+export type ImpersonationPermissions = AdminImpersonationPermissionsV1;
 
-export interface ImpersonationAction {
-  action: string;
-  resource: string;
-  resourceId?: string;
-  timestamp: string;
-  details?: Record<string, unknown>;
-}
+export type ImpersonationAction = AdminImpersonationActionV1;
 
 @Entity('impersonation_sessions', { schema: 'admin' })
 @Index(['superAdminId', 'status'])
@@ -156,41 +148,45 @@ export class ImpersonationSession {
   updatedAt!: Date;
 }
 
+/** Public JSON boundary owned by the versioned admin HTTP contract library. */
+export type SafeImpersonationSession = AdminImpersonationSessionV1;
+
 /**
- * Secret columns on ImpersonationSession that MUST NEVER be serialized onto a
- * read response (DB-ADMIN-HIGH-002). `originalSessionToken` is stored plaintext
- * and `impersonationToken` is a live credential hash; both are set once at
- * creation and consumed internally (validateSession). admin-api registers no
- * global ClassSerializerInterceptor, so `@Exclude()` would be inert — the
- * boundary is enforced by returning the safe view below from every read path.
- * This array is the single source of truth for what to strip.
+ * Project an entity through an explicit allowlist. A future entity column is
+ * private by default, so credentials and high-volume detail cannot leak merely
+ * because a persistence model gained a field.
  */
-export const IMPERSONATION_SESSION_SECRET_FIELDS = [
-  'originalSessionToken',
-  'impersonationToken',
-] as const;
-
-/** ImpersonationSession without its secret token columns — the read-response shape. */
-export type SafeImpersonationSession = Omit<
-  ImpersonationSession,
-  (typeof IMPERSONATION_SESSION_SECRET_FIELDS)[number]
->;
-
-/** Strip every secret column so a session can never carry a token onto a read response. */
 export function toSafeImpersonationSession(
   session: ImpersonationSession,
 ): SafeImpersonationSession {
-  const safe: Record<string, unknown> = { ...session };
-  for (const field of IMPERSONATION_SESSION_SECRET_FIELDS) {
-    // Reflect.deleteProperty: same strip without the `delete` operator on a
-    // computed key (no-dynamic-delete) — repo-established pattern.
-    Reflect.deleteProperty(safe, field);
-  }
-  return safe as SafeImpersonationSession;
+  return {
+    id: session.id,
+    superAdminId: session.superAdminId,
+    superAdminEmail: session.superAdminEmail,
+    targetTenantId: session.targetTenantId,
+    targetTenantName: session.targetTenantName,
+    targetUserId: session.targetUserId,
+    targetUserEmail: session.targetUserEmail,
+    status: session.status,
+    reason: session.reason,
+    reasonDetails: session.reasonDetails,
+    ticketReference: session.ticketReference,
+    permissions: session.permissions ? { ...session.permissions } : undefined,
+    ipAddress: session.ipAddress,
+    userAgent: session.userAgent,
+    mfaCompleted: session.mfaCompleted,
+    expiresAt: session.expiresAt.toISOString(),
+    endedAt: session.endedAt?.toISOString(),
+    endReason: session.endReason,
+    actionCount: session.actionCount,
+    metadata: session.metadata ? { ...session.metadata } : undefined,
+    createdAt: session.createdAt.toISOString(),
+    updatedAt: session.updatedAt.toISOString(),
+  };
 }
 
 @Entity('impersonation_permissions', { schema: 'admin' })
-@Index(['superAdminId', 'isActive'])
+@Index('UQ_admin_impersonation_permissions_super_admin', ['superAdminId'], { unique: true })
 export class ImpersonationPermission {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -228,7 +224,7 @@ export class ImpersonationPermission {
   @Column({ default: false })
   requireTicketReference!: boolean;
 
-  @Column({ default: true })
+  @Column({ default: false })
   notifyTenantAdmin!: boolean;
 
   @Column({ type: 'uuid', nullable: true })
@@ -243,9 +239,49 @@ export class ImpersonationPermission {
   @Column({ type: 'text', nullable: true })
   notes?: string;
 
+  @Column({ type: 'uuid', nullable: true })
+  revokedBy?: string;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  revokedAt?: Date;
+
+  @Column({ type: 'text', nullable: true })
+  revocationReason?: string;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
   @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
+}
+
+export function toAdminImpersonationPermissionV1(
+  permission: ImpersonationPermission,
+): AdminImpersonationPermissionV1 {
+  return {
+    id: permission.id,
+    superAdminId: permission.superAdminId,
+    superAdminEmail: permission.superAdminEmail,
+    canImpersonate: permission.canImpersonate,
+    isActive: permission.isActive,
+    allowedTenants: permission.allowedTenants ? [...permission.allowedTenants] : undefined,
+    restrictedTenants: permission.restrictedTenants ? [...permission.restrictedTenants] : undefined,
+    defaultPermissions: permission.defaultPermissions
+      ? { ...permission.defaultPermissions }
+      : undefined,
+    maxSessionDurationMinutes: permission.maxSessionDurationMinutes,
+    maxConcurrentSessions: permission.maxConcurrentSessions,
+    requireReason: permission.requireReason,
+    requireTicketReference: permission.requireTicketReference,
+    notifyTenantAdmin: permission.notifyTenantAdmin,
+    grantedBy: permission.grantedBy,
+    grantedAt: permission.grantedAt?.toISOString(),
+    revokedBy: permission.revokedBy,
+    revokedAt: permission.revokedAt?.toISOString(),
+    revocationReason: permission.revocationReason,
+    expiresAt: permission.expiresAt?.toISOString(),
+    notes: permission.notes,
+    createdAt: permission.createdAt.toISOString(),
+    updatedAt: permission.updatedAt.toISOString(),
+  };
 }

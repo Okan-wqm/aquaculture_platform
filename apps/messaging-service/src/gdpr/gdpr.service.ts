@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 
-import { Injectable, Inject, Logger, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Inject, Logger, BadRequestException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { ClientProxy } from '@nestjs/microservices';
@@ -17,8 +17,7 @@ import {
 import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Message } from '../message/entities/message.entity';
 import { REDIS_CLIENT } from '../shared/redis.provider';
-import { LegalHoldService } from '../compliance/services/legal-hold.service';
-import { ComplianceAuditService } from '../compliance/services/compliance-audit.service';
+import { LegalHoldDestructiveMutationAuthority } from '../compliance/services/legal-hold-destructive-mutation.authority';
 import { ComplianceAction } from '../compliance/entities/compliance-audit-log.entity';
 import { AttachmentObjectPurgeService } from '../compliance/services/attachment-object-purge.service';
 import { MessagingMetricsService } from '../metrics/messaging-metrics.service';
@@ -81,7 +80,6 @@ interface GdprExportResult {
   reactions: ExportedReaction[];
 }
 
-
 /**
  * GDPR compliance service for the messaging domain.
  *
@@ -99,8 +97,7 @@ export class GdprService {
     private readonly natsClient: ClientProxy,
     @Inject(REDIS_CLIENT)
     private readonly redis: Redis,
-    private readonly legalHoldService: LegalHoldService,
-    private readonly complianceAuditService: ComplianceAuditService,
+    private readonly destructiveMutationAuthority: LegalHoldDestructiveMutationAuthority,
     private readonly metricsService: MessagingMetricsService,
     private readonly outboxPublisher: OutboxPublisher,
     // MSG-CRITICAL-058: the object-store arm of erasure — deletes the actual
@@ -127,26 +124,24 @@ export class GdprService {
    *
    * Rate-limited to 1 request per 24 hours per user via Redis.
    */
-  async exportMyMessages(
-    userId: string,
-    tenantId: string,
-  ): Promise<GdprExportResult> {
+  async exportMyMessages(userId: string, tenantId: string): Promise<GdprExportResult> {
     // Rate-limit check
     const rateLimitKey = `msg:${tenantId}:gdpr:export:${userId}`;
     try {
       const alreadyRequested = await this.redis.get(rateLimitKey);
       if (alreadyRequested) {
-        throw new BadRequestException(
-          'Data export can only be requested once every 24 hours',
-        );
+        throw new BadRequestException('Data export can only be requested once every 24 hours');
       }
     } catch (err) {
       if (err instanceof BadRequestException) throw err;
       this.logger.warn(`Redis rate-limit check failed, allowing export: ${(err as Error).message}`);
     }
 
-    const { exportedMessages, memberships, receipts, reactions } =
-      await runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
+    const { exportedMessages, memberships, receipts, reactions } = await runInTenantTransaction(
+      this.dataSource,
+      'messaging',
+      tenantId,
+      async (queryRunner) => {
         const CHUNK_SIZE = 1000;
         const exportedMessages: ExportedMessage[] = [];
         let lastCursor: { createdAt: Date; id: string } | null = null;
@@ -219,7 +214,8 @@ export class GdprService {
         );
 
         return { exportedMessages, memberships, receipts, reactions };
-      });
+      },
+    );
 
     // Set rate-limit key after successful export
     try {
@@ -277,205 +273,192 @@ export class GdprService {
     const objectKeysToPurge: string[] = [];
 
     try {
-      await runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
-        // Tenant-pinned transaction prevents GDPR erasure from touching source
-        // schema or another tenant while preserving the legal-hold lock boundary.
-        const activeTenantHolds: Array<{ id: string; channelId: string | null }> = await queryRunner.query(
-          `SELECT id, "channelId" FROM legal_holds
-         WHERE "tenantId" = $1 AND "isActive" = true
-         FOR UPDATE`,
-          [tenantId],
-        );
-
-      // Check if any hold is tenant-wide (channelId IS NULL)
-      const tenantWideHold = activeTenantHolds.find((h) => h.channelId === null);
-      if (tenantWideHold) {
-        throw new ForbiddenException('Tenant is under legal hold and data cannot be anonymized');
-      }
-
-      // Check per-channel holds for user's channels
-      if (activeTenantHolds.length > 0) {
-        const userMemberships: Array<{ channelId: string }> = await queryRunner.query(
-          `SELECT "channelId" FROM channel_members WHERE "userId" = $1`,
-          [userId],
-        );
-        const heldChannelIds = new Set(
-          activeTenantHolds
-            .filter((h) => h.channelId !== null)
-            .map((h) => h.channelId),
-        );
-        for (const membership of userMemberships) {
-          if (heldChannelIds.has(membership.channelId)) {
-            throw new ForbiddenException(`Channel ${membership.channelId} is under legal hold`);
-          }
-        }
-      }
-
-      // IMPORTANT: Capture message IDs BEFORE anonymising senderId,
-      // so we can delete attachments correctly.
-      const userMessages: Array<{ id: string; createdAt: Date }> = await queryRunner.query(
-        `SELECT id, "createdAt" FROM messages WHERE "senderId" = $1`,
-        [userId],
-      );
-      const messageIds = userMessages.map((m) => m.id);
-
-      // 1. Delete all message_attachments for user's messages (before anonymising sender).
-      // MSG-CRITICAL-058: capture the storage + thumbnail keys BEFORE the row delete
-      // so the actual MinIO binaries (the PII) are purged after the transaction commits.
-      if (messageIds.length > 0) {
-        const attachmentRows: Array<{ storageKey: string; thumbnailKey: string | null }> =
-          await queryRunner.query(
-            `SELECT "storageKey", "thumbnailKey" FROM message_attachments
-             WHERE "messageId" = ANY($1::uuid[])`,
-            [messageIds],
+      await this.destructiveMutationAuthority.runUserMutation(
+        tenantId,
+        userId,
+        async ({ manager, heldChannelIds }) => {
+          // IMPORTANT: Capture message IDs BEFORE anonymising senderId,
+          // so we can delete attachments correctly. The locked hold snapshot is also
+          // an SQL exclusion: a message concurrently created in a held channel can
+          // never enter this erasure set.
+          const userMessages: Array<{ id: string; createdAt: Date }> = await manager.query(
+            `SELECT id, "createdAt" FROM messages
+         WHERE "senderId" = $1
+           AND NOT ("channelId" = ANY($2::uuid[]))`,
+            [userId, heldChannelIds],
           );
-        for (const row of attachmentRows) {
-          objectKeysToPurge.push(row.storageKey);
-          if (row.thumbnailKey) {
-            objectKeysToPurge.push(row.thumbnailKey);
-          }
-        }
+          const messageIds = userMessages.map((m) => m.id);
 
-        await queryRunner.query(
-          `DELETE FROM message_attachments
+          // 1. Delete all message_attachments for user's messages (before anonymising sender).
+          // MSG-CRITICAL-058: capture the storage + thumbnail keys BEFORE the row delete
+          // so the actual MinIO binaries (the PII) are purged after the transaction commits.
+          if (messageIds.length > 0) {
+            const attachmentRows: Array<{ storageKey: string; thumbnailKey: string | null }> =
+              await manager.query(
+                `SELECT "storageKey", "thumbnailKey" FROM message_attachments
+             WHERE "messageId" = ANY($1::uuid[])`,
+                [messageIds],
+              );
+            for (const row of attachmentRows) {
+              objectKeysToPurge.push(row.storageKey);
+              if (row.thumbnailKey) {
+                objectKeysToPurge.push(row.thumbnailKey);
+              }
+            }
+
+            await manager.query(
+              `DELETE FROM message_attachments
            WHERE "messageId" = ANY($1::uuid[])`,
-          [messageIds],
-        );
-      }
+              [messageIds],
+            );
+          }
 
-      // 2. Anonymise all messages (sender set to nil UUID, content replaced)
-      await queryRunner.query(
-        `UPDATE messages
+          // 2. Anonymise all messages (sender set to nil UUID, content replaced)
+          await manager.query(
+            `UPDATE messages
          SET "senderId" = $1,
              content = '[message deleted by user]',
              embedding = NULL
-         WHERE "senderId" = $2`,
-        [ANONYMOUS_USER_ID, userId],
-      );
+         WHERE "senderId" = $2
+           AND NOT ("channelId" = ANY($3::uuid[]))`,
+            [ANONYMOUS_USER_ID, userId, heldChannelIds],
+          );
 
-      // 3. Delete pinned_messages referencing user's messages
-      if (messageIds.length > 0) {
-        await queryRunner.query(
-          `DELETE FROM pinned_messages WHERE "messageId" = ANY($1::uuid[])`,
-          [messageIds],
-        );
-      }
+          // 3. Delete pinned_messages referencing user's messages
+          if (messageIds.length > 0) {
+            await manager.query(`DELETE FROM pinned_messages WHERE "messageId" = ANY($1::uuid[])`, [
+              messageIds,
+            ]);
+          }
 
-      // 4. Delete message_analysis for user's messages
-      if (messageIds.length > 0) {
-        await queryRunner.query(
-          `DELETE FROM message_analysis WHERE "messageId" = ANY($1::uuid[])`,
-          [messageIds],
-        );
-      }
+          // 4. Delete message_analysis for user's messages
+          if (messageIds.length > 0) {
+            await manager.query(
+              `DELETE FROM message_analysis WHERE "messageId" = ANY($1::uuid[])`,
+              [messageIds],
+            );
+          }
 
-      // 5. Delete message_entity_references for user's messages
-      if (messageIds.length > 0) {
-        await queryRunner.query(
-          `DELETE FROM message_entity_references WHERE "messageId" = ANY($1::uuid[])`,
-          [messageIds],
-        );
-      }
+          // 5. Delete message_entity_references for user's messages
+          if (messageIds.length > 0) {
+            await manager.query(
+              `DELETE FROM message_entity_references WHERE "messageId" = ANY($1::uuid[])`,
+              [messageIds],
+            );
+          }
 
-      // 6. Delete knowledge_entries whose source message belonged to the user.
-      // WHY: knowledge_entries.sourceMessageId uses ON DELETE SET NULL so entries survive
-      // message soft-delete. Must explicitly delete by sourceMessageId during GDPR erasure.
-      if (messageIds.length > 0) {
-        await queryRunner.query(
-          `DELETE FROM knowledge_entries WHERE "sourceMessageId" = ANY($1::uuid[])`,
-          [messageIds],
-        );
-      }
+          // 6. Delete knowledge_entries whose source message belonged to the user.
+          // WHY: knowledge_entries.sourceMessageId uses ON DELETE SET NULL so entries survive
+          // message soft-delete. Must explicitly delete by sourceMessageId during GDPR erasure.
+          if (messageIds.length > 0) {
+            await manager.query(
+              `DELETE FROM knowledge_entries WHERE "sourceMessageId" = ANY($1::uuid[])`,
+              [messageIds],
+            );
+          }
 
-      // 7. Delete all message_receipts for user
-      await queryRunner.query(
-        `DELETE FROM message_receipts WHERE "userId" = $1`,
-        [userId],
-      );
+          // 7. Delete all message_receipts for user
+          await manager.query(
+            `DELETE FROM message_receipts r
+         USING messages m
+         WHERE r."userId" = $1
+           AND r."messageId" = m.id
+           AND r."messageCreatedAt" = m."createdAt"
+           AND NOT (m."channelId" = ANY($2::uuid[]))`,
+            [userId, heldChannelIds],
+          );
 
-      // 8. Delete all message_reactions for user
-      await queryRunner.query(
-        `DELETE FROM message_reactions WHERE "userId" = $1`,
-        [userId],
-      );
+          // 8. Delete all message_reactions for user
+          await manager.query(
+            `DELETE FROM message_reactions r
+         USING messages m
+         WHERE r."userId" = $1
+           AND r."messageId" = m.id
+           AND r."messageCreatedAt" = m."createdAt"
+           AND NOT (m."channelId" = ANY($2::uuid[]))`,
+            [userId, heldChannelIds],
+          );
 
-      // 9. Mark all channel memberships as left
-      await queryRunner.query(
-        `UPDATE channel_members
+          // 9. Mark all channel memberships as left
+          await manager.query(
+            `UPDATE channel_members
          SET "leftAt" = NOW()
-         WHERE "userId" = $1 AND "leftAt" IS NULL`,
-        [userId],
-      );
+         WHERE "userId" = $1
+           AND "leftAt" IS NULL
+           AND NOT ("channelId" = ANY($2::uuid[]))`,
+            [userId, heldChannelIds],
+          );
 
-      // ── 10. Cascade anonymization to AgentConversation records (ai-service) ──
-      // WHY (ADR-044 / INC-MSG-1): `agent_conversations` is ai-service-owned runner
-      // working context; messaging.messages is the compliance owner of AI in-channel
-      // content. The erasure crosses the service boundary by EVENT only — ai-service's
-      // ConversationPrivacyEventHandler consumes GdprAnonymizeRequested and erases its
-      // own blob. The former direct cross-service `UPDATE agent_conversations` (inside
-      // a broad swallow-all catch) is removed: a cross-service SQL write violates
-      // schema ownership and a swallowed failure faked coverage.
-      //
-      // Both events are enqueued INSIDE the erasure transaction, so a messaging-side
-      // erasure can never commit without the cascade request being durably queued.
-      // An enqueue failure is FAIL-LOUD: error log + metric + rethrow (transaction
-      // rolls back). The outbox relay owns at-least-once delivery from here; the
-      // ai-side delete is idempotent.
-      const anonymizedAt = new Date().toISOString();
-      // WHAT: requestId correlates the cascade across services; it is recorded in the
-      // same-transaction compliance_audit_log row below, which is the request-of-record
-      // for this self-service erasure flow (no shared.gdpr_data_requests row exists).
-      const cascadeRequestId = randomUUID();
-      // WHY: GDPR Art 12(3) grants one month to fulfil a data-subject request; the
-      // event contract carries that obligation as fulfilByIso.
-      const fulfilByIso = new Date(
-        Date.now() + GDPR_FULFILMENT_WINDOW_DAYS * 24 * 60 * 60 * 1000,
-      ).toISOString();
-      // WHAT: both payloads are annotated with their contract types so the compiler
-      // rejects missing/extra fields (the pre-fix emission shipped off-contract
-      // fields and omitted required ones — schemas validate additionalProperties:false).
-      const userDataAnonymizedEvent: UserDataAnonymizedEvent = {
-        ...createBaseEvent<UserDataAnonymizedEvent>('UserDataAnonymized', tenantId),
-        userId,
-        method: 'pii-fields-nulled',
-        initiatedBy: 'user',
-      };
-      // SECURITY: Cross-service cascade event for ai-service AgentConversation
-      // cleanup (ADR-044).
-      const gdprAnonymizeRequestedEvent: GdprAnonymizeRequestedEvent = {
-        ...createBaseEvent<GdprAnonymizeRequestedEvent>('GdprAnonymizeRequested', tenantId),
-        userId,
-        requestId: cascadeRequestId,
-        fulfilByIso,
-      };
-      try {
-        await this.outboxPublisher.enqueue(userDataAnonymizedEvent, queryRunner.manager);
-        await this.outboxPublisher.enqueue(gdprAnonymizeRequestedEvent, queryRunner.manager);
-      } catch (error) {
-        this.metricsService.incrementGdprCascadeEmitFailure(tenantId);
-        this.logger.error(
-          `GDPR erasure cascade event enqueue failed for user ${userId} (tenant ${tenantId}); ` +
-            'rolling back erasure so no anonymisation commits without its cascade request',
-        );
-        throw error;
-      }
+          // ── 10. Cascade anonymization to AgentConversation records (ai-service) ──
+          // WHY (ADR-044 / INC-MSG-1): `agent_conversations` is ai-service-owned runner
+          // working context; messaging.messages is the compliance owner of AI in-channel
+          // content. The erasure crosses the service boundary by EVENT only — ai-service's
+          // ConversationPrivacyEventHandler consumes GdprAnonymizeRequested and erases its
+          // own blob. The former direct cross-service `UPDATE agent_conversations` (inside
+          // a broad swallow-all catch) is removed: a cross-service SQL write violates
+          // schema ownership and a swallowed failure faked coverage.
+          //
+          // Both events are enqueued INSIDE the erasure transaction, so a messaging-side
+          // erasure can never commit without the cascade request being durably queued.
+          // An enqueue failure is FAIL-LOUD: error log + metric + rethrow (transaction
+          // rolls back). The outbox relay owns at-least-once delivery from here; the
+          // ai-side delete is idempotent.
+          const anonymizedAt = new Date().toISOString();
+          // WHAT: requestId correlates the cascade across services; it is recorded in the
+          // same-transaction compliance_audit_log row below, which is the request-of-record
+          // for this self-service erasure flow (no shared.gdpr_data_requests row exists).
+          const cascadeRequestId = randomUUID();
+          // WHY: GDPR Art 12(3) grants one month to fulfil a data-subject request; the
+          // event contract carries that obligation as fulfilByIso.
+          const fulfilByIso = new Date(
+            Date.now() + GDPR_FULFILMENT_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+          ).toISOString();
+          // WHAT: both payloads are annotated with their contract types so the compiler
+          // rejects missing/extra fields (the pre-fix emission shipped off-contract
+          // fields and omitted required ones — schemas validate additionalProperties:false).
+          const userDataAnonymizedEvent: UserDataAnonymizedEvent = {
+            ...createBaseEvent<UserDataAnonymizedEvent>('UserDataAnonymized', tenantId),
+            userId,
+            method: 'pii-fields-nulled',
+            initiatedBy: 'user',
+          };
+          // SECURITY: Cross-service cascade event for ai-service AgentConversation
+          // cleanup (ADR-044).
+          const gdprAnonymizeRequestedEvent: GdprAnonymizeRequestedEvent = {
+            ...createBaseEvent<GdprAnonymizeRequestedEvent>('GdprAnonymizeRequested', tenantId),
+            userId,
+            requestId: cascadeRequestId,
+            fulfilByIso,
+          };
+          try {
+            await this.outboxPublisher.enqueue(userDataAnonymizedEvent, manager);
+            await this.outboxPublisher.enqueue(gdprAnonymizeRequestedEvent, manager);
+          } catch (error) {
+            this.metricsService.incrementGdprCascadeEmitFailure(tenantId);
+            this.logger.error(
+              `GDPR erasure cascade event enqueue failed for user ${userId} (tenant ${tenantId}); ` +
+                'rolling back erasure so no anonymisation commits without its cascade request',
+            );
+            throw error;
+          }
 
-      // 11. SECURITY: Compliance audit log INSIDE transaction (before commit)
-      // BEFORE: audit log was written AFTER commit, so if audit write failed,
-      // anonymization happened with no audit trail.
-        await queryRunner.query(
-          `INSERT INTO compliance_audit_log ("tenantId", "userId", action, "resourceType", "resourceId", details, "createdAt")
+          // 11. SECURITY: Compliance audit log INSIDE transaction (before commit)
+          // BEFORE: audit log was written AFTER commit, so if audit write failed,
+          // anonymization happened with no audit trail.
+          await manager.query(
+            `INSERT INTO compliance_audit_log ("tenantId", "userId", action, "resourceType", "resourceId", details, "createdAt")
          VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
-          [
-            tenantId,
-            userId,
-            ComplianceAction.DATA_ANONYMIZE,
-            'user',
-            userId,
-            JSON.stringify({ anonymizedAt, cascadeRequestId, cascadeFulfilBy: fulfilByIso }),
-          ],
-        );
-      });
+            [
+              tenantId,
+              userId,
+              ComplianceAction.DATA_ANONYMIZE,
+              'user',
+              userId,
+              JSON.stringify({ anonymizedAt, cascadeRequestId, cascadeFulfilBy: fulfilByIso }),
+            ],
+          );
+        },
+      );
 
       // MSG-CRITICAL-058: the attachment ROWS are now committed-deleted; remove the
       // actual MinIO objects (the erasure's binary PII). Post-commit + best-effort:
@@ -507,9 +490,7 @@ export class GdprService {
 
       return true;
     } catch (err) {
-      this.logger.error(
-        `GDPR anonymisation failed for user ${userId}: ${(err as Error).message}`,
-      );
+      this.logger.error(`GDPR anonymisation failed for user ${userId}: ${(err as Error).message}`);
       throw err;
     }
   }
@@ -517,10 +498,7 @@ export class GdprService {
   /**
    * Verify the user's password by calling the auth-service via NATS request.
    */
-  private async verifyPassword(
-    userId: string,
-    password: string,
-  ): Promise<boolean> {
+  private async verifyPassword(userId: string, password: string): Promise<boolean> {
     try {
       const result = await firstValueFrom(
         this.natsClient
@@ -535,9 +513,7 @@ export class GdprService {
       // closed — the irreversible erasure is blocked, never bypassed.
       return result === true;
     } catch (err) {
-      this.logger.error(
-        `Password verification request failed: ${(err as Error).message}`,
-      );
+      this.logger.error(`Password verification request failed: ${(err as Error).message}`);
       throw new BadRequestException(
         'Unable to verify password at this time. Please try again later.',
       );

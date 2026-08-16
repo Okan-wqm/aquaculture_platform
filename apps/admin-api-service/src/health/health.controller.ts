@@ -9,10 +9,11 @@ import {
   Res,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { SkipThrottle } from '@aquaculture/backend-common/security';
+import { RateLimit } from '@aquaculture/backend-common/rate-limit';
 import { Response } from 'express';
 
 import { Public } from '../decorators/public.decorator';
+import { ADMIN_RATE_LIMIT_POLICIES } from '../security/admin-rate-limit.policy';
 
 import { HealthService } from './health.service';
 
@@ -44,7 +45,6 @@ function safeRequireVersion(packageJsonPath: string): string {
  */
 @ApiTags('Health')
 @Controller('health')
-@SkipThrottle()
 export class HealthController {
   constructor(private readonly healthService: HealthService) {}
 
@@ -157,6 +157,7 @@ export class HealthController {
    * Reset a circuit breaker (auth required).
    */
   @Post('circuit-breakers/:name/reset')
+  @RateLimit(ADMIN_RATE_LIMIT_POLICIES.sensitive)
   @HttpCode(HttpStatus.OK)
   resetCircuitBreaker(@Param('name') name: string) {
     const success = this.healthService.resetCircuitBreaker(name);

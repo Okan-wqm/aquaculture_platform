@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import type { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { Repository } from 'typeorm';
 
 import {
@@ -106,7 +107,7 @@ export class DebugToolsService {
     isActive?: boolean;
     page?: number;
     limit?: number;
-  }): Promise<{ data: DebugSession[]; total: number; page: number; limit: number }> {
+  }): Promise<IStandardPaginatedResult<DebugSession>> {
     return this.sessionService.querySessions(params);
   }
 
@@ -262,7 +263,10 @@ export class DebugToolsService {
     return this.featureFlagDebug.createFeatureFlagOverride(data);
   }
 
-  async revertFeatureFlagOverride(overrideId: string, revertedBy: string): Promise<FeatureFlagOverride> {
+  async revertFeatureFlagOverride(
+    overrideId: string,
+    revertedBy: string,
+  ): Promise<FeatureFlagOverride> {
     return this.featureFlagDebug.revertFeatureFlagOverride(overrideId, revertedBy);
   }
 
@@ -274,7 +278,11 @@ export class DebugToolsService {
     return this.featureFlagDebug.getFeatureOverride(id);
   }
 
-  async getFeatureFlagValue(tenantId: string, featureKey: string, defaultValue: unknown): Promise<unknown> {
+  async getFeatureFlagValue(
+    tenantId: string,
+    featureKey: string,
+    defaultValue: unknown,
+  ): Promise<unknown> {
     return this.featureFlagDebug.getFeatureFlagValue(tenantId, featureKey, defaultValue);
   }
 
@@ -285,7 +293,7 @@ export class DebugToolsService {
     isActive?: boolean;
     page?: number;
     limit?: number;
-  }): Promise<{ items: FeatureFlagOverride[]; total: number }> {
+  }): Promise<IStandardPaginatedResult<FeatureFlagOverride>> {
     return this.featureFlagDebug.queryOverrides(params);
   }
 

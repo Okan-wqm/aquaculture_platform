@@ -2,7 +2,8 @@
  * Leave Management domain types
  */
 
-import type { BaseEntity, PaginatedResponse } from './common.types';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
+import type { BaseEntity } from './common.types';
 import type { Employee } from './employee.types';
 
 // =====================
@@ -177,7 +178,7 @@ export interface LeaveRequestFilterInput {
 // Response Types
 // =====================
 
-export type LeaveRequestConnection = PaginatedResponse<LeaveRequest>;
+export type LeaveRequestConnection = PaginationResultV1<LeaveRequest>;
 
 // =====================
 // Display Helpers

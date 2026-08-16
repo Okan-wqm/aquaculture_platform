@@ -15,13 +15,12 @@ import {
 import { ApiTags } from '@nestjs/swagger';
 import { IsArray, IsIP, IsOptional, IsString, ArrayMaxSize, MaxLength } from 'class-validator';
 import { Request } from 'express';
-import { getAuthUserId } from '../../shared/authenticated-request';
 
-import {
-  IpAccessService,
-  CreateIpAccessRuleDto,
-  UpdateIpAccessRuleDto,
-} from '../services/ip-access.service';
+import { createStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import { getAuthUserId } from '../../shared/authenticated-request';
+import { CreateIpAccessRuleDto, UpdateIpAccessRuleDto } from '../dto/ip-access.dto';
+
+import { IpAccessService } from '../services/ip-access.service';
 
 class CheckIpAccessDto {
   @IsIP()
@@ -48,9 +47,7 @@ class BulkIpDto {
 @ApiTags('Settings')
 @Controller('settings/ip-access')
 export class IpAccessController {
-  constructor(
-    private readonly ipAccessService: IpAccessService,
-  ) {}
+  constructor(private readonly ipAccessService: IpAccessService) {}
 
   // ============================================================================
   // Rule CRUD
@@ -67,18 +64,12 @@ export class IpAccessController {
   ) {
     const rules = await this.ipAccessService.getAllRules(tenantId);
     const pageNum = page ? parseInt(page, 10) : 1;
-    const limitNum = limit ? parseInt(limit, 10) : rules.length;
+    const limitNum = limit ? parseInt(limit, 10) : Math.max(rules.length, 1);
     const startIndex = (pageNum - 1) * limitNum;
     const endIndex = startIndex + limitNum;
     const paginatedRules = rules.slice(startIndex, endIndex);
 
-    return {
-      data: paginatedRules,
-      total: rules.length,
-      page: pageNum,
-      limit: limitNum,
-      totalPages: Math.ceil(rules.length / limitNum) || 1,
-    };
+    return createStandardPaginatedResult(paginatedRules, rules.length, pageNum, limitNum);
   }
 
   /**
@@ -90,6 +81,14 @@ export class IpAccessController {
     @Query('tenantId') tenantId?: string,
   ) {
     return this.ipAccessService.getRulesByType(ruleType, tenantId);
+  }
+
+  /**
+   * Get statistics
+   */
+  @Get('stats')
+  async getStatistics(@Query('tenantId') tenantId?: string) {
+    return this.ipAccessService.getStatistics(tenantId);
   }
 
   /**
@@ -105,10 +104,7 @@ export class IpAccessController {
    * Fix: C6 -- JWT-based identity
    */
   @Post()
-  async createRule(
-    @Body() dto: CreateIpAccessRuleDto,
-    @Req() req: Request,
-  ) {
+  async createRule(@Body() dto: CreateIpAccessRuleDto, @Req() req: Request) {
     const userId = getAuthUserId(req);
     if (!userId) {
       throw new UnauthorizedException('User not authenticated');
@@ -120,10 +116,7 @@ export class IpAccessController {
    * Update a rule
    */
   @Put(':id')
-  async updateRule(
-    @Param('id') id: string,
-    @Body() dto: UpdateIpAccessRuleDto,
-  ) {
+  async updateRule(@Param('id') id: string, @Body() dto: UpdateIpAccessRuleDto) {
     return this.ipAccessService.updateRule(id, dto);
   }
 
@@ -144,9 +137,7 @@ export class IpAccessController {
    * Check if an IP is allowed
    */
   @Post('check')
-  async checkIpAccess(
-    @Body() dto: CheckIpAccessDto,
-  ) {
+  async checkIpAccess(@Body() dto: CheckIpAccessDto) {
     return this.ipAccessService.checkIpAccess(dto.ip, dto.tenantId);
   }
 
@@ -159,19 +150,12 @@ export class IpAccessController {
    * H23 fix: BulkIpDto with @ArrayMaxSize(500) + @IsIP validation; createdBy from JWT
    */
   @Post('whitelist/bulk')
-  async bulkWhitelist(
-    @Body() dto: BulkIpDto,
-    @Req() req: Request,
-  ) {
+  async bulkWhitelist(@Body() dto: BulkIpDto, @Req() req: Request) {
     const createdBy = getAuthUserId(req);
     if (!createdBy) {
       throw new UnauthorizedException('User not authenticated');
     }
-    return this.ipAccessService.bulkWhitelist(
-      dto.ips,
-      dto.tenantId,
-      createdBy,
-    );
+    return this.ipAccessService.bulkWhitelist(dto.ips, dto.tenantId, createdBy);
   }
 
   /**
@@ -179,19 +163,12 @@ export class IpAccessController {
    * H23 fix: BulkIpDto with @ArrayMaxSize(500) + @IsIP validation; createdBy from JWT
    */
   @Post('blacklist/bulk')
-  async bulkBlacklist(
-    @Body() dto: BulkIpDto,
-    @Req() req: Request,
-  ) {
+  async bulkBlacklist(@Body() dto: BulkIpDto, @Req() req: Request) {
     const createdBy = getAuthUserId(req);
     if (!createdBy) {
       throw new UnauthorizedException('User not authenticated');
     }
-    return this.ipAccessService.bulkBlacklist(
-      dto.ips,
-      dto.tenantId,
-      createdBy,
-    );
+    return this.ipAccessService.bulkBlacklist(dto.ips, dto.tenantId, createdBy);
   }
 
   /**
@@ -209,14 +186,6 @@ export class IpAccessController {
   // ============================================================================
   // Statistics & Maintenance
   // ============================================================================
-
-  /**
-   * Get statistics
-   */
-  @Get('stats')
-  async getStatistics(@Query('tenantId') tenantId?: string) {
-    return this.ipAccessService.getStatistics(tenantId);
-  }
 
   /**
    * Cleanup expired rules

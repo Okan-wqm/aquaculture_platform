@@ -17,6 +17,11 @@ import {
   silentRefresh,
   clearSession,
 } from '@aquaculture/shared-ui';
+import {
+  createPaginatedDataResultV1,
+  isPaginationMetadataV1,
+  type PaginationMetadataV1,
+} from '@platform/pagination-contracts';
 
 // API URL - Shell nginx uzerinden /api prefix'i ile admin-api-service'e yonlendirilir
 const adminImportMeta = import.meta as { readonly env?: { readonly VITE_ADMIN_API_URL?: string } };
@@ -40,8 +45,8 @@ interface ApiErrorBody {
 
 interface ApiEnvelope {
   data: unknown;
-  meta?: Record<string, unknown>;
-  success?: unknown;
+  meta: Record<string, unknown>;
+  success: true;
 }
 
 export interface RetryConfig {
@@ -51,6 +56,8 @@ export interface RetryConfig {
 }
 
 export interface ApiFetchOptions extends RequestInit {
+  /** Successful response wire contract. Admin API routes are enveloped unless explicitly exempted. */
+  responseContract?: 'api-envelope-v1' | 'raw-json';
   tenantScope?: 'tenant' | 'platform';
 }
 
@@ -61,12 +68,7 @@ const DEFAULT_RETRY_CONFIG: RetryConfig = {
 };
 
 /** HTTP methods that mutate server state and therefore require CSRF protection. */
-const CSRF_PROTECTED_METHODS: ReadonlySet<string> = new Set([
-  'POST',
-  'PUT',
-  'PATCH',
-  'DELETE',
-]);
+const CSRF_PROTECTED_METHODS: ReadonlySet<string> = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 const RESERVED_SECURITY_HEADERS: ReadonlySet<string> = new Set([
   'authorization',
@@ -90,8 +92,7 @@ const generateRequestId = (): string => {
   return crypto.randomUUID();
 };
 
-const sleep = (ms: number): Promise<void> =>
-  new Promise(resolve => setTimeout(resolve, ms));
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * SECURITY: Read the CSRF token from the non-httpOnly XSRF-TOKEN cookie.
@@ -170,7 +171,19 @@ const mergeHeadersWithReservedPolicy = (
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null;
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const normalizeErrorMessage = (value: unknown): string | undefined => {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const messages = value.filter((entry): entry is string => typeof entry === 'string');
+  return messages.length > 0 ? messages.join('; ') : undefined;
+};
 
 const parseApiErrorBody = (value: unknown): ApiErrorBody => {
   if (!isRecord(value)) {
@@ -178,22 +191,62 @@ const parseApiErrorBody = (value: unknown): ApiErrorBody => {
   }
 
   return {
-    message: typeof value.message === 'string' ? value.message : undefined,
+    message: normalizeErrorMessage(value.message),
     code: typeof value.code === 'string' ? value.code : undefined,
     details: isRecord(value.details) ? value.details : undefined,
   };
 };
 
-const parseApiEnvelope = (value: unknown): ApiEnvelope | null => {
-  if (!isRecord(value) || !('success' in value) || !('data' in value)) {
-    return null;
+const parseApiEnvelope = (value: unknown): ApiEnvelope => {
+  if (
+    !isRecord(value) ||
+    value.success !== true ||
+    !('data' in value) ||
+    !('meta' in value) ||
+    !isRecord(value.meta)
+  ) {
+    throw createApiError(
+      'Invalid successful API response envelope',
+      502,
+      'INVALID_API_ENVELOPE',
+    );
   }
 
   return {
-    success: value.success,
+    success: true,
     data: value.data,
-    meta: isRecord(value.meta) ? value.meta : undefined,
+    meta: value.meta,
   };
+};
+
+const isJsonMediaType = (contentType: string): boolean =>
+  /^application\/(?:[a-z0-9!#$&^_.+-]+\+)?json(?:\s*;|\s*$)/i.test(contentType);
+
+const PAGINATION_METADATA_FIELDS = [
+  'total',
+  'page',
+  'limit',
+  'totalPages',
+  'hasNextPage',
+  'hasPreviousPage',
+] as const;
+
+const hasPaginationMetadataField = (value: Record<string, unknown>): boolean =>
+  PAGINATION_METADATA_FIELDS.some((field) => field in value);
+
+const decodePaginatedData = (
+  data: unknown,
+  metadata: PaginationMetadataV1,
+): { readonly data: readonly unknown[] } & PaginationMetadataV1 => {
+  if (!Array.isArray(data)) {
+    throw createApiError(
+      'Invalid paginated API response: data must be an array',
+      502,
+      'INVALID_PAGINATION_CONTRACT',
+    );
+  }
+
+  return createPaginatedDataResultV1(data, metadata.total, metadata.page, metadata.limit);
 };
 
 const queryValueToString = (value: unknown): string | null => {
@@ -231,7 +284,11 @@ export async function apiFetch<T>(
     }
   }
 
-  const { tenantScope = 'platform', ...fetchOptions } = options ?? {};
+  const {
+    responseContract = 'api-envelope-v1',
+    tenantScope = 'platform',
+    ...fetchOptions
+  } = options ?? {};
   const method = (fetchOptions.method ?? 'GET').toUpperCase();
   let lastError: ApiError | null = null;
   let has401Retried = false;
@@ -262,10 +319,7 @@ export async function apiFetch<T>(
         }
       }
 
-      const mergedHeaders = mergeHeadersWithReservedPolicy(
-        headers,
-        fetchOptions.headers,
-      );
+      const mergedHeaders = mergeHeadersWithReservedPolicy(headers, fetchOptions.headers);
 
       const response = await fetch(`${ADMIN_API_URL}${endpoint}`, {
         ...fetchOptions,
@@ -295,7 +349,9 @@ export async function apiFetch<T>(
       }
 
       if (!response.ok) {
-        const rawErrorBody: unknown = await response.json().catch((): ApiErrorBody => ({ message: 'API Error' }));
+        const rawErrorBody: unknown = await response
+          .json()
+          .catch((): ApiErrorBody => ({ message: 'API Error' }));
         const errorBody = parseApiErrorBody(rawErrorBody);
         const error = createApiError(
           errorBody.message ?? 'HTTP ' + String(response.status),
@@ -335,20 +391,46 @@ export async function apiFetch<T>(
       // Handle empty responses
       const text = await response.text();
       if (!text) {
-        return {} as T;
-      }
-
-      const json: unknown = JSON.parse(text);
-      const envelope = parseApiEnvelope(json);
-      if (envelope) {
-        if (envelope.meta && 'page' in envelope.meta) {
-          return { data: envelope.data, ...envelope.meta } as T;
+        if (response.status === 204) {
+          return undefined as T;
         }
-
-        return envelope.data as T;
+        throw createApiError('Expected an API response body', 502, 'EMPTY_API_RESPONSE');
       }
 
-      return json as T;
+      const contentType = response.headers.get('content-type') ?? '';
+      if (!isJsonMediaType(contentType)) {
+        throw createApiError(
+          'Expected a JSON API response',
+          502,
+          'NON_JSON_RESPONSE',
+          { contentType: contentType || 'unknown' },
+        );
+      }
+
+      let json: unknown;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        throw createApiError('Received malformed JSON from the API', 502, 'INVALID_JSON_RESPONSE');
+      }
+
+      if (responseContract === 'raw-json') {
+        return json as T;
+      }
+
+      const envelope = parseApiEnvelope(json);
+      if (isPaginationMetadataV1(envelope.meta)) {
+        return decodePaginatedData(envelope.data, envelope.meta) as T;
+      }
+      if (hasPaginationMetadataField(envelope.meta)) {
+        throw createApiError(
+          'Invalid paginated API response metadata',
+          502,
+          'INVALID_PAGINATION_CONTRACT',
+        );
+      }
+
+      return envelope.data as T;
     } catch (err) {
       if (err instanceof TypeError && err.message.includes('fetch')) {
         // Network error - retry
@@ -382,9 +464,7 @@ export const buildQueryString = (params: Record<string, unknown>): string => {
     }
 
     if (Array.isArray(value)) {
-      const values = value
-        .map(queryValueToString)
-        .filter((item): item is string => item !== null);
+      const values = value.map(queryValueToString).filter((item): item is string => item !== null);
       if (values.length > 0) {
         searchParams.set(key, values.join(','));
       }

@@ -11,8 +11,13 @@ import {
   MaxLength,
   IsEmail,
   IsUrl,
+  IsDate,
+  IsObject,
+  IsUUID,
   ArrayMaxSize,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 // ============================================================================
 // User Limits
@@ -538,4 +543,91 @@ export class UpdateDataRetentionDto {
   @IsOptional()
   @IsBoolean()
   archiveBeforeDelete?: boolean;
+}
+
+export class UpdateDomainConfigDto {
+  @IsOptional() @IsString() @MaxLength(255) customDomain?: string;
+  @IsOptional() @IsBoolean() customDomainVerified?: boolean;
+  @IsOptional() @IsString() @MaxLength(512) customDomainVerificationToken?: string;
+  @IsOptional() @IsString() @MaxLength(100) subdomain?: string;
+  @IsOptional() @Type(() => Date) @IsDate() sslCertificateExpiry?: Date;
+  @IsOptional() @IsBoolean() redirectToCustomDomain?: boolean;
+  @IsOptional() @IsArray() @IsString({ each: true }) @ArrayMaxSize(100) allowedOrigins?: string[];
+}
+
+export class UpdateBrandingDto {
+  @IsOptional() @IsUrl({ require_tld: false }) logoUrl?: string;
+  @IsOptional() @IsUrl({ require_tld: false }) faviconUrl?: string;
+  @IsOptional() @IsString() @MaxLength(32) primaryColor?: string;
+  @IsOptional() @IsString() @MaxLength(32) secondaryColor?: string;
+  @IsOptional() @IsString() @MaxLength(32) accentColor?: string;
+  @IsOptional() @IsString() @MaxLength(32) headerColor?: string;
+  @IsOptional() @IsString() @MaxLength(255) fontFamily?: string;
+  @IsOptional() @IsString() @MaxLength(255) companyName?: string;
+  @IsOptional() @IsEmail() supportEmail?: string;
+  @IsOptional() @IsString() @MaxLength(50) supportPhone?: string;
+  @IsOptional() @IsUrl({ require_tld: false }) privacyPolicyUrl?: string;
+  @IsOptional() @IsUrl({ require_tld: false }) termsOfServiceUrl?: string;
+  @IsOptional() @IsString() @MaxLength(100000) customCss?: string;
+  @IsOptional() @IsUrl({ require_tld: false }) loginBackgroundUrl?: string;
+  @IsOptional() @IsBoolean() showPoweredBy?: boolean;
+}
+
+export class TenantConfigurationSectionsDto {
+  @IsOptional() @ValidateNested() @Type(() => UpdateUserLimitsDto) userLimits?: UpdateUserLimitsDto;
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => UpdateStorageConfigDto)
+  storageConfig?: UpdateStorageConfigDto;
+  @IsOptional() @ValidateNested() @Type(() => UpdateApiConfigDto) apiConfig?: UpdateApiConfigDto;
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => UpdateDataRetentionDto)
+  dataRetention?: UpdateDataRetentionDto;
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => UpdateDomainConfigDto)
+  domainConfig?: UpdateDomainConfigDto;
+  @IsOptional() @ValidateNested() @Type(() => UpdateBrandingDto) brandingConfig?: UpdateBrandingDto;
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => UpdateTenantSecurityDto)
+  securityConfig?: UpdateTenantSecurityDto;
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => UpdateNotificationConfigDto)
+  notificationConfig?: UpdateNotificationConfigDto;
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => UpdateFeatureFlagsDto)
+  featureFlags?: UpdateFeatureFlagsDto;
+}
+
+export class CreateTenantConfigurationDto extends TenantConfigurationSectionsDto {
+  @IsUUID('4')
+  tenantId!: string;
+}
+
+export class UpdateTenantConfigurationDto extends TenantConfigurationSectionsDto {}
+
+export class CreateApiKeyDto {
+  @IsString() @MaxLength(255) name!: string;
+  @IsArray() @IsString({ each: true }) @ArrayMaxSize(100) permissions!: string[];
+  @IsOptional() @Type(() => Date) @IsDate() expiresAt?: Date;
+}
+
+export class CreateWebhookDto {
+  @IsString() @MaxLength(255) name!: string;
+  @IsUrl({ require_tld: false }) url!: string;
+  @IsArray() @IsString({ each: true }) @ArrayMaxSize(100) events!: string[];
+  @IsOptional() @IsString() @MaxLength(512) secret?: string;
+  @IsOptional() @IsObject() headers?: Record<string, string>;
+  @IsOptional() @IsBoolean() retryEnabled?: boolean;
+  @IsOptional() @IsNumber() @Min(0) @Max(10) retryCount?: number;
+}
+
+export class VerifyDomainDto {
+  @IsString()
+  @MaxLength(255)
+  customDomain!: string;
 }

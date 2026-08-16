@@ -38,9 +38,7 @@ const createMockModule = (overrides: Partial<ModuleDto> = {}): ModuleDto => ({
   ...overrides,
 });
 
-const createMockModuleSnapshot = (
-  overrides: Partial<ModuleDto> = {},
-): AuthModuleSnapshot => {
+const createMockModuleSnapshot = (overrides: Partial<ModuleDto> = {}): AuthModuleSnapshot => {
   const module = createMockModule(overrides);
   // WHY price is stripped too: AuthModuleSnapshot carries catalogue metadata
   // only — pricing is billing-owned (D14); ModuleDto.price is derived from
@@ -54,7 +52,9 @@ const createMockModuleSnapshot = (
 };
 
 // Helper to create mock tenant module assignment
-const createMockAssignment = (overrides: Partial<TenantModuleAssignment> = {}): TenantModuleAssignment => ({
+const createMockAssignment = (
+  overrides: Partial<TenantModuleAssignment> = {},
+): TenantModuleAssignment => ({
   id: 'assignment-uuid-123',
   tenantId: 'tenant-uuid-123',
   tenantName: 'Test Tenant',
@@ -81,11 +81,13 @@ describe('ModulesService', () => {
       success: true,
       modulesRemoved: 1,
     });
-    mockAuthNatsClient.send.mockReturnValue(of({
-      success: true,
-      module: createMockModuleSnapshot({ tenantsCount: 0 }),
-      moduleId: 'module-id',
-    }));
+    mockAuthNatsClient.send.mockReturnValue(
+      of({
+        success: true,
+        module: createMockModuleSnapshot({ tenantsCount: 0 }),
+        moduleId: 'module-id',
+      }),
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -110,14 +112,17 @@ describe('ModulesService', () => {
 
   describe('listModules', () => {
     it('should list modules with default pagination', async () => {
-      const mockModules = [createMockModule(), createMockModule({ id: 'module-2', code: 'DASHBOARD' })];
+      const mockModules = [
+        createMockModule(),
+        createMockModule({ id: 'module-2', code: 'DASHBOARD' }),
+      ];
       mockDataSource.query
         .mockResolvedValueOnce(mockModules) // modules query
         .mockResolvedValueOnce([{ total: '2' }]); // count query
 
       const result = await service.listModules({});
 
-      expect(result.data).toHaveLength(2);
+      expect(result.items).toHaveLength(2);
       expect(result.total).toBe(2);
       expect(result.page).toBe(1);
       expect(result.limit).toBe(50);
@@ -132,7 +137,7 @@ describe('ModulesService', () => {
 
       const result = await service.listModules({ isActive: true });
 
-      expect(result.data).toHaveLength(1);
+      expect(result.items).toHaveLength(1);
       expect(mockDataSource.query).toHaveBeenCalledWith(
         expect.stringContaining('m."isActive" = $'),
         expect.arrayContaining([true]),
@@ -147,7 +152,7 @@ describe('ModulesService', () => {
 
       const result = await service.listModules({ isCore: true });
 
-      expect(result.data).toHaveLength(1);
+      expect(result.items).toHaveLength(1);
       expect(mockDataSource.query).toHaveBeenCalledWith(
         expect.stringContaining('is_core'),
         expect.arrayContaining([true]),
@@ -162,7 +167,7 @@ describe('ModulesService', () => {
 
       const result = await service.listModules({ search: 'farm' });
 
-      expect(result.data).toHaveLength(1);
+      expect(result.items).toHaveLength(1);
       expect(mockDataSource.query).toHaveBeenCalledWith(
         expect.stringContaining('ILIKE'),
         expect.arrayContaining(['%farm%']),
@@ -188,15 +193,15 @@ describe('ModulesService', () => {
     });
 
     it('should handle empty results', async () => {
-      mockDataSource.query
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([{ total: '0' }]);
+      mockDataSource.query.mockResolvedValueOnce([]).mockResolvedValueOnce([{ total: '0' }]);
 
       const result = await service.listModules({});
 
-      expect(result.data).toHaveLength(0);
+      expect(result.items).toHaveLength(0);
       expect(result.total).toBe(0);
-      expect(result.totalPages).toBe(0);
+      expect(result.totalPages).toBe(1);
+      expect(result.hasNextPage).toBe(false);
+      expect(result.hasPreviousPage).toBe(false);
     });
 
     it('should combine multiple filters', async () => {
@@ -307,7 +312,9 @@ describe('ModulesService', () => {
     it('should throw NotFoundException with correct message when module not found', async () => {
       mockDataSource.query.mockResolvedValueOnce([]);
 
-      await expect(service.getModuleById('non-existent')).rejects.toThrow('Module with ID non-existent not found');
+      await expect(service.getModuleById('non-existent')).rejects.toThrow(
+        'Module with ID non-existent not found',
+      );
     });
 
     it('should throw error on database failure', async () => {
@@ -340,7 +347,9 @@ describe('ModulesService', () => {
     it('should throw NotFoundException with correct message when module code not found', async () => {
       mockDataSource.query.mockResolvedValueOnce([]);
 
-      await expect(service.getModuleByCode('INVALID_CODE')).rejects.toThrow('Module with code INVALID_CODE not found');
+      await expect(service.getModuleByCode('INVALID_CODE')).rejects.toThrow(
+        'Module with code INVALID_CODE not found',
+      );
     });
   });
 
@@ -356,10 +365,12 @@ describe('ModulesService', () => {
 
     it('should create module with all fields and re-read through the catalog-priced SELECT', async () => {
       const mockCreated = createMockModule({ ...createDto, id: 'new-module-id', tenantsCount: 0 });
-      mockAuthNatsClient.send.mockReturnValueOnce(of({
-        success: true,
-        module: createMockModuleSnapshot(mockCreated),
-      }));
+      mockAuthNatsClient.send.mockReturnValueOnce(
+        of({
+          success: true,
+          module: createMockModuleSnapshot(mockCreated),
+        }),
+      );
       // createModule re-reads via getModuleById so price comes from the
       // admin.module_pricing catalog, never from the auth snapshot.
       mockDataSource.query.mockResolvedValueOnce([mockCreated]);
@@ -388,10 +399,12 @@ describe('ModulesService', () => {
         defaultRoute: '/minimal',
       };
       const mockCreated = createMockModule({ ...minimalDto, id: 'minimal-id' });
-      mockAuthNatsClient.send.mockReturnValueOnce(of({
-        success: true,
-        module: createMockModuleSnapshot(mockCreated),
-      }));
+      mockAuthNatsClient.send.mockReturnValueOnce(
+        of({
+          success: true,
+          module: createMockModuleSnapshot(mockCreated),
+        }),
+      );
       mockDataSource.query.mockResolvedValueOnce([mockCreated]);
 
       await service.createModule(minimalDto);
@@ -410,21 +423,27 @@ describe('ModulesService', () => {
     });
 
     it('should throw ConflictException on duplicate code', async () => {
-      mockAuthNatsClient.send.mockReturnValueOnce(of({
-        success: false,
-        errorCode: 'DUPLICATE_MODULE',
-      }));
+      mockAuthNatsClient.send.mockReturnValueOnce(
+        of({
+          success: false,
+          errorCode: 'DUPLICATE_MODULE',
+        }),
+      );
 
       await expect(service.createModule(createDto)).rejects.toThrow(ConflictException);
     });
 
     it('should throw ConflictException with correct message on duplicate code', async () => {
-      mockAuthNatsClient.send.mockReturnValueOnce(of({
-        success: false,
-        errorCode: 'DUPLICATE_MODULE',
-      }));
+      mockAuthNatsClient.send.mockReturnValueOnce(
+        of({
+          success: false,
+          errorCode: 'DUPLICATE_MODULE',
+        }),
+      );
 
-      await expect(service.createModule(createDto)).rejects.toThrow(`Module with code ${createDto.code} already exists`);
+      await expect(service.createModule(createDto)).rejects.toThrow(
+        `Module with code ${createDto.code} already exists`,
+      );
     });
 
     it('should throw error on auth-service failures', async () => {
@@ -444,8 +463,7 @@ describe('ModulesService', () => {
         isActive: false,
       };
       const mockUpdated = createMockModule({ ...updateDto, id: 'module-id' });
-      mockDataSource.query
-        .mockResolvedValueOnce([mockUpdated]); // getModuleById
+      mockDataSource.query.mockResolvedValueOnce([mockUpdated]); // getModuleById
 
       const result = await service.updateModule('module-id', updateDto);
 
@@ -459,8 +477,7 @@ describe('ModulesService', () => {
     it('should update module with partial fields', async () => {
       const updateDto = { name: 'Only Name' };
       const mockUpdated = createMockModule({ ...updateDto, id: 'module-id' });
-      mockDataSource.query
-        .mockResolvedValueOnce([mockUpdated]);
+      mockDataSource.query.mockResolvedValueOnce([mockUpdated]);
 
       await service.updateModule('module-id', updateDto);
 
@@ -482,15 +499,16 @@ describe('ModulesService', () => {
     it('should throw error on auth-service failure', async () => {
       mockAuthNatsClient.send.mockReturnValueOnce(throwError(() => new Error('Update failed')));
 
-      await expect(service.updateModule('module-id', { name: 'Test' })).rejects.toThrow('Update failed');
+      await expect(service.updateModule('module-id', { name: 'Test' })).rejects.toThrow(
+        'Update failed',
+      );
     });
   });
 
   describe('setModuleStatus', () => {
     it('should activate module', async () => {
       const mockModule = createMockModule({ isActive: true });
-      mockDataSource.query
-        .mockResolvedValueOnce([mockModule]);
+      mockDataSource.query.mockResolvedValueOnce([mockModule]);
 
       const result = await service.setModuleStatus('module-id', true);
 
@@ -499,8 +517,7 @@ describe('ModulesService', () => {
 
     it('should deactivate module', async () => {
       const mockModule = createMockModule({ isActive: false });
-      mockDataSource.query
-        .mockResolvedValueOnce([mockModule]);
+      mockDataSource.query.mockResolvedValueOnce([mockModule]);
 
       const result = await service.setModuleStatus('module-id', false);
 
@@ -510,10 +527,12 @@ describe('ModulesService', () => {
 
   describe('deleteModule', () => {
     it('should delete module with no assignments', async () => {
-      mockAuthNatsClient.send.mockReturnValueOnce(of({
-        success: true,
-        moduleId: 'module-id',
-      }));
+      mockAuthNatsClient.send.mockReturnValueOnce(
+        of({
+          success: true,
+          moduleId: 'module-id',
+        }),
+      );
 
       await expect(service.deleteModule('module-id')).resolves.toBeUndefined();
       expect(mockAuthNatsClient.send).toHaveBeenCalledWith(
@@ -523,19 +542,23 @@ describe('ModulesService', () => {
     });
 
     it('should throw ConflictException when module has assignments', async () => {
-      mockAuthNatsClient.send.mockReturnValueOnce(of({
-        success: false,
-        errorCode: 'MODULE_ASSIGNED',
-      }));
+      mockAuthNatsClient.send.mockReturnValueOnce(
+        of({
+          success: false,
+          errorCode: 'MODULE_ASSIGNED',
+        }),
+      );
 
       await expect(service.deleteModule('module-id')).rejects.toThrow(ConflictException);
     });
 
     it('should throw ConflictException with correct message when module has assignments', async () => {
-      mockAuthNatsClient.send.mockReturnValueOnce(of({
-        success: false,
-        errorCode: 'MODULE_ASSIGNED',
-      }));
+      mockAuthNatsClient.send.mockReturnValueOnce(
+        of({
+          success: false,
+          errorCode: 'MODULE_ASSIGNED',
+        }),
+      );
 
       await expect(service.deleteModule('module-id')).rejects.toThrow(
         'Cannot delete module that is assigned to tenants',
@@ -543,10 +566,12 @@ describe('ModulesService', () => {
     });
 
     it('should throw NotFoundException when module not found', async () => {
-      mockAuthNatsClient.send.mockReturnValueOnce(of({
-        success: false,
-        errorCode: 'MODULE_NOT_FOUND',
-      }));
+      mockAuthNatsClient.send.mockReturnValueOnce(
+        of({
+          success: false,
+          errorCode: 'MODULE_NOT_FOUND',
+        }),
+      );
 
       await expect(service.deleteModule('non-existent')).rejects.toThrow(NotFoundException);
     });
@@ -561,8 +586,22 @@ describe('ModulesService', () => {
   describe('getModuleTenants', () => {
     it('should return tenants assigned to a module', async () => {
       const mockTenants = [
-        { id: 'tenant-1', name: 'Tenant 1', slug: 'tenant-1', status: 'ACTIVE', assignedAt: new Date(), expiresAt: null },
-        { id: 'tenant-2', name: 'Tenant 2', slug: 'tenant-2', status: 'ACTIVE', assignedAt: new Date(), expiresAt: null },
+        {
+          id: 'tenant-1',
+          name: 'Tenant 1',
+          slug: 'tenant-1',
+          status: 'ACTIVE',
+          assignedAt: new Date(),
+          expiresAt: null,
+        },
+        {
+          id: 'tenant-2',
+          name: 'Tenant 2',
+          slug: 'tenant-2',
+          status: 'ACTIVE',
+          assignedAt: new Date(),
+          expiresAt: null,
+        },
       ];
       mockDataSource.query
         .mockResolvedValueOnce(mockTenants)
@@ -570,7 +609,7 @@ describe('ModulesService', () => {
 
       const result = await service.getModuleTenants('module-id');
 
-      expect(result.data).toHaveLength(2);
+      expect(result.items).toHaveLength(2);
       expect(result.total).toBe(2);
     });
 
@@ -587,13 +626,11 @@ describe('ModulesService', () => {
     });
 
     it('should return empty array when no tenants assigned', async () => {
-      mockDataSource.query
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([{ total: '0' }]);
+      mockDataSource.query.mockResolvedValueOnce([]).mockResolvedValueOnce([{ total: '0' }]);
 
       const result = await service.getModuleTenants('module-id');
 
-      expect(result.data).toHaveLength(0);
+      expect(result.items).toHaveLength(0);
       expect(result.total).toBe(0);
     });
   });
@@ -607,7 +644,7 @@ describe('ModulesService', () => {
 
       const result = await service.getAssignments({});
 
-      expect(result.data).toHaveLength(2);
+      expect(result.items).toHaveLength(2);
       expect(result.total).toBe(2);
     });
 
@@ -619,7 +656,7 @@ describe('ModulesService', () => {
 
       const result = await service.getAssignments({ tenantId: 'tenant-123' });
 
-      expect(result.data).toHaveLength(1);
+      expect(result.items).toHaveLength(1);
       expect(mockDataSource.query).toHaveBeenCalledWith(
         expect.stringContaining('tm."tenantId" = $'),
         expect.arrayContaining(['tenant-123']),
@@ -634,7 +671,7 @@ describe('ModulesService', () => {
 
       const result = await service.getAssignments({ moduleId: 'module-123' });
 
-      expect(result.data).toHaveLength(1);
+      expect(result.items).toHaveLength(1);
       expect(mockDataSource.query).toHaveBeenCalledWith(
         expect.stringContaining('tm."moduleId" = $'),
         expect.arrayContaining(['module-123']),
@@ -722,7 +759,9 @@ describe('ModulesService', () => {
 
     it('should throw error on auth-service handoff failure', async () => {
       mockDataSource.query.mockResolvedValueOnce([]); // checkExtendedColumns
-      mockAuthProvisioningClient.assignTenantModules.mockRejectedValueOnce(new Error('Assign failed'));
+      mockAuthProvisioningClient.assignTenantModules.mockRejectedValueOnce(
+        new Error('Assign failed'),
+      );
 
       await expect(service.assignModuleToTenant(assignDto)).rejects.toThrow('Assign failed');
     });
@@ -736,7 +775,9 @@ describe('ModulesService', () => {
         /^RemoveModule:tenant-id:tenant-id:[a-f0-9]{64}$/,
       );
 
-      await expect(service.removeModuleFromTenant('tenant-id', 'module-id')).resolves.toBeUndefined();
+      await expect(
+        service.removeModuleFromTenant('tenant-id', 'module-id'),
+      ).resolves.toBeUndefined();
       expect(mockAuthProvisioningClient.removeTenantModule).toHaveBeenCalledWith(
         expect.objectContaining({
           tenantId: 'tenant-id',
@@ -756,7 +797,9 @@ describe('ModulesService', () => {
     it('should throw NotFoundException when assignment not found', async () => {
       mockDataSource.query.mockResolvedValueOnce([]);
 
-      await expect(service.removeModuleFromTenant('tenant-id', 'module-id')).rejects.toThrow(NotFoundException);
+      await expect(service.removeModuleFromTenant('tenant-id', 'module-id')).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('should throw NotFoundException with correct message when assignment not found', async () => {
@@ -769,9 +812,13 @@ describe('ModulesService', () => {
 
     it('should throw error on auth-service handoff failure', async () => {
       mockDataSource.query.mockResolvedValueOnce([{ id: 'assignment-id' }]);
-      mockAuthProvisioningClient.removeTenantModule.mockRejectedValueOnce(new Error('Remove failed'));
+      mockAuthProvisioningClient.removeTenantModule.mockRejectedValueOnce(
+        new Error('Remove failed'),
+      );
 
-      await expect(service.removeModuleFromTenant('tenant-id', 'module-id')).rejects.toThrow('Remove failed');
+      await expect(service.removeModuleFromTenant('tenant-id', 'module-id')).rejects.toThrow(
+        'Remove failed',
+      );
     });
   });
 
@@ -790,18 +837,20 @@ describe('ModulesService', () => {
       }
       // 5 select results
       for (const dto of assignments) {
-        mockDataSource.query.mockResolvedValueOnce([createMockAssignment({ tenantId: dto.tenantId })]);
+        mockDataSource.query.mockResolvedValueOnce([
+          createMockAssignment({ tenantId: dto.tenantId }),
+        ]);
       }
 
-      const results = await Promise.all(assignments.map(dto => service.assignModuleToTenant(dto)));
+      const results = await Promise.all(
+        assignments.map((dto) => service.assignModuleToTenant(dto)),
+      );
 
       expect(results).toHaveLength(5);
     });
 
     it('should handle special characters in search', async () => {
-      mockDataSource.query
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([{ total: '0' }]);
+      mockDataSource.query.mockResolvedValueOnce([]).mockResolvedValueOnce([{ total: '0' }]);
 
       await service.listModules({ search: "test'OR'1'='1" });
 
@@ -812,9 +861,7 @@ describe('ModulesService', () => {
     });
 
     it('should handle large pagination values', async () => {
-      mockDataSource.query
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([{ total: '10000' }]);
+      mockDataSource.query.mockResolvedValueOnce([]).mockResolvedValueOnce([{ total: '10000' }]);
 
       const result = await service.listModules({}, 100, 100);
 
@@ -846,10 +893,12 @@ describe('ModulesService', () => {
     });
 
     it('should prevent deleting core modules with assignments', async () => {
-      mockAuthNatsClient.send.mockReturnValueOnce(of({
-        success: false,
-        errorCode: 'MODULE_ASSIGNED',
-      }));
+      mockAuthNatsClient.send.mockReturnValueOnce(
+        of({
+          success: false,
+          errorCode: 'MODULE_ASSIGNED',
+        }),
+      );
 
       await expect(service.deleteModule('core-module-id')).rejects.toThrow(ConflictException);
     });

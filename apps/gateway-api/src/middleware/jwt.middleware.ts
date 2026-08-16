@@ -6,13 +6,20 @@
  * is available when Apollo Gateway's willSendRequest forwards headers.
  */
 
-import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
+import {
+  enforceAccessTokenType,
+  enforceTokenNotRevoked,
+  getJwtVerifyOptions,
+} from '@aquaculture/backend-common/auth';
+import {
+  ITokenRevocationReader,
+  TOKEN_REVOCATION_READER,
+} from '@aquaculture/backend-common/security';
 import { Inject, Injectable, Logger, NestMiddleware } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { NextFunction, Request, Response } from 'express';
 
-import { TOKEN_BLACKLIST_STORE, TokenBlacklistStore } from '../guards/redis-token-blacklist.store';
 import { AuthenticatedRequest, JwtPayload } from '../types/index';
 
 @Injectable()
@@ -23,8 +30,8 @@ export class JwtMiddleware implements NestMiddleware {
   constructor(
     @Inject(JwtService) private readonly jwtService: JwtService,
     @Inject(ConfigService) private readonly configService: ConfigService,
-    @Inject(TOKEN_BLACKLIST_STORE)
-    private readonly tokenBlacklist: TokenBlacklistStore,
+    @Inject(TOKEN_REVOCATION_READER)
+    private readonly tokenRevocationReader: ITokenRevocationReader,
   ) {
     this.isProduction = this.configService.get<string>('NODE_ENV', 'development') === 'production';
   }
@@ -61,11 +68,8 @@ export class JwtMiddleware implements NestMiddleware {
         payload.iat > 0
       ) {
         try {
-          hasValidRevocationState = await this.tokenBlacklist.isValidToken(
-            payload.jti,
-            payload.sub,
-            payload.iat,
-          );
+          await enforceTokenNotRevoked(payload, this.tokenRevocationReader, this.logger);
+          hasValidRevocationState = true;
         } catch (error) {
           this.logger.error(
             JSON.stringify({

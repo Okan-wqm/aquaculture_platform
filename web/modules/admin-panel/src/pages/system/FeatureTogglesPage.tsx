@@ -40,7 +40,7 @@ const defaultForm: FeatureToggleForm = {
 
 export const FeatureTogglesPage: React.FC = () => {
   // State
-  const [toggles, setToggles] = useState<FeatureToggle[]>([]);
+  const [toggles, setToggles] = useState<readonly FeatureToggle[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -70,21 +70,7 @@ export const FeatureTogglesPage: React.FC = () => {
         category: filterCategory !== 'all' ? filterCategory : undefined,
         search: searchTerm || undefined,
       });
-      // Normalise the API response shape to a flat array (BUG-014)
-      type FeatureToggleListResponse = FeatureToggle[] | { data: FeatureToggle[] } | { items: FeatureToggle[]; total?: number };
-      const r = response as unknown as FeatureToggleListResponse;
-      let toggleList: FeatureToggle[];
-      if (Array.isArray(r)) {
-        toggleList = r;
-      } else if ('items' in r && Array.isArray(r.items)) {
-        toggleList = r.items;
-      } else if ('data' in r && Array.isArray(r.data)) {
-        toggleList = r.data;
-      } else {
-        console.error('API returned unexpected format for feature toggles', r);
-        toggleList = [];
-      }
-      setToggles(toggleList);
+      setToggles(response.data);
     } catch (err) {
       console.error('Failed to load feature toggles:', err);
       setError('Failed to load feature toggles');
@@ -200,9 +186,7 @@ export const FeatureTogglesPage: React.FC = () => {
   // Helpers
   // ============================================================================
 
-  // Ensure toggles is always an array
-  const safeToggles = Array.isArray(toggles) ? toggles : [];
-  const categories = [...new Set(safeToggles.map((t) => t.category).filter(Boolean))];
+  const categories = [...new Set(toggles.map((t) => t.category).filter(Boolean))];
 
   const getStatusBadge = (status: string) => {
     const variants: Record<string, 'success' | 'default' | 'info' | 'warning'> = {
@@ -224,11 +208,11 @@ export const FeatureTogglesPage: React.FC = () => {
   };
 
   const stats = {
-    total: safeToggles.length,
-    enabled: safeToggles.filter((t) => t.status === 'enabled').length,
-    disabled: safeToggles.filter((t) => t.status === 'disabled').length,
-    rollout: safeToggles.filter((t) => t.status === 'percentage_rollout').length,
-    experimental: safeToggles.filter((t) => t.isExperimental).length,
+    total: toggles.length,
+    enabled: toggles.filter((t) => t.status === 'enabled').length,
+    disabled: toggles.filter((t) => t.status === 'disabled').length,
+    rollout: toggles.filter((t) => t.status === 'percentage_rollout').length,
+    experimental: toggles.filter((t) => t.isExperimental).length,
   };
 
   // ============================================================================
@@ -361,14 +345,14 @@ export const FeatureTogglesPage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {safeToggles.length === 0 ? (
+              {toggles.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
                     No feature toggles found
                   </td>
                 </tr>
               ) : (
-                safeToggles.map((toggle) => (
+                toggles.map((toggle) => (
                   <tr key={toggle.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4">
                       <div className="flex flex-col">

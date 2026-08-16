@@ -5,8 +5,10 @@ import { OutboxPublisher } from '@platform/outbox';
 import { Message } from '../../message/entities/message.entity';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
 import { GdprService } from '../gdpr.service';
-import { LegalHoldService } from '../../compliance/services/legal-hold.service';
-import { ComplianceAuditService } from '../../compliance/services/compliance-audit.service';
+import {
+  LegalHoldDestructiveMutationAuthority,
+  LegalHoldDestructiveMutationBlocked,
+} from '../../compliance/services/legal-hold-destructive-mutation.authority';
 import { AttachmentObjectPurgeService } from '../../compliance/services/attachment-object-purge.service';
 import { MessagingMetricsService } from '../../metrics/messaging-metrics.service';
 import {
@@ -32,7 +34,10 @@ describe('GdprService', () => {
   let natsClient: MockNatsClient;
   let outboxPublisher: { enqueue: jest.Mock };
   let attachmentPurge: { purgeObjects: jest.Mock };
-  let metricsService: { incrementGdprErasure: jest.Mock; incrementGdprCascadeEmitFailure: jest.Mock };
+  let metricsService: {
+    incrementGdprErasure: jest.Mock;
+    incrementGdprCascadeEmitFailure: jest.Mock;
+  };
   let messageQb: jest.Mocked<SelectQueryBuilder<Message>>;
 
   const tenantId = '00000000-0000-4000-8000-000000000001';
@@ -51,25 +56,31 @@ describe('GdprService', () => {
       incrementGdprCascadeEmitFailure: jest.fn(),
     };
     attachmentPurge = {
-      purgeObjects: jest.fn().mockResolvedValue({ requested: 0, deleted: 0, skipped: 0, failed: 0 }),
+      purgeObjects: jest
+        .fn()
+        .mockResolvedValue({ requested: 0, deleted: 0, skipped: 0, failed: 0 }),
     };
     messageQb = createMockQueryBuilder<Message>();
-    queryRunner.manager.createQueryBuilder.mockReturnValue(messageQb as unknown as SelectQueryBuilder<Message>);
+    queryRunner.manager.createQueryBuilder.mockReturnValue(
+      messageQb as unknown as SelectQueryBuilder<Message>,
+    );
     queryRunner.query.mockImplementation(async (sql: string) => {
       if (sql.includes('SELECT id, "createdAt" FROM messages')) {
         return [{ id: fakeUuid('msg'), createdAt: new Date('2026-03-10T12:00:00Z') }];
       }
       return [];
     });
+    queryRunner.manager.query.mockImplementation((sql: string, parameters?: unknown[]) =>
+      queryRunner.query(sql, parameters),
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         GdprService,
+        LegalHoldDestructiveMutationAuthority,
         { provide: DataSource, useValue: mockDataSource },
         { provide: REDIS_CLIENT, useValue: redisClient },
         { provide: 'NATS_SERVICE', useValue: natsClient },
-        { provide: LegalHoldService, useValue: { isUnderLegalHold: jest.fn().mockResolvedValue(false) } },
-        { provide: ComplianceAuditService, useValue: { log: jest.fn().mockResolvedValue(undefined) } },
         { provide: MessagingMetricsService, useValue: metricsService },
         { provide: OutboxPublisher, useValue: outboxPublisher },
         { provide: AttachmentObjectPurgeService, useValue: attachmentPurge },
@@ -107,9 +118,7 @@ describe('GdprService', () => {
   it('rate limits export to 1 per 24 hours', async () => {
     redisClient.get.mockResolvedValue('1'); // recent export exists
 
-    await expect(
-      service.exportMyMessages(userId, tenantId),
-    ).rejects.toThrow(BadRequestException);
+    await expect(service.exportMyMessages(userId, tenantId)).rejects.toThrow(BadRequestException);
   });
 
   // -----------------------------------------------------------------------
@@ -147,6 +156,30 @@ describe('GdprService', () => {
       return sql.includes('[message deleted by user]');
     });
     expect(updateMsgCall).toBeDefined();
+  });
+
+  it('rolls back without erasing when the locked user scope intersects an active hold', async () => {
+    natsClient.send.mockReturnValue(of(true));
+    const heldChannelId = '22222222-2222-4222-8222-222222222222';
+    queryRunner.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM legal_holds')) {
+        return [{ id: 'hold-1', channelId: heldChannelId }];
+      }
+      if (sql.includes('SELECT DISTINCT scope."channelId"')) {
+        return [{ channelId: heldChannelId }];
+      }
+      return [];
+    });
+
+    await expect(
+      service.anonymizeMyData(userId, tenantId, 'correct-password'),
+    ).rejects.toBeInstanceOf(LegalHoldDestructiveMutationBlocked);
+
+    expect(queryRunner.rollbackTransaction).toHaveBeenCalledTimes(1);
+    expect(
+      queryRunner.query.mock.calls.some((call) => String(call[0]).includes('UPDATE messages')),
+    ).toBe(false);
+    expect(outboxPublisher.enqueue).not.toHaveBeenCalled();
   });
 
   // -----------------------------------------------------------------------
@@ -316,9 +349,9 @@ describe('GdprService', () => {
     natsClient.send.mockReturnValue(of(true));
     outboxPublisher.enqueue.mockRejectedValueOnce(new Error('outbox unavailable'));
 
-    await expect(
-      service.anonymizeMyData(userId, tenantId, 'correct-password'),
-    ).rejects.toThrow('outbox unavailable');
+    await expect(service.anonymizeMyData(userId, tenantId, 'correct-password')).rejects.toThrow(
+      'outbox unavailable',
+    );
 
     expect(metricsService.incrementGdprCascadeEmitFailure).toHaveBeenCalledWith(tenantId);
     expect(queryRunner.rollbackTransaction).toHaveBeenCalled();
@@ -333,9 +366,9 @@ describe('GdprService', () => {
   it('rejects anonymization with invalid password', async () => {
     natsClient.send.mockReturnValue(of(false)); // password invalid
 
-    await expect(
-      service.anonymizeMyData(userId, tenantId, 'wrong-password'),
-    ).rejects.toThrow(BadRequestException);
+    await expect(service.anonymizeMyData(userId, tenantId, 'wrong-password')).rejects.toThrow(
+      BadRequestException,
+    );
   });
 
   // -----------------------------------------------------------------------
@@ -345,9 +378,7 @@ describe('GdprService', () => {
     natsClient.send.mockReturnValue(of(true));
     queryRunner.query.mockRejectedValueOnce(new Error('DB error'));
 
-    await expect(
-      service.anonymizeMyData(userId, tenantId, 'correct-password'),
-    ).rejects.toThrow();
+    await expect(service.anonymizeMyData(userId, tenantId, 'correct-password')).rejects.toThrow();
     expect(queryRunner.rollbackTransaction).toHaveBeenCalled();
     expect(queryRunner.release).toHaveBeenCalled();
   });

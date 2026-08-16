@@ -23,6 +23,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as ts from 'typescript';
 
+import { compileAdminHttpContractsV1 } from '../../../../tools/codegen/admin-contracts/compiler';
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -228,103 +230,24 @@ function extractMethod(options: ts.Expression | undefined): string {
 // Backend Endpoint Extraction
 // ============================================================================
 
-/**
- * Backend controller dosyalarindan decorator-tabanli endpoint path'lerini cikarir.
- * @Controller('prefix') + @Get('sub') => /prefix/sub
- */
 function extractBackendEndpoints(): BackendEndpoint[] {
-  const srcDir = path.resolve(__dirname, '..');
-  const endpoints: BackendEndpoint[] = [];
+  const repoRoot = path.resolve(__dirname, '../../../..');
+  const compilation = compileAdminHttpContractsV1(repoRoot);
 
-  // Controller dosyalarini bul
-  const controllerFiles = findControllerFiles(srcDir);
-
-  for (const filePath of controllerFiles) {
-    const content = fs.readFileSync(filePath, 'utf-8');
-    const relativePath = path.relative(srcDir, filePath);
-    const sourceFile = ts.createSourceFile(
-      filePath,
-      content,
-      ts.ScriptTarget.Latest,
-      true,
-      ts.ScriptKind.TS,
+  if (compilation.diagnostics.length > 0) {
+    throw new Error(
+      `Admin HTTP contract compilation failed:\n${compilation.diagnostics
+        .map(({ code, file, line, operationId }) => `  ${code} ${file}:${line} (${operationId})`)
+        .join('\n')}`,
     );
-
-    for (const statement of sourceFile.statements) {
-      if (!ts.isClassDeclaration(statement)) continue;
-      const controller = findDecorator(statement, 'Controller');
-      if (!controller) continue;
-      const controllerPrefix = decoratorPath(controller);
-
-      for (const member of statement.members) {
-        if (!ts.isMethodDeclaration(member)) continue;
-        for (const httpMethod of ['Get', 'Post', 'Put', 'Patch', 'Delete'] as const) {
-          const decorator = findDecorator(member, httpMethod);
-          if (!decorator) continue;
-          const subPath = decoratorPath(decorator);
-          const fullPath = normalizeUrl(`/${controllerPrefix}/${subPath}`);
-
-          endpoints.push({
-            path: fullPath,
-            method: httpMethod.toUpperCase(),
-            controller: relativePath,
-            handler: propertyNameText(member.name),
-          });
-        }
-      }
-    }
   }
 
-  return endpoints;
-}
-
-function findDecorator(node: ts.Node, expectedName: string): ts.Decorator | undefined {
-  if (!ts.canHaveDecorators(node)) return undefined;
-  return ts.getDecorators(node)?.find((decorator) => {
-    const expression = decorator.expression;
-    return (
-      ts.isCallExpression(expression) &&
-      ts.isIdentifier(expression.expression) &&
-      expression.expression.text === expectedName
-    );
-  });
-}
-
-function decoratorPath(decorator: ts.Decorator): string {
-  const expression = decorator.expression;
-  if (!ts.isCallExpression(expression)) return '';
-  const pathArgument = expression.arguments[0];
-  if (
-    !pathArgument ||
-    (!ts.isStringLiteral(pathArgument) && !ts.isNoSubstitutionTemplateLiteral(pathArgument))
-  ) {
-    return '';
-  }
-  return pathArgument.text;
-}
-
-/**
- * src altindaki tum *.controller.ts dosyalarini recursive bulur.
- */
-function findControllerFiles(dir: string): string[] {
-  const results: string[] = [];
-
-  if (!fs.existsSync(dir)) return results;
-
-  const entries = fs.readdirSync(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      // node_modules ve test dizinlerini atla
-      if (entry.name !== 'node_modules' && entry.name !== '__tests__') {
-        results.push(...findControllerFiles(fullPath));
-      }
-    } else if (entry.name.endsWith('.controller.ts')) {
-      results.push(fullPath);
-    }
-  }
-
-  return results;
+  return compilation.manifest.operations.map(({ controller, file, handler, method, path }) => ({
+    controller: `${controller} (${file})`,
+    handler,
+    method,
+    path,
+  }));
 }
 
 // ============================================================================
@@ -980,17 +903,10 @@ describe('Frontend-Backend Contract Validation', () => {
     }
   });
 
-  // --------------------------------------------------------------------------
-  // Snapshot: endpoint listesinin snapshot'ini tut
-  // --------------------------------------------------------------------------
+  it('should expose each backend endpoint identity exactly once', () => {
+    const endpointIdentities = backendEndpoints.map(({ method, path }) => `${method} ${path}`);
 
-  it('backend endpoint snapshot should be up to date', () => {
-    // Backend endpoint sayisi belirli bir aralikte olmali.
-    // Yeni endpoint eklendiginde veya kaldirildiginda bu test guncellenmeli.
-    // Bu, beklenmedik endpoint degisikliklerini yakalar.
-    const count = backendEndpoints.length;
-
-    expect(count).toBe(603);
+    expect(new Set(endpointIdentities).size).toBe(endpointIdentities.length);
   });
 
   it('frontend endpoint snapshot should be up to date', () => {

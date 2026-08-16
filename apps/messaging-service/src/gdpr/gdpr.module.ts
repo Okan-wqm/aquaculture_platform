@@ -13,7 +13,7 @@ import { GdprService } from './gdpr.service';
  * @description GDPR compliance module providing data export and anonymisation.
  * Registers its own NATS_SERVICE client because NestJS ClientsModule.register()
  * is NOT global -- each module that injects NATS_SERVICE must import it.
- * Integrates with ComplianceModule for legal hold checks and audit logging.
+ * Integrates with ComplianceModule for the legal-hold mutation authority.
  * @see ADR-012 section 9 (GDPR Compliance)
  */
 @Module({
@@ -29,7 +29,7 @@ import { GdprService } from './gdpr.service';
     ]),
     // PresenceModule provides the REDIS_CLIENT token
     PresenceModule,
-    // ComplianceModule provides LegalHoldService and ComplianceAuditService
+    // ComplianceModule provides LegalHoldDestructiveMutationAuthority.
     forwardRef(() => ComplianceModule),
   ],
   providers: [GdprService],

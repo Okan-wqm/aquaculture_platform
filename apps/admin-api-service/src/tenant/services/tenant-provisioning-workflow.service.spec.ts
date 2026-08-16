@@ -250,6 +250,7 @@ describe('TenantProvisioningWorkflowService — ledger vs physical reality (ORPH
   const TENANT_ID = '22222222-2222-4222-8222-222222222222';
   const OPERATION_ID = '33333333-3333-4333-8333-333333333333';
   const LEASE_TOKEN = '44444444-4444-4444-8444-444444444444';
+  const ONBOARDING_EVENT_ID = '55555555-5555-4555-8555-555555555555';
   const MODULE_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const EXPECTED_SCHEMA = 'tenant_2222222222224222';
   const LEDGER_TABLE_COUNT = 42;
@@ -272,6 +273,7 @@ describe('TenantProvisioningWorkflowService — ledger vs physical reality (ORPH
   interface Harness {
     service: TenantProvisioningWorkflowService;
     query: jest.Mock;
+    enqueue: jest.Mock;
     activateTenant: jest.Mock;
     failProvisioning: jest.Mock;
   }
@@ -280,7 +282,7 @@ describe('TenantProvisioningWorkflowService — ledger vs physical reality (ORPH
     id: OPERATION_ID,
     tenantId: TENANT_ID,
     idempotencyKey: 'idem-key-0123456789abcdef',
-    requestHash: 'e3b0c44298fc1c149afbf4c8996fb924',
+    requestHash: 'a'.repeat(64),
     requestPayload: {
       name: 'Acme Aqua',
       slug: 'acme-aqua',
@@ -292,6 +294,10 @@ describe('TenantProvisioningWorkflowService — ledger vs physical reality (ORPH
     currentStep: null,
     lastError: null,
     attempts: 1,
+    onboardingAttempt: 1,
+    onboardingRequestEventId: ONBOARDING_EVENT_ID,
+    onboardingRequestedAt: new Date(),
+    elapsedMs: 0,
     nextRetryAt: null,
     leaseToken: LEASE_TOKEN,
     leasedBy: 'admin-api:1',
@@ -313,6 +319,11 @@ describe('TenantProvisioningWorkflowService — ledger vs physical reality (ORPH
     physicalFacts: PhysicalFacts[];
     stepRows?: StepRow[];
     runState?: TenantProvisioningState;
+    onboardingOutcomes?: Array<{
+      service: string;
+      status: 'ACK' | 'FAILED';
+      error: string | null;
+    }>;
   }): Promise<Harness> => {
     const physicalFacts = [...options.physicalFacts];
     const stepRows = options.stepRows ?? [];
@@ -342,7 +353,9 @@ describe('TenantProvisioningWorkflowService — ledger vs physical reality (ORPH
         return Promise.resolve([{ tableCount: LEDGER_TABLE_COUNT }]);
       }
       if (sql.includes('admin.tenant_onboarding_acks')) {
-        return Promise.resolve([{ service: 'farm-service', status: 'ACK', error: null }]);
+        return Promise.resolve(
+          options.onboardingOutcomes ?? [{ service: 'farm-service', status: 'ACK', error: null }],
+        );
       }
       if (sql.includes('FROM auth.tenants')) {
         return Promise.resolve([
@@ -396,9 +409,14 @@ describe('TenantProvisioningWorkflowService — ledger vs physical reality (ORPH
       release: jest.fn().mockResolvedValue(undefined),
       manager: { query: jest.fn().mockResolvedValue([]) },
     };
+    const transaction = jest.fn(
+      async (_isolation: string, work: (manager: { query: typeof query }) => Promise<unknown>) =>
+        work({ query }),
+    );
 
     const activateTenant = jest.fn().mockResolvedValue(undefined);
     const failProvisioning = jest.fn().mockResolvedValue(undefined);
+    const enqueue = jest.fn().mockResolvedValue(undefined);
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -408,9 +426,10 @@ describe('TenantProvisioningWorkflowService — ledger vs physical reality (ORPH
           useValue: {
             query,
             createQueryRunner: jest.fn().mockReturnValue(eventQueryRunner),
+            transaction,
           },
         },
-        { provide: OutboxPublisher, useValue: { enqueue: jest.fn().mockResolvedValue(undefined) } },
+        { provide: OutboxPublisher, useValue: { enqueue } },
         { provide: AuditLogService, useValue: { log: jest.fn().mockResolvedValue(undefined) } },
         {
           provide: TenantProvisioningService,
@@ -459,6 +478,7 @@ describe('TenantProvisioningWorkflowService — ledger vs physical reality (ORPH
     return {
       service: moduleRef.get(TenantProvisioningWorkflowService),
       query,
+      enqueue,
       activateTenant,
       failProvisioning,
     };
@@ -534,6 +554,53 @@ describe('TenantProvisioningWorkflowService — ledger vs physical reality (ORPH
     expect(stepOutcomes(query).filter((outcome) => outcome.state === 'FAILED')).toEqual([]);
     expect(activateTenant).toHaveBeenCalledTimes(1);
     expect(failProvisioning).not.toHaveBeenCalled();
+  });
+
+  it('reuses a committed onboarding generation after a coordinator crash', async () => {
+    const { service, query, enqueue, activateTenant } = await createHarness({
+      physicalFacts: [{ schemaExists: true, tableCount: LEDGER_TABLE_COUNT }],
+    });
+
+    await service.processOperation(OPERATION_ID);
+
+    const onboardingPublishes = enqueue.mock.calls.filter(
+      ([event]) => (event as { eventType?: string }).eventType === 'TenantOnboardingRequested',
+    );
+    const onboardingGenerationUpdates = query.mock.calls.filter(
+      ([sql]) =>
+        typeof sql === 'string' &&
+        sql.includes('SET "onboardingAttempt" = $3') &&
+        sql.includes('"onboardingRequestEventId" = $4'),
+    );
+    expect(onboardingPublishes).toEqual([]);
+    expect(onboardingGenerationUpdates).toEqual([]);
+    expect(activateTenant).toHaveBeenCalledTimes(1);
+  });
+
+  it('requeues without activation while a catalogued owner ACK is still missing', async () => {
+    const { service, activateTenant, failProvisioning } = await createHarness({
+      physicalFacts: [{ schemaExists: true, tableCount: LEDGER_TABLE_COUNT }],
+      onboardingOutcomes: [],
+    });
+
+    await service.processOperation(OPERATION_ID);
+
+    expect(activateTenant).not.toHaveBeenCalled();
+    expect(failProvisioning).not.toHaveBeenCalled();
+  });
+
+  it('fails provisioning without activation when an owner persists FAILED evidence', async () => {
+    const { service, activateTenant, failProvisioning } = await createHarness({
+      physicalFacts: [{ schemaExists: true, tableCount: LEDGER_TABLE_COUNT }],
+      onboardingOutcomes: [
+        { service: 'farm-service', status: 'FAILED', error: 'species seed failed' },
+      ],
+    });
+
+    await service.processOperation(OPERATION_ID);
+
+    expect(activateTenant).not.toHaveBeenCalled();
+    expect(failProvisioning).toHaveBeenCalledTimes(1);
   });
 
   it('treats a table surplus as normal drift, not corruption', async () => {

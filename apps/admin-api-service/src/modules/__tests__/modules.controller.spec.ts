@@ -1,10 +1,15 @@
 import { NotFoundException, ConflictException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
+import { createStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
-import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
-import { ModulesController, CreateModuleDto, UpdateModuleDto, AssignModuleDto } from '../modules.controller';
-import { ModulesService, ModuleDto, PaginatedModules, ModuleStats, TenantModuleAssignment } from '../modules.service';
+import {
+  ModulesController,
+  CreateModuleDto,
+  UpdateModuleDto,
+  AssignModuleDto,
+} from '../modules.controller';
+import { ModulesService, ModuleDto, ModuleStats, TenantModuleAssignment } from '../modules.service';
 
 // Mock ModulesService
 const mockModulesService = {
@@ -39,17 +44,10 @@ const createMockModule = (overrides: Partial<ModuleDto> = {}): ModuleDto => ({
   ...overrides,
 });
 
-// Helper to create paginated response
-const createPaginatedModules = (modules: ModuleDto[], total: number = modules.length): PaginatedModules => ({
-  data: modules,
-  total,
-  page: 1,
-  limit: 50,
-  totalPages: Math.ceil(total / 50),
-});
-
 // Helper to create mock assignment
-const createMockAssignment = (overrides: Partial<TenantModuleAssignment> = {}): TenantModuleAssignment => ({
+const createMockAssignment = (
+  overrides: Partial<TenantModuleAssignment> = {},
+): TenantModuleAssignment => ({
   id: 'assignment-uuid-123',
   tenantId: 'tenant-uuid-123',
   tenantName: 'Test Tenant',
@@ -79,7 +77,8 @@ describe('ModulesController', () => {
           provide: ConfigService,
           useValue: {
             get: jest.fn((key: string, defaultValue?: string) => {
-              if (key === 'JWT_SECRET') return 'test-secret-key-that-is-at-least-32-characters-long';
+              if (key === 'JWT_SECRET')
+                return 'test-secret-key-that-is-at-least-32-characters-long';
               if (key === 'NODE_ENV') return 'test';
               return defaultValue;
             }),
@@ -94,8 +93,11 @@ describe('ModulesController', () => {
 
   describe('listModules', () => {
     it('should return paginated modules', async () => {
-      const mockModules = [createMockModule(), createMockModule({ id: 'mod-2', code: 'DASHBOARD' })];
-      const mockResult = createPaginatedModules(mockModules);
+      const mockModules = [
+        createMockModule(),
+        createMockModule({ id: 'mod-2', code: 'DASHBOARD' }),
+      ];
+      const mockResult = createStandardPaginatedResult(mockModules, mockModules.length, 1, 50);
       mockModulesService.listModules.mockResolvedValueOnce(mockResult);
 
       const result = await controller.listModules();
@@ -105,7 +107,9 @@ describe('ModulesController', () => {
     });
 
     it('should parse isActive query parameter as boolean', async () => {
-      mockModulesService.listModules.mockResolvedValueOnce(createPaginatedModules([]));
+      mockModulesService.listModules.mockResolvedValueOnce(
+        createStandardPaginatedResult([], 0, 1, 50),
+      );
 
       await controller.listModules('true');
       expect(service.listModules).toHaveBeenCalledWith({ isActive: true }, 1, 50);
@@ -115,14 +119,18 @@ describe('ModulesController', () => {
     });
 
     it('should parse isCore query parameter as boolean', async () => {
-      mockModulesService.listModules.mockResolvedValueOnce(createPaginatedModules([]));
+      mockModulesService.listModules.mockResolvedValueOnce(
+        createStandardPaginatedResult([], 0, 1, 50),
+      );
 
       await controller.listModules(undefined, 'true');
       expect(service.listModules).toHaveBeenCalledWith({ isCore: true }, 1, 50);
     });
 
     it('should pass search parameter', async () => {
-      mockModulesService.listModules.mockResolvedValueOnce(createPaginatedModules([]));
+      mockModulesService.listModules.mockResolvedValueOnce(
+        createStandardPaginatedResult([], 0, 1, 50),
+      );
 
       await controller.listModules(undefined, undefined, 'farm');
 
@@ -130,7 +138,9 @@ describe('ModulesController', () => {
     });
 
     it('should parse pagination parameters', async () => {
-      mockModulesService.listModules.mockResolvedValueOnce(createPaginatedModules([]));
+      mockModulesService.listModules.mockResolvedValueOnce(
+        createStandardPaginatedResult([], 0, 2, 10),
+      );
 
       await controller.listModules(undefined, undefined, undefined, '2', '10');
 
@@ -138,7 +148,9 @@ describe('ModulesController', () => {
     });
 
     it('should handle all parameters together', async () => {
-      mockModulesService.listModules.mockResolvedValueOnce(createPaginatedModules([]));
+      mockModulesService.listModules.mockResolvedValueOnce(
+        createStandardPaginatedResult([], 0, 3, 25),
+      );
 
       await controller.listModules('true', 'false', 'test', '3', '25');
 
@@ -150,7 +162,9 @@ describe('ModulesController', () => {
     });
 
     it('should handle undefined isActive/isCore as undefined in filter', async () => {
-      mockModulesService.listModules.mockResolvedValueOnce(createPaginatedModules([]));
+      mockModulesService.listModules.mockResolvedValueOnce(
+        createStandardPaginatedResult([], 0, 1, 50),
+      );
 
       await controller.listModules('invalid');
 
@@ -179,22 +193,28 @@ describe('ModulesController', () => {
   describe('getAllAssignments', () => {
     it('should return all assignments without filter', async () => {
       const mockAssignments = [createMockAssignment()];
-      mockModulesService.getAssignments.mockResolvedValueOnce({
-        data: mockAssignments,
+      mockModulesService.getAssignments.mockResolvedValueOnce(
+        createStandardPaginatedResult(mockAssignments, 1, 1, 50),
+      );
+
+      const result = await controller.getAllAssignments();
+
+      expect(result.items).toEqual(mockAssignments);
+      expect(result).toMatchObject({
         total: 1,
         page: 1,
         limit: 50,
         totalPages: 1,
+        hasNextPage: false,
+        hasPreviousPage: false,
       });
-
-      const result = await controller.getAllAssignments();
-
-      expect(result.data).toEqual(mockAssignments);
       expect(service.getAssignments).toHaveBeenCalledWith({}, 1, 50);
     });
 
     it('should filter by tenantId', async () => {
-      mockModulesService.getAssignments.mockResolvedValueOnce({ data: [], total: 0, page: 1, limit: 50, totalPages: 0 });
+      mockModulesService.getAssignments.mockResolvedValueOnce(
+        createStandardPaginatedResult([], 0, 1, 50),
+      );
 
       await controller.getAllAssignments('tenant-123');
 
@@ -202,7 +222,9 @@ describe('ModulesController', () => {
     });
 
     it('should filter by moduleId', async () => {
-      mockModulesService.getAssignments.mockResolvedValueOnce({ data: [], total: 0, page: 1, limit: 50, totalPages: 0 });
+      mockModulesService.getAssignments.mockResolvedValueOnce(
+        createStandardPaginatedResult([], 0, 1, 50),
+      );
 
       await controller.getAllAssignments(undefined, 'module-123');
 
@@ -210,7 +232,9 @@ describe('ModulesController', () => {
     });
 
     it('should handle pagination parameters', async () => {
-      mockModulesService.getAssignments.mockResolvedValueOnce({ data: [], total: 0, page: 2, limit: 10, totalPages: 0 });
+      mockModulesService.getAssignments.mockResolvedValueOnce(
+        createStandardPaginatedResult([], 0, 2, 10),
+      );
 
       await controller.getAllAssignments(undefined, undefined, '2', '10');
 
@@ -230,7 +254,9 @@ describe('ModulesController', () => {
     });
 
     it('should propagate NotFoundException', async () => {
-      mockModulesService.getModuleById.mockRejectedValueOnce(new NotFoundException('Module not found'));
+      mockModulesService.getModuleById.mockRejectedValueOnce(
+        new NotFoundException('Module not found'),
+      );
 
       await expect(controller.getModuleById('non-existent')).rejects.toThrow(NotFoundException);
     });
@@ -248,7 +274,9 @@ describe('ModulesController', () => {
     });
 
     it('should propagate NotFoundException', async () => {
-      mockModulesService.getModuleByCode.mockRejectedValueOnce(new NotFoundException('Module not found'));
+      mockModulesService.getModuleByCode.mockRejectedValueOnce(
+        new NotFoundException('Module not found'),
+      );
 
       await expect(controller.getModuleByCode('INVALID')).rejects.toThrow(NotFoundException);
     });
@@ -257,22 +285,28 @@ describe('ModulesController', () => {
   describe('getModuleTenants', () => {
     it('should return tenants for a module', async () => {
       const mockTenants = [{ id: 'tenant-1', name: 'Tenant 1' }];
-      mockModulesService.getModuleTenants.mockResolvedValueOnce({
-        data: mockTenants,
+      mockModulesService.getModuleTenants.mockResolvedValueOnce(
+        createStandardPaginatedResult(mockTenants, 1, 1, 50),
+      );
+
+      const result = await controller.getModuleTenants('module-id');
+
+      expect(result.items).toEqual(mockTenants);
+      expect(result).toMatchObject({
         total: 1,
         page: 1,
         limit: 50,
         totalPages: 1,
+        hasNextPage: false,
+        hasPreviousPage: false,
       });
-
-      const result = await controller.getModuleTenants('module-id');
-
-      expect(result.data).toEqual(mockTenants);
       expect(service.getModuleTenants).toHaveBeenCalledWith('module-id', 1, 50);
     });
 
     it('should handle pagination', async () => {
-      mockModulesService.getModuleTenants.mockResolvedValueOnce({ data: [], total: 0, page: 2, limit: 10, totalPages: 0 });
+      mockModulesService.getModuleTenants.mockResolvedValueOnce(
+        createStandardPaginatedResult([], 0, 2, 10),
+      );
 
       await controller.getModuleTenants('module-id', '2', '10');
 
@@ -301,7 +335,9 @@ describe('ModulesController', () => {
     });
 
     it('should propagate ConflictException on duplicate code', async () => {
-      mockModulesService.createModule.mockRejectedValueOnce(new ConflictException('Duplicate code'));
+      mockModulesService.createModule.mockRejectedValueOnce(
+        new ConflictException('Duplicate code'),
+      );
 
       await expect(controller.createModule(createDto)).rejects.toThrow(ConflictException);
     });
@@ -324,9 +360,13 @@ describe('ModulesController', () => {
     });
 
     it('should propagate NotFoundException', async () => {
-      mockModulesService.updateModule.mockRejectedValueOnce(new NotFoundException('Module not found'));
+      mockModulesService.updateModule.mockRejectedValueOnce(
+        new NotFoundException('Module not found'),
+      );
 
-      await expect(controller.updateModule('non-existent', updateDto)).rejects.toThrow(NotFoundException);
+      await expect(controller.updateModule('non-existent', updateDto)).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
@@ -363,13 +403,17 @@ describe('ModulesController', () => {
     });
 
     it('should propagate NotFoundException', async () => {
-      mockModulesService.deleteModule.mockRejectedValueOnce(new NotFoundException('Module not found'));
+      mockModulesService.deleteModule.mockRejectedValueOnce(
+        new NotFoundException('Module not found'),
+      );
 
       await expect(controller.deleteModule('non-existent')).rejects.toThrow(NotFoundException);
     });
 
     it('should propagate ConflictException when module has assignments', async () => {
-      mockModulesService.deleteModule.mockRejectedValueOnce(new ConflictException('Has assignments'));
+      mockModulesService.deleteModule.mockRejectedValueOnce(
+        new ConflictException('Has assignments'),
+      );
 
       await expect(controller.deleteModule('module-id')).rejects.toThrow(ConflictException);
     });
@@ -408,20 +452,28 @@ describe('ModulesController', () => {
     it('should remove module from tenant', async () => {
       mockModulesService.removeModuleFromTenant.mockResolvedValueOnce(undefined);
 
-      await expect(controller.removeModuleFromTenant('tenant-id', 'module-id')).resolves.toBeUndefined();
+      await expect(
+        controller.removeModuleFromTenant('tenant-id', 'module-id'),
+      ).resolves.toBeUndefined();
       expect(service.removeModuleFromTenant).toHaveBeenCalledWith('tenant-id', 'module-id');
     });
 
     it('should propagate NotFoundException when assignment not found', async () => {
-      mockModulesService.removeModuleFromTenant.mockRejectedValueOnce(new NotFoundException('Assignment not found'));
+      mockModulesService.removeModuleFromTenant.mockRejectedValueOnce(
+        new NotFoundException('Assignment not found'),
+      );
 
-      await expect(controller.removeModuleFromTenant('tenant-id', 'module-id')).rejects.toThrow(NotFoundException);
+      await expect(controller.removeModuleFromTenant('tenant-id', 'module-id')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
   describe('Input Validation Edge Cases', () => {
     it('should handle empty string for optional parameters', async () => {
-      mockModulesService.listModules.mockResolvedValueOnce(createPaginatedModules([]));
+      mockModulesService.listModules.mockResolvedValueOnce(
+        createStandardPaginatedResult([], 0, 1, 50),
+      );
 
       await controller.listModules('', '', '');
 
@@ -433,19 +485,19 @@ describe('ModulesController', () => {
     });
 
     it('should handle whitespace in search', async () => {
-      mockModulesService.listModules.mockResolvedValueOnce(createPaginatedModules([]));
+      mockModulesService.listModules.mockResolvedValueOnce(
+        createStandardPaginatedResult([], 0, 1, 50),
+      );
 
       await controller.listModules(undefined, undefined, '   farm   ');
 
-      expect(service.listModules).toHaveBeenCalledWith(
-        { search: '   farm   ' },
-        1,
-        50,
-      );
+      expect(service.listModules).toHaveBeenCalledWith({ search: '   farm   ' }, 1, 50);
     });
 
     it('should handle invalid page/limit values', async () => {
-      mockModulesService.listModules.mockResolvedValueOnce(createPaginatedModules([]));
+      mockModulesService.listModules.mockResolvedValueOnce(
+        createStandardPaginatedResult([], 0, 1, 50),
+      );
 
       // NaN should be handled gracefully
       await controller.listModules(undefined, undefined, undefined, 'invalid', 'abc');

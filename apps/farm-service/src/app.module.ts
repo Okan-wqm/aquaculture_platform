@@ -98,6 +98,7 @@ import { FeedingModule } from './feeding/feeding.module';
 import { FeedingProtocolModule } from './feeding-protocol/feeding-protocol.module';
 import { GrowthModule } from './growth/growth.module';
 import { WaterQualityModule } from './water-quality/water-quality.module';
+import { TenantOnboardingModule } from './tenant-onboarding/tenant-onboarding.module';
 import { FishHealthModule } from './fish-health/fish-health.module';
 import { MaintenanceModule } from './maintenance/maintenance.module';
 import { HarvestModule } from './harvest/harvest.module';
@@ -432,6 +433,7 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
     FeedingProtocolModule,
     GrowthModule,
     WaterQualityModule,
+    TenantOnboardingModule,
     FishHealthModule,
     MaintenanceModule,
     HarvestModule,

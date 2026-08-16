@@ -17,3 +17,4 @@ export * from './service-identity.guard';
 export * from './token-revocation.service';
 // SEC-HIGH-052: mobile feature-entitlement guard (paired with @RequiresMobileFeature)
 export * from './mobile-feature.guard';
+export * from './recent-mfa.guard';

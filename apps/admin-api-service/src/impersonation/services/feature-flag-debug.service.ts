@@ -1,6 +1,10 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
+import {
+  createStandardPaginatedResult,
+  type IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 import { Repository, LessThan } from 'typeorm';
 
 import { FeatureFlagOverride } from '../entities/debug-session.entity';
@@ -60,7 +64,10 @@ export class FeatureFlagDebugService {
   /**
    * Revert a feature flag override
    */
-  async revertFeatureFlagOverride(overrideId: string, revertedBy: string): Promise<FeatureFlagOverride> {
+  async revertFeatureFlagOverride(
+    overrideId: string,
+    revertedBy: string,
+  ): Promise<FeatureFlagOverride> {
     const override = await this.overrideRepo.findOne({ where: { id: overrideId } });
     if (!override) {
       throw new NotFoundException(`Override not found: ${overrideId}`);
@@ -72,7 +79,9 @@ export class FeatureFlagDebugService {
 
     const saved = await this.overrideRepo.save(override);
 
-    this.logger.log(`Reverted feature flag override: ${override.featureKey} for tenant ${override.tenantId}`);
+    this.logger.log(
+      `Reverted feature flag override: ${override.featureKey} for tenant ${override.tenantId}`,
+    );
 
     return saved;
   }
@@ -112,7 +121,11 @@ export class FeatureFlagDebugService {
   /**
    * Get feature flag value with override check
    */
-  async getFeatureFlagValue(tenantId: string, featureKey: string, defaultValue: unknown): Promise<unknown> {
+  async getFeatureFlagValue(
+    tenantId: string,
+    featureKey: string,
+    defaultValue: unknown,
+  ): Promise<unknown> {
     const override = await this.overrideRepo.findOne({
       where: { tenantId, featureKey, isActive: true },
     });
@@ -139,7 +152,7 @@ export class FeatureFlagDebugService {
     isActive?: boolean;
     page?: number;
     limit?: number;
-  }): Promise<{ items: FeatureFlagOverride[]; total: number }> {
+  }): Promise<IStandardPaginatedResult<FeatureFlagOverride>> {
     const query = this.overrideRepo.createQueryBuilder('o');
 
     if (params.tenantId) {
@@ -162,7 +175,7 @@ export class FeatureFlagDebugService {
     query.skip((page - 1) * limit).take(limit);
 
     const [items, total] = await query.getManyAndCount();
-    return { items, total };
+    return createStandardPaginatedResult(items, total, page, limit);
   }
 
   /**

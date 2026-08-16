@@ -5,6 +5,7 @@
  * management via GraphQL API.
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 import {
   FEEDING_RECORD_QUERY,
@@ -136,15 +137,7 @@ export interface FeedingSummaryResponse {
   byFeedType: FeedTypeSummary[];
 }
 
-export interface FeedingRecordConnection {
-  items: FeedingRecord[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-  hasNextPage: boolean;
-  hasPreviousPage: boolean;
-}
+export type FeedingRecordConnection = PaginationResultV1<FeedingRecord>;
 
 
 // Input types
@@ -387,4 +380,3 @@ export function useUpdateFeedingRecord() {
 // ============================================================================
 // FEED INVENTORY HOOKS
 // ============================================================================
-

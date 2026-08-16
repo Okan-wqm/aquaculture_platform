@@ -29,19 +29,13 @@ import {
   RequestLoggingMiddleware,
   StripInternalHeadersMiddleware,
 } from '@aquaculture/backend-common/middleware';
-import {
-  RateLimitGuard,
-  RateLimitModule,
-  RATE_LIMIT_STORE,
-  RateLimitStore,
-} from '@aquaculture/backend-common/rate-limit';
+import { RateLimitGuard, RateLimitModule } from '@aquaculture/backend-common/rate-limit';
 import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
 import {
-  ITokenBlacklist,
-  IUserTokenRevocation,
-  TOKEN_BLACKLIST,
+  ITokenRevocationReader,
+  TOKEN_REVOCATION_READER,
   TokenBlacklistModule,
-  USER_TOKEN_REVOCATION,
+  TokenRevocationReaderModule,
   UserTokenRevocationModule,
 } from '@aquaculture/backend-common/security';
 import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
@@ -256,8 +250,7 @@ const authSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
       },
     }),
 
-    // Redis — WebAuthn challenge store, session management, token blacklist.
-    // @Optional() in consumers: graceful in-memory fallback when Redis unavailable.
+    // Redis — mandatory distributed authority for sessions, revocation, and limits.
     RedisModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -275,6 +268,7 @@ const authSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
     // Auth-service is the sole per-JTI revocation writer. Redis is mandatory
     // and markers use the explicit auth-owned authorization namespace.
     TokenBlacklistModule,
+    TokenRevocationReaderModule,
 
     // SECURITY (SEC-CRITICAL-002): distributed rate-limit store on top of
     // the service Redis — login/MFA/reset budgets are shared across replicas.
@@ -408,9 +402,7 @@ const authSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
     // network. Explicit-config mode: only @RateLimit-decorated handlers pay.
     {
       provide: APP_GUARD,
-      useFactory: (reflector: Reflector, store?: RateLimitStore): RateLimitGuard =>
-        new RateLimitGuard(reflector, store),
-      inject: [Reflector, { token: RATE_LIMIT_STORE, optional: true }],
+      useExisting: RateLimitGuard,
     },
     // SECURITY: Global JWT auth guard
     {
@@ -419,11 +411,10 @@ const authSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
         jwtService: JwtService,
         reflector: Reflector,
         configService: ConfigService,
-        tokenBlacklist: ITokenBlacklist,
-        userTokenRevocation: IUserTokenRevocation,
+        tokenRevocationReader: ITokenRevocationReader,
       ): JwtAuthGuard =>
-        new JwtAuthGuard(jwtService, reflector, configService, tokenBlacklist, userTokenRevocation),
-      inject: [JwtService, Reflector, ConfigService, TOKEN_BLACKLIST, USER_TOKEN_REVOCATION],
+        new JwtAuthGuard(jwtService, reflector, configService, tokenRevocationReader),
+      inject: [JwtService, Reflector, ConfigService, TOKEN_REVOCATION_READER],
     },
     // SECURITY: Global tenant guard - ensures tenant isolation
     {

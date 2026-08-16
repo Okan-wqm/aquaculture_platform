@@ -1,14 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 
-import {
-  runInTenantTransaction,
-  tenantManagerRepo,
-} from '@aquaculture/backend-common/database';
-import {
-  ComplianceAuditLog,
-  ComplianceAction,
-} from '../entities/compliance-audit-log.entity';
+import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { ComplianceAuditLog, ComplianceAction } from '../entities/compliance-audit-log.entity';
 
 /**
  * Parameters for creating an audit log entry.
@@ -66,7 +60,7 @@ export class ComplianceAuditService {
    *
    * @param manager Optional EntityManager for transactional callers.
    *   BEFORE: log() always used its own injected auditRepo — writes were outside
-   *   the caller's transaction. If ToggleLegalHoldHandler's transaction rolled back
+   *   the caller's transaction. If ActivateLegalHoldHandler's transaction rolled back
    *   after audit.log() succeeded, the audit entry remained but the hold was gone
    *   (ghost audit entry for a non-existent hold).
    *   WHY: Passing manager ensures audit entry and hold state are committed atomically.
@@ -99,11 +93,8 @@ export class ComplianceAuditService {
     } else {
       // Fire-and-forget caller: catch errors to avoid disrupting the caller
       try {
-        await runInTenantTransaction(
-          this.dataSource,
-          'messaging',
-          params.tenantId,
-          (queryRunner) => writeEntry(queryRunner.manager),
+        await runInTenantTransaction(this.dataSource, 'messaging', params.tenantId, (queryRunner) =>
+          writeEntry(queryRunner.manager),
         );
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
@@ -169,13 +160,8 @@ export class ComplianceAuditService {
       'messaging',
       filters.tenantId,
       async (queryRunner) => {
-        const repo = tenantManagerRepo(
-          queryRunner.manager,
-          ComplianceAuditLog,
-          filters.tenantId,
-        );
-        const qb = repo
-          .createQueryBuilder('a')
+        const repo = tenantManagerRepo(queryRunner.manager, ComplianceAuditLog, filters.tenantId);
+        const qb = repo.createQueryBuilder('a');
 
         if (filters.userId) {
           qb.andWhere('a."userId" = :userId', { userId: filters.userId });
@@ -209,17 +195,12 @@ export class ComplianceAuditService {
 
         const [items, totalCount] = await Promise.all([
           qb.getMany(),
-          repo
-            .createQueryBuilder('a')
-            .getCount(),
+          repo.createQueryBuilder('a').getCount(),
         ]);
 
         const hasMore = items.length > limit;
         const page = hasMore ? items.slice(0, limit) : items;
-        const nextCursor =
-          page.length > 0
-            ? this.encodeCursor(page[page.length - 1]!)
-            : null;
+        const nextCursor = hasMore ? this.encodeCursor(page[page.length - 1]!) : null;
 
         return { items: page, hasMore, cursor: nextCursor, totalCount };
       },

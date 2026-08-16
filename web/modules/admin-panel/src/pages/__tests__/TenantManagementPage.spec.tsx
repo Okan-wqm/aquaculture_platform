@@ -9,6 +9,7 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
+import { createPaginatedDataResultV1 } from '@platform/pagination-contracts';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import TenantManagementPage from '../TenantManagementPage';
 import {
@@ -118,13 +119,7 @@ const mockTenants: Tenant[] = [
   },
 ];
 
-const mockTenantPage: PaginatedResult<Tenant> = {
-  data: mockTenants,
-  total: 4,
-  page: 1,
-  limit: 20,
-  totalPages: 1,
-};
+const mockTenantPage: PaginatedResult<Tenant> = createPaginatedDataResultV1(mockTenants, 4, 1, 20);
 
 const mockStats: TenantStats = {
   totalTenants: 4,
@@ -408,11 +403,9 @@ describe('TenantManagementPage', () => {
 
   describe('Pagination', () => {
     it('should display pagination controls', async () => {
-      vi.mocked(tenantsApi.list).mockResolvedValueOnce({
-        ...mockTenantPage,
-        total: 100, // More than one page
-        totalPages: 5,
-      });
+      vi.mocked(tenantsApi.list).mockResolvedValueOnce(
+        createPaginatedDataResultV1(mockTenants, 100, 1, 20),
+      );
 
       renderWithRouter(<TenantManagementPage />);
 
@@ -424,11 +417,9 @@ describe('TenantManagementPage', () => {
 
     it('should change page on pagination click', async () => {
       const user = userEvent.setup();
-      vi.mocked(tenantsApi.list).mockResolvedValueOnce({
-        ...mockTenantPage,
-        total: 100,
-        totalPages: 5,
-      });
+      vi.mocked(tenantsApi.list).mockResolvedValueOnce(
+        createPaginatedDataResultV1(mockTenants, 100, 1, 20),
+      );
 
       renderWithRouter(<TenantManagementPage />);
 
@@ -465,12 +456,9 @@ describe('TenantManagementPage', () => {
 
   describe('Empty State', () => {
     it('should show empty message when no tenants', async () => {
-      vi.mocked(tenantsApi.list).mockResolvedValueOnce({
-        ...mockTenantPage,
-        data: [],
-        total: 0,
-        totalPages: 0,
-      });
+      vi.mocked(tenantsApi.list).mockResolvedValueOnce(
+        createPaginatedDataResultV1<Tenant>([], 0, 1, 20),
+      );
 
       renderWithRouter(<TenantManagementPage />);
 

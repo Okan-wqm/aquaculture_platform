@@ -5,7 +5,7 @@ import {
   RateLimitTier,
 } from '../rate-limit.types';
 
-import { classifyEndpoint, DEFAULT_TIER } from './endpoint-classifier';
+import { classifyEndpoint, DEFAULT_TIER, matchesEndpoint } from './endpoint-classifier';
 
 /*
  * Edge tier resolution — turns one request's facts into the rate-limit rules
@@ -16,7 +16,12 @@ import { classifyEndpoint, DEFAULT_TIER } from './endpoint-classifier';
 function toRouteConfig(tier: RateLimitTier): RateLimitRouteConfig {
   // Edge rules carry no custom identifier — the guard's buildKey identity
   // precedence (user > tenant+ip > ip) supplies the key dimension.
-  return { name: tier.name, limit: tier.limit, windowMs: tier.windowMs };
+  return {
+    name: tier.name,
+    limit: tier.limit,
+    windowMs: tier.windowMs,
+    requiresDistributedStore: tier.requiresDistributedStore,
+  };
 }
 
 /**
@@ -38,16 +43,44 @@ export function resolveEdgeRules(
   facts: EdgeRequestFacts,
   config: RateLimitEdgeConfig,
 ): RateLimitRouteConfig[] {
+  const method = facts.method?.toUpperCase();
+  if (
+    method &&
+    config.exemptions?.some(
+      (exemption) =>
+        exemption.methods.some((candidate) => candidate === method) &&
+        matchesEndpoint(facts.url, exemption.paths),
+    )
+  ) {
+    return [];
+  }
+
   const rules: RateLimitRouteConfig[] = [toRouteConfig(resolvePrimaryTier(facts, config))];
 
   if (facts.graphqlParentType === 'Mutation' && config.mutationTier) {
-    const mutationTier = config.tiers[config.mutationTier];
-    if (mutationTier) {
-      rules.push(toRouteConfig(mutationTier));
-    }
+    appendTier(rules, config, config.mutationTier);
+  }
+
+  if (method && isMutationMethod(method) && config.httpMutationTier) {
+    appendTier(rules, config, config.httpMutationTier);
   }
 
   return rules;
+}
+
+function appendTier(
+  rules: RateLimitRouteConfig[],
+  config: RateLimitEdgeConfig,
+  tierName: string,
+): void {
+  const tier = config.tiers[tierName];
+  if (tier && !rules.some((rule) => rule.name === tier.name)) {
+    rules.push(toRouteConfig(tier));
+  }
+}
+
+function isMutationMethod(method: string): boolean {
+  return method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE';
 }
 
 function resolvePrimaryTier(facts: EdgeRequestFacts, config: RateLimitEdgeConfig): RateLimitTier {

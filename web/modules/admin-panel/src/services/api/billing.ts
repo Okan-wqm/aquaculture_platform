@@ -6,6 +6,8 @@ import { apiFetch, buildQueryString } from '../http-client';
 import type {
   PlanDefinition,
   PlanTier,
+  PaginatedResult,
+  PaginationParams,
   DiscountCode,
   DiscountStats,
   PaymentOverview,
@@ -61,8 +63,12 @@ export const billingApi = {
     apiFetch<{ users: number; farms: number; sensors: number; storage: number; apiCallsPerDay: number }>(`/billing/plans/defaults/${tier}`),
 
   // Discount Codes
-  getDiscountCodes: (options?: { isActive?: boolean; includeExpired?: boolean }) =>
-    apiFetch<DiscountCode[]>(`/billing/discounts?${buildQueryString(options || {})}`),
+  getDiscountCodes: (
+    options?: { isActive?: boolean; includeExpired?: boolean } & PaginationParams,
+  ) =>
+    apiFetch<PaginatedResult<DiscountCode>>(
+      `/billing/discounts?${buildQueryString(options || {})}`,
+    ),
   getDiscountStats: () => apiFetch<DiscountStats>('/billing/discounts/stats'),
   getDiscountById: (id: string) => apiFetch<DiscountCode>(`/billing/discounts/${id}`),
   getDiscountByCode: (code: string) => apiFetch<{ found: boolean; discount?: DiscountCode }>(`/billing/discounts/code/${code}`),
@@ -94,7 +100,14 @@ export const billingApi = {
   getDiscountRedemptions: (discountId: string) =>
     apiFetch<Array<{ id: string; tenantId: string; tenantName: string; redeemedAt: string; amount: number }>>(`/billing/discounts/${discountId}/redemptions`),
   getTenantRedemptions: (tenantId: string) =>
-    apiFetch<Array<{ id: string; discountCode: string; redeemedAt: string; amount: number }>>(`/billing/tenant/${tenantId}/redemptions`),
+    apiFetch<
+      PaginatedResult<{
+        id: string;
+        discountCode: string;
+        redeemedAt: string;
+        amount: number;
+      }>
+    >(`/billing/tenant/${tenantId}/redemptions`),
 
   // Subscriptions
   createSubscription: (data: CreateSubscriptionDto) =>

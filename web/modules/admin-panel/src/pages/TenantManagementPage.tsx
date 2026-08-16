@@ -31,7 +31,7 @@ import {
 
 const TenantManagementPage: React.FC = () => {
   const navigate = useNavigate();
-  const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [tenants, setTenants] = useState<readonly Tenant[]>([]);
   const [stats, setStats] = useState<TenantStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

@@ -6,7 +6,7 @@ import {
 import { TaskDetailModal } from './TaskDetailModal';
 
 interface CompletedTabProps {
-  tasks: Task[];
+  tasks: readonly Task[];
   onToggleChecklist: (taskId: string, checklistId: string, isCompleted: boolean) => void;
   onAddNote: (taskId: string, note: string) => void;
 }

@@ -1,19 +1,12 @@
-import {
-  Controller,
-  Get,
-  Query,
-  Param,
-  Req,
-  ParseUUIDPipe,
-} from '@nestjs/common';
+import { Controller, Get, Query, Param, Req, ParseUUIDPipe } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 
-import { PaginationQueryDto } from '../shared/pagination-query.dto';
 import { getAuthUser } from '../shared/authenticated-request';
 
-import { AuditLog, AuditSeverity } from './audit.entity';
+import { AuditLog } from './audit.entity';
 import { AuditLogService, AuditLogFilter } from './audit.service';
+import { AuditLogQueryDto } from './dto/audit-log-query.dto';
 
 @ApiTags('Security')
 @Controller('audit-logs')
@@ -27,52 +20,45 @@ export class AuditLogController {
    */
   private writeMetaAudit(req: Request, action: string, details: Record<string, unknown>): void {
     const user = getAuthUser(req);
-    this.auditLogService.log({
-      action: 'AUDIT_LOG_ACCESSED',
-      entityType: 'AuditLog',
-      performedBy: user?.id || 'unknown',
-      ipAddress: (req.ip || req.socket?.remoteAddress) ?? undefined,
-      userAgent: req.headers['user-agent'],
-      details: { subAction: action, ...details },
-    }).catch(() => {
-      // Meta-audit failure must not block the primary audit read
-    });
+    this.auditLogService
+      .log({
+        action: 'AUDIT_LOG_ACCESSED',
+        entityType: 'AuditLog',
+        performedBy: user?.id || 'unknown',
+        ipAddress: (req.ip || req.socket?.remoteAddress) ?? undefined,
+        userAgent: req.headers['user-agent'],
+        details: { subAction: action, ...details },
+      })
+      .catch(() => {
+        // Meta-audit failure must not block the primary audit read
+      });
   }
 
   @Get()
-  async queryAuditLogs(
-    @Req() req: Request,
-    @Query('action') action?: string,
-    @Query('entityType') entityType?: string,
-    @Query('entityId') entityId?: string,
-    @Query('tenantId') tenantId?: string,
-    @Query('performedBy') performedBy?: string,
-    @Query('severity') severity?: AuditSeverity,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-    @Query('search') search?: string,
-    @Query() pagination?: PaginationQueryDto,
-  ) {
+  async queryAuditLogs(@Req() req: Request, @Query() query: AuditLogQueryDto) {
     const filter: AuditLogFilter = {
-      action,
-      entityType,
-      entityId,
-      tenantId,
-      performedBy,
-      severity,
-      startDate: startDate ? new Date(startDate) : undefined,
-      endDate: endDate ? new Date(endDate) : undefined,
-      search,
+      action: query.action,
+      entityType: query.entityType,
+      entityId: query.entityId,
+      tenantId: query.tenantId,
+      performedBy: query.performedBy,
+      severity: query.severity,
+      startDate: query.startDate ? new Date(query.startDate) : undefined,
+      endDate: query.endDate ? new Date(query.endDate) : undefined,
+      search: query.search,
     };
 
     // ADMIN-MEDIUM-003: meta-audit -- record that audit logs were queried
-    this.writeMetaAudit(req, 'QUERY', { filter: { action, entityType, tenantId, severity } });
+    this.writeMetaAudit(req, 'QUERY', {
+      filter: {
+        action: query.action,
+        entityType: query.entityType,
+        tenantId: query.tenantId,
+        severity: query.severity,
+      },
+    });
 
-    return this.auditLogService.query(
-      filter,
-      pagination?.page ?? 1,
-      pagination?.limit ?? 50,
-    );
+    return this.auditLogService.query(filter, query.page ?? 1, query.limit ?? 50);
   }
 
   @Get('entity/:entityType/:entityId')
@@ -117,10 +103,7 @@ export class AuditLogController {
   ): Promise<AuditLog[]> {
     // ADMIN-MEDIUM-003: meta-audit -- security log access is especially sensitive
     this.writeMetaAudit(req, 'SECURITY_LOGS', { tenantId });
-    return this.auditLogService.getSecurityLogs(
-      tenantId,
-      limit ? parseInt(limit, 10) : 100,
-    );
+    return this.auditLogService.getSecurityLogs(tenantId, limit ? parseInt(limit, 10) : 100);
   }
 
   @Get('statistics')

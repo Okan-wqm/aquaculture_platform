@@ -4,6 +4,10 @@
  * Tenant onboarding, eğitim ve rehberlik sistemi.
  */
 
+import {
+  createStandardPaginatedResult,
+  type IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -209,10 +213,7 @@ export class OnboardingService {
   /**
    * Initialize onboarding for tenant
    */
-  async initializeOnboarding(
-    tenantId: string,
-    tenantName: string,
-  ): Promise<OnboardingProgress> {
+  async initializeOnboarding(tenantId: string, tenantName: string): Promise<OnboardingProgress> {
     this.logger.log(`Initializing onboarding for tenant: ${tenantId}`);
 
     // Check if already exists
@@ -259,12 +260,7 @@ export class OnboardingService {
     page?: number;
     limit?: number;
     status?: OnboardingStatus;
-  }): Promise<{
-    data: OnboardingProgress[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  }): Promise<IStandardPaginatedResult<OnboardingProgress>> {
     const { page = 1, limit = 20, status } = options;
 
     const where: Record<string, unknown> = {};
@@ -277,7 +273,7 @@ export class OnboardingService {
       take: limit,
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**
@@ -294,7 +290,7 @@ export class OnboardingService {
     const progress = await this.getProgress(tenantId);
 
     // Check if step exists
-    const step = ONBOARDING_STEPS.find(s => s.id === stepId);
+    const step = ONBOARDING_STEPS.find((s) => s.id === stepId);
     if (!step) {
       throw new NotFoundException(`Step not found: ${stepId}`);
     }
@@ -311,16 +307,14 @@ export class OnboardingService {
     }
 
     // Calculate completion percentage
-    const requiredSteps = ONBOARDING_STEPS.filter(s => s.isRequired);
-    const completedRequired = requiredSteps.filter(s =>
-      progress.completedSteps.includes(s.id)
-    );
+    const requiredSteps = ONBOARDING_STEPS.filter((s) => s.isRequired);
+    const completedRequired = requiredSteps.filter((s) => progress.completedSteps.includes(s.id));
     progress.completionPercent = Math.round(
-      (completedRequired.length / requiredSteps.length) * 100
+      (completedRequired.length / requiredSteps.length) * 100,
     );
 
     // Determine next step
-    const currentIndex = ONBOARDING_STEPS.findIndex(s => s.id === stepId);
+    const currentIndex = ONBOARDING_STEPS.findIndex((s) => s.id === stepId);
     if (currentIndex < ONBOARDING_STEPS.length - 1) {
       const nextStep = ONBOARDING_STEPS[currentIndex + 1];
       if (nextStep) {
@@ -343,7 +337,7 @@ export class OnboardingService {
   async skipStep(tenantId: string, stepId: string): Promise<OnboardingProgress> {
     const progress = await this.getProgress(tenantId);
 
-    const step = ONBOARDING_STEPS.find(s => s.id === stepId);
+    const step = ONBOARDING_STEPS.find((s) => s.id === stepId);
     if (!step) {
       throw new NotFoundException(`Step not found: ${stepId}`);
     }
@@ -353,7 +347,7 @@ export class OnboardingService {
     }
 
     // Move to next step
-    const currentIndex = ONBOARDING_STEPS.findIndex(s => s.id === stepId);
+    const currentIndex = ONBOARDING_STEPS.findIndex((s) => s.id === stepId);
     if (currentIndex < ONBOARDING_STEPS.length - 1) {
       const nextStep = ONBOARDING_STEPS[currentIndex + 1];
       if (nextStep) {
@@ -417,7 +411,7 @@ export class OnboardingService {
    */
   getTrainingResources(category?: string): TrainingResource[] {
     if (category) {
-      return TRAINING_RESOURCES.filter(r => r.category === category);
+      return TRAINING_RESOURCES.filter((r) => r.category === category);
     }
     return TRAINING_RESOURCES;
   }
@@ -487,7 +481,7 @@ export class OnboardingService {
   ): Promise<OnboardingProgress> {
     const progress = await this.getProgress(tenantId);
 
-    const session = progress.scheduledTrainings?.find(s => s.id === sessionId);
+    const session = progress.scheduledTrainings?.find((s) => s.id === sessionId);
     if (!session) {
       throw new NotFoundException(`Training session not found: ${sessionId}`);
     }
@@ -531,10 +525,9 @@ export class OnboardingService {
   }> {
     const all = await this.progressRepository.find();
 
-    const completed = all.filter(p => p.status === 'completed');
-    const avgCompletion = all.length > 0
-      ? all.reduce((sum, p) => sum + p.completionPercent, 0) / all.length
-      : 0;
+    const completed = all.filter((p) => p.status === 'completed');
+    const avgCompletion =
+      all.length > 0 ? all.reduce((sum, p) => sum + p.completionPercent, 0) / all.length : 0;
 
     // Calculate average completion time
     let avgDays = 0;
@@ -551,17 +544,15 @@ export class OnboardingService {
     // Calculate completion by step
     const completionByStep: Record<string, number> = {};
     for (const step of ONBOARDING_STEPS) {
-      completionByStep[step.id] = all.filter(p =>
-        p.completedSteps?.includes(step.id)
-      ).length;
+      completionByStep[step.id] = all.filter((p) => p.completedSteps?.includes(step.id)).length;
     }
 
     return {
       total: all.length,
-      notStarted: all.filter(p => p.status === 'not_started').length,
-      inProgress: all.filter(p => p.status === 'in_progress').length,
+      notStarted: all.filter((p) => p.status === 'not_started').length,
+      inProgress: all.filter((p) => p.status === 'in_progress').length,
       completed: completed.length,
-      skipped: all.filter(p => p.status === 'skipped').length,
+      skipped: all.filter((p) => p.status === 'skipped').length,
       avgCompletionPercent: Math.round(avgCompletion),
       avgCompletionDays: avgDays,
       completionByStep,
@@ -580,7 +571,7 @@ export class OnboardingService {
     });
 
     // Return tenants who haven't made progress in 30 days
-    return all.filter(p => {
+    return all.filter((p) => {
       const lastUpdate = p.updatedAt || p.createdAt;
       return lastUpdate < thirtyDaysAgo;
     });

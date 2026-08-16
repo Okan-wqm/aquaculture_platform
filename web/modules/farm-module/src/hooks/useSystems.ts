@@ -3,6 +3,7 @@
  * Handles CRUD operations for systems via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 
 // Types
@@ -53,12 +54,7 @@ export interface UpdateSystemInput extends Partial<CreateSystemInput> {
   isActive?: boolean;
 }
 
-interface PaginatedResponse {
-  items: System[];
-  total: number;
-  page: number;
-  limit: number;
-}
+type SystemsPage = Pick<PaginationResultV1<System>, 'items' | 'total' | 'page' | 'limit'>;
 
 // GraphQL queries
 const SYSTEMS_LIST_QUERY = `
@@ -286,7 +282,7 @@ export function useSystemList(filter?: {
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'systems', 'list', filter),
     queryFn: async () => {
-      const data = await graphqlClient.request<{ systems: PaginatedResponse }>(
+      const data = await graphqlClient.request<{ systems: SystemsPage }>(
         SYSTEMS_LIST_QUERY,
         { filter, pagination: { page: 1, limit: 100 } }
       );

@@ -2,10 +2,10 @@
  * @aquaculture/shared-contracts — Public API
  *
  * NARROW cross-stack constant library. This barrel hosts ONLY zero-dependency
- * values that must be byte-identical on BOTH the backend trust boundary and the
- * standalone aquamobil Vite/Rollup bundle (which cannot reach into the NestJS
- * lib graph). Today that is exactly one thing: the messaging media MIME
- * allowlist.
+ * values that must be byte-identical across dependency boundaries without
+ * reaching into a NestJS implementation graph. This includes browser/server
+ * wire constants and infrastructure coordinates consumed by more than one
+ * platform library.
  *
  * Domain ENUMS do NOT live here. @platform/event-contracts is the canonical SSoT
  * for cross-service domain enums (TenantStatus, TenantPlan, PlanTier,
@@ -25,3 +25,4 @@
 // can be path-aliased into the standalone aquamobil Vite/Rollup bundle.
 export { MESSAGING_MEDIA_MIME_ALLOWLIST } from './enums/messaging-media-mime';
 export type { MessagingMediaMime } from './enums/messaging-media-mime';
+export { TENANT_ERASURE_TARGET_PROOF_LEDGER_TABLE } from './data-lifecycle/tenant-erasure';

@@ -1,8 +1,4 @@
-import {
-  getAccessToken,
-  getTenantId,
-  tokenLifecycle,
-} from '@aquaculture/shared-ui';
+import { getAccessToken, getTenantId, tokenLifecycle } from '@aquaculture/shared-ui';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { apiFetch } from '../http-client';
@@ -18,7 +14,20 @@ vi.mock('@aquaculture/shared-ui', () => ({
 }));
 
 const okResponse = (): Response =>
-  new Response(JSON.stringify({ success: true, data: { ok: true } }), {
+  new Response(
+    JSON.stringify({
+      success: true,
+      data: { ok: true },
+      meta: { timestamp: '2026-08-15T00:00:00.000Z' },
+    }),
+    {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+    },
+  );
+
+const jsonResponse = (body: unknown): Response =>
+  new Response(JSON.stringify(body), {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
   });
@@ -98,5 +107,210 @@ describe('admin-panel apiFetch header security contract', () => {
 
     const headers = sentHeaderRecord(fetchMock.mock.calls);
     expect(getHeaderValue(headers, 'Idempotency-Key')).toBe('idem-2');
+  });
+});
+
+describe('admin-panel apiFetch pagination contract', () => {
+  const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>();
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal('fetch', fetchMock);
+    vi.mocked(getAccessToken).mockReturnValue('access-token');
+    vi.mocked(getTenantId).mockReturnValue(null);
+    vi.mocked(tokenLifecycle.waitForReady).mockResolvedValue(undefined);
+  });
+
+  it('decodes canonical envelope metadata into the browser projection', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        success: true,
+        data: [{ id: 'tenant-1' }],
+        meta: {
+          total: 3,
+          page: 1,
+          limit: 1,
+          totalPages: 3,
+          hasNextPage: true,
+          hasPreviousPage: false,
+          timestamp: '2026-08-15T00:00:00.000Z',
+        },
+      }),
+    );
+
+    await expect(apiFetch('/tenants')).resolves.toEqual({
+      data: [{ id: 'tenant-1' }],
+      total: 3,
+      page: 1,
+      limit: 1,
+      totalPages: 3,
+      hasNextPage: true,
+      hasPreviousPage: false,
+    });
+  });
+
+  it('fails closed when redundant pagination metadata disagrees', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        success: true,
+        data: [],
+        meta: {
+          total: 3,
+          page: 1,
+          limit: 1,
+          totalPages: 99,
+          hasNextPage: true,
+          hasPreviousPage: false,
+        },
+      }),
+    );
+
+    await expect(apiFetch('/tenants')).rejects.toMatchObject({
+      code: 'INVALID_PAGINATION_CONTRACT',
+      status: 502,
+    });
+  });
+
+  it('fails closed when canonical pagination metadata accompanies non-array data', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        success: true,
+        data: { id: 'not-a-page' },
+        meta: {
+          total: 1,
+          page: 1,
+          limit: 20,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      }),
+    );
+
+    await expect(apiFetch('/tenants')).rejects.toMatchObject({
+      code: 'INVALID_PAGINATION_CONTRACT',
+      status: 502,
+    });
+  });
+
+  it.each([null, [], 'invalid'])('rejects malformed envelope metadata (%j)', async (meta) => {
+    fetchMock.mockResolvedValue(jsonResponse({ success: true, data: [], meta }));
+
+    await expect(apiFetch('/tenants')).rejects.toMatchObject({
+      code: 'INVALID_API_ENVELOPE',
+      status: 502,
+    });
+  });
+
+  it.each([false, 'true', 1])('rejects invalid success discriminator (%j)', async (success) => {
+    fetchMock.mockResolvedValue(jsonResponse({ success, data: [], meta: {} }));
+
+    await expect(apiFetch('/tenants')).rejects.toMatchObject({
+      code: 'INVALID_API_ENVELOPE',
+      status: 502,
+    });
+  });
+
+  it.each([
+    { ok: true },
+    { success: true },
+    { data: [] },
+  ])('rejects non-envelope successful JSON (%j)', async (body) => {
+    fetchMock.mockResolvedValue(jsonResponse(body));
+
+    await expect(apiFetch('/tenants')).rejects.toMatchObject({
+      code: 'INVALID_API_ENVELOPE',
+      status: 502,
+    });
+  });
+
+  it('accepts raw JSON only through an explicit response contract', async () => {
+    const rawHealth = { success: true, name: 'admin', state: 'closed' };
+    fetchMock.mockResolvedValue(jsonResponse(rawHealth));
+
+    await expect(
+      apiFetch('/health/circuit-breakers/admin', { responseContract: 'raw-json' }),
+    ).resolves.toEqual(rawHealth);
+  });
+
+  it('maps an explicit 204 response to void instead of fabricating an object', async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+
+    await expect(apiFetch<void>('/tenants/tenant-1', { method: 'DELETE' })).resolves.toBeUndefined();
+  });
+
+  it('does not retain a mutable reference to decoded page data', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        success: true,
+        data: [{ id: 'tenant-1' }],
+        meta: {
+          total: 1,
+          page: 1,
+          limit: 20,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      }),
+    );
+
+    const page = await apiFetch<{ readonly data: readonly { readonly id: string }[] }>('/tenants');
+    expect(Object.isFrozen(page.data)).toBe(true);
+  });
+});
+
+describe('admin-panel apiFetch transport contract', () => {
+  const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>();
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal('fetch', fetchMock);
+    vi.mocked(getAccessToken).mockReturnValue('access-token');
+    vi.mocked(getTenantId).mockReturnValue(null);
+    vi.mocked(tokenLifecycle.waitForReady).mockResolvedValue(undefined);
+  });
+
+  it('surfaces ValidationPipe message arrays without flattening them to HTTP 400', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ message: ['page must not be less than 1', 'limit must be 100'] }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    await expect(apiFetch('/tenants')).rejects.toMatchObject({
+      message: 'page must not be less than 1; limit must be 100',
+      status: 400,
+    });
+  });
+
+  it('rejects a successful HTML edge fallback as a typed transport failure', async () => {
+    fetchMock.mockResolvedValue(
+      new Response('<!doctype html><title>admin panel</title>', {
+        status: 200,
+        headers: { 'Content-Type': 'text/html' },
+      }),
+    );
+
+    await expect(apiFetch('/tenants')).rejects.toMatchObject({
+      code: 'NON_JSON_RESPONSE',
+      status: 502,
+      details: { contentType: 'text/html' },
+    });
+  });
+
+  it('rejects malformed JSON under a JSON media type with a stable error code', async () => {
+    fetchMock.mockResolvedValue(
+      new Response('{not-json', {
+        status: 200,
+        headers: { 'Content-Type': 'application/problem+json; charset=utf-8' },
+      }),
+    );
+
+    await expect(apiFetch('/tenants')).rejects.toMatchObject({
+      code: 'INVALID_JSON_RESPONSE',
+      status: 502,
+    });
   });
 });

@@ -8,7 +8,13 @@ export interface MessagingEventContract {
   readonly requiredPayloadFields: readonly string[];
   readonly internalOnlyFields?: readonly string[];
   readonly websocketPublicFields?: readonly string[];
-  readonly dataClass: 'message' | 'channel' | 'compliance' | 'announcement' | 'thread' | 'operational';
+  readonly dataClass:
+    | 'message'
+    | 'channel'
+    | 'compliance'
+    | 'announcement'
+    | 'thread'
+    | 'operational';
 }
 
 export const MESSAGING_EVENT_REGISTRY = {
@@ -48,13 +54,7 @@ export const MESSAGING_EVENT_REGISTRY = {
     subject: 'events.{tenantId}.MessageRead',
     producer: 'messaging-service',
     consumers: ['gateway-api', 'aquamobil'],
-    requiredPayloadFields: [
-      'channelId',
-      'messageId',
-      'messageCreatedAt',
-      'userId',
-      'readAt',
-    ],
+    requiredPayloadFields: ['channelId', 'messageId', 'messageCreatedAt', 'userId', 'readAt'],
     dataClass: 'message',
   },
   BulkThreadsCreated: {
@@ -62,13 +62,7 @@ export const MESSAGING_EVENT_REGISTRY = {
     subject: 'events.{tenantId}.BulkThreadsCreated',
     producer: 'messaging-service',
     consumers: ['notification-service'],
-    requiredPayloadFields: [
-      'bulkOperationId',
-      'tenantCount',
-      'subject',
-      'senderId',
-      'sendEmail',
-    ],
+    requiredPayloadFields: ['bulkOperationId', 'tenantCount', 'subject', 'senderId', 'sendEmail'],
     dataClass: 'thread',
   },
   AnnouncementPublished: {
@@ -223,13 +217,24 @@ export const MESSAGING_EVENT_REGISTRY = {
     subject: 'events.{tenantId}.LegalHoldToggled',
     producer: 'messaging-service',
     consumers: ['messaging-service'],
+    requiredPayloadFields: ['holdId', 'channelId', 'activate', 'reason', 'toggledBy', 'toggledAt'],
+    dataClass: 'compliance',
+  },
+  LegalHoldReleased: {
+    eventType: 'LegalHoldReleased',
+    subject: 'events.{tenantId}.LegalHoldReleased',
+    producer: 'messaging-service',
+    consumers: ['messaging-service'],
     requiredPayloadFields: [
       'holdId',
-      'channelId',
-      'activate',
-      'reason',
-      'toggledBy',
-      'toggledAt',
+      'scope',
+      'resourceId',
+      'legalMatterId',
+      'releaseOperationId',
+      'releaseRequestedBy',
+      'releaseAuthorizedBy',
+      'releaseReason',
+      'releasedAtIso',
     ],
     dataClass: 'compliance',
   },
@@ -253,21 +258,12 @@ export const MESSAGING_EVENT_REGISTRY = {
 
 export type MessagingEventType = keyof typeof MESSAGING_EVENT_REGISTRY;
 
-export const MESSAGING_EVENT_TYPES = Object.keys(
-  MESSAGING_EVENT_REGISTRY,
-) as MessagingEventType[];
+export const MESSAGING_EVENT_TYPES = Object.keys(MESSAGING_EVENT_REGISTRY) as MessagingEventType[];
 
-export function isMessagingEventType(
-  eventType: string,
-): eventType is MessagingEventType {
-  return Object.prototype.hasOwnProperty.call(
-    MESSAGING_EVENT_REGISTRY,
-    eventType,
-  );
+export function isMessagingEventType(eventType: string): eventType is MessagingEventType {
+  return Object.prototype.hasOwnProperty.call(MESSAGING_EVENT_REGISTRY, eventType);
 }
 
-export function getMessagingEventContract(
-  eventType: MessagingEventType,
-): MessagingEventContract {
+export function getMessagingEventContract(eventType: MessagingEventType): MessagingEventContract {
   return MESSAGING_EVENT_REGISTRY[eventType];
 }

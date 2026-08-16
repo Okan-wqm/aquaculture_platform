@@ -1,4 +1,5 @@
-import { ThrottleSensitive } from '@aquaculture/backend-common/security';
+import type { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import { RateLimit } from '@aquaculture/backend-common/rate-limit';
 import {
   BadRequestException,
   Body,
@@ -33,22 +34,27 @@ import {
   Matches,
 } from 'class-validator';
 
+import { ADMIN_RATE_LIMIT_POLICIES } from '../security/admin-rate-limit.policy';
+
 import { ResetPasswordByAdminDto } from './dto/reset-password.dto';
-import {
-  RoleTemplateService,
-  Permission,
-  RoleTemplate,
-} from './services/role-template.service';
+import { RoleTemplateService, Permission, RoleTemplate } from './services/role-template.service';
 import {
   UserProvisioningService,
   InviteUserDto as ProvisioningInviteUserDto,
   UserLimitCheckResult,
 } from './services/user-provisioning.service';
-import { UsersService, UserFilter, PaginatedUsers } from './users.service';
+import { UsersService, type UserDto, type UserFilter } from './users.service';
 
 // Allowed sort fields whitelist for security
-const ALLOWED_SORT_FIELDS = ['createdAt', 'updatedAt', 'email', 'firstName', 'lastName', 'role'] as const;
-type SortField = typeof ALLOWED_SORT_FIELDS[number];
+const ALLOWED_SORT_FIELDS = [
+  'createdAt',
+  'updatedAt',
+  'email',
+  'firstName',
+  'lastName',
+  'role',
+] as const;
+type SortField = (typeof ALLOWED_SORT_FIELDS)[number];
 
 export class CreateUserDto {
   @IsEmail({}, { message: 'Invalid email format' })
@@ -210,7 +216,7 @@ export class UsersController {
    * Get all users across all tenants (SUPER_ADMIN only)
    */
   @Get()
-  async listUsers(@Query() query: ListUsersQueryDto): Promise<PaginatedUsers> {
+  async listUsers(@Query() query: ListUsersQueryDto): Promise<IStandardPaginatedResult<UserDto>> {
     const filter: UserFilter = {
       tenantId: query.tenantId,
       role: query.role,
@@ -243,7 +249,7 @@ export class UsersController {
     @Param('tenantId', ParseUUIDPipe) tenantId: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
-  ): Promise<PaginatedUsers> {
+  ): Promise<IStandardPaginatedResult<UserDto>> {
     return this.usersService.listUsers(
       { tenantId, status: 'all' },
       page ? parseInt(page, 10) : 1,
@@ -256,9 +262,7 @@ export class UsersController {
    */
   @Get('recent-activity')
   async getRecentlyActiveUsers(@Query('limit') limit?: string) {
-    return this.usersService.getRecentlyActiveUsers(
-      limit ? parseInt(limit, 10) : 50,
-    );
+    return this.usersService.getRecentlyActiveUsers(limit ? parseInt(limit, 10) : 50);
   }
 
   /**
@@ -273,14 +277,8 @@ export class UsersController {
    * Get user's activity log
    */
   @Get(':id/activity')
-  async getUserActivity(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Query('limit') limit?: string,
-  ) {
-    return this.usersService.getUserActivity(
-      id,
-      limit ? parseInt(limit, 10) : 50,
-    );
+  async getUserActivity(@Param('id', ParseUUIDPipe) id: string, @Query('limit') limit?: string) {
+    return this.usersService.getUserActivity(id, limit ? parseInt(limit, 10) : 50);
   }
 
   /**
@@ -304,10 +302,7 @@ export class UsersController {
    * Update user
    */
   @Put(':id')
-  async updateUser(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: UpdateUserDto,
-  ) {
+  async updateUser(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateUserDto) {
     return this.usersService.updateUser(id, dto);
   }
 
@@ -330,6 +325,7 @@ export class UsersController {
   /**
    * Reset user password
    */
+  @RateLimit(ADMIN_RATE_LIMIT_POLICIES.sensitive)
   @Patch(':id/reset-password')
   async resetUserPassword(
     @Param('id', ParseUUIDPipe) id: string,
@@ -373,13 +369,10 @@ export class UsersController {
    * Invite a new user to a tenant
    * Validation is handled by class-validator decorators on InviteUserRequestDto
    */
-  @ThrottleSensitive()
+  @RateLimit(ADMIN_RATE_LIMIT_POLICIES.sensitive)
   @Post('invite')
   @HttpCode(HttpStatus.CREATED)
-  async inviteUser(
-    @Body() dto: InviteUserRequestDto,
-    @Req() req: { user: { id: string } },
-  ) {
+  async inviteUser(@Body() dto: InviteUserRequestDto, @Req() req: { user: { id: string } }) {
     const result = await this.userProvisioningService.inviteUser({
       tenantId: dto.tenantId,
       email: dto.email,

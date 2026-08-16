@@ -1,5 +1,9 @@
 import * as crypto from 'crypto';
 
+import {
+  createStandardPaginatedResult,
+  type IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -62,7 +66,8 @@ export interface AlertNotification {
 export class ErrorTrackingService {
   private readonly logger = new Logger(ErrorTrackingService.name);
   private alertCooldowns: Map<string, Date> = new Map();
-  private notificationHandlers: Map<string, (notification: AlertNotification) => Promise<void>> = new Map();
+  private notificationHandlers: Map<string, (notification: AlertNotification) => Promise<void>> =
+    new Map();
 
   constructor(
     @InjectRepository(ErrorOccurrence)
@@ -315,8 +320,14 @@ export class ErrorTrackingService {
       }
 
       // Merge affected tenants and releases
-      const tenants = new Set([...(target.affectedTenants || []), ...(source.affectedTenants || [])]);
-      const releases = new Set([...(target.affectedReleases || []), ...(source.affectedReleases || [])]);
+      const tenants = new Set([
+        ...(target.affectedTenants || []),
+        ...(source.affectedTenants || []),
+      ]);
+      const releases = new Set([
+        ...(target.affectedReleases || []),
+        ...(source.affectedReleases || []),
+      ]);
       target.affectedTenants = Array.from(tenants);
       target.affectedReleases = Array.from(releases);
     }
@@ -340,7 +351,7 @@ export class ErrorTrackingService {
     limit?: number;
     sortBy?: 'occurrenceCount' | 'lastSeenAt' | 'firstSeenAt' | 'userCount';
     sortOrder?: 'ASC' | 'DESC';
-  }): Promise<{ items: ErrorGroup[]; total: number }> {
+  }): Promise<IStandardPaginatedResult<ErrorGroup>> {
     const query = this.groupRepo.createQueryBuilder('g');
 
     if (params.status) {
@@ -374,7 +385,7 @@ export class ErrorTrackingService {
     query.skip((page - 1) * limit).take(limit);
 
     const [items, total] = await query.getManyAndCount();
-    return { items, total };
+    return createStandardPaginatedResult(items, total, page, limit);
   }
 
   // ============================================================================
@@ -392,7 +403,7 @@ export class ErrorTrackingService {
   async getOccurrencesForGroup(
     groupId: string,
     params: { page?: number; limit?: number },
-  ): Promise<{ items: ErrorOccurrence[]; total: number }> {
+  ): Promise<IStandardPaginatedResult<ErrorOccurrence>> {
     const page = params.page || 1;
     const limit = params.limit || 20;
 
@@ -403,7 +414,7 @@ export class ErrorTrackingService {
       take: limit,
     });
 
-    return { items, total };
+    return createStandardPaginatedResult(items, total, page, limit);
   }
 
   async queryOccurrences(params: {
@@ -416,7 +427,7 @@ export class ErrorTrackingService {
     end?: Date;
     page?: number;
     limit?: number;
-  }): Promise<{ items: ErrorOccurrence[]; total: number }> {
+  }): Promise<IStandardPaginatedResult<ErrorOccurrence>> {
     const query = this.occurrenceRepo.createQueryBuilder('o');
 
     if (params.service) {
@@ -448,7 +459,7 @@ export class ErrorTrackingService {
     query.skip((page - 1) * limit).take(limit);
 
     const [items, total] = await query.getManyAndCount();
-    return { items, total };
+    return createStandardPaginatedResult(items, total, page, limit);
   }
 
   // ============================================================================
@@ -484,10 +495,7 @@ export class ErrorTrackingService {
     return this.alertRuleRepo.save(rule);
   }
 
-  async updateAlertRule(
-    id: string,
-    data: Partial<ErrorAlertRule>,
-  ): Promise<ErrorAlertRule> {
+  async updateAlertRule(id: string, data: Partial<ErrorAlertRule>): Promise<ErrorAlertRule> {
     const rule = await this.alertRuleRepo.findOne({ where: { id } });
     if (!rule) {
       throw new NotFoundException(`Alert rule not found: ${id}`);
@@ -711,7 +719,12 @@ export class ErrorTrackingService {
     // Top error groups
     const topErrorGroups = await this.groupRepo.find({
       where: {
-        status: In([ErrorStatus.NEW, ErrorStatus.ACKNOWLEDGED, ErrorStatus.IN_PROGRESS, ErrorStatus.RECURRING]),
+        status: In([
+          ErrorStatus.NEW,
+          ErrorStatus.ACKNOWLEDGED,
+          ErrorStatus.IN_PROGRESS,
+          ErrorStatus.RECURRING,
+        ]),
       },
       order: { occurrenceCount: 'DESC' },
       take: 10,
@@ -820,7 +833,8 @@ export class ErrorTrackingService {
   async clearExpiredCooldowns(): Promise<void> {
     const now = Date.now();
     for (const [key, timestamp] of this.alertCooldowns.entries()) {
-      if (now - timestamp.getTime() > 24 * 60 * 60 * 1000) { // 24 hours
+      if (now - timestamp.getTime() > 24 * 60 * 60 * 1000) {
+        // 24 hours
         this.alertCooldowns.delete(key);
       }
     }

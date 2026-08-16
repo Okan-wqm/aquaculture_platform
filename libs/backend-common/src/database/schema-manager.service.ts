@@ -9,8 +9,8 @@
 
 import * as crypto from 'crypto';
 
+import { TENANT_ERASURE_TARGET_PROOF_LEDGER_TABLE } from '@aquaculture/shared-contracts';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import { TENANT_ERASURE_TARGET_PROOF_LEDGER_TABLE } from '@platform/outbox';
 import { DataSource } from 'typeorm';
 
 import { MIGRATION_LEDGER_TABLE, tenantMigrationLedgerTable } from './migration-ledger';
@@ -381,6 +381,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'event_dlq',
       'tenant_erasure_audit',
       'farm_audit_logs',
+      'tenant_onboarding_receipts',
       ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES,
     ],
     // Reference tables are excluded from the source-schema write guard (the
@@ -744,6 +745,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // Compliance tables (migration 1711800000003)
       'retention_policies',
       'legal_holds',
+      'legal_hold_release_operations',
       'compliance_audit_log',
       'user_ai_consents',
     ],

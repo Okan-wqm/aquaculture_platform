@@ -1,8 +1,10 @@
 import { DynamicModule, Logger, Module, Provider } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { Reflector } from '@nestjs/core';
 
 import { RedisService } from '../redis/redis.service';
 
+import { RateLimitEnforcementService } from './rate-limit-enforcement.service';
 import { RateLimitGuard } from './rate-limit.guard';
 import { RATE_LIMIT_EDGE_CONFIG, RATE_LIMIT_STORE, RateLimitEdgeConfig } from './rate-limit.types';
 import { RedisRateLimitStore } from './redis-rate-limit.store';
@@ -43,7 +45,7 @@ export class RateLimitModule {
           // WHY loud: per-process counters multiply every limit by the
           // replica count — acceptable in dev, a misconfiguration in prod.
           new Logger(RateLimitModule.name).warn(
-            'RedisService not available — rate limiting will use the per-process in-memory fallback.',
+            'RedisService not available — required/production rate limits will fail closed; only optional non-production policies may use local state.',
           );
           return undefined;
         }
@@ -52,8 +54,32 @@ export class RateLimitModule {
       inject: [{ token: RedisService, optional: true }],
     };
 
-    const providers: Provider[] = [storeProvider, RateLimitGuard];
-    const exports: (string | typeof RateLimitGuard)[] = [RATE_LIMIT_STORE, RateLimitGuard];
+    const enforcementProvider: Provider = {
+      provide: RateLimitEnforcementService,
+      useFactory: (configService: ConfigService, store?: RedisRateLimitStore) =>
+        new RateLimitEnforcementService(configService, store),
+      inject: [ConfigService, { token: RATE_LIMIT_STORE, optional: true }],
+    };
+    const guardProvider: Provider = {
+      provide: RateLimitGuard,
+      useFactory: (
+        reflector: Reflector,
+        enforcement: RateLimitEnforcementService,
+        edge?: RateLimitEdgeConfig,
+      ) => new RateLimitGuard(reflector, enforcement, edge),
+      inject: [
+        Reflector,
+        RateLimitEnforcementService,
+        { token: RATE_LIMIT_EDGE_CONFIG, optional: true },
+      ],
+    };
+
+    const providers: Provider[] = [storeProvider, enforcementProvider, guardProvider];
+    const exports: Array<string | typeof RateLimitGuard | typeof RateLimitEnforcementService> = [
+      RATE_LIMIT_STORE,
+      RateLimitEnforcementService,
+      RateLimitGuard,
+    ];
 
     if (options.edge !== undefined) {
       const edge = options.edge;
@@ -67,6 +93,7 @@ export class RateLimitModule {
 
     return {
       module: RateLimitModule,
+      imports: [ConfigModule],
       providers,
       exports,
     };

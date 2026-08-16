@@ -3,6 +3,7 @@
  * Fetches equipment (tanks, ponds, cages) with their batch metrics from Equipment GraphQL endpoint
  */
 import { useQuery } from '@tanstack/react-query';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 
 // Types
@@ -133,13 +134,12 @@ export interface TankFilterInput {
   search?: string;
 }
 
-interface TanksResponse {
-  items: Tank[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
+type TankPage = Pick<
+  PaginationResultV1<Tank>,
+  'items' | 'total' | 'page' | 'limit' | 'totalPages'
+>;
+
+type TankListResult = Pick<PaginationResultV1<Tank>, 'items' | 'total'>;
 
 // GraphQL query for equipment (tanks, ponds, cages) with batch metrics
 const EQUIPMENT_WITH_BATCHES_QUERY = `
@@ -245,7 +245,7 @@ const EQUIPMENT_MAX_PAGES = 50;
 export function useTanksList(filter?: TankFilterInput, pagination?: { page?: number; pageSize?: number }) {
   const { token, tenantId } = useAuth();
 
-  return useQuery({
+  return useQuery<TankListResult>({
     queryKey: createTenantQueryKey(tenantId, 'tanks', 'list', filter, pagination),
     queryFn: async () => {
       const gqlFilter = {
@@ -254,8 +254,8 @@ export function useTanksList(filter?: TankFilterInput, pagination?: { page?: num
         categories: filter?.categories || ['TANK', 'POND', 'CAGE'],
         isActive: filter?.isActive ?? true,
       };
-      const fetchPage = async (page: number, limit: number): Promise<TanksResponse> => {
-        const data = await graphqlClient.request<{ equipmentList: TanksResponse }>(
+      const fetchPage = async (page: number, limit: number): Promise<TankPage> => {
+        const data = await graphqlClient.request<{ equipmentList: TankPage }>(
           EQUIPMENT_WITH_BATCHES_QUERY,
           { filter: gqlFilter, pagination: { page, limit } },
         );
@@ -277,7 +277,7 @@ export function useTanksList(filter?: TankFilterInput, pagination?: { page?: num
         const next = await fetchPage(page, EQUIPMENT_PAGE_LIMIT);
         items.push(...next.items);
       }
-      return { ...first, items, limit: items.length };
+      return { items, total: first.total };
     },
     staleTime: 30000,
     enabled: !!token && !!tenantId,

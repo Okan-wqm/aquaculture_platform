@@ -70,7 +70,7 @@ export const DebugToolsPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   // Cache state
-  const [cacheEntries, setCacheEntries] = useState<CacheEntry[]>([]);
+  const [cacheEntries, setCacheEntries] = useState<readonly CacheEntry[]>([]);
   const [cacheStats, setCacheStats] = useState<CacheStats | null>(null);
   const [cacheFilter, setCacheFilter] = useState('');
   const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -103,10 +103,10 @@ export const DebugToolsPage: React.FC = () => {
     setError(null);
     try {
       const [entriesResponse, statsResponse] = await Promise.allSettled([
-        debugApi.getCacheEntries({ limit: 100, keyPattern: cacheFilter || undefined }),
+        debugApi.getCacheEntries(),
         debugApi.getCacheStats(),
       ]);
-      setCacheEntries(entriesResponse.status === 'fulfilled' ? (entriesResponse.value.data || []) : []);
+      setCacheEntries(entriesResponse.status === 'fulfilled' ? entriesResponse.value.entries : []);
       setCacheStats(statsResponse.status === 'fulfilled' ? statsResponse.value : null);
       if (entriesResponse.status === 'rejected' && statsResponse.status === 'rejected') {
         setError('Cache service unavailable');
@@ -123,7 +123,7 @@ export const DebugToolsPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [cacheFilter]);
+  }, []);
 
   const loadLogs = useCallback(async () => {
     setLoading(true);
@@ -290,6 +290,12 @@ export const DebugToolsPage: React.FC = () => {
 
   const logContexts = [...new Set(logs.map((l) => l.context).filter(Boolean))] as string[];
   const configCategories = [...new Set(config.map((c) => c.category))];
+  const normalizedCacheFilter = cacheFilter.trim().toLowerCase();
+  const visibleCacheEntries = normalizedCacheFilter
+    ? cacheEntries.filter((entry) =>
+        entry.key.toLowerCase().includes(normalizedCacheFilter),
+      )
+    : cacheEntries;
 
   // ============================================================================
   // Render
@@ -434,14 +440,14 @@ export const DebugToolsPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {cacheEntries.length === 0 ? (
+                  {visibleCacheEntries.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
                         No cache entries found
                       </td>
                     </tr>
                   ) : (
-                    cacheEntries.map((entry) => (
+                    visibleCacheEntries.map((entry) => (
                       <tr key={entry.id} className="hover:bg-gray-50">
                         <td className="px-6 py-4">
                           <div className="font-mono text-sm text-gray-900">{entry.key}</div>

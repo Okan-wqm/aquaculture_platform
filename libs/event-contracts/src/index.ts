@@ -22,6 +22,7 @@ export * from './config-runtime';
 // Domain events by module
 export * from './auth-events';
 export * from './tenant-events';
+export * from './tenant-onboarding-workflow';
 export * from './tenant-commands';
 export * from './farm-events';
 export * from './sensor-events';

@@ -15,8 +15,8 @@ import { PinnedMessage } from './entities/pinned-message.entity';
 import { ChannelModule } from '../channel/channel.module';
 import { PresenceModule } from '../presence/presence.module';
 import { GdprModule } from '../gdpr/gdpr.module';
-// ComplianceModule imported: DeleteMessageHandler now calls LegalHoldService.isUnderLegalHold()
-// before soft-deleting messages. ComplianceModule exports LegalHoldService.
+// ComplianceModule exports the transaction-owning destructive-mutation authority
+// used by edit/delete handlers.
 import { ComplianceModule } from '../compliance/compliance.module';
 
 // Command handlers

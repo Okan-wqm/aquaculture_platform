@@ -3,6 +3,7 @@
  * Handles CRUD operations for species via GraphQL API
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 import {
   useAuth,
   graphqlClient,
@@ -172,16 +173,6 @@ export interface UpdateSpeciesInput extends Partial<CreateSpeciesInput> {
   id: string;
 }
 
-interface PaginatedResponse {
-  items: Species[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-  hasNextPage: boolean;
-  hasPreviousPage: boolean;
-}
-
 // GraphQL queries
 const SPECIES_LIST_QUERY = `
   query SpeciesList($filter: SpeciesFilterInput) {
@@ -330,7 +321,7 @@ export function useSpeciesList(filter?: {
   return useTenantQuery(
     ['species', 'list', filter],
     async () => {
-      const data = await graphqlClient.request<{ speciesList: PaginatedResponse }>(
+      const data = await graphqlClient.request<{ speciesList: PaginationResultV1<Species> }>(
         SPECIES_LIST_QUERY,
         { filter },
       );

@@ -3,6 +3,7 @@
  * Handles CRUD operations for water quality measurements via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 import {
   useAuth,
   graphqlClient,
@@ -330,15 +331,7 @@ export function useWaterQualityList(filters?: WaterQualityFilters) {
     queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'list', filters),
     queryFn: async () => {
       const response = await graphqlClient.request<{
-        waterQualityMeasurements: {
-          items: WaterQualityMeasurement[];
-          total: number;
-          page: number;
-          limit: number;
-          totalPages: number;
-          hasNextPage: boolean;
-          hasPreviousPage: boolean;
-        };
+        waterQualityMeasurements: PaginationResultV1<WaterQualityMeasurement>;
       }>(GET_WATER_QUALITY_LIST, { filter: filters });
       return response.waterQualityMeasurements;
     },

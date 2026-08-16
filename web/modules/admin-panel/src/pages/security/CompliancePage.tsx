@@ -27,6 +27,7 @@ import {
   FileCheck,
 } from 'lucide-react';
 import React, { useState, useEffect, useCallback } from 'react';
+import type { AdminComplianceCheckResultV1 } from '@platform/admin-http-contracts';
 
 import { securityApi } from '../../services/adminApi';
 import type {
@@ -94,8 +95,9 @@ interface ComplianceCheck {
   description: string;
   status: 'compliant' | 'non_compliant' | 'partial' | 'not_applicable';
   evidence?: string;
-  lastChecked: string;
-  nextReview: string;
+  remediation?: string;
+  verificationMethod: string;
+  isMandatory: boolean;
 }
 
 interface ComplianceStats {
@@ -136,10 +138,8 @@ async function fetchDataRequests(params: {
   if (params.searchQuery) apiParams.searchQuery = params.searchQuery;
 
   const result = await securityApi.getDataRequests(apiParams);
-  const data = Array.isArray(result?.data)
-    ? result.data.map(mapDataSubjectRequest)
-    : [];
-  const total = typeof result?.total === 'number' ? result.total : data.length;
+  const data = result.data.map(mapDataSubjectRequest);
+  const total = result.total;
   return {
     data,
     total,
@@ -161,19 +161,7 @@ async function fetchComplianceReports(): Promise<ComplianceReport[]> {
 
 async function fetchComplianceChecks(framework: string): Promise<ComplianceCheck[]> {
   const result = await securityApi.getComplianceChecks(framework);
-  // SECURITY: Enforce response contract — backend compliance/checks/:framework
-  // might return {checks: [...], requirements: [...]} wrapper or error object.
-  // Only accept arrays; if wrapped, extract the array.
-  if (Array.isArray(result)) {
-    return result.map(mapComplianceCheck);
-  }
-  if (result && typeof result === 'object' && 'checks' in result) {
-    const checks = (result as { checks?: unknown }).checks;
-    if (Array.isArray(checks)) {
-      return checks.map(mapComplianceCheck);
-    }
-  }
-  throw new Error(`Compliance checks: expected array, got ${typeof result}`);
+  return result.map(mapComplianceCheck);
 }
 
 function mapDataSubjectRequest(request: BackendDataSubjectRequest): DataRequest {
@@ -248,29 +236,17 @@ function mapComplianceReport(report: BackendComplianceReport): ComplianceReport 
   };
 }
 
-function mapComplianceCheck(
-  check: {
-    id: string;
-    category: string;
-    requirement: string;
-    description: string;
-    status: string;
-    evidence?: string;
-    lastChecked: string;
-    nextReview: string;
-  },
-): ComplianceCheck {
-  const allowed: ComplianceCheck['status'][] = [
-    'compliant',
-    'non_compliant',
-    'partial',
-    'not_applicable',
-  ];
+function mapComplianceCheck(check: AdminComplianceCheckResultV1): ComplianceCheck {
   return {
-    ...check,
-    status: allowed.includes(check.status as ComplianceCheck['status'])
-      ? (check.status as ComplianceCheck['status'])
-      : 'not_applicable',
+    id: check.requirement.id,
+    category: check.requirement.category,
+    requirement: check.requirement.requirement,
+    description: check.details,
+    status: check.status,
+    evidence: check.evidence,
+    remediation: check.remediation,
+    verificationMethod: check.requirement.verificationMethod,
+    isMandatory: check.requirement.isMandatory,
   };
 }
 
@@ -1128,10 +1104,15 @@ export const CompliancePage: React.FC = () => {
                           Evidence: {check.evidence}
                         </p>
                       )}
+                      {check.remediation && (
+                        <p className="text-xs text-amber-700 mt-2 bg-amber-50 p-2 rounded">
+                          Remediation: {check.remediation}
+                        </p>
+                      )}
                     </div>
                     <div className="text-right text-xs text-gray-500 ml-4">
-                      <p>Last checked: {formatDate(check.lastChecked)}</p>
-                      <p>Next review: {formatDate(check.nextReview)}</p>
+                      <p>{check.isMandatory ? 'Mandatory' : 'Advisory'}</p>
+                      <p className="max-w-xs mt-1">{check.verificationMethod}</p>
                     </div>
                   </div>
                 </div>

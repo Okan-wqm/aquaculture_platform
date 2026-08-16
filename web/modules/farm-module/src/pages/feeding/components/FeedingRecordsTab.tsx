@@ -14,7 +14,7 @@ import {
   UpdateFeedingRecordInput,
   FeedingMethod,
 } from '../../../hooks/useFeedingRecords';
-import { useFeedList } from '../../../hooks/useFeeds';
+import { useFeedList, type Feed } from '../../../hooks/useFeeds';
 import { isBlockingError } from '../../../utils/list-view-state';
 import { Modal, useAuth } from '@aquaculture/shared-ui';
 import type { Batch } from '../../../hooks/useBatches';
@@ -26,7 +26,7 @@ import type { Batch } from '../../../hooks/useBatches';
 interface FeedingRecordsTabProps {
   siteId?: string;
   batchId?: string;
-  batches: Batch[];
+  batches: readonly Batch[];
 }
 
 // ============================================================================
@@ -394,8 +394,8 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
 
 interface FeedingRecordFormModalProps {
   record: FeedingRecord | null;
-  batches: Batch[];
-  feeds: any[];
+  batches: readonly Batch[];
+  feeds: readonly Feed[];
   userId: string;
   onSubmit: (data: any) => void;
   onClose: () => void;
@@ -507,7 +507,7 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
                 className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               >
                 <option value="">Select feed...</option>
-                {feeds.map((f: any) => (
+                {feeds.map((f) => (
                   <option key={f.id} value={f.id}>
                     {f.name || f.code}
                   </option>

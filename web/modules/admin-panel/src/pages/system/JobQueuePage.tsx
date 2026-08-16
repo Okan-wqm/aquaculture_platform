@@ -8,24 +8,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Button, Badge, Input, Select } from '@aquaculture/shared-ui';
 import { systemSettingsApi } from '../../services/adminApi';
-import type { BackgroundJob, JobQueue } from '../../services/adminApi';
+import type { BackgroundJob, JobDashboard, JobQueue, JobStatus } from '../../services/adminApi';
 
 // ============================================================================
 // Types
 // ============================================================================
-
-type JobStatus = 'pending' | 'scheduled' | 'running' | 'completed' | 'failed' | 'cancelled' | 'retrying';
-
-interface JobDashboard {
-  totalJobs: number;
-  pendingJobs: number;
-  runningJobs: number;
-  completedToday: number;
-  failedToday: number;
-  avgDuration: number;
-  queues: JobQueue[];
-  recentJobs: BackgroundJob[];
-}
 
 // ============================================================================
 // Default Empty Data
@@ -49,7 +36,7 @@ const defaultDashboard: JobDashboard = {
 export const JobQueuePage: React.FC = () => {
   // State
   const [dashboard, setDashboard] = useState<JobDashboard | null>(null);
-  const [jobs, setJobs] = useState<BackgroundJob[]>([]);
+  const [jobs, setJobs] = useState<readonly BackgroundJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -67,7 +54,7 @@ export const JobQueuePage: React.FC = () => {
     try {
       const dashboardData = await systemSettingsApi.getJobDashboard();
       setDashboard(dashboardData);
-      setJobs(dashboardData.recentJobs || []);
+      setJobs(dashboardData.recentJobs);
     } catch (err) {
       console.error('Failed to load job dashboard:', err);
       setError('Failed to load job queue dashboard');
@@ -85,9 +72,7 @@ export const JobQueuePage: React.FC = () => {
         status: filterStatus !== 'all' ? [filterStatus as JobStatus] : undefined,
         search: searchTerm || undefined,
       });
-      // Ensure response.data is an array
-      const data = response?.data;
-      setJobs(Array.isArray(data) ? data : []);
+      setJobs(response.data);
     } catch (err) {
       console.error('Failed to load jobs:', err);
       setJobs([]);
@@ -109,11 +94,10 @@ export const JobQueuePage: React.FC = () => {
   // ============================================================================
 
   const handleRetryJob = async (job: BackgroundJob) => {
-    const currentJobs = Array.isArray(jobs) ? jobs : [];
     try {
       await systemSettingsApi.retryJob(job.id);
       setJobs(
-        currentJobs.map((j) =>
+        jobs.map((j) =>
           j.id === job.id
             ? { ...j, status: 'pending' as JobStatus, attempts: 0 }
             : j
@@ -128,11 +112,10 @@ export const JobQueuePage: React.FC = () => {
   const handleCancelJob = async (job: BackgroundJob) => {
     if (!confirm(`Are you sure you want to cancel "${job.name}"?`)) return;
 
-    const currentJobs = Array.isArray(jobs) ? jobs : [];
     try {
       await systemSettingsApi.cancelJob(job.id);
       setJobs(
-        currentJobs.map((j) =>
+        jobs.map((j) =>
           j.id === job.id ? { ...j, status: 'cancelled' as JobStatus } : j
         )
       );
@@ -143,8 +126,7 @@ export const JobQueuePage: React.FC = () => {
   };
 
   const handleRetryAllFailed = async () => {
-    const currentJobs = Array.isArray(jobs) ? jobs : [];
-    const failedJobs = currentJobs.filter((j) => j.status === 'failed');
+    const failedJobs = jobs.filter((j) => j.status === 'failed');
     if (failedJobs.length === 0) return;
 
     if (!confirm(`Retry all ${failedJobs.length} failed jobs?`)) return;
@@ -155,18 +137,16 @@ export const JobQueuePage: React.FC = () => {
   };
 
   const handlePauseQueue = async (queue: JobQueue) => {
-    const currentQueues = dashboard?.queues && Array.isArray(dashboard.queues) ? dashboard.queues : [];
+    if (!dashboard) return;
     try {
       await systemSettingsApi.pauseQueue(queue.name);
       setDashboard(
-        dashboard
-          ? {
-              ...dashboard,
-              queues: currentQueues.map((q) =>
-                q.name === queue.name ? { ...q, isPaused: true } : q
-              ),
-            }
-          : null
+        {
+          ...dashboard,
+          queues: dashboard.queues.map((q) =>
+            q.name === queue.name ? { ...q, isPaused: true } : q,
+          ),
+        },
       );
     } catch (err) {
       console.error('Failed to pause queue:', err);
@@ -175,18 +155,16 @@ export const JobQueuePage: React.FC = () => {
   };
 
   const handleResumeQueue = async (queue: JobQueue) => {
-    const currentQueues = dashboard?.queues && Array.isArray(dashboard.queues) ? dashboard.queues : [];
+    if (!dashboard) return;
     try {
       await systemSettingsApi.resumeQueue(queue.name);
       setDashboard(
-        dashboard
-          ? {
-              ...dashboard,
-              queues: currentQueues.map((q) =>
-                q.name === queue.name ? { ...q, isPaused: false } : q
-              ),
-            }
-          : null
+        {
+          ...dashboard,
+          queues: dashboard.queues.map((q) =>
+            q.name === queue.name ? { ...q, isPaused: false } : q,
+          ),
+        },
       );
     } catch (err) {
       console.error('Failed to resume queue:', err);
@@ -198,11 +176,7 @@ export const JobQueuePage: React.FC = () => {
   // Helpers
   // ============================================================================
 
-  // Ensure jobs is always an array
-  const safeJobs = Array.isArray(jobs) ? jobs : [];
-
-  // Ensure dashboard.queues is always an array
-  const safeQueues = dashboard?.queues && Array.isArray(dashboard.queues) ? dashboard.queues : [];
+  const queues = dashboard?.queues ?? [];
 
   const getStatusBadge = (status: JobStatus): 'success' | 'default' | 'info' | 'warning' | 'error' => {
     const variants: Record<JobStatus, 'success' | 'default' | 'info' | 'warning' | 'error'> = {
@@ -354,7 +328,7 @@ export const JobQueuePage: React.FC = () => {
                 onChange={(e) => setFilterQueue(e.target.value)}
                 options={[
                   { value: 'all', label: 'All Queues' },
-                  ...safeQueues.map((q) => ({ value: q.name, label: q.name })),
+                  ...queues.map((q) => ({ value: q.name, label: q.name })),
                 ]}
               />
               <Select
@@ -369,7 +343,7 @@ export const JobQueuePage: React.FC = () => {
                   { value: 'cancelled', label: 'Cancelled' },
                 ]}
               />
-              {safeJobs.some((j) => j.status === 'failed') && (
+              {jobs.some((j) => j.status === 'failed') && (
                 <Button
                   variant="secondary"
                   onClick={handleRetryAllFailed}
@@ -411,14 +385,14 @@ export const JobQueuePage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {safeJobs.length === 0 ? (
+                  {jobs.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
                         No jobs found
                       </td>
                     </tr>
                   ) : (
-                    safeJobs.map((job) => {
+                    jobs.map((job) => {
                       const priority = getPriorityLabel(job.priority);
                       return (
                         <tr key={job.id} className="hover:bg-gray-50">
@@ -519,7 +493,7 @@ export const JobQueuePage: React.FC = () => {
       {/* Queues Tab */}
       {activeTab === 'queues' && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {safeQueues.map((queue) => (
+          {queues.map((queue) => (
             <Card key={queue.name} className="p-6">
               <div className="flex justify-between items-start mb-4">
                 <div>

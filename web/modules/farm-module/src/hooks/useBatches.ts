@@ -5,6 +5,7 @@
 import { useRef } from 'react';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 import {
   useAuth,
   graphqlClient,
@@ -375,16 +376,6 @@ export interface BatchListFilter {
   searchTerm?: string;
 }
 
-interface BatchListResponse {
-  items: Batch[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-  hasNextPage: boolean;
-  hasPreviousPage: boolean;
-}
-
 // GraphQL Queries
 // FARM-LOW-143: the ~40 batch scalar fields, shared by BATCH_LIST_QUERY and
 // BATCH_QUERY so the list and detail selections cannot drift apart (a classic
@@ -554,6 +545,8 @@ const BATCH_PAGE_LIMIT = 100;
 /** Sanity ceiling for fetch-all (100 × 50 = 5000 batches). */
 const BATCH_MAX_PAGES = 50;
 
+type BatchListResult = Pick<PaginationResultV1<Batch>, 'items' | 'total'>;
+
 export function useBatchList(
   filter?: BatchListFilter,
   options?: {
@@ -572,7 +565,7 @@ export function useBatchList(
 ) {
   const { token, tenantId, isAuthenticated, isLoading: authLoading } = useAuth();
 
-  return useQuery({
+  return useQuery<BatchListResult>({
     queryKey: createTenantQueryKey(tenantId, 'batches', 'list', tenantId, filter, options),
     queryFn: async () => {
       // Double-check tenantId before request
@@ -582,8 +575,11 @@ export function useBatchList(
 
       const sortBy = options?.sortBy ?? 'stockedAt';
       const sortOrder = options?.sortOrder ?? 'DESC';
-      const fetchPage = async (page: number, limit: number): Promise<BatchListResponse> => {
-        const data = await graphqlClient.request<{ batches: BatchListResponse }>(
+      const fetchPage = async (
+        page: number,
+        limit: number,
+      ): Promise<PaginationResultV1<Batch>> => {
+        const data = await graphqlClient.request<{ batches: PaginationResultV1<Batch> }>(
           BATCH_LIST_QUERY,
           { filter, page, limit, sortBy, sortOrder },
         );
@@ -601,7 +597,7 @@ export function useBatchList(
           const next = await fetchPage(page, BATCH_PAGE_LIMIT);
           items.push(...next.items);
         }
-        return { ...first, items };
+        return { items, total: first.total };
       }
 
       return fetchPage(options?.page ?? 1, options?.limit ?? 20);

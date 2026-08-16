@@ -1,3 +1,5 @@
+import { TENANT_ERASURE_TARGET_PROOF_LEDGER_TABLE } from '@aquaculture/shared-contracts';
+
 export interface TransactionalOutboxDdlOptions {
   readonly schema: string;
   readonly table: string;
@@ -17,14 +19,9 @@ export interface TenantErasureTargetProofLedgerDdlOptions {
   readonly targetIndexName: string;
 }
 
-export const TENANT_ERASURE_TARGET_PROOF_LEDGER_TABLE =
-  'tenant_erasure_target_proofs';
-
 function assertSqlIdentifier(identifier: string, label: string): string {
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(identifier) || identifier.length > 63) {
-    throw new Error(
-      `Transactional outbox DDL ${label} must be a safe SQL identifier`,
-    );
+    throw new Error(`Transactional outbox DDL ${label} must be a safe SQL identifier`);
   }
   return identifier;
 }

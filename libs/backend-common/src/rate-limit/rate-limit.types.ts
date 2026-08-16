@@ -70,6 +70,13 @@ export interface RateLimitRouteConfig {
   /** Window length in milliseconds. */
   windowMs: number;
   /**
+   * Require the distributed authority even outside production. Security
+   * boundaries such as credential verification use this so a developer-mode
+   * Redis outage cannot silently change the behavior being exercised.
+   * Production always requires the distributed store, regardless of this flag.
+   */
+  requiresDistributedStore?: boolean;
+  /**
    * Optional additional key dimension derived from the request — e.g. the
    * login email, so one attacker cannot consume another user's budget and a
    * distributed attacker cannot rotate IPs around a per-account lockout.
@@ -99,6 +106,8 @@ export interface RateLimitTier {
   limit: number;
   /** Window length in milliseconds. */
   windowMs: number;
+  /** Require the shared store even outside production for security boundaries. */
+  requiresDistributedStore?: boolean;
 }
 
 /**
@@ -114,6 +123,19 @@ export interface RateLimitEndpointBucket {
   paths: readonly string[];
   /** Segment-exact templates, e.g. `/api/marine/sites/:siteId/render`. */
   pathTemplates?: readonly string[];
+}
+
+export type RateLimitHttpMethod = 'GET' | 'HEAD' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS';
+
+/**
+ * Centrally governed routes that must not depend on the rate-limit store.
+ * Intended for exact liveness/readiness probes only; consumers should pin the
+ * complete list in an architecture test so a controller decorator cannot grow
+ * the exemption surface.
+ */
+export interface RateLimitRouteExemption {
+  methods: readonly RateLimitHttpMethod[];
+  paths: readonly string[];
 }
 
 /**
@@ -133,12 +155,20 @@ export interface RateLimitEdgeConfig {
   } & Record<string, RateLimitTier>;
   /** Exact or segment-template path → tier mapping (overrides identity tier). */
   endpointBuckets: readonly RateLimitEndpointBucket[];
+  /** Exact method/path exemptions (for example process liveness probes). */
+  exemptions?: readonly RateLimitRouteExemption[];
   /**
    * Tier applied ADDITIONALLY to GraphQL Mutation operations (not replacing the
    * identity/endpoint tier — both buckets are counted, mirroring the gateway's
    * previously-independent MutationRateLimitGuard). Omit to disable.
    */
   mutationTier?: string;
+  /**
+   * Tier applied ADDITIONALLY to every HTTP state-changing request. Because it
+   * is resolved from the request method, class- or method-level metadata cannot
+   * replace or bypass it.
+   */
+  httpMutationTier?: string;
 }
 
 /**
@@ -149,6 +179,8 @@ export interface RateLimitEdgeConfig {
 export interface EdgeRequestFacts {
   /** HTTP request path (with optional query string); undefined for non-HTTP. */
   url?: string;
+  /** Uppercase HTTP method when the request is HTTP-backed. */
+  method?: string;
   /** Lowercased header bag, for X-Forwarded-For / X-Real-IP fallback. */
   headers: Record<string, string | string[] | undefined>;
   /** Express trust-proxy-resolved IP (preferred over header parsing). */

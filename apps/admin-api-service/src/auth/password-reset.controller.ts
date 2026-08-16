@@ -1,4 +1,4 @@
-import { ThrottlePasswordReset } from '@aquaculture/backend-common/security';
+import { RateLimit } from '@aquaculture/backend-common/rate-limit';
 import {
   BadGatewayException,
   Controller,
@@ -10,7 +10,6 @@ import {
   BadRequestException,
   Inject,
   Req,
-  SetMetadata,
 } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { ApiTags } from '@nestjs/swagger';
@@ -23,6 +22,9 @@ import {
 } from '@platform/event-contracts';
 import { IsEmail, IsString, MinLength, MaxLength } from 'class-validator';
 import { catchError, firstValueFrom, throwError, timeout } from 'rxjs';
+
+import { Public } from '../decorators/public.decorator';
+import { ADMIN_RATE_LIMIT_POLICIES } from '../security/admin-rate-limit.policy';
 
 const DEFAULT_AUTH_NATS_TIMEOUT_MS = 15_000;
 
@@ -42,10 +44,6 @@ export class ResetPasswordDto {
   newPassword!: string;
 }
 
-// Mark endpoints as public (bypass auth guard)
-const IS_PUBLIC_KEY = 'isPublic';
-const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
-
 type MinimalRequest = {
   ip?: string;
   headers?: Record<string, string | string[] | undefined>;
@@ -62,9 +60,8 @@ export class PasswordResetController {
     private readonly authNatsClient: ClientProxy,
   ) {
     const configured = parseInt(process.env['AUTH_NATS_TIMEOUT_MS'] ?? '', 10);
-    this.timeoutMs = Number.isFinite(configured) && configured > 0
-      ? configured
-      : DEFAULT_AUTH_NATS_TIMEOUT_MS;
+    this.timeoutMs =
+      Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_AUTH_NATS_TIMEOUT_MS;
   }
 
   /**
@@ -73,7 +70,7 @@ export class PasswordResetController {
    */
   @Post('forgot-password')
   @Public()
-  @ThrottlePasswordReset()
+  @RateLimit(ADMIN_RATE_LIMIT_POLICIES.passwordReset)
   @HttpCode(HttpStatus.OK)
   async forgotPassword(
     @Body() dto: ForgotPasswordDto,
@@ -108,7 +105,7 @@ export class PasswordResetController {
    */
   @Post('reset-password')
   @Public()
-  @ThrottlePasswordReset()
+  @RateLimit(ADMIN_RATE_LIMIT_POLICIES.passwordReset)
   @HttpCode(HttpStatus.OK)
   async resetPassword(
     @Body() dto: ResetPasswordDto,
@@ -147,9 +144,7 @@ export class PasswordResetController {
         this.authNatsClient.send<TResult, TCommand>(subject, command).pipe(
           timeout(this.timeoutMs),
           catchError((err: Error) => {
-            this.logger.error(
-              `NATS request failed: subject=${subject}, error=${err.message}`,
-            );
+            this.logger.error(`NATS request failed: subject=${subject}, error=${err.message}`);
             return throwError(() => err);
           }),
         ),

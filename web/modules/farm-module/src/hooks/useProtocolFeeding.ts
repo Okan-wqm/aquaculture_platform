@@ -7,6 +7,7 @@
  * hook'ları Faz 8'de silindi — v2 tek kontrattır.
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 import {
   useAuth,
   useTenantQuery,
@@ -209,16 +210,6 @@ export interface UpdateProtocolAssignmentInput {
   status?: 'active' | 'paused';
 }
 
-interface PaginatedResult<T> {
-  items: T[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-  hasNextPage: boolean;
-  hasPreviousPage: boolean;
-}
-
 export interface FeedingProtocolsV2Filter {
   status?: FeedingProtocolV2Status;
   speciesId?: string;
@@ -240,7 +231,7 @@ export function useFeedingProtocolsV2(filter?: FeedingProtocolsV2Filter) {
     ['feeding-protocols-v2', 'list', filter],
     async () => {
       const data = await graphqlClient.request<{
-        feedingProtocolsV2: PaginatedResult<FeedingProtocolV2>;
+        feedingProtocolsV2: PaginationResultV1<FeedingProtocolV2>;
       }>(FEEDING_PROTOCOLS_V2_QUERY, {
         status: filter?.status,
         speciesId: filter?.speciesId,
@@ -271,7 +262,7 @@ export function useProtocolAssignments(filter?: ProtocolAssignmentsFilter) {
     ['protocol-assignments', 'list', filter],
     async () => {
       const data = await graphqlClient.request<{
-        protocolAssignments: PaginatedResult<ProtocolAssignment>;
+        protocolAssignments: PaginationResultV1<ProtocolAssignment>;
       }>(PROTOCOL_ASSIGNMENTS_QUERY, {
         siteId: filter?.siteId,
         unitId: filter?.unitId,

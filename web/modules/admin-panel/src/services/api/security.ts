@@ -2,6 +2,8 @@
  * Security API
  */
 
+import type { AdminComplianceCheckResultV1 } from '@platform/admin-http-contracts';
+
 import { apiFetch, buildQueryString } from '../http-client';
 import type {
   PaginatedResult,
@@ -44,8 +46,11 @@ export const securityApi = {
   getActivityLog: (id: string) => apiFetch<BackendActivityLog>(`/security/activities/${id}`, platformScope),
   getUserActivities: (userId: string, params?: PaginationParams & DateRangeParams) =>
     apiFetch<PaginatedResult<BackendActivityLog>>(`/security/activities/user/${userId}?${buildQueryString(params || {})}`, platformScope),
-  getEntityActivities: (entityType: string, entityId: string, params?: PaginationParams) =>
-    apiFetch<PaginatedResult<BackendActivityLog>>(`/security/activities/entity/${entityType}/${entityId}?${buildQueryString(params || {})}`, platformScope),
+  getEntityActivities: (entityType: string, entityId: string, params?: { limit?: number }) =>
+    apiFetch<BackendActivityLog[]>(
+      `/security/activities/entity/${entityType}/${entityId}?${buildQueryString(params || {})}`,
+      platformScope,
+    ),
   // Audit Trail
   getAuditTrail: (params?: {
     action?: string;
@@ -183,5 +188,8 @@ export const securityApi = {
 
   // Compliance Checks
   getComplianceChecks: (framework: string) =>
-    apiFetch<Array<{ id: string; category: string; requirement: string; description: string; status: string; evidence?: string; lastChecked: string; nextReview: string }>>(`/security/compliance/checks/${framework}`, platformScope),
+    apiFetch<AdminComplianceCheckResultV1[]>(
+      `/security/compliance/checks/${framework}`,
+      platformScope,
+    ),
 };

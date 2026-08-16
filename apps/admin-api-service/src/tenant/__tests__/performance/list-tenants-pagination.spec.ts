@@ -2,10 +2,9 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource, SelectQueryBuilder } from 'typeorm';
 
-import { TenantListItemDto } from '../../dto/tenant-detail.dto';
 import { Tenant, TenantStatus, TenantPlan } from '../../entities/tenant.entity';
 import { ListTenantsQuery } from '../../queries/tenant.queries';
-import { ListTenantsHandler, PaginatedResult } from '../../query-handlers/tenant-query.handlers';
+import { ListTenantsHandler } from '../../query-handlers/tenant-query.handlers';
 
 // =============================================================================
 // Mock Factories
@@ -95,7 +94,7 @@ describe('ListTenantsHandler - Pagination', () => {
       expect(mockQueryBuilder.take).toHaveBeenCalledWith(20);
       expect(result.page).toBe(1);
       expect(result.limit).toBe(20);
-      expect(result.data).toHaveLength(20);
+      expect(result.items).toHaveLength(20);
       expect(result.total).toBe(50);
       expect(result.totalPages).toBe(3);
     });
@@ -105,10 +104,7 @@ describe('ListTenantsHandler - Pagination', () => {
 
       await handler.execute(new ListTenantsQuery());
 
-      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith(
-        'tenant.createdAt',
-        'DESC',
-      );
+      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith('tenant.createdAt', 'DESC');
     });
   });
 
@@ -121,9 +117,7 @@ describe('ListTenantsHandler - Pagination', () => {
       const tenants = createMockTenants(10);
       (mockQueryBuilder.getManyAndCount as jest.Mock).mockResolvedValue([tenants, 100]);
 
-      const result = await handler.execute(
-        new ListTenantsQuery(undefined, { page: 3, limit: 10 }),
-      );
+      const result = await handler.execute(new ListTenantsQuery(undefined, { page: 3, limit: 10 }));
 
       // page 3, limit 10 => skip = (3-1) * 10 = 20
       expect(mockQueryBuilder.skip).toHaveBeenCalledWith(20);
@@ -157,7 +151,7 @@ describe('ListTenantsHandler - Pagination', () => {
         new ListTenantsQuery(undefined, { page: 100, limit: 20 }),
       );
 
-      expect(result.data).toEqual([]);
+      expect(result.items).toEqual([]);
       expect(result.total).toBe(50);
       expect(result.page).toBe(100);
       expect(result.totalPages).toBe(3);
@@ -167,9 +161,7 @@ describe('ListTenantsHandler - Pagination', () => {
       const tenants = createMockTenants(5);
       (mockQueryBuilder.getManyAndCount as jest.Mock).mockResolvedValue([tenants, 5]);
 
-      const result = await handler.execute(
-        new ListTenantsQuery(undefined, { page: 0, limit: 20 }),
-      );
+      const result = await handler.execute(new ListTenantsQuery(undefined, { page: 0, limit: 20 }));
 
       // page || 1 => page 0 becomes page 1
       expect(result.page).toBe(1);
@@ -192,10 +184,7 @@ describe('ListTenantsHandler - Pagination', () => {
         }),
       );
 
-      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith(
-        'tenant.name',
-        'ASC',
-      );
+      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith('tenant.name', 'ASC');
     });
 
     it('should fall back to createdAt DESC for disallowed sort fields', async () => {
@@ -208,10 +197,7 @@ describe('ListTenantsHandler - Pagination', () => {
         }),
       );
 
-      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith(
-        'tenant.createdAt',
-        'DESC',
-      );
+      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith('tenant.createdAt', 'DESC');
     });
 
     it('should allow all whitelisted sort fields', async () => {
@@ -228,14 +214,9 @@ describe('ListTenantsHandler - Pagination', () => {
         mockQueryBuilder.take = jest.fn().mockReturnValue(mockQueryBuilder);
         mockQueryBuilder.getManyAndCount = jest.fn().mockResolvedValue([[], 0]);
 
-        await handler.execute(
-          new ListTenantsQuery(undefined, undefined, { field, order: 'ASC' }),
-        );
+        await handler.execute(new ListTenantsQuery(undefined, undefined, { field, order: 'ASC' }));
 
-        expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith(
-          `tenant.${field}`,
-          'ASC',
-        );
+        expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith(`tenant.${field}`, 'ASC');
       }
     });
   });
@@ -248,35 +229,27 @@ describe('ListTenantsHandler - Pagination', () => {
     it('should apply status filter', async () => {
       (mockQueryBuilder.getManyAndCount as jest.Mock).mockResolvedValue([[], 0]);
 
-      await handler.execute(
-        new ListTenantsQuery({ status: TenantStatus.ACTIVE }),
-      );
+      await handler.execute(new ListTenantsQuery({ status: TenantStatus.ACTIVE }));
 
-      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
-        'tenant.status = :status',
-        { status: TenantStatus.ACTIVE },
-      );
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith('tenant.status = :status', {
+        status: TenantStatus.ACTIVE,
+      });
     });
 
     it('should apply plan filter', async () => {
       (mockQueryBuilder.getManyAndCount as jest.Mock).mockResolvedValue([[], 0]);
 
-      await handler.execute(
-        new ListTenantsQuery({ plan: TenantPlan.ENTERPRISE }),
-      );
+      await handler.execute(new ListTenantsQuery({ plan: TenantPlan.ENTERPRISE }));
 
-      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
-        'tenant.plan = :plan',
-        { plan: TenantPlan.ENTERPRISE },
-      );
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith('tenant.plan = :plan', {
+        plan: TenantPlan.ENTERPRISE,
+      });
     });
 
     it('should apply search filter with ILIKE', async () => {
       (mockQueryBuilder.getManyAndCount as jest.Mock).mockResolvedValue([[], 0]);
 
-      await handler.execute(
-        new ListTenantsQuery({ search: 'aqua' }),
-      );
+      await handler.execute(new ListTenantsQuery({ search: 'aqua' }));
 
       expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
         '(tenant.name ILIKE :search OR tenant.slug ILIKE :search OR tenant.customDomain ILIKE :search)',
@@ -299,7 +272,7 @@ describe('ListTenantsHandler - Pagination', () => {
       expect(mockQueryBuilder.andWhere).toHaveBeenCalledTimes(2);
       expect(mockQueryBuilder.skip).toHaveBeenCalledWith(5);
       expect(mockQueryBuilder.take).toHaveBeenCalledWith(5);
-      expect(result.data).toHaveLength(5);
+      expect(result.items).toHaveLength(5);
       expect(result.total).toBe(15);
       expect(result.totalPages).toBe(3);
     });
@@ -310,20 +283,18 @@ describe('ListTenantsHandler - Pagination', () => {
   // ---------------------------------------------------------------------------
 
   describe('response shape', () => {
-    it('should return PaginatedResult with correct structure', async () => {
+    it('should return the canonical pagination result with correct structure', async () => {
       const tenants = createMockTenants(3);
       (mockQueryBuilder.getManyAndCount as jest.Mock).mockResolvedValue([tenants, 3]);
 
-      const result: PaginatedResult<TenantListItemDto> = await handler.execute(
-        new ListTenantsQuery(),
-      );
+      const result = await handler.execute(new ListTenantsQuery());
 
-      expect(result).toHaveProperty('data');
+      expect(result).toHaveProperty('items');
       expect(result).toHaveProperty('total');
       expect(result).toHaveProperty('page');
       expect(result).toHaveProperty('limit');
       expect(result).toHaveProperty('totalPages');
-      expect(Array.isArray(result.data)).toBe(true);
+      expect(Array.isArray(result.items)).toBe(true);
       expect(typeof result.total).toBe('number');
       expect(typeof result.page).toBe('number');
       expect(typeof result.limit).toBe('number');
@@ -333,20 +304,17 @@ describe('ListTenantsHandler - Pagination', () => {
     it('should calculate totalPages correctly', async () => {
       (mockQueryBuilder.getManyAndCount as jest.Mock).mockResolvedValue([[], 0]);
 
-      const result = await handler.execute(
-        new ListTenantsQuery(undefined, { page: 1, limit: 10 }),
-      );
+      const result = await handler.execute(new ListTenantsQuery(undefined, { page: 1, limit: 10 }));
 
-      expect(result.totalPages).toBe(0); // Math.ceil(0 / 10) = 0
+      // The canonical contract is 1-based even when the collection is empty.
+      expect(result.totalPages).toBe(1);
     });
 
     it('should calculate totalPages correctly for exact page boundary', async () => {
       const tenants = createMockTenants(10);
       (mockQueryBuilder.getManyAndCount as jest.Mock).mockResolvedValue([tenants, 30]);
 
-      const result = await handler.execute(
-        new ListTenantsQuery(undefined, { page: 1, limit: 10 }),
-      );
+      const result = await handler.execute(new ListTenantsQuery(undefined, { page: 1, limit: 10 }));
 
       expect(result.totalPages).toBe(3); // Math.ceil(30 / 10) = 3
     });
@@ -355,9 +323,7 @@ describe('ListTenantsHandler - Pagination', () => {
       const tenants = createMockTenants(10);
       (mockQueryBuilder.getManyAndCount as jest.Mock).mockResolvedValue([tenants, 25]);
 
-      const result = await handler.execute(
-        new ListTenantsQuery(undefined, { page: 1, limit: 10 }),
-      );
+      const result = await handler.execute(new ListTenantsQuery(undefined, { page: 1, limit: 10 }));
 
       expect(result.totalPages).toBe(3); // Math.ceil(25 / 10) = 3
     });

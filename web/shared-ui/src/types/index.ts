@@ -151,49 +151,12 @@ export interface TenantLimits {
 // API ve GraphQL Tipleri
 // ============================================================================
 
-/**
- * Sayfalama parametreleri
- * @deprecated Use `StandardPaginationInput` instead. sortOrder should be uppercase 'ASC' | 'DESC'.
- */
-export interface PaginationParams {
-  page: number;
-  limit: number;
-  sortBy?: string;
-  sortOrder?: 'ASC' | 'DESC';
-}
-
-/**
- * Sayfalı sonuç
- * @deprecated Use `StandardPaginatedResult<T>` instead. This type uses `hasNext`/`hasPrevious`
- * which does not align with the backend standard (`hasNextPage`/`hasPreviousPage`).
- */
-export interface PaginatedResult<T> {
-  items: T[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-  hasNext: boolean;
-  hasPrevious: boolean;
-}
-
 /** Standard pagination input for GraphQL queries */
 export interface StandardPaginationInput {
   page: number;
   limit: number;
   sortBy?: string;
   sortOrder?: 'ASC' | 'DESC';
-}
-
-/** Standard paginated response from GraphQL queries */
-export interface StandardPaginatedResult<T> {
-  items: T[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-  hasNextPage: boolean;
-  hasPreviousPage: boolean;
 }
 
 /**
@@ -374,7 +337,14 @@ export interface SystemAlert {
 /**
  * Buton varyantları
  */
-export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'success' | 'warning' | 'ghost' | 'outline';
+export type ButtonVariant =
+  | 'primary'
+  | 'secondary'
+  | 'danger'
+  | 'success'
+  | 'warning'
+  | 'ghost'
+  | 'outline';
 
 /**
  * MetricCard trend yönü

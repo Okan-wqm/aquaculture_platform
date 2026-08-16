@@ -4,6 +4,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 import { useGraphQLClient, graphqlRequest } from './useGraphQL';
 import { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
 import {
@@ -39,7 +40,6 @@ import type {
   CreateDepartmentInput,
   UpdateDepartmentInput,
   EmployeeStatus,
-  PaginatedResponse,
 } from '../types';
 
 // Query Keys
@@ -93,7 +93,7 @@ export function useEmployees(
   return useQuery({
     queryKey: employeeKeys.list({ ...filter, ...pagination }),
     queryFn: () =>
-      graphqlRequest<{ employees: PaginatedResponse<Employee> }, unknown>(
+      graphqlRequest<{ employees: PaginationResultV1<Employee> }, unknown>(
         client,
         GET_EMPLOYEES,
         {
@@ -128,7 +128,9 @@ export function useEmployeeByNumber(employeeNumber: string) {
   return useQuery({
     queryKey: employeeKeys.byNumber(employeeNumber),
     queryFn: () =>
-      graphqlRequest<{ employees: PaginatedResponse<Employee> }, unknown>(
+      graphqlRequest<{
+        employees: Pick<PaginationResultV1<Employee>, 'items' | 'total'>;
+      }, unknown>(
         client,
         GET_EMPLOYEE_BY_NUMBER,
         { filter: { employeeNumber } }
@@ -291,7 +293,7 @@ export function useOrganizationTree() {
     queryKey: organizationKeys.tree,
     queryFn: () =>
       graphqlRequest<{
-        employees: PaginatedResponse<Employee>;
+        employees: Pick<PaginationResultV1<Employee>, 'items' | 'total'>;
       }, unknown>(client, GET_ORGANIZATION_TREE, {}),
     select: (data) => ({
       employees: data.employees?.items || [],

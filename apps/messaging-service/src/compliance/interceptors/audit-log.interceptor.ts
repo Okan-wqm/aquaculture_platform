@@ -1,10 +1,4 @@
-import {
-  Injectable,
-  NestInterceptor,
-  ExecutionContext,
-  CallHandler,
-  Logger,
-} from '@nestjs/common';
+import { Injectable, NestInterceptor, ExecutionContext, CallHandler, Logger } from '@nestjs/common';
 import { Observable, tap } from 'rxjs';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { withTenantContext } from '@aquaculture/backend-common/context';
@@ -30,7 +24,8 @@ const MUTATION_ACTION_MAP: Record<string, ComplianceAction> = {
   exportTenantMessages: ComplianceAction.MESSAGE_EXPORT,
   anonymizeMyData: ComplianceAction.DATA_ANONYMIZE,
   setRetentionPolicy: ComplianceAction.RETENTION_SET,
-  toggleLegalHold: ComplianceAction.LEGAL_HOLD_TOGGLE,
+  // Legal-hold activation and release are deliberately absent: their command
+  // authorities write immutable audit evidence inside the mutation transaction.
 };
 
 /**
@@ -48,7 +43,6 @@ const MUTATION_RESOURCE_MAP: Record<string, string> = {
   exportTenantMessages: 'tenant',
   anonymizeMyData: 'user',
   setRetentionPolicy: 'retention_policy',
-  toggleLegalHold: 'legal_hold',
 };
 
 /**
@@ -83,11 +77,13 @@ export class AuditLogInterceptor implements NestInterceptor {
       return next.handle();
     }
 
-    const req = gqlContext.getContext().req as {
-      headers?: Record<string, string | string[] | undefined>;
-      tenantId?: string;
-      user?: { sub?: string };
-    } | undefined;
+    const req = gqlContext.getContext().req as
+      | {
+          headers?: Record<string, string | string[] | undefined>;
+          tenantId?: string;
+          user?: { sub?: string };
+        }
+      | undefined;
 
     const tenantId = req?.tenantId ?? 'unknown';
     const userId = req?.user?.sub ?? 'unknown';

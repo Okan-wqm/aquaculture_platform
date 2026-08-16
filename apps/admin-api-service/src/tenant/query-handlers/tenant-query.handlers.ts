@@ -6,6 +6,10 @@ import {
   getTenantSchemaName,
   isValidUUID,
 } from '@aquaculture/backend-common/database';
+import {
+  createStandardPaginatedResult,
+  type IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { Repository, ILike, MoreThan, Between, FindOptionsWhere, DataSource } from 'typeorm';
 
@@ -25,9 +29,7 @@ import {
 
 @Injectable()
 @QueryHandler(GetTenantByIdQuery)
-export class GetTenantByIdHandler
-  implements IQueryHandler<GetTenantByIdQuery, Tenant>
-{
+export class GetTenantByIdHandler implements IQueryHandler<GetTenantByIdQuery, Tenant> {
   constructor(
     @InjectRepository(Tenant)
     private readonly tenantRepository: Repository<Tenant>,
@@ -39,9 +41,7 @@ export class GetTenantByIdHandler
     });
 
     if (!tenant) {
-      throw new NotFoundException(
-        `Tenant with ID '${query.tenantId}' not found`,
-      );
+      throw new NotFoundException(`Tenant with ID '${query.tenantId}' not found`);
     }
 
     return tenant;
@@ -50,9 +50,7 @@ export class GetTenantByIdHandler
 
 @Injectable()
 @QueryHandler(GetTenantBySlugQuery)
-export class GetTenantBySlugHandler
-  implements IQueryHandler<GetTenantBySlugQuery, Tenant>
-{
+export class GetTenantBySlugHandler implements IQueryHandler<GetTenantBySlugQuery, Tenant> {
   constructor(
     @InjectRepository(Tenant)
     private readonly tenantRepository: Repository<Tenant>,
@@ -71,14 +69,6 @@ export class GetTenantBySlugHandler
   }
 }
 
-export interface PaginatedResult<T> {
-  data: T[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
-
 /** Per-tenant resource counts sourced from the tenant's own schema (the SSoT). */
 interface TenantResourceCounts {
   farmCount: number;
@@ -91,7 +81,7 @@ const COUNTED_TENANT_TABLES = ['farms', 'sensors'] as const;
 @Injectable()
 @QueryHandler(ListTenantsQuery)
 export class ListTenantsHandler
-  implements IQueryHandler<ListTenantsQuery, PaginatedResult<TenantListItemDto>>
+  implements IQueryHandler<ListTenantsQuery, IStandardPaginatedResult<TenantListItemDto>>
 {
   constructor(
     @InjectRepository(Tenant)
@@ -99,7 +89,7 @@ export class ListTenantsHandler
     private readonly dataSource: DataSource,
   ) {}
 
-  async execute(query: ListTenantsQuery): Promise<PaginatedResult<TenantListItemDto>> {
+  async execute(query: ListTenantsQuery): Promise<IStandardPaginatedResult<TenantListItemDto>> {
     const { filter, pagination, sort } = query;
 
     const page = pagination?.page || 1;
@@ -129,14 +119,7 @@ export class ListTenantsHandler
     // Apply sorting
     const sortField = sort?.field || 'createdAt';
     const sortOrder = sort?.order || 'DESC';
-    const allowedSortFields = [
-      'name',
-      'createdAt',
-      'updatedAt',
-      'status',
-      'plan',
-      'maxUsers',
-    ];
+    const allowedSortFields = ['name', 'createdAt', 'updatedAt', 'status', 'plan', 'maxUsers'];
 
     // H-4 fix: enforce safe sort order to prevent injection
     const safeSortOrder = sortOrder === 'ASC' ? 'ASC' : 'DESC';
@@ -158,15 +141,14 @@ export class ListTenantsHandler
     // pair for the whole page, never per-tenant queries.
     const counts = await this.countTenantResources(tenants.map((tenant) => tenant.id));
 
-    return {
-      data: tenants.map((tenant) =>
+    return createStandardPaginatedResult(
+      tenants.map((tenant) =>
         this.toTenantListItem(tenant, counts.get(tenant.id) ?? { farmCount: 0, sensorCount: 0 }),
       ),
       total,
       page,
       limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    );
   }
 
   private toTenantListItem(tenant: Tenant, resources: TenantResourceCounts): TenantListItemDto {
@@ -242,9 +224,10 @@ export class ListTenantsHandler
         return `SELECT '${table_schema}' AS schema_name, '${table_name}' AS table_name, COUNT(*)::int AS row_count FROM "${table_schema}"."${table_name}"`;
       })
       .join(' UNION ALL ');
-    const rows = await this.dataSource.query<
-      Array<{ schema_name: string; table_name: string; row_count: number }>
-    >(countSql);
+    const rows =
+      await this.dataSource.query<
+        Array<{ schema_name: string; table_name: string; row_count: number }>
+      >(countSql);
 
     for (const row of rows) {
       const tenantId = schemaToTenant.get(row.schema_name);
@@ -267,9 +250,7 @@ export class ListTenantsHandler
  */
 @Injectable()
 @QueryHandler(GetTenantStatsQuery)
-export class GetTenantStatsHandler
-  implements IQueryHandler<GetTenantStatsQuery, TenantStatsDto>
-{
+export class GetTenantStatsHandler implements IQueryHandler<GetTenantStatsQuery, TenantStatsDto> {
   private static readonly CACHE_KEY = 'tenant:stats:global';
   private static readonly CACHE_TTL = 3600; // 1 hour
 
@@ -284,7 +265,9 @@ export class GetTenantStatsHandler
     // Check Redis cache first
     if (this.redisService) {
       try {
-        const cached = await this.redisService.getJson<TenantStatsDto>(GetTenantStatsHandler.CACHE_KEY);
+        const cached = await this.redisService.getJson<TenantStatsDto>(
+          GetTenantStatsHandler.CACHE_KEY,
+        );
         if (cached) {
           return cached;
         }
@@ -349,9 +332,11 @@ export class GetTenantStatsHandler
 
     // Cache the result
     if (this.redisService) {
-      this.redisService.setJson(GetTenantStatsHandler.CACHE_KEY, result, GetTenantStatsHandler.CACHE_TTL).catch(() => {
-        // Ignore cache write errors
-      });
+      this.redisService
+        .setJson(GetTenantStatsHandler.CACHE_KEY, result, GetTenantStatsHandler.CACHE_TTL)
+        .catch(() => {
+          // Ignore cache write errors
+        });
     }
 
     return result;
@@ -360,9 +345,7 @@ export class GetTenantStatsHandler
 
 @Injectable()
 @QueryHandler(GetTenantUsageQuery)
-export class GetTenantUsageHandler
-  implements IQueryHandler<GetTenantUsageQuery, TenantUsageDto>
-{
+export class GetTenantUsageHandler implements IQueryHandler<GetTenantUsageQuery, TenantUsageDto> {
   constructor(
     @InjectRepository(Tenant)
     private readonly tenantRepository: Repository<Tenant>,
@@ -375,9 +358,7 @@ export class GetTenantUsageHandler
     });
 
     if (!tenant) {
-      throw new NotFoundException(
-        `Tenant with ID '${query.tenantId}' not found`,
-      );
+      throw new NotFoundException(`Tenant with ID '${query.tenantId}' not found`);
     }
 
     // Get actual user count from users table in public schema
@@ -423,9 +404,7 @@ export class GetTenantsApproachingLimitsHandler
 
 @Injectable()
 @QueryHandler(GetExpiringTrialsQuery)
-export class GetExpiringTrialsHandler
-  implements IQueryHandler<GetExpiringTrialsQuery, Tenant[]>
-{
+export class GetExpiringTrialsHandler implements IQueryHandler<GetExpiringTrialsQuery, Tenant[]> {
   constructor(
     @InjectRepository(Tenant)
     private readonly tenantRepository: Repository<Tenant>,
@@ -448,9 +427,7 @@ export class GetExpiringTrialsHandler
 
 @Injectable()
 @QueryHandler(SearchTenantsQuery)
-export class SearchTenantsHandler
-  implements IQueryHandler<SearchTenantsQuery, Tenant[]>
-{
+export class SearchTenantsHandler implements IQueryHandler<SearchTenantsQuery, Tenant[]> {
   constructor(
     @InjectRepository(Tenant)
     private readonly tenantRepository: Repository<Tenant>,

@@ -23,9 +23,27 @@ import {
 export type MessageStatus = 'sent' | 'delivered' | 'read' | 'failed';
 export type AnnouncementType = 'info' | 'warning' | 'critical' | 'maintenance';
 export type AnnouncementStatus = 'draft' | 'scheduled' | 'published' | 'expired' | 'cancelled';
-export type TicketPriority = 'low' | 'medium' | 'high' | 'critical';
-export type TicketStatus = 'open' | 'in_progress' | 'waiting_customer' | 'resolved' | 'closed';
-export type TicketCategory = 'technical' | 'billing' | 'feature_request' | 'bug_report' | 'general' | 'account';
+export const TICKET_PRIORITIES = ['low', 'medium', 'high', 'critical'] as const;
+export type TicketPriority = (typeof TICKET_PRIORITIES)[number];
+
+export const TICKET_STATUSES = [
+  'open',
+  'in_progress',
+  'waiting_customer',
+  'resolved',
+  'closed',
+] as const;
+export type TicketStatus = (typeof TICKET_STATUSES)[number];
+
+export const TICKET_CATEGORIES = [
+  'technical',
+  'billing',
+  'feature_request',
+  'bug_report',
+  'general',
+  'account',
+] as const;
+export type TicketCategory = (typeof TICKET_CATEGORIES)[number];
 export type OnboardingStatus = 'not_started' | 'in_progress' | 'completed' | 'skipped';
 
 // ============================================================================
@@ -69,7 +87,7 @@ export class MessageThread {
   @Column({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown>;
 
-  @OneToMany(() => Message, message => message.thread)
+  @OneToMany(() => Message, (message) => message.thread)
   messages!: Message[];
 
   @CreateDateColumn()
@@ -121,7 +139,7 @@ export class Message {
   @Column({ type: 'boolean', default: false })
   emailSent!: boolean;
 
-  @ManyToOne(() => MessageThread, thread => thread.messages)
+  @ManyToOne(() => MessageThread, (thread) => thread.messages)
   @JoinColumn({ name: 'threadId' })
   thread!: MessageThread;
 
@@ -184,7 +202,7 @@ export class Announcement {
   @Column({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown>;
 
-  @OneToMany(() => AnnouncementAcknowledgment, ack => ack.announcement)
+  @OneToMany(() => AnnouncementAcknowledgment, (ack) => ack.announcement)
   acknowledgments!: AnnouncementAcknowledgment[];
 
   @CreateDateColumn()
@@ -224,7 +242,7 @@ export class AnnouncementAcknowledgment {
   @Column({ type: 'timestamptz', nullable: true })
   acknowledgedAt?: Date;
 
-  @ManyToOne(() => Announcement, announcement => announcement.acknowledgments)
+  @ManyToOne(() => Announcement, (announcement) => announcement.acknowledgments)
   @JoinColumn({ name: 'announcementId' })
   announcement!: Announcement;
 
@@ -319,7 +337,7 @@ export class SupportTicket {
   @Column({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown>;
 
-  @OneToMany(() => TicketComment, comment => comment.ticket)
+  @OneToMany(() => TicketComment, (comment) => comment.ticket)
   comments!: TicketComment[];
 
   @CreateDateColumn()
@@ -365,7 +383,7 @@ export class TicketComment {
   @Column({ type: 'boolean', default: false })
   emailSent!: boolean;
 
-  @ManyToOne(() => SupportTicket, ticket => ticket.comments)
+  @ManyToOne(() => SupportTicket, (ticket) => ticket.comments)
   @JoinColumn({ name: 'ticketId' })
   ticket!: SupportTicket;
 

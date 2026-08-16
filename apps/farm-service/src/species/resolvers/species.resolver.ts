@@ -137,7 +137,7 @@ export class SpeciesResolver {
   @Query(() => [Species], { name: 'activeSpecies' })
   async getActiveSpecies(
     @CurrentTenant() tenantId: string,
-  ): Promise<Species[]> {
+  ): Promise<readonly Species[]> {
     const result = await this.queryBus.execute(
       new ListSpeciesQuery(tenantId, { isActive: true, limit: 100 }),
     ) as PaginatedQueryResult<Species>;

@@ -2,6 +2,7 @@
  * Purchase Order hooks for farm-module
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 
 // Types
@@ -67,13 +68,10 @@ export interface PurchaseOrder {
   updatedAt: string;
 }
 
-interface PaginatedPurchaseOrders {
-  items: PurchaseOrder[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
+type PurchaseOrdersPage = Pick<
+  PaginationResultV1<PurchaseOrder>,
+  'items' | 'total' | 'page' | 'limit' | 'totalPages'
+>;
 
 export interface CreatePurchaseOrderInput {
   category: PurchaseOrderCategory;
@@ -209,7 +207,7 @@ export function usePurchaseOrders(filter?: {
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'purchaseOrders', 'list', filter),
     queryFn: async () => {
-      const data = await graphqlClient.request<{ purchaseOrders: PaginatedPurchaseOrders }>(
+      const data = await graphqlClient.request<{ purchaseOrders: PurchaseOrdersPage }>(
         LIST_PURCHASE_ORDERS,
         { filter }
       );

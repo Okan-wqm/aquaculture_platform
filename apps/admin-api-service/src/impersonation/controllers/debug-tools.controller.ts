@@ -536,10 +536,7 @@ export class DebugToolsController {
   }
 
   @Get('api-calls/summary')
-  async getApiUsageSummary(
-    @Query('tenantId') tenantId: string,
-    @Query('period') period?: string,
-  ) {
+  async getApiUsageSummary(@Query('tenantId') tenantId: string, @Query('period') period?: string) {
     return this.debugToolsService.getApiUsageSummary(tenantId, period);
   }
 
@@ -587,23 +584,12 @@ export class DebugToolsController {
   }
 
   @Post('cache/invalidate')
-  async invalidateCacheByPattern(
-    @Body() dto: InvalidateCachePatternDto,
-  ) {
+  async invalidateCacheByPattern(@Body() dto: InvalidateCachePatternDto) {
     const count = await this.debugToolsService.invalidateCachePattern(
       dto.tenantId || '',
       dto.pattern,
     );
     return { invalidated: count };
-  }
-
-  @Delete('cache/:tenantId/:key')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async invalidateCacheKey(
-    @Param('tenantId') tenantId: string,
-    @Param('key') key: string,
-  ) {
-    await this.debugToolsService.invalidateCacheKey(tenantId, key);
   }
 
   @Delete('cache/tenant/:tenantId')
@@ -613,6 +599,12 @@ export class DebugToolsController {
   ) {
     const count = await this.debugToolsService.invalidateCachePattern(tenantId, pattern);
     return { invalidatedCount: count };
+  }
+
+  @Delete('cache/:tenantId/:key')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async invalidateCacheKey(@Param('tenantId') tenantId: string, @Param('key') key: string) {
+    await this.debugToolsService.invalidateCacheKey(tenantId, key);
   }
 
   // ============================================================================
@@ -659,11 +651,6 @@ export class DebugToolsController {
     return this.debugToolsService.getActiveOverridesForTenant(tenantId);
   }
 
-  @Get('feature-overrides/:id')
-  async getFeatureOverride(@Param('id') id: string) {
-    return this.debugToolsService.getFeatureOverride(id);
-  }
-
   @Get('feature-overrides/value')
   async getFeatureFlagValue(
     @Query('tenantId') tenantId: string,
@@ -683,12 +670,13 @@ export class DebugToolsController {
       parsed = String(defaultValue);
     }
 
-    const value = await this.debugToolsService.getFeatureFlagValue(
-      tenantId,
-      featureKey,
-      parsed,
-    );
+    const value = await this.debugToolsService.getFeatureFlagValue(tenantId, featureKey, parsed);
     return { value };
+  }
+
+  @Get('feature-overrides/:id')
+  async getFeatureOverride(@Param('id') id: string) {
+    return this.debugToolsService.getFeatureOverride(id);
   }
 
   @Get('feature-overrides')

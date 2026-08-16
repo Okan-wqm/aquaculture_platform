@@ -14,9 +14,13 @@ import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { Test, type TestingModule } from '@nestjs/testing';
-import { getJwtVerifyOptions, enforceAccessTokenType } from '@aquaculture/backend-common/auth';
+import {
+  getJwtVerifyOptions,
+  enforceAccessTokenType,
+  enforceTokenNotRevoked,
+} from '@aquaculture/backend-common/auth';
 import { IS_PUBLIC_KEY } from '@aquaculture/backend-common/decorators';
-import { TOKEN_BLACKLIST, USER_TOKEN_REVOCATION } from '@aquaculture/backend-common/security';
+import { TOKEN_REVOCATION_READER } from '@aquaculture/backend-common/security';
 
 import { JwtAuthGuard } from './jwt-auth.guard';
 
@@ -26,6 +30,7 @@ import { JwtAuthGuard } from './jwt-auth.guard';
 jest.mock('@aquaculture/backend-common/auth', () => ({
   getJwtVerifyOptions: jest.fn(() => ({ algorithms: ['RS256'] })),
   enforceAccessTokenType: jest.fn(),
+  enforceTokenNotRevoked: jest.fn(),
 }));
 
 interface MockRequest {
@@ -49,8 +54,7 @@ describe('JwtAuthGuard (AUDIT-HIGH-009)', () => {
   let guard: JwtAuthGuard;
   let reflector: Reflector;
   const verifyAsync = jest.fn();
-  const isBlacklisted = jest.fn();
-  const isUserTokenValid = jest.fn();
+  const getRevocationStatus = jest.fn();
 
   // Stub controller host backing ExecutionContext.getClass(); a named class
   // with a member satisfies @typescript-eslint/no-extraneous-class while the
@@ -82,8 +86,17 @@ describe('JwtAuthGuard (AUDIT-HIGH-009)', () => {
       .mocked(getJwtVerifyOptions)
       .mockReturnValue({ algorithms: ['RS256'], publicKey: 'test-key' });
     verifyAsync.mockReset();
-    isBlacklisted.mockReset().mockResolvedValue(false);
-    isUserTokenValid.mockReset().mockResolvedValue(true);
+    getRevocationStatus.mockReset().mockResolvedValue({
+      jtiRevoked: false,
+      userEpochRevoked: false,
+    });
+    jest
+      .mocked(enforceTokenNotRevoked)
+      .mockReset()
+      .mockResolvedValue({
+        jti: 'jti-1',
+        issuedAtSeconds: Math.floor(Date.now() / 1000),
+      });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -91,8 +104,10 @@ describe('JwtAuthGuard (AUDIT-HIGH-009)', () => {
         Reflector,
         { provide: JwtService, useValue: { verifyAsync } },
         { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue('test') } },
-        { provide: TOKEN_BLACKLIST, useValue: { isBlacklisted } },
-        { provide: USER_TOKEN_REVOCATION, useValue: { isTokenValid: isUserTokenValid } },
+        {
+          provide: TOKEN_REVOCATION_READER,
+          useValue: { getStatus: getRevocationStatus },
+        },
       ],
     }).compile();
 
@@ -136,8 +151,11 @@ describe('JwtAuthGuard (AUDIT-HIGH-009)', () => {
       expect.anything(),
       false,
     );
-    expect(isBlacklisted).toHaveBeenCalledWith('jti-1');
-    expect(isUserTokenValid).toHaveBeenCalledWith('user-1', expect.any(Date));
+    expect(jest.mocked(enforceTokenNotRevoked)).toHaveBeenCalledWith(
+      payload,
+      { getStatus: getRevocationStatus },
+      expect.anything(),
+    );
     expect(request.user).toBe(payload);
   });
 
@@ -161,20 +179,24 @@ describe('JwtAuthGuard (AUDIT-HIGH-009)', () => {
 
   it('rejects a per-JTI blacklisted token', async () => {
     verifyAsync.mockResolvedValue(accessPayload());
-    isBlacklisted.mockResolvedValue(true);
+    jest
+      .mocked(enforceTokenNotRevoked)
+      .mockRejectedValue(new UnauthorizedException('Token has been revoked'));
     const ctx = createMockExecutionContext({ headers: { authorization: 'Bearer revoked.token' } });
 
     await expect(guard.canActivate(ctx)).rejects.toThrow('Token has been revoked');
-    expect(isBlacklisted).toHaveBeenCalledWith('jti-1');
+    expect(jest.mocked(enforceTokenNotRevoked)).toHaveBeenCalled();
   });
 
   it('rejects a user-family-invalidated token', async () => {
     verifyAsync.mockResolvedValue(accessPayload());
-    isUserTokenValid.mockResolvedValue(false);
+    jest
+      .mocked(enforceTokenNotRevoked)
+      .mockRejectedValue(new UnauthorizedException('Token has been revoked'));
     const ctx = createMockExecutionContext({ headers: { authorization: 'Bearer revoked.token' } });
 
     await expect(guard.canActivate(ctx)).rejects.toThrow('Token has been revoked');
-    expect(isUserTokenValid).toHaveBeenCalledWith('user-1', expect.any(Date));
+    expect(jest.mocked(enforceTokenNotRevoked)).toHaveBeenCalled();
   });
 
   it.each([
@@ -189,40 +211,28 @@ describe('JwtAuthGuard (AUDIT-HIGH-009)', () => {
     ['fractional issued-at', { iat: 1.5 }],
   ])('rejects a token with %s before any revocation lookup', async (_case, overrides) => {
     verifyAsync.mockResolvedValue(accessPayload(overrides));
+    jest
+      .mocked(enforceTokenNotRevoked)
+      .mockRejectedValueOnce(new UnauthorizedException('Invalid or expired token'));
     const ctx = createMockExecutionContext({
       headers: { authorization: 'Bearer malformed-claims.token' },
     });
 
     await expect(guard.canActivate(ctx)).rejects.toThrow('Invalid or expired token');
-    expect(isBlacklisted).not.toHaveBeenCalled();
-    expect(isUserTokenValid).not.toHaveBeenCalled();
+    expect(jest.mocked(enforceTokenNotRevoked)).toHaveBeenCalled();
+    expect(getRevocationStatus).not.toHaveBeenCalled();
   });
 
-  it('cannot compile without the mandatory per-JTI revocation dependency', async () => {
+  it('cannot compile without the mandatory composite revocation reader', async () => {
     const moduleBuilder = Test.createTestingModule({
       providers: [
         JwtAuthGuard,
         Reflector,
         { provide: JwtService, useValue: { verifyAsync } },
         { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue('test') } },
-        { provide: USER_TOKEN_REVOCATION, useValue: { isTokenValid: isUserTokenValid } },
       ],
     });
 
-    await expect(moduleBuilder.compile()).rejects.toThrow(/TOKEN_BLACKLIST/);
-  });
-
-  it('cannot compile without the mandatory user-family revocation dependency', async () => {
-    const moduleBuilder = Test.createTestingModule({
-      providers: [
-        JwtAuthGuard,
-        Reflector,
-        { provide: JwtService, useValue: { verifyAsync } },
-        { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue('test') } },
-        { provide: TOKEN_BLACKLIST, useValue: { isBlacklisted } },
-      ],
-    });
-
-    await expect(moduleBuilder.compile()).rejects.toThrow(/USER_TOKEN_REVOCATION/);
+    await expect(moduleBuilder.compile()).rejects.toThrow(/TOKEN_REVOCATION_READER/);
   });
 });

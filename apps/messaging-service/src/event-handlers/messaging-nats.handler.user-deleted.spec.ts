@@ -3,7 +3,10 @@ import { Test } from '@nestjs/testing';
 
 import { ChannelMember } from '../channel/entities/channel-member.entity';
 import { AttachmentObjectPurgeService } from '../compliance/services/attachment-object-purge.service';
-import { LegalHoldService } from '../compliance/services/legal-hold.service';
+import {
+  LegalHoldDestructiveMutationAuthority,
+  LegalHoldDestructiveMutationBlocked,
+} from '../compliance/services/legal-hold-destructive-mutation.authority';
 import { Message } from '../message/entities/message.entity';
 import { MediaService } from '../message/services/media.service';
 import { PartitionManagerService } from '../partition/partition-manager.service';
@@ -16,9 +19,7 @@ import { MessagingNatsHandler } from './messaging-nats.handler';
  * When a user is deleted, the cascade wipes their message content in NON-HELD
  * channels. It must also delete the attachment rows for those messages AND purge
  * the backing MinIO binaries — otherwise the user's PII media survives GDPR
- * erasure. Held-channel attachments are preserved (legal hold outranks erasure).
- * These tests pin: keys captured before the row delete, purge scoped to non-held
- * message IDs, purge runs after commit, and a no-footprint user purges nothing.
+ * erasure. A hold intersecting the user scope blocks the entire transaction.
  */
 describe('MessagingNatsHandler.handleUserDeleted — attachment erasure (MSG-CRITICAL-058)', () => {
   const tenantId = '11111111-1111-1111-1111-111111111111';
@@ -34,7 +35,7 @@ describe('MessagingNatsHandler.handleUserDeleted — attachment erasure (MSG-CRI
   let commitTransaction: jest.Mock;
   let purgeAtCall: number;
 
-  function buildQueryRunner(footprint: boolean): Record<string, unknown> {
+  function buildQueryRunner(footprint: boolean, held: boolean): Record<string, unknown> {
     let isTransactionActive = false;
     const query = jest.fn((sql: string, params: unknown[] = []) => {
       queryCalls.push({ sql, params });
@@ -44,6 +45,14 @@ describe('MessagingNatsHandler.handleUserDeleted — attachment erasure (MSG-CRI
       if (sql.includes('has_memberships')) {
         return Promise.resolve([{ has_memberships: footprint }]);
       }
+      if (sql.includes('FROM legal_holds')) {
+        return Promise.resolve(held ? [{ id: 'hold-1', channelId: heldChannelId }] : []);
+      }
+      if (sql.includes('SELECT DISTINCT scope."channelId"')) {
+        return Promise.resolve(
+          footprint ? [{ channelId: heldChannelId }, { channelId: openChannelId }] : [],
+        );
+      }
       if (sql.includes('SELECT id, "channelId" FROM messages')) {
         return Promise.resolve([
           { id: heldMessageId, channelId: heldChannelId },
@@ -52,7 +61,10 @@ describe('MessagingNatsHandler.handleUserDeleted — attachment erasure (MSG-CRI
       }
       if (sql.includes('SELECT "storageKey", "thumbnailKey" FROM message_attachments')) {
         return Promise.resolve([
-          { storageKey: `messaging/${tenantId}/ch/open.png`, thumbnailKey: `messaging/${tenantId}/ch/open-thumb.png` },
+          {
+            storageKey: `messaging/${tenantId}/ch/open.png`,
+            thumbnailKey: `messaging/${tenantId}/ch/open-thumb.png`,
+          },
         ]);
       }
       return Promise.resolve(undefined);
@@ -75,11 +87,12 @@ describe('MessagingNatsHandler.handleUserDeleted — attachment erasure (MSG-CRI
         return isTransactionActive;
       },
       query,
+      manager: { query },
       release: jest.fn().mockResolvedValue(undefined),
     };
   }
 
-  async function build(footprint: boolean): Promise<void> {
+  async function build(footprint: boolean, held = false): Promise<void> {
     queryCalls = [];
     purgeAtCall = -1;
     commitTransaction = jest.fn();
@@ -88,22 +101,17 @@ describe('MessagingNatsHandler.handleUserDeleted — attachment erasure (MSG-CRI
       return Promise.resolve({ requested: 2, deleted: 2, failed: 0 });
     });
 
-    const queryRunner = buildQueryRunner(footprint);
+    const queryRunner = buildQueryRunner(footprint, held);
     const dataSource = { createQueryRunner: () => queryRunner };
-    const legalHoldService = {
-      isUnderLegalHold: jest.fn((_t: string, channelId: string | null) =>
-        Promise.resolve(channelId === heldChannelId),
-      ),
-    };
 
     const moduleRef = await Test.createTestingModule({
       providers: [
         MessagingNatsHandler,
+        LegalHoldDestructiveMutationAuthority,
         { provide: getRepositoryToken(ChannelMember), useValue: {} },
         { provide: getRepositoryToken(Message), useValue: {} },
         { provide: getDataSourceToken(), useValue: dataSource },
         { provide: PartitionManagerService, useValue: {} },
-        { provide: LegalHoldService, useValue: legalHoldService },
         { provide: MediaService, useValue: {} },
         { provide: REDIS_CLIENT, useValue: {} },
         { provide: AttachmentObjectPurgeService, useValue: { purgeObjects } },
@@ -127,17 +135,14 @@ describe('MessagingNatsHandler.handleUserDeleted — attachment erasure (MSG-CRI
     expect(purgeAtCall).toBe(1);
   });
 
-  it('scopes the attachment row delete to non-held message IDs only', async () => {
+  it('scopes the attachment row delete to the authority-cleared message IDs', async () => {
     await build(true);
 
     await handler.handleUserDeleted({ tenantId, deletedUserId });
 
-    const deleteCall = queryCalls.find((c) =>
-      c.sql.includes('DELETE FROM message_attachments'),
-    );
+    const deleteCall = queryCalls.find((c) => c.sql.includes('DELETE FROM message_attachments'));
     expect(deleteCall).toBeDefined();
-    // Only the open-channel message is erasable; the held message is excluded.
-    expect(deleteCall?.params[0]).toEqual([openMessageId]);
+    expect(deleteCall?.params[0]).toEqual([heldMessageId, openMessageId]);
   });
 
   it('captures the object keys BEFORE deleting the attachment rows', async () => {
@@ -161,5 +166,18 @@ describe('MessagingNatsHandler.handleUserDeleted — attachment erasure (MSG-CRI
     await handler.handleUserDeleted({ tenantId, deletedUserId });
 
     expect(purgeObjects).not.toHaveBeenCalled();
+  });
+
+  it('rolls back and preserves the complete user footprint when any scoped channel is held', async () => {
+    await build(true, true);
+
+    await expect(handler.handleUserDeleted({ tenantId, deletedUserId })).rejects.toBeInstanceOf(
+      LegalHoldDestructiveMutationBlocked,
+    );
+
+    expect(purgeObjects).not.toHaveBeenCalled();
+    expect(queryCalls.some((call) => call.sql.includes('DELETE FROM message_attachments'))).toBe(
+      false,
+    );
   });
 });

@@ -1,0 +1,51 @@
+{
+  "authority": "AdminHttpContractCompilationArtifactV2",
+  "contract": null,
+  "controllerSourceSha256": "4d4e7e7f43a2854716217485c8ee1af849bbec34c4a3238465e69af4df829590",
+  "coverage": {
+    "diagnosticCount": 587,
+    "discoveredOperationCount": 606,
+    "qualifiedOperationCount": 64,
+    "unqualifiedOperationCount": 542
+  },
+  "diagnosticDebt": {
+    "baselineContentSha256": "0e36a2f718460dea58f4ac6acea47240e2ae2244a560a7b5109566d222e400b9",
+    "basedOnMainSha": "7b3590d556fbc24ad6147595a9efcfcbd9e96f96",
+    "diagnostics": [
+      {
+        "code": "ANONYMOUS_RESPONSE_TYPE",
+        "count": 20
+      },
+      {
+        "code": "ENTITY_RESPONSE_TYPE",
+        "count": 66
+      },
+      {
+        "code": "MANUAL_RESPONSE_UNSUPPORTED",
+        "count": 8
+      },
+      {
+        "code": "MISSING_RESPONSE_TYPE",
+        "count": 332
+      },
+      {
+        "code": "UNRESOLVED_BODY_TYPE",
+        "count": 36
+      },
+      {
+        "code": "UNRESOLVED_PARAMETER_TYPE",
+        "count": 16
+      },
+      {
+        "code": "UNRESOLVED_RESPONSE_TYPE",
+        "count": 109
+      }
+    ],
+    "expiresOn": "2026-08-22",
+    "findingId": "ADMIN-HIGH-004",
+    "owner": "admin-expert",
+    "qualifiedManifestSha256": "41c29627adb4f029126255e9bb515402cf6b9ff704315d6e813f0eac1c1a7833"
+  },
+  "schemaVersion": 2,
+  "status": "BLOCKED"
+}

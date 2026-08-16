@@ -4,6 +4,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 import { useGraphQLClient, graphqlRequest } from './useGraphQL';
 import {
   GET_PAYROLLS,
@@ -15,7 +16,6 @@ import type {
   Payroll,
   PayrollFilterInput,
   CreatePayrollInput,
-  PaginatedResponse,
 } from '../types';
 
 // Query Keys
@@ -37,7 +37,7 @@ export function usePayrolls(filter?: PayrollFilterInput) {
   return useQuery({
     queryKey: payrollKeys.list(filter),
     queryFn: () =>
-      graphqlRequest<{ payrolls: PaginatedResponse<Payroll> }, unknown>(
+      graphqlRequest<{ payrolls: PaginationResultV1<Payroll> }, unknown>(
         client,
         GET_PAYROLLS,
         {

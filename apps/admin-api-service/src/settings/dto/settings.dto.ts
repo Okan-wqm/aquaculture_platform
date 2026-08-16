@@ -38,6 +38,15 @@ export class BulkUpdateSettingsDto {
   updates!: SettingUpdateItem[];
 }
 
+export class UpdateSystemSettingDto {
+  @IsOptional() @IsString() @MaxLength(10000) value?: string;
+  @IsOptional() @IsString() @MaxLength(2000) description?: string;
+  @IsOptional() @IsString() @MaxLength(255) displayName?: string;
+  @IsOptional() @IsBoolean() isPublic?: boolean;
+  @IsOptional() @IsBoolean() requiresRestart?: boolean;
+  @IsOptional() @IsInt() @Min(0) sortOrder?: number;
+}
+
 // ============================================================================
 // Email Config
 // ============================================================================

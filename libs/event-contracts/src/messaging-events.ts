@@ -1,4 +1,5 @@
 import { BaseEvent } from './base-event';
+import type { LegalHoldReleasedEvent } from './compliance-events';
 
 // ==================== Thread Events ====================
 
@@ -239,8 +240,8 @@ export interface RetentionPolicyChangedEvent extends BaseEvent {
 export interface LegalHoldToggledEvent extends BaseEvent {
   eventType: 'LegalHoldToggled';
   holdId: string;
-  channelId: string;
-  activate: boolean;
+  channelId: string | null;
+  activate: true;
   reason: string;
   toggledBy: string;
   toggledAt: string;
@@ -297,5 +298,6 @@ export type MessagingEvent =
   | ReactionRemovedEvent
   | RetentionPolicyChangedEvent
   | LegalHoldToggledEvent
+  | LegalHoldReleasedEvent
   | SentimentAlertEvent
   | StorageWarningEvent;

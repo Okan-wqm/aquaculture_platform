@@ -6,6 +6,7 @@ import type {
   TenantErasureBlockedEventType,
   TenantErasureTargetService,
 } from './tenant-erasure-targets';
+import type { TenantOnboardingOwnerService } from './tenant-onboarding-workflow';
 
 /**
  * Tenant Created Event
@@ -40,6 +41,8 @@ export interface TenantProvisioningRequestedEvent extends BaseEvent {
 export interface TenantOnboardingRequestedEvent extends BaseEvent {
   eventType: 'TenantOnboardingRequested';
   operationId: string;
+  attempt: number;
+  requestHash: string;
   name: string;
   slug: string;
   moduleIds: string[];
@@ -48,14 +51,25 @@ export interface TenantOnboardingRequestedEvent extends BaseEvent {
 export interface TenantOnboardingAckEvent extends BaseEvent {
   eventType: 'TenantOnboardingAck';
   operationId: string;
-  service: string;
+  attempt: number;
+  requestEventId: string;
+  requestHash: string;
+  receiptId: string;
+  outcomeHash: string;
+  service: TenantOnboardingOwnerService;
   acknowledgedAt: string;
 }
 
 export interface TenantOnboardingFailedEvent extends BaseEvent {
   eventType: 'TenantOnboardingFailed';
   operationId: string;
-  service: string;
+  attempt: number;
+  requestEventId: string;
+  requestHash: string;
+  receiptId: string;
+  outcomeHash: string;
+  service: TenantOnboardingOwnerService;
+  acknowledgedAt: string;
   error: string;
 }
 

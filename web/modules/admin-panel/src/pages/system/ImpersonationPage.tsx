@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, Button, Badge, Input, Alert, useAuthContext } from '@aquaculture/shared-ui';
 import {
   impersonationApi,
@@ -7,7 +7,12 @@ import {
   type ImpersonationPermission,
   type ImpersonationAction,
   type ImpersonationReasonCode,
+  type ImpersonationSessionStatus,
+  type ImpersonationStats,
+  type PaginatedResult,
 } from '../../services/adminApi';
+
+const PAGE_SIZE = 20;
 
 // Backend ImpersonationReason enum values (StartImpersonationDto validates
 // against these) with operator-facing labels. Free text goes in reasonDetails.
@@ -30,16 +35,57 @@ interface SimpleTenant {
   tier: string;
 }
 
-// Stats type
-interface ImpersonationStats {
-  activeSessions: number;
-  totalSessions: number;
-  activePermissions: number;
-  topAdmins: Array<{ adminId: string; email: string; sessionCount: number }>;
-  recentSessions: ImpersonationSession[];
+type TabType = 'active' | 'history' | 'permissions' | 'audit';
+type StatusFilter = 'all' | 'active' | 'ended' | 'expired' | 'terminated' | 'revoked';
+
+function historyStatus(filter: StatusFilter): ImpersonationSessionStatus | undefined {
+  return filter === 'ended' || filter === 'expired' || filter === 'terminated' ? filter : undefined;
 }
 
-type TabType = 'active' | 'history' | 'permissions' | 'audit';
+function isStatusFilter(value: string): value is StatusFilter {
+  return (
+    value === 'all' ||
+    value === 'active' ||
+    value === 'ended' ||
+    value === 'expired' ||
+    value === 'terminated' ||
+    value === 'revoked'
+  );
+}
+
+const PaginationControls: React.FC<{
+  result: PaginatedResult<unknown> | null;
+  label: string;
+  onPageChange: (page: number) => void;
+}> = ({ result, label, onPageChange }) => {
+  if (!result || result.totalPages <= 1) return null;
+
+  return (
+    <div className="flex items-center justify-between border-t border-gray-200 px-4 py-3">
+      <span className="text-sm text-gray-600">
+        {label}: page {result.page} of {result.totalPages} ({result.total} total)
+      </span>
+      <div className="flex gap-2">
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={!result.hasPreviousPage}
+          onClick={() => onPageChange(result.page - 1)}
+        >
+          Previous
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={!result.hasNextPage}
+          onClick={() => onPageChange(result.page + 1)}
+        >
+          Next
+        </Button>
+      </div>
+    </div>
+  );
+};
 
 // Loading skeleton component
 const LoadingSkeleton: React.FC = () => (
@@ -64,24 +110,29 @@ export const ImpersonationPage: React.FC = () => {
 
   // Tenant list cache to avoid re-fetching 100 tenants on every page load (PERF-003)
   const tenantCacheRef = useRef<{ data: SimpleTenant[]; fetchedAt: number } | null>(null);
+  const requestGenerationRef = useRef(0);
   const TENANT_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
   // State
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
-  const [sessions, setSessions] = useState<ImpersonationSession[]>([]);
-  const [permissions, setPermissions] = useState<ImpersonationPermission[]>([]);
+  const [activeSessionPage, setActiveSessionPage] =
+    useState<PaginatedResult<ImpersonationSession> | null>(null);
+  const [historySessionPage, setHistorySessionPage] =
+    useState<PaginatedResult<ImpersonationSession> | null>(null);
+  const [activePermissionPage, setActivePermissionPage] =
+    useState<PaginatedResult<ImpersonationPermission> | null>(null);
+  const [revokedPermissionPage, setRevokedPermissionPage] =
+    useState<PaginatedResult<ImpersonationPermission> | null>(null);
+  const [activeSessionPageNumber, setActiveSessionPageNumber] = useState(1);
+  const [historySessionPageNumber, setHistorySessionPageNumber] = useState(1);
+  const [activePermissionPageNumber, setActivePermissionPageNumber] = useState(1);
+  const [revokedPermissionPageNumber, setRevokedPermissionPageNumber] = useState(1);
   const [tenants, setTenants] = useState<SimpleTenant[]>([]);
-  const [stats, setStats] = useState<ImpersonationStats>({
-    activeSessions: 0,
-    totalSessions: 0,
-    activePermissions: 0,
-    topAdmins: [],
-    recentSessions: [],
-  });
+  const [stats, setStats] = useState<ImpersonationStats | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>('active');
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
 
   // Modal states
   const [showStartModal, setShowStartModal] = useState(false);
@@ -91,8 +142,9 @@ export const ImpersonationPage: React.FC = () => {
 
   // Session actions modal
   const [selectedSession, setSelectedSession] = useState<ImpersonationSession | null>(null);
-  const [sessionActions, setSessionActions] = useState<ImpersonationAction[]>([]);
+  const [sessionActions, setSessionActions] = useState<readonly ImpersonationAction[]>([]);
   const [loadingActions, setLoadingActions] = useState(false);
+  const [actionsError, setActionsError] = useState<string | null>(null);
 
   // Confirmation state
   const [confirmAction, setConfirmAction] = useState<{
@@ -121,7 +173,6 @@ export const ImpersonationPage: React.FC = () => {
   const [permissionForm, setPermissionForm] = useState({
     tenantId: '',
     maxSessionDuration: 60,
-    allowedActions: ['read'] as string[],
     reason: '',
     expiresAt: '',
   });
@@ -132,7 +183,10 @@ export const ImpersonationPage: React.FC = () => {
 
   // Fetch data
   const fetchData = useCallback(async () => {
+    const requestGeneration = requestGenerationRef.current + 1;
+    requestGenerationRef.current = requestGeneration;
     setLoading(true);
+    setPageError(null);
     const now = Date.now();
 
     // Use cached tenant list if still fresh (PERF-003)
@@ -141,83 +195,97 @@ export const ImpersonationPage: React.FC = () => {
       tenantCacheRef.current && now - tenantCacheRef.current.fetchedAt < TENANT_CACHE_TTL
         ? Promise.resolve(tenantCacheRef.current.data)
         : tenantsApi.search('', 100).then((res) => {
-            const mapped = res.map((t) => ({ id: t.id, name: t.name, slug: t.slug, status: t.status, tier: t.tier }));
+            const mapped = res.map((t) => ({
+              id: t.id,
+              name: t.name,
+              slug: t.slug,
+              status: t.status,
+              tier: t.tier,
+            }));
             tenantCacheRef.current = { data: mapped, fetchedAt: Date.now() };
             return mapped;
           });
 
     try {
-      const [sessionsRes, permissionsRes, statsRes, tenantsRes] = await Promise.allSettled([
-        impersonationApi.getSessions(),
-        impersonationApi.getPermissions(),
+      const [
+        activeSessions,
+        historySessions,
+        activePermissions,
+        revokedPermissions,
+        statsResult,
+        tenantResult,
+      ] = await Promise.all([
+        impersonationApi.getSessions({
+          scope: 'active',
+          search: searchQuery.trim() || undefined,
+          page: activeSessionPageNumber,
+          limit: PAGE_SIZE,
+        }),
+        impersonationApi.getSessions({
+          scope: 'history',
+          status: historyStatus(statusFilter),
+          search: searchQuery.trim() || undefined,
+          page: historySessionPageNumber,
+          limit: PAGE_SIZE,
+        }),
+        impersonationApi.getPermissions({
+          isActive: true,
+          search: searchQuery.trim() || undefined,
+          page: activePermissionPageNumber,
+          limit: PAGE_SIZE,
+        }),
+        impersonationApi.getPermissions({
+          isActive: false,
+          search: searchQuery.trim() || undefined,
+          page: revokedPermissionPageNumber,
+          limit: PAGE_SIZE,
+        }),
         impersonationApi.getImpersonationStats(),
         tenantsPromise,
       ]);
 
-      const defaultStats: ImpersonationStats = {
-        activeSessions: 0,
-        totalSessions: 0,
-        activePermissions: 0,
-        topAdmins: [],
-        recentSessions: [],
-      };
+      if (requestGeneration !== requestGenerationRef.current) return;
 
-      // Backend session-list envelope is { items, total } (not the data/page shape).
-      setSessions(sessionsRes.status === 'fulfilled' ? sessionsRes.value.items : []);
-      setPermissions(permissionsRes.status === 'fulfilled' ? (permissionsRes.value.data || []) : []);
-      setStats(statsRes.status === 'fulfilled' ? statsRes.value : defaultStats);
-      setTenants(
-        tenantsRes.status === 'fulfilled'
-          ? tenantsRes.value
-          : []
-      );
+      setActiveSessionPage(activeSessions);
+      setHistorySessionPage(historySessions);
+      setActivePermissionPage(activePermissions);
+      setRevokedPermissionPage(revokedPermissions);
+      setStats(statsResult);
+      setTenants(tenantResult);
     } catch (error) {
+      if (requestGeneration !== requestGenerationRef.current) return;
       console.error('Failed to fetch impersonation data:', error);
-      setSessions([]);
-      setPermissions([]);
-      setStats({
-        activeSessions: 0,
-        totalSessions: 0,
-        activePermissions: 0,
-        topAdmins: [],
-        recentSessions: [],
-      });
+      setActiveSessionPage(null);
+      setHistorySessionPage(null);
+      setActivePermissionPage(null);
+      setRevokedPermissionPage(null);
+      setStats(null);
       setTenants([]);
+      setPageError(
+        error instanceof Error ? error.message : 'Failed to load the impersonation control plane.',
+      );
     } finally {
-      setLoading(false);
+      if (requestGeneration === requestGenerationRef.current) {
+        setLoading(false);
+      }
     }
-  }, []);
+  }, [
+    activePermissionPageNumber,
+    activeSessionPageNumber,
+    historySessionPageNumber,
+    revokedPermissionPageNumber,
+    searchQuery,
+    statusFilter,
+  ]);
 
   useEffect(() => {
-    fetchData();
+    void fetchData();
   }, [fetchData]);
 
-  // Computed values — wrapped in useMemo to avoid recomputing on every render (PERF-002)
-  const activeSessions = useMemo(() => sessions.filter((s) => s.status === 'active'), [sessions]);
-  const historySessions = useMemo(() => sessions.filter((s) => s.status !== 'active'), [sessions]);
-  const activePermissions = useMemo(() => permissions.filter((p) => p.isActive), [permissions]);
-  const revokedPermissions = useMemo(() => permissions.filter((p) => !p.isActive), [permissions]);
-
-  const filteredSessions = useMemo(() => sessions.filter((session) => {
-    // targetTenantName/superAdminEmail are nullable backend columns — an
-    // absent value simply cannot match a search term.
-    const matchesSearch =
-      !searchQuery ||
-      (session.targetTenantName ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (session.superAdminEmail ?? '').toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || session.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  }), [sessions, searchQuery, statusFilter]);
-
-  const filteredPermissions = useMemo(() => permissions.filter((permission) => {
-    const matchesSearch =
-      !searchQuery ||
-      permission.tenantName.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus =
-      statusFilter === 'all' ||
-      (statusFilter === 'active' ? permission.isActive : !permission.isActive);
-    return matchesSearch && matchesStatus;
-  }), [permissions, searchQuery, statusFilter]);
+  const activeSessions = activeSessionPage?.data ?? [];
+  const historySessions = historySessionPage?.data ?? [];
+  const activePermissions = activePermissionPage?.data ?? [];
+  const revokedPermissions = revokedPermissionPage?.data ?? [];
 
   // Handlers
   const handleStartImpersonation = async () => {
@@ -237,17 +305,21 @@ export const ImpersonationPage: React.FC = () => {
       });
       setShowStartModal(false);
       setStartForm({ targetTenantId: '', reason: '', reasonDetails: '', targetUserId: '' });
-      fetchData();
+      void fetchData();
     } catch (error) {
       console.error('Failed to start impersonation:', error);
-      setPageError(error instanceof Error ? error.message : 'Failed to start impersonation session. Please try again.');
+      setPageError(
+        error instanceof Error
+          ? error.message
+          : 'Failed to start impersonation session. Please try again.',
+      );
     }
   };
 
   const handleEndSession = async (sessionId: string) => {
     try {
       await impersonationApi.endSession(sessionId);
-      fetchData();
+      void fetchData();
     } catch (error) {
       console.error('Failed to end session:', error);
     }
@@ -258,7 +330,7 @@ export const ImpersonationPage: React.FC = () => {
   const handleExtendSession = async (sessionId: string, minutes: number) => {
     try {
       await impersonationApi.extendSession(sessionId, minutes);
-      fetchData();
+      void fetchData();
     } catch (error) {
       console.error('Failed to extend session:', error);
     }
@@ -271,7 +343,7 @@ export const ImpersonationPage: React.FC = () => {
       // Terminate endpoint takes only { reason }; the terminating admin's
       // identity is derived from the JWT server-side.
       await impersonationApi.revokeSession(sessionId, reason);
-      fetchData();
+      void fetchData();
     } catch (error) {
       console.error('Failed to revoke session:', error);
       setPageError(error instanceof Error ? error.message : 'Failed to revoke session.');
@@ -296,21 +368,22 @@ export const ImpersonationPage: React.FC = () => {
       setPermissionForm({
         tenantId: '',
         maxSessionDuration: 60,
-        allowedActions: ['read'],
         reason: '',
         expiresAt: '',
       });
-      fetchData();
+      void fetchData();
     } catch (error) {
       console.error('Failed to grant permission:', error);
-      setPageError(error instanceof Error ? error.message : 'Failed to grant permission. Please try again.');
+      setPageError(
+        error instanceof Error ? error.message : 'Failed to grant permission. Please try again.',
+      );
     }
   };
 
   const handleRevokePermission = async (permissionId: string, reason: string) => {
     try {
-      await impersonationApi.revokePermission(permissionId, currentAdminId, reason);
-      fetchData();
+      await impersonationApi.revokePermission(permissionId, { reason });
+      void fetchData();
     } catch (error) {
       console.error('Failed to revoke permission:', error);
       setPageError(error instanceof Error ? error.message : 'Failed to revoke permission.');
@@ -324,12 +397,14 @@ export const ImpersonationPage: React.FC = () => {
     setSelectedSession(session);
     setShowActionsModal(true);
     setLoadingActions(true);
+    setActionsError(null);
     try {
       const actions = await impersonationApi.getSessionActions(session.id);
       setSessionActions(actions);
     } catch (error) {
       console.error('Failed to fetch session actions:', error);
       setSessionActions([]);
+      setActionsError(error instanceof Error ? error.message : 'Failed to fetch session actions.');
     } finally {
       setLoadingActions(false);
     }
@@ -373,7 +448,9 @@ export const ImpersonationPage: React.FC = () => {
       <div className="p-6">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-900">Tenant Impersonation</h1>
-          <p className="text-gray-600 mt-1">Securely access tenant accounts for support and debugging</p>
+          <p className="text-gray-600 mt-1">
+            Securely access tenant accounts for support and debugging
+          </p>
         </div>
         <LoadingSkeleton />
       </div>
@@ -386,7 +463,9 @@ export const ImpersonationPage: React.FC = () => {
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Tenant Impersonation</h1>
-          <p className="text-gray-600 mt-1">Securely access tenant accounts for support and debugging</p>
+          <p className="text-gray-600 mt-1">
+            Securely access tenant accounts for support and debugging
+          </p>
         </div>
         <div className="flex gap-3">
           <Button variant="secondary" onClick={() => setShowPermissionModal(true)}>
@@ -406,21 +485,23 @@ export const ImpersonationPage: React.FC = () => {
       )}
 
       {/* Active Session Banner */}
-      {activeSessions.length > 0 && (
+      {activeSessionPage && activeSessionPage.total > 0 && activeSessions[0] && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 bg-yellow-500 rounded-full animate-pulse" />
               <div>
                 <div className="font-medium text-yellow-800">
-                  {activeSessions.length} Active Impersonation Session{activeSessions.length > 1 ? 's' : ''}
+                  {activeSessionPage.total} Active Impersonation Session
+                  {activeSessionPage.total > 1 ? 's' : ''}
                 </div>
                 <div className="text-sm text-yellow-700">
-                  Currently impersonating: {activeSessions.map((s) => s.targetTenantName ?? s.targetTenantId).join(', ')}
+                  Currently impersonating:{' '}
+                  {activeSessions.map((s) => s.targetTenantName ?? s.targetTenantId).join(', ')}
                 </div>
               </div>
             </div>
-            {activeSessions.length === 1 && (
+            {activeSessionPage.total === 1 && (
               <div className="flex items-center gap-2">
                 <span className="text-sm text-yellow-700">
                   {getTimeRemaining(activeSessions[0].expiresAt)}
@@ -452,12 +533,27 @@ export const ImpersonationPage: React.FC = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-500">Active Sessions</p>
-              <p className="text-2xl font-bold text-green-600">{stats.activeSessions}</p>
+              <p className="text-2xl font-bold text-green-600">{stats?.activeSessions ?? '—'}</p>
             </div>
             <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
-              <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              <svg
+                className="w-6 h-6 text-green-600"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                />
               </svg>
             </div>
           </div>
@@ -466,12 +562,22 @@ export const ImpersonationPage: React.FC = () => {
         <Card className="p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">Total Sessions (30d)</p>
-              <p className="text-2xl font-bold text-gray-900">{stats.totalSessions}</p>
+              <p className="text-sm text-gray-500">Total Sessions ({stats?.window.days ?? 30}d)</p>
+              <p className="text-2xl font-bold text-gray-900">{stats?.totalSessions ?? '—'}</p>
             </div>
             <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center">
-              <svg className="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              <svg
+                className="w-6 h-6 text-gray-600"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+                />
               </svg>
             </div>
           </div>
@@ -481,11 +587,21 @@ export const ImpersonationPage: React.FC = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-500">Active Permissions</p>
-              <p className="text-2xl font-bold text-blue-600">{stats.activePermissions}</p>
+              <p className="text-2xl font-bold text-blue-600">{stats?.activePermissions ?? '—'}</p>
             </div>
             <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-              <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+              <svg
+                className="w-6 h-6 text-blue-600"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+                />
               </svg>
             </div>
           </div>
@@ -494,14 +610,22 @@ export const ImpersonationPage: React.FC = () => {
         <Card className="p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">Actions Logged</p>
-              <p className="text-2xl font-bold text-purple-600">
-                {sessions.reduce((sum, s) => sum + s.actionCount, 0)}
-              </p>
+              <p className="text-sm text-gray-500">Actions Logged ({stats?.window.days ?? 30}d)</p>
+              <p className="text-2xl font-bold text-purple-600">{stats?.actionsLogged ?? '—'}</p>
             </div>
             <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
-              <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+              <svg
+                className="w-6 h-6 text-purple-600"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"
+                />
               </svg>
             </div>
           </div>
@@ -512,14 +636,34 @@ export const ImpersonationPage: React.FC = () => {
       <div className="border-b border-gray-200">
         <nav className="flex gap-8">
           {[
-            { id: 'active' as TabType, label: 'Active Sessions', count: activeSessions.length },
-            { id: 'history' as TabType, label: 'Session History', count: historySessions.length },
-            { id: 'permissions' as TabType, label: 'Permissions', count: activePermissions.length },
+            {
+              id: 'active' as TabType,
+              label: 'Active Sessions',
+              count: activeSessionPage?.total ?? stats?.activeSessions,
+            },
+            {
+              id: 'history' as TabType,
+              label: 'Session History',
+              count: historySessionPage?.total,
+            },
+            {
+              id: 'permissions' as TabType,
+              label: 'Permissions',
+              count: activePermissionPage?.total ?? stats?.activePermissions,
+            },
             { id: 'audit' as TabType, label: 'Audit Summary' },
           ].map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => {
+                setActiveTab(tab.id);
+                setStatusFilter('all');
+                setSearchQuery('');
+                setActiveSessionPageNumber(1);
+                setHistorySessionPageNumber(1);
+                setActivePermissionPageNumber(1);
+                setRevokedPermissionPageNumber(1);
+              }}
               className={`py-3 border-b-2 font-medium text-sm transition-colors ${
                 activeTab === tab.id
                   ? 'border-blue-500 text-blue-600'
@@ -528,9 +672,11 @@ export const ImpersonationPage: React.FC = () => {
             >
               {tab.label}
               {tab.count !== undefined && (
-                <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
-                  activeTab === tab.id ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-600'
-                }`}>
+                <span
+                  className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
+                    activeTab === tab.id ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-600'
+                  }`}
+                >
                   {tab.count}
                 </span>
               )}
@@ -544,33 +690,48 @@ export const ImpersonationPage: React.FC = () => {
         <div className="flex flex-col md:flex-row gap-4">
           <div className="flex-1">
             <Input
-              placeholder={activeTab === 'permissions' ? 'Search tenants...' : 'Search sessions...'}
+              placeholder={
+                activeTab === 'permissions' ? 'Search administrator...' : 'Search sessions...'
+              }
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setActiveSessionPageNumber(1);
+                setHistorySessionPageNumber(1);
+                setActivePermissionPageNumber(1);
+                setRevokedPermissionPageNumber(1);
+              }}
               className="w-full"
             />
           </div>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="w-full md:w-48 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          >
-            <option value="all">All Status</option>
-            {activeTab === 'permissions' ? (
-              <>
-                <option value="active">Active</option>
-                <option value="revoked">Revoked</option>
-              </>
-            ) : (
-              <>
-                {/* Session statuses mirror the backend enum — operator override is 'terminated'. */}
-                <option value="active">Active</option>
-                <option value="ended">Ended</option>
-                <option value="expired">Expired</option>
-                <option value="terminated">Terminated</option>
-              </>
-            )}
-          </select>
+          {activeTab !== 'active' && (
+            <select
+              value={statusFilter}
+              onChange={(event) => {
+                if (isStatusFilter(event.target.value)) {
+                  setStatusFilter(event.target.value);
+                  setHistorySessionPageNumber(1);
+                  setActivePermissionPageNumber(1);
+                  setRevokedPermissionPageNumber(1);
+                }
+              }}
+              className="w-full md:w-48 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="all">All Status</option>
+              {activeTab === 'permissions' ? (
+                <>
+                  <option value="active">Active</option>
+                  <option value="revoked">Revoked</option>
+                </>
+              ) : (
+                <>
+                  <option value="ended">Ended</option>
+                  <option value="expired">Expired</option>
+                  <option value="terminated">Terminated</option>
+                </>
+              )}
+            </select>
+          )}
         </div>
       )}
 
@@ -580,9 +741,24 @@ export const ImpersonationPage: React.FC = () => {
           {activeSessions.length === 0 ? (
             <Card className="p-8 text-center">
               <div className="text-gray-500 mb-4">
-                <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                <svg
+                  className="w-12 h-12 mx-auto"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                  />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                  />
                 </svg>
               </div>
               <p className="text-gray-500">No active impersonation sessions</p>
@@ -596,27 +772,34 @@ export const ImpersonationPage: React.FC = () => {
                 <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-2">
-                      <h3 className="text-lg font-semibold text-gray-900">{session.targetTenantName ?? session.targetTenantId}</h3>
+                      <h3 className="text-lg font-semibold text-gray-900">
+                        {session.targetTenantName ?? session.targetTenantId}
+                      </h3>
                       <Badge variant={getStatusBadge(session.status)}>{session.status}</Badge>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-gray-600 mb-3">
                       <div>
-                        <span className="text-gray-500">Admin:</span> {session.superAdminEmail ?? session.superAdminId}
+                        <span className="text-gray-500">Admin:</span>{' '}
+                        {session.superAdminEmail ?? session.superAdminId}
                       </div>
                       {session.targetUserId && (
                         <div>
-                          <span className="text-gray-500">As User:</span> {session.targetUserEmail ?? session.targetUserId}
+                          <span className="text-gray-500">As User:</span>{' '}
+                          {session.targetUserEmail ?? session.targetUserId}
                         </div>
                       )}
                       <div>
-                        <span className="text-gray-500">Started:</span> {formatDate(session.createdAt)}
+                        <span className="text-gray-500">Started:</span>{' '}
+                        {formatDate(session.createdAt)}
                       </div>
                       <div>
-                        <span className="text-gray-500">Expires:</span> {formatDate(session.expiresAt)}
+                        <span className="text-gray-500">Expires:</span>{' '}
+                        {formatDate(session.expiresAt)}
                       </div>
                       <div>
-                        <span className="text-gray-500">IP Address:</span> {session.ipAddress ?? '-'}
+                        <span className="text-gray-500">IP Address:</span>{' '}
+                        {session.ipAddress ?? '-'}
                       </div>
                       <div>
                         <span className="text-gray-500">Actions:</span> {session.actionCount}
@@ -624,11 +807,13 @@ export const ImpersonationPage: React.FC = () => {
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <div className={`px-3 py-1 rounded-full text-sm font-medium ${
-                        new Date(session.expiresAt).getTime() - Date.now() < 10 * 60 * 1000
-                          ? 'bg-red-100 text-red-700'
-                          : 'bg-blue-100 text-blue-700'
-                      }`}>
+                      <div
+                        className={`px-3 py-1 rounded-full text-sm font-medium ${
+                          new Date(session.expiresAt).getTime() - Date.now() < 10 * 60 * 1000
+                            ? 'bg-red-100 text-red-700'
+                            : 'bg-blue-100 text-blue-700'
+                        }`}
+                      >
                         {getTimeRemaining(session.expiresAt)}
                       </div>
                       <span className="text-sm text-gray-500">
@@ -691,6 +876,11 @@ export const ImpersonationPage: React.FC = () => {
               </Card>
             ))
           )}
+          <PaginationControls
+            result={activeSessionPage}
+            label="Active sessions"
+            onPageChange={setActiveSessionPageNumber}
+          />
         </div>
       )}
 
@@ -725,45 +915,50 @@ export const ImpersonationPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredSessions
-                  .filter((s) => s.status !== 'active')
-                  .map((session) => (
-                    <tr key={session.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="font-medium text-gray-900">{session.targetTenantName ?? session.targetTenantId}</div>
-                        <div className="text-sm text-gray-500">{session.targetTenantId}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                        {session.superAdminEmail ?? session.superAdminId}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <Badge variant={getStatusBadge(session.status)}>{session.status}</Badge>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                        {formatDuration(session.createdAt, session.endedAt)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                        {session.actionCount}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                        {formatDate(session.createdAt)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => handleViewActions(session)}
-                        >
-                          View
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
+                {historySessions.map((session) => (
+                  <tr key={session.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="font-medium text-gray-900">
+                        {session.targetTenantName ?? session.targetTenantId}
+                      </div>
+                      <div className="text-sm text-gray-500">{session.targetTenantId}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                      {session.superAdminEmail ?? session.superAdminId}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <Badge variant={getStatusBadge(session.status)}>{session.status}</Badge>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                      {formatDuration(session.createdAt, session.endedAt)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                      {session.actionCount}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                      {formatDate(session.createdAt)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => handleViewActions(session)}
+                      >
+                        View
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
-            {filteredSessions.filter((s) => s.status !== 'active').length === 0 && (
+            {historySessions.length === 0 && (
               <div className="text-center py-8 text-gray-500">No session history found</div>
             )}
+            <PaginationControls
+              result={historySessionPage}
+              label="Session history"
+              onPageChange={setHistorySessionPageNumber}
+            />
           </div>
         </Card>
       )}
@@ -772,45 +967,53 @@ export const ImpersonationPage: React.FC = () => {
       {activeTab === 'permissions' && (
         <div className="space-y-6">
           {/* Active Permissions */}
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Active Permissions</h3>
-            {activePermissions.length === 0 ? (
-              <Card className="p-6 text-center text-gray-500">
-                No active permissions
-              </Card>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {filteredPermissions
-                  .filter((p) => p.isActive)
-                  .map((permission) => (
+          {statusFilter !== 'revoked' && (
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Active Permissions</h3>
+              {activePermissions.length === 0 ? (
+                <Card className="p-6 text-center text-gray-500">No active permissions</Card>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {activePermissions.map((permission) => (
                     <Card key={permission.id} className="p-4">
                       <div className="flex justify-between items-start mb-3">
                         <div>
-                          <h4 className="font-medium text-gray-900">{permission.tenantName}</h4>
-                          <p className="text-sm text-gray-500">{permission.tenantId}</p>
+                          <h4 className="font-medium text-gray-900">
+                            {permission.superAdminEmail ?? permission.superAdminId}
+                          </h4>
+                          <p className="text-sm text-gray-500">{permission.superAdminId}</p>
                         </div>
                         <Badge variant="success">Active</Badge>
                       </div>
 
                       <div className="space-y-2 text-sm text-gray-600 mb-3">
                         <div>
-                          <span className="text-gray-500">Granted by:</span> {permission.grantedByEmail}
+                          <span className="text-gray-500">Granted by:</span>{' '}
+                          {permission.grantedBy ?? 'Unknown'}
                         </div>
                         <div>
-                          <span className="text-gray-500">Max Duration:</span> {permission.maxSessionDuration} min
+                          <span className="text-gray-500">Max Duration:</span>{' '}
+                          {permission.maxSessionDurationMinutes} min
                         </div>
                         <div>
-                          <span className="text-gray-500">Allowed Actions:</span>{' '}
-                          {permission.allowedActions.join(', ')}
+                          <span className="text-gray-500">Allowed tenants:</span>{' '}
+                          {permission.allowedTenants && permission.allowedTenants.length > 0
+                            ? permission.allowedTenants.join(', ')
+                            : 'Deny all — no explicit tenant grant'}
+                        </div>
+                        <div>
+                          <span className="text-gray-500">Concurrent sessions:</span>{' '}
+                          {permission.maxConcurrentSessions}
                         </div>
                         {permission.expiresAt && (
                           <div>
-                            <span className="text-gray-500">Expires:</span> {formatDate(permission.expiresAt)}
+                            <span className="text-gray-500">Expires:</span>{' '}
+                            {formatDate(permission.expiresAt)}
                           </div>
                         )}
-                        {permission.reason && (
+                        {permission.notes && (
                           <div>
-                            <span className="text-gray-500">Reason:</span> {permission.reason}
+                            <span className="text-gray-500">Notes:</span> {permission.notes}
                           </div>
                         )}
                       </div>
@@ -822,9 +1025,9 @@ export const ImpersonationPage: React.FC = () => {
                           onClick={() => {
                             setConfirmAction({
                               type: 'revoke_permission',
-                              id: permission.id,
+                              id: permission.superAdminId,
                               title: 'Revoke Permission',
-                              message: `Are you sure you want to revoke impersonation permission for ${permission.tenantName}?`,
+                              message: `Are you sure you want to revoke impersonation permission for ${permission.superAdminEmail ?? permission.superAdminId}?`,
                             });
                             setShowConfirmModal(true);
                           }}
@@ -834,51 +1037,86 @@ export const ImpersonationPage: React.FC = () => {
                       </div>
                     </Card>
                   ))}
-              </div>
-            )}
-          </div>
+                </div>
+              )}
+              <PaginationControls
+                result={activePermissionPage}
+                label="Active permissions"
+                onPageChange={setActivePermissionPageNumber}
+              />
+            </div>
+          )}
 
           {/* Revoked Permissions */}
-          {revokedPermissions.length > 0 && (
+          {statusFilter !== 'active' && (
             <div>
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Revoked Permissions</h3>
-              <Card className="overflow-hidden">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tenant</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Granted By</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Revoked By</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Revoked At</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {revokedPermissions.map((permission) => (
-                      <tr key={permission.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="font-medium text-gray-900">{permission.tenantName}</div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                          {permission.grantedByEmail}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                          {permission.revokedBy || '-'}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                          {permission.revokedAt ? formatDate(permission.revokedAt) : '-'}
-                        </td>
+              {revokedPermissions.length === 0 ? (
+                <Card className="p-6 text-center text-gray-500">No revoked permissions</Card>
+              ) : (
+                <Card className="overflow-hidden">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                          Admin
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                          Revoked By
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                          Tenant Scope
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                          Revoked At
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                          Reason
+                        </th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </Card>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {revokedPermissions.map((permission) => (
+                        <tr key={permission.id} className="hover:bg-gray-50">
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="font-medium text-gray-900">
+                              {permission.superAdminEmail ?? permission.superAdminId}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                            {permission.revokedBy ?? 'Unknown (legacy record)'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                            {permission.allowedTenants && permission.allowedTenants.length > 0
+                              ? `${permission.allowedTenants.length} explicit`
+                              : 'Deny all'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                            {permission.revokedAt
+                              ? formatDate(permission.revokedAt)
+                              : 'Unknown (legacy record)'}
+                          </td>
+                          <td className="px-6 py-4 text-sm text-gray-600">
+                            {permission.revocationReason ?? 'Not recorded'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <PaginationControls
+                    result={revokedPermissionPage}
+                    label="Revoked permissions"
+                    onPageChange={setRevokedPermissionPageNumber}
+                  />
+                </Card>
+              )}
             </div>
           )}
         </div>
       )}
 
       {/* Audit Tab */}
-      {activeTab === 'audit' && (
+      {activeTab === 'audit' && stats ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card className="p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Top Impersonating Admins</h3>
@@ -889,12 +1127,17 @@ export const ImpersonationPage: React.FC = () => {
                 {stats.topAdmins.map((admin, index) => (
                   <div key={admin.adminId} className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                        index === 0 ? 'bg-yellow-100 text-yellow-700' :
-                        index === 1 ? 'bg-gray-200 text-gray-700' :
-                        index === 2 ? 'bg-orange-100 text-orange-700' :
-                        'bg-gray-100 text-gray-600'
-                      }`}>
+                      <div
+                        className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
+                          index === 0
+                            ? 'bg-yellow-100 text-yellow-700'
+                            : index === 1
+                              ? 'bg-gray-200 text-gray-700'
+                              : index === 2
+                                ? 'bg-orange-100 text-orange-700'
+                                : 'bg-gray-100 text-gray-600'
+                        }`}
+                      >
                         {index + 1}
                       </div>
                       <span className="text-gray-900">{admin.email}</span>
@@ -907,11 +1150,17 @@ export const ImpersonationPage: React.FC = () => {
           </Card>
 
           <Card className="p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Session Status Distribution</h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Session Status Distribution
+            </h3>
             <div className="grid grid-cols-2 gap-4">
               {[
                 { status: 'Active', count: stats.activeSessions, color: 'bg-blue-500' },
-                { status: 'Total (30d)', count: stats.totalSessions, color: 'bg-green-500' },
+                {
+                  status: `Total (${stats.window.days}d)`,
+                  count: stats.totalSessions,
+                  color: 'bg-green-500',
+                },
               ].map((item) => (
                 <div key={item.status} className="flex items-center gap-3">
                   <div className={`w-3 h-3 rounded-full ${item.color}`} />
@@ -922,7 +1171,9 @@ export const ImpersonationPage: React.FC = () => {
                 </div>
               ))}
             </div>
-            <p className="text-xs text-gray-500 mt-4">Detailed breakdown available via audit log export.</p>
+            <p className="text-xs text-gray-500 mt-4">
+              Detailed breakdown available via audit log export.
+            </p>
           </Card>
 
           <Card className="p-6">
@@ -932,10 +1183,17 @@ export const ImpersonationPage: React.FC = () => {
             ) : (
               <div className="space-y-3">
                 {stats.recentSessions.slice(0, 5).map((session) => (
-                  <div key={session.id} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                  <div
+                    key={session.id}
+                    className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0"
+                  >
                     <div>
-                      <div className="font-medium text-gray-900">{session.targetTenantName ?? session.targetTenantId}</div>
-                      <div className="text-sm text-gray-500">{session.superAdminEmail ?? session.superAdminId}</div>
+                      <div className="font-medium text-gray-900">
+                        {session.targetTenantName ?? session.targetTenantId}
+                      </div>
+                      <div className="text-sm text-gray-500">
+                        {session.superAdminEmail ?? session.superAdminId}
+                      </div>
                     </div>
                     <Badge variant={getStatusBadge(session.status)}>{session.status}</Badge>
                   </div>
@@ -944,7 +1202,12 @@ export const ImpersonationPage: React.FC = () => {
             )}
           </Card>
         </div>
-      )}
+      ) : activeTab === 'audit' ? (
+        <Alert type="warning">
+          Impersonation audit statistics are unavailable. Session and permission lists may still be
+          inspected independently.
+        </Alert>
+      ) : null}
 
       {/* Start Impersonation Modal */}
       {showStartModal && (
@@ -955,12 +1218,25 @@ export const ImpersonationPage: React.FC = () => {
 
               <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
                 <div className="flex gap-3">
-                  <svg className="w-5 h-5 text-yellow-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  <svg
+                    className="w-5 h-5 text-yellow-600 mt-0.5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                    />
                   </svg>
                   <div className="text-sm text-yellow-800">
                     <p className="font-medium">Security Notice</p>
-                    <p>All actions performed during impersonation are logged and audited. Only impersonate when necessary and with proper authorization.</p>
+                    <p>
+                      All actions performed during impersonation are logged and audited. Only
+                      impersonate when necessary and with proper authorization.
+                    </p>
                   </div>
                 </div>
               </div>
@@ -1009,7 +1285,9 @@ export const ImpersonationPage: React.FC = () => {
                     onChange={(e) => {
                       // Narrow via the option catalogue instead of a type
                       // assertion — only real enum values reach the form state.
-                      const selected = REASON_OPTIONS.find((option) => option.value === e.target.value);
+                      const selected = REASON_OPTIONS.find(
+                        (option) => option.value === e.target.value,
+                      );
                       setStartForm({ ...startForm, reason: selected ? selected.value : '' });
                     }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -1059,7 +1337,9 @@ export const ImpersonationPage: React.FC = () => {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <Card className="w-full max-w-lg">
             <div className="p-6">
-              <h2 className="text-xl font-bold text-gray-900 mb-4">Grant Impersonation Permission</h2>
+              <h2 className="text-xl font-bold text-gray-900 mb-4">
+                Grant Impersonation Permission
+              </h2>
 
               <div className="space-y-4">
                 <div>
@@ -1068,7 +1348,9 @@ export const ImpersonationPage: React.FC = () => {
                   </label>
                   <select
                     value={permissionForm.tenantId}
-                    onChange={(e) => setPermissionForm({ ...permissionForm, tenantId: e.target.value })}
+                    onChange={(e) =>
+                      setPermissionForm({ ...permissionForm, tenantId: e.target.value })
+                    }
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   >
                     <option value="">Choose a tenant...</option>
@@ -1086,42 +1368,16 @@ export const ImpersonationPage: React.FC = () => {
                   </label>
                   <Input
                     type="number"
-                    min={15}
-                    max={480}
+                    min={1}
+                    max={60}
                     value={permissionForm.maxSessionDuration}
-                    onChange={(e) => setPermissionForm({ ...permissionForm, maxSessionDuration: parseInt(e.target.value) || 60 })}
+                    onChange={(e) =>
+                      setPermissionForm({
+                        ...permissionForm,
+                        maxSessionDuration: parseInt(e.target.value) || 60,
+                      })
+                    }
                   />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Allowed Actions
-                  </label>
-                  <div className="flex gap-4">
-                    {['read', 'write', 'admin'].map((action) => (
-                      <label key={action} className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={permissionForm.allowedActions.includes(action)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setPermissionForm({
-                                ...permissionForm,
-                                allowedActions: [...permissionForm.allowedActions, action],
-                              });
-                            } else {
-                              setPermissionForm({
-                                ...permissionForm,
-                                allowedActions: permissionForm.allowedActions.filter((a) => a !== action),
-                              });
-                            }
-                          }}
-                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="text-sm text-gray-700 capitalize">{action}</span>
-                      </label>
-                    ))}
-                  </div>
                 </div>
 
                 <div>
@@ -1131,7 +1387,9 @@ export const ImpersonationPage: React.FC = () => {
                   <Input
                     type="datetime-local"
                     value={permissionForm.expiresAt}
-                    onChange={(e) => setPermissionForm({ ...permissionForm, expiresAt: e.target.value })}
+                    onChange={(e) =>
+                      setPermissionForm({ ...permissionForm, expiresAt: e.target.value })
+                    }
                   />
                 </div>
 
@@ -1141,7 +1399,9 @@ export const ImpersonationPage: React.FC = () => {
                   </label>
                   <textarea
                     value={permissionForm.reason}
-                    onChange={(e) => setPermissionForm({ ...permissionForm, reason: e.target.value })}
+                    onChange={(e) =>
+                      setPermissionForm({ ...permissionForm, reason: e.target.value })
+                    }
                     rows={3}
                     placeholder="Reason for granting permission..."
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -1175,7 +1435,8 @@ export const ImpersonationPage: React.FC = () => {
                 <div>
                   <h2 className="text-xl font-bold text-gray-900">Session Actions</h2>
                   <p className="text-sm text-gray-500 mt-1">
-                    {selectedSession.targetTenantName ?? selectedSession.targetTenantId} - {selectedSession.superAdminEmail ?? selectedSession.superAdminId}
+                    {selectedSession.targetTenantName ?? selectedSession.targetTenantId} -{' '}
+                    {selectedSession.superAdminEmail ?? selectedSession.superAdminId}
                   </p>
                 </div>
                 <button
@@ -1183,11 +1444,17 @@ export const ImpersonationPage: React.FC = () => {
                     setShowActionsModal(false);
                     setSelectedSession(null);
                     setSessionActions([]);
+                    setActionsError(null);
                   }}
                   className="text-gray-500 hover:text-gray-600"
                 >
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
                   </svg>
                 </button>
               </div>
@@ -1198,6 +1465,8 @@ export const ImpersonationPage: React.FC = () => {
                 <div className="flex items-center justify-center py-8">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
                 </div>
+              ) : actionsError ? (
+                <Alert type="error">{actionsError}</Alert>
               ) : sessionActions.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
                   No actions recorded for this session
@@ -1206,7 +1475,10 @@ export const ImpersonationPage: React.FC = () => {
                 <div className="space-y-3">
                   {/* Backend action entries carry no id — the timestamp+index pair keys the list. */}
                   {sessionActions.map((action, index) => (
-                    <div key={`${action.timestamp}-${index}`} className="flex gap-4 p-3 bg-gray-50 rounded-lg">
+                    <div
+                      key={`${action.timestamp}-${index}`}
+                      className="flex gap-4 p-3 bg-gray-50 rounded-lg"
+                    >
                       <div className="flex-shrink-0 w-2 h-2 mt-2 bg-blue-500 rounded-full" />
                       <div className="flex-1">
                         <div className="flex justify-between items-start">
@@ -1224,12 +1496,16 @@ export const ImpersonationPage: React.FC = () => {
                             {JSON.stringify(
                               // Whitelist only primitive-valued keys to prevent leaking nested objects (SEC-008)
                               Object.fromEntries(
-                                Object.entries(action.details).filter(([, v]) =>
-                                  v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'
-                                )
+                                Object.entries(action.details).filter(
+                                  ([, v]) =>
+                                    v === null ||
+                                    typeof v === 'string' ||
+                                    typeof v === 'number' ||
+                                    typeof v === 'boolean',
+                                ),
                               ),
                               null,
-                              2
+                              2,
                             )}
                           </pre>
                         )}
@@ -1247,6 +1523,7 @@ export const ImpersonationPage: React.FC = () => {
                   setShowActionsModal(false);
                   setSelectedSession(null);
                   setSessionActions([]);
+                  setActionsError(null);
                 }}
                 className="w-full"
               >

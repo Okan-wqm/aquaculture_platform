@@ -4,6 +4,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 import { useGraphQLClient, graphqlRequest } from './useGraphQL';
 import {
   GET_PERFORMANCE_REVIEWS,
@@ -45,7 +46,6 @@ import type {
   CreateGoalInput,
   UpdateGoalInput,
   UpdateGoalProgressInput,
-  PaginatedResponse,
 } from '../types';
 
 // Query Keys
@@ -99,7 +99,7 @@ export function usePerformanceReviews(
     queryKey: reviewKeys.list(filter),
     queryFn: () =>
       graphqlRequest<{
-        performanceReviews: PaginatedResponse<PerformanceReview>;
+        performanceReviews: PaginationResultV1<PerformanceReview>;
       }, unknown>(client, GET_PERFORMANCE_REVIEWS, {
         employeeId: filter?.employeeId,
         status: filter?.status,
@@ -199,7 +199,7 @@ export function useGoals(filter?: GoalFilterInput) {
   return useQuery({
     queryKey: goalKeys.list(filter),
     queryFn: () =>
-      graphqlRequest<{ goals: PaginatedResponse<Goal> }, unknown>(
+      graphqlRequest<{ goals: PaginationResultV1<Goal> }, unknown>(
         client,
         GET_GOALS,
         {

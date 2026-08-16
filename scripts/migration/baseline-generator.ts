@@ -91,13 +91,18 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync 
 import { resolve, join, basename, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import {
+  ROW_DELETE_POLICY,
+  ROW_MUTATION_POLICY,
+  protectedTableName,
+  rowGuardTablePoliciesForSchema,
+} from '../../libs/backend-common/src/constants/protected-tables';
+
 // ESM-safe __dirname equivalent — tools/gates/tsconfig.json compiles
 // modules as ESM; require/__dirname is unavailable. fileURLToPath +
 // dirname recovers the script's directory.
 const SCRIPT_DIR =
-  typeof __dirname === 'string'
-    ? __dirname
-    : dirname(fileURLToPath(import.meta.url));
+  typeof __dirname === 'string' ? __dirname : dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, '..', '..');
 
 /**
@@ -242,7 +247,15 @@ function audit(svc: { service: string; schema: string; tenantScoped: boolean }):
   // Services use either src/migrations/ (auth, admin-api, event-store,
   // messaging) or src/database/migrations/. Try both.
   const candidates = [
-    join(REPO_ROOT, 'apps', svc.service, 'src', 'database', 'migrations', '1800000000000-Baseline.ts'),
+    join(
+      REPO_ROOT,
+      'apps',
+      svc.service,
+      'src',
+      'database',
+      'migrations',
+      '1800000000000-Baseline.ts',
+    ),
     join(REPO_ROOT, 'apps', svc.service, 'src', 'migrations', '1800000000000-Baseline.ts'),
   ];
   const baseline = candidates.find((p) => existsSync(p));
@@ -294,7 +307,7 @@ function audit(svc: { service: string; schema: string; tenantScoped: boolean }):
   if (svc.service === 'sensor-service') {
     if (!/create_hypertable\s*\(/i.test(src)) {
       result.failures.push(
-        "sensor-service baseline missing create_hypertable() call — hand-author required (TypeORM does not emit hypertable DDL)",
+        'sensor-service baseline missing create_hypertable() call — hand-author required (TypeORM does not emit hypertable DDL)',
       );
     } else {
       result.passes++;
@@ -324,26 +337,56 @@ function audit(svc: { service: string; schema: string; tenantScoped: boolean }):
     }
   }
 
-  // (e) immutability triggers for known audit tables.
-  // Use schema-qualified exact-name regex so a bare 'audit_logs' check
-  // does not false-match 'farm_audit_logs' / 'sensor_audit_logs'.
-  const PROTECTED_TABLE_NAMES = [
-    'audit_logs',
-    'farm_audit_logs',
-    'sensor_audit_logs',
-    'payroll_audit',
-    'alert_audit_log',
-    'tool_execution_audit',
-    'compliance_audit_log',
-    'impersonation_sessions',
-  ];
-  for (const tbl of PROTECTED_TABLE_NAMES) {
-    // Exact match against `CREATE TABLE "<schema>"."<tbl>"`.
-    if (new RegExp(`CREATE TABLE "[^"]+"\\."${tbl}"`, 'i').test(src)) {
-      const triggerNeeded = `trg_${tbl}_prevent_update`;
-      if (!src.includes(triggerNeeded)) {
+  // (e) database row guards from the table-protection SSoT.
+  //
+  // Destructive-DDL protection and row immutability are separate policies.
+  // In particular, admin.impersonation_sessions legitimately UPDATEs through
+  // its lifecycle and receives only a DELETE guard. The old hardcoded name
+  // list treated every protected table as append-only and regenerated a
+  // BEFORE UPDATE blocker each time the baseline was rebuilt.
+  for (const policy of rowGuardTablePoliciesForSchema(svc.schema)) {
+    const table = protectedTableName(policy);
+    const createsTable = new RegExp(`CREATE TABLE "${svc.schema}"\\."${table}"`, 'i').test(src);
+    if (!createsTable) continue;
+
+    const updateTrigger = `trg_${table}_prevent_update`;
+    const deleteTrigger =
+      policy.rowDelete === ROW_DELETE_POLICY.LEGAL_HOLD_RETENTION
+        ? `trg_${table}_prevent_legal_hold_delete`
+        : `trg_${table}_prevent_delete`;
+
+    if (policy.rowMutation === ROW_MUTATION_POLICY.APPEND_ONLY) {
+      if (!src.includes(updateTrigger)) {
         result.failures.push(
-          `baseline creates protected table ${tbl} but does NOT install ${triggerNeeded} — Faz 1.4 protected-tables-guard mandates immutability triggers on audit surfaces`,
+          `baseline creates append-only table ${policy.qualifiedName} but does NOT install ${updateTrigger}`,
+        );
+      } else {
+        result.passes++;
+      }
+    } else if (src.includes(updateTrigger)) {
+      result.failures.push(
+        `baseline installs ${updateTrigger} on lifecycle-mutated table ${policy.qualifiedName} — lifecycle UPDATEs must remain legal`,
+      );
+    }
+
+    if (policy.rowDelete === ROW_DELETE_POLICY.LEGAL_HOLD_RETENTION) {
+      if (!src.includes(deleteTrigger)) {
+        result.failures.push(
+          `baseline creates retention-managed table ${policy.qualifiedName} but does NOT install ${deleteTrigger}`,
+        );
+      } else {
+        result.passes++;
+      }
+    } else if (policy.rowDelete === ROW_DELETE_POLICY.DENY) {
+      const combinedAppendOnlyGuard =
+        policy.rowMutation === ROW_MUTATION_POLICY.APPEND_ONLY &&
+        new RegExp(
+          `CREATE\\s+TRIGGER\\s+${updateTrigger}[^;]*BEFORE\\s+UPDATE\\s+OR\\s+DELETE`,
+          'is',
+        ).test(src);
+      if (!src.includes(deleteTrigger) && !combinedAppendOnlyGuard) {
+        result.failures.push(
+          `baseline creates delete-guarded table ${policy.qualifiedName} but installs neither ${deleteTrigger} nor a combined append-only guard`,
         );
       } else {
         result.passes++;
@@ -366,16 +409,13 @@ function verify(svc: { service: string }): void {
 function main(): void {
   const args = parseArgs();
   if (!args.mode) {
-    console.error(
-      'Missing mode flag. Use one of: --archive-old, --generate, --audit, --verify',
-    );
+    console.error('Missing mode flag. Use one of: --archive-old, --generate, --audit, --verify');
     process.exit(2);
   }
 
-  const targets =
-    args.all
-      ? SERVICE_ORDER
-      : SERVICE_ORDER.filter((s) => s.service === args.service);
+  const targets = args.all
+    ? SERVICE_ORDER
+    : SERVICE_ORDER.filter((s) => s.service === args.service);
 
   if (targets.length === 0) {
     console.error(`No service matches --service "${args.service}" and --all not set`);

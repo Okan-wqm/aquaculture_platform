@@ -15,6 +15,7 @@ import type {
   DateRangeParams,
   IpAccessRule,
   FeatureToggle,
+  CreateMaintenanceWindowInput,
   MaintenanceWindow,
   PerformanceDashboard,
   PerformanceMetrics,
@@ -22,6 +23,7 @@ import type {
   ErrorOccurrence,
   BackgroundJob,
   JobQueue,
+  JobDashboard,
   JobStatus,
 } from '../types';
 
@@ -104,7 +106,7 @@ export const systemSettingsApi = {
   getMaintenanceWindows: (params?: { status?: string; scope?: string } & PaginationParams) =>
     apiFetch<PaginatedResult<MaintenanceWindow>>(`/system/settings/maintenance?${buildQueryString(params || {})}`),
   getMaintenanceWindow: (id: string) => apiFetch<MaintenanceWindow>(`/system/settings/maintenance/${id}`),
-  createMaintenanceWindow: (data: Omit<MaintenanceWindow, 'id' | 'status' | 'actualStart' | 'actualEnd' | 'createdAt'>) =>
+  createMaintenanceWindow: (data: CreateMaintenanceWindowInput) =>
     apiFetch<MaintenanceWindow>('/system/settings/maintenance', { method: 'POST', body: JSON.stringify(data) }),
   updateMaintenanceWindow: (id: string, data: Partial<MaintenanceWindow>) =>
     apiFetch<MaintenanceWindow>(`/system/settings/maintenance/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
@@ -182,16 +184,7 @@ export const systemSettingsApi = {
 
   // Job Queue Management
   getJobDashboard: () =>
-    apiFetch<{
-      totalJobs: number;
-      pendingJobs: number;
-      runningJobs: number;
-      completedToday: number;
-      failedToday: number;
-      avgDuration: number;
-      queues: JobQueue[];
-      recentJobs: BackgroundJob[];
-    }>('/system/jobs/dashboard'),
+    apiFetch<JobDashboard>('/system/jobs/dashboard'),
   getQueues: () => apiFetch<JobQueue[]>('/system/jobs/queues'),
   getQueue: (name: string) => apiFetch<JobQueue>(`/system/jobs/queues/${name}`),
   createQueue: (data: { name: string; concurrency?: number; maxJobsPerSecond?: number }) =>

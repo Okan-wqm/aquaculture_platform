@@ -24,18 +24,26 @@ export function classifyEndpoint(
   endpointBuckets: readonly RateLimitEndpointBucket[],
 ): string {
   const pathname = (rawUrl ?? '').split('?')[0]?.replace(/\/+$/, '') || '/';
-  const canonicalPathname = pathname.toLowerCase();
   for (const bucket of endpointBuckets) {
-    if (
-      bucket.paths.some(
-        (path) => (path.replace(/\/+$/, '') || '/').toLowerCase() === canonicalPathname,
-      ) ||
-      bucket.pathTemplates?.some((template) => matchesPathTemplate(pathname, template))
-    ) {
+    if (matchesEndpoint(pathname, bucket.paths, bucket.pathTemplates)) {
       return bucket.tier;
     }
   }
   return DEFAULT_TIER;
+}
+
+/** Exact/segment-template matcher shared by tiering and governed exemptions. */
+export function matchesEndpoint(
+  rawUrl: string | undefined,
+  paths: readonly string[],
+  pathTemplates: readonly string[] = [],
+): boolean {
+  const pathname = (rawUrl ?? '').split('?')[0]?.replace(/\/+$/, '') || '/';
+  const canonicalPathname = pathname.toLowerCase();
+  return (
+    paths.some((path) => (path.replace(/\/+$/, '') || '/').toLowerCase() === canonicalPathname) ||
+    pathTemplates.some((template) => matchesPathTemplate(pathname, template))
+  );
 }
 
 function matchesPathTemplate(pathname: string, rawTemplate: string): boolean {

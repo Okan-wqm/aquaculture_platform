@@ -12,7 +12,10 @@ import type {
   CapturedQuery,
   CapturedApiCall,
   CacheEntry,
+  ApiLogResult,
+  CacheInspectorResult,
   FeatureFlagOverride,
+  QueryInspectorResult,
 } from '../types';
 
 export const debugApi = {
@@ -40,7 +43,7 @@ export const debugApi = {
     isSlowQuery?: boolean;
     hasError?: boolean;
   } & PaginationParams & DateRangeParams) =>
-    apiFetch<PaginatedResult<CapturedQuery>>(`/debug/queries?${buildQueryString(params || {})}`),
+    apiFetch<QueryInspectorResult>(`/debug/queries?${buildQueryString(params || {})}`),
   getQueryExplain: (queryId: string) =>
     apiFetch<{ plan: Record<string, unknown> }>(`/debug/queries/${queryId}/explain`),
   getSlowQueryAnalysis: (tenantId: string, threshold?: number) =>
@@ -58,7 +61,7 @@ export const debugApi = {
     statusCode?: number;
     hasError?: boolean;
   } & PaginationParams & DateRangeParams) =>
-    apiFetch<PaginatedResult<CapturedApiCall>>(`/debug/api-calls?${buildQueryString(params || {})}`),
+    apiFetch<ApiLogResult>(`/debug/api-calls?${buildQueryString(params || {})}`),
   getApiCallDetails: (id: string) => apiFetch<CapturedApiCall>(`/debug/api-calls/${id}`),
   getApiUsageSummary: (tenantId: string, period?: string) =>
     apiFetch<{
@@ -69,8 +72,11 @@ export const debugApi = {
     }>(`/debug/api-calls/summary?tenantId=${tenantId}${period ? `&period=${period}` : ''}`),
 
   // Cache Inspector
-  getCacheEntries: (params?: { tenantId?: string; cacheStore?: string; keyPattern?: string } & PaginationParams) =>
-    apiFetch<PaginatedResult<CacheEntry>>(`/debug/cache?${buildQueryString(params || {})}`),
+  getCacheEntries: (params?: {
+    tenantId?: string;
+    debugSessionId?: string;
+    cacheStore?: string;
+  }) => apiFetch<CacheInspectorResult>(`/debug/cache?${buildQueryString(params || {})}`),
   getCacheEntry: (key: string) => apiFetch<CacheEntry>(`/debug/cache/${encodeURIComponent(key)}`),
   invalidateCacheEntry: (key: string) =>
     apiFetch<void>(`/debug/cache/${encodeURIComponent(key)}`, { method: 'DELETE' }),

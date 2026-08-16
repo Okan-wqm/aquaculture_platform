@@ -1,17 +1,9 @@
 /**
- * ImpersonationService - lifecycle (onModuleInit) tests
+ * ImpersonationService - active-session authority tests
  *
- * Proves the active-session cache warm-up contract after it moved out of the
- * constructor and into the OnModuleInit hook:
- *
- *   - The constructor performs NO async session load (it previously floated an
- *     unawaited loadActiveSessions() promise — a no-floating-promises defect).
- *   - onModuleInit() awaits the persistence read for ACTIVE sessions and
- *     populates the in-memory cache so getActiveSessions() returns them.
- *
- * This is the test mandated by the constructor → onModuleInit refactor: the
- * ordering changed (load is now awaited at module init rather than fired from
- * the constructor), so the new behavior is pinned here.
+ * PostgreSQL is the only session-state authority. Every active-session read
+ * queries persistence; there is no process-local cache to diverge across
+ * replicas or survive a permission revocation as stale state.
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
@@ -21,6 +13,7 @@ import { AuditLogService } from '../../../audit/audit.service';
 import {
   ImpersonationSession,
   ImpersonationPermission,
+  ImpersonationReason,
   ImpersonationStatus,
 } from '../../entities/impersonation-session.entity';
 import { ImpersonationService } from '../impersonation.service';
@@ -28,19 +21,25 @@ import { ImpersonationService } from '../impersonation.service';
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
-const buildActiveSession = (
-  overrides: Partial<ImpersonationSession> = {},
-): ImpersonationSession =>
+const buildActiveSession = (overrides: Partial<ImpersonationSession> = {}): ImpersonationSession =>
   ({
     id: 'session-active-1',
+    superAdminId: '11111111-1111-4111-8111-111111111111',
+    targetTenantId: '22222222-2222-4222-8222-222222222222',
     status: ImpersonationStatus.ACTIVE,
+    reason: ImpersonationReason.SUPPORT_REQUEST,
+    mfaCompleted: true,
+    actionCount: 0,
     // Far-future expiry so getActiveSessions() does not evict it as stale.
     expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+    createdAt: new Date(),
+    updatedAt: new Date(),
     ...overrides,
   }) as ImpersonationSession;
 
-const createSessionRepoMock = (): { find: jest.Mock } => ({
+const createSessionRepoMock = (): { find: jest.Mock; count: jest.Mock } => ({
   find: jest.fn().mockResolvedValue([]),
+  count: jest.fn().mockResolvedValue(0),
 });
 
 const createPermissionRepoMock = (): Record<string, jest.Mock> => ({
@@ -55,7 +54,7 @@ const createAuditLogServiceMock = (): { log: jest.Mock } => ({
 
 describe('ImpersonationService - lifecycle', () => {
   let service: ImpersonationService;
-  let sessionRepo: { find: jest.Mock };
+  let sessionRepo: { find: jest.Mock; count: jest.Mock };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -77,34 +76,27 @@ describe('ImpersonationService - lifecycle', () => {
     service = module.get<ImpersonationService>(ImpersonationService);
   });
 
-  it('does not load sessions from the constructor (no eager async work)', () => {
-    // TestingModule construction instantiates the provider but does NOT run
-    // lifecycle hooks (compile() does not call onModuleInit). The cache must be
-    // empty and the repository untouched at this point.
+  it('does not create a process-local session authority during construction', () => {
     expect(sessionRepo.find).not.toHaveBeenCalled();
-    expect(service.getActiveSessions()).toEqual([]);
   });
 
-  it('warms the active-session cache from persistence on onModuleInit', async () => {
+  it('reads active sessions from persistence on every request', async () => {
     const active = buildActiveSession();
-    sessionRepo.find.mockResolvedValueOnce([active]);
+    sessionRepo.find.mockResolvedValue([active]);
 
-    await service.onModuleInit();
+    const first = await service.getActiveSessions();
+    const second = await service.getActiveSessions();
 
-    expect(sessionRepo.find).toHaveBeenCalledWith({
-      where: { status: ImpersonationStatus.ACTIVE },
-    });
-    const cached = service.getActiveSessions();
-    expect(cached).toHaveLength(1);
-    expect(cached.map((s) => s.id)).toEqual(['session-active-1']);
+    expect(sessionRepo.find).toHaveBeenCalledTimes(2);
+    expect(first.map((session) => session.id)).toEqual(['session-active-1']);
+    expect(second.map((session) => session.id)).toEqual(['session-active-1']);
   });
 
-  it('completes onModuleInit with an empty cache when no active sessions exist', async () => {
-    sessionRepo.find.mockResolvedValueOnce([]);
+  it('derives the active count from persistence', async () => {
+    sessionRepo.count.mockResolvedValueOnce(4);
 
-    await expect(service.onModuleInit()).resolves.toBeUndefined();
+    await expect(service.getActiveSessionCount()).resolves.toBe(4);
 
-    expect(sessionRepo.find).toHaveBeenCalledTimes(1);
-    expect(service.getActiveSessions()).toEqual([]);
+    expect(sessionRepo.count).toHaveBeenCalledTimes(1);
   });
 });

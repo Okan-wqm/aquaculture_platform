@@ -162,7 +162,7 @@ export class FeedResolver {
   async feedsByType(
     @Args('type', { type: () => FeedType }) type: FeedType,
     @CurrentTenant() tenantId: string,
-  ): Promise<FeedResponse[]> {
+  ): Promise<readonly FeedResponse[]> {
     const query = new ListFeedsQuery(tenantId, { type, isActive: true }, { limit: 1000 });
     const result = await this.queryBus.execute(query) as PaginatedQueryResult<FeedResponse>;
     return fromCqrsPaginated(result).items;
@@ -176,7 +176,7 @@ export class FeedResolver {
   async feedsByPelletSize(
     @Args('pelletSize', { type: () => Float }) pelletSize: number,
     @CurrentTenant() tenantId: string,
-  ): Promise<FeedResponse[]> {
+  ): Promise<readonly FeedResponse[]> {
     const query = new ListFeedsQuery(tenantId, { pelletSize, isActive: true }, { limit: 1000 });
     const result = await this.queryBus.execute(query) as PaginatedQueryResult<FeedResponse>;
     return fromCqrsPaginated(result).items;
@@ -190,7 +190,7 @@ export class FeedResolver {
   async feedsForSpecies(
     @Args('species') species: string,
     @CurrentTenant() tenantId: string,
-  ): Promise<FeedResponse[]> {
+  ): Promise<readonly FeedResponse[]> {
     const query = new ListFeedsQuery(tenantId, { targetSpecies: species, isActive: true }, { limit: 1000 });
     const result = await this.queryBus.execute(query) as PaginatedQueryResult<FeedResponse>;
     return fromCqrsPaginated(result).items;

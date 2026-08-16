@@ -4,6 +4,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 import { useAuth, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 import { useGraphQLClient, graphqlRequest } from './useGraphQL';
 import {
@@ -44,7 +45,6 @@ import type {
   CertificationCategory,
   CertificationStatus,
   PaginationInput,
-  PaginatedResponse,
 } from '../types';
 
 // Query Keys
@@ -180,7 +180,7 @@ export function useAllCertifications(
     queryKey: certificationKeys.allList(filter, pagination),
     queryFn: () =>
       graphqlRequest<{
-        allCertifications: PaginatedResponse<EmployeeCertification>;
+        allCertifications: PaginationResultV1<EmployeeCertification>;
       }, unknown>(client, GET_ALL_CERTIFICATIONS, {
         status: filter?.status,
         category: filter?.category,
@@ -253,7 +253,7 @@ export function useTrainingCourses(filter?: {
   return useQuery({
     queryKey: trainingKeys.courseList(filter),
     queryFn: () =>
-      graphqlRequest<{ trainingCourses: { items: TrainingCourse[]; total: number } }, unknown>(
+      graphqlRequest<{ trainingCourses: PaginationResultV1<TrainingCourse> }, unknown>(
         client,
         GET_TRAINING_COURSES,
         { filter }
@@ -276,7 +276,7 @@ export function useTrainingEnrollments(
     queryKey: trainingKeys.enrollmentList(filter, pagination),
     queryFn: () =>
       graphqlRequest<{
-        trainingEnrollments: PaginatedResponse<TrainingEnrollment>;
+        trainingEnrollments: PaginationResultV1<TrainingEnrollment>;
       }, unknown>(client, GET_TRAINING_ENROLLMENTS, {
         filter,
         pagination,

@@ -53,6 +53,7 @@
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join } from 'path';
 
+import { ADMIN_MESSAGING_RPC_SUBJECTS_V1 } from '@platform/admin-http-contracts';
 import {
   CONFIG_RUNTIME_INBOX_PREFIX,
   CONFIG_RUNTIME_NONSECRET_ALLOWLIST,
@@ -271,13 +272,22 @@ function extractPublishedEventTypes(appDir: string): Set<string> {
 }
 
 /**
- * Resolve subject constants exported by @platform/event-contracts.
- * @MessagePattern call sites reference them as `IDENT.KEY`; the values are
- * plain string literals in these files, so a targeted regex is sufficient
- * (the constants are `as const` string maps, no computation involved).
+ * Resolve subject constants exported by platform contract authorities.
+ *
+ * The admin messaging map deliberately uses lowerCamel property names, while
+ * older event-contract maps use UPPER_SNAKE_CASE. Qualified namespace keys
+ * prevent two independent contract objects from silently shadowing a property
+ * with the same spelling. The direct object registration also means the scan
+ * consumes the compiled canonical value instead of reconstructing a second
+ * literal list in this invariant.
  */
 function loadContractSubjectConstants(): Map<string, string> {
   const constants = new Map<string, string>();
+
+  for (const [property, subject] of Object.entries(ADMIN_MESSAGING_RPC_SUBJECTS_V1)) {
+    constants.set(`ADMIN_MESSAGING_RPC_SUBJECTS_V1.${property}`, subject);
+  }
+
   const contractFiles = [
     'billing-admin-commands.ts',
     'notification-commands.ts',
@@ -343,8 +353,13 @@ function extractRpcUsage(appDir: string, constants: Map<string, string>): RpcUsa
   const resolveRef = (ref: string): string | undefined => {
     const literal = /^'([^']+)'$/.exec(ref);
     if (literal) return literal[1];
-    const constRef =
-      /^[A-Za-z0-9_$]+\.([A-Z][A-Z0-9_]+)$/.exec(ref) ?? /^([A-Z][A-Z0-9_]+)$/.exec(ref);
+    const qualifiedRef = /^([A-Za-z_$][A-Za-z0-9_$]*)\.([A-Za-z_$][A-Za-z0-9_$]*)$/.exec(ref);
+    if (qualifiedRef) {
+      return (
+        constants.get(`${qualifiedRef[1]}.${qualifiedRef[2]}`) ?? constants.get(qualifiedRef[2])
+      );
+    }
+    const constRef = /^([A-Z][A-Z0-9_]+)$/.exec(ref);
     if (constRef) return constants.get(constRef[1]);
     return undefined;
   };
@@ -357,6 +372,13 @@ function extractRpcUsage(appDir: string, constants: Map<string, string>): RpcUsa
     // ClientProxy `.send(subject, ...)` / `.emit(subject, ...)` — generic
     // param optional. Prefix filter drops non-NATS senders (mailers etc.).
     for (const m of text.matchAll(/\.(?:send|emit)(?:<[^>]*>)?\(\s*([^),]+)/g)) {
+      const subject = resolveRef(m[1].trim());
+      if (subject && NATS_SUBJECT_PREFIXES.test(subject)) sent.add(subject);
+    }
+    // Typed service wrappers preserve the canonical subject as their first
+    // argument. Treat them as publishers just like ClientProxy.send so an ACL
+    // cannot drift merely because transport mechanics were encapsulated.
+    for (const m of text.matchAll(/\bsendNatsRequest(?:<[^>]*>)?\(\s*([^),]+)/g)) {
       const subject = resolveRef(m[1].trim());
       if (subject && NATS_SUBJECT_PREFIXES.test(subject)) sent.add(subject);
     }
@@ -753,6 +775,25 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
     const appDirs = readdirSync(appsDir).filter(
       (d) => statSync(join(appsDir, d)).isDirectory() && APP_TO_SERVICE[d] !== undefined,
     );
+
+    it('projects every canonical admin-messaging RPC subject into both certificate ACLs', () => {
+      const admin = serviceByName.get('admin_api_service');
+      const messaging = serviceByName.get('messaging_service');
+      if (!admin || !messaging) {
+        throw new Error('admin_api_service and messaging_service identities are required');
+      }
+
+      const subjects = Object.values(ADMIN_MESSAGING_RPC_SUBJECTS_V1);
+      expect(new Set(subjects).size).toBe(subjects.length);
+      for (const subject of subjects) {
+        expect(isCovered(subject, admin.publish)).toBe(true);
+        expect(isCovered(subject, messaging.subscribe)).toBe(true);
+      }
+
+      const retiredReleaseSubject = 'request.messaging.admin.releaseLegalHold';
+      expect(admin.publish).not.toContain(retiredReleaseSubject);
+      expect(messaging.subscribe).not.toContain(retiredReleaseSubject);
+    });
 
     it.each(appDirs.map((d) => [d, APP_TO_SERVICE[d]] as [string, string | null]))(
       '%s RPC subjects are covered by %s grants',

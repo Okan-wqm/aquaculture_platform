@@ -9,7 +9,7 @@ import type { QueryRunner } from 'typeorm';
  *
  * `RetentionPolicyService.cleanupForPolicy()` reads the hold registry
  * BEFORE calling TimescaleDB `drop_chunks(...)`. Between the read and
- * the destructive op, a concurrent `ToggleLegalHoldHandler.activate()`
+ * the destructive op, a concurrent `ActivateLegalHoldHandler.execute()`
  * could land a new hold that the cleanup will silently bypass. The
  * destructive op cannot be rolled back (drop_chunks is historically
  * non-transactional in TimescaleDB) so a SELECT ... FOR UPDATE on the
@@ -70,7 +70,5 @@ export async function acquireTenantAdvisoryLock(
   const key = tenantAdvisoryLockKey(tenantId);
   // pg_advisory_xact_lock blocks until acquired. The hold-toggle path
   // and retention path both contend on the same key so they serialize.
-  await queryRunner.query(`SELECT pg_advisory_xact_lock($1::bigint)`, [
-    key.toString(),
-  ]);
+  await queryRunner.query(`SELECT pg_advisory_xact_lock($1::bigint)`, [key.toString()]);
 }

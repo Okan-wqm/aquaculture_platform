@@ -4,6 +4,7 @@
  * Endpoints for security events, incidents, threat intelligence, and dashboard.
  */
 
+import type { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import {
   Controller,
   Get,
@@ -17,7 +18,16 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Type, Transform } from 'class-transformer';
-import { IsOptional, IsNumber, IsString, IsBoolean, IsIn, IsArray, Min, Max } from 'class-validator';
+import {
+  IsOptional,
+  IsNumber,
+  IsString,
+  IsBoolean,
+  IsIn,
+  IsArray,
+  Min,
+  Max,
+} from 'class-validator';
 
 import {
   SecurityEvent,
@@ -378,9 +388,7 @@ class AnalyzeLoginDto {
 @ApiTags('Security')
 @Controller('security/monitoring')
 export class SecurityMonitoringController {
-  constructor(
-    private readonly securityMonitoringService: SecurityMonitoringService,
-  ) {}
+  constructor(private readonly securityMonitoringService: SecurityMonitoringService) {}
 
   // ============================================================================
   // Security Events
@@ -391,9 +399,7 @@ export class SecurityMonitoringController {
    */
   @Post('events')
   @HttpCode(HttpStatus.CREATED)
-  async createSecurityEvent(
-    @Body() dto: CreateSecurityEventDto,
-  ): Promise<SecurityEvent> {
+  async createSecurityEvent(@Body() dto: CreateSecurityEventDto): Promise<SecurityEvent> {
     return this.securityMonitoringService.createSecurityEvent({
       eventType: dto.eventType,
       threatLevel: dto.threatLevel,
@@ -426,12 +432,7 @@ export class SecurityMonitoringController {
   @Get('events')
   async querySecurityEvents(
     @Query() query: QuerySecurityEventsDto,
-  ): Promise<{
-    data: SecurityEvent[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  ): Promise<IStandardPaginatedResult<SecurityEvent>> {
     // Parse threat levels from comma-separated string
     const threatLevel = query.threatLevel
       ? (query.threatLevel.split(',') as ThreatLevel[])
@@ -460,17 +461,13 @@ export class SecurityMonitoringController {
     @Param('id') id: string,
     @Body() dto: UpdateSecurityEventStatusDto,
   ): Promise<SecurityEvent> {
-    return this.securityMonitoringService.updateSecurityEventStatus(
-      id,
-      dto.status,
-      {
-        assignedTo: dto.assignedTo,
-        assignedToName: dto.assignedToName,
-        investigationNotes: dto.investigationNotes,
-        resolution: dto.resolution,
-        resolvedBy: dto.resolvedBy,
-      },
-    );
+    return this.securityMonitoringService.updateSecurityEventStatus(id, dto.status, {
+      assignedTo: dto.assignedTo,
+      assignedToName: dto.assignedToName,
+      investigationNotes: dto.investigationNotes,
+      resolution: dto.resolution,
+      resolvedBy: dto.resolvedBy,
+    });
   }
 
   /**
@@ -495,13 +492,10 @@ export class SecurityMonitoringController {
       byStatus: {} as Record<string, number>,
     };
 
-    for (const event of result.data) {
-      stats.byThreatLevel[event.threatLevel] =
-        (stats.byThreatLevel[event.threatLevel] || 0) + 1;
-      stats.byEventType[event.eventType] =
-        (stats.byEventType[event.eventType] || 0) + 1;
-      stats.byStatus[event.status] =
-        (stats.byStatus[event.status] || 0) + 1;
+    for (const event of result.items) {
+      stats.byThreatLevel[event.threatLevel] = (stats.byThreatLevel[event.threatLevel] || 0) + 1;
+      stats.byEventType[event.eventType] = (stats.byEventType[event.eventType] || 0) + 1;
+      stats.byStatus[event.status] = (stats.byStatus[event.status] || 0) + 1;
     }
 
     return stats;
@@ -525,12 +519,7 @@ export class SecurityMonitoringController {
   @Get('incidents')
   async queryIncidents(
     @Query() query: QueryIncidentsDto,
-  ): Promise<{
-    data: SecurityIncident[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  ): Promise<IStandardPaginatedResult<SecurityIncident>> {
     return this.securityMonitoringService.queryIncidents({
       page: query.page ? parseInt(String(query.page), 10) : 1,
       limit: query.limit ? parseInt(String(query.limit), 10) : 20,
@@ -577,11 +566,9 @@ export class SecurityMonitoringController {
       bySeverity: {} as Record<string, number>,
     };
 
-    for (const incident of result.data) {
-      stats.byStatus[incident.status] =
-        (stats.byStatus[incident.status] || 0) + 1;
-      stats.bySeverity[incident.severity] =
-        (stats.bySeverity[incident.severity] || 0) + 1;
+    for (const incident of result.items) {
+      stats.byStatus[incident.status] = (stats.byStatus[incident.status] || 0) + 1;
+      stats.bySeverity[incident.severity] = (stats.bySeverity[incident.severity] || 0) + 1;
     }
 
     return stats;
@@ -596,9 +583,7 @@ export class SecurityMonitoringController {
    */
   @Post('threat-intelligence')
   @HttpCode(HttpStatus.CREATED)
-  async addThreatIndicator(
-    @Body() dto: AddThreatIndicatorDto,
-  ): Promise<ThreatIntelligence> {
+  async addThreatIndicator(@Body() dto: AddThreatIndicatorDto): Promise<ThreatIntelligence> {
     return this.securityMonitoringService.addThreatIndicator({
       indicatorType: dto.indicatorType,
       value: dto.value,
@@ -616,12 +601,7 @@ export class SecurityMonitoringController {
   @Get('threat-intelligence')
   async queryThreatIntelligence(
     @Query() query: QueryThreatIntelligenceDto,
-  ): Promise<{
-    data: ThreatIntelligence[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  ): Promise<IStandardPaginatedResult<ThreatIntelligence>> {
     return this.securityMonitoringService.queryThreatIntelligence({
       page: query.page ? parseInt(String(query.page), 10) : 1,
       limit: query.limit ? parseInt(String(query.limit), 10) : 20,
@@ -636,9 +616,7 @@ export class SecurityMonitoringController {
    * Check if IP is a known threat
    */
   @Get('threat-intelligence/check/:ip')
-  async checkThreat(
-    @Param('ip') ip: string,
-  ): Promise<{
+  async checkThreat(@Param('ip') ip: string): Promise<{
     isThreat: boolean;
     threat: ThreatIntelligence | null;
   }> {
@@ -670,7 +648,7 @@ export class SecurityMonitoringController {
       byThreatLevel: {} as Record<string, number>,
     };
 
-    for (const indicator of result.data) {
+    for (const indicator of result.items) {
       stats.byIndicatorType[indicator.indicatorType] =
         (stats.byIndicatorType[indicator.indicatorType] || 0) + 1;
       stats.byThreatLevel[indicator.threatLevel] =
@@ -731,9 +709,7 @@ export class SecurityMonitoringController {
    * Get real-time security alerts (unresolved events)
    */
   @Get('alerts/realtime')
-  async getRealtimeAlerts(
-    @Query('limit') limit?: number,
-  ): Promise<SecurityEvent[]> {
+  async getRealtimeAlerts(@Query('limit') limit?: number): Promise<SecurityEvent[]> {
     const result = await this.securityMonitoringService.querySecurityEvents({
       page: 1,
       limit: limit ? parseInt(String(limit), 10) : 10,
@@ -741,7 +717,7 @@ export class SecurityMonitoringController {
     });
 
     // Sort by threat level (critical first) and date
-    return result.data.sort((a, b) => {
+    return [...result.items].sort((a, b) => {
       const threatOrder: Record<ThreatLevel, number> = {
         critical: 0,
         high: 1,
@@ -750,9 +726,7 @@ export class SecurityMonitoringController {
       };
       const levelDiff = (threatOrder[a.threatLevel] ?? 4) - (threatOrder[b.threatLevel] ?? 4);
       if (levelDiff !== 0) return levelDiff;
-      return (
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      );
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
   }
 
@@ -835,9 +809,10 @@ export class SecurityMonitoringController {
     }
 
     // Factor 4: Threat mitigation (weight: 20%)
-    const mitigationRate = dashboard.totalSecurityEvents > 0
-      ? (dashboard.threatsBlocked / dashboard.totalSecurityEvents) * 100
-      : 100;
+    const mitigationRate =
+      dashboard.totalSecurityEvents > 0
+        ? (dashboard.threatsBlocked / dashboard.totalSecurityEvents) * 100
+        : 100;
     const mitigationScore = Math.min(100, mitigationRate * 1.5);
 
     factors.push({
@@ -852,10 +827,7 @@ export class SecurityMonitoringController {
     }
 
     // Calculate weighted score
-    const totalScore = factors.reduce(
-      (acc, f) => acc + (f.score * f.weight) / 100,
-      0,
-    );
+    const totalScore = factors.reduce((acc, f) => acc + (f.score * f.weight) / 100, 0);
 
     return {
       score: Math.round(totalScore),

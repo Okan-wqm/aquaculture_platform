@@ -1,7 +1,7 @@
 /**
  * Receive Delivery Modal - Mark PO items as received
  */
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Modal, useToast } from '@aquaculture/shared-ui';
 import {
   useReceiveDelivery,
@@ -16,11 +16,18 @@ interface Props {
   purchaseOrder: PurchaseOrder | null;
 }
 
+interface ReceiptItemDraft {
+  qty: number;
+  lotNumber: string;
+  expiryDate: string;
+}
+
 export const ReceiveDeliveryModal: React.FC<Props> = ({ isOpen, onClose, purchaseOrder }) => {
   const [storageLocationId, setStorageLocationId] = useState('');
-  const [receivedItems, setReceivedItems] = useState<
-    Record<string, { qty: number; lotNumber: string; expiryDate: string }>
-  >({});
+  const [receivedItems, setReceivedItems] = useState<Record<string, ReceiptItemDraft>>({});
+  // Retained across a transport failure so a retry cannot double-receive.
+  // Any payload edit starts a new logical operation identity.
+  const receiptOperationId = useRef<string | null>(null);
 
   const receiveDelivery = useReceiveDelivery();
   const { toast } = useToast();
@@ -30,15 +37,16 @@ export const ReceiveDeliveryModal: React.FC<Props> = ({ isOpen, onClose, purchas
 
   const pendingItems = purchaseOrder.items.filter((i) => !i.isFullyReceived);
 
-  const updateReceived = (itemId: string, field: string, value: any) => {
+  const updateReceived = (purchaseOrderItemId: string, update: Partial<ReceiptItemDraft>) => {
+    receiptOperationId.current = null;
     setReceivedItems((prev) => ({
       ...prev,
-      [itemId]: {
-        ...prev[itemId],
-        qty: prev[itemId]?.qty ?? 0,
-        lotNumber: prev[itemId]?.lotNumber ?? '',
-        expiryDate: prev[itemId]?.expiryDate ?? '',
-        [field]: value,
+      [purchaseOrderItemId]: {
+        ...prev[purchaseOrderItemId],
+        qty: prev[purchaseOrderItemId]?.qty ?? 0,
+        lotNumber: prev[purchaseOrderItemId]?.lotNumber ?? '',
+        expiryDate: prev[purchaseOrderItemId]?.expiryDate ?? '',
+        ...update,
       },
     }));
   };
@@ -48,17 +56,20 @@ export const ReceiveDeliveryModal: React.FC<Props> = ({ isOpen, onClose, purchas
     if (!storageLocationId) return;
 
     const itemsToReceive = pendingItems
-      .filter((i) => (receivedItems[i.itemId]?.qty || 0) > 0)
+      .filter((i) => (receivedItems[i.id]?.qty || 0) > 0)
       .map((i) => ({
-        itemId: i.itemId,
-        quantityReceived: receivedItems[i.itemId]?.qty || 0,
-        lotNumber: receivedItems[i.itemId]?.lotNumber || undefined,
-        expiryDate: receivedItems[i.itemId]?.expiryDate || undefined,
+        purchaseOrderItemId: i.id,
+        quantityReceived: receivedItems[i.id]?.qty || 0,
+        lotNumber: receivedItems[i.id]?.lotNumber || undefined,
+        expiryDate: receivedItems[i.id]?.expiryDate || undefined,
       }));
 
     if (itemsToReceive.length === 0) return;
 
+    const operationId = receiptOperationId.current ?? crypto.randomUUID();
+    receiptOperationId.current = operationId;
     const input: ReceiveDeliveryInput = {
+      operationId,
       purchaseOrderId: purchaseOrder.id,
       storageLocationId,
       items: itemsToReceive,
@@ -71,6 +82,7 @@ export const ReceiveDeliveryModal: React.FC<Props> = ({ isOpen, onClose, purchas
         description: 'Delivery received successfully.',
         variant: 'success',
       });
+      receiptOperationId.current = null;
       onClose();
     } catch (err) {
       if (import.meta.env.DEV) console.error('Failed to receive delivery:', err);
@@ -97,7 +109,10 @@ export const ReceiveDeliveryModal: React.FC<Props> = ({ isOpen, onClose, purchas
             <label className="block text-sm font-medium text-gray-700">Storage Location *</label>
             <select
               value={storageLocationId}
-              onChange={(e) => setStorageLocationId(e.target.value)}
+              onChange={(e) => {
+                receiptOperationId.current = null;
+                setStorageLocationId(e.target.value);
+              }}
               required
               className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 text-sm focus:ring-blue-500 focus:border-blue-500"
             >
@@ -139,7 +154,7 @@ export const ReceiveDeliveryModal: React.FC<Props> = ({ isOpen, onClose, purchas
                 {pendingItems.map((item) => {
                   const remaining = Number(item.quantity) - Number(item.quantityReceived);
                   return (
-                    <tr key={item.itemId}>
+                    <tr key={item.id}>
                       <td className="px-4 py-2 text-sm font-medium">{item.itemName}</td>
                       <td className="px-4 py-2 text-sm text-gray-500">
                         {item.quantity} {item.unit}
@@ -151,9 +166,9 @@ export const ReceiveDeliveryModal: React.FC<Props> = ({ isOpen, onClose, purchas
                           min="0"
                           max={remaining}
                           step="0.01"
-                          value={receivedItems[item.itemId]?.qty ?? ''}
+                          value={receivedItems[item.id]?.qty ?? ''}
                           onChange={(e) =>
-                            updateReceived(item.itemId, 'qty', parseFloat(e.target.value) || 0)
+                            updateReceived(item.id, { qty: parseFloat(e.target.value) || 0 })
                           }
                           placeholder={String(remaining)}
                           className="w-20 border border-gray-300 rounded px-2 py-1 text-sm"
@@ -162,8 +177,8 @@ export const ReceiveDeliveryModal: React.FC<Props> = ({ isOpen, onClose, purchas
                       <td className="px-4 py-2">
                         <input
                           type="text"
-                          value={receivedItems[item.itemId]?.lotNumber ?? ''}
-                          onChange={(e) => updateReceived(item.itemId, 'lotNumber', e.target.value)}
+                          value={receivedItems[item.id]?.lotNumber ?? ''}
+                          onChange={(e) => updateReceived(item.id, { lotNumber: e.target.value })}
                           placeholder="LOT-"
                           className="w-24 border border-gray-300 rounded px-2 py-1 text-sm"
                         />
@@ -171,10 +186,8 @@ export const ReceiveDeliveryModal: React.FC<Props> = ({ isOpen, onClose, purchas
                       <td className="px-4 py-2">
                         <input
                           type="date"
-                          value={receivedItems[item.itemId]?.expiryDate ?? ''}
-                          onChange={(e) =>
-                            updateReceived(item.itemId, 'expiryDate', e.target.value)
-                          }
+                          value={receivedItems[item.id]?.expiryDate ?? ''}
+                          onChange={(e) => updateReceived(item.id, { expiryDate: e.target.value })}
                           className="w-32 border border-gray-300 rounded px-2 py-1 text-sm"
                         />
                       </td>
@@ -195,7 +208,10 @@ export const ReceiveDeliveryModal: React.FC<Props> = ({ isOpen, onClose, purchas
         <div className="mt-4 pt-4 border-t border-gray-200 flex justify-end gap-3">
           <button
             type="button"
-            onClick={onClose}
+            onClick={() => {
+              receiptOperationId.current = null;
+              onClose();
+            }}
             className="px-4 py-2 border border-gray-300 rounded-md text-sm text-gray-700 bg-white hover:bg-gray-50"
           >
             Cancel

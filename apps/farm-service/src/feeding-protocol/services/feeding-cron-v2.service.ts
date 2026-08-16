@@ -30,7 +30,7 @@
  */
 import * as crypto from 'crypto';
 
-import { Injectable, Logger } from '@nestjs/common';
+import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, QueryRunner } from 'typeorm';
@@ -67,17 +67,14 @@ import {
   ComputedDayPlan,
   mixedTankStats,
 } from './meal-plan-generator.service';
-import {
-  BiomassGrowthApplierService,
-  type LockedUnit,
-} from './biomass-growth-applier.service';
+import { BiomassGrowthApplierService, type LockedUnit } from './biomass-growth-applier.service';
 import {
   WaterTemperatureService,
   type EffectiveTemperature,
 } from '../../water-quality/services/water-temperature.service';
 import { FCRCalculationService } from '../../growth/services/fcr-calculation.service';
-import { calendarDayIn } from './meal-schedule.util';
 import { collectFeedSourceFeedIds, buildFeedFcrMatrixMap } from './feed-fcr-source.util';
+import { TenantClockAuthority } from '../../common/time/tenant-clock.authority';
 import { ProtocolFeedForecastService } from './protocol-feed-forecast.service';
 
 const ADVISORY_LOCK_NAMESPACE = 0x46454544; // 'FEED'
@@ -150,6 +147,7 @@ export class FeedingCronV2Service {
     private readonly outboxPublisher: OutboxPublisher,
     // 07:00 stok kapsama süpürmesi — snapshot yenileme (K-10, plan §5).
     private readonly forecastService: ProtocolFeedForecastService,
+    private readonly tenantClock: TenantClockAuthority,
   ) {}
 
   // ==========================================================================
@@ -282,7 +280,7 @@ export class FeedingCronV2Service {
     status: ProtocolAssignmentStatus,
     visit: (ctx: AssignmentPlanContext) => Promise<void>,
   ): Promise<void> {
-    const timezoneBySite = await this.siteTimezones(manager, tenantId);
+    const clocksBySite = await this.tenantClock.resolveActiveSites(manager, tenantId);
 
     for (let page = 0; ; page++) {
       const assignments = await manager.find(ProtocolAssignment, {
@@ -307,14 +305,19 @@ export class FeedingCronV2Service {
       const feedFcrMatrixByFeedId = await this.loadFeedFcrMatrices(manager, tenantId, protocols);
 
       for (const assignment of assignments) {
-        const timezone = timezoneBySite.get(assignment.siteId) ?? 'UTC';
+        const siteClock = clocksBySite.get(assignment.siteId);
+        if (!siteClock) {
+          throw new ConflictException(
+            `Assignment ${assignment.id} references site ${assignment.siteId} without an active clock authority`,
+          );
+        }
         await visit({
           assignment,
           protocol: protocolById.get(assignment.protocolId),
           tankBatch: tankBatchByUnit.get(assignment.unitId),
           temperature: temperatures.get(assignment.unitId) ?? { celsius: null, source: 'none' },
-          timezone,
-          planDate: calendarDayIn(timezone),
+          timezone: siteClock.timezone,
+          planDate: siteClock.localDate,
           feedFcrMatrixByFeedId,
         });
       }
@@ -611,8 +614,7 @@ export class FeedingCronV2Service {
           meal.variancePercent =
             Number(meal.plannedKg) > 0
               ? round3(
-                  ((Number(meal.actualKg) - Number(meal.plannedKg)) / Number(meal.plannedKg)) *
-                    100,
+                  ((Number(meal.actualKg) - Number(meal.plannedKg)) / Number(meal.plannedKg)) * 100,
                 )
               : 0;
           await manager.save(meal);
@@ -1043,17 +1045,6 @@ export class FeedingCronV2Service {
       }
     }
     return [...tenantIds];
-  }
-
-  private async siteTimezones(
-    manager: EntityManager,
-    tenantId: string,
-  ): Promise<Map<string, string>> {
-    const rows: Array<{ id: string; timezone: string | null }> = await manager.query(
-      `SELECT id, timezone FROM "sites" WHERE "tenantId" = $1`,
-      [tenantId],
-    );
-    return new Map(rows.map((row) => [row.id, row.timezone || 'UTC']));
   }
 
   private getAdvisoryLockKey(jobName: string): number {

@@ -1,61 +1,76 @@
 /**
  * StockMovementService
  *
- * # Why this service exists (feed dual-SSoT write-path correctness — Phase A)
+ * # Canonical stock mutation authority
  *
- * Feed stock lives in TWO ledgers: the feeding module's
- * `feed_inventory.quantityKg` (read by the GetFeedInventory query) and the
- * storage module's `storage_inventory.quantity` (+ the `Feed.quantity`
- * roll-up read by the consumption forecast). A feeding USED TO decrement
- * `feed_inventory` synchronously inside its own transaction, then fire a
- * SEPARATE async event handler (`FeedingStorageEventHandler`) that
- * decremented `storage_inventory` — and that handler SWALLOWED its
- * insufficient-stock / error (catch + warn). So a feeding could succeed
- * while its storage deduction silently failed, and the two ledgers diverged
- * with no operator signal.
+ * Physical `storage_inventory` plus append-only `stock_movements` are the
+ * write truth. `Feed.quantity` is a derived roll-up maintained by this same
+ * service. No feeding-specific inventory writer or asynchronous repair path
+ * is permitted.
  *
- * Phase A removes the silent swallow by making the storage OUT deduction
- * happen INSIDE the feeding transaction, fail-closed. For that to be
- * possible the inventory-mutation core (FEFO decrement, lot-mix detection,
- * increment, item-total roll-up, idempotency, and the immutable
- * `stock_movement` audit row) had to become callable from a
- * CALLER-PROVIDED transaction so a feeding write and its feed deduction
- * commit or roll back ATOMICALLY. This service holds exactly that core.
+ * The storage OUT deduction happens INSIDE the feeding transaction and fails
+ * closed. The inventory-mutation core (FEFO allocation, lot-mix detection,
+ * projection update, item-total roll-up, idempotency, durable events, and the
+ * immutable `stock_movement` fact) accepts a CALLER-PROVIDED transaction so a
+ * feeding write and its stock facts commit or roll back ATOMICALLY.
  *
- * `RecordStockMovementHandler` is now a thin wrapper: it opens its own
- * transaction, calls `recordMovement(manager, ...)`, then emits the
- * post-commit domain events. Feeding callers (`CreateFeedingRecordHandler`,
- * `DailyFeedingExecutionService`) call `recordMovement(queryRunner.manager,
- * ...)` INSIDE their own feeding transaction — so an insufficient-stock
- * `BadRequestException` ROLLS BACK the feeding instead of being swallowed.
+ * `RecordStockMovementHandler` is a thin adapter: it opens a transaction and
+ * calls `recordMovement(manager, ...)`. Feeding callers use
+ * `recordFeedDeduction(queryRunner.manager, ...)` inside their feeding
+ * transaction. Every mutation path therefore shares one lock, projection,
+ * immutable-fact, idempotency, and transactional-outbox authority.
  *
- * Phase A was write-path only. Phase 2 (stock SSoT) completed the read
- * re-point: the legacy `feed_inventory` writers and the GetFeedInventory
- * read path are GONE — this ledger (+ the Feed.quantity roll-up) is the
- * single feed stock truth. The frozen `feed_inventory` table is dropped in
- * the retirement phase.
+ * The legacy `feed_inventory` writers and read path are retired. Physical
+ * `storage_inventory` plus immutable `stock_movements` are the stock truth;
+ * `Feed.quantity` is a projection maintained only by this authority.
  *
  * @module Storage/Services
  */
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { EntityManager } from 'typeorm';
+import { createHash } from 'crypto';
+
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { EntityManager, IsNull } from 'typeorm';
 import { tenantManagerRepo, TenantScopedRepository } from '@aquaculture/backend-common/database';
 import { OutboxPublisher } from '@platform/outbox';
-import type { LowStockDetectedEvent } from '@platform/event-contracts';
+import type { LowStockDetectedEvent, StockMovementRecordedEvent } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
 
 import { StorageLocation } from '../entities/storage-location.entity';
 import { StorageInventory, StorageItemType } from '../entities/storage-inventory.entity';
-import { StockMovement, MovementType } from '../entities/stock-movement.entity';
+import {
+  StockMovement,
+  MovementType,
+  StockMutationOperationType,
+} from '../entities/stock-movement.entity';
+import {
+  PurchaseOrder,
+  PurchaseOrderCategory,
+  PurchaseOrderStatus,
+} from '../entities/purchase-order.entity';
+import { PurchaseOrderItem } from '../entities/purchase-order-item.entity';
 import { Feed, FeedStatus } from '../../feed/entities/feed.entity';
 import { Chemical } from '../../chemical/entities/chemical.entity';
 import { Consumable } from '../../consumable/entities/consumable.entity';
 import { ConditionWarning } from '../dto/stock-movement.response';
 import { LotMixService } from './lot-mix.service';
+import { FeedStockAllocationAuthority } from './feed-stock-allocation.authority';
+import { StockMutationLockAuthority } from './stock-mutation-lock.authority';
+import { stockQuantityFromUnits, stockQuantityUnits } from './stock-quantity';
+import { TenantClockAuthority } from '../../common/time/tenant-clock.authority';
 import {
   SiteAuthorizationService,
   type SiteScopeCaller,
 } from '@aquaculture/backend-common/security';
+
+const STOCK_OPERATION_UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+const PURCHASE_ORDER_RECEIPT_HASH_DOMAIN = 'aquaculture.purchase-order-receipt/v1';
 
 /**
  * Normalized inputs to a single stock movement. Mirrors the load-bearing
@@ -72,6 +87,7 @@ export interface RecordMovementInput {
   toLocationId?: string;
   lotNumber?: string;
   expiryDate?: Date;
+  receivedDate?: Date;
   reference?: string;
   reason?: string;
   idempotencyKey?: string;
@@ -82,6 +98,102 @@ export interface RecordMovementInput {
    * inventory at that instant.
    */
   movementDate?: Date;
+  /** Exact projection row selected by the locked allocation authority. */
+  sourceInventoryId?: string;
+  /** Stable logical allocation identity shared across FEFO slices. */
+  allocationFamilyKey?: string;
+  /** Root identity shared by the original allocation and all corrections. */
+  allocationRootKey?: string;
+  /** Zero-based deterministic position inside the allocation operation. */
+  allocationSliceIndex?: number;
+  /** Exact OUT fact restored by a RETURN movement. */
+  sourceMovementId?: string;
+  /** Typed coordinates for an immutable multi-fact stock operation. */
+  operation?: StockMutationOperationRefV1;
+}
+
+export interface StockMutationOperationRefV1 {
+  readonly type: StockMutationOperationType;
+  readonly id: string;
+  readonly payloadHash: string;
+  readonly itemId: string;
+}
+
+export interface PurchaseOrderReceiptLineV1 {
+  readonly purchaseOrderItemId: string;
+  readonly quantityReceived: number;
+  readonly lotNumber?: string;
+  readonly expiryDate?: string;
+}
+
+export interface PurchaseOrderReceiptV1 {
+  readonly operationId: string;
+  readonly purchaseOrderId: string;
+  readonly storageLocationId: string;
+  readonly items: readonly PurchaseOrderReceiptLineV1[];
+}
+
+export interface FeedDeductionInput {
+  readonly feedId: string;
+  readonly quantityKg: number;
+  readonly occurredAt: Date;
+  readonly preferredSiteId?: string;
+  readonly lotNumber?: string;
+  readonly reference: string;
+  readonly reason: string;
+  readonly idempotencyKey: string;
+  readonly allocationRootKey?: string;
+}
+
+export interface FeedDeductionResult {
+  readonly movements: readonly StockMovement[];
+  /** Null on replay because pool-at-first-commit is not reconstructed. */
+  readonly poolTotalKg: number | null;
+  /** Null on replay until allocation-scope evidence is projected from facts. */
+  readonly usedTenantPool: boolean | null;
+  readonly idempotentHit: boolean;
+}
+
+export interface FeedCorrectionInput {
+  readonly feedId: string;
+  readonly deltaKg: number;
+  readonly sourceDeductionKey: string;
+  readonly idempotencyKey: string;
+  readonly occurredAt?: Date;
+  readonly preferredSiteId?: string;
+  readonly reference: string;
+}
+
+export interface PhysicalCountReconciliationInput {
+  readonly itemType: StorageItemType;
+  readonly itemId: string;
+  readonly storageLocationId: string;
+  readonly lotNumber?: string;
+  readonly actualQuantity: number;
+  readonly reference: string;
+  readonly reason: string;
+  readonly idempotencyKey: string;
+}
+
+interface DrawnLotIdentity {
+  readonly inventoryId: string;
+  readonly lotNumber?: string;
+  readonly expiryDate?: Date;
+  readonly receivedDate?: Date;
+}
+
+interface NormalizedPurchaseOrderReceiptLineV1 {
+  readonly purchaseOrderItemId: string;
+  readonly quantityReceived: number;
+  readonly quantityUnits: number;
+  readonly lotNumber?: string;
+  readonly expiryDate?: Date;
+  readonly expiryDateText?: string;
+}
+
+interface CompiledPurchaseOrderReceiptV1 {
+  readonly payloadHash: string;
+  readonly lines: readonly NormalizedPurchaseOrderReceiptLineV1[];
 }
 
 /** Identity context for a movement (who, which tenant). */
@@ -137,6 +249,9 @@ export class StockMovementService {
     // manual movement, feeding deduction, PO receipt, adjustment — emits it
     // on the same transactional manager; no caller can forget it.
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly mutationLocks: StockMutationLockAuthority,
+    private readonly feedAllocations: FeedStockAllocationAuthority,
+    private readonly clock: TenantClockAuthority,
   ) {}
 
   /**
@@ -150,20 +265,35 @@ export class StockMovementService {
    * the architectural property that makes feed deduction atomic with the
    * feeding write (no more swallowed insufficient-stock failures).
    *
-   * Domain events are NOT emitted here — the caller decides whether to
-   * publish (the handler wrapper does; feeding callers rely on their own
-   * FeedingRecorded / FeedInventory* outbox events).
+   * `StockMovementRecorded` and threshold-derived `LowStockDetected` are
+   * enqueued here on the same manager. Callers must not duplicate those
+   * durable facts; wrappers may emit post-commit in-process projections only.
    */
   async recordMovement(
     manager: EntityManager,
     input: RecordMovementInput,
     ctx: MovementContext,
   ): Promise<RecordMovementResult> {
+    return this.recordMovementInternal(manager, input, ctx, true);
+  }
+
+  private async recordMovementInternal(
+    manager: EntityManager,
+    input: RecordMovementInput,
+    ctx: MovementContext,
+    emitLowStock: boolean,
+  ): Promise<RecordMovementResult> {
     const { tenantId, userId, userName } = ctx;
     const { movementType, itemType, itemId, quantity } = input;
 
-    if (quantity <= 0) {
-      throw new BadRequestException('Quantity must be positive');
+    stockQuantityUnits(quantity, 'Stock quantity');
+    if (input.lotNumber != null && input.lotNumber.trim().length === 0) {
+      throw new BadRequestException('Lot number cannot be blank');
+    }
+
+    await this.mutationLocks.acquire(manager, tenantId, [{ itemType, itemId }]);
+    if (input.idempotencyKey) {
+      await this.mutationLocks.acquireIdempotency(manager, tenantId, input.idempotencyKey);
     }
 
     const movementRepo = tenantManagerRepo(manager, StockMovement, tenantId);
@@ -176,8 +306,15 @@ export class StockMovementService {
         where: { tenantId, idempotencyKey: input.idempotencyKey },
       });
       if (existing) {
+        this.assertReplayMatches(existing, input);
         this.logger.log(`Idempotent hit: movement ${existing.id} for key ${input.idempotencyKey}`);
-        return { saved: existing, currentTotal: 0, idempotentHit: true, warnings: [], lowStock: null };
+        return {
+          saved: existing,
+          currentTotal: 0,
+          idempotentHit: true,
+          warnings: [],
+          lowStock: null,
+        };
       }
     }
 
@@ -187,6 +324,12 @@ export class StockMovementService {
     }
 
     const { fromLocation, toLocation } = await this.resolveLocations(manager, input, tenantId);
+    const operationClock = await this.clock.resolve(
+      manager,
+      tenantId,
+      fromLocation?.siteId ?? toLocation?.siteId,
+      input.movementDate,
+    );
 
     // SEC-HIGH-051: object-level site authorization at the inventory-mutation
     // SINK. For a direct operator movement (ctx.siteAuthorization present), assert
@@ -196,10 +339,16 @@ export class StockMovementService {
     // they authorize at their own sink on the feeding site.
     if (ctx.siteAuthorization) {
       if (fromLocation) {
-        this.siteAuth.assertSiteAssignment({ caller: ctx.siteAuthorization, siteId: fromLocation.siteId });
+        this.siteAuth.assertSiteAssignment({
+          caller: ctx.siteAuthorization,
+          siteId: fromLocation.siteId,
+        });
       }
       if (toLocation) {
-        this.siteAuth.assertSiteAssignment({ caller: ctx.siteAuthorization, siteId: toLocation.siteId });
+        this.siteAuth.assertSiteAssignment({
+          caller: ctx.siteAuthorization,
+          siteId: toLocation.siteId,
+        });
       }
     }
 
@@ -215,18 +364,21 @@ export class StockMovementService {
     // lots that were ALREADY in inventory at that instant — a
     // retroactively-logged feeding cannot deduct from a lot that arrived
     // after the event occurred.
-    const asOfDate =
-      input.movementDate instanceof Date
-        ? input.movementDate
-        : input.movementDate
-          ? new Date(input.movementDate)
-          : undefined;
-
+    let drawnLot: DrawnLotIdentity | null = null;
     if (fromLocation) {
-      await this.decreaseInventory(
-        inventoryRepo, tenantId, fromLocation.id,
-        itemType, itemId, quantity, itemDetails.unit,
-        input.lotNumber, userId, asOfDate,
+      drawnLot = await this.decreaseInventory(
+        inventoryRepo,
+        tenantId,
+        fromLocation.id,
+        itemType,
+        itemId,
+        quantity,
+        itemDetails.unit,
+        input.lotNumber,
+        userId,
+        operationClock.instant,
+        operationClock.localDate,
+        input.sourceInventoryId,
       );
     }
 
@@ -234,16 +386,17 @@ export class StockMovementService {
     // sees the resident lots as "other" and not yet summed with the
     // incoming quantity.
     let effectiveLotNumber: string | null = null;
-    if (toLocation && input.lotNumber) {
+    const inboundLotNumber = input.lotNumber ?? drawnLot?.lotNumber;
+    if (toLocation && inboundLotNumber) {
       const mixOutcome = await this.lotMixService.detect({
         tenantId,
         storageLocationId: toLocation.id,
         itemType,
         itemId,
-        incomingLotNumber: input.lotNumber,
+        incomingLotNumber: inboundLotNumber,
         incomingQuantityKg: quantity,
         manufacturer: itemDetails.manufacturer ?? null,
-        incomingExpiryDate: input.expiryDate ?? null,
+        incomingExpiryDate: input.expiryDate ?? drawnLot?.expiryDate ?? null,
         userId,
         manager,
       });
@@ -252,9 +405,18 @@ export class StockMovementService {
 
     if (toLocation) {
       await this.increaseInventory(
-        inventoryRepo, tenantId, toLocation.id,
-        itemType, itemId, quantity, itemDetails.unit,
-        input.lotNumber, input.expiryDate, userId,
+        inventoryRepo,
+        tenantId,
+        toLocation.id,
+        itemType,
+        itemId,
+        quantity,
+        itemDetails.unit,
+        input.lotNumber ?? drawnLot?.lotNumber,
+        input.expiryDate ?? drawnLot?.expiryDate,
+        input.receivedDate ?? drawnLot?.receivedDate,
+        userId,
+        operationClock.instant,
       );
     }
 
@@ -275,21 +437,62 @@ export class StockMovementService {
       toLocationId: input.toLocationId,
       reference: input.reference,
       reason: input.reason,
-      lotNumber: effectiveLotNumber ?? input.lotNumber,
-      expiryDate: input.expiryDate,
+      // An inverse fact must retain the exact cited source lot even when the
+      // physical return creates a separate StorageLotMix relation.
+      lotNumber:
+        input.sourceMovementId != null
+          ? (input.lotNumber ?? drawnLot?.lotNumber)
+          : (effectiveLotNumber ?? input.lotNumber ?? drawnLot?.lotNumber),
+      expiryDate: input.expiryDate ?? drawnLot?.expiryDate,
+      receivedDate: input.receivedDate ?? drawnLot?.receivedDate,
+      allocationFamilyKey: input.allocationFamilyKey,
+      allocationRootKey: input.allocationRootKey,
+      allocationSliceIndex: input.allocationSliceIndex,
+      sourceMovementId: input.sourceMovementId,
+      operationType: input.operation?.type,
+      operationId: input.operation?.id,
+      operationPayloadHash: input.operation?.payloadHash,
+      operationItemId: input.operation?.itemId,
       idempotencyKey: input.idempotencyKey,
       performedBy: userId,
       performedByName: userName,
-      performedAt: new Date(),
+      performedAt: operationClock.instant,
     });
     const saved = await movementRepo.save(movement);
+
+    const movementEvent: StockMovementRecordedEvent = {
+      ...createBaseEvent<StockMovementRecordedEvent>('StockMovementRecorded', tenantId, {
+        aggregateId: saved.id,
+        aggregateType: 'StockMovement',
+      }),
+      userId,
+      movementId: saved.id,
+      movementType: saved.movementType,
+      itemType: saved.itemType,
+      itemId: saved.itemId,
+      itemName: saved.itemName,
+      quantity: saved.quantity,
+      unit: saved.unit,
+      fromLocationId: saved.fromLocationId,
+      toLocationId: saved.toLocationId,
+      lotNumber: saved.lotNumber,
+    };
+    await this.outboxPublisher.enqueue(movementEvent, manager, {
+      aggregateId: saved.id,
+      idempotencyKey: `stock-movement-recorded:${saved.id}`,
+    });
 
     // Post-update aggregate quantity across all locations for the item —
     // read inside the tx so it reflects the just-applied mutation. Used for
     // low-stock detection on stock-reducing movements only.
     let currentTotal = 0;
     let lowStock: RecordMovementResult['lowStock'] = null;
-    if (fromLocation && (movementType === MovementType.OUT || movementType === MovementType.WASTE)) {
+    if (
+      fromLocation &&
+      (movementType === MovementType.OUT ||
+        movementType === MovementType.WASTE ||
+        (movementType === MovementType.ADJUSTMENT && !toLocation))
+    ) {
       const stockResult = await tenantManagerRepo(manager, StorageInventory, tenantId)
         .createQueryBuilder('inv')
         .select('COALESCE(SUM(inv.quantity), 0)', 'total')
@@ -306,12 +509,15 @@ export class StockMovementService {
       // FARM-HIGH-217 leg of the dead alert chain).
       const minStock = Number(itemDetails.minStock ?? 0);
       if (currentTotal <= 0) {
-        lowStock = { severity: 'out_of_stock', minimumThreshold: minStock > 0 ? minStock : undefined };
+        lowStock = {
+          severity: 'out_of_stock',
+          minimumThreshold: minStock > 0 ? minStock : undefined,
+        };
       } else if (minStock > 0 && currentTotal <= minStock) {
         lowStock = { severity: 'low_stock', minimumThreshold: minStock };
       }
 
-      if (lowStock) {
+      if (lowStock && emitLowStock) {
         const lowStockEvent: LowStockDetectedEvent = {
           ...createBaseEvent<LowStockDetectedEvent>('LowStockDetected', tenantId),
           itemType,
@@ -330,140 +536,611 @@ export class StockMovementService {
   }
 
   /**
-   * Does the tenant track this feed in the storage ledger AT ALL?
+   * Compile one caller-identified purchase-order receipt into immutable stock
+   * facts and the PO cumulative projection. This is the sole receipt mutation
+   * authority: the command handler owns only the tenant transaction boundary.
    *
-   * # Why this distinction is architecturally load-bearing (Phase A)
-   *
-   * Feed stock is populated by TWO independent operator workflows that write
-   * to TWO different ledgers: `feed_inventory` (via add-feed-inventory) and
-   * `storage_inventory` (via receive-delivery). A tenant that uses feeding +
-   * feed_inventory but never adopted the storage/warehouse module has ZERO
-   * `storage_inventory` rows for its feeds. For such a tenant, "no usable lot
-   * for this feed" does NOT mean "out of stock" — it means "this tenant does
-   * not manage this feed in storage", and the feed_inventory-only deduction
-   * is the correct (pre-existing) behaviour.
-   *
-   * This method answers exactly that question: is there ANY
-   * `storage_inventory` row for `(itemType=FEED, itemId=feedId)` in the
-   * tenant — regardless of quantity (even 0), expiry, or as-of scoping? A
-   * `true` answer means the feed is storage-managed, so a missing usable lot
-   * is a REAL shortage that MUST fail-closed. A `false` answer means the feed
-   * is not storage-tracked, so the caller skips the storage OUT deduction and
-   * proceeds on the feed_inventory-only path (emitting an observable signal,
-   * never a swallowed catch).
-   *
-   * Counts on the SAME caller-provided (locked / in-tx) manager so the
-   * presence decision is consistent with the deduction that follows it.
+   * The operation fence is tenant-global and acquired before the PO row lock.
+   * Equal-quantity deliveries with different operation ids are independent;
+   * a retry with the same operation id succeeds only when its entire canonical
+   * payload (including actor and every line) is byte-equivalent.
    */
-  async feedHasStoragePresence(
+  async recordPurchaseOrderReceipt(
     manager: EntityManager,
-    tenantId: string,
-    feedId: string,
-  ): Promise<boolean> {
-    const presence = await tenantManagerRepo(manager, StorageInventory, tenantId).count({
-      where: { itemType: StorageItemType.FEED, itemId: feedId },
+    input: PurchaseOrderReceiptV1,
+    ctx: MovementContext,
+  ): Promise<PurchaseOrder> {
+    const compiled = this.compilePurchaseOrderReceipt(input, ctx);
+    const operationLockKey = `po-receipt:${input.operationId.toLowerCase()}`;
+    await this.mutationLocks.acquireIdempotency(manager, ctx.tenantId, operationLockKey);
+
+    const poRepo = tenantManagerRepo(manager, PurchaseOrder, ctx.tenantId);
+    const po = await poRepo.findOne({
+      where: { id: input.purchaseOrderId, tenantId: ctx.tenantId, isDeleted: false },
+      lock: { mode: 'pessimistic_write' },
     });
-    return presence > 0;
+    if (!po) {
+      throw new NotFoundException(`Purchase order "${input.purchaseOrderId}" not found`);
+    }
+
+    const itemRepo = tenantManagerRepo(manager, PurchaseOrderItem, ctx.tenantId);
+    const poItems = await itemRepo.find({
+      where: {
+        tenantId: ctx.tenantId,
+        purchaseOrderId: po.id,
+      },
+      order: { id: 'ASC' },
+      lock: { mode: 'pessimistic_write' },
+    });
+    po.items = poItems;
+
+    const movementRepo = tenantManagerRepo(manager, StockMovement, ctx.tenantId);
+    const existingOperation = await movementRepo.find({
+      where: {
+        tenantId: ctx.tenantId,
+        operationType: StockMutationOperationType.PURCHASE_ORDER_RECEIPT,
+        operationId: input.operationId,
+      },
+      order: { operationItemId: 'ASC', id: 'ASC' },
+    });
+    const storageItemType = this.storageItemTypeForPurchaseOrder(po.category);
+    const lines = this.resolvePurchaseOrderReceiptLines(po, compiled.lines);
+
+    if (existingOperation.length > 0) {
+      this.assertPurchaseOrderReceiptReplay(
+        existingOperation,
+        lines,
+        input,
+        compiled.payloadHash,
+        po,
+        storageItemType,
+        ctx,
+      );
+      return po;
+    }
+
+    if (
+      po.status !== PurchaseOrderStatus.ORDERED &&
+      po.status !== PurchaseOrderStatus.PARTIALLY_RECEIVED
+    ) {
+      throw new BadRequestException(
+        'PO must be in ORDERED or PARTIALLY_RECEIVED status to receive delivery',
+      );
+    }
+
+    const nextQuantityByItem = new Map<string, number>();
+    for (const { line, poItem } of lines) {
+      const orderedUnits = stockQuantityUnits(Number(poItem.quantity), 'Ordered quantity');
+      const receivedUnits = stockQuantityUnits(
+        Number(poItem.quantityReceived),
+        'Previously received quantity',
+        { allowZero: true },
+      );
+      const nextUnits = receivedUnits + line.quantityUnits;
+      if (nextUnits > orderedUnits) {
+        throw new BadRequestException(
+          `Cannot receive ${line.quantityReceived} of ${poItem.itemName}. ` +
+            `Ordered: ${poItem.quantity}, Already received: ${poItem.quantityReceived}`,
+        );
+      }
+      nextQuantityByItem.set(poItem.id, stockQuantityFromUnits(nextUnits));
+    }
+
+    let receiptInstant: Date | undefined;
+    for (const { line, poItem } of lines) {
+      const movement = await this.recordMovementInternal(
+        manager,
+        {
+          movementType: MovementType.IN,
+          itemType: storageItemType,
+          itemId: poItem.itemId,
+          quantity: line.quantityReceived,
+          toLocationId: input.storageLocationId,
+          lotNumber: line.lotNumber,
+          expiryDate: line.expiryDate,
+          reference: `PO: ${po.orderNumber}`,
+          idempotencyKey: this.purchaseOrderReceiptMovementKey(input.operationId, poItem.id),
+          operation: {
+            type: StockMutationOperationType.PURCHASE_ORDER_RECEIPT,
+            id: input.operationId,
+            payloadHash: compiled.payloadHash,
+            itemId: poItem.id,
+          },
+        },
+        ctx,
+        true,
+      );
+      if (movement.idempotentHit) {
+        throw new ConflictException(
+          `Purchase-order receipt ${input.operationId} has incomplete operation evidence`,
+        );
+      }
+      receiptInstant ??= movement.saved.performedAt;
+    }
+
+    for (const { poItem } of lines) {
+      const nextQuantity = nextQuantityByItem.get(poItem.id);
+      if (nextQuantity == null) {
+        throw new ConflictException(`Missing compiled quantity for PO item ${poItem.id}`);
+      }
+      poItem.quantityReceived = nextQuantity;
+      poItem.isFullyReceived =
+        stockQuantityUnits(nextQuantity, 'Received quantity', { allowZero: true }) ===
+        stockQuantityUnits(Number(poItem.quantity), 'Ordered quantity');
+    }
+    for (const { poItem } of lines) {
+      await itemRepo.save(poItem);
+    }
+
+    if (po.items.every((item) => item.isFullyReceived)) {
+      po.status = PurchaseOrderStatus.RECEIVED;
+      po.actualDeliveryDate = receiptInstant;
+    } else {
+      po.status = PurchaseOrderStatus.PARTIALLY_RECEIVED;
+    }
+    return poRepo.save(po);
+  }
+
+  private compilePurchaseOrderReceipt(
+    input: PurchaseOrderReceiptV1,
+    ctx: MovementContext,
+  ): CompiledPurchaseOrderReceiptV1 {
+    if (!STOCK_OPERATION_UUID.test(input.operationId)) {
+      throw new BadRequestException('Purchase-order receipt operationId must be a UUID');
+    }
+    if (input.items.length === 0) {
+      throw new BadRequestException('Purchase-order receipt requires at least one item');
+    }
+
+    const lines = input.items
+      .map((line): NormalizedPurchaseOrderReceiptLineV1 => {
+        if (!STOCK_OPERATION_UUID.test(line.purchaseOrderItemId)) {
+          throw new BadRequestException('Purchase-order receipt item identity must be a UUID');
+        }
+        const quantityUnits = stockQuantityUnits(line.quantityReceived, 'Received quantity');
+        const lotNumber = line.lotNumber?.trim();
+        if (line.lotNumber != null && !lotNumber) {
+          throw new BadRequestException('Lot number cannot be blank');
+        }
+        let expiryDate: Date | undefined;
+        let expiryDateText: string | undefined;
+        if (line.expiryDate != null) {
+          if (!/^\d{4}-\d{2}-\d{2}$/u.test(line.expiryDate)) {
+            throw new BadRequestException('Expiry date must use YYYY-MM-DD');
+          }
+          expiryDate = new Date(`${line.expiryDate}T00:00:00.000Z`);
+          if (
+            Number.isNaN(expiryDate.getTime()) ||
+            expiryDate.toISOString().slice(0, 10) !== line.expiryDate
+          ) {
+            throw new BadRequestException('Expiry date must be a real calendar date');
+          }
+          expiryDateText = line.expiryDate;
+        }
+        return {
+          purchaseOrderItemId: line.purchaseOrderItemId.toLowerCase(),
+          quantityReceived: stockQuantityFromUnits(quantityUnits),
+          quantityUnits,
+          lotNumber,
+          expiryDate,
+          expiryDateText,
+        };
+      })
+      .sort((left, right) => left.purchaseOrderItemId.localeCompare(right.purchaseOrderItemId));
+
+    for (let index = 1; index < lines.length; index += 1) {
+      if (lines[index - 1]?.purchaseOrderItemId === lines[index]?.purchaseOrderItemId) {
+        throw new BadRequestException(
+          `Purchase-order item ${lines[index]?.purchaseOrderItemId} occurs more than once`,
+        );
+      }
+    }
+
+    const hash = createHash('sha256');
+    const write = (value: string): void => {
+      hash.update(String(Buffer.byteLength(value, 'utf8')));
+      hash.update(':');
+      hash.update(value);
+    };
+    write(PURCHASE_ORDER_RECEIPT_HASH_DOMAIN);
+    write(ctx.tenantId.toLowerCase());
+    write(ctx.userId.toLowerCase());
+    write(input.purchaseOrderId.toLowerCase());
+    write(input.storageLocationId.toLowerCase());
+    write(String(lines.length));
+    for (const line of lines) {
+      write(line.purchaseOrderItemId);
+      write(String(line.quantityUnits));
+      write(line.lotNumber ?? '');
+      write(line.expiryDateText ?? '');
+    }
+    return { payloadHash: hash.digest('hex'), lines };
+  }
+
+  private resolvePurchaseOrderReceiptLines(
+    po: PurchaseOrder,
+    lines: readonly NormalizedPurchaseOrderReceiptLineV1[],
+  ): Array<{ line: NormalizedPurchaseOrderReceiptLineV1; poItem: PurchaseOrderItem }> {
+    const byId = new Map(po.items.map((item) => [item.id.toLowerCase(), item]));
+    return lines.map((line) => {
+      const poItem = byId.get(line.purchaseOrderItemId);
+      if (!poItem) {
+        throw new BadRequestException(
+          `Purchase-order item ${line.purchaseOrderItemId} was not found in PO ${po.id}`,
+        );
+      }
+      return { line, poItem };
+    });
+  }
+
+  private assertPurchaseOrderReceiptReplay(
+    existing: readonly StockMovement[],
+    lines: ReadonlyArray<{
+      line: NormalizedPurchaseOrderReceiptLineV1;
+      poItem: PurchaseOrderItem;
+    }>,
+    input: PurchaseOrderReceiptV1,
+    payloadHash: string,
+    po: PurchaseOrder,
+    itemType: StorageItemType,
+    ctx: MovementContext,
+  ): void {
+    const expectedByItem = new Map(lines.map((entry) => [entry.poItem.id, entry]));
+    const operationMismatch =
+      existing.length !== lines.length ||
+      existing.some((movement) => {
+        const operationItemId = movement.operationItemId;
+        const expected = operationItemId ? expectedByItem.get(operationItemId) : undefined;
+        if (!expected) return true;
+        expectedByItem.delete(operationItemId);
+        return (
+          movement.operationType !== StockMutationOperationType.PURCHASE_ORDER_RECEIPT ||
+          movement.operationId !== input.operationId ||
+          movement.operationPayloadHash !== payloadHash ||
+          movement.movementType !== MovementType.IN ||
+          movement.itemType !== itemType ||
+          movement.itemId !== expected.poItem.itemId ||
+          Math.abs(Number(movement.quantity) - expected.line.quantityReceived) > 1e-9 ||
+          movement.toLocationId !== input.storageLocationId ||
+          movement.reference !== `PO: ${po.orderNumber}` ||
+          movement.performedBy !== ctx.userId ||
+          !this.sameOptionalDate(movement.expiryDate, expected.line.expiryDate)
+        );
+      }) ||
+      expectedByItem.size !== 0;
+    if (operationMismatch) {
+      throw new ConflictException(
+        `Purchase-order receipt ${input.operationId} is bound to a different payload or has incomplete evidence`,
+      );
+    }
+  }
+
+  private storageItemTypeForPurchaseOrder(category: PurchaseOrderCategory): StorageItemType {
+    switch (category) {
+      case PurchaseOrderCategory.FEED:
+        return StorageItemType.FEED;
+      case PurchaseOrderCategory.CHEMICAL:
+        return StorageItemType.CHEMICAL;
+      case PurchaseOrderCategory.CONSUMABLE:
+        return StorageItemType.CONSUMABLE;
+      case PurchaseOrderCategory.HEALTHCARE:
+        return StorageItemType.HEALTHCARE;
+      default:
+        throw new BadRequestException(`Unsupported purchase-order category: ${String(category)}`);
+    }
+  }
+
+  private purchaseOrderReceiptMovementKey(operationId: string, poItemId: string): string {
+    return createHash('sha256')
+      .update('aquaculture.purchase-order-receipt-movement/v1\u0000')
+      .update(operationId.toLowerCase())
+      .update('\u0000')
+      .update(poItemId.toLowerCase())
+      .digest('hex');
+  }
+
+  private sameOptionalDate(left?: Date, right?: Date): boolean {
+    if (left == null || right == null) return left == null && right == null;
+    return new Date(left).getTime() === new Date(right).getTime();
   }
 
   /**
-   * Resolve which storage location + lot a feeding OUT deduction should
-   * draw from, for a feed the caller knows only by `feedId`.
-   *
-   * # The data-model impedance this solves
-   *
-   * A feeding event names a feed (and tank/batch), not a concrete storage
-   * location, whereas `storage_inventory` keys on
-   * `(tenantId, storageLocationId, itemType, itemId, lotNumber)`. This
-   * method finds the FEFO-preferred lot of the feed ACROSS every storage
-   * location and returns that location + lot so the caller can issue a
-   * concrete OUT `recordMovement`. It is the same FEFO lot-selection the
-   * old (now-deleted) async storage event handler performed inline — moved
-   * here so it runs INSIDE the feeding transaction.
-   *
-   * # Supplied-lot binding (Blocker-4 correctness)
-   *
-   * When the feeding payload names a concrete feed batch (`lotNumber`), the
-   * deduction MUST draw from THAT lot — not from whatever FEFO would pick.
-   * So this resolves the location of the SUPPLIED lot: it constrains the read
-   * to `inv.lotNumber = :lotNumber`. If that specific lot is absent from
-   * storage (it may exist only in feed_inventory), the read returns null and
-   * the caller routes into the no-usable-lot policy with a lot-specific
-   * message — it does NOT silently fall through to a different FEFO lot, which
-   * would deduct from the wrong physical stock and break lot traceability.
-   * When no `lotNumber` is supplied, FEFO selects across all lots as before.
-   *
-   * FEFO with the same three compliance guarantees the decrement enforces:
-   *   1. deterministic tiebreak (expiryDate, receivedDate, lotNumber)
-   *   2. expired-lot exclusion (never feed fish an expired lot)
-   *   3. as-of scoping (a backdated feeding cannot pull from a lot that
-   *      arrived after the feeding occurred)
-   *
-   * Returns `null` when NO storage location stocks a usable lot of the feed
-   * (or of the supplied lot). The CALLER decides the policy: in Phase A the
-   * feeding callers fail-closed ONLY when the feed is storage-tracked
-   * (`feedHasStoragePresence`), so a storage-managed feed can no longer be
-   * fed while its deduction silently fails.
+   * Atomic feeding allocation: item fence -> complete locked pool -> immutable
+   * movement slices. Missing or depleted stock always fails closed.
    */
-  async resolveFeedDeductionLocation(
+  async recordFeedDeduction(
     manager: EntityManager,
-    tenantId: string,
-    feedId: string,
-    asOf: Date,
-    lotNumber?: string,
-    /**
-     * D-9 site kapsamı: verilirse önce ÜNİTENİN SİTESİNİN lokasyonlarındaki
-     * lotlar denenir (düşüm + forecast aynı kapsamı okur); site'ta uygun lot
-     * yoksa belgeli tenant-geneli fallback (`usedSiteFallback=true`) uygulanır.
-     */
-    siteId?: string,
-  ): Promise<{ storageLocationId: string; lotNumber?: string; usedSiteFallback: boolean } | null> {
-    const buildQuery = (scopeSiteId?: string) => {
-      const query = tenantManagerRepo(manager, StorageInventory, tenantId)
-        .createQueryBuilder('inv')
-        .andWhere('inv.itemType = :itemType', { itemType: StorageItemType.FEED })
-        .andWhere('inv.itemId = :itemId', { itemId: feedId })
-        .andWhere('inv.quantity > 0')
-        .andWhere('(inv.expiryDate IS NULL OR inv.expiryDate > :today)', { today: new Date() })
-        .andWhere('(inv.receivedDate IS NULL OR inv.receivedDate <= :asOf)', { asOf });
-      if (scopeSiteId) {
-        query.innerJoin(
-          StorageLocation,
-          'loc',
-          'loc.id = inv."storageLocationId" AND loc."siteId" = :scopeSiteId',
-          { scopeSiteId },
+    input: FeedDeductionInput,
+    ctx: MovementContext,
+  ): Promise<FeedDeductionResult> {
+    this.assertAllocationKey(input.idempotencyKey);
+    await this.mutationLocks.acquire(manager, ctx.tenantId, [
+      { itemType: StorageItemType.FEED, itemId: input.feedId },
+    ]);
+    await this.mutationLocks.acquireIdempotency(manager, ctx.tenantId, input.idempotencyKey);
+    const movementRepo = tenantManagerRepo(manager, StockMovement, ctx.tenantId);
+    const existing = await movementRepo.find({
+      where: {
+        tenantId: ctx.tenantId,
+        itemType: StorageItemType.FEED,
+        itemId: input.feedId,
+        allocationFamilyKey: input.idempotencyKey,
+      },
+      order: { allocationSliceIndex: 'ASC', id: 'ASC' },
+    });
+    if (existing.length > 0) {
+      const existingTotal = existing.reduce(
+        (total, movement) => total + Number(movement.quantity),
+        0,
+      );
+      const expectedRoot = input.allocationRootKey ?? input.idempotencyKey;
+      if (
+        existing.some((movement) => movement.movementType !== MovementType.OUT) ||
+        existing.some((movement) => movement.allocationRootKey !== expectedRoot) ||
+        existing.some((movement) => movement.reference !== input.reference) ||
+        existing.some((movement) => movement.reason !== input.reason) ||
+        existing.some(
+          (movement) => input.lotNumber != null && movement.lotNumber !== input.lotNumber,
+        ) ||
+        existing.some(
+          (movement) => new Date(movement.performedAt).getTime() !== input.occurredAt.getTime(),
+        ) ||
+        Math.abs(existingTotal - input.quantityKg) > 1e-9
+      ) {
+        throw new ConflictException(
+          'Feed deduction idempotency key is bound to a different allocation',
         );
       }
-      // Supplied-lot binding: when a concrete feed batch is named, resolve the
-      // location of THAT lot only, so the OUT deduction hits the physical lot
-      // the operator declared (and never a different FEFO lot).
-      if (lotNumber) {
-        query.andWhere('inv.lotNumber = :lotNumber', { lotNumber });
-      }
-      return query
-        .orderBy('inv.expiryDate', 'ASC', 'NULLS LAST')
-        .addOrderBy('inv.receivedDate', 'ASC', 'NULLS LAST')
-        .addOrderBy('inv.lotNumber', 'ASC')
-        .getOne();
-    };
-
-    if (siteId) {
-      const siteScoped = await buildQuery(siteId);
-      if (siteScoped) {
-        return {
-          storageLocationId: siteScoped.storageLocationId,
-          lotNumber: siteScoped.lotNumber,
-          usedSiteFallback: false,
-        };
-      }
+      return {
+        movements: existing,
+        poolTotalKg: null,
+        usedTenantPool: null,
+        idempotentHit: true,
+      };
     }
-    const inventory = await buildQuery(undefined);
-    if (!inventory) return null;
+
+    const allocation = await this.feedAllocations.allocate(manager, ctx.tenantId, {
+      feedId: input.feedId,
+      quantityKg: input.quantityKg,
+      occurredAt: input.occurredAt,
+      preferredSiteId: input.preferredSiteId,
+      lotNumber: input.lotNumber,
+    });
+    const movements: StockMovement[] = [];
+    for (const [index, slice] of allocation.slices.entries()) {
+      const sliceKey = this.deriveSliceKey(input.idempotencyKey, index);
+      const result = await this.recordMovementInternal(
+        manager,
+        {
+          movementType: MovementType.OUT,
+          itemType: StorageItemType.FEED,
+          itemId: input.feedId,
+          quantity: slice.quantityKg,
+          fromLocationId: slice.storageLocationId,
+          lotNumber: slice.lotNumber ?? undefined,
+          expiryDate: slice.expiryDate ?? undefined,
+          receivedDate: slice.receivedDate ?? undefined,
+          reference: input.reference,
+          reason: input.reason,
+          idempotencyKey: sliceKey,
+          allocationFamilyKey: input.idempotencyKey,
+          allocationRootKey: input.allocationRootKey ?? input.idempotencyKey,
+          allocationSliceIndex: index,
+          sourceInventoryId: slice.inventoryId,
+          movementDate: input.occurredAt,
+        },
+        ctx,
+        index === allocation.slices.length - 1,
+      );
+      movements.push(result.saved);
+    }
     return {
-      storageLocationId: inventory.storageLocationId,
-      lotNumber: inventory.lotNumber,
-      usedSiteFallback: !!siteId,
+      movements,
+      poolTotalKg: allocation.poolTotalKg,
+      usedTenantPool: allocation.usedTenantPool,
+      idempotentHit: false,
     };
+  }
+
+  /**
+   * Corrects an immutable feed allocation without losing lot provenance.
+   * Positive deltas compile a new FEFO family. Negative deltas restore exact
+   * source movements in reverse draw order, bounded by the unreturned amount.
+   */
+  async correctFeedDeduction(
+    manager: EntityManager,
+    input: FeedCorrectionInput,
+    ctx: MovementContext,
+  ): Promise<readonly StockMovement[]> {
+    if (input.deltaKg === 0) return [];
+    stockQuantityUnits(Math.abs(input.deltaKg), 'Feed correction quantity');
+    const occurredAt =
+      input.occurredAt ??
+      (await this.clock.resolve(manager, ctx.tenantId, input.preferredSiteId)).instant;
+    if (input.deltaKg > 0) {
+      return (
+        await this.recordFeedDeduction(
+          manager,
+          {
+            feedId: input.feedId,
+            quantityKg: input.deltaKg,
+            occurredAt,
+            preferredSiteId: input.preferredSiteId,
+            reference: input.reference,
+            reason: 'Upward feeding correction',
+            idempotencyKey: input.idempotencyKey,
+            allocationRootKey: input.sourceDeductionKey,
+          },
+          ctx,
+        )
+      ).movements;
+    }
+
+    await this.mutationLocks.acquire(manager, ctx.tenantId, [
+      { itemType: StorageItemType.FEED, itemId: input.feedId },
+    ]);
+    await this.mutationLocks.acquireIdempotency(manager, ctx.tenantId, input.idempotencyKey);
+    const movementRepo = tenantManagerRepo(manager, StockMovement, ctx.tenantId);
+    const existingCorrection = await movementRepo.find({
+      where: {
+        tenantId: ctx.tenantId,
+        itemType: StorageItemType.FEED,
+        itemId: input.feedId,
+        allocationFamilyKey: input.idempotencyKey,
+      },
+      order: { allocationSliceIndex: 'ASC', id: 'ASC' },
+    });
+    if (existingCorrection.length > 0) {
+      const correctedTotal = existingCorrection.reduce(
+        (total, movement) => total + Number(movement.quantity),
+        0,
+      );
+      if (
+        existingCorrection.some((movement) => movement.movementType !== MovementType.RETURN) ||
+        existingCorrection.some(
+          (movement) => movement.allocationRootKey !== input.sourceDeductionKey,
+        ) ||
+        Math.abs(correctedTotal - Math.abs(input.deltaKg)) > 1e-9
+      ) {
+        throw new ConflictException(
+          'Feed correction idempotency key is bound to a different correction',
+        );
+      }
+      return existingCorrection;
+    }
+    const originals = await movementRepo.find({
+      where: {
+        tenantId: ctx.tenantId,
+        itemType: StorageItemType.FEED,
+        itemId: input.feedId,
+        movementType: MovementType.OUT,
+        allocationRootKey: input.sourceDeductionKey,
+      },
+      order: { createdAt: 'DESC', allocationSliceIndex: 'DESC', id: 'DESC' },
+    });
+    if (originals.length === 0) {
+      throw new ConflictException(
+        `Original feed allocation ${input.sourceDeductionKey} was not found`,
+      );
+    }
+    const returns = await movementRepo.find({
+      where: originals.map((movement) => ({
+        tenantId: ctx.tenantId,
+        sourceMovementId: movement.id,
+        movementType: MovementType.RETURN,
+      })),
+    });
+    const returnedBySource = new Map<string, number>();
+    for (const movement of returns) {
+      if (!movement.sourceMovementId) continue;
+      returnedBySource.set(
+        movement.sourceMovementId,
+        (returnedBySource.get(movement.sourceMovementId) ?? 0) + Number(movement.quantity),
+      );
+    }
+
+    let remaining = Math.abs(input.deltaKg);
+    const restored: StockMovement[] = [];
+    for (const original of originals) {
+      if (remaining <= 1e-9) break;
+      if (!original.fromLocationId) {
+        throw new ConflictException(`Stock movement ${original.id} has no source location`);
+      }
+      const available = Number(original.quantity) - (returnedBySource.get(original.id) ?? 0);
+      if (available <= 1e-9) continue;
+      const quantity = Math.min(remaining, available);
+      const sliceKey = this.deriveSliceKey(input.idempotencyKey, restored.length);
+      const result = await this.recordMovementInternal(
+        manager,
+        {
+          movementType: MovementType.RETURN,
+          itemType: StorageItemType.FEED,
+          itemId: input.feedId,
+          quantity,
+          toLocationId: original.fromLocationId,
+          lotNumber: original.lotNumber,
+          expiryDate: original.expiryDate,
+          receivedDate: original.receivedDate,
+          reference: input.reference,
+          reason: 'Downward feeding correction returned to the exact source allocation',
+          idempotencyKey: sliceKey,
+          allocationFamilyKey: input.idempotencyKey,
+          allocationRootKey: input.sourceDeductionKey,
+          allocationSliceIndex: restored.length,
+          sourceMovementId: original.id,
+          movementDate: occurredAt,
+        },
+        ctx,
+        false,
+      );
+      restored.push(result.saved);
+      remaining -= quantity;
+    }
+    if (remaining > 1e-9) {
+      throw new ConflictException(
+        `Correction exceeds the unreturned quantity of ${input.sourceDeductionKey}`,
+      );
+    }
+    return restored;
+  }
+
+  private assertAllocationKey(key: string): void {
+    if (key.length === 0 || key.length > 64) {
+      throw new BadRequestException('Feed allocation idempotency key must be 1..64 characters');
+    }
+  }
+
+  private deriveSliceKey(operationKey: string, index: number): string {
+    this.assertAllocationKey(operationKey);
+    if (index === 0) return operationKey;
+    const candidate = `${operationKey}:${index}`;
+    if (candidate.length <= 64) return candidate;
+    return createHash('sha256')
+      .update(`stock-allocation-slice-v1\u0000${operationKey}\u0000${index}`)
+      .digest('hex');
+  }
+
+  /** Reconciles a physical count through the same canonical mutation sink. */
+  async reconcilePhysicalCount(
+    manager: EntityManager,
+    input: PhysicalCountReconciliationInput,
+    ctx: MovementContext,
+  ): Promise<StockMovement | null> {
+    stockQuantityUnits(input.actualQuantity, 'Physical count quantity', { allowZero: true });
+    await this.mutationLocks.acquire(manager, ctx.tenantId, [
+      { itemType: input.itemType, itemId: input.itemId },
+    ]);
+    const inventory = await tenantManagerRepo(manager, StorageInventory, ctx.tenantId).findOne({
+      where: {
+        tenantId: ctx.tenantId,
+        storageLocationId: input.storageLocationId,
+        itemType: input.itemType,
+        itemId: input.itemId,
+        lotNumber: input.lotNumber ?? IsNull(),
+      },
+      lock: { mode: 'pessimistic_write' },
+    });
+    const delta = input.actualQuantity - Number(inventory?.quantity ?? 0);
+    if (Math.abs(delta) <= 1e-9) return null;
+    return (
+      await this.recordMovementInternal(
+        manager,
+        {
+          movementType: MovementType.ADJUSTMENT,
+          itemType: input.itemType,
+          itemId: input.itemId,
+          quantity: Math.abs(delta),
+          fromLocationId: delta < 0 ? input.storageLocationId : undefined,
+          toLocationId: delta > 0 ? input.storageLocationId : undefined,
+          lotNumber: input.lotNumber,
+          reference: input.reference,
+          reason: input.reason,
+          idempotencyKey: input.idempotencyKey,
+        },
+        ctx,
+        true,
+      )
+    ).saved;
   }
 
   /**
@@ -501,34 +1178,139 @@ export class StockMovementService {
       }
     }
 
+    if (movementType === MovementType.TRANSFER) {
+      if (!input.fromLocationId || !input.toLocationId) {
+        throw new BadRequestException(
+          'Both fromLocationId and toLocationId are required for transfers',
+        );
+      }
+      if (input.fromLocationId === input.toLocationId) {
+        throw new BadRequestException('Cannot transfer stock to the same location');
+      }
+      [fromLocation, toLocation] = await Promise.all([
+        locationRepo.findOne({ where: { id: input.fromLocationId, tenantId } }),
+        locationRepo.findOne({ where: { id: input.toLocationId, tenantId } }),
+      ]);
+      if (!fromLocation) {
+        throw new NotFoundException(`Storage location "${input.fromLocationId}" not found`);
+      }
+      if (!toLocation) {
+        throw new NotFoundException(`Storage location "${input.toLocationId}" not found`);
+      }
+    }
+
     if (movementType === MovementType.ADJUSTMENT) {
       if (!input.toLocationId && !input.fromLocationId) {
-        throw new BadRequestException('Either fromLocationId or toLocationId is required for adjustments');
+        throw new BadRequestException(
+          'Either fromLocationId or toLocationId is required for adjustments',
+        );
       }
       if (input.toLocationId) {
         toLocation = await locationRepo.findOne({ where: { id: input.toLocationId, tenantId } });
+        if (!toLocation) {
+          throw new NotFoundException(`Storage location "${input.toLocationId}" not found`);
+        }
       }
       if (input.fromLocationId) {
-        fromLocation = await locationRepo.findOne({ where: { id: input.fromLocationId, tenantId } });
+        fromLocation = await locationRepo.findOne({
+          where: { id: input.fromLocationId, tenantId },
+        });
+        if (!fromLocation) {
+          throw new NotFoundException(`Storage location "${input.fromLocationId}" not found`);
+        }
       }
     }
 
     return { fromLocation, toLocation };
   }
 
+  private assertReplayMatches(existing: StockMovement, input: RecordMovementInput): void {
+    const mismatches: string[] = [];
+    const sameText = (left: string | null | undefined, right: string | null | undefined) =>
+      (left ?? null) === (right ?? null);
+    const sameDate = (left: Date | null | undefined, right: Date | null | undefined) => {
+      if (left == null || right == null) return left == null && right == null;
+      return new Date(left).getTime() === new Date(right).getTime();
+    };
+    if (existing.movementType !== input.movementType) mismatches.push('movementType');
+    if (existing.itemType !== input.itemType) mismatches.push('itemType');
+    if (existing.itemId !== input.itemId) mismatches.push('itemId');
+    if (Math.abs(Number(existing.quantity) - input.quantity) > 1e-9) mismatches.push('quantity');
+    if (!sameText(existing.fromLocationId, input.fromLocationId)) mismatches.push('fromLocationId');
+    if (!sameText(existing.toLocationId, input.toLocationId)) mismatches.push('toLocationId');
+    if (!sameText(existing.lotNumber, input.lotNumber)) mismatches.push('lotNumber');
+    if (!sameDate(existing.expiryDate, input.expiryDate)) mismatches.push('expiryDate');
+    if (!sameDate(existing.receivedDate, input.receivedDate)) mismatches.push('receivedDate');
+    if (!sameText(existing.reference, input.reference)) mismatches.push('reference');
+    if (!sameText(existing.reason, input.reason)) mismatches.push('reason');
+    if (!sameText(existing.allocationFamilyKey, input.allocationFamilyKey)) {
+      mismatches.push('allocationFamilyKey');
+    }
+    if (!sameText(existing.allocationRootKey, input.allocationRootKey)) {
+      mismatches.push('allocationRootKey');
+    }
+    if ((existing.allocationSliceIndex ?? null) !== (input.allocationSliceIndex ?? null)) {
+      mismatches.push('allocationSliceIndex');
+    }
+    if (!sameText(existing.sourceMovementId, input.sourceMovementId)) {
+      mismatches.push('sourceMovementId');
+    }
+    if (!sameText(existing.operationType, input.operation?.type)) {
+      mismatches.push('operationType');
+    }
+    if (!sameText(existing.operationId, input.operation?.id)) {
+      mismatches.push('operationId');
+    }
+    if (!sameText(existing.operationPayloadHash, input.operation?.payloadHash)) {
+      mismatches.push('operationPayloadHash');
+    }
+    if (!sameText(existing.operationItemId, input.operation?.itemId)) {
+      mismatches.push('operationItemId');
+    }
+    if (mismatches.length > 0) {
+      throw new ConflictException(
+        `Stock movement idempotency key is bound to a different payload (${mismatches.join(', ')})`,
+      );
+    }
+  }
+
   private async getItemDetails(
     manager: EntityManager,
-    itemType: StorageItemType, itemId: string, tenantId: string,
-  ): Promise<{ name: string; unit: string; minStock?: number; manufacturer?: string; storageTempMin?: number; storageTempMax?: number; storageHumidityMin?: number; storageHumidityMax?: number } | null> {
+    itemType: StorageItemType,
+    itemId: string,
+    tenantId: string,
+  ): Promise<{
+    name: string;
+    unit: string;
+    minStock?: number;
+    manufacturer?: string;
+    storageTempMin?: number;
+    storageTempMax?: number;
+    storageHumidityMin?: number;
+    storageHumidityMax?: number;
+  } | null> {
     switch (itemType) {
       case StorageItemType.FEED: {
-        const feed = await tenantManagerRepo(manager, Feed, tenantId).findOne({ where: { id: itemId, tenantId } });
+        const feed = await tenantManagerRepo(manager, Feed, tenantId).findOne({
+          where: { id: itemId, tenantId },
+        });
         return feed
-          ? { name: feed.name, unit: feed.unit, minStock: feed.minStock, manufacturer: feed.manufacturer, storageTempMin: feed.storageTempMin, storageTempMax: feed.storageTempMax, storageHumidityMin: feed.storageHumidityMin, storageHumidityMax: feed.storageHumidityMax }
+          ? {
+              name: feed.name,
+              unit: feed.unit,
+              minStock: feed.minStock,
+              manufacturer: feed.manufacturer,
+              storageTempMin: feed.storageTempMin,
+              storageTempMax: feed.storageTempMax,
+              storageHumidityMin: feed.storageHumidityMin,
+              storageHumidityMax: feed.storageHumidityMax,
+            }
           : null;
       }
       case StorageItemType.CHEMICAL: {
-        const chem = await tenantManagerRepo(manager, Chemical, tenantId).findOne({ where: { id: itemId, tenantId } });
+        const chem = await tenantManagerRepo(manager, Chemical, tenantId).findOne({
+          where: { id: itemId, tenantId },
+        });
         return chem
           ? {
               name: chem.name,
@@ -545,7 +1327,9 @@ export class StockMovementService {
       case StorageItemType.HEALTHCARE: {
         // Healthcare products (medications, vaccines) share the consumable
         // table — a unified entity with healthcare-specific categories.
-        const cons = await tenantManagerRepo(manager, Consumable, tenantId).findOne({ where: { id: itemId, tenantId } });
+        const cons = await tenantManagerRepo(manager, Consumable, tenantId).findOne({
+          where: { id: itemId, tenantId },
+        });
         return cons
           ? {
               name: cons.name,
@@ -564,7 +1348,12 @@ export class StockMovementService {
   }
 
   private checkConditionWarnings(
-    item: { storageTempMin?: number; storageTempMax?: number; storageHumidityMin?: number; storageHumidityMax?: number },
+    item: {
+      storageTempMin?: number;
+      storageTempMax?: number;
+      storageHumidityMin?: number;
+      storageHumidityMax?: number;
+    },
     location: StorageLocation,
     warnings: ConditionWarning[],
   ): void {
@@ -623,29 +1412,48 @@ export class StockMovementService {
    */
   private async decreaseInventory(
     repo: TenantScopedRepository<StorageInventory>,
-    tenantId: string, locationId: string,
-    itemType: StorageItemType, itemId: string,
-    quantity: number, unit: string,
-    lotNumber: string | undefined, userId: string,
-    asOfDate?: Date,
-  ): Promise<void> {
+    tenantId: string,
+    locationId: string,
+    itemType: StorageItemType,
+    itemId: string,
+    quantity: number,
+    unit: string,
+    lotNumber: string | undefined,
+    userId: string,
+    asOfDate: Date,
+    localDate: string,
+    sourceInventoryId?: string,
+  ): Promise<DrawnLotIdentity> {
     let inventory: StorageInventory | null;
 
-    if (lotNumber) {
+    if (sourceInventoryId) {
+      inventory = await repo.findOne({
+        where: {
+          id: sourceInventoryId,
+          tenantId,
+          storageLocationId: locationId,
+          itemType,
+          itemId,
+        },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (inventory && lotNumber !== undefined && inventory.lotNumber !== lotNumber) {
+        throw new ConflictException('Locked feed allocation lot identity changed');
+      }
+    } else if (lotNumber) {
       inventory = await repo.findOne({
         where: { tenantId, storageLocationId: locationId, itemType, itemId, lotNumber },
         lock: { mode: 'pessimistic_write' },
       });
     } else {
-      const effectiveAsOf = asOfDate ?? new Date();
       inventory = await repo
         .createQueryBuilder('inv')
         .andWhere('inv.storageLocationId = :locationId', { locationId })
         .andWhere('inv.itemType = :itemType', { itemType })
         .andWhere('inv.itemId = :itemId', { itemId })
         .andWhere('inv.quantity > 0')
-        .andWhere('(inv.expiryDate IS NULL OR inv.expiryDate > :today)', { today: new Date() })
-        .andWhere('(inv.receivedDate IS NULL OR inv.receivedDate <= :asOf)', { asOf: effectiveAsOf })
+        .andWhere('(inv.expiryDate IS NULL OR inv.expiryDate > :localDate)', { localDate })
+        .andWhere('(inv.receivedDate IS NULL OR inv.receivedDate <= :asOf)', { asOf: asOfDate })
         .orderBy('inv.expiryDate', 'ASC', 'NULLS LAST')
         .addOrderBy('inv.receivedDate', 'ASC', 'NULLS LAST')
         .addOrderBy('inv.lotNumber', 'ASC')
@@ -663,6 +1471,12 @@ export class StockMovementService {
       );
     }
 
+    const drawn: DrawnLotIdentity = {
+      inventoryId: inventory.id,
+      lotNumber: inventory.lotNumber,
+      expiryDate: inventory.expiryDate,
+      receivedDate: inventory.receivedDate,
+    };
     inventory.quantity = Number(inventory.quantity) - quantity;
     inventory.updatedBy = userId;
 
@@ -671,15 +1485,22 @@ export class StockMovementService {
     } else {
       await repo.save(inventory);
     }
+    return drawn;
   }
 
   private async increaseInventory(
     repo: TenantScopedRepository<StorageInventory>,
-    tenantId: string, locationId: string,
-    itemType: StorageItemType, itemId: string,
-    quantity: number, unit: string,
-    lotNumber: string | undefined, expiryDate: Date | undefined,
+    tenantId: string,
+    locationId: string,
+    itemType: StorageItemType,
+    itemId: string,
+    quantity: number,
+    unit: string,
+    lotNumber: string | undefined,
+    expiryDate: Date | undefined,
+    receivedDate: Date | undefined,
     userId: string,
+    operationInstant: Date,
   ): Promise<void> {
     let inventory = await repo.findOne({
       where: {
@@ -687,7 +1508,7 @@ export class StockMovementService {
         storageLocationId: locationId,
         itemType,
         itemId,
-        lotNumber: lotNumber ?? undefined,
+        lotNumber: lotNumber ?? IsNull(),
       },
     });
 
@@ -712,7 +1533,7 @@ export class StockMovementService {
         // Stamp `receivedDate` on the initial insert so the FEFO ORDER BY
         // (expiryDate, receivedDate, lotNumber) has a real timestamp to
         // compare against.
-        receivedDate: new Date(),
+        receivedDate: receivedDate ?? operationInstant,
         createdBy: userId,
         updatedBy: userId,
       });
@@ -728,7 +1549,9 @@ export class StockMovementService {
    */
   private async updateItemTotalQuantity(
     manager: EntityManager,
-    itemType: StorageItemType, itemId: string, tenantId: string,
+    itemType: StorageItemType,
+    itemId: string,
+    tenantId: string,
   ): Promise<void> {
     const result = await tenantManagerRepo(manager, StorageInventory, tenantId)
       .createQueryBuilder('inv')

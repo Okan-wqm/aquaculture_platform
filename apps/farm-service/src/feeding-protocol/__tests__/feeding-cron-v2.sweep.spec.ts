@@ -15,6 +15,7 @@ import { FeedingCronV2Service } from '../services/feeding-cron-v2.service';
 import { MealPlanGeneratorService } from '../services/meal-plan-generator.service';
 import { BiomassGrowthApplierService } from '../services/biomass-growth-applier.service';
 import { ProtocolFeedForecastService } from '../services/protocol-feed-forecast.service';
+import { TenantClockAuthority } from '../../common/time/tenant-clock.authority';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
 import { FCRCalculationService } from '../../growth/services/fcr-calculation.service';
 import { FeedingMeal, FeedingMealStatus } from '../entities/feeding-meal.entity';
@@ -94,6 +95,7 @@ function makeHarness(fixture: SweepFixture) {
       }),
     }),
     mock<ProtocolFeedForecastService>({}),
+    mock<TenantClockAuthority>({ resolveActiveSites: jest.fn() }),
   );
 
   return { service, callOrder, enqueued, lockUnitForGrowth, applyGrowth, save };

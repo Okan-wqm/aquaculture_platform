@@ -17,7 +17,9 @@ jest.mock('@aquaculture/backend-common/database', () => ({
     ds: unknown,
     schema: string,
     tenantId: string,
-    cb: (qr: { manager: { query: typeof managerQuery; find: typeof managerFind } }) => Promise<void>,
+    cb: (qr: {
+      manager: { query: typeof managerQuery; find: typeof managerFind };
+    }) => Promise<void>,
   ) => cb({ manager: { query: managerQuery, find: managerFind } }),
 }));
 
@@ -42,6 +44,7 @@ import {
   FeedingUnitType,
 } from '../entities/protocol-assignment.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
+import { TenantClockAuthority } from '../../common/time/tenant-clock.authority';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const SITE = '88888888-8888-4888-8888-888888888888';
@@ -122,14 +125,16 @@ function makeService(fixture: DryRunFixture): {
     if (String(sql).includes('"sites"')) return [{ id: SITE, timezone: 'UTC' }];
     return [];
   });
-  managerFind.mockImplementation(async (entity: unknown, opts?: { skip?: number }): Promise<unknown[]> => {
-    if (entity === ProtocolAssignment) {
-      return (opts?.skip ?? 0) === 0 ? fixture.assignments : [];
-    }
-    if (entity === FeedingProtocolV2) return fixture.protocols;
-    if (entity === TankBatch) return fixture.tankBatches;
-    return [];
-  });
+  managerFind.mockImplementation(
+    async (entity: unknown, opts?: { skip?: number }): Promise<unknown[]> => {
+      if (entity === ProtocolAssignment) {
+        return (opts?.skip ?? 0) === 0 ? fixture.assignments : [];
+      }
+      if (entity === FeedingProtocolV2) return fixture.protocols;
+      if (entity === TankBatch) return fixture.tankBatches;
+      return [];
+    },
+  );
 
   const generator = new MealPlanGeneratorService(new ProtocolRateService());
   const persistDayPlan = jest.spyOn(generator, 'persistDayPlan');
@@ -147,6 +152,20 @@ function makeService(fixture: DryRunFixture): {
     mock<FCRCalculationService>({}),
     mock<OutboxPublisher>({ enqueue }),
     mock<ProtocolFeedForecastService>({}),
+    mock<TenantClockAuthority>({
+      resolveActiveSites: jest.fn().mockResolvedValue(
+        new Map([
+          [
+            SITE,
+            {
+              instant: new Date('2026-07-20T00:00:00.000Z'),
+              timezone: 'UTC',
+              localDate: '2026-07-20',
+            },
+          ],
+        ]),
+      ),
+    }),
   );
   return { service, persistDayPlan, enqueue };
 }

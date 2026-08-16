@@ -42,6 +42,7 @@ import {
 import { FeedingDayPlan } from '../entities/feeding-day-plan.entity';
 import { FeedingMeal, FeedingMealStatus } from '../entities/feeding-meal.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
+import { TenantClockAuthority } from '../../common/time/tenant-clock.authority';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const USER = '44444444-4444-4444-8444-444444444444';
@@ -187,6 +188,11 @@ function buildHarness(fixture: Fixture): {
   const enqueue = jest.fn().mockResolvedValue(undefined);
   const getEffectiveTemperature = jest.fn();
   getEffectiveTemperature.mockResolvedValue({ celsius: null, source: 'none' });
+  const resolveClock = jest.fn().mockResolvedValue({
+    instant: new Date('2026-07-20T00:00:00.000Z'),
+    timezone: 'UTC',
+    localDate: '2026-07-20',
+  });
 
   const service = new DayPlanAdminService(
     mock<DataSource>({}),
@@ -194,6 +200,7 @@ function buildHarness(fixture: Fixture): {
     mock<DayPlanRecalcService>({ recalcForUnit }),
     mock<WaterTemperatureService>({ getEffectiveTemperature }),
     mock<OutboxPublisher>({ enqueue }),
+    mock<TenantClockAuthority>({ resolve: resolveClock }),
   );
   return { service, computeDayPlan, persistDayPlan, recalcForUnit, enqueue, managerSave };
 }

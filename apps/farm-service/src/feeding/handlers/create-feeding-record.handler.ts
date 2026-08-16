@@ -8,33 +8,13 @@
  * geçer; bu handler yalnız doğrulama (backdate, kilitli batch feedable, feed
  * varlığı) + transaction sınırını sahiplenir.
  *
- * Phase A refactor:
- *  - Replaced fire-and-forget eventBus.publish() (post-commit, @Optional
- *    injection that silently dropped events) with OutboxPublisher.enqueue()
- *    inside the same transaction as the domain write.
- *  - Moved Batch + Feed validation reads INSIDE the transaction with
- *    pessimistic_write lock on Batch to eliminate the TOCTOU race where the
- *    batch could be deactivated between the pre-check and the feeding write.
- *
- * Feed dual-SSoT write-path correctness (Phase A):
- *  - Asserts the locked batch is feedable (BatchDomainService.assertFeedable)
- *    INSIDE the tx — feeding an empty / non-feedable batch is rejected before
- *    any stock is touched.
- *  - Deducts feed from the storage ledger (StorageInventory + Feed.quantity
- *    roll-up) via StockMovementService.recordMovement on the SAME
- *    queryRunner.manager — but ONLY when the feed is storage-tracked
- *    (feedHasStoragePresence). For a storage-tracked feed, insufficient stock
- *    / no-lot throws and ROLLS BACK the whole feeding — replacing the old
- *    async storage event handler that swallowed its failure and let the two
- *    ledgers diverge silently. For a feed the tenant does NOT track in storage
- *    (zero storage rows — e.g. a tenant that never adopted the warehouse
- *    module), the storage OUT is SKIPPED with an observable structured warn
- *    and the feed_inventory-only path applies, so a pre-Phase-B tenant is not
- *    pushed off a fail-closed cliff.
- *  - Phase 2 (stock SSoT): the legacy feed_inventory decrement is GONE — the
- *    path still reads feed_inventory.quantityKg, so both ledgers update
- *    atomically (or roll back together). Collapsing onto one ledger is
- *    Phase B (table merge + read re-points + destructive migration).
+ * The handler owns one tenant transaction and delegates the write to the
+ * canonical feeding ledger. It validates the pessimistically locked Batch and
+ * Feed inside that transaction, resolves calendar semantics through the Site
+ * clock authority, and performs a fail-closed multi-lot FEFO deduction through
+ * the canonical stock mutation authority. Missing or insufficient physical
+ * stock rolls back the feeding record, batch aggregates, stock projections,
+ * immutable movement facts, and transactional outbox rows together.
  *
  * @module Feeding/Handlers
  */
@@ -61,10 +41,14 @@ import {
   FeedingDayPlan,
   FeedingDayPlanStatus,
 } from '../../feeding-protocol/entities/feeding-day-plan.entity';
+import { resolveTankSiteId } from '../../batch/utils/tank-lookup.util';
+import { TenantClockAuthority } from '../../common/time/tenant-clock.authority';
 
 @Injectable()
 @CommandHandler(CreateFeedingRecordCommand)
-export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeedingRecordCommand, FeedingRecord> {
+export class CreateFeedingRecordHandler
+  implements ICommandHandler<CreateFeedingRecordCommand, FeedingRecord>
+{
   private readonly logger = new Logger(CreateFeedingRecordHandler.name);
 
   constructor(
@@ -81,6 +65,7 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
     // D-7: plan-dışı yem, aktif gün planına bağlanır — growth + recalc aynı tx.
     private readonly growthApplier: BiomassGrowthApplierService,
     private readonly recalcService: DayPlanRecalcService,
+    private readonly tenantClock: TenantClockAuthority,
   ) {}
 
   async execute(command: CreateFeedingRecordCommand): Promise<FeedingRecord> {
@@ -92,9 +77,7 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
     // docs/illustrator/ Girdi 8 — unbounded backdating corrupts
     // downstream FCR / SGR derivations that assume time-ordered events.
     const proposedDate: Date =
-      payload.feedingDate instanceof Date
-        ? payload.feedingDate
-        : new Date(payload.feedingDate);
+      payload.feedingDate instanceof Date ? payload.feedingDate : new Date(payload.feedingDate);
     this.backdatePolicy.validate({
       context: 'feeding',
       proposedDate,
@@ -112,8 +95,10 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
       // Önce yalnız payload batch'ini kilitlemek, aynı ünitede eşzamanlı iki
       // kayıtta AB-BA sırası doğururdu.
       let locked: LockedUnit | null = null;
+      let feedingSiteId: string | null = null;
       if (payload.tankId) {
         locked = await this.growthApplier.lockUnitForGrowth(manager, tenantId, payload.tankId);
+        feedingSiteId = await resolveTankSiteId(manager, payload.tankId, tenantId);
       }
 
       // Batch'i doğrula — ünite kilidi batch'i zaten kilitlediyse yeniden alma.
@@ -147,7 +132,14 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
       // yem eskisi gibi yalnız ledger yoluyla akar.
       let boundPlan: FeedingDayPlan | null = null;
       if (locked && payload.tankId) {
-        const day = proposedDate.toISOString().slice(0, 10);
+        const day = (
+          await this.tenantClock.resolve(
+            manager,
+            tenantId,
+            feedingSiteId ?? undefined,
+            proposedDate,
+          )
+        ).localDate;
         boundPlan = await manager
           .createQueryBuilder(FeedingDayPlan, 'dp')
           .setLock('pessimistic_write')
@@ -200,44 +192,37 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
       // TEK yem yazma yolu (P-05): kayıt + batch aggregate + storage düşümü
       // (site kapsamlı, D-9) + FeedingRecordedEvent outbox — hepsi ledger'da.
       // Storage düşümü akışın SON yazımıdır (K-1) — plan bağlama yukarıda bitti.
-      const saved = await this.feedingLedger.recordFeed(
-        manager,
-        tenantId,
-        userId,
-        batch,
-        feed,
-        {
-          batchId: payload.batchId,
-          tankId: payload.tankId,
-          pondId: payload.pondId,
-          batchLocationId: payload.batchLocationId,
-          feedId: payload.feedId,
-          plannedAmountKg: payload.plannedAmount,
-          actualAmountKg: payload.actualAmount,
-          wasteAmountKg: payload.wasteAmount,
-          feedingDate: proposedDate,
-          feedingTime: payload.feedingTime,
-          feedingMethod: payload.feedingMethod || FeedingMethod.MANUAL,
-          equipmentId: payload.equipmentId,
-          feedBatchNumber: payload.feedBatchNumber,
-          fedBy: payload.fedBy || userId,
-          notes: payload.notes,
-          feedCost: payload.feedCost,
-          currency: payload.currency,
-          // D-7: plan-dışı kayıt plana bağlanır (mealId NULL kalır); site
-          // kapsamı plan denormundan gelir (D-9).
-          dayPlanId: boundPlan?.id,
-          siteId: boundPlan?.siteId,
-          extras: {
-            environment: payload.environment,
-            fishBehavior: payload.fishBehavior,
-            feedingDurationMinutes: payload.feedingDurationMinutes,
-            feedingSequence: payload.feedingSequence || 1,
-            totalMealsToday: payload.totalMealsToday || 1,
-            skipReason: payload.skipReason,
-          },
+      const saved = await this.feedingLedger.recordFeed(manager, tenantId, userId, batch, feed, {
+        batchId: payload.batchId,
+        tankId: payload.tankId,
+        pondId: payload.pondId,
+        batchLocationId: payload.batchLocationId,
+        feedId: payload.feedId,
+        plannedAmountKg: payload.plannedAmount,
+        actualAmountKg: payload.actualAmount,
+        wasteAmountKg: payload.wasteAmount,
+        feedingDate: proposedDate,
+        feedingTime: payload.feedingTime,
+        feedingMethod: payload.feedingMethod || FeedingMethod.MANUAL,
+        equipmentId: payload.equipmentId,
+        feedBatchNumber: payload.feedBatchNumber,
+        fedBy: payload.fedBy || userId,
+        notes: payload.notes,
+        feedCost: payload.feedCost,
+        currency: payload.currency,
+        // D-7: plan-dışı kayıt plana bağlanır (mealId NULL kalır); site
+        // kapsamı plan denormundan gelir (D-9).
+        dayPlanId: boundPlan?.id,
+        siteId: boundPlan?.siteId ?? feedingSiteId ?? undefined,
+        extras: {
+          environment: payload.environment,
+          fishBehavior: payload.fishBehavior,
+          feedingDurationMinutes: payload.feedingDurationMinutes,
+          feedingSequence: payload.feedingSequence || 1,
+          totalMealsToday: payload.totalMealsToday || 1,
+          skipReason: payload.skipReason,
         },
-      );
+      });
 
       return saved;
     });

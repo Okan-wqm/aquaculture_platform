@@ -1,6 +1,6 @@
 /**
- * DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT write-path
- * correctness (Phase A)
+ * DailyFeedingExecutionService.recordActualFeeding — canonical feeding/stock
+ * transaction
  *
  * This is the SECOND in-transaction feeding write path (the first is
  * CreateFeedingRecordHandler). It must enforce the SAME invariants:
@@ -8,15 +8,9 @@
  *   1. assertFeedable gate: recording feed against an empty
  *      (currentQuantity ≤ 0) or non-feedable (HARVESTED / CLOSED / …) LOCKED
  *      batch is REJECTED inside the tx, before any state is mutated → rollback.
- *   2. Fail-CLOSED for a STORAGE-TRACKED feed: when the feed has storage
- *      presence but its located lot is short (recordMovement throws) the whole
- *      recording rolls back — feeding + both ledgers commit or roll back
- *      together; no silent divergence.
- *   3. Fail-OPEN SKIP for a NON-storage-tracked feed: when the feed has ZERO
- *      storage rows (a tenant that never adopted the warehouse module) the
- *      storage OUT is SKIPPED (no throw, no recordMovement) and the recording
- *      proceeds to commit on the feed_inventory-only path — this is the cliff
- *      removal that distinguishes "not tracked" from "out of stock".
+ *   2. The canonical allocation is always fail-CLOSED: insufficient, missing,
+ *      expired, or otherwise unusable physical stock rolls the whole recording
+ *      back. There is no compatibility skip or second feed inventory writer.
  *
  * The service runs everything inside a queryRunner transaction; the doubles
  * model that boundary and assert commit vs rollback. Real BatchDomainService
@@ -60,7 +54,7 @@ import { BilinearInterpolationService } from '../bilinear-interpolation.service'
 import { WaterTemperatureService } from '../../../water-quality/services/water-temperature.service';
 import { StockMovementService } from '../../../storage/services/stock-movement.service';
 import { StockMovement } from '../../../storage/entities/stock-movement.entity';
-import { RecordMovementResult } from '../../../storage/services/stock-movement.service';
+import { FeedDeductionResult } from '../../../storage/services/stock-movement.service';
 import { FeedingLedgerService } from '../feeding-ledger.service';
 import { FeedingRecord } from '../../entities/feeding-record.entity';
 import { Feed } from '../../../feed/entities/feed.entity';
@@ -77,7 +71,7 @@ const LOCATION = '55555555-5555-4555-8555-555555555555';
 // SEC-HIGH-051: the site-scope caller threaded into recordActualFeeding. A
 // MODULE_MANAGER bypasses the object-level site check via the canonical role
 // hierarchy, so these stock-focused tests keep their original behaviour — they
-// assert the dual-SSoT write path, not the site gate (covered by its own spec).
+// assert the stock authority path, not the site gate (covered by its own spec).
 const MANAGER_CALLER: SiteScopeCaller = {
   sub: USER,
   roles: [Role.MODULE_MANAGER],
@@ -151,19 +145,13 @@ interface HarnessOpts {
   tankBatch?: TankBatch | null;
   /** Batch returned under the pessimistic lock for assertFeedable. */
   lockedBatch?: Batch | null;
-  /** feedHasStoragePresence result. */
-  hasStoragePresence?: boolean;
-  /** resolveFeedDeductionLocation result. */
-  resolveLocation?: { storageLocationId: string; lotNumber?: string } | null;
-  /** Make recordMovement throw (insufficient stock for a tracked feed). */
+  /** Make the canonical allocation throw. */
   recordMovementThrows?: Error;
 }
 
 interface Harness {
   service: DailyFeedingExecutionService;
-  feedHasStoragePresence: jest.Mock;
-  resolveFeedDeductionLocation: jest.Mock;
-  recordMovement: jest.Mock;
+  recordFeedDeduction: jest.Mock;
   enqueue: jest.Mock;
   commit: jest.Mock;
   rollback: jest.Mock;
@@ -242,30 +230,17 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
   // Real domain service — production assertFeedable behaviour.
   const batchDomainService = new BatchDomainService(new BatchLifecyclePolicyService());
 
-  const feedHasStoragePresence = jest
-    .fn()
-    .mockResolvedValue(opts.hasStoragePresence === undefined ? true : opts.hasStoragePresence);
-  const resolveFeedDeductionLocation = jest
-    .fn()
-    .mockResolvedValue(
-      opts.resolveLocation === undefined
-        ? { storageLocationId: LOCATION, lotNumber: 'LOT-A' }
-        : opts.resolveLocation,
-    );
-  const recordMovement = jest.fn(async (): Promise<RecordMovementResult> => {
+  const recordFeedDeduction = jest.fn(async (): Promise<FeedDeductionResult> => {
     if (opts.recordMovementThrows) throw opts.recordMovementThrows;
     return {
-      saved: mock<StockMovement>({ id: 'mv-1' }),
-      currentTotal: 0,
+      movements: [mock<StockMovement>({ id: 'mv-1' })],
+      poolTotalKg: 100,
+      usedTenantPool: false,
       idempotentHit: false,
-      lowStock: null,
-      warnings: [],
     };
   });
   const stockMovementService = mock<StockMovementService>({
-    feedHasStoragePresence,
-    resolveFeedDeductionLocation,
-    recordMovement,
+    recordFeedDeduction,
   });
 
   // P-05/K-4: GERÇEK ledger — storage/kayıt/aggregate/outbox bacakları
@@ -284,7 +259,7 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
 
   const repo = <T extends ObjectLiteral>(): Repository<T> => mock<Repository<T>>({});
 
-  // No mobile-command envelope is passed by these dual-SSoT write-path tests, so
+  // No mobile-command envelope is passed by these canonical write-path tests, so
   // begin() runs in legacy mode (one-shot, no idempotency replay) and complete()
   // is a no-op. Both are stubbed so the recording proceeds straight to the
   // storage write path under test.
@@ -312,9 +287,7 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
 
   return {
     service,
-    feedHasStoragePresence,
-    resolveFeedDeductionLocation,
-    recordMovement,
+    recordFeedDeduction,
     enqueue,
     commit,
     rollback,
@@ -323,10 +296,9 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
   };
 }
 
-describe('DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT write path', () => {
+describe('DailyFeedingExecutionService.recordActualFeeding — canonical stock path', () => {
   it('(a) rolls back when a STORAGE-TRACKED feed has insufficient stock', async () => {
-    const { service, feedHasStoragePresence, recordMovement, commit, rollback } = makeHarness({
-      hasStoragePresence: true,
+    const { service, recordFeedDeduction, commit, rollback } = makeHarness({
       recordMovementThrows: new BadRequestException(
         'Insufficient stock. Available: 5 kg, Requested: 50 kg',
       ),
@@ -336,37 +308,13 @@ describe('DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT wr
       service.recordActualFeeding(EXECUTION, 50, USER, TENANT, MANAGER_CALLER),
     ).rejects.toThrow('Insufficient stock');
 
-    expect(feedHasStoragePresence).toHaveBeenCalledTimes(1);
-    // The deduction was attempted (tracked feed) and threw → rollback.
-    expect(recordMovement).toHaveBeenCalledTimes(1);
+    expect(recordFeedDeduction).toHaveBeenCalledTimes(1);
     expect(commit).not.toHaveBeenCalled();
     expect(rollback).toHaveBeenCalledTimes(1);
   });
 
-  it('(b) fail-OPEN: skips the storage deduction and COMMITS when the feed has NO storage presence', async () => {
-    const {
-      service,
-      feedHasStoragePresence,
-      resolveFeedDeductionLocation,
-      recordMovement,
-      commit,
-      rollback,
-    } = makeHarness({ hasStoragePresence: false });
-
-    const result = await service.recordActualFeeding(EXECUTION, 50, USER, TENANT, MANAGER_CALLER);
-
-    expect(feedHasStoragePresence).toHaveBeenCalledTimes(1);
-    // Not storage-tracked → no resolve, no movement, NO throw.
-    expect(resolveFeedDeductionLocation).not.toHaveBeenCalled();
-    expect(recordMovement).not.toHaveBeenCalled();
-    // Proceeds on the feed_inventory-only path and commits.
-    expect(commit).toHaveBeenCalledTimes(1);
-    expect(rollback).not.toHaveBeenCalled();
-    expect(result.executionId).toBe(EXECUTION);
-  });
-
   it('(c) assertFeedable rejects an empty LOCKED batch and rolls back before any deduction', async () => {
-    const { service, feedHasStoragePresence, recordMovement, commit, rollback } = makeHarness({
+    const { service, recordFeedDeduction, commit, rollback } = makeHarness({
       lockedBatch: makeFeedableBatch({ currentQuantity: 0 }),
     });
 
@@ -375,14 +323,13 @@ describe('DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT wr
     ).rejects.toBeInstanceOf(BadRequestException);
 
     // Rejected at the feedability guard — never reached the storage path.
-    expect(feedHasStoragePresence).not.toHaveBeenCalled();
-    expect(recordMovement).not.toHaveBeenCalled();
+    expect(recordFeedDeduction).not.toHaveBeenCalled();
     expect(commit).not.toHaveBeenCalled();
     expect(rollback).toHaveBeenCalledTimes(1);
   });
 
   it('assertFeedable rejects a non-feedable (HARVESTED) LOCKED batch and rolls back', async () => {
-    const { service, recordMovement, commit, rollback } = makeHarness({
+    const { service, recordFeedDeduction, commit, rollback } = makeHarness({
       lockedBatch: makeFeedableBatch({ status: BatchStatus.HARVESTED }),
     });
 
@@ -390,57 +337,39 @@ describe('DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT wr
       service.recordActualFeeding(EXECUTION, 50, USER, TENANT, MANAGER_CALLER),
     ).rejects.toBeInstanceOf(BadRequestException);
 
-    expect(recordMovement).not.toHaveBeenCalled();
+    expect(recordFeedDeduction).not.toHaveBeenCalled();
     expect(commit).not.toHaveBeenCalled();
     expect(rollback).toHaveBeenCalledTimes(1);
   });
 
   it('fail-CLOSED: storage-tracked feed with no usable lot → reject + rollback', async () => {
-    const { service, feedHasStoragePresence, recordMovement, commit, rollback } = makeHarness({
-      hasStoragePresence: true,
-      resolveLocation: null,
+    const { service, recordFeedDeduction, commit, rollback } = makeHarness({
+      recordMovementThrows: new BadRequestException('Feed has no usable stock'),
     });
 
     await expect(
       service.recordActualFeeding(EXECUTION, 50, USER, TENANT, MANAGER_CALLER),
     ).rejects.toBeInstanceOf(BadRequestException);
 
-    expect(feedHasStoragePresence).toHaveBeenCalledTimes(1);
-    // Presence but no lot → real shortage → no movement issued, rollback.
-    expect(recordMovement).not.toHaveBeenCalled();
+    expect(recordFeedDeduction).toHaveBeenCalledTimes(1);
     expect(commit).not.toHaveBeenCalled();
     expect(rollback).toHaveBeenCalledTimes(1);
   });
 
   it('happy path: storage-tracked feed deducts IN-TX (OUT) through the ledger and commits', async () => {
-    const {
-      service,
-      recordMovement,
-      resolveFeedDeductionLocation,
-      enqueue,
-      commit,
-      rollback,
-      createdRecords,
-      lockedBatch,
-    } = makeHarness({
-      hasStoragePresence: true,
-    });
+    const { service, recordFeedDeduction, enqueue, commit, rollback, createdRecords, lockedBatch } =
+      makeHarness({});
 
     const result = await service.recordActualFeeding(EXECUTION, 50, USER, TENANT, MANAGER_CALLER);
 
-    expect(resolveFeedDeductionLocation).toHaveBeenCalledTimes(1);
-    expect(recordMovement).toHaveBeenCalledTimes(1);
-    const movementInput = recordMovement.mock.calls[0]![1] as {
-      movementType: string;
-      itemId: string;
-      quantity: number;
-      fromLocationId: string;
+    expect(recordFeedDeduction).toHaveBeenCalledTimes(1);
+    const movementInput = recordFeedDeduction.mock.calls[0]![1] as {
+      feedId: string;
+      quantityKg: number;
       idempotencyKey: string;
     };
-    expect(movementInput.movementType).toBe('out');
-    expect(movementInput.itemId).toBe(FEED);
-    expect(movementInput.quantity).toBe(50);
-    expect(movementInput.fromLocationId).toBe(LOCATION);
+    expect(movementInput.feedId).toBe(FEED);
+    expect(movementInput.quantityKg).toBe(50);
     // P-05: idempotency anahtarı artık ledger'ın kayıt-bazlı anahtarı.
     expect(movementInput.idempotencyKey).toBe('feeding-deduct-fr-1');
 
@@ -464,16 +393,18 @@ describe('DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT wr
   });
 
   it('K-4 fail-closed: tank without a primary batch REJECTS the recording (no silent unattributed feed)', async () => {
-    const { service, recordMovement, enqueue, commit, rollback, createdRecords } = makeHarness({
-      tankBatch: null,
-    });
+    const { service, recordFeedDeduction, enqueue, commit, rollback, createdRecords } = makeHarness(
+      {
+        tankBatch: null,
+      },
+    );
 
     await expect(
       service.recordActualFeeding(EXECUTION, 50, USER, TENANT, MANAGER_CALLER),
     ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(createdRecords).toHaveLength(0);
-    expect(recordMovement).not.toHaveBeenCalled();
+    expect(recordFeedDeduction).not.toHaveBeenCalled();
     expect(enqueue).not.toHaveBeenCalled();
     expect(commit).not.toHaveBeenCalled();
     expect(rollback).toHaveBeenCalledTimes(1);
@@ -489,7 +420,6 @@ describe('DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT wr
     const { service, commit } = makeHarness({
       execution: dailyExecution,
       tankBatch,
-      hasStoragePresence: true,
     });
 
     await service.recordActualFeeding(EXECUTION, 50, USER, TENANT, MANAGER_CALLER);
@@ -508,7 +438,6 @@ describe('DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT wr
     const { service, commit } = makeHarness({
       execution: perFeeding,
       tankBatch,
-      hasStoragePresence: true,
     });
 
     await service.recordActualFeeding(EXECUTION, 50, USER, TENANT, MANAGER_CALLER);

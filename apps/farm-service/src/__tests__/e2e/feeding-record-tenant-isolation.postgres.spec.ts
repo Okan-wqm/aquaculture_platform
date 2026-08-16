@@ -17,6 +17,7 @@ import {
   getTenantSchemaName,
   withTenantContext,
 } from '@aquaculture/backend-common';
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import {
   bootPostgresContainer,
@@ -72,10 +73,23 @@ import {
 } from '../../tank/entities/tank.entity';
 import { StockMovementService } from '../../storage/services/stock-movement.service';
 import { LotMixService } from '../../storage/services/lot-mix.service';
-import { StorageLocation, StorageLocationType } from '../../storage/entities/storage-location.entity';
+import {
+  StorageLocation,
+  StorageLocationType,
+} from '../../storage/entities/storage-location.entity';
 import { StorageInventory, StorageItemType } from '../../storage/entities/storage-inventory.entity';
-import { StockMovement } from '../../storage/entities/stock-movement.entity';
+import { MovementType, StockMovement } from '../../storage/entities/stock-movement.entity';
 import { StorageLotMix } from '../../storage/entities/storage-lot-mix.entity';
+import { FeedStockAllocationAuthority } from '../../storage/services/feed-stock-allocation.authority';
+import { StockMutationLockAuthority } from '../../storage/services/stock-mutation-lock.authority';
+import { TenantClockAuthority } from '../../common/time/tenant-clock.authority';
+
+jest.mock('../../batch/utils/tank-lookup.util', () => ({
+  ...jest.requireActual('../../batch/utils/tank-lookup.util'),
+  // This fixture intentionally provisions only the legacy Tank table. The
+  // stock authority still resolves the sole tenant timezone from real Sites.
+  resolveTankSiteId: jest.fn(async () => null),
+}));
 
 const TENANT_A = '4b529829-ea79-48da-982c-cd6fbec8ffb7';
 const TENANT_B = '7c2f4e10-3d2a-4b4e-9f18-f8b16f0d5a10';
@@ -89,7 +103,7 @@ interface TenantFixture {
   batch: Batch;
   feed: Feed;
   storageLocation: StorageLocation;
-  storageLot: StorageInventory;
+  storageLots: StorageInventory[];
 }
 
 jest.setTimeout(120_000);
@@ -108,6 +122,7 @@ describe('Feeding record tenant isolation on real Postgres', () => {
   let feedRepository: Repository<Feed>;
   let feedingRecordRepository: Repository<FeedingRecord>;
   let batchService: BatchService;
+  let stockMovementService: StockMovementService;
   let createFeedingRecord: CreateFeedingRecordHandler;
   let getFeedingRecords: GetFeedingRecordsHandler;
   let getFeedingSummary: GetFeedingSummaryHandler;
@@ -181,10 +196,14 @@ describe('Feeding record tenant isolation on real Postgres', () => {
     const batchDomainService = new BatchDomainService(new BatchLifecyclePolicyService());
     // REAL sink: storage-tracked feed → FEFO lot decrement + roll-up +
     // LowStockDetected all inside the feeding transaction.
-    const stockMovementService = new StockMovementService(
+    const tenantClock = new TenantClockAuthority();
+    stockMovementService = new StockMovementService(
       new LotMixService(),
       new SiteAuthorizationService(),
       outboxPublisher,
+      new StockMutationLockAuthority(),
+      new FeedStockAllocationAuthority(tenantClock),
+      tenantClock,
     );
     // P-05 tek yem yazma yolu: handler artık GERÇEK FeedingLedgerService'e
     // delege eder (kayıt + batch aggregate + FEFO düşüm + outbox tek noktada).
@@ -205,6 +224,7 @@ describe('Feeding record tenant isolation on real Postgres', () => {
       feedingLedger,
       { lockUnitForGrowth: jest.fn().mockResolvedValue(null) } as never,
       { recalcForUnit: jest.fn().mockResolvedValue(null) } as never,
+      tenantClock,
     );
     getFeedingRecords = new GetFeedingRecordsHandler(dataSource);
     getFeedingSummary = new GetFeedingSummaryHandler(dataSource);
@@ -233,10 +253,10 @@ describe('Feeding record tenant isolation on real Postgres', () => {
             feedingSequence: 1,
             totalMealsToday: 2,
             feedId: fixtureA.feed.id,
-            feedBatchNumber: 'LOT-SHARED-01',
             plannedAmount: 8,
             actualAmount: 10,
             wasteAmount: 1,
+            currency: 'USD',
             feedingMethod: FeedingMethod.MANUAL,
             fishBehavior: {
               appetite: FishAppetite.GOOD,
@@ -257,14 +277,20 @@ describe('Feeding record tenant isolation on real Postgres', () => {
     const tenantABatch = await withTenantContext(TENANT_A, () =>
       batchRepository.findOneOrFail({ where: { id: fixtureA.batch.id, tenantId: TENANT_A } }),
     );
-    const tenantALot = await withTenantContext(TENANT_A, () =>
-      dataSource!.manager.findOneOrFail(StorageInventory, {
-        where: { id: fixtureA.storageLot.id, tenantId: TENANT_A },
+    const tenantAFirstLot = await withTenantContext(TENANT_A, () =>
+      dataSource!.manager.findOne(StorageInventory, {
+        where: { id: fixtureA.storageLots[0]!.id, tenantId: TENANT_A },
       }),
     );
-    const tenantBLot = await withTenantContext(TENANT_B, () =>
+    const tenantASecondLot = await withTenantContext(TENANT_A, () =>
       dataSource!.manager.findOneOrFail(StorageInventory, {
-        where: { id: fixtureB.storageLot.id, tenantId: TENANT_B },
+        where: { id: fixtureA.storageLots[1]!.id, tenantId: TENANT_A },
+      }),
+    );
+    const tenantBLots = await withTenantContext(TENANT_B, () =>
+      dataSource!.manager.find(StorageInventory, {
+        where: { tenantId: TENANT_B, itemId: fixtureB.feed.id },
+        order: { expiryDate: 'ASC' },
       }),
     );
     const tenantAFeed = await withTenantContext(TENANT_A, () =>
@@ -278,13 +304,14 @@ describe('Feeding record tenant isolation on real Postgres', () => {
     expect(Number(tenantABatch.totalFeedCost)).toBe(25);
     // Storage ledger is the single stock truth: lot decremented, roll-up +
     // status recomputed by the sink, neighbour tenant untouched.
-    expect(Number(tenantALot.quantity)).toBe(40);
+    expect(tenantAFirstLot).toBeNull();
+    expect(Number(tenantASecondLot.quantity)).toBe(40);
     expect(Number(tenantAFeed.quantity)).toBe(40);
     expect(tenantAFeed.status).toBe(FeedStatus.LOW_STOCK);
-    expect(Number(tenantBLot.quantity)).toBe(50);
+    expect(tenantBLots.map((lot) => Number(lot.quantity))).toEqual([4, 46]);
     expect(Number(tenantBFeed.quantity)).toBe(50);
     expect(tenantBFeed.status).toBe(FeedStatus.AVAILABLE);
-    expect(await tenantRowCount('stock_movements', TENANT_A)).toBe(1);
+    expect(await tenantRowCount('stock_movements', TENANT_A)).toBe(2);
     expect(await tenantRowCount('stock_movements', TENANT_B)).toBe(0);
 
     const tenantARecords = await withTenantContext(TENANT_A, () =>
@@ -334,6 +361,7 @@ describe('Feeding record tenant isolation on real Postgres', () => {
         feedId: fixtureA.feed.id,
         feedName: 'Shared Salmon Feed',
         totalKg: 10,
+        cost: 25,
         percentage: 100,
       },
     ]);
@@ -343,9 +371,84 @@ describe('Feeding record tenant isolation on real Postgres', () => {
     expect(tenantAOutboxRows.map((row) => row.eventType).sort()).toEqual([
       'FeedingRecorded',
       'LowStockDetected',
+      'StockMovementRecorded',
+      'StockMovementRecorded',
     ]);
     expect(tenantBOutboxRows).toHaveLength(0);
     expect(tenantAOutboxRows.every((row) => row.payload?.tenantId === TENANT_A)).toBe(true);
+
+    const [feedingRecord] = tenantARecords.data;
+    const deductionRoot = `feeding-deduct-${feedingRecord!.id}`;
+    const originalMovements = await withTenantContext(TENANT_A, () =>
+      dataSource!.manager.find(StockMovement, {
+        where: {
+          tenantId: TENANT_A,
+          itemId: fixtureA.feed.id,
+          movementType: MovementType.OUT,
+          allocationRootKey: deductionRoot,
+        },
+        order: { allocationSliceIndex: 'ASC' },
+      }),
+    );
+    expect(originalMovements.map((movement) => Number(movement.quantity))).toEqual([4, 6]);
+    expect(originalMovements.map((movement) => movement.lotNumber)).toEqual([
+      'LOT-SHARED-01',
+      'LOT-SHARED-02',
+    ]);
+
+    // A downward correction restores the latest FEFO slice to its exact source
+    // fact. It must not recreate the depleted earlier-expiry lot or guess a lot.
+    await runInTenantTransaction(dataSource!, 'farm', TENANT_A, (queryRunner) =>
+      stockMovementService.correctFeedDeduction(
+        queryRunner.manager,
+        {
+          feedId: fixtureA.feed.id,
+          deltaKg: -6,
+          sourceDeductionKey: deductionRoot,
+          idempotencyKey: `feeding-correction-${feedingRecord!.id}`,
+          occurredAt: new Date('2026-04-29T09:00:00.000Z'),
+          preferredSiteId: fixtureA.site.id,
+          reference: `FEEDING_CORRECTION: ${feedingRecord!.id}`,
+        },
+        { tenantId: TENANT_A, userId: USER_ID, userName: 'Postgres acceptance test' },
+      ),
+    );
+
+    const correctedFirstLot = await withTenantContext(TENANT_A, () =>
+      dataSource!.manager.findOne(StorageInventory, {
+        where: { id: fixtureA.storageLots[0]!.id, tenantId: TENANT_A },
+      }),
+    );
+    const correctedSecondLot = await withTenantContext(TENANT_A, () =>
+      dataSource!.manager.findOneOrFail(StorageInventory, {
+        where: { id: fixtureA.storageLots[1]!.id, tenantId: TENANT_A },
+      }),
+    );
+    const returnMovement = await withTenantContext(TENANT_A, () =>
+      dataSource!.manager.findOneOrFail(StockMovement, {
+        where: {
+          tenantId: TENANT_A,
+          itemId: fixtureA.feed.id,
+          movementType: MovementType.RETURN,
+          allocationFamilyKey: `feeding-correction-${feedingRecord!.id}`,
+        },
+      }),
+    );
+    const correctedFeed = await withTenantContext(TENANT_A, () =>
+      feedRepository.findOneOrFail({ where: { id: fixtureA.feed.id, tenantId: TENANT_A } }),
+    );
+
+    expect(correctedFirstLot).toBeNull();
+    expect(Number(correctedSecondLot.quantity)).toBe(46);
+    expect(Number(correctedFeed.quantity)).toBe(46);
+    expect(correctedFeed.status).toBe(FeedStatus.AVAILABLE);
+    expect(returnMovement.sourceMovementId).toBe(originalMovements[1]!.id);
+    expect(returnMovement.lotNumber).toBe('LOT-SHARED-02');
+    expect(Number(returnMovement.quantity)).toBe(6);
+    expect(await tenantRowCount('stock_movements', TENANT_A)).toBe(3);
+    expect(
+      (await outboxRows(TENANT_A)).filter((row) => row.eventType === 'StockMovementRecorded'),
+    ).toHaveLength(3);
   });
 
   async function createTenantFixture(tenantId: string): Promise<TenantFixture> {
@@ -475,6 +578,8 @@ describe('Feeding record tenant isolation on real Postgres', () => {
           name: 'Feed Warehouse',
           code: 'FEED-WH',
           type: StorageLocationType.WAREHOUSE,
+          capacityUnit: 'm3',
+          usedCapacity: 0,
           isActive: true,
           isDeleted: false,
           createdBy: USER_ID,
@@ -482,29 +587,45 @@ describe('Feeding record tenant isolation on real Postgres', () => {
         }),
       ),
     );
-    const storageLot = await withTenantContext(tenantId, () =>
-      dataSource!.manager.save(
+    const storageLots = await withTenantContext(tenantId, () =>
+      dataSource!.manager.save([
         dataSource!.manager.create(StorageInventory, {
           tenantId,
           storageLocationId: storageLocation.id,
           itemType: StorageItemType.FEED,
           itemId: feed.id,
-          quantity: 50,
+          quantity: 4,
           unit: 'kg',
           lotNumber: 'LOT-SHARED-01',
+          expiryDate: new Date('2026-05-01T00:00:00.000Z'),
           receivedDate: new Date('2026-04-01T00:00:00.000Z'),
           createdBy: USER_ID,
           updatedBy: USER_ID,
         }),
-      ),
+        dataSource!.manager.create(StorageInventory, {
+          tenantId,
+          storageLocationId: storageLocation.id,
+          itemType: StorageItemType.FEED,
+          itemId: feed.id,
+          quantity: 46,
+          unit: 'kg',
+          lotNumber: 'LOT-SHARED-02',
+          expiryDate: new Date('2026-06-01T00:00:00.000Z'),
+          receivedDate: new Date('2026-04-02T00:00:00.000Z'),
+          createdBy: USER_ID,
+          updatedBy: USER_ID,
+        }),
+      ]),
     );
 
-    return { site, department, species, tank, batch, feed, storageLocation, storageLot };
+    return { site, department, species, tank, batch, feed, storageLocation, storageLots };
   }
 
   async function tenantRowCount(table: string, tenantId: string): Promise<number> {
+    const tenantColumn =
+      table === 'stock_movements' || table === 'storage_inventory' ? 'tenant_id' : 'tenantId';
     const rows: Array<{ count: string }> = await dataSource!.query(
-      `SELECT COUNT(*)::text AS count FROM "${getTenantSchemaName(tenantId)}"."${table}" WHERE "tenantId" = $1`,
+      `SELECT COUNT(*)::text AS count FROM "${getTenantSchemaName(tenantId)}"."${table}" WHERE "${tenantColumn}" = $1`,
       [tenantId],
     );
     return Number(rows[0]?.count ?? 0);

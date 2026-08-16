@@ -12,12 +12,12 @@
  *  (b) `Batch.totalFeedConsumed/Cost` güncellemesi — Batch kilidi ÇAĞIRANDA
  *      (kanonik kilit sırası: Batch → ... → storage EN SON [K-1]); bu servis
  *      kilitli entity'yi parametre alır, kendisi kilit almaz.
- *  (c) Storage FEFO düşümü — ünitenin SİTESİYLE sınırlı, site'ta lot yoksa
- *      belgeli tenant-geneli fallback (D-9, gözlemlenebilir warn); idempotency
+ *  (c) Storage FEFO düşümü — ünitenin SİTESİ öncelikli, site stoğu yetmezse
+ *      allocation sonucunda açıkça işaretlenen tenant-geneli fallback; idempotency
  *      anahtarı öğün dökümünde `meal-deduct-${mealId}-${pourIndex}`, manuel
- *      yolda `feeding-deduct-${recordId}` — replay çift düşüm YAPAMAZ.
- *      Storage'da HİÇ izi olmayan feed için düşüm atlanır (Phase-A davranışı,
- *      gözlemlenebilir warn — sessiz sapma değil).
+ *      yolda `feeding-deduct-${recordId}` — replay çift düşüm YAPAMAZ. Eksik,
+ *      tükenmiş veya kullanılabilir lotu olmayan stok her zaman fail-closed'dur;
+ *      uyumluluk atlaması ya da process-local fallback yoktur.
  *  (d) `FeedingRecordedEvent` outbox — AYNI manager (outbox invariantı);
  *      additive `mealId/pourIndex/dayPlanId/unitId` alanları taşınır.
  *
@@ -27,7 +27,7 @@
  *
  * @module Feeding/Services
  */
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 import { toEventIso, FeedingRecordedEvent, createBaseEvent } from '@platform/event-contracts';
@@ -36,8 +36,6 @@ import { FeedingRecord, FeedingMethod } from '../entities/feeding-record.entity'
 import { Batch } from '../../batch/entities/batch.entity';
 import { Feed } from '../../feed/entities/feed.entity';
 import { StockMovementService } from '../../storage/services/stock-movement.service';
-import { MovementType } from '../../storage/entities/stock-movement.entity';
-import { StorageItemType } from '../../storage/entities/storage-inventory.entity';
 import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
 
 // ============================================================================
@@ -92,8 +90,6 @@ export interface RecordFeedParams {
 
 @Injectable()
 export class FeedingLedgerService {
-  private readonly logger = new Logger(FeedingLedgerService.name);
-
   constructor(
     private readonly stockMovementService: StockMovementService,
     private readonly financeSettings: FinanceSettingsService,
@@ -118,8 +114,7 @@ export class FeedingLedgerService {
     // bu kolonları okumaya devam eder, C-12).
     const feedCost = params.feedCost ?? this.calculateFeedCost(feed, params.actualAmountKg);
     const currency =
-      params.currency ??
-      (await this.financeSettings.getDefaultCurrencyInTx(manager, tenantId));
+      params.currency ?? (await this.financeSettings.getDefaultCurrencyInTx(manager, tenantId));
 
     const record = manager.create(FeedingRecord, {
       tenantId,
@@ -185,16 +180,15 @@ export class FeedingLedgerService {
       dayPlanId: params.dayPlanId,
       unitId: params.tankId,
     };
-    await this.outboxPublisher.enqueue(event, manager);
+    await this.outboxPublisher.enqueue(event, manager, {
+      aggregateId: params.batchId,
+      idempotencyKey: `feeding-recorded:${saved.id}`,
+    });
 
     return saved;
   }
 
-  /**
-   * FEFO düşümü — site kapsamlı (D-9). Storage'da hiç izi olmayan feed'de
-   * düşüm ATLANIR (Phase-A: feed_inventory-only tenant'lar; gözlemlenebilir
-   * warn); storage-izli feed'de uygun lot yoksa FAIL-CLOSED fırlatır.
-   */
+  /** FEFO allocation is compiled and mutated by the canonical stock authority. */
   private async deductFromStorage(
     manager: EntityManager,
     tenantId: string,
@@ -202,64 +196,22 @@ export class FeedingLedgerService {
     saved: FeedingRecord,
     params: RecordFeedParams,
   ): Promise<void> {
-    const hasStoragePresence = await this.stockMovementService.feedHasStoragePresence(
-      manager,
-      tenantId,
-      params.feedId,
-    );
-    if (!hasStoragePresence) {
-      this.logger.warn(
-        'Storage ledger not tracked for feed — skipping in-transaction storage deduction ' +
-          `(Phase-A tenant). feedId=${params.feedId}, recordId=${saved.id}, ` +
-          `actualKg=${params.actualAmountKg}`,
-      );
-      return;
-    }
-
-    const location = await this.stockMovementService.resolveFeedDeductionLocation(
-      manager,
-      tenantId,
-      params.feedId,
-      params.feedingDate,
-      params.feedBatchNumber,
-      params.siteId,
-    );
-    if (!location) {
-      // Storage-izli feed'de gerçek eksik → 400 + tam rollback (fail-closed).
-      throw new BadRequestException(
-        params.feedBatchNumber
-          ? `Feed ${params.feedId} lot "${params.feedBatchNumber}" has no available storage stock ` +
-            `to deduct ${params.actualAmountKg}kg. Receive this lot into a storage location first.`
-          : `Feed ${params.feedId} has no available storage stock to deduct ${params.actualAmountKg}kg. ` +
-            `Receive feed into a storage location first.`,
-      );
-    }
-    if (location.usedSiteFallback) {
-      // D-9 belgeli fallback: sitede lot yok — tenant-geneli lot kullanıldı.
-      this.logger.warn(
-        `Feed deduction fell back to tenant-wide stock: no usable lot in site ` +
-          `${params.siteId} for feed ${params.feedId} (recordId=${saved.id}).`,
-      );
-    }
-
     const idempotencyKey =
       params.mealId != null && params.pourIndex != null
         ? `meal-deduct-${params.mealId}-${params.pourIndex}`
         : `feeding-deduct-${saved.id}`;
 
-    await this.stockMovementService.recordMovement(
+    await this.stockMovementService.recordFeedDeduction(
       manager,
       {
-        movementType: MovementType.OUT,
-        itemType: StorageItemType.FEED,
-        itemId: params.feedId,
-        quantity: params.actualAmountKg,
-        fromLocationId: location.storageLocationId,
-        lotNumber: location.lotNumber,
+        feedId: params.feedId,
+        quantityKg: params.actualAmountKg,
+        occurredAt: params.feedingDate,
+        preferredSiteId: params.siteId,
+        lotNumber: params.feedBatchNumber,
         reference: `FEEDING: ${saved.id}`,
         reason: 'Auto-deducted from feeding record (in-transaction).',
         idempotencyKey,
-        movementDate: params.feedingDate,
       },
       { tenantId, userId, userName: 'Feeding' },
     );

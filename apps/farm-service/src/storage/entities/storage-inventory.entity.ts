@@ -26,7 +26,9 @@ registerEnumType(StorageItemType, {
 });
 
 @Entity('storage_inventory')
-@Index(['tenantId', 'storageLocationId', 'itemType', 'itemId', 'lotNumber'], { unique: true })
+// The physical-key uniqueness contract is the PostgreSQL
+// `uq_storage_inventory_physical_key_v1` NULLS-NOT-DISTINCT index. TypeORM's
+// decorator cannot describe that semantic without creating a weaker duplicate.
 @Index(['itemType', 'itemId'])
 export class StorageInventory {
   @PrimaryGeneratedColumn('uuid')
@@ -46,7 +48,13 @@ export class StorageInventory {
   @Column({ type: 'uuid', name: 'item_id' })
   itemId!: string;
 
-  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, transformer: new DecimalTransformer() })
+  @Column({
+    type: 'decimal',
+    precision: 15,
+    scale: 2,
+    default: 0,
+    transformer: new DecimalTransformer(),
+  })
   quantity!: number;
 
   @Column({ length: 20 })

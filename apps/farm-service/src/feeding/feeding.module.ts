@@ -68,11 +68,10 @@ import { FeedingResolvers } from './resolvers';
 import { BackdatePolicyModule } from '../common/services/backdate-policy.module';
 // Phase 4.2: restoreFeedingProgram mutation delegates to RestoreService.
 import { RestoreModule } from '../common/services/restore.module';
-// Feed dual-SSoT write-path correctness (Phase A): the feeding write path
-// asserts the batch is feedable (BatchModule → BatchDomainService) and
-// deducts feed from the storage ledger inside the feeding transaction
-// (InventoryModule → StockMovementService). Neither module imports
-// FeedingModule, so there is no DI cycle.
+// Canonical feeding write path: assert feedability through BatchDomainService
+// and deduct the physical stock ledger inside the same transaction through
+// StockMovementService. Neither imported module depends on FeedingModule, so
+// authority ownership does not introduce a DI cycle.
 import { BatchModule } from '../batch/batch.module';
 import { InventoryModule } from '../storage/storage.module';
 // Currency SSoT: CreateFeedingRecordHandler resolves the tenant default

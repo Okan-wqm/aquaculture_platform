@@ -27,10 +27,7 @@ import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { OutboxPublisher } from '@platform/outbox';
 import { createBaseEvent, FeedTypeTransitionedEvent } from '@platform/event-contracts';
 
-import {
-  FeedingProtocolV2,
-  FeedingProtocolStatus,
-} from '../entities/feeding-protocol-v2.entity';
+import { FeedingProtocolV2, FeedingProtocolStatus } from '../entities/feeding-protocol-v2.entity';
 import {
   ProtocolAssignment,
   ProtocolAssignmentStatus,
@@ -41,9 +38,9 @@ import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { Feed } from '../../feed/entities/feed.entity';
 import { MealPlanGeneratorService, mixedTankStats } from './meal-plan-generator.service';
 import { DayPlanRecalcService } from './day-plan-recalc.service';
-import { calendarDayIn } from './meal-schedule.util';
 import { collectFeedSourceFeedIds, buildFeedFcrMatrixMap } from './feed-fcr-source.util';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
+import { TenantClockAuthority } from '../../common/time/tenant-clock.authority';
 
 /**
  * K-9 operatör aksiyonlarının kapalı sonuç kümesi — GraphQL'e kayıtlı enum
@@ -70,6 +67,7 @@ export class DayPlanAdminService {
     private readonly recalcService: DayPlanRecalcService,
     private readonly temperatureService: WaterTemperatureService,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly tenantClock: TenantClockAuthority,
   ) {}
 
   async regenerateDayPlan(
@@ -80,7 +78,8 @@ export class DayPlanAdminService {
     return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const manager = queryRunner.manager;
       const assignment = await this.loadActiveAssignment(manager, tenantId, unitId);
-      const planDate = await this.planDateFor(manager, tenantId, assignment.siteId);
+      const planClock = await this.tenantClock.resolve(manager, tenantId, assignment.siteId);
+      const planDate = planClock.localDate;
 
       const existing = await manager
         .createQueryBuilder(FeedingDayPlan, 'dp')
@@ -103,7 +102,10 @@ export class DayPlanAdminService {
         this.logger.log(
           `Day plan ${existing.id} manually recalculated for unit ${unitId} by ${userId}`,
         );
-        return { outcome: DayPlanAdminOutcome.RECALCULATED, dayPlanId: result?.dayPlanId ?? existing.id };
+        return {
+          outcome: DayPlanAdminOutcome.RECALCULATED,
+          dayPlanId: result?.dayPlanId ?? existing.id,
+        };
       }
 
       // Bugün planı yok → şimdi üret (06:00 üreticisiyle AYNI hesap yolu).
@@ -143,7 +145,7 @@ export class DayPlanAdminService {
         },
         temperature,
         planDate,
-        timezone: await this.timezoneFor(manager, tenantId, assignment.siteId),
+        timezone: planClock.timezone,
         feedFcrMatrixByFeedId: buildFeedFcrMatrixMap(feeds),
       });
       if (!computed) {
@@ -177,8 +179,6 @@ export class DayPlanAdminService {
   ): Promise<DayPlanAdminResult> {
     return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const manager = queryRunner.manager;
-      const planDate = calendarDayInDefault();
-
       // Kanonik sıra: DayPlan → Meals → Assignment (recalc ile birebir).
       const dayPlan = await manager
         .createQueryBuilder(FeedingDayPlan, 'dp')
@@ -257,7 +257,7 @@ export class DayPlanAdminService {
       this.logger.log(
         `Manual feed transition on unit ${unitId}: ${fromFeedId ?? 'none'} → ${toFeedId} ` +
           `(band ${bandIndex}) by ${userId}; ${remainingMeals.length} remaining meals updated` +
-          (dayPlan ? ` (plan ${dayPlan.id}, ${planDate})` : ''),
+          (dayPlan ? ` (plan ${dayPlan.id}, ${dayPlan.planDate})` : ''),
       );
       return { outcome: DayPlanAdminOutcome.TRANSITIONED, dayPlanId: dayPlan?.id };
     });
@@ -281,29 +281,4 @@ export class DayPlanAdminService {
     }
     return assignment;
   }
-
-  private async timezoneFor(
-    manager: EntityManager,
-    tenantId: string,
-    siteId: string,
-  ): Promise<string> {
-    const rows: Array<{ timezone: string | null }> = await manager.query(
-      `SELECT timezone FROM "sites" WHERE "tenantId" = $1 AND id = $2`,
-      [tenantId, siteId],
-    );
-    return rows[0]?.timezone || 'UTC';
-  }
-
-  private async planDateFor(
-    manager: EntityManager,
-    tenantId: string,
-    siteId: string,
-  ): Promise<string> {
-    return calendarDayIn(await this.timezoneFor(manager, tenantId, siteId));
-  }
-}
-
-/** Geçiş loglaması için gün etiketi — UTC günü yeterli (bilgi amaçlı). */
-function calendarDayInDefault(): string {
-  return calendarDayIn('UTC');
 }

@@ -18,13 +18,14 @@
  */
 import { NotFoundException } from '@nestjs/common';
 import { createMockDataSource } from '@aquaculture/testing';
-import type { DataSource, EntityManager, Repository } from 'typeorm';
+import type { DataSource, EntityManager } from 'typeorm';
 
 import { UpdateFeedingRecordHandler } from '../../handlers/update-feeding-record.handler';
 import { UpdateFeedingRecordCommand } from '../../commands/update-feeding-record.command';
 import { FeedingRecord } from '../../entities/feeding-record.entity';
 import { Batch } from '../../../batch/entities/batch.entity';
 import type { OutboxPublisher } from '@platform/outbox';
+import type { StockMovementService } from '../../../storage/services/stock-movement.service';
 
 const TENANT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
@@ -42,8 +43,10 @@ function makeHarness(opts: HarnessOpts = {}) {
           id: 'fr-1',
           tenantId: TENANT_ID,
           batchId: 'batch-1',
+          feedId: 'feed-1',
           actualAmount: 10,
           feedCost: 100,
+          updatedAt: new Date('2026-07-20T10:00:00.000Z'),
           calculateVariance: jest.fn(),
           ...(opts.feedingRecord ?? {}),
         } as unknown as FeedingRecord);
@@ -59,11 +62,6 @@ function makeHarness(opts: HarnessOpts = {}) {
           ...(opts.batch ?? {}),
         };
 
-  const feedingRecordRepository = {
-    findOne: jest.fn().mockResolvedValue(record),
-  };
-  const batchRepository = {};
-
   const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSource();
 
   const savedEntities: unknown[] = [];
@@ -75,7 +73,11 @@ function makeHarness(opts: HarnessOpts = {}) {
     return target;
   });
   const managerFindOne = mockManager.findOne as jest.Mock;
-  managerFindOne.mockResolvedValue(batch);
+  managerFindOne.mockImplementation(async (entity: unknown) => {
+    if (entity === FeedingRecord) return record;
+    if (entity === Batch) return batch;
+    return null;
+  });
 
   const commit = mockQueryRunner.commitTransaction as jest.Mock;
   const rollback = mockQueryRunner.rollbackTransaction as jest.Mock;
@@ -86,12 +88,15 @@ function makeHarness(opts: HarnessOpts = {}) {
     return undefined;
   });
   const outboxPublisher = { enqueue } as unknown as OutboxPublisher;
+  const correctFeedDeduction = jest.fn().mockResolvedValue([]);
+  const stockMovementService = {
+    correctFeedDeduction,
+  } as unknown as StockMovementService;
 
   const handler = new UpdateFeedingRecordHandler(
-    feedingRecordRepository as unknown as Repository<FeedingRecord>,
-    batchRepository as unknown as Repository<Batch>,
     dataSource as DataSource,
     outboxPublisher,
+    stockMovementService,
   );
 
   return {
@@ -103,18 +108,17 @@ function makeHarness(opts: HarnessOpts = {}) {
     managerFindOne,
     savedEntities,
     batch,
+    correctFeedDeduction,
   };
 }
 
-function makeCommand(
-  payload: ConstructorParameters<typeof UpdateFeedingRecordCommand>[2],
-) {
+function makeCommand(payload: ConstructorParameters<typeof UpdateFeedingRecordCommand>[2]) {
   return new UpdateFeedingRecordCommand(TENANT_ID, 'fr-1', payload, 'user-1');
 }
 
 describe('UpdateFeedingRecordHandler — transactional outbox', () => {
   it('actualAmount change: emits event with diff + updates batch total', async () => {
-    const { handler, enqueue, commit, managerFindOne } = makeHarness();
+    const { handler, enqueue, commit, managerFindOne, correctFeedDeduction } = makeHarness();
 
     await handler.execute(makeCommand({ actualAmount: 15 }));
 
@@ -133,7 +137,17 @@ describe('UpdateFeedingRecordHandler — transactional outbox', () => {
     // Batch read + write happens when amount changed
     expect(managerFindOne).toHaveBeenCalledWith(Batch, {
       where: { id: 'batch-1', tenantId: TENANT_ID },
+      lock: { mode: 'pessimistic_write' },
     });
+    expect(correctFeedDeduction).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        feedId: 'feed-1',
+        deltaKg: 5,
+        sourceDeductionKey: 'feeding-deduct-fr-1',
+      }),
+      expect.objectContaining({ tenantId: TENANT_ID, userId: 'user-1' }),
+    );
     expect(commit).toHaveBeenCalledTimes(1);
   });
 
@@ -149,7 +163,7 @@ describe('UpdateFeedingRecordHandler — transactional outbox', () => {
     expect(event['costDiff']).toBe(50);
   });
 
-  it('notes-only change: event still fires (zero diffs) — batch not read', async () => {
+  it('notes-only change: event still fires with zero diffs', async () => {
     const { handler, enqueue, managerFindOne } = makeHarness();
 
     await handler.execute(makeCommand({ notes: 'adjusted by operator' }));
@@ -158,8 +172,11 @@ describe('UpdateFeedingRecordHandler — transactional outbox', () => {
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
     expect(event['amountDiffKg']).toBe(0);
     expect(event['costDiff']).toBe(0);
-    // Batch read is skipped when no numerical change
-    expect(managerFindOne).not.toHaveBeenCalled();
+    // Batch is locked before the record so every update follows one lock order.
+    expect(managerFindOne).toHaveBeenCalledWith(
+      Batch,
+      expect.objectContaining({ lock: { mode: 'pessimistic_write' } }),
+    );
   });
 
   it('outbox enqueue failure rolls back the row update', async () => {
@@ -169,9 +186,9 @@ describe('UpdateFeedingRecordHandler — transactional outbox', () => {
       },
     });
 
-    await expect(
-      handler.execute(makeCommand({ actualAmount: 15 })),
-    ).rejects.toThrow('outbox-enqueue-failed');
+    await expect(handler.execute(makeCommand({ actualAmount: 15 }))).rejects.toThrow(
+      'outbox-enqueue-failed',
+    );
     expect(rollback).toHaveBeenCalledTimes(1);
     expect(commit).not.toHaveBeenCalled();
   });
@@ -188,12 +205,13 @@ describe('UpdateFeedingRecordHandler — transactional outbox', () => {
     expect(enqueue).not.toHaveBeenCalled();
   });
 
-  it('NotFoundException when feeding record is missing — no tx, no event', async () => {
-    const { handler, enqueue } = makeHarness({ feedingRecord: null });
+  it('NotFoundException when feeding record is missing — transaction rolls back, no event', async () => {
+    const { handler, enqueue, rollback } = makeHarness({ feedingRecord: null });
 
-    await expect(
-      handler.execute(makeCommand({ actualAmount: 15 })),
-    ).rejects.toThrow(NotFoundException);
+    await expect(handler.execute(makeCommand({ actualAmount: 15 }))).rejects.toThrow(
+      NotFoundException,
+    );
     expect(enqueue).not.toHaveBeenCalled();
+    expect(rollback).toHaveBeenCalledTimes(1);
   });
 });

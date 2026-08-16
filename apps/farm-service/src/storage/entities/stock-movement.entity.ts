@@ -3,13 +3,11 @@
  */
 import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import { registerEnumType } from '@nestjs/graphql';
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  Index,
-} from 'typeorm';
+import { Check, Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from 'typeorm';
+
+export enum StockMutationOperationType {
+  PURCHASE_ORDER_RECEIPT = 'purchase_order_receipt',
+}
 
 export enum MovementType {
   IN = 'in',
@@ -32,7 +30,39 @@ registerEnumType(MovementType, {
 // Composite index for TraceLot queries: enables efficient lot traceability
 // without full table scan, required by EU 178/2002 Article 18 audits.
 @Index(['tenantId', 'lotNumber'])
-@Index('idx_stock_movements_tenant_idempotency', ['tenantId', 'idempotencyKey'], { unique: true, where: '"idempotency_key" IS NOT NULL' })
+@Index('idx_stock_movements_tenant_idempotency', ['tenantId', 'idempotencyKey'], {
+  unique: true,
+  where: '"idempotency_key" IS NOT NULL',
+})
+@Index(
+  'uq_stock_movements_operation_item_v1',
+  ['tenantId', 'operationType', 'operationId', 'operationItemId'],
+  {
+    unique: true,
+    where: '"operation_id" IS NOT NULL',
+  },
+)
+@Index('idx_stock_movements_operation_v1', ['tenantId', 'operationType', 'operationId'], {
+  where: '"operation_id" IS NOT NULL',
+})
+@Check(
+  'ck_stock_movements_operation_coordinates_v1',
+  `(
+    "operation_type" IS NULL
+    AND "operation_id" IS NULL
+    AND "operation_payload_hash" IS NULL
+    AND "operation_item_id" IS NULL
+  ) OR (
+    "operation_type" IS NOT NULL
+    AND "operation_id" IS NOT NULL
+    AND "operation_payload_hash" IS NOT NULL
+    AND "operation_item_id" IS NOT NULL
+  )`,
+)
+@Check(
+  'ck_stock_movements_operation_payload_hash_v1',
+  '"operation_payload_hash" IS NULL OR "operation_payload_hash" ~ \'^[0-9a-f]{64}$\'',
+)
 export class StockMovement {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -97,6 +127,45 @@ export class StockMovement {
    */
   @Column({ type: 'date', nullable: true, name: 'expiry_date' })
   expiryDate?: Date;
+
+  /** Original arrival instant of the physical lot represented by this fact. */
+  @Column({ type: 'timestamptz', nullable: true, name: 'received_date' })
+  receivedDate?: Date;
+
+  /** Stable identity shared by every FEFO slice of one logical allocation. */
+  @Column({ type: 'varchar', length: 64, nullable: true, name: 'allocation_family_key' })
+  @Index()
+  allocationFamilyKey?: string;
+
+  /** Stable root joining the original allocation and every later correction. */
+  @Column({ type: 'varchar', length: 64, nullable: true, name: 'allocation_root_key' })
+  @Index()
+  allocationRootKey?: string;
+
+  /** Deterministic order within an allocation/correction operation. */
+  @Column({ type: 'int', nullable: true, name: 'allocation_slice_index' })
+  allocationSliceIndex?: number;
+
+  /** Exact OUT movement restored by a RETURN correction. */
+  @Column({ type: 'uuid', nullable: true, name: 'source_movement_id' })
+  @Index()
+  sourceMovementId?: string;
+
+  /** Typed logical operation that caused this immutable movement fact. */
+  @Column({ type: 'varchar', length: 40, nullable: true, name: 'operation_type' })
+  operationType?: StockMutationOperationType;
+
+  /** Caller-stable operation identity shared by all facts in one atomic mutation. */
+  @Column({ type: 'uuid', nullable: true, name: 'operation_id' })
+  operationId?: string;
+
+  /** SHA-256 of the canonical, actor-bound operation payload. */
+  @Column({ type: 'char', length: 64, nullable: true, name: 'operation_payload_hash' })
+  operationPayloadHash?: string;
+
+  /** Stable line identity within the logical operation (PO item for receipts). */
+  @Column({ type: 'uuid', nullable: true, name: 'operation_item_id' })
+  operationItemId?: string;
 
   /**
    * Client-generated idempotency key to prevent duplicate movements from

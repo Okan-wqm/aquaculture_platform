@@ -20,7 +20,10 @@ import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { Role } from '@aquaculture/backend-common/decorators';
 
 import { MealExecutionService, type MealCaller } from '../services/meal-execution.service';
-import { BiomassGrowthApplierService, type LockedUnit } from '../services/biomass-growth-applier.service';
+import {
+  BiomassGrowthApplierService,
+  type LockedUnit,
+} from '../services/biomass-growth-applier.service';
 import { DayPlanRecalcService } from '../services/day-plan-recalc.service';
 import { FeedingLedgerService } from '../../feeding/services/feeding-ledger.service';
 import { BatchDomainService } from '../../batch/services/batch-domain.service';
@@ -183,9 +186,7 @@ function makeHarness(opts: HarnessOpts = {}) {
   const count = jest.fn();
   count.mockImplementation(async () => opts.openMealsAfter ?? 1);
   const managerQuery = jest.fn();
-  managerQuery.mockImplementation(async () => [
-    { fromLocationId: 'loc-1', lotNumber: 'LOT-A' },
-  ]);
+  managerQuery.mockImplementation(async () => [{ fromLocationId: 'loc-1', lotNumber: 'LOT-A' }]);
 
   const manager = mock<EntityManager>({ findOne, save, count, query: managerQuery });
   globalThis.__mealExecManager = manager;
@@ -214,26 +215,10 @@ function makeHarness(opts: HarnessOpts = {}) {
   const recordFeed = jest.fn();
   recordFeed.mockImplementation(async () => mock({ id: 'rec-1' }));
   const feedingLedger = mock<FeedingLedgerService>({ recordFeed });
-  const feedHasStoragePresence = jest.fn();
-  feedHasStoragePresence.mockResolvedValue(true);
-  const resolveFeedDeductionLocation = jest.fn();
-  resolveFeedDeductionLocation.mockImplementation(async () => ({
-    storageLocationId: 'loc-1',
-    lotNumber: 'LOT-A',
-    usedSiteFallback: false,
-  }));
-  const recordMovement = jest.fn();
-  recordMovement.mockImplementation(async () => ({
-    saved: mock({ id: 'mv-1' }),
-    currentTotal: 0,
-    idempotentHit: false,
-    lowStock: null,
-    warnings: [],
-  }));
+  const correctFeedDeduction = jest.fn();
+  correctFeedDeduction.mockResolvedValue([mock({ id: 'mv-1' })]);
   const stockMovementService = mock<StockMovementService>({
-    feedHasStoragePresence,
-    resolveFeedDeductionLocation,
-    recordMovement,
+    correctFeedDeduction,
   });
   const batchDomainService = new BatchDomainService(new BatchLifecyclePolicyService());
   const outbox = mock<OutboxPublisher>({
@@ -266,7 +251,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     siteAuth,
     receiptComplete,
     enqueued,
-    recordMovement,
+    correctFeedDeduction,
     feedingRecord,
     lockedUnit,
   };
@@ -309,14 +294,21 @@ describe('MealExecutionService.recordMealFeeding', () => {
   });
 
   it('appends a pour cumulatively and routes it through the ledger with meal linkage (D-8/P-05)', async () => {
-    const harness = makeHarness({ meal: { actualKg: 3, pours: [{ pourIndex: 0, kg: 3, at: 'x', by: 'u' }] } });
+    const harness = makeHarness({
+      meal: { actualKg: 3, pours: [{ pourIndex: 0, kg: 3, at: 'x', by: 'u' }] },
+    });
     const result = await harness.service.recordMealFeeding(baseParams());
 
     expect(result.status).toBe(FeedingMealStatus.PARTIALLY_FED);
     expect(result.actualKg).toBeCloseTo(7); // 3 + 4 kümülatif
     expect(harness.meal.pours).toHaveLength(2);
     const ledgerCall = (harness.feedingLedger.recordFeed as jest.Mock).mock.calls[0];
-    expect(ledgerCall[5]).toMatchObject({ mealId: MEAL, pourIndex: 1, dayPlanId: PLAN, siteId: 'site-1' });
+    expect(ledgerCall[5]).toMatchObject({
+      mealId: MEAL,
+      pourIndex: 1,
+      dayPlanId: PLAN,
+      siteId: 'site-1',
+    });
     expect(harness.enqueued.map((event) => event.eventType)).toContain('MealFed');
     expect(harness.siteAuth.assertSiteAssignment).toHaveBeenCalledWith(
       expect.objectContaining({ siteId: 'site-1' }),
@@ -408,10 +400,10 @@ describe('MealExecutionService.correctMealPour', () => {
     // Ledger kaydı + batch delta'ları
     expect(harness.feedingRecord!.actualAmount).toBe(6);
     expect(harness.feedingRecord!.feedCost).toBeCloseTo(12); // 2/kg × 6
-    // Ek OUT: fark kadar, meal-correct idempotency anahtarıyla
-    const movement = harness.recordMovement.mock.calls[0]![1] as Record<string, unknown>;
-    expect(movement['movementType']).toBe('out');
-    expect(movement['quantity']).toBeCloseTo(2);
+    // Immutable allocation correction: positive delta compiles another FEFO family.
+    const movement = harness.correctFeedDeduction.mock.calls[0]![1] as Record<string, unknown>;
+    expect(movement['deltaKg']).toBeCloseTo(2);
+    expect(movement['sourceDeductionKey']).toBe(`meal-deduct-${MEAL}-0`);
     expect(movement['idempotencyKey']).toBe(`meal-correct-${MEAL}-0-1`);
     // Growth delta = +2 / 1.25 = 1.6 ve recalc pour_correction gerekçesiyle
     const growthCall = (harness.growthApplier.applyGrowth as jest.Mock).mock.calls[0]!;
@@ -425,16 +417,14 @@ describe('MealExecutionService.correctMealPour', () => {
     expect(harness.enqueued.map((event) => event.eventType)).toContain('FeedingRecordUpdated');
   });
 
-  it('downward correction: RETURN to the original lot/location resolved from the deduction movement', async () => {
+  it('downward correction restores the exact immutable allocation family', async () => {
     const harness = makeHarness({ meal: fedMeal() });
     const result = await harness.service.correctMealPour(correctionParams(3));
 
     expect(result.actualKg).toBeCloseTo(3);
-    const movement = harness.recordMovement.mock.calls[0]![1] as Record<string, unknown>;
-    expect(movement['movementType']).toBe('in');
-    expect(movement['quantity']).toBeCloseTo(1);
-    expect(movement['toLocationId']).toBe('loc-1'); // orijinal düşümün lokasyonu
-    expect(movement['lotNumber']).toBe('LOT-A');
+    const movement = harness.correctFeedDeduction.mock.calls[0]![1] as Record<string, unknown>;
+    expect(movement['deltaKg']).toBeCloseTo(-1);
+    expect(movement['sourceDeductionKey']).toBe(`meal-deduct-${MEAL}-0`);
     // Growth delta NEGATİF: -1 / 1.25 = -0.8 (büyüme geri alınır)
     const growthCall = (harness.growthApplier.applyGrowth as jest.Mock).mock.calls[0]!;
     expect(growthCall[3]).toBeCloseTo(-0.8);
@@ -443,7 +433,7 @@ describe('MealExecutionService.correctMealPour', () => {
   it('no-op when the corrected amount equals the pour (no movement, no event)', async () => {
     const harness = makeHarness({ meal: fedMeal() });
     await harness.service.correctMealPour(correctionParams(4));
-    expect(harness.recordMovement).not.toHaveBeenCalled();
+    expect(harness.correctFeedDeduction).not.toHaveBeenCalled();
     expect(harness.enqueued).toHaveLength(0);
   });
 
@@ -492,7 +482,10 @@ describe('MealExecutionService.skipMeal', () => {
       reason: 'balık iştahsız',
     });
     const lockedEntities = harness.findOne.mock.calls
-      .filter(([, options]) => (options as { lock?: { mode?: string } })?.lock?.mode === 'pessimistic_write')
+      .filter(
+        ([, options]) =>
+          (options as { lock?: { mode?: string } })?.lock?.mode === 'pessimistic_write',
+      )
       .map(([entity]) => entity);
     expect(lockedEntities).toEqual([FeedingDayPlan, FeedingMeal]);
     // Ön-okuma kilitsizdir: ilk FeedingMeal findOne'ı lock seçeneği taşımaz.

@@ -1,7 +1,7 @@
 /**
  * StockMovementService Unit Tests
  *
- * Pins the Phase-A feed dual-SSoT write-path-correctness properties:
+ * Pins the canonical stock mutation properties:
  *
  *   - recordMovement(OUT) is FAIL-CLOSED: it THROWS (BadRequestException)
  *     when the located lot has insufficient stock, and when no lot exists
@@ -12,8 +12,8 @@
  *     StockMovement audit row on the happy path.
  *   - recordMovement honours the idempotency key (no double-deduct on
  *     replay).
- *   - resolveFeedDeductionLocation returns the FEFO lot/location, and null
- *     when nothing usable is in stock (so feeding callers can fail-closed).
+ *   - the allocation authority returns deterministic FEFO slices and rejects
+ *     a request when the complete locked pool cannot satisfy it.
  *
  * The service consumes its repositories exclusively through
  * `tenantManagerRepo(manager, Entity, tenantId)`, which fetches the per-entity
@@ -32,6 +32,9 @@ import { OutboxPublisher } from '@platform/outbox';
 
 import { StockMovementService } from '../services/stock-movement.service';
 import { LotMixService } from '../services/lot-mix.service';
+import { FeedStockAllocationAuthority } from '../services/feed-stock-allocation.authority';
+import { StockMutationLockAuthority } from '../services/stock-mutation-lock.authority';
+import { TenantClockAuthority } from '../../common/time/tenant-clock.authority';
 import { StorageInventory, StorageItemType } from '../entities/storage-inventory.entity';
 import { StorageLocation } from '../entities/storage-location.entity';
 import { StockMovement, MovementType } from '../entities/stock-movement.entity';
@@ -53,9 +56,7 @@ function mock<T>(impl: Partial<T>): T {
 
 function tenantRepositoryMetadata<T extends ObjectLiteral>(): Repository<T>['metadata'] {
   const tenantColumn = mock<
-    NonNullable<
-      ReturnType<Repository<T>['metadata']['findColumnWithPropertyName']>
-    >
+    NonNullable<ReturnType<Repository<T>['metadata']['findColumnWithPropertyName']>>
   >({
     databaseName: 'tenantId',
   });
@@ -101,7 +102,7 @@ interface HarnessOpts {
   feed?: Feed | null;
   /** Existing movement for the idempotency key (null = none). */
   existingMovement?: StockMovement | null;
-  /** Result of resolveFeedDeductionLocation's FEFO read. */
+  /** Result of the canonical FEFO inventory read. */
   resolveLot?: StorageInventory | null;
   /** Post-decrement aggregate SUM returned for the item (default '250'). */
   aggregateTotal?: string;
@@ -173,9 +174,13 @@ function makeHarness(opts: HarnessOpts = {}): {
   });
 
   const movementCreate = jest.fn();
-  movementCreate.mockImplementation((dto: Partial<StockMovement>) => mock<StockMovement>({ ...dto }));
+  movementCreate.mockImplementation((dto: Partial<StockMovement>) =>
+    mock<StockMovement>({ ...dto }),
+  );
   const movementSave = jest.fn();
-  movementSave.mockImplementation(async (row: StockMovement) => mock<StockMovement>({ ...row, id: 'mv-1' }));
+  movementSave.mockImplementation(async (row: StockMovement) =>
+    mock<StockMovement>({ ...row, id: 'mv-1' }),
+  );
   const movementRepo = mock<Repository<StockMovement>>({
     metadata: tenantRepositoryMetadata<StockMovement>(),
     findOne: jest.fn().mockResolvedValue(opts.existingMovement ?? null),
@@ -212,7 +217,28 @@ function makeHarness(opts: HarnessOpts = {}): {
   const outboxEnqueue = jest.fn();
   outboxEnqueue.mockResolvedValue(undefined);
   const outboxPublisher = mock<OutboxPublisher>({ enqueue: outboxEnqueue });
-  const service = new StockMovementService(lotMix, new SiteAuthorizationService(), outboxPublisher);
+  const mutationLocks = mock<StockMutationLockAuthority>({
+    acquire: jest.fn().mockResolvedValue(undefined),
+    acquireIdempotency: jest.fn().mockResolvedValue(undefined),
+  });
+  const allocations = mock<FeedStockAllocationAuthority>({
+    allocate: jest.fn(),
+  });
+  const clock = mock<TenantClockAuthority>({
+    resolve: jest.fn().mockResolvedValue({
+      instant: new Date('2026-07-20T12:00:00.000Z'),
+      timezone: 'UTC',
+      localDate: '2026-07-20',
+    }),
+  });
+  const service = new StockMovementService(
+    lotMix,
+    new SiteAuthorizationService(),
+    outboxPublisher,
+    mutationLocks,
+    allocations,
+    clock,
+  );
 
   return {
     service,
@@ -244,7 +270,11 @@ describe('StockMovementService.recordMovement — SEC-HIGH-051 sink site-authz',
       service.recordMovement(manager, outInput(50), {
         tenantId: TENANT,
         userId: USER,
-        siteAuthorization: { sub: USER, roles: [Role.MODULE_USER], assignedSiteIds: ['site-OTHER'] },
+        siteAuthorization: {
+          sub: USER,
+          roles: [Role.MODULE_USER],
+          assignedSiteIds: ['site-OTHER'],
+        },
       }),
     ).rejects.toBeInstanceOf(ForbiddenException);
 
@@ -268,7 +298,10 @@ describe('StockMovementService.recordMovement — SEC-HIGH-051 sink site-authz',
 
     // Feeding authorizes on the FEEDING site at its own sink, so the internal
     // feed-deduction movement passes no siteAuthorization and is not re-gated.
-    const result = await service.recordMovement(manager, outInput(50), { tenantId: TENANT, userId: USER });
+    const result = await service.recordMovement(manager, outInput(50), {
+      tenantId: TENANT,
+      userId: USER,
+    });
     expect(result.idempotentHit).toBe(false);
   });
 });
@@ -301,7 +334,10 @@ describe('StockMovementService.recordMovement (OUT, fail-closed)', () => {
   it('decrements the lot and writes the audit row on the happy path', async () => {
     const { service, manager, repos } = makeHarness({ fromLot: inv({ quantity: 500 }) });
 
-    const result = await service.recordMovement(manager, outInput(50), { tenantId: TENANT, userId: USER });
+    const result = await service.recordMovement(manager, outInput(50), {
+      tenantId: TENANT,
+      userId: USER,
+    });
 
     // Lot decremented 500 -> 450 and saved (not removed).
     expect(repos.inventorySave).toHaveBeenCalled();
@@ -318,7 +354,15 @@ describe('StockMovementService.recordMovement (OUT, fail-closed)', () => {
 
   it('is idempotent: a matching key returns the existing movement without re-deducting', async () => {
     const { service, manager, repos } = makeHarness({
-      existingMovement: mock<StockMovement>({ id: 'mv-existing' }),
+      existingMovement: mock<StockMovement>({
+        id: 'mv-existing',
+        movementType: MovementType.OUT,
+        itemType: StorageItemType.FEED,
+        itemId: FEED,
+        quantity: 50,
+        fromLocationId: LOCATION,
+        lotNumber: 'LOT-A',
+      }),
     });
 
     const result = await service.recordMovement(
@@ -342,31 +386,6 @@ describe('StockMovementService.recordMovement (OUT, fail-closed)', () => {
   });
 });
 
-describe('StockMovementService.resolveFeedDeductionLocation', () => {
-  it('returns the FEFO lot/location when stock exists', async () => {
-    const { service, manager } = makeHarness({
-      resolveLot: inv({ storageLocationId: LOCATION, lotNumber: 'LOT-A' }),
-    });
-
-    const result = await service.resolveFeedDeductionLocation(manager, TENANT, FEED, new Date());
-
-    expect(result).toEqual({
-      storageLocationId: LOCATION,
-      lotNumber: 'LOT-A',
-      // D-9: siteId verilmedi → site fallback söz konusu değil.
-      usedSiteFallback: false,
-    });
-  });
-
-  it('returns null when no usable lot is in stock (caller must fail-closed)', async () => {
-    const { service, manager } = makeHarness({ resolveLot: null });
-
-    const result = await service.resolveFeedDeductionLocation(manager, TENANT, FEED, new Date());
-
-    expect(result).toBeNull();
-  });
-});
-
 describe('StockMovementService.recordMovement — single low-stock sink', () => {
   // The durable LowStockDetected signal is enqueued AT THE MUTATION CORE so
   // every stock-reducing writer (manual movement, feeding deduction, PO
@@ -384,8 +403,9 @@ describe('StockMovementService.recordMovement — single low-stock sink', () => 
     const result = await service.recordMovement(manager, outInput(50), ctx);
 
     expect(result.lowStock).toEqual({ severity: 'low_stock', minimumThreshold: 100 });
-    expect(outboxEnqueue).toHaveBeenCalledTimes(1);
-    const [event, passedManager] = outboxEnqueue.mock.calls[0];
+    expect(outboxEnqueue).toHaveBeenCalledTimes(2);
+    expect(outboxEnqueue.mock.calls[0][0].eventType).toBe('StockMovementRecorded');
+    const [event, passedManager] = outboxEnqueue.mock.calls[1];
     expect(event.eventType).toBe('LowStockDetected');
     expect(event).toMatchObject({
       itemType: StorageItemType.FEED,
@@ -408,7 +428,7 @@ describe('StockMovementService.recordMovement — single low-stock sink', () => 
     const result = await service.recordMovement(manager, outInput(50), ctx);
 
     expect(result.lowStock?.severity).toBe('out_of_stock');
-    expect(outboxEnqueue.mock.calls[0][0].severity).toBe('out_of_stock');
+    expect(outboxEnqueue.mock.calls[1][0].severity).toBe('out_of_stock');
   });
 
   it('stays silent when the aggregate remains above minStock', async () => {
@@ -420,7 +440,8 @@ describe('StockMovementService.recordMovement — single low-stock sink', () => 
     const result = await service.recordMovement(manager, outInput(50), ctx);
 
     expect(result.lowStock).toBeNull();
-    expect(outboxEnqueue).not.toHaveBeenCalled();
+    expect(outboxEnqueue).toHaveBeenCalledTimes(1);
+    expect(outboxEnqueue.mock.calls[0][0].eventType).toBe('StockMovementRecorded');
   });
 
   it('does not evaluate low stock for inbound movements', async () => {
@@ -439,12 +460,21 @@ describe('StockMovementService.recordMovement — single low-stock sink', () => 
     );
 
     expect(result.lowStock).toBeNull();
-    expect(outboxEnqueue).not.toHaveBeenCalled();
+    expect(outboxEnqueue).toHaveBeenCalledTimes(1);
+    expect(outboxEnqueue.mock.calls[0][0].eventType).toBe('StockMovementRecorded');
   });
 
   it('does not re-enqueue on an idempotent replay', async () => {
     const { service, manager, outboxEnqueue } = makeHarness({
-      existingMovement: mock<StockMovement>({ id: 'mv-existing' }),
+      existingMovement: mock<StockMovement>({
+        id: 'mv-existing',
+        movementType: MovementType.OUT,
+        itemType: StorageItemType.FEED,
+        itemId: FEED,
+        quantity: 50,
+        fromLocationId: LOCATION,
+        lotNumber: 'LOT-A',
+      }),
       aggregateTotal: '0',
     });
 

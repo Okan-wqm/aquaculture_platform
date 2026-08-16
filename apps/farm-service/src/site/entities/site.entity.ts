@@ -231,7 +231,7 @@ export class Site {
   region?: string;
 
   @Field({ nullable: true })
-  @Column({ length: 50, default: 'UTC' })
+  @Column({ type: 'varchar', length: 50, default: 'UTC' })
   timezone!: string;
 
   // -------------------------------------------------------------------------

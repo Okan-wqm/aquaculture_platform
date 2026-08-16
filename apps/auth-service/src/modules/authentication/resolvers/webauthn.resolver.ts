@@ -19,6 +19,10 @@ import {
 } from '../dto/webauthn.dto';
 import { User } from '../entities/user.entity';
 import { WebAuthnService } from '../services/webauthn.service';
+import {
+  buildRefreshTokenCookieOptions,
+  REFRESH_TOKEN_COOKIE_NAME,
+} from '../utils/refresh-token-cookie';
 
 interface GqlContext {
   req: Request;
@@ -46,13 +50,15 @@ export class WebAuthnResolver {
    * Set refresh token as httpOnly cookie (same logic as AuthResolver)
    */
   private setRefreshTokenCookie(res: Response, token: string): void {
-    res.cookie('refresh_token', token, {
-      httpOnly: true,
-      secure: this.isProduction,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: this.refreshTokenExpiryDays * 24 * 60 * 60 * 1000,
-    });
+    res.cookie(
+      REFRESH_TOKEN_COOKIE_NAME,
+      token,
+      buildRefreshTokenCookieOptions({
+        isProduction: this.isProduction,
+        rememberMe: true,
+        rememberMeExpiryDays: this.refreshTokenExpiryDays,
+      }),
+    );
   }
 
   /**
@@ -116,9 +122,7 @@ export class WebAuthnResolver {
   @Query(() => Boolean, {
     description: 'Check if the current user has biometric login enabled',
   })
-  async hasWebAuthnCredentials(
-    @CurrentUser('sub') userId: string,
-  ): Promise<boolean> {
+  async hasWebAuthnCredentials(@CurrentUser('sub') userId: string): Promise<boolean> {
     return this.webAuthnService.hasCredentials(userId);
   }
 

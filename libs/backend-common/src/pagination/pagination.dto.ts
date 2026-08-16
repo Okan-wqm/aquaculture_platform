@@ -7,15 +7,18 @@
  * - Input: StandardPaginationInput (page, limit, sortBy, sortOrder)
  * - Output: StandardPaginatedResponse<T> (items, total, page, limit, totalPages, hasNextPage, hasPreviousPage)
  *
- * Legacy Pattern (offset/limit with hasMore) — @deprecated Phase 4 complete, remove in Phase 5:
- * - Input: PaginationInput
- * - Output: PaginatedResponse<T>
- *
  * @module Pagination
  */
 import { Field, Int, ObjectType, InputType, registerEnumType } from '@nestjs/graphql';
 import { IsOptional, IsInt, Min, Max, IsString, IsEnum, Matches } from 'class-validator';
 import { Type } from '@nestjs/common';
+import {
+  createStandardPaginatedResult,
+  type StandardPaginatedResult,
+} from '@platform/pagination-contracts';
+
+export { createStandardPaginatedResult } from '@platform/pagination-contracts';
+export type { StandardPaginatedResult } from '@platform/pagination-contracts';
 
 // ============================================================================
 // ENUMS
@@ -33,97 +36,6 @@ registerEnumType(SortOrder, {
   name: 'SortOrder',
   description: 'Sort direction for paginated queries',
 });
-
-// ============================================================================
-// LEGACY PAGINATION (deprecated — Phase 3 removal)
-// ============================================================================
-
-/**
- * @deprecated Phase 4 complete — remove in Phase 5. Use `StandardPaginationInput` instead.
- *
- * Pagination input using offset/limit pattern.
- * - offset: Number of items to skip (default: 0)
- * - limit: Maximum number of items to return (default: 20, max: 100)
- * - sortBy: Field to sort by (default: 'createdAt')
- * - sortOrder: Sort direction ASC or DESC (default: 'DESC')
- */
-@InputType({ isAbstract: true })
-export class PaginationInput {
-  @Field(() => Int, { nullable: true, defaultValue: 0, description: 'Number of items to skip' })
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  offset?: number;
-
-  @Field(() => Int, { nullable: true, defaultValue: 20, description: 'Maximum number of items to return (max: 100)' })
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  limit?: number;
-
-  /**
-   * Field to sort by. Must be a valid identifier (alphanumeric + underscore).
-   * Consumers MUST validate this against an allowlist of permitted fields
-   * before using in query builders to prevent SQL injection via ORDER BY.
-   */
-  @Field({ nullable: true, defaultValue: 'createdAt', description: 'Field to sort by (must be a valid column name)' })
-  @IsOptional()
-  @IsString()
-  @Matches(/^[a-zA-Z_][a-zA-Z0-9_]*$/, { message: 'sortBy must be a valid field name (alphanumeric and underscore only)' })
-  sortBy?: string;
-
-  @Field(() => SortOrder, { nullable: true, defaultValue: SortOrder.DESC, description: 'Sort direction (ASC or DESC)' })
-  @IsOptional()
-  @IsEnum(SortOrder)
-  sortOrder?: SortOrder;
-}
-
-/**
- * @deprecated Phase 4 complete — remove in Phase 5. Use `IStandardPaginatedResult` instead.
- */
-export interface IPaginatedResult<T> {
-  items: T[];
-  total: number;
-  hasMore: boolean;
-}
-
-/**
- * @deprecated Phase 4 complete — remove in Phase 5. Use `StandardPaginatedResponse` instead.
- */
-export function PaginatedResponse<T>(classRef: Type<T>): Type<IPaginatedResult<T>> {
-  @ObjectType({ isAbstract: true })
-  abstract class PaginatedResponseClass implements IPaginatedResult<T> {
-    @Field(() => [classRef], { description: 'Array of items' })
-    items!: T[];
-
-    @Field(() => Int, { description: 'Total count of items matching the query' })
-    total!: number;
-
-    @Field(() => Boolean, { description: 'Whether there are more items available' })
-    hasMore!: boolean;
-  }
-  return PaginatedResponseClass as Type<IPaginatedResult<T>>;
-}
-
-/** @deprecated Phase 4 complete — remove in Phase 5. Use `createStandardPaginatedResult` instead. */
-export function calculateHasMore(total: number, offset: number, limit: number): boolean {
-  return offset + limit < total;
-}
-
-/** @deprecated Phase 4 complete — remove in Phase 5. Use `createStandardPaginatedResult` instead. */
-export function createPaginatedResult<T>(
-  items: T[],
-  total: number,
-  offset: number,
-  limit: number,
-): IPaginatedResult<T> {
-  return {
-    items,
-    total,
-    hasMore: calculateHasMore(total, offset, limit),
-  };
-}
 
 // ============================================================================
 // STANDARD PAGINATION (page/limit based)
@@ -168,7 +80,11 @@ export class StandardPaginationInput {
   @Matches(/^[a-zA-Z_][a-zA-Z0-9_]*$/, { message: 'sortBy must be a valid field name' })
   sortBy?: string;
 
-  @Field(() => SortOrder, { nullable: true, defaultValue: SortOrder.DESC, description: 'Sort direction' })
+  @Field(() => SortOrder, {
+    nullable: true,
+    defaultValue: SortOrder.DESC,
+    description: 'Sort direction',
+  })
   @IsOptional()
   @IsEnum(SortOrder)
   sortOrder?: SortOrder;
@@ -182,15 +98,7 @@ export class StandardPaginationInput {
 /**
  * Interface for standard paginated results (page-based).
  */
-export interface IStandardPaginatedResult<T> {
-  items: T[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-  hasNextPage: boolean;
-  hasPreviousPage: boolean;
-}
+export type IStandardPaginatedResult<T> = StandardPaginatedResult<T>;
 
 /**
  * Creates a typed paginated response class for GraphQL (standard page-based).
@@ -203,7 +111,7 @@ export interface IStandardPaginatedResult<T> {
  */
 export function StandardPaginatedResponse<T>(classRef: Type<T>): Type<IStandardPaginatedResult<T>> {
   @ObjectType({ isAbstract: true })
-  abstract class StandardPaginatedResponseClass implements IStandardPaginatedResult<T> {
+  class StandardPaginatedResponseClass implements IStandardPaginatedResult<T> {
     @Field(() => [classRef], { description: 'Array of items' })
     items!: T[];
 
@@ -225,28 +133,7 @@ export function StandardPaginatedResponse<T>(classRef: Type<T>): Type<IStandardP
     @Field(() => Boolean, { description: 'Whether there is a previous page' })
     hasPreviousPage!: boolean;
   }
-  return StandardPaginatedResponseClass as Type<IStandardPaginatedResult<T>>;
-}
-
-/**
- * Helper: create a standard paginated result from raw data.
- */
-export function createStandardPaginatedResult<T>(
-  items: T[],
-  total: number,
-  page: number,
-  limit: number,
-): IStandardPaginatedResult<T> {
-  const totalPages = Math.max(1, Math.ceil(total / limit));
-  return {
-    items,
-    total,
-    page,
-    limit,
-    totalPages,
-    hasNextPage: page < totalPages,
-    hasPreviousPage: page > 1,
-  };
+  return StandardPaginatedResponseClass;
 }
 
 /**
@@ -265,15 +152,7 @@ export function fromCqrsPaginated<T>(result: {
   };
 }): IStandardPaginatedResult<T> {
   const p = result.pagination;
-  return {
-    items: result.data,
-    total: p.total,
-    page: p.page,
-    limit: p.limit,
-    totalPages: p.totalPages,
-    hasNextPage: p.hasNextPage,
-    hasPreviousPage: p.hasPreviousPage,
-  };
+  return createStandardPaginatedResult(result.data, p.total, p.page, p.limit);
 }
 
 /**
@@ -338,7 +217,11 @@ export class KeysetPaginationInput {
   @Matches(/^[a-zA-Z_][a-zA-Z0-9_]*$/, { message: 'sortBy must be a valid field name' })
   sortBy?: string;
 
-  @Field(() => SortOrder, { nullable: true, defaultValue: SortOrder.DESC, description: 'Sort direction' })
+  @Field(() => SortOrder, {
+    nullable: true,
+    defaultValue: SortOrder.DESC,
+    description: 'Sort direction',
+  })
   @IsOptional()
   @IsEnum(SortOrder)
   sortOrder?: SortOrder;

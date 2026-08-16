@@ -74,6 +74,10 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
+      '@aquaculture/shared-contracts': resolve(
+        __dirname,
+        '../../libs/shared-contracts/src/index.ts',
+      ),
       // The pure water-chemistry engine is BUNDLED into shared-ui's dist (it is
       // stateless math, NOT a federation shared dep, so it cannot be resolved
       // from the runtime shared scope). Alias it to source so the promoted
@@ -81,6 +85,19 @@ export default defineConfig({
       '@platform/aquaculture-engines': resolve(
         __dirname,
         '../../libs/aquaculture-engines/src/index.ts',
+      ),
+      '@platform/admin-http-contracts': resolve(
+        __dirname,
+        '../../platform/libs/admin-http-contracts/src/index.ts',
+      ),
+      '@platform/identity': resolve(__dirname, '../../libs/event-contracts/src/roles.ts'),
+      '@platform/tenant-permissions': resolve(
+        __dirname,
+        '../../libs/event-contracts/src/tenant-permissions.ts',
+      ),
+      '@platform/pagination-contracts': resolve(
+        __dirname,
+        '../../platform/libs/pagination-contracts/src/index.ts',
       ),
     },
   },

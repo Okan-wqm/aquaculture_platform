@@ -5,12 +5,14 @@ import { defineConfig } from '@playwright/test';
  *
  * Projects:
  *   - security: Playwright-native HTTP/security tests.
+ *   - platform-admin: generated real-browser admin composition journey.
  *
  * Node-style GraphQL/DB E2E suites use Jest via jest.config.ts. Keeping the
  * runner boundary explicit prevents Playwright from loading Jest globals.
  *
  * Environment variables:
  *   - GATEWAY_URL:   Gateway GraphQL endpoint (default: http://localhost:4000)
+ *   - PLATFORM_ADMIN_URL: Deployed shell origin (default: http://localhost)
  *   - DATABASE_URL:  PostgreSQL connection string
  *   - JWT_SECRET:    Shared secret for HS256 test tokens
  */
@@ -37,6 +39,13 @@ export default defineConfig({
     {
       name: 'security',
       testDir: './tests/security',
+    },
+    {
+      name: 'platform-admin',
+      testDir: './tests/platform-admin',
+      use: {
+        baseURL: process.env.PLATFORM_ADMIN_URL || 'http://localhost',
+      },
     },
   ],
 });

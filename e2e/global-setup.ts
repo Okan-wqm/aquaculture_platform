@@ -1,5 +1,9 @@
 import { createTestTenant } from './fixtures/tenant.fixture';
 import { createSuperAdmin, createTenantAdmin } from './fixtures/user.fixture';
+import {
+  E2E_SUPER_ADMIN_EMAIL,
+  E2E_TENANT_ADMIN_EMAIL,
+} from './fixtures/platform-admin-credentials.fixture';
 import { TestDatabase } from './helpers/db.helper';
 
 /**
@@ -97,14 +101,14 @@ export default async function globalSetup(): Promise<void> {
     console.log(`[global-setup] Created test tenant: ${tenant.id} (${tenant.slug})`);
 
     const superAdmin = await createSuperAdmin(db, {
-      email: 'e2e-superadmin@test.aquaculture.io',
+      email: E2E_SUPER_ADMIN_EMAIL,
       firstName: 'E2E',
       lastName: 'SuperAdmin',
     });
     console.log(`[global-setup] Created super admin: ${superAdmin.id}`);
 
     const tenantAdmin = await createTenantAdmin(db, tenant.id, {
-      email: 'e2e-tenantadmin@test.aquaculture.io',
+      email: E2E_TENANT_ADMIN_EMAIL,
       firstName: 'E2E',
       lastName: 'TenantAdmin',
     });

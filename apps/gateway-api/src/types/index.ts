@@ -6,6 +6,15 @@
  */
 
 import { Request, Response } from 'express';
+import type {
+  ImpersonationOperationDescriptor,
+  ImpersonationPermissionsContract,
+} from '@aquaculture/shared-contracts';
+
+/** Commit an exact, adapter-derived outward operation set before transport. */
+export type ImpersonationOperationAuthorizer = (
+  operations: readonly ImpersonationOperationDescriptor[],
+) => Promise<void>;
 
 /**
  * JWT payload interface
@@ -77,6 +86,11 @@ export interface AuthenticatedRequest extends Request {
   authMethod?: 'jwt' | 'api_key' | 'basic';
   apiKey?: string;
   tenantId?: string;
+  /** Sole cross-tenant selection produced by EffectiveTenantMiddleware. */
+  effectiveTenantId?: string;
+  impersonationSessionId?: string;
+  impersonationPermissions?: ImpersonationPermissionsContract;
+  authorizeImpersonationOperations?: ImpersonationOperationAuthorizer;
   tenantContext?: TenantContext;
   correlationId?: string;
   startTime?: number;

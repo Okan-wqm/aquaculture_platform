@@ -6,170 +6,22 @@
  * Connected to real backend API endpoints.
  */
 
-import { Card, Button } from '@aquaculture/shared-ui';
+import { Card, Button, getAdminRoute } from '@aquaculture/shared-ui';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
-import { adminRoutes } from '../routes/adminRoutes';
-import { analyticsApi, systemApi } from '../services/adminApi';
-
-// ============================================================================
-// Types
-// ============================================================================
-
-interface TenantMetrics {
-  total: number;
-  active: number;
-  inactive: number;
-  trial: number;
-  suspended: number;
-  newThisMonth: number;
-  churnedThisMonth: number;
-  churnRate: number;
-  growthRate: number;
-  byPlan: Record<string, number>;
-  byRegion: Record<string, number>;
-}
-
-interface UserMetrics {
-  total: number;
-  active: number;
-  inactive: number;
-  newThisMonth: number;
-  activeLastDay: number;
-  activeLastWeek: number;
-  activeLastMonth: number;
-  growthRate: number;
-  avgUsersPerTenant: number;
-  byRole: Record<string, number>;
-}
-
-interface FinancialMetrics {
-  mrr: number;
-  arr: number;
-  arpu: number;
-  arppu: number;
-  ltv: number;
-  totalRevenue: number;
-  revenueThisMonth: number;
-  revenueGrowthRate: number;
-  pendingPayments: number;
-  overduePayments: number;
-  refunds: number;
-  byPlan: Record<string, number>;
-  byCurrency: Record<string, number>;
-}
-
-interface SystemMetrics {
-  totalStorageBytes: number;
-  usedStorageBytes: number;
-  storageUtilization: number;
-  apiCallsToday: number;
-  apiCallsThisMonth: number;
-  avgResponseTimeMs: number;
-  errorRate: number;
-  uptimePercent: number;
-  activeConnections: number;
-  queuedJobs: number;
-}
-
-interface UsageMetrics {
-  moduleUsage: Record<string, {
-    activeUsers: number;
-    totalSessions: number;
-    avgSessionDuration: number;
-  }>;
-  featureAdoption: Record<string, number>;
-  topFeatures: Array<{ feature: string; usage: number }>;
-  peakHours: number[];
-  avgDailyActiveUsers: number;
-}
-
-interface DashboardSummary {
-  tenants: TenantMetrics;
-  users: UserMetrics;
-  financial: FinancialMetrics;
-  system: SystemMetrics;
-  usage: UsageMetrics;
-  generatedAt: string;
-  unavailable?: string[];
-}
-
-interface TimeSeriesPoint {
-  date: string;
-  value: number;
-}
-
-type AnalyticsRange = '7d' | '30d' | '90d' | '1y';
-type AnalyticsGranularity = 'day' | 'week' | 'month';
-
-// ============================================================================
-// Default Data Structure
-// ============================================================================
-
-// Default empty data structure
-const getDefaultData = (): DashboardSummary => ({
-  tenants: {
-    total: 0,
-    active: 0,
-    inactive: 0,
-    trial: 0,
-    suspended: 0,
-    newThisMonth: 0,
-    churnedThisMonth: 0,
-    churnRate: 0,
-    growthRate: 0,
-    byPlan: {},
-    byRegion: {},
-  },
-  users: {
-    total: 0,
-    active: 0,
-    inactive: 0,
-    newThisMonth: 0,
-    activeLastDay: 0,
-    activeLastWeek: 0,
-    activeLastMonth: 0,
-    growthRate: 0,
-    avgUsersPerTenant: 0,
-    byRole: {},
-  },
-  financial: {
-    mrr: 0,
-    arr: 0,
-    arpu: 0,
-    arppu: 0,
-    ltv: 0,
-    totalRevenue: 0,
-    revenueThisMonth: 0,
-    revenueGrowthRate: 0,
-    pendingPayments: 0,
-    overduePayments: 0,
-    refunds: 0,
-    byPlan: {},
-    byCurrency: {},
-  },
-  system: {
-    totalStorageBytes: 0,
-    usedStorageBytes: 0,
-    storageUtilization: 0,
-    apiCallsToday: 0,
-    apiCallsThisMonth: 0,
-    avgResponseTimeMs: 0,
-    errorRate: 0,
-    uptimePercent: 0,
-    activeConnections: 0,
-    queuedJobs: 0,
-  },
-  usage: {
-    moduleUsage: {},
-    featureAdoption: {},
-    topFeatures: [],
-    peakHours: [],
-    avgDailyActiveUsers: 0,
-  },
-  generatedAt: new Date().toISOString(),
-});
+import { analyticsApi } from '../services/adminApi';
+import {
+  beginAdminRead,
+  settleAdminRead,
+  type AdminReadState,
+} from '../services/admin-read-evidence';
+import type {
+  AnalyticsGranularity,
+  AnalyticsRange,
+  DashboardSummary,
+  TimeSeriesPoint,
+} from '../services/types';
 
 // ============================================================================
 // KPI Card Component
@@ -230,9 +82,7 @@ const KpiCard: React.FC<KpiCardProps> = ({
             </p>
           )}
         </div>
-        <div className={`p-3 rounded-lg ${colorClasses[color] || colorClasses.blue}`}>
-          {icon}
-        </div>
+        <div className={`p-3 rounded-lg ${colorClasses[color] || colorClasses.blue}`}>{icon}</div>
       </div>
     </Card>
   );
@@ -243,7 +93,7 @@ const KpiCard: React.FC<KpiCardProps> = ({
 // ============================================================================
 
 interface MiniChartProps {
-  data: TimeSeriesPoint[];
+  data: readonly TimeSeriesPoint[];
   height?: number;
   color?: string;
 }
@@ -251,17 +101,19 @@ interface MiniChartProps {
 const MiniChart: React.FC<MiniChartProps> = ({ data, height = 60, color = '#3B82F6' }) => {
   if (data.length === 0) return null;
 
-  const values = data.map(d => d.value);
+  const values = data.map((d) => d.value);
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = max - min || 1;
   const denominator = Math.max(data.length - 1, 1);
 
-  const points = data.map((d, i) => {
-    const x = (i / denominator) * 100;
-    const y = height - ((d.value - min) / range) * height;
-    return `${x},${y}`;
-  }).join(' ');
+  const points = data
+    .map((d, i) => {
+      const x = (i / denominator) * 100;
+      const y = height - ((d.value - min) / range) * height;
+      return `${x},${y}`;
+    })
+    .join(' ');
 
   return (
     <svg width="100%" height={height} className="overflow-visible">
@@ -287,13 +139,19 @@ interface BarChartProps {
 }
 
 const BarChart: React.FC<BarChartProps> = ({ data, maxHeight = 120 }) => {
-  const maxValue = Math.max(...data.map(d => d.value)) || 1;
+  const maxValue = Math.max(...data.map((d) => d.value)) || 1;
 
   return (
     <div className="flex items-end justify-around gap-2 h-full">
       {data.map((item, index) => {
         const height = (item.value / maxValue) * maxHeight;
-        const colors = ['bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-orange-500', 'bg-pink-500'];
+        const colors = [
+          'bg-blue-500',
+          'bg-green-500',
+          'bg-purple-500',
+          'bg-orange-500',
+          'bg-pink-500',
+        ];
         return (
           <div key={index} className="flex flex-col items-center flex-1">
             <div
@@ -344,27 +202,29 @@ const DonutChart: React.FC<DonutChartProps> = ({
             stroke="#E5E7EB"
             strokeWidth={strokeWidth}
           />
-        ) : data.map((item, index) => {
-          const percentage = item.value / total;
-          const strokeLength = circumference * percentage;
-          const offset = currentOffset;
-          currentOffset += strokeLength;
+        ) : (
+          data.map((item, index) => {
+            const percentage = item.value / total;
+            const strokeLength = circumference * percentage;
+            const offset = currentOffset;
+            currentOffset += strokeLength;
 
-          return (
-            <circle
-              key={index}
-              cx={size / 2}
-              cy={size / 2}
-              r={radius}
-              fill="none"
-              stroke={item.color}
-              strokeWidth={strokeWidth}
-              strokeDasharray={`${strokeLength} ${circumference - strokeLength}`}
-              strokeDashoffset={-offset}
-              strokeLinecap="round"
-            />
-          );
-        })}
+            return (
+              <circle
+                key={index}
+                cx={size / 2}
+                cy={size / 2}
+                r={radius}
+                fill="none"
+                stroke={item.color}
+                strokeWidth={strokeWidth}
+                strokeDasharray={`${strokeLength} ${circumference - strokeLength}`}
+                strokeDashoffset={-offset}
+                strokeLinecap="round"
+              />
+            );
+          })
+        )}
       </svg>
       {(centerLabel || centerValue) && (
         <div className="absolute inset-0 flex flex-col items-center justify-center">
@@ -381,88 +241,67 @@ const DonutChart: React.FC<DonutChartProps> = ({
 // ============================================================================
 
 const AnalyticsDashboardPage: React.FC = () => {
-  const [data, setData] = useState<DashboardSummary | null>(null);
-  const [loading, setLoading] = useState(true);
   const [selectedPeriod, setSelectedPeriod] = useState<AnalyticsRange>('30d');
-  const [tenantTrend, setTenantTrend] = useState<TimeSeriesPoint[]>([]);
-  const [revenueTrend, setRevenueTrend] = useState<TimeSeriesPoint[]>([]);
-  const [userTrend, setUserTrend] = useState<TimeSeriesPoint[]>([]);
+  type AnalyticsTrendResponse = Awaited<ReturnType<typeof analyticsApi.getTenantGrowthTrend>>;
+  const [dashboardRead, setDashboardRead] = useState<AdminReadState<DashboardSummary>>(() =>
+    beginAdminRead('admin.analytics.dashboard.v1', { projection: 'dashboard' }),
+  );
+  const [tenantTrendRead, setTenantTrendRead] = useState<AdminReadState<AnalyticsTrendResponse>>(
+    () => beginAdminRead('admin.analytics.snapshot-trend.v1', { metric: 'tenants.total' }),
+  );
+  const [revenueTrendRead, setRevenueTrendRead] = useState<AdminReadState<AnalyticsTrendResponse>>(
+    () => beginAdminRead('admin.analytics.snapshot-trend.v1', { metric: 'financial.mrr' }),
+  );
+  const [userTrendRead, setUserTrendRead] = useState<AdminReadState<AnalyticsTrendResponse>>(() =>
+    beginAdminRead('admin.analytics.snapshot-trend.v1', { metric: 'users.activeLastDay' }),
+  );
 
   const loadData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const granularity: AnalyticsGranularity = selectedPeriod === '1y' ? 'month' : selectedPeriod === '90d' ? 'week' : 'day';
+    const granularity: AnalyticsGranularity =
+      selectedPeriod === '1y' ? 'month' : selectedPeriod === '90d' ? 'week' : 'day';
+    const dashboardPending = beginAdminRead('admin.analytics.dashboard.v1', {
+      projection: 'dashboard',
+    });
+    const tenantPending = beginAdminRead('admin.analytics.snapshot-trend.v1', {
+      metric: 'tenants.total',
+      range: selectedPeriod,
+      granularity,
+    });
+    const revenuePending = beginAdminRead('admin.analytics.snapshot-trend.v1', {
+      metric: 'financial.mrr',
+      range: selectedPeriod,
+      granularity,
+    });
+    const userPending = beginAdminRead('admin.analytics.snapshot-trend.v1', {
+      metric: 'users.activeLastDay',
+      range: selectedPeriod,
+      granularity,
+    });
+    setDashboardRead(dashboardPending);
+    setTenantTrendRead(tenantPending);
+    setRevenueTrendRead(revenuePending);
+    setUserTrendRead(userPending);
 
-      // Try to fetch from real API endpoints
-      const [dashboardResponse, systemHealthResponse, tenantTrendResponse, revenueTrendResponse, userActivityResponse] = await Promise.allSettled([
+    const [dashboardResponse, tenantTrendResponse, revenueTrendResponse, userActivityResponse] =
+      await Promise.allSettled([
         analyticsApi.getDashboardSummary(),
-        systemApi.getServicesHealth(),
         analyticsApi.getTenantGrowthTrend(selectedPeriod, granularity),
         analyticsApi.getRevenueTrend(selectedPeriod, granularity),
         analyticsApi.getUserActivity(selectedPeriod, granularity),
       ]);
 
-      // Process dashboard data
-      let dashboardData = getDefaultData();
-      if (dashboardResponse.status === 'fulfilled' && dashboardResponse.value) {
-        // Map API response to our DashboardSummary type
-        const apiData = dashboardResponse.value as Partial<DashboardSummary>;
-        dashboardData = {
-          ...dashboardData,
-          ...apiData,
-          generatedAt: new Date().toISOString(),
-        };
-      }
-
-      // Enhance with system health data if available
-      if (systemHealthResponse.status === 'fulfilled' && systemHealthResponse.value) {
-        const services = systemHealthResponse.value as Array<{ name: string; status: string }>;
-        const healthyServices = services.filter(s => s.status === 'healthy').length;
-        const totalServices = services.length;
-        if (totalServices > 0) {
-          dashboardData.system.uptimePercent = Math.round((healthyServices / totalServices) * 100);
-        }
-      }
-
-      setData(dashboardData);
-
-      // Process tenant growth trend
-      if (tenantTrendResponse.status === 'fulfilled' && tenantTrendResponse.value) {
-        const responseData = tenantTrendResponse.value;
-        setTenantTrend(Array.isArray(responseData.data) ? responseData.data : []);
-      } else {
-        setTenantTrend([]);
-      }
-
-      // Process revenue trend
-      if (revenueTrendResponse.status === 'fulfilled' && revenueTrendResponse.value) {
-        const responseData = revenueTrendResponse.value;
-        setRevenueTrend(Array.isArray(responseData.data) ? responseData.data : []);
-      } else {
-        setRevenueTrend([]);
-      }
-
-      if (userActivityResponse.status === 'fulfilled' && userActivityResponse.value) {
-        setUserTrend(Array.isArray(userActivityResponse.value.data) ? userActivityResponse.value.data : []);
-      } else {
-        setUserTrend([]);
-      }
-    } catch {
-      // Set default empty data on error
-      setData(getDefaultData());
-      setTenantTrend([]);
-      setRevenueTrend([]);
-      setUserTrend([]);
-    } finally {
-      setLoading(false);
-    }
+    setDashboardRead(settleAdminRead(dashboardPending, dashboardResponse));
+    setTenantTrendRead(settleAdminRead(tenantPending, tenantTrendResponse));
+    setRevenueTrendRead(settleAdminRead(revenuePending, revenueTrendResponse));
+    setUserTrendRead(settleAdminRead(userPending, userActivityResponse));
   }, [selectedPeriod]);
 
   useEffect(() => {
     void loadData();
   }, [loadData]);
 
-  const formatCurrency = (value: number): string => {
+  const formatCurrency = (value: number | null): string => {
+    if (value === null) return '—';
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
@@ -471,11 +310,22 @@ const AnalyticsDashboardPage: React.FC = () => {
     }).format(value);
   };
 
-  const formatNumber = (value: number): string => {
+  const formatNumber = (value: number | null): string => {
+    if (value === null) return '—';
     return new Intl.NumberFormat('en-US').format(value);
   };
 
-  const formatBytes = (bytes: number): string => {
+  const formatPercent = (value: number | null): string =>
+    value === null ? '—' : `${formatNumber(value)}%`;
+
+  const formatMilliseconds = (value: number | null): string =>
+    value === null ? '—' : `${formatNumber(value)}ms`;
+
+  const trendFor = (value: number | null): 'up' | 'down' | 'stable' | undefined =>
+    value === null ? undefined : value > 0 ? 'up' : value < 0 ? 'down' : 'stable';
+
+  const formatBytes = (bytes: number | null): string => {
+    if (bytes === null) return '—';
     const units = ['B', 'KB', 'MB', 'GB', 'TB'];
     let unitIndex = 0;
     let value = bytes;
@@ -486,13 +336,45 @@ const AnalyticsDashboardPage: React.FC = () => {
     return `${value.toFixed(1)} ${units[unitIndex]}`;
   };
 
-  if (loading || !data) {
+  if (dashboardRead.outcome === 'PENDING') {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
       </div>
     );
   }
+
+  if (dashboardRead.outcome === 'REJECTED') {
+    return (
+      <div className="flex h-96 flex-col items-center justify-center gap-4 text-center">
+        <p className="text-lg font-semibold text-red-700">Analytics authority rejected the read</p>
+        <p className="max-w-xl text-sm text-gray-600">
+          {dashboardRead.evidence.failure.message}
+          {dashboardRead.evidence.failure.requestId
+            ? ` (request ${dashboardRead.evidence.failure.requestId})`
+            : ''}
+        </p>
+        <Button variant="secondary" onClick={() => void loadData()}>
+          Retry verified read
+        </Button>
+      </div>
+    );
+  }
+
+  const data = dashboardRead.value;
+  const tenantTrend = tenantTrendRead.outcome === 'VERIFIED' ? tenantTrendRead.value.data : [];
+  const revenueTrend = revenueTrendRead.outcome === 'VERIFIED' ? revenueTrendRead.value.data : [];
+  const userTrend = userTrendRead.outcome === 'VERIFIED' ? userTrendRead.value.data : [];
+  const unavailableMetricIds = [
+    data.tenants.authority.measurementEvidence,
+    data.users.authority.measurementEvidence,
+    data.financial.authority.measurementEvidence,
+    data.system.authority.measurementEvidence,
+    data.usage.authority.measurementEvidence,
+  ]
+    .flatMap((evidence) => Object.values(evidence))
+    .filter((evidence) => evidence.state === 'UNAVAILABLE')
+    .map((evidence) => evidence.metricId);
 
   return (
     <div className="space-y-6">
@@ -518,12 +400,15 @@ const AnalyticsDashboardPage: React.FC = () => {
               </button>
             ))}
           </div>
-          <Button variant="secondary" onClick={() => {
-            void loadData();
-          }}>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              void loadData();
+            }}
+          >
             Refresh
           </Button>
-          <Link to={adminRoutes.analyticsReports}>
+          <Link to={getAdminRoute('analytics-reports').path}>
             <Button variant="primary">Reports</Button>
           </Link>
         </div>
@@ -535,18 +420,30 @@ const AnalyticsDashboardPage: React.FC = () => {
         </div>
       )}
 
+      {unavailableMetricIds.length > 0 && (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          Unqualified metrics are shown as unavailable, never as zero:{' '}
+          {unavailableMetricIds.join(', ')}
+        </div>
+      )}
+
       {/* Main KPIs */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard
           title="Total Tenants"
           value={formatNumber(data.tenants.total)}
-          subtitle={`${data.tenants.active} aktif`}
-          change={data.tenants.growthRate}
-          trend="up"
+          subtitle={`${formatNumber(data.tenants.active)} aktif`}
+          change={data.tenants.growthRate ?? undefined}
+          trend={trendFor(data.tenants.growthRate)}
           color="blue"
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
+              />
             </svg>
           }
         />
@@ -554,12 +451,17 @@ const AnalyticsDashboardPage: React.FC = () => {
           title="Total Users"
           value={formatNumber(data.users.total)}
           subtitle={`${formatNumber(data.users.activeLastDay)} DAU`}
-          change={data.users.growthRate}
-          trend="up"
+          change={data.users.growthRate ?? undefined}
+          trend={trendFor(data.users.growthRate)}
           color="green"
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"
+              />
             </svg>
           }
         />
@@ -567,24 +469,33 @@ const AnalyticsDashboardPage: React.FC = () => {
           title="MRR"
           value={formatCurrency(data.financial.mrr)}
           subtitle={`ARR: ${formatCurrency(data.financial.arr)}`}
-          change={data.financial.revenueGrowthRate}
-          trend="up"
+          change={data.financial.revenueGrowthRate ?? undefined}
+          trend={trendFor(data.financial.revenueGrowthRate)}
           color="purple"
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
             </svg>
           }
         />
         <KpiCard
           title="Uptime"
-          value={`${data.system.uptimePercent}%`}
-          subtitle={`Error rate: ${data.system.errorRate}%`}
-          trend="stable"
+          value={formatPercent(data.system.uptimePercent)}
+          subtitle={`Error rate: ${formatPercent(data.system.errorRate)}`}
           color="orange"
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+              />
             </svg>
           }
         />
@@ -599,20 +510,28 @@ const AnalyticsDashboardPage: React.FC = () => {
           color="indigo"
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+              />
             </svg>
           }
         />
         <KpiCard
           title="Churn Rate"
-          value={`${data.tenants.churnRate}%`}
-          subtitle={`${data.tenants.churnedThisMonth} churned this month`}
-          change={-0.5}
-          trend="down"
+          value={formatPercent(data.tenants.churnRate)}
+          subtitle={`${formatNumber(data.tenants.churnedThisMonth)} churned this month`}
           color="red"
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6"
+              />
             </svg>
           }
         />
@@ -623,18 +542,28 @@ const AnalyticsDashboardPage: React.FC = () => {
           color="orange"
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
             </svg>
           }
         />
         <KpiCard
           title="API Calls (Today)"
           value={formatNumber(data.system.apiCallsToday)}
-          subtitle={`Avg: ${data.system.avgResponseTimeMs}ms`}
+          subtitle={`Avg: ${formatMilliseconds(data.system.avgResponseTimeMs)}`}
           color="blue"
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+              />
             </svg>
           }
         />
@@ -646,15 +575,21 @@ const AnalyticsDashboardPage: React.FC = () => {
         <Card title="Tenant Growth">
           <div className="h-32 mb-4 relative">
             <MiniChart data={tenantTrend} height={100} color="#3B82F6" />
-            {(tenantTrend.length === 0 || tenantTrend.every(d => d.value === 0)) && (
+            {tenantTrend.length === 0 && (
               <div className="absolute inset-0 flex items-center justify-center bg-gray-50/80 rounded">
-                <p className="text-sm text-gray-500">No analytics data available yet</p>
+                <p className="text-sm text-gray-500">
+                  {tenantTrendRead.outcome === 'REJECTED'
+                    ? `Trend read rejected: ${tenantTrendRead.evidence.failure.message}`
+                    : 'No catalog-qualified snapshots in this range'}
+                </p>
               </div>
             )}
           </div>
           <div className="flex justify-between text-sm">
-            <span className="text-gray-500">Bu ay: +{data.tenants.newThisMonth}</span>
-            <span className="text-green-600 font-medium">+{data.tenants.growthRate}%</span>
+            <span className="text-gray-500">Bu ay: {formatNumber(data.tenants.newThisMonth)}</span>
+            <span className="text-gray-600 font-medium">
+              {formatPercent(data.tenants.growthRate)}
+            </span>
           </div>
         </Card>
 
@@ -662,24 +597,34 @@ const AnalyticsDashboardPage: React.FC = () => {
         <Card title="Revenue Trend">
           <div className="h-32 mb-4 relative">
             <MiniChart data={revenueTrend} height={100} color="#8B5CF6" />
-            {(revenueTrend.length === 0 || revenueTrend.every(d => d.value === 0)) && (
+            {revenueTrend.length === 0 && (
               <div className="absolute inset-0 flex items-center justify-center bg-gray-50/80 rounded">
-                <p className="text-sm text-gray-500">No analytics data available yet</p>
+                <p className="text-sm text-gray-500">
+                  {revenueTrendRead.outcome === 'REJECTED'
+                    ? `Trend read rejected: ${revenueTrendRead.evidence.failure.message}`
+                    : 'No catalog-qualified snapshots in this range'}
+                </p>
               </div>
             )}
           </div>
           <div className="flex justify-between text-sm">
             <span className="text-gray-500">MRR: {formatCurrency(data.financial.mrr)}</span>
-            <span className="text-green-600 font-medium">+{data.financial.revenueGrowthRate}%</span>
+            <span className="text-gray-600 font-medium">
+              {formatPercent(data.financial.revenueGrowthRate)}
+            </span>
           </div>
         </Card>
 
         <Card title="Daily Active Users">
           <div className="h-32 mb-4 relative">
             <MiniChart data={userTrend} height={100} color="#10B981" />
-            {(userTrend.length === 0 || userTrend.every(d => d.value === 0)) && (
+            {userTrend.length === 0 && (
               <div className="absolute inset-0 flex items-center justify-center bg-gray-50/80 rounded">
-                <p className="text-sm text-gray-500">Analytics not yet available</p>
+                <p className="text-sm text-gray-500">
+                  {userTrendRead.outcome === 'REJECTED'
+                    ? `Trend read rejected: ${userTrendRead.evidence.failure.message}`
+                    : 'No catalog-qualified snapshots in this range'}
+                </p>
               </div>
             )}
           </div>
@@ -693,76 +638,112 @@ const AnalyticsDashboardPage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Plan Distribution */}
         <Card title="Plan Dagilimi">
-          <div className="flex items-center justify-between">
-            <DonutChart
-              data={[
-                { label: 'Enterprise', value: data.tenants.byPlan.enterprise || 0, color: '#8B5CF6' },
-                { label: 'Professional', value: data.tenants.byPlan.professional || 0, color: '#10B981' },
-                { label: 'Starter', value: data.tenants.byPlan.starter || 0, color: '#3B82F6' },
-                { label: 'Trial', value: data.tenants.byPlan.trial || 0, color: '#F59E0B' },
-              ]}
-              centerValue={data.tenants.total.toString()}
-              centerLabel="Total"
-            />
-            <div className="flex-1 ml-8 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center">
-                  <span className="w-3 h-3 rounded-full bg-purple-500 mr-2" />
-                  <span className="text-sm text-gray-600">Enterprise</span>
+          {data.tenants.byPlan === null ? (
+            <p className="py-8 text-center text-sm text-gray-500">
+              tenants.byPlan is unavailable from its declared authority
+            </p>
+          ) : (
+            <div className="flex items-center justify-between">
+              <DonutChart
+                data={[
+                  {
+                    label: 'Enterprise',
+                    value: data.tenants.byPlan.enterprise ?? 0,
+                    color: '#8B5CF6',
+                  },
+                  {
+                    label: 'Professional',
+                    value: data.tenants.byPlan.professional ?? 0,
+                    color: '#10B981',
+                  },
+                  {
+                    label: 'Starter',
+                    value: data.tenants.byPlan.starter ?? 0,
+                    color: '#3B82F6',
+                  },
+                  {
+                    label: 'Trial',
+                    value: data.tenants.byPlan.trial ?? 0,
+                    color: '#F59E0B',
+                  },
+                ]}
+                centerValue={formatNumber(data.tenants.total)}
+                centerLabel="Total"
+              />
+              <div className="flex-1 ml-8 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    <span className="w-3 h-3 rounded-full bg-purple-500 mr-2" />
+                    <span className="text-sm text-gray-600">Enterprise</span>
+                  </div>
+                  <span className="font-medium">{data.tenants.byPlan.enterprise ?? 0}</span>
                 </div>
-                <span className="font-medium">{data.tenants.byPlan.enterprise || 0}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center">
-                  <span className="w-3 h-3 rounded-full bg-green-500 mr-2" />
-                  <span className="text-sm text-gray-600">Professional</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    <span className="w-3 h-3 rounded-full bg-green-500 mr-2" />
+                    <span className="text-sm text-gray-600">Professional</span>
+                  </div>
+                  <span className="font-medium">{data.tenants.byPlan.professional ?? 0}</span>
                 </div>
-                <span className="font-medium">{data.tenants.byPlan.professional || 0}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center">
-                  <span className="w-3 h-3 rounded-full bg-blue-500 mr-2" />
-                  <span className="text-sm text-gray-600">Starter</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    <span className="w-3 h-3 rounded-full bg-blue-500 mr-2" />
+                    <span className="text-sm text-gray-600">Starter</span>
+                  </div>
+                  <span className="font-medium">{data.tenants.byPlan.starter ?? 0}</span>
                 </div>
-                <span className="font-medium">{data.tenants.byPlan.starter || 0}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center">
-                  <span className="w-3 h-3 rounded-full bg-orange-500 mr-2" />
-                  <span className="text-sm text-gray-600">Trial</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    <span className="w-3 h-3 rounded-full bg-orange-500 mr-2" />
+                    <span className="text-sm text-gray-600">Trial</span>
+                  </div>
+                  <span className="font-medium">{data.tenants.byPlan.trial ?? 0}</span>
                 </div>
-                <span className="font-medium">{data.tenants.byPlan.trial || 0}</span>
               </div>
             </div>
-          </div>
+          )}
         </Card>
 
         {/* Revenue by Plan */}
         <Card title="Revenue by Plan">
-          <div className="h-40">
-            <BarChart
-              data={[
-                { label: 'Starter', value: data.financial.byPlan.starter || 0 },
-                { label: 'Professional', value: data.financial.byPlan.professional || 0 },
-                { label: 'Enterprise', value: data.financial.byPlan.enterprise || 0 },
-              ]}
-              maxHeight={120}
-            />
-          </div>
-          <div className="mt-4 pt-4 border-t grid grid-cols-3 gap-4 text-center">
-            <div>
-              <p className="text-lg font-bold text-gray-900">{formatCurrency(data.financial.byPlan.starter || 0)}</p>
-              <p className="text-xs text-gray-500">Starter</p>
-            </div>
-            <div>
-              <p className="text-lg font-bold text-gray-900">{formatCurrency(data.financial.byPlan.professional || 0)}</p>
-              <p className="text-xs text-gray-500">Professional</p>
-            </div>
-            <div>
-              <p className="text-lg font-bold text-gray-900">{formatCurrency(data.financial.byPlan.enterprise || 0)}</p>
-              <p className="text-xs text-gray-500">Enterprise</p>
-            </div>
-          </div>
+          {data.financial.byPlan === null ? (
+            <p className="py-8 text-center text-sm text-gray-500">
+              financial.byPlan is unavailable from its declared authority
+            </p>
+          ) : (
+            <>
+              <div className="h-40">
+                <BarChart
+                  data={[
+                    { label: 'Starter', value: data.financial.byPlan.starter ?? 0 },
+                    { label: 'Professional', value: data.financial.byPlan.professional ?? 0 },
+                    { label: 'Enterprise', value: data.financial.byPlan.enterprise ?? 0 },
+                  ]}
+                  maxHeight={120}
+                />
+              </div>
+              <div className="mt-4 pt-4 border-t grid grid-cols-3 gap-4 text-center">
+                <div>
+                  <p className="text-lg font-bold text-gray-900">
+                    {formatCurrency(data.financial.byPlan.starter ?? 0)}
+                  </p>
+                  <p className="text-xs text-gray-500">Starter</p>
+                </div>
+                <div>
+                  <p className="text-lg font-bold text-gray-900">
+                    {formatCurrency(data.financial.byPlan.professional ?? 0)}
+                  </p>
+                  <p className="text-xs text-gray-500">Professional</p>
+                </div>
+                <div>
+                  <p className="text-lg font-bold text-gray-900">
+                    {formatCurrency(data.financial.byPlan.enterprise ?? 0)}
+                  </p>
+                  <p className="text-xs text-gray-500">Enterprise</p>
+                </div>
+              </div>
+            </>
+          )}
         </Card>
       </div>
 
@@ -770,57 +751,69 @@ const AnalyticsDashboardPage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Module Usage */}
         <Card title="Module Usage">
-          {Object.keys(data.usage.moduleUsage).length === 0 && (
+          {data.usage.moduleUsage === null ? (
             <div className="flex items-center justify-center py-8">
-              <p className="text-sm text-gray-500">No analytics data available yet</p>
+              <p className="text-sm text-gray-500">usage.moduleUsage authority is not integrated</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {Object.entries(data.usage.moduleUsage).map(([module, stats]) => {
+                const percentage =
+                  data.users.active !== null && data.users.active > 0
+                    ? Math.round((stats.activeUsers / data.users.active) * 100)
+                    : null;
+                return (
+                  <div key={module}>
+                    <div className="flex justify-between mb-1">
+                      <span className="text-sm font-medium text-gray-700">
+                        {module
+                          .split('_')
+                          .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+                          .join(' ')}
+                      </span>
+                      <span className="text-sm text-gray-500">{stats.activeUsers} users</span>
+                    </div>
+                    {percentage === null ? (
+                      <p className="text-xs text-gray-500">Active-user denominator unavailable</p>
+                    ) : (
+                      <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div
+                          className="bg-blue-600 h-2 rounded-full"
+                          style={{ width: `${percentage}%` }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
-          <div className="space-y-4">
-            {Object.entries(data.usage.moduleUsage).map(([module, stats]) => {
-              const percentage = data.users.active > 0 ? Math.round((stats.activeUsers / data.users.active) * 100) : 0;
-              return (
-                <div key={module}>
-                  <div className="flex justify-between mb-1">
-                    <span className="text-sm font-medium text-gray-700">
-                      {module.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
-                    </span>
-                    <span className="text-sm text-gray-500">{stats.activeUsers} users</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div
-                      className="bg-blue-600 h-2 rounded-full"
-                      style={{ width: `${percentage}%` }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
         </Card>
 
         {/* Feature Adoption */}
         <Card title="Feature Adoption">
-          {data.usage.topFeatures.length === 0 && (
+          {data.usage.topFeatures === null ? (
             <div className="flex items-center justify-center py-8">
-              <p className="text-sm text-gray-500">No analytics data available yet</p>
+              <p className="text-sm text-gray-500">usage.topFeatures authority is not integrated</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {data.usage.topFeatures.map((feature) => (
+                <div key={feature.feature}>
+                  <div className="flex justify-between mb-1">
+                    <span className="text-sm font-medium text-gray-700">{feature.feature}</span>
+                    <span className="text-sm text-gray-500">{feature.usage}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div
+                      className="bg-green-600 h-2 rounded-full"
+                      style={{ width: `${feature.usage}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
             </div>
           )}
-          <div className="space-y-4">
-            {data.usage.topFeatures.map((feature) => (
-              <div key={feature.feature}>
-                <div className="flex justify-between mb-1">
-                  <span className="text-sm font-medium text-gray-700">{feature.feature}</span>
-                  <span className="text-sm text-gray-500">{feature.usage}%</span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div
-                    className="bg-green-600 h-2 rounded-full"
-                    style={{ width: `${feature.usage}%` }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
         </Card>
       </div>
 
@@ -828,27 +821,39 @@ const AnalyticsDashboardPage: React.FC = () => {
       <Card title="System Metrics">
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-4">
           <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-2xl font-bold text-gray-900">{data.system.uptimePercent}%</p>
+            <p className="text-2xl font-bold text-gray-900">
+              {formatPercent(data.system.uptimePercent)}
+            </p>
             <p className="text-xs text-gray-500 mt-1">Uptime</p>
           </div>
           <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-2xl font-bold text-gray-900">{data.system.avgResponseTimeMs}ms</p>
+            <p className="text-2xl font-bold text-gray-900">
+              {formatMilliseconds(data.system.avgResponseTimeMs)}
+            </p>
             <p className="text-xs text-gray-500 mt-1">Avg Response</p>
           </div>
           <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-2xl font-bold text-gray-900">{data.system.errorRate}%</p>
+            <p className="text-2xl font-bold text-gray-900">
+              {formatPercent(data.system.errorRate)}
+            </p>
             <p className="text-xs text-gray-500 mt-1">Error Rate</p>
           </div>
           <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-2xl font-bold text-gray-900">{formatBytes(data.system.usedStorageBytes)}</p>
+            <p className="text-2xl font-bold text-gray-900">
+              {formatBytes(data.system.usedStorageBytes)}
+            </p>
             <p className="text-xs text-gray-500 mt-1">Storage Used</p>
           </div>
           <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-2xl font-bold text-gray-900">{data.system.activeConnections}</p>
+            <p className="text-2xl font-bold text-gray-900">
+              {formatNumber(data.system.activeConnections)}
+            </p>
             <p className="text-xs text-gray-500 mt-1">Active Connections</p>
           </div>
           <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-2xl font-bold text-gray-900">{data.system.queuedJobs}</p>
+            <p className="text-2xl font-bold text-gray-900">
+              {formatNumber(data.system.queuedJobs)}
+            </p>
             <p className="text-xs text-gray-500 mt-1">Queued Jobs</p>
           </div>
         </div>
@@ -856,15 +861,26 @@ const AnalyticsDashboardPage: React.FC = () => {
 
       {/* Regional Distribution */}
       <Card title="Bolgesel Dagilim">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          {Object.entries(data.tenants.byRegion).map(([region, count]) => (
-            <div key={region} className="text-center p-4 bg-gray-50 rounded-lg">
-              <p className="text-3xl font-bold text-gray-900">{count}</p>
-              <p className="text-sm text-gray-500 mt-1">{region}</p>
-              <p className="text-xs text-gray-500">{data.tenants.total > 0 ? ((count / data.tenants.total) * 100).toFixed(1) : '0.0'}%</p>
-            </div>
-          ))}
-        </div>
+        {data.tenants.byRegion === null ? (
+          <p className="py-8 text-center text-sm text-gray-500">
+            tenants.byRegion authority is not integrated
+          </p>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            {Object.entries(data.tenants.byRegion).map(([region, count]) => (
+              <div key={region} className="text-center p-4 bg-gray-50 rounded-lg">
+                <p className="text-3xl font-bold text-gray-900">{count}</p>
+                <p className="text-sm text-gray-500 mt-1">{region}</p>
+                <p className="text-xs text-gray-500">
+                  {data.tenants.total !== null && data.tenants.total > 0
+                    ? ((count / data.tenants.total) * 100).toFixed(1)
+                    : '—'}
+                  {data.tenants.total !== null && data.tenants.total > 0 ? '%' : ''}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
       </Card>
 
       {/* Footer */}

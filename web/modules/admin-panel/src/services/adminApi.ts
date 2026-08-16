@@ -1,11 +1,10 @@
 /**
  * Admin API Service - Barrel Export
  *
- * Backward-compatible re-export of all decomposed modules.
- * All existing imports like `import { systemApi } from '../services/adminApi'` continue to work.
+ * Public domain-facade exports for the admin panel.
  *
  * Decomposition (H9 fix):
- *   http-client.ts        -- apiFetch, buildQueryString, retry logic
+ *   http-client.ts        -- governed transport kernel
  *   types/                -- ~90 interfaces/types/enums organized by domain
  *   api/system.ts         -- systemApi
  *   api/analytics.ts      -- analyticsApi
@@ -14,7 +13,6 @@
  *   api/support.ts        -- supportApi
  *   api/security.ts       -- securityApi
  *   api/settings.ts       -- settingsApi, systemSettingsApi
- *   api/tenant-config.ts  -- tenantConfigApi   (extracted from settings)
  *   api/email-templates.ts-- emailTemplatesApi  (extracted from settings)
  *   api/impersonation.ts  -- impersonationApi
  *   api/debug.ts          -- debugApi
@@ -24,9 +22,6 @@
  *   api/audit.ts          -- auditApi
  *   api/billing.ts        -- billingApi
  */
-
-// HTTP Client
-export { apiFetch, buildQueryString } from './http-client';
 
 // All types
 export * from './types';
@@ -39,11 +34,16 @@ export { databaseApi } from './api/database';
 export { supportApi } from './api/support';
 export { securityApi } from './api/security';
 export { settingsApi, systemSettingsApi } from './api/settings';
-export { tenantConfigApi } from './api/tenant-config';
 export { emailTemplatesApi } from './api/email-templates';
 export { impersonationApi } from './api/impersonation';
 export { debugApi } from './api/debug';
 export { tenantsApi } from './api/tenants';
+export type {
+  CreateTenantInput,
+  CreateTenantNoteInput,
+  UpdateTenantInput,
+  UpdateTenantNoteInput,
+} from './api/tenants';
 export { usersApi } from './api/users';
 export { modulesApi } from './api/modules';
 export { auditApi } from './api/audit';

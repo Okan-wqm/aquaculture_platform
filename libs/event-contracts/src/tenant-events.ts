@@ -43,6 +43,7 @@ export interface TenantOnboardingRequestedEvent extends BaseEvent {
   name: string;
   slug: string;
   moduleIds: string[];
+  generation: number;
 }
 
 export interface TenantOnboardingAckEvent extends BaseEvent {
@@ -50,6 +51,7 @@ export interface TenantOnboardingAckEvent extends BaseEvent {
   operationId: string;
   service: string;
   acknowledgedAt: string;
+  generation: number;
 }
 
 export interface TenantOnboardingFailedEvent extends BaseEvent {
@@ -57,6 +59,7 @@ export interface TenantOnboardingFailedEvent extends BaseEvent {
   operationId: string;
   service: string;
   error: string;
+  generation: number;
 }
 
 /**

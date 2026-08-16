@@ -7,7 +7,8 @@
  */
 
 import { JwtPayload } from '../types/index';
-import { ROLE_PERMISSIONS, ROLE_HIERARCHY } from './permission.guard';
+import { implicitPermissionsForRole } from '@platform/identity';
+import { ROLE_HIERARCHY } from './permission.guard';
 
 /**
  * Check if a user has a specific permission.
@@ -38,7 +39,7 @@ export function userHasPermission(user: JwtPayload, permission: string): boolean
 
   // Check role-based permissions
   for (const role of user.roles) {
-    const rolePerms = ROLE_PERMISSIONS[role] || [];
+    const rolePerms = implicitPermissionsForRole(role);
     if (rolePerms.includes('*') || rolePerms.includes(permission)) {
       return true;
     }

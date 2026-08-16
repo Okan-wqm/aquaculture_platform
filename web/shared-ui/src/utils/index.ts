@@ -26,6 +26,7 @@ export {
   getAccessToken,
   setTenantId,
   getTenantId,
+  graphQLOperationIdentity,
   onTenantChange,
   silentRefresh,
   GraphQLClientError,
@@ -34,6 +35,7 @@ export {
 export type {
   ApiConfig,
   GraphQLRequestOptions,
+  GraphQLOperationIdentity,
   GraphQLErrorResponse,
 } from './api-client';
 

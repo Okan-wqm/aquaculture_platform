@@ -1,3 +1,4 @@
+import { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 import {
   Body,
@@ -23,24 +24,31 @@ import { CurrentUser } from '../decorators/current-user.decorator';
 import {
   UpdateTenantCommand,
   SuspendTenantCommand,
-  ActivateTenantCommand,
+  ResumeTenantCommand,
   DeactivateTenantCommand,
   ArchiveTenantCommand,
   RequestTenantErasureCommand,
 } from './commands/tenant.commands';
 import { DeactivateTenantDto } from './dto/deactivate-tenant.dto';
+import type { TenantActivityDto, TenantNoteDto } from './dto/tenant-activity.dto';
 import {
   RequestTenantErasureDto,
   TenantErasureOperationAcceptedResponse,
 } from './dto/request-tenant-erasure.dto';
 import {
   TenantDetailDto,
-  TenantListItemDto,
   BulkSuspendDto,
   BulkActivateDto,
   CreateTenantNoteDto,
   UpdateTenantNoteDto,
 } from './dto/tenant-detail.dto';
+import {
+  BulkTenantOperationResult,
+  TenantListItemDto,
+  TenantPublicSummaryDto,
+  TenantSubscriptionReconciliation,
+  TenantSummaryDto,
+} from './dto/tenant-summary.dto';
 import {
   CreateTenantAcceptedResponse,
   CreateTenantDto,
@@ -50,8 +58,6 @@ import {
   TenantUsageDto,
   UpdateTenantDto,
 } from './dto/tenant.dto';
-import { TenantActivity, TenantNote } from './entities/tenant-activity.entity';
-import { Tenant } from './entities/tenant.entity';
 import {
   GetTenantByIdQuery,
   GetTenantBySlugQuery,
@@ -62,10 +68,40 @@ import {
   GetExpiringTrialsQuery,
   SearchTenantsQuery,
 } from './queries/tenant.queries';
-import { PaginatedResult } from './query-handlers/tenant-query.handlers';
 import { TenantActivityService } from './services/tenant-activity.service';
 import { TenantDetailService } from './services/tenant-detail.service';
 import { TenantProvisioningWorkflowService } from './services/tenant-provisioning-workflow.service';
+import { AdminResponseContract } from '../shared/admin-response-contract.decorator';
+import {
+  tenantPublicCreateTenantAcceptedResponseContract,
+  type TenantPublicCreateTenantAcceptedResponseDto,
+  tenantAdminTenantListItemDtoPageContract,
+  type TenantAdminTenantListItemDtoDto,
+  tenantAdminTenantStatsDtoContract,
+  type TenantAdminTenantStatsDtoDto,
+  tenantAdminTenantSummaryDtoArrayContract,
+  type TenantAdminTenantSummaryDtoDto,
+  tenantAdminTenantPublicSummaryDtoContract,
+  type TenantAdminTenantPublicSummaryDtoDto,
+  tenantAdminBulkTenantOperationResultContract,
+  type TenantAdminBulkTenantOperationResultDto,
+  tenantAdminTenantSummaryDtoContract,
+  tenantAdminTenantDetailDtoContract,
+  type TenantAdminTenantDetailDtoDto,
+  tenantAdminTenantUsageDtoContract,
+  type TenantAdminTenantUsageDtoDto,
+  tenantAdminTenantActivityDtoPageContract,
+  type TenantAdminTenantActivityDtoDto,
+  tenantAdminTenantNoteDtoArrayContract,
+  type TenantAdminTenantNoteDtoDto,
+  tenantAdminTenantNoteDtoContract,
+  voidResponseContract,
+  type VoidResponseDto,
+  tenantAdminTenantErasureOperationAcceptedResponseContract,
+  type TenantAdminTenantErasureOperationAcceptedResponseDto,
+  tenantAdminReconcileTenantSubscriptionResponseContract,
+  type TenantAdminReconcileTenantSubscriptionResponseDto,
+} from './contracts/admin-http-response.contract';
 
 interface AdminUser {
   id: string;
@@ -80,14 +116,15 @@ export class TenantPublicController {
 
   constructor(private readonly provisioningWorkflowService: TenantProvisioningWorkflowService) {}
 
+  @AdminResponseContract(tenantPublicCreateTenantAcceptedResponseContract)
   @Post()
   @ApiOperation({ summary: 'Create a new tenant provisioning operation' })
   @HttpCode(HttpStatus.ACCEPTED)
   async createTenant(
     @Body() dto: CreateTenantDto,
     @CurrentUser() user: AdminUser,
-    @Headers('idempotency-key') idempotencyKey?: string,
-  ): Promise<CreateTenantAcceptedResponse> {
+    @Headers('idempotency-key') idempotencyKey: string,
+  ): Promise<TenantPublicCreateTenantAcceptedResponseDto> {
     const response = await this.provisioningWorkflowService.createTenantOperation(
       dto,
       user.id,
@@ -105,21 +142,23 @@ export class TenantPublicController {
     return response;
   }
 
+  @AdminResponseContract(tenantPublicCreateTenantAcceptedResponseContract)
   @Get('provisioning/:operationId')
   @ApiOperation({ summary: 'Get tenant provisioning operation status' })
   async getTenantProvisioningOperation(
     @Param('operationId', ParseUUIDPipe) operationId: string,
-  ): Promise<CreateTenantAcceptedResponse> {
+  ): Promise<TenantPublicCreateTenantAcceptedResponseDto> {
     return this.provisioningWorkflowService.getOperation(operationId);
   }
 
+  @AdminResponseContract(tenantPublicCreateTenantAcceptedResponseContract)
   @ThrottleSensitive()
   @Post('provisioning/:operationId/retry')
   @ApiOperation({ summary: 'Retry a failed tenant provisioning operation' })
   @HttpCode(HttpStatus.ACCEPTED)
   async retryTenantProvisioningOperation(
     @Param('operationId', ParseUUIDPipe) operationId: string,
-  ): Promise<CreateTenantAcceptedResponse> {
+  ): Promise<TenantPublicCreateTenantAcceptedResponseDto> {
     return this.provisioningWorkflowService.retryOperation(operationId);
   }
 
@@ -143,11 +182,12 @@ export class TenantAdminController {
     private readonly provisioningWorkflowService: TenantProvisioningWorkflowService,
   ) {}
 
+  @AdminResponseContract(tenantAdminTenantListItemDtoPageContract)
   @Get()
   @ApiOperation({ summary: 'List all tenants with filtering and pagination' })
   async listTenants(
     @Query() query: ListTenantsQueryDto,
-  ): Promise<PaginatedResult<TenantListItemDto>> {
+  ): Promise<IStandardPaginatedResult<TenantAdminTenantListItemDtoDto>> {
     return this.queryBus.execute(
       new ListTenantsQuery(
         {
@@ -167,37 +207,48 @@ export class TenantAdminController {
     );
   }
 
+  @AdminResponseContract(tenantAdminTenantStatsDtoContract)
   @Get('stats')
   @ApiOperation({ summary: 'Get tenant statistics' })
-  async getTenantStats(): Promise<TenantStatsDto> {
+  async getTenantStats(): Promise<TenantAdminTenantStatsDtoDto> {
     return this.queryBus.execute(new GetTenantStatsQuery());
   }
 
+  @AdminResponseContract(tenantAdminTenantSummaryDtoArrayContract)
   @Get('search')
   @ApiOperation({ summary: 'Search tenants by name or domain' })
   async searchTenants(
     @Query('q') searchTerm: string,
     @Query('limit') limit?: number,
-  ): Promise<Tenant[]> {
+  ): Promise<TenantAdminTenantSummaryDtoDto[]> {
     return this.queryBus.execute(new SearchTenantsQuery(searchTerm, limit || 20));
   }
 
+  @AdminResponseContract(tenantAdminTenantSummaryDtoArrayContract)
   @Get('approaching-limits')
   @ApiOperation({ summary: 'Get tenants approaching usage limits' })
-  async getTenantsApproachingLimits(@Query('threshold') threshold?: number): Promise<Tenant[]> {
+  async getTenantsApproachingLimits(
+    @Query('threshold') threshold?: number,
+  ): Promise<TenantAdminTenantSummaryDtoDto[]> {
     return this.queryBus.execute(new GetTenantsApproachingLimitsQuery(threshold || 80));
   }
 
+  @AdminResponseContract(tenantAdminTenantSummaryDtoArrayContract)
   @Get('expiring-trials')
   @ApiOperation({ summary: 'Get tenants with expiring trial periods' })
-  async getExpiringTrials(@Query('withinDays') withinDays?: number): Promise<Tenant[]> {
+  async getExpiringTrials(
+    @Query('withinDays') withinDays?: number,
+  ): Promise<TenantAdminTenantSummaryDtoDto[]> {
     return this.queryBus.execute(new GetExpiringTrialsQuery(withinDays || 7));
   }
 
-  @Get('slug/:slug')
+  @AdminResponseContract(tenantAdminTenantPublicSummaryDtoContract)
+  @Get('lookup/slug/:slug')
   @ApiOperation({ summary: 'Get tenant by slug (status redacted from response)' })
-  async getTenantBySlug(@Param('slug') slug: string): Promise<Partial<Tenant>> {
-    const tenant: Tenant = await this.queryBus.execute(new GetTenantBySlugQuery(slug));
+  async getTenantBySlug(
+    @Param('slug') slug: string,
+  ): Promise<TenantAdminTenantPublicSummaryDtoDto> {
+    const tenant: TenantSummaryDto = await this.queryBus.execute(new GetTenantBySlugQuery(slug));
     // SEC: Remove internal status from slug-based lookups to prevent
     // information leakage about tenant lifecycle state.
     const { status: _status, ...publicTenant } = tenant;
@@ -208,6 +259,7 @@ export class TenantAdminController {
   // Bulk Operations
   // ============================================================================
 
+  @AdminResponseContract(tenantAdminBulkTenantOperationResultContract)
   @ThrottleSensitive()
   @Post('bulk/suspend')
   @ApiOperation({ summary: 'Bulk suspend multiple tenants' })
@@ -215,10 +267,11 @@ export class TenantAdminController {
   async bulkSuspend(
     @Body() dto: BulkSuspendDto,
     @CurrentUser() user: AdminUser,
-  ): Promise<{ success: string[]; failed: string[] }> {
+  ): Promise<TenantAdminBulkTenantOperationResultDto> {
     return this.detailService.bulkSuspend(dto.tenantIds, dto.reason, user.id);
   }
 
+  @AdminResponseContract(tenantAdminBulkTenantOperationResultContract)
   @ThrottleSensitive()
   @Post('bulk/activate')
   @ApiOperation({ summary: 'Bulk activate multiple tenants' })
@@ -227,7 +280,7 @@ export class TenantAdminController {
     // BUG-024 fix: use a validated DTO instead of a raw @Body('tenantIds') extraction
     @Body() dto: BulkActivateDto,
     @CurrentUser() user: AdminUser,
-  ): Promise<{ success: string[]; failed: string[] }> {
+  ): Promise<TenantAdminBulkTenantOperationResultDto> {
     return this.detailService.bulkActivate(dto.tenantIds, user.id);
   }
 
@@ -235,43 +288,55 @@ export class TenantAdminController {
   // Tenant Detail Endpoints
   // ============================================================================
 
+  @AdminResponseContract(tenantAdminTenantSummaryDtoContract)
   @Get(':id')
   @ApiOperation({ summary: 'Get tenant by ID' })
-  async getTenantById(@Param('id', ParseUUIDPipe) id: string): Promise<Tenant> {
+  async getTenantById(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<TenantAdminTenantSummaryDtoDto> {
     return this.queryBus.execute(new GetTenantByIdQuery(id));
   }
 
+  @AdminResponseContract(tenantAdminTenantDetailDtoContract)
   @Get(':id/detail')
   @ApiOperation({ summary: 'Get detailed tenant information' })
-  async getTenantDetail(@Param('id', ParseUUIDPipe) id: string): Promise<TenantDetailDto> {
+  async getTenantDetail(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<TenantAdminTenantDetailDtoDto> {
     return this.detailService.getTenantDetail(id);
   }
 
+  @AdminResponseContract(tenantAdminTenantUsageDtoContract)
   @Get(':id/usage')
   @ApiOperation({ summary: 'Get tenant resource usage' })
-  async getTenantUsage(@Param('id', ParseUUIDPipe) id: string): Promise<TenantUsageDto> {
+  async getTenantUsage(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<TenantAdminTenantUsageDtoDto> {
     return this.queryBus.execute(new GetTenantUsageQuery(id));
   }
 
+  @AdminResponseContract(tenantAdminTenantActivityDtoPageContract)
   @Get(':id/activities')
   @ApiOperation({ summary: 'Get tenant activity timeline' })
   async getTenantActivities(
     @Param('id', ParseUUIDPipe) id: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ): Promise<{ data: TenantActivity[]; total: number; totalPages: number }> {
+  ): Promise<IStandardPaginatedResult<TenantAdminTenantActivityDtoDto>> {
     return this.detailService.getActivitiesTimeline(id, page || 1, limit || 20);
   }
 
+  @AdminResponseContract(tenantAdminTenantNoteDtoArrayContract)
   @Get(':id/notes')
   @ApiOperation({ summary: 'Get tenant notes' })
   async getTenantNotes(
     @Param('id', ParseUUIDPipe) id: string,
     @Query('category') category?: string,
-  ): Promise<TenantNote[]> {
+  ): Promise<TenantAdminTenantNoteDtoDto[]> {
     return this.activityService.getNotes(id, { category });
   }
 
+  @AdminResponseContract(tenantAdminTenantNoteDtoContract)
   @Post(':id/notes')
   @ApiOperation({ summary: 'Create a note for a tenant' })
   @HttpCode(HttpStatus.CREATED)
@@ -279,7 +344,7 @@ export class TenantAdminController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: CreateTenantNoteDto, // HIGH-003 fix: typed DTO with @MaxLength(5000) and @IsEnum(categories)
     @CurrentUser() user: AdminUser,
-  ): Promise<TenantNote> {
+  ): Promise<TenantAdminTenantNoteDtoDto> {
     return this.activityService.createNote({
       tenantId: id,
       content: body.content,
@@ -290,17 +355,19 @@ export class TenantAdminController {
     });
   }
 
+  @AdminResponseContract(tenantAdminTenantNoteDtoContract)
   @Patch(':id/notes/:noteId')
   @ApiOperation({ summary: 'Update a tenant note' })
   async updateTenantNote(
     @Param('id', ParseUUIDPipe) id: string,
     @Param('noteId', ParseUUIDPipe) noteId: string,
     @Body() body: UpdateTenantNoteDto, // HIGH-003 fix: typed DTO with @MaxLength(5000) and @IsEnum(categories)
-  ): Promise<TenantNote> {
+  ): Promise<TenantAdminTenantNoteDtoDto> {
     // HIGH-004 fix: pass tenantId to verify ownership
     return this.activityService.updateNote(noteId, body, id);
   }
 
+  @AdminResponseContract(voidResponseContract)
   @Delete(':id/notes/:noteId')
   @ApiOperation({ summary: 'Delete a tenant note' })
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -316,16 +383,18 @@ export class TenantAdminController {
   // Standard CRUD Operations
   // ============================================================================
 
+  @AdminResponseContract(tenantAdminTenantSummaryDtoContract)
   @Put(':id')
   @ApiOperation({ summary: 'Update tenant details' })
   async updateTenant(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateTenantDto,
     @CurrentUser() user: AdminUser,
-  ): Promise<Tenant> {
+  ): Promise<TenantAdminTenantSummaryDtoDto> {
     return this.commandBus.execute(new UpdateTenantCommand(id, dto, user.id));
   }
 
+  @AdminResponseContract(tenantAdminTenantSummaryDtoContract)
   @ThrottleSensitive()
   @Patch(':id/suspend')
   @ApiOperation({ summary: 'Suspend a tenant' })
@@ -333,30 +402,33 @@ export class TenantAdminController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: SuspendTenantDto,
     @CurrentUser() user: AdminUser,
-  ): Promise<Tenant> {
+  ): Promise<TenantAdminTenantSummaryDtoDto> {
     return this.commandBus.execute(new SuspendTenantCommand(id, dto, user.id));
   }
 
+  @AdminResponseContract(tenantAdminTenantSummaryDtoContract)
   @ThrottleSensitive()
   @Patch(':id/activate')
   @ApiOperation({ summary: 'Activate a suspended tenant' })
   async activateTenant(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AdminUser,
-  ): Promise<Tenant> {
-    return this.commandBus.execute(new ActivateTenantCommand(id, user.id));
+  ): Promise<TenantAdminTenantSummaryDtoDto> {
+    return this.commandBus.execute(new ResumeTenantCommand(id, user.id));
   }
 
+  @AdminResponseContract(tenantAdminTenantSummaryDtoContract)
   @Patch(':id/deactivate')
   @ApiOperation({ summary: 'Deactivate a tenant' })
   async deactivateTenant(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: DeactivateTenantDto,
     @CurrentUser() user: AdminUser,
-  ): Promise<Tenant> {
+  ): Promise<TenantAdminTenantSummaryDtoDto> {
     return this.commandBus.execute(new DeactivateTenantCommand(id, dto.reason, user.id));
   }
 
+  @AdminResponseContract(voidResponseContract)
   @Delete(':id')
   @ApiOperation({ summary: 'Archive a tenant' })
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -367,6 +439,7 @@ export class TenantAdminController {
     await this.commandBus.execute(new ArchiveTenantCommand(id, user.id));
   }
 
+  @AdminResponseContract(tenantAdminTenantErasureOperationAcceptedResponseContract)
   @ThrottleSensitive()
   @Post(':id/erasure')
   @ApiOperation({ summary: 'Request irreversible GDPR tenant erasure' })
@@ -375,7 +448,7 @@ export class TenantAdminController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: RequestTenantErasureDto,
     @CurrentUser() user: AdminUser,
-  ): Promise<TenantErasureOperationAcceptedResponse> {
+  ): Promise<TenantAdminTenantErasureOperationAcceptedResponseDto> {
     return this.commandBus.execute(
       new RequestTenantErasureCommand(id, dto.reason, user.id, dto.dryRun ?? false),
     );
@@ -389,6 +462,7 @@ export class TenantAdminController {
    * the same PROVISION_TENANT_SUBSCRIPTION command tenant creation uses — safe
    * to re-invoke (billing dedups on the active subscription + command receipt).
    */
+  @AdminResponseContract(tenantAdminReconcileTenantSubscriptionResponseContract)
   @ThrottleSensitive()
   @Post(':id/reconcile-subscription')
   @ApiOperation({ summary: 'Idempotently create a missing tenant billing subscription' })
@@ -396,13 +470,7 @@ export class TenantAdminController {
   async reconcileTenantSubscription(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AdminUser,
-  ): Promise<{
-    tenantId: string;
-    subscriptionId?: string;
-    status?: string;
-    moduleItemCount?: number;
-    replayed?: boolean;
-  }> {
+  ): Promise<TenantAdminReconcileTenantSubscriptionResponseDto> {
     return this.provisioningWorkflowService.reconcileTenantSubscription(id, user.id);
   }
 }

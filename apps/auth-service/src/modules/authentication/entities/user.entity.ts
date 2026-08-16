@@ -4,6 +4,7 @@ import {
   PEPPERED_PREFIX_V1,
 } from '@aquaculture/backend-common/auth';
 import { Role } from '@aquaculture/backend-common/decorators';
+import { roleAtLeast } from '@platform/identity';
 import { ObjectType, Field, ID, HideField, registerEnumType } from '@nestjs/graphql';
 import {
   Entity,
@@ -390,10 +391,7 @@ export class User {
    * Check if user has at least the given role level
    */
   hasRoleOrHigher(requiredRole: Role): boolean {
-    const roleOrder = [Role.MODULE_USER, Role.MODULE_MANAGER, Role.TENANT_ADMIN, Role.SUPER_ADMIN];
-    const userRoleIndex = roleOrder.indexOf(this.role);
-    const requiredRoleIndex = roleOrder.indexOf(requiredRole);
-    return userRoleIndex >= requiredRoleIndex;
+    return roleAtLeast(this.role, requiredRole);
   }
 
   /**

@@ -2,7 +2,14 @@
  * Debug tools domain types
  */
 
-export type DebugSessionType = 'query_inspection' | 'api_log_viewing' | 'cache_inspection' | 'feature_flag_override' | 'performance_profiling';
+import type { AdminApiRouteResponse } from './generated/admin-route-contracts';
+
+export type DebugSessionType =
+  | 'query_inspection'
+  | 'api_log_viewing'
+  | 'cache_inspection'
+  | 'feature_flag_override'
+  | 'performance_profiling';
 
 export interface DebugSession {
   id: string;
@@ -55,19 +62,11 @@ export interface CapturedApiCall {
   timestamp: string;
 }
 
-export interface CacheEntry {
-  id: string;
-  tenantId?: string;
-  key: string;
-  value?: unknown;
-  sizeBytes?: number;
-  ttlSeconds?: number;
-  expiresAt?: string;
-  hitCount: number;
-  lastAccessedAt?: string;
-  cacheStore?: string;
-  tags?: string[];
-}
+export type CacheEntry = AdminApiRouteResponse<'GET /debug/cache'>['entries'][number];
+export type CacheNamespaceListing = AdminApiRouteResponse<'GET /debug/cache'>;
+export type CacheKeyValue = AdminApiRouteResponse<'GET /debug/cache/:key'>;
+export type CacheInvalidationReceipt = AdminApiRouteResponse<'DELETE /debug/cache/:key'>;
+export type CacheStats = AdminApiRouteResponse<'GET /debug/cache/stats'>;
 
 export interface FeatureFlagOverride {
   id: string;

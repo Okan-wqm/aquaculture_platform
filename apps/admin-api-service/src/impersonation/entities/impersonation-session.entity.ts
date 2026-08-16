@@ -1,11 +1,13 @@
 import {
   Entity,
+  PrimaryColumn,
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
   UpdateDateColumn,
   Index,
 } from 'typeorm';
+import type { ImpersonationPermissionsContract } from '@aquaculture/shared-contracts';
 
 /**
  * RBAC-MEDIUM-009 (M7): the ONE impersonation session-duration ceiling, in
@@ -35,16 +37,7 @@ export enum ImpersonationReason {
   OTHER = 'other',
 }
 
-export interface ImpersonationPermissions {
-  canViewData: boolean;
-  canModifyData: boolean;
-  canAccessSettings: boolean;
-  canManageUsers: boolean;
-  canViewBilling: boolean;
-  canExportData: boolean;
-  restrictedModules?: string[];
-  allowedModules?: string[];
-}
+export type ImpersonationPermissions = ImpersonationPermissionsContract;
 
 export interface ImpersonationAction {
   action: string;
@@ -109,10 +102,7 @@ export class ImpersonationSession {
   userAgent?: string;
 
   @Column({ type: 'text', nullable: true })
-  originalSessionToken?: string;
-
-  @Column({ type: 'text', nullable: true })
-  impersonationToken?: string;
+  impersonationToken!: string | null;
 
   /**
    * ADMIN-MEDIUM-004: Whether the admin completed MFA before starting this session.
@@ -157,16 +147,15 @@ export class ImpersonationSession {
 }
 
 /**
- * Secret columns on ImpersonationSession that MUST NEVER be serialized onto a
- * read response (DB-ADMIN-HIGH-002). `originalSessionToken` is stored plaintext
- * and `impersonationToken` is a live credential hash; both are set once at
- * creation and consumed internally (validateSession). admin-api registers no
+ * Credential columns on ImpersonationSession that MUST NEVER be serialized onto a
+ * read response (DB-ADMIN-HIGH-002). `impersonationToken` is the canonical
+ * SHA-256 credential hash consumed only by the internal gateway authorization authority.
+ * admin-api registers no
  * global ClassSerializerInterceptor, so `@Exclude()` would be inert — the
  * boundary is enforced by returning the safe view below from every read path.
  * This array is the single source of truth for what to strip.
  */
 export const IMPERSONATION_SESSION_SECRET_FIELDS = [
-  'originalSessionToken',
   'impersonationToken',
 ] as const;
 
@@ -191,6 +180,7 @@ export function toSafeImpersonationSession(
 
 @Entity('impersonation_permissions', { schema: 'admin' })
 @Index(['superAdminId', 'isActive'])
+@Index('UQ_impersonation_permission_super_admin', ['superAdminId'], { unique: true })
 export class ImpersonationPermission {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -228,7 +218,7 @@ export class ImpersonationPermission {
   @Column({ default: false })
   requireTicketReference!: boolean;
 
-  @Column({ default: true })
+  @Column({ default: false })
   notifyTenantAdmin!: boolean;
 
   @Column({ type: 'uuid', nullable: true })
@@ -248,4 +238,102 @@ export class ImpersonationPermission {
 
   @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
+}
+
+export enum ImpersonationAuthorizationDecision {
+  AUTHORIZED = 'authorized',
+  DENIED = 'denied',
+}
+
+/**
+ * Bounded idempotency authority for one external request while its parent
+ * impersonation session is active. Rows are immutable and are retired in the
+ * same transaction that terminalizes the session; the required audit row is
+ * the separate immutable long-lived evidence authority.
+ */
+@Entity('impersonation_authorization_receipts', { schema: 'admin' })
+@Index(['actorId', 'recordedAt'])
+@Index(['effectiveTenantId', 'recordedAt'])
+export class ImpersonationAuthorizationReceipt {
+  @PrimaryColumn({ type: 'uuid' })
+  sessionId!: string;
+
+  @PrimaryColumn({ type: 'uuid' })
+  authorizationReceiptId!: string;
+
+  @Column({ type: 'char', length: 64 })
+  requestDigest!: string;
+
+  @Column({ type: 'uuid' })
+  actorId!: string;
+
+  @Column({ type: 'uuid' })
+  effectiveTenantId!: string;
+
+  @Column({ type: 'varchar', length: 10 })
+  method!: string;
+
+  @Column({ type: 'varchar', length: 2048 })
+  normalizedPath!: string;
+
+  @Column({ type: 'char', length: 64 })
+  normalizedQueryHash!: string;
+
+  @Column({ type: 'char', length: 64 })
+  bodyHash!: string;
+
+  @Column({ type: 'inet' })
+  clientIp!: string;
+
+  @Column({ type: 'char', length: 64 })
+  clientUserAgentHash!: string;
+
+  @Column({ type: 'char', length: 64 })
+  sessionGeneration!: string;
+
+  @Column({ type: 'char', length: 64 })
+  permissionGeneration!: string;
+
+  @CreateDateColumn({ type: 'timestamptz' })
+  recordedAt!: Date;
+}
+
+/** Exact operation-set decision child of one external request receipt. */
+@Entity('impersonation_authorization_operation_receipts', { schema: 'admin' })
+@Index(['decision', 'recordedAt'])
+export class ImpersonationAuthorizationOperationReceipt {
+  @PrimaryColumn({ type: 'uuid' })
+  sessionId!: string;
+
+  @PrimaryColumn({ type: 'uuid' })
+  authorizationReceiptId!: string;
+
+  @PrimaryColumn({ type: 'char', length: 64 })
+  operationSetDigest!: string;
+
+  @Column({ type: 'jsonb' })
+  operations!: Array<{
+    authority: string;
+    module: string;
+    operation: string;
+  }>;
+
+  /** Must equal the exact canonical JSON operation-set cardinality. */
+  @Column({ type: 'smallint' })
+  operationCount!: number;
+
+  @Column({ type: 'varchar', length: 16 })
+  decision!: ImpersonationAuthorizationDecision;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  denialReason?: string;
+
+  @Column({ type: 'char', length: 64 })
+  sessionGeneration!: string;
+
+  @Column({ type: 'char', length: 64 })
+  permissionGeneration!: string;
+
+  @CreateDateColumn({ type: 'timestamptz' })
+  recordedAt!: Date;
 }

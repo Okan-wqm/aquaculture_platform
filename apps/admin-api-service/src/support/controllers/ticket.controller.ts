@@ -17,33 +17,62 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import {
+  createStandardPaginatedResult,
+  type IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 
-import { IsString, IsOptional, IsArray, IsBoolean, IsNumber, IsObject } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsNumber,
+  IsObject,
+  IsOptional,
+  IsString,
+  IsUUID,
+} from 'class-validator';
 
 import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
 import { PlatformAdminOnly } from '../../decorators/roles.decorator';
 import { PaginationQueryDto } from '../../shared/pagination-query.dto';
-import { TicketPriority, TicketStatus, TicketCategory, TicketAttachment } from '../entities/support.entity';
+import { type TicketCommentDto, toTicketCommentDto } from '../dto/support-http-response.dto';
+import {
+  TicketPriority,
+  TicketStatus,
+  TicketCategory,
+  TicketAttachment,
+} from '../entities/support.entity';
 import { TicketService } from '../services/ticket.service';
+import { AdminResponseContract } from '../../shared/admin-response-contract.decorator';
+import {
+  ticketSupportTicketPageContract,
+  type TicketSupportTicketDto,
+  ticketTicketStatsContract,
+  type TicketTicketStatsDto,
+  ticketGetStatsByCategoryResponseContract,
+  type TicketGetStatsByCategoryResponseDto,
+  ticketGetStatsByPriorityResponseContract,
+  type TicketGetStatsByPriorityResponseDto,
+  ticketSupportTicketArrayContract,
+  ticketGetTicketTeamResponseArrayContract,
+  type TicketGetTicketTeamResponseDto,
+  ticketSupportTicketContract,
+  ticketTicketCommentDtoContract,
+  type TicketTicketCommentDtoDto,
+  ticketTicketCommentDtoPageContract,
+} from '../contracts/admin-http-response.contract';
 
 // ============================================================================
 // DTOs
 // ============================================================================
 
 class CreateTicketDto {
-  @IsString()
+  @IsUUID()
   tenantId!: string;
 
   @IsOptional()
   @IsString()
   tenantName?: string;
-
-  @IsString()
-  createdByName!: string;
-
-  @IsOptional()
-  @IsString()
-  createdByEmail?: string;
 
   @IsString()
   subject!: string;
@@ -95,7 +124,7 @@ class UpdateTicketDto {
 }
 
 class AssignTicketDto {
-  @IsString()
+  @IsUUID()
   assignedTo!: string;
 
   @IsString()
@@ -159,6 +188,7 @@ export class TicketController {
   // CRUD
   // ============================================================================
 
+  @AdminResponseContract(ticketSupportTicketPageContract)
   @Get()
   async getAllTickets(
     @Query('status') status?: TicketStatus,
@@ -168,7 +198,7 @@ export class TicketController {
     @Query('tenantId') tenantId?: string,
     @Query('search') search?: string,
     @Query() pagination?: PaginationQueryDto,
-  ) {
+  ): Promise<IStandardPaginatedResult<TicketSupportTicketDto>> {
     return this.ticketService.getAllTickets({
       page: pagination?.page,
       limit: pagination?.limit,
@@ -181,60 +211,71 @@ export class TicketController {
     });
   }
 
+  @AdminResponseContract(ticketTicketStatsContract)
   @Get('stats')
-  async getStats() {
+  async getStats(): Promise<TicketTicketStatsDto> {
     return this.ticketService.getTicketStats();
   }
 
+  @AdminResponseContract(ticketGetStatsByCategoryResponseContract)
   @Get('stats/by-category')
-  async getStatsByCategory() {
+  async getStatsByCategory(): Promise<TicketGetStatsByCategoryResponseDto> {
     return this.ticketService.getStatsByCategory();
   }
 
+  @AdminResponseContract(ticketGetStatsByPriorityResponseContract)
   @Get('stats/by-priority')
-  async getStatsByPriority() {
+  async getStatsByPriority(): Promise<TicketGetStatsByPriorityResponseDto> {
     return this.ticketService.getStatsByPriority();
   }
 
+  @AdminResponseContract(ticketSupportTicketPageContract)
   @Get('unassigned')
   async getUnassignedTickets(
     @Query() pagination?: PaginationQueryDto,
-  ) {
+  ): Promise<IStandardPaginatedResult<TicketSupportTicketDto>> {
     return this.ticketService.getUnassignedTickets({
       page: pagination?.page,
       limit: pagination?.limit,
     });
   }
 
+  @AdminResponseContract(ticketSupportTicketArrayContract)
   @Get('sla-risk')
-  async getTicketsAtSLARisk() {
+  async getTicketsAtSLARisk(): Promise<TicketSupportTicketDto[]> {
     return this.ticketService.getTicketsAtSLARisk();
   }
 
+  @AdminResponseContract(ticketGetTicketTeamResponseArrayContract)
   @Get('team')
-  async getTicketTeam() {
+  async getTicketTeam(): Promise<TicketGetTicketTeamResponseDto[]> {
     return this.ticketService.getTicketTeam();
   }
 
+  @AdminResponseContract(ticketSupportTicketContract)
   @Get(':id')
   @PlatformAdminOnly()
-  async getTicket(@Param('id') id: string) {
+  async getTicket(@Param('id') id: string): Promise<TicketSupportTicketDto> {
     return this.ticketService.getTicket(id);
   }
 
+  @AdminResponseContract(ticketSupportTicketContract)
   @Get('number/:ticketNumber')
   @PlatformAdminOnly()
-  async getTicketByNumber(@Param('ticketNumber') ticketNumber: string) {
+  async getTicketByNumber(
+    @Param('ticketNumber') ticketNumber: string,
+  ): Promise<TicketSupportTicketDto> {
     return this.ticketService.getTicketByNumber(ticketNumber);
   }
 
+  @AdminResponseContract(ticketSupportTicketPageContract)
   @Get('tenant/:tenantId')
   @PlatformAdminOnly()
   async getTicketsForTenant(
     @Param('tenantId') tenantId: string,
     @Query('status') status?: TicketStatus,
     @Query() pagination?: PaginationQueryDto,
-  ) {
+  ): Promise<IStandardPaginatedResult<TicketSupportTicketDto>> {
     return this.ticketService.getTicketsForTenant(tenantId, {
       status,
       page: pagination?.page,
@@ -242,12 +283,13 @@ export class TicketController {
     });
   }
 
+  @AdminResponseContract(ticketSupportTicketPageContract)
   @Get('assigned/:userId')
   async getAssignedTickets(
     @Param('userId') userId: string,
     @Query('status') status?: TicketStatus,
     @Query() pagination?: PaginationQueryDto,
-  ) {
+  ): Promise<IStandardPaginatedResult<TicketSupportTicketDto>> {
     return this.ticketService.getAssignedTickets(userId, {
       status,
       page: pagination?.page,
@@ -255,20 +297,24 @@ export class TicketController {
     });
   }
 
+  @AdminResponseContract(ticketSupportTicketContract)
   @Post()
   @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
-  async createTicket(@Body() dto: CreateTicketDto) {
-    if (!dto.tenantId || !dto.subject || !dto.description || !dto.createdByName) {
-      throw new BadRequestException('tenantId, subject, description, and createdByName are required');
+  async createTicket(
+    @Body() dto: CreateTicketDto,
+    @CurrentUser() user: CurrentUserData,
+  ): Promise<TicketSupportTicketDto> {
+    if (!dto.tenantId || !dto.subject || !dto.description) {
+      throw new BadRequestException('tenantId, subject, and description are required');
     }
 
     return this.ticketService.createTicket({
       tenantId: dto.tenantId,
       tenantName: dto.tenantName,
-      createdBy: 'tenant-user-id', // In production, would come from auth context
-      createdByName: dto.createdByName,
-      createdByEmail: dto.createdByEmail,
+      createdBy: user.id,
+      createdByName: user.email,
+      createdByEmail: user.email,
       subject: dto.subject,
       description: dto.description,
       category: dto.category,
@@ -277,11 +323,12 @@ export class TicketController {
     });
   }
 
+  @AdminResponseContract(ticketSupportTicketContract)
   @Put(':id')
   async updateTicket(
     @Param('id') id: string,
     @Body() dto: UpdateTicketDto,
-  ) {
+  ): Promise<TicketSupportTicketDto> {
     return this.ticketService.updateTicket(id, {
       subject: dto.subject,
       description: dto.description,
@@ -297,24 +344,27 @@ export class TicketController {
   // Actions
   // ============================================================================
 
+  @AdminResponseContract(ticketSupportTicketContract)
   @Post(':id/assign')
   async assignTicket(
     @Param('id') id: string,
     @Body() dto: AssignTicketDto,
-  ) {
+    @CurrentUser() user: CurrentUserData,
+  ): Promise<TicketSupportTicketDto> {
     if (!dto.assignedTo || !dto.assignedToName) {
       throw new BadRequestException('assignedTo and assignedToName are required');
     }
 
-    return this.ticketService.assignTicket(id, dto.assignedTo, dto.assignedToName);
+    return this.ticketService.assignTicket(id, dto.assignedTo, dto.assignedToName, user.id);
   }
 
+  @AdminResponseContract(ticketSupportTicketContract)
   @Post(':id/status')
   async changeStatus(
     @Param('id') id: string,
     @Body() dto: ChangeStatusDto,
     @CurrentUser() user: CurrentUserData,
-  ) {
+  ): Promise<TicketSupportTicketDto> {
     if (!dto.status) {
       throw new BadRequestException('status is required');
     }
@@ -327,12 +377,13 @@ export class TicketController {
     );
   }
 
+  @AdminResponseContract(ticketSupportTicketContract)
   @Post(':id/priority')
   async changePriority(
     @Param('id') id: string,
     @Body() dto: ChangePriorityDto,
     @CurrentUser() user: CurrentUserData,
-  ) {
+  ): Promise<TicketSupportTicketDto> {
     if (!dto.priority) {
       throw new BadRequestException('priority is required');
     }
@@ -349,93 +400,63 @@ export class TicketController {
   // Comments
   // ============================================================================
 
-  @Get(':id/comments')
+  @AdminResponseContract(ticketTicketCommentDtoPageContract)
+  @Get('by-id/:id/comments')
   @PlatformAdminOnly()
   async getComments(
     @Param('id') id: string,
     @Query('includeInternal') includeInternal?: string,
     @Query() pagination?: PaginationQueryDto,
-  ) {
-    return this.ticketService.getComments(id, {
+  ): Promise<IStandardPaginatedResult<TicketTicketCommentDtoDto>> {
+    const result = await this.ticketService.getComments(id, {
       includeInternal: includeInternal !== 'false',
       page: pagination?.page,
       limit: pagination?.limit,
     });
+    return createStandardPaginatedResult(
+      result.items.map(toTicketCommentDto),
+      result.total,
+      result.page,
+      result.limit,
+    );
   }
 
-  @Post(':id/comments')
+  @AdminResponseContract(ticketTicketCommentDtoContract)
+  @Post('by-id/:id/comments')
   @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
   async addComment(
     @Param('id') id: string,
     @Body() dto: AddCommentDto,
     @CurrentUser() user: CurrentUserData,
-  ) {
+  ): Promise<TicketTicketCommentDtoDto> {
     if (!dto.content) {
       throw new BadRequestException('content is required');
     }
 
-    return this.ticketService.addComment(id, {
-      authorId: user.id,
-      authorType: 'admin',
-      authorName: dto.authorName || user.email,
-      content: dto.content,
-      isInternal: dto.isInternal,
-      attachments: dto.attachments,
-    });
-  }
-
-  // ============================================================================
-  // Replies (Alias for Comments - Frontend Compatibility)
-  // ============================================================================
-
-  @Get(':id/replies')
-  @PlatformAdminOnly()
-  async getReplies(
-    @Param('id') id: string,
-    @Query('includeInternal') includeInternal?: string,
-    @Query() pagination?: PaginationQueryDto,
-  ) {
-    // Replies are the same as comments, just with different naming
-    return this.ticketService.getComments(id, {
-      includeInternal: includeInternal !== 'false',
-      page: pagination?.page,
-      limit: pagination?.limit,
-    });
-  }
-
-  @Post(':id/replies')
-  @PlatformAdminOnly()
-  @HttpCode(HttpStatus.CREATED)
-  async addReply(
-    @Param('id') id: string,
-    @Body() dto: AddCommentDto,
-    @CurrentUser() user: CurrentUserData,
-  ) {
-    if (!dto.content) {
-      throw new BadRequestException('content is required');
-    }
-
-    return this.ticketService.addComment(id, {
-      authorId: user.id,
-      authorType: 'admin',
-      authorName: dto.authorName || user.email,
-      content: dto.content,
-      isInternal: dto.isInternal,
-      attachments: dto.attachments,
-    });
+    return toTicketCommentDto(
+      await this.ticketService.addComment(id, {
+        authorId: user.id,
+        authorType: 'admin',
+        authorName: dto.authorName || user.email,
+        content: dto.content,
+        isInternal: dto.isInternal,
+        attachments: dto.attachments,
+      }),
+    );
   }
 
   // ============================================================================
   // Satisfaction
   // ============================================================================
 
+  @AdminResponseContract(ticketSupportTicketContract)
   @Post(':id/satisfaction')
   @PlatformAdminOnly()
   async submitSatisfactionRating(
     @Param('id') id: string,
     @Body() dto: SatisfactionRatingDto,
-  ) {
+  ): Promise<TicketSupportTicketDto> {
     if (!dto.rating) {
       throw new BadRequestException('rating is required');
     }

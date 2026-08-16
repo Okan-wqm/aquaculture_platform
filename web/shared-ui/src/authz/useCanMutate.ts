@@ -3,7 +3,7 @@
  * ================================================================
  *
  * Returns `true` when the current user's role allows the named
- * mutation to run, per the frontend permission-matrix mirror.
+ * mutation to run, per the generated canonical-contract projection.
  *
  *   const canEdit = useCanMutate('updateBatch');
  *   {canEdit && <Button>Düzenle</Button>}
@@ -18,14 +18,11 @@
  * This hook is a pure function of the already-known user role plus
  * the static matrix — no GraphQL round-trip, no API client, no
  * re-render cascades. The matrix-to-backend parity is locked by
- * `__tests__/permission-matrix.parity.test.ts`.
+ * `codegen:farm-authorization:check` rejects a stale projection.
  */
 import { useAuth } from '../hooks/useAuth';
 import type { UserRole } from '../types';
-import {
-  FRONTEND_MUTATION_ROLES,
-  type FrontendMutationName,
-} from './permission-matrix';
+import { FRONTEND_MUTATION_ROLES, type FrontendMutationName } from './permission-matrix';
 
 export function useCanMutate(name: FrontendMutationName): boolean {
   const { user, isAuthenticated } = useAuth();
@@ -36,8 +33,7 @@ export function useCanMutate(name: FrontendMutationName): boolean {
   // admin can run any mutation regardless of matrix entries.
   if (user.role === 'SUPER_ADMIN') return true;
 
-  const allowedRoles: readonly UserRole[] =
-    FRONTEND_MUTATION_ROLES[name] ?? [];
+  const allowedRoles: readonly UserRole[] = FRONTEND_MUTATION_ROLES[name] ?? [];
 
-  return allowedRoles.includes(user.role as UserRole);
+  return allowedRoles.includes(user.role);
 }

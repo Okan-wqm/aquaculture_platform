@@ -14,7 +14,7 @@ const ACTOR_ID = 'actor-uuid-001';
 
 // A fully-licensed tenant (every catalogue capability entitled) — used by the
 // authority/subset tests that are not about entitlement itself (RBAC-HIGH-010).
-const FULLY_ENTITLED = CATALOGUE_CAPABILITIES;
+const FULLY_ENTITLED = new Set(CATALOGUE_CAPABILITIES);
 
 describe('CapabilityAuthorityService', () => {
   let service: CapabilityAuthorityService;

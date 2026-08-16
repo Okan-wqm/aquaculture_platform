@@ -7,9 +7,12 @@
  */
 
 import {
-  ADMIN_BILLING_NAV_ITEMS,
+  buildSuperAdminNavigation,
   Header,
+  MODULE_USER_BASE_NAVIGATION,
+  PLATFORM_MODULE_NAVIGATION,
   Sidebar,
+  TENANT_ADMIN_NAVIGATION,
   createTenantInvalidationKey,
   type NavigationItem,
   type SidebarTheme,
@@ -18,6 +21,7 @@ import {
   useTenantContext,
 } from '@aquaculture/shared-ui';
 import { Sparkles } from 'lucide-react';
+import { Role } from '@platform/identity';
 import AiAssistantDrawer from '../components/ai/AiAssistantDrawer';
 import { useQueryClient } from '@tanstack/react-query';
 import React, { useState, useCallback, useMemo } from 'react';
@@ -31,337 +35,9 @@ import { NotificationPanel } from '@/components/NotificationPanel';
 // Navigation Configuration - Role Based
 // ============================================================================
 
-/**
- * SUPER_ADMIN navigation - Full System Management
- * Synchronized with AdminSidebar
- */
-const adminBillingNavItems: NavigationItem[] = ADMIN_BILLING_NAV_ITEMS.map((item) => ({ ...item }));
+/** SUPER_ADMIN navigation is a projection of the shared route authority. */
+const superAdminNavigation: NavigationItem[] = buildSuperAdminNavigation();
 
-const superAdminNavigation: NavigationItem[] = [
-  {
-    id: 'admin-dashboard',
-    label: 'Dashboard',
-    path: '/admin',
-    icon: 'dashboard',
-  },
-  {
-    id: 'admin-analytics',
-    label: 'Analytics',
-    icon: 'analytics',
-    children: [
-      { id: 'analytics-dashboard', label: 'Overview', path: '/admin/analytics' },
-      { id: 'analytics-reports', label: 'Reports', path: '/admin/analytics/reports' },
-    ],
-  },
-  {
-    id: 'admin-tenants',
-    label: 'Tenants',
-    icon: 'tenants',
-    children: [
-      { id: 'tenant-list', label: 'All Tenants', path: '/admin/tenants' },
-      { id: 'tenant-create', label: 'Create Tenant', path: '/admin/tenants/new' },
-    ],
-  },
-  {
-    id: 'admin-users',
-    label: 'Users',
-    icon: 'users',
-    children: [
-      { id: 'user-list', label: 'All Users', path: '/admin/users' },
-      { id: 'user-roles', label: 'Roles & Permissions', path: '/admin/users/roles' },
-    ],
-  },
-  {
-    id: 'admin-modules',
-    label: 'Modules',
-    path: '/admin/modules',
-    icon: 'modules',
-  },
-  {
-    id: 'admin-billing',
-    label: 'Billing',
-    icon: 'billing',
-    children: adminBillingNavItems,
-  },
-  {
-    id: 'admin-support',
-    label: 'Support',
-    icon: 'support',
-    children: [
-      { id: 'support-tickets', label: 'Tickets', path: '/admin/support/tickets' },
-      { id: 'support-messaging', label: 'Messaging', path: '/admin/support/messaging' },
-      { id: 'support-announcements', label: 'Announcements', path: '/admin/support/announcements' },
-      { id: 'support-onboarding', label: 'Onboarding', path: '/admin/support/onboarding' },
-    ],
-  },
-  {
-    id: 'admin-security',
-    label: 'Security',
-    icon: 'security',
-    children: [
-      { id: 'security-activity', label: 'Activity Logs', path: '/admin/security/activity' },
-      { id: 'security-audit', label: 'Audit Trail', path: '/admin/security/audit' },
-      { id: 'security-compliance', label: 'Compliance', path: '/admin/security/compliance' },
-      { id: 'security-threats', label: 'Threat Detection', path: '/admin/security/threats' },
-    ],
-  },
-  {
-    id: 'admin-system',
-    label: 'System',
-    icon: 'system',
-    children: [
-      { id: 'system-features', label: 'Feature Toggles', path: '/admin/system/features' },
-      { id: 'system-maintenance', label: 'Maintenance', path: '/admin/system/maintenance' },
-      { id: 'system-performance', label: 'Performance', path: '/admin/system/performance' },
-      { id: 'system-errors', label: 'Error Tracking', path: '/admin/system/errors' },
-      { id: 'system-jobs', label: 'Job Queue', path: '/admin/system/jobs' },
-      { id: 'system-impersonation', label: 'Impersonation', path: '/admin/system/impersonation' },
-      { id: 'system-debug', label: 'Debug Tools', path: '/admin/system/debug' },
-    ],
-  },
-  {
-    id: 'admin-database',
-    label: 'Database',
-    icon: 'database',
-    children: [
-      { id: 'database-management', label: 'Management', path: '/admin/database' },
-      { id: 'database-explorer', label: 'Explorer', path: '/admin/database/explorer' },
-    ],
-  },
-  {
-    id: 'admin-audit',
-    label: 'Audit Logs',
-    path: '/admin/audit',
-    icon: 'audit',
-  },
-  {
-    id: 'admin-settings',
-    label: 'Settings',
-    icon: 'settings',
-    children: [
-      { id: 'settings-general', label: 'General', path: '/admin/settings' },
-      { id: 'settings-email', label: 'Email Templates', path: '/admin/settings/email' },
-      { id: 'settings-integrations', label: 'Integrations', path: '/admin/settings/integrations' },
-    ],
-  },
-];
-
-/**
- * TENANT_ADMIN base navigation - Management items (English)
- */
-const tenantAdminBaseNavigation: NavigationItem[] = [
-  // ==================== COMPANY (TOP LEVEL) ====================
-  {
-    id: 'company',
-    label: 'Company',
-    path: '/sites/company',
-    icon: 'building',
-  },
-  // ==================== MANAGEMENT ====================
-  {
-    id: 'tenant-dashboard',
-    label: 'Dashboard',
-    path: '/tenant',
-    icon: 'dashboard',
-  },
-  {
-    id: 'messaging',
-    label: 'Messages',
-    path: '/messaging',
-    icon: 'message',
-  },
-  {
-    id: 'tenant-users',
-    label: 'Users',
-    path: '/tenant/users',
-    icon: 'users',
-  },
-  {
-    // Tenant-configurable RBAC entry point. WHY: the /tenant/roles page + the
-    // TenantRoleService role CRUD already exist end-to-end, but no rendered
-    // sidebar linked to them — a tenant admin could only reach role management
-    // by typing the URL. (The one sidebar that DID list it,
-    // tenant-admin/components/TenantAdminSidebar.tsx, was dead code never
-    // mounted, and has been removed.) This makes "tenants create their own
-    // roles" actually discoverable.
-    id: 'tenant-roles',
-    label: 'Roles & Permissions',
-    path: '/tenant/roles',
-    icon: 'shield',
-  },
-  {
-    id: 'tenant-modules',
-    label: 'Modules',
-    path: '/tenant/modules',
-    icon: 'modules',
-  },
-  {
-    id: 'tenant-communication',
-    label: 'Communication',
-    icon: 'messages',
-    children: [
-      { id: 'tenant-messages', label: 'Messages', path: '/tenant/messages' },
-      { id: 'tenant-support', label: 'Support Tickets', path: '/tenant/support' },
-      { id: 'tenant-announcements', label: 'Announcements', path: '/tenant/announcements' },
-    ],
-  },
-  {
-    id: 'tenant-database',
-    label: 'Database',
-    path: '/tenant/database',
-    icon: 'database',
-  },
-  {
-    id: 'tenant-audit-log',
-    label: 'Audit Log',
-    path: '/tenant/audit-log',
-    icon: 'security',
-  },
-  {
-    id: 'tenant-billing',
-    label: 'Billing',
-    path: '/tenant/billing',
-    icon: 'billing',
-  },
-  {
-    id: 'tenant-activity',
-    label: 'Activity',
-    path: '/tenant/activity',
-    icon: 'activity',
-  },
-  {
-    id: 'tenant-settings',
-    label: 'Settings',
-    path: '/tenant/settings',
-    icon: 'settings',
-  },
-];
-
-/**
- * Tenant-admin nav items a tenant admin may DELEGATE to a custom role
- * (MT-HIGH-060), keyed to the capability that reveals each to a non-admin. Items
- * NOT listed here are admin-only and never render for a delegate. Mirrors the
- * per-route guards in tenant-admin Module.tsx + the delegatable set gated by
- * TenantPermissionGuard on the backend.
- */
-const DELEGATABLE_TENANT_NAV: Record<string, string> = {
-  'tenant-users': 'users:view',
-  'tenant-roles': 'roles:view',
-  'tenant-settings': 'settings:view',
-};
-
-/**
- * Module navigation configuration by module code
- */
-const MODULE_NAV_CONFIG: Record<string, NavigationItem> = {
-  farm: {
-    id: 'farm-module',
-    label: 'Site Management',
-    icon: 'farm',
-    children: [
-      { id: 'sites-environment', label: 'Environment', path: '/sites/environment' },
-      { id: 'sites-setup', label: 'Setup', path: '/sites/setup' },
-      { id: 'sites-tanks', label: 'Tanks & Ponds', path: '/sites/tanks' },
-      { id: 'sites-feeding', label: 'Feeding', path: '/sites/feeding' },
-      { id: 'sites-feeding-records', label: 'Feed Records & Inventory', path: '/sites/feeding/records' },
-      { id: 'sites-water-chemistry', label: 'Water Chemistry', path: '/sites/water-chemistry' },
-      { id: 'sites-storage', label: 'Storage & Stock', path: '/sites/storage' },
-      { id: 'sites-tasks', label: 'Tasks', path: '/sites/tasks' },
-{ id: 'sites-health', label: 'Health Events', path: '/sites/health', icon: 'activity' },
-      { id: 'sites-maintenance', label: 'Maintenance', path: '/sites/maintenance', icon: 'settings' },
-      { id: 'sites-harvest', label: 'Harvest', path: '/sites/harvest' },
-      { id: 'sites-reports', label: 'Reports', path: '/sites/reports' },
-      { id: 'sites-finance', label: 'Finance', path: '/sites/finance', icon: 'analytics', requiredRoles: ['SUPER_ADMIN', 'TENANT_ADMIN', 'MODULE_MANAGER'] },
-      { id: 'sites-analytics', label: 'Analytics', path: '/sites/analytics', icon: 'analytics' },
-    ],
-  },
-  sensor: {
-    id: 'sensor-module',
-    label: 'Sensor Monitoring',
-    icon: 'sensor',
-    children: [
-      { id: 'sensor-dashboard', label: 'Dashboard', path: '/sensor' },
-      { id: 'sensor-devices', label: 'Devices', path: '/sensor/devices' },
-      { id: 'sensor-readings', label: 'Readings', path: '/sensor/readings' },
-      { id: 'sensor-alerts', label: 'Alerts', path: '/sensor/alerts' },
-      { id: 'sensor-water-chemistry', label: 'Water Chemistry', path: '/sensor/water-chemistry' },
-      { id: 'sensor-automation', label: 'Automation', path: '/sensor/automation', icon: 'cpu' },
-      { id: 'sensor-plc', label: 'PLC Control', path: '/sensor/plc', icon: 'server' },
-      { id: 'sensor-plc-connections', label: 'PLC Connections', path: '/sensor/plc/connections', icon: 'wifi' },
-      { id: 'sensor-plc-feeding', label: 'Feeding Params', path: '/sensor/plc/feeding', icon: 'bar-chart' },
-      { id: 'sensor-plc-alarms', label: 'PLC Alarms', path: '/sensor/plc/alarms', icon: 'bell' },
-      { id: 'sensor-processes', label: 'Process Editor', path: '/sensor/processes' },
-      { id: 'sensor-scada', label: 'SCADA Packages', path: '/sensor/scada-packages', icon: 'monitor' },
-    ],
-  },
-  hr: {
-    id: 'hr-module',
-    label: 'Human Resources',
-    icon: 'users',
-    children: [
-      { id: 'hr-dashboard', label: 'Dashboard', path: '/hr' },
-      { id: 'hr-employees', label: 'Employees', path: '/hr/employees' },
-      { id: 'hr-departments', label: 'Departments', path: '/hr/departments' },
-      { id: 'hr-scheduling', label: 'Scheduling', path: '/hr/scheduling', icon: 'calendar' },
-      { id: 'hr-crew', label: 'Crew', path: '/hr/crew', icon: 'users' },
-      { id: 'hr-attendance', label: 'Attendance', path: '/hr/attendance' },
-      { id: 'hr-leaves', label: 'Leaves', path: '/hr/leaves', icon: 'calendar-off' },
-      { id: 'hr-training', label: 'Training', path: '/hr/training', icon: 'graduation-cap' },
-      { id: 'hr-payroll', label: 'Payroll', path: '/hr/payroll' },
-      { id: 'hr-finance', label: 'Finance', path: '/hr/finance', icon: 'analytics', requiredRoles: ['SUPER_ADMIN', 'TENANT_ADMIN', 'MODULE_MANAGER'] },
-    ],
-  },
-  hydroponics: {
-    id: 'hydroponics-module',
-    label: 'Hydroponics',
-    icon: 'sprout',
-    children: [
-      { id: 'hydroponics-setup', label: 'Setup', path: '/hydroponics/setup' },
-      { id: 'hydroponics-general', label: 'General Options', path: '/hydroponics/solution/general_options' },
-      { id: 'hydroponics-water', label: 'Water Analysis', path: '/hydroponics/solution/water_analysis' },
-      { id: 'hydroponics-user', label: 'User Options', path: '/hydroponics/solution/user_options' },
-      { id: 'hydroponics-result', label: 'Result', path: '/hydroponics/solution/result' },
-      { id: 'hydroponics-pid-sim', label: 'PID Simulator', path: '/hydroponics/pid-simulator' },
-    ],
-  },
-  // 'process' module removed: no corresponding route exists in App.tsx
-};
-
-/**
- * MODULE_MANAGER and MODULE_USER navigation - Module based (English)
- */
-const moduleUserBaseNavigation: NavigationItem[] = [
-  {
-    id: 'company',
-    label: 'Company',
-    path: '/sites/company',
-    icon: 'building',
-  },
-  {
-    id: 'dashboard',
-    label: 'Dashboard',
-    path: '/dashboard',
-    icon: 'dashboard',
-  },
-  {
-    id: 'messaging',
-    label: 'Messages',
-    path: '/messaging',
-    icon: 'message',
-  },
-  {
-    id: 'analytics',
-    label: 'Analytics',
-    path: '/analytics',
-    icon: 'reports',
-  },
-  {
-    id: 'reports',
-    label: 'Reports',
-    path: '/reports',
-    icon: 'reports',
-  },
-];
 
 // ============================================================================
 // Layout Component
@@ -397,7 +73,7 @@ const MainLayout: React.FC = () => {
 
     const items: NavigationItem[] = [];
     for (const module of modules) {
-      const navConfig = MODULE_NAV_CONFIG[module.code];
+      const navConfig = PLATFORM_MODULE_NAVIGATION[module.code];
       if (navConfig) {
         items.push(navConfig);
       }
@@ -407,10 +83,7 @@ const MainLayout: React.FC = () => {
       return [];
     }
 
-    return [
-      { id: 'divider-modules', label: '── Modules ──', path: '', icon: 'modules' },
-      ...items,
-    ];
+    return [{ id: 'divider-modules', label: '── Modules ──', path: '', icon: 'modules' }, ...items];
   }, [modules]);
 
   /**
@@ -418,31 +91,31 @@ const MainLayout: React.FC = () => {
    * Depends on primitive userRole string, not function references.
    */
   const navigationItems = useMemo((): NavigationItem[] => {
-    if (userRole === 'SUPER_ADMIN') {
+    if (userRole === Role.SUPER_ADMIN) {
       return superAdminNavigation;
     }
-    if (userRole === 'TENANT_ADMIN') {
-      return [...tenantAdminBaseNavigation, ...moduleNavigationItems];
+    if (userRole === Role.TENANT_ADMIN) {
+      return [...TENANT_ADMIN_NAVIGATION, ...moduleNavigationItems];
     }
     // MT-HIGH-060 delegation: a non-admin tenant user whose custom role grants a
     // delegatable panel capability sees just those tenant items (Users/Roles/
     // Settings) appended to their normal module nav. hasPermission bypasses
     // admins (handled above) and is fail-closed for everyone else.
-    const delegatedTenantItems = tenantAdminBaseNavigation.filter((item) => {
-      const cap = DELEGATABLE_TENANT_NAV[item.id];
-      return cap !== undefined && hasPermission(cap);
+    const delegatedTenantItems = TENANT_ADMIN_NAVIGATION.filter((item) => {
+      const capabilities = item.requiredPermissions ?? [];
+      return capabilities.length > 0 && capabilities.every(hasPermission);
     });
-    return [...moduleUserBaseNavigation, ...delegatedTenantItems, ...moduleNavigationItems];
+    return [...MODULE_USER_BASE_NAVIGATION, ...delegatedTenantItems, ...moduleNavigationItems];
   }, [userRole, moduleNavigationItems, hasPermission]);
 
   /**
    * Logo text based on role
    */
   const logoText = useMemo(() => {
-    if (userRole === 'SUPER_ADMIN') {
+    if (userRole === Role.SUPER_ADMIN) {
       return 'Aqua Admin';
     }
-    if (userRole === 'TENANT_ADMIN') {
+    if (userRole === Role.TENANT_ADMIN) {
       return tenant?.name || 'Tenant Admin';
     }
     return tenant?.name || 'Aquaculture';
@@ -455,10 +128,10 @@ const MainLayout: React.FC = () => {
    * - Others: default (blue)
    */
   const theme: SidebarTheme = useMemo(() => {
-    if (userRole === 'SUPER_ADMIN') {
+    if (userRole === Role.SUPER_ADMIN) {
       return 'admin';
     }
-    if (userRole === 'TENANT_ADMIN') {
+    if (userRole === Role.TENANT_ADMIN) {
       return 'tenant';
     }
     return 'default';
@@ -482,7 +155,7 @@ const MainLayout: React.FC = () => {
    * Sidebar toggle handler
    */
   const handleSidebarToggle = useCallback(() => {
-    setSidebarCollapsed(prev => !prev);
+    setSidebarCollapsed((prev) => !prev);
   }, []);
 
   /**
@@ -492,7 +165,7 @@ const MainLayout: React.FC = () => {
     (path: string) => {
       navigate(path);
     },
-    [navigate]
+    [navigate],
   );
 
   /**
@@ -520,16 +193,19 @@ const MainLayout: React.FC = () => {
   /**
    * User menu items — memoized to avoid recreating on every render
    */
-  const userMenuItems = useMemo(() => [
-    {
-      label: 'My Profile',
-      onClick: () => navigate('/settings/profile'),
-    },
-    {
-      label: 'Settings',
-      onClick: () => navigate('/settings'),
-    },
-  ], [navigate]);
+  const userMenuItems = useMemo(
+    () => [
+      {
+        label: 'My Profile',
+        onClick: () => navigate('/settings/profile'),
+      },
+      {
+        label: 'Settings',
+        onClick: () => navigate('/settings'),
+      },
+    ],
+    [navigate],
+  );
 
   /**
    * Search handler — stable reference to avoid Header re-renders.
@@ -565,28 +241,45 @@ const MainLayout: React.FC = () => {
   /**
    * Logo element — memoized to avoid Sidebar re-renders
    */
-  const logoElement = useMemo(() => (
-    <div className="flex items-center">
-      <span className={`text-xl font-bold ${logoColorClass}`}>{logoText}</span>
-    </div>
-  ), [logoColorClass, logoText]);
+  const logoElement = useMemo(
+    () => (
+      <div className="flex items-center">
+        <span className={`text-xl font-bold ${logoColorClass}`}>{logoText}</span>
+      </div>
+    ),
+    [logoColorClass, logoText],
+  );
 
   /**
    * Sidebar toggle button — memoized to avoid Header re-renders
    */
-  const leftContent = useMemo(() => (
-    <button
-      onClick={handleSidebarToggle}
-      className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg md:hidden"
-    >
-      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-      </svg>
-    </button>
-  ), [handleSidebarToggle]);
+  const leftContent = useMemo(
+    () => (
+      <button
+        onClick={handleSidebarToggle}
+        className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg md:hidden"
+      >
+        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M4 6h16M4 12h16M4 18h16"
+          />
+        </svg>
+      </button>
+    ),
+    [handleSidebarToggle],
+  );
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
+      <a
+        href="#main-content"
+        className="sr-only fixed left-4 top-4 z-50 rounded bg-white px-4 py-2 text-gray-900 shadow focus:not-sr-only"
+      >
+        Skip to main content
+      </a>
       {/* Sidebar */}
       <Sidebar
         items={navigationItems}
@@ -616,7 +309,7 @@ const MainLayout: React.FC = () => {
         />
 
         {/* Page Content */}
-        <main className="flex-1 p-6 overflow-auto">
+        <main id="main-content" tabIndex={-1} className="flex-1 p-6 overflow-auto">
           <Outlet />
         </main>
       </div>

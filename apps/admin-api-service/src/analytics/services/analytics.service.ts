@@ -8,11 +8,27 @@
  */
 
 import { RedisService } from '@aquaculture/backend-common/redis';
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import {
+  ANALYTICS_DASHBOARD_METRIC_CATALOG_SHA256,
+  analyticsMetricSectionProjectionHasValidEvidenceV1,
+  canonicalWireJsonSha256V1,
+  createAnalyticsMetricSectionProjectionV1,
+  createUnavailableAnalyticsMetricSectionProjectionV1,
+  type AnalyticsMetricSection,
+  type AnalyticsMetricSectionProjectionV1,
+  type AnalyticsMetricSectionValuesV1,
+  type CanonicalJsonValue,
+} from '@aquaculture/shared-contracts';
+import {
+  ConflictException,
+  Injectable,
+  Logger,
+  Optional,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, LessThanOrEqual, Repository } from 'typeorm';
 
-import { AuditLogService } from '../../audit/audit.service';
 import {
   AnalyticsSnapshot,
   SnapshotType,
@@ -26,10 +42,11 @@ import {
   TimeSeriesData,
   ChartData,
 } from '../entities/analytics-snapshot.entity';
-import { InvoiceReadOnly } from '../entities/external/invoice.entity';
-import { BillingCycle, SubscriptionReadOnly, SubscriptionStatus } from '../entities/external/subscription.entity';
-import { TenantReadOnly } from '../entities/external/tenant.entity';
-import { UserReadOnly } from '../entities/external/user.entity';
+import {
+  BillingCycle,
+  SubscriptionReadOnly,
+  SubscriptionStatus,
+} from '../entities/external/subscription.entity';
 
 // ============================================================================
 // DTOs
@@ -49,8 +66,8 @@ export interface ComparisonDto {
   current: number;
   previous: number;
   change: number;
-  changePercent: number;
-  trend: 'up' | 'down' | 'stable';
+  changePercent: number | null;
+  trend: 'up' | 'down' | 'stable' | 'unavailable';
 }
 
 type DbNumeric = number | string | null | undefined;
@@ -69,7 +86,6 @@ interface TenantAggregateRow {
   professional: DbNumeric;
   enterprise: DbNumeric;
   new_this_month: DbNumeric;
-  churned_this_month: DbNumeric;
 }
 
 interface UserAggregateRow {
@@ -98,13 +114,50 @@ interface MonthRevenueRow {
   avg_mrr: DbNumeric;
 }
 
-function parseDbInt(value: DbNumeric): number {
-  return Number.parseInt(String(value ?? '0'), 10);
+interface SystemAggregateRow {
+  used_storage_bytes: DbNumeric;
+  active_connections: DbNumeric;
 }
 
-function parseDbNumber(value: DbNumeric): number {
-  return Number(value ?? 0);
+function parseDbNumber(value: DbNumeric, field: string): number {
+  if (value === null || value === undefined || value === '') {
+    throw new ServiceUnavailableException(`Analytics source omitted ${field}`);
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    throw new ServiceUnavailableException(`Analytics source returned invalid ${field}`);
+  }
+  return parsed;
 }
+
+function parseDbInt(value: DbNumeric, field: string): number {
+  const parsed = parseDbNumber(value, field);
+  if (!Number.isSafeInteger(parsed)) {
+    throw new ServiceUnavailableException(`Analytics source returned non-integer ${field}`);
+  }
+  return parsed;
+}
+
+type AnyAnalyticsMetrics =
+  | TenantMetrics
+  | UserMetrics
+  | FinancialMetrics
+  | SystemMetrics
+  | UsageMetrics;
+
+const METRIC_SECTION_BY_CATEGORY: Readonly<Record<MetricCategory, AnalyticsMetricSection>> =
+  Object.freeze({
+    tenant: 'tenants',
+    user: 'users',
+    financial: 'financial',
+    system: 'system',
+    usage: 'usage',
+  });
+
+const ANALYTICS_SNAPSHOT_METRIC_HASH_AUTHORITY_V1 = Object.freeze({
+  domain: 'aquaculture.analytics-snapshot-metrics',
+  schemaVersion: 'analytics-snapshot-metrics/v1',
+});
 
 // ============================================================================
 // Service
@@ -117,15 +170,8 @@ export class AnalyticsService {
   constructor(
     @InjectRepository(AnalyticsSnapshot)
     private readonly snapshotRepository: Repository<AnalyticsSnapshot>,
-    @InjectRepository(TenantReadOnly)
-    private readonly tenantRepository: Repository<TenantReadOnly>,
-    @InjectRepository(UserReadOnly)
-    private readonly userRepository: Repository<UserReadOnly>,
     @InjectRepository(SubscriptionReadOnly)
     private readonly subscriptionRepository: Repository<SubscriptionReadOnly>,
-    @InjectRepository(InvoiceReadOnly)
-    private readonly invoiceRepository: Repository<InvoiceReadOnly>,
-    private readonly auditLogService: AuditLogService,
     @InjectDataSource()
     private readonly dataSource: DataSource,
     @Optional()
@@ -136,10 +182,7 @@ export class AnalyticsService {
    * Type-safe helper to extract numeric metric value from snapshot metrics
    * Handles the union type (TenantMetrics | UserMetrics | FinancialMetrics | SystemMetrics | UsageMetrics)
    */
-  private getMetricValue(
-    metrics: TenantMetrics | UserMetrics | FinancialMetrics | SystemMetrics | UsageMetrics,
-    key: string,
-  ): number {
+  private getMetricValue(metrics: AnyAnalyticsMetrics, key: string): number | null {
     // Since metrics is a JSONB object, we need to access it dynamically
     // but we ensure type safety by checking if the key exists and is a number
     // Metrics is a JSONB object — dynamic key access requires indexable type
@@ -149,7 +192,31 @@ export class AnalyticsService {
     if (typeof value === 'number' && !isNaN(value)) {
       return value;
     }
-    return 0;
+    return null;
+  }
+
+  private finalizeMetricSection<TSection extends AnalyticsMetricSection>(
+    section: TSection,
+    values: AnalyticsMetricSectionValuesV1<TSection>,
+  ): AnalyticsMetricSectionProjectionV1<TSection> {
+    return createAnalyticsMetricSectionProjectionV1(section, values, new Date().toISOString());
+  }
+
+  private unavailableMetricSection<TSection extends AnalyticsMetricSection>(
+    section: TSection,
+  ): AnalyticsMetricSectionProjectionV1<TSection> {
+    return createUnavailableAnalyticsMetricSectionProjectionV1(section, new Date().toISOString());
+  }
+
+  private hasCurrentMetricCatalog(metrics: AnyAnalyticsMetrics | undefined): boolean {
+    return metrics?.authority?.metricCatalogSha256 === ANALYTICS_DASHBOARD_METRIC_CATALOG_SHA256;
+  }
+
+  private requireMeasuredMetric<T>(value: T | null, metricId: string): T {
+    if (value === null) {
+      throw new ServiceUnavailableException(`Analytics metric unavailable: ${metricId}`);
+    }
+    return value;
   }
 
   // ============================================================================
@@ -172,7 +239,14 @@ export class AnalyticsService {
         const cached = await this.redisService.getJson<DashboardSummary>(
           AnalyticsService.DASHBOARD_CACHE_KEY,
         );
-        if (cached) {
+        if (
+          cached &&
+          this.hasCurrentMetricCatalog(cached.tenants) &&
+          this.hasCurrentMetricCatalog(cached.users) &&
+          this.hasCurrentMetricCatalog(cached.financial) &&
+          this.hasCurrentMetricCatalog(cached.system) &&
+          this.hasCurrentMetricCatalog(cached.usage)
+        ) {
           this.logger.debug('Dashboard summary served from cache');
           return cached;
         }
@@ -186,10 +260,10 @@ export class AnalyticsService {
     /**
      * Partial failure resilience: each data source is fetched independently
      * via Promise.allSettled. If any single source fails (e.g. billing schema
-     * unavailable), the dashboard still returns data from the healthy sources
-     * with sensible defaults for the failed ones. The 'unavailable' array
-     * lists which sources failed so the frontend can show degraded-mode
-     * indicators instead of a full error screen.
+     * unavailable), the dashboard still returns data from healthy sources.
+     * Rejected sources compile to all-null, per-field evidence projections;
+     * they are never represented by fabricated zero values. The 'unavailable'
+     * array lists which sources rejected.
      */
     const [tenantsResult, usersResult, financialResult, systemResult, usageResult] =
       await Promise.allSettled([
@@ -202,24 +276,26 @@ export class AnalyticsService {
 
     const unavailable: string[] = [];
 
-    const tenants = this.extractOrDefault(
-      tenantsResult, 'tenants', unavailable, () => this.getDefaultTenantMetrics(),
+    const tenants = this.extractOrDefault(tenantsResult, 'tenants', unavailable, () =>
+      this.unavailableMetricSection('tenants'),
     );
-    const users = this.extractOrDefault(
-      usersResult, 'users', unavailable, () => this.getDefaultUserMetrics(),
+    const users = this.extractOrDefault(usersResult, 'users', unavailable, () =>
+      this.unavailableMetricSection('users'),
     );
-    const financial = this.extractOrDefault(
-      financialResult, 'financial', unavailable, () => this.getDefaultFinancialMetrics(),
+    const financial = this.extractOrDefault(financialResult, 'financial', unavailable, () =>
+      this.unavailableMetricSection('financial'),
     );
-    const system = this.extractOrDefault(
-      systemResult, 'system', unavailable, () => this.getDefaultSystemMetrics(),
+    const system = this.extractOrDefault(systemResult, 'system', unavailable, () =>
+      this.unavailableMetricSection('system'),
     );
-    const usage = this.extractOrDefault(
-      usageResult, 'usage', unavailable, () => this.getDefaultUsageMetrics(),
+    const usage = this.extractOrDefault(usageResult, 'usage', unavailable, () =>
+      this.unavailableMetricSection('usage'),
     );
 
     if (unavailable.length > 0) {
-      this.logger.warn(`Dashboard summary degraded — unavailable sources: ${unavailable.join(', ')}`);
+      this.logger.warn(
+        `Dashboard summary degraded — unavailable sources: ${unavailable.join(', ')}`,
+      );
     }
 
     const summary: DashboardSummary = {
@@ -236,7 +312,11 @@ export class AnalyticsService {
     // recovered sources become visible on the next request.
     if (this.redisService && unavailable.length === 0) {
       this.redisService
-        .setJson(AnalyticsService.DASHBOARD_CACHE_KEY, summary, AnalyticsService.DASHBOARD_CACHE_TTL)
+        .setJson(
+          AnalyticsService.DASHBOARD_CACHE_KEY,
+          summary,
+          AnalyticsService.DASHBOARD_CACHE_TTL,
+        )
         .catch((err: Error) =>
           this.logger.warn(`Failed to cache dashboard summary: ${err.message}`),
         );
@@ -267,46 +347,38 @@ export class AnalyticsService {
         COUNT(*) FILTER (WHERE LOWER(plan) = 'starter')                                  AS starter,
         COUNT(*) FILTER (WHERE LOWER(plan) = 'professional')                             AS professional,
         COUNT(*) FILTER (WHERE LOWER(plan) = 'enterprise')                               AS enterprise,
-        COUNT(*) FILTER (WHERE "createdAt" >= date_trunc('month', NOW()))                AS new_this_month,
-        COUNT(*) FILTER (
-          WHERE status IN ('CANCELLED','SUSPENDED')
-          AND   "updatedAt" >= date_trunc('month', NOW())
-        )                                                                                 AS churned_this_month
+        COUNT(*) FILTER (WHERE "createdAt" >= date_trunc('month', NOW()))                AS new_this_month
       FROM auth.tenants
     `);
 
     const r = rows[0];
-    const total = parseDbInt(r?.total);
-    const active = parseDbInt(r?.active);
-    const suspended = parseDbInt(r?.suspended);
-    const inactive = parseDbInt(r?.inactive);
-    const trial = parseDbInt(r?.trial);
-    const starter = parseDbInt(r?.starter);
-    const professional = parseDbInt(r?.professional);
-    const enterprise = parseDbInt(r?.enterprise);
-    const newThisMonth = parseDbInt(r?.new_this_month);
-    const churnedThisMonth = parseDbInt(r?.churned_this_month);
+    const total = parseDbInt(r?.total, 'tenants.total');
+    const active = parseDbInt(r?.active, 'tenants.active');
+    const suspended = parseDbInt(r?.suspended, 'tenants.suspended');
+    const inactive = parseDbInt(r?.inactive, 'tenants.inactive');
+    const trial = parseDbInt(r?.trial, 'tenants.trial');
+    const starter = parseDbInt(r?.starter, 'tenants.byPlan.starter');
+    const professional = parseDbInt(r?.professional, 'tenants.byPlan.professional');
+    const enterprise = parseDbInt(r?.enterprise, 'tenants.byPlan.enterprise');
+    const newThisMonth = parseDbInt(r?.new_this_month, 'tenants.newThisMonth');
 
-    const churnRate  = total > 0 ? Number(((churnedThisMonth / total) * 100).toFixed(2)) : 0;
-    const growthRate = total > 0 ? Number((((newThisMonth - churnedThisMonth) / total) * 100).toFixed(2)) : 0;
+    this.logger.debug(
+      `Tenant metrics: total=${total}, active=${active}, trial=${trial}, new=${newThisMonth}`,
+    );
 
-    const byRegion: Record<string, number> = { TR: total, EU: 0, US: 0, APAC: 0 };
-
-    this.logger.debug(`Tenant metrics: total=${total}, active=${active}, trial=${trial}, new=${newThisMonth}`);
-
-    return {
+    return this.finalizeMetricSection('tenants', {
       total,
       active,
       inactive,
       trial,
       suspended,
       newThisMonth,
-      churnedThisMonth,
-      churnRate,
-      growthRate,
+      churnedThisMonth: null,
+      churnRate: null,
+      growthRate: null,
       byPlan: { starter, professional, enterprise, trial },
-      byRegion,
-    };
+      byRegion: null,
+    });
   }
 
   /**
@@ -363,24 +435,23 @@ export class AnalyticsService {
     ]);
 
     const r = rows[0];
-    const total = parseDbInt(r?.total);
-    const active = parseDbInt(r?.active);
-    const inactive = parseDbInt(r?.inactive);
-    const newThisMonth = parseDbInt(r?.new_this_month);
-    const activeLastDay = parseDbInt(r?.active_last_day);
-    const activeLastWeek = parseDbInt(r?.active_last_week);
-    const activeLastMonth = parseDbInt(r?.active_last_month);
-    const adminCount = parseDbInt(r?.admin_count);
-    const managerCount = parseDbInt(r?.manager_count);
-    const operatorCount = parseDbInt(r?.operator_count);
+    const total = parseDbInt(r?.total, 'users.total');
+    const active = parseDbInt(r?.active, 'users.active');
+    const inactive = parseDbInt(r?.inactive, 'users.inactive');
+    const newThisMonth = parseDbInt(r?.new_this_month, 'users.newThisMonth');
+    const activeLastDay = parseDbInt(r?.active_last_day, 'users.activeLastDay');
+    const activeLastWeek = parseDbInt(r?.active_last_week, 'users.activeLastWeek');
+    const activeLastMonth = parseDbInt(r?.active_last_month, 'users.activeLastMonth');
+    const adminCount = parseDbInt(r?.admin_count, 'users.byRole.admin');
+    const managerCount = parseDbInt(r?.manager_count, 'users.byRole.manager');
+    const operatorCount = parseDbInt(r?.operator_count, 'users.byRole.operator');
 
-    const growthRate = total > 0 ? Number(((newThisMonth / total) * 100).toFixed(2)) : 0;
-    const tenantCnt = parseDbInt(tenantCount[0]?.cnt);
+    const tenantCnt = parseDbInt(tenantCount[0]?.cnt, 'users.tenantCount');
     const avgUsersPerTenant = tenantCnt > 0 ? Number((total / tenantCnt).toFixed(1)) : 0;
 
     this.logger.debug(`User metrics: total=${total}, active=${active}, new=${newThisMonth}`);
 
-    return {
+    return this.finalizeMetricSection('users', {
       total,
       active,
       inactive,
@@ -388,15 +459,14 @@ export class AnalyticsService {
       activeLastDay,
       activeLastWeek,
       activeLastMonth,
-      growthRate,
+      growthRate: null,
       avgUsersPerTenant,
       byRole: {
         admin: adminCount,
         manager: managerCount,
         operator: operatorCount,
-        viewer: 0,
       },
-    };
+    });
   }
 
   /**
@@ -425,10 +495,10 @@ export class AnalyticsService {
     // Initialize heatmap data: 7 days x 24 hours
     const heatmapData: number[][] = days.map(() => Array.from({ length: 24 }, () => 0));
 
-    try {
-      // Single aggregation query — no row fetch into Node.js memory
-      const rows: Array<{ dow: string; hour: string; cnt: string }> =
-        await this.dataSource.query(`
+    // Single aggregation query — no row fetch into Node.js memory. Query
+    // rejection propagates; an unavailable source is never projected as a
+    // successfully measured all-zero heatmap.
+    const rows: Array<{ dow: string; hour: string; cnt: string }> = await this.dataSource.query(`
           SELECT
             -- PostgreSQL DOW: 0=Sunday..6=Saturday  →  convert to Mon=0..Sun=6
             ((EXTRACT(DOW FROM "createdAt")::int + 6) % 7) AS dow,
@@ -437,24 +507,19 @@ export class AnalyticsService {
           FROM shared.audit_logs
           WHERE "createdAt" >= NOW() - INTERVAL '30 days'
           GROUP BY 1, 2
-        `);
+      `);
 
-      for (const row of rows) {
-        const dayIndex = parseInt(row.dow, 10);
-        const hour = parseInt(row.hour, 10);
-        const count = parseInt(row.cnt, 10);
-        const dayData = heatmapData[dayIndex];
-        if (dayData && dayData[hour] !== undefined) {
-          dayData[hour] = count;
-        }
+    for (const row of rows) {
+      const dayIndex = parseDbInt(row.dow, 'users.heatmap.day');
+      const hour = parseDbInt(row.hour, 'users.heatmap.hour');
+      const count = parseDbInt(row.cnt, 'users.heatmap.count');
+      const dayData = heatmapData[dayIndex];
+      if (dayData && dayData[hour] !== undefined) {
+        dayData[hour] = count;
       }
-
-      this.logger.debug(`Heatmap built from ${rows.length} aggregate buckets`);
-    } catch (error) {
-      this.logger.warn(
-        `Failed to fetch audit logs for heatmap: ${(error as Error).message}`,
-      );
     }
+
+    this.logger.debug(`Heatmap built from ${rows.length} aggregate buckets`);
 
     return {
       labels: hours,
@@ -518,35 +583,32 @@ export class AnalyticsService {
       FROM billing.invoices
     `);
     const ir = invoiceRows[0];
-    const totalRevenue = parseDbNumber(ir?.total_revenue);
-    const revenueThisMonth = parseDbNumber(ir?.revenue_this_month);
-    const pendingPayments = parseDbNumber(ir?.pending_payments);
-    const overduePayments = parseDbNumber(ir?.overdue_payments);
-    const refunds = parseDbNumber(ir?.refunds);
+    const totalRevenue = parseDbNumber(ir?.total_revenue, 'financial.totalRevenue');
+    const revenueThisMonth = parseDbNumber(ir?.revenue_this_month, 'financial.revenueThisMonth');
+    const pendingPayments = parseDbNumber(ir?.pending_payments, 'financial.pendingPayments');
+    const overduePayments = parseDbNumber(ir?.overdue_payments, 'financial.overduePayments');
+    const refunds = parseDbNumber(ir?.refunds, 'financial.refunds');
 
-    // Calculate ARPU and LTV
-    const payingTenants = activeSubscriptions.filter(s => s.status === SubscriptionStatus.ACTIVE).length;
+    // Calculate revenue-per-paying-tenant from the authoritative subscription set.
+    const payingTenants = activeSubscriptions.filter(
+      (s) => s.status === SubscriptionStatus.ACTIVE,
+    ).length;
     const arpu = payingTenants > 0 ? Number((mrr / payingTenants).toFixed(2)) : 0;
     const arppu = arpu; // Same since we're counting paying tenants
-    const ltv = arpu * 24; // Assuming 24 months average lifetime
 
-    // Revenue growth rate (compare to last month's snapshot)
-    const revenueGrowthRate = await this.calculateGrowthRate('financial', 'mrr', mrr);
+    this.logger.debug(
+      `Financial metrics: MRR=${mrr}, totalRevenue=${totalRevenue}, payingTenants=${payingTenants}`,
+    );
 
-    // Group by currency
-    const byCurrency: Record<string, number> = { USD: mrr }; // Single-currency tenancy (USD); multi-currency breakdown tracked separately.
-
-    this.logger.debug(`Financial metrics: MRR=${mrr}, totalRevenue=${totalRevenue}, payingTenants=${payingTenants}`);
-
-    return {
+    return this.finalizeMetricSection('financial', {
       mrr: Number(mrr.toFixed(2)),
       arr: Number((mrr * 12).toFixed(2)),
       arpu,
       arppu,
-      ltv: Number(ltv.toFixed(2)),
+      ltv: null,
       totalRevenue: Number(totalRevenue.toFixed(2)),
       revenueThisMonth: Number(revenueThisMonth.toFixed(2)),
-      revenueGrowthRate,
+      revenueGrowthRate: null,
       pendingPayments: Number(pendingPayments.toFixed(2)),
       overduePayments: Number(overduePayments.toFixed(2)),
       refunds: Number(refunds.toFixed(2)),
@@ -555,15 +617,18 @@ export class AnalyticsService {
         professional: Number((revenueByPlan['professional'] ?? 0).toFixed(2)),
         enterprise: Number((revenueByPlan['enterprise'] ?? 0).toFixed(2)),
       },
-      byCurrency,
-    };
+      byCurrency: null,
+    });
   }
 
   /**
    * Calculate monthly price from subscription based on billing cycle
    */
   private calculateMonthlyPrice(subscription: SubscriptionReadOnly): number {
-    const basePrice = subscription.pricing?.basePrice || 0;
+    const basePrice = parseDbNumber(
+      subscription.pricing?.basePrice,
+      `financial.subscription.${subscription.id}.basePrice`,
+    );
 
     switch (subscription.billingCycle) {
       case BillingCycle.MONTHLY:
@@ -596,18 +661,24 @@ export class AnalyticsService {
    */
   async getRevenueByPlanChart(): Promise<ChartData> {
     const metrics = await this.getFinancialMetrics();
+    const byPlan = this.requireMeasuredMetric(metrics.byPlan, 'financial.byPlan');
 
     return {
       labels: ['Starter', 'Professional', 'Enterprise'],
-      datasets: [{
-        label: 'Revenue by Plan',
-        data: [
-          metrics.byPlan['starter'] ?? 0,
-          metrics.byPlan['professional'] ?? 0,
-          metrics.byPlan['enterprise'] ?? 0,
-        ],
-        backgroundColor: ['#3B82F6', '#10B981', '#8B5CF6'],
-      }],
+      datasets: [
+        {
+          label: 'Revenue by Plan',
+          data: [
+            this.requireMeasuredMetric(byPlan['starter'] ?? null, 'financial.byPlan.starter'),
+            this.requireMeasuredMetric(
+              byPlan['professional'] ?? null,
+              'financial.byPlan.professional',
+            ),
+            this.requireMeasuredMetric(byPlan['enterprise'] ?? null, 'financial.byPlan.enterprise'),
+          ],
+          backgroundColor: ['#3B82F6', '#10B981', '#8B5CF6'],
+        },
+      ],
     };
   }
 
@@ -622,68 +693,48 @@ export class AnalyticsService {
   async getSystemMetrics(): Promise<SystemMetrics> {
     this.logger.debug('Calculating system metrics...');
 
-    // These would ideally come from Prometheus/CloudWatch/etc.
-    // Until observability-service wires those sources, we calculate what we can from the database.
+    const rows = await this.dataSource.query<SystemAggregateRow[]>(`
+      SELECT
+        pg_database_size(current_database()) AS used_storage_bytes,
+        (
+          SELECT COUNT(*)
+          FROM pg_stat_activity
+          WHERE datname = current_database()
+        ) AS active_connections
+    `);
+    const usedStorageBytes = parseDbInt(rows[0]?.used_storage_bytes, 'system.usedStorageBytes');
+    const activeConnections = parseDbInt(rows[0]?.active_connections, 'system.activeConnections');
 
-    // Count database connections (approximate from pool)
-    const activeConnections = 10; // Would need DB pool stats
-
-    // Storage - count rows as proxy for data size
-    const tenantCount = await this.tenantRepository.count();
-    const userCount = await this.userRepository.count();
-    const subscriptionCount = await this.subscriptionRepository.count();
-    const invoiceCount = await this.invoiceRepository.count();
-    const snapshotCount = await this.snapshotRepository.count();
-
-    // Rough estimate: 1KB per row average
-    const estimatedRows = tenantCount + userCount + subscriptionCount + invoiceCount + snapshotCount;
-    const usedStorageBytes = estimatedRows * 1024;
-    const totalStorageBytes = 1099511627776; // 1 TB default
-    const storageUtilization = Number(((usedStorageBytes / totalStorageBytes) * 100).toFixed(2));
-
-    this.logger.debug(`System metrics: rows=${estimatedRows}, storage=${usedStorageBytes} bytes`);
-
-    // These metrics need infrastructure monitoring - return zeros with warning
-    this.logger.warn('System metrics (apiCalls, responseTime, errorRate, uptime) require infrastructure monitoring integration');
-
-    return {
-      totalStorageBytes,
+    return this.finalizeMetricSection('system', {
+      totalStorageBytes: null,
       usedStorageBytes,
-      storageUtilization,
-      apiCallsToday: 0, // Requires API gateway metrics
-      apiCallsThisMonth: 0, // Requires API gateway metrics
-      avgResponseTimeMs: 0, // Requires APM
-      errorRate: 0, // Requires error tracking
-      uptimePercent: 100, // Requires uptime monitoring
+      storageUtilization: null,
+      apiCallsToday: null,
+      apiCallsThisMonth: null,
+      avgResponseTimeMs: null,
+      errorRate: null,
+      uptimePercent: null,
       activeConnections,
-      queuedJobs: 0, // Requires job queue integration
-    };
+      queuedJobs: null,
+    });
   }
 
   /**
    * Get API calls trend
    */
-  getApiCallsTrend(_params: TrendDataDto): Promise<TimeSeriesData> {
-    // Requires API gateway metrics
-    this.logger.warn('API calls trend requires API gateway integration');
-    return Promise.resolve({
-      label: 'API Calls',
-      data: [],
-      color: '#F59E0B',
-    });
+  async getApiCallsTrend(_params: TrendDataDto): Promise<TimeSeriesData> {
+    throw new ServiceUnavailableException(
+      'API call trend authority gateway-request-metrics-v1 is not integrated',
+    );
   }
 
   /**
    * Get error rate trend
    */
-  getErrorRateTrend(_params: TrendDataDto): Promise<TimeSeriesData> {
-    // Requires error tracking integration
-    this.logger.warn('Error rate trend requires error tracking integration');
-    return Promise.resolve({
-      label: 'Error Rate (%)',
-      data: [],
-      color: '#EF4444',
-    });
+  async getErrorRateTrend(_params: TrendDataDto): Promise<TimeSeriesData> {
+    throw new ServiceUnavailableException(
+      'Error-rate trend authority gateway-request-metrics-v1 is not integrated',
+    );
   }
 
   // ============================================================================
@@ -698,79 +749,39 @@ export class AnalyticsService {
   async getUsageMetrics(): Promise<UsageMetrics> {
     this.logger.debug('Calculating usage metrics...');
 
-    // Single COUNT query — avoids loading all users just for this one field
-    let activeLastDay = 0;
-    try {
-      const rows = await this.dataSource.query<CountRow[]>(`
-        SELECT COUNT(*) AS cnt
-        FROM auth.users
-        WHERE "isActive" = true
-          AND "lastLoginAt" >= NOW() - INTERVAL '24 hours'
-      `);
-      activeLastDay = parseDbInt(rows[0]?.cnt);
-    } catch {
-      // Non-critical — leave as 0
-    }
+    const rows = await this.dataSource.query<CountRow[]>(`
+      SELECT COUNT(*) AS cnt
+      FROM auth.users
+      WHERE "isActive" = true
+        AND "lastLoginAt" >= NOW() - INTERVAL '24 hours'
+    `);
+    const activeLastDay = parseDbInt(rows[0]?.cnt, 'usage.avgDailyActiveUsers');
 
-    // Module usage — wiring requires audit-log analysis pipeline; returns
-    // zeros with an explicit warning until that pipeline lands.
-    this.logger.warn('Detailed module usage metrics require audit log analysis');
-
-    return {
-      moduleUsage: {
-        dashboard: { activeUsers: activeLastDay, totalSessions: 0, avgSessionDuration: 0 },
-        farm_management: { activeUsers: 0, totalSessions: 0, avgSessionDuration: 0 },
-        sensor_monitoring: { activeUsers: 0, totalSessions: 0, avgSessionDuration: 0 },
-        alerts: { activeUsers: 0, totalSessions: 0, avgSessionDuration: 0 },
-        reports: { activeUsers: 0, totalSessions: 0, avgSessionDuration: 0 },
-        hr_module: { activeUsers: 0, totalSessions: 0, avgSessionDuration: 0 },
-        billing: { activeUsers: 0, totalSessions: 0, avgSessionDuration: 0 },
-      },
-      featureAdoption: {
-        real_time_alerts: 0,
-        automated_reports: 0,
-        api_integration: 0,
-        mobile_app: 0,
-        custom_dashboards: 0,
-        bulk_operations: 0,
-      },
-      topFeatures: [],
-      peakHours: [],
+    return this.finalizeMetricSection('usage', {
+      moduleUsage: null,
+      featureAdoption: null,
+      topFeatures: null,
+      peakHours: null,
       avgDailyActiveUsers: activeLastDay,
-    };
+    });
   }
 
   /**
    * Get module usage chart data
    */
-  getModuleUsageChart(): Promise<ChartData> {
-    this.logger.warn('Module usage chart requires audit log analysis');
-    return Promise.resolve({
-      labels: ['Dashboard', 'Farm Management', 'Sensor Monitoring', 'Alerts', 'Reports', 'HR', 'Billing'],
-      datasets: [{
-        label: 'Active Users',
-        data: [0, 0, 0, 0, 0, 0, 0],
-        backgroundColor: [
-          '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1'
-        ],
-      }],
-    });
+  async getModuleUsageChart(): Promise<ChartData> {
+    throw new ServiceUnavailableException(
+      'Module-usage authority qualified-audit-usage-projection-v1 is not integrated',
+    );
   }
 
   /**
    * Get feature adoption chart data
    */
-  getFeatureAdoptionChart(): Promise<ChartData> {
-    this.logger.warn('Feature adoption chart requires audit log analysis');
-    return Promise.resolve({
-      labels: ['Real-time Alerts', 'Mobile App', 'Automated Reports', 'Custom Dashboards', 'API Integration', 'Bulk Operations'],
-      datasets: [{
-        label: 'Adoption Rate (%)',
-        data: [0, 0, 0, 0, 0, 0],
-        backgroundColor: '#3B82F6',
-        borderColor: '#2563EB',
-      }],
-    });
+  async getFeatureAdoptionChart(): Promise<ChartData> {
+    throw new ServiceUnavailableException(
+      'Feature-adoption authority qualified-audit-usage-projection-v1 is not integrated',
+    );
   }
 
   // ============================================================================
@@ -782,9 +793,16 @@ export class AnalyticsService {
    */
   calculateComparison(current: number, previous: number): ComparisonDto {
     const change = current - previous;
-    const changePercent = previous !== 0
-      ? Number(((change / previous) * 100).toFixed(2))
-      : 0;
+    if (previous === 0) {
+      return {
+        current,
+        previous,
+        change,
+        changePercent: null,
+        trend: 'unavailable',
+      };
+    }
+    const changePercent = Number(((change / previous) * 100).toFixed(2));
 
     let trend: 'up' | 'down' | 'stable' = 'stable';
     if (changePercent > 1) trend = 'up';
@@ -813,30 +831,42 @@ export class AnalyticsService {
     const prevTenant = previousSnapshots['tenant']?.metrics as TenantMetrics | undefined;
     const prevUser = previousSnapshots['user']?.metrics as UserMetrics | undefined;
     const prevFinancial = previousSnapshots['financial']?.metrics as FinancialMetrics | undefined;
+    const comparisons: Record<string, ComparisonDto> = {};
 
-    return {
-      totalTenants: this.calculateComparison(tenantMetrics.total, prevTenant?.total || 0),
-      activeTenants: this.calculateComparison(tenantMetrics.active, prevTenant?.active || 0),
-      totalUsers: this.calculateComparison(userMetrics.total, prevUser?.total || 0),
-      activeUsers: this.calculateComparison(userMetrics.active, prevUser?.active || 0),
-      mrr: this.calculateComparison(financialMetrics.mrr, prevFinancial?.mrr || 0),
-      arr: this.calculateComparison(financialMetrics.arr, prevFinancial?.arr || 0),
-      arpu: this.calculateComparison(financialMetrics.arpu, prevFinancial?.arpu || 0),
-      churnRate: this.calculateComparison(tenantMetrics.churnRate, prevTenant?.churnRate || 0),
-      errorRate: this.calculateComparison(0, 0), // Requires error tracking
-      uptime: this.calculateComparison(100, 100), // Requires uptime monitoring
+    const addComparison = (key: string, current: number | null, previous: number | null): void => {
+      if (current !== null && previous !== null) {
+        comparisons[key] = this.calculateComparison(current, previous);
+      }
     };
+
+    if (this.hasCurrentMetricCatalog(prevTenant)) {
+      addComparison('totalTenants', tenantMetrics.total, prevTenant?.total ?? null);
+      addComparison('activeTenants', tenantMetrics.active, prevTenant?.active ?? null);
+    }
+    if (this.hasCurrentMetricCatalog(prevUser)) {
+      addComparison('totalUsers', userMetrics.total, prevUser?.total ?? null);
+      addComparison('activeUsers', userMetrics.active, prevUser?.active ?? null);
+    }
+    if (this.hasCurrentMetricCatalog(prevFinancial)) {
+      addComparison('mrr', financialMetrics.mrr, prevFinancial?.mrr ?? null);
+      addComparison('arr', financialMetrics.arr, prevFinancial?.arr ?? null);
+      addComparison('arpu', financialMetrics.arpu, prevFinancial?.arpu ?? null);
+    }
+
+    return comparisons;
   }
 
   /**
    * Get snapshots closest to a specific date
    */
-  private async getSnapshotsNear(targetDate: Date): Promise<Record<string, AnalyticsSnapshot | null>> {
+  private async getSnapshotsNear(
+    targetDate: Date,
+  ): Promise<Record<string, AnalyticsSnapshot | null>> {
     const categories: MetricCategory[] = ['tenant', 'user', 'financial', 'system', 'usage'];
 
     // HIGH-001 fix: parallelise snapshot lookups instead of sequential for-loop
     const snapshots = await Promise.all(
-      categories.map(category =>
+      categories.map((category) =>
         this.snapshotRepository.findOne({
           where: {
             category,
@@ -868,6 +898,21 @@ export class AnalyticsService {
     metrics: TenantMetrics | UserMetrics | FinancialMetrics | SystemMetrics | UsageMetrics,
     snapshotDate: Date = new Date(),
   ): Promise<AnalyticsSnapshot> {
+    const section = METRIC_SECTION_BY_CATEGORY[category];
+    if (
+      !analyticsMetricSectionProjectionHasValidEvidenceV1(
+        section,
+        metrics as unknown as Readonly<Record<string, unknown>>,
+      )
+    ) {
+      throw new ServiceUnavailableException(
+        `Analytics ${category} snapshot rejected: metric evidence does not match the active catalog`,
+      );
+    }
+    const metricsSha256 = canonicalWireJsonSha256V1(
+      ANALYTICS_SNAPSHOT_METRIC_HASH_AUTHORITY_V1,
+      metrics as unknown as CanonicalJsonValue,
+    );
     const snapshotDateKey = snapshotDate.toISOString().slice(0, 10);
     const existing = await this.snapshotRepository
       .createQueryBuilder('snapshot')
@@ -877,12 +922,16 @@ export class AnalyticsService {
       .getOne();
 
     if (existing) {
-      existing.metrics = metrics;
-      existing.metadata = {
-        ...(existing.metadata || {}),
-        reaggregatedAt: new Date().toISOString(),
-      };
-      return this.snapshotRepository.save(existing);
+      const existingSha256 = canonicalWireJsonSha256V1(
+        ANALYTICS_SNAPSHOT_METRIC_HASH_AUTHORITY_V1,
+        existing.metrics as unknown as CanonicalJsonValue,
+      );
+      if (existingSha256 !== metricsSha256) {
+        throw new ConflictException(
+          `Analytics ${category} ${snapshotType} snapshot for ${snapshotDateKey} is immutable`,
+        );
+      }
+      return existing;
     }
 
     const snapshot = this.snapshotRepository.create({
@@ -890,6 +939,10 @@ export class AnalyticsService {
       category,
       snapshotDate: new Date(`${snapshotDateKey}T00:00:00.000Z`),
       metrics,
+      metadata: {
+        schemaVersion: 'analytics-snapshot-metadata.v1',
+        metricsSha256,
+      },
     });
 
     return this.snapshotRepository.save(snapshot);
@@ -903,10 +956,14 @@ export class AnalyticsService {
     range: DateRangeDto,
     snapshotType?: SnapshotType,
   ): Promise<AnalyticsSnapshot[]> {
-    const query = this.snapshotRepository.createQueryBuilder('snapshot')
+    const query = this.snapshotRepository
+      .createQueryBuilder('snapshot')
       .where('snapshot.category = :category', { category })
       .andWhere('snapshot.snapshotDate >= :startDate', { startDate: range.startDate })
-      .andWhere('snapshot.snapshotDate <= :endDate', { endDate: range.endDate });
+      .andWhere('snapshot.snapshotDate <= :endDate', { endDate: range.endDate })
+      .andWhere(`snapshot.metrics #>> '{authority,metricCatalogSha256}' = :metricCatalogSha256`, {
+        metricCatalogSha256: ANALYTICS_DASHBOARD_METRIC_CATALOG_SHA256,
+      });
 
     if (snapshotType) {
       query.andWhere('snapshot.snapshotType = :snapshotType', { snapshotType });
@@ -923,7 +980,9 @@ export class AnalyticsService {
 
     const tasks: Array<{
       category: MetricCategory;
-      load: () => Promise<TenantMetrics | UserMetrics | FinancialMetrics | SystemMetrics | UsageMetrics>;
+      load: () => Promise<
+        TenantMetrics | UserMetrics | FinancialMetrics | SystemMetrics | UsageMetrics
+      >;
     }> = [
       { category: 'tenant', load: () => this.getTenantMetrics() },
       { category: 'user', load: () => this.getUserMetrics() },
@@ -932,14 +991,19 @@ export class AnalyticsService {
       { category: 'usage', load: () => this.getUsageMetrics() },
     ];
 
-    const results = await Promise.allSettled(tasks.map(async (task) => {
-      const metrics = await task.load();
-      return this.saveSnapshot('daily', task.category, metrics, snapshotDate);
-    }));
+    const results = await Promise.allSettled(
+      tasks.map(async (task) => {
+        const metrics = await task.load();
+        return this.saveSnapshot('daily', task.category, metrics, snapshotDate);
+      }),
+    );
 
     const failures = results
       .map((result, index) => ({ result, category: tasks[index]?.category }))
-      .filter((entry): entry is { result: PromiseRejectedResult; category: MetricCategory } => entry.result.status === 'rejected' && !!entry.category);
+      .filter(
+        (entry): entry is { result: PromiseRejectedResult; category: MetricCategory } =>
+          entry.result.status === 'rejected' && !!entry.category,
+      );
 
     for (const failure of failures) {
       this.logger.error(
@@ -974,7 +1038,7 @@ export class AnalyticsService {
         startDate.setDate(startDate.getDate() - params.dataPoints);
         break;
       case 'week':
-        startDate.setDate(startDate.getDate() - (params.dataPoints * 7));
+        startDate.setDate(startDate.getDate() - params.dataPoints * 7);
         break;
       case 'month':
         startDate.setMonth(startDate.getMonth() - params.dataPoints);
@@ -986,37 +1050,19 @@ export class AnalyticsService {
 
     const snapshots = await this.getSnapshots(category, { startDate, endDate: now }, 'daily');
 
-    return snapshots.map(s => ({
-      date: s.snapshotDate.toISOString().split('T')[0] || s.snapshotDate.toISOString(),
-      value: this.getMetricValue(s.metrics, metricKey),
-    }));
-  }
-
-  /**
-   * Calculate growth rate compared to last month's snapshot
-   */
-  private async calculateGrowthRate(
-    category: MetricCategory,
-    metricKey: string,
-    currentValue: number,
-  ): Promise<number> {
-    const oneMonthAgo = new Date();
-    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-
-    const previousSnapshot = await this.snapshotRepository.findOne({
-      where: {
-        category,
-        snapshotDate: LessThanOrEqual(oneMonthAgo),
-      },
-      order: { snapshotDate: 'DESC' },
+    return snapshots.flatMap((snapshot) => {
+      const value = this.getMetricValue(snapshot.metrics, metricKey);
+      return value === null
+        ? []
+        : [
+            {
+              date:
+                snapshot.snapshotDate.toISOString().split('T')[0] ||
+                snapshot.snapshotDate.toISOString(),
+              value,
+            },
+          ];
     });
-
-    if (!previousSnapshot) return 0;
-
-    const previousValue = this.getMetricValue(previousSnapshot.metrics, metricKey);
-    if (previousValue === 0) return 0;
-
-    return Number((((currentValue - previousValue) / previousValue) * 100).toFixed(2));
   }
 
   /**
@@ -1050,9 +1096,9 @@ export class AnalyticsService {
   // ============================================================================
 
   /**
-   * Extracts the fulfilled value from a settled promise result, or falls back
-   * to a default. When a source rejects, its name is appended to the
-   * unavailable list and the error is logged — but the dashboard keeps loading.
+   * Extracts a fulfilled projection or compiles an explicit unavailable
+   * projection. When a source rejects, its name is appended to the unavailable
+   * list and the error is logged — but healthy authorities remain visible.
    */
   private extractOrDefault<T>(
     result: PromiseSettledResult<T>,
@@ -1063,62 +1109,10 @@ export class AnalyticsService {
     if (result.status === 'fulfilled') {
       return result.value;
     }
-    const reason = result.reason instanceof Error
-      ? result.reason.message
-      : String(result.reason);
+    const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
     this.logger.error(`${sourceName} metrics failed: ${reason}`);
     unavailable.push(sourceName);
     return getDefault();
-  }
-
-  // ============================================================================
-  // Default Metric Factories (Partial Failure Resilience)
-  // ============================================================================
-
-  /**
-   * Zero-value defaults returned when a data source is unreachable.
-   * Each factory produces a structurally valid metric object so the
-   * frontend can always render the dashboard — even in degraded mode.
-   */
-
-  private getDefaultTenantMetrics(): TenantMetrics {
-    return {
-      total: 0, active: 0, inactive: 0, trial: 0, suspended: 0,
-      newThisMonth: 0, churnedThisMonth: 0, churnRate: 0, growthRate: 0,
-      byPlan: {}, byRegion: {},
-    };
-  }
-
-  private getDefaultUserMetrics(): UserMetrics {
-    return {
-      total: 0, active: 0, inactive: 0, newThisMonth: 0,
-      activeLastDay: 0, activeLastWeek: 0, activeLastMonth: 0,
-      growthRate: 0, avgUsersPerTenant: 0, byRole: {},
-    };
-  }
-
-  private getDefaultFinancialMetrics(): FinancialMetrics {
-    return {
-      mrr: 0, arr: 0, arpu: 0, arppu: 0, ltv: 0,
-      totalRevenue: 0, revenueThisMonth: 0, revenueGrowthRate: 0,
-      pendingPayments: 0, overduePayments: 0, refunds: 0,
-      byPlan: {}, byCurrency: {},
-    };
-  }
-
-  private getDefaultSystemMetrics(): SystemMetrics {
-    return {
-      totalStorageBytes: 0, usedStorageBytes: 0, storageUtilization: 0,
-      apiCallsToday: 0, apiCallsThisMonth: 0, avgResponseTimeMs: 0,
-      errorRate: 0, uptimePercent: 0, activeConnections: 0, queuedJobs: 0,
-    };
-  }
-
-  private getDefaultUsageMetrics(): UsageMetrics {
-    return {
-      moduleUsage: {}, featureAdoption: {}, topFeatures: [],
-      peakHours: [], avgDailyActiveUsers: 0,
-    };
   }
 
   // ============================================================================
@@ -1137,10 +1131,25 @@ export class AnalyticsService {
     revenueByMonth: Array<{ month: string; revenue: number }>;
   }> {
     const financialMetrics = await this.getFinancialMetrics();
-
-    const starterRevenue = financialMetrics.byPlan['starter'] ?? 0;
-    const professionalRevenue = financialMetrics.byPlan['professional'] ?? 0;
-    const enterpriseRevenue = financialMetrics.byPlan['enterprise'] ?? 0;
+    const byPlan = this.requireMeasuredMetric(financialMetrics.byPlan, 'financial.byPlan');
+    const mrr = this.requireMeasuredMetric(financialMetrics.mrr, 'financial.mrr');
+    const arr = this.requireMeasuredMetric(financialMetrics.arr, 'financial.arr');
+    const totalRevenue = this.requireMeasuredMetric(
+      financialMetrics.totalRevenue,
+      'financial.totalRevenue',
+    );
+    const starterRevenue = this.requireMeasuredMetric(
+      byPlan['starter'] ?? null,
+      'financial.byPlan.starter',
+    );
+    const professionalRevenue = this.requireMeasuredMetric(
+      byPlan['professional'] ?? null,
+      'financial.byPlan.professional',
+    );
+    const enterpriseRevenue = this.requireMeasuredMetric(
+      byPlan['enterprise'] ?? null,
+      'financial.byPlan.enterprise',
+    );
     const totalByPlan = starterRevenue + professionalRevenue + enterpriseRevenue;
 
     const revenueByPlan = [
@@ -1152,12 +1161,14 @@ export class AnalyticsService {
       {
         plan: 'Professional',
         revenue: professionalRevenue,
-        percentage: totalByPlan > 0 ? Number(((professionalRevenue / totalByPlan) * 100).toFixed(1)) : 0,
+        percentage:
+          totalByPlan > 0 ? Number(((professionalRevenue / totalByPlan) * 100).toFixed(1)) : 0,
       },
       {
         plan: 'Enterprise',
         revenue: enterpriseRevenue,
-        percentage: totalByPlan > 0 ? Number(((enterpriseRevenue / totalByPlan) * 100).toFixed(1)) : 0,
+        percentage:
+          totalByPlan > 0 ? Number(((enterpriseRevenue / totalByPlan) * 100).toFixed(1)) : 0,
       },
     ];
 
@@ -1174,9 +1185,9 @@ export class AnalyticsService {
         ORDER  BY 1
       `);
 
-    const revenueByMonth = monthlyRows.map(r => ({
+    const revenueByMonth = monthlyRows.map((r) => ({
       month: new Date(r.month).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-      revenue: Number(parseDbNumber(r.avg_mrr).toFixed(2)),
+      revenue: Number(parseDbNumber(r.avg_mrr, 'financial.revenueByMonth.mrr').toFixed(2)),
     }));
 
     // BUG-010 fix: exclude trial tenants from ARPT denominator (they don't pay)
@@ -1186,13 +1197,14 @@ export class AnalyticsService {
       FROM auth.tenants
       WHERE status = 'ACTIVE' AND LOWER(plan) <> 'trial'
     `);
-    const payingTenantCount = parseDbInt(payingCountRows[0]?.cnt);
-    const averageRevenuePerTenant = payingTenantCount > 0 ? Number((financialMetrics.mrr / payingTenantCount).toFixed(2)) : 0;
+    const payingTenantCount = parseDbInt(payingCountRows[0]?.cnt, 'financial.payingTenantCount');
+    const averageRevenuePerTenant =
+      payingTenantCount > 0 ? Number((mrr / payingTenantCount).toFixed(2)) : 0;
 
     return {
-      totalRevenue: financialMetrics.totalRevenue,
-      mrr: financialMetrics.mrr,
-      arr: financialMetrics.arr,
+      totalRevenue,
+      mrr,
+      arr,
       averageRevenuePerTenant,
       revenueByPlan,
       revenueByMonth,
@@ -1204,14 +1216,17 @@ export class AnalyticsService {
    * MEDIUM-004 fix: replaced extra tenantRepository.find() (full table scan + JS filter)
    * with a targeted COUNT GROUP BY query.
    */
-  async getRevenueByPlanAnalytics(): Promise<Array<{
-    plan: string;
-    revenue: number;
-    tenantCount: number;
-    percentage: number;
-    avgRevenuePerTenant: number;
-  }>> {
+  async getRevenueByPlanAnalytics(): Promise<
+    Array<{
+      plan: string;
+      revenue: number;
+      tenantCount: number;
+      percentage: number;
+      avgRevenuePerTenant: number;
+    }>
+  > {
     const financialMetrics = await this.getFinancialMetrics();
+    const byPlan = this.requireMeasuredMetric(financialMetrics.byPlan, 'financial.byPlan');
 
     // Single aggregation query for plan counts — no full table scan
     const planCountRows: Array<{ plan: string; cnt: string }> = await this.dataSource.query(`
@@ -1219,14 +1234,23 @@ export class AnalyticsService {
       FROM auth.tenants
       GROUP BY LOWER(plan)
     `);
-    const planCountMap = new Map(planCountRows.map(r => [r.plan, parseInt(r.cnt, 10)]));
-    const starterCount      = planCountMap.get('starter')      || 0;
+    const planCountMap = new Map(planCountRows.map((r) => [r.plan, parseInt(r.cnt, 10)]));
+    const starterCount = planCountMap.get('starter') || 0;
     const professionalCount = planCountMap.get('professional') || 0;
-    const enterpriseCount   = planCountMap.get('enterprise')   || 0;
+    const enterpriseCount = planCountMap.get('enterprise') || 0;
 
-    const starterRev = financialMetrics.byPlan['starter'] ?? 0;
-    const professionalRev = financialMetrics.byPlan['professional'] ?? 0;
-    const enterpriseRev = financialMetrics.byPlan['enterprise'] ?? 0;
+    const starterRev = this.requireMeasuredMetric(
+      byPlan['starter'] ?? null,
+      'financial.byPlan.starter',
+    );
+    const professionalRev = this.requireMeasuredMetric(
+      byPlan['professional'] ?? null,
+      'financial.byPlan.professional',
+    );
+    const enterpriseRev = this.requireMeasuredMetric(
+      byPlan['enterprise'] ?? null,
+      'financial.byPlan.enterprise',
+    );
     const totalRevenue = starterRev + professionalRev + enterpriseRev;
 
     return [
@@ -1241,15 +1265,19 @@ export class AnalyticsService {
         plan: 'Professional',
         revenue: professionalRev,
         tenantCount: professionalCount,
-        percentage: totalRevenue > 0 ? Number(((professionalRev / totalRevenue) * 100).toFixed(1)) : 0,
-        avgRevenuePerTenant: professionalCount > 0 ? Number((professionalRev / professionalCount).toFixed(2)) : 0,
+        percentage:
+          totalRevenue > 0 ? Number(((professionalRev / totalRevenue) * 100).toFixed(1)) : 0,
+        avgRevenuePerTenant:
+          professionalCount > 0 ? Number((professionalRev / professionalCount).toFixed(2)) : 0,
       },
       {
         plan: 'Enterprise',
         revenue: enterpriseRev,
         tenantCount: enterpriseCount,
-        percentage: totalRevenue > 0 ? Number(((enterpriseRev / totalRevenue) * 100).toFixed(1)) : 0,
-        avgRevenuePerTenant: enterpriseCount > 0 ? Number((enterpriseRev / enterpriseCount).toFixed(2)) : 0,
+        percentage:
+          totalRevenue > 0 ? Number(((enterpriseRev / totalRevenue) * 100).toFixed(1)) : 0,
+        avgRevenuePerTenant:
+          enterpriseCount > 0 ? Number((enterpriseRev / enterpriseCount).toFixed(2)) : 0,
       },
     ];
   }
@@ -1259,13 +1287,13 @@ export class AnalyticsService {
    */
   async getRevenueTrendAnalytics(period: string): Promise<{
     period: string;
-    data: Array<{ date: string; revenue: number; growth: number }>;
+    data: Array<{ date: string; revenue: number; growth: number | null }>;
     summary: {
-      totalRevenue: number;
-      averageRevenue: number;
-      growthRate: number;
-      highestMonth: { date: string; revenue: number };
-      lowestMonth: { date: string; revenue: number };
+      totalRevenue: number | null;
+      averageRevenue: number | null;
+      growthRate: number | null;
+      highestMonth: { date: string; revenue: number } | null;
+      lowestMonth: { date: string; revenue: number } | null;
     };
   }> {
     // Parse period (e.g., '12m', '6m', '3m', '1y')
@@ -1286,7 +1314,8 @@ export class AnalyticsService {
     const monthlyData = new Map<string, number[]>();
     for (const snapshot of snapshots) {
       const monthKey = `${snapshot.snapshotDate.getFullYear()}-${String(snapshot.snapshotDate.getMonth() + 1).padStart(2, '0')}`;
-      const mrr = (snapshot.metrics as FinancialMetrics)?.mrr || 0;
+      const mrr = this.getMetricValue(snapshot.metrics, 'mrr');
+      if (mrr === null) continue;
 
       if (!monthlyData.has(monthKey)) {
         monthlyData.set(monthKey, []);
@@ -1299,8 +1328,8 @@ export class AnalyticsService {
     }
 
     // Average MRR per month
-    const data: Array<{ date: string; revenue: number; growth: number }> = [];
-    let previousRevenue = 0;
+    const data: Array<{ date: string; revenue: number; growth: number | null }> = [];
+    let previousRevenue: number | null = null;
     let totalRevenue = 0;
 
     const sortedMonths = Array.from(monthlyData.keys()).sort();
@@ -1309,9 +1338,10 @@ export class AnalyticsService {
       const values = monthlyData.get(monthKey) || [];
       if (values.length === 0) continue; // Skip months with no data to avoid NaN
       const avgRevenue = values.reduce((a, b) => a + b, 0) / values.length;
-      const growth = previousRevenue > 0
-        ? Number((((avgRevenue - previousRevenue) / previousRevenue) * 100).toFixed(2))
-        : 0;
+      const growth =
+        previousRevenue !== null && previousRevenue > 0
+          ? Number((((avgRevenue - previousRevenue) / previousRevenue) * 100).toFixed(2))
+          : null;
 
       data.push({
         date: monthKey,
@@ -1324,27 +1354,32 @@ export class AnalyticsService {
     }
 
     // Calculate summary
-    const revenues = data.map(d => d.revenue);
-    const maxRevenue = revenues.length > 0 ? Math.max(...revenues) : 0;
-    const minRevenue = revenues.length > 0 ? Math.min(...revenues) : 0;
-    const highestMonth = data.find(d => d.revenue === maxRevenue) || { date: '', revenue: 0 };
-    const lowestMonth = data.find(d => d.revenue === minRevenue) || { date: '', revenue: 0 };
+    const revenues = data.map((d) => d.revenue);
+    const maxRevenue = revenues.length > 0 ? Math.max(...revenues) : null;
+    const minRevenue = revenues.length > 0 ? Math.min(...revenues) : null;
+    const highestMonth =
+      maxRevenue === null ? null : (data.find((d) => d.revenue === maxRevenue) ?? null);
+    const lowestMonth =
+      minRevenue === null ? null : (data.find((d) => d.revenue === minRevenue) ?? null);
 
-    const firstRevenue = data[0]?.revenue || 0;
-    const lastRevenue = data[data.length - 1]?.revenue || 0;
-    const overallGrowthRate = firstRevenue > 0
-      ? Number((((lastRevenue - firstRevenue) / firstRevenue) * 100).toFixed(2))
-      : 0;
+    const firstRevenue = data[0]?.revenue ?? null;
+    const lastRevenue = data[data.length - 1]?.revenue ?? null;
+    const overallGrowthRate =
+      firstRevenue !== null && firstRevenue > 0 && lastRevenue !== null
+        ? Number((((lastRevenue - firstRevenue) / firstRevenue) * 100).toFixed(2))
+        : null;
 
     return {
       period,
       data,
       summary: {
-        totalRevenue: Number(totalRevenue.toFixed(2)),
-        averageRevenue: data.length > 0 ? Number((totalRevenue / data.length).toFixed(2)) : 0,
+        totalRevenue: data.length > 0 ? Number(totalRevenue.toFixed(2)) : null,
+        averageRevenue: data.length > 0 ? Number((totalRevenue / data.length).toFixed(2)) : null,
         growthRate: overallGrowthRate,
-        highestMonth: { date: highestMonth.date, revenue: highestMonth.revenue },
-        lowestMonth: { date: lowestMonth.date, revenue: lowestMonth.revenue },
+        highestMonth:
+          highestMonth === null ? null : { date: highestMonth.date, revenue: highestMonth.revenue },
+        lowestMonth:
+          lowestMonth === null ? null : { date: lowestMonth.date, revenue: lowestMonth.revenue },
       },
     };
   }

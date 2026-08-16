@@ -2,6 +2,14 @@
  * Billing domain types (Plans, Subscriptions, Invoices, Discounts, Module Pricing, Custom Plans)
  */
 
+import type { AdminApiRouteResponse } from './generated/admin-route-contracts';
+import {
+  PricingMetricType,
+  type PricingModuleQuantities,
+} from '@platform/pricing-metric-vocabulary';
+
+export { PricingMetricType } from '@platform/pricing-metric-vocabulary';
+
 // ============================================================================
 // Billing Enums
 // ============================================================================
@@ -55,22 +63,6 @@ export enum DiscountDuration {
   REPEATING = 'repeating',
 }
 
-export enum PricingMetricType {
-  BASE_PRICE = 'base_price',
-  PER_USER = 'per_user',
-  PER_FARM = 'per_farm',
-  PER_POND = 'per_pond',
-  PER_SENSOR = 'per_sensor',
-  PER_DEVICE = 'per_device',
-  PER_GB_STORAGE = 'per_gb_storage',
-  PER_API_CALL = 'per_api_call',
-  PER_ALERT = 'per_alert',
-  PER_REPORT = 'per_report',
-  PER_SMS = 'per_sms',
-  PER_EMAIL = 'per_email',
-  PER_INTEGRATION = 'per_integration',
-}
-
 export enum CustomPlanStatus {
   DRAFT = 'draft',
   PENDING_APPROVAL = 'pending_approval',
@@ -116,31 +108,7 @@ export interface PlanFeatures {
   premiumFeatures: string[];
 }
 
-export interface PlanDefinition {
-  id: string;
-  code: string;
-  name: string;
-  description?: string;
-  shortDescription?: string;
-  tier: PlanTier;
-  visibility: string;
-  isActive: boolean;
-  isRecommended: boolean;
-  sortOrder: number;
-  badge?: string;
-  limits: PlanLimits;
-  pricing: {
-    monthly: PlanPricing;
-    quarterly: PlanPricing;
-    semiAnnual: PlanPricing;
-    annual: PlanPricing;
-  };
-  features: PlanFeatures;
-  trialDays?: number;
-  gracePeriodDays?: number;
-  createdAt: string;
-  updatedAt: string;
-}
+export type PlanDefinition = AdminApiRouteResponse<'GET /billing/plans'>[number];
 
 // ============================================================================
 // Discount Types
@@ -169,18 +137,7 @@ export interface DiscountCode {
   updatedAt: string;
 }
 
-export interface DiscountStats {
-  totalCodes: number;
-  activeCodes: number;
-  expiredCodes: number;
-  totalRedemptions: number;
-  totalDiscountAmount: number;
-  topCodes: Array<{
-    code: string;
-    redemptions: number;
-    totalDiscount: number;
-  }>;
-}
+export type DiscountStats = AdminApiRouteResponse<'GET /billing/discounts/stats'>;
 
 export interface CreateDiscountCodeDto {
   code: string;
@@ -204,22 +161,8 @@ export interface CreateDiscountCodeDto {
 // Subscription Types
 // ============================================================================
 
-export interface SubscriptionOverview {
-  id: string;
-  tenantId: string;
-  tenantName: string;
-  planTier: string;
-  planName: string;
-  status: SubscriptionStatus;
-  billingCycle: BillingCycle;
-  currentPeriodStart: string;
-  currentPeriodEnd: string;
-  monthlyPrice: number;
-  autoRenew: boolean;
-  trialEndDate?: string;
-  cancelledAt?: string;
-  createdAt: string;
-}
+export type SubscriptionOverview =
+  AdminApiRouteResponse<'GET /billing/subscriptions'>['subscriptions'][number];
 
 export interface SubscriptionStats {
   totalSubscriptions: number;
@@ -346,15 +289,8 @@ export interface RefundPaymentDto {
 // Module Pricing Types
 // ============================================================================
 
-export interface PricingMetric {
-  type: PricingMetricType;
-  price: number;
-  currency: string;
-  description?: string;
-  minQuantity?: number;
-  maxQuantity?: number;
-  includedQuantity?: number;
-}
+export type PricingMetric =
+  AdminApiRouteResponse<'GET /billing/module-pricing/with-modules'>[number]['pricingMetrics'][number];
 
 export interface TierMultipliers {
   [PlanTier.FREE]?: number;
@@ -380,12 +316,8 @@ export interface ModulePricing {
   updatedAt: string;
 }
 
-export interface ModulePricingWithModule extends ModulePricing {
-  moduleName?: string;
-  moduleDescription?: string;
-  moduleIcon?: string;
-  isModuleActive?: boolean;
-}
+export type ModulePricingWithModule =
+  AdminApiRouteResponse<'GET /billing/module-pricing/with-modules'>[number];
 
 export interface SetModulePricingDto {
   moduleId: string;
@@ -398,18 +330,7 @@ export interface SetModulePricingDto {
   notes?: string;
 }
 
-export interface ModuleQuantities {
-  users?: number;
-  farms?: number;
-  ponds?: number;
-  sensors?: number;
-  devices?: number;
-  storageGb?: number;
-  apiCalls?: number;
-  alerts?: number;
-  reports?: number;
-  integrations?: number;
-}
+export type ModuleQuantities = PricingModuleQuantities;
 
 export interface ModuleSelection {
   moduleId: string;
@@ -441,33 +362,13 @@ export interface ModulePriceBreakdown {
   moduleId: string;
   moduleCode: string;
   moduleName: string;
-  lineItems: PricingLineItem[];
+  lineItems: readonly PricingLineItem[];
   subtotal: number;
   tierDiscount: number;
   total: number;
 }
 
-export interface PricingCalculation {
-  modules: ModulePriceBreakdown[];
-  subtotal: number;
-  tierDiscount: number;
-  discount: {
-    code?: string;
-    description?: string;
-    amount: number;
-    percent: number;
-  };
-  tax: number;
-  taxRate: number;
-  total: number;
-  monthlyTotal: number;
-  annualTotal: number;
-  billingCycle: BillingCycle;
-  billingCycleMultiplier: number;
-  currency: string;
-  tier: PlanTier;
-  calculatedAt: string;
-}
+export type PricingCalculation = AdminApiRouteResponse<'POST /billing/pricing/calculate'>;
 
 export interface PricingComparisonResult {
   config1: PricingCalculation;
@@ -554,34 +455,7 @@ export interface CustomPlanModule {
   subtotal: number;
 }
 
-export interface CustomPlan {
-  id: string;
-  tenantId: string;
-  name: string;
-  description?: string;
-  basePlanId?: string;
-  tier: PlanTier;
-  billingCycle: BillingCycle;
-  modules: CustomPlanModule[];
-  monthlySubtotal: number;
-  discountPercent: number;
-  discountAmount: number;
-  discountReason?: string;
-  monthlyTotal: number;
-  currency: string;
-  status: CustomPlanStatus;
-  validFrom: string;
-  validTo?: string;
-  notes?: string;
-  approvedBy?: string;
-  approvedAt?: string;
-  rejectionReason?: string;
-  subscriptionId?: string;
-  createdBy?: string;
-  updatedBy?: string;
-  createdAt: string;
-  updatedAt: string;
-}
+export type CustomPlan = AdminApiRouteResponse<'GET /billing/custom-plans'>['items'][number];
 
 export interface CustomPlanFilter {
   tenantId?: string;
@@ -592,13 +466,7 @@ export interface CustomPlanFilter {
   limit?: number;
 }
 
-export interface PaginatedCustomPlans {
-  items: CustomPlan[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
+export type PaginatedCustomPlans = AdminApiRouteResponse<'GET /billing/custom-plans'>;
 
 export interface CreateCustomPlanDto {
   tenantId: string;
@@ -668,58 +536,10 @@ export enum MeterType {
   CUSTOM = 'custom',
 }
 
-export interface MeterBreakdown {
-  meterType: MeterType;
-  totalUsage: number;
-  avgPerTenant: number;
-  maxPerTenant: number;
-  unit: string;
-  tenantCount: number;
-}
-
-export interface UsageSummaryStats {
-  totalTenants: number;
-  totalEvents: number;
-  meterBreakdown: MeterBreakdown[];
-  periodCovered: {
-    from: string;
-    to: string;
-  };
-}
-
-export interface TenantMeterUsage {
-  meterType: MeterType;
-  totalUsage: number;
-  unit: string;
-  eventCount: number;
-  peakUsage: number;
-  averageUsage: number;
-}
-
-export interface TenantUsageOverview {
-  tenantId: string;
-  tenantName?: string;
-  meters: TenantMeterUsage[];
-  totalEvents: number;
-  lastActivity?: string;
-}
-
-export interface UsageTrendPoint {
-  periodStart: string;
-  periodEnd: string;
-  meterType: MeterType;
-  totalUsage: number;
-  peakUsage: number;
-  averageUsage: number;
-  eventCount: number;
-  unit: string;
-}
-
-export interface TopTenantUsage {
-  tenantId: string;
-  tenantName?: string;
-  totalUsage: number;
-  meterType: MeterType;
-  unit: string;
-  eventCount: number;
-}
+export type UsageSummaryStats = AdminApiRouteResponse<'GET /billing/usage/summary'>;
+export type MeterBreakdown = UsageSummaryStats['meterBreakdown'][number];
+export type TenantUsagePage = AdminApiRouteResponse<'GET /billing/usage/tenants'>;
+export type TenantUsageOverview = TenantUsagePage['tenants'][number];
+export type TenantMeterUsage = TenantUsageOverview['meters'][number];
+export type UsageTrendPoint = AdminApiRouteResponse<'GET /billing/usage/trends'>[number];
+export type TopTenantUsage = AdminApiRouteResponse<'GET /billing/usage/top-tenants'>[number];

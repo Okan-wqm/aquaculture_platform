@@ -34,28 +34,18 @@ import {
 } from 'lucide-react';
 import { supportApi } from '../services/adminApi';
 import type { OnboardingStep as ApiOnboardingStep, TenantOnboarding } from '../services/adminApi';
+import type { AdminApiRouteResponse } from '../services/types/generated/admin-route-contracts';
+import { isAdminNavigationUrl, openAdminNavigation } from '../services/browser-capabilities';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-type OnboardingStatus = 'not_started' | 'in_progress' | 'completed' | 'stalled';
+type OnboardingStatus = TenantOnboarding['status'];
 
-interface TrainingResource {
-  id: string;
-  title: string;
-  type: string;
-  category: string;
-  url: string;
-}
+type TrainingResource = AdminApiRouteResponse<'GET /support/onboarding/resources/all'>[number];
 
-interface OnboardingStats {
-  notStarted: number;
-  inProgress: number;
-  completed: number;
-  stalled: number;
-  avgCompletionDays: number;
-}
+type OnboardingStats = AdminApiRouteResponse<'GET /support/onboarding/stats'>;
 
 interface Guide {
   id: string;
@@ -69,16 +59,19 @@ interface Guide {
 
 export const OnboardingPage: React.FC = () => {
   // Data state
-  const [progressList, setProgressList] = useState<TenantOnboarding[]>([]);
-  const [steps, setSteps] = useState<ApiOnboardingStep[]>([]);
+  const [progressList, setProgressList] = useState<readonly TenantOnboarding[]>([]);
+  const [steps, setSteps] = useState<readonly ApiOnboardingStep[]>([]);
   const [stats, setStats] = useState<OnboardingStats>({
     notStarted: 0,
     inProgress: 0,
     completed: 0,
-    stalled: 0,
+    skipped: 0,
+    total: 0,
+    avgCompletionPercent: 0,
     avgCompletionDays: 0,
+    completionByStep: {},
   });
-  const [resources, setResources] = useState<TrainingResource[]>([]);
+  const [resources, setResources] = useState<readonly TrainingResource[]>([]);
 
   // UI state
   const [selectedProgress, setSelectedProgress] = useState<TenantOnboarding | null>(null);
@@ -110,7 +103,7 @@ export const OnboardingPage: React.FC = () => {
       ]);
 
       setSteps(stepsData);
-      setProgressList(onboardingsData.data);
+      setProgressList([...onboardingsData.items]);
       setStats(statsData);
       setResources(resourcesData);
     } catch (err) {
@@ -129,14 +122,17 @@ export const OnboardingPage: React.FC = () => {
   // Filtered Data
   // ============================================================================
 
-  const filteredProgress = progressList.filter(progress => {
-    if (searchQuery && !progress.tenantName.toLowerCase().includes(searchQuery.toLowerCase())) {
+  const filteredProgress = progressList.filter((progress) => {
+    if (
+      searchQuery &&
+      !(progress.tenantName ?? progress.tenantId).toLowerCase().includes(searchQuery.toLowerCase())
+    ) {
       return false;
     }
     if (statusFilter !== 'all' && progress.status !== statusFilter) return false;
     if (showNeedingAttention) {
-      if (!progress.lastActivityAt) return false;
-      const daysSinceUpdate = (Date.now() - new Date(progress.lastActivityAt).getTime()) / (1000 * 60 * 60 * 24);
+      const daysSinceUpdate =
+        (Date.now() - new Date(progress.updatedAt).getTime()) / (1000 * 60 * 60 * 24);
       if (daysSinceUpdate < 30 || progress.status === 'completed') return false;
     }
     return true;
@@ -148,20 +144,29 @@ export const OnboardingPage: React.FC = () => {
 
   const getStatusColor = (status: OnboardingStatus) => {
     switch (status) {
-      case 'not_started': return 'bg-gray-100 text-gray-700';
-      case 'in_progress': return 'bg-blue-100 text-blue-700';
-      case 'completed': return 'bg-green-100 text-green-700';
-      case 'stalled': return 'bg-yellow-100 text-yellow-700';
+      case 'not_started':
+        return 'bg-gray-100 text-gray-700';
+      case 'in_progress':
+        return 'bg-blue-100 text-blue-700';
+      case 'completed':
+        return 'bg-green-100 text-green-700';
+      case 'skipped':
+        return 'bg-yellow-100 text-yellow-700';
     }
   };
 
   const getResourceIcon = (type: string) => {
     switch (type) {
-      case 'video': return <Video size={16} className="text-purple-500" />;
-      case 'document': return <FileText size={16} className="text-blue-500" />;
-      case 'webinar': return <Users size={16} className="text-green-500" />;
-      case 'interactive': return <Play size={16} className="text-orange-500" />;
-      default: return <BookOpen size={16} className="text-gray-500" />;
+      case 'video':
+        return <Video size={16} className="text-purple-500" />;
+      case 'document':
+        return <FileText size={16} className="text-blue-500" />;
+      case 'webinar':
+        return <Users size={16} className="text-green-500" />;
+      case 'interactive':
+        return <Play size={16} className="text-orange-500" />;
+      default:
+        return <BookOpen size={16} className="text-gray-500" />;
     }
   };
 
@@ -181,9 +186,7 @@ export const OnboardingPage: React.FC = () => {
     setActionLoading(tenantId);
     try {
       const updated = await supportApi.initializeOnboarding(tenantId, tenantName);
-      setProgressList(progressList.map(p =>
-        p.tenantId === tenantId ? updated : p
-      ));
+      setProgressList(progressList.map((p) => (p.tenantId === tenantId ? updated : p)));
       if (selectedProgress?.tenantId === tenantId) {
         setSelectedProgress(updated);
       }
@@ -198,9 +201,7 @@ export const OnboardingPage: React.FC = () => {
     setActionLoading(tenantId);
     try {
       const updated = await supportApi.assignOnboardingGuide(tenantId, guideId, guideName);
-      setProgressList(progressList.map(p =>
-        p.tenantId === tenantId ? updated : p
-      ));
+      setProgressList(progressList.map((p) => (p.tenantId === tenantId ? updated : p)));
       if (selectedProgress?.tenantId === tenantId) {
         setSelectedProgress(updated);
       }
@@ -215,9 +216,7 @@ export const OnboardingPage: React.FC = () => {
     setActionLoading(tenantId);
     try {
       const updated = await supportApi.skipOnboarding(tenantId);
-      setProgressList(progressList.map(p =>
-        p.tenantId === tenantId ? updated : p
-      ));
+      setProgressList(progressList.map((p) => (p.tenantId === tenantId ? updated : p)));
       if (selectedProgress?.tenantId === tenantId) {
         setSelectedProgress(updated);
       }
@@ -269,7 +268,7 @@ export const OnboardingPage: React.FC = () => {
   // Render: Main
   // ============================================================================
 
-  const totalTenants = stats.notStarted + stats.inProgress + stats.completed + stats.stalled;
+  const totalTenants = stats.total;
 
   return (
     <div className="h-full flex flex-col">
@@ -308,8 +307,8 @@ export const OnboardingPage: React.FC = () => {
             <div className="text-xl font-semibold text-green-700">{stats.completed}</div>
           </div>
           <div className="bg-yellow-50 rounded-lg p-3">
-            <div className="text-sm text-yellow-600">Stalled</div>
-            <div className="text-xl font-semibold text-yellow-700">{stats.stalled}</div>
+            <div className="text-sm text-yellow-600">Skipped</div>
+            <div className="text-xl font-semibold text-yellow-700">{stats.skipped}</div>
           </div>
         </div>
 
@@ -341,11 +340,16 @@ export const OnboardingPage: React.FC = () => {
       {activeTab === 'progress' ? (
         <div className="flex-1 flex overflow-hidden">
           {/* Progress List */}
-          <div className={`${selectedProgress ? 'w-1/2' : 'w-full'} flex flex-col border-r border-gray-200 bg-white`}>
+          <div
+            className={`${selectedProgress ? 'w-1/2' : 'w-full'} flex flex-col border-r border-gray-200 bg-white`}
+          >
             {/* Filters */}
             <div className="p-4 border-b border-gray-200 space-y-3">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
+                <Search
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500"
+                  size={18}
+                />
                 <input
                   type="text"
                   placeholder="Search tenants..."
@@ -357,14 +361,25 @@ export const OnboardingPage: React.FC = () => {
               <div className="flex items-center gap-2">
                 <select
                   value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value as OnboardingStatus | 'all')}
+                  onChange={(event) => {
+                    const nextStatus = event.target.value;
+                    if (
+                      nextStatus === 'all' ||
+                      nextStatus === 'not_started' ||
+                      nextStatus === 'in_progress' ||
+                      nextStatus === 'completed' ||
+                      nextStatus === 'skipped'
+                    ) {
+                      setStatusFilter(nextStatus);
+                    }
+                  }}
                   className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="all">All Status</option>
                   <option value="not_started">Not Started</option>
                   <option value="in_progress">In Progress</option>
                   <option value="completed">Completed</option>
-                  <option value="stalled">Stalled</option>
+                  <option value="skipped">Skipped</option>
                 </select>
                 <button
                   onClick={() => setShowNeedingAttention(!showNeedingAttention)}
@@ -383,9 +398,9 @@ export const OnboardingPage: React.FC = () => {
             {/* Progress List */}
             <div className="flex-1 overflow-y-auto">
               {filteredProgress.map((progress) => {
-                const daysSinceUpdate = progress.lastActivityAt
-                  ? Math.floor((Date.now() - new Date(progress.lastActivityAt).getTime()) / (1000 * 60 * 60 * 24))
-                  : 0;
+                const daysSinceUpdate = Math.floor(
+                  (Date.now() - new Date(progress.updatedAt).getTime()) / (1000 * 60 * 60 * 24),
+                );
                 const needsAttention = daysSinceUpdate > 30 && progress.status !== 'completed';
 
                 return (
@@ -393,24 +408,28 @@ export const OnboardingPage: React.FC = () => {
                     key={progress.tenantId}
                     onClick={() => setSelectedProgress(progress)}
                     className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 ${
-                      selectedProgress?.tenantId === progress.tenantId ? 'bg-blue-50 border-l-4 border-l-blue-500' : ''
+                      selectedProgress?.tenantId === progress.tenantId
+                        ? 'bg-blue-50 border-l-4 border-l-blue-500'
+                        : ''
                     }`}
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <Building2 size={16} className="text-gray-500" />
-                          <span className="font-medium text-gray-900">{progress.tenantName}</span>
-                          {needsAttention && (
-                            <AlertTriangle size={14} className="text-red-500" />
-                          )}
+                          <span className="font-medium text-gray-900">
+                            {progress.tenantName ?? progress.tenantId}
+                          </span>
+                          {needsAttention && <AlertTriangle size={14} className="text-red-500" />}
                         </div>
                         <div className="flex items-center gap-2 mt-1">
-                          <span className={`px-2 py-0.5 text-xs rounded ${getStatusColor(progress.status as OnboardingStatus)}`}>
+                          <span
+                            className={`px-2 py-0.5 text-xs rounded ${getStatusColor(progress.status)}`}
+                          >
                             {progress.status.replace('_', ' ')}
                           </span>
                           <span className="text-sm text-gray-500">
-                            {progress.progress}% complete
+                            {progress.completionPercent}% complete
                           </span>
                         </div>
 
@@ -418,16 +437,18 @@ export const OnboardingPage: React.FC = () => {
                         <div className="mt-2 h-2 bg-gray-200 rounded-full overflow-hidden">
                           <div
                             className="h-full bg-blue-500 rounded-full transition-all"
-                            style={{ width: `${progress.progress}%` }}
+                            style={{ width: `${progress.completionPercent}%` }}
                           />
                         </div>
 
                         <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
-                          <span>{progress.completedSteps.length}/{steps.length} steps</span>
-                          {progress.assignedTo && (
+                          <span>
+                            {progress.completedSteps.length}/{steps.length} steps
+                          </span>
+                          {progress.assignedGuideName && (
                             <span className="flex items-center gap-1">
                               <User size={12} />
-                              {progress.assignedTo}
+                              {progress.assignedGuideName}
                             </span>
                           )}
                           {needsAttention && (
@@ -461,11 +482,13 @@ export const OnboardingPage: React.FC = () => {
                       {selectedProgress.tenantName}
                     </h2>
                     <div className="flex items-center gap-2 mt-1">
-                      <span className={`px-2 py-0.5 text-xs rounded ${getStatusColor(selectedProgress.status as OnboardingStatus)}`}>
+                      <span
+                        className={`px-2 py-0.5 text-xs rounded ${getStatusColor(selectedProgress.status)}`}
+                      >
                         {selectedProgress.status.replace('_', ' ')}
                       </span>
                       <span className="text-sm text-gray-500">
-                        {selectedProgress.progress}% complete
+                        {selectedProgress.completionPercent}% complete
                       </span>
                     </div>
                   </div>
@@ -481,7 +504,12 @@ export const OnboardingPage: React.FC = () => {
                 <div className="flex items-center gap-3 mt-4">
                   {selectedProgress.status === 'not_started' && (
                     <button
-                      onClick={() => handleInitializeOnboarding(selectedProgress.tenantId, selectedProgress.tenantName)}
+                      onClick={() =>
+                        handleInitializeOnboarding(
+                          selectedProgress.tenantId,
+                          selectedProgress.tenantName ?? selectedProgress.tenantId,
+                        )
+                      }
                       disabled={actionLoading === selectedProgress.tenantId}
                       className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50"
                     >
@@ -522,9 +550,15 @@ export const OnboardingPage: React.FC = () => {
                             isCompleted ? 'bg-green-50' : isCurrent ? 'bg-blue-50' : 'bg-gray-50'
                           }`}
                         >
-                          <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
-                            isCompleted ? 'bg-green-500' : isCurrent ? 'bg-blue-500' : 'bg-gray-300'
-                          }`}>
+                          <div
+                            className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                              isCompleted
+                                ? 'bg-green-500'
+                                : isCurrent
+                                  ? 'bg-blue-500'
+                                  : 'bg-gray-300'
+                            }`}
+                          >
                             {isCompleted ? (
                               <CheckCircle size={14} className="text-white" />
                             ) : (
@@ -533,8 +567,10 @@ export const OnboardingPage: React.FC = () => {
                           </div>
                           <div className="flex-1">
                             <div className="flex items-center gap-2">
-                              <span className={`font-medium ${isCompleted ? 'text-green-700' : isCurrent ? 'text-blue-700' : 'text-gray-700'}`}>
-                                {step.name}
+                              <span
+                                className={`font-medium ${isCompleted ? 'text-green-700' : isCurrent ? 'text-blue-700' : 'text-gray-700'}`}
+                              >
+                                {step.title}
                               </span>
                               {step.isRequired && (
                                 <span className="text-xs text-red-500">Required</span>
@@ -543,14 +579,18 @@ export const OnboardingPage: React.FC = () => {
                             <p className="text-sm text-gray-500 mt-0.5">{step.description}</p>
                             <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
                               <span className="flex items-center gap-1">
-                                <Clock size={12} />
-                                ~{step.estimatedMinutes}m
+                                <Clock size={12} />~{step.estimatedMinutes}m
                               </span>
                               {step.videoUrl && (
-                                <a href={step.videoUrl} className="flex items-center gap-1 text-blue-500 hover:text-blue-600">
+                                <button
+                                  type="button"
+                                  disabled={!isAdminNavigationUrl(step.videoUrl)}
+                                  onClick={() => openAdminNavigation(step.videoUrl)}
+                                  className="flex items-center gap-1 text-blue-500 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
                                   <Play size={12} />
                                   Tutorial
-                                </a>
+                                </button>
                               )}
                             </div>
                           </div>
@@ -560,14 +600,6 @@ export const OnboardingPage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Notes */}
-                {selectedProgress.notes && (
-                  <div className="bg-white rounded-lg border border-gray-200 p-4">
-                    <h3 className="font-semibold text-gray-900 mb-4">Notes</h3>
-                    <p className="text-sm text-gray-600">{selectedProgress.notes}</p>
-                  </div>
-                )}
-
                 {/* Timeline */}
                 <div className="bg-white rounded-lg border border-gray-200 p-4">
                   <h3 className="font-semibold text-gray-900 mb-4">Timeline</h3>
@@ -576,21 +608,27 @@ export const OnboardingPage: React.FC = () => {
                       <div className="flex items-center gap-3">
                         <div className="w-2 h-2 bg-purple-500 rounded-full" />
                         <span className="text-gray-500">Started Onboarding</span>
-                        <span className="text-gray-700">{formatDate(selectedProgress.startedAt)}</span>
+                        <span className="text-gray-700">
+                          {formatDate(selectedProgress.startedAt)}
+                        </span>
                       </div>
                     )}
                     {selectedProgress.completedAt && (
                       <div className="flex items-center gap-3">
                         <div className="w-2 h-2 bg-green-500 rounded-full" />
                         <span className="text-gray-500">Completed</span>
-                        <span className="text-gray-700">{formatDate(selectedProgress.completedAt)}</span>
+                        <span className="text-gray-700">
+                          {formatDate(selectedProgress.completedAt)}
+                        </span>
                       </div>
                     )}
-                    {selectedProgress.lastActivityAt && (
+                    {selectedProgress.updatedAt && (
                       <div className="flex items-center gap-3">
                         <div className="w-2 h-2 bg-gray-300 rounded-full" />
                         <span className="text-gray-500">Last Activity</span>
-                        <span className="text-gray-700">{formatDate(selectedProgress.lastActivityAt)}</span>
+                        <span className="text-gray-700">
+                          {formatDate(selectedProgress.updatedAt)}
+                        </span>
                       </div>
                     )}
                   </div>
@@ -605,7 +643,7 @@ export const OnboardingPage: React.FC = () => {
           <div className="max-w-4xl mx-auto">
             {/* Category Sections */}
             {['basics', 'core', 'advanced', 'developer'].map((category) => {
-              const categoryResources = resources.filter(r => r.category === category);
+              const categoryResources = resources.filter((r) => r.category === category);
               if (categoryResources.length === 0) return null;
 
               return (
@@ -629,12 +667,14 @@ export const OnboardingPage: React.FC = () => {
                               <span className="capitalize">{resource.type}</span>
                             </div>
                           </div>
-                          <a
-                            href={resource.url}
-                            className="p-2 text-blue-500 hover:text-blue-600 rounded-lg hover:bg-blue-50"
+                          <button
+                            type="button"
+                            disabled={!isAdminNavigationUrl(resource.url)}
+                            onClick={() => openAdminNavigation(resource.url)}
+                            className="p-2 text-blue-500 hover:text-blue-600 rounded-lg hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             <ExternalLink size={16} />
-                          </a>
+                          </button>
                         </div>
                       </div>
                     ))}

@@ -38,7 +38,11 @@
       "@platform/outbox": ["platform/libs/outbox/src/index.ts"],
       "@platform/event-bus": ["platform/libs/event-bus/src/index.ts"],
       "@platform/cqrs": ["platform/libs/cqrs/src/index.ts"],
-      "@platform/service-catalog": ["platform/libs/service-catalog/src/index.ts"]
+      "@platform/service-catalog": ["platform/libs/service-catalog/src/index.ts"],
+      "@platform/admin-http-contracts": ["platform/libs/admin-http-contracts/src/index.ts"],
+      "@platform/identity": ["libs/event-contracts/src/roles.ts"],
+      "@platform/pagination-contracts": ["platform/libs/pagination-contracts/src/index.ts"],
+      "@platform/tenant-permissions": ["libs/event-contracts/src/tenant-permissions.ts"]
     }
   },
   "include": [

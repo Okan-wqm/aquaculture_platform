@@ -15,6 +15,7 @@ import {
   type AdminCheckUserLimitResult,
   type AdminInviteUserCommand,
   type AdminInviteUserResult,
+  type InvitableRoleCode,
 } from '@platform/event-contracts';
 import { catchError, firstValueFrom, throwError, timeout } from 'rxjs';
 
@@ -39,7 +40,7 @@ export interface InviteUserDto {
   email: string;
   firstName?: string;
   lastName?: string;
-  role: string;
+  role: InvitableRoleCode;
   moduleIds?: string[];
   primaryModuleId?: string;
   invitedBy: string;
@@ -47,13 +48,17 @@ export interface InviteUserDto {
   sendInvitation?: boolean;
 }
 
-export interface InviteUserResult {
-  success: boolean;
-  userId?: string;
-  invitationId?: string;
-  deliveryStatus?: 'queued';
-  error?: string;
-}
+export type InviteUserResult =
+  | {
+      readonly success: true;
+      readonly userId: string;
+      readonly invitationId: string;
+      readonly deliveryStatus: 'queued';
+    }
+  | {
+      readonly success: false;
+      readonly error: string;
+    };
 
 @Injectable()
 export class UserProvisioningService {
@@ -66,9 +71,8 @@ export class UserProvisioningService {
     private readonly authNatsClient: ClientProxy,
   ) {
     const configured = parseInt(process.env['AUTH_NATS_TIMEOUT_MS'] ?? '', 10);
-    this.authNatsTimeoutMs = Number.isFinite(configured) && configured > 0
-      ? configured
-      : DEFAULT_AUTH_NATS_TIMEOUT_MS;
+    this.authNatsTimeoutMs =
+      Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_AUTH_NATS_TIMEOUT_MS;
   }
 
   /**
@@ -88,10 +92,10 @@ export class UserProvisioningService {
    */
   async checkUserLimit(tenantId: string): Promise<UserLimitCheckResult> {
     const query: AdminCheckUserLimitQuery = { tenantId };
-    const result = await this.sendAuthCommand<
-      AdminCheckUserLimitQuery,
-      AdminCheckUserLimitResult
-    >(AUTH_ADMIN_COMMAND_SUBJECTS.CHECK_USER_LIMIT, query);
+    const result = await this.sendAuthCommand<AdminCheckUserLimitQuery, AdminCheckUserLimitResult>(
+      AUTH_ADMIN_COMMAND_SUBJECTS.CHECK_USER_LIMIT,
+      query,
+    );
 
     if (!result.success) {
       // The REST controller treats "tenant not found" as a non-throwing
@@ -156,10 +160,10 @@ export class UserProvisioningService {
       sendInvitation: dto.sendInvitation !== false,
     };
 
-    const result = await this.sendAuthCommand<
-      AdminInviteUserCommand,
-      AdminInviteUserResult
-    >(AUTH_ADMIN_COMMAND_SUBJECTS.INVITE_USER, command);
+    const result = await this.sendAuthCommand<AdminInviteUserCommand, AdminInviteUserResult>(
+      AUTH_ADMIN_COMMAND_SUBJECTS.INVITE_USER,
+      command,
+    );
 
     if (!result.success) {
       // The REST contract this service exposes returns
@@ -173,15 +177,19 @@ export class UserProvisioningService {
       };
     }
 
+    if (result.userId === undefined || result.invitationId === undefined) {
+      throw new InternalServerErrorException(
+        'Auth invite success response omitted its required operation identifiers',
+      );
+    }
+
     // SECURITY: log user ID + tenant ID, never email (PII).
-    this.logger.log(
-      `User invited userId=${result.userId} tenantId=${dto.tenantId}`,
-    );
+    this.logger.log(`User invited userId=${result.userId} tenantId=${dto.tenantId}`);
     return {
       success: true,
       userId: result.userId,
       invitationId: result.invitationId,
-      deliveryStatus: result.deliveryStatus,
+      deliveryStatus: result.deliveryStatus ?? 'queued',
     };
   }
 
@@ -203,9 +211,7 @@ export class UserProvisioningService {
         this.authNatsClient.send<TResult, TCommand>(subject, command).pipe(
           timeout(this.authNatsTimeoutMs),
           catchError((err: Error) => {
-            this.logger.error(
-              `NATS request failed: subject=${subject}, error=${err.message}`,
-            );
+            this.logger.error(`NATS request failed: subject=${subject}, error=${err.message}`);
             return throwError(() => err);
           }),
         ),
@@ -219,15 +225,10 @@ export class UserProvisioningService {
         );
       }
       if (message.includes('not connected') || message.includes('CONN_CLOSED')) {
-        throw new ServiceUnavailableException(
-          'Auth service is currently unavailable',
-        );
+        throw new ServiceUnavailableException('Auth service is currently unavailable');
       }
       if (err instanceof HttpException) throw err;
-      throw new HttpException(
-        `Auth service error: ${message}`,
-        HttpStatus.BAD_GATEWAY,
-      );
+      throw new HttpException(`Auth service error: ${message}`, HttpStatus.BAD_GATEWAY);
     }
   }
 
@@ -258,9 +259,7 @@ export class UserProvisioningService {
    * Translate non-soft-fail `AdminCheckUserLimitResult` failures into the
    * REST exception the controller layer expects.
    */
-  private mapCheckUserLimitError(
-    result: AdminCheckUserLimitResult,
-  ): HttpException {
+  private mapCheckUserLimitError(result: AdminCheckUserLimitResult): HttpException {
     const msg = result.error ?? 'Failed to check user limit';
     switch (result.errorCode) {
       case 'TENANT_NOT_FOUND':

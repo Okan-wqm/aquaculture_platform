@@ -27,6 +27,7 @@ on:
           - workflow
           - integration
           - modules
+          - platform-admin
 
 concurrency:
   group: e2e-${{ github.ref }}
@@ -69,6 +70,7 @@ jobs:
 
             echo "=== Setting environment ==="
             export GATEWAY_URL=http://localhost:3000
+            export PLATFORM_ADMIN_URL=http://localhost
             # Secrets injected via envs above — no grep needed.
             export DATABASE_URL=postgresql://aquaculture:${DB_PASSWORD}@localhost:5432/aquaculture
             export NODE_ENV=test
@@ -76,6 +78,7 @@ jobs:
 
             echo "=== Checking gateway health ==="
             curl -sf http://localhost:3000/health || echo "Gateway health check failed, continuing..."
+            curl -sf http://localhost/ >/dev/null || echo "Platform shell health check failed, continuing..."
 
             echo "=== Running E2E tests ==="
             # || true removed: Playwright exit code must propagate to fail this workflow.

@@ -12318,6 +12318,7 @@ export type MutationSetConfigurationArgs = {
   key: Scalars['String']['input'];
   reason?: InputMaybe<Scalars['String']['input']>;
   service: Scalars['String']['input'];
+  tenantId?: InputMaybe<Scalars['String']['input']>;
   value: Scalars['String']['input'];
 };
 
@@ -16320,12 +16321,14 @@ export type QueryEffectiveConfigurationArgs = {
   environment?: InputMaybe<ConfigEnvironment>;
   key: Scalars['String']['input'];
   serviceId: Scalars['String']['input'];
+  tenantId?: InputMaybe<Scalars['String']['input']>;
 };
 
 
 export type QueryEffectiveConfigurationsByServiceArgs = {
   environment?: InputMaybe<ConfigEnvironment>;
   service: Scalars['String']['input'];
+  tenantId?: InputMaybe<Scalars['String']['input']>;
 };
 
 

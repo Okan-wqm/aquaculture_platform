@@ -33,10 +33,12 @@ import {
   TenantStatus,
 } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
-import { createHash, randomUUID } from 'crypto';
+import { randomUUID } from 'crypto';
 import { DataSource, EntityManager, QueryRunner } from 'typeorm';
 
-import { AuditLogService } from '../../audit/audit.service';
+import { canonicalWireJsonContentSha256V1 } from '@aquaculture/shared-contracts';
+
+import { AuditLogService, type MandatoryTransactionalAuditInput } from '../../audit/audit.service';
 import { RequestTenantErasureCommand } from '../commands/tenant.commands';
 import { TenantErasureOperationAcceptedResponse } from '../dto/request-tenant-erasure.dto';
 import { Tenant } from '../entities/tenant.entity';
@@ -78,7 +80,7 @@ interface TenantErasureRecoveryRow {
 export type TenantErasureEventSubscriber = Pick<IEventBus, 'subscribeWildcard'>;
 export type TenantErasureOutboxPublisher = Pick<OutboxPublisher, 'enqueue'>;
 export type TenantErasureLegalHoldService = Pick<LegalHoldService, 'assertNoHold'>;
-export type TenantErasureAuditLogger = Pick<AuditLogService, 'log'>;
+export type TenantErasureAuditLogger = Pick<AuditLogService, 'appendInTransaction'>;
 
 export const TENANT_ERASURE_REQUEST_RECOVERY_STALE_SECONDS = 120;
 
@@ -201,6 +203,21 @@ export class RequestTenantErasureHandler
         idempotencyKey: `tenant-erasure:${operationId}:requested`,
       });
 
+      const auditInput: MandatoryTransactionalAuditInput = {
+        action: 'TENANT_ERASURE_REQUESTED',
+        entityType: 'tenant',
+        entityId: command.tenantId,
+        tenantId: command.tenantId,
+        performedBy: command.requestedBy,
+        details: {
+          operationId,
+          reason: command.reason,
+          dryRun: command.dryRun,
+          targetServices: [...TENANT_ERASURE_TARGET_SERVICES],
+        },
+      };
+      await this.auditLogService.appendInTransaction(queryRunner.manager, auditInput);
+
       await queryRunner.commitTransaction();
     } catch (error) {
       await this.rollbackQuietly(queryRunner);
@@ -208,19 +225,6 @@ export class RequestTenantErasureHandler
     } finally {
       await queryRunner.release();
     }
-
-    await this.auditLogService.log({
-      action: 'TENANT_ERASURE_REQUESTED',
-      entityType: 'tenant',
-      entityId: command.tenantId,
-      performedBy: command.requestedBy,
-      details: {
-        operationId,
-        reason: command.reason,
-        dryRun: command.dryRun,
-        targetServices: [...TENANT_ERASURE_TARGET_SERVICES],
-      },
-    });
 
     this.logger.warn(
       `Tenant erasure requested: operation=${operationId} tenant=${command.tenantId}`,
@@ -604,20 +608,16 @@ export class TenantErasureProofHandler implements IEventHandler<ErasureProofEven
       targetService,
       proof: proofs[targetService],
     }));
-    const proofHash = `sha256:${createHash('sha256')
-      .update(
-        this.stableStringify({
-          operationId: operation.id,
-          tenantId: operation.tenantId,
-          mode: 'DRY_RUN',
-          requestedAt: this.toIso(operation.requestedAt),
-          legalHoldCheckedAt: this.toIso(operation.legalHoldCheckedAt),
-          completedAt,
-          targetProofs,
-          proofVersion: 1,
-        }),
-      )
-      .digest('hex')}`;
+    const proofHash = `sha256:${canonicalWireJsonContentSha256V1({
+      operationId: operation.id,
+      tenantId: operation.tenantId,
+      mode: 'DRY_RUN',
+      requestedAt: this.toIso(operation.requestedAt),
+      legalHoldCheckedAt: this.toIso(operation.legalHoldCheckedAt),
+      completedAt,
+      targetProofs,
+      proofVersion: 1,
+    })}`;
 
     await manager.query(
       `UPDATE admin.tenant_erasure_operations
@@ -1020,7 +1020,7 @@ export class TenantErasureProofHandler implements IEventHandler<ErasureProofEven
       },
       proofVersion: 1,
     };
-    return `sha256:${createHash('sha256').update(this.stableStringify(payload)).digest('hex')}`;
+    return `sha256:${canonicalWireJsonContentSha256V1(payload)}`;
   }
 
   private async assertLiveLegalHold(tenantId: string): Promise<string> {
@@ -1053,19 +1053,5 @@ export class TenantErasureProofHandler implements IEventHandler<ErasureProofEven
 
   private toIso(value: Date | string): string {
     return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
-  }
-
-  private stableStringify(value: unknown): string {
-    if (Array.isArray(value)) {
-      return `[${value.map((item) => this.stableStringify(item)).join(',')}]`;
-    }
-    if (typeof value === 'object' && value !== null) {
-      const record = value as Record<string, unknown>;
-      return `{${Object.keys(record)
-        .sort()
-        .map((key) => `${JSON.stringify(key)}:${this.stableStringify(record[key])}`)
-        .join(',')}}`;
-    }
-    return JSON.stringify(value);
   }
 }

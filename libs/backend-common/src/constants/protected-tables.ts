@@ -1,3 +1,5 @@
+import appendOnlyTableCatalog from './append-only-table-catalog.json';
+
 /**
  * Protected Tables — Single Source of Truth
  * ============================================================================
@@ -132,6 +134,29 @@ export const PROTECTED_TABLES = [
   // ── Findings registry (review trail) ──
   'event_store.findings',
 ] as const;
+
+/**
+ * Row-append-only ledgers. This is intentionally narrower than
+ * PROTECTED_TABLES: the latter governs destructive DDL, while this catalog
+ * governs UPDATE/DELETE triggers. Conflating the two froze the operational
+ * admin.impersonation_sessions state machine.
+ *
+ * The JSON catalog is also read directly by the baseline immutability script,
+ * making trigger generation and application consumers of one authority.
+ */
+export const APPEND_ONLY_TABLES: readonly string[] = Object.freeze(
+  appendOnlyTableCatalog.map((entry) => entry.qualifiedName),
+);
+
+/** Operational security records that may transition but may never be dropped. */
+export const LIFECYCLE_GUARDED_TABLES = ['admin.impersonation_sessions'] as const;
+
+export type AppendOnlyTable = (typeof APPEND_ONLY_TABLES)[number];
+export type LifecycleGuardedTable = (typeof LIFECYCLE_GUARDED_TABLES)[number];
+
+export function appendOnlyTableBaseNames(): string[] {
+  return [...new Set(APPEND_ONLY_TABLES.map((table) => table.slice(table.indexOf('.') + 1)))];
+}
 
 /**
  * Pattern-based protected tables. Any table matching one of these patterns

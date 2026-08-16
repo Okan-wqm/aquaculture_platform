@@ -70,7 +70,7 @@ function createLegalHoldService(): TenantErasureLegalHoldService {
 
 function createAuditLogService(): TenantErasureAuditLogger {
   return {
-    log: jest.fn().mockResolvedValue(undefined),
+    appendInTransaction: jest.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -126,7 +126,46 @@ describe('RequestTenantErasureHandler', () => {
         idempotencyKey: `tenant-erasure:${result.operationId}:requested`,
       },
     );
+    expect(audit.appendInTransaction).toHaveBeenCalledWith(
+      manager,
+      expect.objectContaining({
+        action: 'TENANT_ERASURE_REQUESTED',
+        entityId: TENANT_ID,
+        tenantId: TENANT_ID,
+        performedBy: USER_ID,
+      }),
+    );
     expect(queryRunner.commitTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('rolls back the operation and outbox when mandatory audit persistence fails', async () => {
+    const tenant = Object.assign(new Tenant(), {
+      id: TENANT_ID,
+      status: TenantStatus.ARCHIVED,
+    });
+    const dataSource = createDataSource();
+    const manager = new EntityManager(dataSource);
+    jest.spyOn(manager, 'findOne').mockResolvedValue(tenant);
+    jest.spyOn(manager, 'query').mockResolvedValueOnce([]).mockResolvedValueOnce(undefined);
+    const queryRunner = createQueryRunner(manager);
+    jest.spyOn(dataSource, 'createQueryRunner').mockReturnValue(queryRunner);
+    const audit = createAuditLogService();
+    (audit.appendInTransaction as jest.Mock).mockRejectedValueOnce(
+      new Error('audit persistence unavailable'),
+    );
+    const handler = new RequestTenantErasureHandler(
+      dataSource,
+      createOutboxPublisher(),
+      createLegalHoldService(),
+      audit,
+    );
+
+    await expect(
+      handler.execute(new RequestTenantErasureCommand(TENANT_ID, 'erase', USER_ID)),
+    ).rejects.toThrow('audit persistence unavailable');
+
+    expect(queryRunner.commitTransaction).not.toHaveBeenCalled();
+    expect(queryRunner.rollbackTransaction).toHaveBeenCalledTimes(1);
   });
 
   it('rejects non-archived tenants before event emission', async () => {

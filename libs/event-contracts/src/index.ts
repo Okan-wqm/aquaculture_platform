@@ -4,6 +4,7 @@ export * from './base-event';
 // Cross-service shared enums (DBR-HIGH-003 cure — single source of truth
 // for values that are persisted to the DB and round-tripped via events).
 export * from './enums/tenant-plan.enum';
+export * from './enums/tenant-provisioning-state.enum';
 // Per-plan resource limits SSoT (SSOT-C-13 cure) — the single catalog every
 // service projects its plan limits from; replaces 5 hand-copied catalogs.
 export * from './billing/plan-catalog';
@@ -16,6 +17,10 @@ export * from './enums/tenant-status.enum';
 // dependency-free logic that gates every status change + login + erasure.
 export * from './enums/tenant-status.machine';
 export * from './tenant-erasure-targets';
+export * from './roles';
+export * from './farm-operation-authorization.generated';
+export * from './tenant-permissions';
+export * from './tenant-settings';
 // Config-runtime RPC subjects + ConfigurationChanged signal (Billing Revival Faz C).
 export * from './config-runtime';
 
@@ -35,6 +40,7 @@ export * from './hr-events';
 export * from './finance-events';
 export * from './billing-events';
 export * from './billing-admin-commands';
+export * from './billing/pricing-metric-vocabulary';
 export * from './ai-events';
 export * from './task-events';
 export * from './edge-device-events';

@@ -22,8 +22,7 @@ export const adminKeys = {
     all: () => [...adminKeys.all, 'announcements'] as const,
     list: (filters?: Record<string, unknown>) =>
       [...adminKeys.announcements.all(), 'list', filters] as const,
-    detail: (id: string) =>
-      [...adminKeys.announcements.all(), 'detail', id] as const,
+    detail: (id: string) => [...adminKeys.announcements.all(), 'detail', id] as const,
     stats: () => [...adminKeys.announcements.all(), 'stats'] as const,
   },
 
@@ -32,10 +31,8 @@ export const adminKeys = {
     all: () => [...adminKeys.all, 'messaging'] as const,
     threads: (filters?: Record<string, unknown>) =>
       [...adminKeys.messaging.all(), 'threads', filters] as const,
-    thread: (id: string) =>
-      [...adminKeys.messaging.all(), 'thread', id] as const,
-    messages: (threadId: string) =>
-      [...adminKeys.messaging.all(), 'messages', threadId] as const,
+    thread: (id: string) => [...adminKeys.messaging.all(), 'thread', id] as const,
+    messages: (threadId: string) => [...adminKeys.messaging.all(), 'messages', threadId] as const,
     stats: () => [...adminKeys.messaging.all(), 'stats'] as const,
     retention: () => [...adminKeys.messaging.all(), 'retention'] as const,
     compliance: () => [...adminKeys.messaging.all(), 'compliance'] as const,
@@ -52,8 +49,8 @@ export const adminKeys = {
     all: () => [...adminKeys.all, 'tenants'] as const,
     list: (filters?: Record<string, unknown>) =>
       [...adminKeys.tenants.all(), 'list', filters] as const,
-    detail: (id: string) =>
-      [...adminKeys.tenants.all(), 'detail', id] as const,
+    detail: (id: string) => [...adminKeys.tenants.all(), 'detail', id] as const,
+    settings: (id: string) => [...adminKeys.tenants.detail(id), 'settings'] as const,
     stats: () => [...adminKeys.tenants.all(), 'stats'] as const,
   },
 
@@ -62,16 +59,14 @@ export const adminKeys = {
     all: () => [...adminKeys.all, 'users'] as const,
     list: (filters?: Record<string, unknown>) =>
       [...adminKeys.users.all(), 'list', filters] as const,
-    detail: (id: string) =>
-      [...adminKeys.users.all(), 'detail', id] as const,
+    detail: (id: string) => [...adminKeys.users.all(), 'detail', id] as const,
   },
 
   // ── Modules ──
   modules: {
     all: () => [...adminKeys.all, 'modules'] as const,
     list: () => [...adminKeys.modules.all(), 'list'] as const,
-    detail: (id: string) =>
-      [...adminKeys.modules.all(), 'detail', id] as const,
+    detail: (id: string) => [...adminKeys.modules.all(), 'detail', id] as const,
   },
 
   // ── System ──
@@ -102,15 +97,13 @@ export const adminKeys = {
   reports: {
     all: () => [...adminKeys.all, 'reports'] as const,
     list: () => [...adminKeys.reports.all(), 'list'] as const,
-    detail: (id: string) =>
-      [...adminKeys.reports.all(), 'detail', id] as const,
+    detail: (id: string) => [...adminKeys.reports.all(), 'detail', id] as const,
   },
 
   // ── Database ──
   database: {
     all: () => [...adminKeys.all, 'database'] as const,
-    tables: (schema?: string) =>
-      [...adminKeys.database.all(), 'tables', schema] as const,
+    tables: (schema?: string) => [...adminKeys.database.all(), 'tables', schema] as const,
     tableData: (schema: string, table: string) =>
       [...adminKeys.database.all(), 'data', schema, table] as const,
   },

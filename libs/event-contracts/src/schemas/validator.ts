@@ -1,36 +1,21 @@
-import Ajv, {
-  type AnySchema,
-  type ErrorObject,
-  type ValidateFunction,
-} from 'ajv';
+import Ajv, { type AnySchema, type ErrorObject, type ValidateFunction } from 'ajv';
 import addFormats from 'ajv-formats';
 
 import type {
   AccessTokenInvalidationRequestedEvent,
   UserAccessTokenInvalidationRequestedEvent,
 } from '../auth-events';
+import type { TenantOnboardingAckEvent, TenantOnboardingFailedEvent } from '../tenant-events';
 import { AUTH_EVENT_SCHEMAS, type AuthEventType } from './auth-events.schema';
 import { FARM_EVENT_SCHEMAS, type FarmEventType } from './farm-events.schema';
-import {
-  FINANCE_EVENT_SCHEMAS,
-  type FinanceEventType,
-} from './finance-events.schema';
+import { FINANCE_EVENT_SCHEMAS, type FinanceEventType } from './finance-events.schema';
 import {
   INGEST_BACKEND_POLICY_EVENT_SCHEMAS,
   type IngestBackendPolicyEventType,
 } from './ingest-backend-policy.schema';
-import {
-  MESSAGING_EVENT_SCHEMAS,
-  type MessagingEventType,
-} from './messaging-events.schema';
-import {
-  SENSOR_EVENT_SCHEMAS,
-  type SensorEventType,
-} from './sensor-events.schema';
-import {
-  TENANT_EVENT_SCHEMAS,
-  type TenantEventType,
-} from './tenant-events.schema';
+import { MESSAGING_EVENT_SCHEMAS, type MessagingEventType } from './messaging-events.schema';
+import { SENSOR_EVENT_SCHEMAS, type SensorEventType } from './sensor-events.schema';
+import { TENANT_EVENT_SCHEMAS, type TenantEventType } from './tenant-events.schema';
 
 /**
  * @module EventContractsValidator
@@ -169,19 +154,11 @@ for (const [eventType, schema] of Object.entries(FINANCE_EVENT_SCHEMAS)) {
  * publisher side (defense-in-depth) + on any future TS consumer
  * that subscribes to `policy.ingest_backend.>`.
  */
-const ingestBackendPolicyValidators = new Map<
-  IngestBackendPolicyEventType,
-  ValidateFunction
->();
+const ingestBackendPolicyValidators = new Map<IngestBackendPolicyEventType, ValidateFunction>();
 
-for (const [eventType, schema] of Object.entries(
-  INGEST_BACKEND_POLICY_EVENT_SCHEMAS,
-)) {
+for (const [eventType, schema] of Object.entries(INGEST_BACKEND_POLICY_EVENT_SCHEMAS)) {
   const validator = ajv.compile(schema as AnySchema);
-  ingestBackendPolicyValidators.set(
-    eventType as IngestBackendPolicyEventType,
-    validator,
-  );
+  ingestBackendPolicyValidators.set(eventType as IngestBackendPolicyEventType, validator);
 }
 
 /**
@@ -194,9 +171,7 @@ for (const [eventType, schema] of Object.entries(
  *     drop the event. `errors` is a short human-readable summary
  *     suitable for a single-line warn log.
  */
-export type FarmEventValidationResult =
-  | { valid: true }
-  | { valid: false; errors: string };
+export type FarmEventValidationResult = { valid: true } | { valid: false; errors: string };
 
 /**
  * Validate a decoded NATS payload against the farm event schema for
@@ -230,10 +205,7 @@ export type FarmEventValidationResult =
  *
  * @see FarmNatsBridgeService — the primary caller.
  */
-export function validateFarmEvent(
-  eventType: string,
-  payload: unknown,
-): FarmEventValidationResult {
+export function validateFarmEvent(eventType: string, payload: unknown): FarmEventValidationResult {
   const validator = farmValidators.get(eventType as FarmEventType);
   if (!validator) {
     return {
@@ -274,13 +246,9 @@ export function validateFarmEvent(
  * Result of a sensor event validation call. Same discriminated shape
  * as [`FarmEventValidationResult`] so callers can branch uniformly.
  */
-export type SensorEventValidationResult =
-  | { valid: true }
-  | { valid: false; errors: string };
+export type SensorEventValidationResult = { valid: true } | { valid: false; errors: string };
 
-export type MessagingEventValidationResult =
-  | { valid: true }
-  | { valid: false; errors: string };
+export type MessagingEventValidationResult = { valid: true } | { valid: false; errors: string };
 
 /**
  * Validate a decoded NATS payload against the sensor event schema for
@@ -349,9 +317,7 @@ export function validateMessagingEvent(
   return { valid: true };
 }
 
-export type TenantEventValidationResult =
-  | { valid: true }
-  | { valid: false; errors: string };
+export type TenantEventValidationResult = { valid: true } | { valid: false; errors: string };
 
 /**
  * Validate a decoded tenant lifecycle / provisioning event against its schema
@@ -386,9 +352,19 @@ export function validateTenantEvent(
   return { valid: true };
 }
 
-export type FinanceEventValidationResult =
-  | { valid: true }
-  | { valid: false; errors: string };
+/** Typed trust-boundary guard for the admin onboarding ACK projection. */
+export function isTenantOnboardingAckEvent(payload: unknown): payload is TenantOnboardingAckEvent {
+  return validateTenantEvent('TenantOnboardingAck', payload).valid;
+}
+
+/** Typed trust-boundary guard for the admin onboarding failure projection. */
+export function isTenantOnboardingFailedEvent(
+  payload: unknown,
+): payload is TenantOnboardingFailedEvent {
+  return validateTenantEvent('TenantOnboardingFailed', payload).valid;
+}
+
+export type FinanceEventValidationResult = { valid: true } | { valid: false; errors: string };
 
 /**
  * Validate a decoded finance-domain event against its schema. Mirrors
@@ -423,19 +399,14 @@ export function validateFinanceEvent(
   return { valid: true };
 }
 
-export type AuthEventValidationResult =
-  | { valid: true }
-  | { valid: false; errors: string };
+export type AuthEventValidationResult = { valid: true } | { valid: false; errors: string };
 
 /**
  * Validate a decoded auth-domain event against its schema (DATA-MEDIUM-001).
  * Mirrors [`validateTenantEvent`]; use at trust boundaries that decode untrusted
  * auth-event JSON (notification / ai / messaging NATS consumers) before acting.
  */
-export function validateAuthEvent(
-  eventType: string,
-  payload: unknown,
-): AuthEventValidationResult {
+export function validateAuthEvent(eventType: string, payload: unknown): AuthEventValidationResult {
   const validator = authValidators.get(eventType as AuthEventType);
   if (!validator) {
     return {
@@ -497,9 +468,7 @@ export function validateIngestBackendPolicyEvent(
   eventType: string,
   payload: unknown,
 ): IngestBackendPolicyEventValidationResult {
-  const validator = ingestBackendPolicyValidators.get(
-    eventType as IngestBackendPolicyEventType,
-  );
+  const validator = ingestBackendPolicyValidators.get(eventType as IngestBackendPolicyEventType);
   if (!validator) {
     return {
       valid: false,
@@ -522,9 +491,7 @@ export function validateIngestBackendPolicyEvent(
   return { valid: true };
 }
 
-function formatFirstError(
-  errors: ErrorObject[] | null | undefined,
-): string {
+function formatFirstError(errors: ErrorObject[] | null | undefined): string {
   if (!errors || errors.length === 0) {
     return 'validation failed (no error detail available)';
   }

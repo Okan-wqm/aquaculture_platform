@@ -17,24 +17,79 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Type, Transform } from 'class-transformer';
-import { IsOptional, IsNumber, IsString, IsBoolean, IsIn, IsArray, Min, Max } from 'class-validator';
+import {
+  IsOptional,
+  IsNumber,
+  IsString,
+  IsBoolean,
+  IsIn,
+  IsArray,
+  Min,
+  Max,
+} from 'class-validator';
 
 import {
-  SecurityEvent,
   SecurityEventType,
   SecurityEventStatus,
   ThreatLevel,
-  SecurityIncident,
   IncidentStatus,
   IncidentSeverity,
-  ThreatIntelligence,
   GeoLocation,
-} from '../entities/security.entity';
+  ThreatIndicatorType,
+} from '../contracts/security-vocabulary';
 import {
-  AnomalyDetectionConfig,
-  SecurityMonitoringService,
-  SecurityDashboardStats,
-} from '../services/security-monitoring.service';
+  AnalyzeLoginResultDto,
+  AnomalyDetectionConfigDto,
+  SecurityEventDto,
+  SecurityEventStatsDto,
+  SecurityDashboardStatsDto,
+  SecurityHealthScoreDto,
+  SecurityIncidentDto,
+  SecurityIncidentStatsDto,
+  ThreatCheckDto,
+  ThreatIntelligenceDto,
+  ThreatIntelligenceStatsDto,
+  toSecurityEventDto,
+  toSecurityIncidentDto,
+  toThreatIntelligenceDto,
+} from '../dto/security-response.dto';
+import { SecurityMonitoringService } from '../services/security-monitoring.service';
+import {
+  createStandardPaginatedResult,
+  IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
+import {
+  AdminQueryEncoding,
+  AdminResponseContract,
+} from '../../shared/admin-response-contract.decorator';
+import {
+  securityMonitoringSecurityEventDtoContract,
+  type SecurityMonitoringSecurityEventDtoDto,
+  securityMonitoringSecurityEventDtoPageContract,
+  securityMonitoringGetSecurityEventStatsResponseContract,
+  type SecurityMonitoringGetSecurityEventStatsResponseDto,
+  securityMonitoringSecurityIncidentDtoContract,
+  type SecurityMonitoringSecurityIncidentDtoDto,
+  securityMonitoringSecurityIncidentDtoPageContract,
+  securityMonitoringGetIncidentStatsResponseContract,
+  type SecurityMonitoringGetIncidentStatsResponseDto,
+  securityMonitoringThreatIntelligenceDtoContract,
+  type SecurityMonitoringThreatIntelligenceDtoDto,
+  securityMonitoringThreatIntelligenceDtoPageContract,
+  securityMonitoringCheckThreatResponseContract,
+  type SecurityMonitoringCheckThreatResponseDto,
+  securityMonitoringGetThreatIntelStatsResponseContract,
+  type SecurityMonitoringGetThreatIntelStatsResponseDto,
+  securityMonitoringAnalyzeLoginResponseContract,
+  type SecurityMonitoringAnalyzeLoginResponseDto,
+  securityMonitoringAnomalyDetectionConfigDtoContract,
+  type SecurityMonitoringAnomalyDetectionConfigDtoDto,
+  securityMonitoringSecurityDashboardStatsDtoContract,
+  type SecurityMonitoringSecurityDashboardStatsDtoDto,
+  securityMonitoringSecurityEventDtoArrayContract,
+  securityMonitoringSecurityHealthScoreDtoContract,
+  type SecurityMonitoringSecurityHealthScoreDtoDto,
+} from '../contracts/admin-http-response.contract';
 
 // ============================================================================
 // DTOs
@@ -81,7 +136,7 @@ const INCIDENT_STATUSES: readonly IncidentStatus[] = [
   'closed',
 ];
 
-const THREAT_INDICATOR_TYPES: ReadonlyArray<ThreatIntelligence['indicatorType']> = [
+const THREAT_INDICATOR_TYPES: readonly ThreatIndicatorType[] = [
   'ip',
   'domain',
   'url',
@@ -293,7 +348,7 @@ class QueryIncidentsDto {
 
 class AddThreatIndicatorDto {
   @IsIn(THREAT_INDICATOR_TYPES)
-  indicatorType!: ThreatIntelligence['indicatorType'];
+  indicatorType!: ThreatIndicatorType;
 
   @IsString()
   value!: string;
@@ -333,7 +388,7 @@ class QueryThreatIntelligenceDto {
 
   @IsOptional()
   @IsIn(THREAT_INDICATOR_TYPES)
-  indicatorType?: ThreatIntelligence['indicatorType'];
+  indicatorType?: ThreatIndicatorType;
 
   @IsOptional()
   @IsIn(['low', 'medium', 'high', 'critical'])
@@ -378,9 +433,7 @@ class AnalyzeLoginDto {
 @ApiTags('Security')
 @Controller('security/monitoring')
 export class SecurityMonitoringController {
-  constructor(
-    private readonly securityMonitoringService: SecurityMonitoringService,
-  ) {}
+  constructor(private readonly securityMonitoringService: SecurityMonitoringService) {}
 
   // ============================================================================
   // Security Events
@@ -389,55 +442,56 @@ export class SecurityMonitoringController {
   /**
    * Create security event
    */
+  @AdminResponseContract(securityMonitoringSecurityEventDtoContract)
   @Post('events')
   @HttpCode(HttpStatus.CREATED)
   async createSecurityEvent(
     @Body() dto: CreateSecurityEventDto,
-  ): Promise<SecurityEvent> {
-    return this.securityMonitoringService.createSecurityEvent({
-      eventType: dto.eventType,
-      threatLevel: dto.threatLevel,
-      title: dto.title,
-      description: dto.description,
-      ipAddress: dto.ipAddress,
-      geoLocation: dto.geoLocation,
-      tenantId: dto.tenantId,
-      userId: dto.userId,
-      userName: dto.userName,
-      targetResource: dto.targetResource,
-      targetEndpoint: dto.targetEndpoint,
-      detectionSource: dto.detectionSource,
-      confidenceScore: dto.confidenceScore,
-      rawData: dto.rawData,
-    });
+  ): Promise<SecurityMonitoringSecurityEventDtoDto> {
+    return toSecurityEventDto(
+      await this.securityMonitoringService.createSecurityEvent({
+        eventType: dto.eventType,
+        threatLevel: dto.threatLevel,
+        title: dto.title,
+        description: dto.description,
+        ipAddress: dto.ipAddress,
+        geoLocation: dto.geoLocation,
+        tenantId: dto.tenantId,
+        userId: dto.userId,
+        userName: dto.userName,
+        targetResource: dto.targetResource,
+        targetEndpoint: dto.targetEndpoint,
+        detectionSource: dto.detectionSource,
+        confidenceScore: dto.confidenceScore,
+        rawData: dto.rawData,
+      }),
+    );
   }
 
   /**
    * Get security event by ID
    */
+  @AdminResponseContract(securityMonitoringSecurityEventDtoContract)
   @Get('events/:id')
-  async getSecurityEvent(@Param('id') id: string): Promise<SecurityEvent> {
-    return this.securityMonitoringService.getSecurityEvent(id);
+  async getSecurityEvent(@Param('id') id: string): Promise<SecurityMonitoringSecurityEventDtoDto> {
+    return toSecurityEventDto(await this.securityMonitoringService.getSecurityEvent(id));
   }
 
   /**
    * Query security events
    */
+  @AdminResponseContract(securityMonitoringSecurityEventDtoPageContract)
+  @AdminQueryEncoding({ threatLevel: 'comma-separated' })
   @Get('events')
   async querySecurityEvents(
     @Query() query: QuerySecurityEventsDto,
-  ): Promise<{
-    data: SecurityEvent[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  ): Promise<IStandardPaginatedResult<SecurityMonitoringSecurityEventDtoDto>> {
     // Parse threat levels from comma-separated string
     const threatLevel = query.threatLevel
       ? (query.threatLevel.split(',') as ThreatLevel[])
       : undefined;
 
-    return this.securityMonitoringService.querySecurityEvents({
+    const result = await this.securityMonitoringService.querySecurityEvents({
       page: query.page ? parseInt(String(query.page), 10) : 1,
       limit: query.limit ? parseInt(String(query.limit), 10) : 20,
       eventType: query.eventType,
@@ -450,39 +504,40 @@ export class SecurityMonitoringController {
       endDate: query.endDate ? new Date(query.endDate) : undefined,
       searchQuery: query.searchQuery,
     });
+    return createStandardPaginatedResult(
+      result.items.map(toSecurityEventDto),
+      result.total,
+      result.page,
+      result.limit,
+    );
   }
 
   /**
    * Update security event status
    */
+  @AdminResponseContract(securityMonitoringSecurityEventDtoContract)
   @Put('events/:id/status')
   async updateSecurityEventStatus(
     @Param('id') id: string,
     @Body() dto: UpdateSecurityEventStatusDto,
-  ): Promise<SecurityEvent> {
-    return this.securityMonitoringService.updateSecurityEventStatus(
-      id,
-      dto.status,
-      {
+  ): Promise<SecurityMonitoringSecurityEventDtoDto> {
+    return toSecurityEventDto(
+      await this.securityMonitoringService.updateSecurityEventStatus(id, dto.status, {
         assignedTo: dto.assignedTo,
         assignedToName: dto.assignedToName,
         investigationNotes: dto.investigationNotes,
         resolution: dto.resolution,
         resolvedBy: dto.resolvedBy,
-      },
+      }),
     );
   }
 
   /**
    * Get security event statistics
    */
+  @AdminResponseContract(securityMonitoringGetSecurityEventStatsResponseContract)
   @Get('events/stats/summary')
-  async getSecurityEventStats(): Promise<{
-    total: number;
-    byThreatLevel: Record<string, number>;
-    byEventType: Record<string, number>;
-    byStatus: Record<string, number>;
-  }> {
+  async getSecurityEventStats(): Promise<SecurityMonitoringGetSecurityEventStatsResponseDto> {
     const result = await this.securityMonitoringService.querySecurityEvents({
       page: 1,
       limit: 10000,
@@ -495,13 +550,10 @@ export class SecurityMonitoringController {
       byStatus: {} as Record<string, number>,
     };
 
-    for (const event of result.data) {
-      stats.byThreatLevel[event.threatLevel] =
-        (stats.byThreatLevel[event.threatLevel] || 0) + 1;
-      stats.byEventType[event.eventType] =
-        (stats.byEventType[event.eventType] || 0) + 1;
-      stats.byStatus[event.status] =
-        (stats.byStatus[event.status] || 0) + 1;
+    for (const event of result.items) {
+      stats.byThreatLevel[event.threatLevel] = (stats.byThreatLevel[event.threatLevel] || 0) + 1;
+      stats.byEventType[event.eventType] = (stats.byEventType[event.eventType] || 0) + 1;
+      stats.byStatus[event.status] = (stats.byStatus[event.status] || 0) + 1;
     }
 
     return stats;
@@ -514,24 +566,21 @@ export class SecurityMonitoringController {
   /**
    * Get incident by ID
    */
+  @AdminResponseContract(securityMonitoringSecurityIncidentDtoContract)
   @Get('incidents/:id')
-  async getIncident(@Param('id') id: string): Promise<SecurityIncident> {
-    return this.securityMonitoringService.getIncident(id);
+  async getIncident(@Param('id') id: string): Promise<SecurityMonitoringSecurityIncidentDtoDto> {
+    return toSecurityIncidentDto(await this.securityMonitoringService.getIncident(id));
   }
 
   /**
    * Query incidents
    */
+  @AdminResponseContract(securityMonitoringSecurityIncidentDtoPageContract)
   @Get('incidents')
   async queryIncidents(
     @Query() query: QueryIncidentsDto,
-  ): Promise<{
-    data: SecurityIncident[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
-    return this.securityMonitoringService.queryIncidents({
+  ): Promise<IStandardPaginatedResult<SecurityMonitoringSecurityIncidentDtoDto>> {
+    const result = await this.securityMonitoringService.queryIncidents({
       page: query.page ? parseInt(String(query.page), 10) : 1,
       limit: query.limit ? parseInt(String(query.limit), 10) : 20,
       status: query.status,
@@ -539,33 +588,39 @@ export class SecurityMonitoringController {
       startDate: query.startDate ? new Date(query.startDate) : undefined,
       endDate: query.endDate ? new Date(query.endDate) : undefined,
     });
+    return createStandardPaginatedResult(
+      result.items.map(toSecurityIncidentDto),
+      result.total,
+      result.page,
+      result.limit,
+    );
   }
 
   /**
    * Update incident
    */
+  @AdminResponseContract(securityMonitoringSecurityIncidentDtoContract)
   @Put('incidents/:id')
   async updateIncident(
     @Param('id') id: string,
     @Body() dto: UpdateIncidentDto,
-  ): Promise<SecurityIncident> {
-    return this.securityMonitoringService.updateIncident(
-      id,
-      dto,
-      'admin', // Would come from auth context
-      'Admin User',
+  ): Promise<SecurityMonitoringSecurityIncidentDtoDto> {
+    return toSecurityIncidentDto(
+      await this.securityMonitoringService.updateIncident(
+        id,
+        dto,
+        'admin', // Would come from auth context
+        'Admin User',
+      ),
     );
   }
 
   /**
    * Get incident statistics
    */
+  @AdminResponseContract(securityMonitoringGetIncidentStatsResponseContract)
   @Get('incidents/stats/summary')
-  async getIncidentStats(): Promise<{
-    total: number;
-    byStatus: Record<string, number>;
-    bySeverity: Record<string, number>;
-  }> {
+  async getIncidentStats(): Promise<SecurityMonitoringGetIncidentStatsResponseDto> {
     const result = await this.securityMonitoringService.queryIncidents({
       page: 1,
       limit: 10000,
@@ -577,11 +632,9 @@ export class SecurityMonitoringController {
       bySeverity: {} as Record<string, number>,
     };
 
-    for (const incident of result.data) {
-      stats.byStatus[incident.status] =
-        (stats.byStatus[incident.status] || 0) + 1;
-      stats.bySeverity[incident.severity] =
-        (stats.bySeverity[incident.severity] || 0) + 1;
+    for (const incident of result.items) {
+      stats.byStatus[incident.status] = (stats.byStatus[incident.status] || 0) + 1;
+      stats.bySeverity[incident.severity] = (stats.bySeverity[incident.severity] || 0) + 1;
     }
 
     return stats;
@@ -594,35 +647,34 @@ export class SecurityMonitoringController {
   /**
    * Add threat indicator
    */
+  @AdminResponseContract(securityMonitoringThreatIntelligenceDtoContract)
   @Post('threat-intelligence')
   @HttpCode(HttpStatus.CREATED)
   async addThreatIndicator(
     @Body() dto: AddThreatIndicatorDto,
-  ): Promise<ThreatIntelligence> {
-    return this.securityMonitoringService.addThreatIndicator({
-      indicatorType: dto.indicatorType,
-      value: dto.value,
-      threatLevel: dto.threatLevel,
-      source: dto.source,
-      description: dto.description,
-      threatTypes: dto.threatTypes,
-      validUntil: dto.validUntil ? new Date(dto.validUntil) : undefined,
-    });
+  ): Promise<SecurityMonitoringThreatIntelligenceDtoDto> {
+    return toThreatIntelligenceDto(
+      await this.securityMonitoringService.addThreatIndicator({
+        indicatorType: dto.indicatorType,
+        value: dto.value,
+        threatLevel: dto.threatLevel,
+        source: dto.source,
+        description: dto.description,
+        threatTypes: dto.threatTypes,
+        validUntil: dto.validUntil ? new Date(dto.validUntil) : undefined,
+      }),
+    );
   }
 
   /**
    * Query threat intelligence
    */
+  @AdminResponseContract(securityMonitoringThreatIntelligenceDtoPageContract)
   @Get('threat-intelligence')
   async queryThreatIntelligence(
     @Query() query: QueryThreatIntelligenceDto,
-  ): Promise<{
-    data: ThreatIntelligence[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
-    return this.securityMonitoringService.queryThreatIntelligence({
+  ): Promise<IStandardPaginatedResult<SecurityMonitoringThreatIntelligenceDtoDto>> {
+    const result = await this.securityMonitoringService.queryThreatIntelligence({
       page: query.page ? parseInt(String(query.page), 10) : 1,
       limit: query.limit ? parseInt(String(query.limit), 10) : 20,
       indicatorType: query.indicatorType,
@@ -630,34 +682,33 @@ export class SecurityMonitoringController {
       isActive: query.isActive,
       searchQuery: query.searchQuery,
     });
+    return createStandardPaginatedResult(
+      result.items.map(toThreatIntelligenceDto),
+      result.total,
+      result.page,
+      result.limit,
+    );
   }
 
   /**
    * Check if IP is a known threat
    */
+  @AdminResponseContract(securityMonitoringCheckThreatResponseContract)
   @Get('threat-intelligence/check/:ip')
-  async checkThreat(
-    @Param('ip') ip: string,
-  ): Promise<{
-    isThreat: boolean;
-    threat: ThreatIntelligence | null;
-  }> {
+  async checkThreat(@Param('ip') ip: string): Promise<SecurityMonitoringCheckThreatResponseDto> {
     const threat = await this.securityMonitoringService.checkThreatIntelligence(ip);
     return {
       isThreat: threat !== null,
-      threat,
+      threat: threat ? toThreatIntelligenceDto(threat) : null,
     };
   }
 
   /**
    * Get threat intelligence statistics
    */
+  @AdminResponseContract(securityMonitoringGetThreatIntelStatsResponseContract)
   @Get('threat-intelligence/stats')
-  async getThreatIntelStats(): Promise<{
-    total: number;
-    byIndicatorType: Record<string, number>;
-    byThreatLevel: Record<string, number>;
-  }> {
+  async getThreatIntelStats(): Promise<SecurityMonitoringGetThreatIntelStatsResponseDto> {
     const result = await this.securityMonitoringService.queryThreatIntelligence({
       page: 1,
       limit: 10000,
@@ -670,7 +721,7 @@ export class SecurityMonitoringController {
       byThreatLevel: {} as Record<string, number>,
     };
 
-    for (const indicator of result.data) {
+    for (const indicator of result.items) {
       stats.byIndicatorType[indicator.indicatorType] =
         (stats.byIndicatorType[indicator.indicatorType] || 0) + 1;
       stats.byThreatLevel[indicator.threatLevel] =
@@ -687,11 +738,12 @@ export class SecurityMonitoringController {
   /**
    * Analyze login attempt for anomalies
    */
+  @AdminResponseContract(securityMonitoringAnalyzeLoginResponseContract)
   @Post('analyze/login')
   @HttpCode(HttpStatus.OK)
   async analyzeLogin(
     @Body() dto: AnalyzeLoginDto,
-  ): Promise<{ analyzed: boolean; message: string }> {
+  ): Promise<SecurityMonitoringAnalyzeLoginResponseDto> {
     await this.securityMonitoringService.analyzeLoginAttempt({
       email: dto.email,
       ipAddress: dto.ipAddress,
@@ -710,8 +762,9 @@ export class SecurityMonitoringController {
   /**
    * Get anomaly detection configuration
    */
+  @AdminResponseContract(securityMonitoringAnomalyDetectionConfigDtoContract)
   @Get('config/anomaly-detection')
-  getAnomalyConfig(): AnomalyDetectionConfig {
+  getAnomalyConfig(): SecurityMonitoringAnomalyDetectionConfigDtoDto {
     return this.securityMonitoringService.getAnomalyConfig();
   }
 
@@ -722,18 +775,20 @@ export class SecurityMonitoringController {
   /**
    * Get security dashboard statistics
    */
+  @AdminResponseContract(securityMonitoringSecurityDashboardStatsDtoContract)
   @Get('dashboard')
-  async getDashboardStats(): Promise<SecurityDashboardStats> {
+  async getDashboardStats(): Promise<SecurityMonitoringSecurityDashboardStatsDtoDto> {
     return this.securityMonitoringService.getSecurityDashboardStats();
   }
 
   /**
    * Get real-time security alerts (unresolved events)
    */
+  @AdminResponseContract(securityMonitoringSecurityEventDtoArrayContract)
   @Get('alerts/realtime')
   async getRealtimeAlerts(
     @Query('limit') limit?: number,
-  ): Promise<SecurityEvent[]> {
+  ): Promise<SecurityMonitoringSecurityEventDtoDto[]> {
     const result = await this.securityMonitoringService.querySecurityEvents({
       page: 1,
       limit: limit ? parseInt(String(limit), 10) : 10,
@@ -741,35 +796,27 @@ export class SecurityMonitoringController {
     });
 
     // Sort by threat level (critical first) and date
-    return result.data.sort((a, b) => {
-      const threatOrder: Record<ThreatLevel, number> = {
-        critical: 0,
-        high: 1,
-        medium: 2,
-        low: 3,
-      };
-      const levelDiff = (threatOrder[a.threatLevel] ?? 4) - (threatOrder[b.threatLevel] ?? 4);
-      if (levelDiff !== 0) return levelDiff;
-      return (
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      );
-    });
+    return [...result.items]
+      .sort((a, b) => {
+        const threatOrder: Record<ThreatLevel, number> = {
+          critical: 0,
+          high: 1,
+          medium: 2,
+          low: 3,
+        };
+        const levelDiff = (threatOrder[a.threatLevel] ?? 4) - (threatOrder[b.threatLevel] ?? 4);
+        if (levelDiff !== 0) return levelDiff;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      })
+      .map(toSecurityEventDto);
   }
 
   /**
    * Get security health score
    */
+  @AdminResponseContract(securityMonitoringSecurityHealthScoreDtoContract)
   @Get('health-score')
-  async getHealthScore(): Promise<{
-    score: number;
-    factors: Array<{
-      name: string;
-      score: number;
-      weight: number;
-      description: string;
-    }>;
-    recommendations: string[];
-  }> {
+  async getHealthScore(): Promise<SecurityMonitoringSecurityHealthScoreDtoDto> {
     const dashboard = await this.securityMonitoringService.getSecurityDashboardStats();
 
     const factors: Array<{
@@ -835,9 +882,10 @@ export class SecurityMonitoringController {
     }
 
     // Factor 4: Threat mitigation (weight: 20%)
-    const mitigationRate = dashboard.totalSecurityEvents > 0
-      ? (dashboard.threatsBlocked / dashboard.totalSecurityEvents) * 100
-      : 100;
+    const mitigationRate =
+      dashboard.totalSecurityEvents > 0
+        ? (dashboard.threatsBlocked / dashboard.totalSecurityEvents) * 100
+        : 100;
     const mitigationScore = Math.min(100, mitigationRate * 1.5);
 
     factors.push({
@@ -852,10 +900,7 @@ export class SecurityMonitoringController {
     }
 
     // Calculate weighted score
-    const totalScore = factors.reduce(
-      (acc, f) => acc + (f.score * f.weight) / 100,
-      0,
-    );
+    const totalScore = factors.reduce((acc, f) => acc + (f.score * f.weight) / 100, 0);
 
     return {
       score: Math.round(totalScore),

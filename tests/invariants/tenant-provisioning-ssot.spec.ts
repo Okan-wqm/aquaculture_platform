@@ -1,6 +1,8 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import { TENANT_PROVISIONING_STEPS } from '../../apps/admin-api-service/src/tenant/services/tenant-provisioning-steps';
+
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
 function readRepoFile(path: string): string {
@@ -81,7 +83,10 @@ describe('INVARIANT: tenant creation route SSOT', () => {
     expect(adminPanelApi).not.toContain("startsWith('/api/v1/')");
     expect(adminPanelApi).not.toContain("startsWith('/api/')");
     expect(adminPanelApi).not.toContain("startsWith('/v1/')");
-    expect(adminPanelApi).toContain('apiFetch<CreateTenantAcceptedResponse>(`${endpoint}/retry`');
+    expect(adminPanelApi).toContain(
+      "apiFetch(ADMIN_API_ROUTES['POST /tenants/provisioning/:operationId/retry']",
+    );
+    expect(adminPanelApi).toContain('path: { operationId: operationId }');
     expect(adminPanelType).not.toContain('provisioningState: TenantProvisioningState');
     expect(createPage).toContain('provisioningOperation.status');
     expect(createPage).not.toContain('provisioningOperation.provisioningState');
@@ -121,6 +126,7 @@ describe('INVARIANT: auth-service owns tenant lifecycle commands', () => {
       'request.auth.tenant.AssignModules',
       'request.auth.tenant.CreateFirstAdminInvite',
       'request.auth.tenant.ActivateTenant',
+      'request.auth.tenant.ResumeTenant',
       'request.auth.tenant.FailProvisioning',
       'request.auth.tenant.DeprovisionTenant',
       'request.auth.tenant.RollbackProvisioning',
@@ -151,6 +157,7 @@ describe('INVARIANT: auth-service owns tenant lifecycle commands', () => {
       'ASSIGN_TENANT_MODULES',
       'CREATE_FIRST_ADMIN_INVITE',
       'ACTIVATE_TENANT',
+      'RESUME_TENANT',
       'FAIL_PROVISIONING',
       'DEPROVISION_TENANT',
       'ROLLBACK_TENANT_PROVISIONING',
@@ -249,9 +256,7 @@ describe('INVARIANT: auth-service owns tenant lifecycle commands', () => {
     expect(service).toMatch(/this\.outboxPublisher\.enqueue\(/);
     // TenantStatusChanged is the single emission point for all five lifecycle
     // transitions, enqueued at the status-persist site in transitionTenantStatus.
-    expect(service).toContain(
-      "createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged'",
-    );
+    expect(service).toContain("createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged'");
     // First-admin UserInvited is durable + atomic with the user/invitation write.
     expect(service).toContain('enqueueFirstAdminInvite');
   });
@@ -342,11 +347,11 @@ describe('INVARIANT: billing provisioning is confirmed by owner receipt evidence
     expect(workflow).toContain(
       'Billing provisioning completed without subscription receipt evidence',
     );
-    expect(workflow.indexOf("'create_subscription'")).toBeLessThan(
-      workflow.indexOf("'activate_tenant'"),
+    expect(TENANT_PROVISIONING_STEPS.indexOf('create_subscription')).toBeLessThan(
+      TENANT_PROVISIONING_STEPS.indexOf('activate_tenant'),
     );
-    expect(workflow.indexOf("'activate_tenant'")).toBeLessThan(
-      workflow.indexOf("'publish_tenant_provisioned'"),
+    expect(TENANT_PROVISIONING_STEPS.indexOf('activate_tenant')).toBeLessThan(
+      TENANT_PROVISIONING_STEPS.indexOf('publish_tenant_provisioned'),
     );
     expect(billingModule).not.toContain('TenantSubscriptionRequestedHandler');
   });
@@ -496,13 +501,16 @@ describe('INVARIANT: platform event registry is the lifecycle SSOT', () => {
     expect(tenantEvents).toContain("eventType: 'TenantOnboardingRequested'");
     expect(tenantEvents).toContain("eventType: 'TenantOnboardingAck'");
     expect(tenantEvents).toContain("eventType: 'TenantOnboardingFailed'");
-    expect(workflow.indexOf("'publish_onboarding_requested'")).toBeLessThan(
-      workflow.indexOf("'wait_for_onboarding_ack'"),
+    expect(TENANT_PROVISIONING_STEPS.indexOf('publish_onboarding_requested')).toBeLessThan(
+      TENANT_PROVISIONING_STEPS.indexOf('wait_for_onboarding_ack'),
     );
-    expect(workflow.indexOf("'wait_for_onboarding_ack'")).toBeLessThan(
-      workflow.indexOf("'publish_tenant_provisioned'"),
+    expect(TENANT_PROVISIONING_STEPS.indexOf('wait_for_onboarding_ack')).toBeLessThan(
+      TENANT_PROVISIONING_STEPS.indexOf('publish_tenant_provisioned'),
     );
-    expect(workflow).toContain('TENANT_ONBOARDING_REQUIRED_SERVICES');
+    expect(workflow).toContain('createTenantOnboardingRequirementSnapshot');
+    expect(workflow).toContain('decodeTenantOnboardingRequirementSnapshot');
+    expect(workflow).toContain('evaluateTenantOnboardingBarrier');
+    expect(workflow).not.toContain('TENANT_ONBOARDING_REQUIRED_SERVICES');
     expect(migration).toContain('"admin"."tenant_onboarding_acks"');
     expect(farmHandler).toContain("subscribeWildcard('TenantOnboardingRequested'");
     expect(farmHandler).toContain(
@@ -667,7 +675,8 @@ describe('INVARIANT: destructive tenant schema cleanup requires workflow proof',
     expect(schemaManager).toContain('proof: CleanupDropProof');
     expect(schemaManager).toContain('assertCleanupDropProof(proof, tenantId)');
     expect(schemaManager).toContain('CleanupDropProof requires legal-hold evidence');
-    expect(schemaManager).toContain('CleanupDropProof requires encrypted backup evidence');
+    expect(schemaManager).not.toContain('tenant_deprovision');
+    expect(schemaManager).not.toContain('CleanupDropProofBackupEvidence');
   });
 
   it('keeps SchemaManagerService schema deletion fail-closed under db-migrate authority', () => {
@@ -689,7 +698,7 @@ describe('INVARIANT: destructive tenant schema cleanup requires workflow proof',
     );
   });
 
-  it('mints rollback and deprovision proofs before admin cleanup callers delete schemas', () => {
+  it('admits rollback compensation and tenant erasure only; admin deprovision cannot delete data', () => {
     const provisioning = readRepoFile(
       'apps/admin-api-service/src/tenant/services/tenant-provisioning.service.ts',
     );
@@ -697,25 +706,17 @@ describe('INVARIANT: destructive tenant schema cleanup requires workflow proof',
       'apps/db-migrate/src/sql/platform-bootstrap/009-tenant-schema-provisioner.sql',
     );
     const provisionerWorker = readRepoFile('apps/db-migrate/src/tenant-schema-provisioner.ts');
-    const backupController = readRepoFile(
-      'apps/admin-api-service/src/database-management/controllers/backup.controller.ts',
-    );
-    const backupService = readRepoFile(
-      'apps/admin-api-service/src/database-management/services/backup-restore.service.ts',
-    );
     const adminPanelDbApi = readRepoFile('web/modules/admin-panel/src/services/api/database.ts');
 
     expect(provisioning).toContain("purpose: 'provisioning_rollback'");
-    expect(provisioning).toContain("purpose: 'tenant_deprovision'");
-    expect(provisioning).toContain('legalHoldCheckedAt');
-    expect(provisioning).toContain('backup: {');
-    expect(provisioning).toContain('isEncrypted: true');
-    expect(provisioning).toContain("'PENDING_DB_MIGRATE'");
+    expect(provisioning).not.toContain("purpose: 'tenant_deprovision'");
+    expect(provisioning).not.toContain('backupRestoreService');
+    expect(provisioning).not.toContain('backupTenantData');
     expect(provisioning).toContain("schemaRecord.status = 'pending_deletion';");
-    expect(provisioning).toContain('platform.request_tenant_schema_deletion');
-    expect(provisioning).toContain('serializeCleanupDropProof');
     expect(provisionerSql).toContain('Tenant schema deletion requires cleanupProof evidence');
-    expect(provisionerSql).toContain('Tenant schema deletion requires encrypted backup evidence');
+    expect(provisionerSql).toContain('Tenant schema deletion requires tenant_erasure cleanupProof');
+    expect(provisionerSql).not.toContain('tenant_deprovision');
+    expect(provisionerSql).not.toContain('encrypted backup evidence');
     expect(
       provisionerSql.split('CREATE OR REPLACE FUNCTION platform.request_tenant_schema_deletion')[0],
     ).not.toContain('Tenant schema deletion requires cleanupProof evidence');
@@ -729,9 +730,9 @@ describe('INVARIANT: destructive tenant schema cleanup requires workflow proof',
       'GRANT EXECUTE ON FUNCTION platform.request_tenant_schema_deletion(UUID, UUID, TEXT, JSONB) TO auth_service',
     );
     expect(provisionerWorker).toContain('assertDeleteProof(job)');
+    expect(provisionerWorker).toContain('requires tenant_erasure proof');
+    expect(provisionerWorker).not.toContain('tenant_deprovision');
     expect(provisionerWorker).toContain('requires matching tombstone evidence');
-    expect(backupController).not.toContain('skipValidation');
-    expect(backupService).not.toContain('skipValidation');
     expect(adminPanelDbApi).not.toContain('skipValidation');
   });
 });

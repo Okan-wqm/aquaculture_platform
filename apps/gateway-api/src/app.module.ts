@@ -29,6 +29,7 @@ import {
   RateLimitStore,
 } from '@aquaculture/backend-common/rate-limit';
 import { RedisModule, RedisService, buildRedisOptions } from '@aquaculture/backend-common/redis';
+import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
 import { ApolloGatewayDriver, ApolloGatewayDriverConfig } from '@nestjs/apollo';
 import { Module, MiddlewareConsumer, NestModule, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -41,11 +42,7 @@ import { JwtService } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { StorageModule, StorageConfig } from '@platform/storage';
 import type { DocumentNode, GraphQLSchema } from 'graphql';
-import {
-  getComplexity,
-  simpleEstimator,
-  fieldExtensionsEstimator,
-} from 'graphql-query-complexity';
+import { getComplexity, simpleEstimator, fieldExtensionsEstimator } from 'graphql-query-complexity';
 
 import { BackgroundCompositionManager } from './config/background-composition.manager';
 import { CompositionStateModule } from './config/composition-state.module';
@@ -68,7 +65,6 @@ import { TenantIsolationGuard } from './guards/tenant-isolation.guard';
 import { HealthModule } from './health/health.module';
 import { RequestLoggingInterceptor } from './interceptors/request-logging.interceptor';
 import { GatewayMetricsModule } from './metrics/metrics.module';
-import { CsrfMiddleware } from './middleware/csrf.middleware';
 import {
   CaptureRequestedTenantMiddleware,
   EffectiveTenantMiddleware,
@@ -77,7 +73,11 @@ import { JwtMiddleware } from './middleware/jwt.middleware';
 import { RequestValidatorMiddleware } from './middleware/request-validator.middleware';
 import { SecurityHeadersMiddleware } from './middleware/security-headers.middleware';
 import { MarineRoutesModule } from './routes/marine.routes';
+import { SensorRoutesModule } from './routes/v1/sensor.routes';
 import { TenantLookupService } from './services/tenant-lookup.service';
+import { ImpersonationAuthorizationService } from './services/impersonation-authorization.service';
+import { createImpersonationReceiptCompletionPlugin } from './security/impersonation-receipt-completion';
+import { GATEWAY_GRAPHQL_ROUTE_TEMPLATE } from './security/impersonation-graphql-route-consumer';
 import { UploadModule } from './upload/upload.module';
 import { WebSocketModule } from './websocket/websocket.module';
 
@@ -93,11 +93,7 @@ interface QueryComplexityOperationContext {
   schema: GraphQLSchema;
 }
 
-function positiveIntConfig(
-  configService: ConfigService,
-  key: string,
-  fallback: number,
-): number {
+function positiveIntConfig(configService: ConfigService, key: string, fallback: number): number {
   const raw = configService.get<string | number>(key, fallback);
   const parsed = typeof raw === 'number' ? raw : Number.parseInt(raw, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
@@ -111,6 +107,7 @@ function positiveIntConfig(
       envFilePath: ['.env', '.env.local'],
       cache: true,
     }),
+    CircuitBreakerModule,
 
     // SECURITY (CRITICAL-001): RS256 asymmetric verification via the shared
     // PlatformJwtModule. gateway-api is a token CONSUMER, not an issuer.
@@ -260,10 +257,8 @@ function positiveIntConfig(
       driver: ApolloGatewayDriver,
       imports: [ConfigModule],
       inject: [ConfigService, CompositionStateService],
-      useFactory: (
-        configService: ConfigService,
-        compositionState: CompositionStateService,
-      ) => ({
+      useFactory: (configService: ConfigService, compositionState: CompositionStateService) => ({
+        path: GATEWAY_GRAPHQL_ROUTE_TEMPLATE,
         gateway: {
           /**
            * ARCH-GW-005 / ARCH-GW-006: Federated subgraph registry, composed in
@@ -303,11 +298,7 @@ function positiveIntConfig(
                 url: configService.get(subgraph.urlEnv, subgraph.localUrl),
               })),
               pollIntervalInMs: 300000, // Poll for schema changes every 5 minutes
-              maxRetries: positiveIntConfig(
-                configService,
-                'GATEWAY_COMPOSITION_MAX_RETRIES',
-                24,
-              ),
+              maxRetries: positiveIntConfig(configService, 'GATEWAY_COMPOSITION_MAX_RETRIES', 24),
               retryDelayMs: positiveIntConfig(
                 configService,
                 'GATEWAY_COMPOSITION_RETRY_DELAY_MS',
@@ -334,74 +325,87 @@ function positiveIntConfig(
           // WHY: gateway UI exposure must not rely on deprecated Apollo Playground behavior.
           // SECURITY: Disable introspection in production to prevent schema discovery attacks
           // Explicit env var allows overriding independently of NODE_ENV
-          introspection: configService.get('GRAPHQL_INTROSPECTION', 'false') === 'true' ||
+          introspection:
+            configService.get('GRAPHQL_INTROSPECTION', 'false') === 'true' ||
             configService.get('NODE_ENV') !== 'production',
           // SECURITY: Hide stack traces in production error responses (C-4)
           includeStacktraceInErrorResponses: configService.get('NODE_ENV') !== 'production',
           // SECURITY: Strip internal details from error responses in production
-          formatError: configService.get('NODE_ENV') === 'production'
-            ? (formattedError: { message: string; extensions?: Record<string, unknown> }) => ({
-                message: formattedError.message,
-                extensions: {
-                  code: formattedError.extensions?.code ?? 'INTERNAL_SERVER_ERROR',
-                },
-              })
-            : undefined,
+          formatError:
+            configService.get('NODE_ENV') === 'production'
+              ? (formattedError: { message: string; extensions?: Record<string, unknown> }) => ({
+                  message: formattedError.message,
+                  extensions: {
+                    code: formattedError.extensions?.code ?? 'INTERNAL_SERVER_ERROR',
+                  },
+                })
+              : undefined,
           // SECURITY: Query complexity limiting to prevent expensive query DoS attacks
           plugins: [
             createGraphqlOperationLimitPlugin({
               maxOccurrencesByField: ENVIRONMENT_READ_OPERATION_FIELD_LIMITS,
             }),
+            createImpersonationReceiptCompletionPlugin(),
             {
               // Hoist Logger out of per-request closure to avoid re-instantiation per operation
-              requestDidStart: () => Promise.resolve({
-                didResolveOperation({
-                  request,
-                  document,
-                  schema,
-                }: QueryComplexityOperationContext): Promise<void> {
-                  const logger = queryComplexityLogger;
-                  const maxComplexity = configService.get<number>('GRAPHQL_MAX_COMPLEXITY', 1000);
+              requestDidStart: () =>
+                Promise.resolve({
+                  didResolveOperation({
+                    request,
+                    document,
+                    schema,
+                  }: QueryComplexityOperationContext): Promise<void> {
+                    const logger = queryComplexityLogger;
+                    const maxComplexity = configService.get<number>('GRAPHQL_MAX_COMPLEXITY', 1000);
 
-                  try {
-                    const complexity = getComplexity({
-                      schema,
-                      operationName: request.operationName ?? undefined,
-                      query: document,
-                      variables: request.variables ?? {},
-                      estimators: [
-                        fieldExtensionsEstimator(),
-                        simpleEstimator({ defaultComplexity: 1 }),
-                      ],
-                    });
+                    try {
+                      const complexity = getComplexity({
+                        schema,
+                        operationName: request.operationName ?? undefined,
+                        query: document,
+                        variables: request.variables ?? {},
+                        estimators: [
+                          fieldExtensionsEstimator(),
+                          simpleEstimator({ defaultComplexity: 1 }),
+                        ],
+                      });
 
-                    if (complexity > maxComplexity) {
-                      logger.warn(
-                        `Query complexity ${complexity} exceeds maximum allowed ${maxComplexity}`,
-                      );
-                      throw new Error(
-                        `Query is too complex: ${complexity}. Maximum allowed complexity: ${maxComplexity}`,
-                      );
-                    }
+                      if (complexity > maxComplexity) {
+                        logger.warn(
+                          `Query complexity ${complexity} exceeds maximum allowed ${maxComplexity}`,
+                        );
+                        throw new Error(
+                          `Query is too complex: ${complexity}. Maximum allowed complexity: ${maxComplexity}`,
+                        );
+                      }
 
-                    if (configService.get('NODE_ENV') !== 'production') {
-                      logger.debug(`Query complexity: ${complexity}/${maxComplexity}`);
+                      if (configService.get('NODE_ENV') !== 'production') {
+                        logger.debug(`Query complexity: ${complexity}/${maxComplexity}`);
+                      }
+                    } catch (error) {
+                      if (
+                        error instanceof Error &&
+                        error.message.includes('Query is too complex')
+                      ) {
+                        throw error;
+                      }
+                      // Log but don't fail on complexity calculation errors
+                      // (e.g., schema not available during startup)
+                      const message = error instanceof Error ? error.message : String(error);
+                      logger.warn(`Could not calculate query complexity: ${message}`);
                     }
-                  } catch (error) {
-                    if (error instanceof Error && error.message.includes('Query is too complex')) {
-                      throw error;
-                    }
-                    // Log but don't fail on complexity calculation errors
-                    // (e.g., schema not available during startup)
-                    const message = error instanceof Error ? error.message : String(error);
-                    logger.warn(`Could not calculate query complexity: ${message}`);
-                  }
-                  return Promise.resolve();
-                },
-              }),
+                    return Promise.resolve();
+                  },
+                }),
             },
           ],
-          context: ({ req, res }: { req: RequestWithUser; res: import('express').Response }): GatewayContext => {
+          context: ({
+            req,
+            res,
+          }: {
+            req: RequestWithUser;
+            res: import('express').Response;
+          }): GatewayContext => {
             // SECURITY: req.user is set by JwtMiddleware which runs before context creation.
             // JwtMiddleware verifies the JWT signature and decodes the payload.
             // This ensures req.user is available when willSendRequest forwards headers.
@@ -433,7 +437,7 @@ function positiveIntConfig(
         if (isProduction && (!accessKey || !secretKey)) {
           throw new Error(
             'CRITICAL: MINIO_ACCESS_KEY and MINIO_SECRET_KEY must be explicitly configured in production. ' +
-            'Application startup aborted to prevent use of default credentials.',
+              'Application startup aborted to prevent use of default credentials.',
           );
         }
 
@@ -445,7 +449,7 @@ function positiveIntConfig(
           const minioLogger = new Logger('StorageModule');
           minioLogger.warn(
             'Using default MinIO credentials for development. ' +
-            'Set MINIO_ACCESS_KEY and MINIO_SECRET_KEY for production.',
+              'Set MINIO_ACCESS_KEY and MINIO_SECRET_KEY for production.',
           );
         }
 
@@ -480,6 +484,10 @@ function positiveIntConfig(
     // Backend-owned marine data REST gateway. Browser code talks to this
     // route only; gateway signs the internal farm-service request.
     MarineRoutesModule,
+
+    // Backend-owned sensor REST routes use the same signed internal-request
+    // boundary and exact impersonation-operation receipt contract.
+    SensorRoutesModule,
 
     // Redis for distributed rate limiting (optional, falls back to in-memory if not configured)
     RedisModule.forRootAsync({
@@ -524,6 +532,7 @@ function positiveIntConfig(
     // TenantContextMiddleware uses @Optional() @Inject(TenantLookupService), so
     // registration here makes it available in production where it queries auth-service.
     TenantLookupService,
+    ImpersonationAuthorizationService,
     // Authentication strategy services (injected into AuthGuard)
     ApiKeyAuthStrategy,
     BasicAuthStrategy,
@@ -635,9 +644,7 @@ export class AppModule implements NestModule {
      * as a fallback when NGINX headers are not applied (e.g., direct API access,
      * development environments, or NGINX misconfiguration).
      */
-    consumer
-      .apply(SecurityHeadersMiddleware)
-      .forRoutes('*');
+    consumer.apply(SecurityHeadersMiddleware).forRoutes('*');
 
     /**
      * AUDITTRAIL-HIGH-004: low-level HTTP access log, one row per request.
@@ -653,9 +660,7 @@ export class AppModule implements NestModule {
      * rejections — the Express layer sees every request the Nest pipeline
      * would miss.
      */
-    consumer
-      .apply(AccessLogMiddleware)
-      .forRoutes('*');
+    consumer.apply(AccessLogMiddleware).forRoutes('*');
 
     consumer
       .apply(
@@ -664,19 +669,17 @@ export class AppModule implements NestModule {
         // 2. Set correlation id for tracing
         // 3. Capture the requested act-as tenant BEFORE strip deletes the header
         // 4. SECURITY: Strip spoofable internal headers from external requests
-        // 5. SECURITY: CSRF double-submit cookie validation
-        // 6. Decode JWT and set req.user (needed for willSendRequest to forward headers)
-        // 7. Hydrate user from x-user-payload header (for inter-service calls)
-        // 8. Resolve + authority-validate the SINGLE effective tenant (SSoT) the
+        // 5. Decode JWT and set req.user (needed for willSendRequest to forward headers)
+        // 6. Hydrate user from x-user-payload header (for inter-service calls)
+        // 7. Resolve + authority-validate the SINGLE effective tenant (SSoT) the
         //    gateway signs — must run after req.user is set, before context capture
-        // 9. Set tenant context
-        // 10. Log request
+        // 8. Set tenant context
+        // 9. Log request
         MetricsMiddleware,
         CorrelationIdMiddleware,
         RequestContextMiddleware,
         CaptureRequestedTenantMiddleware,
         StripInternalHeadersMiddleware,
-        CsrfMiddleware,
         JwtMiddleware,
         UserContextMiddleware,
         EffectiveTenantMiddleware,

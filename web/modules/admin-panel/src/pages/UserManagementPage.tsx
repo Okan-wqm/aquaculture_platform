@@ -18,17 +18,31 @@ import {
 } from '@aquaculture/shared-ui';
 import type { TableColumn } from '@aquaculture/shared-ui';
 import {
+  PLATFORM_ROLE_DEFINITIONS,
+  Role,
+  isInvitableRole,
+  isPlatformRole,
+  type InvitableRoleCode,
+} from '@platform/identity';
+import {
   usersApi,
   tenantsApi,
   TenantTier,
   TenantStatus,
   type User,
   type UserStats,
-  type PaginatedResult,
   type Tenant,
   type RoleTemplate,
   type UserLimitCheckResult,
 } from '../services/adminApi';
+import {
+  ALL_ROLE_OPTIONS,
+  INVITABLE_ROLE_OPTIONS,
+  selectedInvitableRole,
+  selectedPlatformRole,
+} from './user-role-projections';
+
+const USER_STATUS_FILTERS = ['active', 'inactive', 'all'] as const;
 
 // ============================================================================
 // User Management Page
@@ -59,16 +73,24 @@ const UserManagementPage: React.FC = () => {
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
 
   // Role templates for invitation
-  const [roleTemplates, setRoleTemplates] = useState<RoleTemplate[]>([]);
+  const [roleTemplates, setRoleTemplates] = useState<readonly RoleTemplate[]>([]);
   const [userLimitCheck, setUserLimitCheck] = useState<UserLimitCheckResult | null>(null);
 
   // Form state
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    email: string;
+    firstName: string;
+    lastName: string;
+    password: string;
+    role: Role;
+    tenantId: string;
+    isActive: boolean;
+  }>({
     email: '',
     firstName: '',
     lastName: '',
     password: '',
-    role: 'MODULE_USER',
+    role: Role.MODULE_USER,
     tenantId: '',
     isActive: true,
   });
@@ -76,11 +98,18 @@ const UserManagementPage: React.FC = () => {
   const [saving, setSaving] = useState(false);
 
   // Invite form state
-  const [inviteFormData, setInviteFormData] = useState({
+  const [inviteFormData, setInviteFormData] = useState<{
+    email: string;
+    firstName: string;
+    lastName: string;
+    role: InvitableRoleCode;
+    tenantId: string;
+    message: string;
+  }>({
     email: '',
     firstName: '',
     lastName: '',
-    role: 'MODULE_USER',
+    role: Role.MODULE_USER,
     tenantId: '',
     message: '',
   });
@@ -95,13 +124,13 @@ const UserManagementPage: React.FC = () => {
     try {
       const result = await usersApi.list({
         search: searchTerm || undefined,
-        role: roleFilter || undefined,
-        status: statusFilter || undefined,
+        role: isPlatformRole(roleFilter) ? roleFilter : undefined,
+        status: USER_STATUS_FILTERS.find((status) => status === statusFilter),
         tenantId: tenantFilter || undefined,
         page,
         limit,
       });
-      setUsers(result.data);
+      setUsers([...result.items]);
       setTotalUsers(result.total);
     } catch (err) {
       console.error('Failed to load users:', err);
@@ -124,12 +153,13 @@ const UserManagementPage: React.FC = () => {
       const rolesPromise = usersApi.getRoleTemplates();
 
       // Use cache for tenant list if still fresh
-      const tenantsPromise: Promise<{ data: Tenant[] }> =
+      const tenantsPromise: Promise<Tenant[]> =
         tenantCacheRef.current && now - tenantCacheRef.current.fetchedAt < TENANT_CACHE_TTL
-          ? Promise.resolve({ data: tenantCacheRef.current.data })
+          ? Promise.resolve(tenantCacheRef.current.data)
           : tenantsApi.list({ limit: 100 }).then((result) => {
-              tenantCacheRef.current = { data: result.data, fetchedAt: Date.now() };
-              return result;
+              const tenants = [...result.items];
+              tenantCacheRef.current = { data: tenants, fetchedAt: Date.now() };
+              return tenants;
             });
 
       const [statsResult, tenantsResult, rolesResult] = await Promise.allSettled([
@@ -139,7 +169,7 @@ const UserManagementPage: React.FC = () => {
       ]);
       if (statsResult.status === 'fulfilled') setStats(statsResult.value);
       else setStats(null);
-      if (tenantsResult.status === 'fulfilled') setTenants(tenantsResult.value.data);
+      if (tenantsResult.status === 'fulfilled') setTenants(tenantsResult.value);
       else setTenants([]);
       if (rolesResult.status === 'fulfilled') setRoleTemplates(rolesResult.value);
       else setRoleTemplates([]);
@@ -282,7 +312,7 @@ const UserManagementPage: React.FC = () => {
         email: '',
         firstName: '',
         lastName: '',
-        role: 'MODULE_USER',
+        role: Role.MODULE_USER,
         tenantId: '',
         message: '',
       });
@@ -310,7 +340,7 @@ const UserManagementPage: React.FC = () => {
       email: '',
       firstName: '',
       lastName: '',
-      role: 'MODULE_USER',
+      role: Role.MODULE_USER,
       tenantId: '',
       message: '',
     });
@@ -341,7 +371,7 @@ const UserManagementPage: React.FC = () => {
       firstName: user?.firstName || '',
       lastName: user?.lastName || '',
       password: '',
-      role: user?.role || 'MODULE_USER',
+      role: user?.role ?? Role.MODULE_USER,
       tenantId: user?.tenantId || '',
       isActive: user?.isActive ?? true,
     });
@@ -349,25 +379,17 @@ const UserManagementPage: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  // Role labels
-  const getRoleLabel = (role: string) => {
-    const labels: Record<string, string> = {
-      SUPER_ADMIN: 'Super Admin',
-      TENANT_ADMIN: 'Tenant Admin',
-      MODULE_MANAGER: 'Module Manager',
-      MODULE_USER: 'User',
-    };
-    return labels[role] || role;
-  };
+  const getRoleLabel = (role: string): string =>
+    isPlatformRole(role) ? PLATFORM_ROLE_DEFINITIONS[role].name : role;
 
   const getRoleVariant = (role: string) => {
-    const variants: Record<string, 'error' | 'warning' | 'info' | 'success' | 'default'> = {
-      SUPER_ADMIN: 'error',
-      TENANT_ADMIN: 'warning',
-      MODULE_MANAGER: 'info',
-      MODULE_USER: 'default',
+    const variants: Record<Role, 'error' | 'warning' | 'info' | 'success' | 'default'> = {
+      [Role.SUPER_ADMIN]: 'error',
+      [Role.TENANT_ADMIN]: 'warning',
+      [Role.MODULE_MANAGER]: 'info',
+      [Role.MODULE_USER]: 'default',
     };
-    return variants[role] || 'default';
+    return isPlatformRole(role) ? variants[role] : 'default';
   };
 
   const columns: TableColumn<User>[] = [
@@ -394,9 +416,7 @@ const UserManagementPage: React.FC = () => {
       key: 'tenantName',
       header: 'Tenant',
       sortable: true,
-      render: (user) => (
-        <span className="text-sm text-gray-600">{user.tenantName || '-'}</span>
-      ),
+      render: (user) => <span className="text-sm text-gray-600">{user.tenantName || '-'}</span>,
     },
     {
       key: 'isActive',
@@ -424,15 +444,39 @@ const UserManagementPage: React.FC = () => {
       align: 'right',
       render: (user) => (
         <div className="flex items-center justify-end space-x-1">
-          <Button variant="ghost" size="sm" onClick={() => { setSelectedUser(user); setIsDetailModalOpen(true); }}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setSelectedUser(user);
+              setIsDetailModalOpen(true);
+            }}
+          >
             Details
           </Button>
           <Button variant="ghost" size="sm" onClick={() => openEditModal(user)}>
             Edit
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => { setSelectedUser(user); setDeleteModalOpen(true); }}>
-            <svg className="w-4 h-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setSelectedUser(user);
+              setDeleteModalOpen(true);
+            }}
+          >
+            <svg
+              className="w-4 h-4 text-red-500"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+              />
             </svg>
           </Button>
         </div>
@@ -446,9 +490,7 @@ const UserManagementPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">User Management</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Total {totalUsers} users
-          </p>
+          <p className="mt-1 text-sm text-gray-500">Total {totalUsers} users</p>
         </div>
         <div className="mt-4 sm:mt-0 flex space-x-2">
           <Button variant="outline" onClick={fetchUsers} disabled={loading}>
@@ -456,13 +498,23 @@ const UserManagementPage: React.FC = () => {
           </Button>
           <Button variant="outline" onClick={openInviteModal}>
             <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+              />
             </svg>
             Send Invite
           </Button>
           <Button onClick={() => openEditModal(null)}>
             <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 4v16m8-8H4"
+              />
             </svg>
             New User
           </Button>
@@ -510,28 +562,41 @@ const UserManagementPage: React.FC = () => {
             <Input
               placeholder="Search by name or email..."
               value={searchTerm}
-              onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setPage(1);
+              }}
               leftIcon={
-                <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                <svg
+                  className="w-5 h-5 text-gray-500"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                  />
                 </svg>
               }
             />
           </div>
           <Select
             value={roleFilter}
-            onChange={(e) => { setRoleFilter(e.target.value); setPage(1); }}
-            options={[
-              { value: '', label: 'All Roles' },
-              { value: 'SUPER_ADMIN', label: 'Super Admin' },
-              { value: 'TENANT_ADMIN', label: 'Tenant Admin' },
-              { value: 'MODULE_MANAGER', label: 'Module Manager' },
-              { value: 'MODULE_USER', label: 'User' },
-            ]}
+            onChange={(e) => {
+              setRoleFilter(e.target.value);
+              setPage(1);
+            }}
+            options={[{ value: '', label: 'All Roles' }, ...ALL_ROLE_OPTIONS]}
           />
           <Select
             value={statusFilter}
-            onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+            onChange={(e) => {
+              setStatusFilter(e.target.value);
+              setPage(1);
+            }}
             options={[
               { value: '', label: 'All Statuses' },
               { value: 'active', label: 'Active' },
@@ -540,7 +605,10 @@ const UserManagementPage: React.FC = () => {
           />
           <Select
             value={tenantFilter}
-            onChange={(e) => { setTenantFilter(e.target.value); setPage(1); }}
+            onChange={(e) => {
+              setTenantFilter(e.target.value);
+              setPage(1);
+            }}
             options={[
               { value: '', label: 'All Tenants' },
               ...tenants.map((t) => ({ value: t.id, label: t.name })),
@@ -636,12 +704,10 @@ const UserManagementPage: React.FC = () => {
           <Select
             label="Role"
             value={formData.role}
-            onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-            options={[
-              { value: 'TENANT_ADMIN', label: 'Tenant Admin' },
-              { value: 'MODULE_MANAGER', label: 'Module Manager' },
-              { value: 'MODULE_USER', label: 'Module User' },
-            ]}
+            onChange={(e) =>
+              setFormData({ ...formData, role: selectedPlatformRole(e.target.value) })
+            }
+            options={[...INVITABLE_ROLE_OPTIONS]}
           />
 
           <Select
@@ -663,7 +729,9 @@ const UserManagementPage: React.FC = () => {
                 onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
                 className="rounded border-gray-300"
               />
-              <label htmlFor="isActive" className="text-sm text-gray-700">Active</label>
+              <label htmlFor="isActive" className="text-sm text-gray-700">
+                Active
+              </label>
             </div>
           )}
 
@@ -690,7 +758,9 @@ const UserManagementPage: React.FC = () => {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <p className="text-xs text-gray-500">Full Name</p>
-                <p className="font-medium">{selectedUser.firstName} {selectedUser.lastName}</p>
+                <p className="font-medium">
+                  {selectedUser.firstName} {selectedUser.lastName}
+                </p>
               </div>
               <div>
                 <p className="text-xs text-gray-500">E-posta</p>
@@ -698,7 +768,9 @@ const UserManagementPage: React.FC = () => {
               </div>
               <div>
                 <p className="text-xs text-gray-500">Role</p>
-                <Badge variant={getRoleVariant(selectedUser.role)}>{getRoleLabel(selectedUser.role)}</Badge>
+                <Badge variant={getRoleVariant(selectedUser.role)}>
+                  {getRoleLabel(selectedUser.role)}
+                </Badge>
               </div>
               <div>
                 <p className="text-xs text-gray-500">Status</p>
@@ -720,23 +792,17 @@ const UserManagementPage: React.FC = () => {
               </div>
               <div>
                 <p className="text-xs text-gray-500">Created</p>
-                <p className="font-medium">{formatDate(new Date(selectedUser.createdAt), 'long')}</p>
+                <p className="font-medium">
+                  {formatDate(new Date(selectedUser.createdAt), 'long')}
+                </p>
               </div>
             </div>
 
             <div className="flex justify-end space-x-2 pt-4 border-t">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleToggleStatus(selectedUser)}
-              >
+              <Button variant="outline" size="sm" onClick={() => handleToggleStatus(selectedUser)}>
                 {selectedUser.isActive ? 'Deactivate' : 'Activate'}
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleForceLogout(selectedUser)}
-              >
+              <Button variant="outline" size="sm" onClick={() => handleForceLogout(selectedUser)}>
                 Force Logout
               </Button>
               <Button variant="outline" onClick={() => setIsDetailModalOpen(false)}>
@@ -783,9 +849,7 @@ const UserManagementPage: React.FC = () => {
           {userLimitCheck && (
             <div
               className={`p-3 rounded-lg text-sm ${
-                userLimitCheck.canCreate
-                  ? 'bg-green-50 text-green-700'
-                  : 'bg-red-50 text-red-700'
+                userLimitCheck.canCreate ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
               }`}
             >
               <div className="flex items-center justify-between">
@@ -815,9 +879,7 @@ const UserManagementPage: React.FC = () => {
             label="E-posta *"
             type="email"
             value={inviteFormData.email}
-            onChange={(e) =>
-              setInviteFormData({ ...inviteFormData, email: e.target.value })
-            }
+            onChange={(e) => setInviteFormData({ ...inviteFormData, email: e.target.value })}
             placeholder="example@company.com"
             required
           />
@@ -826,16 +888,12 @@ const UserManagementPage: React.FC = () => {
             <Input
               label="First Name"
               value={inviteFormData.firstName}
-              onChange={(e) =>
-                setInviteFormData({ ...inviteFormData, firstName: e.target.value })
-              }
+              onChange={(e) => setInviteFormData({ ...inviteFormData, firstName: e.target.value })}
             />
             <Input
               label="Last Name"
               value={inviteFormData.lastName}
-              onChange={(e) =>
-                setInviteFormData({ ...inviteFormData, lastName: e.target.value })
-              }
+              onChange={(e) => setInviteFormData({ ...inviteFormData, lastName: e.target.value })}
             />
           </div>
 
@@ -843,21 +901,20 @@ const UserManagementPage: React.FC = () => {
             label="Role *"
             value={inviteFormData.role}
             onChange={(e) =>
-              setInviteFormData({ ...inviteFormData, role: e.target.value })
+              setInviteFormData({
+                ...inviteFormData,
+                role: selectedInvitableRole(e.target.value),
+              })
             }
             options={
               roleTemplates.length > 0
                 ? roleTemplates
-                    .filter((r) => r.code !== 'SUPER_ADMIN') // Don't allow SUPER_ADMIN invitation
+                    .filter((role) => isInvitableRole(role.code))
                     .map((r) => ({
                       value: r.code,
                       label: `${r.name} (Level ${r.level})`,
                     }))
-                : [
-                    { value: 'TENANT_ADMIN', label: 'Tenant Admin' },
-                    { value: 'MODULE_MANAGER', label: 'Module Manager' },
-                    { value: 'MODULE_USER', label: 'User' },
-                  ]
+                : [...INVITABLE_ROLE_OPTIONS]
             }
           />
 
@@ -869,16 +926,14 @@ const UserManagementPage: React.FC = () => {
               className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               rows={3}
               value={inviteFormData.message}
-              onChange={(e) =>
-                setInviteFormData({ ...inviteFormData, message: e.target.value })
-              }
+              onChange={(e) => setInviteFormData({ ...inviteFormData, message: e.target.value })}
               placeholder="Invitation message..."
             />
           </div>
 
           <div className="bg-blue-50 rounded-lg p-3 text-sm text-blue-700">
-            <strong>Note:</strong> An email will be sent to the invited user.
-            The user will create their password by clicking the invite link.
+            <strong>Note:</strong> An email will be sent to the invited user. The user will create
+            their password by clicking the invite link.
           </div>
 
           <div className="flex justify-end space-x-3 pt-4">

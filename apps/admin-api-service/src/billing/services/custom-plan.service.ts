@@ -16,7 +16,11 @@ import {
   CustomPlanLineItem,
 } from '../entities/custom-plan.entity';
 import { PlanTier, BillingCycle } from '../entities/plan-definition.entity';
-import { PricingMetricType, PricingMetricLabels } from '../entities/pricing-metric.enum';
+import {
+  PRICING_METRIC_CATALOG,
+  PricingMetricType,
+  PricingMetricLabels,
+} from '../entities/pricing-metric.enum';
 
 import { ModulePricingService } from './module-pricing.service';
 import { PricingCalculatorService } from './pricing-calculator.service';
@@ -225,16 +229,11 @@ export class CustomPlanService {
   /**
    * Update custom plan
    */
-  async updateCustomPlan(
-    planId: string,
-    dto: UpdateCustomPlanDto,
-  ): Promise<CustomPlan> {
+  async updateCustomPlan(planId: string, dto: UpdateCustomPlanDto): Promise<CustomPlan> {
     const plan = await this.getCustomPlan(planId);
 
     if (!plan.canModify()) {
-      throw new BadRequestException(
-        `Cannot modify plan in status: ${plan.status}`,
-      );
+      throw new BadRequestException(`Cannot modify plan in status: ${plan.status}`);
     }
 
     // Recalculate if modules changed
@@ -305,9 +304,7 @@ export class CustomPlanService {
     const plan = await this.getCustomPlan(planId);
 
     if (!plan.canApprove()) {
-      throw new BadRequestException(
-        `Cannot approve plan in status: ${plan.status}`,
-      );
+      throw new BadRequestException(`Cannot approve plan in status: ${plan.status}`);
     }
 
     plan.status = CustomPlanStatus.APPROVED;
@@ -323,11 +320,7 @@ export class CustomPlanService {
   /**
    * Reject custom plan
    */
-  async rejectPlan(
-    planId: string,
-    reason: string,
-    rejectedBy: string,
-  ): Promise<CustomPlan> {
+  async rejectPlan(planId: string, reason: string, rejectedBy: string): Promise<CustomPlan> {
     const plan = await this.getCustomPlan(planId);
 
     if (plan.status !== CustomPlanStatus.PENDING_APPROVAL) {
@@ -351,9 +344,7 @@ export class CustomPlanService {
     const plan = await this.getCustomPlan(planId);
 
     if (!plan.canActivate()) {
-      throw new BadRequestException(
-        `Cannot activate plan in status: ${plan.status}`,
-      );
+      throw new BadRequestException(`Cannot activate plan in status: ${plan.status}`);
     }
 
     // Convert CustomPlanModules to SubscriptionModuleConfigs
@@ -384,9 +375,7 @@ export class CustomPlanService {
     });
 
     if (!subscriptionResult.success) {
-      throw new BadRequestException(
-        `Failed to create subscription: ${subscriptionResult.message}`,
-      );
+      throw new BadRequestException(`Failed to create subscription: ${subscriptionResult.message}`);
     }
 
     plan.subscriptionId = subscriptionResult.subscription.id;
@@ -490,9 +479,7 @@ export class CustomPlanService {
 
         const includedQty = metric.includedQuantity ?? 0;
         const billableQty =
-          metric.type === PricingMetricType.BASE_PRICE
-            ? 1
-            : Math.max(0, quantity - includedQty);
+          metric.type === PricingMetricType.BASE_PRICE ? 1 : Math.max(0, quantity - includedQty);
 
         const total = billableQty * metric.price * tierMultiplier;
 
@@ -519,11 +506,7 @@ export class CustomPlanService {
       monthlySubtotal += moduleSubtotal;
     }
 
-    const monthlyTotal = this.calculateFinalTotal(
-      monthlySubtotal,
-      discountPercent,
-      discountAmount,
-    );
+    const monthlyTotal = this.calculateFinalTotal(monthlySubtotal, discountPercent, discountAmount);
 
     return { modules, monthlySubtotal, monthlyTotal };
   }
@@ -531,25 +514,9 @@ export class CustomPlanService {
   /**
    * Get quantity value for a metric type
    */
-  private getQuantityForMetric(
-    quantities: ModuleQuantities,
-    metric: PricingMetricType,
-  ): number {
-    const map: Partial<Record<PricingMetricType, keyof ModuleQuantities>> = {
-      [PricingMetricType.PER_USER]: 'users',
-      [PricingMetricType.PER_FARM]: 'farms',
-      [PricingMetricType.PER_POND]: 'ponds',
-      [PricingMetricType.PER_SENSOR]: 'sensors',
-      [PricingMetricType.PER_DEVICE]: 'devices',
-      [PricingMetricType.PER_GB_STORAGE]: 'storageGb',
-      [PricingMetricType.PER_API_CALL]: 'apiCalls',
-      [PricingMetricType.PER_ALERT]: 'alerts',
-      [PricingMetricType.PER_REPORT]: 'reports',
-      [PricingMetricType.PER_INTEGRATION]: 'integrations',
-    };
-
-    const field = map[metric];
-    return field ? quantities[field] ?? 0 : 0;
+  private getQuantityForMetric(quantities: ModuleQuantities, metric: PricingMetricType): number {
+    const field = PRICING_METRIC_CATALOG[metric].quantityField;
+    return field ? (quantities[field] ?? 0) : 0;
   }
 
   /**

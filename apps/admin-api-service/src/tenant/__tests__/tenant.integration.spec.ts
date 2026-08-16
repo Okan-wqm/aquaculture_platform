@@ -2,24 +2,22 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { CqrsModule, CommandBus, QueryBus } from '@nestjs/cqrs';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
 
-import { AuditLogService } from '../../audit/audit.service';
 import { ModuleAssignmentService } from '../../modules/tenant-management/services/module-assignment.service';
 import { SystemSettingService } from '../../settings/services/system-setting.service';
 import {
-  ActivateTenantCommand,
+  ResumeTenantCommand,
   ArchiveTenantCommand,
   DeactivateTenantCommand,
   SuspendTenantCommand,
 } from '../commands/tenant.commands';
 import { SuspendTenantDto } from '../dto/tenant.dto';
-import { TenantActivity, TenantNote, TenantBillingInfo } from '../entities/tenant-activity.entity';
+import { TenantNote, TenantBillingInfo } from '../entities/tenant-activity.entity';
 import { Tenant, TenantInvitation, TenantStatus, TenantTier } from '../entities/tenant.entity';
 import {
   SuspendTenantHandler,
-  ActivateTenantHandler,
+  ResumeTenantHandler,
   DeactivateTenantHandler,
   ArchiveTenantHandler,
 } from '../handlers/suspend-tenant.handler';
@@ -43,11 +41,6 @@ import { TenantProvisioningService } from '../services/tenant-provisioning.servi
 import { TenantAdminController } from '../tenant.controller';
 
 // Mock services
-const mockAuditLogService = {
-  log: jest.fn(),
-  logTenantAction: jest.fn(),
-};
-
 const mockSettingsService = {
   getSetting: jest.fn().mockResolvedValue(null),
   setSetting: jest.fn(),
@@ -98,16 +91,9 @@ const mockEventBus = {
 
 const mockAuthProvisioningClient = {
   suspendTenant: jest.fn().mockResolvedValue({ success: true }),
-  activateTenant: jest.fn().mockResolvedValue({ success: true }),
+  resumeTenant: jest.fn().mockResolvedValue({ success: true }),
   deprovisionTenant: jest.fn().mockResolvedValue({ success: true }),
   archiveTenant: jest.fn().mockResolvedValue({ success: true }),
-};
-
-// ORPHAN-MEDIUM-372: the lifecycle handlers require OutboxPublisher (durable
-// TenantSuspended/TenantStatusChanged events); the TestingModule must provide
-// it like the runtime AdminOutboxModule does.
-const mockOutboxPublisher = {
-  enqueue: jest.fn().mockResolvedValue(undefined),
 };
 
 interface MockTenantQueryBuilder {
@@ -192,7 +178,6 @@ const createMockRepository = (): MockRepository => ({
 
 const mockTenantRepository = createMockRepository();
 const mockInvitationRepository = createMockRepository();
-const mockActivityRepository = createMockRepository();
 const mockNoteRepository = createMockRepository();
 const mockBillingRepository = createMockRepository();
 
@@ -268,10 +253,6 @@ describe('Tenant Integration Tests', () => {
           useValue: mockInvitationRepository,
         },
         {
-          provide: getRepositoryToken(TenantActivity),
-          useValue: mockActivityRepository,
-        },
-        {
           provide: getRepositoryToken(TenantNote),
           useValue: mockNoteRepository,
         },
@@ -282,10 +263,6 @@ describe('Tenant Integration Tests', () => {
         {
           provide: DataSource,
           useValue: mockDataSource,
-        },
-        {
-          provide: AuditLogService,
-          useValue: mockAuditLogService,
         },
         {
           provide: SystemSettingService,
@@ -316,17 +293,13 @@ describe('Tenant Integration Tests', () => {
           useValue: mockAuthProvisioningClient,
         },
         {
-          provide: OutboxPublisher,
-          useValue: mockOutboxPublisher,
-        },
-        {
           provide: 'EVENT_BUS',
           useValue: mockEventBus,
         },
         // Command Handlers
         UpdateTenantHandler,
         SuspendTenantHandler,
-        ActivateTenantHandler,
+        ResumeTenantHandler,
         DeactivateTenantHandler,
         ArchiveTenantHandler,
         // Query Handlers
@@ -361,20 +334,17 @@ describe('Tenant Integration Tests', () => {
     describe('Suspend -> Activate -> Deactivate -> Archive Flow', () => {
       it('should complete owner-command backed tenant lifecycle transitions', async () => {
         const tenant = createMockTenant();
-        const queryRunner = mockDataSource.createQueryRunner();
         const suspendDto: SuspendTenantDto = { reason: 'Policy violation' };
 
-        // Single-writer (DB-ADMIN-HIGH-004): the pre-read (repository) and the
-        // post-reply re-read (queryRunner manager) resolve the same shared row
-        // object; each owner-command mock flips its status to simulate the
+        // Single-writer (DB-ADMIN-HIGH-004): both repository reads resolve the
+        // same shared row object; each owner-command mock flips its status to simulate the
         // committed auth-service write the handler re-reads.
         mockTenantRepository.findOne.mockResolvedValue(tenant);
-        queryRunner.manager.findOne.mockResolvedValue(tenant);
         mockAuthProvisioningClient.suspendTenant.mockImplementationOnce(async () => {
           tenant.status = TenantStatus.SUSPENDED;
           return { success: true };
         });
-        mockAuthProvisioningClient.activateTenant.mockImplementationOnce(async () => {
+        mockAuthProvisioningClient.resumeTenant.mockImplementationOnce(async () => {
           tenant.status = TenantStatus.ACTIVE;
           return { success: true };
         });
@@ -392,8 +362,8 @@ describe('Tenant Integration Tests', () => {
         );
         expect(suspended.status).toBe(TenantStatus.SUSPENDED);
 
-        const activated = await commandBus.execute<ActivateTenantCommand, Tenant>(
-          new ActivateTenantCommand(tenant.id, 'admin-123'),
+        const activated = await commandBus.execute<ResumeTenantCommand, Tenant>(
+          new ResumeTenantCommand(tenant.id, 'admin-123'),
         );
         expect(activated.status).toBe(TenantStatus.ACTIVE);
 
@@ -408,13 +378,11 @@ describe('Tenant Integration Tests', () => {
         expect(archived.status).toBe(TenantStatus.ARCHIVED);
 
         expect(mockAuthProvisioningClient.suspendTenant).toHaveBeenCalledTimes(1);
-        expect(mockAuthProvisioningClient.activateTenant).toHaveBeenCalledTimes(1);
+        expect(mockAuthProvisioningClient.resumeTenant).toHaveBeenCalledTimes(1);
         expect(mockAuthProvisioningClient.deprovisionTenant).toHaveBeenCalledTimes(1);
         expect(mockAuthProvisioningClient.archiveTenant).toHaveBeenCalledTimes(1);
-        expect(mockAuditLogService.log).toHaveBeenCalledTimes(4);
-        expect(queryRunner.commitTransaction).toHaveBeenCalledTimes(4);
-        // Single-writer: admin-api never writes auth.tenants (the owner does).
-        expect(queryRunner.manager.save).not.toHaveBeenCalled();
+        // Pre-read plus post-owner receipt read for each transition.
+        expect(mockTenantRepository.findOne).toHaveBeenCalledTimes(8);
       });
     });
 

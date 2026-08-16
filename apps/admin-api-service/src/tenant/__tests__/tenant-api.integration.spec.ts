@@ -189,10 +189,12 @@ describe('Tenant API Integration Tests', () => {
         'tenant-create-test-key',
       );
       expect(mockProvisioningWorkflowService.processOperation).toHaveBeenCalledWith(NOTE_UUID);
-      expect(response.body).toEqual(expect.objectContaining({
-        status: 'QUEUED',
-        statusUrl: `/tenants/provisioning/${NOTE_UUID}`,
-      }));
+      expect(response.body).toEqual(
+        expect.objectContaining({
+          status: 'QUEUED',
+          statusUrl: `/tenants/provisioning/${NOTE_UUID}`,
+        }),
+      );
     });
 
     it('should return 400 for invalid tenant data', async () => {
@@ -325,8 +327,7 @@ describe('Tenant API Integration Tests', () => {
       };
       mockQueryBus.execute.mockResolvedValueOnce(stats);
 
-      const response = await request(app.getHttpServer())
-        .get('/admin/tenants/stats');
+      const response = await request(app.getHttpServer()).get('/admin/tenants/stats');
 
       expect(response.status).toBe(HttpStatus.OK);
       expect(response.body).toBeDefined();
@@ -372,8 +373,7 @@ describe('Tenant API Integration Tests', () => {
     it('should use default threshold if not provided', async () => {
       mockQueryBus.execute.mockResolvedValueOnce([]);
 
-      const response = await request(app.getHttpServer())
-        .get('/admin/tenants/approaching-limits');
+      const response = await request(app.getHttpServer()).get('/admin/tenants/approaching-limits');
 
       expect(response.status).toBe(HttpStatus.OK);
     });
@@ -392,13 +392,14 @@ describe('Tenant API Integration Tests', () => {
     });
   });
 
-  describe('GET /admin/tenants/slug/:slug', () => {
+  describe('GET /admin/tenants/lookup/slug/:slug', () => {
     it('should return tenant by slug', async () => {
       const tenant = createMockTenant();
       mockQueryBus.execute.mockResolvedValueOnce(tenant);
 
-      const response = await request(app.getHttpServer())
-        .get('/admin/tenants/slug/test-tenant');
+      const response = await request(app.getHttpServer()).get(
+        '/admin/tenants/lookup/slug/test-tenant',
+      );
 
       expect(response.status).toBe(HttpStatus.OK);
     });
@@ -409,8 +410,9 @@ describe('Tenant API Integration Tests', () => {
         message: 'Tenant not found',
       });
 
-      const response = await request(app.getHttpServer())
-        .get('/admin/tenants/slug/non-existent');
+      const response = await request(app.getHttpServer()).get(
+        '/admin/tenants/lookup/slug/non-existent',
+      );
 
       // Should return 404
     });
@@ -421,15 +423,13 @@ describe('Tenant API Integration Tests', () => {
       const tenant = createMockTenant();
       mockQueryBus.execute.mockResolvedValueOnce(tenant);
 
-      const response = await request(app.getHttpServer())
-        .get(`/admin/tenants/${TENANT_UUID}`);
+      const response = await request(app.getHttpServer()).get(`/admin/tenants/${TENANT_UUID}`);
 
       expect(response.status).toBe(HttpStatus.OK);
     });
 
     it('should return 400 for invalid UUID', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/admin/tenants/invalid-uuid');
+      const response = await request(app.getHttpServer()).get('/admin/tenants/invalid-uuid');
 
       // ParseUUIDPipe should reject
       // expect(response.status).toBe(HttpStatus.BAD_REQUEST);
@@ -441,8 +441,7 @@ describe('Tenant API Integration Tests', () => {
         message: 'Tenant not found',
       });
 
-      const response = await request(app.getHttpServer())
-        .get(`/admin/tenants/${NULL_UUID}`);
+      const response = await request(app.getHttpServer()).get(`/admin/tenants/${NULL_UUID}`);
 
       // Should return 404
     });
@@ -458,8 +457,9 @@ describe('Tenant API Integration Tests', () => {
       };
       mockDetailService.getTenantDetail.mockResolvedValueOnce(detail);
 
-      const response = await request(app.getHttpServer())
-        .get(`/admin/tenants/${TENANT_UUID}/detail`);
+      const response = await request(app.getHttpServer()).get(
+        `/admin/tenants/${TENANT_UUID}/detail`,
+      );
 
       expect(response.status).toBe(HttpStatus.OK);
     });
@@ -476,8 +476,9 @@ describe('Tenant API Integration Tests', () => {
       };
       mockQueryBus.execute.mockResolvedValueOnce(usage);
 
-      const response = await request(app.getHttpServer())
-        .get(`/admin/tenants/${TENANT_UUID}/usage`);
+      const response = await request(app.getHttpServer()).get(
+        `/admin/tenants/${TENANT_UUID}/usage`,
+      );
 
       expect(response.status).toBe(HttpStatus.OK);
     });
@@ -491,8 +492,9 @@ describe('Tenant API Integration Tests', () => {
         totalPages: 1,
       });
 
-      const response = await request(app.getHttpServer())
-        .get(`/admin/tenants/${TENANT_UUID}/activities`);
+      const response = await request(app.getHttpServer()).get(
+        `/admin/tenants/${TENANT_UUID}/activities`,
+      );
 
       expect(response.status).toBe(HttpStatus.OK);
     });
@@ -519,8 +521,9 @@ describe('Tenant API Integration Tests', () => {
           { id: 'note-1', content: 'Test note' },
         ]);
 
-        const response = await request(app.getHttpServer())
-          .get(`/admin/tenants/${TENANT_UUID}/notes`);
+        const response = await request(app.getHttpServer()).get(
+          `/admin/tenants/${TENANT_UUID}/notes`,
+        );
 
         expect(response.status).toBe(HttpStatus.OK);
       });
@@ -574,8 +577,9 @@ describe('Tenant API Integration Tests', () => {
       it('should delete a note', async () => {
         mockActivityService.deleteNote.mockResolvedValueOnce(undefined);
 
-        const response = await request(app.getHttpServer())
-          .delete(`/admin/tenants/${TENANT_UUID}/notes/${NOTE_UUID}`);
+        const response = await request(app.getHttpServer()).delete(
+          `/admin/tenants/${TENANT_UUID}/notes/${NOTE_UUID}`,
+        );
 
         expect(response.status).toBe(HttpStatus.NO_CONTENT);
       });

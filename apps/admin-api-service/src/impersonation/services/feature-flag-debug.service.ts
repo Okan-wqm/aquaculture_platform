@@ -1,3 +1,4 @@
+import { SYSTEM_ACTOR_ID } from '@aquaculture/backend-common/constants';
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -60,7 +61,10 @@ export class FeatureFlagDebugService {
   /**
    * Revert a feature flag override
    */
-  async revertFeatureFlagOverride(overrideId: string, revertedBy: string): Promise<FeatureFlagOverride> {
+  async revertFeatureFlagOverride(
+    overrideId: string,
+    revertedBy: string,
+  ): Promise<FeatureFlagOverride> {
     const override = await this.overrideRepo.findOne({ where: { id: overrideId } });
     if (!override) {
       throw new NotFoundException(`Override not found: ${overrideId}`);
@@ -72,7 +76,9 @@ export class FeatureFlagDebugService {
 
     const saved = await this.overrideRepo.save(override);
 
-    this.logger.log(`Reverted feature flag override: ${override.featureKey} for tenant ${override.tenantId}`);
+    this.logger.log(
+      `Reverted feature flag override: ${override.featureKey} for tenant ${override.tenantId}`,
+    );
 
     return saved;
   }
@@ -112,7 +118,11 @@ export class FeatureFlagDebugService {
   /**
    * Get feature flag value with override check
    */
-  async getFeatureFlagValue(tenantId: string, featureKey: string, defaultValue: unknown): Promise<unknown> {
+  async getFeatureFlagValue(
+    tenantId: string,
+    featureKey: string,
+    defaultValue: unknown,
+  ): Promise<unknown> {
     const override = await this.overrideRepo.findOne({
       where: { tenantId, featureKey, isActive: true },
     });
@@ -120,7 +130,7 @@ export class FeatureFlagDebugService {
     if (override) {
       // Check expiration
       if (override.expiresAt && override.expiresAt < new Date()) {
-        await this.revertFeatureFlagOverride(override.id, 'system');
+        await this.revertFeatureFlagOverride(override.id, SYSTEM_ACTOR_ID);
         return defaultValue;
       }
       return override.overrideValue;
@@ -180,7 +190,7 @@ export class FeatureFlagDebugService {
     for (const override of expired) {
       override.isActive = false;
       override.revertedAt = new Date();
-      override.revertedBy = 'system';
+      override.revertedBy = SYSTEM_ACTOR_ID;
       await this.overrideRepo.save(override);
     }
 

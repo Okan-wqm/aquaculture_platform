@@ -2,6 +2,8 @@
  * Settings domain types (System Settings, Feature Toggles, Maintenance, Performance, Errors, Jobs)
  */
 
+import type { AdminApiRouteResponse } from './generated/admin-route-contracts';
+
 // ============================================================================
 // System Settings Types
 // ============================================================================
@@ -51,30 +53,8 @@ export interface TenantConfiguration {
   updatedAt: string;
 }
 
-export interface EmailTemplateVariable {
-  name: string;
-  description: string;
-  required: boolean;
-  defaultValue?: string;
-}
-
-export interface EmailTemplate {
-  id: string;
-  code: string;
-  name: string;
-  description?: string;
-  category: string;
-  subject: string;
-  bodyHtml: string;
-  bodyText?: string;
-  variables: EmailTemplateVariable[];
-  isActive: boolean;
-  isSystem: boolean;
-  tenantId?: string;
-  createdAt: string;
-  updatedAt: string;
-  updatedBy?: string;
-}
+export type EmailTemplate = AdminApiRouteResponse<'GET /settings/email-templates'>[number];
+export type EmailTemplateVariable = EmailTemplate['variables'][number];
 
 export interface IpAccessRule {
   id: string;
@@ -95,27 +75,58 @@ export interface IpAccessRule {
 // ============================================================================
 
 export type FeatureToggleStatus = 'enabled' | 'disabled' | 'percentage_rollout' | 'scheduled';
-export type MaintenanceStatus = 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | 'extended';
-export type JobStatus = 'pending' | 'scheduled' | 'running' | 'completed' | 'failed' | 'cancelled' | 'retrying';
+export type MaintenanceStatus =
+  | 'scheduled'
+  | 'in_progress'
+  | 'completed'
+  | 'cancelled'
+  | 'extended';
+export type JobStatus =
+  | 'pending'
+  | 'scheduled'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'retrying';
 
-export interface FeatureToggle {
-  id: string;
-  key: string;
-  name: string;
-  description?: string;
-  status: FeatureToggleStatus;
-  scope: 'global' | 'tenant' | 'user';
-  category?: string;
-  rolloutPercentage: number;
-  enabledTenants?: string[];
-  disabledTenants?: string[];
-  conditions?: Array<{ type: string; operator: string; value: unknown }>;
-  variants?: Array<{ key: string; value: unknown; weight: number }>;
-  isExperimental: boolean;
-  deprecatedAt?: string;
-  createdAt: string;
-  updatedAt: string;
-}
+export type FeatureToggle =
+  AdminApiRouteResponse<'GET /system/settings/feature-toggles'>['items'][number];
+
+export type CreateFeatureToggleInput = Pick<FeatureToggle, 'key' | 'name'> &
+  Partial<
+    Pick<
+      FeatureToggle,
+      | 'description'
+      | 'scope'
+      | 'status'
+      | 'category'
+      | 'conditions'
+      | 'rolloutPercentage'
+      | 'defaultValue'
+      | 'variants'
+      | 'requiresRestart'
+      | 'isExperimental'
+    >
+  >;
+
+export type UpdateFeatureToggleInput = Partial<
+  Pick<
+    FeatureToggle,
+    | 'name'
+    | 'description'
+    | 'status'
+    | 'category'
+    | 'conditions'
+    | 'rolloutPercentage'
+    | 'enabledTenants'
+    | 'disabledTenants'
+    | 'defaultValue'
+    | 'variants'
+    | 'deprecatedAt'
+    | 'deprecationMessage'
+  >
+>;
 
 export interface MaintenanceWindow {
   id: string;
@@ -148,48 +159,9 @@ export interface PerformanceMetrics {
   timestamp: string;
 }
 
-export interface PerformanceDashboard {
-  currentSnapshot: {
-    healthScore: number;
-    avgResponseTime: number;
-    errorRate: number;
-    throughput: number;
-    apdexScore: number;
-  };
-  trends: {
-    responseTime: Array<{ timestamp: string; value: number }>;
-    throughput: Array<{ timestamp: string; value: number }>;
-    errorRate: Array<{ timestamp: string; value: number }>;
-  };
-  serviceBreakdown: Array<{
-    service: string;
-    avgResponseTime: number;
-    errorRate: number;
-    requestCount: number;
-  }>;
-  alerts: Array<{
-    metric: string;
-    threshold: number;
-    currentValue: number;
-    severity: 'warning' | 'critical';
-  }>;
-}
+export type PerformanceDashboard = AdminApiRouteResponse<'GET /system/performance/dashboard'>;
 
-export interface ErrorGroup {
-  id: string;
-  fingerprint: string;
-  message: string;
-  errorType?: string;
-  service?: string;
-  severity: 'debug' | 'info' | 'warning' | 'error' | 'critical' | 'fatal';
-  status: 'new' | 'acknowledged' | 'in_progress' | 'resolved' | 'ignored';
-  occurrenceCount: number;
-  userCount: number;
-  firstSeenAt: string;
-  lastSeenAt: string;
-  assignedTo?: string;
-  isRegression: boolean;
-}
+export type ErrorGroup = AdminApiRouteResponse<'GET /system/errors/groups'>['items'][number];
 
 export interface ErrorOccurrence {
   id: string;
@@ -202,34 +174,6 @@ export interface ErrorOccurrence {
   timestamp: string;
 }
 
-export interface BackgroundJob {
-  id: string;
-  name: string;
-  queueName: string;
-  jobType: 'immediate' | 'scheduled' | 'recurring' | 'delayed';
-  status: JobStatus;
-  priority: number;
-  payload?: Record<string, unknown>;
-  result?: Record<string, unknown>;
-  errorMessage?: string;
-  progress?: { current: number; total: number; percentage: number; message?: string };
-  scheduledAt?: string;
-  startedAt?: string;
-  completedAt?: string;
-  durationMs?: number;
-  attempts: number;
-  maxAttempts: number;
-  cronExpression?: string;
-  nextRunAt?: string;
-  createdAt: string;
-}
+export type BackgroundJob = AdminApiRouteResponse<'GET /system/jobs'>['items'][number];
 
-export interface JobQueue {
-  name: string;
-  isPaused: boolean;
-  concurrency: number;
-  pendingCount: number;
-  activeCount: number;
-  completedCount: number;
-  failedCount: number;
-}
+export type JobQueue = AdminApiRouteResponse<'GET /system/jobs/queues'>[number];

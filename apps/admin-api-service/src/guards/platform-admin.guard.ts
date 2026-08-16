@@ -1,24 +1,84 @@
-import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
+import {
+  enforceAccessTokenType,
+  enforceTokenNotRevoked,
+  getJwtVerifyOptions,
+} from '@aquaculture/backend-common/auth';
 import { requestContextStorage } from '@aquaculture/backend-common/logging';
+import {
+  SecurityEventService,
+  SlidingWindowStrategy,
+  TOKEN_BLACKLIST,
+  USER_TOKEN_REVOCATION,
+  type ITokenBlacklist,
+  type IUserTokenRevocation,
+} from '@aquaculture/backend-common/security';
 import {
   CanActivate,
   ExecutionContext,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Inject,
   Injectable,
   Logger,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
+import { PLATFORM_ROLE_DEFINITIONS, isPlatformRole, type Role } from '@platform/identity';
+import { isTenantPermissionCode, type TenantPermissionCode } from '@platform/tenant-permissions';
 import * as jwt from 'jsonwebtoken';
 
-import { ROLES_KEY } from '../decorators/roles.decorator';
+import { adminRouteContractIdFromExecutionContext } from '../bootstrap/admin-request-contract.guard';
+import { ADMIN_SERVER_ROUTE_AUTHORIZATION } from '../bootstrap/generated/admin-request-contracts.generated';
 // Bind the WRITER to the canonical request-user SSoT: AuthenticatedUser extends
 // JwtUser, so `request.user = { ... }` below fails type-check if it omits `sub`
 // (ORPHAN-146). The shared ThrottlerGuard reads that same `sub`.
 import { AuthenticatedRequest } from '../shared/authenticated-request';
+
+function errorDetails(error: unknown): { readonly message: string; readonly stack?: string } {
+  return error instanceof Error
+    ? { message: error.message, stack: error.stack }
+    : { message: 'unknown authentication failure' };
+}
+
+function unauthorizedReason(exception: UnauthorizedException): string {
+  const response = exception.getResponse();
+  if (typeof response === 'string') return response;
+  if (typeof response === 'object' && response !== null && 'message' in response) {
+    const message = response.message;
+    if (typeof message === 'string') return message;
+    if (Array.isArray(message))
+      return message.filter((entry) => typeof entry === 'string').join(', ');
+  }
+  return exception.message || 'Unauthorized';
+}
+
+function positiveIntegerConfig(
+  configService: ConfigService,
+  key: string,
+  fallback: number,
+): number {
+  const configured = configService.get<string | number>(key);
+  if (configured === undefined) return fallback;
+  const parsed = Number(configured);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
+    throw new Error(`${key} must be a positive integer`);
+  }
+  return parsed;
+}
+
+export function hasGeneratedRoutePermissions(
+  matchingRoles: readonly Role[],
+  grantedPermissions: ReadonlySet<TenantPermissionCode>,
+  requiredPermissions: readonly TenantPermissionCode[],
+): boolean {
+  if (matchingRoles.some((role) => PLATFORM_ROLE_DEFINITIONS[role].permissionMode === 'all')) {
+    return true;
+  }
+  return requiredPermissions.every((permission) => grantedPermissions.has(permission));
+}
 
 // WHY: Explicit @Inject() required — useClass + APP_GUARD relies on design:paramtypes
 // metadata which may not survive all build/runtime environments (Alpine musl, prod-only deps).
@@ -43,29 +103,33 @@ export interface JwtPayload {
   sub: string;
   /** @deprecated Optional -- JWT no longer carries email PII (H-08) */
   email?: string;
-  role?: string;
-  roles?: string[];
+  role?: unknown;
+  roles?: unknown;
+  resourcePermissions?: unknown;
   tenantId?: string;
+  mfaVerified?: boolean;
   type?: string;
   jti?: string;
   iat: number;
   exp: number;
 }
 
-export const IS_PUBLIC_KEY = 'isPublic';
-
-// Product language calls this actor "platform admin"; the auth domain
-// represents that platform-level operator with the existing SUPER_ADMIN role.
-const DEFAULT_ADMIN_ROLES = ['SUPER_ADMIN', 'super_admin'];
-
 @Injectable()
 export class PlatformAdminGuard implements CanActivate {
   private readonly logger = new Logger(PlatformAdminGuard.name);
+  private readonly failedAuthLimit: number;
+  private readonly failedAuthWindowMs: number;
 
   constructor(
-    @Inject(Reflector) private readonly reflector: Reflector,
     @Inject(ConfigService) private readonly configService: ConfigService,
     @Inject(JwtService) private readonly jwtService: JwtService,
+    @Inject(TOKEN_BLACKLIST) private readonly tokenBlacklist: ITokenBlacklist,
+    @Inject(USER_TOKEN_REVOCATION)
+    private readonly userTokenRevocation: IUserTokenRevocation,
+    @Inject(SlidingWindowStrategy)
+    private readonly rateLimiter: SlidingWindowStrategy,
+    @Inject(SecurityEventService)
+    private readonly securityEvents: SecurityEventService,
   ) {
     // SECURITY (CRITICAL-001): JWT_SECRET length validation removed in WS2.B
     // (2026-04-14). The check was a hold-over from the HS256 era — verifyAsync
@@ -73,36 +137,43 @@ export class PlatformAdminGuard implements CanActivate {
     // throws at startup if it is missing. There is no JWT_SECRET to validate
     // anymore; reading it would also trip the ESLint no-restricted-syntax
     // ban on JWT_SECRET reads (WS2.C).
+    this.failedAuthLimit = positiveIntegerConfig(this.configService, 'ADMIN_FAILED_AUTH_LIMIT', 20);
+    this.failedAuthWindowMs = positiveIntegerConfig(
+      this.configService,
+      'ADMIN_FAILED_AUTH_WINDOW_MS',
+      60_000,
+    );
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    // Check if route is marked as public
-    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
-      context.getHandler(),
-      context.getClass(),
-    ]);
-
-    if (isPublic) {
-      return true;
+    const routeId = adminRouteContractIdFromExecutionContext(context);
+    const authorization = ADMIN_SERVER_ROUTE_AUTHORIZATION[routeId];
+    if (authorization === undefined) {
+      throw new ServiceUnavailableException(
+        `admin authorization catalog has no entry for ${routeId}`,
+      );
     }
+    if (authorization.authentication === 'public') return true;
 
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const authHeader = request.headers.authorization;
 
     if (!authHeader) {
-      this.logger.debug(
-        `401 Unauthorized: No authorization header provided for ${request.method} ${request.url}`,
+      return this.rejectAuthentication(
+        context,
+        request,
+        new UnauthorizedException('No authorization header provided'),
       );
-      throw new UnauthorizedException('No authorization header provided');
     }
 
     const [type, token] = authHeader.split(' ');
 
     if (type !== 'Bearer' || !token) {
-      this.logger.debug(
-        `401 Unauthorized: Invalid authorization header format for ${request.method} ${request.url}`,
+      return this.rejectAuthentication(
+        context,
+        request,
+        new UnauthorizedException('Invalid authorization header format'),
       );
-      throw new UnauthorizedException('Invalid authorization header format');
     }
 
     try {
@@ -118,9 +189,25 @@ export class PlatformAdminGuard implements CanActivate {
         this.logger,
         this.configService.get<string>('NODE_ENV') === 'production',
       );
+      await enforceTokenNotRevoked(
+        payload,
+        {
+          tokenBlacklist: this.tokenBlacklist,
+          userTokenRevocation: this.userTokenRevocation,
+        },
+        this.logger,
+      );
 
       // Normalize user roles - tekil role varsa array'e çevir
-      const userRoles = payload.roles || (payload.role ? [payload.role] : []);
+      const claimedRoles = Array.isArray(payload.roles)
+        ? payload.roles
+        : typeof payload.role === 'string'
+          ? [payload.role]
+          : [];
+      const userRoles = claimedRoles.filter(isPlatformRole);
+      const resourcePermissions = Array.isArray(payload.resourcePermissions)
+        ? payload.resourcePermissions.filter(isTenantPermissionCode)
+        : [];
 
       // Attach user to request first (for later use in controllers).
       // WHY both `sub` and `id`: the shared backend-common ThrottlerGuard (and
@@ -135,8 +222,10 @@ export class PlatformAdminGuard implements CanActivate {
         id: payload.sub,
         email: payload.email,
         roles: userRoles,
-        role: payload.role || userRoles[0],
+        role: userRoles[0],
         tenantId: payload.tenantId,
+        mfaVerified: payload.mfaVerified === true,
+        resourcePermissions,
       };
 
       const requestContext = requestContextStorage.getStore();
@@ -145,62 +234,136 @@ export class PlatformAdminGuard implements CanActivate {
         requestContext.tenantId = payload.tenantId;
       }
 
-      // Admin API is a platform-admin boundary. In the current auth model that
-      // platform actor is encoded as SUPER_ADMIN; decorators may narrow to that
-      // role, but must never widen admin-api access to tenant/module roles.
-      const decoratedRoles = this.reflector.getAllAndOverride<string[]>(ROLES_KEY, [
-        context.getHandler(),
-        context.getClass(),
-      ]);
-      const requiredRoles = (decoratedRoles || DEFAULT_ADMIN_ROLES)
-        .filter((role) => role.toUpperCase() === 'SUPER_ADMIN');
-      if (requiredRoles.length === 0) {
-        requiredRoles.push('SUPER_ADMIN');
-      }
-
-      // Case-insensitive role check
-      const hasRequiredRole = userRoles.some((userRole) =>
-        requiredRoles.some(
-          (required) => required.toUpperCase() === userRole.toUpperCase(),
-        ),
+      const matchingRoles = userRoles.filter((userRole) =>
+        authorization.requiredRoles.includes(userRole),
       );
 
-      if (!hasRequiredRole) {
+      if (matchingRoles.length === 0) {
         // SECURITY: Log user ID only -- do not include email PII in logs (H-14)
         this.logger.warn(
           `Access denied for userId=${payload.sub}: ` +
-          `has roles [${userRoles.join(', ')}], requires one of [${requiredRoles.join(', ')}]`,
+            `has roles [${userRoles.join(', ')}], requires one of ` +
+            `[${authorization.requiredRoles.join(', ')}]`,
         );
         throw new ForbiddenException(
-          `Access denied. Required roles: ${requiredRoles.join(', ')}`,
+          `Access denied. Required roles: ${authorization.requiredRoles.join(', ')}`,
         );
+      }
+
+      const grantedPermissions = new Set(resourcePermissions);
+      if (
+        !hasGeneratedRoutePermissions(
+          matchingRoles,
+          grantedPermissions,
+          authorization.requiredPermissions,
+        )
+      ) {
+        const missingPermissions = authorization.requiredPermissions.filter(
+          (permission) => !grantedPermissions.has(permission),
+        );
+        this.logger.warn(
+          `Access denied for userId=${payload.sub}: missing generated route permissions ` +
+            `[${missingPermissions.join(', ')}]`,
+        );
+        throw new ForbiddenException('Access denied. Required permissions are missing');
       }
 
       return true;
     } catch (error) {
-      if (error instanceof ForbiddenException || error instanceof UnauthorizedException) {
+      if (error instanceof ForbiddenException) {
         throw error;
       }
 
+      if (error instanceof UnauthorizedException) {
+        return this.rejectAuthentication(context, request, error);
+      }
+
       if (error instanceof jwt.TokenExpiredError) {
-        this.logger.debug(
-          `401 Unauthorized: Token expired for ${request.method} ${request.url}`,
+        return this.rejectAuthentication(
+          context,
+          request,
+          new UnauthorizedException('Token has expired'),
         );
-        throw new UnauthorizedException('Token has expired');
       }
 
       if (error instanceof jwt.JsonWebTokenError) {
-        this.logger.debug(
-          `401 Unauthorized: Invalid JWT token for ${request.method} ${request.url} - ${(error as Error).message}`,
+        return this.rejectAuthentication(
+          context,
+          request,
+          new UnauthorizedException('Invalid token'),
         );
-        throw new UnauthorizedException('Invalid token');
       }
 
+      const details = errorDetails(error);
       this.logger.error(
-        `Authentication error for ${request.method} ${request.url}: ${(error as Error).message}`,
-        (error as Error).stack,
+        `Authentication error for ${request.method} ${request.url}: ${details.message}`,
+        details.stack,
       );
-      throw new UnauthorizedException('Authentication failed');
+      return this.rejectAuthentication(
+        context,
+        request,
+        new UnauthorizedException('Authentication failed'),
+      );
     }
+  }
+
+  /**
+   * PlatformAdminGuard runs before the ordinary ThrottlerGuard, therefore all
+   * failed JWT attempts are accounted here. The bucket is backed by the same
+   * atomic Redis sliding-window authority as normal requests.
+   */
+  private async rejectAuthentication(
+    context: ExecutionContext,
+    request: AuthenticatedRequest,
+    unauthorized: UnauthorizedException,
+  ): Promise<never> {
+    const ip = request.ip || request.socket?.remoteAddress || 'unknown-ip';
+    const reason = unauthorizedReason(unauthorized);
+    const result = await this.rateLimiter.consumeWithConfig(
+      `admin-failed-auth:ip:${ip}`,
+      this.failedAuthLimit,
+      this.failedAuthWindowMs,
+    );
+
+    this.logger.warn(
+      JSON.stringify({
+        event: 'admin_authentication_rejected',
+        method: request.method,
+        path: request.path || request.url,
+        ip,
+        reason,
+      }),
+    );
+    await this.securityEvents.publishTokenRejected({
+      ip,
+      userAgent: request.get?.('user-agent'),
+      reason,
+    });
+
+    if (!result.allowed) {
+      const retryAfter = result.retryAfter ?? Math.ceil(this.failedAuthWindowMs / 1000);
+      context
+        .switchToHttp()
+        .getResponse<{ setHeader?(name: string, value: string): void }>()
+        ?.setHeader?.('Retry-After', String(retryAfter));
+      await this.securityEvents.publishRateLimitExceeded({
+        ip,
+        key: 'admin-failed-auth:ip',
+        limit: this.failedAuthLimit,
+        windowMs: this.failedAuthWindowMs,
+        count: this.failedAuthLimit + 1,
+      });
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.TOO_MANY_REQUESTS,
+          message: 'Too many failed authentication attempts',
+          error: 'Too Many Requests',
+          retryAfter,
+        },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    throw unauthorized;
   }
 }

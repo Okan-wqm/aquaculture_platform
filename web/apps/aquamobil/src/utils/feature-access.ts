@@ -19,19 +19,19 @@
 
 import { useCallback } from 'react';
 
+import { Role as PlatformRole, type Role } from '@platform/identity';
 import { useAuth } from '@/hooks/useAuth';
 import { useMobilePermissions, type MobileFeature } from '@/hooks/useMobilePermissions';
-import type { Role } from '@/types';
 import { meetsRoleFloor } from '@/utils/role-rank';
 
 // Features whose backend resolver restricts the operation by role. The floor
 // MUST mirror the server @Roles matrix so the client never surfaces an action
 // the server will reject. Harvest === createHarvestRecord (MODULE_MANAGER+).
 const FEATURE_ROLE_FLOOR: Partial<Record<MobileFeature, Role>> = {
-  harvest: 'MODULE_MANAGER',
+  harvest: PlatformRole.MODULE_MANAGER,
   // FARM-HIGH-214: report drafts are reviewed/approved by managers only —
   // mirrors @Roles(TENANT_ADMIN, MODULE_MANAGER) on RegulatoryReportDraftResolver.
-  reports: 'MODULE_MANAGER',
+  reports: PlatformRole.MODULE_MANAGER,
 };
 
 /**

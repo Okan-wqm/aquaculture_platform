@@ -93,6 +93,25 @@ const VALID_FIXTURES: Record<TenantEventType, Record<string, unknown>> = {
     slug: 'acme-aqua',
     moduleIds: [MODULE_ID],
   }),
+  TenantOnboardingRequested: withBase('TenantOnboardingRequested', {
+    operationId: OP_ID,
+    name: 'Acme Aqua',
+    slug: 'acme-aqua',
+    moduleIds: [MODULE_ID],
+    generation: 1,
+  }),
+  TenantOnboardingAck: withBase('TenantOnboardingAck', {
+    operationId: OP_ID,
+    service: 'farm-service',
+    acknowledgedAt: '2026-06-12T12:01:00.000Z',
+    generation: 1,
+  }),
+  TenantOnboardingFailed: withBase('TenantOnboardingFailed', {
+    operationId: OP_ID,
+    service: 'farm-service',
+    error: 'farm onboarding projection failed',
+    generation: 1,
+  }),
   TenantProvisioned: withBase('TenantProvisioned', {
     operationId: OP_ID,
     name: 'Acme Aqua',
@@ -176,7 +195,7 @@ describe('validateTenantEvent (MEDIUM-007)', () => {
   const schemaKeys = Object.keys(TENANT_EVENT_SCHEMAS) as TenantEventType[];
 
   it('has a validator + fixture for every registered tenant event schema', () => {
-    expect(schemaKeys.length).toBe(13 + TENANT_ERASURE_TARGET_SERVICES.length * 3);
+    expect(schemaKeys.length).toBe(16 + TENANT_ERASURE_TARGET_SERVICES.length * 3);
     for (const key of schemaKeys) {
       expect(VALID_FIXTURES[key]).toBeDefined();
     }

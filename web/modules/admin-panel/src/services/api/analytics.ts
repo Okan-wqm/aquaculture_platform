@@ -2,100 +2,92 @@
  * Analytics API
  */
 
-import { apiFetch, buildQueryString } from '../http-client';
+import { apiFetch } from '../http-client';
 import type {
-  PaginatedResult,
   PaginationParams,
   DateRangeParams,
-  DashboardSummary,
-  KpiComparison,
-  TenantMetrics,
-  GrowthTrend,
   AnalyticsGranularity,
   AnalyticsRange,
-  TimeSeriesResponse,
-  RevenueAnalytics,
-  UsageAnalytics,
 } from '../types';
+import {
+  ADMIN_API_ROUTES,
+  type AdminApiRouteQuery,
+} from '../types/generated/admin-route-contracts';
+
+type AnalyticsSystemTrendQuery = AdminApiRouteQuery<'GET /analytics/system/api-calls'>;
+type AnalyticsSnapshotQuery = AdminApiRouteQuery<'GET /analytics/snapshots'>;
 
 export const analyticsApi = {
   // Dashboard
-  getDashboardSummary: () => apiFetch<DashboardSummary>('/analytics/dashboard'),
+  getDashboardSummary: () => apiFetch(ADMIN_API_ROUTES['GET /analytics/dashboard']),
   getKpiComparisons: (period?: string) =>
-    apiFetch<KpiComparison[]>(`/analytics/kpi-comparisons${period ? `?period=${period}` : ''}`),
+    apiFetch(ADMIN_API_ROUTES['GET /analytics/kpi-comparisons']),
 
   // Tenant Metrics
   getTenantMetrics: (params?: PaginationParams & { sortBy?: string; order?: 'asc' | 'desc' }) =>
-    apiFetch<PaginatedResult<TenantMetrics>>(`/analytics/tenants?${buildQueryString(params || {})}`),
+    apiFetch(ADMIN_API_ROUTES['GET /analytics/tenants']),
   getTenantGrowthTrend: (range: AnalyticsRange = '30d', granularity?: AnalyticsGranularity) =>
-    apiFetch<TimeSeriesResponse>(`/analytics/tenants/growth?${buildQueryString({ range, granularity })}`),
+    apiFetch(ADMIN_API_ROUTES['GET /analytics/tenants/growth'], {
+      query: { range: range, granularity: granularity },
+    }),
 
   // Revenue Analytics
   getRevenueAnalytics: (params?: DateRangeParams) =>
-    apiFetch<RevenueAnalytics>(`/analytics/revenue?${buildQueryString(params || {})}`),
+    apiFetch(ADMIN_API_ROUTES['GET /analytics/revenue']),
   getRevenueByPlan: (params?: DateRangeParams) =>
-    apiFetch<Array<{ plan: string; revenue: number; tenantCount: number }>>(`/analytics/revenue/by-plan?${buildQueryString(params || {})}`),
+    apiFetch(ADMIN_API_ROUTES['GET /analytics/revenue/by-plan']),
   getRevenueTrend: (range: AnalyticsRange = '30d', granularity?: AnalyticsGranularity) =>
-    apiFetch<TimeSeriesResponse>(`/analytics/revenue/trend?${buildQueryString({ range, granularity })}`),
+    apiFetch(ADMIN_API_ROUTES['GET /analytics/revenue/trend'], {
+      query: { range: range, granularity: granularity },
+    }),
 
   // Usage Analytics
   getUsageAnalytics: (params?: DateRangeParams) =>
-    apiFetch<UsageAnalytics>(`/analytics/usage?${buildQueryString(params || {})}`),
-  // TODO: No backend endpoint for /analytics/usage/api - removed
-  getApiUsageByEndpoint: (_params?: DateRangeParams & { limit?: number }) => {
-    throw new Error('Not implemented: no backend endpoint for /analytics/usage/api');
-  },
-
-  // TODO: No backend endpoint for /analytics/engagement - removed
-  getEngagementMetrics: (_params?: DateRangeParams) => {
-    throw new Error('Not implemented: no backend endpoint for /analytics/engagement');
-  },
-  // TODO: No backend endpoint for /analytics/engagement/features - removed
-  getFeatureUsage: (_params?: DateRangeParams) => {
-    throw new Error('Not implemented: no backend endpoint for /analytics/engagement/features');
-  },
-
-  // TODO: No backend endpoint for /analytics/geographic - removed
-  getGeographicDistribution: () => {
-    throw new Error('Not implemented: no backend endpoint for /analytics/geographic');
-  },
+    apiFetch(ADMIN_API_ROUTES['GET /analytics/usage']),
 
   // Churn Analytics
   getTenantChurn: (period = '30d') =>
-    apiFetch<GrowthTrend[]>(`/analytics/tenants/churn?period=${period}`),
+    apiFetch(ADMIN_API_ROUTES['GET /analytics/tenants/churn'], {
+      query: { period: period },
+    }),
 
   // User Metrics
-  getUserMetrics: (params?: DateRangeParams) =>
-    apiFetch<{ totalUsers: number; activeUsers: number; newUsers: number; churnedUsers: number }>(`/analytics/users?${buildQueryString(params || {})}`),
+  getUserMetrics: (params?: DateRangeParams) => apiFetch(ADMIN_API_ROUTES['GET /analytics/users']),
   getUserActivity: (range: AnalyticsRange = '30d', granularity?: AnalyticsGranularity) =>
-    apiFetch<TimeSeriesResponse>(`/analytics/users/activity?${buildQueryString({ range, granularity })}`),
+    apiFetch(ADMIN_API_ROUTES['GET /analytics/users/activity'], {
+      query: { range: range, granularity: granularity },
+    }),
   // Fix: backend GET /analytics/users/heatmap takes no query params
   getUserHeatmap: (_params?: DateRangeParams) =>
-    apiFetch<Array<{ hour: number; day: number; count: number }>>('/analytics/users/heatmap'),
+    apiFetch(ADMIN_API_ROUTES['GET /analytics/users/heatmap']),
 
   // Module & Feature Usage
-  getModuleUsageAnalytics: () =>
-    apiFetch<Array<{ moduleCode: string; moduleName: string; activeCount: number; totalAssigned: number }>>('/analytics/usage/modules'),
-  getFeatureAdoption: () =>
-    apiFetch<Array<{ feature: string; adoptionRate: number; trend: number }>>('/analytics/usage/features'),
+  getModuleUsageAnalytics: () => apiFetch(ADMIN_API_ROUTES['GET /analytics/usage/modules']),
+  getFeatureAdoption: () => apiFetch(ADMIN_API_ROUTES['GET /analytics/usage/features']),
 
   // Financial Metrics
   getFinancialMetrics: (params?: DateRangeParams) =>
-    apiFetch<{ mrr: number; arr: number; ltv: number; cac: number; churnRate: number }>(`/analytics/financial?${buildQueryString(params || {})}`),
+    apiFetch(ADMIN_API_ROUTES['GET /analytics/financial']),
   getFinancialRevenue: (period = '12m') =>
-    apiFetch<Array<{ period: string; revenue: number }>>(`/analytics/financial/revenue?period=${period}`),
-  getFinancialByPlan: () =>
-    apiFetch<Array<{ plan: string; revenue: number; percentage: number }>>('/analytics/financial/by-plan'),
+    apiFetch(ADMIN_API_ROUTES['GET /analytics/financial/revenue'], {
+      query: { period: period },
+    }),
+  getFinancialByPlan: () => apiFetch(ADMIN_API_ROUTES['GET /analytics/financial/by-plan']),
 
   // System Metrics (Analytics)
-  getSystemAnalytics: () =>
-    apiFetch<{ cpuUsage: number; memoryUsage: number; diskUsage: number; uptime: number }>('/analytics/system'),
-  getSystemApiCallsTrend: (period = '24h') =>
-    apiFetch<Array<{ timestamp: string; count: number }>>(`/analytics/system/api-calls?period=${period}`),
-  getSystemErrorsTrend: (period = '24h') =>
-    apiFetch<Array<{ timestamp: string; count: number; rate: number }>>(`/analytics/system/errors?period=${period}`),
+  getSystemAnalytics: () => apiFetch(ADMIN_API_ROUTES['GET /analytics/system']),
+  getSystemApiCallsTrend: (period: AnalyticsSystemTrendQuery['period'] = 'day') =>
+    apiFetch(ADMIN_API_ROUTES['GET /analytics/system/api-calls'], {
+      query: { period: period },
+    }),
+  getSystemErrorsTrend: (period: AnalyticsSystemTrendQuery['period'] = 'day') =>
+    apiFetch(ADMIN_API_ROUTES['GET /analytics/system/errors'], {
+      query: { period: period },
+    }),
 
   // Snapshots - backend requires mandatory 'category' param plus startDate/endDate
-  getAnalyticsSnapshots: (params: { category: 'tenant' | 'user' | 'financial' | 'system' | 'usage'; startDate: string; endDate: string; snapshotType?: 'daily' | 'weekly' | 'monthly' | 'yearly' }) =>
-    apiFetch<Array<{ id: string; date: string; metrics: Record<string, number> }>>(`/analytics/snapshots?${buildQueryString(params)}`),
+  getAnalyticsSnapshots: (params: AnalyticsSnapshotQuery) =>
+    apiFetch(ADMIN_API_ROUTES['GET /analytics/snapshots'], {
+      query: params,
+    }),
 };

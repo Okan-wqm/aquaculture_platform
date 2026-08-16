@@ -13,7 +13,8 @@
 import React, { useState, useCallback } from 'react';
 import { Card, Button, Badge } from '@aquaculture/shared-ui';
 import { messagingApi } from '../../services/adminApi';
-import type { ApiError } from '../../services/http-client';
+import type { ExportTriggerResult } from '../../services/api/messaging';
+import { adminApiErrorMessage } from '../../services/http-client';
 
 // ============================================================================
 // Types
@@ -22,15 +23,6 @@ import type { ApiError } from '../../services/http-client';
 interface ExportFormState {
   tenantId: string;
   format: 'csv' | 'json';
-}
-
-interface ExportResult {
-  jobId: string;
-  status: string;
-  format: string;
-  recordCount: number;
-  isUnderLegalHold: boolean;
-  exportedAt: string;
 }
 
 // ============================================================================
@@ -43,7 +35,7 @@ const MessagingTenantsPage: React.FC = () => {
     format: 'json',
   });
   const [exportLoading, setExportLoading] = useState(false);
-  const [exportResult, setExportResult] = useState<ExportResult | null>(null);
+  const [exportResult, setExportResult] = useState<ExportTriggerResult | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
   /** SECURITY: Validate UUID format before sending to API */
@@ -72,8 +64,7 @@ const MessagingTenantsPage: React.FC = () => {
       );
       setExportResult(result);
     } catch (err: unknown) {
-      const apiErr = err as ApiError;
-      setExportError(apiErr.message || 'Failed to trigger export.');
+      setExportError(adminApiErrorMessage(err, 'Failed to trigger export.'));
     } finally {
       setExportLoading(false);
     }
@@ -84,9 +75,7 @@ const MessagingTenantsPage: React.FC = () => {
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Messaging Tenants</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Per-tenant messaging management and controls
-        </p>
+        <p className="text-sm text-gray-500 mt-1">Per-tenant messaging management and controls</p>
       </div>
 
       {/* Tenant Overview -- Not Yet Available */}
@@ -94,8 +83,18 @@ const MessagingTenantsPage: React.FC = () => {
         <div className="p-6">
           <div className="flex items-start gap-4">
             <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
-              <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              <svg
+                className="w-5 h-5 text-amber-600"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                />
               </svg>
             </div>
             <div>
@@ -103,10 +102,10 @@ const MessagingTenantsPage: React.FC = () => {
                 Tenant Messaging Overview Not Yet Available
               </h3>
               <p className="text-sm text-gray-600 mt-1 leading-relaxed">
-                The tenant messaging overview table requires cross-service aggregation
-                that is not yet implemented in the messaging service. This involves
-                collecting per-tenant channel counts, message volumes, active users,
-                and storage usage across tenant boundaries.
+                The tenant messaging overview table requires cross-service aggregation that is not
+                yet implemented in the messaging service. This involves collecting per-tenant
+                channel counts, message volumes, active users, and storage usage across tenant
+                boundaries.
               </p>
               <div className="mt-3">
                 <Badge variant="warning">Backend: 501 Not Implemented</Badge>
@@ -119,17 +118,18 @@ const MessagingTenantsPage: React.FC = () => {
       {/* Data Export -- Working */}
       <Card>
         <div className="p-6">
-          <h3 className="text-sm font-semibold text-gray-900 mb-1">
-            Trigger Tenant Data Export
-          </h3>
+          <h3 className="text-sm font-semibold text-gray-900 mb-1">Trigger Tenant Data Export</h3>
           <p className="text-xs text-gray-500 mb-4">
-            Export all messaging data for a specific tenant. The export job runs
-            asynchronously and respects active legal holds.
+            Export all messaging data for a specific tenant. The export job runs asynchronously and
+            respects active legal holds.
           </p>
 
           <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
             <div className="flex-1 w-full">
-              <label htmlFor="export-tenant-id" className="block text-xs font-medium text-gray-700 mb-1">
+              <label
+                htmlFor="export-tenant-id"
+                className="block text-xs font-medium text-gray-700 mb-1"
+              >
                 Tenant ID (UUID)
               </label>
               <input
@@ -146,7 +146,10 @@ const MessagingTenantsPage: React.FC = () => {
               />
             </div>
             <div>
-              <label htmlFor="export-format" className="block text-xs font-medium text-gray-700 mb-1">
+              <label
+                htmlFor="export-format"
+                className="block text-xs font-medium text-gray-700 mb-1"
+              >
                 Format
               </label>
               <select
@@ -184,37 +187,15 @@ const MessagingTenantsPage: React.FC = () => {
           {/* Export Result */}
           {exportResult && (
             <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
-              <p className="text-sm font-medium text-green-800 mb-2">
-                Export job accepted
-              </p>
+              <p className="text-sm font-medium text-green-800 mb-2">Export job accepted</p>
               <dl className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
                 <div>
-                  <dt className="text-green-600 font-medium">Job ID</dt>
-                  <dd className="text-green-800 font-mono">{exportResult.jobId}</dd>
+                  <dt className="text-green-600 font-medium">Export ID</dt>
+                  <dd className="text-green-800 font-mono">{exportResult.exportId}</dd>
                 </div>
                 <div>
                   <dt className="text-green-600 font-medium">Status</dt>
                   <dd className="text-green-800">{exportResult.status}</dd>
-                </div>
-                <div>
-                  <dt className="text-green-600 font-medium">Format</dt>
-                  <dd className="text-green-800">{exportResult.format}</dd>
-                </div>
-                <div>
-                  <dt className="text-green-600 font-medium">Records</dt>
-                  <dd className="text-green-800">{exportResult.recordCount.toLocaleString()}</dd>
-                </div>
-                <div>
-                  <dt className="text-green-600 font-medium">Legal Hold</dt>
-                  <dd className="text-green-800">
-                    {exportResult.isUnderLegalHold ? 'Yes' : 'No'}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-green-600 font-medium">Exported At</dt>
-                  <dd className="text-green-800">
-                    {new Date(exportResult.exportedAt).toLocaleString()}
-                  </dd>
                 </div>
               </dl>
             </div>
@@ -224,16 +205,13 @@ const MessagingTenantsPage: React.FC = () => {
 
       {/* Architecture Note */}
       <Card className="p-4 bg-blue-50 border-blue-200">
-        <h3 className="text-sm font-semibold text-blue-900 mb-1">
-          Architecture Note
-        </h3>
+        <h3 className="text-sm font-semibold text-blue-900 mb-1">Architecture Note</h3>
         <p className="text-xs text-blue-700 leading-relaxed">
-          The tenant overview requires a cross-tenant aggregation endpoint in
-          messaging-service that collects channel counts, message volumes,
-          active user counts, and storage usage. This involves querying each
-          tenant schema in isolation and merging results, which needs the
-          multi-tenant query infrastructure to be extended. Until then, use the
-          per-tenant compliance and audit pages for individual tenant visibility.
+          The tenant overview requires a cross-tenant aggregation endpoint in messaging-service that
+          collects channel counts, message volumes, active user counts, and storage usage. This
+          involves querying each tenant schema in isolation and merging results, which needs the
+          multi-tenant query infrastructure to be extended. Until then, use the per-tenant
+          compliance and audit pages for individual tenant visibility.
         </p>
       </Card>
     </div>

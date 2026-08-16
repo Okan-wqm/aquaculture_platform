@@ -41,5 +41,5 @@
       "dependsOn": ["shared-ui:build"]
     }
   },
-  "implicitDependencies": ["shared-ui"]
+  "implicitDependencies": ["reporting-contracts", "shared-ui"]
 }

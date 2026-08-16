@@ -110,7 +110,7 @@ describe('SchemaManagerService', () => {
       expect(exists).toBe(true);
       expect(mockQuery).toHaveBeenCalledWith(
         expect.stringContaining('information_schema.schemata'),
-        ['tenant_4b529829ea7948da']
+        ['tenant_4b529829ea7948da'],
       );
     });
 
@@ -167,7 +167,7 @@ describe('SchemaManagerService', () => {
       expect(exists).toBe(true);
       expect(mockQuery).toHaveBeenCalledWith(
         expect.stringContaining('information_schema.schemata'),
-        ['tenant_4b529829ea7948da']
+        ['tenant_4b529829ea7948da'],
       );
     });
   });
@@ -235,9 +235,7 @@ describe('SchemaManagerService', () => {
       expect(result.success).toBe(false);
       expect(result.errors.join(' ')).toContain('owned by aqua-db-migrate');
 
-      const createCalls = mockQuery.mock.calls.filter(
-        call => call[0].includes('CREATE SCHEMA')
-      );
+      const createCalls = mockQuery.mock.calls.filter((call) => call[0].includes('CREATE SCHEMA'));
       expect(createCalls.length).toBe(0);
     });
 
@@ -263,9 +261,7 @@ describe('SchemaManagerService', () => {
       expect(result.alreadyExists).toBe(true);
       expect(result.success).toBe(true);
 
-      const createCalls = mockQuery.mock.calls.filter(
-        call => call[0].includes('CREATE SCHEMA')
-      );
+      const createCalls = mockQuery.mock.calls.filter((call) => call[0].includes('CREATE SCHEMA'));
       expect(createCalls.length).toBe(0);
     });
 
@@ -275,7 +271,9 @@ describe('SchemaManagerService', () => {
       expect(result.success).toBe(false);
       expect(result.schemaName).toBe(schemaName);
       expect(result.tablesCreated).toEqual([]);
-      expect(result.errors.join(' ')).toContain('runtime services must write a provisioning request ledger entry');
+      expect(result.errors.join(' ')).toContain(
+        'runtime services must write a provisioning request ledger entry',
+      );
       expect(result.duration).toBeGreaterThanOrEqual(0);
     });
 
@@ -295,9 +293,7 @@ describe('SchemaManagerService', () => {
 
       expect(result.success).toBe(false);
       expect(result.errors).toContain('No tenant modules requested for schema provisioning');
-      expect(mockQuery).not.toHaveBeenCalledWith(
-        expect.stringContaining('CREATE SCHEMA'),
-      );
+      expect(mockQuery).not.toHaveBeenCalledWith(expect.stringContaining('CREATE SCHEMA'));
     });
 
     it('should not attempt rollback drop when runtime DDL never starts', async () => {
@@ -331,9 +327,7 @@ describe('SchemaManagerService', () => {
       expect(result.success).toBe(false);
       expect(result.errors.length).toBeGreaterThan(0);
 
-      const dropCalls = mockQuery.mock.calls.filter(
-        call => call[0].includes('DROP SCHEMA')
-      );
+      const dropCalls = mockQuery.mock.calls.filter((call) => call[0].includes('DROP SCHEMA'));
       expect(dropCalls.length).toBe(0);
     });
 
@@ -355,17 +349,15 @@ describe('SchemaManagerService', () => {
 
       expect(result.success).toBe(false);
 
-      const advisoryCalls = mockQuery.mock.calls.filter(
-        call => call[0].includes('pg_advisory')
-      );
+      const advisoryCalls = mockQuery.mock.calls.filter((call) => call[0].includes('pg_advisory'));
       expect(advisoryCalls.length).toBe(0);
     });
 
     it('should not grant schema usage from runtime services', async () => {
       await service.createTenantSchema(tenantId);
 
-      const grantUsageCalls = mockQuery.mock.calls.filter(
-        call => call[0].includes('GRANT USAGE ON SCHEMA')
+      const grantUsageCalls = mockQuery.mock.calls.filter((call) =>
+        call[0].includes('GRANT USAGE ON SCHEMA'),
       );
       expect(grantUsageCalls.length).toBe(0);
     });
@@ -373,8 +365,8 @@ describe('SchemaManagerService', () => {
     it('should not grant table privileges from runtime services', async () => {
       await service.createTenantSchema(tenantId);
 
-      const grantTablesCalls = mockQuery.mock.calls.filter(
-        call => call[0].includes('GRANT ALL PRIVILEGES ON ALL TABLES')
+      const grantTablesCalls = mockQuery.mock.calls.filter((call) =>
+        call[0].includes('GRANT ALL PRIVILEGES ON ALL TABLES'),
       );
       expect(grantTablesCalls.length).toBe(0);
     });
@@ -382,8 +374,8 @@ describe('SchemaManagerService', () => {
     it('should not grant sequence privileges from runtime services', async () => {
       await service.createTenantSchema(tenantId);
 
-      const grantSeqCalls = mockQuery.mock.calls.filter(
-        call => call[0].includes('GRANT ALL PRIVILEGES ON ALL SEQUENCES')
+      const grantSeqCalls = mockQuery.mock.calls.filter((call) =>
+        call[0].includes('GRANT ALL PRIVILEGES ON ALL SEQUENCES'),
       );
       expect(grantSeqCalls.length).toBe(0);
     });
@@ -457,8 +449,8 @@ describe('SchemaManagerService', () => {
       await service.createTenantSchema(tenantId, ['farm']);
 
       // INSERT should not be called for reference data when target already has data
-      const refDataInserts = insertCalls.filter(sql =>
-        sql.includes('equipment_types') || sql.includes('feed_types')
+      const refDataInserts = insertCalls.filter(
+        (sql) => sql.includes('equipment_types') || sql.includes('feed_types'),
       );
       expect(refDataInserts.length).toBe(0);
     });
@@ -478,7 +470,7 @@ describe('SchemaManagerService', () => {
         if (sql.includes('information_schema.tables')) {
           return Promise.resolve([{ '?column?': 1 }]);
         }
-        if (sql.includes("pg_extension") && sql.includes("timescaledb")) {
+        if (sql.includes('pg_extension') && sql.includes('timescaledb')) {
           return Promise.resolve([{ '?column?': 1 }]); // TimescaleDB installed
         }
         if (sql.includes('timescaledb_information.hypertables')) {
@@ -498,8 +490,8 @@ describe('SchemaManagerService', () => {
 
       await service.createTenantSchema(tenantId, ['sensor']);
 
-      const hypertableCalls = mockQuery.mock.calls.filter(
-        call => call[0].includes('create_hypertable')
+      const hypertableCalls = mockQuery.mock.calls.filter((call) =>
+        call[0].includes('create_hypertable'),
       );
       expect(hypertableCalls.length).toBe(0);
     });
@@ -515,7 +507,7 @@ describe('SchemaManagerService', () => {
         if (sql.includes('information_schema.tables')) {
           return Promise.resolve([{ '?column?': 1 }]);
         }
-        if (sql.includes("pg_extension") && sql.includes("timescaledb")) {
+        if (sql.includes('pg_extension') && sql.includes('timescaledb')) {
           return Promise.resolve([{ '?column?': 1 }]);
         }
         if (sql.includes('timescaledb_information')) {
@@ -529,8 +521,8 @@ describe('SchemaManagerService', () => {
 
       await service.createTenantSchema(tenantId, ['sensor']);
 
-      const retentionCalls = mockQuery.mock.calls.filter(
-        call => call[0].includes('add_retention_policy')
+      const retentionCalls = mockQuery.mock.calls.filter((call) =>
+        call[0].includes('add_retention_policy'),
       );
       expect(retentionCalls.length).toBe(0);
     });
@@ -546,7 +538,7 @@ describe('SchemaManagerService', () => {
         if (sql.includes('information_schema.tables')) {
           return Promise.resolve([{ '?column?': 1 }]);
         }
-        if (sql.includes("pg_extension") && sql.includes("timescaledb")) {
+        if (sql.includes('pg_extension') && sql.includes('timescaledb')) {
           return Promise.resolve([{ '?column?': 1 }]);
         }
         if (sql.includes('timescaledb_information')) {
@@ -560,8 +552,8 @@ describe('SchemaManagerService', () => {
 
       await service.createTenantSchema(tenantId, ['sensor']);
 
-      const compressionCalls = mockQuery.mock.calls.filter(
-        call => call[0].includes('timescaledb.compress')
+      const compressionCalls = mockQuery.mock.calls.filter((call) =>
+        call[0].includes('timescaledb.compress'),
       );
       expect(compressionCalls.length).toBe(0);
     });
@@ -577,7 +569,7 @@ describe('SchemaManagerService', () => {
         if (sql.includes('information_schema.tables')) {
           return Promise.resolve([{ '?column?': 1 }]);
         }
-        if (sql.includes("pg_extension") && sql.includes("timescaledb")) {
+        if (sql.includes('pg_extension') && sql.includes('timescaledb')) {
           return Promise.resolve([]); // TimescaleDB NOT installed
         }
         if (sql.includes('COUNT(*)')) {
@@ -588,8 +580,8 @@ describe('SchemaManagerService', () => {
 
       await service.createTenantSchema(tenantId, ['sensor']);
 
-      const hypertableCalls = mockQuery.mock.calls.filter(
-        call => call[0].includes('create_hypertable')
+      const hypertableCalls = mockQuery.mock.calls.filter((call) =>
+        call[0].includes('create_hypertable'),
       );
       expect(hypertableCalls.length).toBe(0);
     });
@@ -605,7 +597,7 @@ describe('SchemaManagerService', () => {
         if (sql.includes('information_schema.tables')) {
           return Promise.resolve([{ '?column?': 1 }]);
         }
-        if (sql.includes("pg_extension") && sql.includes("timescaledb")) {
+        if (sql.includes('pg_extension') && sql.includes('timescaledb')) {
           return Promise.resolve([{ '?column?': 1 }]);
         }
         if (sql.includes('timescaledb_information')) {
@@ -620,8 +612,9 @@ describe('SchemaManagerService', () => {
       await service.createTenantSchema(tenantId, ['sensor']);
 
       const aggregateCalls = mockQuery.mock.calls.filter(
-        call => call[0].includes('CREATE MATERIALIZED VIEW') &&
-               (call[0].includes('sensor_hourly') || call[0].includes('sensor_daily'))
+        (call) =>
+          call[0].includes('CREATE MATERIALIZED VIEW') &&
+          (call[0].includes('sensor_hourly') || call[0].includes('sensor_daily')),
       );
       expect(aggregateCalls.length).toBeGreaterThanOrEqual(0);
     });
@@ -630,23 +623,15 @@ describe('SchemaManagerService', () => {
   describe('deleteTenantSchema', () => {
     const tenantId = '4b529829-ea79-48da-982c-cd6fbec8ffb7';
     const schemaName = 'tenant_4b529829ea7948da';
-    const createProof = (): CleanupDropProof => createCleanupDropProof({
-      operationId: 'cleanup-run-id',
-      tenantId,
-      purpose: 'tenant_deprovision',
-      actorId: 'tenant-deprovision-workflow',
-      reason: 'unit test tenant cleanup',
-      legalHoldCheckedAt: new Date('2026-01-01T00:00:00.000Z'),
-      backup: {
-        id: 'backup-id',
-        checksum: 'a'.repeat(64),
-        sizeBytes: 1024,
-        isEncrypted: true,
-        uri: 's3://tenant-backups/backup-id',
-        createdAt: new Date('2026-01-01T00:00:00.000Z'),
-        retentionDays: 365,
-      },
-    });
+    const createProof = (): CleanupDropProof =>
+      createCleanupDropProof({
+        operationId: 'cleanup-run-id',
+        tenantId,
+        purpose: 'tenant_erasure',
+        actorId: 'tenant-erasure-orchestrator',
+        reason: 'unit test tenant cleanup',
+        legalHoldCheckedAt: new Date('2026-01-01T00:00:00.000Z'),
+      });
 
     beforeEach(() => {
       mockQuery.mockImplementation((sql: string) => {
@@ -656,12 +641,13 @@ describe('SchemaManagerService', () => {
 
     it('should reject deletion without cleanup proof', async () => {
       await expect(
-        (service as unknown as { deleteTenantSchema: (tenantId: string) => Promise<unknown> })
-          .deleteTenantSchema(tenantId),
+        (
+          service as unknown as { deleteTenantSchema: (tenantId: string) => Promise<unknown> }
+        ).deleteTenantSchema(tenantId),
       ).rejects.toThrow(BadRequestException);
 
-      const dropCalls = mockQuery.mock.calls.filter(
-        call => call[0].includes('DROP SCHEMA IF EXISTS')
+      const dropCalls = mockQuery.mock.calls.filter((call) =>
+        call[0].includes('DROP SCHEMA IF EXISTS'),
       );
       expect(dropCalls.length).toBe(0);
     });
@@ -673,7 +659,7 @@ describe('SchemaManagerService', () => {
       expect(result.error).toContain('owned by aqua-db-migrate');
 
       const dropCalls = mockQuery.mock.calls.filter(
-        call => call[0].includes('DROP SCHEMA IF EXISTS') && call[0].includes('CASCADE')
+        (call) => call[0].includes('DROP SCHEMA IF EXISTS') && call[0].includes('CASCADE'),
       );
       expect(dropCalls.length).toBe(0);
     });
@@ -682,7 +668,7 @@ describe('SchemaManagerService', () => {
       await service.deleteTenantSchema(tenantId, createProof());
 
       const lockCalls = mockQuery.mock.calls.filter(
-        call => call[0].includes('pg_advisory_lock') && !call[0].includes('unlock')
+        (call) => call[0].includes('pg_advisory_lock') && !call[0].includes('unlock'),
       );
       expect(lockCalls.length).toBe(0);
     });
@@ -690,8 +676,8 @@ describe('SchemaManagerService', () => {
     it('should not release advisory lock after runtime deletion rejection', async () => {
       await service.deleteTenantSchema(tenantId, createProof());
 
-      const unlockCalls = mockQuery.mock.calls.filter(
-        call => call[0].includes('pg_advisory_unlock')
+      const unlockCalls = mockQuery.mock.calls.filter((call) =>
+        call[0].includes('pg_advisory_unlock'),
       );
       expect(unlockCalls.length).toBe(0);
     });
@@ -709,8 +695,8 @@ describe('SchemaManagerService', () => {
       expect(result.success).toBe(false);
       expect(result.error).toContain('owned by aqua-db-migrate');
 
-      const unlockCalls = mockQuery.mock.calls.filter(
-        call => call[0].includes('pg_advisory_unlock')
+      const unlockCalls = mockQuery.mock.calls.filter((call) =>
+        call[0].includes('pg_advisory_unlock'),
       );
       expect(unlockCalls.length).toBe(0);
     });
@@ -730,8 +716,8 @@ describe('SchemaManagerService', () => {
       mockQuery.mockResolvedValue([]);
       await service.schemaExists(schemaName);
 
-      const existsCalls = mockQuery.mock.calls.filter(
-        call => call[0].includes('information_schema.schemata')
+      const existsCalls = mockQuery.mock.calls.filter((call) =>
+        call[0].includes('information_schema.schemata'),
       );
       expect(existsCalls.length).toBe(0);
     });
@@ -744,10 +730,10 @@ describe('SchemaManagerService', () => {
       const exists = await service.tableExists('tenant_test', 'sensors');
 
       expect(exists).toBe(true);
-      expect(mockQuery).toHaveBeenCalledWith(
-        expect.stringContaining('information_schema.tables'),
-        ['tenant_test', 'sensors']
-      );
+      expect(mockQuery).toHaveBeenCalledWith(expect.stringContaining('information_schema.tables'), [
+        'tenant_test',
+        'sensors',
+      ]);
     });
 
     it('should return false if table does not exist', async () => {
@@ -814,15 +800,14 @@ describe('SchemaManagerService', () => {
 
       await service.setTenantSearchPathInTransaction(
         mockManager,
-        '4b529829-ea79-48da-982c-cd6fbec8ffb7'
+        '4b529829-ea79-48da-982c-cd6fbec8ffb7',
       );
 
       // Implementation uses pg_catalog.set_config with is_local=true (not SET LOCAL search_path TO)
       // The 'true' third argument makes the change transaction-scoped.
-      expect(mockManager.query).toHaveBeenCalledWith(
-        expect.stringContaining('set_config'),
-        ['tenant_4b529829ea7948da']
-      );
+      expect(mockManager.query).toHaveBeenCalledWith(expect.stringContaining('set_config'), [
+        'tenant_4b529829ea7948da',
+      ]);
     });
   });
 
@@ -832,15 +817,11 @@ describe('SchemaManagerService', () => {
 
     it('should migrate data from source schema', async () => {
       mockQuery
-        .mockResolvedValueOnce([{ count: '0' }])  // Before count
-        .mockResolvedValueOnce([])                 // INSERT
+        .mockResolvedValueOnce([{ count: '0' }]) // Before count
+        .mockResolvedValueOnce([]) // INSERT
         .mockResolvedValueOnce([{ count: '100' }]); // After count
 
-      const result = await service.migrateDataToTenantSchema(
-        tenantId,
-        'public',
-        'sensors'
-      );
+      const result = await service.migrateDataToTenantSchema(tenantId, 'public', 'sensors');
 
       expect(result.rowsMigrated).toBe(100);
       expect(result.error).toBeUndefined();
@@ -851,21 +832,16 @@ describe('SchemaManagerService', () => {
         .mockResolvedValueOnce([{ count: '0' }])
         .mockRejectedValueOnce(new Error('Insert failed'));
 
-      const result = await service.migrateDataToTenantSchema(
-        tenantId,
-        'public',
-        'sensors'
-      );
+      const result = await service.migrateDataToTenantSchema(tenantId, 'public', 'sensors');
 
       expect(result.rowsMigrated).toBe(0);
       expect(result.error).toContain('Insert failed');
     });
 
     it('should only fall back to camelCase tenantId when tenant_id column is absent', async () => {
-      const undefinedColumnError = Object.assign(
-        new Error('column "tenant_id" does not exist'),
-        { code: '42703' },
-      );
+      const undefinedColumnError = Object.assign(new Error('column "tenant_id" does not exist'), {
+        code: '42703',
+      });
 
       mockQuery
         .mockResolvedValueOnce([{ count: '0' }])
@@ -873,17 +849,11 @@ describe('SchemaManagerService', () => {
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([{ count: '25' }]);
 
-      const result = await service.migrateDataToTenantSchema(
-        tenantId,
-        'public',
-        'legacy_farms'
-      );
+      const result = await service.migrateDataToTenantSchema(tenantId, 'public', 'legacy_farms');
 
       expect(result.rowsMigrated).toBe(25);
 
-      const insertCalls = mockQuery.mock.calls.filter(
-        call => call[0].includes('INSERT INTO')
-      );
+      const insertCalls = mockQuery.mock.calls.filter((call) => call[0].includes('INSERT INTO'));
       expect(insertCalls[0][0]).toContain('WHERE tenant_id = $1');
       expect(insertCalls[1][0]).toContain('WHERE "tenantId" = $1');
     });
@@ -896,9 +866,7 @@ describe('SchemaManagerService', () => {
 
       await service.migrateDataToTenantSchema(tenantId, 'public', 'sensors');
 
-      const insertCall = mockQuery.mock.calls.find(
-        call => call[0].includes('INSERT INTO')
-      );
+      const insertCall = mockQuery.mock.calls.find((call) => call[0].includes('INSERT INTO'));
       expect(insertCall[0]).toContain('ON CONFLICT DO NOTHING');
     });
   });
@@ -932,9 +900,7 @@ describe('SchemaManagerService', () => {
       await service.createTenantSchema('11111111-1111-1111-1111-111111111111');
       await service.createTenantSchema('22222222-2222-2222-2222-222222222222');
 
-      const advisoryCalls = mockQuery.mock.calls.filter((call) =>
-        call[0].includes('pg_advisory'),
-      );
+      const advisoryCalls = mockQuery.mock.calls.filter((call) => call[0].includes('pg_advisory'));
       expect(advisoryCalls).toEqual([]);
     });
   });

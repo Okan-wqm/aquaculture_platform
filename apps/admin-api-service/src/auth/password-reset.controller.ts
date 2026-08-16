@@ -1,4 +1,5 @@
 import { ThrottlePasswordReset } from '@aquaculture/backend-common/security';
+import { Public } from '@aquaculture/backend-common/decorators';
 import {
   BadGatewayException,
   Controller,
@@ -10,7 +11,6 @@ import {
   BadRequestException,
   Inject,
   Req,
-  SetMetadata,
 } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { ApiTags } from '@nestjs/swagger';
@@ -23,6 +23,13 @@ import {
 } from '@platform/event-contracts';
 import { IsEmail, IsString, MinLength, MaxLength } from 'class-validator';
 import { catchError, firstValueFrom, throwError, timeout } from 'rxjs';
+import { AdminResponseContract } from '../shared/admin-response-contract.decorator';
+import {
+  passwordResetForgotPasswordResponseContract,
+  type PasswordResetForgotPasswordResponseDto,
+  passwordResetResetPasswordResponseContract,
+  type PasswordResetResetPasswordResponseDto,
+} from './contracts/admin-http-response.contract';
 
 const DEFAULT_AUTH_NATS_TIMEOUT_MS = 15_000;
 
@@ -42,10 +49,6 @@ export class ResetPasswordDto {
   newPassword!: string;
 }
 
-// Mark endpoints as public (bypass auth guard)
-const IS_PUBLIC_KEY = 'isPublic';
-const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
-
 type MinimalRequest = {
   ip?: string;
   headers?: Record<string, string | string[] | undefined>;
@@ -62,15 +65,15 @@ export class PasswordResetController {
     private readonly authNatsClient: ClientProxy,
   ) {
     const configured = parseInt(process.env['AUTH_NATS_TIMEOUT_MS'] ?? '', 10);
-    this.timeoutMs = Number.isFinite(configured) && configured > 0
-      ? configured
-      : DEFAULT_AUTH_NATS_TIMEOUT_MS;
+    this.timeoutMs =
+      Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_AUTH_NATS_TIMEOUT_MS;
   }
 
   /**
    * Request password reset - sends email with reset link
    * Always returns success to prevent email enumeration
    */
+  @AdminResponseContract(passwordResetForgotPasswordResponseContract)
   @Post('forgot-password')
   @Public()
   @ThrottlePasswordReset()
@@ -78,7 +81,7 @@ export class PasswordResetController {
   async forgotPassword(
     @Body() dto: ForgotPasswordDto,
     @Req() request: MinimalRequest,
-  ): Promise<{ success: boolean; message: string }> {
+  ): Promise<PasswordResetForgotPasswordResponseDto> {
     try {
       await this.sendAuthCommand<
         PublicRequestPasswordResetCommand,
@@ -106,6 +109,7 @@ export class PasswordResetController {
   /**
    * Reset password using token from email
    */
+  @AdminResponseContract(passwordResetResetPasswordResponseContract)
   @Post('reset-password')
   @Public()
   @ThrottlePasswordReset()
@@ -113,7 +117,7 @@ export class PasswordResetController {
   async resetPassword(
     @Body() dto: ResetPasswordDto,
     @Req() request: MinimalRequest,
-  ): Promise<{ success: boolean; message: string }> {
+  ): Promise<PasswordResetResetPasswordResponseDto> {
     const result = await this.sendAuthCommand<
       PublicResetPasswordCommand,
       PublicResetPasswordResult
@@ -147,9 +151,7 @@ export class PasswordResetController {
         this.authNatsClient.send<TResult, TCommand>(subject, command).pipe(
           timeout(this.timeoutMs),
           catchError((err: Error) => {
-            this.logger.error(
-              `NATS request failed: subject=${subject}, error=${err.message}`,
-            );
+            this.logger.error(`NATS request failed: subject=${subject}, error=${err.message}`);
             return throwError(() => err);
           }),
         ),

@@ -5,6 +5,12 @@ import { verifyServiceIdentityRequest } from '@aquaculture/backend-common/utils'
 
 import { AuthenticatedDataSource } from './authenticated-data-source';
 import type { GatewayContext } from './authenticated-data-source';
+import {
+  assertImpersonationReceiptLedgerReconciled,
+  commitImpersonationOperationReceipt,
+  impersonationReceiptLedgerSnapshot,
+  initializeImpersonationReceiptLedger,
+} from '../security/impersonation-receipt-completion';
 
 const SECRET = 'gateway-subgraph-hmac-test-secret';
 const TENANT_ID = '11111111-1111-4111-8111-111111111111';
@@ -43,7 +49,14 @@ function createContext(tenantId = ''): GatewayContext {
   };
 }
 
-function createCapturingDataSource(): {
+function installSuccessfulReceiptAuthorizer(context: GatewayContext): void {
+  initializeImpersonationReceiptLedger(context.req, 'POST /graphql');
+  context.req.authorizeImpersonationOperations = jest.fn(async (operations) => {
+    commitImpersonationOperationReceipt(context.req, operations);
+  });
+}
+
+function createCapturingDataSource(serviceAudience?: string): {
   dataSource: AuthenticatedDataSource;
   calls: Array<{ url: string; init: RequestInit }>;
 } {
@@ -63,6 +76,7 @@ function createCapturingDataSource(): {
     dataSource: new AuthenticatedDataSource({
       url: 'http://auth-service:3000/graphql',
       secret: SECRET,
+      serviceAudience,
       fetcher,
     }),
     calls,
@@ -189,7 +203,7 @@ describe('AuthenticatedDataSource service identity signing', () => {
   });
 
   it('mints a signed effective-tenant context for a platform SUPER_ADMIN', async () => {
-    const { dataSource, calls } = createCapturingDataSource();
+    const { dataSource, calls } = createCapturingDataSource('auth');
     const { headers, record } = createHeaderCollector();
     const context = createContext();
     context.req.user = {
@@ -201,8 +215,19 @@ describe('AuthenticatedDataSource service identity signing', () => {
       exp: 2,
     };
     context.req.effectiveTenantId = TENANT_ID;
+    context.req.impersonationSessionId = '33333333-3333-4333-8333-333333333333';
+    context.req.impersonationPermissions = {
+      canViewData: true,
+      canModifyData: true,
+      canAccessSettings: false,
+      canManageUsers: true,
+      canViewBilling: false,
+      canExportData: false,
+      allowedModules: ['auth'],
+    };
+    installSuccessfulReceiptAuthorizer(context);
     const request = {
-      query: 'mutation SetAccess { setUserSiteAccess { id } }',
+      query: 'mutation UpdateUser { updateTenantUser { id } }',
       http: {
         method: 'POST',
         url: 'http://auth-service:3000/graphql',
@@ -210,7 +235,7 @@ describe('AuthenticatedDataSource service identity signing', () => {
       },
     };
 
-    dataSource.willSendRequest(willSendRequestOptions(request, context));
+    await dataSource.willSendRequest(willSendRequestOptions(request, context));
 
     expect(record['x-tenant-id']).toBe(TENANT_ID);
     expect(record['x-act-as-tenant']).toBeUndefined();
@@ -227,6 +252,8 @@ describe('AuthenticatedDataSource service identity signing', () => {
       effectiveTenantId: TENANT_ID,
       roles: ['SUPER_ADMIN'],
       mfaVerified: true,
+      impersonationSessionId: '33333333-3333-4333-8333-333333333333',
+      impersonationPermissions: expect.objectContaining({ canManageUsers: true }),
     });
 
     const wireBody = JSON.stringify({ query: request.query });
@@ -235,6 +262,7 @@ describe('AuthenticatedDataSource service identity signing', () => {
       headers: { ...record, 'content-type': 'application/json' },
       body: wireBody,
     });
+    expect(() => assertImpersonationReceiptLedgerReconciled(context.req)).not.toThrow();
 
     const sent = calls[0]?.init;
     expect(
@@ -256,6 +284,134 @@ describe('AuthenticatedDataSource service identity signing', () => {
       effectiveTenantId: TENANT_ID,
       serviceName: 'gateway-api',
     });
+  });
+
+  it('binds canonical impersonation session and effective permissions into the assertion', async () => {
+    const { dataSource } = createCapturingDataSource('auth');
+    const { headers, record } = createHeaderCollector();
+    const context = createContext();
+    context.req.user = {
+      sub: 'platform-admin',
+      roles: ['SUPER_ADMIN'],
+      mfaVerified: true,
+      iat: 1,
+      exp: 2,
+    };
+    context.req.effectiveTenantId = TENANT_ID;
+    context.req.impersonationSessionId = '33333333-3333-4333-8333-333333333333';
+    context.req.impersonationPermissions = {
+      canViewData: false,
+      canModifyData: false,
+      canAccessSettings: false,
+      canManageUsers: true,
+      canViewBilling: false,
+      canExportData: false,
+      allowedModules: ['auth'],
+    };
+    installSuccessfulReceiptAuthorizer(context);
+    const request = {
+      query: 'query TenantUsers { tenantUsers { id } }',
+      http: {
+        method: 'POST',
+        url: 'http://auth-service:3000/graphql',
+        headers,
+      },
+    };
+
+    await dataSource.willSendRequest(willSendRequestOptions(request, context));
+
+    const encoded = record['x-verified-user-assertion'];
+    if (!encoded) throw new Error('expected canonical impersonation assertion');
+    expect(JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'))).toMatchObject({
+      impersonationSessionId: '33333333-3333-4333-8333-333333333333',
+      impersonationPermissions: {
+        canManageUsers: true,
+        allowedModules: ['auth'],
+      },
+    });
+  });
+
+  it('denies a subgraph operation outside the effective impersonation grants', async () => {
+    const { dataSource } = createCapturingDataSource('billing');
+    const { headers, record } = createHeaderCollector();
+    const context = createContext();
+    context.req.user = {
+      sub: 'platform-admin',
+      roles: ['SUPER_ADMIN'],
+      mfaVerified: true,
+      iat: 1,
+      exp: 2,
+    };
+    context.req.effectiveTenantId = TENANT_ID;
+    context.req.impersonationSessionId = '33333333-3333-4333-8333-333333333333';
+    context.req.impersonationPermissions = {
+      canViewData: true,
+      canModifyData: false,
+      canAccessSettings: false,
+      canManageUsers: false,
+      canViewBilling: false,
+      canExportData: false,
+    };
+    const request = {
+      query: 'query Invoices { invoices { id } }',
+      http: {
+        method: 'POST',
+        url: 'http://billing-service:3000/graphql',
+        headers,
+      },
+    };
+
+    await expect(
+      dataSource.willSendRequest(willSendRequestOptions(request, context)),
+    ).rejects.toThrow('Impersonation session does not authorize this operation');
+  });
+
+  it('rejects an outward operation when the authorization callback commits no receipt', async () => {
+    const { dataSource } = createCapturingDataSource('auth');
+    const { headers, record } = createHeaderCollector();
+    const context = createContext();
+    context.req.user = {
+      sub: 'platform-admin',
+      roles: ['SUPER_ADMIN'],
+      mfaVerified: true,
+      iat: 1,
+      exp: 2,
+    };
+    context.req.effectiveTenantId = TENANT_ID;
+    context.req.impersonationSessionId = '33333333-3333-4333-8333-333333333333';
+    context.req.impersonationPermissions = {
+      canViewData: true,
+      canModifyData: false,
+      canAccessSettings: false,
+      canManageUsers: true,
+      canViewBilling: false,
+      canExportData: false,
+      allowedModules: ['auth'],
+    };
+    initializeImpersonationReceiptLedger(context.req, 'POST /graphql');
+    context.req.authorizeImpersonationOperations = jest.fn(async () => undefined);
+
+    const request = {
+      query: 'query TenantUsers { tenantUsers { id } }',
+      http: {
+        method: 'POST',
+        url: 'http://auth-service:3000/graphql',
+        headers,
+      },
+    };
+    await dataSource.willSendRequest(willSendRequestOptions(request, context));
+    expect(impersonationReceiptLedgerSnapshot(context.req)).toMatchObject({
+      expected: ['users.read\u0000auth\u0000Query.tenantUsers'],
+      committed: [],
+      dispatched: [],
+    });
+    await expect(
+      dataSource.fetcher('http://auth-service:3000/graphql', {
+        method: 'POST',
+        headers: { ...record, 'content-type': 'application/json' },
+        body: JSON.stringify({ query: request.query }),
+      }),
+    ).rejects.toThrow('Impersonation operation skipped the dispatched prerequisite');
   });
 
   it('ORPHAN-MEDIUM-319: mints x-client-ip/x-client-user-agent on EVERY subgraph request (pre-auth included)', () => {

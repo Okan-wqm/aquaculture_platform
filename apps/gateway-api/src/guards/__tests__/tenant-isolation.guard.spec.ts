@@ -1,410 +1,160 @@
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
-
-/**
- * TenantIsolationGuard Tests
- *
- * Comprehensive test suite for tenant isolation guard
- */
-
-import { ExecutionContext, ForbiddenException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { ExecutionContext, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { Test, TestingModule } from '@nestjs/testing';
+import { ExecutionContextHost } from '@nestjs/core/helpers/execution-context-host';
+import { Role } from '@platform/identity';
 
-import { TenantIsolationGuard } from '../tenant-isolation.guard';
+import {
+  IS_ADMIN_KEY,
+  IS_PUBLIC_KEY,
+  TenantIsolationGuard,
+  type TenantIsolationRequest,
+  type TenantIsolationUser,
+} from '../tenant-isolation.guard';
 
-/**
- * Interface for mock request with tenant context
- */
-interface TenantRequest {
-  user: Record<string, unknown> | null;
-  headers: Record<string, string>;
-  params: Record<string, string>;
-  query: Record<string, string>;
-  path: string;
-  method: string;
-  tenantId?: string;
+const TENANT_A = '11111111-1111-4111-8111-111111111111';
+const TENANT_B = '22222222-2222-4222-8222-222222222222';
+
+interface ContextOptions {
+  readonly user?: TenantIsolationUser;
+  readonly effectiveTenantId?: string;
+  readonly headers?: Readonly<Record<string, string>>;
+  readonly params?: Readonly<Record<string, string>>;
+  readonly query?: Readonly<Record<string, string>>;
 }
 
-/**
- * Interface for mock HTTP context
- */
-interface MockHttpContext {
-  getRequest: () => TenantRequest;
+function executionContext(options: ContextOptions = {}): {
+  readonly context: ExecutionContext;
+  readonly request: TenantIsolationRequest;
+} {
+  const request = {
+    user: options.user,
+    effectiveTenantId: options.effectiveTenantId,
+    headers: { ...(options.headers ?? {}) },
+    params: { ...(options.params ?? {}) },
+    query: { ...(options.query ?? {}) },
+  } satisfies TenantIsolationRequest & {
+    readonly headers: Readonly<Record<string, string>>;
+    readonly params: Readonly<Record<string, string>>;
+    readonly query: Readonly<Record<string, string>>;
+  };
+  const context = new ExecutionContextHost(
+    [request],
+    TenantIsolationGuard,
+    executionContext,
+  );
+  context.setType('http');
+  return { context, request };
 }
 
-describe('TenantIsolationGuard', () => {
+function tenantUser(tenantId = TENANT_A): TenantIsolationUser {
+  return {
+    sub: 'tenant-user',
+    tenantId,
+    roles: [Role.MODULE_USER],
+    modules: [],
+  };
+}
+
+function superAdmin(): TenantIsolationUser {
+  return {
+    sub: 'platform-admin',
+    tenantId: null,
+    roles: [Role.SUPER_ADMIN],
+    modules: [],
+  };
+}
+
+describe('TenantIsolationGuard authority boundary', () => {
+  let publicRoute = false;
+  let adminRoute = false;
   let guard: TenantIsolationGuard;
-  let reflector: Reflector;
 
-  const createMockExecutionContext = (
-    user: Record<string, unknown> | null = null,
-    headers: Record<string, string> = {},
-    params: Record<string, string> = {},
-    query: Record<string, string> = {},
-    host = 'api.example.com',
-  ): ExecutionContext => {
-    const mockRequest = {
-      user,
-      headers: { host, ...headers },
-      params,
-      query,
-      path: '/api/v1/test',
-      method: 'GET',
-    };
-
-    return {
-      switchToHttp: () => ({
-        getRequest: () => mockRequest,
-      }),
-      getHandler: () => jest.fn(),
-      getClass: () => jest.fn(),
-      getType: () => 'http',
-      getArgs: () => [{}, {}, { req: mockRequest }, {}],
-    } as unknown as ExecutionContext;
-  };
-
-  /**
-   * Helper to get typed request from context
-   */
-  const getRequest = (context: ExecutionContext): TenantRequest => {
-    const httpContext = context.switchToHttp() as unknown as MockHttpContext;
-    return httpContext.getRequest();
-  };
-
-  beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        TenantIsolationGuard,
-        {
-          provide: Reflector,
-          useValue: {
-            getAllAndOverride: jest.fn().mockReturnValue(false),
-          },
-        },
-        {
-          provide: ConfigService,
-          useValue: {
-            get: jest.fn((key: string, defaultValue?: unknown) => {
-              const config: Record<string, unknown> = {
-                TENANT_ISOLATION_ENABLED: true,
-                TENANT_HEADER: 'x-tenant-id',
-                ALLOW_CROSS_TENANT_ACCESS: false,
-              };
-              return config[key] ?? defaultValue;
-            }),
-          },
-        },
-      ],
-    }).compile();
-
-    guard = module.get<TenantIsolationGuard>(TenantIsolationGuard);
-    reflector = module.get<Reflector>(Reflector);
-  });
-
-  describe('Tenant ID Extraction', () => {
-    it('should extract tenant ID from X-Tenant-ID header', () => {
-      const context = createMockExecutionContext(
-        { sub: 'user-1', tenantId: '00000000-0000-4000-8000-000000000002' },
-        { 'x-tenant-id': '00000000-0000-4000-8000-000000000002' },
-      );
-      const result = guard.canActivate(context);
-      expect(result).toBe(true);
-    });
-
-    it('should extract tenant ID from JWT token', () => {
-      const context = createMockExecutionContext({ sub: 'user-1', tenantId: '00000000-0000-4000-8000-000000000003' });
-      const result = guard.canActivate(context);
-      expect(result).toBe(true);
-    });
-
-    it('should extract tenant ID from subdomain', () => {
-      const context = createMockExecutionContext(
-        { sub: 'user-1', tenantId: '00000000-0000-4000-8000-000000000001' },
-        {},
-        {},
-        {},
-        'acme.example.com',
-      );
-      const result = guard.canActivate(context);
-      expect(result).toBe(true);
-    });
-
-    it('should extract tenant ID from query parameter', () => {
-      const context = createMockExecutionContext(
-        { sub: 'user-1', tenantId: '00000000-0000-4000-8000-000000000004' },
-        {},
-        {},
-        { tenantId: '00000000-0000-4000-8000-000000000004' },
-      );
-      const result = guard.canActivate(context);
-      expect(result).toBe(true);
-    });
-
-    it('should extract tenant ID from path parameter', () => {
-      const context = createMockExecutionContext(
-        { sub: 'user-1', tenantId: '00000000-0000-4000-8000-000000000005' },
-        {},
-        { tenantId: '00000000-0000-4000-8000-000000000005' },
-      );
-      const result = guard.canActivate(context);
-      expect(result).toBe(true);
-    });
-  });
-
-  describe('Tenant Not Found', () => {
-    it('should return 403 when user has no tenant association', () => {
-      const context = createMockExecutionContext({ sub: 'user-1' }); // No tenantId
-      expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
-    });
-
-    it('should return 403 for empty tenant ID', () => {
-      const context = createMockExecutionContext({ sub: 'user-1', tenantId: '' });
-      expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
-    });
-  });
-
-  describe('Tenant Status Validation', () => {
-    it('should allow access when user has valid tenant', () => {
-      // The current implementation validates tenant at context level
-      // Active/inactive status would be checked via user.tenantContext or external service
-      const context = createMockExecutionContext({
-        sub: 'user-1',
-        tenantId: '00000000-0000-4000-8000-000000000002',
-        tenantContext: { isActive: true }
-      });
-      const result = guard.canActivate(context);
-      expect(result).toBe(true);
-    });
-
-    it('should allow access to user tenant without explicit header', () => {
-      const context = createMockExecutionContext({ sub: 'user-1', tenantId: '00000000-0000-4000-8000-000000000002' });
-      const result = guard.canActivate(context);
-      expect(result).toBe(true);
-    });
-
-    it('should set tenant context on request', () => {
-      const context = createMockExecutionContext({ sub: 'user-1', tenantId: '00000000-0000-4000-8000-000000000002' });
-      guard.canActivate(context);
-
-      const request = getRequest(context);
-      expect(request.tenantId).toBe('00000000-0000-4000-8000-000000000002');
-    });
-  });
-
-  describe('Cross-tenant Request Prevention', () => {
-    it('should block cross-tenant access', () => {
-      const context = createMockExecutionContext(
-        { sub: 'user-1', tenantId: '00000000-0000-4000-8000-0000000000aa' },
-        { 'x-tenant-id': '00000000-0000-4000-8000-0000000000bb' }, // Trying to access different tenant
-      );
-      expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
-    });
-
-    it('should allow same-tenant access', () => {
-      const context = createMockExecutionContext(
-        { sub: 'user-1', tenantId: '00000000-0000-4000-8000-0000000000aa' },
-        { 'x-tenant-id': '00000000-0000-4000-8000-0000000000aa' },
-      );
-      const result = guard.canActivate(context);
-      expect(result).toBe(true);
-    });
-
-    it('should detect tenant ID manipulation attempt', () => {
-      const warnSpy = jest.spyOn(guard['logger'], 'warn');
-
-      const context = createMockExecutionContext(
-        { sub: 'user-1', tenantId: '00000000-0000-4000-8000-0000000000aa' },
-        { 'x-tenant-id': '00000000-0000-4000-8000-0000000000bb' },
-      );
-
-      try {
-        guard.canActivate(context);
-      } catch {
-        // Expected
-      }
-
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Cross-tenant access'),
-        expect.any(Object),
-      );
-    });
-  });
-
-  describe('Admin/System User Access', () => {
-    it('should allow system admin cross-tenant access', () => {
-      jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(true); // AdminOnly decorator
-
-      const context = createMockExecutionContext(
-        { sub: 'admin-1', tenantId: 'system', roles: ['system_admin'] },
-        { 'x-tenant-id': '00000000-0000-4000-8000-0000000000bb' },
-      );
-      const result = guard.canActivate(context);
-      expect(result).toBe(true);
-    });
-
-    it('should block non-admin cross-tenant access', () => {
-      const context = createMockExecutionContext(
-        { sub: 'user-1', tenantId: '00000000-0000-4000-8000-0000000000aa', roles: ['user'] },
-        { 'x-tenant-id': '00000000-0000-4000-8000-0000000000bb' },
-      );
-      expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
-    });
-  });
-
-  describe('Public Route Handling', () => {
-    it('should skip tenant check for public routes', () => {
-      jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
-        if (key === 'isPublic') return true;
+  beforeEach(() => {
+    publicRoute = false;
+    adminRoute = false;
+    const reflector = new Reflector();
+    jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key: string) => {
+        if (key === IS_PUBLIC_KEY) return publicRoute;
+        if (key === IS_ADMIN_KEY) return adminRoute;
         return false;
       });
-
-      const context = createMockExecutionContext(null); // No user, no tenant
-      const result = guard.canActivate(context);
-      expect(result).toBe(true);
-    });
+    guard = new TenantIsolationGuard(reflector);
   });
 
-  describe('Tenant Context Injection', () => {
-    it('should inject tenant context into request', () => {
-      const context = createMockExecutionContext({ sub: 'user-1', tenantId: '00000000-0000-4000-8000-000000000002' });
-      const request = getRequest(context);
-
-      guard.canActivate(context);
-
-      // Tenant context should be attached
-      expect(request.tenantId || request.user?.['tenantId']).toBeDefined();
-    });
+  it('allows a public route without identity or tenant context', () => {
+    publicRoute = true;
+    expect(guard.canActivate(executionContext().context)).toBe(true);
   });
 
-  describe('Multi-tenancy Strategy', () => {
-    it('should support header-based tenant resolution', () => {
-      const context = createMockExecutionContext(
-        { sub: 'user-1', tenantId: '00000000-0000-4000-8000-000000000006' },
-        { 'x-tenant-id': '00000000-0000-4000-8000-000000000006' },
-      );
-      const result = guard.canActivate(context);
-      expect(result).toBe(true);
-    });
-
-    it('should resolve from the JWT when no header/param is present (subdomain is NOT a source)', () => {
-      // WHY: requested-tenant sources were narrowed to the x-tenant-id
-      // header (HMAC-signed internal RPC) and the :tenantId path param —
-      // host subdomains are client-controlled and are deliberately ignored.
-      const context = createMockExecutionContext(
-        { sub: 'user-1', tenantId: '00000000-0000-4000-8000-0000000000cc' },
-        {},
-        {},
-        {},
-        'subdomain.example.com',
-      );
-      const result = guard.canActivate(context);
-      expect(result).toBe(true);
-      expect(getRequest(context).tenantId).toBe('00000000-0000-4000-8000-0000000000cc');
-    });
-
-    it('should prioritize JWT tenant over header', () => {
-      const context = createMockExecutionContext(
-        { sub: 'user-1', tenantId: '00000000-0000-4000-8000-0000000000cc' },
-        { 'x-tenant-id': '00000000-0000-4000-8000-0000000000dd' },
-      );
-
-      // Should use JWT tenant and reject mismatched header
-      expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
-    });
+  it('requires authentication on a protected route', () => {
+    expect(() => guard.canActivate(executionContext().context)).toThrow(UnauthorizedException);
   });
 
-  describe('Tenant Routing Logic', () => {
-    it('should route to correct tenant database', () => {
-      const context = createMockExecutionContext({ sub: 'user-1', tenantId: '00000000-0000-4000-8000-0000000000ee' });
-      const request = getRequest(context);
-
-      guard.canActivate(context);
-
-      // Tenant database should be set
-      expect(request.tenantId || request.user?.['tenantId']).toBe('00000000-0000-4000-8000-0000000000ee');
-    });
+  it('uses the verified JWT tenant when middleware did not need an override', () => {
+    const { context, request } = executionContext({ user: tenantUser() });
+    expect(guard.canActivate(context)).toBe(true);
+    expect(request.tenantId).toBe(TENANT_A);
+    expect(request.tenantContext?.tenantId).toBe(TENANT_A);
   });
 
-  describe('Edge Cases', () => {
-    it('should REJECT non-UUID tenant IDs in the token (format validation)', () => {
-      // WHY inverted contract: the guard validates the JWT tenant claim
-      // shape — a malformed claim that somehow passed signing is refused
-      // rather than propagated into search_path/RLS machinery.
-      const context = createMockExecutionContext({
-        sub: 'user-1',
-        tenantId: 'tenant-with-special_chars.123',
-      });
-      expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
+  it('never reinterprets raw headers, params, or queries as tenant authority', () => {
+    const { context, request } = executionContext({
+      user: tenantUser(),
+      headers: { 'x-tenant-id': TENANT_B },
+      params: { tenantId: TENANT_B },
+      query: { tenantId: TENANT_B },
     });
-
-    it('should handle UUID tenant IDs', () => {
-      const context = createMockExecutionContext({
-        sub: 'user-1',
-        tenantId: '550e8400-e29b-41d4-a716-446655440000',
-      });
-      const result = guard.canActivate(context);
-      expect(result).toBe(true);
-    });
-
-    it('should REJECT bare numeric tenant IDs (format validation)', () => {
-      const context = createMockExecutionContext({
-        sub: 'user-1',
-        tenantId: '12345',
-      });
-      expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
-    });
+    expect(guard.canActivate(context)).toBe(true);
+    expect(request.tenantId).toBe(TENANT_A);
   });
 
-  describe('Audit Logging', () => {
-    it('should log cross-tenant access attempts', () => {
-      const warnSpy = jest.spyOn(guard['logger'], 'warn');
-
-      const context = createMockExecutionContext(
-        { sub: 'user-1', tenantId: '00000000-0000-4000-8000-0000000000aa' },
-        { 'x-tenant-id': '00000000-0000-4000-8000-0000000000bb' },
-      );
-
-      try {
-        guard.canActivate(context);
-      } catch {
-        // Expected
-      }
-
-      expect(warnSpy).toHaveBeenCalled();
+  it('rejects a divergent effective tenant for a regular account', () => {
+    const { context } = executionContext({
+      user: tenantUser(),
+      effectiveTenantId: TENANT_B,
     });
-
-    it('should successfully grant tenant access without logging in production', () => {
-      // The implementation doesn't log successful access to reduce noise
-      const context = createMockExecutionContext({ sub: 'user-1', tenantId: '00000000-0000-4000-8000-0000000000aa' });
-      const result = guard.canActivate(context);
-
-      expect(result).toBe(true);
-    });
+    expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
   });
 
-  describe('Performance', () => {
-    it('should handle rapid tenant checks efficiently', () => {
-      const startTime = Date.now();
-
-      for (let i = 0; i < 1000; i++) {
-        const context = createMockExecutionContext({ sub: 'user-1', tenantId: `00000000-0000-4000-8000-00000000${String(1000 + (i % 100)).padStart(4, "0")}` });
-        guard.canActivate(context);
-      }
-
-      const duration = Date.now() - startTime;
-      // WHY 10s: hang-guard, not a CI-hardware benchmark.
-      expect(duration).toBeLessThan(10000);
+  it('accepts the authority-resolved tenant for a canonical SUPER_ADMIN', () => {
+    const { context, request } = executionContext({
+      user: superAdmin(),
+      effectiveTenantId: TENANT_B,
     });
+    expect(guard.canActivate(context)).toBe(true);
+    expect(request.tenantId).toBe(TENANT_B);
+  });
+
+  it('rejects a tenant-scoped SUPER_ADMIN request without an authority result', () => {
+    const { context } = executionContext({ user: superAdmin() });
+    expect(() => guard.canActivate(context)).toThrow('A validated tenant context is required');
+  });
+
+  it('does not grant authority to a legacy lower-case role alias', () => {
+    const { context } = executionContext({
+      user: { sub: 'legacy', tenantId: null, roles: ['super_admin'] },
+      effectiveTenantId: TENANT_B,
+    });
+    expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
+  });
+
+  it('allows canonical SUPER_ADMIN system scope only on an explicit admin route', () => {
+    adminRoute = true;
+    expect(guard.canActivate(executionContext({ user: superAdmin() }).context)).toBe(true);
+  });
+
+  it('rejects a malformed authority result', () => {
+    const { context } = executionContext({
+      user: superAdmin(),
+      effectiveTenantId: 'not-a-uuid',
+    });
+    expect(() => guard.canActivate(context)).toThrow('Invalid tenant context');
+  });
+
+  it('exposes only the resolved request context through static helpers', () => {
+    const { context, request } = executionContext({ user: tenantUser() });
+    guard.canActivate(context);
+    expect(TenantIsolationGuard.getTenantId(request)).toBe(TENANT_A);
+    expect(TenantIsolationGuard.getTenantContext(request)?.tenantId).toBe(TENANT_A);
   });
 });

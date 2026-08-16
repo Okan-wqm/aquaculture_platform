@@ -31,6 +31,7 @@ import { TenantExecutionContextModule } from '@aquaculture/backend-common/contex
 import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import { ServiceMetricsModule } from '@aquaculture/backend-common/metrics';
+import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
 import {
   CorrelationIdMiddleware,
   createTenantSchemaMiddleware,
@@ -212,6 +213,12 @@ type QueryComplexityOperationContext = {
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: buildEventBusConfig,
+    }),
+    RedisModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) =>
+        buildRedisOptions(configService, 'hydroponics', 'required'),
     }),
     HydroponicsOutboxModule,
     TenantErasureTargetModule.forService('hydroponics-service'),

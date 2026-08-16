@@ -120,7 +120,13 @@ export {
 export { AuthProvider, useAuthContext } from './contexts/AuthContext';
 // WHY: Export AccessType and AuthUser so consumers (tenant-admin, aquamobil) can
 // type-check accessType values without duplicating the type definition.
-export type { AuthProviderProps, MfaChallengeResult, LoginResult, AccessType, AuthUser } from './contexts/AuthContext';
+export type {
+  AuthProviderProps,
+  MfaChallengeResult,
+  LoginResult,
+  AccessType,
+  AuthUser,
+} from './contexts/AuthContext';
 
 export { TenantProvider, useTenantContext } from './contexts/TenantContext';
 export type { TenantProviderProps } from './contexts/TenantContext';
@@ -132,10 +138,7 @@ export type { TenantProviderProps } from './contexts/TenantContext';
 export { useAuth, useRequireAuth } from './hooks/useAuth';
 export { useTenant } from './hooks/useTenant';
 export { useTenantQuery, useTenantMutation } from './hooks/useTenantQuery';
-export type {
-  TenantQueryOptions,
-  TenantMutationOptions,
-} from './hooks/useTenantQuery';
+export type { TenantQueryOptions, TenantMutationOptions } from './hooks/useTenantQuery';
 export {
   useTenantScopedStorage,
   TENANT_SCOPED_STORAGE_NAMESPACE,
@@ -178,22 +181,27 @@ export {
 } from './hooks/useErrorMessage';
 
 // ============================================================================
-// Frontend authorization (Scope C PR-0a) — mirror of backend matrix
+// Frontend authorization — generated projection of canonical farm operation policy
 // ============================================================================
 
-export {
-  FRONTEND_MUTATION_ROLES,
-  useCanMutate,
-  type FrontendMutationName,
-} from './authz';
+export { FRONTEND_MUTATION_ROLES, useCanMutate, type FrontendMutationName } from './authz';
 
 export {
-  ADMIN_BILLING_HIDDEN_ROUTES,
-  ADMIN_BILLING_NAV_ITEMS,
-  ADMIN_BILLING_ROLE,
-  ADMIN_BILLING_ROUTES,
-  ADMIN_BILLING_VISIBLE_ROUTES,
-  getAdminBillingRoute,
-  type AdminBillingRoute,
-  type AdminBillingRouteId,
-} from './authz/admin-billing-routes';
+  ADMIN_NAV_SECTIONS,
+  ADMIN_PANEL_ROLE,
+  ADMIN_ROUTE_REDIRECTS,
+  ADMIN_ROUTES,
+  buildSuperAdminNavigation,
+  getAdminRoute,
+  type AdminNavSection,
+  type AdminRoute,
+  type AdminRouteEntry,
+  type AdminRouteId,
+} from './authz/admin-routes';
+
+export {
+  MODULE_USER_BASE_NAVIGATION,
+  PLATFORM_MODULE_NAVIGATION,
+  TENANT_ADMIN_NAVIGATION,
+  TENANT_DELEGATED_CAPABILITIES,
+} from './authz/platform-navigation';

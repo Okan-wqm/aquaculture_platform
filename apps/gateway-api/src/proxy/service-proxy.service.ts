@@ -8,13 +8,46 @@
 
 import { createHash } from 'crypto';
 
-import { buildGatewayVerifiedUserAssertion, buildSignedInternalHeaders, resolveTenantIdFromRequest } from '@aquaculture/backend-common/http';
-import { Injectable, Logger, BadGatewayException, GatewayTimeoutException, BadRequestException, NotImplementedException, Inject } from '@nestjs/common';
+import {
+  buildGatewayVerifiedUserAssertion,
+  buildSignedInternalHeaders,
+  requireCanonicalGatewayAssertionRoles,
+  resolveTenantIdFromRequest,
+} from '@aquaculture/backend-common/http';
+import type {
+  ImpersonationOperationDescriptor,
+  ImpersonationPermissionsContract,
+} from '@aquaculture/shared-contracts';
+import {
+  Injectable,
+  Logger,
+  BadGatewayException,
+  GatewayTimeoutException,
+  BadRequestException,
+  ForbiddenException,
+  NotImplementedException,
+  Inject,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
 
 import { CircuitBreakerService } from './circuit-breaker.service';
-import { LoadBalancerService, ServiceInstanceStats, LoadBalancerContext } from './load-balancer.service';
+import {
+  LoadBalancerService,
+  ServiceInstanceStats,
+  LoadBalancerContext,
+} from './load-balancer.service';
+import {
+  enforceImpersonationOperations,
+  resolveRestImpersonationOperation,
+} from '../security/impersonation-operation-authority';
+import {
+  assertImpersonationReceiptLedgerCommitted,
+  assertImpersonationReceiptLedgerReconciled,
+  expectImpersonationOperationDispatch,
+  markImpersonationOperationDispatched,
+} from '../security/impersonation-receipt-completion';
+import type { ImpersonationOperationAuthorizer } from '../types';
 
 /**
  * Headers that should never be forwarded to upstream services
@@ -153,15 +186,15 @@ export class ServiceProxyService {
 
   // Private IP ranges for SSRF protection
   private readonly privateIpPatterns = [
-    /^127\./,                    // Loopback
-    /^10\./,                     // Private Class A
+    /^127\./, // Loopback
+    /^10\./, // Private Class A
     /^172\.(1[6-9]|2[0-9]|3[0-1])\./, // Private Class B
-    /^192\.168\./,               // Private Class C
-    /^169\.254\./,               // Link-local
-    /^0\./,                      // Current network
-    /^::1$/,                     // IPv6 loopback
-    /^fc00:/i,                   // IPv6 unique local
-    /^fe80:/i,                   // IPv6 link-local
+    /^192\.168\./, // Private Class C
+    /^169\.254\./, // Link-local
+    /^0\./, // Current network
+    /^::1$/, // IPv6 loopback
+    /^fc00:/i, // IPv6 unique local
+    /^fe80:/i, // IPv6 link-local
     /^localhost$/i,
     /^.*\.local$/i,
     /^.*\.internal$/i,
@@ -252,13 +285,17 @@ export class ServiceProxyService {
         const instance = this.loadBalancer.getNextInstance(config.serviceName, context);
 
         if (!instance) {
-          throw new BadGatewayException(`No available instances for service: ${config.serviceName}`);
+          throw new BadGatewayException(
+            `No available instances for service: ${config.serviceName}`,
+          );
         }
 
         // SECURITY: Secondary check - verify instance is not pointing to private/internal IPs
         // This protects against misconfigured load balancer returning rogue instances
         if (this.isPrivateHost(instance.host)) {
-          this.logger.debug(`Proxying to internal service ${instance.host} (registered service: ${config.serviceName})`);
+          this.logger.debug(
+            `Proxying to internal service ${instance.host} (registered service: ${config.serviceName})`,
+          );
         }
 
         return this.executeProxyRequest(config, serviceConfig, instance);
@@ -287,7 +324,9 @@ export class ServiceProxyService {
     serviceName: string,
     options?: Partial<ProxyRequestConfig>,
   ): Promise<void> {
+    const impersonationOperations = await this.enforceImpersonationRequest(req, serviceName);
     const config: ProxyRequestConfig = {
+      ...options,
       serviceName,
       path: req.path,
       // SECURITY (HIGH-003): bind the resolved tenant UUID into the proxy
@@ -304,11 +343,15 @@ export class ServiceProxyService {
       headers: this.attachVerifiedAssertion(this.extractHeaders(req), req),
       body: req.body,
       query: req.query as Record<string, string>,
-      ...options,
     };
 
     try {
-      const response = await this.proxy(config);
+      if (impersonationOperations) {
+        markImpersonationOperationDispatched(req, impersonationOperations);
+        assertImpersonationReceiptLedgerReconciled(req);
+      }
+      const responsePromise = this.proxy(config);
+      const response = await responsePromise;
 
       // Set response headers
       for (const [key, value] of Object.entries(response.headers)) {
@@ -337,12 +380,7 @@ export class ServiceProxyService {
   /**
    * Proxy WebSocket connection
    */
-  proxyWebSocket(
-    _req: Request,
-    _socket: unknown,
-    _head: Buffer,
-    serviceName: string,
-  ): void {
+  proxyWebSocket(_req: Request, _socket: unknown, _head: Buffer, serviceName: string): void {
     // WebSocket proxying requires a dedicated library like 'ws' or 'http-proxy'.
     // Callers must not silently assume success.
     throw new NotImplementedException(
@@ -353,11 +391,8 @@ export class ServiceProxyService {
   /**
    * Proxy Server-Sent Events
    */
-  async proxySSE(
-    req: Request,
-    res: Response,
-    serviceName: string,
-  ): Promise<void> {
+  async proxySSE(req: Request, res: Response, serviceName: string): Promise<void> {
+    const impersonationOperations = await this.enforceImpersonationRequest(req, serviceName);
     const instance = this.loadBalancer.getNextInstance(serviceName);
 
     if (!instance) {
@@ -413,15 +448,18 @@ export class ServiceProxyService {
       // health). The breaker protects against repeated 5xx /
       // connect-timeout failures from a chronically-down upstream
       // exhausting the gateway's connection pool.
-      const response = await this.circuitBreaker.execute(
-        serviceName,
-        () =>
-          fetch(targetUrl, {
-            method: 'GET',
-            headers: sseHeaders,
-            signal: controller.signal,
-          }),
+      if (impersonationOperations) {
+        markImpersonationOperationDispatched(req, impersonationOperations);
+        assertImpersonationReceiptLedgerReconciled(req);
+      }
+      const responsePromise = this.circuitBreaker.execute(serviceName, () =>
+        fetch(targetUrl, {
+          method: 'GET',
+          headers: sseHeaders,
+          signal: controller.signal,
+        }),
       );
+      const response = await responsePromise;
 
       if (!response.ok) {
         throw new BadGatewayException(`SSE upstream error: ${response.status}`);
@@ -438,17 +476,20 @@ export class ServiceProxyService {
       let lastActivityTime = Date.now();
 
       // SSE idle timeout checker - terminates connection if no data received
-      const idleTimeoutChecker = setInterval(() => {
-        const idleTime = Date.now() - lastActivityTime;
-        if (idleTime > sseIdleTimeout) {
-          this.logger.warn(`SSE connection idle for ${idleTime}ms, terminating`, {
-            service: serviceName,
-            timeout: sseIdleTimeout,
-          });
-          clearInterval(idleTimeoutChecker);
-          controller.abort();
-        }
-      }, Math.min(sseIdleTimeout / 2, 30000)); // Check at half the timeout interval, max 30s
+      const idleTimeoutChecker = setInterval(
+        () => {
+          const idleTime = Date.now() - lastActivityTime;
+          if (idleTime > sseIdleTimeout) {
+            this.logger.warn(`SSE connection idle for ${idleTime}ms, terminating`, {
+              service: serviceName,
+              timeout: sseIdleTimeout,
+            });
+            clearInterval(idleTimeoutChecker);
+            controller.abort();
+          }
+        },
+        Math.min(sseIdleTimeout / 2, 30000),
+      ); // Check at half the timeout interval, max 30s
 
       try {
         while (!done) {
@@ -684,7 +725,9 @@ export class ServiceProxyService {
       clearTimeout(timeout);
 
       if ((error as Error).name === 'AbortError') {
-        throw new GatewayTimeoutException(`Request timeout after ${config.timeout || serviceConfig.timeout}ms`);
+        throw new GatewayTimeoutException(
+          `Request timeout after ${config.timeout || serviceConfig.timeout}ms`,
+        );
       }
 
       // SECURITY: Do not expose upstream error messages to client
@@ -735,7 +778,7 @@ export class ServiceProxyService {
         }
         headers[key] = value;
       } else if (Array.isArray(value)) {
-        const safeValues = value.filter(v => !v.includes('\r') && !v.includes('\n'));
+        const safeValues = value.filter((v) => !v.includes('\r') && !v.includes('\n'));
         if (safeValues.length > 0) {
           headers[key] = safeValues.join(', ');
         }
@@ -759,29 +802,81 @@ export class ServiceProxyService {
     return headers;
   }
 
+  private async enforceImpersonationRequest(
+    req: Request,
+    serviceName: string,
+  ): Promise<readonly ImpersonationOperationDescriptor[] | undefined> {
+    const impersonationRequest = req as Request & {
+      impersonationSessionId?: string;
+      impersonationPermissions?: ImpersonationPermissionsContract;
+      authorizeImpersonationOperations?: ImpersonationOperationAuthorizer;
+    };
+    const hasImpersonationContext =
+      impersonationRequest.impersonationSessionId !== undefined ||
+      impersonationRequest.impersonationPermissions !== undefined;
+    if (!hasImpersonationContext) return undefined;
+    if (
+      !impersonationRequest.impersonationSessionId ||
+      !impersonationRequest.impersonationPermissions
+    ) {
+      throw new ForbiddenException('Canonical impersonation context is incomplete');
+    }
+    const operations = [
+      resolveRestImpersonationOperation({
+        serviceName,
+        method: req.method,
+        path: req.path,
+      }),
+    ] as const;
+    enforceImpersonationOperations(impersonationRequest.impersonationPermissions, operations);
+    if (!impersonationRequest.authorizeImpersonationOperations) {
+      throw new ForbiddenException('Impersonation authorization receipt callback is missing');
+    }
+    expectImpersonationOperationDispatch(impersonationRequest, operations);
+    await impersonationRequest.authorizeImpersonationOperations(operations);
+    assertImpersonationReceiptLedgerCommitted(impersonationRequest);
+    return operations;
+  }
 
-  private attachVerifiedAssertion(headers: Record<string, string>, req: Request): Record<string, string> {
-    const user = (req as Request & {
-      user?: {
-        sub?: string;
-        tenantId?: string;
-        roles?: string[];
-        email?: string;
-        mfaVerified?: boolean;
-        // SEC-HIGH-051 / SEC-HIGH-052: the object-level authorization claims the
-        // REST-proxy path must also fold into the verified assertion.
-        assignedSiteIds?: string[];
-        mobileFeatures?: string[];
-        // MT-HIGH-054: tenant-RBAC capabilities, folded into the assertion so
-        // subgraph @RequireTenantPermission works on the REST-proxy path too.
-        resourcePermissions?: string[];
-      };
-    }).user;
+  private attachVerifiedAssertion(
+    headers: Record<string, string>,
+    req: Request,
+  ): Record<string, string> {
+    const user = (
+      req as Request & {
+        user?: {
+          sub?: string;
+          tenantId?: string;
+          roles?: string[];
+          email?: string;
+          mfaVerified?: boolean;
+          // SEC-HIGH-051 / SEC-HIGH-052: the object-level authorization claims the
+          // REST-proxy path must also fold into the verified assertion.
+          assignedSiteIds?: string[];
+          mobileFeatures?: string[];
+          // MT-HIGH-054: tenant-RBAC capabilities, folded into the assertion so
+          // subgraph @RequireTenantPermission works on the REST-proxy path too.
+          resourcePermissions?: string[];
+        };
+      }
+    ).user;
     // SSoT: the gateway-resolved effective tenant (validated act-as for
     // SUPER_ADMIN; JWT tenantId for regular users), set by EffectiveTenantMiddleware.
     const effectiveTenantId = (req as Request & { effectiveTenantId?: string }).effectiveTenantId;
+    const impersonation = req as Request & {
+      impersonationSessionId?: string;
+      impersonationPermissions?: ImpersonationPermissionsContract;
+    };
 
+    const hasImpersonationContext =
+      impersonation.impersonationSessionId !== undefined ||
+      impersonation.impersonationPermissions !== undefined;
     if (!user?.sub) {
+      if (hasImpersonationContext) {
+        throw new ForbiddenException(
+          'Canonical impersonation context requires an authenticated user',
+        );
+      }
       return headers;
     }
 
@@ -791,7 +886,7 @@ export class ServiceProxyService {
         subject: user.sub,
         tenantId: user.tenantId,
         effectiveTenantId: effectiveTenantId ?? user.tenantId,
-        roles: user.roles ?? [],
+        roles: requireCanonicalGatewayAssertionRoles(user.roles ?? []),
         email: user.email,
         mfaVerified: user.mfaVerified,
         // SEC-HIGH-051 / SEC-HIGH-052: thread the site + mobile-feature claims
@@ -808,6 +903,8 @@ export class ServiceProxyService {
         clientIp: req.ip ?? null,
         clientUserAgent:
           typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : null,
+        impersonationSessionId: impersonation.impersonationSessionId,
+        impersonationPermissions: impersonation.impersonationPermissions,
       }),
     };
   }

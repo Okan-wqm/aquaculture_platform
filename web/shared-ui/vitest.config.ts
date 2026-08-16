@@ -14,11 +14,28 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
+      '@aquaculture/shared-contracts': resolve(
+        __dirname,
+        '../../libs/shared-contracts/src/index.ts',
+      ),
       // Promoted water-chemistry compute/charts import the engine; resolve it to
       // source for shared-ui's own vitest (mirrors the vite.config build alias).
       '@platform/aquaculture-engines': resolve(
         __dirname,
         '../../libs/aquaculture-engines/src/index.ts',
+      ),
+      '@platform/admin-http-contracts': resolve(
+        __dirname,
+        '../../platform/libs/admin-http-contracts/src/index.ts',
+      ),
+      '@platform/identity': resolve(__dirname, '../../libs/event-contracts/src/roles.ts'),
+      '@platform/tenant-permissions': resolve(
+        __dirname,
+        '../../libs/event-contracts/src/tenant-permissions.ts',
+      ),
+      '@platform/pagination-contracts': resolve(
+        __dirname,
+        '../../platform/libs/pagination-contracts/src/index.ts',
       ),
     },
   },

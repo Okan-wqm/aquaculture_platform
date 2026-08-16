@@ -13,8 +13,11 @@
 
 import { INestApplication, ValidationPipe, HttpStatus } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { Reflector } from '@nestjs/core';
 import request from 'supertest';
+import {
+  IMPERSONATION_AUTHORIZATION_RECEIPT_VERSION,
+  impersonationAuthorizationOperationSetDigestV1,
+} from '@aquaculture/shared-contracts';
 
 import { PlatformAdminGuard } from '../../../guards/platform-admin.guard';
 import { ImpersonationController } from '../impersonation.controller';
@@ -23,6 +26,21 @@ import {
   ImpersonationReason,
   ImpersonationStatus,
 } from '../../entities/impersonation-session.entity';
+
+const AUTHENTICATED_ADMIN_ID = '11111111-1111-4111-8111-111111111111';
+const TARGET_ADMIN_ID = '22222222-2222-4222-8222-222222222222';
+const SESSION_ID = '33333333-3333-4333-8333-333333333333';
+const TARGET_TENANT_ID = '44444444-4444-4444-8444-444444444444';
+const VALID_TOKEN = 'a'.repeat(64);
+const EMPTY_SESSION_PAGE = Object.freeze({
+  items: Object.freeze([]),
+  total: 0,
+  page: 1,
+  limit: 50,
+  totalPages: 1,
+  hasNextPage: false,
+  hasPreviousPage: false,
+});
 
 // ============================================================================
 // Mock Definitions
@@ -53,13 +71,12 @@ const mockImpersonationService = {
     status: ImpersonationStatus.ACTIVE,
     expiresAt: new Date(Date.now() + 3600000),
   }),
-  validateSession: jest.fn().mockResolvedValue({ sessionId: 'session-1' }),
+  resolveAuthorizationContext: jest.fn(),
+  authorizeOperations: jest.fn(),
   getActiveSessions: jest.fn().mockResolvedValue([]),
   getActiveSessionCount: jest.fn().mockReturnValue(0),
   getSession: jest.fn().mockResolvedValue({ id: 'session-1' }),
-  querySessions: jest.fn().mockResolvedValue({ data: [], total: 0 }),
-  logAction: jest.fn().mockResolvedValue(undefined),
-  logResourceAccess: jest.fn().mockResolvedValue(undefined),
+  querySessions: jest.fn().mockResolvedValue(EMPTY_SESSION_PAGE),
   getAuditSummary: jest.fn().mockResolvedValue({ totalSessions: 0 }),
 };
 
@@ -72,9 +89,10 @@ describe('ImpersonationController', () => {
 
   // Simulated authenticated user injected by the guard mock
   const authenticatedUser = {
-    id: 'admin-uuid-1234',
+    id: AUTHENTICATED_ADMIN_ID,
     email: 'admin@platform.com',
     roles: ['SUPER_ADMIN'],
+    mfaVerified: true,
   };
 
   // Guard mock: always allow, inject req.user
@@ -82,6 +100,23 @@ describe('ImpersonationController', () => {
     canActivate: jest.fn().mockImplementation((context) => {
       const req = context.switchToHttp().getRequest();
       req.user = { ...authenticatedUser };
+      req.headers['user-agent'] ??= 'impersonation-controller-test/1.0';
+      const effectiveTenantId = req.body?.effectiveTenantId ?? TARGET_TENANT_ID;
+      req.verifiedIdentity = {
+        serviceName: 'gateway-api',
+        audience: 'admin-api-service',
+        tenantId: effectiveTenantId,
+        effectiveTenantId,
+      };
+      req.verifiedUserAssertion = {
+        issuer: 'gateway-api',
+        subject: authenticatedUser.id,
+        tenantId: null,
+        effectiveTenantId: null,
+        mfaVerified: true,
+        clientIp: '203.0.113.10',
+        clientUserAgent: 'impersonation-controller-test/1.0',
+      };
       return true;
     }),
   };
@@ -89,9 +124,7 @@ describe('ImpersonationController', () => {
   beforeAll(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [ImpersonationController],
-      providers: [
-        { provide: ImpersonationService, useValue: mockImpersonationService },
-      ],
+      providers: [{ provide: ImpersonationService, useValue: mockImpersonationService }],
     })
       .overrideGuard(PlatformAdminGuard)
       .useValue(mockGuard)
@@ -118,6 +151,23 @@ describe('ImpersonationController', () => {
     mockGuard.canActivate.mockImplementation((context) => {
       const req = context.switchToHttp().getRequest();
       req.user = { ...authenticatedUser };
+      req.headers['user-agent'] ??= 'impersonation-controller-test/1.0';
+      const effectiveTenantId = req.body?.effectiveTenantId ?? TARGET_TENANT_ID;
+      req.verifiedIdentity = {
+        serviceName: 'gateway-api',
+        audience: 'admin-api-service',
+        tenantId: effectiveTenantId,
+        effectiveTenantId,
+      };
+      req.verifiedUserAssertion = {
+        issuer: 'gateway-api',
+        subject: authenticatedUser.id,
+        tenantId: null,
+        effectiveTenantId: null,
+        mfaVerified: true,
+        clientIp: '203.0.113.10',
+        clientUserAgent: 'impersonation-controller-test/1.0',
+      };
       return true;
     });
   });
@@ -193,9 +243,7 @@ describe('ImpersonationController', () => {
     });
 
     it('should use JWT user.email as superAdminEmail', async () => {
-      await request(app.getHttpServer())
-        .post('/impersonation/sessions/start')
-        .send(validDto);
+      await request(app.getHttpServer()).post('/impersonation/sessions/start').send(validDto);
 
       expect(mockImpersonationService.startImpersonation).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -219,7 +267,37 @@ describe('ImpersonationController', () => {
       expect(res.status).toBe(HttpStatus.UNAUTHORIZED);
     });
 
-    it('should pass user-agent header from request', async () => {
+    it('should reject start when the authenticated assertion has not completed MFA', async () => {
+      mockGuard.canActivate.mockImplementationOnce((context) => {
+        const req = context.switchToHttp().getRequest();
+        req.user = { ...authenticatedUser, mfaVerified: false };
+        req.headers['user-agent'] = 'impersonation-controller-test/1.0';
+        return true;
+      });
+
+      const res = await request(app.getHttpServer())
+        .post('/impersonation/sessions/start')
+        .send(validDto);
+
+      expect(res.status).toBe(HttpStatus.FORBIDDEN);
+      expect(mockImpersonationService.startImpersonation).not.toHaveBeenCalled();
+    });
+
+    it('should reject client-supplied signed identity and network fields', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/impersonation/sessions/start')
+        .send({
+          ...validDto,
+          superAdminId: TARGET_ADMIN_ID,
+          ipAddress: '203.0.113.10',
+          mfaVerified: true,
+        });
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(mockImpersonationService.startImpersonation).not.toHaveBeenCalled();
+    });
+
+    it('uses the signed gateway user-agent instead of an unsigned request header', async () => {
       await request(app.getHttpServer())
         .post('/impersonation/sessions/start')
         .set('User-Agent', 'TestAgent/1.0')
@@ -227,7 +305,7 @@ describe('ImpersonationController', () => {
 
       expect(mockImpersonationService.startImpersonation).toHaveBeenCalledWith(
         expect.objectContaining({
-          userAgent: 'TestAgent/1.0',
+          userAgent: 'impersonation-controller-test/1.0',
         }),
       );
     });
@@ -241,33 +319,27 @@ describe('ImpersonationController', () => {
     });
 
     it('should reject request with invalid targetTenantId (not UUID)', async () => {
-      const res = await request(app.getHttpServer())
-        .post('/impersonation/sessions/start')
-        .send({
-          targetTenantId: 'not-a-uuid',
-          reason: ImpersonationReason.DEBUGGING,
-        });
+      const res = await request(app.getHttpServer()).post('/impersonation/sessions/start').send({
+        targetTenantId: 'not-a-uuid',
+        reason: ImpersonationReason.DEBUGGING,
+      });
 
       expect(res.status).toBe(HttpStatus.BAD_REQUEST);
     });
 
     it('should reject request with missing reason', async () => {
-      const res = await request(app.getHttpServer())
-        .post('/impersonation/sessions/start')
-        .send({
-          targetTenantId: VALID_TENANT_UUID,
-        });
+      const res = await request(app.getHttpServer()).post('/impersonation/sessions/start').send({
+        targetTenantId: VALID_TENANT_UUID,
+      });
 
       expect(res.status).toBe(HttpStatus.BAD_REQUEST);
     });
 
     it('should reject request with invalid reason enum value', async () => {
-      const res = await request(app.getHttpServer())
-        .post('/impersonation/sessions/start')
-        .send({
-          targetTenantId: VALID_TENANT_UUID,
-          reason: 'invalid_reason',
-        });
+      const res = await request(app.getHttpServer()).post('/impersonation/sessions/start').send({
+        targetTenantId: VALID_TENANT_UUID,
+        reason: 'invalid_reason',
+      });
 
       expect(res.status).toBe(HttpStatus.BAD_REQUEST);
     });
@@ -341,11 +413,11 @@ describe('ImpersonationController', () => {
   describe('POST /impersonation/sessions/:id/end', () => {
     it('should pass JWT user.id to service for ownership verification', async () => {
       await request(app.getHttpServer())
-        .post('/impersonation/sessions/session-abc/end')
+        .post(`/impersonation/sessions/${SESSION_ID}/end`)
         .send({ reason: 'Work completed' });
 
       expect(mockImpersonationService.endImpersonation).toHaveBeenCalledWith(
-        'session-abc',
+        SESSION_ID,
         'Work completed',
         authenticatedUser.id,
       );
@@ -353,13 +425,13 @@ describe('ImpersonationController', () => {
 
     it('should not allow client to override admin identity via headers', async () => {
       await request(app.getHttpServer())
-        .post('/impersonation/sessions/session-abc/end')
+        .post(`/impersonation/sessions/${SESSION_ID}/end`)
         .set('x-admin-id', 'attacker-injected')
         .send({ reason: 'Done' });
 
       // Service must receive JWT user.id, not header value
       expect(mockImpersonationService.endImpersonation).toHaveBeenCalledWith(
-        'session-abc',
+        SESSION_ID,
         'Done',
         authenticatedUser.id,
       );
@@ -372,7 +444,7 @@ describe('ImpersonationController', () => {
       });
 
       const res = await request(app.getHttpServer())
-        .post('/impersonation/sessions/session-abc/end')
+        .post(`/impersonation/sessions/${SESSION_ID}/end`)
         .send({});
 
       // Controller should throw UnauthorizedException (not generic Error)
@@ -381,12 +453,10 @@ describe('ImpersonationController', () => {
     });
 
     it('should work without a reason body', async () => {
-      await request(app.getHttpServer())
-        .post('/impersonation/sessions/session-abc/end')
-        .send({});
+      await request(app.getHttpServer()).post(`/impersonation/sessions/${SESSION_ID}/end`).send({});
 
       expect(mockImpersonationService.endImpersonation).toHaveBeenCalledWith(
-        'session-abc',
+        SESSION_ID,
         undefined,
         authenticatedUser.id,
       );
@@ -400,11 +470,11 @@ describe('ImpersonationController', () => {
   describe('POST /impersonation/sessions/:id/terminate', () => {
     it('should pass JWT user.id to terminateSession for ownership check', async () => {
       await request(app.getHttpServer())
-        .post('/impersonation/sessions/session-xyz/terminate')
+        .post(`/impersonation/sessions/${SESSION_ID}/terminate`)
         .send({ reason: 'Security incident' });
 
       expect(mockImpersonationService.terminateSession).toHaveBeenCalledWith(
-        'session-xyz',
+        SESSION_ID,
         authenticatedUser.id,
         'Security incident',
       );
@@ -412,12 +482,12 @@ describe('ImpersonationController', () => {
 
     it('should not allow client-injected admin ID', async () => {
       await request(app.getHttpServer())
-        .post('/impersonation/sessions/session-xyz/terminate')
+        .post(`/impersonation/sessions/${SESSION_ID}/terminate`)
         .set('x-admin-id', 'evil-admin')
         .send({ reason: 'Forced termination' });
 
       expect(mockImpersonationService.terminateSession).toHaveBeenCalledWith(
-        'session-xyz',
+        SESSION_ID,
         authenticatedUser.id, // JWT identity, NOT 'evil-admin'
         'Forced termination',
       );
@@ -429,7 +499,7 @@ describe('ImpersonationController', () => {
       });
 
       const res = await request(app.getHttpServer())
-        .post('/impersonation/sessions/session-xyz/terminate')
+        .post(`/impersonation/sessions/${SESSION_ID}/terminate`)
         .send({ reason: 'Something' });
 
       // Controller should throw UnauthorizedException (not generic Error)
@@ -561,14 +631,12 @@ describe('ImpersonationController', () => {
       it('should accept valid query parameters', async () => {
         mockImpersonationService.queryPermissions.mockResolvedValueOnce({ data: [], total: 0 });
 
-        const res = await request(app.getHttpServer())
-          .get('/impersonation/permissions')
-          .query({
-            tenantId: 'd4e5f6a7-b8c9-4d0e-af1a-2b3c4d5e6f7a',
-            isActive: 'true',
-            page: 1,
-            limit: 10,
-          });
+        const res = await request(app.getHttpServer()).get('/impersonation/permissions').query({
+          tenantId: 'd4e5f6a7-b8c9-4d0e-af1a-2b3c4d5e6f7a',
+          isActive: 'true',
+          page: 1,
+          limit: 10,
+        });
 
         expect(res.status).toBe(HttpStatus.OK);
       });
@@ -576,58 +644,26 @@ describe('ImpersonationController', () => {
 
     describe('QuerySessionsDto', () => {
       it('should accept valid session query params', async () => {
-        mockImpersonationService.querySessions.mockResolvedValueOnce({ data: [], total: 0 });
+        mockImpersonationService.querySessions.mockResolvedValueOnce(EMPTY_SESSION_PAGE);
 
-        const res = await request(app.getHttpServer())
-          .get('/impersonation/sessions')
-          .query({
-            status: ImpersonationStatus.ACTIVE,
-            reason: ImpersonationReason.DEBUGGING,
-            page: 1,
-            limit: 50,
-          });
+        const res = await request(app.getHttpServer()).get('/impersonation/sessions').query({
+          status: ImpersonationStatus.ACTIVE,
+          reason: ImpersonationReason.DEBUGGING,
+          search: 'Ocean',
+          page: 1,
+          limit: 50,
+        });
 
         expect(res.status).toBe(HttpStatus.OK);
-      });
-    });
-
-    describe('LogActionDto', () => {
-      it('should reject log-action with missing required fields', async () => {
-        const res = await request(app.getHttpServer())
-          .post('/impersonation/sessions/session-1/log-action')
-          .send({});
-
-        expect(res.status).toBe(HttpStatus.BAD_REQUEST);
-      });
-
-      it('should accept valid log-action', async () => {
-        const res = await request(app.getHttpServer())
-          .post('/impersonation/sessions/session-1/log-action')
-          .send({
-            action: 'VIEW',
-            resource: 'user_profile',
-            resourceId: 'user-123',
-          });
-
-        expect(res.status).toBe(HttpStatus.NO_CONTENT);
-        expect(mockImpersonationService.logAction).toHaveBeenCalledWith(
-          'session-1',
-          'VIEW',
-          'user_profile',
-          'user-123',
-          undefined,
+        expect(mockImpersonationService.querySessions).toHaveBeenCalledWith(
+          expect.objectContaining({
+            status: ImpersonationStatus.ACTIVE,
+            reason: ImpersonationReason.DEBUGGING,
+            search: 'Ocean',
+            page: 1,
+            limit: 50,
+          }),
         );
-      });
-
-      it('should reject action exceeding maxLength (100)', async () => {
-        const res = await request(app.getHttpServer())
-          .post('/impersonation/sessions/session-1/log-action')
-          .send({
-            action: 'A'.repeat(101),
-            resource: 'test',
-          });
-
-        expect(res.status).toBe(HttpStatus.BAD_REQUEST);
       });
     });
   });
@@ -643,8 +679,7 @@ describe('ImpersonationController', () => {
         new NotFoundException('Session not found'),
       );
 
-      const res = await request(app.getHttpServer())
-        .get('/impersonation/sessions/non-existent');
+      const res = await request(app.getHttpServer()).get(`/impersonation/sessions/${SESSION_ID}`);
 
       expect(res.status).toBe(HttpStatus.NOT_FOUND);
     });
@@ -656,7 +691,7 @@ describe('ImpersonationController', () => {
       );
 
       const res = await request(app.getHttpServer())
-        .post('/impersonation/sessions/session-other/end')
+        .post(`/impersonation/sessions/${SESSION_ID}/end`)
         .send({ reason: 'Attempt unauthorized end' });
 
       expect(res.status).toBe(HttpStatus.FORBIDDEN);
@@ -669,7 +704,7 @@ describe('ImpersonationController', () => {
       );
 
       const res = await request(app.getHttpServer())
-        .post('/impersonation/sessions/session-other/terminate')
+        .post(`/impersonation/sessions/${SESSION_ID}/terminate`)
         .send({ reason: 'Forced' });
 
       expect(res.status).toBe(HttpStatus.FORBIDDEN);
@@ -683,17 +718,17 @@ describe('ImpersonationController', () => {
   describe('POST /impersonation/sessions/:id/extend', () => {
     it('should pass JWT user.id to extendSession for ownership check', async () => {
       mockImpersonationService.extendSession.mockResolvedValueOnce({
-        id: 'session-ext-1',
+        id: SESSION_ID,
         status: ImpersonationStatus.ACTIVE,
         expiresAt: new Date(Date.now() + 7200000),
       });
 
       await request(app.getHttpServer())
-        .post('/impersonation/sessions/session-ext-1/extend')
+        .post(`/impersonation/sessions/${SESSION_ID}/extend`)
         .send({ additionalMinutes: 30 });
 
       expect(mockImpersonationService.extendSession).toHaveBeenCalledWith(
-        'session-ext-1',
+        SESSION_ID,
         30,
         authenticatedUser.id,
       );
@@ -701,17 +736,17 @@ describe('ImpersonationController', () => {
 
     it('should not allow client-injected admin ID on extend', async () => {
       mockImpersonationService.extendSession.mockResolvedValueOnce({
-        id: 'session-ext-1',
+        id: SESSION_ID,
         status: ImpersonationStatus.ACTIVE,
       });
 
       await request(app.getHttpServer())
-        .post('/impersonation/sessions/session-ext-1/extend')
+        .post(`/impersonation/sessions/${SESSION_ID}/extend`)
         .set('x-admin-id', 'evil-admin')
         .send({ additionalMinutes: 60 });
 
       expect(mockImpersonationService.extendSession).toHaveBeenCalledWith(
-        'session-ext-1',
+        SESSION_ID,
         60,
         authenticatedUser.id, // JWT identity, NOT 'evil-admin'
       );
@@ -721,7 +756,7 @@ describe('ImpersonationController', () => {
       mockGuard.canActivate.mockImplementationOnce(() => true);
 
       const res = await request(app.getHttpServer())
-        .post('/impersonation/sessions/session-ext-1/extend')
+        .post(`/impersonation/sessions/${SESSION_ID}/extend`)
         .send({ additionalMinutes: 30 });
 
       // Controller should throw UnauthorizedException when req.user is missing
@@ -730,7 +765,7 @@ describe('ImpersonationController', () => {
 
     it('should reject additionalMinutes below minimum (5)', async () => {
       const res = await request(app.getHttpServer())
-        .post('/impersonation/sessions/session-ext-1/extend')
+        .post(`/impersonation/sessions/${SESSION_ID}/extend`)
         .send({ additionalMinutes: 3 });
 
       expect(res.status).toBe(HttpStatus.BAD_REQUEST);
@@ -738,7 +773,7 @@ describe('ImpersonationController', () => {
 
     it('should reject additionalMinutes above maximum (120)', async () => {
       const res = await request(app.getHttpServer())
-        .post('/impersonation/sessions/session-ext-1/extend')
+        .post(`/impersonation/sessions/${SESSION_ID}/extend`)
         .send({ additionalMinutes: 121 });
 
       expect(res.status).toBe(HttpStatus.BAD_REQUEST);
@@ -746,7 +781,7 @@ describe('ImpersonationController', () => {
 
     it('should reject request with missing additionalMinutes', async () => {
       const res = await request(app.getHttpServer())
-        .post('/impersonation/sessions/session-ext-1/extend')
+        .post(`/impersonation/sessions/${SESSION_ID}/extend`)
         .send({});
 
       expect(res.status).toBe(HttpStatus.BAD_REQUEST);
@@ -764,44 +799,116 @@ describe('ImpersonationController', () => {
   });
 
   // ==========================================================================
-  // 11. validateSession -- token-based session validation (previously missing)
+  // 11. gateway-only exact authorization protocol
   // ==========================================================================
 
-  describe('GET /impersonation/sessions/validate', () => {
-    it('should call validateSession with the x-impersonation-token header', async () => {
-      mockImpersonationService.validateSession.mockResolvedValueOnce({
-        sessionId: 'session-1',
-        superAdminId: 'admin-1',
-        targetTenantId: 'tenant-1',
-        permissions: { canViewData: true },
-        expiresAt: new Date(),
-        isActive: true,
-      });
+  describe('gateway-only authorization endpoints', () => {
+    const coordinate = {
+      schemaVersion: IMPERSONATION_AUTHORIZATION_RECEIPT_VERSION,
+      authorizationReceiptId: '55555555-5555-4555-8555-555555555555',
+      sessionId: SESSION_ID,
+      effectiveTenantId: TARGET_TENANT_ID,
+      method: 'POST',
+      normalizedPath: '/graphql',
+      normalizedQueryHash: 'b'.repeat(64),
+      bodyHash: 'c'.repeat(64),
+      requestDigest: 'd'.repeat(64),
+    } as const;
+    const context = {
+      sessionId: SESSION_ID,
+      superAdminId: AUTHENTICATED_ADMIN_ID,
+      targetTenantId: TARGET_TENANT_ID,
+      permissions: {
+        canViewData: true,
+        canModifyData: false,
+        canAccessSettings: false,
+        canManageUsers: false,
+        canViewBilling: false,
+        canExportData: false,
+      },
+      expiresAt: new Date(Date.now() + 60_000),
+      isActive: true,
+    };
+    const operations = [
+      { authority: 'data.read', module: 'farm', operation: 'Query.farms' },
+    ] as const;
+
+    it('resolves read-only context from signed gateway identity without client-authored actor fields', async () => {
+      mockImpersonationService.resolveAuthorizationContext.mockResolvedValueOnce(context);
 
       const res = await request(app.getHttpServer())
-        .get('/impersonation/sessions/validate')
-        .set('x-impersonation-token', 'test-token-abc');
+        .post('/impersonation/sessions/authorization-context')
+        .set('x-impersonation-token', VALID_TOKEN)
+        .send(coordinate);
 
       expect(res.status).toBe(HttpStatus.OK);
-      expect(res.body.valid).toBe(true);
-      expect(res.body.context).toBeDefined();
-      expect(res.body.context.sessionId).toBe('session-1');
-      expect(mockImpersonationService.validateSession).toHaveBeenCalledWith(
-        'test-token-abc',
-        expect.any(String),
+      expect(res.body.context.sessionId).toBe(SESSION_ID);
+      expect(mockImpersonationService.resolveAuthorizationContext).toHaveBeenCalledWith(
+        expect.objectContaining({
+          credential: VALID_TOKEN,
+          actorId: AUTHENTICATED_ADMIN_ID,
+          effectiveTenantId: TARGET_TENANT_ID,
+          clientIp: '203.0.113.10',
+          clientUserAgent: 'impersonation-controller-test/1.0',
+        }),
       );
     });
 
-    it('should return valid=false when token is invalid', async () => {
-      mockImpersonationService.validateSession.mockResolvedValueOnce(null);
+    it('commits only a canonical exact operation set', async () => {
+      const operationSetDigest = impersonationAuthorizationOperationSetDigestV1(operations);
+      mockImpersonationService.authorizeOperations.mockResolvedValueOnce({
+        authorizationReceiptId: coordinate.authorizationReceiptId,
+        requestDigest: coordinate.requestDigest,
+        replayed: false,
+        context,
+      });
 
       const res = await request(app.getHttpServer())
-        .get('/impersonation/sessions/validate')
-        .set('x-impersonation-token', 'invalid-token');
+        .post('/impersonation/sessions/authorization-receipts')
+        .set('x-impersonation-token', VALID_TOKEN)
+        .send({ ...coordinate, operations, operationSetDigest });
 
       expect(res.status).toBe(HttpStatus.OK);
-      expect(res.body.valid).toBe(false);
-      expect(res.body.context).toBeNull();
+      expect(res.body.authorizationReceiptId).toBe(coordinate.authorizationReceiptId);
+      expect(mockImpersonationService.authorizeOperations).toHaveBeenCalledWith(
+        expect.objectContaining({ operations, operationSetDigest }),
+      );
+    });
+
+    it('rejects an operation-set digest mismatch before the service', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/impersonation/sessions/authorization-receipts')
+        .set('x-impersonation-token', VALID_TOKEN)
+        .send({ ...coordinate, operations, operationSetDigest: 'e'.repeat(64) });
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(mockImpersonationService.authorizeOperations).not.toHaveBeenCalled();
+    });
+
+    it('rejects unsigned callers and client-authored identity/network fields', async () => {
+      mockGuard.canActivate.mockImplementationOnce((executionContext) => {
+        const req = executionContext.switchToHttp().getRequest();
+        req.user = { ...authenticatedUser };
+        return true;
+      });
+      const unsigned = await request(app.getHttpServer())
+        .post('/impersonation/sessions/authorization-context')
+        .set('x-impersonation-token', VALID_TOKEN)
+        .send(coordinate);
+      expect(unsigned.status).toBe(HttpStatus.FORBIDDEN);
+
+      const clientAuthored = await request(app.getHttpServer())
+        .post('/impersonation/sessions/authorization-context')
+        .set('x-impersonation-token', VALID_TOKEN)
+        .send({
+          ...coordinate,
+          actorId: TARGET_ADMIN_ID,
+          mfaVerified: true,
+          clientIp: '198.51.100.8',
+          clientUserAgent: 'spoofed',
+        });
+      expect(clientAuthored.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(mockImpersonationService.resolveAuthorizationContext).not.toHaveBeenCalled();
     });
   });
 
@@ -811,12 +918,14 @@ describe('ImpersonationController', () => {
 
   describe('POST /impersonation/permissions/:superAdminId/revoke', () => {
     it('should call revokeImpersonationPermission with the correct superAdminId', async () => {
-      const res = await request(app.getHttpServer())
-        .post('/impersonation/permissions/admin-uuid-5678/revoke');
+      const res = await request(app.getHttpServer()).post(
+        `/impersonation/permissions/${TARGET_ADMIN_ID}/revoke`,
+      );
 
       expect(res.status).toBe(HttpStatus.NO_CONTENT);
       expect(mockImpersonationService.revokeImpersonationPermission).toHaveBeenCalledWith(
-        'admin-uuid-5678',
+        TARGET_ADMIN_ID,
+        AUTHENTICATED_ADMIN_ID,
       );
     });
 
@@ -826,17 +935,28 @@ describe('ImpersonationController', () => {
         new NotFoundException('Permission not found'),
       );
 
-      const res = await request(app.getHttpServer())
-        .post('/impersonation/permissions/non-existent/revoke');
+      const res = await request(app.getHttpServer()).post(
+        `/impersonation/permissions/${TARGET_ADMIN_ID}/revoke`,
+      );
 
       expect(res.status).toBe(HttpStatus.NOT_FOUND);
     });
 
     it('should invoke PlatformAdminGuard', async () => {
-      await request(app.getHttpServer())
-        .post('/impersonation/permissions/admin-uuid-5678/revoke');
+      await request(app.getHttpServer()).post(
+        `/impersonation/permissions/${TARGET_ADMIN_ID}/revoke`,
+      );
 
       expect(mockGuard.canActivate).toHaveBeenCalled();
+    });
+
+    it('should reject an upper-case UUID path spelling', async () => {
+      const res = await request(app.getHttpServer()).post(
+        '/impersonation/permissions/A1B2C3D4-E5F6-4A7B-8C9D-E0F1A2B3C4D5/revoke',
+      );
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(mockImpersonationService.revokeImpersonationPermission).not.toHaveBeenCalled();
     });
   });
 
@@ -851,14 +971,15 @@ describe('ImpersonationController', () => {
         permission: { id: 'perm-1' },
       });
 
-      const res = await request(app.getHttpServer())
-        .get('/impersonation/permissions/admin-123/check/tenant-456');
+      const res = await request(app.getHttpServer()).get(
+        `/impersonation/permissions/${TARGET_ADMIN_ID}/check/${TARGET_TENANT_ID}`,
+      );
 
       expect(res.status).toBe(HttpStatus.OK);
       expect(res.body.allowed).toBe(true);
       expect(mockImpersonationService.canImpersonate).toHaveBeenCalledWith(
-        'admin-123',
-        'tenant-456',
+        TARGET_ADMIN_ID,
+        TARGET_TENANT_ID,
       );
     });
 
@@ -868,8 +989,9 @@ describe('ImpersonationController', () => {
         reason: 'No impersonation permission granted',
       });
 
-      const res = await request(app.getHttpServer())
-        .get('/impersonation/permissions/admin-no-perm/check/tenant-456');
+      const res = await request(app.getHttpServer()).get(
+        `/impersonation/permissions/${TARGET_ADMIN_ID}/check/${TARGET_TENANT_ID}`,
+      );
 
       expect(res.status).toBe(HttpStatus.OK);
       expect(res.body.allowed).toBe(false);
@@ -877,53 +999,9 @@ describe('ImpersonationController', () => {
     });
 
     it('should invoke PlatformAdminGuard', async () => {
-      await request(app.getHttpServer())
-        .get('/impersonation/permissions/admin-123/check/tenant-456');
-
-      expect(mockGuard.canActivate).toHaveBeenCalled();
-    });
-  });
-
-  // ==========================================================================
-  // 14. logResourceAccess -- resource access logging (previously missing)
-  // ==========================================================================
-
-  describe('POST /impersonation/sessions/:id/log-resource-access', () => {
-    it('should call logResourceAccess with correct parameters', async () => {
-      const res = await request(app.getHttpServer())
-        .post('/impersonation/sessions/session-log-1/log-resource-access')
-        .send({
-          resourceType: 'user_profile',
-          resourceId: 'user-abc',
-          action: 'VIEW',
-        });
-
-      expect(res.status).toBe(HttpStatus.NO_CONTENT);
-      expect(mockImpersonationService.logResourceAccess).toHaveBeenCalledWith(
-        'session-log-1',
-        'user_profile',
-        'user-abc',
-        'VIEW',
+      await request(app.getHttpServer()).get(
+        `/impersonation/permissions/${TARGET_ADMIN_ID}/check/${TARGET_TENANT_ID}`,
       );
-    });
-
-    it('should reject request with missing required fields', async () => {
-      const res = await request(app.getHttpServer())
-        .post('/impersonation/sessions/session-log-1/log-resource-access')
-        .send({});
-
-      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
-      expect(mockImpersonationService.logResourceAccess).not.toHaveBeenCalled();
-    });
-
-    it('should invoke PlatformAdminGuard', async () => {
-      await request(app.getHttpServer())
-        .post('/impersonation/sessions/session-log-1/log-resource-access')
-        .send({
-          resourceType: 'billing',
-          resourceId: 'inv-123',
-          action: 'READ',
-        });
 
       expect(mockGuard.canActivate).toHaveBeenCalled();
     });
@@ -944,16 +1022,12 @@ describe('ImpersonationController', () => {
         recentSessions: [],
       });
 
-      const res = await request(app.getHttpServer())
-        .get('/impersonation/audit/summary');
+      const res = await request(app.getHttpServer()).get('/impersonation/audit/summary');
 
       expect(res.status).toBe(HttpStatus.OK);
       expect(res.body.totalSessions).toBe(10);
       expect(res.body.activeSessions).toBe(2);
-      expect(mockImpersonationService.getAuditSummary).toHaveBeenCalledWith(
-        undefined,
-        undefined,
-      );
+      expect(mockImpersonationService.getAuditSummary).toHaveBeenCalledWith(undefined, undefined);
     });
 
     it('should pass date filters to service when provided', async () => {
@@ -966,12 +1040,10 @@ describe('ImpersonationController', () => {
         recentSessions: [],
       });
 
-      const res = await request(app.getHttpServer())
-        .get('/impersonation/audit/summary')
-        .query({
-          startDate: '2026-01-01',
-          endDate: '2026-03-14',
-        });
+      const res = await request(app.getHttpServer()).get('/impersonation/audit/summary').query({
+        startDate: '2026-01-01T00:00:00.000Z',
+        endDate: '2026-03-14T00:00:00.000Z',
+      });
 
       expect(res.status).toBe(HttpStatus.OK);
       expect(mockImpersonationService.getAuditSummary).toHaveBeenCalledWith(
@@ -980,11 +1052,28 @@ describe('ImpersonationController', () => {
       );
     });
 
+    it.each([
+      {
+        startDate: '2026-01-01',
+        endDate: '2026-03-14T00:00:00.000Z',
+      },
+      {
+        startDate: '2026-03-14T00:00:00.000Z',
+        endDate: '2026-01-01T00:00:00.000Z',
+      },
+    ])('should reject non-canonical or reversed audit ranges', async (query) => {
+      const res = await request(app.getHttpServer())
+        .get('/impersonation/audit/summary')
+        .query(query);
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(mockImpersonationService.getAuditSummary).not.toHaveBeenCalled();
+    });
+
     it('should invoke PlatformAdminGuard', async () => {
       mockImpersonationService.getAuditSummary.mockResolvedValueOnce({ totalSessions: 0 });
 
-      await request(app.getHttpServer())
-        .get('/impersonation/audit/summary');
+      await request(app.getHttpServer()).get('/impersonation/audit/summary');
 
       expect(mockGuard.canActivate).toHaveBeenCalled();
     });

@@ -13,8 +13,26 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import type { PricingModuleQuantities } from '@platform/pricing-metric-vocabulary';
 
 import { ModulesService, PaginatedModules } from './modules.service';
+import type { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import { AdminResponseContract } from '../shared/admin-response-contract.decorator';
+import {
+  modulesSystemModulePageContract,
+  type ModulesSystemModuleDto,
+  modulesModuleStatsContract,
+  type ModulesModuleStatsDto,
+  modulesGetAllAssignmentsResponsePageContract,
+  type ModulesGetAllAssignmentsResponseDto,
+  modulesSystemModuleContract,
+  modulesGetModuleTenantsResponsePageContract,
+  type ModulesGetModuleTenantsResponseDto,
+  voidResponseContract,
+  type VoidResponseDto,
+  modulesTenantModuleAssignmentContract,
+  type ModulesTenantModuleAssignmentDto,
+} from './contracts/admin-http-response.contract';
 
 /**
  * WHY no price field: billing owns all subscription pricing (platform rule
@@ -40,18 +58,7 @@ export interface UpdateModuleDto {
   isActive?: boolean;
 }
 
-export interface ModuleQuantitiesDto {
-  users?: number;
-  farms?: number;
-  ponds?: number;
-  sensors?: number;
-  devices?: number;
-  storageGb?: number;
-  apiCalls?: number;
-  alerts?: number;
-  reports?: number;
-  integrations?: number;
-}
+export type ModuleQuantitiesDto = PricingModuleQuantities;
 
 export interface AssignModuleDto {
   tenantId: string;
@@ -69,6 +76,7 @@ export class ModulesController {
   /**
    * Get all system modules
    */
+  @AdminResponseContract(modulesSystemModulePageContract)
   @Get()
   async listModules(
     @Query('isActive') isActive?: string,
@@ -76,7 +84,7 @@ export class ModulesController {
     @Query('search') search?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
-  ): Promise<PaginatedModules> {
+  ): Promise<IStandardPaginatedResult<ModulesSystemModuleDto>> {
     return this.modulesService.listModules(
       {
         isActive: isActive === 'true' ? true : isActive === 'false' ? false : undefined,
@@ -91,21 +99,23 @@ export class ModulesController {
   /**
    * Get module statistics
    */
+  @AdminResponseContract(modulesModuleStatsContract)
   @Get('stats')
-  async getModuleStats() {
+  async getModuleStats(): Promise<ModulesModuleStatsDto> {
     return this.modulesService.getModuleStats();
   }
 
   /**
    * Get all tenant-module assignments
    */
+  @AdminResponseContract(modulesGetAllAssignmentsResponsePageContract)
   @Get('assignments')
   async getAllAssignments(
     @Query('tenantId') tenantId?: string,
     @Query('moduleId') moduleId?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
-  ) {
+  ): Promise<IStandardPaginatedResult<ModulesGetAllAssignmentsResponseDto>> {
     return this.modulesService.getAssignments(
       { tenantId, moduleId },
       page ? parseInt(page, 10) : 1,
@@ -116,28 +126,31 @@ export class ModulesController {
   /**
    * Get module by ID
    */
+  @AdminResponseContract(modulesSystemModuleContract)
   @Get(':id')
-  async getModuleById(@Param('id', ParseUUIDPipe) id: string) {
+  async getModuleById(@Param('id', ParseUUIDPipe) id: string): Promise<ModulesSystemModuleDto> {
     return this.modulesService.getModuleById(id);
   }
 
   /**
    * Get module by code
    */
-  @Get('code/:code')
-  async getModuleByCode(@Param('code') code: string) {
+  @AdminResponseContract(modulesSystemModuleContract)
+  @Get('lookup/code/:code')
+  async getModuleByCode(@Param('code') code: string): Promise<ModulesSystemModuleDto> {
     return this.modulesService.getModuleByCode(code);
   }
 
   /**
    * Get tenants assigned to a module
    */
+  @AdminResponseContract(modulesGetModuleTenantsResponsePageContract)
   @Get(':id/tenants')
   async getModuleTenants(
     @Param('id', ParseUUIDPipe) id: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
-  ) {
+  ): Promise<IStandardPaginatedResult<ModulesGetModuleTenantsResponseDto>> {
     return this.modulesService.getModuleTenants(
       id,
       page ? parseInt(page, 10) : 1,
@@ -148,66 +161,75 @@ export class ModulesController {
   /**
    * Create new system module
    */
+  @AdminResponseContract(modulesSystemModuleContract)
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  async createModule(@Body() dto: CreateModuleDto) {
+  async createModule(@Body() dto: CreateModuleDto): Promise<ModulesSystemModuleDto> {
     return this.modulesService.createModule(dto);
   }
 
   /**
    * Update module
    */
+  @AdminResponseContract(modulesSystemModuleContract)
   @Put(':id')
   async updateModule(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateModuleDto,
-  ) {
+  ): Promise<ModulesSystemModuleDto> {
     return this.modulesService.updateModule(id, dto);
   }
 
   /**
    * Activate module
    */
+  @AdminResponseContract(modulesSystemModuleContract)
   @Patch(':id/activate')
-  async activateModule(@Param('id', ParseUUIDPipe) id: string) {
+  async activateModule(@Param('id', ParseUUIDPipe) id: string): Promise<ModulesSystemModuleDto> {
     return this.modulesService.setModuleStatus(id, true);
   }
 
   /**
    * Deactivate module
    */
+  @AdminResponseContract(modulesSystemModuleContract)
   @Patch(':id/deactivate')
-  async deactivateModule(@Param('id', ParseUUIDPipe) id: string) {
+  async deactivateModule(@Param('id', ParseUUIDPipe) id: string): Promise<ModulesSystemModuleDto> {
     return this.modulesService.setModuleStatus(id, false);
   }
 
   /**
    * Delete module
    */
+  @AdminResponseContract(voidResponseContract)
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async deleteModule(@Param('id', ParseUUIDPipe) id: string) {
+  async deleteModule(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
     await this.modulesService.deleteModule(id);
   }
 
   /**
    * Assign module to tenant
    */
+  @AdminResponseContract(modulesTenantModuleAssignmentContract)
   @Post('assignments')
   @HttpCode(HttpStatus.CREATED)
-  async assignModuleToTenant(@Body() dto: AssignModuleDto) {
+  async assignModuleToTenant(
+    @Body() dto: AssignModuleDto,
+  ): Promise<ModulesTenantModuleAssignmentDto> {
     return this.modulesService.assignModuleToTenant(dto);
   }
 
   /**
    * Remove module from tenant
    */
+  @AdminResponseContract(voidResponseContract)
   @Delete('assignments/:tenantId/:moduleId')
   @HttpCode(HttpStatus.NO_CONTENT)
   async removeModuleFromTenant(
     @Param('tenantId', ParseUUIDPipe) tenantId: string,
     @Param('moduleId', ParseUUIDPipe) moduleId: string,
-  ) {
+  ): Promise<void> {
     await this.modulesService.removeModuleFromTenant(tenantId, moduleId);
   }
 }

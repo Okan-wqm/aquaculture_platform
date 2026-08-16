@@ -25,6 +25,30 @@ export interface PlatformEventRegistryEntry {
   retention: string;
 }
 
+export interface PlatformExternalNatsPrincipal {
+  readonly principalId: string;
+  readonly kind: 'migration-alias';
+  readonly owner: string;
+  readonly expiresAt: string;
+  readonly reason: string;
+}
+
+/**
+ * Explicit identities that may appear in PLATFORM_EVENT_REGISTRY ACLs but are
+ * not deployable Service Catalog entries. Keeping the exception typed and
+ * expiring prevents a magic consumer string from silently bypassing catalog
+ * identity validation.
+ */
+export const PLATFORM_EXTERNAL_NATS_PRINCIPALS = {
+  'legacy-consumers': {
+    principalId: 'legacy-consumers',
+    kind: 'migration-alias',
+    owner: 'platform-architecture',
+    expiresAt: '2026-12-31',
+    reason: 'TenantCreated compatibility alias during the TenantProvisioned cutover',
+  },
+} as const satisfies Record<string, PlatformExternalNatsPrincipal>;
+
 export const PLATFORM_EVENT_REGISTRY = {
   TenantProvisioningRequested: {
     type: 'TenantProvisioningRequested',
@@ -133,6 +157,20 @@ export const PLATFORM_EVENT_REGISTRY = {
     consumers: ['auth-service'],
     schema: 'libs/event-contracts/src/tenant-commands.ts#ActivateTenantCommand',
     fixture: 'libs/event-contracts/fixtures/auth-activate-tenant-command.json',
+    acl: { publish: ['admin-api-service'], subscribe: ['auth-service'] },
+    piiClass: 'none',
+    durability: 'request-reply-receipt',
+    backendOnly: true,
+    retention: 'auth-command-receipts',
+  },
+  ResumeTenant: {
+    type: 'ResumeTenant',
+    kind: 'command',
+    subject: TENANT_COMMAND_SUBJECTS.RESUME_TENANT,
+    producer: 'admin-api-service',
+    consumers: ['auth-service'],
+    schema: 'libs/event-contracts/src/tenant-commands.ts#ResumeTenantCommand',
+    fixture: 'libs/event-contracts/fixtures/auth-resume-tenant-command.json',
     acl: { publish: ['admin-api-service'], subscribe: ['auth-service'] },
     piiClass: 'none',
     durability: 'request-reply-receipt',

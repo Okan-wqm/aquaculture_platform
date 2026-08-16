@@ -17,6 +17,7 @@ import {
   Inject,
 } from '@nestjs/common';
 import { ROLE_HIERARCHY as CANONICAL_ROLE_HIERARCHY } from '@aquaculture/backend-common/decorators';
+import { implicitPermissionsForRole } from '@platform/identity';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
@@ -91,40 +92,6 @@ export const RequireResourcePermission = (permission: ResourcePermission): Retur
 // so Record<Role, Role[]> reads correctly via string indexing here (the call
 // sites already `|| []` on a miss). One hierarchy, no drift.
 export const ROLE_HIERARCHY: Record<string, readonly string[]> = CANONICAL_ROLE_HIERARCHY;
-
-/**
- * Default role permissions
- * Keys match the Role enum values from JWT tokens (uppercase)
- */
-export const ROLE_PERMISSIONS: Record<string, string[]> = {
-  SUPER_ADMIN: ['*'],
-  TENANT_ADMIN: [
-    'users:manage',
-    'farms:manage',
-    'sensors:manage',
-    'alerts:manage',
-    'reports:view',
-    'settings:manage',
-  ],
-  MODULE_MANAGER: [
-    'users:view',
-    'farms:read',
-    'farms:update',
-    'sensors:read',
-    'sensors:update',
-    'alerts:read',
-    'alerts:acknowledge',
-    'reports:view',
-  ],
-  MODULE_USER: [
-    'farms:read',
-    'sensors:read',
-    'sensors:update',
-    'alerts:read',
-    'alerts:acknowledge',
-    'reports:view',
-  ],
-};
 
 /**
  * Permission Guard
@@ -314,18 +281,9 @@ export class PermissionGuard implements CanActivate, OnModuleDestroy {
 
     // Add role-based permissions
     for (const role of user.roles) {
-      const rolePerms = ROLE_PERMISSIONS[role] || [];
+      const rolePerms = implicitPermissionsForRole(role);
       for (const perm of rolePerms) {
         permissions.add(perm);
-      }
-
-      // Add inherited role permissions
-      const inheritedRoles = ROLE_HIERARCHY[role] || [];
-      for (const inheritedRole of inheritedRoles) {
-        const inheritedPerms = ROLE_PERMISSIONS[inheritedRole] || [];
-        for (const perm of inheritedPerms) {
-          permissions.add(perm);
-        }
       }
     }
 

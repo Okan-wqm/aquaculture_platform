@@ -39,6 +39,8 @@ const PLATFORM_ADMIN_ROLES: readonly string[] = ['admin', 'platform_admin', 'SUP
 const RESTRICTED_PROVIDER_CREDENTIAL_KEYS: ReadonlySet<string> = new Set(
   Object.values(MARINE_PROVIDER_CREDENTIAL_KEYS),
 );
+const TENANT_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 
 function isRestrictedProviderCredential(service: string, key: string): boolean {
   return (
@@ -99,7 +101,26 @@ export class ConfigurationResolver {
    * JWT tenant claim, and an authenticated non-admin without a tenant stays
    * rejected fail-closed.
    */
-  private getTenantId(context: GraphQLContext): string {
+  private resolveTenantScope(context: GraphQLContext, explicitTenantId?: string | null): string {
+    if (explicitTenantId !== undefined && explicitTenantId !== null) {
+      const user = context.req.user;
+      if (!user) {
+        throw new UnauthorizedException('Authentication required - tenant ID must come from JWT');
+      }
+      if (
+        (user.tenantId !== undefined && user.tenantId !== null) ||
+        !(user.roles ?? []).includes('SUPER_ADMIN')
+      ) {
+        throw new ForbiddenException(
+          'Tenantless SUPER_ADMIN authority is required to target tenant configuration',
+        );
+      }
+      if (!TENANT_ID_PATTERN.test(explicitTenantId) || explicitTenantId === SYSTEM_TENANT_ID) {
+        throw new ForbiddenException('Target tenant ID is not a canonical tenant UUID');
+      }
+      return explicitTenantId;
+    }
+
     const tenantId = context.req.user?.tenantId;
     if (tenantId) {
       return tenantId;
@@ -140,8 +161,10 @@ export class ConfigurationResolver {
     @Args('environment', { type: () => ConfigEnvironment, nullable: true })
     environment: ConfigEnvironment,
     @Context() context: GraphQLContext,
+    @Args('tenantId', { type: () => String, nullable: true })
+    targetTenantId: string | null = null,
   ): Promise<EffectiveConfigurationDto> {
-    const tenantId = this.getTenantId(context);
+    const tenantId = this.resolveTenantScope(context, targetTenantId);
     this.assertConfigurationReadAllowed(serviceId, key, context);
     const configuration = await this.queryBus.execute<GetConfigurationQuery, Configuration>(
       new GetConfigurationQuery(tenantId, serviceId, key, environment),
@@ -155,8 +178,10 @@ export class ConfigurationResolver {
     @Args('environment', { type: () => ConfigEnvironment, nullable: true })
     environment: ConfigEnvironment,
     @Context() context: GraphQLContext,
+    @Args('tenantId', { type: () => String, nullable: true })
+    targetTenantId: string | null = null,
   ): Promise<EffectiveConfigurationDto[]> {
-    const tenantId = this.getTenantId(context);
+    const tenantId = this.resolveTenantScope(context, targetTenantId);
     const configurations = await this.queryBus.execute<
       GetConfigurationsByServiceQuery,
       Configuration[]
@@ -191,15 +216,14 @@ export class ConfigurationResolver {
     @Args('isSecret', { nullable: true, defaultValue: false }) isSecret: boolean,
     @Args('reason', { type: () => String, nullable: true }) reason: string | undefined,
     @Context() context: GraphQLContext,
+    @Args('tenantId', { type: () => String, nullable: true })
+    targetTenantId: string | null = null,
   ): Promise<EffectiveConfigurationDto> {
-    const tenantId = this.getTenantId(context);
+    const tenantId = this.resolveTenantScope(context, targetTenantId);
     const userId = this.getUserId(context);
     this.checkAdminAccess(context);
     const restrictedProviderCredential = isRestrictedProviderCredential(service, key);
-    if (
-      restrictedProviderCredential &&
-      !this.canReadRestrictedProviderCredentials(context)
-    ) {
+    if (restrictedProviderCredential && !this.canReadRestrictedProviderCredentials(context)) {
       throw new ForbiddenException(
         'Provider credentials are writable only by tenantless SUPER_ADMIN operations',
       );

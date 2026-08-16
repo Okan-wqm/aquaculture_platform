@@ -4,6 +4,8 @@
  */
 
 import type { ReactNode } from 'react';
+import type { Role } from '@platform/identity';
+import type { TenantPermissionCode } from '@platform/tenant-permissions';
 
 // ============================================================================
 // Kullanıcı ve Yetkilendirme Tipleri
@@ -13,7 +15,7 @@ import type { ReactNode } from 'react';
  * System user roles - hierarchical
  * SUPER_ADMIN > TENANT_ADMIN > MODULE_MANAGER > MODULE_USER
  */
-export type UserRole = 'SUPER_ADMIN' | 'TENANT_ADMIN' | 'MODULE_MANAGER' | 'MODULE_USER';
+export type UserRole = Role;
 
 /**
  * Module info for user access
@@ -41,7 +43,7 @@ export interface User {
    * decoded from the access token. Drives FE action/UI visibility via
    * useAuth().hasPermission; the backend enforces independently.
    */
-  resourcePermissions?: string[];
+  resourcePermissions?: TenantPermissionCode[];
   // Profile fields
   profileImageUrl?: string | null;
   phoneNumber?: string | null;
@@ -185,16 +187,8 @@ export interface StandardPaginationInput {
   sortOrder?: 'ASC' | 'DESC';
 }
 
-/** Standard paginated response from GraphQL queries */
-export interface StandardPaginatedResult<T> {
-  items: T[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-  hasNextPage: boolean;
-  hasPreviousPage: boolean;
-}
+/** Nominal page model; constructed only after pagination invariants are proven. */
+export type { StandardPaginatedResult } from '@platform/admin-http-contracts';
 
 /**
  * API hata yanıtı
@@ -374,7 +368,14 @@ export interface SystemAlert {
 /**
  * Buton varyantları
  */
-export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'success' | 'warning' | 'ghost' | 'outline';
+export type ButtonVariant =
+  | 'primary'
+  | 'secondary'
+  | 'danger'
+  | 'success'
+  | 'warning'
+  | 'ghost'
+  | 'outline';
 
 /**
  * MetricCard trend yönü
@@ -443,9 +444,9 @@ export interface NavigationItem {
   label: string;
   icon?: string;
   path?: string;
-  children?: NavigationItem[];
-  requiredRoles?: UserRole[];
-  requiredPermissions?: string[];
+  children?: readonly NavigationItem[];
+  requiredRoles?: readonly UserRole[];
+  requiredPermissions?: readonly string[];
   badge?: string | number;
   isExternal?: boolean;
 }

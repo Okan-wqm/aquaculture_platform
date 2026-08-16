@@ -12,6 +12,7 @@ import {
 } from '../entities/module-pricing.entity';
 import { PlanTier } from '../entities/plan-definition.entity';
 import { PricingMetricType } from '../entities/pricing-metric.enum';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
 /**
  * DTO for creating/updating module pricing
@@ -284,7 +285,7 @@ export class ModulePricingService {
   async getPricingHistory(
     moduleId: string,
     options: { page?: number; limit?: number } = {},
-  ): Promise<{ data: ModulePricing[]; total: number; page: number; limit: number }> {
+  ): Promise<IStandardPaginatedResult<ModulePricing>> {
     const { page = 1, limit = 50 } = options;
 
     const [data, total] = await this.pricingRepo.findAndCount({
@@ -294,7 +295,7 @@ export class ModulePricingService {
       take: limit,
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**

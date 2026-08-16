@@ -23,43 +23,28 @@ import {
   Loader2,
   Inbox,
 } from 'lucide-react';
-import {
-  supportApi,
-  type MessageThread,
-  type SupportMessage,
-  type SupportMessageAttachment,
-} from '../services/adminApi';
+import { useAuthContext } from '@aquaculture/shared-ui';
+import { supportApi, type MessageThread, type SupportMessage } from '../services/adminApi';
+import { isAdminNavigationUrl, openAdminNavigation } from '../services/browser-capabilities';
+import type { AdminApiRouteResponse } from '../services/types/generated/admin-route-contracts';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-// Adapting MessageThread to have computed properties used in UI
-interface ThreadSummary extends Omit<MessageThread, 'lastMessage' | 'lastMessageAt'> {
-  lastMessage: string;
-  lastMessageAt: string;
-  unreadCount: number;
-  isClosed: boolean;
-}
-
-interface MessagingStats {
-  totalThreads: number;
-  activeThreads: number;
-  closedThreads: number;
-  totalMessages: number;
-  unreadMessages: number;
-  avgResponseTimeMinutes: number;
-}
+type ThreadSummary = MessageThread;
+type MessagingStats = AdminApiRouteResponse<'GET /support/messages/stats'>;
 
 // ============================================================================
 // Component
 // ============================================================================
 
 export const MessagingPage: React.FC = () => {
-  const [threads, setThreads] = useState<ThreadSummary[]>([]);
+  const { user } = useAuthContext();
+  const [threads, setThreads] = useState<readonly ThreadSummary[]>([]);
   const [stats, setStats] = useState<MessagingStats | null>(null);
   const [selectedThread, setSelectedThread] = useState<ThreadSummary | null>(null);
-  const [messages, setMessages] = useState<SupportMessage[]>([]);
+  const [messages, setMessages] = useState<readonly SupportMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [messagesLoading, setMessagesLoading] = useState(false);
@@ -83,15 +68,7 @@ export const MessagingPage: React.FC = () => {
       if (showUnreadOnly) params.hasUnread = 'true';
 
       const result = await supportApi.getMessageThreads(params);
-      // Map MessageThread to ThreadSummary
-      const mappedThreads: ThreadSummary[] = (result.data || []).map((thread: MessageThread) => ({
-        ...thread,
-        lastMessage: thread.lastMessage || '',
-        lastMessageAt: thread.lastMessageAt || '',
-        unreadCount: thread.unreadCountAdmin || 0,
-        isClosed: thread.status === 'closed',
-      }));
-      setThreads(mappedThreads);
+      setThreads(result.items);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
       setThreads([]);
@@ -104,30 +81,33 @@ export const MessagingPage: React.FC = () => {
   const fetchStats = useCallback(async () => {
     try {
       const data = await supportApi.getMessagingStats();
-      setStats(data as unknown as MessagingStats);
+      setStats(data);
     } catch (err) {
       console.error('Failed to fetch stats:', err);
     }
   }, []);
 
   // Fetch messages for a thread
-  const fetchMessages = useCallback(async (threadId: string) => {
-    try {
-      setMessagesLoading(true);
-      const data = await supportApi.getThreadMessages(threadId);
-      setMessages(data || []);
+  const fetchMessages = useCallback(
+    async (threadId: string) => {
+      try {
+        setMessagesLoading(true);
+        const data = await supportApi.getThreadMessages(threadId);
+        setMessages(data || []);
 
-      // Mark as read
-      await supportApi.markAsRead(threadId);
+        // Mark as read
+        await supportApi.markAsRead(threadId);
 
-      // Refresh threads to update unread count
-      fetchThreads();
-    } catch (err) {
-      console.error('Failed to fetch messages:', err);
-    } finally {
-      setMessagesLoading(false);
-    }
-  }, [fetchThreads]);
+        // Refresh threads to update unread count
+        fetchThreads();
+      } catch (err) {
+        console.error('Failed to fetch messages:', err);
+      } finally {
+        setMessagesLoading(false);
+      }
+    },
+    [fetchThreads],
+  );
 
   useEffect(() => {
     fetchThreads();
@@ -144,7 +124,7 @@ export const MessagingPage: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const filteredThreads = threads.filter(thread => {
+  const filteredThreads = threads.filter((thread) => {
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       return (
@@ -159,10 +139,16 @@ export const MessagingPage: React.FC = () => {
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !selectedThread) return;
 
+    const senderName = [user?.firstName, user?.lastName].filter(Boolean).join(' ') || user?.email;
+    if (!senderName) {
+      setError('Authenticated administrator identity is required to send a message.');
+      return;
+    }
+
     try {
       await supportApi.sendSupportMessage(selectedThread.id, {
         content: newMessage,
-        senderName: 'Admin', // TODO: Use actual admin name
+        senderName,
       });
       setNewMessage('');
       setIsInternalNote(false);
@@ -209,11 +195,21 @@ export const MessagingPage: React.FC = () => {
     }
   };
 
-  const handleCreateThread = async (data: { tenantId: string; subject: string; content: string }) => {
+  const handleCreateThread = async (data: {
+    tenantId: string;
+    subject: string;
+    content: string;
+  }) => {
+    const senderName = [user?.firstName, user?.lastName].filter(Boolean).join(' ') || user?.email;
+    if (!senderName) {
+      setError('Authenticated administrator identity is required to create a thread.');
+      return;
+    }
+
     try {
       await supportApi.createThread({
         ...data,
-        senderName: 'Admin', // TODO: Use actual admin name
+        senderName,
       });
       setShowNewThreadModal(false);
       fetchThreads();
@@ -223,7 +219,12 @@ export const MessagingPage: React.FC = () => {
     }
   };
 
-  const handleBulkMessage = async (data: { subject: string; content: string; tenantIds?: string[]; sendEmail: boolean }) => {
+  const handleBulkMessage = async (data: {
+    subject: string;
+    content: string;
+    tenantIds?: string[];
+    sendEmail: boolean;
+  }) => {
     try {
       await supportApi.sendBulkMessage(data);
       setShowBulkModal(false);
@@ -263,7 +264,10 @@ export const MessagingPage: React.FC = () => {
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={() => { fetchThreads(); fetchStats(); }}
+              onClick={() => {
+                fetchThreads();
+                fetchStats();
+              }}
               className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
             >
               <RefreshCw size={18} />
@@ -327,7 +331,10 @@ export const MessagingPage: React.FC = () => {
           {/* Search & Filter */}
           <div className="p-4 border-b border-gray-200 space-y-3">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
+              <Search
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500"
+                size={18}
+              />
               <input
                 type="text"
                 placeholder="Search conversations..."
@@ -492,15 +499,15 @@ export const MessagingPage: React.FC = () => {
                   messages.map((message) => (
                     <div
                       key={message.id}
-                      className={`flex ${message.senderType === 'super_admin' ? 'justify-end' : 'justify-start'}`}
+                      className={`flex ${message.senderType === 'admin' ? 'justify-end' : 'justify-start'}`}
                     >
                       <div
                         className={`max-w-2xl rounded-lg p-4 ${
                           message.isInternal
                             ? 'bg-yellow-50 border border-yellow-200'
-                            : message.senderType === 'super_admin'
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-white border border-gray-200'
+                            : message.senderType === 'admin'
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-white border border-gray-200'
                         }`}
                       >
                         {message.isInternal && (
@@ -510,20 +517,30 @@ export const MessagingPage: React.FC = () => {
                           </div>
                         )}
                         <div className="flex items-center gap-2 mb-1">
-                          <span className={`text-sm font-medium ${
-                            message.senderType === 'super_admin' && !message.isInternal ? 'text-blue-100' : 'text-gray-700'
-                          }`}>
+                          <span
+                            className={`text-sm font-medium ${
+                              message.senderType === 'admin' && !message.isInternal
+                                ? 'text-blue-100'
+                                : 'text-gray-700'
+                            }`}
+                          >
                             {message.senderName}
                           </span>
-                          <span className={`text-xs ${
-                            message.senderType === 'super_admin' && !message.isInternal ? 'text-blue-200' : 'text-gray-500'
-                          }`}>
+                          <span
+                            className={`text-xs ${
+                              message.senderType === 'admin' && !message.isInternal
+                                ? 'text-blue-200'
+                                : 'text-gray-500'
+                            }`}
+                          >
                             {formatTime(message.createdAt)}
                           </span>
                         </div>
-                        <p className={`text-sm whitespace-pre-wrap ${
-                          message.isInternal ? 'text-yellow-800' : ''
-                        }`}>
+                        <p
+                          className={`text-sm whitespace-pre-wrap ${
+                            message.isInternal ? 'text-yellow-800' : ''
+                          }`}
+                        >
                           {message.content}
                         </p>
 
@@ -531,29 +548,35 @@ export const MessagingPage: React.FC = () => {
                         {message.attachments && message.attachments.length > 0 && (
                           <div className="mt-3 space-y-2">
                             {message.attachments.map((att) => (
-                              <a
+                              <button
+                                type="button"
                                 key={att.id}
-                                href={att.url}
+                                disabled={!isAdminNavigationUrl(att.url)}
+                                onClick={() => openAdminNavigation(att.url)}
                                 className={`flex items-center gap-2 p-2 rounded border ${
-                                  message.senderType === 'super_admin' && !message.isInternal
+                                  message.senderType === 'admin' && !message.isInternal
                                     ? 'border-blue-400 bg-blue-500 hover:bg-blue-400'
                                     : 'border-gray-200 bg-gray-50 hover:bg-gray-100'
-                                }`}
+                                } disabled:cursor-not-allowed disabled:opacity-50`}
                               >
                                 <Paperclip size={14} />
-                                <span className="text-sm truncate">{att.filename}</span>
-                                <span className={`text-xs ${
-                                  message.senderType === 'super_admin' && !message.isInternal ? 'text-blue-200' : 'text-gray-500'
-                                }`}>
-                                  {formatFileSize(att.size)}
+                                <span className="text-sm truncate">{att.fileName}</span>
+                                <span
+                                  className={`text-xs ${
+                                    message.senderType === 'admin' && !message.isInternal
+                                      ? 'text-blue-200'
+                                      : 'text-gray-500'
+                                  }`}
+                                >
+                                  {formatFileSize(att.fileSize)}
                                 </span>
-                              </a>
+                              </button>
                             ))}
                           </div>
                         )}
 
                         {/* Read Status */}
-                        {message.senderType === 'super_admin' && !message.isInternal && (
+                        {message.senderType === 'admin' && !message.isInternal && (
                           <div className="flex justify-end mt-2">
                             {message.status === 'read' ? (
                               <CheckCheck size={14} className="text-blue-200" />
@@ -589,7 +612,9 @@ export const MessagingPage: React.FC = () => {
                       <textarea
                         value={newMessage}
                         onChange={(e) => setNewMessage(e.target.value)}
-                        placeholder={isInternalNote ? 'Write an internal note...' : 'Type your message...'}
+                        placeholder={
+                          isInternalNote ? 'Write an internal note...' : 'Type your message...'
+                        }
                         rows={3}
                         className="w-full px-4 py-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         onKeyDown={(e) => {
@@ -612,9 +637,7 @@ export const MessagingPage: React.FC = () => {
                       </button>
                     </div>
                   </div>
-                  <div className="text-xs text-gray-500 mt-2">
-                    Press Cmd+Enter to send
-                  </div>
+                  <div className="text-xs text-gray-500 mt-2">Press Cmd+Enter to send</div>
                 </div>
               )}
             </>
@@ -632,10 +655,7 @@ export const MessagingPage: React.FC = () => {
 
       {/* Bulk Message Modal */}
       {showBulkModal && (
-        <BulkMessageModal
-          onClose={() => setShowBulkModal(false)}
-          onSubmit={handleBulkMessage}
-        />
+        <BulkMessageModal onClose={() => setShowBulkModal(false)} onSubmit={handleBulkMessage} />
       )}
 
       {/* New Thread Modal */}
@@ -655,7 +675,12 @@ export const MessagingPage: React.FC = () => {
 
 interface BulkMessageModalProps {
   onClose: () => void;
-  onSubmit: (data: { subject: string; content: string; tenantIds?: string[]; sendEmail: boolean }) => void;
+  onSubmit: (data: {
+    subject: string;
+    content: string;
+    tenantIds?: string[];
+    sendEmail: boolean;
+  }) => void;
 }
 
 const BulkMessageModal: React.FC<BulkMessageModalProps> = ({ onClose, onSubmit }) => {
@@ -682,9 +707,7 @@ const BulkMessageModal: React.FC<BulkMessageModalProps> = ({ onClose, onSubmit }
         <div className="p-6 space-y-4">
           {/* Subject */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Subject
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Subject</label>
             <input
               type="text"
               value={subject}
@@ -696,9 +719,7 @@ const BulkMessageModal: React.FC<BulkMessageModalProps> = ({ onClose, onSubmit }
 
           {/* Content */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Message Content
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Message Content</label>
             <textarea
               value={content}
               onChange={(e) => setContent(e.target.value)}
@@ -780,9 +801,7 @@ const NewThreadModal: React.FC<NewThreadModalProps> = ({ onClose, onSubmit }) =>
         <div className="p-6 space-y-4">
           {/* Tenant ID */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Tenant ID
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Tenant ID</label>
             <input
               type="text"
               value={tenantId}
@@ -794,9 +813,7 @@ const NewThreadModal: React.FC<NewThreadModalProps> = ({ onClose, onSubmit }) =>
 
           {/* Subject */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Subject
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Subject</label>
             <input
               type="text"
               value={subject}
@@ -808,9 +825,7 @@ const NewThreadModal: React.FC<NewThreadModalProps> = ({ onClose, onSubmit }) =>
 
           {/* Initial Message */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Initial Message
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Initial Message</label>
             <textarea
               value={message}
               onChange={(e) => setMessage(e.target.value)}

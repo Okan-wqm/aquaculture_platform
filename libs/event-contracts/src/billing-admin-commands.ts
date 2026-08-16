@@ -1,4 +1,5 @@
 import type { BillingCycle, PlanTier } from './base-event';
+import type { PricingModuleQuantities } from './billing/pricing-metric-vocabulary';
 
 /**
  * Platform-admin billing command contracts.
@@ -26,19 +27,8 @@ export interface BillingAdminCommandMeta {
   correlationId?: string;
 }
 
-export interface BillingModuleQuantities {
+export interface BillingModuleQuantities extends PricingModuleQuantities {
   moduleId: string;
-  users?: number;
-  farms?: number;
-  ponds?: number;
-  sensors?: number;
-  employees?: number;
-  devices?: number;
-  storageGb?: number;
-  apiCalls?: number;
-  alerts?: number;
-  reports?: number;
-  integrations?: number;
 }
 
 /**

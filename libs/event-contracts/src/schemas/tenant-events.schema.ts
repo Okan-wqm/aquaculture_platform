@@ -37,6 +37,9 @@ import {
 export type TenantEventType =
   | 'TenantCreated'
   | 'TenantProvisioningRequested'
+  | 'TenantOnboardingRequested'
+  | 'TenantOnboardingAck'
+  | 'TenantOnboardingFailed'
   | 'TenantProvisioned'
   | 'TenantUpdated'
   | 'TenantStatusChanged'
@@ -89,6 +92,11 @@ const SHORT_CODE_ARRAY = {
 const NON_NEGATIVE_INT = {
   type: 'integer',
   minimum: 0,
+} as const;
+
+const POSITIVE_INT = {
+  type: 'integer',
+  minimum: 1,
 } as const;
 
 const BOOLEAN = {
@@ -205,6 +213,37 @@ export const TENANT_EVENT_SCHEMAS = {
     'TenantProvisioningRequested',
     { operationId: UUID_SCHEMA, name: LONG_STRING, slug: STRING, moduleIds: UUID_ARRAY },
     ['operationId', 'name', 'slug', 'moduleIds'],
+  ),
+  TenantOnboardingRequested: tenantEventSchema(
+    'TenantOnboardingRequested',
+    {
+      operationId: UUID_SCHEMA,
+      name: LONG_STRING,
+      slug: STRING,
+      moduleIds: UUID_ARRAY,
+      generation: POSITIVE_INT,
+    },
+    ['operationId', 'name', 'slug', 'moduleIds', 'generation'],
+  ),
+  TenantOnboardingAck: tenantEventSchema(
+    'TenantOnboardingAck',
+    {
+      operationId: UUID_SCHEMA,
+      service: STRING,
+      acknowledgedAt: ISO_DATE_TIME,
+      generation: POSITIVE_INT,
+    },
+    ['operationId', 'service', 'acknowledgedAt', 'generation'],
+  ),
+  TenantOnboardingFailed: tenantEventSchema(
+    'TenantOnboardingFailed',
+    {
+      operationId: UUID_SCHEMA,
+      service: STRING,
+      error: LONG_STRING,
+      generation: POSITIVE_INT,
+    },
+    ['operationId', 'service', 'error', 'generation'],
   ),
   TenantProvisioned: tenantEventSchema(
     'TenantProvisioned',

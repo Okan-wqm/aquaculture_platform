@@ -29,6 +29,14 @@ describe('TenantProvisioningCommandService — suspension audit trio', () => {
   let service: TenantProvisioningCommandService;
   let manager: MockManager;
   let outboxPublisher: { enqueue: jest.Mock };
+  let transaction: jest.Mock;
+  const activationProof = Object.freeze({
+    schemaVersion: 'tenant-onboarding-activation-proof.v1' as const,
+    generation: 3,
+    sealToken: '44444444-4444-4444-8444-444444444444',
+    evidenceRoot: 'a'.repeat(64),
+    publicationDigest: 'b'.repeat(64),
+  });
 
   const seedTenant = (overrides: Partial<Tenant>): Tenant => {
     const tenant = new Tenant();
@@ -43,7 +51,9 @@ describe('TenantProvisioningCommandService — suspension audit trio', () => {
     return tenant;
   };
 
-  const command = (reason?: string): {
+  const command = (
+    reason?: string,
+  ): {
     operationId: string;
     tenantId: string;
     actor: { id: string; type: 'user' };
@@ -52,24 +62,39 @@ describe('TenantProvisioningCommandService — suspension audit trio', () => {
     operationId: 'op-1',
     tenantId: 'tenant-1',
     actor: { id: 'admin-1', type: 'user' },
-    // SuspendTenantLifecycleCommand/DeprovisionTenantCommand require reason;
-    // ActivateTenantCommand ignores the extra property (structural typing).
+    // SuspendTenantLifecycleCommand/DeprovisionTenantCommand require reason.
     reason: reason ?? 'Payment overdue',
+  });
+
+  const activationCommand = () => ({
+    operationId: '33333333-3333-4333-8333-333333333333',
+    tenantId: 'tenant-1',
+    actor: { id: 'admin-1', type: 'user' as const },
+    activationProof,
   });
 
   beforeEach(async () => {
     manager = {
       // Covers the receipt SELECT (no prior receipt → []), the receipt INSERT
       // and the receipt SUCCEEDED/FAILED UPDATE in runWithReceipt.
-      query: jest.fn().mockResolvedValue([]),
+      query: jest.fn(async (sqlValue: unknown) => {
+        if (String(sqlValue).includes('admin.consume_tenant_onboarding_activation')) {
+          return [
+            {
+              evidenceRoot: activationProof.evidenceRoot,
+              publicationDigest: activationProof.publicationDigest,
+            },
+          ];
+        }
+        return [];
+      }),
       findOne: jest.fn(),
       save: jest.fn().mockImplementation((_entity, tenant: Tenant) => Promise.resolve(tenant)),
     };
-    const dataSource = {
-      transaction: jest.fn(
-        async (_isolation: string, work: (m: MockManager) => Promise<unknown>) => work(manager),
-      ),
-    };
+    transaction = jest.fn(async (_isolation: string, work: (m: MockManager) => Promise<unknown>) =>
+      work(manager),
+    );
+    const dataSource = { transaction };
     outboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -120,10 +145,25 @@ describe('TenantProvisioningCommandService — suspension audit trio', () => {
         previousStatus: TenantStatus.ACTIVE,
         newStatus: TenantStatus.SUSPENDED,
         reason: 'Payment overdue',
+        userId: 'admin-1',
       }),
       manager,
       expect.objectContaining({ aggregateId: 'tenant-1' }),
     );
+  });
+
+  it('fails the source-owner transaction when lifecycle outbox evidence cannot be enqueued', async () => {
+    seedTenant({ status: TenantStatus.ACTIVE });
+    outboxPublisher.enqueue.mockRejectedValueOnce(new Error('outbox unavailable'));
+
+    await expect(service.suspendTenant(command('Payment overdue'))).rejects.toThrow(
+      'outbox unavailable',
+    );
+
+    expect(transaction).toHaveBeenCalledWith('SERIALIZABLE', expect.any(Function));
+    expect(
+      manager.query.mock.calls.some(([sql]) => String(sql).includes("status = 'SUCCEEDED'")),
+    ).toBe(false);
   });
 
   it('ACTIVE transition clears all three suspension audit fields', async () => {
@@ -136,7 +176,7 @@ describe('TenantProvisioningCommandService — suspension audit trio', () => {
       suspendedBy: 'old-admin',
     });
 
-    const result = await service.activateTenant(command());
+    const result = await service.activateTenant(activationCommand());
 
     expect(result).toMatchObject({ status: TenantStatus.ACTIVE });
     expect(manager.save).toHaveBeenCalledTimes(1);
@@ -144,6 +184,109 @@ describe('TenantProvisioningCommandService — suspension audit trio', () => {
     expect(saved.suspendedAt).toBeNull();
     expect(saved.suspendedReason).toBeNull();
     expect(saved.suspendedBy).toBeNull();
+    const admissionCall = manager.query.mock.calls.find(([sql]) =>
+      String(sql).includes('admin.consume_tenant_onboarding_activation'),
+    );
+    expect(admissionCall?.[1]).toEqual([
+      '33333333-3333-4333-8333-333333333333',
+      'tenant-1',
+      activationProof.generation,
+      activationProof.sealToken,
+      activationProof.evidenceRoot,
+      activationProof.publicationDigest,
+    ]);
+    const admissionIndex = manager.query.mock.calls.findIndex(([sql]) =>
+      String(sql).includes('admin.consume_tenant_onboarding_activation'),
+    );
+    const admissionOrder = manager.query.mock.invocationCallOrder[admissionIndex];
+    expect(admissionOrder).toBeDefined();
+    expect(admissionOrder).toBeLessThan(manager.save.mock.invocationCallOrder[0]!);
+    expect(admissionOrder).toBeLessThan(outboxPublisher.enqueue.mock.invocationCallOrder[0]!);
+  });
+
+  it('resumes only a suspended tenant without consuming an onboarding activation seal', async () => {
+    seedTenant({
+      status: TenantStatus.SUSPENDED,
+      suspendedAt: new Date('2026-06-01T00:00:00Z'),
+      suspendedReason: 'Payment overdue',
+      suspendedBy: 'admin-1',
+    });
+
+    const result = await service.resumeTenant(command());
+
+    expect(result).toMatchObject({
+      status: TenantStatus.ACTIVE,
+      previousStatus: TenantStatus.SUSPENDED,
+    });
+    const saved = manager.save.mock.calls[0]?.[1] as Tenant;
+    expect(saved.suspendedAt).toBeNull();
+    expect(saved.suspendedReason).toBeNull();
+    expect(saved.suspendedBy).toBeNull();
+    expect(
+      manager.query.mock.calls.some(([sql]) =>
+        String(sql).includes('admin.consume_tenant_onboarding_activation'),
+      ),
+    ).toBe(false);
+  });
+
+  it('does not let ResumeTenant become a second provisioning activation authority', async () => {
+    seedTenant({ status: TenantStatus.PROVISIONING });
+
+    await expect(service.resumeTenant(command())).rejects.toThrow(
+      'this command requires one of [SUSPENDED] to reach ACTIVE',
+    );
+
+    expect(manager.save).not.toHaveBeenCalled();
+    expect(outboxPublisher.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('rolls back before tenant or outbox mutation when activation admission rejects', async () => {
+    seedTenant({ status: TenantStatus.PROVISIONING });
+    manager.query.mockImplementation(async (sqlValue: unknown) => {
+      if (String(sqlValue).includes('admin.consume_tenant_onboarding_activation')) {
+        throw new Error('tenant onboarding activation proof is stale');
+      }
+      return [];
+    });
+
+    await expect(service.activateTenant(activationCommand())).rejects.toThrow(
+      'tenant onboarding activation proof is stale',
+    );
+
+    expect(manager.save).not.toHaveBeenCalled();
+    expect(outboxPublisher.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('rejects an admission response that differs from the command-bound roots', async () => {
+    seedTenant({ status: TenantStatus.PROVISIONING });
+    manager.query.mockImplementation(async (sqlValue: unknown) => {
+      if (String(sqlValue).includes('admin.consume_tenant_onboarding_activation')) {
+        return [
+          {
+            evidenceRoot: 'c'.repeat(64),
+            publicationDigest: activationProof.publicationDigest,
+          },
+        ];
+      }
+      return [];
+    });
+
+    await expect(service.activateTenant(activationCommand())).rejects.toThrow(
+      'returned a different proof',
+    );
+    expect(manager.save).not.toHaveBeenCalled();
+    expect(outboxPublisher.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed proof before opening the SERIALIZABLE transaction', async () => {
+    await expect(
+      service.activateTenant({
+        ...activationCommand(),
+        activationProof: { ...activationProof, generation: 0 },
+      }),
+    ).rejects.toThrow('positive integer');
+
+    expect(transaction).not.toHaveBeenCalled();
   });
 
   it('idempotent re-suspend (already SUSPENDED) is a no-op: nothing saved, trio untouched', async () => {

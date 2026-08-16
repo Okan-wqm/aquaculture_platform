@@ -1,0 +1,29 @@
+{
+  "name": "reporting-contracts",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "platform/libs/reporting-contracts/src",
+  "projectType": "library",
+  "tags": ["scope:platform", "type:lib"],
+  "targets": {
+    "type-check": {
+      "executor": "nx:run-commands",
+      "outputs": [],
+      "options": {
+        "command": "npx tsc -p platform/libs/reporting-contracts/tsconfig.lib.json --noEmit"
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/platform/libs/reporting-contracts"],
+      "options": {
+        "jestConfig": "platform/libs/reporting-contracts/jest.config.ts"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "options": {
+        "lintFilePatterns": ["platform/libs/reporting-contracts/src/**/*.ts"]
+      }
+    }
+  }
+}

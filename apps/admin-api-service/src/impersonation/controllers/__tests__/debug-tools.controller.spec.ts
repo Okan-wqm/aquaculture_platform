@@ -29,6 +29,19 @@ import { DebugSessionType, QueryLogType } from '../../entities/debug-session.ent
 // Mock Definitions
 // ============================================================================
 
+const invalidationReceipt = {
+  schemaVersion: 'admin-cache-invalidation-receipt.v1',
+  receiptId: 'receipt-sha256',
+  namespace: 'admin:',
+  selector: { kind: 'KEY', value: 'report:abc' },
+  discoveredCount: 1,
+  discoveredKeysDigest: 'discovered-sha256',
+  deletedCount: 1,
+  residualCount: 0,
+  residualKeysDigest: 'residual-sha256',
+  outcome: 'FULLY_INVALIDATED',
+};
+
 const mockDebugToolsService = {
   getDebugDashboard: jest.fn().mockResolvedValue({ sessions: 0 }),
   querySessions: jest.fn().mockResolvedValue({ data: [], total: 0 }),
@@ -45,12 +58,10 @@ const mockDebugToolsService = {
   getApiUsageSummary: jest.fn().mockResolvedValue({}),
   getApiCallDetails: jest.fn().mockResolvedValue({}),
   getCacheStats: jest.fn().mockResolvedValue({}),
-  snapshotCache: jest.fn().mockResolvedValue([]),
-  captureCacheEntry: jest.fn().mockResolvedValue({}),
+  listCacheEntries: jest.fn().mockResolvedValue({ namespace: 'admin:', entries: [] }),
   getCacheEntry: jest.fn().mockResolvedValue({}),
-  invalidateCacheByKey: jest.fn().mockResolvedValue(undefined),
-  invalidateCachePattern: jest.fn().mockResolvedValue(5),
-  invalidateCacheKey: jest.fn().mockResolvedValue(undefined),
+  invalidateCachePattern: jest.fn().mockResolvedValue(invalidationReceipt),
+  invalidateCacheKey: jest.fn().mockResolvedValue(invalidationReceipt),
   createFeatureFlagOverride: jest.fn().mockResolvedValue({ id: 'override-1' }),
   revertFeatureFlagOverride: jest.fn().mockResolvedValue({ reverted: true }),
   getActiveOverridesForTenant: jest.fn().mockResolvedValue([]),
@@ -83,9 +94,7 @@ describe('DebugToolsController', () => {
   beforeAll(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [DebugToolsController],
-      providers: [
-        { provide: DebugToolsService, useValue: mockDebugToolsService },
-      ],
+      providers: [{ provide: DebugToolsService, useValue: mockDebugToolsService }],
     })
       .overrideGuard(PlatformAdminGuard)
       .useValue(mockGuard)
@@ -177,9 +186,7 @@ describe('DebugToolsController', () => {
     });
 
     it('should set adminId from JWT when sending valid DTO without adminId', async () => {
-      await request(app.getHttpServer())
-        .post('/debug/sessions')
-        .send(validDto);
+      await request(app.getHttpServer()).post('/debug/sessions').send(validDto);
 
       expect(mockDebugToolsService.startDebugSession).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -196,9 +203,7 @@ describe('DebugToolsController', () => {
         return true;
       });
 
-      const res = await request(app.getHttpServer())
-        .post('/debug/sessions')
-        .send(validDto);
+      const res = await request(app.getHttpServer()).post('/debug/sessions').send(validDto);
 
       expect(res.status).toBe(HttpStatus.UNAUTHORIZED);
     });
@@ -228,12 +233,10 @@ describe('DebugToolsController', () => {
     });
 
     it('should reject invalid sessionType enum', async () => {
-      const res = await request(app.getHttpServer())
-        .post('/debug/sessions')
-        .send({
-          tenantId: 'a1b2c3d4-e5f6-4a7b-8c9d-e0f1a2b3c4d5',
-          sessionType: 'invalid_type',
-        });
+      const res = await request(app.getHttpServer()).post('/debug/sessions').send({
+        tenantId: 'a1b2c3d4-e5f6-4a7b-8c9d-e0f1a2b3c4d5',
+        sessionType: 'invalid_type',
+      });
 
       expect(res.status).toBe(HttpStatus.BAD_REQUEST);
     });
@@ -307,9 +310,7 @@ describe('DebugToolsController', () => {
     });
 
     it('should set adminId from JWT when valid DTO is sent without adminId', async () => {
-      await request(app.getHttpServer())
-        .post('/debug/feature-overrides')
-        .send(validOverrideDto);
+      await request(app.getHttpServer()).post('/debug/feature-overrides').send(validOverrideDto);
 
       expect(mockDebugToolsService.createFeatureFlagOverride).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -331,13 +332,11 @@ describe('DebugToolsController', () => {
     });
 
     it('should reject missing featureKey', async () => {
-      const res = await request(app.getHttpServer())
-        .post('/debug/feature-overrides')
-        .send({
-          tenantId: 'b2c3d4e5-f6a7-4b8c-9d0e-f1a2b3c4d5e6',
-          originalValue: false,
-          overrideValue: true,
-        });
+      const res = await request(app.getHttpServer()).post('/debug/feature-overrides').send({
+        tenantId: 'b2c3d4e5-f6a7-4b8c-9d0e-f1a2b3c4d5e6',
+        originalValue: false,
+        overrideValue: true,
+      });
 
       expect(res.status).toBe(HttpStatus.BAD_REQUEST);
     });
@@ -377,8 +376,7 @@ describe('DebugToolsController', () => {
 
   describe('POST /debug/feature-overrides/:id/revert', () => {
     it('should use JWT user.id as revertedBy', async () => {
-      await request(app.getHttpServer())
-        .post('/debug/feature-overrides/override-1/revert');
+      await request(app.getHttpServer()).post('/debug/feature-overrides/override-1/revert');
 
       expect(mockDebugToolsService.revertFeatureFlagOverride).toHaveBeenCalledWith(
         'override-1',
@@ -401,8 +399,9 @@ describe('DebugToolsController', () => {
     it('should return 401 when user is not authenticated', async () => {
       mockGuard.canActivate.mockImplementationOnce(() => true);
 
-      const res = await request(app.getHttpServer())
-        .post('/debug/feature-overrides/override-1/revert');
+      const res = await request(app.getHttpServer()).post(
+        '/debug/feature-overrides/override-1/revert',
+      );
 
       expect(res.status).toBe(HttpStatus.UNAUTHORIZED);
     });
@@ -586,9 +585,7 @@ describe('DebugToolsController', () => {
   describe('DTO input validation', () => {
     describe('CaptureQueryDto', () => {
       it('should reject missing required fields', async () => {
-        const res = await request(app.getHttpServer())
-          .post('/debug/queries/capture')
-          .send({});
+        const res = await request(app.getHttpServer()).post('/debug/queries/capture').send({});
 
         expect(res.status).toBe(HttpStatus.BAD_REQUEST);
       });
@@ -609,43 +606,37 @@ describe('DebugToolsController', () => {
 
     describe('CaptureApiCallDto', () => {
       it('should reject method exceeding maxLength (10)', async () => {
-        const res = await request(app.getHttpServer())
-          .post('/debug/api-calls/capture')
-          .send({
-            tenantId: 'a1b2c3d4-e5f6-4a7b-8c9d-e0f1a2b3c4d5',
-            method: 'VERYLONGMETHOD',
-            endpoint: '/api/test',
-            responseStatus: 200,
-            durationMs: 50,
-          });
+        const res = await request(app.getHttpServer()).post('/debug/api-calls/capture').send({
+          tenantId: 'a1b2c3d4-e5f6-4a7b-8c9d-e0f1a2b3c4d5',
+          method: 'VERYLONGMETHOD',
+          endpoint: '/api/test',
+          responseStatus: 200,
+          durationMs: 50,
+        });
 
         expect(res.status).toBe(HttpStatus.BAD_REQUEST);
       });
 
       it('should reject responseStatus below 100', async () => {
-        const res = await request(app.getHttpServer())
-          .post('/debug/api-calls/capture')
-          .send({
-            tenantId: 'a1b2c3d4-e5f6-4a7b-8c9d-e0f1a2b3c4d5',
-            method: 'GET',
-            endpoint: '/api/test',
-            responseStatus: 99,
-            durationMs: 50,
-          });
+        const res = await request(app.getHttpServer()).post('/debug/api-calls/capture').send({
+          tenantId: 'a1b2c3d4-e5f6-4a7b-8c9d-e0f1a2b3c4d5',
+          method: 'GET',
+          endpoint: '/api/test',
+          responseStatus: 99,
+          durationMs: 50,
+        });
 
         expect(res.status).toBe(HttpStatus.BAD_REQUEST);
       });
 
       it('should reject responseStatus above 599', async () => {
-        const res = await request(app.getHttpServer())
-          .post('/debug/api-calls/capture')
-          .send({
-            tenantId: 'a1b2c3d4-e5f6-4a7b-8c9d-e0f1a2b3c4d5',
-            method: 'GET',
-            endpoint: '/api/test',
-            responseStatus: 600,
-            durationMs: 50,
-          });
+        const res = await request(app.getHttpServer()).post('/debug/api-calls/capture').send({
+          tenantId: 'a1b2c3d4-e5f6-4a7b-8c9d-e0f1a2b3c4d5',
+          method: 'GET',
+          endpoint: '/api/test',
+          responseStatus: 600,
+          durationMs: 50,
+        });
 
         expect(res.status).toBe(HttpStatus.BAD_REQUEST);
       });
@@ -671,13 +662,11 @@ describe('DebugToolsController', () => {
 
     describe('CreateFeatureFlagOverrideDto', () => {
       it('should reject missing tenantId', async () => {
-        const res = await request(app.getHttpServer())
-          .post('/debug/feature-overrides')
-          .send({
-            featureKey: 'test',
-            originalValue: false,
-            overrideValue: true,
-          });
+        const res = await request(app.getHttpServer()).post('/debug/feature-overrides').send({
+          featureKey: 'test',
+          originalValue: false,
+          overrideValue: true,
+        });
 
         expect(res.status).toBe(HttpStatus.BAD_REQUEST);
       });
@@ -719,12 +708,10 @@ describe('DebugToolsController', () => {
         new Error('Database connection failed'),
       );
 
-      const res = await request(app.getHttpServer())
-        .post('/debug/sessions')
-        .send({
-          tenantId: 'a1b2c3d4-e5f6-4a7b-8c9d-e0f1a2b3c4d5',
-          sessionType: DebugSessionType.QUERY_INSPECTION,
-        });
+      const res = await request(app.getHttpServer()).post('/debug/sessions').send({
+        tenantId: 'a1b2c3d4-e5f6-4a7b-8c9d-e0f1a2b3c4d5',
+        sessionType: DebugSessionType.QUERY_INSPECTION,
+      });
 
       expect(res.status).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
     });
@@ -745,12 +732,70 @@ describe('DebugToolsController', () => {
     });
 
     it('GET /debug/cache/stats should return cache stats', async () => {
-      mockDebugToolsService.getCacheStats.mockResolvedValueOnce({ totalEntries: 100 });
+      mockDebugToolsService.getCacheStats.mockResolvedValueOnce({
+        namespace: 'admin:',
+        keysInNamespace: 100,
+        instance: { totalKeys: 250 },
+      });
 
       const res = await request(app.getHttpServer()).get('/debug/cache/stats');
 
       expect(res.status).toBe(HttpStatus.OK);
-      expect(res.body.totalEntries).toBe(100);
+      expect(res.body.keysInNamespace).toBe(100);
+      expect(res.body.instance.totalKeys).toBe(250);
+    });
+
+    it('GET /debug/cache projects the live namespace query', async () => {
+      mockDebugToolsService.listCacheEntries.mockResolvedValueOnce({
+        namespace: 'admin:',
+        entries: [{ key: 'report:abc' }],
+        matchedCount: 1,
+        truncated: false,
+      });
+
+      const res = await request(app.getHttpServer()).get(
+        '/debug/cache?keyPattern=report%3A*&limit=25',
+      );
+
+      expect(res.status).toBe(HttpStatus.OK);
+      expect(mockDebugToolsService.listCacheEntries).toHaveBeenCalledWith('report:*', 25);
+      expect(res.body.matchedCount).toBe(1);
+    });
+
+    it('DELETE /debug/cache/:key exposes the exact invalidation receipt', async () => {
+      const res = await request(app.getHttpServer()).delete('/debug/cache/report%3Aabc');
+
+      expect(res.status).toBe(HttpStatus.OK);
+      expect(mockDebugToolsService.invalidateCacheKey).toHaveBeenCalledWith('report:abc');
+      expect(res.body).toEqual(invalidationReceipt);
+    });
+
+    it('POST /debug/cache/invalidate exposes pattern evidence instead of a claimed count', async () => {
+      const patternReceipt = {
+        ...invalidationReceipt,
+        selector: { kind: 'PATTERN', value: 'report:*' },
+        discoveredCount: 4,
+        deletedCount: 3,
+        residualCount: 1,
+        outcome: 'RESIDUAL_KEYS_PRESENT',
+      } as const;
+      mockDebugToolsService.invalidateCachePattern.mockResolvedValueOnce(patternReceipt);
+
+      const res = await request(app.getHttpServer())
+        .post('/debug/cache/invalidate')
+        .send({ pattern: 'report:*' });
+
+      expect(res.status).toBe(HttpStatus.CREATED);
+      expect(mockDebugToolsService.invalidateCachePattern).toHaveBeenCalledWith('report:*');
+      expect(res.body).toEqual(patternReceipt);
+    });
+
+    it('does not expose the retired cache snapshot capture route', async () => {
+      const res = await request(app.getHttpServer()).post('/debug/cache/capture').send({
+        key: 'report:abc',
+      });
+
+      expect(res.status).toBe(HttpStatus.NOT_FOUND);
     });
   });
 

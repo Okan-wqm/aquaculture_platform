@@ -4,6 +4,10 @@
  * Platform duyuru sistemi - global ve hedefli duyurular.
  */
 
+import {
+  createStandardPaginatedResult,
+  type IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -197,12 +201,7 @@ export class AnnouncementService {
     limit?: number;
     status?: AnnouncementStatus;
     type?: AnnouncementType;
-  }): Promise<{
-    data: Announcement[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  }): Promise<IStandardPaginatedResult<Announcement>> {
     const { page = 1, limit = 20, status, type } = options;
 
     const where: Record<string, unknown> = {};
@@ -216,7 +215,7 @@ export class AnnouncementService {
       take: limit,
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**

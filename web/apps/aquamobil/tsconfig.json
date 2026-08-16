@@ -20,7 +20,8 @@
       "@/*": ["src/*"],
       "@aquaculture/shared-ui": ["../../shared-ui/src"],
       "@aquaculture/farm-shared": ["../../../libs/farm-shared/src"],
-      "@aquaculture/shared-contracts": ["../../../libs/shared-contracts/src"]
+      "@aquaculture/shared-contracts": ["../../../libs/shared-contracts/src"],
+      "@platform/identity": ["../../../libs/event-contracts/src/roles.ts"]
     },
     "types": []
   },

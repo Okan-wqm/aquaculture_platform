@@ -13,16 +13,12 @@ import { AdminOutboxModule } from '../outbox/admin-outbox.module';
 import { SettingsModule } from '../settings/settings.module';
 import { UsersModule } from '../users/users.module';
 
-import {
-  TenantActivity,
-  TenantNote,
-  TenantBillingInfo,
-} from './entities/tenant-activity.entity';
+import { TenantNote, TenantBillingInfo } from './entities/tenant-activity.entity';
 import { Tenant, TenantInvitation } from './entities/tenant.entity';
 import { TenantErasureOperation } from './entities/tenant-erasure-operation.entity';
 import {
   SuspendTenantHandler,
-  ActivateTenantHandler,
+  ResumeTenantHandler,
   DeactivateTenantHandler,
   ArchiveTenantHandler,
 } from './handlers/suspend-tenant.handler';
@@ -52,7 +48,7 @@ import { TenantAdminController, TenantPublicController } from './tenant.controll
 const CommandHandlers = [
   UpdateTenantHandler,
   SuspendTenantHandler,
-  ActivateTenantHandler,
+  ResumeTenantHandler,
   DeactivateTenantHandler,
   ArchiveTenantHandler,
   RequestTenantErasureHandler,
@@ -82,7 +78,6 @@ const QueryHandlers = [
       Tenant,
       TenantInvitation,
       TenantErasureOperation,
-      TenantActivity,
       TenantNote,
       TenantBillingInfo,
       TenantSchema,
@@ -95,7 +90,7 @@ const QueryHandlers = [
     AdminOutboxModule,
     TenantErasureTargetModule.forService('admin-api-service'),
   ],
-  controllers: [TenantPublicController, TenantAdminController, TenantOnboardingAckHandler],
+  controllers: [TenantPublicController, TenantAdminController],
   providers: [
     ...CommandHandlers,
     ...QueryHandlers,
@@ -106,6 +101,7 @@ const QueryHandlers = [
     TenantDetailService,
     ModuleAssignmentService,
     TenantErasureProofHandler,
+    TenantOnboardingAckHandler,
   ],
   exports: [
     TenantProvisioningService,

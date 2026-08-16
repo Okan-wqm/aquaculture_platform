@@ -57,7 +57,11 @@ bootstrapService(AppModule, {
     ieNoOpen: true,
   },
 
-  additionalCorsHeaders: ['X-Requested-With', 'X-CSRF-Token'],
+  additionalCorsHeaders: [
+    'X-Requested-With',
+    'X-Impersonation-Token',
+    'X-Impersonation-Session-Id',
+  ],
 
   // BUG-05: HEAD /graphql returns 200 for mobile connectivity probes.
   // P-M6: Register the Redis-backed Socket.IO adapter so ALL Socket.IO

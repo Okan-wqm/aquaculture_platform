@@ -18,6 +18,7 @@
           "eslint e2e/tests/modules/hr/**/*.ts",
           "eslint e2e/tests/modules/sensor/**/*.ts",
           "eslint e2e/tests/modules/tenant-admin/**/*.ts",
+          "eslint e2e/tests/platform-admin/**/*.ts",
           "eslint e2e/tests/security/**/*.ts",
           "eslint e2e/tests/water-chemistry/**/*.ts",
           "eslint e2e/tests/workflow/**/*.ts"

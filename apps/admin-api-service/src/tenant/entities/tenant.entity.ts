@@ -1,9 +1,4 @@
-import {
-  TenantPlan,
-  TenantStatus,
-  toTenantPlan,
-  resolvePlanLimits,
-} from '@platform/event-contracts';
+import { TenantPlan, TenantStatus, resolvePlanLimits } from '@platform/event-contracts';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -67,7 +62,7 @@ export class Tenant {
   status!: TenantStatus;
 
   @Column({ type: 'varchar', length: 20, default: TenantPlan.STARTER })
-  plan!: string;
+  plan!: TenantPlan;
 
   @Column({ type: 'int', default: 5 })
   maxUsers!: number;
@@ -159,17 +154,17 @@ export class Tenant {
   // non-persisted compatibility prop with USER-ACTIVITY semantics that no
   // auth.tenants column ever backed — every read was undefined and the one
   // write (activate handler) was silently dropped. Tenant activity is owned
-  // by admin.tenant_activities / admin.user_sessions, not the tenant row.
+  // by the source-owner command-receipt projection / admin.user_sessions, not the tenant row.
   billingEmail?: string;
   primaryContact?: { name: string; email: string; phone?: string; role: string };
   billingContact?: { name: string; email: string; phone?: string; role: string };
 
   // Backwards compatibility getter for 'tier' -> 'plan'
-  get tier(): string {
+  get tier(): TenantPlan {
     return this.plan;
   }
 
-  set tier(value: string) {
+  set tier(value: TenantPlan) {
     this.plan = value;
   }
 
@@ -197,9 +192,7 @@ export class Tenant {
     // instead of a hardcoded "everything unlimited" stub. maxUsers stays the
     // per-tenant provisioned value on the entity (the authoritative override);
     // maxAlertRules has no PLAN_CATALOG field, so it remains -1 (unlimited).
-    const planLimits = resolvePlanLimits(
-      toTenantPlan(this.plan) ?? TenantPlan.STARTER,
-    );
+    const planLimits = resolvePlanLimits(this.plan);
     return {
       maxUsers: this.maxUsers,
       maxFarms: planLimits.maxFarms,

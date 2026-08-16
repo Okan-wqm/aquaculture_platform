@@ -45,6 +45,10 @@ const schema = existsSync(composedSupergraph) ? [composedSupergraph] : [legacyFa
 // schema) rather than silently swallowed. The shared-ui SCHEMA-type block below
 // (no documents) is unaffected and keeps generating.
 const aquamobilDocuments = ['web/apps/aquamobil/src/graphql/**/*.ts'];
+const adminPanelDocuments = [
+  'web/modules/admin-panel/src/graphql/platform-configuration-operations.ts',
+  'web/modules/admin-panel/src/graphql/tenant-configuration-operations.ts',
+];
 
 const config: CodegenConfig = {
   overwrite: true,
@@ -93,6 +97,18 @@ const config: CodegenConfig = {
               scalars: {
                 DateTime: 'string',
                 JSON: 'Record<string, unknown>',
+              },
+            },
+          },
+          'web/modules/admin-panel/src/generated/graphql.ts': {
+            documents: adminPanelDocuments,
+            plugins: ['typescript-operations', 'typed-document-node'],
+            config: {
+              skipTypename: true,
+              enumsAsTypes: true,
+              scalars: {
+                DateTime: 'string',
+                JSON: 'unknown',
               },
             },
           },

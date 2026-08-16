@@ -15,6 +15,7 @@
 
 import React, { useState, useEffect, useCallback, memo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
+import { HMI_ROLE_CODES } from '@platform/identity';
 import {
   Menu,
   Bell,
@@ -64,7 +65,7 @@ const ROLE_BADGE: Record<HmiRole, string> = {
   viewer:     'bg-gray-600 text-gray-200',
 };
 
-const ALL_ROLES: HmiRole[] = ['viewer', 'operator', 'engineer', 'supervisor', 'admin'];
+const ALL_ROLES: readonly HmiRole[] = HMI_ROLE_CODES;
 
 /* ------------------------------------------------------------------ */
 /*  LiveClock — isolated so only this subtree re-renders on tick       */

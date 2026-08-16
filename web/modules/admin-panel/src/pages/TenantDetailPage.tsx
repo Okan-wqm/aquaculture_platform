@@ -23,7 +23,8 @@ import {
   TenantStatus,
   type TenantDetail,
   type SystemModule,
-  type UpdateTenantDto,
+  type CreateTenantNoteInput,
+  type UpdateTenantInput,
 } from '../services/adminApi';
 
 // ============================================================================
@@ -79,6 +80,8 @@ const formatRelativeTime = (dateStr: string): string => {
   if (diffDays < 7) return `${diffDays}d ago`;
   return formatDate(date, 'short');
 };
+
+const TENANT_NOTE_CATEGORIES = ['billing', 'support', 'technical', 'general', 'compliance'] as const;
 
 const getStatusVariant = (status: string): 'success' | 'warning' | 'error' | 'default' => {
   const variants: Record<string, 'success' | 'warning' | 'error' | 'default'> = {
@@ -172,8 +175,11 @@ const TenantDetailPage: React.FC = () => {
   const [isSuspendModalOpen, setIsSuspendModalOpen] = useState(false);
 
   // Forms
-  const [editForm, setEditForm] = useState<UpdateTenantDto>({});
-  const [newNote, setNewNote] = useState({ content: '', category: 'general' });
+  const [editForm, setEditForm] = useState<UpdateTenantInput>({});
+  const [newNote, setNewNote] = useState<CreateTenantNoteInput>({
+    content: '',
+    category: 'general',
+  });
   const [suspendReason, setSuspendReason] = useState('');
   const [saving, setSaving] = useState(false);
   const detailRequestSeq = useRef(0);
@@ -193,7 +199,7 @@ const TenantDetailPage: React.FC = () => {
       ]);
       if (detailRequestSeq.current !== requestId) return;
       setTenant(detail);
-      setModules(allModules.data);
+      setModules([...allModules.items]);
       setEditForm({
         name: detail.name,
         description: detail.description,
@@ -418,7 +424,9 @@ const TenantDetailPage: React.FC = () => {
               <div>
                 <label className="text-xs text-gray-500">Last Activity</label>
                 <p className="font-medium">
-                  {tenant.lastActivityAt ? formatRelativeTime(tenant.lastActivityAt) : '-'}
+                  {tenant.recentActivities?.[0]?.createdAt
+                    ? formatRelativeTime(tenant.recentActivities[0].createdAt)
+                    : '-'}
                 </p>
               </div>
             </div>
@@ -866,7 +874,14 @@ const TenantDetailPage: React.FC = () => {
           <Select
             label="Category"
             value={newNote.category}
-            onChange={(e) => setNewNote({ ...newNote, category: e.target.value })}
+            onChange={(e) => {
+              const category = TENANT_NOTE_CATEGORIES.find(
+                (candidate) => candidate === e.target.value,
+              );
+              if (category !== undefined) {
+                setNewNote({ ...newNote, category });
+              }
+            }}
             options={[
               { value: 'general', label: 'General' },
               { value: 'support', label: 'Support' },

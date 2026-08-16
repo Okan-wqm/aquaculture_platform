@@ -2,19 +2,18 @@
  * Settings API (System Settings, IP Access)
  * and System Settings API (Feature Toggles, Maintenance, Performance, Errors, Jobs)
  *
- * Tenant Config  -> api/tenant-config.ts  (tenantConfigApi)
  * Email Templates -> api/email-templates.ts (emailTemplatesApi)
  *
- * settingsApi still re-exports their methods for backward compatibility.
  */
 
-import { apiFetch, buildQueryString } from '../http-client';
+import { apiFetch } from '../http-client';
 import type {
-  PaginatedResult,
+  StandardPaginatedResult,
   PaginationParams,
   DateRangeParams,
   IpAccessRule,
-  FeatureToggle,
+  CreateFeatureToggleInput,
+  UpdateFeatureToggleInput,
   MaintenanceWindow,
   PerformanceDashboard,
   PerformanceMetrics,
@@ -26,12 +25,23 @@ import type {
 } from '../types';
 
 // Re-export extracted APIs for barrel convenience
-export { tenantConfigApi } from './tenant-config';
 export { emailTemplatesApi } from './email-templates';
 
-// Import extracted APIs for backward-compatible delegation
-import { tenantConfigApi } from './tenant-config';
-import { emailTemplatesApi } from './email-templates';
+import {
+  ADMIN_API_ROUTES,
+  type AdminApiRouteBody,
+  type AdminApiRouteQuery,
+} from '../types/generated/admin-route-contracts';
+
+type FeatureToggleQuery = AdminApiRouteQuery<'GET /system/settings/feature-toggles'>;
+type FeatureEvaluationInput = AdminApiRouteBody<'POST /system/settings/feature-toggles/evaluate'>;
+type MaintenanceQuery = AdminApiRouteQuery<'GET /system/settings/maintenance'>;
+type CreateMaintenanceInput = AdminApiRouteBody<'POST /system/settings/maintenance'>;
+type UpdateMaintenanceInput = AdminApiRouteBody<'PUT /system/settings/maintenance/:id'>;
+type ErrorGroupsQuery = AdminApiRouteQuery<'GET /system/errors/groups'>;
+type UpdateErrorInput = AdminApiRouteBody<'PUT /system/errors/groups/:id'>;
+type ResolveErrorInput = AdminApiRouteBody<'POST /system/errors/groups/:id/resolve'>;
+type JobsQuery = AdminApiRouteQuery<'GET /system/jobs'>;
 
 export const settingsApi = {
   // System settings live in config-service now (ORPHAN-HIGH-373): the legacy
@@ -41,175 +51,159 @@ export const settingsApi = {
   // operations.ts (hooks/usePlatformConfiguration.ts). Only the live SMTP
   // test-send and system-info endpoints remain here.
   testEmailConfig: (to: string) =>
-    apiFetch<Record<string, unknown>>('/settings/config/email/test', {
-      method: 'POST',
-      body: JSON.stringify({ to }),
-    }),
-  getSystemInfo: () => apiFetch<Record<string, unknown>>('/settings/system/info'),
-
-  // Tenant Configuration (delegated to tenant-config.ts, kept here for backward compat)
-  getTenantConfig: tenantConfigApi.getTenantConfig,
-  updateTenantConfig: tenantConfigApi.updateTenantConfig,
-  createTenantApiKey: tenantConfigApi.createTenantApiKey,
-  revokeTenantApiKey: tenantConfigApi.revokeTenantApiKey,
-  createWebhook: tenantConfigApi.createWebhook,
-  deleteWebhook: tenantConfigApi.deleteWebhook,
-  testWebhook: tenantConfigApi.testWebhook,
-
-  // Email Templates (delegated to email-templates.ts, kept here for backward compat)
-  getEmailTemplates: emailTemplatesApi.getEmailTemplates,
-  getEmailTemplate: emailTemplatesApi.getEmailTemplate,
-  getEmailTemplateByCode: emailTemplatesApi.getEmailTemplateByCode,
-  createEmailTemplate: emailTemplatesApi.createEmailTemplate,
-  updateEmailTemplate: emailTemplatesApi.updateEmailTemplate,
-  deleteEmailTemplate: emailTemplatesApi.deleteEmailTemplate,
-  previewEmailTemplate: emailTemplatesApi.previewEmailTemplate,
-  sendTestEmail: emailTemplatesApi.sendTestEmail,
+    apiFetch(ADMIN_API_ROUTES['POST /settings/config/email/test'], { body: { to } }),
+  getSystemInfo: () => apiFetch(ADMIN_API_ROUTES['GET /settings/system/info']),
 
   // IP Access Rules
-  getIpAccessRules: (params?: { tenantId?: string; type?: string; isActive?: boolean } & PaginationParams) =>
-    apiFetch<PaginatedResult<IpAccessRule>>(`/settings/ip-access?${buildQueryString(params || {})}`),
-  getIpAccessRule: (id: string) => apiFetch<IpAccessRule>(`/settings/ip-access/${id}`),
+  getIpAccessRules: (
+    params?: { tenantId?: string; type?: string; isActive?: boolean } & PaginationParams,
+  ) => apiFetch(ADMIN_API_ROUTES['GET /settings/ip-access'], { query: params || {} }),
+  getIpAccessRule: (id: string) =>
+    apiFetch(ADMIN_API_ROUTES['GET /settings/ip-access/:id'], { path: { id: id } }),
   createIpAccessRule: (data: Omit<IpAccessRule, 'id' | 'hitCount' | 'lastHitAt' | 'createdAt'>) =>
-    apiFetch<IpAccessRule>('/settings/ip-access', { method: 'POST', body: JSON.stringify(data) }),
+    apiFetch(ADMIN_API_ROUTES['POST /settings/ip-access'], { body: data }),
   updateIpAccessRule: (id: string, data: Partial<IpAccessRule>) =>
-    apiFetch<IpAccessRule>(`/settings/ip-access/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    apiFetch(ADMIN_API_ROUTES['PUT /settings/ip-access/:id'], { path: { id: id }, body: data }),
   deleteIpAccessRule: (id: string) =>
-    apiFetch<void>(`/settings/ip-access/${id}`, { method: 'DELETE' }),
+    apiFetch(ADMIN_API_ROUTES['DELETE /settings/ip-access/:id'], { path: { id: id } }),
   checkIpAccess: (ip: string, tenantId?: string) =>
-    apiFetch<{ allowed: boolean; matchedRule?: IpAccessRule }>('/settings/ip-access/check', { method: 'POST', body: JSON.stringify({ ip, tenantId }) }),
+    apiFetch(ADMIN_API_ROUTES['POST /settings/ip-access/check'], { body: { ip, tenantId } }),
 };
 
 export const systemSettingsApi = {
   // Feature Toggles
-  getFeatureToggles: (params?: { scope?: string; status?: string; category?: string; search?: string } & PaginationParams) =>
-    apiFetch<PaginatedResult<FeatureToggle>>(`/system/settings/feature-toggles?${buildQueryString(params || {})}`),
-  getFeatureToggle: (id: string) => apiFetch<FeatureToggle>(`/system/settings/feature-toggles/${id}`),
-  getFeatureToggleByKey: (key: string) => apiFetch<FeatureToggle>(`/system/settings/feature-toggles/key/${key}`),
-  createFeatureToggle: (data: Omit<FeatureToggle, 'id' | 'createdAt' | 'updatedAt'>) =>
-    apiFetch<FeatureToggle>('/system/settings/feature-toggles', { method: 'POST', body: JSON.stringify(data) }),
-  updateFeatureToggle: (id: string, data: Partial<FeatureToggle>) =>
-    apiFetch<FeatureToggle>(`/system/settings/feature-toggles/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  getFeatureToggles: (params: FeatureToggleQuery = {}) =>
+    apiFetch(ADMIN_API_ROUTES['GET /system/settings/feature-toggles'], { query: params }),
+  getFeatureToggle: (id: string) =>
+    apiFetch(ADMIN_API_ROUTES['GET /system/settings/feature-toggles/:id'], { path: { id: id } }),
+  createFeatureToggle: (data: CreateFeatureToggleInput) =>
+    apiFetch(ADMIN_API_ROUTES['POST /system/settings/feature-toggles'], { body: data }),
+  updateFeatureToggle: (id: string, data: UpdateFeatureToggleInput) =>
+    apiFetch(ADMIN_API_ROUTES['PUT /system/settings/feature-toggles/:id'], {
+      path: { id: id },
+      body: data,
+    }),
   deleteFeatureToggle: (id: string) =>
-    apiFetch<void>(`/system/settings/feature-toggles/${id}`, { method: 'DELETE' }),
+    apiFetch(ADMIN_API_ROUTES['DELETE /system/settings/feature-toggles/:id'], { path: { id: id } }),
   toggleFeature: (id: string, enabled: boolean) =>
-    apiFetch<FeatureToggle>(`/system/settings/feature-toggles/${id}/toggle`, { method: 'POST', body: JSON.stringify({ enabled }) }),
-  evaluateFeature: (key: string, context: Record<string, unknown>) =>
-    apiFetch<{ key: string; enabled: boolean; variant?: string; value?: unknown; reason: string }>('/system/settings/feature-toggles/evaluate', {
-      method: 'POST',
-      body: JSON.stringify({ key, context })
+    apiFetch(ADMIN_API_ROUTES['PUT /system/settings/feature-toggles/:id'], {
+      path: { id: id },
+      body: { status: enabled ? 'enabled' : 'disabled' },
+    }),
+  evaluateFeature: (key: string, context: FeatureEvaluationInput) =>
+    apiFetch(ADMIN_API_ROUTES['POST /system/settings/feature-toggles/evaluate'], {
+      query: { key: key },
+      body: context,
     }),
 
   // Maintenance Mode
-  getMaintenanceWindows: (params?: { status?: string; scope?: string } & PaginationParams) =>
-    apiFetch<PaginatedResult<MaintenanceWindow>>(`/system/settings/maintenance?${buildQueryString(params || {})}`),
-  getMaintenanceWindow: (id: string) => apiFetch<MaintenanceWindow>(`/system/settings/maintenance/${id}`),
-  createMaintenanceWindow: (data: Omit<MaintenanceWindow, 'id' | 'status' | 'actualStart' | 'actualEnd' | 'createdAt'>) =>
-    apiFetch<MaintenanceWindow>('/system/settings/maintenance', { method: 'POST', body: JSON.stringify(data) }),
-  updateMaintenanceWindow: (id: string, data: Partial<MaintenanceWindow>) =>
-    apiFetch<MaintenanceWindow>(`/system/settings/maintenance/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  getMaintenanceWindows: (params: MaintenanceQuery = {}) =>
+    apiFetch(ADMIN_API_ROUTES['GET /system/settings/maintenance'], { query: params }),
+  getMaintenanceWindow: (id: string) =>
+    apiFetch(ADMIN_API_ROUTES['GET /system/settings/maintenance/:id'], { path: { id: id } }),
+  createMaintenanceWindow: (data: CreateMaintenanceInput) =>
+    apiFetch(ADMIN_API_ROUTES['POST /system/settings/maintenance'], { body: data }),
+  updateMaintenanceWindow: (id: string, data: UpdateMaintenanceInput) =>
+    apiFetch(ADMIN_API_ROUTES['PUT /system/settings/maintenance/:id'], {
+      path: { id: id },
+      body: data,
+    }),
   startMaintenance: (id: string) =>
-    apiFetch<MaintenanceWindow>(`/system/settings/maintenance/${id}/start`, { method: 'POST' }),
+    apiFetch(ADMIN_API_ROUTES['POST /system/settings/maintenance/:id/start'], { path: { id: id } }),
   endMaintenance: (id: string) =>
-    apiFetch<MaintenanceWindow>(`/system/settings/maintenance/${id}/end`, { method: 'POST' }),
+    apiFetch(ADMIN_API_ROUTES['POST /system/settings/maintenance/:id/end'], { path: { id: id } }),
   cancelMaintenance: (id: string) =>
-    apiFetch<MaintenanceWindow>(`/system/settings/maintenance/${id}/cancel`, { method: 'POST' }),
+    apiFetch(ADMIN_API_ROUTES['POST /system/settings/maintenance/:id/cancel'], {
+      path: { id: id },
+    }),
   extendMaintenance: (id: string, additionalMinutes: number) =>
-    apiFetch<MaintenanceWindow>(`/system/settings/maintenance/${id}/extend`, { method: 'POST', body: JSON.stringify({ additionalMinutes }) }),
+    apiFetch(ADMIN_API_ROUTES['POST /system/settings/maintenance/:id/extend'], {
+      path: { id: id },
+      body: { additionalMinutes },
+    }),
   checkMaintenanceStatus: (tenantId?: string) =>
-    apiFetch<{ isInMaintenance: boolean; maintenanceInfo?: { title: string; message: string; estimatedEnd?: string } }>(`/system/settings/maintenance/check${tenantId ? `?tenantId=${tenantId}` : ''}`),
+    apiFetch(ADMIN_API_ROUTES['GET /system/settings/maintenance/check'], {
+      query: { tenantId: tenantId },
+    }),
 
   // Provisioning Settings
   getProvisioningConfig: () =>
-    apiFetch<Record<string, string>>('/system/settings/provisioning-config'),
+    apiFetch(ADMIN_API_ROUTES['GET /system/settings/provisioning-config']),
   updateProvisioningConfig: (config: Record<string, string>) =>
-    apiFetch<Record<string, string>>('/system/settings/provisioning-config', { method: 'PUT', body: JSON.stringify(config) }),
+    apiFetch(ADMIN_API_ROUTES['PUT /system/settings/provisioning-config'], { body: config }),
 
   // Performance Monitoring
   getPerformanceDashboard: (service?: string, timeRange?: { start: string; end: string }) =>
-    apiFetch<PerformanceDashboard>(`/system/performance/dashboard?${buildQueryString({ service, ...timeRange })}`),
+    apiFetch(ADMIN_API_ROUTES['GET /system/performance/dashboard'], {
+      query: { service, ...timeRange },
+    }),
   getPerformanceMetrics: (service?: string, timeRange?: { start: string; end: string }) =>
-    apiFetch<PerformanceMetrics[]>(`/system/performance/application?${buildQueryString({ service, ...timeRange })}`),
+    apiFetch(ADMIN_API_ROUTES['GET /system/performance/application'], {
+      query: { service, ...timeRange },
+    }),
   getApdexScore: (service?: string) =>
-    apiFetch<{ apdexScore: number }>(`/system/performance/application/apdex${service ? `?service=${service}` : ''}`),
+    apiFetch(ADMIN_API_ROUTES['GET /system/performance/application/apdex'], {
+      query: { service: service },
+    }),
   getDatabasePerformance: (database?: string) =>
-    apiFetch<{
-      activeConnections: number;
-      poolSize: number;
-      poolUtilization: number;
-      avgQueryTime: number;
-      slowQueryCount: number;
-      cacheHitRatio: number;
-    }>(`/system/performance/database${database ? `?database=${database}` : ''}`),
+    apiFetch(ADMIN_API_ROUTES['GET /system/performance/database'], {
+      query: { database: database },
+    }),
   getSlowQueries: (threshold?: number, limit?: number) =>
-    apiFetch<Array<{ query: string; avgTime: number; count: number; maxTime: number }>>(`/system/performance/database/slow-queries?${buildQueryString({ threshold, limit })}`),
+    apiFetch(ADMIN_API_ROUTES['GET /system/performance/database/slow-queries'], {
+      query: { threshold, limit },
+    }),
   getInfrastructureMetrics: (host?: string) =>
-    apiFetch<{
-      cpuUsage: number;
-      memoryUsage: number;
-      diskUsage: number;
-      networkLatency: number;
-      containerCount: number;
-      healthyContainers: number;
-    }>(`/system/performance/infrastructure${host ? `?host=${host}` : ''}`),
+    apiFetch(ADMIN_API_ROUTES['GET /system/performance/infrastructure'], {
+      query: { host: host },
+    }),
 
   // Error Tracking
   getErrorDashboard: () =>
-    apiFetch<{
-      totalErrors: number;
-      unresolvedErrors: number;
-      criticalErrors: number;
-      errorsByService: Array<{ service: string; count: number }>;
-      errorTrend: Array<{ timestamp: string; count: number }>;
-      topErrors: ErrorGroup[];
-    }>('/system/errors/dashboard'),
-  getErrorGroups: (params?: {
-    status?: string;
-    severity?: string;
-    service?: string;
-    search?: string;
-  } & PaginationParams & DateRangeParams) =>
-    apiFetch<PaginatedResult<ErrorGroup>>(`/system/errors/groups?${buildQueryString(params || {})}`),
-  getErrorGroup: (id: string) => apiFetch<ErrorGroup>(`/system/errors/groups/${id}`),
+    apiFetch(ADMIN_API_ROUTES['GET /system/errors/dashboard'], {
+      query: {},
+    }),
+  getErrorGroups: (params: ErrorGroupsQuery = {}) =>
+    apiFetch(ADMIN_API_ROUTES['GET /system/errors/groups'], { query: params }),
+  getErrorGroup: (id: string) =>
+    apiFetch(ADMIN_API_ROUTES['GET /system/errors/groups/:id'], { path: { id: id } }),
   getErrorOccurrences: (groupId: string, params?: PaginationParams) =>
-    apiFetch<PaginatedResult<ErrorOccurrence>>(`/system/errors/groups/${groupId}/occurrences?${buildQueryString(params || {})}`),
-  updateErrorStatus: (id: string, status: string, assignedTo?: string, notes?: string) =>
-    apiFetch<ErrorGroup>(`/system/errors/groups/${id}/status`, { method: 'PUT', body: JSON.stringify({ status, assignedTo, notes }) }),
-  resolveError: (id: string, resolvedBy: string, notes?: string) =>
-    apiFetch<ErrorGroup>(`/system/errors/groups/${id}/resolve`, { method: 'POST', body: JSON.stringify({ resolvedBy, notes }) }),
+    apiFetch(ADMIN_API_ROUTES['GET /system/errors/groups/:groupId/occurrences'], {
+      path: { groupId: groupId },
+      query: params || {},
+    }),
+  updateErrorStatus: (
+    id: string,
+    status: UpdateErrorInput['status'],
+    assignedTo?: string,
+    notes?: string,
+  ) =>
+    apiFetch(ADMIN_API_ROUTES['PUT /system/errors/groups/:id'], {
+      path: { id: id },
+      body: { status, assignedTo, notes },
+    }),
+  resolveError: (id: string, _resolvedBy: string, notes?: ResolveErrorInput['notes']) =>
+    apiFetch(ADMIN_API_ROUTES['POST /system/errors/groups/:id/resolve'], {
+      path: { id: id },
+      body: { notes },
+    }),
   ignoreError: (id: string) =>
-    apiFetch<ErrorGroup>(`/system/errors/groups/${id}/ignore`, { method: 'POST' }),
+    apiFetch(ADMIN_API_ROUTES['POST /system/errors/groups/:id/ignore'], { path: { id: id } }),
 
   // Job Queue Management
-  getJobDashboard: () =>
-    apiFetch<{
-      totalJobs: number;
-      pendingJobs: number;
-      runningJobs: number;
-      completedToday: number;
-      failedToday: number;
-      avgDuration: number;
-      queues: JobQueue[];
-      recentJobs: BackgroundJob[];
-    }>('/system/jobs/dashboard'),
-  getQueues: () => apiFetch<JobQueue[]>('/system/jobs/queues'),
-  getQueue: (name: string) => apiFetch<JobQueue>(`/system/jobs/queues/${name}`),
+  getJobDashboard: () => apiFetch(ADMIN_API_ROUTES['GET /system/jobs/dashboard']),
+  getQueues: () => apiFetch(ADMIN_API_ROUTES['GET /system/jobs/queues']),
+  getQueue: (name: string) =>
+    apiFetch(ADMIN_API_ROUTES['GET /system/jobs/queues/:name'], { path: { name: name } }),
   createQueue: (data: { name: string; concurrency?: number; maxJobsPerSecond?: number }) =>
-    apiFetch<JobQueue>('/system/jobs/queues', { method: 'POST', body: JSON.stringify(data) }),
+    apiFetch(ADMIN_API_ROUTES['POST /system/jobs/queues'], { body: data }),
   pauseQueue: (name: string) =>
-    apiFetch<JobQueue>(`/system/jobs/queues/${name}/pause`, { method: 'POST' }),
+    apiFetch(ADMIN_API_ROUTES['POST /system/jobs/queues/:name/pause'], { path: { name: name } }),
   resumeQueue: (name: string) =>
-    apiFetch<JobQueue>(`/system/jobs/queues/${name}/resume`, { method: 'POST' }),
-  drainQueue: (name: string) =>
-    apiFetch<{ drained: number }>(`/system/jobs/queues/${name}/drain`, { method: 'POST' }),
-  getJobs: (params?: {
-    queueName?: string;
-    status?: JobStatus[];
-    jobType?: string;
-    search?: string;
-  } & PaginationParams) =>
-    apiFetch<PaginatedResult<BackgroundJob>>(`/system/jobs?${buildQueryString(params || {})}`),
-  getJob: (id: string) => apiFetch<BackgroundJob>(`/system/jobs/${id}`),
+    apiFetch(ADMIN_API_ROUTES['POST /system/jobs/queues/:name/resume'], { path: { name: name } }),
+  getJobs: (params: JobsQuery = {}) =>
+    apiFetch(ADMIN_API_ROUTES['GET /system/jobs'], { query: params }),
+  getJob: (id: string) => apiFetch(ADMIN_API_ROUTES['GET /system/jobs/:id'], { path: { id: id } }),
   createJob: (data: {
     name: string;
     queueName: string;
@@ -217,15 +211,9 @@ export const systemSettingsApi = {
     priority?: number;
     scheduledAt?: string;
     cronExpression?: string;
-  }) =>
-    apiFetch<BackgroundJob>('/system/jobs', { method: 'POST', body: JSON.stringify(data) }),
+  }) => apiFetch(ADMIN_API_ROUTES['POST /system/jobs'], { body: data }),
   cancelJob: (id: string) =>
-    apiFetch<BackgroundJob>(`/system/jobs/${id}/cancel`, { method: 'POST' }),
+    apiFetch(ADMIN_API_ROUTES['POST /system/jobs/:id/cancel'], { path: { id: id } }),
   retryJob: (id: string) =>
-    apiFetch<BackgroundJob>(`/system/jobs/${id}/retry`, { method: 'POST' }),
-  getScheduledJobs: () => apiFetch<BackgroundJob[]>('/system/jobs/scheduled'),
-  getFailedJobs: (limit?: number) =>
-    apiFetch<BackgroundJob[]>(`/system/jobs/failed${limit ? `?limit=${limit}` : ''}`),
-  cleanupJobs: (olderThanDays: number, status?: JobStatus[]) =>
-    apiFetch<{ deleted: number }>('/system/jobs/cleanup', { method: 'POST', body: JSON.stringify({ olderThanDays, status }) }),
+    apiFetch(ADMIN_API_ROUTES['POST /system/jobs/:id/retry'], { path: { id: id } }),
 };

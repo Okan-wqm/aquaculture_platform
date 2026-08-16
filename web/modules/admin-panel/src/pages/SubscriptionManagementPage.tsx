@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Badge, Input } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, useAuthContext } from '@aquaculture/shared-ui';
 import {
   billingApi,
   SubscriptionOverview,
@@ -20,7 +20,8 @@ import {
 // ============================================================================
 
 const SubscriptionManagementPage: React.FC = () => {
-  const [subscriptions, setSubscriptions] = useState<SubscriptionOverview[]>([]);
+  const { user } = useAuthContext();
+  const [subscriptions, setSubscriptions] = useState<readonly SubscriptionOverview[]>([]);
   const [stats, setStats] = useState<SubscriptionStats | null>(null);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -34,7 +35,9 @@ const SubscriptionManagementPage: React.FC = () => {
   const limit = 20;
 
   // Modals
-  const [selectedSubscription, setSelectedSubscription] = useState<SubscriptionOverview | null>(null);
+  const [selectedSubscription, setSelectedSubscription] = useState<SubscriptionOverview | null>(
+    null,
+  );
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [showExtendTrialModal, setShowExtendTrialModal] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
@@ -69,13 +72,13 @@ const SubscriptionManagementPage: React.FC = () => {
 
   const handleCancelSubscription = async () => {
     if (!selectedSubscription || !cancelReason) return;
+    if (!user?.id) {
+      setError('Authenticated administrator identity is required to cancel a subscription.');
+      return;
+    }
 
     try {
-      await billingApi.cancelSubscription(
-        selectedSubscription.tenantId,
-        cancelReason,
-        'admin', // TODO: get from auth context
-      );
+      await billingApi.cancelSubscription(selectedSubscription.tenantId, cancelReason, user.id);
       setShowCancelModal(false);
       setSelectedSubscription(null);
       setCancelReason('');
@@ -87,13 +90,13 @@ const SubscriptionManagementPage: React.FC = () => {
 
   const handleExtendTrial = async () => {
     if (!selectedSubscription || trialDays <= 0) return;
+    if (!user?.id) {
+      setError('Authenticated administrator identity is required to extend a trial.');
+      return;
+    }
 
     try {
-      await billingApi.extendTrial(
-        selectedSubscription.tenantId,
-        trialDays,
-        'admin', // TODO: get from auth context
-      );
+      await billingApi.extendTrial(selectedSubscription.tenantId, trialDays, user.id);
       setShowExtendTrialModal(false);
       setSelectedSubscription(null);
       setTrialDays(7);
@@ -104,24 +107,31 @@ const SubscriptionManagementPage: React.FC = () => {
   };
 
   const handleReactivate = async (tenantId: string) => {
+    if (!user?.id) {
+      setError('Authenticated administrator identity is required to reactivate a subscription.');
+      return;
+    }
+
     try {
-      await billingApi.reactivateSubscription(tenantId, 'admin');
+      await billingApi.reactivateSubscription(tenantId, user.id);
       loadData();
     } catch (err) {
       setError((err as Error).message);
     }
   };
 
-  const getStatusBadge = (status: SubscriptionStatus) => {
-    const variants: Record<SubscriptionStatus, 'success' | 'warning' | 'error' | 'info' | 'default'> = {
-      [SubscriptionStatus.ACTIVE]: 'success',
-      [SubscriptionStatus.TRIAL]: 'info',
-      [SubscriptionStatus.PAST_DUE]: 'warning',
-      [SubscriptionStatus.CANCELLED]: 'error',
-      [SubscriptionStatus.SUSPENDED]: 'error',
-      [SubscriptionStatus.EXPIRED]: 'default',
-    };
-    return <Badge variant={variants[status]}>{status.replace('_', ' ').toUpperCase()}</Badge>;
+  const getStatusBadge = (status: string) => {
+    const variant =
+      status === SubscriptionStatus.ACTIVE
+        ? 'success'
+        : status === SubscriptionStatus.TRIAL
+          ? 'info'
+          : status === SubscriptionStatus.PAST_DUE
+            ? 'warning'
+            : status === SubscriptionStatus.CANCELLED || status === SubscriptionStatus.SUSPENDED
+              ? 'error'
+              : 'default';
+    return <Badge variant={variant}>{status.replace('_', ' ').toUpperCase()}</Badge>;
   };
 
   const formatCurrency = (amount: number) => {
@@ -162,11 +172,6 @@ const SubscriptionManagementPage: React.FC = () => {
             Manage tenant subscriptions, billing cycles, and plan changes
           </p>
         </div>
-        <div className="mt-4 sm:mt-0">
-          <Button onClick={() => billingApi.processRenewals()}>
-            Process Renewals
-          </Button>
-        </div>
       </div>
 
       {/* Stats Cards */}
@@ -177,16 +182,12 @@ const SubscriptionManagementPage: React.FC = () => {
             <div className="mt-1 text-2xl font-bold text-green-600">
               {formatCurrency(stats.mrr)}
             </div>
-            <div className="text-xs text-gray-500">
-              ARR: {formatCurrency(stats.arr)}
-            </div>
+            <div className="text-xs text-gray-500">ARR: {formatCurrency(stats.arr)}</div>
           </Card>
 
           <Card className="p-4">
             <div className="text-sm font-medium text-gray-500">Total Subscriptions</div>
-            <div className="mt-1 text-2xl font-bold text-gray-900">
-              {stats.totalSubscriptions}
-            </div>
+            <div className="mt-1 text-2xl font-bold text-gray-900">{stats.totalSubscriptions}</div>
             <div className="text-xs text-gray-500">
               Active: {stats.byStatus[SubscriptionStatus.ACTIVE] || 0}
             </div>
@@ -204,9 +205,7 @@ const SubscriptionManagementPage: React.FC = () => {
 
           <Card className="p-4">
             <div className="text-sm font-medium text-gray-500">Attention Needed</div>
-            <div className="mt-1 text-2xl font-bold text-red-600">
-              {stats.pastDueCount}
-            </div>
+            <div className="mt-1 text-2xl font-bold text-red-600">{stats.pastDueCount}</div>
             <div className="text-xs text-gray-500">
               Expiring this month: {stats.expiringThisMonth}
             </div>
@@ -220,11 +219,8 @@ const SubscriptionManagementPage: React.FC = () => {
           <h3 className="text-lg font-semibold mb-4">Subscription Status Breakdown</h3>
           <div className="flex flex-wrap gap-4">
             {Object.entries(stats.byStatus).map(([status, count]) => (
-              <div
-                key={status}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-50 rounded-lg"
-              >
-                {getStatusBadge(status as SubscriptionStatus)}
+              <div key={status} className="flex items-center gap-2 px-4 py-2 bg-gray-50 rounded-lg">
+                {getStatusBadge(status)}
                 <span className="font-semibold">{count}</span>
               </div>
             ))}
@@ -325,9 +321,7 @@ const SubscriptionManagementPage: React.FC = () => {
                       <div className="font-medium">{sub.planName}</div>
                       <div className="text-sm text-gray-500">{sub.planTier}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {getStatusBadge(sub.status)}
-                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">{getStatusBadge(sub.status)}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>{formatCurrency(sub.monthlyPrice)}/mo</div>
                       <div className="text-sm text-gray-500">{sub.billingCycle}</div>
@@ -447,11 +441,7 @@ const SubscriptionManagementPage: React.FC = () => {
               >
                 Cancel
               </Button>
-              <Button
-                variant="danger"
-                onClick={handleCancelSubscription}
-                disabled={!cancelReason}
-              >
+              <Button variant="danger" onClick={handleCancelSubscription} disabled={!cancelReason}>
                 Confirm Cancellation
               </Button>
             </div>
@@ -465,8 +455,7 @@ const SubscriptionManagementPage: React.FC = () => {
           <Card className="w-full max-w-md p-6">
             <h3 className="text-lg font-semibold mb-4">Extend Trial Period</h3>
             <p className="text-gray-600 mb-4">
-              Extend the trial period for{' '}
-              <strong>{selectedSubscription.tenantName}</strong>
+              Extend the trial period for <strong>{selectedSubscription.tenantName}</strong>
             </p>
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-1">

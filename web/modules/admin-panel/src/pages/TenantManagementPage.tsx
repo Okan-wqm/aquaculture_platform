@@ -19,7 +19,7 @@ import {
 import type { TableColumn } from '@aquaculture/shared-ui';
 import {
   tenantsApi,
-  type Tenant,
+  type TenantListItem,
   type TenantStats,
   TenantTier,
   TenantStatus,
@@ -31,7 +31,7 @@ import {
 
 const TenantManagementPage: React.FC = () => {
   const navigate = useNavigate();
-  const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [tenants, setTenants] = useState<TenantListItem[]>([]);
   const [stats, setStats] = useState<TenantStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -51,11 +51,11 @@ const TenantManagementPage: React.FC = () => {
   const [bulkSuspendReason, setBulkSuspendReason] = useState('');
   const [suspendReason, setSuspendReason] = useState('');
   const [isSuspendReasonModalOpen, setIsSuspendReasonModalOpen] = useState(false);
-  const [tenantToSuspend, setTenantToSuspend] = useState<Tenant | null>(null);
+  const [tenantToSuspend, setTenantToSuspend] = useState<TenantListItem | null>(null);
 
   // Modals
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
-  const [selectedTenant, setSelectedTenant] = useState<Tenant | null>(null);
+  const [selectedTenant, setSelectedTenant] = useState<TenantListItem | null>(null);
 
   // Bulk operation state
   const [saving, setSaving] = useState(false);
@@ -70,13 +70,13 @@ const TenantManagementPage: React.FC = () => {
     try {
       const result = await tenantsApi.list({
         search: searchTerm || undefined,
-        status: statusFilter || undefined,
-        tier: tierFilter || undefined,
+        status: Object.values(TenantStatus).find((status) => status === statusFilter),
+        tier: Object.values(TenantTier).find((tier) => tier === tierFilter),
         page,
         limit,
       });
       if (tenantRequestSeq.current === requestId) {
-        setTenants(result.data);
+        setTenants([...result.items]);
         setTotalTenants(result.total);
       }
     } catch (err) {
@@ -128,7 +128,10 @@ const TenantManagementPage: React.FC = () => {
   }, [searchTerm, statusFilter, tierFilter, page]);
 
   // Handle suspend/activate
-  const handleToggleStatus = async (tenant: Tenant, action: 'suspend' | 'activate') => {
+  const handleToggleStatus = async (
+    tenant: TenantListItem,
+    action: 'suspend' | 'activate',
+  ) => {
     if (action === 'suspend') {
       // Require operator to provide a reason — open reason modal
       setTenantToSuspend(tenant);
@@ -241,7 +244,7 @@ const TenantManagementPage: React.FC = () => {
     return 'default';
   };
 
-  const columns: TableColumn<Tenant>[] = [
+  const columns: TableColumn<TenantListItem>[] = [
     {
       key: 'select',
       header: (
@@ -302,15 +305,6 @@ const TenantManagementPage: React.FC = () => {
           <span className="mx-1 text-gray-500">|</span>
           <span className="text-gray-600">{tenant.farmCount ?? 0} farms</span>
         </div>
-      ),
-    },
-    {
-      key: 'lastActivity',
-      header: 'Last Activity',
-      render: (tenant) => (
-        <span className="text-sm text-gray-600">
-          {tenant.lastActivityAt ? formatDate(new Date(tenant.lastActivityAt), 'short') : '-'}
-        </span>
       ),
     },
     {

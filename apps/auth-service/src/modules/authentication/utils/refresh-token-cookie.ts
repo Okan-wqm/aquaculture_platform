@@ -1,4 +1,5 @@
 import type { CookieOptions } from 'express';
+import { CSRF_SECURITY_POSTURE } from '@aquaculture/shared-contracts';
 
 /**
  * Refresh-token cookie SSoT.
@@ -11,7 +12,7 @@ import type { CookieOptions } from 'express';
  * Every other attribute (httpOnly / secure / sameSite=lax / path=/) is identical
  * in both branches, so the security posture never changes — only persistence.
  */
-export const REFRESH_TOKEN_COOKIE_NAME = 'refresh_token';
+export const REFRESH_TOKEN_COOKIE_NAME = CSRF_SECURITY_POSTURE.refresh.cookieName;
 
 export interface RefreshCookieParams {
   /** secure flag — HTTPS-only cookie in production. */
@@ -28,9 +29,9 @@ export interface RefreshCookieParams {
  */
 export function buildRefreshTokenCookieOptions(params: RefreshCookieParams): CookieOptions {
   const base: CookieOptions = {
-    httpOnly: true,
+    httpOnly: CSRF_SECURITY_POSTURE.refresh.httpOnly,
     secure: params.isProduction,
-    sameSite: 'lax',
+    sameSite: CSRF_SECURITY_POSTURE.refresh.sameSite,
     path: '/',
     // ROOT CAUSE (logout-on-refresh): the refresh-token value is
     // `${userId}:${random}`. Express's default cookie `encode`
@@ -55,9 +56,9 @@ export function buildRefreshTokenCookieOptions(params: RefreshCookieParams): Coo
 /** Options used to clear the refresh cookie — must match the set attributes. */
 export function buildClearRefreshTokenCookieOptions(isProduction: boolean): CookieOptions {
   return {
-    httpOnly: true,
+    httpOnly: CSRF_SECURITY_POSTURE.refresh.httpOnly,
     secure: isProduction,
-    sameSite: 'lax',
+    sameSite: CSRF_SECURITY_POSTURE.refresh.sameSite,
     path: '/',
   };
 }

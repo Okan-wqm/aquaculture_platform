@@ -9,15 +9,33 @@
  * - Malformed/tampered token rejection
  * - JWT secret configuration validation
  */
-import { ExecutionContext, UnauthorizedException, ForbiddenException } from '@nestjs/common';
+import {
+  ExecutionContext,
+  ForbiddenException,
+  HttpException,
+  HttpStatus,
+  RequestMethod,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { ConfigService } from '@nestjs/config';
-import { Reflector } from '@nestjs/core';
+import { ExecutionContextHost } from '@nestjs/core/helpers/execution-context-host';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
+import {
+  SecurityEventService,
+  SlidingWindowStrategy,
+  TOKEN_BLACKLIST,
+  USER_TOKEN_REVOCATION,
+} from '@aquaculture/backend-common/security';
+import { Role } from '@platform/identity';
 import * as jwt from 'jsonwebtoken';
 
-import { ROLES_KEY } from '../../decorators/roles.decorator';
-import { PlatformAdminGuard, JwtPayload, IS_PUBLIC_KEY } from '../platform-admin.guard';
+import {
+  PlatformAdminGuard,
+  hasGeneratedRoutePermissions,
+  type JwtPayload,
+} from '../platform-admin.guard';
 
 jest.mock('@aquaculture/backend-common/auth', () => {
   const actual = jest.requireActual<typeof import('@aquaculture/backend-common/auth')>(
@@ -25,7 +43,9 @@ jest.mock('@aquaculture/backend-common/auth', () => {
   );
   return {
     ...actual,
-    getJwtVerifyOptions: jest.fn(() => ({ secret: 'a-very-secure-test-secret-that-is-at-least-32-chars-long' })),
+    getJwtVerifyOptions: jest.fn(() => ({
+      secret: 'a-very-secure-test-secret-that-is-at-least-32-chars-long',
+    })),
   };
 });
 
@@ -33,6 +53,10 @@ interface MockRequest {
   headers: { authorization?: string };
   method: string;
   url: string;
+  path: string;
+  ip: string;
+  socket: { remoteAddress?: string };
+  get(name: string): string | undefined;
   user?: {
     sub: string;
     id: string;
@@ -48,43 +72,65 @@ describe('PlatformAdminGuard', () => {
   let nodeEnv = 'development';
 
   let guard: PlatformAdminGuard;
-  let reflector: Reflector;
+  let moduleRef: TestingModule;
+  let consumeWithConfig: jest.Mock;
+  let publishTokenRejected: jest.Mock;
+  let publishRateLimitExceeded: jest.Mock;
+  let setHeader: jest.Mock;
+
+  class ProtectedUsersController {
+    readonly testController = true;
+  }
+
+  class PublicHealthController {
+    readonly testController = true;
+  }
+
+  function protectedUsersHandler(): void {}
+  function publicHealthHandler(): void {}
+
+  Reflect.defineMetadata(PATH_METADATA, 'users', ProtectedUsersController);
+  Reflect.defineMetadata(PATH_METADATA, '', protectedUsersHandler);
+  Reflect.defineMetadata(METHOD_METADATA, RequestMethod.GET, protectedUsersHandler);
+  Reflect.defineMetadata(PATH_METADATA, 'health', PublicHealthController);
+  Reflect.defineMetadata(PATH_METADATA, '', publicHealthHandler);
+  Reflect.defineMetadata(METHOD_METADATA, RequestMethod.GET, publicHealthHandler);
 
   function createMockExecutionContext(overrides: {
     authHeader?: string;
     method?: string;
     url?: string;
     isPublic?: boolean;
-    requiredRoles?: string[];
   }): ExecutionContext {
     const request: MockRequest = {
-      headers: overrides.authHeader !== undefined
-        ? { authorization: overrides.authHeader }
-        : {},
+      headers: overrides.authHeader !== undefined ? { authorization: overrides.authHeader } : {},
       method: overrides.method || 'GET',
       url: overrides.url || '/test',
+      path: overrides.url || '/test',
+      ip: '203.0.113.9',
+      socket: {},
+      get: (name: string) =>
+        name.toLowerCase() === 'user-agent' ? 'platform-admin-test' : undefined,
     };
 
-    const mockReflector = reflector;
+    const response = { setHeader };
 
-    // Set up reflector responses
-    jest.spyOn(mockReflector, 'getAllAndOverride').mockImplementation((key: unknown) => {
-      if (key === IS_PUBLIC_KEY) return overrides.isPublic || false;
-      if (key === ROLES_KEY) return overrides.requiredRoles || undefined;
-      return undefined;
-    });
-
-    return {
-      switchToHttp: () => ({
-        getRequest: <T = MockRequest>() => request as T,
-        getResponse: () => ({}),
-      }),
-      getHandler: () => ({}),
-      getClass: () => ({}),
-    } as unknown as ExecutionContext;
+    const context = overrides.isPublic
+      ? new ExecutionContextHost([request, response], PublicHealthController, publicHealthHandler)
+      : new ExecutionContextHost(
+          [request, response],
+          ProtectedUsersController,
+          protectedUsersHandler,
+        );
+    context.setType('http');
+    return context;
   }
 
-  function signToken(payload: Partial<JwtPayload>, secret = TEST_JWT_SECRET, options?: jwt.SignOptions): string {
+  function signToken(
+    payload: Partial<JwtPayload>,
+    secret = TEST_JWT_SECRET,
+    options?: jwt.SignOptions,
+  ): string {
     const defaults: JwtPayload = {
       sub: 'user-123',
       email: 'admin@test.com',
@@ -99,10 +145,17 @@ describe('PlatformAdminGuard', () => {
 
   beforeEach(async () => {
     nodeEnv = 'development';
-    const module: TestingModule = await Test.createTestingModule({
+    consumeWithConfig = jest.fn().mockResolvedValue({
+      allowed: true,
+      remaining: 19,
+      resetTime: new Date(Date.now() + 60_000),
+    });
+    publishTokenRejected = jest.fn().mockResolvedValue(undefined);
+    publishRateLimitExceeded = jest.fn().mockResolvedValue(undefined);
+    setHeader = jest.fn();
+    moduleRef = await Test.createTestingModule({
       providers: [
         PlatformAdminGuard,
-        Reflector,
         {
           provide: ConfigService,
           useValue: {
@@ -122,11 +175,26 @@ describe('PlatformAdminGuard', () => {
             ),
           },
         },
+        {
+          provide: TOKEN_BLACKLIST,
+          useValue: { isBlacklisted: jest.fn().mockResolvedValue(false) },
+        },
+        {
+          provide: USER_TOKEN_REVOCATION,
+          useValue: { isTokenValid: jest.fn().mockResolvedValue(true) },
+        },
+        {
+          provide: SlidingWindowStrategy,
+          useValue: { consumeWithConfig },
+        },
+        {
+          provide: SecurityEventService,
+          useValue: { publishTokenRejected, publishRateLimitExceeded },
+        },
       ],
     }).compile();
 
-    guard = module.get(PlatformAdminGuard);
-    reflector = module.get(Reflector);
+    guard = moduleRef.get(PlatformAdminGuard);
   });
 
   // ========================================================================
@@ -165,7 +233,9 @@ describe('PlatformAdminGuard', () => {
     it('should reject requests with non-Bearer scheme', async () => {
       const context = createMockExecutionContext({ authHeader: 'Basic abc123' });
       await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
-      await expect(guard.canActivate(context)).rejects.toThrow('Invalid authorization header format');
+      await expect(guard.canActivate(context)).rejects.toThrow(
+        'Invalid authorization header format',
+      );
     });
 
     it('should reject Bearer without token', async () => {
@@ -176,6 +246,53 @@ describe('PlatformAdminGuard', () => {
     it('should reject Bearer with only whitespace', async () => {
       const context = createMockExecutionContext({ authHeader: 'Bearer' });
       await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('accounts failed authentication in the distributed per-IP bucket', async () => {
+      const context = createMockExecutionContext({});
+      await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+
+      expect(consumeWithConfig).toHaveBeenCalledWith(
+        'admin-failed-auth:ip:203.0.113.9',
+        20,
+        60_000,
+      );
+      expect(publishTokenRejected).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ip: '203.0.113.9',
+          reason: 'No authorization header provided',
+        }),
+      );
+    });
+
+    it('returns 429 with Retry-After when the failed-auth bucket is exhausted', async () => {
+      consumeWithConfig.mockResolvedValue({
+        allowed: false,
+        remaining: 0,
+        resetTime: new Date(Date.now() + 30_000),
+        retryAfter: 30,
+      });
+      const context = createMockExecutionContext({ authHeader: 'Bearer not.a.jwt' });
+
+      try {
+        await guard.canActivate(context);
+        fail('Expected failed authentication to be throttled');
+      } catch (error) {
+        expect(error).toBeInstanceOf(HttpException);
+        if (!(error instanceof HttpException)) throw error;
+        expect(error.getStatus()).toBe(HttpStatus.TOO_MANY_REQUESTS);
+      }
+      expect(setHeader).toHaveBeenCalledWith('Retry-After', '30');
+      expect(publishRateLimitExceeded).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not count an authenticated role denial as failed authentication', async () => {
+      const token = signToken({ roles: ['TENANT_ADMIN'] });
+      const context = createMockExecutionContext({ authHeader: `Bearer ${token}` });
+
+      await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
+      expect(consumeWithConfig).not.toHaveBeenCalled();
+      expect(publishTokenRejected).not.toHaveBeenCalled();
     });
   });
 
@@ -213,9 +330,10 @@ describe('PlatformAdminGuard', () => {
       const parts = token.split('.');
       const encodedPayload = parts[1];
       if (!encodedPayload) throw new Error('JWT payload segment missing');
-      const payload = JSON.parse(
-        Buffer.from(encodedPayload, 'base64url').toString(),
-      ) as Record<string, unknown>;
+      const payload = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString()) as Record<
+        string,
+        unknown
+      >;
       payload.roles = ['HACKED_ROLE'];
       parts[1] = Buffer.from(JSON.stringify(payload)).toString('base64url');
       const tamperedToken = parts.join('.');
@@ -232,6 +350,26 @@ describe('PlatformAdminGuard', () => {
       const context = createMockExecutionContext({ authHeader: `Bearer ${token}` });
       await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
       await expect(guard.canActivate(context)).rejects.toThrow('Token has expired');
+    });
+
+    it('rejects a signature-valid token whose jti is revoked', async () => {
+      const blacklist = moduleRef.get<{ isBlacklisted: jest.Mock }>(TOKEN_BLACKLIST);
+      blacklist.isBlacklisted.mockResolvedValue(true);
+      const token = signToken({ jti: 'revoked-jti' });
+      const context = createMockExecutionContext({ authHeader: `Bearer ${token}` });
+      await expect(guard.canActivate(context)).rejects.toMatchObject({
+        response: { code: 'TOKEN_REVOKED' },
+      });
+    });
+
+    it('rejects a signature-valid token older than the user invalidation epoch', async () => {
+      const revocation = moduleRef.get<{ isTokenValid: jest.Mock }>(USER_TOKEN_REVOCATION);
+      revocation.isTokenValid.mockResolvedValue(false);
+      const token = signToken({ jti: 'family-revoked-jti' });
+      const context = createMockExecutionContext({ authHeader: `Bearer ${token}` });
+      await expect(guard.canActivate(context)).rejects.toMatchObject({
+        response: { code: 'TOKEN_REVOKED' },
+      });
     });
 
     it('should reject a signed refresh token on admin-api routes', async () => {
@@ -325,26 +463,24 @@ describe('PlatformAdminGuard', () => {
       await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
     });
 
-    it('should perform case-insensitive role matching', async () => {
+    it('rejects non-canonical role casing from a signed token', async () => {
       const token = signToken({ roles: ['super_admin'] });
       const context = createMockExecutionContext({ authHeader: `Bearer ${token}` });
-      await expect(guard.canActivate(context)).resolves.toBe(true);
+      await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
     });
 
-    it('should not let custom @Roles() widen admin-api beyond the platform admin auth role', async () => {
+    it('does not let a signed tenant role widen the generated platform-admin policy', async () => {
       const token = signToken({ roles: ['TENANT_ADMIN'] });
       const context = createMockExecutionContext({
         authHeader: `Bearer ${token}`,
-        requiredRoles: ['TENANT_ADMIN', 'SUPER_ADMIN'],
       });
       await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
     });
 
-    it('should reject user not in custom @Roles() list', async () => {
+    it('rejects a module role outside the generated role requirement', async () => {
       const token = signToken({ roles: ['MODULE_USER'] });
       const context = createMockExecutionContext({
         authHeader: `Bearer ${token}`,
-        requiredRoles: ['SUPER_ADMIN'],
       });
       await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
     });
@@ -361,9 +497,10 @@ describe('PlatformAdminGuard', () => {
       try {
         await guard.canActivate(context);
         fail('Should have thrown');
-      } catch (e) {
-        expect(e).toBeInstanceOf(ForbiddenException);
-        expect((e as ForbiddenException).message).toContain('SUPER_ADMIN');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ForbiddenException);
+        if (!(error instanceof ForbiddenException)) throw error;
+        expect(error.message).toContain('SUPER_ADMIN');
       }
     });
   });
@@ -378,10 +515,11 @@ describe('PlatformAdminGuard', () => {
       try {
         await guard.canActivate(context);
         fail('Should have thrown');
-      } catch (e) {
-        expect(e).toBeInstanceOf(UnauthorizedException);
+      } catch (error) {
+        expect(error).toBeInstanceOf(UnauthorizedException);
+        if (!(error instanceof UnauthorizedException)) throw error;
         // Should not contain internal details
-        const msg = (e as UnauthorizedException).message;
+        const msg = error.message;
         expect(msg).not.toContain('stack');
         expect(msg).not.toContain('at ');
       }
@@ -410,9 +548,27 @@ describe('PlatformAdminGuard', () => {
       // Not UnauthorizedException
       try {
         await guard.canActivate(context);
-      } catch (e) {
-        expect(e).not.toBeInstanceOf(UnauthorizedException);
+      } catch (error) {
+        expect(error).not.toBeInstanceOf(UnauthorizedException);
       }
     });
+  });
+});
+
+describe('generated route permission evaluation', () => {
+  it.each([Role.SUPER_ADMIN, Role.TENANT_ADMIN])(
+    'honours canonical all-permission mode for %s',
+    (role) => {
+      expect(hasGeneratedRoutePermissions([role], new Set(), ['users:view'])).toBe(true);
+    },
+  );
+
+  it('requires assigned capabilities for non-bypass roles', () => {
+    expect(hasGeneratedRoutePermissions([Role.MODULE_MANAGER], new Set(), ['users:view'])).toBe(
+      false,
+    );
+    expect(
+      hasGeneratedRoutePermissions([Role.MODULE_MANAGER], new Set(['users:view']), ['users:view']),
+    ).toBe(true);
   });
 });

@@ -1,11 +1,16 @@
 import {
   CapturedQuery,
   CapturedApiCall,
-  CacheEntrySnapshot,
   FeatureFlagOverride,
   DebugSession,
   QueryLogType,
 } from '../entities/debug-session.entity';
+import type {
+  DebugToolsCacheInvalidationReceiptDto,
+  DebugToolsCacheKeyValueDto,
+  DebugToolsCacheNamespaceListingDto,
+  DebugToolsCacheStatsDto,
+} from '../contracts/admin-http-response.contract';
 
 /**
  * Query Inspector Result Interface
@@ -37,19 +42,11 @@ export interface ApiLogResult {
   };
 }
 
-/**
- * Cache Inspector Result Interface
- */
-export interface CacheInspectorResult {
-  entries: CacheEntrySnapshot[];
-  summary: {
-    totalKeys: number;
-    totalSizeBytes: number;
-    avgTtlSeconds: number;
-    expiringInHour: number;
-    storeBreakdown: Record<string, number>;
-  };
-}
+/** Cache service/domain projections derive from the public response authority. */
+export type CacheKeyEntry = DebugToolsCacheNamespaceListingDto['entries'][number];
+export type CacheNamespaceListing = DebugToolsCacheNamespaceListingDto;
+export type CacheKeyValue = DebugToolsCacheKeyValueDto;
+export type CacheInvalidationReceiptV1 = DebugToolsCacheInvalidationReceiptDto;
 
 /**
  * Debug Dashboard Interface
@@ -87,13 +84,4 @@ export interface ApiUsageSummary {
   statusDistribution: Record<string, number>;
 }
 
-/**
- * Cache Stats Interface
- */
-export interface CacheStats {
-  totalEntries: number;
-  totalSize: number;
-  hitRate: number;
-  missRate: number;
-  byStore: Array<{ store: string; entries: number; size: number }>;
-}
+export type CacheStats = DebugToolsCacheStatsDto;

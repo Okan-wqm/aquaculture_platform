@@ -9,12 +9,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { UpdateTenantCommand } from '../commands/tenant.commands';
+import { toTenantSummary } from '../dto/tenant-summary.dto';
+import type { TenantSummaryDto } from '../dto/tenant-summary.dto';
 import { Tenant } from '../entities/tenant.entity';
 
 @Injectable()
 @CommandHandler(UpdateTenantCommand)
 export class UpdateTenantHandler
-  implements ICommandHandler<UpdateTenantCommand, Tenant>
+  implements ICommandHandler<UpdateTenantCommand, TenantSummaryDto>
 {
   private readonly logger = new Logger(UpdateTenantHandler.name);
 
@@ -23,7 +25,7 @@ export class UpdateTenantHandler
     private readonly tenantRepository: Repository<Tenant>,
   ) {}
 
-  async execute(command: UpdateTenantCommand): Promise<Tenant> {
+  async execute(command: UpdateTenantCommand): Promise<TenantSummaryDto> {
     const { tenantId, data, updatedBy } = command;
 
     const tenant = await this.tenantRepository.findOne({ where: { id: tenantId } });
@@ -32,7 +34,7 @@ export class UpdateTenantHandler
     }
 
     if (Object.keys(data).length === 0) {
-      return tenant;
+      return toTenantSummary(tenant);
     }
 
     this.logger.warn(

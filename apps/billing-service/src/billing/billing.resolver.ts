@@ -30,62 +30,16 @@ import { GetPlansQuery } from './queries/get-plans.query';
 import { GetPlanByIdQuery } from './queries/get-plan-by-id.query';
 import { GetTenantBillingQuery } from './queries/get-tenant-billing.query';
 import { TenantBillingResponse } from './dto/tenant-billing-response.dto';
+import { Role, isPlatformRole, type Role as PlatformRole } from '@platform/identity';
 
 /**
- * SECURITY: Role-based authorization for billing operations
- * Defines which roles can perform various billing actions
+ * Billing carries operation policy, not a second role vocabulary. The removed
+ * BILLING_ADMIN and FINANCE_MANAGER strings were never issued by the auth
+ * service, so their branches were unreachable. Financial writes preserve the
+ * reachable policy (SUPER_ADMIN); tenant administrators retain read access.
  */
-enum BillingRole {
-  SUPER_ADMIN = 'SUPER_ADMIN',
-  TENANT_ADMIN = 'TENANT_ADMIN',
-  BILLING_ADMIN = 'BILLING_ADMIN',
-  FINANCE_MANAGER = 'FINANCE_MANAGER',
-}
-
-/** Roles allowed to create/modify subscriptions */
-const SUBSCRIPTION_WRITE_ROLES: string[] = [
-  BillingRole.SUPER_ADMIN,
-  BillingRole.BILLING_ADMIN,
-];
-
-/** Roles allowed to create invoices */
-const INVOICE_WRITE_ROLES: string[] = [
-  BillingRole.SUPER_ADMIN,
-  BillingRole.BILLING_ADMIN,
-  BillingRole.FINANCE_MANAGER,
-];
-
-/** Roles allowed to record payments */
-const PAYMENT_WRITE_ROLES: string[] = [
-  BillingRole.SUPER_ADMIN,
-  BillingRole.BILLING_ADMIN,
-  BillingRole.FINANCE_MANAGER,
-];
-
-/** Roles allowed to issue refunds (restricted to highest privilege) */
-const REFUND_WRITE_ROLES: string[] = [
-  BillingRole.SUPER_ADMIN,
-  BillingRole.BILLING_ADMIN,
-];
-
-/** Roles allowed to manage plans (CRUD) — SUPER_ADMIN only */
-const PLAN_ADMIN_ROLES: string[] = [
-  BillingRole.SUPER_ADMIN,
-];
-
-/** Roles allowed to change subscription plan (upgrade/downgrade) */
-const PLAN_CHANGE_ROLES: string[] = [
-  BillingRole.SUPER_ADMIN,
-  BillingRole.BILLING_ADMIN,
-];
-
-/** Roles allowed to read billing data */
-const BILLING_READ_ROLES: string[] = [
-  BillingRole.SUPER_ADMIN,
-  BillingRole.TENANT_ADMIN,
-  BillingRole.BILLING_ADMIN,
-  BillingRole.FINANCE_MANAGER,
-];
+const BILLING_WRITE_ROLES = Object.freeze([Role.SUPER_ADMIN] as const);
+const BILLING_READ_ROLES = Object.freeze([Role.SUPER_ADMIN, Role.TENANT_ADMIN] as const);
 
 interface GraphQLContext {
   req: {
@@ -139,13 +93,12 @@ function extractUserId(context: GraphQLContext): string {
  * SECURITY: Validates that the user has at least one of the required roles
  * @throws ForbiddenException if user lacks required roles
  */
-function requireRoles(context: GraphQLContext, allowedRoles: string[], operation: string): void {
-  const userRoles = context.req.user?.roles || [];
-
-  // Super admin bypass
-  if (userRoles.includes(BillingRole.SUPER_ADMIN)) {
-    return;
-  }
+function requireRoles(
+  context: GraphQLContext,
+  allowedRoles: readonly PlatformRole[],
+  operation: string,
+): void {
+  const userRoles = (context.req.user?.roles ?? []).filter(isPlatformRole);
 
   const hasRole = allowedRoles.some((role) => userRoles.includes(role));
   if (!hasRole) {
@@ -189,7 +142,7 @@ export class BillingResolver {
     @Context() context: GraphQLContext,
   ): Promise<Subscription> {
     const tenantId = extractTenantId(context);
-    requireRoles(context, SUBSCRIPTION_WRITE_ROLES, 'create subscription');
+    requireRoles(context, BILLING_WRITE_ROLES, 'create subscription');
     const userId = extractUserId(context);
     return this.commandBus.execute(
       new CreateSubscriptionCommand(tenantId, input, userId),
@@ -209,7 +162,7 @@ export class BillingResolver {
       throw new BadRequestException('Cancellation reason must not exceed 1000 characters');
     }
     const tenantId = extractTenantId(context);
-    requireRoles(context, SUBSCRIPTION_WRITE_ROLES, 'cancel subscription');
+    requireRoles(context, BILLING_WRITE_ROLES, 'cancel subscription');
     const userId = extractUserId(context);
     return this.commandBus.execute(
       new CancelSubscriptionCommand(tenantId, id, reason, userId),
@@ -261,7 +214,7 @@ export class BillingResolver {
     @Context() context: GraphQLContext,
   ): Promise<Invoice> {
     const tenantId = extractTenantId(context);
-    requireRoles(context, INVOICE_WRITE_ROLES, 'create invoice');
+    requireRoles(context, BILLING_WRITE_ROLES, 'create invoice');
     const userId = extractUserId(context);
     return this.commandBus.execute(
       new CreateInvoiceCommand(tenantId, input, userId),
@@ -278,7 +231,7 @@ export class BillingResolver {
     @Context() context: GraphQLContext,
   ): Promise<Invoice> {
     const tenantId = extractTenantId(context);
-    requireRoles(context, INVOICE_WRITE_ROLES, 'finalize invoice');
+    requireRoles(context, BILLING_WRITE_ROLES, 'finalize invoice');
     const userId = extractUserId(context);
     return this.commandBus.execute(
       new FinalizeInvoiceCommand(tenantId, id, userId),
@@ -295,7 +248,7 @@ export class BillingResolver {
     @Context() context: GraphQLContext,
   ): Promise<Invoice> {
     const tenantId = extractTenantId(context);
-    requireRoles(context, INVOICE_WRITE_ROLES, 'void invoice');
+    requireRoles(context, BILLING_WRITE_ROLES, 'void invoice');
     const userId = extractUserId(context);
     return this.commandBus.execute(
       new VoidInvoiceCommand(tenantId, id, reason, userId),
@@ -324,7 +277,7 @@ export class BillingResolver {
     @Context() context: GraphQLContext,
   ): Promise<Payment> {
     const tenantId = extractTenantId(context);
-    requireRoles(context, PAYMENT_WRITE_ROLES, 'record payment');
+    requireRoles(context, BILLING_WRITE_ROLES, 'record payment');
     const userId = extractUserId(context);
     return this.commandBus.execute(
       new RecordPaymentCommand(tenantId, input, userId),
@@ -333,7 +286,7 @@ export class BillingResolver {
 
   /**
    * Refund a payment (full or partial).
-   * Only SUPER_ADMIN or BILLING_ADMIN can issue refunds.
+   * Only SUPER_ADMIN can issue refunds.
    * Supports multiple partial refunds up to the original payment amount.
    */
   @Mutation(() => Payment)
@@ -342,7 +295,7 @@ export class BillingResolver {
     @Context() context: GraphQLContext,
   ): Promise<Payment> {
     const tenantId = extractTenantId(context);
-    requireRoles(context, REFUND_WRITE_ROLES, 'refund payment');
+    requireRoles(context, BILLING_WRITE_ROLES, 'refund payment');
     const userId = extractUserId(context);
     return this.commandBus.execute(
       new RefundPaymentCommand(tenantId, input, userId),
@@ -373,7 +326,7 @@ export class BillingResolver {
     @Context() context: GraphQLContext,
   ): Promise<Plan[]> {
     extractTenantId(context);
-    requireRoles(context, PLAN_ADMIN_ROLES, 'view all plans');
+    requireRoles(context, BILLING_WRITE_ROLES, 'view all plans');
     return this.queryBus.execute(new GetPlansQuery(false));
   }
 
@@ -404,7 +357,7 @@ export class BillingResolver {
     @Context() context: GraphQLContext,
   ): Promise<Plan> {
     extractTenantId(context);
-    requireRoles(context, PLAN_ADMIN_ROLES, 'create plan');
+    requireRoles(context, BILLING_WRITE_ROLES, 'create plan');
     const userId = extractUserId(context);
     return this.commandBus.execute(new CreatePlanCommand(input, userId));
   }
@@ -424,7 +377,7 @@ export class BillingResolver {
       throw new BadRequestException('Invalid plan ID format');
     }
     extractTenantId(context);
-    requireRoles(context, PLAN_ADMIN_ROLES, 'update plan');
+    requireRoles(context, BILLING_WRITE_ROLES, 'update plan');
     const userId = extractUserId(context);
     return this.commandBus.execute(new UpdatePlanCommand(id, input, userId));
   }
@@ -443,7 +396,7 @@ export class BillingResolver {
       throw new BadRequestException('Invalid plan ID format');
     }
     extractTenantId(context);
-    requireRoles(context, PLAN_ADMIN_ROLES, 'deactivate plan');
+    requireRoles(context, BILLING_WRITE_ROLES, 'deactivate plan');
     const userId = extractUserId(context);
     return this.commandBus.execute(new DeactivatePlanCommand(id, userId));
   }
@@ -456,7 +409,7 @@ export class BillingResolver {
    * - Upgrade: Takes effect immediately with pro-rata credit calculation.
    * - Downgrade: Takes effect at end of current billing period.
    *
-   * SUPER_ADMIN or BILLING_ADMIN only.
+   * SUPER_ADMIN only.
    */
   @Mutation(() => Subscription)
   async changeSubscriptionPlan(
@@ -464,7 +417,7 @@ export class BillingResolver {
     @Context() context: GraphQLContext,
   ): Promise<Subscription> {
     const tenantId = extractTenantId(context);
-    requireRoles(context, PLAN_CHANGE_ROLES, 'change subscription plan');
+    requireRoles(context, BILLING_WRITE_ROLES, 'change subscription plan');
     const userId = extractUserId(context);
     return this.commandBus.execute(
       new ChangeSubscriptionPlanCommand(tenantId, input, userId),

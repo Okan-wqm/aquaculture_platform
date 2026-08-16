@@ -986,7 +986,10 @@ describe('deploy SSOT contract', () => {
     );
     expect(deletionFunction).toContain("'DELETE'");
     expect(deletionFunction).toContain('Tenant schema deletion requires cleanupProof evidence');
-    expect(deletionFunction).toContain('Tenant schema deletion requires encrypted backup evidence');
+    expect(deletionFunction).toContain(
+      'Tenant schema deletion requires tenant_erasure cleanupProof',
+    );
+    expect(deletionFunction).not.toContain('tenant_deprovision');
   });
 
   it('keeps runtime services out of production DDL authority in compose', () => {

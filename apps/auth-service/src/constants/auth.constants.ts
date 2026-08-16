@@ -123,14 +123,3 @@ export const MFA_CONSTANTS = {
   /** MFA lockout duration in minutes */
   MFA_LOCKOUT_DURATION_MINUTES: 15,
 } as const;
-
-/**
- * Role hierarchy levels for permission checks
- */
-export const ROLE_LEVELS = {
-  SUPER_ADMIN: 100,
-  TENANT_ADMIN: 70,
-  MODULE_MANAGER: 50,
-  MODULE_USER: 30,
-  VIEWER: 10,
-} as const;

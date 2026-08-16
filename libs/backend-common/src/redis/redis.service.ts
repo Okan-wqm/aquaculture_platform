@@ -10,6 +10,12 @@ export interface RedisModuleOptions {
   keyPrefix?: string;
 }
 
+export interface RedisPatternDeletionEvidenceV1 {
+  readonly schemaVersion: 'redis-pattern-deletion-evidence.v1';
+  readonly matchedKeys: readonly string[];
+  readonly deletedCount: number;
+}
+
 /** Fixed namespace owned by auth-service for distributed revocation markers. */
 export const AUTHORIZATION_REDIS_KEY_PREFIX = 'auth:';
 
@@ -73,6 +79,17 @@ export class RedisService implements OnModuleDestroy {
    */
   private prefixKey(key: string): string {
     return `${this.keyPrefix}${key}`;
+  }
+
+  /**
+   * Physical namespace owned by this service connection.
+   *
+   * Advanced atomic operations (for example the Lua-backed distributed rate
+   * limiter) need to pass a physical key to Redis scripts. Keeping the prefix
+   * readable here prevents callers from duplicating or guessing it.
+   */
+  getKeyPrefix(): string {
+    return this.keyPrefix;
   }
 
   private scopedKey(key: RedisScopedKey): string {
@@ -256,8 +273,10 @@ return tonumber(ARGV[1])
       allKeys.push(...keys);
     } while (cursor !== '0');
 
-    // Remove prefix from returned keys
-    return allKeys.map((k) => k.slice(this.keyPrefix.length));
+    // SCAN may return a key more than once while the keyspace changes. Expose
+    // one canonical logical-key set so mutation receipts and bounded deletes
+    // never claim duplicate authorities for the same physical key.
+    return [...new Set(allKeys.map((key) => key.slice(this.keyPrefix.length)))].sort();
   }
 
   /**
@@ -265,27 +284,52 @@ return tonumber(ARGV[1])
    * with batched DEL. Non-blocking alternative to KEYS + DEL.
    */
   async deletePattern(pattern: string): Promise<number> {
-    const prefixedPattern = this.prefixKey(pattern);
-    let cursor = '0';
-    let totalDeleted = 0;
+    return (await this.deletePatternWithEvidence(pattern)).deletedCount;
+  }
 
-    do {
-      const [nextCursor, keys] = await this.client.scan(
-        cursor,
-        'MATCH',
-        prefixedPattern,
-        'COUNT',
-        100,
-      );
-      cursor = nextCursor;
-
-      if (keys.length > 0) {
-        const deleted = await this.client.del(...keys);
-        totalDeleted += deleted;
+  /**
+   * Discover first, then delete the exact discovered logical keys in bounded
+   * batches. Deleting while advancing a SCAN cursor can skip entries as the key
+   * table changes; this two-phase adapter preserves an inspectable mutation
+   * set and keeps physical-prefix construction inside RedisService.
+   */
+  async deletePatternWithEvidence(pattern: string): Promise<RedisPatternDeletionEvidenceV1> {
+    const matchedKeys = Object.freeze(await this.keys(pattern));
+    let deletedCount = 0;
+    for (let offset = 0; offset < matchedKeys.length; offset += 100) {
+      const batch = matchedKeys.slice(offset, offset + 100);
+      if (batch.length > 0) {
+        deletedCount += await this.client.del(...batch.map((key) => this.prefixKey(key)));
       }
-    } while (cursor !== '0');
+    }
+    return Object.freeze({
+      schemaVersion: 'redis-pattern-deletion-evidence.v1',
+      matchedKeys,
+      deletedCount,
+    });
+  }
 
-    return totalDeleted;
+  /** Namespace-aware metadata primitives for inspection adapters. */
+  async type(key: string): Promise<string> {
+    return this.client.type(this.prefixKey(key));
+  }
+
+  async memoryUsage(key: string): Promise<number | null> {
+    const usage = await this.client.memory('USAGE', this.prefixKey(key));
+    return typeof usage === 'number' ? usage : null;
+  }
+
+  async objectIdleTime(key: string): Promise<number | null> {
+    const idle = await this.client.object('IDLETIME', this.prefixKey(key));
+    return typeof idle === 'number' ? idle : null;
+  }
+
+  async info(section: 'memory' | 'stats'): Promise<string> {
+    return this.client.info(section);
+  }
+
+  async dbsize(): Promise<number> {
+    return this.client.dbsize();
   }
 
   /**

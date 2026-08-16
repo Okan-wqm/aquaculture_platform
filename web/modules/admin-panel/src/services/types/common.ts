@@ -2,13 +2,7 @@
  * Common/shared types used across multiple domain APIs
  */
 
-export interface PaginatedResult<T> {
-  data: T[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
+export type { StandardPaginatedResult } from '@platform/admin-http-contracts';
 
 export interface PaginationParams {
   page?: number;

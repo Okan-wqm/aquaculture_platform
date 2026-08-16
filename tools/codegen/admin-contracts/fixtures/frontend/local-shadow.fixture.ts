@@ -1,0 +1,3 @@
+function apiFetch(): void {}
+
+apiFetch();

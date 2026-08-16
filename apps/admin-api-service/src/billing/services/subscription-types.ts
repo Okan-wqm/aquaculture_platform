@@ -1,4 +1,5 @@
 import { BillingCycle, PlanTier } from '../entities/plan-definition.entity';
+import type { PricingModuleQuantities } from '@platform/pricing-metric-vocabulary';
 
 /**
  * Subscription status enum - matches billing-service
@@ -111,18 +112,7 @@ export interface SubscriptionStats {
 /**
  * Module quantities for subscription
  */
-export interface ModuleQuantities {
-  users?: number;
-  farms?: number;
-  ponds?: number;
-  sensors?: number;
-  devices?: number;
-  storageGb?: number;
-  apiCalls?: number;
-  alerts?: number;
-  reports?: number;
-  integrations?: number;
-}
+export type ModuleQuantities = PricingModuleQuantities;
 
 /**
  * Line item for module pricing

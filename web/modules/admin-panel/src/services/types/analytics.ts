@@ -1,144 +1,24 @@
 /**
- * Analytics domain types
+ * Analytics browser types are projections of the generated admin route DAG.
+ * The executable backend response contracts remain the only shape authority.
  */
 
-export interface DashboardSummary {
-  tenants: {
-    total: number;
-    active: number;
-    inactive: number;
-    trial: number;
-    suspended: number;
-    newThisMonth: number;
-    churnedThisMonth: number;
-    churnRate: number;
-    growthRate: number;
-    byPlan: Record<string, number>;
-    byRegion: Record<string, number>;
-  };
-  users: {
-    total: number;
-    active: number;
-    inactive: number;
-    newThisMonth: number;
-    activeLastDay: number;
-    activeLastWeek: number;
-    activeLastMonth: number;
-    growthRate: number;
-    avgUsersPerTenant: number;
-    byRole: Record<string, number>;
-  };
-  financial: {
-    mrr: number;
-    arr: number;
-    arpu: number;
-    arppu: number;
-    ltv: number;
-    totalRevenue: number;
-    revenueThisMonth: number;
-    revenueGrowthRate: number;
-    pendingPayments: number;
-    overduePayments: number;
-    refunds: number;
-    byPlan: Record<string, number>;
-    byCurrency: Record<string, number>;
-  };
-  system: {
-    totalStorageBytes: number;
-    usedStorageBytes: number;
-    storageUtilization: number;
-    apiCallsToday: number;
-    apiCallsThisMonth: number;
-    avgResponseTimeMs: number;
-    errorRate: number;
-    uptimePercent: number;
-    activeConnections: number;
-    queuedJobs: number;
-  };
-  usage: {
-    moduleUsage: Record<string, {
-      activeUsers: number;
-      totalSessions: number;
-      avgSessionDuration: number;
-    }>;
-    featureAdoption: Record<string, number>;
-    topFeatures: Array<{ feature: string; usage: number }>;
-    peakHours: number[];
-    avgDailyActiveUsers: number;
-  };
-  generatedAt: string;
-  unavailable?: string[];
-}
+import type { AdminApiRouteQuery, AdminApiRouteResponse } from './generated/admin-route-contracts';
 
-export interface KpiComparison {
-  metric: string;
-  current: number;
-  previous: number;
-  change: number;
-  changePercent: number;
-  trend: 'up' | 'down' | 'stable';
-}
+export type DashboardSummary = AdminApiRouteResponse<'GET /analytics/dashboard'>;
+export type RevenueAnalytics = AdminApiRouteResponse<'GET /analytics/revenue'>;
 
-export interface TenantMetrics {
-  tenantId: string;
-  tenantName: string;
-  userCount: number;
-  activeUsers: number;
-  farmCount: number;
-  sensorCount: number;
-  apiCalls: number;
-  dataUsageGb: number;
-  lastActivity: string;
-}
+type AnalyticsTrendQuery = AdminApiRouteQuery<'GET /analytics/tenants/growth'>;
 
-export interface GrowthTrend {
-  period: string;
-  tenants: number;
-  users: number;
-  revenue: number;
-  churn: number;
-}
-
-export type AnalyticsRange = '7d' | '30d' | '90d' | '1y';
-export type AnalyticsGranularity = 'day' | 'week' | 'month';
+export type AnalyticsRange = NonNullable<AnalyticsTrendQuery['range']>;
+export type AnalyticsGranularity = NonNullable<AnalyticsTrendQuery['granularity']>;
 
 export interface TimeSeriesPoint {
-  date: string;
-  value: number;
+  readonly date: string;
+  readonly value: number;
 }
 
-export interface TimeSeriesResponse {
-  range: AnalyticsRange;
-  granularity: AnalyticsGranularity;
-  data: TimeSeriesPoint[];
-  source: string;
-  asOf: string;
-}
-
-export interface RevenueAnalytics {
-  totalRevenue: number;
-  mrr: number;
-  arr: number;
-  averageRevenuePerTenant: number;
-  revenueByPlan: Array<{ plan: string; revenue: number; percentage: number }>;
-  revenueByMonth: Array<{ month: string; revenue: number }>;
-}
-
-export interface UsageAnalytics {
-  totalApiCalls: number;
-  apiCallsByEndpoint: Array<{ endpoint: string; count: number }>;
-  avgResponseTime: number;
-  errorRate: number;
-  activeSessionsNow: number;
-  peakConcurrentUsers: number;
-  dataStorageUsedGb: number;
-}
-
-export interface EngagementMetrics {
-  dailyActiveUsers: number;
-  weeklyActiveUsers: number;
-  monthlyActiveUsers: number;
-  avgSessionDuration: number;
-  avgActionsPerSession: number;
-  featureUsage: Array<{ feature: string; usageCount: number; uniqueUsers: number }>;
-}
+export type TimeSeriesResponse = Extract<
+  AdminApiRouteResponse<'GET /analytics/tenants/growth'>,
+  { readonly range: AnalyticsRange }
+>;

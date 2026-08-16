@@ -9,12 +9,27 @@ import {
 } from '@aquaculture/backend-common/database';
 import { LoggingModule } from '@aquaculture/backend-common/logging';
 import { ServiceMetricsModule } from '@aquaculture/backend-common/metrics';
+import {
+  StripInternalHeadersMiddleware,
+  VerifiedUserAssertionMiddleware,
+} from '@aquaculture/backend-common/middleware';
 import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
 import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
-import { ThrottlerGuard, ThrottlerModule } from '@aquaculture/backend-common/security';
-import { Module } from '@nestjs/common';
+import {
+  SecurityEventService,
+  SlidingWindowStrategy,
+  ThrottlerGuard,
+  ThrottlerModule,
+  TOKEN_BLACKLIST,
+  TokenBlacklistModule,
+  USER_TOKEN_REVOCATION,
+  UserTokenRevocationModule,
+  type ITokenBlacklist,
+  type IUserTokenRevocation,
+} from '@aquaculture/backend-common/security';
+import { MiddlewareConsumer, Module, NestModule, RequestMethod } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { CqrsModule } from '@nestjs/cqrs';
 // PlatformAdminGuard injects JwtService for verifyAsync() — JwtService is
 // provided by PlatformJwtModule (which re-exports JwtModule), so we still
@@ -53,10 +68,7 @@ import { UsersModule } from './users/users.module';
 
 const AdminSchemaVersionGate = createSchemaVersionGate('admin');
 
-const getRequiredStorageConfig = (
-  configService: ConfigService,
-  key: string,
-): string => {
+const getRequiredStorageConfig = (configService: ConfigService, key: string): string => {
   const value = configService.get<string>(key);
   if (value === undefined || value.trim().length === 0) {
     throw new Error(`Missing required object storage configuration: ${key}`);
@@ -117,8 +129,7 @@ const getAdminStoragePort = (configService: ConfigService): number => {
           migrations: [__dirname + '/migrations/[0-9]*{.ts,.js}'],
           // Single-writer deploy contract: aqua-db-migrate owns production
           // migrations. Local/E2E can still opt in explicitly.
-          migrationsRunFromEnv: (cfg) =>
-            cfg.get('DATABASE_MIGRATIONS_RUN', 'false') === 'true',
+          migrationsRunFromEnv: (cfg) => cfg.get('DATABASE_MIGRATIONS_RUN', 'false') === 'true',
         }),
     }),
     /**
@@ -142,10 +153,14 @@ const getAdminStoragePort = (configService: ConfigService): number => {
           type: 'postgres',
           host: configService.get<string>('DATABASE_HOST', 'localhost'),
           port: configService.get<number>('DATABASE_PORT', 5432),
-          username: configService.get<string>('DATABASE_READONLY_USER',
-            configService.get<string>('DATABASE_USER', 'postgres')),
-          password: configService.get<string>('DATABASE_READONLY_PASSWORD',
-            dbPassword || 'postgres'),
+          username: configService.get<string>(
+            'DATABASE_READONLY_USER',
+            configService.get<string>('DATABASE_USER', 'postgres'),
+          ),
+          password: configService.get<string>(
+            'DATABASE_READONLY_PASSWORD',
+            dbPassword || 'postgres',
+          ),
           database: configService.get<string>('DATABASE_NAME', 'aquaculture'),
           schema: configService.get<string>('DATABASE_SCHEMA', 'admin'),
           // SECURITY: No entities — this DataSource is for raw queries only
@@ -184,12 +199,14 @@ const getAdminStoragePort = (configService: ConfigService): number => {
     }),
     LoggingModule,
     ThrottlerModule,
+    TokenBlacklistModule,
+    UserTokenRevocationModule,
     // Redis for caching and distributed rate limiting
     RedisModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) =>
-        buildRedisOptions(configService, 'admin', 'optional'),
+        buildRedisOptions(configService, 'admin', 'required'),
     }),
     StorageModule.forRootAsync({
       imports: [ConfigModule],
@@ -206,9 +223,8 @@ const getAdminStoragePort = (configService: ConfigService): number => {
     }),
     TenantManagementModule,
     AuditLogModule,
-    // COMPLIANCE-MEDIUM-001 cure: register retention policies for
-    // shared.audit_logs + admin.audit_logs with the canonical
-    // RetentionEnforcementService cron (03:00 UTC daily).
+    // Runtime retention is limited to operational access telemetry. Semantic
+    // audit evidence is governed by the signed data-protection authority.
     AdminApiRetentionBootstrapModule,
     SystemMetricsModule,
     HealthModule,
@@ -266,6 +282,7 @@ const getAdminStoragePort = (configService: ConfigService): number => {
   ],
   providers: [
     AdminSchemaVersionGate,
+    SecurityEventService,
     {
       provide: APP_FILTER,
       useClass: GlobalExceptionFilter,
@@ -276,9 +293,30 @@ const getAdminStoragePort = (configService: ConfigService): number => {
     // NestJS falls back to reflect-metadata class resolution which fails in Docker Alpine.
     {
       provide: PlatformAdminGuard,
-      useFactory: (reflector: Reflector, configService: ConfigService, jwtService: JwtService): PlatformAdminGuard =>
-        new PlatformAdminGuard(reflector, configService, jwtService),
-      inject: [Reflector, ConfigService, JwtService],
+      useFactory: (
+        configService: ConfigService,
+        jwtService: JwtService,
+        tokenBlacklist: ITokenBlacklist,
+        userTokenRevocation: IUserTokenRevocation,
+        rateLimiter: SlidingWindowStrategy,
+        securityEvents: SecurityEventService,
+      ): PlatformAdminGuard =>
+        new PlatformAdminGuard(
+          configService,
+          jwtService,
+          tokenBlacklist,
+          userTokenRevocation,
+          rateLimiter,
+          securityEvents,
+        ),
+      inject: [
+        ConfigService,
+        JwtService,
+        TOKEN_BLACKLIST,
+        USER_TOKEN_REVOCATION,
+        SlidingWindowStrategy,
+        SecurityEventService,
+      ],
     },
     {
       provide: APP_GUARD,
@@ -305,6 +343,20 @@ const getAdminStoragePort = (configService: ConfigService): number => {
     GracefulShutdownService,
   ],
 })
-export class AppModule {
+export class AppModule implements NestModule {
   readonly moduleName = AppModule.name;
+
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(StripInternalHeadersMiddleware).forRoutes('*');
+    consumer.apply(VerifiedUserAssertionMiddleware).forRoutes(
+      {
+        path: 'impersonation/sessions/authorization-context',
+        method: RequestMethod.POST,
+      },
+      {
+        path: 'impersonation/sessions/authorization-receipts',
+        method: RequestMethod.POST,
+      },
+    );
+  }
 }

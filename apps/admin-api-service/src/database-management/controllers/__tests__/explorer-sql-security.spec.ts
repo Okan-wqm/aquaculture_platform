@@ -13,13 +13,19 @@
  * No real database connection is required.
  */
 
-import { INestApplication, ValidationPipe, HttpStatus } from '@nestjs/common';
+import {
+  INestApplication,
+  ValidationPipe,
+  HttpStatus,
+  type ExecutionContext,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import request from 'supertest';
 
 import { AuditLogService } from '../../../audit/audit.service';
 import { PlatformAdminGuard } from '../../../guards/platform-admin.guard';
+import type { AuthenticatedRequest } from '../../../shared/authenticated-request';
 import { DatabaseExplorerController } from '../explorer.controller';
 
 describe('Explorer SQL Security', () => {
@@ -28,6 +34,11 @@ describe('Explorer SQL Security', () => {
   const mockQueryRunner = {
     connect: jest.fn(),
     release: jest.fn(),
+    startTransaction: jest.fn(),
+    commitTransaction: jest.fn(),
+    rollbackTransaction: jest.fn(),
+    isTransactionActive: true,
+    manager: {},
     query: jest.fn().mockResolvedValue([]),
   };
 
@@ -36,10 +47,19 @@ describe('Explorer SQL Security', () => {
   };
 
   const mockAuditLogService = {
-    log: jest.fn().mockResolvedValue({ id: 'audit-log-id' }),
+    appendBeforeDisclosure: jest.fn().mockResolvedValue({ id: 'audit-log-id' }),
+    appendInTransaction: jest.fn().mockResolvedValue({ id: 'audit-log-id' }),
   };
 
-  const mockGuard = { canActivate: jest.fn().mockReturnValue(true) };
+  const mockGuard = {
+    canActivate: jest.fn((context: ExecutionContext) => {
+      context.switchToHttp().getRequest().user = {
+        id: '11111111-1111-4111-8111-111111111111',
+        email: 'admin@example.com',
+      };
+      return true;
+    }),
+  };
 
   beforeAll(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -55,6 +75,15 @@ describe('Explorer SQL Security', () => {
       .compile();
 
     app = module.createNestApplication();
+    app.use((req: AuthenticatedRequest, _res: unknown, next: () => void) => {
+      req.user = {
+        sub: '11111111-1111-4111-8111-111111111111',
+        id: '11111111-1111-4111-8111-111111111111',
+        email: 'admin@example.com',
+        roles: ['SUPER_ADMIN'],
+      };
+      next();
+    });
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,
@@ -72,14 +101,17 @@ describe('Explorer SQL Security', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockQueryRunner.query.mockResolvedValue([]);
-    mockAuditLogService.log.mockResolvedValue({ id: 'audit-log-id' });
+    mockAuditLogService.appendBeforeDisclosure.mockResolvedValue({ id: 'audit-log-id' });
+    mockAuditLogService.appendInTransaction.mockResolvedValue({ id: 'audit-log-id' });
     process.env['NODE_ENV'] = 'development';
     process.env['ENABLE_RAW_SQL_EXPLORER'] = 'true';
+    process.env['ENABLE_DB_EXPLORER_WRITES'] = 'true';
   });
 
   afterEach(() => {
     delete process.env['NODE_ENV'];
     delete process.env['ENABLE_RAW_SQL_EXPLORER'];
+    delete process.env['ENABLE_DB_EXPLORER_WRITES'];
   });
 
   /**
@@ -88,9 +120,7 @@ describe('Explorer SQL Security', () => {
   function postQuery(sql: string, params?: unknown[]) {
     const body: Record<string, unknown> = { sql };
     if (params) body['params'] = params;
-    return request(app.getHttpServer())
-      .post('/database/explorer/query')
-      .send(body);
+    return request(app.getHttpServer()).post('/database/explorer/query').send(body);
   }
 
   // ==========================================================================
@@ -125,6 +155,35 @@ describe('Explorer SQL Security', () => {
 
       expect(res.status).toBe(HttpStatus.CREATED);
       expect(res.body.rows).toBeDefined();
+    });
+
+    it('does not disclose a successful raw query when mandatory audit persistence fails', async () => {
+      mockQueryRunner.query.mockResolvedValueOnce([{ secret: 'masked-before-response' }]);
+      mockAuditLogService.appendBeforeDisclosure.mockRejectedValueOnce(
+        new Error('audit persistence unavailable'),
+      );
+
+      const res = await postQuery('SELECT 1');
+
+      expect(res.status).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
+      expect(res.body.rows).toBeUndefined();
+    });
+
+    it('rolls back a database mutation when its transaction audit append fails', async () => {
+      mockAuditLogService.appendInTransaction.mockRejectedValueOnce(
+        new Error('audit persistence unavailable'),
+      );
+
+      const res = await request(app.getHttpServer())
+        .post('/database/explorer/schemas/admin/tables/example/rows')
+        .send({ data: { name: 'must-not-persist' } });
+
+      expect(res.status).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
+      expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalledTimes(1);
+      expect(mockQueryRunner.commitTransaction).not.toHaveBeenCalled();
+      expect(
+        mockQueryRunner.query.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO')),
+      ).toBe(false);
     });
   });
 
@@ -334,7 +393,7 @@ describe('Explorer SQL Security', () => {
     });
 
     it('should strip line comments hiding dangerous SQL', async () => {
-      const res = await postQuery("SELECT 1 -- safe query\nDROP TABLE users");
+      const res = await postQuery('SELECT 1 -- safe query\nDROP TABLE users');
 
       expect(res.status).toBe(HttpStatus.BAD_REQUEST);
     });

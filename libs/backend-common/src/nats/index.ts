@@ -26,3 +26,27 @@ export {
   decodeNatsJson,
 } from './nats-v3-codec';
 export type { SerializedNatsPayload } from './nats-v3-codec';
+
+export {
+  SERVICE_NATS_RUNTIME_PROFILES,
+  SERVICE_NATS_RUNTIME_PROJECTION,
+  assertServiceNatsHandlerSet,
+  compileServiceNatsRuntimeProjection,
+  createTenantOnboardingRequirementSnapshot,
+  decodeTenantOnboardingRequirementSnapshot,
+  requireServiceNatsRuntimeProfile,
+  TENANT_ONBOARDING_REQUIREMENT_PROFILE,
+} from './service-nats-runtime-profiles';
+export type {
+  RuntimeEventHandlerBinding,
+  ServiceNatsRuntimeProfileV1,
+  ServiceNatsRuntimeProjectionV1,
+  ServiceNatsRuntimeSubscriptionV1,
+  TenantOnboardingRequirementProfileV1,
+  TenantOnboardingRequirementSnapshotV1,
+} from './service-nats-runtime-profiles';
+export { evaluateTenantOnboardingBarrier } from './tenant-onboarding-barrier';
+export type {
+  TenantOnboardingBarrierDecision,
+  TenantOnboardingRequirementEvidence,
+} from './tenant-onboarding-barrier';

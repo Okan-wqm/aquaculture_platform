@@ -9,12 +9,27 @@ import {
   Res,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { SkipThrottle } from '@aquaculture/backend-common/security';
+import { SkipThrottle, ThrottleSensitive } from '@aquaculture/backend-common/security';
 import { Response } from 'express';
 
-import { Public } from '../decorators/public.decorator';
+import { Public } from '@aquaculture/backend-common/decorators';
+import { AdminManualResponse } from '../shared/admin-response-contract.decorator';
+import { sendAdminHealthResponse } from '../shared/admin-manual-response.sender';
 
 import { HealthService } from './health.service';
+import { AdminResponseContract } from '../shared/admin-response-contract.decorator';
+import {
+  healthMetricsResponseContract,
+  type HealthMetricsResponseDto,
+  healthCircuitBreakerStatusContract,
+  type HealthCircuitBreakerStatusDto,
+  healthResetCircuitBreakerResponseContract,
+  type HealthResetCircuitBreakerResponseDto,
+  healthGeneralProfile,
+  healthLivenessProfile,
+  healthReadinessProfile,
+  healthStartupProfile,
+} from './contracts/admin-http-response.contract';
 
 /**
  * Reads the version field from a package's package.json at runtime.
@@ -44,7 +59,6 @@ function safeRequireVersion(packageJsonPath: string): string {
  */
 @ApiTags('Health')
 @Controller('health')
-@SkipThrottle()
 export class HealthController {
   constructor(private readonly healthService: HealthService) {}
 
@@ -54,6 +68,8 @@ export class HealthController {
    */
   @Get('live')
   @Public()
+  @SkipThrottle()
+  @AdminManualResponse(healthLivenessProfile)
   @HttpCode(HttpStatus.OK)
   liveness(): { status: 'ok' } {
     return { status: 'ok' };
@@ -61,30 +77,35 @@ export class HealthController {
 
   /**
    * K8s Readiness Probe.
-   * Returns 200 if database is reachable, 503 otherwise.
+   * Returns 200 if mandatory database and NATS dependencies are reachable.
    * Also reports draining status during graceful shutdown.
    */
   @Get('ready')
   @Public()
+  @SkipThrottle()
+  @AdminManualResponse(healthReadinessProfile)
   async readiness(@Res() res: Response): Promise<void> {
     const draining = this.healthService.isDraining();
-    const dbHealthy = draining ? false : await this.healthService.checkDatabase();
+    const [dbHealthy, natsHealthy] = draining
+      ? [false, false]
+      : await Promise.all([this.healthService.checkDatabase(), this.healthService.checkNats()]);
     const smtpStatus = this.healthService.getSmtpStatus();
-    const isReady = dbHealthy && !draining;
+    const isReady = dbHealthy && natsHealthy && !draining;
 
-    const status = isReady ? 'ok' : 'not_ready';
+    const status = isReady ? ('ok' as const) : ('not_ready' as const);
     const httpStatus = isReady ? HttpStatus.OK : HttpStatus.SERVICE_UNAVAILABLE;
 
     const body = {
       status,
       checks: {
-        database: dbHealthy ? 'ok' : 'error',
-        smtp: smtpStatus.state === 'closed' ? 'ok' : 'error',
+        database: dbHealthy ? ('ok' as const) : ('error' as const),
+        nats: natsHealthy ? ('ok' as const) : ('error' as const),
+        smtp: smtpStatus.state === 'closed' ? ('ok' as const) : ('error' as const),
         ...(draining ? { draining: 'error' as const } : {}),
       },
     };
 
-    res.status(httpStatus).json(body);
+    sendAdminHealthResponse(res, healthReadinessProfile, httpStatus, body);
   }
 
   /**
@@ -97,6 +118,8 @@ export class HealthController {
    */
   @Get()
   @Public()
+  @SkipThrottle()
+  @AdminManualResponse(healthGeneralProfile)
   @HttpCode(HttpStatus.OK)
   health(): {
     status: 'ok';
@@ -126,12 +149,14 @@ export class HealthController {
    */
   @Get('startup')
   @Public()
+  @SkipThrottle()
+  @AdminManualResponse(healthStartupProfile)
   startup(@Res() res: Response): void {
     const ready = this.healthService.isStartupComplete();
     const status = ready ? 'ok' : 'not_ready';
     const httpStatus = ready ? HttpStatus.OK : HttpStatus.SERVICE_UNAVAILABLE;
 
-    res.status(httpStatus).json({
+    sendAdminHealthResponse(res, healthStartupProfile, httpStatus, {
       status,
       timestamp: new Date().toISOString(),
     });
@@ -140,25 +165,29 @@ export class HealthController {
   /**
    * Internal metrics endpoint (auth required).
    */
+  @AdminResponseContract(healthMetricsResponseContract)
   @Get('metrics')
-  async metrics() {
+  async metrics(): Promise<HealthMetricsResponseDto> {
     return this.healthService.getMetrics();
   }
 
   /**
    * Internal circuit breaker status (auth required).
    */
+  @AdminResponseContract(healthCircuitBreakerStatusContract)
   @Get('circuit-breakers')
-  getCircuitBreakers() {
+  getCircuitBreakers(): HealthCircuitBreakerStatusDto {
     return this.healthService.getCircuitBreakers();
   }
 
   /**
    * Reset a circuit breaker (auth required).
    */
+  @AdminResponseContract(healthResetCircuitBreakerResponseContract)
+  @ThrottleSensitive()
   @Post('circuit-breakers/:name/reset')
   @HttpCode(HttpStatus.OK)
-  resetCircuitBreaker(@Param('name') name: string) {
+  resetCircuitBreaker(@Param('name') name: string): HealthResetCircuitBreakerResponseDto {
     const success = this.healthService.resetCircuitBreaker(name);
     if (!success) {
       throw new NotFoundException(`Circuit breaker '${name}' not found`);

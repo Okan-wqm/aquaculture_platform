@@ -405,18 +405,6 @@ const KNOWN_EXCEPTIONS: Array<{ url: string; method: string; reason: string }> =
     reason: 'Backend returns mock data from analytics service, no dedicated controller endpoint',
   },
 
-  // Frontend export URL'leri: bunlar ADMIN_API_URL ile build edilir, dogrudan download link'i
-  {
-    url: '/reports/export/:param',
-    method: 'GET',
-    reason: 'Export URL builder, maps to /reports/export/pdf/:reportType or /reports/export/csv',
-  },
-  {
-    url: '/reports/export/:param/:param',
-    method: 'GET',
-    reason: 'Export URL with reportType, maps to /reports/export/pdf/:reportType',
-  },
-
   // Frontend /analytics/usage/api calls backend /analytics/usage + query
   {
     url: '/analytics/usage/api',
@@ -512,47 +500,6 @@ const KNOWN_EXCEPTIONS: Array<{ url: string; method: string; reason: string }> =
     reason: 'Frontend list pending, backend /database/migrations/tenant/:tenantId/pending',
   },
 
-  // Database backup frontend expects different paths
-  {
-    url: '/database/backups/schedule',
-    method: 'POST',
-    reason: 'Backup scheduling not in controller (uses /database/backups/schedule GET)',
-  },
-  {
-    url: '/database/backups/:param/restore',
-    method: 'POST',
-    reason: 'Frontend uses /backups/:id/restore, backend uses /database/backups/restore POST',
-  },
-
-  // Security activities export - frontend uses GET with query, backend uses POST
-  {
-    url: '/security/activities/export',
-    method: 'GET',
-    reason: 'Frontend uses GET, backend audit trail uses POST export',
-  },
-
-  // Security activities/user/:userId - frontend path
-  {
-    url: '/security/activities/user/:param',
-    method: 'GET',
-    reason: 'Not a controller endpoint; activity query with userId filter',
-  },
-
-  // Security audit entity path
-  {
-    url: '/security/audit/entity/:param/:param',
-    method: 'GET',
-    reason:
-      'Audit trail entity query not as controller endpoint; use main query with entityType/entityId',
-  },
-
-  // Security audit retention policy run by ID
-  {
-    url: '/security/audit/retention-policies/:param/run',
-    method: 'POST',
-    reason: 'Backend uses /security/audit/retention-policies/apply POST instead',
-  },
-
   // Compliance dashboard
   {
     url: '/security/compliance/dashboard',
@@ -610,18 +557,6 @@ const KNOWN_EXCEPTIONS: Array<{ url: string; method: string; reason: string }> =
     url: '/impersonation/permissions/check',
     method: 'GET',
     reason: 'Backend uses /impersonation/permissions/:superAdminId/check/:tenantId',
-  },
-
-  // Impersonation sessions actions (frontend uses /actions, backend uses /log-action)
-  {
-    url: '/impersonation/sessions/:param/actions',
-    method: 'GET',
-    reason: 'No GET actions endpoint; actions are write-only',
-  },
-  {
-    url: '/impersonation/sessions/:param/actions',
-    method: 'POST',
-    reason: 'Backend uses /sessions/:id/log-action',
   },
 
   // Feature toggle key lookup

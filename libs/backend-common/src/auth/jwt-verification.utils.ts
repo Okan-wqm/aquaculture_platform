@@ -89,10 +89,51 @@ export function enforceAccessTokenType(
         message: 'Token identifier (jti) required',
       });
     }
-    logger.warn(
-      `Token without jti for user ${payload.sub} — only permitted outside production.`,
-    );
+    logger.warn(`Token without jti for user ${payload.sub} — only permitted outside production.`);
   }
+}
+
+export interface TokenRevocationStores {
+  readonly tokenBlacklist: {
+    isBlacklisted(jti: string): Promise<boolean>;
+  };
+  readonly userTokenRevocation: {
+    isTokenValid(userId: string, issuedAt: Date): Promise<boolean>;
+  };
+}
+
+interface RevocableAccessTokenPayload {
+  readonly sub: string;
+  readonly jti?: string;
+  readonly iat?: number;
+}
+
+/**
+ * Canonical post-signature revocation check. Directly reachable auth
+ * boundaries must consult both the per-token JTI marker and the user-family
+ * invalidation epoch before honoring an otherwise valid access token.
+ */
+export async function enforceTokenNotRevoked(
+  payload: RevocableAccessTokenPayload,
+  stores: TokenRevocationStores,
+  logger: Logger,
+): Promise<void> {
+  if (!Number.isSafeInteger(payload.iat) || (payload.iat ?? 0) <= 0) {
+    throw new UnauthorizedException({
+      code: 'MISSING_ISSUED_AT',
+      message: 'Token issued-at claim required',
+    });
+  }
+  const issuedAt = new Date((payload.iat ?? 0) * 1000);
+  const tokenRevoked = payload.jti ? await stores.tokenBlacklist.isBlacklisted(payload.jti) : false;
+  const userFamilyRevoked = !(await stores.userTokenRevocation.isTokenValid(payload.sub, issuedAt));
+  if (!tokenRevoked && !userFamilyRevoked) return;
+
+  logger.warn(`Rejected revoked access token for userId=${payload.sub}`);
+  throw new UnauthorizedException({
+    code: 'TOKEN_REVOKED',
+    message: 'Token has been revoked',
+  });
 }
 
 /**
@@ -134,8 +175,8 @@ function resolvePublicKey(configService: ConfigService): {
 
   throw new Error(
     'CRITICAL SECURITY ERROR: JWT_PUBLIC_KEY or JWT_PUBLIC_KEY_PATH must be configured. ' +
-    'All services require the RSA public key to verify JWT tokens signed by auth-service. ' +
-    'Application startup aborted.',
+      'All services require the RSA public key to verify JWT tokens signed by auth-service. ' +
+      'Application startup aborted.',
   );
 }
 

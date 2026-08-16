@@ -44,6 +44,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import {
+  AUDIT_DELETE_AUTHORITY,
   auditImmutabilityNames,
   auditImmutabilityStatements,
 } from '../../libs/backend-common/src/database/audit-immutability.sql';
@@ -139,20 +140,34 @@ describe('INVARIANT (AUDITTRAIL-CRITICAL-001 / AUDITTRAIL-HIGH-005): audit-table
     // 1. The contract itself: the generator emits the two functions and the two
     //    triggers, with the DELETE guard conditional on legalHold rather than
     //    unconditional. This is the half the squash got wrong.
-    const statements = auditImmutabilityStatements({ schema: 'shared', table: 'audit_logs' }).join('\n');
+    const statements = auditImmutabilityStatements({ schema: 'shared', table: 'audit_logs' }).join(
+      '\n',
+    );
     const names = auditImmutabilityNames({ schema: 'shared', table: 'audit_logs' });
 
     expect(statements).toMatch(
-      new RegExp(`CREATE OR REPLACE FUNCTION\\s+${names.updateFunction.replace('.', '\\.')}\\s*\\(`, 'i'),
+      new RegExp(
+        `CREATE OR REPLACE FUNCTION\\s+${names.updateFunction.replace('.', '\\.')}\\s*\\(`,
+        'i',
+      ),
     );
     expect(statements).toMatch(
-      new RegExp(`CREATE OR REPLACE FUNCTION\\s+${names.deleteFunction.replace('.', '\\.')}\\s*\\(`, 'i'),
+      new RegExp(
+        `CREATE OR REPLACE FUNCTION\\s+${names.deleteFunction.replace('.', '\\.')}\\s*\\(`,
+        'i',
+      ),
     );
     expect(statements).toMatch(
-      new RegExp(`CREATE TRIGGER\\s+${names.updateTrigger}\\s+BEFORE UPDATE ON\\s+"shared"\\."audit_logs"`, 'i'),
+      new RegExp(
+        `CREATE TRIGGER\\s+${names.updateTrigger}\\s+BEFORE UPDATE ON\\s+"shared"\\."audit_logs"`,
+        'i',
+      ),
     );
     expect(statements).toMatch(
-      new RegExp(`CREATE TRIGGER\\s+${names.deleteTrigger}\\s+BEFORE DELETE ON\\s+"shared"\\."audit_logs"`, 'i'),
+      new RegExp(
+        `CREATE TRIGGER\\s+${names.deleteTrigger}\\s+BEFORE DELETE ON\\s+"shared"\\."audit_logs"`,
+        'i',
+      ),
     );
     // The distinction the baseline lost: DELETE is refused only under hold.
     expect(statements).toMatch(/IF OLD\."legalHold" = true THEN/);
@@ -163,9 +178,7 @@ describe('INVARIANT (AUDITTRAIL-CRITICAL-001 / AUDITTRAIL-HIGH-005): audit-table
     //    the ORPHAN-HIGH-455 shape, and it is what this half exists to catch.
     const applied = migrationCorpus('admin-api-service').source;
     expect(applied).toContain('auditImmutabilityStatements');
-    expect(applied).toMatch(
-      new RegExp(`schema:\\s*'shared'\\s*,\\s*table:\\s*'audit_logs'`),
-    );
+    expect(applied).toMatch(new RegExp(`schema:\\s*'shared'\\s*,\\s*table:\\s*'audit_logs'`));
   });
 
   it('auth.audit_logs carries the append-only contract, and a migration applies it', () => {
@@ -183,20 +196,34 @@ describe('INVARIANT (AUDITTRAIL-CRITICAL-001 / AUDITTRAIL-HIGH-005): audit-table
     // 1. The contract itself: the generator emits the two functions and the two
     //    triggers, with the DELETE guard conditional on legalHold rather than
     //    unconditional. This is the half the squash got wrong.
-    const statements = auditImmutabilityStatements({ schema: 'auth', table: 'audit_logs' }).join('\n');
+    const statements = auditImmutabilityStatements({ schema: 'auth', table: 'audit_logs' }).join(
+      '\n',
+    );
     const names = auditImmutabilityNames({ schema: 'auth', table: 'audit_logs' });
 
     expect(statements).toMatch(
-      new RegExp(`CREATE OR REPLACE FUNCTION\\s+${names.updateFunction.replace('.', '\\.')}\\s*\\(`, 'i'),
+      new RegExp(
+        `CREATE OR REPLACE FUNCTION\\s+${names.updateFunction.replace('.', '\\.')}\\s*\\(`,
+        'i',
+      ),
     );
     expect(statements).toMatch(
-      new RegExp(`CREATE OR REPLACE FUNCTION\\s+${names.deleteFunction.replace('.', '\\.')}\\s*\\(`, 'i'),
+      new RegExp(
+        `CREATE OR REPLACE FUNCTION\\s+${names.deleteFunction.replace('.', '\\.')}\\s*\\(`,
+        'i',
+      ),
     );
     expect(statements).toMatch(
-      new RegExp(`CREATE TRIGGER\\s+${names.updateTrigger}\\s+BEFORE UPDATE ON\\s+"auth"\\."audit_logs"`, 'i'),
+      new RegExp(
+        `CREATE TRIGGER\\s+${names.updateTrigger}\\s+BEFORE UPDATE ON\\s+"auth"\\."audit_logs"`,
+        'i',
+      ),
     );
     expect(statements).toMatch(
-      new RegExp(`CREATE TRIGGER\\s+${names.deleteTrigger}\\s+BEFORE DELETE ON\\s+"auth"\\."audit_logs"`, 'i'),
+      new RegExp(
+        `CREATE TRIGGER\\s+${names.deleteTrigger}\\s+BEFORE DELETE ON\\s+"auth"\\."audit_logs"`,
+        'i',
+      ),
     );
     // The distinction the baseline lost: DELETE is refused only under hold.
     expect(statements).toMatch(/IF OLD\."legalHold" = true THEN/);
@@ -207,9 +234,7 @@ describe('INVARIANT (AUDITTRAIL-CRITICAL-001 / AUDITTRAIL-HIGH-005): audit-table
     //    the ORPHAN-HIGH-455 shape, and it is what this half exists to catch.
     const applied = migrationCorpus('auth-service').source;
     expect(applied).toContain('auditImmutabilityStatements');
-    expect(applied).toMatch(
-      new RegExp(`schema:\\s*'auth'\\s*,\\s*table:\\s*'audit_logs'`),
-    );
+    expect(applied).toMatch(new RegExp(`schema:\\s*'auth'\\s*,\\s*table:\\s*'audit_logs'`));
   });
 
   it('AuditLog entity (farm) declares the legalHold column', () => {
@@ -236,20 +261,35 @@ describe('INVARIANT (AUDITTRAIL-CRITICAL-001 / AUDITTRAIL-HIGH-005): audit-table
     // 1. The contract itself: the generator emits the two functions and the two
     //    triggers, with the DELETE guard conditional on legalHold rather than
     //    unconditional. This is the half the squash got wrong.
-    const statements = auditImmutabilityStatements({ schema: 'farm', table: 'farm_audit_logs' }).join('\n');
+    const statements = auditImmutabilityStatements({
+      schema: 'farm',
+      table: 'farm_audit_logs',
+    }).join('\n');
     const names = auditImmutabilityNames({ schema: 'farm', table: 'farm_audit_logs' });
 
     expect(statements).toMatch(
-      new RegExp(`CREATE OR REPLACE FUNCTION\\s+${names.updateFunction.replace('.', '\\.')}\\s*\\(`, 'i'),
+      new RegExp(
+        `CREATE OR REPLACE FUNCTION\\s+${names.updateFunction.replace('.', '\\.')}\\s*\\(`,
+        'i',
+      ),
     );
     expect(statements).toMatch(
-      new RegExp(`CREATE OR REPLACE FUNCTION\\s+${names.deleteFunction.replace('.', '\\.')}\\s*\\(`, 'i'),
+      new RegExp(
+        `CREATE OR REPLACE FUNCTION\\s+${names.deleteFunction.replace('.', '\\.')}\\s*\\(`,
+        'i',
+      ),
     );
     expect(statements).toMatch(
-      new RegExp(`CREATE TRIGGER\\s+${names.updateTrigger}\\s+BEFORE UPDATE ON\\s+"farm"\\."farm_audit_logs"`, 'i'),
+      new RegExp(
+        `CREATE TRIGGER\\s+${names.updateTrigger}\\s+BEFORE UPDATE ON\\s+"farm"\\."farm_audit_logs"`,
+        'i',
+      ),
     );
     expect(statements).toMatch(
-      new RegExp(`CREATE TRIGGER\\s+${names.deleteTrigger}\\s+BEFORE DELETE ON\\s+"farm"\\."farm_audit_logs"`, 'i'),
+      new RegExp(
+        `CREATE TRIGGER\\s+${names.deleteTrigger}\\s+BEFORE DELETE ON\\s+"farm"\\."farm_audit_logs"`,
+        'i',
+      ),
     );
     // The distinction the baseline lost: DELETE is refused only under hold.
     expect(statements).toMatch(/IF OLD\."legalHold" = true THEN/);
@@ -260,9 +300,7 @@ describe('INVARIANT (AUDITTRAIL-CRITICAL-001 / AUDITTRAIL-HIGH-005): audit-table
     //    the ORPHAN-HIGH-455 shape, and it is what this half exists to catch.
     const applied = migrationCorpus('farm-service').source;
     expect(applied).toContain('auditImmutabilityStatements');
-    expect(applied).toMatch(
-      new RegExp(`schema:\\s*'farm'\\s*,\\s*table:\\s*'farm_audit_logs'`),
-    );
+    expect(applied).toMatch(new RegExp(`schema:\\s*'farm'\\s*,\\s*table:\\s*'farm_audit_logs'`));
   });
 
   it('AuditLog entity (admin) declares the legalHold column', () => {
@@ -289,33 +327,82 @@ describe('INVARIANT (AUDITTRAIL-CRITICAL-001 / AUDITTRAIL-HIGH-005): audit-table
     // 1. The contract itself: the generator emits the two functions and the two
     //    triggers, with the DELETE guard conditional on legalHold rather than
     //    unconditional. This is the half the squash got wrong.
-    const statements = auditImmutabilityStatements({ schema: 'admin', table: 'audit_logs' }).join('\n');
-    const names = auditImmutabilityNames({ schema: 'admin', table: 'audit_logs' });
+    const deleteAuthority = {
+      deleteAuthority: AUDIT_DELETE_AUTHORITY.DEDICATED_RETENTION_CONTROLLER,
+      retentionControllerRole: 'admin_audit_retention_controller',
+      revokeMutationFromRoles: ['admin_service'],
+    } as const;
+    const statements = auditImmutabilityStatements(
+      { schema: 'admin', table: 'audit_logs' },
+      deleteAuthority,
+    ).join('\n');
+    const names = auditImmutabilityNames({ schema: 'admin', table: 'audit_logs' }, deleteAuthority);
 
     expect(statements).toMatch(
-      new RegExp(`CREATE OR REPLACE FUNCTION\\s+${names.updateFunction.replace('.', '\\.')}\\s*\\(`, 'i'),
+      new RegExp(
+        `CREATE OR REPLACE FUNCTION\\s+${names.updateFunction.replace('.', '\\.')}\\s*\\(`,
+        'i',
+      ),
     );
     expect(statements).toMatch(
-      new RegExp(`CREATE OR REPLACE FUNCTION\\s+${names.deleteFunction.replace('.', '\\.')}\\s*\\(`, 'i'),
+      new RegExp(
+        `CREATE OR REPLACE FUNCTION\\s+${names.deleteFunction.replace('.', '\\.')}\\s*\\(`,
+        'i',
+      ),
     );
     expect(statements).toMatch(
-      new RegExp(`CREATE TRIGGER\\s+${names.updateTrigger}\\s+BEFORE UPDATE ON\\s+"admin"\\."audit_logs"`, 'i'),
+      new RegExp(
+        `CREATE TRIGGER\\s+${names.updateTrigger}\\s+BEFORE UPDATE ON\\s+"admin"\\."audit_logs"`,
+        'i',
+      ),
     );
     expect(statements).toMatch(
-      new RegExp(`CREATE TRIGGER\\s+${names.deleteTrigger}\\s+BEFORE DELETE ON\\s+"admin"\\."audit_logs"`, 'i'),
+      new RegExp(
+        `CREATE TRIGGER\\s+${names.deleteTrigger}\\s+BEFORE DELETE ON\\s+"admin"\\."audit_logs"`,
+        'i',
+      ),
     );
-    // The distinction the baseline lost: DELETE is refused only under hold.
+    // Admin audit deletion has one bounded database identity. Legal hold still
+    // denies that identity, while every runtime role loses direct mutation.
+    expect(statements).toContain("current_user <> 'admin_audit_retention_controller'");
     expect(statements).toMatch(/IF OLD\."legalHold" = true THEN/);
     expect(statements).toMatch(/RETURN OLD;/);
+    expect(statements).toContain('REVOKE UPDATE, DELETE ON "admin"."audit_logs" FROM PUBLIC');
+    expect(statements).toContain(
+      'REVOKE UPDATE, DELETE ON "admin"."audit_logs" FROM "admin_service"',
+    );
 
     // 2. The wiring: some migration the owning service ACTUALLY APPLIES calls
     //    the generator for this table. A correct generator nobody invokes is
     //    the ORPHAN-HIGH-455 shape, and it is what this half exists to catch.
-    const applied = migrationCorpus('admin-api-service').source;
-    expect(applied).toContain('auditImmutabilityStatements');
-    expect(applied).toMatch(
-      new RegExp(`schema:\\s*'admin'\\s*,\\s*table:\\s*'audit_logs'`),
+    const applied = readFileSync(
+      resolve(
+        REPO_ROOT,
+        'apps/admin-api-service/src/migrations/1808900000000-ConsolidateAdminActivityAuthority.ts',
+      ),
+      'utf8',
     );
+    expect(applied).toContain('auditImmutabilityStatements');
+    expect(applied).toContain('AUDIT_DELETE_AUTHORITY.DEDICATED_RETENTION_CONTROLLER');
+    expect(applied).toMatch(new RegExp(`schema:\\s*'admin'\\s*,\\s*table:\\s*'audit_logs'`));
+  });
+
+  it('fails closed when the dedicated retention authority is missing or unsafe', () => {
+    expect(() =>
+      auditImmutabilityStatements(
+        { schema: 'admin', table: 'audit_logs' },
+        { deleteAuthority: AUDIT_DELETE_AUTHORITY.DEDICATED_RETENTION_CONTROLLER },
+      ),
+    ).toThrow('retentionControllerRole is required');
+    expect(() =>
+      auditImmutabilityStatements(
+        { schema: 'admin', table: 'audit_logs' },
+        {
+          deleteAuthority: AUDIT_DELETE_AUTHORITY.DEDICATED_RETENTION_CONTROLLER,
+          retentionControllerRole: 'admin_service; RESET ROLE',
+        },
+      ),
+    ).toThrow('Invalid role identifier');
   });
 
   it('no effective migration offers a down() that removes audit immutability', () => {

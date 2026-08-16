@@ -58,7 +58,7 @@ const IpAccessRulesPage: React.FC = () => {
       setLoading(true);
       setError(null);
       const result = await settingsApi.getIpAccessRules({ limit: 100 });
-      const rulesData = result.data;
+      const rulesData = [...result.items];
       setRules(rulesData);
 
       // Calculate stats from loaded data

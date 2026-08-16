@@ -16,11 +16,8 @@ describe('normalizeRole', () => {
     expect(normalizeRole('MODULE_USER')).toBe('MODULE_USER');
   });
 
-  it('maps legacy MANAGER to MODULE_MANAGER', () => {
-    expect(normalizeRole('MANAGER')).toBe('MODULE_MANAGER');
-  });
-
-  it('maps legacy OPERATOR and VIEWER to MODULE_USER', () => {
+  it('rejects the retired v0 AquaMobil vocabulary to minimum privilege', () => {
+    expect(normalizeRole('MANAGER')).toBe('MODULE_USER');
     expect(normalizeRole('OPERATOR')).toBe('MODULE_USER');
     expect(normalizeRole('VIEWER')).toBe('MODULE_USER');
   });

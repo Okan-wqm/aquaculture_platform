@@ -7,32 +7,27 @@
 // server will 403 after the success screen. A feature flag proves entitlement;
 // a role floor proves privilege — orthogonal gates, and BOTH must hold.
 //
-// WHAT: a single rank function over the codegen'd backend `Role` enum
-// (the FE-MEDIUM-051 SSoT). `meetsRoleFloor(userRole, floor)` is the one helper
-// every role-floored route/CTA composes on — no duplicated rank vocabulary, no
-// parallel string comparison. The numeric ranks mirror backend ROLE_HIERARCHY
-// (SUPER_ADMIN > TENANT_ADMIN > MODULE_MANAGER > MODULE_USER); a role-rank
-// parity unit test asserts they stay in lock-step with the backend.
+// WHAT: the GraphQL-generated role is translated through the canonical platform
+// identity validator, then evaluated by the canonical hierarchy helpers.
 
-import type { Role } from '../generated/graphql';
+import {
+  PLATFORM_ROLE_DEFINITIONS,
+  isPlatformRole,
+  roleAtLeast,
+  type Role,
+} from '@platform/identity';
 
-// WHY a Record<Role, number> keyed by the generated enum: if the backend Role
-// enum ever gains/renames a value, codegen regenerates `Role` and this Record
-// becomes a TS exhaustiveness error at compile time (tier-3 detectable) rather
-// than silently mis-ranking an unknown role.
-const ROLE_RANK: Record<Role, number> = {
-  SUPER_ADMIN: 4,
-  TENANT_ADMIN: 3,
-  MODULE_MANAGER: 2,
-  MODULE_USER: 1,
-};
+function platformRole(role: Role): Role {
+  if (isPlatformRole(role)) return role;
+  throw new Error(`GraphQL emitted an unknown platform role: ${role}`);
+}
 
 /**
  * Numeric privilege rank of a role. Higher === more privileged. Mirrors the
  * backend ROLE_HIERARCHY ordering so client and server agree on "or higher".
  */
 export function roleRank(role: Role): number {
-  return ROLE_RANK[role];
+  return PLATFORM_ROLE_DEFINITIONS[platformRole(role)].level;
 }
 
 /**
@@ -41,5 +36,5 @@ export function roleRank(role: Role): number {
  * returns false, so a MODULE_USER never clears a MODULE_MANAGER floor.
  */
 export function meetsRoleFloor(userRole: Role, floor: Role): boolean {
-  return roleRank(userRole) >= roleRank(floor);
+  return roleAtLeast(platformRole(userRole), platformRole(floor));
 }

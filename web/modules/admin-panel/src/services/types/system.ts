@@ -2,6 +2,8 @@
  * System metrics & health types
  */
 
+import type { AdminApiRouteResponse } from './generated/admin-route-contracts';
+
 export interface SystemMetrics {
   timestamp: string;
   database: {
@@ -32,18 +34,6 @@ export interface SystemMetrics {
   };
 }
 
-export interface ServiceHealth {
-  name: string;
-  status: 'healthy' | 'degraded' | 'unhealthy';
-  responseTime?: number;
-  lastCheck: string;
-  details?: Record<string, unknown>;
-}
+export type ServiceHealth = AdminApiRouteResponse<'GET /system/services/health'>[number];
 
-export interface CircuitBreakerInfo {
-  state: 'closed' | 'open' | 'half_open';
-  consecutiveFailures: number;
-  lastFailureTime: number;
-}
-
-export type CircuitBreakerStatus = Record<string, CircuitBreakerInfo>;
+export type CircuitBreakerStatus = AdminApiRouteResponse<'GET /health/circuit-breakers'>;

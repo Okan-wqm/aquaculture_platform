@@ -19,6 +19,7 @@ import {
   buildSecurityWrites,
   coerceBoolean,
   coerceNumber,
+  decodeEffectiveConfigurationRows,
   mapPlatformSettings,
 } from '../platform-configuration';
 import type { EffectiveConfigurationRow } from '../platform-configuration';
@@ -47,6 +48,29 @@ describe('coercion', () => {
     expect(coerceBoolean('true', false)).toBe(true);
     expect(coerceBoolean('false', true)).toBe(false);
     expect(coerceBoolean('nope', true)).toBe(true);
+  });
+});
+
+describe('GraphQL effective-configuration boundary', () => {
+  it('decodes and freezes the closed row vocabulary', () => {
+    const rows = decodeEffectiveConfigurationRows([
+      { key: 'platform.name', value: 'Aqua', secretMode: 'none', source: 'system', version: 3 },
+    ]);
+
+    expect(rows).toEqual([
+      { key: 'platform.name', value: 'Aqua', secretMode: 'none', source: 'system', version: 3 },
+    ]);
+    expect(Object.isFrozen(rows)).toBe(true);
+    expect(Object.isFrozen(rows[0])).toBe(true);
+  });
+
+  it.each([
+    [{ key: '', value: null, secretMode: 'none', source: 'system', version: 0 }],
+    [{ key: 'x', value: null, secretMode: 'hidden', source: 'system', version: 0 }],
+    [{ key: 'x', value: null, secretMode: 'none', source: 'external', version: 0 }],
+    [{ key: 'x', value: null, secretMode: 'none', source: 'system', version: -1 }],
+  ])('rejects invalid row %j', (value) => {
+    expect(() => decodeEffectiveConfigurationRows(value)).toThrow();
   });
 });
 

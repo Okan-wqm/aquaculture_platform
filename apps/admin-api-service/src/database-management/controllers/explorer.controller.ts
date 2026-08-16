@@ -19,21 +19,50 @@ import {
   Logger,
   Res,
   Req,
-  StreamableFile,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { Type, Transform } from 'class-transformer';
 import { IsOptional, IsNumber, IsString, IsIn, IsObject, Matches } from 'class-validator';
 import { Response, Request } from 'express';
-import { DataSource } from 'typeorm';
-import type { AuditLogInput } from '../../audit/audit.service';
-import { AuditLogService } from '../../audit/audit.service';
-import { AuditSeverity } from '../../audit/audit.entity';
+import {
+  createAdminAttachmentFilename,
+  type AdminAttachmentFilename,
+} from '@platform/admin-http-contracts';
+import { DataSource, EntityManager } from 'typeorm';
+import {
+  AuditLogService,
+  type MandatoryDisclosureAuditInput,
+  type MandatoryTransactionalAuditInput,
+} from '../../audit/audit.service';
+import { AdminManualResponse } from '../../shared/admin-response-contract.decorator';
+import { sendAdminBinaryResponse } from '../../shared/admin-manual-response.sender';
 import { getAuthUser } from '../../shared/authenticated-request';
 
 import { ThrottleSensitive, ThrottleExport } from '@aquaculture/backend-common/security';
 import { MODULE_SCHEMAS, DEFAULT_TENANT_MODULES } from '@aquaculture/backend-common/database';
+import { AdminResponseContract } from '../../shared/admin-response-contract.decorator';
+import {
+  databaseExplorerGetSchemasResponseContract,
+  type DatabaseExplorerGetSchemasResponseDto,
+  databaseExplorerGetTablesResponseArrayContract,
+  type DatabaseExplorerGetTablesResponseDto,
+  databaseExplorerTableInfoArrayContract,
+  type DatabaseExplorerTableInfoDto,
+  databaseExplorerGetTableDataResponseContract,
+  type DatabaseExplorerGetTableDataResponseDto,
+  databaseExplorerInsertRowResponseContract,
+  type DatabaseExplorerInsertRowResponseDto,
+  databaseExplorerUpdateRowResponseContract,
+  type DatabaseExplorerUpdateRowResponseDto,
+  databaseExplorerDeleteRowResponseContract,
+  type DatabaseExplorerDeleteRowResponseDto,
+  databaseExplorerGetTableStructureResponseContract,
+  type DatabaseExplorerGetTableStructureResponseDto,
+  databaseExplorerExecuteQueryResponseContract,
+  type DatabaseExplorerExecuteQueryResponseDto,
+  databaseExplorerExportProfile,
+} from '../contracts/admin-http-response.contract';
 // ============================================================================
 // Module Table Access Control
 // ============================================================================
@@ -50,9 +79,7 @@ const ALLOWED_SCHEMAS = new Set(['public', 'auth', 'admin', 'billing']);
  * These tables exist in the public schema but contain tenant-specific data
  * and must not be accessible through the superadmin explorer.
  */
-const MODULE_TABLE_NAMES: Set<string> = new Set(
-  MODULE_SCHEMAS.flatMap(m => m.tables),
-);
+const MODULE_TABLE_NAMES: Set<string> = new Set(MODULE_SCHEMAS.flatMap((m) => m.tables));
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -310,40 +337,74 @@ export class DatabaseExplorerController {
     }
   }
 
+  private explorerWritesEnabled(): boolean {
+    return (
+      process.env['ENABLE_DB_EXPLORER_WRITES'] === 'true' &&
+      process.env['NODE_ENV'] !== 'production'
+    );
+  }
+
   private assertExplorerWritesEnabled(): void {
-    if (process.env['ENABLE_DB_EXPLORER_WRITES'] !== 'true') {
-      throw new ForbiddenException(
-        'Database write operations are disabled. Set ENABLE_DB_EXPLORER_WRITES=true to enable.',
-      );
-    }
+    if (this.explorerWritesEnabled()) return;
+
     if (process.env['NODE_ENV'] === 'production') {
       throw new ForbiddenException('Database explorer writes are disabled in production');
     }
+    throw new ForbiddenException(
+      'Database write operations are disabled. Set ENABLE_DB_EXPLORER_WRITES=true to enable.',
+    );
   }
 
-  private async requireAuditLog(input: AuditLogInput): Promise<void> {
-    const auditLog = await this.auditLogService.log(input);
-    if (!auditLog) {
-      throw new ForbiddenException('Database explorer operation could not be audited');
+  private auditRequestIdentity(
+    req: Request,
+  ): Pick<
+    MandatoryDisclosureAuditInput,
+    'performedBy' | 'performedByEmail' | 'ipAddress' | 'userAgent'
+  > {
+    const user = getAuthUser(req);
+    if (!user?.id) {
+      throw new ForbiddenException('Verified admin identity is required for database explorer');
     }
+    return {
+      performedBy: user.id,
+      performedByEmail: user.email,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    };
   }
 
-  private async auditExplorerWriteIntent(
+  private async auditBeforeDisclosure(
+    req: Request,
+    input: Omit<
+      MandatoryDisclosureAuditInput,
+      'performedBy' | 'performedByEmail' | 'ipAddress' | 'userAgent'
+    >,
+  ): Promise<void> {
+    await this.auditLogService.appendBeforeDisclosure({
+      ...input,
+      ...this.auditRequestIdentity(req),
+    });
+  }
+
+  private async auditExplorerWrite(
+    entityManager: EntityManager,
     req: Request,
     operation: ExplorerWriteOperation,
     schema: string,
     table: string,
     details: Record<string, unknown>,
   ): Promise<void> {
-    const user = getAuthUser(req);
-    await this.requireAuditLog({
-      action: `DATABASE_EXPLORER_${operation.toUpperCase()}_INTENT`,
+    const actionByOperation = {
+      insert: 'DATABASE_EXPLORER_INSERT',
+      update: 'DATABASE_EXPLORER_UPDATE',
+      delete: 'DATABASE_EXPLORER_DELETE',
+    } as const satisfies Readonly<
+      Record<ExplorerWriteOperation, MandatoryTransactionalAuditInput['action']>
+    >;
+    await this.auditLogService.appendInTransaction(entityManager, {
+      action: actionByOperation[operation],
       entityType: 'DatabaseTable',
-      performedBy: user?.id || 'SUPER_ADMIN',
-      performedByEmail: user?.email,
-      ipAddress: req.ip,
-      userAgent: req.get('user-agent'),
-      severity: AuditSeverity.CRITICAL,
+      ...this.auditRequestIdentity(req),
       details: {
         schema,
         table,
@@ -360,8 +421,9 @@ export class DatabaseExplorerController {
   /**
    * Tüm şemaları listele
    */
+  @AdminResponseContract(databaseExplorerGetSchemasResponseContract)
   @Get('schemas')
-  async getSchemas() {
+  async getSchemas(): Promise<DatabaseExplorerGetSchemasResponseDto> {
     const queryRunner = await this.createReadOnlyQueryRunner();
 
     try {
@@ -372,7 +434,10 @@ export class DatabaseExplorerController {
         ORDER BY schema_name
       `);
 
-      return schemas.map((s: { schema_name: string }) => s.schema_name);
+      return {
+        schemas: schemas.map((s: { schema_name: string }) => s.schema_name),
+        capabilities: { writesEnabled: this.explorerWritesEnabled() },
+      };
     } finally {
       await queryRunner.release();
     }
@@ -381,8 +446,11 @@ export class DatabaseExplorerController {
   /**
    * Belirli şemadaki tüm tabloları listele
    */
+  @AdminResponseContract(databaseExplorerGetTablesResponseArrayContract)
   @Get('schemas/:schema/tables')
-  async getTables(@Param('schema') schema: string): Promise<TableInfo[]> {
+  async getTables(
+    @Param('schema') schema: string,
+  ): Promise<DatabaseExplorerGetTablesResponseDto[]> {
     if (!this.isValidIdentifier(schema)) {
       throw new BadRequestException('Invalid schema name');
     }
@@ -392,7 +460,8 @@ export class DatabaseExplorerController {
 
     try {
       // Tablo bilgilerini al (DISTINCT ile duplicate önleme)
-      const tables = await queryRunner.query(`
+      const tables = await queryRunner.query(
+        `
         SELECT DISTINCT ON (t.tablename)
           t.tablename as table_name,
           t.schemaname as schema_name,
@@ -402,7 +471,9 @@ export class DatabaseExplorerController {
         LEFT JOIN pg_stat_user_tables s ON t.tablename = s.relname AND t.schemaname = s.schemaname
         WHERE t.schemaname = $1
         ORDER BY t.tablename
-      `, [schema]);
+      `,
+        [schema],
+      );
 
       // Filter out module tables from the listing
       const filteredTables = tables.filter(
@@ -434,8 +505,9 @@ export class DatabaseExplorerController {
   /**
    * Public şemadaki tabloları listele (kısayol)
    */
+  @AdminResponseContract(databaseExplorerTableInfoArrayContract)
   @Get('tables')
-  async getPublicTables(): Promise<TableInfo[]> {
+  async getPublicTables(): Promise<DatabaseExplorerTableInfoDto[]> {
     return this.getTables('public');
   }
 
@@ -446,12 +518,14 @@ export class DatabaseExplorerController {
   /**
    * Tablonun verilerini getir
    */
+  @AdminResponseContract(databaseExplorerGetTableDataResponseContract)
   @Get('schemas/:schema/tables/:table/data')
   async getTableData(
     @Param('schema') schema: string,
     @Param('table') table: string,
     @Query() query: TableQueryDto,
-  ): Promise<TableData> {
+    @Req() req: Request,
+  ): Promise<DatabaseExplorerGetTableDataResponseDto> {
     if (!this.isValidIdentifier(schema) || !this.isValidIdentifier(table)) {
       throw new BadRequestException('Invalid schema or table name');
     }
@@ -515,10 +589,9 @@ export class DatabaseExplorerController {
       // pre-fix `.catch(() => warn log)` pattern dropped audit rows
       // under transient DB blips, leaving the access invisible in the
       // SOC 2 CC4 evidence chain.
-      await this.requireAuditLog({
+      await this.auditBeforeDisclosure(req, {
         action: 'DATABASE_EXPLORER_READ',
         entityType: 'DatabaseTable',
-        performedBy: 'SUPER_ADMIN',
         details: { schema, table, page, limit, rowsReturned: rows.length },
       });
 
@@ -542,12 +615,14 @@ export class DatabaseExplorerController {
   // Fix: H8 -- per-route throttle: data export is rate-limited (5 req / hour)
   @ThrottleExport()
   @Get('schemas/:schema/tables/:table/export')
+  @AdminManualResponse(databaseExplorerExportProfile)
   async exportTableData(
     @Param('schema') schema: string,
     @Param('table') table: string,
     @Query() query: ExportQueryDto,
-    @Res({ passthrough: true }) res: Response,
-  ): Promise<StreamableFile | Record<string, unknown>[]> {
+    @Res() res: Response,
+    @Req() req: Request,
+  ): Promise<void> {
     if (!this.isValidIdentifier(schema) || !this.isValidIdentifier(table)) {
       throw new BadRequestException('Invalid schema or table name');
     }
@@ -594,53 +669,51 @@ export class DatabaseExplorerController {
       // AUDITTRAIL-HIGH-009 cure: data EXPORT is the highest-leak-risk
       // SUPER_ADMIN action. Awaiting the audit row propagates failure
       // as 500 — the export is BLOCKED until the audit row commits.
-      await this.requireAuditLog({
+      await this.auditBeforeDisclosure(req, {
         action: 'DATABASE_EXPLORER_EXPORT',
         entityType: 'DatabaseTable',
-        performedBy: 'SUPER_ADMIN',
-        severity: AuditSeverity.WARNING,
         details: { schema, table, format, rowsExported: rows.length },
       });
 
+      let download: {
+        readonly mediaType: (typeof databaseExplorerExportProfile)['mediaTypes'][number];
+        readonly filename: AdminAttachmentFilename;
+        readonly data: Buffer;
+      };
       if (format === 'json') {
-        res.setHeader('Content-Type', 'application/json');
-        res.setHeader(
-          'Content-Disposition',
-          `attachment; filename="${table}_export.json"`,
+        download = {
+          mediaType: 'application/json',
+          filename: createAdminAttachmentFilename(`${table}_export.json`),
+          data: Buffer.from(JSON.stringify(rows), 'utf-8'),
+        };
+      } else {
+        const columnNames = columns.map((c) => c.columnName);
+        const csvHeader = columnNames.join(',');
+        const csvRows = rows.map((row: Record<string, unknown>) =>
+          columnNames
+            .map((col) => {
+              const value = row[col];
+              if (value === null || value === undefined) return '';
+              if (typeof value === 'string') {
+                return `"${value.replace(/"/g, '""')}"`;
+              }
+              if (typeof value === 'object') {
+                return `"${JSON.stringify(value).replace(/"/g, '""')}"`;
+              }
+              return String(value);
+            })
+            .join(','),
         );
-        return rows;
+        download = {
+          mediaType: 'text/csv; charset=utf-8',
+          filename: createAdminAttachmentFilename(`${table}_export.csv`),
+          data: Buffer.from([csvHeader, ...csvRows].join('\n'), 'utf-8'),
+        };
       }
-
-      // CSV format
-      const columnNames = columns.map((c) => c.columnName);
-      const csvHeader = columnNames.join(',');
-      const csvRows = rows.map((row: Record<string, unknown>) =>
-        columnNames
-          .map((col) => {
-            const value = row[col];
-            if (value === null || value === undefined) return '';
-            if (typeof value === 'string') {
-              // Escape quotes and wrap in quotes
-              return `"${value.replace(/"/g, '""')}"`;
-            }
-            if (typeof value === 'object') {
-              return `"${JSON.stringify(value).replace(/"/g, '""')}"`;
-            }
-            return String(value);
-          })
-          .join(','),
-      );
-
-      const csvContent = [csvHeader, ...csvRows].join('\n');
-      const buffer = Buffer.from(csvContent, 'utf-8');
-
-      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename="${table}_export.csv"`,
-      );
-
-      return new StreamableFile(buffer);
+      sendAdminBinaryResponse(res, databaseExplorerExportProfile, {
+        status: 200,
+        ...download,
+      });
     } finally {
       await queryRunner.release();
     }
@@ -649,13 +722,15 @@ export class DatabaseExplorerController {
   /**
    * Public şemadaki tablo verilerini getir (kısayol)
    */
+  @AdminResponseContract(databaseExplorerGetTableDataResponseContract)
   @Get('tables/:table/data')
   async getPublicTableData(
     @Param('table') table: string,
     @Query() query: TableQueryDto,
-  ): Promise<TableData> {
+    @Req() req: Request,
+  ): Promise<DatabaseExplorerGetTableDataResponseDto> {
     this.validateExplorerAccess('public', table);
-    return this.getTableData('public', table, query);
+    return this.getTableData('public', table, query, req);
   }
 
   // ============================================================================
@@ -666,6 +741,7 @@ export class DatabaseExplorerController {
    * Tabloya yeni satır ekle
    */
   // Fix: H8 -- per-route throttle: DB write is sensitive (3 req / 5 min)
+  @AdminResponseContract(databaseExplorerInsertRowResponseContract)
   @ThrottleSensitive()
   @Post('schemas/:schema/tables/:table/rows')
   async insertRow(
@@ -673,7 +749,7 @@ export class DatabaseExplorerController {
     @Param('table') table: string,
     @Body() dto: InsertRowDto,
     @Req() req: Request,
-  ) {
+  ): Promise<DatabaseExplorerInsertRowResponseDto> {
     this.assertExplorerWritesEnabled();
 
     if (!this.isValidIdentifier(schema) || !this.isValidIdentifier(table)) {
@@ -695,14 +771,14 @@ export class DatabaseExplorerController {
       }
     }
 
-    await this.auditExplorerWriteIntent(req, 'insert', schema, table, { columns });
-
     // WHY: Write operations must use a write-capable runner, not the read-only runner.
     // Previously createReadOnlyQueryRunner() set SET TRANSACTION READ ONLY,
     // making INSERT silently fail even when ENABLE_DB_EXPLORER_WRITES was true.
     const queryRunner = await this.createWriteQueryRunner();
+    await queryRunner.startTransaction();
 
     try {
+      await this.auditExplorerWrite(queryRunner.manager, req, 'insert', schema, table, { columns });
       const columnsList = columns.map((c) => `"${c}"`).join(', ');
       const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ');
 
@@ -711,8 +787,12 @@ export class DatabaseExplorerController {
         values,
       );
 
+      await queryRunner.commitTransaction();
       this.logger.log(`Inserted row into ${schema}.${table}`);
       return result[0];
+    } catch (error) {
+      if (queryRunner.isTransactionActive) await queryRunner.rollbackTransaction();
+      throw error;
     } finally {
       await queryRunner.release();
     }
@@ -722,6 +802,7 @@ export class DatabaseExplorerController {
    * Tablodaki satırı güncelle
    */
   // Fix: H8 -- per-route throttle: DB write is sensitive (3 req / 5 min)
+  @AdminResponseContract(databaseExplorerUpdateRowResponseContract)
   @ThrottleSensitive()
   @Put('schemas/:schema/tables/:table/rows/:id')
   async updateRow(
@@ -730,7 +811,7 @@ export class DatabaseExplorerController {
     @Param('id') id: string,
     @Body() dto: UpdateRowDto,
     @Req() req: Request,
-  ) {
+  ): Promise<DatabaseExplorerUpdateRowResponseDto> {
     this.assertExplorerWritesEnabled();
 
     if (!this.isValidIdentifier(schema) || !this.isValidIdentifier(table)) {
@@ -754,6 +835,7 @@ export class DatabaseExplorerController {
 
     // WHY: Write operations must use write-capable runner.
     const queryRunner = await this.createWriteQueryRunner();
+    await queryRunner.startTransaction();
 
     try {
       // Primary key sütununu bul
@@ -762,7 +844,7 @@ export class DatabaseExplorerController {
         throw new BadRequestException('Table has no primary key');
       }
 
-      await this.auditExplorerWriteIntent(req, 'update', schema, table, {
+      await this.auditExplorerWrite(queryRunner.manager, req, 'update', schema, table, {
         rowId: id,
         primaryKeyColumn: pkColumn,
         columns,
@@ -780,8 +862,12 @@ export class DatabaseExplorerController {
         throw new BadRequestException('Row not found');
       }
 
+      await queryRunner.commitTransaction();
       this.logger.log(`Updated row ${id} in ${schema}.${table}`);
       return result[0];
+    } catch (error) {
+      if (queryRunner.isTransactionActive) await queryRunner.rollbackTransaction();
+      throw error;
     } finally {
       await queryRunner.release();
     }
@@ -791,6 +877,7 @@ export class DatabaseExplorerController {
    * Tablodaki satırı sil
    */
   // Fix: H8 -- per-route throttle: DB delete is sensitive (3 req / 5 min)
+  @AdminResponseContract(databaseExplorerDeleteRowResponseContract)
   @ThrottleSensitive()
   @Delete('schemas/:schema/tables/:table/rows/:id')
   async deleteRow(
@@ -798,7 +885,7 @@ export class DatabaseExplorerController {
     @Param('table') table: string,
     @Param('id') id: string,
     @Req() req: Request,
-  ) {
+  ): Promise<DatabaseExplorerDeleteRowResponseDto> {
     this.assertExplorerWritesEnabled();
 
     if (!this.isValidIdentifier(schema) || !this.isValidIdentifier(table)) {
@@ -808,6 +895,7 @@ export class DatabaseExplorerController {
 
     // WHY: Delete operations must use write-capable runner.
     const queryRunner = await this.createWriteQueryRunner();
+    await queryRunner.startTransaction();
 
     try {
       // Primary key sütununu bul
@@ -816,7 +904,7 @@ export class DatabaseExplorerController {
         throw new BadRequestException('Table has no primary key');
       }
 
-      await this.auditExplorerWriteIntent(req, 'delete', schema, table, {
+      await this.auditExplorerWrite(queryRunner.manager, req, 'delete', schema, table, {
         rowId: id,
         primaryKeyColumn: pkColumn,
       });
@@ -830,8 +918,12 @@ export class DatabaseExplorerController {
         throw new BadRequestException('Row not found');
       }
 
+      await queryRunner.commitTransaction();
       this.logger.log(`Deleted row ${id} from ${schema}.${table}`);
       return { deleted: true, row: result[0] };
+    } catch (error) {
+      if (queryRunner.isTransactionActive) await queryRunner.rollbackTransaction();
+      throw error;
     } finally {
       await queryRunner.release();
     }
@@ -844,11 +936,12 @@ export class DatabaseExplorerController {
   /**
    * Tablo yapısını getir
    */
+  @AdminResponseContract(databaseExplorerGetTableStructureResponseContract)
   @Get('schemas/:schema/tables/:table/structure')
   async getTableStructure(
     @Param('schema') schema: string,
     @Param('table') table: string,
-  ) {
+  ): Promise<DatabaseExplorerGetTableStructureResponseDto> {
     if (!this.isValidIdentifier(schema) || !this.isValidIdentifier(table)) {
       throw new BadRequestException('Invalid schema or table name');
     }
@@ -860,7 +953,8 @@ export class DatabaseExplorerController {
       const columns = await this.getColumnInfo(queryRunner, schema, table);
 
       // Index bilgileri
-      const indexes = await queryRunner.query(`
+      const indexes = await queryRunner.query(
+        `
         SELECT
           i.relname as index_name,
           a.attname as column_name,
@@ -873,10 +967,13 @@ export class DatabaseExplorerController {
         JOIN pg_namespace n ON n.oid = t.relnamespace
         WHERE n.nspname = $1 AND t.relname = $2
         ORDER BY i.relname
-      `, [schema, table]);
+      `,
+        [schema, table],
+      );
 
       // Constraint bilgileri
-      const constraints = await queryRunner.query(`
+      const constraints = await queryRunner.query(
+        `
         SELECT
           tc.constraint_name,
           tc.constraint_type,
@@ -892,7 +989,9 @@ export class DatabaseExplorerController {
           ON tc.constraint_name = ccu.constraint_name
           AND tc.table_schema = ccu.table_schema
         WHERE tc.table_schema = $1 AND tc.table_name = $2
-      `, [schema, table]);
+      `,
+        [schema, table],
+      );
 
       return {
         tableName: table,
@@ -915,9 +1014,13 @@ export class DatabaseExplorerController {
    * SECURITY: This endpoint is extremely sensitive and should be disabled in production
    */
   // Fix: H8 -- per-route throttle: raw SQL execution is sensitive (3 req / 5 min)
+  @AdminResponseContract(databaseExplorerExecuteQueryResponseContract)
   @ThrottleSensitive()
   @Post('query')
-  async executeQuery(@Body() dto: ExecuteQueryDto) {
+  async executeQuery(
+    @Body() dto: ExecuteQueryDto,
+    @Req() req: Request,
+  ): Promise<DatabaseExplorerExecuteQueryResponseDto> {
     const { sql, params = [] } = dto;
 
     // Fix: C4 -- fail-closed raw SQL koruması
@@ -944,7 +1047,7 @@ export class DatabaseExplorerController {
     // Remove SQL comments to prevent bypass attempts
     const sqlWithoutComments = sql
       .replace(/\/\*[\s\S]*?\*\//g, '') // Remove /* ... */ comments
-      .replace(/--.*$/gm, '');          // Remove -- comments
+      .replace(/--.*$/gm, ''); // Remove -- comments
 
     // Fix: C1 -- multi-statement SQL bypass engeli
     if (sqlWithoutComments.includes(';')) {
@@ -1048,11 +1151,9 @@ export class DatabaseExplorerController {
       // Awaiting the audit row is mandatory; a failure to record blocks
       // the response, ensuring no raw SQL execution can complete
       // without an audit row landing.
-      await this.requireAuditLog({
+      await this.auditBeforeDisclosure(req, {
         action: 'DATABASE_EXPLORER_RAW_SQL',
         entityType: 'DatabaseQuery',
-        performedBy: 'SUPER_ADMIN',
-        severity: AuditSeverity.WARNING,
         details: {
           sql: sql.substring(0, 2000),
           paramCount: (params as unknown[]).length,
@@ -1081,7 +1182,8 @@ export class DatabaseExplorerController {
     schema: string,
     table: string,
   ): Promise<ColumnInfo[]> {
-    const columns = await queryRunner.query(`
+    const columns = await queryRunner.query(
+      `
       SELECT
         c.column_name,
         c.data_type,
@@ -1116,7 +1218,9 @@ export class DatabaseExplorerController {
       ) fk ON fk.column_name = c.column_name
       WHERE c.table_schema = $1 AND c.table_name = $2
       ORDER BY c.ordinal_position
-    `, [schema, table]);
+    `,
+      [schema, table],
+    );
 
     return columns.map((col: Record<string, unknown>) => ({
       columnName: col['column_name'] as string,
@@ -1143,7 +1247,8 @@ export class DatabaseExplorerController {
       return new Map();
     }
 
-    const columns = await queryRunner.query(`
+    const columns = await queryRunner.query(
+      `
       SELECT
         c.table_name,
         c.column_name,
@@ -1180,7 +1285,9 @@ export class DatabaseExplorerController {
       ) fk ON fk.table_name = c.table_name AND fk.column_name = c.column_name
       WHERE c.table_schema = $1 AND c.table_name = ANY($2)
       ORDER BY c.table_name, c.ordinal_position
-    `, [schema, tableNames]);
+    `,
+      [schema, tableNames],
+    );
 
     const result = new Map<string, ColumnInfo[]>();
 
@@ -1212,14 +1319,17 @@ export class DatabaseExplorerController {
     schema: string,
     table: string,
   ): Promise<string | null> {
-    const result = await queryRunner.query(`
+    const result = await queryRunner.query(
+      `
       SELECT kcu.column_name
       FROM information_schema.table_constraints tc
       JOIN information_schema.key_column_usage kcu
         ON tc.constraint_name = kcu.constraint_name
       WHERE tc.table_schema = $1 AND tc.table_name = $2 AND tc.constraint_type = 'PRIMARY KEY'
       LIMIT 1
-    `, [schema, table]);
+    `,
+      [schema, table],
+    );
 
     return result[0]?.column_name || null;
   }

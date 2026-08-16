@@ -10,17 +10,40 @@ import {
   Req,
   Res,
   UnauthorizedException,
+  ForbiddenException,
   Module,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   buildGatewayVerifiedUserAssertion,
   MARINE_BINARY_MAX_RESPONSE_BYTES,
+  requireCanonicalGatewayAssertionRoles,
   signedFetch,
 } from '@aquaculture/backend-common/http';
 import type { Request } from 'express';
+import type {
+  ImpersonationOperationDescriptor,
+  ImpersonationPermissionsContract,
+} from '@aquaculture/shared-contracts';
 
-import type { AuthenticatedUser } from '../types';
+import type { AuthenticatedUser, ImpersonationOperationAuthorizer } from '../types';
+import {
+  enforceImpersonationOperations,
+  resolveRestImpersonationOperation,
+} from '../security/impersonation-operation-authority';
+import {
+  assertImpersonationReceiptLedgerCommitted,
+  assertImpersonationReceiptLedgerReconciled,
+  expectImpersonationOperationDispatch,
+  markImpersonationOperationDispatched,
+} from '../security/impersonation-receipt-completion';
+import {
+  GATEWAY_MARINE_CONTROLLER_PATH,
+  GATEWAY_MARINE_RENDER_HANDLER_PATH,
+  marineRenderOutwardPath,
+} from './marine-impersonation-route';
+
+export { GATEWAY_MARINE_CONTROLLER_PATH } from './marine-impersonation-route';
 
 type MarineProxyUser = Omit<AuthenticatedUser, 'tenantId'> & {
   /** Platform SUPER_ADMIN accounts intentionally have no home tenant. */
@@ -40,7 +63,6 @@ type MarineProxyUser = Omit<AuthenticatedUser, 'tenantId'> & {
  */
 export const MARINE_PROXY_REQUEST_TIMEOUT_MS = 210_000;
 export const MARINE_PROXY_MAX_RESPONSE_BYTES = MARINE_BINARY_MAX_RESPONSE_BYTES;
-export const GATEWAY_MARINE_CONTROLLER_PATH = 'api/marine';
 export const GATEWAY_MARINE_PREFIX_EXCLUSIONS = [
   GATEWAY_MARINE_CONTROLLER_PATH,
   `${GATEWAY_MARINE_CONTROLLER_PATH}/(.*)`,
@@ -51,6 +73,9 @@ export interface MarineProxyRequest {
   readonly user?: MarineProxyUser;
   /** Authority-validated by EffectiveTenantMiddleware before this controller. */
   readonly effectiveTenantId?: string;
+  readonly impersonationSessionId?: string;
+  readonly impersonationPermissions?: ImpersonationPermissionsContract;
+  readonly authorizeImpersonationOperations?: ImpersonationOperationAuthorizer;
 }
 
 export interface MarineProxyResponse {
@@ -85,20 +110,14 @@ export class MarineRoutesController {
     throw new GoneException('Point sampling was retired. Use the site environment contract.');
   }
 
-  @Post('sites/:siteId/render')
+  @Post(GATEWAY_MARINE_RENDER_HANDLER_PATH)
   async render(
     @Param('siteId') siteId: string,
     @Body() body: unknown,
     @Req() req: MarineProxyRequest,
     @Res() res: MarineProxyResponse,
   ): Promise<void> {
-    await this.proxy(
-      req,
-      res,
-      'POST',
-      `/api/internal/marine/sites/${encodeURIComponent(siteId)}/render`,
-      body,
-    );
+    await this.proxy(req, res, 'POST', marineRenderOutwardPath(siteId), body);
   }
 
   @All([
@@ -124,16 +143,41 @@ export class MarineRoutesController {
     const user = this.requireUser(req);
     const homeTenantId = user.tenantId ?? null;
     const tenantId = this.requireEffectiveTenant(req, user);
+    const hasImpersonationContext =
+      req.impersonationSessionId !== undefined || req.impersonationPermissions !== undefined;
+    let impersonationOperations: readonly ImpersonationOperationDescriptor[] | undefined;
+    if (hasImpersonationContext) {
+      if (!req.impersonationSessionId || !req.impersonationPermissions) {
+        throw new ForbiddenException('Canonical impersonation context is incomplete');
+      }
+      const operations = [
+        resolveRestImpersonationOperation({
+          serviceName: 'farm-service',
+          method,
+          path: internalPath,
+        }),
+      ] as const;
+      enforceImpersonationOperations(req.impersonationPermissions, operations);
+      if (!req.authorizeImpersonationOperations) {
+        throw new ForbiddenException('Impersonation authorization receipt callback is missing');
+      }
+      expectImpersonationOperationDispatch(req, operations);
+      await req.authorizeImpersonationOperations(operations);
+      assertImpersonationReceiptLedgerCommitted(req);
+      impersonationOperations = operations;
+    }
     const assertion = buildGatewayVerifiedUserAssertion({
       subject: user.sub,
       tenantId: homeTenantId,
       effectiveTenantId: tenantId,
-      roles: user.roles ?? [],
+      roles: requireCanonicalGatewayAssertionRoles(user.roles ?? []),
       email: user.email,
       mfaVerified: user.mfaVerified,
       assignedSiteIds: user.assignedSiteIds,
       mobileFeatures: user.mobileFeatures,
       resourcePermissions: user.resourcePermissions,
+      impersonationSessionId: req.impersonationSessionId,
+      impersonationPermissions: req.impersonationPermissions,
     });
     const bodyBytes = JSON.stringify(body ?? {});
     const targetUrl = `${this.farmBaseUrl}${internalPath}`;
@@ -151,24 +195,26 @@ export class MarineRoutesController {
     }, MARINE_PROXY_REQUEST_TIMEOUT_MS);
 
     try {
-      const response = await this.awaitAbortable(
-        signedFetch(targetUrl, {
-          method,
-          headers: {
-            Accept: req.headers.accept ?? '*/*',
-            'Content-Type': 'application/json',
-            'x-correlation-id': this.firstHeader(req.headers['x-correlation-id']),
-            'x-verified-user-assertion': assertion,
-          },
-          body: bodyBytes,
-          serviceName: 'gateway-api',
-          tenantId,
-          effectiveTenantId: tenantId,
-          audience: 'farm',
-          signal: controller.signal,
-        }),
-        controller.signal,
-      );
+      if (impersonationOperations) {
+        markImpersonationOperationDispatched(req, impersonationOperations);
+        assertImpersonationReceiptLedgerReconciled(req);
+      }
+      const responsePromise = signedFetch(targetUrl, {
+        method,
+        headers: {
+          Accept: req.headers.accept ?? '*/*',
+          'Content-Type': 'application/json',
+          'x-correlation-id': this.firstHeader(req.headers['x-correlation-id']),
+          'x-verified-user-assertion': assertion,
+        },
+        body: bodyBytes,
+        serviceName: 'gateway-api',
+        tenantId,
+        effectiveTenantId: tenantId,
+        audience: 'farm',
+        signal: controller.signal,
+      });
+      const response = await this.awaitAbortable(responsePromise, controller.signal);
       await this.streamBoundedResponse(response, res, controller.signal);
     } catch (error) {
       if (clientClosed) {

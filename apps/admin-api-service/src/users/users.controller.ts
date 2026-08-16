@@ -1,4 +1,5 @@
 import { ThrottleSensitive } from '@aquaculture/backend-common/security';
+import { INVITABLE_ROLE_CODES, Role, type InvitableRoleCode } from '@platform/identity';
 import {
   BadRequestException,
   Body,
@@ -24,6 +25,7 @@ import {
   IsUUID,
   IsBoolean,
   IsEnum,
+  IsIn,
   MinLength,
   MaxLength,
   IsArray,
@@ -34,21 +36,60 @@ import {
 } from 'class-validator';
 
 import { ResetPasswordByAdminDto } from './dto/reset-password.dto';
-import {
-  RoleTemplateService,
-  Permission,
-  RoleTemplate,
-} from './services/role-template.service';
+import { RoleTemplateService, Permission, RoleTemplate } from './services/role-template.service';
 import {
   UserProvisioningService,
   InviteUserDto as ProvisioningInviteUserDto,
   UserLimitCheckResult,
 } from './services/user-provisioning.service';
 import { UsersService, UserFilter, PaginatedUsers } from './users.service';
+import type { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import { AdminResponseContract } from '../shared/admin-response-contract.decorator';
+import {
+  usersUserDtoPageContract,
+  type UsersUserDtoDto,
+  usersUserStatsContract,
+  type UsersUserStatsDto,
+  usersUserDtoArrayContract,
+  usersUserDtoContract,
+  usersUserActivityArrayContract,
+  type UsersUserActivityDto,
+  usersUserSessionArrayContract,
+  type UsersUserSessionDto,
+  usersResetUserPasswordResponseContract,
+  type UsersResetUserPasswordResponseDto,
+  usersForceLogoutResponseContract,
+  type UsersForceLogoutResponseDto,
+  voidResponseContract,
+  type VoidResponseDto,
+  usersUserLimitCheckResultContract,
+  type UsersUserLimitCheckResultDto,
+  usersInviteUserResponseContract,
+  type UsersInviteUserResponseDto,
+  usersRoleTemplateArrayContract,
+  type UsersRoleTemplateDto,
+  usersPermissionArrayContract,
+  type UsersPermissionDto,
+  usersGetPermissionsByCategoryResponseContract,
+  type UsersGetPermissionsByCategoryResponseDto,
+  usersGetRoleHierarchyResponseArrayContract,
+  type UsersGetRoleHierarchyResponseDto,
+  usersCanAssignRoleResponseContract,
+  type UsersCanAssignRoleResponseDto,
+  usersGetRolePermissionsResponseArrayContract,
+  type UsersGetRolePermissionsResponseDto,
+} from './contracts/admin-http-response.contract';
 
 // Allowed sort fields whitelist for security
-const ALLOWED_SORT_FIELDS = ['createdAt', 'updatedAt', 'email', 'firstName', 'lastName', 'role'] as const;
-type SortField = typeof ALLOWED_SORT_FIELDS[number];
+const ALLOWED_SORT_FIELDS = [
+  'createdAt',
+  'updatedAt',
+  'email',
+  'firstName',
+  'lastName',
+  'role',
+] as const;
+type SortField = (typeof ALLOWED_SORT_FIELDS)[number];
 
 export class CreateUserDto {
   @IsEmail({}, { message: 'Invalid email format' })
@@ -73,11 +114,8 @@ export class CreateUserDto {
   })
   password!: string;
 
-  @IsString()
-  @IsEnum(['SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER'], {
-    message: 'Invalid role',
-  })
-  role!: string;
+  @IsEnum(Role, { message: 'Invalid role' })
+  role!: Role;
 
   @IsOptional()
   @IsUUID('4', { message: 'Invalid tenant ID format' })
@@ -98,11 +136,8 @@ export class UpdateUserDto {
   lastName?: string;
 
   @IsOptional()
-  @IsString()
-  @IsEnum(['SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER'], {
-    message: 'Invalid role',
-  })
-  role?: string;
+  @IsEnum(Role, { message: 'Invalid role' })
+  role?: Role;
 
   @IsOptional()
   @IsUUID('4', { message: 'Invalid tenant ID format' })
@@ -131,11 +166,8 @@ export class InviteUserRequestDto {
   @MaxLength(100)
   lastName?: string;
 
-  @IsString()
-  @IsEnum(['TENANT_ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER'], {
-    message: 'Invalid role for invitation',
-  })
-  role!: string;
+  @IsIn(INVITABLE_ROLE_CODES, { message: 'Invalid role for invitation' })
+  role!: InvitableRoleCode;
 
   @IsOptional()
   @IsArray()
@@ -159,9 +191,8 @@ export class ListUsersQueryDto {
   tenantId?: string;
 
   @IsOptional()
-  @IsString()
-  @IsEnum(['SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER'])
-  role?: string;
+  @IsEnum(Role)
+  role?: Role;
 
   @IsOptional()
   @IsEnum(['active', 'inactive', 'all'])
@@ -209,8 +240,11 @@ export class UsersController {
   /**
    * Get all users across all tenants (SUPER_ADMIN only)
    */
+  @AdminResponseContract(usersUserDtoPageContract)
   @Get()
-  async listUsers(@Query() query: ListUsersQueryDto): Promise<PaginatedUsers> {
+  async listUsers(
+    @Query() query: ListUsersQueryDto,
+  ): Promise<IStandardPaginatedResult<UsersUserDtoDto>> {
     const filter: UserFilter = {
       tenantId: query.tenantId,
       role: query.role,
@@ -230,20 +264,22 @@ export class UsersController {
   /**
    * Get user statistics
    */
+  @AdminResponseContract(usersUserStatsContract)
   @Get('stats')
-  async getUserStats() {
+  async getUserStats(): Promise<UsersUserStatsDto> {
     return this.usersService.getUserStats();
   }
 
   /**
    * Get users by tenant
    */
-  @Get('by-tenant/:tenantId')
+  @AdminResponseContract(usersUserDtoPageContract)
+  @Get('lookup/tenant/:tenantId')
   async getUsersByTenant(
     @Param('tenantId', ParseUUIDPipe) tenantId: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
-  ): Promise<PaginatedUsers> {
+  ): Promise<IStandardPaginatedResult<UsersUserDtoDto>> {
     return this.usersService.listUsers(
       { tenantId, status: 'all' },
       page ? parseInt(page, 10) : 1,
@@ -254,104 +290,111 @@ export class UsersController {
   /**
    * Get recently active users
    */
+  @AdminResponseContract(usersUserDtoArrayContract)
   @Get('recent-activity')
-  async getRecentlyActiveUsers(@Query('limit') limit?: string) {
-    return this.usersService.getRecentlyActiveUsers(
-      limit ? parseInt(limit, 10) : 50,
-    );
+  async getRecentlyActiveUsers(@Query('limit') limit?: string): Promise<UsersUserDtoDto[]> {
+    return this.usersService.getRecentlyActiveUsers(limit ? parseInt(limit, 10) : 50);
   }
 
   /**
    * Get user by ID
    */
+  @AdminResponseContract(usersUserDtoContract)
   @Get(':id')
-  async getUserById(@Param('id', ParseUUIDPipe) id: string) {
+  async getUserById(@Param('id', ParseUUIDPipe) id: string): Promise<UsersUserDtoDto> {
     return this.usersService.getUserById(id);
   }
 
   /**
    * Get user's activity log
    */
+  @AdminResponseContract(usersUserActivityArrayContract)
   @Get(':id/activity')
   async getUserActivity(
     @Param('id', ParseUUIDPipe) id: string,
     @Query('limit') limit?: string,
-  ) {
-    return this.usersService.getUserActivity(
-      id,
-      limit ? parseInt(limit, 10) : 50,
-    );
+  ): Promise<UsersUserActivityDto[]> {
+    return this.usersService.getUserActivity(id, limit ? parseInt(limit, 10) : 50);
   }
 
   /**
    * Get user's sessions
    */
+  @AdminResponseContract(usersUserSessionArrayContract)
   @Get(':id/sessions')
-  async getUserSessions(@Param('id', ParseUUIDPipe) id: string) {
+  async getUserSessions(@Param('id', ParseUUIDPipe) id: string): Promise<UsersUserSessionDto[]> {
     return this.usersService.getUserSessions(id);
   }
 
   /**
    * Create new user (SUPER_ADMIN can create users for any tenant)
    */
+  @AdminResponseContract(usersUserDtoContract)
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  async createUser(@Body() dto: CreateUserDto) {
+  async createUser(@Body() dto: CreateUserDto): Promise<UsersUserDtoDto> {
     return this.usersService.createUser(dto);
   }
 
   /**
    * Update user
    */
+  @AdminResponseContract(usersUserDtoContract)
   @Put(':id')
   async updateUser(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateUserDto,
-  ) {
+  ): Promise<UsersUserDtoDto> {
     return this.usersService.updateUser(id, dto);
   }
 
   /**
    * Activate user
    */
+  @AdminResponseContract(usersUserDtoContract)
   @Patch(':id/activate')
-  async activateUser(@Param('id', ParseUUIDPipe) id: string) {
+  async activateUser(@Param('id', ParseUUIDPipe) id: string): Promise<UsersUserDtoDto> {
     return this.usersService.setUserStatus(id, true);
   }
 
   /**
    * Deactivate user
    */
+  @AdminResponseContract(usersUserDtoContract)
   @Patch(':id/deactivate')
-  async deactivateUser(@Param('id', ParseUUIDPipe) id: string) {
+  async deactivateUser(@Param('id', ParseUUIDPipe) id: string): Promise<UsersUserDtoDto> {
     return this.usersService.setUserStatus(id, false);
   }
 
   /**
    * Reset user password
    */
+  @AdminResponseContract(usersResetUserPasswordResponseContract)
+  @ThrottleSensitive()
   @Patch(':id/reset-password')
   async resetUserPassword(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ResetPasswordByAdminDto,
-  ) {
+  ): Promise<UsersResetUserPasswordResponseDto> {
     return this.usersService.resetPassword(id, dto.newPassword);
   }
 
   /**
    * Force logout user (invalidate all sessions)
    */
+  @AdminResponseContract(usersForceLogoutResponseContract)
   @Patch(':id/force-logout')
-  async forceLogout(@Param('id', ParseUUIDPipe) id: string) {
+  async forceLogout(@Param('id', ParseUUIDPipe) id: string): Promise<UsersForceLogoutResponseDto> {
     return this.usersService.forceLogout(id);
   }
 
   /**
    * Delete user (soft delete)
    */
+  @AdminResponseContract(voidResponseContract)
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async deleteUser(@Param('id', ParseUUIDPipe) id: string) {
+  async deleteUser(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
     await this.usersService.deleteUser(id);
   }
 
@@ -362,10 +405,11 @@ export class UsersController {
   /**
    * Check user limit for a tenant
    */
+  @AdminResponseContract(usersUserLimitCheckResultContract)
   @Get('tenant/:tenantId/limit')
   async checkUserLimit(
     @Param('tenantId', ParseUUIDPipe) tenantId: string,
-  ): Promise<UserLimitCheckResult> {
+  ): Promise<UsersUserLimitCheckResultDto> {
     return this.userProvisioningService.checkUserLimit(tenantId);
   }
 
@@ -373,13 +417,14 @@ export class UsersController {
    * Invite a new user to a tenant
    * Validation is handled by class-validator decorators on InviteUserRequestDto
    */
+  @AdminResponseContract(usersInviteUserResponseContract)
   @ThrottleSensitive()
   @Post('invite')
   @HttpCode(HttpStatus.CREATED)
   async inviteUser(
     @Body() dto: InviteUserRequestDto,
     @Req() req: { user: { id: string } },
-  ) {
+  ): Promise<UsersInviteUserResponseDto> {
     const result = await this.userProvisioningService.inviteUser({
       tenantId: dto.tenantId,
       email: dto.email,
@@ -400,8 +445,6 @@ export class UsersController {
       success: true,
       userId: result.userId,
       invitationId: result.invitationId,
-      deliveryStatus: result.deliveryStatus ?? 'queued',
-      message: 'Invitation created successfully. Notification delivery queued.',
     };
   }
 
@@ -412,59 +455,68 @@ export class UsersController {
   /**
    * Get all role templates
    */
+  @AdminResponseContract(usersRoleTemplateArrayContract)
   @Get('roles/templates')
-  getRoleTemplates(): RoleTemplate[] {
+  getRoleTemplates(): readonly UsersRoleTemplateDto[] {
     return this.roleTemplateService.getAllRoleTemplates();
   }
 
   /**
    * Get assignable roles for a user level
    */
-  @Get('roles/assignable/:roleCode')
-  getAssignableRoles(@Param('roleCode') roleCode: string): RoleTemplate[] {
+  @AdminResponseContract(usersRoleTemplateArrayContract)
+  @Get('roles/lookup/:roleCode/assignable')
+  getAssignableRoles(@Param('roleCode') roleCode: string): readonly UsersRoleTemplateDto[] {
     return this.roleTemplateService.getAssignableRoles(roleCode);
   }
 
   /**
    * Get all permissions
    */
+  @AdminResponseContract(usersPermissionArrayContract)
   @Get('roles/permissions')
-  getPermissions(): Permission[] {
+  getPermissions(): readonly UsersPermissionDto[] {
     return this.roleTemplateService.getAllPermissions();
   }
 
   /**
    * Get permissions by category
    */
+  @AdminResponseContract(usersGetPermissionsByCategoryResponseContract)
   @Get('roles/permissions/grouped')
-  getPermissionsByCategory(): Record<string, Permission[]> {
+  getPermissionsByCategory(): UsersGetPermissionsByCategoryResponseDto {
     return this.roleTemplateService.getPermissionsByCategory();
   }
 
   /**
    * Get role hierarchy
    */
+  @AdminResponseContract(usersGetRoleHierarchyResponseArrayContract)
   @Get('roles/hierarchy')
-  getRoleHierarchy() {
+  getRoleHierarchy(): readonly UsersGetRoleHierarchyResponseDto[] {
     return this.roleTemplateService.getRoleHierarchy();
   }
 
   /**
    * Check if a role can be assigned
    */
+  @AdminResponseContract(usersCanAssignRoleResponseContract)
   @Get('roles/can-assign')
   canAssignRole(
     @Query('assignerRole') assignerRole: string,
     @Query('targetRole') targetRole: string,
-  ): { allowed: boolean; reason?: string } {
+  ): UsersCanAssignRoleResponseDto {
     return this.roleTemplateService.canAssignRole(assignerRole, targetRole);
   }
 
   /**
    * Get permissions for a specific role
    */
+  @AdminResponseContract(usersGetRolePermissionsResponseArrayContract)
   @Get('roles/:roleCode/permissions')
-  getRolePermissions(@Param('roleCode') roleCode: string): string[] {
+  getRolePermissions(
+    @Param('roleCode') roleCode: string,
+  ): readonly UsersGetRolePermissionsResponseDto[] {
     return this.roleTemplateService.getRolePermissions(roleCode);
   }
 }

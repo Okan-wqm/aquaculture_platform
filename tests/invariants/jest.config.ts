@@ -55,11 +55,23 @@
 
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
+import { pathsToModuleNameMapper } from 'ts-jest';
 
 // Resolve the invariant-dir relative to cwd when jest is invoked with
 // `--config tests/invariants/jest.config.ts`. Avoids `__dirname` which
 // is not defined when ts-jest transpiles as ESM under newer Node/Jest.
 const INVARIANT_DIR = resolve(process.cwd(), 'tests/invariants');
+const WORKSPACE_TSCONFIG = JSON.parse(
+  readFileSync(resolve(process.cwd(), 'tsconfig.base.json'), 'utf8'),
+) as {
+  readonly compilerOptions?: {
+    readonly paths?: Readonly<Record<string, readonly string[]>>;
+  };
+};
+const WORKSPACE_MODULE_NAME_MAPPER = pathsToModuleNameMapper(
+  WORKSPACE_TSCONFIG.compilerOptions?.paths ?? {},
+  { prefix: '<rootDir>/../../' },
+);
 
 /**
  * Shard membership, declared once and consumed by all three projects.
@@ -236,12 +248,11 @@ const commonProjectOptions = {
   roots: ['<rootDir>'],
   testEnvironment: 'node' as const,
   moduleFileExtensions: ['ts', 'js', 'html'],
-  // schema-manager.service.ts (read by tenant-erasure-ssot.spec) imports the
-  // proof-ledger table constant via the @platform/outbox alias; map it so jest
-  // resolves the source the same way tsconfig.base paths do at build time.
-  moduleNameMapper: {
-    '^@platform/outbox$': '<rootDir>/../../platform/libs/outbox/src/index.ts',
-  },
+  // The workspace TypeScript path catalog is the alias authority for runtime
+  // projects and invariants alike. Deriving Jest's mapper closes the former
+  // per-alias exception list, which drifted as soon as a new canonical alias
+  // (for example @platform/identity) reached an invariant import graph.
+  moduleNameMapper: WORKSPACE_MODULE_NAME_MAPPER,
   transform: baseTransform,
 };
 

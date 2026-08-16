@@ -14,26 +14,12 @@
  */
 
 import { useMemo } from 'react';
+import { HmiRole, hmiRoleAtLeast } from '@platform/identity';
 import { useOperatorStore } from '../store/scada/operatorStore';
 import type {
-  HmiRole,
   WidgetPermission,
   WidgetPermissionResult,
 } from '../types/scada-runtime.types';
-
-// Roles ordered by authority (index = authority level).
-const ROLE_ORDER: HmiRole[] = [
-  'viewer',
-  'operator',
-  'engineer',
-  'supervisor',
-  'admin',
-];
-
-function roleIndex(role: HmiRole): number {
-  const idx = ROLE_ORDER.indexOf(role);
-  return idx === -1 ? 0 : idx;
-}
 
 export function useOperatorPermission(
   permission?: WidgetPermission,
@@ -65,10 +51,10 @@ export function useOperatorPermission(
     // Require confirmation for roles below supervisor when the widget is
     // interactable.  This models a "are you sure?" confirmation dialog.
     const requiresConfirm =
-      enabled && roleIndex(currentUserRole) < roleIndex('supervisor');
+      enabled && !hmiRoleAtLeast(currentUserRole, HmiRole.SUPERVISOR);
 
     // Require PIN for viewers who were explicitly granted interaction access.
-    const requiresPin = enabled && currentUserRole === 'viewer';
+    const requiresPin = enabled && currentUserRole === HmiRole.VIEWER;
 
     return { visible, enabled, requiresConfirm, requiresPin };
   }, [currentUserRole, permission]);

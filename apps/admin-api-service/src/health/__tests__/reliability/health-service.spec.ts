@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
+import { NatsEventBus } from '@platform/event-bus';
 
 import { GracefulShutdownService } from '../../../lifecycle/graceful-shutdown.service';
 import { EmailSenderService } from '../../../settings/services/email-sender.service';
@@ -20,6 +21,10 @@ describe('HealthService', () => {
     isDraining: jest.fn(),
   };
 
+  const mockEventBus = {
+    getHealth: jest.fn(),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
 
@@ -28,6 +33,7 @@ describe('HealthService', () => {
         HealthService,
         { provide: getDataSourceToken(), useValue: mockDataSource },
         { provide: EmailSenderService, useValue: mockEmailSenderService },
+        { provide: NatsEventBus, useValue: mockEventBus },
         { provide: GracefulShutdownService, useValue: mockShutdownService },
       ],
     }).compile();
@@ -68,6 +74,7 @@ describe('HealthService', () => {
           HealthService,
           { provide: getDataSourceToken(), useValue: mockDataSource },
           { provide: EmailSenderService, useValue: mockEmailSenderService },
+          { provide: NatsEventBus, useValue: mockEventBus },
         ],
       }).compile();
 
@@ -100,6 +107,33 @@ describe('HealthService', () => {
       const result = await service.checkDatabase();
 
       expect(result).toBe(false);
+    });
+  });
+
+  describe('checkNats', () => {
+    it('returns true only for a healthy connected event bus', async () => {
+      mockEventBus.getHealth.mockResolvedValue({
+        isHealthy: true,
+        connectionState: 'connected',
+      });
+
+      await expect(service.checkNats()).resolves.toBe(true);
+    });
+
+    it.each([
+      { isHealthy: false, connectionState: 'connected' },
+      { isHealthy: true, connectionState: 'reconnecting' },
+      { isHealthy: true, connectionState: 'disconnected' },
+    ])('returns false for non-ready health $connectionState', async (health) => {
+      mockEventBus.getHealth.mockResolvedValue(health);
+
+      await expect(service.checkNats()).resolves.toBe(false);
+    });
+
+    it('returns false when the health query throws', async () => {
+      mockEventBus.getHealth.mockRejectedValue(new Error('broker unavailable'));
+
+      await expect(service.checkNats()).resolves.toBe(false);
     });
   });
 

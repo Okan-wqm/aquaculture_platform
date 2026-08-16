@@ -24,7 +24,8 @@
     "isolatedModules": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@platform/identity": ["../event-contracts/src/roles.ts"]
     }
   },
   "include": ["src"],

@@ -12,45 +12,31 @@ import { Repository, MoreThan, LessThan, Between, In } from 'typeorm';
 
 import {
   SecurityEvent,
-  SecurityEventType,
-  SecurityEventStatus,
-  ThreatLevel,
   SecurityIncident,
-  IncidentStatus,
-  IncidentSeverity,
   ThreatIntelligence,
   LoginAttempt,
   ApiUsageLog,
   UserSession,
-  GeoLocation,
-  AnomalyDetails,
 } from '../entities/security.entity';
+import type {
+  AnomalyDetails,
+  GeoLocation,
+  IncidentSeverity,
+  IncidentStatus,
+  SecurityEventStatus,
+  SecurityEventType,
+  ThreatIndicatorType,
+  ThreatLevel,
+} from '../contracts/security-vocabulary';
+import type {
+  AnomalyDetectionConfigDto,
+  SecurityDashboardStatsDto,
+} from '../dto/security-response.dto';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
 // ============================================================================
 // Interfaces
 // ============================================================================
-
-export interface AnomalyDetectionConfig {
-  // Login anomalies
-  failedLoginThreshold: number;
-  failedLoginWindowMinutes: number;
-  bruteForceThreshold: number;
-  geoAnomalyEnabled: boolean;
-
-  // API anomalies
-  apiAbuseThreshold: number;
-  apiAbuseWindowMinutes: number;
-  rateLimitAbuseEnabled: boolean;
-
-  // Session anomalies
-  concurrentSessionLimit: number;
-  sessionHijackingDetection: boolean;
-
-  // Time anomalies
-  offHoursThreshold: number;
-  offHoursStart: number;
-  offHoursEnd: number;
-}
 
 export interface ThreatIntelFeed {
   id: string;
@@ -62,37 +48,11 @@ export interface ThreatIntelFeed {
   isActive: boolean;
 }
 
-export interface SecurityDashboardStats {
-  // Overview
-  totalSecurityEvents: number;
-  criticalEvents: number;
-  activeIncidents: number;
-  threatsBlocked: number;
-
-  // Trends
-  eventsLast24h: number;
-  eventsLast7d: number;
-  eventsLast30d: number;
-  eventsTrend: 'increasing' | 'decreasing' | 'stable';
-
-  // By type
-  eventsByType: Record<SecurityEventType, number>;
-  eventsBySeverity: Record<ThreatLevel, number>;
-
-  // Top threats
-  topSourceIPs: { ip: string; count: number; threatLevel: ThreatLevel }[];
-  topTargetedUsers: { userId: string; userName: string; count: number }[];
-  topEventTypes: { type: SecurityEventType; count: number }[];
-
-  // Timeline
-  eventsTimeline: { date: string; critical: number; high: number; medium: number; low: number }[];
-}
-
 // ============================================================================
 // Default Configuration
 // ============================================================================
 
-const DEFAULT_ANOMALY_CONFIG: AnomalyDetectionConfig = {
+const DEFAULT_ANOMALY_CONFIG: AnomalyDetectionConfigDto = {
   failedLoginThreshold: 5,
   failedLoginWindowMinutes: 15,
   bruteForceThreshold: 10,
@@ -114,7 +74,7 @@ const DEFAULT_ANOMALY_CONFIG: AnomalyDetectionConfig = {
 @Injectable()
 export class SecurityMonitoringService implements OnModuleInit {
   private readonly logger = new Logger(SecurityMonitoringService.name);
-  private config: AnomalyDetectionConfig = DEFAULT_ANOMALY_CONFIG;
+  private config: AnomalyDetectionConfigDto = DEFAULT_ANOMALY_CONFIG;
   private knownGoodIPs: Set<string> = new Set();
   private threatIntelFeeds: ThreatIntelFeed[] = [];
 
@@ -225,12 +185,7 @@ export class SecurityMonitoringService implements OnModuleInit {
     startDate?: Date;
     endDate?: Date;
     searchQuery?: string;
-  }): Promise<{
-    data: SecurityEvent[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  }): Promise<IStandardPaginatedResult<SecurityEvent>> {
     const {
       page = 1,
       limit = 50,
@@ -268,7 +223,7 @@ export class SecurityMonitoringService implements OnModuleInit {
 
     const [data, total] = await qb.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**
@@ -704,7 +659,7 @@ export class SecurityMonitoringService implements OnModuleInit {
    * Add threat indicator
    */
   async addThreatIndicator(params: {
-    indicatorType: ThreatIntelligence['indicatorType'];
+    indicatorType: ThreatIndicatorType;
     value: string;
     threatLevel: ThreatLevel;
     source: string;
@@ -751,16 +706,11 @@ export class SecurityMonitoringService implements OnModuleInit {
   async queryThreatIntelligence(options: {
     page?: number;
     limit?: number;
-    indicatorType?: ThreatIntelligence['indicatorType'];
+    indicatorType?: ThreatIndicatorType;
     threatLevel?: ThreatLevel;
     isActive?: boolean;
     searchQuery?: string;
-  }): Promise<{
-    data: ThreatIntelligence[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  }): Promise<IStandardPaginatedResult<ThreatIntelligence>> {
     const { page = 1, limit = 50, indicatorType, threatLevel, isActive, searchQuery } = options;
 
     const qb = this.threatIntelRepository.createQueryBuilder('threat');
@@ -781,7 +731,7 @@ export class SecurityMonitoringService implements OnModuleInit {
 
     const [data, total] = await qb.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   // ============================================================================
@@ -900,12 +850,7 @@ export class SecurityMonitoringService implements OnModuleInit {
     severity?: IncidentSeverity;
     startDate?: Date;
     endDate?: Date;
-  }): Promise<{
-    data: SecurityIncident[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  }): Promise<IStandardPaginatedResult<SecurityIncident>> {
     const { page = 1, limit = 20, status, severity, startDate, endDate } = options;
 
     const qb = this.incidentRepository.createQueryBuilder('incident');
@@ -921,7 +866,7 @@ export class SecurityMonitoringService implements OnModuleInit {
 
     const [data, total] = await qb.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   // ============================================================================
@@ -931,7 +876,7 @@ export class SecurityMonitoringService implements OnModuleInit {
   /**
    * Get security dashboard stats
    */
-  async getSecurityDashboardStats(): Promise<SecurityDashboardStats> {
+  async getSecurityDashboardStats(): Promise<SecurityDashboardStatsDto> {
     const now = new Date();
     const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     const last7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -1146,14 +1091,14 @@ export class SecurityMonitoringService implements OnModuleInit {
   /**
    * Get anomaly detection config
    */
-  getAnomalyConfig(): AnomalyDetectionConfig {
+  getAnomalyConfig(): AnomalyDetectionConfigDto {
     return { ...this.config };
   }
 
   /**
    * Update anomaly detection config
    */
-  updateAnomalyConfig(updates: Partial<AnomalyDetectionConfig>): AnomalyDetectionConfig {
+  updateAnomalyConfig(updates: Partial<AnomalyDetectionConfigDto>): AnomalyDetectionConfigDto {
     this.config = { ...this.config, ...updates };
     return this.config;
   }

@@ -33,7 +33,40 @@ export default defineConfig({
     alias: {
       '@': resolve(__dirname, 'src'),
       '@aquaculture/shared-ui': resolve(__dirname, '../../shared-ui/dist'),
+      '@aquaculture/shared-contracts': resolve(
+        __dirname,
+        '../../../libs/shared-contracts/src/index.ts',
+      ),
       '@platform/shared-ui': resolve(__dirname, '../../shared-ui/src'),
+      '@platform/admin-http-contracts': resolve(
+        __dirname,
+        '../../../platform/libs/admin-http-contracts/src/index.ts',
+      ),
+      '@platform/identity': resolve(__dirname, '../../../libs/event-contracts/src/roles.ts'),
+      '@platform/tenant-settings': resolve(
+        __dirname,
+        '../../../libs/event-contracts/src/tenant-settings.ts',
+      ),
+      '@platform/tenant-permissions': resolve(
+        __dirname,
+        '../../../libs/event-contracts/src/tenant-permissions.ts',
+      ),
+      '@platform/pagination-contracts': resolve(
+        __dirname,
+        '../../../platform/libs/pagination-contracts/src/index.ts',
+      ),
+      '@platform/reporting-contracts': resolve(
+        __dirname,
+        '../../../platform/libs/reporting-contracts/src/index.ts',
+      ),
+      '@platform/tenant-vocabulary': resolve(
+        __dirname,
+        '../../../libs/event-contracts/src/tenant-vocabulary.ts',
+      ),
+      '@platform/pricing-metric-vocabulary': resolve(
+        __dirname,
+        '../../../libs/event-contracts/src/billing/pricing-metric-vocabulary.ts',
+      ),
     },
   },
   server: { port: 3004, strictPort: true, cors: true },

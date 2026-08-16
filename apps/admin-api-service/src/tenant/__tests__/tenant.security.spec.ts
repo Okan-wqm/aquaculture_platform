@@ -116,7 +116,7 @@ describe('Tenant Security Tests', () => {
       const sqlInjectionPayloads = [
         "'; DROP TABLE tenants; --",
         "1' OR '1'='1",
-        "1; SELECT * FROM users; --",
+        '1; SELECT * FROM users; --',
         "' UNION SELECT * FROM tenants --",
         "1' AND '1'='1' --",
         "admin'--",
@@ -213,7 +213,7 @@ describe('Tenant Security Tests', () => {
           mockQueryBus.execute.mockRejectedValueOnce(new NotFoundException('Not found'));
 
           const response = await request(app.getHttpServer())
-            .get(`/admin/tenants/slug/${encodeURIComponent(payload)}`)
+            .get(`/admin/tenants/lookup/slug/${encodeURIComponent(payload)}`)
             .set(superAdminHeaders);
 
           // Path traversal payloads must never cause a 200 (data leak) or 500 (unhandled error).
@@ -224,7 +224,6 @@ describe('Tenant Security Tests', () => {
         });
       });
     });
-
   });
 
   describe('2. Data Access Control Tests', () => {
@@ -268,7 +267,6 @@ describe('Tenant Security Tests', () => {
         expect(response.body.apiSecret).toBeUndefined();
       });
     });
-
   });
 
   describe('3. Mass Assignment Protection', () => {

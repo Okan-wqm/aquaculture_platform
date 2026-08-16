@@ -4,12 +4,10 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-  billingApi,
-  PaymentOverview,
-  PaymentStatus,
-  PaymentMethod,
-} from '../services/adminApi';
+import { billingApi, PaymentStatus, PaymentMethod } from '../services/adminApi';
+import type { AdminApiRouteResponse } from '../services/types/generated/admin-route-contracts';
+
+type PaymentOverview = AdminApiRouteResponse<'GET /billing/payments'>['payments'][number];
 
 // ============================================================================
 // Helpers
@@ -79,7 +77,7 @@ const methodLabels: Record<string, string> = {
 
 const PaymentsPage: React.FC = () => {
   // Data state
-  const [payments, setPayments] = useState<PaymentOverview[]>([]);
+  const [payments, setPayments] = useState<readonly PaymentOverview[]>([]);
   const [totalPayments, setTotalPayments] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -89,7 +87,10 @@ const PaymentsPage: React.FC = () => {
   const [invoiceIdFilter, setInvoiceIdFilter] = useState('');
 
   // Toast
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [toast, setToast] = useState<{
+    message: string;
+    type: 'success' | 'error' | 'info';
+  } | null>(null);
 
   // Record Payment modal
   const [showRecordModal, setShowRecordModal] = useState(false);
@@ -129,18 +130,12 @@ const PaymentsPage: React.FC = () => {
       setError(null);
 
       const data = await billingApi.getPayments({
-        status: statusFilter !== 'all' ? statusFilter : undefined,
+        status: statusFilter !== 'all' ? [statusFilter] : undefined,
         invoiceId: invoiceIdFilter || undefined,
         limit: 50,
       });
 
-      const mapped = (data.payments || []).map((p: PaymentOverview) => ({
-        ...p,
-        amount: typeof p.amount === 'string' ? parseFloat(p.amount as unknown as string) : p.amount,
-        refundedAmount: typeof p.refundedAmount === 'string' ? parseFloat(p.refundedAmount as unknown as string) : (p.refundedAmount || 0),
-      }));
-
-      setPayments(mapped);
+      setPayments(data.payments);
       setTotalPayments(data.total || 0);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load payments');
@@ -175,7 +170,9 @@ const PaymentsPage: React.FC = () => {
         invoiceId: recordForm.invoiceId.trim(),
         amount,
         paymentMethod: recordForm.paymentMethod,
-        paymentDate: recordForm.paymentDate ? new Date(recordForm.paymentDate).toISOString() : undefined,
+        paymentDate: recordForm.paymentDate
+          ? new Date(recordForm.paymentDate).toISOString()
+          : undefined,
         notes: recordForm.notes || undefined,
       });
       showToast('Payment recorded successfully', 'success');
@@ -222,7 +219,10 @@ const PaymentsPage: React.FC = () => {
     }
     const maxRefundable = refundPayment.amount - (refundPayment.refundedAmount || 0);
     if (amount > maxRefundable) {
-      showToast(`Refund amount exceeds refundable amount (${formatCurrency(maxRefundable)})`, 'error');
+      showToast(
+        `Refund amount exceeds refundable amount (${formatCurrency(maxRefundable)})`,
+        'error',
+      );
       return;
     }
 
@@ -247,16 +247,19 @@ const PaymentsPage: React.FC = () => {
 
   const canRefund = (payment: PaymentOverview): boolean => {
     return (
-      payment.status === PaymentStatus.SUCCEEDED ||
-      payment.status === PaymentStatus.PARTIALLY_REFUNDED
-    ) && (payment.amount - (payment.refundedAmount || 0)) > 0.01;
+      (payment.status === PaymentStatus.SUCCEEDED ||
+        payment.status === PaymentStatus.PARTIALLY_REFUNDED) &&
+      payment.amount - (payment.refundedAmount || 0) > 0.01
+    );
   };
 
   // ============================================================================
   // Stats summary
   // ============================================================================
 
-  const succeededPayments = payments.filter(p => p.status === PaymentStatus.SUCCEEDED || p.status === PaymentStatus.PARTIALLY_REFUNDED);
+  const succeededPayments = payments.filter(
+    (p) => p.status === PaymentStatus.SUCCEEDED || p.status === PaymentStatus.PARTIALLY_REFUNDED,
+  );
   const totalSucceeded = succeededPayments.reduce((sum, p) => sum + p.amount, 0);
   const totalRefunded = payments.reduce((sum, p) => sum + (p.refundedAmount || 0), 0);
 
@@ -268,11 +271,15 @@ const PaymentsPage: React.FC = () => {
     <div className="space-y-6">
       {/* Toast */}
       {toast && (
-        <div className={`fixed top-4 right-4 z-[100] px-4 py-3 rounded-lg shadow-lg text-sm font-medium transition-all ${
-          toast.type === 'success' ? 'bg-green-50 text-green-800 border border-green-200' :
-          toast.type === 'error' ? 'bg-red-50 text-red-800 border border-red-200' :
-          'bg-blue-50 text-blue-800 border border-blue-200'
-        }`}>
+        <div
+          className={`fixed top-4 right-4 z-[100] px-4 py-3 rounded-lg shadow-lg text-sm font-medium transition-all ${
+            toast.type === 'success'
+              ? 'bg-green-50 text-green-800 border border-green-200'
+              : toast.type === 'error'
+                ? 'bg-red-50 text-red-800 border border-red-200'
+                : 'bg-blue-50 text-blue-800 border border-blue-200'
+          }`}
+        >
           {toast.message}
         </div>
       )}
@@ -309,7 +316,9 @@ const PaymentsPage: React.FC = () => {
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
           <p className="text-sm text-gray-500">Net Revenue</p>
-          <p className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(totalSucceeded - totalRefunded)}</p>
+          <p className="text-2xl font-bold text-gray-900 mt-1">
+            {formatCurrency(totalSucceeded - totalRefunded)}
+          </p>
         </div>
       </div>
 
@@ -344,7 +353,12 @@ const PaymentsPage: React.FC = () => {
                 stroke="currentColor"
                 viewBox="0 0 24 24"
               >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
               </svg>
             </div>
           </div>
@@ -382,8 +396,18 @@ const PaymentsPage: React.FC = () => {
           </div>
         ) : payments.length === 0 ? (
           <div className="p-8 text-center text-gray-500">
-            <svg className="mx-auto h-12 w-12 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+            <svg
+              className="mx-auto h-12 w-12 text-gray-500"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={1.5}
+                d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
+              />
             </svg>
             <p className="mt-2">No payments found</p>
             <button
@@ -430,7 +454,7 @@ const PaymentsPage: React.FC = () => {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm text-blue-600">
-                      {(payment as PaymentOverview & { invoiceNumber?: string }).invoiceNumber || payment.invoiceId.substring(0, 8) + '...'}
+                      {payment.invoiceNumber || payment.invoiceId.substring(0, 8) + '...'}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -449,7 +473,9 @@ const PaymentsPage: React.FC = () => {
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${statusColors[payment.status] || 'bg-gray-100 text-gray-700'}`}>
+                    <span
+                      className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${statusColors[payment.status] || 'bg-gray-100 text-gray-700'}`}
+                    >
                       {statusLabels[payment.status] || payment.status}
                     </span>
                   </td>
@@ -491,7 +517,12 @@ const PaymentsPage: React.FC = () => {
                   className="text-gray-500 hover:text-gray-600"
                 >
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
                   </svg>
                 </button>
               </div>
@@ -499,7 +530,9 @@ const PaymentsPage: React.FC = () => {
             <div className="p-6 space-y-4">
               <div className="flex justify-between">
                 <span className="text-sm text-gray-500">Transaction ID</span>
-                <span className="text-sm font-mono font-medium text-gray-900">{selectedPayment.transactionId}</span>
+                <span className="text-sm font-mono font-medium text-gray-900">
+                  {selectedPayment.transactionId}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-sm text-gray-500">Invoice ID</span>
@@ -507,22 +540,30 @@ const PaymentsPage: React.FC = () => {
               </div>
               <div className="flex justify-between">
                 <span className="text-sm text-gray-500">Status</span>
-                <span className={`px-2 py-1 text-xs font-medium rounded-full ${statusColors[selectedPayment.status] || 'bg-gray-100 text-gray-700'}`}>
+                <span
+                  className={`px-2 py-1 text-xs font-medium rounded-full ${statusColors[selectedPayment.status] || 'bg-gray-100 text-gray-700'}`}
+                >
                   {statusLabels[selectedPayment.status] || selectedPayment.status}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-sm text-gray-500">Method</span>
-                <span className="text-sm text-gray-900">{methodLabels[selectedPayment.paymentMethod] || selectedPayment.paymentMethod}</span>
+                <span className="text-sm text-gray-900">
+                  {methodLabels[selectedPayment.paymentMethod] || selectedPayment.paymentMethod}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-sm text-gray-500">Payment Date</span>
-                <span className="text-sm text-gray-900">{formatDateTime(selectedPayment.paymentDate)}</span>
+                <span className="text-sm text-gray-900">
+                  {formatDateTime(selectedPayment.paymentDate)}
+                </span>
               </div>
               {selectedPayment.processedAt && (
                 <div className="flex justify-between">
                   <span className="text-sm text-gray-500">Processed At</span>
-                  <span className="text-sm text-gray-900">{formatDateTime(selectedPayment.processedAt)}</span>
+                  <span className="text-sm text-gray-900">
+                    {formatDateTime(selectedPayment.processedAt)}
+                  </span>
                 </div>
               )}
               {selectedPayment.failureReason && (
@@ -534,7 +575,9 @@ const PaymentsPage: React.FC = () => {
               {selectedPayment.notes && (
                 <div className="flex justify-between">
                   <span className="text-sm text-gray-500">Notes</span>
-                  <span className="text-sm text-gray-900 max-w-[200px] text-right">{selectedPayment.notes}</span>
+                  <span className="text-sm text-gray-900 max-w-[200px] text-right">
+                    {selectedPayment.notes}
+                  </span>
                 </div>
               )}
               {selectedPayment.createdBy && (
@@ -547,41 +590,28 @@ const PaymentsPage: React.FC = () => {
               <div className="border-t border-gray-200 pt-4 mt-4">
                 <div className="flex justify-between py-2">
                   <span className="text-sm text-gray-600">Amount</span>
-                  <span className="text-sm font-medium text-gray-900">{formatCurrency(selectedPayment.amount, selectedPayment.currency)}</span>
+                  <span className="text-sm font-medium text-gray-900">
+                    {formatCurrency(selectedPayment.amount, selectedPayment.currency)}
+                  </span>
                 </div>
                 {selectedPayment.refundedAmount > 0 && (
                   <div className="flex justify-between py-2">
                     <span className="text-sm text-gray-600">Refunded</span>
-                    <span className="text-sm font-medium text-purple-600">-{formatCurrency(selectedPayment.refundedAmount, selectedPayment.currency)}</span>
+                    <span className="text-sm font-medium text-purple-600">
+                      -{formatCurrency(selectedPayment.refundedAmount, selectedPayment.currency)}
+                    </span>
                   </div>
                 )}
                 <div className="flex justify-between pt-3 border-t border-gray-200 mt-3">
                   <span className="text-sm font-semibold text-gray-900">Net Amount</span>
                   <span className="text-sm font-bold text-gray-900">
-                    {formatCurrency(selectedPayment.amount - (selectedPayment.refundedAmount || 0), selectedPayment.currency)}
+                    {formatCurrency(
+                      selectedPayment.amount - (selectedPayment.refundedAmount || 0),
+                      selectedPayment.currency,
+                    )}
                   </span>
                 </div>
               </div>
-
-              {/* Refund History */}
-              {selectedPayment.refunds && selectedPayment.refunds.length > 0 && (
-                <div className="border-t border-gray-200 pt-4 mt-4">
-                  <h3 className="text-sm font-semibold text-gray-900 mb-3">Refund History</h3>
-                  <div className="space-y-2">
-                    {selectedPayment.refunds.map((refund, idx) => (
-                      <div key={idx} className="bg-purple-50 border border-purple-100 rounded-lg p-3">
-                        <div className="flex justify-between">
-                          <span className="text-sm text-purple-800 font-medium">
-                            {formatCurrency(refund.amount, selectedPayment.currency)}
-                          </span>
-                          <span className="text-xs text-purple-600">{formatDate(refund.refundedAt)}</span>
-                        </div>
-                        <p className="text-xs text-purple-700 mt-1">{refund.reason}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
             <div className="p-6 border-t border-gray-200 flex gap-3">
               {canRefund(selectedPayment) && (
@@ -618,7 +648,12 @@ const PaymentsPage: React.FC = () => {
                   className="text-gray-500 hover:text-gray-600"
                 >
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
                   </svg>
                 </button>
               </div>
@@ -659,18 +694,20 @@ const PaymentsPage: React.FC = () => {
                 </label>
                 <select
                   value={recordForm.paymentMethod}
-                  onChange={(e) => setRecordForm({ ...recordForm, paymentMethod: e.target.value as PaymentMethod })}
+                  onChange={(e) =>
+                    setRecordForm({ ...recordForm, paymentMethod: e.target.value as PaymentMethod })
+                  }
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                 >
                   {Object.entries(methodLabels).map(([value, label]) => (
-                    <option key={value} value={value}>{label}</option>
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
                   ))}
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Payment Date
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Payment Date</label>
                 <input
                   type="date"
                   value={recordForm.paymentDate}
@@ -679,9 +716,7 @@ const PaymentsPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Notes
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
                 <textarea
                   value={recordForm.notes}
                   onChange={(e) => setRecordForm({ ...recordForm, notes: e.target.value })}
@@ -725,18 +760,25 @@ const PaymentsPage: React.FC = () => {
               <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
                 <div className="flex justify-between text-sm">
                   <span className="text-purple-700">Original Amount</span>
-                  <span className="font-medium text-purple-900">{formatCurrency(refundPayment.amount, refundPayment.currency)}</span>
+                  <span className="font-medium text-purple-900">
+                    {formatCurrency(refundPayment.amount, refundPayment.currency)}
+                  </span>
                 </div>
                 {refundPayment.refundedAmount > 0 && (
                   <div className="flex justify-between text-sm mt-1">
                     <span className="text-purple-700">Already Refunded</span>
-                    <span className="font-medium text-purple-900">{formatCurrency(refundPayment.refundedAmount, refundPayment.currency)}</span>
+                    <span className="font-medium text-purple-900">
+                      {formatCurrency(refundPayment.refundedAmount, refundPayment.currency)}
+                    </span>
                   </div>
                 )}
                 <div className="flex justify-between text-sm mt-1 pt-1 border-t border-purple-200">
                   <span className="text-purple-700 font-medium">Max Refundable</span>
                   <span className="font-bold text-purple-900">
-                    {formatCurrency(refundPayment.amount - (refundPayment.refundedAmount || 0), refundPayment.currency)}
+                    {formatCurrency(
+                      refundPayment.amount - (refundPayment.refundedAmount || 0),
+                      refundPayment.currency,
+                    )}
                   </span>
                 </div>
               </div>
@@ -773,7 +815,10 @@ const PaymentsPage: React.FC = () => {
             </div>
             <div className="p-6 border-t border-gray-200 flex gap-3">
               <button
-                onClick={() => { setShowRefundModal(false); setRefundPayment(null); }}
+                onClick={() => {
+                  setShowRefundModal(false);
+                  setRefundPayment(null);
+                }}
                 className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
                 disabled={refundLoading}
               >

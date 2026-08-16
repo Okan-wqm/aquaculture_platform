@@ -84,22 +84,7 @@ export interface SyncTenantSchemaOptions {
 
 const cleanupDropProofBrand: unique symbol = Symbol('CleanupDropProof');
 
-export type CleanupDropProofPurpose =
-  | 'provisioning_rollback'
-  | 'tenant_deprovision'
-  | 'tenant_erasure';
-
-export interface CleanupDropProofBackupEvidence {
-  id?: string;
-  checksum: string;
-  sizeBytes: number;
-  isEncrypted: true;
-  uri?: string;
-  createdAt?: string | Date;
-  retentionDays?: number;
-  algorithm?: string;
-  keyId?: string;
-}
+export type CleanupDropProofPurpose = 'provisioning_rollback' | 'tenant_erasure';
 
 export interface CleanupDropProof {
   readonly [cleanupDropProofBrand]: true;
@@ -110,7 +95,6 @@ export interface CleanupDropProof {
   readonly approverId?: string;
   readonly reason: string;
   readonly legalHoldCheckedAt?: string;
-  readonly backup?: CleanupDropProofBackupEvidence;
   readonly preCounts?: Record<string, unknown>;
   readonly postCounts?: Record<string, unknown>;
   readonly createdAt: string;
@@ -124,7 +108,6 @@ export function createCleanupDropProof(input: {
   approverId?: string;
   reason: string;
   legalHoldCheckedAt?: string | Date;
-  backup?: CleanupDropProofBackupEvidence;
   preCounts?: Record<string, unknown>;
   postCounts?: Record<string, unknown>;
   createdAt?: string | Date;
@@ -138,7 +121,6 @@ export function createCleanupDropProof(input: {
     approverId: input.approverId,
     reason: input.reason,
     legalHoldCheckedAt: normalizeOptionalTimestamp(input.legalHoldCheckedAt),
-    backup: input.backup,
     preCounts: input.preCounts,
     postCounts: input.postCounts,
     createdAt: normalizeTimestamp(input.createdAt ?? new Date()),
@@ -170,22 +152,11 @@ function assertCleanupDropProof(
   if (!proof.operationId || !proof.actorId || !proof.reason || !proof.purpose) {
     throw new BadRequestException('CleanupDropProof is incomplete');
   }
-  if (proof.purpose === 'tenant_deprovision' || proof.purpose === 'tenant_erasure') {
+  if (proof.purpose === 'tenant_erasure') {
     if (!proof.legalHoldCheckedAt) {
       throw new BadRequestException('CleanupDropProof requires legal-hold evidence');
     }
   }
-  if (proof.purpose === 'tenant_deprovision') {
-    if (
-      !proof.backup ||
-      !proof.backup.checksum ||
-      Number(proof.backup.sizeBytes) <= 0 ||
-      proof.backup.isEncrypted !== true
-    ) {
-      throw new BadRequestException('CleanupDropProof requires encrypted backup evidence');
-    }
-  }
-
   return proof;
 }
 

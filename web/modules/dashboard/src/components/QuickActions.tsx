@@ -7,6 +7,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Card, useAuthContext } from '@aquaculture/shared-ui';
+import { Role, roleAtLeast, type Role as PlatformRole } from '@platform/identity';
 // PERF-L4: shared icon components — eliminates duplicate inline SVG bytes
 import { PlusIcon, SensorIcon, TaskIcon } from './icons';
 
@@ -22,7 +23,7 @@ interface QuickAction {
   path: string;
   color: string;
   /** Minimum role required to see this action */
-  minRole?: 'TENANT_ADMIN' | 'SUPER_ADMIN';
+  minRole?: PlatformRole;
 }
 
 // ============================================================================
@@ -92,7 +93,7 @@ const quickActions: QuickAction[] = [
     path: '/admin/users',
     color: 'bg-pink-500',
     // DASH-SEC-004: Admin route only visible to admin roles
-    minRole: 'TENANT_ADMIN',
+    minRole: Role.TENANT_ADMIN,
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
@@ -102,22 +103,12 @@ const quickActions: QuickAction[] = [
 ];
 
 // ============================================================================
-// Role helpers
-// ============================================================================
-
-const ROLE_ORDER = ['MODULE_USER', 'MODULE_MANAGER', 'TENANT_ADMIN', 'SUPER_ADMIN'];
-
-function roleAtLeast(userRole: string, minRole: string): boolean {
-  return ROLE_ORDER.indexOf(userRole) >= ROLE_ORDER.indexOf(minRole);
-}
-
-// ============================================================================
 // Quick Actions
 // ============================================================================
 
 const QuickActions: React.FC = () => {
   const { user } = useAuthContext();
-  const userRole = user?.role ?? 'MODULE_USER';
+  const userRole = user?.role ?? Role.MODULE_USER;
 
   // DASH-SEC-004: filter actions by role before rendering
   const visibleActions = quickActions.filter((action) => {

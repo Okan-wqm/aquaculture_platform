@@ -24,9 +24,35 @@ import { ApiTags } from '@nestjs/swagger';
 import { IsNotEmpty, IsString, IsUUID, IsEnum, IsOptional, IsArray } from 'class-validator';
 
 import { Roles } from '../../decorators/roles.decorator';
+import { Role } from '@platform/identity';
 import { getAuthUser } from '../../shared/authenticated-request';
 import { SchemaStatus } from '../entities/database-management.entity';
 import { SchemaManagementService } from '../services/schema-management.service';
+import type { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import { AdminResponseContract } from '../../shared/admin-response-contract.decorator';
+import {
+  schemaTenantSchemaPageContract,
+  type SchemaTenantSchemaDto,
+  schemaGetSchemaSummaryResponseContract,
+  type SchemaGetSchemaSummaryResponseDto,
+  schemaTenantSchemaContract,
+  schemaSchemaInfoContract,
+  type SchemaSchemaInfoDto,
+  neverResponseContract,
+  type NeverResponseDto,
+  schemaSyncSchemasResponseContract,
+  type SchemaSyncSchemasResponseDto,
+  voidResponseContract,
+  type VoidResponseDto,
+  schemaValidateSchemaIsolationResponseContract,
+  type SchemaValidateSchemaIsolationResponseDto,
+  schemaConnectionPoolStatusArrayContract,
+  type SchemaConnectionPoolStatusDto,
+  schemaGetConnectionsByTenantResponseArrayContract,
+  type SchemaGetConnectionsByTenantResponseDto,
+  schemaBackfillTrackingRecordsResponseContract,
+  type SchemaBackfillTrackingRecordsResponseDto,
+} from '../contracts/admin-http-response.contract';
 
 // ============================================================================
 // DTOs
@@ -69,59 +95,72 @@ export class SchemaController {
   // Schema CRUD
   // ============================================================================
 
+  @AdminResponseContract(schemaTenantSchemaPageContract)
   @Get()
   async getAllSchemas(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
-  ) {
+  ): Promise<IStandardPaginatedResult<SchemaTenantSchemaDto>> {
     return this.schemaService.getAllSchemas({
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
     });
   }
 
+  @AdminResponseContract(schemaGetSchemaSummaryResponseContract)
   @Get('summary')
-  async getSchemaSummary() {
+  async getSchemaSummary(): Promise<SchemaGetSchemaSummaryResponseDto> {
     return this.schemaService.getSchemaSummary();
   }
 
+  @AdminResponseContract(schemaTenantSchemaContract)
   @Get(':tenantId')
-  async getSchema(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
+  async getSchema(
+    @Param('tenantId', ParseUUIDPipe) tenantId: string,
+  ): Promise<SchemaTenantSchemaDto> {
     return this.schemaService.getSchemaByTenantId(tenantId);
   }
 
+  @AdminResponseContract(schemaSchemaInfoContract)
   @Get(':tenantId/info')
-  async getSchemaInfo(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
+  async getSchemaInfo(
+    @Param('tenantId', ParseUUIDPipe) tenantId: string,
+  ): Promise<SchemaSchemaInfoDto> {
     return this.schemaService.getSchemaInfo(tenantId);
   }
 
+  @AdminResponseContract(neverResponseContract)
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  async createSchema(@Body() dto: CreateSchemaDto) {
+  async createSchema(@Body() dto: CreateSchemaDto): Promise<never> {
     if (!dto.tenantId) {
       throw new BadRequestException('tenantId is required');
     }
     return this.schemaService.createTenantSchema(dto.tenantId);
   }
 
+  @AdminResponseContract(schemaSyncSchemasResponseContract)
   @Post('sync')
-  async syncSchemas(@Body() dto: SyncSchemasDto) {
+  async syncSchemas(@Body() dto: SyncSchemasDto): Promise<SchemaSyncSchemasResponseDto> {
     return this.schemaService.syncExistingTenantSchemas(dto.tenantId, dto.modules);
   }
 
+  @AdminResponseContract(neverResponseContract)
   @Post(':tenantId/suspend')
-  async suspendSchema(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
+  async suspendSchema(@Param('tenantId', ParseUUIDPipe) tenantId: string): Promise<never> {
     return this.schemaService.suspendSchema(tenantId);
   }
 
+  @AdminResponseContract(neverResponseContract)
   @Post(':tenantId/activate')
-  async activateSchema(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
+  async activateSchema(@Param('tenantId', ParseUUIDPipe) tenantId: string): Promise<never> {
     return this.schemaService.activateSchema(tenantId);
   }
 
   // SECURITY: destructive action requires confirmation token and audit
+  @AdminResponseContract(voidResponseContract)
   @Delete(':tenantId')
-  @Roles('SUPER_ADMIN')
+  @Roles(Role.SUPER_ADMIN)
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteSchema(
     // ParseUUIDPipe: rejects non-UUID tenantId before it reaches the service layer.
@@ -137,7 +176,7 @@ export class SchemaController {
       if (!confirmToken || confirmToken !== tenantId) {
         throw new BadRequestException(
           'Hard delete requires confirmToken query parameter matching the tenantId. ' +
-          'This is a destructive operation that cannot be undone.',
+            'This is a destructive operation that cannot be undone.',
         );
       }
     }
@@ -162,13 +201,17 @@ export class SchemaController {
   // Schema Validation
   // ============================================================================
 
+  @AdminResponseContract(schemaValidateSchemaIsolationResponseContract)
   @Get(':tenantId/validate')
-  async validateSchemaIsolation(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
+  async validateSchemaIsolation(
+    @Param('tenantId', ParseUUIDPipe) tenantId: string,
+  ): Promise<SchemaValidateSchemaIsolationResponseDto> {
     return this.schemaService.validateSchemaIsolation(tenantId);
   }
 
+  @AdminResponseContract(neverResponseContract)
   @Post(':tenantId/refresh-stats')
-  async refreshSchemaStats(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
+  async refreshSchemaStats(@Param('tenantId', ParseUUIDPipe) tenantId: string): Promise<never> {
     return this.schemaService.updateSchemaStats(tenantId);
   }
 
@@ -176,13 +219,15 @@ export class SchemaController {
   // Connection Pool
   // ============================================================================
 
+  @AdminResponseContract(schemaConnectionPoolStatusArrayContract)
   @Get('connections/pool')
-  async getConnectionPoolStatus() {
+  async getConnectionPoolStatus(): Promise<SchemaConnectionPoolStatusDto[]> {
     return this.schemaService.getConnectionPoolStatus();
   }
 
+  @AdminResponseContract(schemaGetConnectionsByTenantResponseArrayContract)
   @Get('connections/by-tenant')
-  async getConnectionsByTenant() {
+  async getConnectionsByTenant(): Promise<SchemaGetConnectionsByTenantResponseDto[]> {
     return this.schemaService.getConnectionsByTenant();
   }
 
@@ -190,8 +235,9 @@ export class SchemaController {
   // Backfill
   // ============================================================================
 
+  @AdminResponseContract(schemaBackfillTrackingRecordsResponseContract)
   @Post('backfill-tracking')
-  async backfillTrackingRecords() {
+  async backfillTrackingRecords(): Promise<SchemaBackfillTrackingRecordsResponseDto> {
     return this.schemaService.backfillTrackingRecords();
   }
 }

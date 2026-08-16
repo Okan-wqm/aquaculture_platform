@@ -1,19 +1,17 @@
 import { BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { getDataSourceToken, getRepositoryToken } from '@nestjs/typeorm';
+import { getRepositoryToken } from '@nestjs/typeorm';
 import { TenantStatus } from '@platform/event-contracts';
-import { OutboxPublisher } from '@platform/outbox';
-
-import { AuditLogService } from '../../audit/audit.service';
 import {
-  ActivateTenantCommand,
+  ResumeTenantCommand,
   ArchiveTenantCommand,
   DeactivateTenantCommand,
   SuspendTenantCommand,
 } from '../commands/tenant.commands';
 import { Tenant } from '../entities/tenant.entity';
+import type { TenantSummaryDto } from '../dto/tenant-summary.dto';
 import {
-  ActivateTenantHandler,
+  ResumeTenantHandler,
   ArchiveTenantHandler,
   DeactivateTenantHandler,
   SuspendTenantHandler,
@@ -21,99 +19,67 @@ import {
 import { AuthTenantProvisioningClientService } from '../services/auth-tenant-provisioning-client.service';
 
 /**
- * MT-HIGH-003: the four admin lifecycle handlers no longer hand-code their
- * precondition (`status !== ACTIVE`, `=== ARCHIVED`, …) — they consult the
- * tenant-status machine via canTransition. These tests pin, for every handler,
- * that EVERY illegal source state is rejected with a BadRequestException BEFORE
- * any side effect (the auth provisioning client is never called), and that the
- * machine's legal source states reach the client.
+ * MT-HIGH-003: canonical machine edges bound the lifecycle commands, while
+ * command-specific authorization can be a strict subset (ResumeTenant owns
+ * only SUSPENDED -> ACTIVE). These tests pin, for every handler, that every
+ * unauthorized source is rejected before a side effect and every authorized
+ * source reaches the owner client.
  *
  * DB-ADMIN-HIGH-004 (single-writer): the handlers MUST NOT write auth.tenants
  * themselves — auth-service persists the transition and these handlers re-read
  * the fresh row after the NATS reply. The legal-path assertions pin that
  * contract: the client mock simulates the owner's committed write by flipping
- * the shared row's status, `manager.save` is never called, and the handler
- * returns the re-read row carrying the owner-written status.
+ * the shared row's status, and the handler returns the re-read row carrying
+ * the owner-written status without a local mutation dependency.
  */
 const ALL_STATUSES = Object.values(TenantStatus);
 
-interface MockManager {
-  findOne: jest.Mock;
-  query: jest.Mock;
-  save: jest.Mock;
-}
-
 interface MockClient {
   suspendTenant: jest.Mock;
-  activateTenant: jest.Mock;
+  resumeTenant: jest.Mock;
   deprovisionTenant: jest.Mock;
   archiveTenant: jest.Mock;
 }
 
 describe('Tenant lifecycle handlers — MT-HIGH-003 transition legality + DB-ADMIN-HIGH-004 single-writer', () => {
   let suspendHandler: SuspendTenantHandler;
-  let activateHandler: ActivateTenantHandler;
+  let resumeHandler: ResumeTenantHandler;
   let deactivateHandler: DeactivateTenantHandler;
   let archiveHandler: ArchiveTenantHandler;
 
-  let manager: MockManager;
   let tenantRepository: { findOne: jest.Mock };
   let client: MockClient;
-  let outboxPublisher: { enqueue: jest.Mock };
 
   const seedTenant = (status: TenantStatus): Tenant => {
     const tenant = new Tenant();
     Object.assign(tenant, { id: 'tenant-1', status });
-    // Pre-read (repository, no lock) and post-reply re-read (queryRunner
-    // manager) resolve the same shared row object — the client mock mutates it
+    // Pre-read and post-reply re-read resolve the same shared row object — the client mock mutates it
     // to simulate the owner's committed transition.
     tenantRepository.findOne.mockResolvedValue(tenant);
-    manager.findOne.mockResolvedValue(tenant);
     return tenant;
   };
 
   beforeEach(async () => {
-    manager = {
-      findOne: jest.fn(),
-      query: jest.fn().mockResolvedValue(undefined),
-      save: jest.fn().mockImplementation((_entity, tenant: Tenant) => Promise.resolve(tenant)),
-    };
-    const queryRunner = {
-      connect: jest.fn().mockResolvedValue(undefined),
-      startTransaction: jest.fn().mockResolvedValue(undefined),
-      commitTransaction: jest.fn().mockResolvedValue(undefined),
-      rollbackTransaction: jest.fn().mockResolvedValue(undefined),
-      release: jest.fn().mockResolvedValue(undefined),
-      manager,
-    };
-    const dataSource = { createQueryRunner: jest.fn().mockReturnValue(queryRunner) };
     tenantRepository = { findOne: jest.fn() };
     client = {
       suspendTenant: jest.fn().mockResolvedValue({ success: true }),
-      activateTenant: jest.fn().mockResolvedValue({ success: true }),
+      resumeTenant: jest.fn().mockResolvedValue({ success: true }),
       deprovisionTenant: jest.fn().mockResolvedValue({ success: true }),
       archiveTenant: jest.fn().mockResolvedValue({ success: true }),
     };
-    outboxPublisher = {
-      enqueue: jest.fn().mockResolvedValue(undefined),
-    };
-
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SuspendTenantHandler,
-        ActivateTenantHandler,
+        ResumeTenantHandler,
         DeactivateTenantHandler,
         ArchiveTenantHandler,
         { provide: getRepositoryToken(Tenant), useValue: tenantRepository },
-        { provide: getDataSourceToken(), useValue: dataSource },
-        { provide: OutboxPublisher, useValue: outboxPublisher },
-        { provide: AuditLogService, useValue: { log: jest.fn().mockResolvedValue(undefined) } },
         { provide: AuthTenantProvisioningClientService, useValue: client },
       ],
     }).compile();
 
     suspendHandler = module.get(SuspendTenantHandler);
-    activateHandler = module.get(ActivateTenantHandler);
+    resumeHandler = module.get(ResumeTenantHandler);
     deactivateHandler = module.get(DeactivateTenantHandler);
     archiveHandler = module.get(ArchiveTenantHandler);
   });
@@ -124,27 +90,23 @@ describe('Tenant lifecycle handlers — MT-HIGH-003 transition legality + DB-ADM
     name: string;
     legal: readonly TenantStatus[];
     target: TenantStatus;
-    run: () => Promise<Tenant>;
+    run: () => Promise<TenantSummaryDto>;
     client: () => jest.Mock;
   }> = [
     {
       name: 'suspend',
       legal: [TenantStatus.ACTIVE],
       target: TenantStatus.SUSPENDED,
-      run: () => suspendHandler.execute(new SuspendTenantCommand('tenant-1', { reason: 'x' }, 'admin')),
+      run: () =>
+        suspendHandler.execute(new SuspendTenantCommand('tenant-1', { reason: 'x' }, 'admin')),
       client: () => client.suspendTenant,
     },
     {
-      name: 'activate',
-      legal: [
-        TenantStatus.PROVISIONING,
-        TenantStatus.SUSPENDED,
-        TenantStatus.DEACTIVATED,
-        TenantStatus.CANCELLED,
-      ],
+      name: 'resume',
+      legal: [TenantStatus.SUSPENDED],
       target: TenantStatus.ACTIVE,
-      run: () => activateHandler.execute(new ActivateTenantCommand('tenant-1', 'admin')),
-      client: () => client.activateTenant,
+      run: () => resumeHandler.execute(new ResumeTenantCommand('tenant-1', 'admin')),
+      client: () => client.resumeTenant,
     },
     {
       name: 'deactivate',
@@ -170,7 +132,6 @@ describe('Tenant lifecycle handlers — MT-HIGH-003 transition legality + DB-ADM
         seedTenant(status);
         await expect(lc.run()).rejects.toBeInstanceOf(BadRequestException);
         expect(lc.client()).not.toHaveBeenCalled();
-        expect(manager.save).not.toHaveBeenCalled();
       });
 
       it.each(lc.legal)(`allows ${lc.name} from %s (reaches the auth client)`, async (status) => {
@@ -186,17 +147,9 @@ describe('Tenant lifecycle handlers — MT-HIGH-003 transition legality + DB-ADM
 
         expect(lc.client()).toHaveBeenCalledTimes(1);
         // Single-writer: admin-api never writes auth.tenants.
-        expect(manager.save).not.toHaveBeenCalled();
+        expect(tenantRepository.findOne).toHaveBeenCalledTimes(2);
         // The synchronous return contract carries the owner-written fresh row.
         expect(returned.status).toBe(lc.target);
-        expect(outboxPublisher.enqueue).toHaveBeenCalledWith(
-          expect.objectContaining({
-            eventType: 'TenantStatusChanged',
-            tenantId: 'tenant-1',
-          }),
-          manager,
-          { aggregateId: 'tenant-1' },
-        );
       });
 
       it.each(lc.legal)(
@@ -207,9 +160,7 @@ describe('Tenant lifecycle handlers — MT-HIGH-003 transition legality + DB-ADM
 
           await expect(lc.run()).rejects.toBeInstanceOf(BadRequestException);
 
-          expect(manager.save).not.toHaveBeenCalled();
-          expect(manager.query).not.toHaveBeenCalled();
-          expect(outboxPublisher.enqueue).not.toHaveBeenCalled();
+          expect(tenantRepository.findOne).toHaveBeenCalledTimes(1);
         },
       );
     });

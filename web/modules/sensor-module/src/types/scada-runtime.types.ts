@@ -8,6 +8,9 @@
  * Widget actions, Operator permissions, Trend charts, Script engine.
  */
 
+import type { HmiRole } from '@platform/identity';
+export type { HmiRole } from '@platform/identity';
+
 /* ================================================================== */
 /*  1. TAG & DATA PROVIDER                                             */
 /* ================================================================== */
@@ -458,14 +461,6 @@ export interface OperatorLayoutConfig {
 /* ================================================================== */
 /*  7. OPERATOR PERMISSIONS                                            */
 /* ================================================================== */
-
-/** HMI-level role. */
-export type HmiRole =
-  | 'viewer'
-  | 'operator'
-  | 'engineer'
-  | 'supervisor'
-  | 'admin';
 
 /** Per-widget permission. */
 export interface WidgetPermission {

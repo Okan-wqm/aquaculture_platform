@@ -1,6 +1,7 @@
 import { SetMetadata } from '@nestjs/common';
+import { isTenantPermissionCode, type TenantPermissionCode } from '@platform/tenant-permissions';
 
-import { Role } from './roles.decorator';
+import { isPlatformRole, Role, type Role as RoleCode } from '@platform/identity';
 
 /**
  * Metadata key for required tenant permissions
@@ -32,7 +33,7 @@ export const REQUIRED_TENANT_PERMISSIONS_KEY = 'requiredTenantPermissions';
  * calibrateSensor() { ... }
  * ```
  */
-export const RequireTenantPermission = (...permissions: string[]) =>
+export const RequireTenantPermission = (...permissions: TenantPermissionCode[]) =>
   SetMetadata(REQUIRED_TENANT_PERMISSIONS_KEY, permissions);
 
 /**
@@ -40,20 +41,18 @@ export const RequireTenantPermission = (...permissions: string[]) =>
  * / the verified JWT claims.
  */
 export interface ResourcePermissionUser {
-  role?: string | Role | null;
-  roles?: (string | Role)[] | null;
+  role?: string | RoleCode | null;
+  roles?: (string | RoleCode)[] | null;
   resourcePermissions?: string[] | null;
 }
 
-const ROLE_VALUES: ReadonlySet<string> = new Set(Object.values(Role));
-
 /** Normalize a user's role(s) to canonical `Role` values (uppercase, deduped). */
-function normalizeRoles(user: ResourcePermissionUser): Role[] {
-  const roles: Role[] = [];
-  const add = (r: string | Role): void => {
+function normalizeRoles(user: ResourcePermissionUser): RoleCode[] {
+  const roles: RoleCode[] = [];
+  const add = (r: string | RoleCode): void => {
     const upper = String(r).toUpperCase();
-    if (ROLE_VALUES.has(upper) && !roles.includes(upper as Role)) {
-      roles.push(upper as Role);
+    if (isPlatformRole(upper) && !roles.includes(upper)) {
+      roles.push(upper);
     }
   };
   if (Array.isArray(user.roles)) {
@@ -98,3 +97,6 @@ export function hasResourcePermission(
 ): boolean {
   return hasAllResourcePermissions(user, [requiredPermission]);
 }
+
+/** Runtime validator for capability strings arriving from JWT/storage boundaries. */
+export { isTenantPermissionCode };

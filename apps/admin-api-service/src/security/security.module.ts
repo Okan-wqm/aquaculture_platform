@@ -2,8 +2,7 @@
  * Security Module
  *
  * Comprehensive security and audit module providing:
- * - Activity logging with buffered writes
- * - Audit trail with retention policies
+ * Immutable admin audit is owned exclusively by the global AuditLogModule.
  * - Compliance management (GDPR, data requests)
  * - Security monitoring with anomaly detection
  * - Threat intelligence management
@@ -14,36 +13,26 @@ import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
-import { AuditLogModule } from '../audit/audit.module';
-
-import { ActivityLogController } from './controllers/activity-log.controller';
-import { AuditTrailController } from './controllers/audit-trail.controller';
 import { ComplianceController } from './controllers/compliance.controller';
 import { SecurityMonitoringController } from './controllers/security-monitoring.controller';
 import {
-  ActivityLog,
   SecurityEvent,
   SecurityIncident,
   ThreatIntelligence,
   DataRequest,
   ComplianceReport,
-  RetentionPolicyEntity,
   LoginAttempt,
   ApiUsageLog,
   UserSession,
 } from './entities/security.entity';
-import { ActivityLoggingService } from './services/activity-logging.service';
-import { AuditTrailService } from './services/audit-trail.service';
 import { ComplianceService } from './services/compliance.service';
 import { SecurityMonitoringService } from './services/security-monitoring.service';
 
 @Module({
   imports: [
     ScheduleModule,
-    AuditLogModule,
     TypeOrmModule.forFeature([
-      // Activity & Audit
-      ActivityLog,
+      // Operational security projections; immutable audit is owned by AuditLogModule.
       LoginAttempt,
       ApiUsageLog,
       UserSession,
@@ -54,28 +43,11 @@ import { SecurityMonitoringService } from './services/security-monitoring.servic
       // Compliance
       DataRequest,
       ComplianceReport,
-      // Configuration
-      RetentionPolicyEntity,
     ]),
   ],
-  controllers: [
-    ActivityLogController,
-    AuditTrailController,
-    ComplianceController,
-    SecurityMonitoringController,
-  ],
-  providers: [
-    ActivityLoggingService,
-    AuditTrailService,
-    ComplianceService,
-    SecurityMonitoringService,
-  ],
-  exports: [
-    ActivityLoggingService,
-    AuditTrailService,
-    ComplianceService,
-    SecurityMonitoringService,
-  ],
+  controllers: [ComplianceController, SecurityMonitoringController],
+  providers: [ComplianceService, SecurityMonitoringService],
+  exports: [ComplianceService, SecurityMonitoringService],
 })
 export class SecurityModule {
   readonly moduleName = 'SecurityModule';

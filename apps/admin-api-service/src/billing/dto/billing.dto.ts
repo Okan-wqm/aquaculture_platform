@@ -14,7 +14,7 @@ import {
 
 import { PricingMetric, TierMultipliers } from '../entities/module-pricing.entity';
 import { PlanTier } from '../entities/plan-definition.entity';
-import { CreateDiscountCodeDto } from '../services/discount-code.service';
+import type { CreateDiscountCodeRequest } from '../contracts/admin-http-request.contract';
 import { QuoteRequest } from '../services/pricing-calculator.service';
 
 // ============================================================================
@@ -140,7 +140,7 @@ export class BulkCreateDiscountCodesDto {
   count!: number;
 
   @IsObject()
-  template!: Omit<CreateDiscountCodeDto, 'code'>;
+  template!: Omit<CreateDiscountCodeRequest, 'code'>;
 
   @IsOptional()
   @IsString()

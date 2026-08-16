@@ -1,20 +1,19 @@
 /**
- * Admin Panel Module Root
- *
- * Super Admin Panel for managing tenants, users, billing, support, and system settings.
- * NOT: AdminLayout Shell'de kullanılıyor, burada sadece sayfa route'ları tanımlı.
- *
- * All page imports use React.lazy for code splitting — each page chunk is loaded
- * on demand so the initial bundle stays small.
+ * Admin panel route renderer. Route coordinates live only in ADMIN_ROUTES;
+ * this module supplies the page component for each compile-time route id.
  */
 
-import { Spinner, useAuthContext } from '@aquaculture/shared-ui';
-import React, { lazy, Suspense } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
-
-// ============================================================================
-// Lazy Page Imports
-// ============================================================================
+import {
+  ADMIN_PANEL_ROLE,
+  ADMIN_ROUTE_REDIRECTS,
+  ADMIN_ROUTES,
+  Spinner,
+  getAdminRoute,
+  useAuthContext,
+  type AdminRouteId,
+} from '@aquaculture/shared-ui';
+import React, { lazy, Suspense, type ComponentType, type LazyExoticComponent } from 'react';
+import { Navigate, Route, Routes } from 'react-router-dom';
 
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
 const UserManagementPage = lazy(() => import('./pages/UserManagementPage'));
@@ -48,8 +47,6 @@ const CustomPlanBuilderPage = lazy(() => import('./pages/CustomPlanBuilderPage')
 const PaymentsPage = lazy(() => import('./pages/PaymentsPage'));
 const UsageDashboardPage = lazy(() => import('./pages/UsageDashboardPage'));
 const ProvisioningSettingsPage = lazy(() => import('./pages/ProvisioningSettingsPage'));
-
-// Messaging monitoring pages
 const MessagingMonitoringPage = lazy(() => import('./pages/messaging/MessagingMonitoringPage'));
 const MessagingTenantsPage = lazy(() => import('./pages/messaging/MessagingTenantsPage'));
 const MessagingAuditPage = lazy(() => import('./pages/messaging/MessagingAuditPage'));
@@ -57,14 +54,8 @@ const MessagingCompliancePage = lazy(() => import('./pages/messaging/MessagingCo
 const MessagingRetentionPage = lazy(() => import('./pages/messaging/MessagingRetentionPage'));
 const MessagingAiDashboardPage = lazy(() => import('./pages/messaging/MessagingAiDashboardPage'));
 const MessagingAiPersonasPage = lazy(() => import('./pages/messaging/MessagingAiPersonasPage'));
-
-// Security pages
-const ActivityLogPage = lazy(() => import('./pages/security/ActivityLogPage'));
-const AuditTrailPage = lazy(() => import('./pages/security/AuditTrailPage'));
 const CompliancePage = lazy(() => import('./pages/security/CompliancePage'));
 const SecurityDashboardPage = lazy(() => import('./pages/security/SecurityDashboardPage'));
-
-// System pages
 const FeatureTogglesPage = lazy(() => import('./pages/system/FeatureTogglesPage'));
 const MaintenancePage = lazy(() => import('./pages/system/MaintenancePage'));
 const PerformanceDashboardPage = lazy(() => import('./pages/system/PerformanceDashboardPage'));
@@ -73,115 +64,90 @@ const JobQueuePage = lazy(() => import('./pages/system/JobQueuePage'));
 const ImpersonationPage = lazy(() => import('./pages/system/ImpersonationPage'));
 const DebugToolsPage = lazy(() => import('./pages/system/DebugToolsPage'));
 
-// ============================================================================
-// Suspense Fallback
-// ============================================================================
+const ADMIN_ROUTE_COMPONENTS: Readonly<Record<AdminRouteId, LazyExoticComponent<ComponentType>>> =
+  Object.freeze({
+    'admin-dashboard': AdminDashboard,
+    'analytics-dashboard': AnalyticsDashboardPage,
+    'analytics-reports': ReportsPage,
+    'tenant-list': TenantManagementPage,
+    'tenant-create': CreateTenantPage,
+    'tenant-detail': TenantDetailPage,
+    'tenant-configuration': TenantConfigurationPage,
+    'user-list': UserManagementPage,
+    'user-roles': RoleManagementPage,
+    'admin-modules': ModulesPage,
+    'billing-overview': BillingDashboardPage,
+    'billing-module-pricing': ModulePricingPage,
+    'billing-plans': PlanManagementPage,
+    'billing-subscriptions': SubscriptionManagementPage,
+    'billing-invoices': InvoicesPage,
+    'billing-payments': PaymentsPage,
+    'billing-usage': UsageDashboardPage,
+    'billing-discounts': DiscountCodePage,
+    'billing-custom-plans': CustomPlansListPage,
+    'billing-invoice-create': InvoicesPage,
+    'billing-custom-plan-create': CustomPlanBuilderPage,
+    'billing-reports': BillingReportsPage,
+    'support-tickets': TicketsPage,
+    'support-messaging': MessagingPage,
+    'support-announcements': AnnouncementsPage,
+    'support-onboarding': OnboardingPage,
+    'messaging-monitoring': MessagingMonitoringPage,
+    'messaging-tenants': MessagingTenantsPage,
+    'messaging-audit': MessagingAuditPage,
+    'messaging-compliance': MessagingCompliancePage,
+    'messaging-retention': MessagingRetentionPage,
+    'messaging-ai-dashboard': MessagingAiDashboardPage,
+    'messaging-ai-personas': MessagingAiPersonasPage,
+    'security-compliance': CompliancePage,
+    'security-threats': SecurityDashboardPage,
+    'system-features': FeatureTogglesPage,
+    'system-maintenance': MaintenancePage,
+    'system-performance': PerformanceDashboardPage,
+    'system-errors': ErrorTrackingPage,
+    'system-jobs': JobQueuePage,
+    'system-impersonation': ImpersonationPage,
+    'system-debug': DebugToolsPage,
+    'database-management': DatabaseManagementPage,
+    'database-explorer': DatabaseExplorerPage,
+    'admin-audit': AuditLogPage,
+    'settings-general': SystemSettingsPage,
+    'settings-email': EmailTemplatesPage,
+    'settings-integrations': IpAccessRulesPage,
+    'settings-provisioning': ProvisioningSettingsPage,
+  });
 
 const SuspenseFallback: React.FC = () => (
-  <div className="flex items-center justify-center h-64">
+  <div className="flex h-64 items-center justify-center">
     <Spinner size="lg" text="Yukleniyor..." />
   </div>
 );
 
-const isPlatformAdminRole = (role?: string | null): boolean =>
-  role === 'SUPER_ADMIN';
-
-// ============================================================================
-// Module Component
-// ============================================================================
-
 const AdminPanelModule: React.FC = () => {
   const { user } = useAuthContext();
-
-  if (!user || !isPlatformAdminRole(user.role)) {
+  if (user?.role !== ADMIN_PANEL_ROLE) {
     return <Navigate to="/unauthorized" replace />;
   }
 
   return (
     <Suspense fallback={<SuspenseFallback />}>
       <Routes>
-        {/* Dashboard */}
-        <Route index element={<AdminDashboard />} />
-
-        {/* Analytics */}
-        <Route path="analytics" element={<AnalyticsDashboardPage />} />
-        <Route path="analytics/reports" element={<ReportsPage />} />
-
-        {/* Tenants */}
-        <Route path="tenants" element={<TenantManagementPage />} />
-        <Route path="tenants/new" element={<CreateTenantPage />} />
-        <Route path="tenants/:tenantId" element={<TenantDetailPage />} />
-        <Route path="tenants/:tenantId/configuration" element={<TenantConfigurationPage />} />
-
-        {/* Users & Roles — static route must precede dynamic segment */}
-        <Route path="users" element={<UserManagementPage />} />
-        <Route path="users/roles" element={<RoleManagementPage />} />
-        {/* users/:userId renders the user list filtered by ID; kept for back-compat but
-            UserManagementPage does not yet read the param — navigate to /admin/users instead */}
-
-        {/* Modules */}
-        <Route path="modules" element={<ModulesPage />} />
-
-        {/* Billing */}
-        <Route path="billing" element={<BillingDashboardPage />} />
-        <Route path="billing/subscriptions" element={<SubscriptionManagementPage />} />
-        <Route path="billing/invoices" element={<InvoicesPage />} />
-        <Route path="billing/invoices/new" element={<InvoicesPage />} />
-        <Route path="billing/reports" element={<BillingReportsPage />} />
-        <Route path="billing/plans" element={<PlanManagementPage />} />
-        <Route path="billing/discounts" element={<DiscountCodePage />} />
-        <Route path="billing/module-pricing" element={<ModulePricingPage />} />
-        <Route path="billing/payments" element={<PaymentsPage />} />
-        <Route path="billing/usage" element={<UsageDashboardPage />} />
-        <Route path="billing/custom-plans" element={<CustomPlansListPage />} />
-        <Route path="billing/custom-plans/new" element={<CustomPlanBuilderPage />} />
-        <Route path="billing/custom-plan-builder" element={<Navigate to="/admin/billing/custom-plans/new" replace />} />
-
-        {/* Messaging Monitoring (SUPER_ADMIN) */}
-        <Route path="messaging/monitoring" element={<MessagingMonitoringPage />} />
-        <Route path="messaging/tenants" element={<MessagingTenantsPage />} />
-        <Route path="messaging/audit" element={<MessagingAuditPage />} />
-        <Route path="messaging/compliance" element={<MessagingCompliancePage />} />
-        <Route path="messaging/retention" element={<MessagingRetentionPage />} />
-        <Route path="messaging/ai-dashboard" element={<MessagingAiDashboardPage />} />
-        <Route path="messaging/ai-personas" element={<MessagingAiPersonasPage />} />
-
-        {/* Support */}
-        <Route path="support/tickets" element={<TicketsPage />} />
-        <Route path="support/messaging" element={<MessagingPage />} />
-        <Route path="support/announcements" element={<AnnouncementsPage />} />
-        <Route path="support/onboarding" element={<OnboardingPage />} />
-
-        {/* Security */}
-        <Route path="security/activity" element={<ActivityLogPage />} />
-        <Route path="security/audit" element={<AuditTrailPage />} />
-        <Route path="security/compliance" element={<CompliancePage />} />
-        <Route path="security/threats" element={<SecurityDashboardPage />} />
-
-        {/* System Management */}
-        <Route path="system/features" element={<FeatureTogglesPage />} />
-        <Route path="system/maintenance" element={<MaintenancePage />} />
-        <Route path="system/performance" element={<PerformanceDashboardPage />} />
-        <Route path="system/errors" element={<ErrorTrackingPage />} />
-        <Route path="system/jobs" element={<JobQueuePage />} />
-        <Route path="system/impersonation" element={<ImpersonationPage />} />
-        <Route path="system/debug" element={<DebugToolsPage />} />
-
-        {/* Database */}
-        <Route path="database" element={<DatabaseManagementPage />} />
-        <Route path="database/explorer" element={<DatabaseExplorerPage />} />
-
-        {/* Audit */}
-        <Route path="audit" element={<AuditLogPage />} />
-
-        {/* Settings */}
-        <Route path="settings" element={<SystemSettingsPage />} />
-        <Route path="settings/email" element={<EmailTemplatesPage />} />
-        <Route path="settings/integrations" element={<IpAccessRulesPage />} />
-        <Route path="settings/provisioning" element={<ProvisioningSettingsPage />} />
-
-        {/* Fallback */}
-        <Route path="*" element={<Navigate to="/admin" replace />} />
+        {ADMIN_ROUTES.map((route) => {
+          const Page = ADMIN_ROUTE_COMPONENTS[route.id];
+          return route.remotePath === '' ? (
+            <Route key={route.id} index element={<Page />} />
+          ) : (
+            <Route key={route.id} path={route.remotePath} element={<Page />} />
+          );
+        })}
+        {ADMIN_ROUTE_REDIRECTS.map((redirect) => (
+          <Route
+            key={redirect.id}
+            path={redirect.remotePath}
+            element={<Navigate to={getAdminRoute(redirect.targetRouteId).path} replace />}
+          />
+        ))}
+        <Route path="*" element={<Navigate to={getAdminRoute('admin-dashboard').path} replace />} />
       </Routes>
     </Suspense>
   );

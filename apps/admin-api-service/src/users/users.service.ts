@@ -10,6 +10,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { isPlatformRole, type Role } from '@platform/identity';
 import { ClientProxy } from '@nestjs/microservices';
 import { InjectDataSource } from '@nestjs/typeorm';
 import {
@@ -28,6 +29,11 @@ import {
 import { catchError, firstValueFrom, throwError, timeout } from 'rxjs';
 import { DataSource } from 'typeorm';
 
+import {
+  createStandardPaginatedResult,
+  type IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
+
 /**
  * Default NATS request timeout when AUTH_NATS_TIMEOUT_MS is not configured.
  * 15 s matches the messaging-admin NATS client and leaves headroom for
@@ -37,7 +43,7 @@ const DEFAULT_AUTH_NATS_TIMEOUT_MS = 15_000;
 
 export interface UserFilter {
   tenantId?: string;
-  role?: string;
+  role?: Role;
   status?: 'active' | 'inactive' | 'all';
   search?: string;
 }
@@ -47,7 +53,7 @@ export interface UserDto {
   email: string;
   firstName: string;
   lastName: string;
-  role: string;
+  role: Role;
   tenantId: string | null;
   tenantName: string | null;
   isActive: boolean;
@@ -56,19 +62,13 @@ export interface UserDto {
   updatedAt: Date;
 }
 
-export interface PaginatedUsers {
-  data: UserDto[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
+export type PaginatedUsers = IStandardPaginatedResult<UserDto>;
 
 export interface UserStats {
   totalUsers: number;
   activeUsers: number;
   inactiveUsers: number;
-  usersByRole: { role: string; count: number }[];
+  usersByRole: { role: Role; count: number }[];
   usersByTenant: { tenantId: string; tenantName: string; count: number }[];
   newUsersLast30Days: number;
   loginsLast24Hours: number;
@@ -95,6 +95,37 @@ export interface UserSession {
   isActive: boolean;
 }
 
+interface StoredUserRow {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: unknown;
+  tenantId: string | null;
+  tenantName: string | null;
+  isActive: boolean;
+  lastLoginAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+function requirePlatformRole(value: unknown): Role {
+  if (!isPlatformRole(value)) {
+    throw new InternalServerErrorException(
+      'Stored user has a role outside the canonical platform role catalogue',
+    );
+  }
+
+  return value;
+}
+
+function toUserDto(row: StoredUserRow): UserDto {
+  return {
+    ...row,
+    role: requirePlatformRole(row.role),
+  };
+}
+
 @Injectable()
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
@@ -108,9 +139,8 @@ export class UsersService {
     private readonly authNatsClient: ClientProxy,
   ) {
     const configured = parseInt(process.env['AUTH_NATS_TIMEOUT_MS'] ?? '', 10);
-    this.authNatsTimeoutMs = Number.isFinite(configured) && configured > 0
-      ? configured
-      : DEFAULT_AUTH_NATS_TIMEOUT_MS;
+    this.authNatsTimeoutMs =
+      Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_AUTH_NATS_TIMEOUT_MS;
   }
 
   /**
@@ -153,8 +183,7 @@ export class UsersService {
       paramIndex++;
     }
 
-    const whereClause =
-      whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
+    const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
 
     // Validate sort column to prevent SQL injection
     const allowedSortColumns = [
@@ -173,9 +202,7 @@ export class UsersService {
       role: 'role',
       lastLoginAt: '"lastLoginAt"',
     };
-    const sortColumn = allowedSortColumns.includes(sortBy)
-      ? sortColumnMap[sortBy]
-      : '"createdAt"';
+    const sortColumn = allowedSortColumns.includes(sortBy) ? sortColumnMap[sortBy] : '"createdAt"';
 
     // C-2 fix: enforce safe sort order at service layer to prevent SQL injection
     const safeSortOrder = sortOrder === 'ASC' ? 'ASC' : 'DESC';
@@ -208,19 +235,13 @@ export class UsersService {
 
     try {
       const [users, countResult] = await Promise.all([
-        this.dataSource.query(query, [...params, limit, offset]),
+        this.dataSource.query<StoredUserRow[]>(query, [...params, limit, offset]),
         this.dataSource.query(countQuery, params),
       ]);
 
       const total = parseInt(countResult[0]?.total || '0', 10);
 
-      return {
-        data: users,
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      };
+      return createStandardPaginatedResult(users.map(toUserDto), total, page, limit);
     } catch (error) {
       this.logger.error(`Failed to list users: ${(error as Error).message}`);
       throw error;
@@ -241,9 +262,7 @@ export class UsersService {
         loginsResult,
       ] = await Promise.all([
         this.dataSource.query(`SELECT COUNT(*) as count FROM auth.users`),
-        this.dataSource.query(
-          `SELECT COUNT(*) as count FROM auth.users WHERE "isActive" = true`,
-        ),
+        this.dataSource.query(`SELECT COUNT(*) as count FROM auth.users WHERE "isActive" = true`),
         this.dataSource.query(`
           SELECT role, COUNT(*) as count
           FROM auth.users
@@ -278,8 +297,8 @@ export class UsersService {
         totalUsers,
         activeUsers,
         inactiveUsers: totalUsers - activeUsers,
-        usersByRole: byRoleResult.map((r: { role: string; count: string }) => ({
-          role: r.role,
+        usersByRole: byRoleResult.map((r: { role: unknown; count: string }) => ({
+          role: requirePlatformRole(r.role),
           count: parseInt(r.count, 10),
         })),
         usersByTenant: byTenantResult.map(
@@ -303,7 +322,7 @@ export class UsersService {
    */
   async getRecentlyActiveUsers(limit = 50): Promise<UserDto[]> {
     try {
-      return await this.dataSource.query(
+      const users = await this.dataSource.query<StoredUserRow[]>(
         `
         SELECT
           u.id,
@@ -315,7 +334,8 @@ export class UsersService {
           t.name as "tenantName",
           u."isActive",
           u."lastLoginAt",
-          u."createdAt"
+          u."createdAt",
+          u."updatedAt"
         FROM auth.users u
         LEFT JOIN auth.tenants t ON u."tenantId" = t.id
         WHERE u."lastLoginAt" IS NOT NULL
@@ -324,10 +344,9 @@ export class UsersService {
       `,
         [limit],
       );
+      return users.map(toUserDto);
     } catch (error) {
-      this.logger.error(
-        `Failed to get recently active users: ${(error as Error).message}`,
-      );
+      this.logger.error(`Failed to get recently active users: ${(error as Error).message}`);
       throw error;
     }
   }
@@ -337,7 +356,7 @@ export class UsersService {
    */
   async getUserById(id: string): Promise<UserDto> {
     try {
-      const result = await this.dataSource.query(
+      const result = await this.dataSource.query<StoredUserRow[]>(
         `
         SELECT
           u.id,
@@ -362,7 +381,7 @@ export class UsersService {
         throw new NotFoundException(`User with ID ${id} not found`);
       }
 
-      return result[0];
+      return toUserDto(result[0]);
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
       this.logger.error(`Failed to get user: ${(error as Error).message}`);
@@ -373,10 +392,7 @@ export class UsersService {
   /**
    * Get user's activity log
    */
-  async getUserActivity(
-    userId: string,
-    limit = 50,
-  ): Promise<UserActivity[]> {
+  async getUserActivity(userId: string, limit = 50): Promise<UserActivity[]> {
     try {
       return await this.dataSource.query(
         `
@@ -397,9 +413,7 @@ export class UsersService {
         [userId, limit],
       );
     } catch (error) {
-      this.logger.error(
-        `Failed to get user activity: ${(error as Error).message}`,
-      );
+      this.logger.error(`Failed to get user activity: ${(error as Error).message}`);
       return [];
     }
   }
@@ -427,9 +441,7 @@ export class UsersService {
         [userId],
       );
     } catch (error) {
-      this.logger.error(
-        `Failed to get user sessions: ${(error as Error).message}`,
-      );
+      this.logger.error(`Failed to get user sessions: ${(error as Error).message}`);
       return [];
     }
   }
@@ -454,7 +466,7 @@ export class UsersService {
     firstName: string;
     lastName: string;
     password: string;
-    role: string;
+    role: Role;
     tenantId?: string;
   }): Promise<UserDto> {
     const command: AdminCreateUserCommand = {
@@ -518,7 +530,7 @@ export class UsersService {
     dto: {
       firstName?: string;
       lastName?: string;
-      role?: string;
+      role?: Role;
       tenantId?: string;
       isActive?: boolean;
     },
@@ -542,10 +554,10 @@ export class UsersService {
       ...(dto.isActive !== undefined && { isActive: dto.isActive }),
     };
 
-    const result = await this.sendAuthCommand<
-      AdminUpdateUserCommand,
-      AdminUpdateUserResult
-    >(AUTH_ADMIN_COMMAND_SUBJECTS.UPDATE_USER, command);
+    const result = await this.sendAuthCommand<AdminUpdateUserCommand, AdminUpdateUserResult>(
+      AUTH_ADMIN_COMMAND_SUBJECTS.UPDATE_USER,
+      command,
+    );
 
     if (!result.success || !result.user) {
       throw this.mapUpdateError(result);
@@ -688,10 +700,9 @@ export class UsersService {
    */
   async getTenantName(tenantId: string): Promise<string | null> {
     try {
-      const result = await this.dataSource.query(
-        `SELECT name FROM tenants WHERE id = $1`,
-        [tenantId],
-      );
+      const result = await this.dataSource.query(`SELECT name FROM tenants WHERE id = $1`, [
+        tenantId,
+      ]);
       return result?.[0]?.name || null;
     } catch (error) {
       this.logger.error(`Failed to get tenant name: ${(error as Error).message}`);
@@ -722,9 +733,7 @@ export class UsersService {
           catchError((err: Error) => {
             // SECURITY: log only the subject + error message, never the
             // command payload (it contains plaintext passwords).
-            this.logger.error(
-              `NATS request failed: subject=${subject}, error=${err.message}`,
-            );
+            this.logger.error(`NATS request failed: subject=${subject}, error=${err.message}`);
             return throwError(() => err);
           }),
         ),
@@ -740,16 +749,11 @@ export class UsersService {
       }
 
       if (message.includes('not connected') || message.includes('CONN_CLOSED')) {
-        throw new ServiceUnavailableException(
-          'Auth service is currently unavailable',
-        );
+        throw new ServiceUnavailableException('Auth service is currently unavailable');
       }
 
       if (err instanceof HttpException) throw err;
-      throw new HttpException(
-        `Auth service error: ${message}`,
-        HttpStatus.BAD_GATEWAY,
-      );
+      throw new HttpException(`Auth service error: ${message}`, HttpStatus.BAD_GATEWAY);
     }
   }
 

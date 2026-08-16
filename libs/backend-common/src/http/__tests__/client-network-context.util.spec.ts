@@ -35,6 +35,7 @@ describe('resolveClientNetworkContext (ORPHAN-MEDIUM-319)', () => {
           email: null,
           mfaVerified: false,
           issuedAt: new Date().toISOString(),
+          assertionId: '11111111-1111-4111-8111-111111111111',
           clientIp: '193.212.164.37',
           clientUserAgent: 'Mozilla/5.0',
         },

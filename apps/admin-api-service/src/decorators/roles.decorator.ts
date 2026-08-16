@@ -4,6 +4,7 @@
  */
 
 import { SetMetadata, type CustomDecorator } from '@nestjs/common';
+import { Role, type Role as RoleCode } from '@platform/identity';
 
 export const ROLES_KEY = 'roles';
 
@@ -11,7 +12,8 @@ export const ROLES_KEY = 'roles';
  * Endpoint'e erişebilecek rolleri belirler
  * @param roles - İzin verilen roller
  */
-export const Roles = (...roles: string[]): CustomDecorator<string> => SetMetadata(ROLES_KEY, roles);
+export const Roles = (...roles: RoleCode[]): CustomDecorator<string> =>
+  SetMetadata(ROLES_KEY, roles);
 
 /**
  * Sadece platform admin operatorune izin verir (auth role: SUPER_ADMIN).
@@ -24,11 +26,4 @@ export const Roles = (...roles: string[]): CustomDecorator<string> => SetMetadat
  * open cross-tenant writes. The admin-api boundary is platform-admin only; there
  * is no tenant-facing authorization here, and the name now says so.
  */
-export const PlatformAdminOnly = (): CustomDecorator<string> => Roles('SUPER_ADMIN');
-
-/**
- * Admin API'de authenticated genisletmesi kullanilmaz; bu boundary platform
- * admin ile sabitlenir.
- */
-export const AllowAuthenticated = (): CustomDecorator<string> =>
-  Roles('SUPER_ADMIN');
+export const PlatformAdminOnly = (): CustomDecorator<string> => Roles(Role.SUPER_ADMIN);

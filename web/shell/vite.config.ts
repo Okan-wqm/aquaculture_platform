@@ -42,7 +42,8 @@ export default defineConfig(({ command }) => {
     resolve: {
       alias: {
         '@': resolve(__dirname, 'src'),
-        '@aquaculture/shared-ui': resolve(__dirname, '../shared-ui/dist'),
+      '@aquaculture/shared-ui': resolve(__dirname, '../shared-ui/dist'),
+      '@platform/identity': resolve(__dirname, '../../libs/event-contracts/src/roles.ts'),
       },
     },
     server: {

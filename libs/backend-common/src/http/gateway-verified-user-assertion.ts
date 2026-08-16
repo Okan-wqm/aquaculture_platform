@@ -1,12 +1,16 @@
 import { randomUUID } from 'crypto';
 
-import type { VerifiedUserAssertion } from '../types/tenant-request.interface';
+import {
+  encodeGatewayVerifiedUserAssertionV1,
+  type ImpersonationPermissionsContract,
+} from '@aquaculture/shared-contracts';
+import { isPlatformRole, type Role } from '@platform/identity';
 
 export interface GatewayVerifiedUserAssertionInput {
   readonly subject: string;
   readonly tenantId?: string | null;
   readonly effectiveTenantId?: string | null;
-  readonly roles?: readonly string[];
+  readonly roles?: readonly Role[];
   readonly email?: string | null;
   readonly mfaVerified?: boolean;
   readonly assertionId?: string;
@@ -28,6 +32,24 @@ export interface GatewayVerifiedUserAssertionInput {
   readonly clientIp?: string | null;
   /** ORPHAN-MEDIUM-319: end-client User-Agent as received by the gateway. */
   readonly clientUserAgent?: string | null;
+  /** Active canonical impersonation provenance. Must be supplied as a pair. */
+  readonly impersonationSessionId?: string;
+  readonly impersonationPermissions?: ImpersonationPermissionsContract;
+}
+
+/**
+ * Narrow the untrusted role strings decoded by the gateway to the single
+ * platform-role vocabulary before they can enter the signed assertion.
+ * Reject the complete list when any member is unknown; silently dropping a
+ * member would turn malformed identity into a different identity.
+ */
+export function requireCanonicalGatewayAssertionRoles(
+  roles: readonly string[],
+): readonly Role[] {
+  if (!roles.every(isPlatformRole)) {
+    throw new TypeError('ASSERTION_INVALID_ROLES');
+  }
+  return roles;
 }
 
 /**
@@ -41,7 +63,7 @@ export function buildGatewayVerifiedUserAssertion(
   input: GatewayVerifiedUserAssertionInput,
 ): string {
   const tenantId = input.tenantId ?? null;
-  const assertion: VerifiedUserAssertion = {
+  const assertion = {
     issuer: 'gateway-api',
     subject: input.subject,
     tenantId,
@@ -56,30 +78,36 @@ export function buildGatewayVerifiedUserAssertion(
     // length>0 ? : undefined shape). The assertionHash already covers the full
     // base64 body, so these added fields are integrity-protected with no
     // signing change. Managers carry no assignedSiteIds (they bypass).
-    ...(input.assignedSiteIds && input.assignedSiteIds.length > 0
+    ...(input.assignedSiteIds !== undefined
       ? { assignedSiteIds: [...input.assignedSiteIds] }
       : {}),
-    ...(input.mobileFeatures && input.mobileFeatures.length > 0
+    ...(input.mobileFeatures !== undefined
       ? { mobileFeatures: [...input.mobileFeatures] }
       : {}),
     // SSOT-C-13: carry the plan tier ordinal into the HMAC-protected blob only
     // when present (platform SUPER_ADMIN tokens omit it). Integrity-protected by
     // the assertionHash with no signing change, same as the claims above.
-    ...(typeof input.planLevel === 'number'
-      ? { planLevel: input.planLevel }
-      : {}),
+    ...(typeof input.planLevel === 'number' ? { planLevel: input.planLevel } : {}),
     // MT-HIGH-054: carry tenant-RBAC capabilities into the HMAC-protected blob
     // only when present (admins carry none — they bypass). Integrity-protected by
     // the assertionHash with no signing change, same as the claims above.
-    ...(input.resourcePermissions && input.resourcePermissions.length > 0
+    ...(input.resourcePermissions !== undefined
       ? { resourcePermissions: [...input.resourcePermissions] }
       : {}),
     // ORPHAN-MEDIUM-319: carry the gateway-resolved client network identity
     // into the HMAC-protected blob only when present. Integrity-protected by
     // the assertionHash with no signing change, same as the claims above.
-    ...(input.clientIp ? { clientIp: input.clientIp } : {}),
-    ...(input.clientUserAgent ? { clientUserAgent: input.clientUserAgent } : {}),
+    ...(input.clientIp !== undefined ? { clientIp: input.clientIp } : {}),
+    ...(input.clientUserAgent !== undefined
+      ? { clientUserAgent: input.clientUserAgent }
+      : {}),
+    ...(input.impersonationSessionId !== undefined
+      ? { impersonationSessionId: input.impersonationSessionId }
+      : {}),
+    ...(input.impersonationPermissions !== undefined
+      ? { impersonationPermissions: input.impersonationPermissions }
+      : {}),
   };
 
-  return Buffer.from(JSON.stringify(assertion), 'utf8').toString('base64url');
+  return encodeGatewayVerifiedUserAssertionV1(assertion);
 }

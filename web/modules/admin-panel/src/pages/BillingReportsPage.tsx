@@ -3,6 +3,10 @@ import { Link } from 'react-router-dom';
 
 import { billingApi } from '../services/api/billing';
 import { SubscriptionStatus } from '../services/types/billing';
+import {
+  createAdminDownloadFilename,
+  downloadAdminOwnedBlob,
+} from '../services/browser-capabilities';
 
 interface BillingReportSummary {
   totalInvoices: number;
@@ -34,7 +38,7 @@ const BillingReportsPage: React.FC = () => {
       const [invoiceStats, subscriptions, payments] = await Promise.all([
         billingApi.getInvoiceStats(),
         billingApi.getSubscriptions({ status: [SubscriptionStatus.ACTIVE], limit: 1, offset: 0 }),
-        billingApi.getPayments({ status: 'succeeded', limit: 100, offset: 0 }),
+        billingApi.getPayments({ status: ['succeeded'], limit: 100, offset: 0 }),
       ]);
 
       setSummary({
@@ -45,7 +49,9 @@ const BillingReportsPage: React.FC = () => {
         totalOverdue: invoiceStats.totalOverdue ?? 0,
         activeSubscriptions: subscriptions.total ?? 0,
         successfulPayments: payments.total ?? 0,
-        refundedPayments: payments.payments.filter((payment) => Number(payment.refundedAmount ?? 0) > 0).length,
+        refundedPayments: payments.payments.filter(
+          (payment) => Number(payment.refundedAmount ?? 0) > 0,
+        ).length,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load billing report');
@@ -77,14 +83,12 @@ const BillingReportsPage: React.FC = () => {
     const blob = new Blob([rows.map((row) => row.join(',')).join('\n')], {
       type: 'text/csv;charset=utf-8;',
     });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `billing-report-${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    downloadAdminOwnedBlob({
+      blob,
+      filename: createAdminDownloadFilename(
+        `billing-report-${new Date().toISOString().slice(0, 10)}.csv`,
+      ),
+    });
   };
 
   return (
@@ -130,7 +134,10 @@ const BillingReportsPage: React.FC = () => {
       {loading ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {Array.from({ length: 8 }).map((_, index) => (
-            <div key={index} className="h-28 animate-pulse rounded-xl border border-gray-200 bg-white p-4">
+            <div
+              key={index}
+              className="h-28 animate-pulse rounded-xl border border-gray-200 bg-white p-4"
+            >
               <div className="h-4 w-24 rounded bg-gray-200" />
               <div className="mt-4 h-8 w-32 rounded bg-gray-200" />
             </div>
@@ -161,7 +168,9 @@ interface ReportCardProps {
 const ReportCard: React.FC<ReportCardProps> = ({ label, value, tone = 'default' }) => (
   <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
     <p className="text-sm text-gray-500">{label}</p>
-    <p className={`mt-2 text-2xl font-bold ${tone === 'danger' ? 'text-red-600' : 'text-gray-900'}`}>
+    <p
+      className={`mt-2 text-2xl font-bold ${tone === 'danger' ? 'text-red-600' : 'text-gray-900'}`}
+    >
       {value}
     </p>
   </div>

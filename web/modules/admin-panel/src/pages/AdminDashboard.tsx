@@ -4,20 +4,18 @@
  * SUPER_ADMIN paneli ana sayfası - Sistem metrikleri ve hızlı erişim.
  */
 
-import { Alert, Badge, Card, MetricCard } from '@aquaculture/shared-ui';
+import { Alert, Badge, Card, MetricCard, getAdminRoute } from '@aquaculture/shared-ui';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 
-import { adminRoutes } from '../routes/adminRoutes';
 import {
   systemApi,
   usersApi,
   auditApi,
-  debugApi,
   type SystemMetrics,
   type ServiceHealth,
   type UserStats,
-  type AuditLog,
+  type AuditLogDto,
   type CircuitBreakerStatus,
 } from '../services/adminApi';
 
@@ -25,21 +23,12 @@ import {
 // Types
 // ============================================================================
 
-interface CacheStats {
-  totalEntries: number;
-  totalSize: number;
-  hitRate: number;
-  missRate: number;
-  byStore: Array<{ store: string; entries: number; size: number }>;
-}
-
 interface DashboardData {
   metrics: SystemMetrics | null;
   userStats: UserStats | null;
-  services: ServiceHealth[];
-  recentLogs: AuditLog[];
+  services: readonly ServiceHealth[];
+  recentLogs: readonly AuditLogDto[];
   circuitBreakers: CircuitBreakerStatus | null;
-  cacheStats: CacheStats | null;
   loading: boolean;
   error: string | null;
 }
@@ -49,11 +38,41 @@ interface DashboardData {
 // ============================================================================
 
 const quickLinks = [
-  { id: 'tenants', label: 'Tenant Management', path: '/admin/tenants', icon: '🏢', description: 'Create tenants, assign modules' },
-  { id: 'users', label: 'User Management', path: '/admin/users', icon: '👥', description: 'Manage all users' },
-  { id: 'modules', label: 'Module Management', path: '/admin/modules', icon: '📦', description: 'Manage system modules' },
-  { id: 'settings', label: 'System Settings', path: '/admin/settings', icon: '⚙️', description: 'Platform settings' },
-  { id: 'audit', label: 'Audit Logs', path: adminRoutes.audit, icon: '📋', description: 'System activities' },
+  {
+    id: 'tenants',
+    label: 'Tenant Management',
+    path: getAdminRoute('tenant-list').path,
+    icon: '🏢',
+    description: 'Create tenants, assign modules',
+  },
+  {
+    id: 'users',
+    label: 'User Management',
+    path: getAdminRoute('user-list').path,
+    icon: '👥',
+    description: 'Manage all users',
+  },
+  {
+    id: 'modules',
+    label: 'Module Management',
+    path: getAdminRoute('admin-modules').path,
+    icon: '📦',
+    description: 'Manage system modules',
+  },
+  {
+    id: 'settings',
+    label: 'System Settings',
+    path: getAdminRoute('settings-general').path,
+    icon: '⚙️',
+    description: 'Platform settings',
+  },
+  {
+    id: 'audit',
+    label: 'Audit Logs',
+    path: getAdminRoute('admin-audit').path,
+    icon: '📋',
+    description: 'System activities',
+  },
 ];
 
 const formatMetricNumber = (value: number): string =>
@@ -63,7 +82,7 @@ const formatMetricNumber = (value: number): string =>
 // Service Status Component
 // ============================================================================
 
-const ServiceStatusCard: React.FC<{ services: ServiceHealth[] }> = ({ services }) => {
+const ServiceStatusCard: React.FC<{ services: readonly ServiceHealth[] }> = ({ services }) => {
   const healthyCount = services.filter((s) => s.status === 'healthy').length;
   const degradedCount = services.filter((s) => s.status === 'degraded').length;
   const unhealthyCount = services.filter((s) => s.status === 'unhealthy').length;
@@ -87,8 +106,8 @@ const ServiceStatusCard: React.FC<{ services: ServiceHealth[] }> = ({ services }
                 service.status === 'healthy'
                   ? 'border-green-200 bg-green-50'
                   : service.status === 'degraded'
-                  ? 'border-yellow-200 bg-yellow-50'
-                  : 'border-red-200 bg-red-50'
+                    ? 'border-yellow-200 bg-yellow-50'
+                    : 'border-red-200 bg-red-50'
               }`}
             >
               <div className="flex items-center space-x-2">
@@ -97,8 +116,8 @@ const ServiceStatusCard: React.FC<{ services: ServiceHealth[] }> = ({ services }
                     service.status === 'healthy'
                       ? 'bg-green-500'
                       : service.status === 'degraded'
-                      ? 'bg-yellow-500'
-                      : 'bg-red-500'
+                        ? 'bg-yellow-500'
+                        : 'bg-red-500'
                   }`}
                 />
                 <span className="text-sm font-medium text-gray-700">{service.name}</span>
@@ -118,7 +137,9 @@ const ServiceStatusCard: React.FC<{ services: ServiceHealth[] }> = ({ services }
 // Database Stats Component
 // ============================================================================
 
-const DatabaseStatsCard: React.FC<{ database: SystemMetrics['database'] | undefined }> = ({ database }) => {
+const DatabaseStatsCard: React.FC<{ database: SystemMetrics['database'] | undefined }> = ({
+  database,
+}) => {
   if (!database) return null;
 
   return (
@@ -154,7 +175,7 @@ const DatabaseStatsCard: React.FC<{ database: SystemMetrics['database'] | undefi
 // Recent Activity Component
 // ============================================================================
 
-const RecentActivityCard: React.FC<{ logs: AuditLog[] }> = ({ logs }) => {
+const RecentActivityCard: React.FC<{ logs: readonly AuditLogDto[] }> = ({ logs }) => {
   const getSeverityColor = (severity: string): 'error' | 'warning' | 'info' | 'default' => {
     switch (severity) {
       case 'critical':
@@ -185,7 +206,10 @@ const RecentActivityCard: React.FC<{ logs: AuditLog[] }> = ({ logs }) => {
     <Card>
       <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
         <h3 className="text-lg font-semibold text-gray-900">Recent Activity</h3>
-        <Link to={adminRoutes.audit} className="text-sm text-primary-600 hover:text-primary-700">
+        <Link
+          to={getAdminRoute('admin-audit').path}
+          className="text-sm text-primary-600 hover:text-primary-700"
+        >
           View All
         </Link>
       </div>
@@ -226,7 +250,12 @@ const RecentActivityCard: React.FC<{ logs: AuditLog[] }> = ({ logs }) => {
 const stateStyles: Record<string, { bg: string; border: string; dot: string; label: string }> = {
   closed: { bg: 'bg-green-50', border: 'border-green-200', dot: 'bg-green-500', label: 'Closed' },
   open: { bg: 'bg-red-50', border: 'border-red-200', dot: 'bg-red-500', label: 'Open' },
-  half_open: { bg: 'bg-yellow-50', border: 'border-yellow-200', dot: 'bg-yellow-500', label: 'Half-Open' },
+  half_open: {
+    bg: 'bg-yellow-50',
+    border: 'border-yellow-200',
+    dot: 'bg-yellow-500',
+    label: 'Half-Open',
+  },
 };
 
 const CircuitBreakerCard: React.FC<{
@@ -250,7 +279,12 @@ const CircuitBreakerCard: React.FC<{
     if (diffMins < 1) return 'Just now';
     if (diffMins < 60) return `${diffMins}m ago`;
     if (diffHours < 24) return `${diffHours}h ago`;
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
   };
 
   return (
@@ -265,17 +299,20 @@ const CircuitBreakerCard: React.FC<{
           const isResetting = resetting === name;
 
           return (
-            <div
-              key={name}
-              className={`p-4 rounded-lg border ${style.border} ${style.bg}`}
-            >
+            <div key={name} className={`p-4 rounded-lg border ${style.border} ${style.bg}`}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-3">
                   <div className={`w-3 h-3 rounded-full ${style.dot}`} />
                   <div>
                     <p className="text-sm font-semibold text-gray-900 uppercase">{name}</p>
                     <Badge
-                      variant={info.state === 'closed' ? 'success' : info.state === 'open' ? 'error' : 'warning'}
+                      variant={
+                        info.state === 'closed'
+                          ? 'success'
+                          : info.state === 'open'
+                            ? 'error'
+                            : 'warning'
+                      }
                       size="sm"
                     >
                       {style.label}
@@ -311,60 +348,6 @@ const CircuitBreakerCard: React.FC<{
 };
 
 // ============================================================================
-// Cache Stats Component
-// ============================================================================
-
-const CacheStatsCard: React.FC<{
-  cacheStats: CacheStats | null;
-  onClearCache: () => void;
-  clearing: boolean;
-}> = ({ cacheStats, onClearCache, clearing }) => {
-  return (
-    <Card>
-      <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-gray-900">Cache</h3>
-        <button
-          onClick={onClearCache}
-          disabled={clearing}
-          className="inline-flex items-center px-3 py-1.5 border border-red-300 rounded-md text-xs font-medium text-red-700 bg-white hover:bg-red-50 disabled:opacity-50"
-        >
-          {clearing ? 'Clearing...' : 'Clear Cache'}
-        </button>
-      </div>
-      <div className="p-4">
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <p className="text-xs text-gray-500">Total Entries</p>
-            <p className="text-lg font-semibold text-gray-900">
-              {cacheStats ? formatMetricNumber(cacheStats.totalEntries) : '-'}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-gray-500">Hit Rate</p>
-            <p className="text-lg font-semibold text-gray-900">
-              {cacheStats ? `${(cacheStats.hitRate * 100).toFixed(1)}%` : '-'}
-            </p>
-          </div>
-        </div>
-        {cacheStats && cacheStats.byStore.length > 0 && (
-          <div className="mt-3 pt-3 border-t border-gray-100">
-            <p className="text-xs text-gray-500 mb-2">By Store</p>
-            <div className="space-y-1">
-              {cacheStats.byStore.map((store) => (
-                <div key={store.store} className="flex items-center justify-between text-xs">
-                  <span className="text-gray-600">{store.store}</span>
-                  <span className="font-medium text-gray-900">{store.entries} entries</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    </Card>
-  );
-};
-
-// ============================================================================
 // Admin Dashboard
 // ============================================================================
 
@@ -375,7 +358,6 @@ const AdminDashboard: React.FC = () => {
     services: [],
     recentLogs: [],
     circuitBreakers: null,
-    cacheStats: null,
     loading: true,
     error: null,
   });
@@ -411,9 +393,8 @@ const AdminDashboard: React.FC = () => {
         metrics: metrics.status === 'fulfilled' ? metrics.value : null,
         userStats: userStats.status === 'fulfilled' ? userStats.value : null,
         services: services.status === 'fulfilled' ? services.value : [],
-        recentLogs: logsResult.status === 'fulfilled' ? logsResult.value.data : [],
+        recentLogs: logsResult.status === 'fulfilled' ? [...logsResult.value.items] : [],
         circuitBreakers: circuitBreakers.status === 'fulfilled' ? circuitBreakers.value : null,
-        cacheStats: null,
         loading: false,
         error: null,
       });
@@ -471,24 +452,7 @@ const AdminDashboard: React.FC = () => {
     };
   }, [fetchDashboardData]);
 
-  const [clearingCache, setClearingCache] = useState(false);
-
-  // Cache management is available in Debug Tools page (/admin/system/debug-tools)
-  // which is only accessible in non-production environments.
-  const handleClearCache = useCallback(async () => {
-    setClearingCache(true);
-    try {
-      await debugApi.invalidateCacheByPattern('*');
-      const freshStats = await debugApi.getCacheStats();
-      setData((prev) => ({ ...prev, cacheStats: freshStats }));
-    } catch {
-      // Debug endpoints are blocked in production by nginx
-    } finally {
-      setClearingCache(false);
-    }
-  }, []);
-
-  const { metrics, userStats, services, recentLogs, circuitBreakers, cacheStats, loading, error } = data;
+  const { metrics, userStats, services, recentLogs, circuitBreakers, loading, error } = data;
 
   // Calculate metrics with fallbacks
   const platformMetrics = metrics?.platform || {
@@ -532,7 +496,11 @@ const AdminDashboard: React.FC = () => {
       </div>
 
       {error && (
-        <Alert type="error" dismissible onDismiss={() => setData((prev) => ({ ...prev, error: null }))}>
+        <Alert
+          type="error"
+          dismissible
+          onDismiss={() => setData((prev) => ({ ...prev, error: null }))}
+        >
           {error}
         </Alert>
       )}
@@ -542,10 +510,19 @@ const AdminDashboard: React.FC = () => {
         <MetricCard
           title="Total Users"
           value={formatMetricNumber(userStats?.totalUsers || platformMetrics.totalUsers)}
-          change={userStats?.newUsersLast30Days ? ((userStats.newUsersLast30Days / (userStats.totalUsers || 1)) * 100) : 0}
+          change={
+            userStats?.newUsersLast30Days
+              ? (userStats.newUsersLast30Days / (userStats.totalUsers || 1)) * 100
+              : 0
+          }
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"
+              />
             </svg>
           }
         />
@@ -558,7 +535,12 @@ const AdminDashboard: React.FC = () => {
           }
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
+              />
             </svg>
           }
         />
@@ -567,7 +549,12 @@ const AdminDashboard: React.FC = () => {
           value={formatMetricNumber(userStats?.loginsLast24Hours || 0)}
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"
+              />
             </svg>
           }
         />
@@ -576,7 +563,12 @@ const AdminDashboard: React.FC = () => {
           value={formatMetricNumber(platformMetrics.apiCallsLast24h)}
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+              />
             </svg>
           }
         />
@@ -603,15 +595,6 @@ const AdminDashboard: React.FC = () => {
         <div className="lg:col-span-2 space-y-6">
           <ServiceStatusCard services={services} />
           <DatabaseStatsCard database={metrics?.database} />
-          {cacheStats && (
-            <CacheStatsCard
-              cacheStats={cacheStats}
-              onClearCache={() => {
-                void handleClearCache();
-              }}
-              clearing={clearingCache}
-            />
-          )}
         </div>
         <div className="space-y-6">
           <CircuitBreakerCard
@@ -675,7 +658,9 @@ const AdminDashboard: React.FC = () => {
               </div>
               <div>
                 <p className="text-xs text-gray-500">Node Version</p>
-                <p className="text-lg font-semibold text-gray-900">{metrics.resources.nodeVersion}</p>
+                <p className="text-lg font-semibold text-gray-900">
+                  {metrics.resources.nodeVersion}
+                </p>
               </div>
             </div>
           </div>

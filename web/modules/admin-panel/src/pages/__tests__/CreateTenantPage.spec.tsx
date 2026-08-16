@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
+import { PricingMetricType } from '@platform/pricing-metric-vocabulary';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import CreateTenantPage from '../CreateTenantPage';
 import {
@@ -9,7 +10,6 @@ import {
   modulesApi,
   tenantsApi,
   BillingCycle,
-  PricingMetricType,
   TenantProvisioningState,
   TenantTier,
 } from '../../services/adminApi';
@@ -49,21 +49,6 @@ vi.mock('../../services/adminApi', () => ({
   BillingCycle: {
     MONTHLY: 'monthly',
     ANNUAL: 'annual',
-  },
-  PricingMetricType: {
-    BASE_PRICE: 'BASE_PRICE',
-    PER_USER: 'PER_USER',
-    PER_FARM: 'PER_FARM',
-    PER_POND: 'PER_POND',
-    PER_SENSOR: 'PER_SENSOR',
-    PER_DEVICE: 'PER_DEVICE',
-    PER_GB_STORAGE: 'PER_GB_STORAGE',
-    PER_API_CALL: 'PER_API_CALL',
-    PER_ALERT: 'PER_ALERT',
-    PER_REPORT: 'PER_REPORT',
-    PER_SMS: 'PER_SMS',
-    PER_EMAIL: 'PER_EMAIL',
-    PER_INTEGRATION: 'PER_INTEGRATION',
   },
 }));
 

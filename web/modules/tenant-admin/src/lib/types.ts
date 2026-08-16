@@ -7,6 +7,7 @@
  */
 
 import type { TenantRolePermissions } from '../types/permissions';
+import type { Role } from '@platform/identity';
 
 // ============================================================================
 // Enums & Literal Types
@@ -16,8 +17,6 @@ import type { TenantRolePermissions } from '../types/permissions';
 export type TenantPlan = 'TRIAL' | 'STARTER' | 'PROFESSIONAL' | 'ENTERPRISE';
 
 export type TenantStatus = 'PENDING' | 'ACTIVE' | 'SUSPENDED' | 'CANCELLED';
-
-export type UserRole = 'SUPER_ADMIN' | 'TENANT_ADMIN' | 'MODULE_MANAGER' | 'MODULE_USER';
 
 export type UserStatus = 'ACTIVE' | 'INACTIVE' | 'PENDING';
 
@@ -37,7 +36,7 @@ export interface User {
   email: string;
   firstName?: string;
   lastName?: string;
-  role: UserRole | string;
+  role: Role;
   status?: UserStatus;
   isActive?: boolean;
   isEmailVerified?: boolean;
@@ -481,12 +480,7 @@ export type ApiTicketStatus =
 /**
  * Ticket category values.
  */
-export type ApiTicketCategory =
-  | 'technical'
-  | 'billing'
-  | 'feature_request'
-  | 'bug'
-  | 'general';
+export type ApiTicketCategory = 'technical' | 'billing' | 'feature_request' | 'bug' | 'general';
 
 /**
  * A support ticket from the API.

@@ -8,10 +8,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 
 import { securityApi } from '../../services/adminApi';
 import type {
-  BackendSecurityEvent,
-  BackendSecurityHealthScore,
-  BackendSecurityIncident,
-  BackendThreatIndicator,
+  SecurityEventDto,
+  SecurityHealthScoreDto,
+  SecurityIncidentDto,
+  ThreatIntelligenceDto,
   SecurityEventStatus,
 } from '../../services/types/security';
 
@@ -21,21 +21,75 @@ const Icon: React.FC<{ path: string; className?: string }> = ({ path, className 
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={path} />
   </svg>
 );
-const Shield = (p: { className?: string }): React.ReactElement => <Icon path="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" {...p} />;
-const AlertTriangle = (p: { className?: string }): React.ReactElement => <Icon path="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" {...p} />;
-const Activity = (p: { className?: string }): React.ReactElement => <Icon path="M22 12h-4l-3 9L9 3l-3 9H2" {...p} />;
-const RefreshCw = (p: { className?: string }): React.ReactElement => <Icon path="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" {...p} />;
-const Eye = (p: { className?: string }): React.ReactElement => <Icon path="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" {...p} />;
-const Play = (p: { className?: string }): React.ReactElement => <Icon path="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z M21 12a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
-const Pause = (p: { className?: string }): React.ReactElement => <Icon path="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
-const Globe = (p: { className?: string }): React.ReactElement => <Icon path="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064" {...p} />;
-const AlertCircle = (p: { className?: string }): React.ReactElement => <Icon path="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
-const CheckCircle2 = (p: { className?: string }): React.ReactElement => <Icon path="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
-const XCircle = (p: { className?: string }): React.ReactElement => <Icon path="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
-const Zap = (p: { className?: string }): React.ReactElement => <Icon path="M13 10V3L4 14h7v7l9-11h-7z" {...p} />;
-const Target = (p: { className?: string }): React.ReactElement => <Icon path="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" {...p} />;
-const Users = (p: { className?: string }): React.ReactElement => <Icon path="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" {...p} />;
-const X = (p: { className?: string }): React.ReactElement => <Icon path="M6 18L18 6M6 6l12 12" {...p} />;
+const Shield = (p: { className?: string }): React.ReactElement => (
+  <Icon
+    path="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+    {...p}
+  />
+);
+const AlertTriangle = (p: { className?: string }): React.ReactElement => (
+  <Icon
+    path="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+    {...p}
+  />
+);
+const Activity = (p: { className?: string }): React.ReactElement => (
+  <Icon path="M22 12h-4l-3 9L9 3l-3 9H2" {...p} />
+);
+const RefreshCw = (p: { className?: string }): React.ReactElement => (
+  <Icon
+    path="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+    {...p}
+  />
+);
+const Eye = (p: { className?: string }): React.ReactElement => (
+  <Icon
+    path="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+    {...p}
+  />
+);
+const Play = (p: { className?: string }): React.ReactElement => (
+  <Icon
+    path="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+    {...p}
+  />
+);
+const Pause = (p: { className?: string }): React.ReactElement => (
+  <Icon path="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />
+);
+const Globe = (p: { className?: string }): React.ReactElement => (
+  <Icon
+    path="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064"
+    {...p}
+  />
+);
+const AlertCircle = (p: { className?: string }): React.ReactElement => (
+  <Icon path="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />
+);
+const CheckCircle2 = (p: { className?: string }): React.ReactElement => (
+  <Icon path="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />
+);
+const XCircle = (p: { className?: string }): React.ReactElement => (
+  <Icon path="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />
+);
+const Zap = (p: { className?: string }): React.ReactElement => (
+  <Icon path="M13 10V3L4 14h7v7l9-11h-7z" {...p} />
+);
+const Target = (p: { className?: string }): React.ReactElement => (
+  <Icon
+    path="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+    {...p}
+  />
+);
+const Users = (p: { className?: string }): React.ReactElement => (
+  <Icon
+    path="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"
+    {...p}
+  />
+);
+const X = (p: { className?: string }): React.ReactElement => (
+  <Icon path="M6 18L18 6M6 6l12 12" {...p} />
+);
 
 // ============================================================================
 // Types
@@ -77,9 +131,9 @@ interface SecurityIncident {
   severity: EventSeverity;
   status: IncidentStatus;
   category: string;
-  affectedSystems: string[];
+  affectedSystems: readonly string[];
   affectedUsers: number;
-  relatedEvents: string[];
+  relatedEvents: readonly string[];
   assignedTo?: string;
   assignedToName?: string;
   timeline: Array<{
@@ -107,7 +161,7 @@ interface ThreatIndicator {
   lastSeen: string;
   hitCount: number;
   isActive: boolean;
-  tags?: string[];
+  tags?: readonly string[];
 }
 
 interface HealthMetric {
@@ -171,19 +225,19 @@ async function fetchSecurityEvents(params: {
 
   const result = await securityApi.getSecurityEvents(apiParams);
   return {
-    data: result.data.map(mapSecurityEvent),
+    data: result.items.map(mapSecurityEvent),
     total: result.total,
   };
 }
 
 async function fetchIncidents(): Promise<SecurityIncident[]> {
   const result = await securityApi.getSecurityIncidents({});
-  return result.data.map(mapSecurityIncident);
+  return result.items.map(mapSecurityIncident);
 }
 
 async function fetchThreatIndicators(): Promise<ThreatIndicator[]> {
   const result = await securityApi.getThreatIndicators({});
-  return result.data.map(mapThreatIndicator);
+  return result.items.map(mapThreatIndicator);
 }
 
 function mapHealthStatus(score: number): DashboardData['healthStatus'] {
@@ -194,7 +248,7 @@ function mapHealthStatus(score: number): DashboardData['healthStatus'] {
 
 function mapDashboardData(
   dashboard: Awaited<ReturnType<typeof securityApi.getMonitoringDashboard>>,
-  health: BackendSecurityHealthScore,
+  health: SecurityHealthScoreDto,
 ): DashboardData {
   return {
     healthScore: health.score,
@@ -242,7 +296,7 @@ function mapEventStatus(status: SecurityEventStatus): EventStatus {
   return 'new';
 }
 
-function mapSecurityEvent(event: BackendSecurityEvent): SecurityEvent {
+function mapSecurityEvent(event: SecurityEventDto): SecurityEvent {
   return {
     id: event.id,
     eventType: event.eventType,
@@ -262,7 +316,7 @@ function mapSecurityEvent(event: BackendSecurityEvent): SecurityEvent {
   };
 }
 
-function mapIncidentStatus(status: BackendSecurityIncident['status']): IncidentStatus {
+function mapIncidentStatus(status: SecurityIncidentDto['status']): IncidentStatus {
   switch (status) {
     case 'closed':
     case 'recovered':
@@ -276,30 +330,34 @@ function mapIncidentStatus(status: BackendSecurityIncident['status']): IncidentS
   }
 }
 
-function mapSecurityIncident(incident: BackendSecurityIncident): SecurityIncident {
+function mapSecurityIncident(incident: SecurityIncidentDto): SecurityIncident {
   return {
     id: incident.id,
     title: incident.title,
     description: incident.description,
     severity: incident.severity,
     status: mapIncidentStatus(incident.status),
-    category: incident.category ?? 'security',
+    category: incident.category,
     affectedSystems: incident.affectedSystems ?? [],
-    affectedUsers: incident.affectedUsers ?? 0,
-    relatedEvents: incident.relatedEvents ?? [],
+    affectedUsers: incident.affectedUsersCount,
+    relatedEvents: incident.relatedSecurityEvents ?? [],
     assignedTo: incident.leadInvestigator ?? undefined,
     assignedToName: incident.leadInvestigatorName ?? undefined,
-    timeline: incident.timeline ?? [],
+    timeline: (incident.timeline ?? []).map((entry) => ({
+      action: entry.action,
+      timestamp: entry.timestamp,
+      user: entry.actor,
+    })),
     impactAssessment: incident.impactDescription ?? undefined,
     rootCause: incident.rootCauseAnalysis ?? undefined,
-    remediation: incident.remediation ?? undefined,
+    remediation: incident.remediationSteps?.map((step) => step.step).join(', '),
     createdAt: incident.createdAt,
     updatedAt: incident.updatedAt,
-    resolvedAt: incident.resolvedAt ?? undefined,
+    resolvedAt: incident.closedAt ?? incident.recoveredAt ?? undefined,
   };
 }
 
-function mapThreatIndicator(indicator: BackendThreatIndicator): ThreatIndicator {
+function mapThreatIndicator(indicator: ThreatIntelligenceDto): ThreatIndicator {
   return {
     id: indicator.id,
     type: indicator.indicatorType,
@@ -312,7 +370,7 @@ function mapThreatIndicator(indicator: BackendThreatIndicator): ThreatIndicator 
     description: indicator.description ?? '',
     firstSeen: indicator.firstSeenAt ?? indicator.createdAt,
     lastSeen: indicator.lastSeenAt ?? indicator.createdAt,
-    hitCount: indicator.hitCount ?? 0,
+    hitCount: indicator.hitCount,
     isActive: indicator.isActive,
     tags: indicator.tags ?? indicator.threatTypes ?? undefined,
   };
@@ -398,7 +456,10 @@ const formatDateTime = (dateString: string): string => {
 };
 
 // Health Score Gauge Component
-const HealthGauge: React.FC<{ score: number; status: 'healthy' | 'warning' | 'critical' }> = ({ score, status }) => {
+const HealthGauge: React.FC<{ score: number; status: 'healthy' | 'warning' | 'critical' }> = ({
+  score,
+  status,
+}) => {
   const getColor = (): string => {
     if (status === 'healthy') return '#22c55e';
     if (status === 'warning') return '#eab308';
@@ -412,14 +473,7 @@ const HealthGauge: React.FC<{ score: number; status: 'healthy' | 'warning' | 'cr
   return (
     <div className="relative w-32 h-32">
       <svg className="w-32 h-32 transform -rotate-90">
-        <circle
-          cx="64"
-          cy="64"
-          r="45"
-          stroke="#e5e7eb"
-          strokeWidth="10"
-          fill="none"
-        />
+        <circle cx="64" cy="64" r="45" stroke="#e5e7eb" strokeWidth="10" fill="none" />
         <circle
           cx="64"
           cy="64"
@@ -472,14 +526,18 @@ const EventDetailModal: React.FC<{
             </div>
             <div>
               <span className="text-sm font-medium text-gray-500">Severity</span>
-              <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(event.severity)}`}>
+              <span
+                className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(event.severity)}`}
+              >
                 {getSeverityIcon(event.severity)}
                 {event.severity}
               </span>
             </div>
             <div>
               <span className="text-sm font-medium text-gray-500">Status</span>
-              <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(event.status)}`}>
+              <span
+                className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(event.status)}`}
+              >
                 {event.status}
               </span>
             </div>
@@ -510,7 +568,9 @@ const EventDetailModal: React.FC<{
               <div>
                 <span className="text-xs text-gray-500">Location</span>
                 <p className="text-sm text-gray-900">
-                  {event.geoLocation ? `${event.geoLocation.city}, ${event.geoLocation.country}` : 'N/A'}
+                  {event.geoLocation
+                    ? `${event.geoLocation.city}, ${event.geoLocation.country}`
+                    : 'N/A'}
                 </p>
               </div>
             </div>
@@ -534,21 +594,27 @@ const EventDetailModal: React.FC<{
           )}
 
           {/* Details */}
-          {event.details && typeof event.details === 'object' && Object.keys(event.details).length > 0 && (
-            <div>
-              <span className="text-sm font-medium text-gray-500">Additional Details</span>
-              <pre className="text-xs text-gray-600 bg-gray-50 p-3 rounded-lg overflow-auto mt-1">
-                {JSON.stringify(
-                  // Whitelist primitive-valued keys only to guard against attacker-controlled nested objects (SEC-008)
-                  Object.fromEntries(
-                    Object.entries(event.details).filter(([, v]) =>
-                      v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'
-                    )
-                  )
-                )}
-              </pre>
-            </div>
-          )}
+          {event.details &&
+            typeof event.details === 'object' &&
+            Object.keys(event.details).length > 0 && (
+              <div>
+                <span className="text-sm font-medium text-gray-500">Additional Details</span>
+                <pre className="text-xs text-gray-600 bg-gray-50 p-3 rounded-lg overflow-auto mt-1">
+                  {JSON.stringify(
+                    // Whitelist primitive-valued keys only to guard against attacker-controlled nested objects (SEC-008)
+                    Object.fromEntries(
+                      Object.entries(event.details).filter(
+                        ([, v]) =>
+                          v === null ||
+                          typeof v === 'string' ||
+                          typeof v === 'number' ||
+                          typeof v === 'boolean',
+                      ),
+                    ),
+                  )}
+                </pre>
+              </div>
+            )}
         </div>
         <div className="p-6 border-t border-gray-200 flex justify-end gap-2">
           <button
@@ -584,17 +650,18 @@ export const SecurityDashboardPage: React.FC = () => {
 
   const loadData = useCallback(async () => {
     setError(null);
-    const [dashboardResult, eventsResult, incidentsResult, threatsResult] = await Promise.allSettled([
-      fetchDashboardData(),
-      fetchSecurityEvents({
-        severity: severityFilter,
-        status: statusFilter,
-        searchQuery: searchTerm || undefined,
-        limit: 50,
-      }),
-      fetchIncidents(),
-      fetchThreatIndicators(),
-    ]);
+    const [dashboardResult, eventsResult, incidentsResult, threatsResult] =
+      await Promise.allSettled([
+        fetchDashboardData(),
+        fetchSecurityEvents({
+          severity: severityFilter,
+          status: statusFilter,
+          searchQuery: searchTerm || undefined,
+          limit: 50,
+        }),
+        fetchIncidents(),
+        fetchThreatIndicators(),
+      ]);
     const failures: string[] = [];
     const incidentsValue = incidentsResult.status === 'fulfilled' ? incidentsResult.value : [];
     const threatsValue = threatsResult.status === 'fulfilled' ? threatsResult.value : [];
@@ -604,7 +671,8 @@ export const SecurityDashboardPage: React.FC = () => {
         ...dashboardResult.value,
         stats: {
           ...dashboardResult.value.stats,
-          resolvedIncidents: incidentsValue.filter((incident) => incident.status === 'closed').length,
+          resolvedIncidents: incidentsValue.filter((incident) => incident.status === 'closed')
+            .length,
           activeThreatIndicators: threatsValue.filter((indicator) => indicator.isActive).length,
         },
       });
@@ -736,11 +804,17 @@ export const SecurityDashboardPage: React.FC = () => {
               {(dashboard?.metrics ?? []).slice(0, 3).map((metric, idx) => (
                 <div key={idx} className="flex items-center justify-between text-sm">
                   <span className="text-gray-500">{metric.name}</span>
-                  <span className={`font-medium ${
-                    metric.status === 'healthy' ? 'text-green-600' :
-                    metric.status === 'warning' ? 'text-yellow-600' : 'text-red-600'
-                  }`}>
-                    {metric.value}{metric.unit}
+                  <span
+                    className={`font-medium ${
+                      metric.status === 'healthy'
+                        ? 'text-green-600'
+                        : metric.status === 'warning'
+                          ? 'text-yellow-600'
+                          : 'text-red-600'
+                    }`}
+                  >
+                    {metric.value}
+                    {metric.unit}
                   </span>
                 </div>
               ))}
@@ -756,7 +830,9 @@ export const SecurityDashboardPage: React.FC = () => {
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Events (24h)</p>
-                  <p className="text-2xl font-bold text-gray-900">{dashboard?.stats?.totalEvents24h ?? 0}</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {dashboard?.stats?.totalEvents24h ?? 0}
+                  </p>
                 </div>
               </div>
             </div>
@@ -767,7 +843,9 @@ export const SecurityDashboardPage: React.FC = () => {
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Critical (24h)</p>
-                  <p className="text-2xl font-bold text-red-600">{dashboard?.stats?.criticalEvents24h ?? 0}</p>
+                  <p className="text-2xl font-bold text-red-600">
+                    {dashboard?.stats?.criticalEvents24h ?? 0}
+                  </p>
                 </div>
               </div>
             </div>
@@ -778,7 +856,9 @@ export const SecurityDashboardPage: React.FC = () => {
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Open Incidents</p>
-                  <p className="text-2xl font-bold text-gray-900">{dashboard?.stats?.openIncidents ?? 0}</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {dashboard?.stats?.openIncidents ?? 0}
+                  </p>
                 </div>
               </div>
             </div>
@@ -789,7 +869,9 @@ export const SecurityDashboardPage: React.FC = () => {
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Blocked (24h)</p>
-                  <p className="text-2xl font-bold text-green-600">{dashboard?.stats?.blockedAttacks24h ?? 0}</p>
+                  <p className="text-2xl font-bold text-green-600">
+                    {dashboard?.stats?.blockedAttacks24h ?? 0}
+                  </p>
                 </div>
               </div>
             </div>
@@ -800,7 +882,9 @@ export const SecurityDashboardPage: React.FC = () => {
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Active Threats</p>
-                  <p className="text-2xl font-bold text-gray-900">{dashboard?.stats?.activeThreatIndicators ?? 0}</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {dashboard?.stats?.activeThreatIndicators ?? 0}
+                  </p>
                 </div>
               </div>
             </div>
@@ -811,7 +895,9 @@ export const SecurityDashboardPage: React.FC = () => {
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Unique IPs</p>
-                  <p className="text-2xl font-bold text-gray-900">{dashboard?.stats?.uniqueSourceIps ?? 0}</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {dashboard?.stats?.uniqueSourceIps ?? 0}
+                  </p>
                 </div>
               </div>
             </div>
@@ -822,7 +908,9 @@ export const SecurityDashboardPage: React.FC = () => {
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Affected Tenants</p>
-                  <p className="text-2xl font-bold text-gray-900">{dashboard?.stats?.affectedTenants ?? 0}</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {dashboard?.stats?.affectedTenants ?? 0}
+                  </p>
                 </div>
               </div>
             </div>
@@ -833,7 +921,9 @@ export const SecurityDashboardPage: React.FC = () => {
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Resolved</p>
-                  <p className="text-2xl font-bold text-gray-900">{dashboard?.stats?.resolvedIncidents ?? 0}</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {dashboard?.stats?.resolvedIncidents ?? 0}
+                  </p>
                 </div>
               </div>
             </div>
@@ -885,11 +975,15 @@ export const SecurityDashboardPage: React.FC = () => {
                         <p className="text-sm font-medium text-gray-900 truncate">
                           {event.eventType}
                         </p>
-                        <span className="text-xs text-gray-500">{formatTimeAgo(event.timestamp)}</span>
+                        <span className="text-xs text-gray-500">
+                          {formatTimeAgo(event.timestamp)}
+                        </span>
                       </div>
                       <p className="text-sm text-gray-500 truncate">{event.description}</p>
                       <div className="mt-1 flex items-center gap-2">
-                        <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${getSeverityColor(event.severity)}`}>
+                        <span
+                          className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${getSeverityColor(event.severity)}`}
+                        >
                           {event.severity}
                         </span>
                         {event.sourceIp && (
@@ -919,16 +1013,24 @@ export const SecurityDashboardPage: React.FC = () => {
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
-                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(incident.severity ?? 'medium')}`}>
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(incident.severity ?? 'medium')}`}
+                        >
                           {getSeverityIcon(incident.severity ?? 'medium')}
                           {incident.severity ?? 'Unknown'}
                         </span>
-                        <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(incident.status ?? 'open')}`}>
+                        <span
+                          className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(incident.status ?? 'open')}`}
+                        >
                           {(incident.status ?? 'open').replace('_', ' ')}
                         </span>
                       </div>
-                      <h4 className="text-sm font-medium text-gray-900 mt-2">{incident.title ?? 'Untitled Incident'}</h4>
-                      <p className="text-sm text-gray-500 mt-1 line-clamp-2">{incident.description ?? ''}</p>
+                      <h4 className="text-sm font-medium text-gray-900 mt-2">
+                        {incident.title ?? 'Untitled Incident'}
+                      </h4>
+                      <p className="text-sm text-gray-500 mt-1 line-clamp-2">
+                        {incident.description ?? ''}
+                      </p>
                       <div className="mt-2 flex items-center gap-4 text-xs text-gray-500">
                         <span>Category: {incident.category ?? 'Unknown'}</span>
                         <span>{incident.affectedUsers ?? 0} users affected</span>
@@ -959,14 +1061,30 @@ export const SecurityDashboardPage: React.FC = () => {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Indicator</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Source</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Confidence</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Severity</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Hits</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Last Seen</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Type
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Indicator
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Source
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Confidence
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Severity
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Hits
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Last Seen
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Status
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -985,7 +1103,9 @@ export const SecurityDashboardPage: React.FC = () => {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="text-sm font-mono text-gray-600">{threat.indicator ?? '-'}</span>
+                      <span className="text-sm font-mono text-gray-600">
+                        {threat.indicator ?? '-'}
+                      </span>
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
                       {threat.source ?? 'Unknown'}
@@ -995,8 +1115,11 @@ export const SecurityDashboardPage: React.FC = () => {
                         <div className="w-16 h-2 bg-gray-200 rounded-full">
                           <div
                             className={`h-2 rounded-full ${
-                              (threat.confidence ?? 0) >= 80 ? 'bg-green-500' :
-                              (threat.confidence ?? 0) >= 50 ? 'bg-yellow-500' : 'bg-red-500'
+                              (threat.confidence ?? 0) >= 80
+                                ? 'bg-green-500'
+                                : (threat.confidence ?? 0) >= 50
+                                  ? 'bg-yellow-500'
+                                  : 'bg-red-500'
                             }`}
                             style={{ width: `${threat.confidence ?? 0}%` }}
                           />
@@ -1005,7 +1128,9 @@ export const SecurityDashboardPage: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
-                      <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(threat.severity ?? 'medium')}`}>
+                      <span
+                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(threat.severity ?? 'medium')}`}
+                      >
                         {threat.severity ?? 'Unknown'}
                       </span>
                     </td>
@@ -1016,9 +1141,13 @@ export const SecurityDashboardPage: React.FC = () => {
                       {threat.lastSeen ? formatTimeAgo(threat.lastSeen) : 'Never'}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
-                      <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${
-                        (threat.isActive ?? false) ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'
-                      }`}>
+                      <span
+                        className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${
+                          (threat.isActive ?? false)
+                            ? 'bg-red-100 text-red-800'
+                            : 'bg-gray-100 text-gray-800'
+                        }`}
+                      >
                         {(threat.isActive ?? false) ? 'Active' : 'Inactive'}
                       </span>
                     </td>
@@ -1032,10 +1161,7 @@ export const SecurityDashboardPage: React.FC = () => {
 
       {/* Event Detail Modal */}
       {selectedEvent && (
-        <EventDetailModal
-          event={selectedEvent}
-          onClose={() => setSelectedEvent(null)}
-        />
+        <EventDetailModal event={selectedEvent} onClose={() => setSelectedEvent(null)} />
       )}
     </div>
   );

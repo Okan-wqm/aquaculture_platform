@@ -68,14 +68,72 @@ describe('api-client', () => {
   beforeEach(async () => {
     mockFetch.mockReset();
     localStorage.clear();
+    window.history.replaceState({}, '', '/tenant');
     // Clean up window.__AQUACULTURE_AUTH__ if possible
     // (it may be non-configurable after first install, which is by design)
     await loadFreshModule();
   });
 
   afterEach(() => {
+    apiClient.clearImpersonationContext();
     vi.useRealTimers();
     vi.restoreAllMocks();
+  });
+
+  describe('Canonical impersonation hand-off', () => {
+    const sessionId = '11111111-1111-4111-8111-111111111111';
+    const targetTenantId = '22222222-2222-4222-8222-222222222222';
+    const credential = 'a'.repeat(64);
+
+    it('consumes the fragment into memory and attaches the credential to GraphQL and REST', async () => {
+      window.history.replaceState(
+        {},
+        '',
+        `/tenant#impersonation_session=${sessionId}&impersonation_token=${credential}&tenant_id=${targetTenantId}`,
+      );
+      await loadFreshModule();
+      apiClient.setTokens('platform-admin-access-token');
+      mockFetch
+        .mockResolvedValueOnce(mockResponse(200, { data: { farms: [] } }))
+        .mockResolvedValueOnce(mockResponse(200, { ok: true }));
+
+      expect(window.location.hash).toBe('');
+      expect(apiClient.getTenantId()).toBe(targetTenantId);
+      expect(localStorage.getItem('tenant_id')).toBeNull();
+
+      // A SUPER_ADMIN refresh returns tenantId=null; the separately validated
+      // hand-off remains authoritative until the session is cleared.
+      apiClient.setTenantId(null);
+      expect(apiClient.getTenantId()).toBe(targetTenantId);
+
+      await apiClient.graphqlClient.request('{ farms { id } }');
+      await apiClient.restClient.get('/farms');
+
+      for (const call of mockFetch.mock.calls) {
+        const init = call[1] as RequestInit;
+        const headers = init.headers as Record<string, string>;
+        expect(headers['X-Tenant-Id']).toBe(targetTenantId);
+        expect(headers['x-impersonation-token']).toBe(credential);
+      }
+    });
+
+    it('scrubs and rejects malformed or duplicated hand-offs', async () => {
+      window.history.replaceState(
+        {},
+        '',
+        `/tenant#impersonation_session=${sessionId}&impersonation_token=invalid&impersonation_token=${credential}&tenant_id=${targetTenantId}`,
+      );
+      await loadFreshModule();
+      apiClient.setTokens('platform-admin-access-token');
+      mockFetch.mockResolvedValueOnce(mockResponse(200, { data: { farms: [] } }));
+
+      await apiClient.graphqlClient.request('{ farms { id } }');
+
+      expect(window.location.hash).toBe('');
+      const init = mockFetch.mock.calls[0]?.[1] as RequestInit;
+      const headers = init.headers as Record<string, string>;
+      expect(headers['x-impersonation-token']).toBeUndefined();
+    });
   });
 
   // ============================================================================
@@ -246,6 +304,7 @@ describe('api-client', () => {
     });
 
     it('should include X-Request-Id header for distributed tracing', async () => {
+      apiClient.setTokens('token');
       mockFetch.mockResolvedValueOnce(mockResponse(200, { data: { ok: true } }));
 
       await apiClient.graphqlClient.request('{ ok }');
@@ -256,6 +315,7 @@ describe('api-client', () => {
     });
 
     it('should send credentials: include for cookie-based auth', async () => {
+      apiClient.setTokens('token');
       mockFetch.mockResolvedValueOnce(mockResponse(200, { data: { ok: true } }));
 
       await apiClient.graphqlClient.request('{ ok }');
@@ -265,6 +325,7 @@ describe('api-client', () => {
     });
 
     it('should return data on successful response', async () => {
+      apiClient.setTokens('token');
       mockFetch.mockResolvedValueOnce(
         mockResponse(200, { data: { users: [{ id: '1', name: 'Test' }] } }),
       );
@@ -311,6 +372,23 @@ describe('api-client', () => {
         expect(result.users).toEqual([]);
         // 3 fetch calls: original + refresh + retry
         expect(mockFetch).toHaveBeenCalledTimes(3);
+      });
+
+      it('refreshes auth but never replays a mutation after HTTP 401', async () => {
+        apiClient.setTokens('expired-token');
+        mockFetch.mockResolvedValueOnce(mockResponse(401, {}));
+        mockFetch.mockResolvedValueOnce(
+          mockResponse(200, {
+            data: { refreshToken: { accessToken: 'new-token' } },
+          }),
+        );
+
+        await expect(
+          apiClient.graphqlClient.request(
+            'mutation UpdateProfile { updateProfile(input: {}) { id } }',
+          ),
+        ).rejects.toMatchObject({ code: 'UNSAFE_AUTH_REPLAY_BLOCKED' });
+        expect(mockFetch).toHaveBeenCalledTimes(2);
       });
 
       it('should not retry more than once (prevent infinite loop - CRIT-01)', async () => {
@@ -396,6 +474,32 @@ describe('api-client', () => {
         expect(mockFetch).toHaveBeenCalledTimes(3);
       });
 
+      it('refreshes auth but never replays a mutation after a GraphQL auth error', async () => {
+        apiClient.setTokens('token');
+        mockFetch.mockResolvedValueOnce(
+          mockResponse(200, {
+            errors: [
+              {
+                message: 'Token expired',
+                extensions: { code: 'UNAUTHENTICATED' },
+              },
+            ],
+          }),
+        );
+        mockFetch.mockResolvedValueOnce(
+          mockResponse(200, {
+            data: { refreshToken: { accessToken: 'new-token' } },
+          }),
+        );
+
+        await expect(
+          apiClient.graphqlClient.request(
+            'mutation UpdateProfile { updateProfile(input: {}) { id } }',
+          ),
+        ).rejects.toMatchObject({ code: 'UNSAFE_AUTH_REPLAY_BLOCKED' });
+        expect(mockFetch).toHaveBeenCalledTimes(2);
+      });
+
       it('should not clear session or refresh for service identity signature errors', async () => {
         apiClient.setTokens('valid-user-token');
 
@@ -421,6 +525,13 @@ describe('api-client', () => {
     });
 
     describe('Error handling', () => {
+      it('rejects a multi-operation document before transport', async () => {
+        await expect(
+          apiClient.graphqlClient.request('query One { one } query Two { two }'),
+        ).rejects.toMatchObject({ code: 'INVALID_OPERATION_DOCUMENT' });
+        expect(mockFetch).not.toHaveBeenCalled();
+      });
+
       it('keeps the deadline active through JSON parsing when a caller signal is present', async () => {
         vi.useFakeTimers();
         apiClient.setTokens('token');
@@ -433,11 +544,10 @@ describe('api-client', () => {
           } as Response),
         );
 
-        const request = apiClient.graphqlClient.request(
-          '{ ok }',
-          undefined,
-          { timeout: 25, signal: caller.signal },
-        );
+        const request = apiClient.graphqlClient.request('{ ok }', undefined, {
+          timeout: 25,
+          signal: caller.signal,
+        });
         const rejection = expect(request).rejects.toMatchObject({
           name: 'GraphQLClientError',
           code: 'TIMEOUT',
@@ -448,7 +558,85 @@ describe('api-client', () => {
         expect(caller.signal.aborted).toBe(false);
       });
 
+      it('rejects a pre-aborted request before the token lifecycle barrier can reach transport', async () => {
+        const { tokenLifecycle } = await import('../token-lifecycle');
+        const readyBarrier = vi
+          .spyOn(tokenLifecycle, 'waitForReady')
+          .mockReturnValue(new Promise<void>(() => undefined));
+        const caller = new AbortController();
+        caller.abort();
+
+        await expect(
+          apiClient.graphqlClient.request('{ ok }', undefined, { signal: caller.signal }),
+        ).rejects.toMatchObject({
+          name: 'GraphQLClientError',
+          code: 'TIMEOUT',
+        });
+
+        expect(readyBarrier).toHaveBeenCalledOnce();
+        expect(mockFetch).not.toHaveBeenCalled();
+      });
+
+      it('applies the operation deadline while waiting at the token lifecycle barrier', async () => {
+        vi.useFakeTimers();
+        const { tokenLifecycle } = await import('../token-lifecycle');
+        vi.spyOn(tokenLifecycle, 'waitForReady').mockReturnValue(
+          new Promise<void>(() => undefined),
+        );
+
+        const request = apiClient.graphqlClient.request('{ ok }', undefined, { timeout: 25 });
+        const rejection = expect(request).rejects.toMatchObject({
+          name: 'GraphQLClientError',
+          code: 'TIMEOUT',
+        });
+
+        await vi.advanceTimersByTimeAsync(25);
+        await rejection;
+        expect(mockFetch).not.toHaveBeenCalled();
+      });
+
+      it('preserves one deadline across auth refresh and query replay', async () => {
+        vi.useFakeTimers();
+        apiClient.setTokens('expired-token');
+
+        mockFetch
+          .mockResolvedValueOnce(mockResponse(401, {}))
+          .mockImplementationOnce(() =>
+            Promise.resolve({
+              ...mockResponse(200, {}),
+              json: () =>
+                new Promise((resolve) => {
+                  setTimeout(
+                    () =>
+                      resolve({
+                        data: { refreshToken: { accessToken: 'refreshed-token' } },
+                      }),
+                    20,
+                  );
+                }),
+            } as Response),
+          )
+          .mockImplementationOnce((_url: string, init: RequestInit) =>
+            Promise.resolve({
+              ...mockResponse(200, { data: { ok: true } }),
+              json: () => rejectBodyWhenAborted(init.signal),
+            } as Response),
+          );
+
+        const request = apiClient.graphqlClient.request('{ ok }', undefined, { timeout: 25 });
+        const rejection = expect(request).rejects.toMatchObject({
+          name: 'GraphQLClientError',
+          code: 'TIMEOUT',
+        });
+
+        await vi.advanceTimersByTimeAsync(25);
+        await rejection;
+        expect(mockFetch).toHaveBeenCalledTimes(3);
+        expect(apiClient.getAccessToken()).toBe('refreshed-token');
+      });
+
       it('should throw TIMEOUT error on abort', async () => {
+        apiClient.setTokens('token');
         mockFetch.mockImplementationOnce(
           () =>
             new Promise((_, reject) => {
@@ -464,6 +652,7 @@ describe('api-client', () => {
       });
 
       it('should throw NETWORK_ERROR on fetch failure', async () => {
+        apiClient.setTokens('token');
         mockFetch.mockImplementationOnce(() => Promise.reject(new TypeError('Failed to fetch')));
 
         await expect(apiClient.graphqlClient.request('{ ok }')).rejects.toThrow(
@@ -617,6 +806,7 @@ describe('api-client', () => {
     });
 
     it('should send credentials: include for cookie-based auth', async () => {
+      apiClient.setTokens('token');
       mockFetch.mockResolvedValueOnce(mockResponse(200, { ok: true }));
 
       await apiClient.restClient.get('/data');
@@ -626,6 +816,7 @@ describe('api-client', () => {
     });
 
     it('should append query params', async () => {
+      apiClient.setTokens('token');
       mockFetch.mockResolvedValueOnce(mockResponse(200, { items: [] }));
 
       await apiClient.restClient.get('/users', { page: 1, limit: 10 });
@@ -636,6 +827,7 @@ describe('api-client', () => {
     });
 
     it('should send JSON body for POST', async () => {
+      apiClient.setTokens('token');
       mockFetch.mockResolvedValueOnce(mockResponse(201, { id: '1' }));
 
       await apiClient.restClient.post('/users', { name: 'Test' });
@@ -646,6 +838,7 @@ describe('api-client', () => {
     });
 
     it('should return undefined for 204 No Content', async () => {
+      apiClient.setTokens('token');
       mockFetch.mockResolvedValueOnce(mockResponse(204, null));
 
       const result = await apiClient.restClient.delete('/users/1');

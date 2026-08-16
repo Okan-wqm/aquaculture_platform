@@ -1,4 +1,7 @@
-import { SlidingWindowStrategy } from '@aquaculture/backend-common/security';
+import {
+  SlidingWindowStrategy,
+  type SlidingWindowRedisPort,
+} from '@aquaculture/backend-common/security';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 
@@ -170,5 +173,56 @@ describe('SlidingWindowStrategy', () => {
       expect(clearIntervalSpy).toHaveBeenCalled();
       clearIntervalSpy.mockRestore();
     });
+  });
+});
+
+describe('SlidingWindowStrategy distributed authority', () => {
+  const productionConfig = (redisEnabled: boolean | undefined = true): ConfigService =>
+    new ConfigService({
+      NODE_ENV: 'production',
+      RATE_LIMIT_USE_REDIS: redisEnabled,
+    });
+
+  it('fails production composition without Redis', () => {
+    expect(() => new SlidingWindowStrategy(productionConfig())).toThrow(
+      'RedisService is required for production throttling',
+    );
+  });
+
+  it('forbids the per-process fallback in production', () => {
+    expect(() => new SlidingWindowStrategy(productionConfig(false))).toThrow(
+      'RATE_LIMIT_USE_REDIS=false is forbidden in production',
+    );
+  });
+
+  it('executes the atomic Lua window against the service-prefixed Redis key', async () => {
+    const now = Date.now();
+    const evalCommand = jest.fn().mockResolvedValue([1, 2, now]);
+    const redis: SlidingWindowRedisPort = {
+      getKeyPrefix: jest.fn(() => 'admin:'),
+      getClient: jest.fn(() => ({
+        eval: evalCommand,
+        zremrangebyscore: jest.fn(),
+        zcard: jest.fn(),
+        zrange: jest.fn(),
+      })),
+      del: jest.fn().mockResolvedValue(1),
+    };
+    const strategy = new SlidingWindowStrategy(productionConfig(), redis);
+
+    await expect(strategy.consumeWithConfig('failed-auth:ip', 3, 60_000)).resolves.toMatchObject({
+      allowed: true,
+      remaining: 2,
+    });
+    expect(evalCommand).toHaveBeenCalledWith(
+      expect.stringContaining("redis.call('ZREMRANGEBYSCORE'"),
+      1,
+      'admin:rate-limit:failed-auth:ip',
+      expect.any(String),
+      '60000',
+      '3',
+      '1',
+      expect.stringMatching(/^[0-9a-f]{24}$/),
+    );
   });
 });

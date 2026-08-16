@@ -12,6 +12,7 @@
 
 import React, { Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { TENANT_DELEGATED_CAPABILITIES } from '@aquaculture/shared-ui';
 
 // Route Guard (LOW-15: extracted to own component for reuse / unit testing)
 import { RequireTenantAdmin, RequireTenantCapability } from './components/common/RequireTenantAdmin';
@@ -78,13 +79,13 @@ const TenantAdminModule: React.FC = () => {
           <Route index element={<RequireTenantCapability adminOnly><PageErrorBoundary pageName="Dashboard"><TenantDashboard /></PageErrorBoundary></RequireTenantCapability>} />
 
           {/* User Management — delegatable */}
-          <Route path="users" element={<RequireTenantCapability capability="users:view"><PageErrorBoundary pageName="Users"><TenantUsers /></PageErrorBoundary></RequireTenantCapability>} />
+          <Route path="users" element={<RequireTenantCapability capability={TENANT_DELEGATED_CAPABILITIES.users}><PageErrorBoundary pageName="Users"><TenantUsers /></PageErrorBoundary></RequireTenantCapability>} />
 
           {/* Roles & Permissions — delegatable */}
-          <Route path="roles" element={<RequireTenantCapability capability="roles:view"><PageErrorBoundary pageName="Roles"><TenantRolesPage /></PageErrorBoundary></RequireTenantCapability>} />
+          <Route path="roles" element={<RequireTenantCapability capability={TENANT_DELEGATED_CAPABILITIES.roles}><PageErrorBoundary pageName="Roles"><TenantRolesPage /></PageErrorBoundary></RequireTenantCapability>} />
 
           {/* Tenant Settings — delegatable */}
-          <Route path="settings" element={<RequireTenantCapability capability="settings:view"><PageErrorBoundary pageName="Settings"><TenantSettings /></PageErrorBoundary></RequireTenantCapability>} />
+          <Route path="settings" element={<RequireTenantCapability capability={TENANT_DELEGATED_CAPABILITIES.settings}><PageErrorBoundary pageName="Settings"><TenantSettings /></PageErrorBoundary></RequireTenantCapability>} />
 
           {/* Module Management (admin-only) */}
           <Route path="modules" element={<RequireTenantCapability adminOnly><PageErrorBoundary pageName="Modules"><TenantModules /></PageErrorBoundary></RequireTenantCapability>} />

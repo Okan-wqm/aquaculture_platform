@@ -17,98 +17,16 @@
 /**
  * Permission Categories for UI + the storable-capability whitelist.
  */
-export const PERMISSION_CATEGORIES = {
-  farm: {
-    name: 'Farm Management',
-    resources: {
-      sites: { name: 'Sites', actions: ['view', 'create', 'edit', 'delete'] },
-      departments: { name: 'Departments', actions: ['view', 'create', 'edit', 'delete'] },
-      systems: { name: 'Systems', actions: ['view', 'create', 'edit', 'delete'] },
-      tanks: { name: 'Tanks', actions: ['view', 'create', 'edit', 'delete', 'assign'] },
-      ponds: { name: 'Ponds', actions: ['view', 'create', 'edit', 'delete'] },
-      equipment: { name: 'Equipment', actions: ['view', 'create', 'edit', 'delete', 'assign'] },
-    },
-  },
-  batch: {
-    name: 'Batch & Production',
-    resources: {
-      batches: { name: 'Batches', actions: ['view', 'create', 'edit', 'delete', 'transfer', 'split', 'merge'] },
-      species: { name: 'Species', actions: ['view', 'create', 'edit', 'delete'] },
-      mortality: { name: 'Mortality Records', actions: ['view', 'record'] },
-      growth: { name: 'Growth Measurements', actions: ['view', 'record', 'analyze'] },
-      harvest: { name: 'Harvest', actions: ['view', 'plan', 'record'] },
-    },
-  },
-  operations: {
-    name: 'Operations',
-    resources: {
-      feeding: { name: 'Feeding', actions: ['view', 'record', 'manage_schedules', 'manage_inventory'] },
-      sensors: { name: 'Sensors', actions: ['view', 'configure', 'calibrate', 'manage_alerts'] },
-      maintenance: { name: 'Maintenance', actions: ['view', 'create_work_orders', 'complete', 'manage_schedules'] },
-      water_quality: { name: 'Water Quality', actions: ['view', 'record'] },
-    },
-  },
-  hr: {
-    name: 'HR & Administration',
-    resources: {
-      employees: { name: 'Employees', actions: ['view', 'create', 'edit', 'delete'] },
-      attendance: { name: 'Attendance', actions: ['view', 'manage'] },
-      leave: { name: 'Leave Management', actions: ['view', 'approve'] },
-      shifts: { name: 'Shifts', actions: ['view', 'create', 'edit', 'delete'] },
-      // HR finance salary visibility (HR-MEDIUM-005). Headcount/expenses on the HR
-      // finance tab stay MANAGER-visible; the salary/labour-cost/payroll-analytics
-      // figures are gated by `hr_finance:view_salary`, which a TENANT_ADMIN grants
-      // per role — so the tenant decides who sees pay, not a hardcoded role.
-      hr_finance: { name: 'HR Finance', actions: ['view_salary'] },
-    },
-  },
-  reports: {
-    name: 'Reports & Analytics',
-    resources: {
-      dashboard: { name: 'Dashboard', actions: ['view', 'analytics'] },
-      reports: { name: 'Reports', actions: ['view', 'export', 'create_custom'] },
-    },
-  },
-  admin: {
-    name: 'Settings & User Management',
-    resources: {
-      settings: { name: 'Settings', actions: ['view', 'edit'] },
-      users: { name: 'Users', actions: ['view', 'invite', 'edit_permissions', 'deactivate'] },
-      roles: { name: 'Roles', actions: ['view', 'create', 'edit', 'delete'] },
-    },
-  },
-  // Messaging + AI capabilities (Faz 7). Resource keys are globally unique
-  // (the wire permission is `${resourceKey}:${action}`, so keys must not collide
-  // with any above — e.g. AI settings is `ai_settings`, not `settings`). Adding
-  // them here is the SSoT change: the tenant-admin role editor (permissionCategories
-  // query, data-driven), token-mint resolution, and TenantPermissionGuard all
-  // pick them up automatically — no parallel catalogue.
-  messaging: {
-    name: 'Messaging',
-    resources: {
-      channels: {
-        name: 'Channels',
-        // create_group is the WhatsApp-like group-creation capability
-        // (MSG-MEDIUM-070); create_dm the 1:1; manage covers rename/members.
-        actions: ['view', 'create_group', 'create_dm', 'manage'],
-      },
-      messages: { name: 'Messages', actions: ['send'] },
-    },
-  },
-  ai: {
-    name: 'AI Assistant',
-    resources: {
-      ai_assistant: { name: 'AI Chat', actions: ['use'] },
-      // AI settings = the tenant BYOK keys / provider / model (Faz 1).
-      ai_settings: { name: 'AI Settings', actions: ['view', 'manage'] },
-      // Persona tiers — which AI persona a member may drive (AISAFETY-MEDIUM-013).
-      ai_personas: {
-        name: 'AI Personas',
-        actions: ['operator', 'manager', 'expert', 'supervisor'],
-      },
-    },
-  },
-};
+export {
+  TENANT_PERMISSION_CATEGORIES as PERMISSION_CATEGORIES,
+  TENANT_PERMISSION_CODES as CATALOGUE_CAPABILITIES,
+  isTenantPermissionCode as isKnownCapability,
+} from '@platform/tenant-permissions';
+
+import {
+  TENANT_PERMISSION_CATEGORIES as PERMISSION_CATEGORIES,
+  TENANT_PERMISSION_CODES as CATALOGUE_CAPABILITIES,
+} from '@platform/tenant-permissions';
 
 /**
  * Helper to convert panel permissions to a `resource:action` array.
@@ -133,32 +51,6 @@ export function panelPermissionsToResourceArray(
     }
   }
   return result;
-}
-
-/**
- * The flattened set of every valid `resource:action` capability the catalogue
- * declares. This is the write-time whitelist: a capability not in this set can
- * never be persisted to `tenant_role_permissions.resource_permissions` or a
- * `permission_overrides.grants/revokes` array, closing the "arbitrary
- * capability-string injection via GraphQL" hole. Because the whitelist is
- * finite, it also structurally bounds how many distinct capabilities any role
- * or override can store (a natural cap on JWT/assertion-header size).
- */
-export const CATALOGUE_CAPABILITIES: ReadonlySet<string> = (() => {
-  const capabilities = new Set<string>();
-  for (const category of Object.values(PERMISSION_CATEGORIES)) {
-    for (const [resource, definition] of Object.entries(category.resources)) {
-      for (const action of definition.actions) {
-        capabilities.add(`${resource}:${action}`);
-      }
-    }
-  }
-  return capabilities;
-})();
-
-/** True when `capability` is a `resource:action` string the catalogue declares. */
-export function isKnownCapability(capability: string): boolean {
-  return CATALOGUE_CAPABILITIES.has(capability);
 }
 
 // ============================================================================
@@ -219,9 +111,7 @@ export function requiredModuleFor(capability: string): string | undefined {
  * a non-entitled capability into the JWT, so a stale grant from a plan
  * downgrade or the MT-HIGH-057 backfill has zero runtime effect) consume.
  */
-export function entitledCapabilities(
-  enabledModuleCodes: ReadonlySet<string>,
-): ReadonlySet<string> {
+export function entitledCapabilities(enabledModuleCodes: ReadonlySet<string>): ReadonlySet<string> {
   const result = new Set<string>();
   for (const capability of CATALOGUE_CAPABILITIES) {
     const requiredModule = CAPABILITY_REQUIRED_MODULE.get(capability);

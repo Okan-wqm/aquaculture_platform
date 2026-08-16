@@ -3,6 +3,10 @@ import * as crypto from 'crypto';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
+import {
+  resolveAdminSqlIdentifier,
+  type AdminSqlIdentifierKey,
+} from '@platform/admin-http-contracts';
 import { Repository, LessThan, In } from 'typeorm';
 
 import {
@@ -62,7 +66,8 @@ export interface AlertNotification {
 export class ErrorTrackingService {
   private readonly logger = new Logger(ErrorTrackingService.name);
   private alertCooldowns: Map<string, Date> = new Map();
-  private notificationHandlers: Map<string, (notification: AlertNotification) => Promise<void>> = new Map();
+  private notificationHandlers: Map<string, (notification: AlertNotification) => Promise<void>> =
+    new Map();
 
   constructor(
     @InjectRepository(ErrorOccurrence)
@@ -315,8 +320,14 @@ export class ErrorTrackingService {
       }
 
       // Merge affected tenants and releases
-      const tenants = new Set([...(target.affectedTenants || []), ...(source.affectedTenants || [])]);
-      const releases = new Set([...(target.affectedReleases || []), ...(source.affectedReleases || [])]);
+      const tenants = new Set([
+        ...(target.affectedTenants || []),
+        ...(source.affectedTenants || []),
+      ]);
+      const releases = new Set([
+        ...(target.affectedReleases || []),
+        ...(source.affectedReleases || []),
+      ]);
       target.affectedTenants = Array.from(tenants);
       target.affectedReleases = Array.from(releases);
     }
@@ -338,7 +349,7 @@ export class ErrorTrackingService {
     isRegression?: boolean;
     page?: number;
     limit?: number;
-    sortBy?: 'occurrenceCount' | 'lastSeenAt' | 'firstSeenAt' | 'userCount';
+    sortBy?: AdminSqlIdentifierKey<'GET /system/errors/groups'>;
     sortOrder?: 'ASC' | 'DESC';
   }): Promise<{ items: ErrorGroup[]; total: number }> {
     const query = this.groupRepo.createQueryBuilder('g');
@@ -365,9 +376,8 @@ export class ErrorTrackingService {
       );
     }
 
-    const sortBy = params.sortBy || 'lastSeenAt';
     const sortOrder = params.sortOrder || 'DESC';
-    query.orderBy(`g.${sortBy}`, sortOrder);
+    query.orderBy(resolveAdminSqlIdentifier('GET /system/errors/groups', params.sortBy), sortOrder);
 
     const page = params.page || 1;
     const limit = params.limit || 20;
@@ -484,10 +494,7 @@ export class ErrorTrackingService {
     return this.alertRuleRepo.save(rule);
   }
 
-  async updateAlertRule(
-    id: string,
-    data: Partial<ErrorAlertRule>,
-  ): Promise<ErrorAlertRule> {
+  async updateAlertRule(id: string, data: Partial<ErrorAlertRule>): Promise<ErrorAlertRule> {
     const rule = await this.alertRuleRepo.findOne({ where: { id } });
     if (!rule) {
       throw new NotFoundException(`Alert rule not found: ${id}`);
@@ -711,7 +718,12 @@ export class ErrorTrackingService {
     // Top error groups
     const topErrorGroups = await this.groupRepo.find({
       where: {
-        status: In([ErrorStatus.NEW, ErrorStatus.ACKNOWLEDGED, ErrorStatus.IN_PROGRESS, ErrorStatus.RECURRING]),
+        status: In([
+          ErrorStatus.NEW,
+          ErrorStatus.ACKNOWLEDGED,
+          ErrorStatus.IN_PROGRESS,
+          ErrorStatus.RECURRING,
+        ]),
       },
       order: { occurrenceCount: 'DESC' },
       take: 10,
@@ -820,7 +832,8 @@ export class ErrorTrackingService {
   async clearExpiredCooldowns(): Promise<void> {
     const now = Date.now();
     for (const [key, timestamp] of this.alertCooldowns.entries()) {
-      if (now - timestamp.getTime() > 24 * 60 * 60 * 1000) { // 24 hours
+      if (now - timestamp.getTime() > 24 * 60 * 60 * 1000) {
+        // 24 hours
         this.alertCooldowns.delete(key);
       }
     }

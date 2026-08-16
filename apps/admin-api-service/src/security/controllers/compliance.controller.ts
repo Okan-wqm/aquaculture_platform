@@ -25,18 +25,46 @@ import { IsString, IsOptional, IsBoolean, IsArray, IsNumber, IsIn } from 'class-
 import { getAuthUserId, getAuthUser } from '../../shared/authenticated-request';
 
 import {
-  DataRequest,
   DataRequestType,
   DataRequestStatus,
-  ComplianceReport,
   ComplianceType,
-} from '../entities/security.entity';
+} from '../contracts/security-vocabulary';
 import {
-  ComplianceService,
-  DataRequestCreateParams,
-  ComplianceCheckResult,
-  DataInventory,
-} from '../services/compliance.service';
+  ComplianceReportDto,
+  ComplianceCheckResultDto,
+  ComplianceRequirementDto,
+  DataInventoryDto,
+  DataRequestDto,
+  DataRequestStatsDto,
+  OperationSuccessDto,
+  toComplianceReportDto,
+  toDataRequestDto,
+} from '../dto/security-response.dto';
+import { ComplianceService, DataRequestCreateParams } from '../services/compliance.service';
+import {
+  createStandardPaginatedResult,
+  IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
+import { AdminResponseContract } from '../../shared/admin-response-contract.decorator';
+import {
+  complianceDataRequestDtoContract,
+  type ComplianceDataRequestDtoDto,
+  complianceDataRequestDtoPageContract,
+  complianceRecordDownloadResponseContract,
+  type ComplianceRecordDownloadResponseDto,
+  complianceDataRequestDtoArrayContract,
+  complianceDataRequestStatsDtoContract,
+  type ComplianceDataRequestStatsDtoDto,
+  complianceComplianceReportDtoContract,
+  type ComplianceComplianceReportDtoDto,
+  complianceComplianceReportDtoPageContract,
+  complianceComplianceCheckResultDtoArrayContract,
+  type ComplianceComplianceCheckResultDtoDto,
+  complianceComplianceRequirementDtoArrayContract,
+  type ComplianceComplianceRequirementDtoDto,
+  complianceDataInventoryDtoArrayContract,
+  type ComplianceDataInventoryDtoDto,
+} from '../contracts/admin-http-response.contract';
 
 // ============================================================================
 // DTOs
@@ -222,38 +250,59 @@ export class ComplianceController {
    * Create data subject request
    * Fix: C6 -- JWT-based identity
    */
+  @AdminResponseContract(complianceDataRequestDtoContract)
   @Post('data-requests')
   @HttpCode(HttpStatus.CREATED)
   async createDataRequest(
     @Body() dto: CreateDataRequestDto,
     @Req() req: Request,
-  ): Promise<DataRequest> {
+  ): Promise<ComplianceDataRequestDtoDto> {
     const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
-    return this.complianceService.createDataRequest({ ...dto, requesterId: userId });
+    return toDataRequestDto(
+      await this.complianceService.createDataRequest({
+        ...dto,
+        requesterId: userId,
+      }),
+    );
+  }
+
+  /**
+   * Get data request statistics. Static route registration must precede the
+   * parameter route below; the generated matcher proof enforces this order.
+   */
+  @AdminResponseContract(complianceDataRequestStatsDtoContract)
+  @Get('data-requests/stats')
+  async getDataRequestStats(
+    @Query('tenantId') tenantId?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ): Promise<ComplianceDataRequestStatsDtoDto> {
+    return this.complianceService.getDataRequestStats({
+      tenantId,
+      startDate: startDate ? new Date(startDate) : undefined,
+      endDate: endDate ? new Date(endDate) : undefined,
+    });
   }
 
   /**
    * Get data request by ID
    */
+  @AdminResponseContract(complianceDataRequestDtoContract)
   @Get('data-requests/:id')
-  async getDataRequest(@Param('id') id: string): Promise<DataRequest> {
-    return this.complianceService.getDataRequest(id);
+  async getDataRequest(@Param('id') id: string): Promise<ComplianceDataRequestDtoDto> {
+    return toDataRequestDto(await this.complianceService.getDataRequest(id));
   }
 
   /**
    * Query data requests
    */
+  @AdminResponseContract(complianceDataRequestDtoPageContract)
   @Get('data-requests')
   async queryDataRequests(
     @Query() query: QueryDataRequestsDto,
-  ): Promise<{
-    data: DataRequest[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
-    return this.complianceService.getDataRequests({
+  ): Promise<IStandardPaginatedResult<ComplianceDataRequestDtoDto>> {
+    const result = await this.complianceService.getDataRequests({
       page: query.page ? parseInt(String(query.page), 10) : 1,
       limit: query.limit ? parseInt(String(query.limit), 10) : 20,
       tenantId: query.tenantId,
@@ -264,27 +313,31 @@ export class ComplianceController {
       endDate: query.endDate ? new Date(query.endDate) : undefined,
       overdue: query.overdue === true || String(query.overdue) === 'true',
     });
+    return createStandardPaginatedResult(
+      result.items.map(toDataRequestDto),
+      result.total,
+      result.page,
+      result.limit,
+    );
   }
 
   /**
    * Update data request
    * Fix: C6 -- JWT-based identity (was hardcoded 'admin')
    */
+  @AdminResponseContract(complianceDataRequestDtoContract)
   @Put('data-requests/:id')
   async updateDataRequest(
     @Param('id') id: string,
     @Body() dto: UpdateDataRequestDto,
     @Req() req: Request,
-  ): Promise<DataRequest> {
+  ): Promise<ComplianceDataRequestDtoDto> {
     const userPayload = getAuthUser(req);
     const userId = userPayload?.id;
     if (!userId) throw new UnauthorizedException('User not authenticated');
     const userName = userPayload?.name || userPayload?.email || userId;
-    return this.complianceService.updateDataRequest(
-      id,
-      dto,
-      userId,
-      userName,
+    return toDataRequestDto(
+      await this.complianceService.updateDataRequest(id, dto, userId, userName),
     );
   }
 
@@ -292,19 +345,18 @@ export class ComplianceController {
    * Verify requester identity
    * Fix: C6 -- JWT-based identity
    */
+  @AdminResponseContract(complianceDataRequestDtoContract)
   @Post('data-requests/:id/verify')
   @HttpCode(HttpStatus.OK)
   async verifyIdentity(
     @Param('id') id: string,
     @Body() dto: VerifyIdentityDto,
     @Req() req: Request,
-  ): Promise<DataRequest> {
+  ): Promise<ComplianceDataRequestDtoDto> {
     const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
-    return this.complianceService.verifyIdentity(
-      id,
-      userId,
-      dto.verificationMethod,
+    return toDataRequestDto(
+      await this.complianceService.verifyIdentity(id, userId, dto.verificationMethod),
     );
   }
 
@@ -312,30 +364,32 @@ export class ComplianceController {
    * Complete data request
    * Fix: C6 -- JWT-based identity
    */
+  @AdminResponseContract(complianceDataRequestDtoContract)
   @Post('data-requests/:id/complete')
   @HttpCode(HttpStatus.OK)
   async completeDataRequest(
     @Param('id') id: string,
     @Body() dto: CompleteDataRequestDto,
     @Req() req: Request,
-  ): Promise<DataRequest> {
+  ): Promise<ComplianceDataRequestDtoDto> {
     const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
-    return this.complianceService.completeDataRequest(id, {
-      ...dto,
-      completedBy: userId,
-      downloadExpiresAt: dto.downloadExpiresAt
-        ? new Date(dto.downloadExpiresAt)
-        : undefined,
-    });
+    return toDataRequestDto(
+      await this.complianceService.completeDataRequest(id, {
+        ...dto,
+        completedBy: userId,
+        downloadExpiresAt: dto.downloadExpiresAt ? new Date(dto.downloadExpiresAt) : undefined,
+      }),
+    );
   }
 
   /**
    * Record download of data request
    */
+  @AdminResponseContract(complianceRecordDownloadResponseContract)
   @Post('data-requests/:id/download')
   @HttpCode(HttpStatus.OK)
-  async recordDownload(@Param('id') id: string): Promise<{ success: boolean }> {
+  async recordDownload(@Param('id') id: string): Promise<ComplianceRecordDownloadResponseDto> {
     await this.complianceService.recordDownload(id);
     return { success: true };
   }
@@ -343,25 +397,10 @@ export class ComplianceController {
   /**
    * Get overdue requests
    */
+  @AdminResponseContract(complianceDataRequestDtoArrayContract)
   @Get('data-requests/status/overdue')
-  async getOverdueRequests(): Promise<DataRequest[]> {
-    return this.complianceService.getOverdueRequests();
-  }
-
-  /**
-   * Get data request statistics
-   */
-  @Get('data-requests/stats')
-  async getDataRequestStats(
-    @Query('tenantId') tenantId?: string,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-  ) {
-    return this.complianceService.getDataRequestStats({
-      tenantId,
-      startDate: startDate ? new Date(startDate) : undefined,
-      endDate: endDate ? new Date(endDate) : undefined,
-    });
+  async getOverdueRequests(): Promise<ComplianceDataRequestDtoDto[]> {
+    return (await this.complianceService.getOverdueRequests()).map(toDataRequestDto);
   }
 
   // ============================================================================
@@ -372,53 +411,59 @@ export class ComplianceController {
    * Generate compliance report
    * Fix: C6 -- JWT-based identity
    */
+  @AdminResponseContract(complianceComplianceReportDtoContract)
   @Post('reports')
   @HttpCode(HttpStatus.CREATED)
   async generateReport(
     @Body() dto: GenerateReportDto,
     @Req() req: Request,
-  ): Promise<ComplianceReport> {
+  ): Promise<ComplianceComplianceReportDtoDto> {
     const userPayload = getAuthUser(req);
     const userId = userPayload?.id;
     if (!userId) throw new UnauthorizedException('User not authenticated');
     const userName = userPayload?.name || userPayload?.email || userId;
-    return this.complianceService.generateComplianceReport({
-      complianceType: dto.complianceType,
-      reportPeriodStart: new Date(dto.reportPeriodStart),
-      reportPeriodEnd: new Date(dto.reportPeriodEnd),
-      includedTenants: dto.includedTenants,
-      generatedBy: userId,
-      generatedByName: userName,
-    });
+    return toComplianceReportDto(
+      await this.complianceService.generateComplianceReport({
+        complianceType: dto.complianceType,
+        reportPeriodStart: new Date(dto.reportPeriodStart),
+        reportPeriodEnd: new Date(dto.reportPeriodEnd),
+        includedTenants: dto.includedTenants,
+        generatedBy: userId,
+        generatedByName: userName,
+      }),
+    );
   }
 
   /**
    * Get compliance report by ID
    */
+  @AdminResponseContract(complianceComplianceReportDtoContract)
   @Get('reports/:id')
-  async getReport(@Param('id') id: string): Promise<ComplianceReport> {
-    return this.complianceService.getComplianceReport(id);
+  async getReport(@Param('id') id: string): Promise<ComplianceComplianceReportDtoDto> {
+    return toComplianceReportDto(await this.complianceService.getComplianceReport(id));
   }
 
   /**
    * Query compliance reports
    */
+  @AdminResponseContract(complianceComplianceReportDtoPageContract)
   @Get('reports')
   async queryReports(
     @Query() query: QueryReportsDto,
-  ): Promise<{
-    data: ComplianceReport[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
-    return this.complianceService.getComplianceReports({
+  ): Promise<IStandardPaginatedResult<ComplianceComplianceReportDtoDto>> {
+    const result = await this.complianceService.getComplianceReports({
       page: query.page ? parseInt(String(query.page), 10) : 1,
       limit: query.limit ? parseInt(String(query.limit), 10) : 20,
       complianceType: query.complianceType,
       startDate: query.startDate ? new Date(query.startDate) : undefined,
       endDate: query.endDate ? new Date(query.endDate) : undefined,
     });
+    return createStandardPaginatedResult(
+      result.items.map(toComplianceReportDto),
+      result.total,
+      result.page,
+      result.limit,
+    );
   }
 
   // ============================================================================
@@ -428,18 +473,22 @@ export class ComplianceController {
   /**
    * Run compliance checks
    */
+  @AdminResponseContract(complianceComplianceCheckResultDtoArrayContract)
   @Get('checks/:framework')
   async runComplianceChecks(
     @Param('framework') framework: ComplianceType,
-  ): Promise<ComplianceCheckResult[]> {
+  ): Promise<ComplianceComplianceCheckResultDtoDto[]> {
     return this.complianceService.runComplianceChecks(framework);
   }
 
   /**
    * Get compliance requirements
    */
+  @AdminResponseContract(complianceComplianceRequirementDtoArrayContract)
   @Get('requirements/:framework')
-  getRequirements(@Param('framework') framework: ComplianceType) {
+  getRequirements(
+    @Param('framework') framework: ComplianceType,
+  ): ComplianceComplianceRequirementDtoDto[] {
     return this.complianceService.getRequirements(framework);
   }
 
@@ -450,8 +499,9 @@ export class ComplianceController {
   /**
    * Get data inventory (processing activities)
    */
+  @AdminResponseContract(complianceDataInventoryDtoArrayContract)
   @Get('data-inventory')
-  getDataInventory(): DataInventory[] {
+  getDataInventory(): ComplianceDataInventoryDtoDto[] {
     return this.complianceService.getDataInventory();
   }
 }

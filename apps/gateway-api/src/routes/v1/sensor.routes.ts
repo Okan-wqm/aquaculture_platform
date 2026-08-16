@@ -6,26 +6,66 @@
  * (e.g., file uploads, streaming data, WebSocket connections).
  */
 
-import { Module, Controller, Get, Post, Req, Res, Logger } from '@nestjs/common';
+import {
+  Module,
+  Controller,
+  Get,
+  Post,
+  Req,
+  Res,
+  Logger,
+  UnauthorizedException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
-import { signedFetch } from '@aquaculture/backend-common/http';
+import {
+  buildGatewayVerifiedUserAssertion,
+  requireCanonicalGatewayAssertionRoles,
+  signedFetch,
+} from '@aquaculture/backend-common/http';
+import type {
+  ImpersonationOperationDescriptor,
+  ImpersonationPermissionsContract,
+} from '@aquaculture/shared-contracts';
 
-// Helper to extract tenant UUID from incoming request for signed propagation.
-function resolveTenantId(req: Request): string {
-  const raw = req.headers['x-tenant-id'];
-  const value = Array.isArray(raw) ? raw[0] : raw;
-  if (typeof value !== 'string') return '';
-  const trimmed = value.trim();
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  return uuidRegex.test(trimmed) ? trimmed : '';
-}
+import type { AuthenticatedUser, ImpersonationOperationAuthorizer } from '../../types';
+import {
+  enforceImpersonationOperations,
+  resolveRestImpersonationOperation,
+} from '../../security/impersonation-operation-authority';
+import {
+  assertImpersonationReceiptLedgerCommitted,
+  assertImpersonationReceiptLedgerReconciled,
+  expectImpersonationOperationDispatch,
+  markImpersonationOperationDispatched,
+} from '../../security/impersonation-receipt-completion';
+import {
+  GATEWAY_SENSOR_CONTROLLER_PATH,
+  GATEWAY_SENSOR_EXPORT_HANDLER_PATH,
+  GATEWAY_SENSOR_MQTT_HANDLER_PATH,
+  SENSOR_EXPORT_OUTWARD_TEMPLATE,
+  SENSOR_MQTT_OUTWARD_PATH,
+} from './sensor-impersonation-routes';
+
+const TENANT_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+type SensorGatewayRequest = Request & {
+  readonly user?: Omit<AuthenticatedUser, 'tenantId'> & {
+    readonly tenantId?: string | null;
+    readonly mfaVerified?: boolean;
+  };
+  readonly effectiveTenantId?: string;
+  readonly impersonationSessionId?: string;
+  readonly impersonationPermissions?: ImpersonationPermissionsContract;
+  readonly authorizeImpersonationOperations?: ImpersonationOperationAuthorizer;
+};
 
 /**
  * Sensor routes controller
  * Handles REST-specific sensor endpoints
  */
-@Controller('api/v1/sensors')
+@Controller(GATEWAY_SENSOR_CONTROLLER_PATH)
 export class SensorRoutesController {
   private readonly logger = new Logger(SensorRoutesController.name);
   private readonly sensorServiceUrl: string;
@@ -35,6 +75,64 @@ export class SensorRoutesController {
       'SENSOR_SERVICE_URL',
       'http://localhost:3003',
     );
+  }
+
+  private async downstreamContext(
+    req: SensorGatewayRequest,
+    method: 'GET' | 'POST',
+    path: string,
+  ): Promise<{
+    readonly tenantId: string;
+    readonly assertion: string;
+    readonly impersonationOperations?: readonly ImpersonationOperationDescriptor[];
+  }> {
+    const user = req.user;
+    if (!user?.sub) throw new UnauthorizedException('Authentication required');
+    const tenantId = req.effectiveTenantId ?? user.tenantId ?? undefined;
+    if (!tenantId || !TENANT_UUID_RE.test(tenantId)) {
+      throw new UnauthorizedException('A validated tenant context is required');
+    }
+    const hasImpersonationContext =
+      req.impersonationSessionId !== undefined || req.impersonationPermissions !== undefined;
+    let impersonationOperations: readonly ImpersonationOperationDescriptor[] | undefined;
+    if (hasImpersonationContext) {
+      if (!req.impersonationSessionId || !req.impersonationPermissions) {
+        throw new ForbiddenException('Canonical impersonation context is incomplete');
+      }
+      const operations = [
+        resolveRestImpersonationOperation({
+          serviceName: 'sensor-service',
+          method,
+          path,
+        }),
+      ] as const;
+      enforceImpersonationOperations(req.impersonationPermissions, operations);
+      if (!req.authorizeImpersonationOperations) {
+        throw new ForbiddenException('Impersonation authorization receipt callback is missing');
+      }
+      expectImpersonationOperationDispatch(req, operations);
+      await req.authorizeImpersonationOperations(operations);
+      assertImpersonationReceiptLedgerCommitted(req);
+      impersonationOperations = operations;
+    }
+    return {
+      tenantId,
+      assertion: buildGatewayVerifiedUserAssertion({
+        subject: user.sub,
+        tenantId: user.tenantId ?? null,
+        effectiveTenantId: tenantId,
+        roles: requireCanonicalGatewayAssertionRoles(user.roles ?? []),
+        email: user.email,
+        mfaVerified: user.mfaVerified,
+        assignedSiteIds: user.assignedSiteIds,
+        mobileFeatures: user.mobileFeatures,
+        resourcePermissions: user.resourcePermissions,
+        planLevel: user.planLevel,
+        impersonationSessionId: req.impersonationSessionId,
+        impersonationPermissions: req.impersonationPermissions,
+      }),
+      ...(impersonationOperations ? { impersonationOperations } : {}),
+    };
   }
 
   /**
@@ -62,18 +160,33 @@ export class SensorRoutesController {
   /**
    * Proxy MQTT connection status endpoint
    */
-  @Get('mqtt/status')
+  @Get(GATEWAY_SENSOR_MQTT_HANDLER_PATH)
   async getMqttStatus(@Req() req: Request, @Res() res: Response): Promise<void> {
+    const context = await this.downstreamContext(
+      req as SensorGatewayRequest,
+      'GET',
+      SENSOR_MQTT_OUTWARD_PATH,
+    );
     try {
       // SECURITY (HIGH-003): signedFetch binds tenantId into HMAC signature.
-      const response = await signedFetch(`${this.sensorServiceUrl}/api/mqtt/status`, {
+      if (context.impersonationOperations) {
+        markImpersonationOperationDispatched(
+          req as SensorGatewayRequest,
+          context.impersonationOperations,
+        );
+        assertImpersonationReceiptLedgerReconciled(req as SensorGatewayRequest);
+      }
+      const responsePromise = signedFetch(`${this.sensorServiceUrl}/api/mqtt/status`, {
         serviceName: 'gateway-api',
-        tenantId: resolveTenantId(req),
+        tenantId: context.tenantId,
+        effectiveTenantId: context.tenantId,
         audience: 'sensor-service',
         headers: {
           Authorization: req.headers.authorization || '',
+          'x-verified-user-assertion': context.assertion,
         },
       });
+      const response = await responsePromise;
 
       const data: unknown = await response.json();
       res.status(response.status).json(data);
@@ -93,6 +206,19 @@ export class SensorRoutesController {
   @Post(':sensorId/firmware')
   async uploadFirmware(@Req() req: Request, @Res() res: Response): Promise<void> {
     const sensorId = req.params.sensorId;
+    const sensorRequest = req as SensorGatewayRequest;
+    if (
+      sensorRequest.impersonationSessionId !== undefined ||
+      sensorRequest.impersonationPermissions !== undefined ||
+      sensorRequest.authorizeImpersonationOperations !== undefined
+    ) {
+      throw new ForbiddenException('Firmware streaming does not support impersonation');
+    }
+    const context = await this.downstreamContext(
+      sensorRequest,
+      'POST',
+      '/api/sensors/:sensorId/firmware',
+    );
 
     try {
       // SECURITY (HIGH-003): signed multipart forward with tenant-bound HMAC.
@@ -101,11 +227,13 @@ export class SensorRoutesController {
         {
           method: 'POST',
           serviceName: 'gateway-api',
-          tenantId: resolveTenantId(req),
+          tenantId: context.tenantId,
+          effectiveTenantId: context.tenantId,
           audience: 'sensor-service',
           headers: {
             Authorization: req.headers.authorization || '',
             'Content-Type': req.headers['content-type'] || 'application/octet-stream',
+            'x-verified-user-assertion': context.assertion,
           },
           body: req.body as BodyInit,
         },
@@ -126,24 +254,39 @@ export class SensorRoutesController {
    * Proxy sensor data export endpoint
    * Streams large data exports directly
    */
-  @Get(':sensorId/export')
+  @Get(GATEWAY_SENSOR_EXPORT_HANDLER_PATH)
   async exportData(@Req() req: Request, @Res() res: Response): Promise<void> {
     const sensorId = req.params.sensorId;
     const queryString = new URLSearchParams(req.query as Record<string, string>).toString();
+    const context = await this.downstreamContext(
+      req as SensorGatewayRequest,
+      'GET',
+      SENSOR_EXPORT_OUTWARD_TEMPLATE,
+    );
 
     try {
       // SECURITY (HIGH-003): signed export request with tenant-bound HMAC.
-      const response = await signedFetch(
+      if (context.impersonationOperations) {
+        markImpersonationOperationDispatched(
+          req as SensorGatewayRequest,
+          context.impersonationOperations,
+        );
+        assertImpersonationReceiptLedgerReconciled(req as SensorGatewayRequest);
+      }
+      const responsePromise = signedFetch(
         `${this.sensorServiceUrl}/api/sensors/${sensorId}/export?${queryString}`,
         {
           serviceName: 'gateway-api',
-          tenantId: resolveTenantId(req),
+          tenantId: context.tenantId,
+          effectiveTenantId: context.tenantId,
           audience: 'sensor-service',
           headers: {
             Authorization: req.headers.authorization || '',
+            'x-verified-user-assertion': context.assertion,
           },
         },
       );
+      const response = await responsePromise;
 
       // Forward headers for file download
       res.setHeader(
@@ -185,5 +328,4 @@ export class SensorRoutesController {
 @Module({
   controllers: [SensorRoutesController],
 })
- 
 export class SensorRoutesModule {}

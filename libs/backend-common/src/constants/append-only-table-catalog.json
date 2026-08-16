@@ -1,0 +1,67 @@
+[
+  { "qualifiedName": "shared.audit_logs" },
+  {
+    "qualifiedName": "auth.audit_logs",
+    "baseline": {
+      "service": "auth-service",
+      "schema": "auth",
+      "migrationDirectory": "src/migrations"
+    }
+  },
+  {
+    "qualifiedName": "admin.audit_logs",
+    "baseline": {
+      "service": "admin-api-service",
+      "schema": "admin",
+      "migrationDirectory": "src/migrations"
+    }
+  },
+  {
+    "qualifiedName": "farm.farm_audit_logs",
+    "baseline": {
+      "service": "farm-service",
+      "schema": "farm",
+      "migrationDirectory": "src/database/migrations"
+    }
+  },
+  {
+    "qualifiedName": "sensor.sensor_audit_logs",
+    "baseline": {
+      "service": "sensor-service",
+      "schema": "sensor",
+      "migrationDirectory": "src/database/migrations"
+    }
+  },
+  {
+    "qualifiedName": "hr.payroll_audit",
+    "baseline": {
+      "service": "hr-service",
+      "schema": "hr",
+      "migrationDirectory": "src/database/migrations"
+    }
+  },
+  {
+    "qualifiedName": "alert.alert_audit_log",
+    "baseline": {
+      "service": "alert-engine",
+      "schema": "alert",
+      "migrationDirectory": "src/database/migrations"
+    }
+  },
+  {
+    "qualifiedName": "ai.tool_execution_audit",
+    "baseline": {
+      "service": "ai-service",
+      "schema": "ai",
+      "migrationDirectory": "src/database/migrations"
+    }
+  },
+  {
+    "qualifiedName": "messaging.compliance_audit_log",
+    "baseline": {
+      "service": "messaging-service",
+      "schema": "messaging",
+      "migrationDirectory": "src/migrations"
+    }
+  }
+]

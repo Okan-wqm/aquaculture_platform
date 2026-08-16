@@ -67,6 +67,11 @@ describe('LIFECYCLE_COMMANDS vs canonical TenantStatusMachine', () => {
     expect(cmd('ActivateTenant').sources).not.toContain(TenantStatus.CANCELLED);
   });
 
+  it('gives suspension recovery its own typed ResumeTenant authority', () => {
+    expect(cmd('ResumeTenant').target).toBe(TenantStatus.ACTIVE);
+    expect(cmd('ResumeTenant').sources).toEqual([TenantStatus.SUSPENDED]);
+  });
+
   it('marks FailProvisioning tolerant (saga compensation no-op outside PROVISIONING)', () => {
     expect(cmd('FailProvisioning').tolerant).toBe(true);
     expect(cmd('FailProvisioning').sources).toEqual([TenantStatus.PROVISIONING]);

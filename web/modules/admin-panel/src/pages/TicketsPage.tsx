@@ -1,803 +1,316 @@
-/**
- * Tickets Page
- *
- * Support ticket management sistemi.
- * Priority, SLA tracking, assignment, internal notes.
- */
-
-import React, { useState, useEffect, useCallback } from 'react';
-import {
-  Ticket,
-  Search,
-  Clock,
-  User,
-  AlertTriangle,
-  AlertCircle,
-  MessageSquare,
-  ChevronRight,
-  X,
-  Send,
-  Paperclip,
-  Building2,
-  Target,
-  Star,
-  RefreshCw,
-  Loader2,
-  Inbox,
-} from 'lucide-react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Badge, Button, Card } from '@aquaculture/shared-ui';
 import {
   supportApi,
-  type SupportTicket as ApiSupportTicket,
-  type TicketComment as ApiTicketComment,
-  type TicketStats as ApiTicketStats,
+  type SupportTicket,
+  type TicketComment,
   type TicketPriority,
+  type TicketStats,
   type TicketStatus,
-  type TicketCategory,
 } from '../services/adminApi';
+import type { AdminApiRouteResponse } from '../services/types/generated/admin-route-contracts';
+import { adminApiErrorMessage } from '../services/http-client';
+import { isAdminNavigationUrl, openAdminNavigation } from '../services/browser-capabilities';
 
-// ============================================================================
-// Types
-// ============================================================================
+type SupportTeamMember = AdminApiRouteResponse<'GET /support/tickets/team'>[number];
 
-// Extend API types with UI-specific computed fields
-interface SupportTicket extends Omit<ApiSupportTicket, 'tenantName' | 'tags'> {
-  tenantName: string;
-  tags: string[];
-  // Computed/aliased fields for UI backwards compatibility
-  reportedBy?: string;
-  reportedByName?: string;
-  commentCount?: number;
-  // SLA deadline fields computed from slaResponseMinutes/slaResolutionMinutes
-  slaResponseDeadline?: string;
-  slaResolutionDeadline?: string;
-}
+const statusVariant = (status: TicketStatus): 'success' | 'warning' | 'info' | 'default' => {
+  if (status === 'resolved' || status === 'closed') return 'success';
+  if (status === 'waiting_customer') return 'warning';
+  if (status === 'in_progress') return 'info';
+  return 'default';
+};
 
-interface TicketComment extends Omit<ApiTicketComment, 'authorType' | 'attachments' | 'authorName'> {
-  authorType: string; // Allow any string for flexibility
-  authorName: string;
-  attachments: TicketAttachment[];
-}
+const priorityVariant = (priority: TicketPriority): 'error' | 'warning' | 'info' | 'default' => {
+  if (priority === 'critical') return 'error';
+  if (priority === 'high') return 'warning';
+  if (priority === 'medium') return 'info';
+  return 'default';
+};
 
-interface TicketAttachment {
-  id: string;
-  filename: string;
-  url: string;
-  size: number;
-}
-
-interface TicketStats extends Omit<ApiTicketStats, 'avgFirstResponseMinutes' | 'avgResolutionMinutes'> {
-  // Aliased fields for UI
-  avgResponseMinutes: number;
-  avgResolutionMinutes: number;
-  slaComplianceRate: number;
-  satisfactionAvg: number;
-}
-
-interface SupportTeamMember {
-  id: string;
-  name: string;
-  activeTickets: number;
-}
-
-// ============================================================================
-// Component
-// ============================================================================
-
-export const TicketsPage: React.FC = () => {
-  const [tickets, setTickets] = useState<SupportTicket[]>([]);
+const TicketsPage: React.FC = () => {
+  const [tickets, setTickets] = useState<readonly SupportTicket[]>([]);
   const [stats, setStats] = useState<TicketStats | null>(null);
-  const [supportTeam, setSupportTeam] = useState<SupportTeamMember[]>([]);
+  const [team, setTeam] = useState<readonly SupportTeamMember[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<SupportTicket | null>(null);
-  const [comments, setComments] = useState<TicketComment[]>([]);
+  const [comments, setComments] = useState<readonly TicketComment[]>([]);
+  const [statusFilter, setStatusFilter] = useState<TicketStatus | 'all'>('all');
+  const [search, setSearch] = useState('');
+  const [commentText, setCommentText] = useState('');
+  const [internalComment, setInternalComment] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [commentsLoading, setCommentsLoading] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<TicketStatus | 'all'>('all');
-  const [priorityFilter, setPriorityFilter] = useState<TicketPriority | 'all'>('all');
-  const [categoryFilter, setCategoryFilter] = useState<TicketCategory | 'all'>('all');
-  const [newComment, setNewComment] = useState('');
-  const [isInternalNote, setIsInternalNote] = useState(false);
 
-  // Fetch tickets from API
-  const fetchTickets = useCallback(async () => {
+  const loadTickets = useCallback(async (): Promise<void> => {
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
-      setError(null);
-
-      const params: Record<string, unknown> = { limit: 100 };
-      if (statusFilter !== 'all') params.status = [statusFilter];
-      if (priorityFilter !== 'all') params.priority = [priorityFilter];
-      if (categoryFilter !== 'all') params.category = [categoryFilter];
-
-      const result = await supportApi.getTickets(params);
-      // Map API response to UI type
-      const mappedTickets: SupportTicket[] = (result.data || []).map((ticket: ApiSupportTicket) => {
-        // Compute SLA deadlines from createdAt + slaMinutes if available
-        const createdDate = new Date(ticket.createdAt);
-        const slaResponseDeadline = ticket.slaResponseMinutes
-          ? new Date(createdDate.getTime() + ticket.slaResponseMinutes * 60 * 1000).toISOString()
-          : undefined;
-        const slaResolutionDeadline = ticket.slaResolutionMinutes
-          ? new Date(createdDate.getTime() + ticket.slaResolutionMinutes * 60 * 1000).toISOString()
-          : ticket.dueAt;
-        return {
-          ...ticket,
-          tenantName: ticket.tenantName || '',
-          tags: ticket.tags || [],
-          reportedBy: ticket.createdBy,
-          reportedByName: ticket.createdByName || '',
-          commentCount: 0, // Not provided by API
-          slaResponseDeadline,
-          slaResolutionDeadline,
-        };
-      });
-      setTickets(mappedTickets);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      const [ticketPage, nextStats, nextTeam] = await Promise.all([
+        supportApi.getTickets({
+          status: statusFilter === 'all' ? undefined : statusFilter,
+          search: search.trim() || undefined,
+          limit: 100,
+        }),
+        supportApi.getTicketStats(),
+        supportApi.getTicketTeam(),
+      ]);
+      setTickets(ticketPage.items);
+      setStats(nextStats);
+      setTeam(nextTeam);
+    } catch (cause: unknown) {
       setTickets([]);
+      setStats(null);
+      setTeam([]);
+      setError(adminApiErrorMessage(cause, 'Failed to load support tickets.'));
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, priorityFilter, categoryFilter]);
-
-  // Fetch stats from API
-  const fetchStats = useCallback(async () => {
-    try {
-      const data = await supportApi.getTicketStats();
-      // Map API response to UI type
-      const mappedStats: TicketStats = {
-        ...data,
-        avgResponseMinutes: data.avgFirstResponseMinutes || data.avgResponseTime || 0,
-        avgResolutionMinutes: data.avgResolutionMinutes || data.avgResolutionTime || 0,
-        slaComplianceRate: data.slaBreachCount ? 100 - (data.slaBreachCount / Math.max(data.total, 1)) * 100 : 100,
-        satisfactionAvg: data.avgSatisfactionRating || data.satisfactionScore || 0,
-      };
-      setStats(mappedStats);
-    } catch (err) {
-      console.error('Failed to fetch stats:', err);
-    }
-  }, []);
-
-  // Fetch support team
-  const fetchSupportTeam = useCallback(async () => {
-    try {
-      const data = await supportApi.getTicketTeam();
-      setSupportTeam(data || []);
-    } catch (err) {
-      console.error('Failed to fetch support team:', err);
-    }
-  }, []);
-
-  // Fetch comments for a ticket
-  const fetchComments = useCallback(async (ticketId: string) => {
-    try {
-      setCommentsLoading(true);
-      const data = await supportApi.getTicketComments(ticketId);
-      // Map API response to UI type - handle flexible response format
-      const mappedComments: TicketComment[] = (data || []).map((comment: Record<string, unknown>) => ({
-        id: comment.id as string,
-        ticketId: comment.ticketId as string,
-        authorId: comment.authorId as string,
-        authorName: (comment.authorName as string) || '',
-        authorType: comment.authorType as string,
-        content: comment.content as string,
-        isInternal: comment.isInternal as boolean,
-        createdAt: comment.createdAt as string,
-        attachments: ((comment.attachments as Array<Record<string, unknown>>) || []).map((att) => ({
-          id: att.id as string,
-          filename: (att.fileName || att.filename) as string,
-          url: att.url as string,
-          size: (att.fileSize || att.size || 0) as number,
-        })),
-      }));
-      setComments(mappedComments);
-    } catch (err) {
-      console.error('Failed to fetch comments:', err);
-    } finally {
-      setCommentsLoading(false);
-    }
-  }, []);
+  }, [search, statusFilter]);
 
   useEffect(() => {
-    fetchTickets();
-    fetchStats();
-    fetchSupportTeam();
-  }, [fetchTickets, fetchStats, fetchSupportTeam]);
+    void loadTickets();
+  }, [loadTickets]);
 
-  useEffect(() => {
-    if (selectedTicket) {
-      fetchComments(selectedTicket.id);
-    }
-  }, [selectedTicket, fetchComments]);
-
-  const filteredTickets = tickets.filter(ticket => {
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      if (!ticket.subject.toLowerCase().includes(query) &&
-          !ticket.ticketNumber.toLowerCase().includes(query) &&
-          !ticket.tenantName.toLowerCase().includes(query)) {
-        return false;
-      }
-    }
-    return true;
-  });
-
-  const getPriorityColor = (priority: TicketPriority) => {
-    switch (priority) {
-      case 'critical': return 'bg-red-100 text-red-700 border-red-200';
-      case 'high': return 'bg-orange-100 text-orange-700 border-orange-200';
-      case 'medium': return 'bg-yellow-100 text-yellow-700 border-yellow-200';
-      case 'low': return 'bg-gray-100 text-gray-700 border-gray-200';
-    }
-  };
-
-  const getStatusColor = (status: TicketStatus) => {
-    switch (status) {
-      case 'open': return 'bg-blue-100 text-blue-700';
-      case 'in_progress': return 'bg-purple-100 text-purple-700';
-      case 'waiting_customer': return 'bg-yellow-100 text-yellow-700';
-      case 'resolved': return 'bg-green-100 text-green-700';
-      case 'closed': return 'bg-gray-100 text-gray-600';
-    }
-  };
-
-  const getStatusLabel = (status: TicketStatus) => {
-    switch (status) {
-      case 'open': return 'Open';
-      case 'in_progress': return 'In Progress';
-      case 'waiting_customer': return 'Waiting';
-      case 'resolved': return 'Resolved';
-      case 'closed': return 'Closed';
-    }
-  };
-
-  const getCategoryIcon = (category: TicketCategory) => {
-    switch (category) {
-      case 'technical': return <AlertCircle size={14} />;
-      case 'billing': return <Building2 size={14} />;
-      case 'feature_request': return <Star size={14} />;
-      case 'bug': return <AlertTriangle size={14} />;
-      case 'general': return <MessageSquare size={14} />;
-    }
-  };
-
-  const formatTime = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diff = now.getTime() - date.getTime();
-    const hours = Math.abs(diff) / (1000 * 60 * 60);
-
-    if (diff < 0) {
-      if (hours < 1) return `in ${Math.round(Math.abs(diff) / (1000 * 60))}m`;
-      if (hours < 24) return `in ${Math.round(hours)}h`;
-      return date.toLocaleDateString();
-    }
-
-    if (hours < 1) return `${Math.round(diff / (1000 * 60))}m ago`;
-    if (hours < 24) return `${Math.round(hours)}h ago`;
-    return date.toLocaleDateString();
-  };
-
-  const isSLABreached = (deadline?: string) => {
-    if (!deadline) return false;
-    return new Date(deadline) < new Date();
-  };
-
-  const handleAssign = async (ticketId: string, assigneeId: string, assigneeName: string) => {
+  const selectTicket = useCallback(async (ticket: SupportTicket): Promise<void> => {
+    setSelectedTicket(ticket);
     try {
-      const updated = await supportApi.assignTicket(ticketId, assigneeId, assigneeName);
-      fetchTickets();
-      if (selectedTicket?.id === ticketId) {
-        // Compute SLA deadlines
-        const createdDate = new Date(updated.createdAt);
-        const slaResponseDeadline = updated.slaResponseMinutes
-          ? new Date(createdDate.getTime() + updated.slaResponseMinutes * 60 * 1000).toISOString()
-          : selectedTicket.slaResponseDeadline;
-        const slaResolutionDeadline = updated.slaResolutionMinutes
-          ? new Date(createdDate.getTime() + updated.slaResolutionMinutes * 60 * 1000).toISOString()
-          : selectedTicket.slaResolutionDeadline;
-        // Map API response to UI type
-        const mappedTicket: SupportTicket = {
-          ...updated,
-          tenantName: updated.tenantName || '',
-          tags: updated.tags || [],
-          reportedBy: updated.createdBy,
-          reportedByName: updated.createdByName || '',
-          commentCount: selectedTicket.commentCount || 0,
-          slaResponseDeadline,
-          slaResolutionDeadline,
-        };
-        setSelectedTicket(mappedTicket);
-      }
-    } catch (err) {
-      console.error('Failed to assign ticket:', err);
+      const page = await supportApi.getTicketComments(ticket.id);
+      setComments(page.items);
+    } catch (cause: unknown) {
+      setComments([]);
+      setError(adminApiErrorMessage(cause, 'Failed to load ticket comments.'));
     }
-  };
+  }, []);
 
-  const handleStatusChange = async (ticketId: string, newStatus: TicketStatus) => {
-    try {
-      await supportApi.updateTicketStatus(ticketId, newStatus);
-      fetchTickets();
-      fetchStats();
-      if (selectedTicket?.id === ticketId) {
-        setSelectedTicket({ ...selectedTicket, status: newStatus });
+  const updateStatus = useCallback(
+    async (status: TicketStatus): Promise<void> => {
+      if (!selectedTicket) return;
+      try {
+        await supportApi.updateTicketStatus(selectedTicket.id, status);
+        setSelectedTicket(null);
+        await loadTickets();
+      } catch (cause: unknown) {
+        setError(adminApiErrorMessage(cause, 'Failed to update ticket status.'));
       }
-    } catch (err) {
-      console.error('Failed to update status:', err);
-    }
-  };
+    },
+    [loadTickets, selectedTicket],
+  );
 
-  const handlePriorityChange = async (ticketId: string, newPriority: TicketPriority) => {
-    try {
-      await supportApi.updateTicketPriority(ticketId, newPriority);
-      fetchTickets();
-      if (selectedTicket?.id === ticketId) {
-        setSelectedTicket({ ...selectedTicket, priority: newPriority });
+  const assignTicket = useCallback(
+    async (member: SupportTeamMember): Promise<void> => {
+      if (!selectedTicket) return;
+      try {
+        await supportApi.assignTicket(selectedTicket.id, member.id, member.name);
+        setSelectedTicket(null);
+        await loadTickets();
+      } catch (cause: unknown) {
+        setError(adminApiErrorMessage(cause, 'Failed to assign ticket.'));
       }
-    } catch (err) {
-      console.error('Failed to update priority:', err);
-    }
-  };
+    },
+    [loadTickets, selectedTicket],
+  );
 
-  const handleAddComment = async () => {
-    if (!newComment.trim() || !selectedTicket) return;
-
+  const addComment = useCallback(async (): Promise<void> => {
+    if (!selectedTicket || !commentText.trim()) return;
     try {
       await supportApi.addTicketComment(selectedTicket.id, {
-        content: newComment,
-        isInternal: isInternalNote,
+        content: commentText.trim(),
+        isInternal: internalComment,
       });
-      setNewComment('');
-      setIsInternalNote(false);
-      fetchComments(selectedTicket.id);
-      fetchTickets();
-    } catch (err) {
-      console.error('Failed to add comment:', err);
+      setCommentText('');
+      const page = await supportApi.getTicketComments(selectedTicket.id);
+      setComments(page.items);
+    } catch (cause: unknown) {
+      setError(adminApiErrorMessage(cause, 'Failed to add ticket comment.'));
     }
-  };
+  }, [commentText, internalComment, selectedTicket]);
 
   return (
-    <div className="h-full flex flex-col">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Support Tickets</h1>
-            <p className="text-gray-500 mt-1">Manage and resolve customer support requests</p>
-          </div>
-          <button
-            onClick={() => { fetchTickets(); fetchStats(); }}
-            className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
-          >
-            <RefreshCw size={18} />
-          </button>
+    <div className="space-y-6">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Support Tickets</h1>
+          <p className="mt-1 text-sm text-gray-500">
+            Tenant support queue, SLA, and ownership state.
+          </p>
         </div>
-
-        {/* Stats */}
-        {stats && (
-          <div className="grid grid-cols-8 gap-3 mt-4">
-            <div className="bg-gray-50 rounded-lg p-3">
-              <div className="text-sm text-gray-500">Total</div>
-              <div className="text-xl font-semibold text-gray-900">{stats.total}</div>
-            </div>
-            <div className="bg-blue-50 rounded-lg p-3">
-              <div className="text-sm text-blue-600">Open</div>
-              <div className="text-xl font-semibold text-blue-700">{stats.open}</div>
-            </div>
-            <div className="bg-purple-50 rounded-lg p-3">
-              <div className="text-sm text-purple-600">In Progress</div>
-              <div className="text-xl font-semibold text-purple-700">{stats.inProgress}</div>
-            </div>
-            <div className="bg-green-50 rounded-lg p-3">
-              <div className="text-sm text-green-600">Resolved</div>
-              <div className="text-xl font-semibold text-green-700">{stats.resolved}</div>
-            </div>
-            <div className="bg-indigo-50 rounded-lg p-3">
-              <div className="text-sm text-indigo-600">Avg Response</div>
-              <div className="text-xl font-semibold text-indigo-700">{stats.avgResponseMinutes}m</div>
-            </div>
-            <div className="bg-cyan-50 rounded-lg p-3">
-              <div className="text-sm text-cyan-600">Avg Resolution</div>
-              <div className="text-xl font-semibold text-cyan-700">{Math.round(stats.avgResolutionMinutes / 60)}h</div>
-            </div>
-            <div className="bg-emerald-50 rounded-lg p-3">
-              <div className="text-sm text-emerald-600">SLA Compliance</div>
-              <div className="text-xl font-semibold text-emerald-700">{stats.slaComplianceRate}%</div>
-            </div>
-            <div className="bg-amber-50 rounded-lg p-3">
-              <div className="text-sm text-amber-600">Satisfaction</div>
-              <div className="flex items-center gap-1">
-                <Star size={16} className="text-amber-500 fill-amber-500" />
-                <span className="text-xl font-semibold text-amber-700">{stats.satisfactionAvg}</span>
-              </div>
-            </div>
-          </div>
-        )}
+        <Button variant="secondary" disabled={loading} onClick={() => void loadTickets()}>
+          {loading ? 'Loading…' : 'Refresh'}
+        </Button>
       </div>
-
-      {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Ticket List */}
-        <div className={`${selectedTicket ? 'w-1/2' : 'w-full'} flex flex-col border-r border-gray-200 bg-white`}>
-          {/* Filters */}
-          <div className="p-4 border-b border-gray-200 space-y-3">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
-              <input
-                type="text"
-                placeholder="Search tickets..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as TicketStatus | 'all')}
-                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="all">All Status</option>
-                <option value="open">Open</option>
-                <option value="in_progress">In Progress</option>
-                <option value="waiting_customer">Waiting</option>
-                <option value="resolved">Resolved</option>
-                <option value="closed">Closed</option>
-              </select>
-              <select
-                value={priorityFilter}
-                onChange={(e) => setPriorityFilter(e.target.value as TicketPriority | 'all')}
-                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="all">All Priority</option>
-                <option value="critical">Critical</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
-              <select
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value as TicketCategory | 'all')}
-                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="all">All Categories</option>
-                <option value="technical">Technical</option>
-                <option value="billing">Billing</option>
-                <option value="feature_request">Feature Request</option>
-                <option value="bug">Bug</option>
-                <option value="general">General</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Ticket List */}
-          <div className="flex-1 overflow-y-auto">
-            {loading ? (
-              <div className="flex items-center justify-center h-full">
-                <Loader2 className="animate-spin text-blue-600" size={32} />
-              </div>
-            ) : error ? (
-              <div className="flex flex-col items-center justify-center h-full text-red-500 p-4">
-                <AlertCircle size={32} className="mb-2" />
-                <p className="text-center">{error}</p>
-                <button
-                  onClick={fetchTickets}
-                  className="mt-2 text-sm text-blue-600 hover:text-blue-700"
-                >
-                  Retry
-                </button>
-              </div>
-            ) : filteredTickets.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-gray-500 p-4">
-                <Inbox size={48} className="mb-2 text-gray-500" />
-                <p>No tickets found</p>
-              </div>
-            ) : (
-              filteredTickets.map((ticket) => (
-                <div
-                  key={ticket.id}
-                  onClick={() => setSelectedTicket(ticket)}
-                  className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 ${
-                    selectedTicket?.id === ticket.id ? 'bg-blue-50 border-l-4 border-l-blue-500' : ''
-                  }`}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className={`px-2 py-0.5 text-xs rounded border ${getPriorityColor(ticket.priority)}`}>
-                          {ticket.priority}
-                        </span>
-                        <span className={`px-2 py-0.5 text-xs rounded ${getStatusColor(ticket.status)}`}>
-                          {getStatusLabel(ticket.status)}
-                        </span>
-                        {isSLABreached(ticket.slaResponseDeadline) && !ticket.firstResponseAt && (
-                          <span className="px-2 py-0.5 text-xs rounded bg-red-100 text-red-700">
-                            SLA Breach
-                          </span>
-                        )}
-                      </div>
-                      <h3 className="font-medium text-gray-900 mt-1 truncate">{ticket.subject}</h3>
-                      <div className="flex items-center gap-2 mt-1 text-sm text-gray-500">
-                        <span>{ticket.ticketNumber}</span>
-                        <span>·</span>
-                        <span>{ticket.tenantName}</span>
-                      </div>
-                      <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
-                        <span className="flex items-center gap-1">
-                          <Clock size={12} />
-                          {formatTime(ticket.createdAt)}
-                        </span>
-                        {ticket.assignedToName && (
-                          <span className="flex items-center gap-1">
-                            <User size={12} />
-                            {ticket.assignedToName}
-                          </span>
-                        )}
-                        <span className="flex items-center gap-1">
-                          <MessageSquare size={12} />
-                          {ticket.commentCount}
-                        </span>
-                      </div>
-                    </div>
-                    <ChevronRight size={18} className="text-gray-500" />
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
+      {error && (
+        <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {error}
         </div>
-
-        {/* Ticket Detail */}
-        {selectedTicket && (
-          <div className="w-1/2 flex flex-col bg-gray-50">
-            {/* Detail Header */}
-            <div className="bg-white border-b border-gray-200 px-6 py-4">
-              <div className="flex items-start justify-between">
+      )}
+      <div className="grid gap-4 md:grid-cols-5">
+        {[
+          ['Total', stats?.total],
+          ['Open', stats?.open],
+          ['In progress', stats?.inProgress],
+          ['Waiting', stats?.waitingCustomer],
+          ['SLA breaches', stats?.slaBreachCount],
+        ].map(([label, value]) => (
+          <Card key={label}>
+            <div className="p-4">
+              <p className="text-xs text-gray-500">{label}</p>
+              <p className="mt-1 text-2xl font-bold">{value ?? '—'}</p>
+            </div>
+          </Card>
+        ))}
+      </div>
+      <Card>
+        <div className="grid gap-3 p-4 sm:grid-cols-[1fr_14rem]">
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search tickets"
+            className="rounded border border-gray-300 px-3 py-2 text-sm"
+          />
+          <select
+            value={statusFilter}
+            onChange={(event) => {
+              const nextStatus = event.target.value;
+              if (
+                nextStatus === 'all' ||
+                nextStatus === 'open' ||
+                nextStatus === 'in_progress' ||
+                nextStatus === 'waiting_customer' ||
+                nextStatus === 'resolved' ||
+                nextStatus === 'closed'
+              ) {
+                setStatusFilter(nextStatus);
+              }
+            }}
+            className="rounded border border-gray-300 px-3 py-2 text-sm"
+          >
+            <option value="all">All statuses</option>
+            <option value="open">Open</option>
+            <option value="in_progress">In progress</option>
+            <option value="waiting_customer">Waiting customer</option>
+            <option value="resolved">Resolved</option>
+            <option value="closed">Closed</option>
+          </select>
+        </div>
+      </Card>
+      <Card>
+        <div className="divide-y divide-gray-100">
+          {tickets.map((ticket) => (
+            <button
+              key={ticket.id}
+              onClick={() => void selectTicket(ticket)}
+              className="grid w-full grid-cols-[1fr_auto] gap-4 p-4 text-left hover:bg-gray-50"
+            >
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono text-xs text-gray-500">{ticket.ticketNumber}</span>
+                  <Badge variant={priorityVariant(ticket.priority)}>{ticket.priority}</Badge>
+                  <Badge variant={statusVariant(ticket.status)}>{ticket.status}</Badge>
+                </div>
+                <p className="mt-2 font-medium text-gray-900">{ticket.subject}</p>
+                <p className="mt-1 text-xs text-gray-500">{ticket.tenantName ?? ticket.tenantId}</p>
+              </div>
+              <span className="text-xs text-gray-500">
+                {new Date(ticket.updatedAt).toLocaleString()}
+              </span>
+            </button>
+          ))}
+          {!tickets.length && (
+            <p className="p-6 text-center text-sm text-gray-500">No tickets found.</p>
+          )}
+        </div>
+      </Card>
+      {selectedTicket && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <Card className="max-h-[90vh] w-full max-w-4xl overflow-y-auto">
+            <div className="space-y-5 p-6">
+              <div className="flex items-start justify-between gap-3">
                 <div>
-                  <div className="flex items-center gap-2">
-                    <span className={`px-2 py-0.5 text-xs rounded border ${getPriorityColor(selectedTicket.priority)}`}>
-                      {selectedTicket.priority}
-                    </span>
-                    <span className={`px-2 py-0.5 text-xs rounded ${getStatusColor(selectedTicket.status)}`}>
-                      {getStatusLabel(selectedTicket.status)}
-                    </span>
-                    <span className="flex items-center gap-1 text-xs text-gray-500">
-                      {getCategoryIcon(selectedTicket.category)}
-                      {selectedTicket.category.replace('_', ' ')}
-                    </span>
-                  </div>
-                  <h2 className="text-lg font-semibold text-gray-900 mt-2">
-                    {selectedTicket.subject}
-                  </h2>
-                  <div className="flex items-center gap-3 mt-1 text-sm text-gray-500">
-                    <span>{selectedTicket.ticketNumber}</span>
-                    <span>·</span>
-                    <span>{selectedTicket.tenantName}</span>
-                    <span>·</span>
-                    <span>by {selectedTicket.reportedByName}</span>
-                  </div>
+                  <h2 className="text-xl font-bold">{selectedTicket.subject}</h2>
+                  <p className="mt-1 text-sm text-gray-500">{selectedTicket.description}</p>
                 </div>
-                <button
-                  onClick={() => setSelectedTicket(null)}
-                  className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
-                >
-                  <X size={20} />
-                </button>
+                <Button variant="secondary" size="sm" onClick={() => setSelectedTicket(null)}>
+                  Close
+                </Button>
               </div>
-
-              {/* Actions */}
-              <div className="flex items-center gap-3 mt-4">
-                {/* Status Change */}
-                <select
-                  value={selectedTicket.status}
-                  onChange={(e) => handleStatusChange(selectedTicket.id, e.target.value as TicketStatus)}
-                  className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="open">Open</option>
-                  <option value="in_progress">In Progress</option>
-                  <option value="waiting_customer">Waiting for Customer</option>
-                  <option value="resolved">Resolved</option>
-                  <option value="closed">Closed</option>
-                </select>
-
-                {/* Priority Change */}
-                <select
-                  value={selectedTicket.priority}
-                  onChange={(e) => handlePriorityChange(selectedTicket.id, e.target.value as TicketPriority)}
-                  className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="critical">Critical</option>
-                  <option value="high">High</option>
-                  <option value="medium">Medium</option>
-                  <option value="low">Low</option>
-                </select>
-
-                {/* Assign */}
-                <select
-                  value={selectedTicket.assignedTo || ''}
-                  onChange={(e) => {
-                    const member = supportTeam.find(m => m.id === e.target.value);
-                    if (member) {
-                      handleAssign(selectedTicket.id, member.id, member.name);
-                    }
-                  }}
-                  className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Assign to...</option>
-                  {supportTeam.map((member) => (
-                    <option key={member.id} value={member.id}>
-                      {member.name} ({member.activeTickets} active)
-                    </option>
-                  ))}
-                </select>
+              <div className="flex flex-wrap gap-2">
+                {team.map((member) => (
+                  <Button
+                    key={member.id}
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => void assignTicket(member)}
+                  >
+                    Assign {member.name} ({member.activeTickets})
+                  </Button>
+                ))}
               </div>
-
-              {/* SLA Info */}
-              {(selectedTicket.slaResponseDeadline || selectedTicket.slaResolutionDeadline) && (
-                <div className="flex items-center gap-4 mt-4 p-3 bg-gray-50 rounded-lg text-sm">
-                  {selectedTicket.slaResponseDeadline && !selectedTicket.firstResponseAt && (
-                    <div className={`flex items-center gap-2 ${isSLABreached(selectedTicket.slaResponseDeadline) ? 'text-red-600' : 'text-gray-600'}`}>
-                      <Clock size={14} />
-                      <span>Response: {formatTime(selectedTicket.slaResponseDeadline)}</span>
-                      {isSLABreached(selectedTicket.slaResponseDeadline) && (
-                        <AlertTriangle size={14} className="text-red-500" />
-                      )}
-                    </div>
-                  )}
-                  {selectedTicket.slaResolutionDeadline && selectedTicket.status !== 'resolved' && selectedTicket.status !== 'closed' && (
-                    <div className={`flex items-center gap-2 ${isSLABreached(selectedTicket.slaResolutionDeadline) ? 'text-red-600' : 'text-gray-600'}`}>
-                      <Target size={14} />
-                      <span>Resolution: {formatTime(selectedTicket.slaResolutionDeadline)}</span>
-                      {isSLABreached(selectedTicket.slaResolutionDeadline) && (
-                        <AlertTriangle size={14} className="text-red-500" />
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Tags */}
-              {selectedTicket.tags && selectedTicket.tags.length > 0 && (
-                <div className="flex items-center gap-2 mt-3">
-                  {selectedTicket.tags.map((tag) => (
-                    <span key={tag} className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Comments */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {commentsLoading ? (
-                <div className="flex items-center justify-center h-full">
-                  <Loader2 className="animate-spin text-blue-600" size={32} />
-                </div>
-              ) : comments.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full text-gray-500">
-                  <MessageSquare size={48} className="mb-2 text-gray-500" />
-                  <p>No comments yet</p>
-                </div>
-              ) : (
-                comments.map((comment) => (
-                  <div
-                    key={comment.id}
-                    className={`rounded-lg p-4 ${
-                      comment.isInternal
-                        ? 'bg-yellow-50 border border-yellow-200'
-                        : comment.authorType === 'admin'
-                        ? 'bg-blue-50 border border-blue-100'
-                        : 'bg-white border border-gray-200'
-                    }`}
-                  >
-                    {comment.isInternal && (
-                      <div className="flex items-center gap-1 text-yellow-700 text-xs mb-2">
-                        <AlertCircle size={12} />
-                        Internal Note
-                      </div>
-                    )}
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center">
-                          <User size={16} className="text-gray-500" />
-                        </div>
-                        <div>
-                          <div className="font-medium text-gray-900 text-sm">{comment.authorName}</div>
-                          <div className="text-xs text-gray-500">
-                            {comment.authorType === 'admin' ? 'Support Team' : 'Customer'}
-                          </div>
-                        </div>
-                      </div>
-                      <span className="text-xs text-gray-500">{formatTime(comment.createdAt)}</span>
-                    </div>
-                    <p className={`text-sm whitespace-pre-wrap ${comment.isInternal ? 'text-yellow-800' : 'text-gray-700'}`}>
-                      {comment.content}
-                    </p>
-                    {comment.attachments && comment.attachments.length > 0 && (
-                      <div className="mt-3 space-y-2">
-                        {comment.attachments.map((att) => (
-                          <a
-                            key={att.id}
-                            href={att.url}
-                            className="flex items-center gap-2 p-2 bg-white rounded border border-gray-200 hover:bg-gray-50 text-sm"
-                          >
-                            <Paperclip size={14} className="text-gray-500" />
-                            <span className="text-gray-700">{att.filename}</span>
-                          </a>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
-
-            {/* Reply Input */}
-            {selectedTicket.status !== 'closed' && (
-              <div className="bg-white border-t border-gray-200 p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <button
-                    onClick={() => setIsInternalNote(!isInternalNote)}
-                    className={`text-xs px-2 py-1 rounded ${
-                      isInternalNote
-                        ? 'bg-yellow-100 text-yellow-700 border border-yellow-300'
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                    }`}
-                  >
-                    {isInternalNote ? 'Internal Note' : 'Public Reply'}
-                  </button>
-                </div>
-                <div className="flex items-end gap-3">
-                  <textarea
-                    value={newComment}
-                    onChange={(e) => setNewComment(e.target.value)}
-                    placeholder={isInternalNote ? 'Add internal note...' : 'Write a reply...'}
-                    rows={3}
-                    className="flex-1 px-4 py-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                  <div className="flex flex-col gap-2">
-                    <button className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100">
-                      <Paperclip size={20} />
-                    </button>
-                    <button
-                      onClick={handleAddComment}
-                      disabled={!newComment.trim()}
-                      className="p-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              <div className="flex flex-wrap gap-2">
+                {(['open', 'in_progress', 'waiting_customer', 'resolved', 'closed'] as const).map(
+                  (status) => (
+                    <Button
+                      key={status}
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => void updateStatus(status)}
                     >
-                      <Send size={20} />
-                    </button>
-                  </div>
-                </div>
+                      {status}
+                    </Button>
+                  ),
+                )}
               </div>
-            )}
-
-            {/* Satisfaction Rating */}
-            {selectedTicket.status === 'resolved' && selectedTicket.satisfactionRating && (
-              <div className="bg-green-50 border-t border-green-200 px-4 py-3">
-                <div className="flex items-center justify-center gap-2">
-                  <span className="text-sm text-green-700">Customer Satisfaction:</span>
-                  <div className="flex items-center gap-1">
-                    {[1, 2, 3, 4, 5].map((star) => (
-                      <Star
-                        key={star}
-                        size={16}
-                        className={star <= selectedTicket.satisfactionRating!
-                          ? 'text-yellow-500 fill-yellow-500'
-                          : 'text-gray-500'
-                        }
-                      />
+              <div className="space-y-3">
+                {comments.map((comment) => (
+                  <div key={comment.id} className="rounded border border-gray-200 p-3">
+                    <div className="flex justify-between text-xs text-gray-500">
+                      <span>{comment.authorName ?? comment.authorId}</span>
+                      <span>{new Date(comment.createdAt).toLocaleString()}</span>
+                    </div>
+                    <p className="mt-2 text-sm">{comment.content}</p>
+                    {comment.attachments?.map((attachment) => (
+                      <Button
+                        key={attachment.id}
+                        size="sm"
+                        variant="secondary"
+                        disabled={!isAdminNavigationUrl(attachment.url)}
+                        onClick={() => openAdminNavigation(attachment.url)}
+                      >
+                        {attachment.fileName} ({attachment.fileSize} bytes)
+                      </Button>
                     ))}
                   </div>
-                </div>
+                ))}
               </div>
-            )}
-          </div>
-        )}
-      </div>
+              <textarea
+                value={commentText}
+                onChange={(event) => setCommentText(event.target.value)}
+                className="min-h-24 w-full rounded border border-gray-300 p-3 text-sm"
+                placeholder="Add a comment"
+              />
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={internalComment}
+                    onChange={(event) => setInternalComment(event.target.checked)}
+                  />
+                  Internal note
+                </label>
+                <Button
+                  variant="primary"
+                  disabled={!commentText.trim()}
+                  onClick={() => void addComment()}
+                >
+                  Add comment
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
     </div>
   );
 };
 
+export { TicketsPage };
 export default TicketsPage;

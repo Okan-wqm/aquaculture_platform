@@ -1,17 +1,22 @@
 import * as crypto from 'crypto';
 
 import { Role } from '@aquaculture/backend-common/decorators';
+import { USER_TOKEN_REVOCATION, IUserTokenRevocation } from '@aquaculture/backend-common/security';
 import {
-  USER_TOKEN_REVOCATION,
-  IUserTokenRevocation,
-} from '@aquaculture/backend-common/security';
-import { Injectable, Logger, NotFoundException, ConflictException, BadRequestException, Inject } from '@nestjs/common';
+  Injectable,
+  Logger,
+  NotFoundException,
+  ConflictException,
+  BadRequestException,
+  Inject,
+} from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import {
   type ActivateTenantCommand,
   type ArchiveTenantLifecycleCommand,
   assertTransition,
   createBaseEvent,
+  decodeTenantOnboardingActivationProof,
   type AssignTenantModulesCommand,
   type AuthTenantCommandMetadata,
   type AuthTenantSnapshot,
@@ -21,6 +26,7 @@ import {
   type FailProvisioningCommand,
   type RemoveTenantModuleCommand,
   type ReserveTenantCommand,
+  type ResumeTenantCommand,
   type RollbackTenantProvisioningCommand,
   type SetupTenantRolesCommand,
   type SuspendTenantLifecycleCommand,
@@ -34,7 +40,11 @@ import {
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 
-import { ActionToken, ActionTokenPurpose, ActionTokenStatus } from '../../authentication/entities/action-token.entity';
+import {
+  ActionToken,
+  ActionTokenPurpose,
+  ActionTokenStatus,
+} from '../../authentication/entities/action-token.entity';
 import { Invitation, InvitationStatus } from '../../authentication/entities/invitation.entity';
 import { User } from '../../authentication/entities/user.entity';
 import { Tenant, TenantStatus } from '../entities/tenant.entity';
@@ -77,6 +87,11 @@ interface RelationRow {
   relation: string | null;
 }
 
+interface TenantOnboardingActivationAdmissionRow {
+  evidenceRoot: string;
+  publicationDigest: string;
+}
+
 /**
  * Command → lifecycle authorization (MT-HIGH-003 / W3.3-c). This map is NOT a
  * transition-legality table — that authority is the canonical
@@ -111,6 +126,12 @@ export const LIFECYCLE_COMMANDS: Readonly<
   ActivateTenant: {
     target: TenantStatus.ACTIVE,
     sources: [TenantStatus.PROVISIONING],
+  },
+  // Operational recovery after suspension is a separate authority from the
+  // onboarding activation seal consumed by ActivateTenant.
+  ResumeTenant: {
+    target: TenantStatus.ACTIVE,
+    sources: [TenantStatus.SUSPENDED],
   },
   // Provisioning failed: a forward transition only from the in-flight
   // PROVISIONING state, but tolerant — the saga's failure handler issues it on
@@ -171,7 +192,9 @@ export class TenantProvisioningCommandService {
     private readonly userTokenRevocation: IUserTokenRevocation,
   ) {}
 
-  async reserveTenant(command: ReserveTenantCommand): Promise<{ tenant: AuthTenantSnapshot; status: string }> {
+  async reserveTenant(
+    command: ReserveTenantCommand,
+  ): Promise<{ tenant: AuthTenantSnapshot; status: string }> {
     const execution = await this.runWithReceipt(
       'ReserveTenant',
       command,
@@ -180,10 +203,16 @@ export class TenantProvisioningCommandService {
         // Reserve is a create-or-idempotent seed, not a forward transition:
         // allowMissing creates the PENDING row; seed lets an existing still-PENDING
         // row return without a (self-)transition assertion the machine would reject.
-        await this.assertTenantTransition(manager, command, [TenantStatus.PENDING], TenantStatus.PENDING, {
-          allowMissing: true,
-          seed: true,
-        });
+        await this.assertTenantTransition(
+          manager,
+          command,
+          [TenantStatus.PENDING],
+          TenantStatus.PENDING,
+          {
+            allowMissing: true,
+            seed: true,
+          },
+        );
 
         const existingBySlug = await manager.findOne(Tenant, {
           where: { slug: command.slug },
@@ -197,7 +226,9 @@ export class TenantProvisioningCommandService {
             where: { customDomain: command.customDomain },
           });
           if (existingByDomain && existingByDomain.id !== command.tenantId) {
-            throw new ConflictException(`Tenant with domain "${command.customDomain}" already exists`);
+            throw new ConflictException(
+              `Tenant with domain "${command.customDomain}" already exists`,
+            );
           }
         }
 
@@ -226,8 +257,7 @@ export class TenantProvisioningCommandService {
           // tenant's plan actually grants.
           maxUsers:
             command.maxUsers ??
-            resolvePlanLimits(toTenantPlan(command.plan) ?? TenantPlan.STARTER)
-              .maxUsers,
+            resolvePlanLimits(toTenantPlan(command.plan) ?? TenantPlan.STARTER).maxUsers,
           maxStorage: command.maxStorage ?? -1,
           // MT-MEDIUM-001: isTrialActive is no longer stored — trial state is
           // derived from trialEndsAt (the SSoT), which is the only trial field
@@ -266,9 +296,7 @@ export class TenantProvisioningCommandService {
         await this.assertTenantExists(command.tenantId, manager);
         await this.assertTenantRolesTableExists(manager);
 
-        const roles = command.roles && command.roles.length > 0
-          ? command.roles
-          : this.defaultRoles;
+        const roles = command.roles && command.roles.length > 0 ? command.roles : this.defaultRoles;
 
         let rolesCreated = 0;
         for (const role of roles) {
@@ -305,7 +333,9 @@ export class TenantProvisioningCommandService {
     return execution.result;
   }
 
-  async assignTenantModules(command: AssignTenantModulesCommand): Promise<{ modulesAssigned: number }> {
+  async assignTenantModules(
+    command: AssignTenantModulesCommand,
+  ): Promise<{ modulesAssigned: number }> {
     const execution = await this.runWithReceipt(
       'AssignModules',
       command,
@@ -313,9 +343,10 @@ export class TenantProvisioningCommandService {
       async (manager) => {
         await this.assertTenantExists(command.tenantId, manager);
 
-        const requestedModules: RequestedTenantModule[] = command.modules && command.modules.length > 0
-          ? command.modules
-          : command.moduleIds.map((moduleId) => ({ moduleId }));
+        const requestedModules: RequestedTenantModule[] =
+          command.modules && command.modules.length > 0
+            ? command.modules
+            : command.moduleIds.map((moduleId) => ({ moduleId }));
         const moduleIds = Array.from(new Set(requestedModules.map((module) => module.moduleId)));
 
         if (moduleIds.length === 0) {
@@ -378,7 +409,9 @@ export class TenantProvisioningCommandService {
     return execution.result;
   }
 
-  async removeTenantModule(command: RemoveTenantModuleCommand): Promise<{ modulesRemoved: number }> {
+  async removeTenantModule(
+    command: RemoveTenantModuleCommand,
+  ): Promise<{ modulesRemoved: number }> {
     const execution = await this.runWithReceipt(
       'RemoveModule',
       command,
@@ -422,7 +455,10 @@ export class TenantProvisioningCommandService {
           where: { email: normalisedEmail },
         });
         if (existingUser) {
-          if (existingUser.tenantId === command.tenantId && existingUser.role === Role.TENANT_ADMIN) {
+          if (
+            existingUser.tenantId === command.tenantId &&
+            existingUser.role === Role.TENANT_ADMIN
+          ) {
             const invitation = await manager.findOne(Invitation, {
               where: { userId: existingUser.id, tenantId: command.tenantId },
               order: { createdAt: 'DESC' },
@@ -529,7 +565,9 @@ export class TenantProvisioningCommandService {
     );
     const result = execution.result;
 
-    this.logger.log(`Created first tenant admin userId=${result.userId} tenantId=${command.tenantId}`);
+    this.logger.log(
+      `Created first tenant admin userId=${result.userId} tenantId=${command.tenantId}`,
+    );
     return {
       userId: result.userId,
       invitationId: result.invitationId,
@@ -617,7 +655,44 @@ export class TenantProvisioningCommandService {
   }
 
   async activateTenant(command: ActivateTenantCommand): Promise<TenantCommandResultBase> {
-    return this.transitionTenantStatus('ActivateTenant', command, TenantStatus.ACTIVE);
+    const proof = decodeTenantOnboardingActivationProof(command.activationProof);
+    return this.transitionTenantStatus(
+      'ActivateTenant',
+      command,
+      TenantStatus.ACTIVE,
+      undefined,
+      async (manager): Promise<void> => {
+        const rows = this.rowsFromQuery<TenantOnboardingActivationAdmissionRow>(
+          await manager.query(
+            `SELECT "evidenceRoot", "publicationDigest"
+               FROM admin.consume_tenant_onboarding_activation(
+                 $1::uuid, $2::uuid, $3::integer, $4::uuid, $5::text, $6::text
+               )`,
+            [
+              command.operationId,
+              command.tenantId,
+              proof.generation,
+              proof.sealToken,
+              proof.evidenceRoot,
+              proof.publicationDigest,
+            ],
+          ),
+        );
+        if (
+          rows.length !== 1 ||
+          rows[0]?.evidenceRoot !== proof.evidenceRoot ||
+          rows[0]?.publicationDigest !== proof.publicationDigest
+        ) {
+          throw new ConflictException(
+            'Tenant onboarding activation admission returned a different proof',
+          );
+        }
+      },
+    );
+  }
+
+  async resumeTenant(command: ResumeTenantCommand): Promise<TenantCommandResultBase> {
+    return this.transitionTenantStatus('ResumeTenant', command, TenantStatus.ACTIVE);
   }
 
   async failProvisioning(command: FailProvisioningCommand): Promise<TenantCommandResultBase> {
@@ -630,7 +705,12 @@ export class TenantProvisioningCommandService {
   }
 
   async suspendTenant(command: SuspendTenantLifecycleCommand): Promise<TenantCommandResultBase> {
-    return this.transitionTenantStatus('SuspendTenant', command, TenantStatus.SUSPENDED, command.reason);
+    return this.transitionTenantStatus(
+      'SuspendTenant',
+      command,
+      TenantStatus.SUSPENDED,
+      command.reason,
+    );
   }
 
   async deprovisionTenant(command: DeprovisionTenantCommand): Promise<TenantCommandResultBase> {
@@ -643,13 +723,15 @@ export class TenantProvisioningCommandService {
   }
 
   async archiveTenant(command: ArchiveTenantLifecycleCommand): Promise<TenantCommandResultBase> {
-    return this.transitionTenantStatus('ArchiveTenant', command, TenantStatus.ARCHIVED, command.reason);
+    return this.transitionTenantStatus(
+      'ArchiveTenant',
+      command,
+      TenantStatus.ARCHIVED,
+      command.reason,
+    );
   }
 
-  private async assertTenantExists(
-    tenantId: string,
-    manager?: EntityManager,
-  ): Promise<Tenant> {
+  private async assertTenantExists(tenantId: string, manager?: EntityManager): Promise<Tenant> {
     const tenant = manager
       ? await manager.findOne(Tenant, { where: { id: tenantId } })
       : await this.tenantRepository.findOne({ where: { id: tenantId } });
@@ -665,7 +747,9 @@ export class TenantProvisioningCommandService {
     );
     const relation = this.rowsFromQuery<RelationRow>(rowsRaw)[0]?.relation;
     if (!relation) {
-      throw new Error('auth.tenant_roles is missing; run auth migrations before tenant provisioning');
+      throw new Error(
+        'auth.tenant_roles is missing; run auth migrations before tenant provisioning',
+      );
     }
   }
 
@@ -686,6 +770,7 @@ export class TenantProvisioningCommandService {
     command: AuthTenantCommandMetadata,
     targetStatus: TenantStatus,
     reason?: string,
+    admit?: (manager: EntityManager) => Promise<void>,
   ): Promise<TenantCommandResultBase> {
     const lifecycle = LIFECYCLE_COMMANDS[commandType];
     if (!lifecycle) {
@@ -701,120 +786,125 @@ export class TenantProvisioningCommandService {
     // RBAC-HIGH-007: users locked out by THIS live execution (closure, not part
     // of the receipt result — an idempotent replay must not re-blacklist).
     const lockedOutUserIds: string[] = [];
-    const execution = await this.runWithReceipt(
-      commandType,
-      command,
-      'tenant',
-      async (manager) => {
-        const { tenant, transition } = await this.assertTenantTransition(
-          manager,
-          command,
-          lifecycle.sources,
-          targetStatus,
-          { tolerant: lifecycle.tolerant },
-        );
-        const previousStatus = tenant.status;
+    const execution = await this.runWithReceipt(commandType, command, 'tenant', async (manager) => {
+      const { tenant, transition } = await this.assertTenantTransition(
+        manager,
+        command,
+        lifecycle.sources,
+        targetStatus,
+        { tolerant: lifecycle.tolerant },
+      );
+      const previousStatus = tenant.status;
 
-        // No-op when the tenant is already at the target (idempotent re-issue) or
-        // when a tolerant compensation command (FailProvisioning) is invoked from
-        // a non-authorized state — persist nothing and emit no status-change event
-        // so the receipt still succeeds without a spurious transition.
-        if (!transition) {
-          return {
-            operationId: command.operationId,
-            tenantId: command.tenantId,
-            status: tenant.status,
-            previousStatus,
-            reason,
-          };
+      // No-op when the tenant is already at the target (idempotent re-issue) or
+      // when a tolerant compensation command (FailProvisioning) is invoked from
+      // a non-authorized state — persist nothing and emit no status-change event
+      // so the receipt still succeeds without a spurious transition.
+      if (!transition) {
+        if (admit !== undefined) {
+          throw new ConflictException(
+            `${commandType} found its target state without an atomic command receipt`,
+          );
         }
-
-        tenant.status = targetStatus;
-
-        // Suspension audit trio (DB-ADMIN-HIGH-003): persisted atomically with
-        // the status write by the single writer of auth.tenants. The SUSPENDED
-        // transition records when/why/who (actor.id travels on every lifecycle
-        // command via AuthTenantCommandMetadata); the ACTIVE transition clears
-        // all three because an active tenant is, by definition, not suspended.
-        // Other targets (DEACTIVATED/ARCHIVED/…) deliberately leave the trio
-        // untouched so a tenant deactivated OUT of suspension keeps the audit
-        // trail of its last suspension.
-        if (targetStatus === TenantStatus.SUSPENDED) {
-          tenant.suspendedAt = new Date();
-          tenant.suspendedReason = reason ?? null;
-          tenant.suspendedBy = command.actor.id;
-        } else if (targetStatus === TenantStatus.ACTIVE) {
-          tenant.suspendedAt = null;
-          tenant.suspendedReason = null;
-          tenant.suspendedBy = null;
-        }
-
-        await manager.save(Tenant, tenant);
-
-        // Durable TenantStatusChanged, atomic with the status write. The local
-        // lifecycle handlers previously emitted nothing on transition (events
-        // were dropped on the live path); routing through auth_outbox here is
-        // the single emission point for all five lifecycle transitions and
-        // commits in the same SERIALIZABLE receipt transaction.
-        await this.outboxPublisher.enqueue(
-          {
-            ...createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged', command.tenantId, {
-              aggregateId: command.tenantId,
-              aggregateType: 'Tenant',
-            }),
-            previousStatus,
-            newStatus: targetStatus,
-            reason,
-          },
-          manager,
-          {
-            aggregateId: command.tenantId,
-            idempotencyKey: `${command.operationId}:${commandType}:TenantStatusChanged`,
-          },
-        );
-
-        // RBAC-HIGH-007: a transition OUT of the operational state (SUSPENDED /
-        // DEACTIVATED / CANCELLED / ARCHIVED / PURGED — anything the
-        // isLoginAllowed SSoT rejects) must terminate the tenant's live
-        // sessions NOW, not at natural token expiry. Before this, suspend
-        // flipped the status + emitted the event but revoked nothing: every
-        // logged-in user kept full access and silently rotated new tokens for
-        // the refresh-token lifetime (days). The refresh-token kill is atomic
-        // with the status write (same SERIALIZABLE receipt transaction — a
-        // rolled-back suspend revokes nothing). The tx-local tenant GUC gives
-        // the RLS policy on auth.refresh_tokens exactly this tenant's rows —
-        // tenant-SCOPED context, not a bypass; the lifecycle command arrives
-        // over NATS with no request tenant context.
-        if (!isLoginAllowed(targetStatus)) {
-          const userRows = this.rowsFromQuery<{ id: string }>(await manager.query(
-            `SELECT id FROM "auth"."users" WHERE "tenantId" = $1`,
-            [command.tenantId],
-          ));
-          lockedOutUserIds.push(...userRows.map((row) => row.id));
-          if (lockedOutUserIds.length > 0) {
-            await manager.query(
-              `SELECT set_config('app.current_tenant', $1, true)`,
-              [command.tenantId],
-            );
-            await manager.query(
-              `UPDATE "auth"."refresh_tokens"
-                  SET "isRevoked" = true, "revokedAt" = NOW(), "revokedReason" = $2
-                WHERE "userId" = ANY($1::uuid[])
-                  AND "isRevoked" = false`,
-              [lockedOutUserIds, `Tenant ${targetStatus}`],
-            );
-          }
-        }
-
         return {
           operationId: command.operationId,
           tenantId: command.tenantId,
-          status: targetStatus,
+          status: tenant.status,
           previousStatus,
           reason,
         };
-      },
-    );
+      }
+
+      if (admit !== undefined) {
+        await admit(manager);
+      }
+
+      tenant.status = targetStatus;
+
+      // Suspension audit trio (DB-ADMIN-HIGH-003): persisted atomically with
+      // the status write by the single writer of auth.tenants. The SUSPENDED
+      // transition records when/why/who (actor.id travels on every lifecycle
+      // command via AuthTenantCommandMetadata); the ACTIVE transition clears
+      // all three because an active tenant is, by definition, not suspended.
+      // Other targets (DEACTIVATED/ARCHIVED/…) deliberately leave the trio
+      // untouched so a tenant deactivated OUT of suspension keeps the audit
+      // trail of its last suspension.
+      if (targetStatus === TenantStatus.SUSPENDED) {
+        tenant.suspendedAt = new Date();
+        tenant.suspendedReason = reason ?? null;
+        tenant.suspendedBy = command.actor.id;
+      } else if (targetStatus === TenantStatus.ACTIVE) {
+        tenant.suspendedAt = null;
+        tenant.suspendedReason = null;
+        tenant.suspendedBy = null;
+      }
+
+      await manager.save(Tenant, tenant);
+
+      // Durable TenantStatusChanged, atomic with the status write. The local
+      // lifecycle handlers previously emitted nothing on transition (events
+      // were dropped on the live path); routing through auth_outbox here is
+      // the single emission point for all five lifecycle transitions and
+      // commits in the same SERIALIZABLE receipt transaction.
+      await this.outboxPublisher.enqueue(
+        {
+          ...createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged', command.tenantId, {
+            aggregateId: command.tenantId,
+            aggregateType: 'Tenant',
+            userId: command.actor.id,
+          }),
+          previousStatus,
+          newStatus: targetStatus,
+          reason,
+        },
+        manager,
+        {
+          aggregateId: command.tenantId,
+          idempotencyKey: `${command.operationId}:${commandType}:TenantStatusChanged`,
+        },
+      );
+
+      // RBAC-HIGH-007: a transition OUT of the operational state (SUSPENDED /
+      // DEACTIVATED / CANCELLED / ARCHIVED / PURGED — anything the
+      // isLoginAllowed SSoT rejects) must terminate the tenant's live
+      // sessions NOW, not at natural token expiry. Before this, suspend
+      // flipped the status + emitted the event but revoked nothing: every
+      // logged-in user kept full access and silently rotated new tokens for
+      // the refresh-token lifetime (days). The refresh-token kill is atomic
+      // with the status write (same SERIALIZABLE receipt transaction — a
+      // rolled-back suspend revokes nothing). The tx-local tenant GUC gives
+      // the RLS policy on auth.refresh_tokens exactly this tenant's rows —
+      // tenant-SCOPED context, not a bypass; the lifecycle command arrives
+      // over NATS with no request tenant context.
+      if (!isLoginAllowed(targetStatus)) {
+        const userRows = this.rowsFromQuery<{ id: string }>(
+          await manager.query(`SELECT id FROM "auth"."users" WHERE "tenantId" = $1`, [
+            command.tenantId,
+          ]),
+        );
+        lockedOutUserIds.push(...userRows.map((row) => row.id));
+        if (lockedOutUserIds.length > 0) {
+          await manager.query(`SELECT set_config('app.current_tenant', $1, true)`, [
+            command.tenantId,
+          ]);
+          await manager.query(
+            `UPDATE "auth"."refresh_tokens"
+                  SET "isRevoked" = true, "revokedAt" = NOW(), "revokedReason" = $2
+                WHERE "userId" = ANY($1::uuid[])
+                  AND "isRevoked" = false`,
+            [lockedOutUserIds, `Tenant ${targetStatus}`],
+          );
+        }
+      }
+
+      return {
+        operationId: command.operationId,
+        tenantId: command.tenantId,
+        status: targetStatus,
+        previousStatus,
+        reason,
+      };
+    });
 
     // Post-commit: cut LIVE access tokens fleet-wide via the shared Redis user
     // blacklist (the gateway rejects blacklisted users on their next request).
@@ -1012,8 +1102,8 @@ export class TenantProvisioningCommandService {
             command.tenantId,
             commandType,
             receiptIdempotencyKey,
-            options.entityId?.(result)
-              ?? (this.isRecord(result) && typeof result['userId'] === 'string'
+            options.entityId?.(result) ??
+              (this.isRecord(result) && typeof result['userId'] === 'string'
                 ? result['userId']
                 : command.tenantId),
             resultHash,
@@ -1046,10 +1136,7 @@ export class TenantProvisioningCommandService {
     });
   }
 
-  private assertCommandMetadata(
-    commandType: string,
-    command: AuthTenantCommandMetadata,
-  ): void {
+  private assertCommandMetadata(commandType: string, command: AuthTenantCommandMetadata): void {
     const missing = [
       ['operationId', command.operationId],
       ['tenantId', command.tenantId],
@@ -1232,10 +1319,7 @@ export class TenantProvisioningCommandService {
     return crypto.createHash('sha256').update(this.stableStringify(value)).digest('hex');
   }
 
-  private hashCommandPayload(
-    commandType: string,
-    command: AuthTenantCommandMetadata,
-  ): string {
+  private hashCommandPayload(commandType: string, command: AuthTenantCommandMetadata): string {
     const {
       auditMetadata: _auditMetadata,
       requestReference: _requestReference,
@@ -1261,7 +1345,10 @@ export class TenantProvisioningCommandService {
     }
 
     if (this.isRecord(value)) {
-      return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${this.stableStringify(value[key])}`).join(',')}}`;
+      return `{${Object.keys(value)
+        .sort()
+        .map((key) => `${JSON.stringify(key)}:${this.stableStringify(value[key])}`)
+        .join(',')}}`;
     }
 
     return JSON.stringify(value);

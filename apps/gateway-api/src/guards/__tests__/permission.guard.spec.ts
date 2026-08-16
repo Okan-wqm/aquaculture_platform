@@ -489,8 +489,8 @@ describe('PermissionGuard', () => {
     });
   });
 
-  describe('Role-Based Default Permissions', () => {
-    it('should grant TENANT_ADMIN role-based permissions', () => {
+  describe('Canonical Role Permission Modes', () => {
+    it('should grant TENANT_ADMIN all-mode permissions', () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
         if (key === PERMISSIONS_KEY) return ['users:manage'];
         return undefined;
@@ -505,7 +505,7 @@ describe('PermissionGuard', () => {
       expect(result).toBe(true);
     });
 
-    it('should grant MODULE_MANAGER role-based permissions', () => {
+    it('should not fabricate permissions for an assigned-mode MODULE_MANAGER', () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
         if (key === PERMISSIONS_KEY) return ['farms:read'];
         return undefined;
@@ -516,11 +516,10 @@ describe('PermissionGuard', () => {
         permissions: [],
       });
 
-      const result = guard.canActivate(context);
-      expect(result).toBe(true);
+      expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
     });
 
-    it('should grant MODULE_USER role-based permissions', () => {
+    it('should not fabricate permissions for an assigned-mode MODULE_USER', () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
         if (key === PERMISSIONS_KEY) return ['alerts:read'];
         return undefined;
@@ -531,11 +530,10 @@ describe('PermissionGuard', () => {
         permissions: [],
       });
 
-      const result = guard.canActivate(context);
-      expect(result).toBe(true);
+      expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
     });
 
-    it('should grant MODULE_USER reports:view via merged permissions', () => {
+    it('should grant an assigned-mode MODULE_USER an explicit token permission', () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
         if (key === PERMISSIONS_KEY) return ['farms:read'];
         return undefined;
@@ -543,7 +541,7 @@ describe('PermissionGuard', () => {
 
       const context = createMockExecutionContext({
         roles: ['MODULE_USER'],
-        permissions: [],
+        permissions: ['farms:read'],
       });
 
       const result = guard.canActivate(context);
@@ -562,6 +560,7 @@ describe('PermissionGuard', () => {
         sub: 'cached-user',
         tenantId: 'tenant-1',
         roles: ['MODULE_USER'],
+        permissions: ['farms:read'],
       });
 
       // First call
@@ -727,22 +726,21 @@ describe('PermissionGuard', () => {
   });
 
   describe('Edge Cases', () => {
-    it('should handle user with empty permissions array', () => {
+    it('should fail closed for an assigned-mode user with an empty permissions array', () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
         if (key === PERMISSIONS_KEY) return ['farms:read'];
         return undefined;
       });
 
       const context = createMockExecutionContext({
-        roles: ['MODULE_USER'], // Has role-based permissions
+        roles: ['MODULE_USER'],
         permissions: [],
       });
 
-      const result = guard.canActivate(context);
-      expect(result).toBe(true); // Should still work via role
+      expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
     });
 
-    it('should handle user with undefined permissions', () => {
+    it('should fail closed for an assigned-mode user with undefined permissions', () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
         if (key === PERMISSIONS_KEY) return ['farms:read'];
         return undefined;
@@ -753,8 +751,7 @@ describe('PermissionGuard', () => {
         permissions: undefined,
       } as Partial<JwtPayload>);
 
-      const result = guard.canActivate(context);
-      expect(result).toBe(true);
+      expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
     });
 
     it('should handle multiple roles', () => {

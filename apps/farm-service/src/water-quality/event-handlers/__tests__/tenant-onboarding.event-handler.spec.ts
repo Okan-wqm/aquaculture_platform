@@ -156,6 +156,7 @@ describe('TenantOnboardingEventHandler', () => {
       eventType: 'TenantOnboardingRequested',
       tenantId: TENANT,
       operationId: OPERATION,
+      generation: 1,
       name: 'Acme Salmon Farms',
       slug: 'acme',
       moduleIds: MODULES,
@@ -170,6 +171,7 @@ describe('TenantOnboardingEventHandler', () => {
         eventType: 'TenantOnboardingAck',
         tenantId: TENANT,
         operationId: OPERATION,
+        generation: 1,
         service: 'farm-service',
       }),
     );
@@ -190,6 +192,7 @@ describe('TenantOnboardingEventHandler', () => {
       eventType: 'TenantOnboardingRequested',
       tenantId: TENANT,
       operationId: OPERATION,
+      generation: 1,
       name: 'Acme',
       slug: 'acme',
       moduleIds: MODULES,
@@ -204,6 +207,7 @@ describe('TenantOnboardingEventHandler', () => {
       eventType: 'TenantOnboardingRequested',
       tenantId: 'not-a-uuid',
       operationId: OPERATION,
+      generation: 1,
       name: 'Malformed',
       slug: 'bad',
       moduleIds: MODULES,
@@ -220,6 +224,7 @@ describe('TenantOnboardingEventHandler', () => {
     await handler.handle({
       eventType: 'TenantOnboardingRequested',
       operationId: OPERATION,
+      generation: 1,
       name: 'Missing',
       slug: 'missing',
       moduleIds: MODULES,
@@ -240,6 +245,7 @@ describe('TenantOnboardingEventHandler', () => {
         eventType: 'TenantOnboardingRequested',
         tenantId: TENANT,
         operationId: OPERATION,
+        generation: 1,
         name: 'x',
         slug: 'x',
         moduleIds: MODULES,
@@ -259,6 +265,7 @@ describe('TenantOnboardingEventHandler', () => {
     }
     expect(publishedEvent.tenantId).toBe(TENANT);
     expect(publishedEvent.operationId).toBe(OPERATION);
+    expect(publishedEvent.generation).toBe(1);
     expect(publishedEvent.service).toBe('farm-service');
     expect(publishedEvent.error).toContain('water-quality-parameters: wq db locked');
   });
@@ -276,6 +283,7 @@ describe('TenantOnboardingEventHandler', () => {
         eventType: 'TenantOnboardingRequested',
         tenantId: TENANT,
         operationId: OPERATION,
+        generation: 1,
         name: 'x',
         slug: 'x',
         moduleIds: MODULES,
@@ -291,6 +299,7 @@ describe('TenantOnboardingEventHandler', () => {
         eventType: 'TenantOnboardingFailed',
         tenantId: TENANT,
         operationId: OPERATION,
+        generation: 1,
         service: 'farm-service',
       }),
     );

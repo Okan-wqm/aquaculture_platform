@@ -2,7 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 
 import { ModulePricing } from '../entities/module-pricing.entity';
 import { PlanTier, BillingCycle } from '../entities/plan-definition.entity';
-import { PricingMetricType, PricingMetricLabels } from '../entities/pricing-metric.enum';
+import {
+  PRICING_METRIC_CATALOG,
+  PricingMetricType,
+  PricingMetricLabels,
+} from '../entities/pricing-metric.enum';
 
 import { DiscountCodeService } from './discount-code.service';
 import { ModulePricingService } from './module-pricing.service';
@@ -80,22 +84,6 @@ export interface QuoteRequest {
   discountCode?: string;
   taxRate?: number;
 }
-
-/**
- * Map metric type to quantity field
- */
-const METRIC_TO_QUANTITY_MAP: Partial<Record<PricingMetricType, keyof ModuleQuantities>> = {
-  [PricingMetricType.PER_USER]: 'users',
-  [PricingMetricType.PER_FARM]: 'farms',
-  [PricingMetricType.PER_POND]: 'ponds',
-  [PricingMetricType.PER_SENSOR]: 'sensors',
-  [PricingMetricType.PER_DEVICE]: 'devices',
-  [PricingMetricType.PER_GB_STORAGE]: 'storageGb',
-  [PricingMetricType.PER_API_CALL]: 'apiCalls',
-  [PricingMetricType.PER_ALERT]: 'alerts',
-  [PricingMetricType.PER_REPORT]: 'reports',
-  [PricingMetricType.PER_INTEGRATION]: 'integrations',
-};
 
 /**
  * Billing cycle multipliers (months per cycle)
@@ -257,7 +245,7 @@ export class PricingCalculatorService {
 
       // Get quantity from selection
       if (metric.type !== PricingMetricType.BASE_PRICE) {
-        const quantityField = METRIC_TO_QUANTITY_MAP[metric.type];
+        const quantityField = PRICING_METRIC_CATALOG[metric.type].quantityField;
         if (quantityField) {
           quantity = selection.quantities[quantityField] ?? 0;
         }

@@ -4,59 +4,19 @@
  * Handles token management, retry logic, and error handling.
  */
 
-import { print, type DocumentNode } from 'graphql';
+import { Kind, parse, print, type DocumentNode, type OperationTypeNode } from 'graphql';
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import {
+  CSRF_SECURITY_POSTURE,
+  IMPERSONATION_CREDENTIAL_HEADER,
+  IMPERSONATION_HANDOFF_FRAGMENT_FIELDS,
+  IMPERSONATION_SESSION_HEADER,
+  isImpersonationContextId,
+  isImpersonationCredential,
+} from '@aquaculture/shared-contracts';
 import { backendHealthCircuit } from './backend-health-circuit';
 import { bumpSessionEpoch } from './session-epoch';
 import { tokenLifecycle } from './token-lifecycle';
-
-// ============================================================================
-// CSRF Protection
-// ============================================================================
-
-/**
- * SEC-M03: Read the CSRF token from a <meta> tag or a cookie.
- *
- * The backend is expected to set the token via one of these mechanisms:
- *   1. A `<meta name="csrf-token">` tag rendered in the HTML shell, OR
- *   2. A non-httpOnly cookie named `XSRF-TOKEN` (the Angular / Django convention).
- *
- * The token is sent back on every mutating request (POST, PUT, PATCH, DELETE)
- * in the `X-CSRF-Token` header so the server can verify it against the
- * session-bound value.  GET / HEAD / OPTIONS are safe methods and are excluded.
- */
-function getCsrfToken(): string | null {
-  if (typeof document === 'undefined') return null;
-
-  // Strategy 1: <meta name="csrf-token" content="...">
-  const metaTag = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]');
-  if (metaTag?.content) {
-    return metaTag.content;
-  }
-
-  // Strategy 2: cookie named XSRF-TOKEN (non-httpOnly, set by server)
-  const match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/);
-  if (match?.[1]) {
-    return decodeURIComponent(match[1]);
-  }
-
-  return null;
-}
-
-/** HTTP methods that mutate state and therefore require CSRF protection. */
-const CSRF_PROTECTED_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
-
-/**
- * Attach the X-CSRF-Token header to mutating requests.
- * Safe methods (GET, HEAD, OPTIONS) are excluded per OWASP guidelines.
- */
-function attachCsrfHeader(headers: Record<string, string>, method: string): void {
-  if (!CSRF_PROTECTED_METHODS.has(method.toUpperCase())) return;
-
-  const token = getCsrfToken();
-  if (token) {
-    headers['X-CSRF-Token'] = token;
-  }
-}
 
 // ============================================================================
 // Type Definitions
@@ -88,6 +48,37 @@ export interface GraphQLRequestOptions {
   timeout?: number;
   /** Signal for abort */
   signal?: AbortSignal;
+}
+
+export interface GraphQLOperationIdentity {
+  readonly kind: OperationTypeNode;
+  readonly name: string | null;
+}
+
+/** Derive replay safety from the executable document, never from HTTP POST. */
+export function graphQLOperationIdentity(
+  document: string | DocumentNode,
+): GraphQLOperationIdentity {
+  let parsed: DocumentNode;
+  try {
+    parsed = typeof document === 'string' ? parse(document) : document;
+  } catch {
+    throw new GraphQLClientError('Invalid GraphQL document', 'INVALID_OPERATION_DOCUMENT');
+  }
+  const operations = parsed.definitions.filter(
+    (definition) => definition.kind === Kind.OPERATION_DEFINITION,
+  );
+  if (operations.length !== 1) {
+    throw new GraphQLClientError(
+      'GraphQL document must contain exactly one operation',
+      'INVALID_OPERATION_DOCUMENT',
+    );
+  }
+  const operation = operations[0]!;
+  return Object.freeze({
+    kind: operation.operation,
+    name: operation.name?.value ?? null,
+  });
 }
 
 /**
@@ -155,10 +146,7 @@ interface RequestAbortScope {
  * fetch() resolving only means the headers arrived, not that JSON/blob parsing
  * can no longer stall.
  */
-function createRequestAbortScope(
-  timeoutMs: number,
-  callerSignal?: AbortSignal,
-): RequestAbortScope {
+function createRequestAbortScope(timeoutMs: number, callerSignal?: AbortSignal): RequestAbortScope {
   const controller = new AbortController();
   const abortFromCaller = (): void => controller.abort();
 
@@ -182,6 +170,31 @@ function createRequestAbortScope(
   };
 }
 
+function abortReason(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException('The operation was aborted', 'AbortError');
+}
+
+function awaitAbortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(abortReason(signal));
+  return new Promise((resolve, reject) => {
+    const onAbort = (): void => {
+      signal.removeEventListener('abort', onAbort);
+      reject(abortReason(signal));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    void promise.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
 /** Release an unread retry/error body without delaying the replacement request. */
 function discardResponseBody(response: Response): void {
   void response.body?.cancel().catch(() => undefined);
@@ -200,9 +213,18 @@ let accessToken: string | null = null;
 let tenantId: string | null = null;
 let tokenRefreshPromise: Promise<void> | null = null;
 
+interface ActiveImpersonationContext {
+  readonly sessionId: string;
+  readonly credential: string;
+  readonly targetTenantId: string;
+}
+
+let activeImpersonationContext: ActiveImpersonationContext | null = null;
+
 type SharedAuthState = {
   accessToken: string | null;
   tenantId: string | null;
+  activeImpersonationContext?: ActiveImpersonationContext | null;
 };
 
 const SHARED_AUTH_STATE_KEY = '__AQUACULTURE_AUTH_STATE_V2__';
@@ -220,7 +242,11 @@ function getSharedAuthState(): SharedAuthState | null {
     return existing as SharedAuthState;
   }
 
-  const state: SharedAuthState = { accessToken: null, tenantId: null };
+  const state: SharedAuthState = {
+    accessToken: null,
+    tenantId: null,
+    activeImpersonationContext: null,
+  };
   try {
     Object.defineProperty(window, SHARED_AUTH_STATE_KEY, {
       value: state,
@@ -233,6 +259,80 @@ function getSharedAuthState(): SharedAuthState | null {
   }
 
   return state;
+}
+
+function getActiveImpersonationContext(): ActiveImpersonationContext | null {
+  const sharedState = getSharedAuthState();
+  if (sharedState && sharedState.activeImpersonationContext !== undefined) {
+    return sharedState.activeImpersonationContext;
+  }
+  return activeImpersonationContext;
+}
+
+function clearActiveImpersonationContext(): void {
+  activeImpersonationContext = null;
+  const sharedState = getSharedAuthState();
+  if (sharedState) sharedState.activeImpersonationContext = null;
+}
+
+/** End an act-as context without touching the authenticated admin session. */
+export function clearImpersonationContext(): void {
+  const current = getActiveImpersonationContext();
+  clearActiveImpersonationContext();
+  if (!current || tenantId !== current.targetTenantId) return;
+
+  let restoredTenantId: string | null = null;
+  try {
+    restoredTenantId = localStorage.getItem('tenant_id');
+  } catch {
+    // The normal platform scope remains null when storage is unavailable.
+  }
+  applyTenantId(restoredTenantId, false);
+}
+
+/**
+ * Consume the one-time credential hand-off before any API request is issued.
+ * Recognized fields are removed from the address bar immediately, including
+ * malformed hand-offs, so a credential never remains in browser history.
+ */
+function consumeImpersonationHandoffFragment(): ActiveImpersonationContext | null {
+  if (typeof window === 'undefined' || window.location.hash.length <= 1) return null;
+
+  const fragment = new URLSearchParams(window.location.hash.slice(1));
+  const fields = Object.values(IMPERSONATION_HANDOFF_FRAGMENT_FIELDS);
+  if (!fields.some((field) => fragment.has(field))) return null;
+
+  const values = {
+    sessionId: fragment.getAll(IMPERSONATION_HANDOFF_FRAGMENT_FIELDS.sessionId),
+    credential: fragment.getAll(IMPERSONATION_HANDOFF_FRAGMENT_FIELDS.credential),
+    targetTenantId: fragment.getAll(IMPERSONATION_HANDOFF_FRAGMENT_FIELDS.targetTenantId),
+  };
+  for (const field of fields) fragment.delete(field);
+
+  const scrubbedUrl = new URL(window.location.href);
+  scrubbedUrl.hash = fragment.toString();
+  window.history.replaceState(
+    window.history.state,
+    '',
+    `${scrubbedUrl.pathname}${scrubbedUrl.search}${scrubbedUrl.hash}`,
+  );
+
+  if (
+    values.sessionId.length !== 1 ||
+    values.credential.length !== 1 ||
+    values.targetTenantId.length !== 1 ||
+    !isImpersonationContextId(values.sessionId[0]) ||
+    !isImpersonationCredential(values.credential[0]) ||
+    !isImpersonationContextId(values.targetTenantId[0])
+  ) {
+    return null;
+  }
+
+  return Object.freeze({
+    sessionId: values.sessionId[0],
+    credential: values.credential[0],
+    targetTenantId: values.targetTenantId[0],
+  });
 }
 
 /**
@@ -310,6 +410,7 @@ export function clearTokens(): void {
  * Unlike clearTokens(), this also removes tenantId from memory and localStorage.
  */
 export function clearSession(): void {
+  clearImpersonationContext();
   accessToken = null;
   tenantId = null;
   const sharedState = getSharedAuthState();
@@ -347,9 +448,9 @@ async function performTokenRefresh(): Promise<boolean> {
   try {
     const graphqlUrl = import.meta.env.VITE_GRAPHQL_URL || '/graphql';
     const response = await fetch(graphqlUrl, {
-      method: 'POST',
+      method: CSRF_SECURITY_POSTURE.refresh.operationMethod,
       headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
+      credentials: CSRF_SECURITY_POSTURE.refresh.credentialsMode,
       body: JSON.stringify({
         query: `mutation { refreshToken(input: { refreshToken: "" }) { accessToken user { id email role tenantId } } }`,
       }),
@@ -395,11 +496,14 @@ async function performTokenRefresh(): Promise<boolean> {
  * refresh mutations when both proactive refresh and 401 retry fire at the same time.
  */
 export async function silentRefresh(): Promise<boolean> {
-  // Load tenant_id from localStorage (not sensitive)
-  try {
-    tenantId = localStorage.getItem('tenant_id');
-  } catch (e) {
-    // Ignore
+  // A one-time impersonation hand-off owns the effective tenant in memory.
+  // Never replace it with the platform admin's persisted tenant during refresh.
+  if (!getActiveImpersonationContext()) {
+    try {
+      tenantId = localStorage.getItem('tenant_id');
+    } catch {
+      // Ignore
+    }
   }
 
   // If a refresh is already in progress (e.g. from handleUnauthorized), join it
@@ -449,11 +553,13 @@ export async function silentRefresh(): Promise<boolean> {
  * Previously loaded tokens from localStorage; now restores via cookie-based refresh.
  */
 export function loadTokensFromStorage(): void {
-  // Load tenant_id synchronously (non-sensitive, stays in localStorage)
-  try {
-    tenantId = localStorage.getItem('tenant_id');
-  } catch (e) {
-    // Ignore
+  // An active impersonation tenant is intentionally never persisted.
+  if (!getActiveImpersonationContext()) {
+    try {
+      tenantId = localStorage.getItem('tenant_id');
+    } catch {
+      // Ignore
+    }
   }
   // Access token will be restored asynchronously via silentRefresh() in AuthContext
 }
@@ -506,7 +612,7 @@ export function onTenantChange(fn: (oldTenantId: string) => void): () => void {
  * SECURITY: When the tenant ID changes, all registered tenant-change callbacks
  * are invoked with the OLD tenant ID so that modules can purge stale data.
  */
-export function setTenantId(id: string | null): void {
+function applyTenantId(id: string | null, persist: boolean): void {
   const previousTenantId = tenantId;
   tenantId = id;
   const sharedState = getSharedAuthState();
@@ -514,14 +620,16 @@ export function setTenantId(id: string | null): void {
     sharedState.tenantId = id;
   }
 
-  try {
-    if (id) {
-      localStorage.setItem('tenant_id', id);
-    } else {
-      localStorage.removeItem('tenant_id');
+  if (persist) {
+    try {
+      if (id) {
+        localStorage.setItem('tenant_id', id);
+      } else {
+        localStorage.removeItem('tenant_id');
+      }
+    } catch {
+      // Ignore localStorage errors silently in production
     }
-  } catch {
-    // Ignore localStorage errors silently in production
   }
 
   // SECURITY: Notify listeners when the active tenant actually changed
@@ -539,6 +647,18 @@ export function setTenantId(id: string | null): void {
   }
 }
 
+export function setTenantId(id: string | null): void {
+  const impersonation = getActiveImpersonationContext();
+  if (impersonation) {
+    // Auth refresh returns the SUPER_ADMIN's system-scope tenant (null). That
+    // response must not erase the separately authorized act-as tenant.
+    if (id !== impersonation.targetTenantId) return;
+    applyTenantId(impersonation.targetTenantId, false);
+    return;
+  }
+  applyTenantId(id, true);
+}
+
 /**
  * Get tenant ID (from memory or localStorage).
  * SEC-013: Always read from localStorage if in-memory value is absent — do not
@@ -548,6 +668,9 @@ export function setTenantId(id: string | null): void {
  * current session once explicitly set.
  */
 export function getTenantId(): string | null {
+  const impersonation = getActiveImpersonationContext();
+  if (impersonation) return impersonation.targetTenantId;
+
   // Check memory first (set explicitly via setTenantId)
   if (tenantId) return tenantId;
 
@@ -573,6 +696,36 @@ export function getTenantId(): string | null {
   return null;
 }
 
+const initialImpersonationContext = consumeImpersonationHandoffFragment();
+if (initialImpersonationContext) {
+  activeImpersonationContext = initialImpersonationContext;
+  const sharedState = getSharedAuthState();
+  if (sharedState) sharedState.activeImpersonationContext = initialImpersonationContext;
+  applyTenantId(initialImpersonationContext.targetTenantId, false);
+}
+
+function applyAuthorityContextHeaders(headers: Record<string, string>): void {
+  for (const header of Object.keys(headers)) {
+    if (
+      header.toLowerCase() === IMPERSONATION_CREDENTIAL_HEADER ||
+      header.toLowerCase() === IMPERSONATION_SESSION_HEADER
+    ) {
+      Reflect.deleteProperty(headers, header);
+    }
+  }
+
+  const impersonation = getActiveImpersonationContext();
+  if (impersonation) {
+    headers['X-Tenant-Id'] = impersonation.targetTenantId;
+    headers[IMPERSONATION_CREDENTIAL_HEADER] = impersonation.credential;
+    headers[IMPERSONATION_SESSION_HEADER] = impersonation.sessionId;
+    return;
+  }
+
+  const currentTenantId = getTenantId();
+  if (currentTenantId) headers['X-Tenant-Id'] = currentTenantId;
+}
+
 // ============================================================================
 // GraphQL Client
 // ============================================================================
@@ -590,25 +743,64 @@ class GraphQLClient {
   /**
    * Execute a GraphQL query or mutation
    */
+  async request<TData, TVariables>(
+    query: TypedDocumentNode<TData, TVariables>,
+    variables: TVariables,
+    options?: GraphQLRequestOptions,
+  ): Promise<TData>;
   async request<TData = unknown, TVariables = Record<string, unknown>>(
     query: string | DocumentNode,
     variables?: TVariables,
     options?: GraphQLRequestOptions,
-    retryCount = 0,
+  ): Promise<TData>;
+  async request<TData = unknown, TVariables = Record<string, unknown>>(
+    query: string | DocumentNode,
+    variables?: TVariables,
+    options?: GraphQLRequestOptions,
   ): Promise<TData> {
-    const { headers: customHeaders, timeout, signal } = options || {};
+    const abortScope = createRequestAbortScope(
+      options?.timeout || this.config.timeout,
+      options?.signal,
+    );
+    try {
+      return await this.requestWithAuthReplay(query, variables, options, 0, abortScope);
+    } catch (error) {
+      if (abortScope.signal.aborted || isAbortError(error)) {
+        if (error instanceof GraphQLClientError && error.code === 'TIMEOUT') {
+          throw error;
+        }
+        throw new GraphQLClientError('Request timed out', 'TIMEOUT');
+      }
+      throw error;
+    } finally {
+      abortScope.dispose();
+    }
+  }
+
+  private async requestWithAuthReplay<TData, TVariables>(
+    query: string | DocumentNode,
+    variables: TVariables | undefined,
+    options: GraphQLRequestOptions | undefined,
+    retryCount: number,
+    abortScope: RequestAbortScope,
+  ): Promise<TData> {
+    const { headers: customHeaders } = options || {};
 
     // Convert DocumentNode to string if needed (e.g. from graphql-tag gql`...`)
+    const operation = graphQLOperationIdentity(query);
     const queryString = typeof query === 'string' ? query : print(query);
 
     // LIFECYCLE BARRIER: Wait for token to be ready before sending request.
     // Skip the barrier for the refreshToken mutation itself to avoid deadlock
     // (refresh must fire to PRODUCE the token that the barrier waits for).
-    const isRefreshMutation = queryString.includes('refreshToken');
+    const isRefreshMutation = operation.kind === 'mutation' && operation.name === 'RefreshToken';
     if (!isRefreshMutation) {
       try {
-        await tokenLifecycle.waitForReady();
+        await awaitAbortable(tokenLifecycle.waitForReady(), abortScope.signal);
       } catch {
+        if (abortScope.signal.aborted) {
+          throw abortReason(abortScope.signal);
+        }
         // Barrier timed out or auth permanently failed.
         // If we have a token in memory anyway (race condition edge case), proceed.
         if (!getAccessToken()) {
@@ -629,26 +821,17 @@ class GraphQLClient {
       headers['Authorization'] = `Bearer ${currentToken}`;
     }
 
-    // Tenant ID from memory/localStorage
-    const currentTenantId = getTenantId();
-    if (currentTenantId) {
-      headers['X-Tenant-Id'] = currentTenantId;
-    }
+    // Canonical tenant + optional short-lived impersonation credential.
+    applyAuthorityContextHeaders(headers);
 
     // Add request ID for distributed tracing
     headers['X-Request-Id'] = this.generateRequestId();
 
-    // SEC-M03: Attach CSRF token to all GraphQL requests (always POST, which is mutating)
-    attachCsrfHeader(headers, 'POST');
-
-    // Timeout controller
-    const abortScope = createRequestAbortScope(timeout || this.config.timeout, signal);
-
     try {
       const response = await fetch(this.config.graphqlUrl, {
-        method: 'POST',
+        method: CSRF_SECURITY_POSTURE.refresh.operationMethod,
         headers,
-        credentials: 'include',
+        credentials: CSRF_SECURITY_POSTURE.refresh.credentialsMode,
         body: JSON.stringify({
           query: queryString,
           variables,
@@ -660,15 +843,23 @@ class GraphQLClient {
       // retryCount === 0 caps the retry to exactly one attempt (CRIT-01: no infinite loop).
       if (response.status === 401 && retryCount === 0) {
         discardResponseBody(response);
-        abortScope.dispose();
         try {
-          await this.handleUnauthorized();
-        } catch {
+          await this.handleUnauthorized(abortScope.signal);
+        } catch (error) {
+          if (abortScope.signal.aborted || isAbortError(error)) {
+            throw error;
+          }
           // Refresh failed — clear full session and throw so callers can redirect to /login
           clearSession();
           throw new GraphQLClientError('Session expired', 'UNAUTHENTICATED');
         }
-        return this.request(query, variables, options, retryCount + 1);
+        if (operation.kind !== 'query') {
+          throw new GraphQLClientError(
+            `Authentication refreshed but ${operation.kind} ${operation.name ?? '<anonymous>'} was not replayed`,
+            'UNSAFE_AUTH_REPLAY_BLOCKED',
+          );
+        }
+        return this.requestWithAuthReplay(query, variables, options, retryCount + 1, abortScope);
       }
 
       // A 5xx (nginx 502/503/504 when the gateway is down, or any server error)
@@ -690,7 +881,7 @@ class GraphQLClient {
       }
 
       // Response parse
-      const result = await response.json();
+      const result = await awaitAbortable(response.json(), abortScope.signal);
       // A parsed body means the transport is healthy (even a GraphQL-level error
       // is a 200) — close the outage breaker so refetches resume.
       backendHealthCircuit.recordSuccess();
@@ -709,16 +900,25 @@ class GraphQLClient {
           isUserSessionAuthError(error.message);
 
         if (isAuthError && retryCount === 0) {
-          abortScope.dispose();
           try {
-            await this.handleUnauthorized();
-            return this.request(query, variables, options, retryCount + 1);
-          } catch {
+            await this.handleUnauthorized(abortScope.signal);
+          } catch (refreshError) {
+            if (abortScope.signal.aborted || isAbortError(refreshError)) {
+              throw refreshError;
+            }
             // SECURITY: fail-closed — if token refresh fails on an auth error,
             // the session is irrecoverable. Clear it to force re-login instead
             // of leaving the user in a deadlocked state with a broken token.
             clearSession();
+            throw new GraphQLClientError('Session expired', 'UNAUTHENTICATED');
           }
+          if (operation.kind !== 'query') {
+            throw new GraphQLClientError(
+              `Authentication refreshed but ${operation.kind} ${operation.name ?? '<anonymous>'} was not replayed`,
+              'UNSAFE_AUTH_REPLAY_BLOCKED',
+            );
+          }
+          return this.requestWithAuthReplay(query, variables, options, retryCount + 1, abortScope);
         }
 
         throw new GraphQLClientError(
@@ -731,7 +931,7 @@ class GraphQLClient {
       return result.data as TData;
     } catch (error) {
       // Abort error
-      if (isAbortError(error)) {
+      if (abortScope.signal.aborted || isAbortError(error)) {
         throw new GraphQLClientError('Request timed out', 'TIMEOUT');
       }
 
@@ -739,31 +939,27 @@ class GraphQLClient {
       if (error instanceof TypeError && error.message.includes('fetch')) {
         throw new GraphQLClientError('Unable to connect to server', 'NETWORK_ERROR');
       }
-
       throw error;
-    } finally {
-      abortScope.dispose();
     }
   }
 
   /**
    * Handle 401 Unauthorized — refresh token and dedup concurrent refresh calls
    */
-  private async handleUnauthorized(): Promise<void> {
-    // If a refresh is already in progress, wait for it
-    if (tokenRefreshPromise) {
-      await tokenRefreshPromise;
+  private async handleUnauthorized(signal: AbortSignal): Promise<void> {
+    let refresh = tokenRefreshPromise;
+    if (refresh === null) {
+      refresh = this.refreshAccessToken();
+      tokenRefreshPromise = refresh;
+      void refresh
+        .finally(() => {
+          if (tokenRefreshPromise === refresh) tokenRefreshPromise = null;
+        })
+        .catch(() => undefined);
+      await awaitAbortable(refresh, signal);
       return;
     }
-
-    // Refresh token via httpOnly cookie (sent automatically by browser)
-    tokenRefreshPromise = this.refreshAccessToken();
-
-    try {
-      await tokenRefreshPromise;
-    } finally {
-      tokenRefreshPromise = null;
-    }
+    await awaitAbortable(refresh, signal);
   }
 
   /**
@@ -827,7 +1023,7 @@ class RestClient {
    * Send an HTTP request
    */
   /**
-   * Shared transport: auth + tenant + CSRF header injection, lifecycle barrier,
+   * Shared transport: auth + tenant headers, lifecycle barrier,
    * timeout, response-body consumption, and single-shot 401 refresh-and-retry.
    * FARM-MEDIUM-091 routes farm uploads/tiles through this instead of
    * re-implementing headers per call. Keeping consumption inside this method is
@@ -836,13 +1032,15 @@ class RestClient {
   private async send<T>(
     method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     path: string,
-    options: {
-      body?: unknown;
-      params?: Record<string, string | number | boolean>;
-      headers?: Record<string, string>;
-      timeout?: number;
-      signal?: AbortSignal;
-    } | undefined,
+    options:
+      | {
+          body?: unknown;
+          params?: Record<string, string | number | boolean>;
+          headers?: Record<string, string>;
+          timeout?: number;
+          signal?: AbortSignal;
+        }
+      | undefined,
     consumeResponse: (response: Response) => Promise<T>,
     retryCount = 0,
   ): Promise<T> {
@@ -887,15 +1085,8 @@ class RestClient {
       headers['Authorization'] = `Bearer ${currentToken}`;
     }
 
-    // Attach tenant ID (from memory or localStorage)
-    const currentTenantId = getTenantId();
-    if (currentTenantId) {
-      headers['X-Tenant-Id'] = currentTenantId;
-    }
-
-    // SEC-M03: Attach CSRF token to mutating REST requests (POST, PUT, PATCH, DELETE).
-    // GET requests are safe methods and are excluded automatically by attachCsrfHeader.
-    attachCsrfHeader(headers, method);
+    // Canonical tenant + optional short-lived impersonation credential.
+    applyAuthorityContextHeaders(headers);
 
     let requestBody: BodyInit | undefined;
     if (typeof FormData !== 'undefined' && body instanceof FormData) {
@@ -911,7 +1102,7 @@ class RestClient {
       const response = await fetch(url, {
         method,
         headers,
-        credentials: 'include',
+        credentials: CSRF_SECURITY_POSTURE.refresh.credentialsMode,
         body: requestBody,
         signal: abortScope.signal,
       });
@@ -978,7 +1169,7 @@ class RestClient {
   /**
    * Like request(), but returns the raw Blob instead of parsing JSON — for binary
    * endpoints (marine map tiles via GET, AOI analysis images via POST) — through
-   * the same shared auth/tenant/CSRF + 401-refresh transport (FARM-MEDIUM-091,
+   * the same shared auth/tenant + 401-refresh transport (FARM-MEDIUM-091,
    * replaces marine-data's hand-rolled fetch).
    */
   async requestBlob(

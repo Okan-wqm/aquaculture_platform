@@ -1,0 +1,29 @@
+{
+  "name": "pagination-contracts",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "platform/libs/pagination-contracts/src",
+  "projectType": "library",
+  "tags": ["scope:platform", "type:lib"],
+  "targets": {
+    "type-check": {
+      "executor": "nx:run-commands",
+      "outputs": [],
+      "options": {
+        "command": "npx tsc -p platform/libs/pagination-contracts/tsconfig.lib.json --noEmit"
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/platform/libs/pagination-contracts"],
+      "options": {
+        "jestConfig": "platform/libs/pagination-contracts/jest.config.ts"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "options": {
+        "lintFilePatterns": ["platform/libs/pagination-contracts/src/**/*.ts"]
+      }
+    }
+  }
+}

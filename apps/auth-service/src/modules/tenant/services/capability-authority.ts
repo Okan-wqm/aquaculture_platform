@@ -6,7 +6,7 @@ import { Repository, DataSource } from 'typeorm';
 import { User } from '../../authentication/entities/user.entity';
 
 import {
-  CATALOGUE_CAPABILITIES,
+  isKnownCapability,
   requiredModuleFor,
   resolveEntitledCapabilities,
 } from './permission-catalogue';
@@ -215,7 +215,7 @@ export class CapabilityAuthorityService {
   }
 
   private assertKnownCapabilities(capabilities: readonly string[], verb: 'grant' | 'revoke'): void {
-    const unknown = capabilities.filter((capability) => !CATALOGUE_CAPABILITIES.has(capability));
+    const unknown = capabilities.filter((capability) => !isKnownCapability(capability));
     if (unknown.length > 0) {
       throw new BadRequestException(
         `Cannot ${verb} unknown capabilit${unknown.length === 1 ? 'y' : 'ies'}: ${unknown.join(', ')}. ` +

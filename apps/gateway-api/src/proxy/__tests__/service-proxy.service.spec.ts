@@ -1,28 +1,21 @@
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
-
 /**
  * Service Proxy Service Tests
  *
  * Comprehensive test suite for service proxy functionality
  */
 
-import { BadGatewayException, GatewayTimeoutException } from '@nestjs/common';
+import { BadGatewayException, ForbiddenException, GatewayTimeoutException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Request, Response } from 'express';
 
+import { initializeImpersonationReceiptLedger } from '../../security/impersonation-receipt-completion';
 import { CircuitBreakerService, CircuitState } from '../circuit-breaker.service';
-import { LoadBalancerService, InstanceHealth, ServiceInstanceStats } from '../load-balancer.service';
+import {
+  LoadBalancerService,
+  InstanceHealth,
+  ServiceInstanceStats,
+} from '../load-balancer.service';
 import {
   ServiceProxyService,
   ServiceProxyConfig,
@@ -32,7 +25,6 @@ import {
   addHeader,
   removeHeader,
 } from '../service-proxy.service';
-
 
 // Mock fetch globally
 const mockFetch = jest.fn();
@@ -197,7 +189,10 @@ describe('ServiceProxyService', () => {
 
       await service.proxy(config);
 
-      expect(loadBalancer.getNextInstance).toHaveBeenCalledWith('lb-test-service', expect.any(Object));
+      expect(loadBalancer.getNextInstance).toHaveBeenCalledWith(
+        'lb-test-service',
+        expect.any(Object),
+      );
     });
 
     it('should throw BadGatewayException when no instances available', async () => {
@@ -351,10 +346,7 @@ describe('ServiceProxyService', () => {
 
       await service.proxy(config);
 
-      expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining('/users'),
-        expect.any(Object),
-      );
+      expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('/users'), expect.any(Object));
     });
 
     it('should add prefix to path', async () => {
@@ -622,6 +614,94 @@ describe('ServiceProxyService', () => {
   });
 
   describe('proxyRequest', () => {
+    it('fails closed before proxying an operation outside the impersonation grant', async () => {
+      const mockReq = Object.assign(Object.create(null) as Request, {
+        path: '/api/farms',
+        method: 'GET',
+        headers: {},
+        body: {},
+        query: {},
+        impersonationSessionId: '33333333-3333-4333-8333-333333333333',
+        impersonationPermissions: {
+          canViewData: false,
+          canModifyData: false,
+          canAccessSettings: false,
+          canManageUsers: false,
+          canViewBilling: false,
+          canExportData: false,
+        },
+      });
+
+      await expect(
+        service.proxyRequest(mockReq, {} as Response, 'farm-service'),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(circuitBreaker.execute).not.toHaveBeenCalled();
+    });
+
+    it('fails closed when an impersonation authorizer returns without committing a receipt', async () => {
+      const mockReq = Object.assign(Object.create(null) as Request, {
+        path: '/api/sensors/sensor-1/export',
+        method: 'GET',
+        headers: {},
+        body: undefined,
+        query: {},
+        impersonationSessionId: '33333333-3333-4333-8333-333333333333',
+        impersonationPermissions: {
+          canViewData: true,
+          canModifyData: false,
+          canAccessSettings: false,
+          canManageUsers: false,
+          canViewBilling: false,
+          canExportData: true,
+          allowedModules: ['sensor'],
+        },
+        authorizeImpersonationOperations: jest.fn(async () => undefined),
+      });
+      initializeImpersonationReceiptLedger(mockReq, 'GET /api/v1/sensors/:sensorId/export');
+
+      await expect(service.proxyRequest(mockReq, {} as Response, 'sensor-service')).rejects.toThrow(
+        'Impersonation receipt ledger does not reconcile expected and committed operations before dispatch',
+      );
+      expect(circuitBreaker.execute).not.toHaveBeenCalled();
+    });
+
+    it('does not let proxy options replace the operation that was authorized', async () => {
+      const proxy = jest.spyOn(service, 'proxy').mockResolvedValueOnce({
+        status: 204,
+        headers: {},
+        body: null,
+        responseTime: 1,
+      });
+      const mockReq = Object.assign(Object.create(null) as Request, {
+        path: '/api/farms',
+        method: 'GET',
+        headers: {},
+        body: {},
+        query: {},
+      });
+      const mockRes = Object.assign(Object.create(null) as Response, {
+        setHeader: jest.fn(),
+        status: jest.fn().mockReturnThis(),
+        end: jest.fn(),
+      });
+
+      await service.proxyRequest(mockReq, mockRes, 'farm-service', {
+        serviceName: 'billing-service',
+        path: '/api/billing',
+        method: 'DELETE',
+        tenantId: 'forged-tenant',
+      });
+
+      expect(proxy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          serviceName: 'farm-service',
+          path: '/api/farms',
+          method: 'GET',
+        }),
+      );
+      expect(proxy.mock.calls[0]?.[0].tenantId).not.toBe('forged-tenant');
+    });
+
     it('should proxy Express request directly', async () => {
       const mockResponse = {
         ok: true,

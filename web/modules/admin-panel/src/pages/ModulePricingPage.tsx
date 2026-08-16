@@ -7,6 +7,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Card, Button, Badge, Input, Alert } from '@aquaculture/shared-ui';
+import { PRICING_METRIC_CATALOG } from '@platform/pricing-metric-vocabulary';
 import {
   billingApi,
   ModulePricingWithModule,
@@ -20,24 +21,10 @@ import {
 // Metric Labels
 // ============================================================================
 
-const METRIC_LABELS: Record<PricingMetricType, string> = {
-  [PricingMetricType.BASE_PRICE]: 'Base Price',
-  [PricingMetricType.PER_USER]: 'Per User',
-  [PricingMetricType.PER_FARM]: 'Per Farm',
-  [PricingMetricType.PER_POND]: 'Per Pond/Tank',
-  [PricingMetricType.PER_SENSOR]: 'Per Sensor',
-  [PricingMetricType.PER_DEVICE]: 'Per Device',
-  [PricingMetricType.PER_GB_STORAGE]: 'Per GB Storage',
-  [PricingMetricType.PER_API_CALL]: 'Per API Call',
-  [PricingMetricType.PER_ALERT]: 'Per Alert',
-  [PricingMetricType.PER_REPORT]: 'Per Report',
-  [PricingMetricType.PER_SMS]: 'Per SMS',
-  [PricingMetricType.PER_EMAIL]: 'Per Email',
-  [PricingMetricType.PER_INTEGRATION]: 'Per Integration',
-};
+type PricingMetricCode = PricingMetric['type'];
 
 // All available metric types for adding new metrics
-const ALL_METRIC_TYPES = Object.values(PricingMetricType);
+const ALL_METRIC_TYPES = Object.freeze(Object.keys(PRICING_METRIC_CATALOG) as PricingMetricCode[]);
 
 // ============================================================================
 // Icon Mapping - Convert icon names to emojis
@@ -75,35 +62,11 @@ const getModuleIcon = (iconName: string | undefined | null): string => {
   return ICON_MAP[normalizedIcon] || ICON_MAP.default;
 };
 
-// Helper to check if metric is BASE_PRICE (handles both string and enum)
-const isBasePrice = (metricType: string | PricingMetricType): boolean => {
-  const normalized = String(metricType).toLowerCase();
-  return normalized === 'base_price' || normalized === 'base_fee';
-};
+const isBasePrice = (metricType: PricingMetricCode): boolean =>
+  metricType === PricingMetricType.BASE_PRICE;
 
-// Helper to get metric label (handles both uppercase and lowercase metric types)
-const getMetricLabel = (metricType: string | PricingMetricType): string => {
-  // Normalize to lowercase for lookup
-  const normalized = String(metricType).toLowerCase();
-
-  // Map legacy 'base_fee' to 'base_price'
-  const mappedType = normalized === 'base_fee' ? 'base_price' : normalized;
-
-  // Find matching enum value
-  const enumKey = Object.values(PricingMetricType).find(
-    (v) => v.toLowerCase() === mappedType
-  );
-
-  if (enumKey && METRIC_LABELS[enumKey]) {
-    return METRIC_LABELS[enumKey];
-  }
-
-  // Fallback: convert snake_case to Title Case
-  return metricType
-    .toString()
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase());
-};
+const getMetricLabel = (metricType: PricingMetricCode): string =>
+  PRICING_METRIC_CATALOG[metricType].label;
 
 // ============================================================================
 // Types
@@ -203,24 +166,24 @@ const ModulePricingPage: React.FC = () => {
   };
 
   // Update metric price
-  const handleMetricPriceChange = (metricType: PricingMetricType, value: string) => {
+  const handleMetricPriceChange = (metricType: PricingMetricCode, value: string) => {
     if (!editForm) return;
 
     const price = parseFloat(value) || 0;
     const updatedMetrics = editForm.pricingMetrics.map((m) =>
-      m.type === metricType ? { ...m, price } : m
+      m.type === metricType ? { ...m, price } : m,
     );
 
     setEditForm({ ...editForm, pricingMetrics: updatedMetrics });
   };
 
   // Update metric included quantity
-  const handleMetricIncludedChange = (metricType: PricingMetricType, value: string) => {
+  const handleMetricIncludedChange = (metricType: PricingMetricCode, value: string) => {
     if (!editForm) return;
 
     const includedQuantity = parseInt(value) || 0;
     const updatedMetrics = editForm.pricingMetrics.map((m) =>
-      m.type === metricType ? { ...m, includedQuantity } : m
+      m.type === metricType ? { ...m, includedQuantity } : m,
     );
 
     setEditForm({ ...editForm, pricingMetrics: updatedMetrics });
@@ -238,7 +201,7 @@ const ModulePricingPage: React.FC = () => {
   };
 
   // Add new metric
-  const handleAddMetric = (metricType: PricingMetricType) => {
+  const handleAddMetric = (metricType: PricingMetricCode) => {
     if (!editForm) return;
 
     // Check if metric already exists
@@ -260,7 +223,7 @@ const ModulePricingPage: React.FC = () => {
   };
 
   // Remove metric
-  const handleRemoveMetric = (metricType: PricingMetricType) => {
+  const handleRemoveMetric = (metricType: PricingMetricCode) => {
     if (!editForm) return;
 
     // Don't allow removing BASE_PRICE
@@ -303,7 +266,7 @@ const ModulePricingPage: React.FC = () => {
   const filteredPricings = pricings.filter(
     (p) =>
       (p.moduleName?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-      p.moduleCode.toLowerCase().includes(searchTerm.toLowerCase())
+      p.moduleCode.toLowerCase().includes(searchTerm.toLowerCase()),
   );
 
   // Get available metrics that can be added
@@ -353,12 +316,23 @@ const ModulePricingPage: React.FC = () => {
       {/* Info Banner */}
       <Card className="p-4 bg-indigo-50 border-indigo-200">
         <div className="flex items-start gap-3">
-          <svg className="w-5 h-5 text-indigo-600 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          <svg
+            className="w-5 h-5 text-indigo-600 mt-0.5"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
           </svg>
           <div className="text-sm text-indigo-800">
-            <strong>Module-Based Pricing:</strong> Each module has a base price plus usage-based metrics.
-            Tier multipliers apply discounts for higher plan tiers. Included quantities are free.
+            <strong>Module-Based Pricing:</strong> Each module has a base price plus usage-based
+            metrics. Tier multipliers apply discounts for higher plan tiers. Included quantities are
+            free.
           </div>
         </div>
       </Card>
@@ -383,7 +357,9 @@ const ModulePricingPage: React.FC = () => {
               <div className="flex items-center gap-3">
                 <div className="text-3xl">{getModuleIcon(pricing.moduleIcon)}</div>
                 <div>
-                  <h3 className="font-semibold text-gray-900">{pricing.moduleName || pricing.moduleCode}</h3>
+                  <h3 className="font-semibold text-gray-900">
+                    {pricing.moduleName || pricing.moduleCode}
+                  </h3>
                   <p className="text-xs text-gray-500">{pricing.moduleCode}</p>
                 </div>
               </div>
@@ -424,7 +400,8 @@ const ModulePricingPage: React.FC = () => {
                 ))}
               {(pricing.pricingMetrics || []).filter((m) => !isBasePrice(m.type)).length > 4 && (
                 <div className="text-xs text-gray-500">
-                  +{(pricing.pricingMetrics || []).filter((m) => !isBasePrice(m.type)).length - 4} more metrics
+                  +{(pricing.pricingMetrics || []).filter((m) => !isBasePrice(m.type)).length - 4}{' '}
+                  more metrics
                 </div>
               )}
             </div>
@@ -461,11 +438,7 @@ const ModulePricingPage: React.FC = () => {
               >
                 View Details
               </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => handleEdit(pricing)}
-              >
+              <Button variant="primary" size="sm" onClick={() => handleEdit(pricing)}>
                 Edit
               </Button>
             </div>
@@ -475,7 +448,10 @@ const ModulePricingPage: React.FC = () => {
 
       {filteredPricings.length === 0 && !loading && (
         <div className="text-center py-12 text-gray-500">
-          No module pricing found. {searchTerm ? 'Try adjusting your search.' : 'Module pricing data needs to be configured.'}
+          No module pricing found.{' '}
+          {searchTerm
+            ? 'Try adjusting your search.'
+            : 'Module pricing data needs to be configured.'}
         </div>
       )}
 
@@ -603,7 +579,9 @@ const ModulePricingPage: React.FC = () => {
             <div className="flex justify-between items-start mb-6">
               <div>
                 <h2 className="text-2xl font-bold">Edit Module Pricing</h2>
-                <p className="text-gray-500">{editForm.moduleName} ({editForm.moduleCode})</p>
+                <p className="text-gray-500">
+                  {editForm.moduleName} ({editForm.moduleCode})
+                </p>
               </div>
               <Button
                 variant="ghost"
@@ -661,7 +639,9 @@ const ModulePricingPage: React.FC = () => {
                             type="number"
                             min="0"
                             value={metric.includedQuantity || 0}
-                            onChange={(e) => handleMetricIncludedChange(metric.type, e.target.value)}
+                            onChange={(e) =>
+                              handleMetricIncludedChange(metric.type, e.target.value)
+                            }
                           />
                         </div>
                       )}
@@ -694,7 +674,8 @@ const ModulePricingPage: React.FC = () => {
             <div className="mb-6">
               <h3 className="text-lg font-semibold mb-3">Tier Multipliers</h3>
               <p className="text-sm text-gray-500 mb-3">
-                Set the price multiplier for each tier. 1.0 = full price, 0.9 = 10% discount, 0 = free
+                Set the price multiplier for each tier. 1.0 = full price, 0.9 = 10% discount, 0 =
+                free
               </p>
               <div className="grid grid-cols-5 gap-3">
                 {Object.entries(editForm.tierMultipliers).map(([tier, multiplier]) => (
@@ -736,11 +717,7 @@ const ModulePricingPage: React.FC = () => {
               >
                 Cancel
               </Button>
-              <Button
-                variant="primary"
-                onClick={handleSave}
-                disabled={saving}
-              >
+              <Button variant="primary" onClick={handleSave} disabled={saving}>
                 {saving ? 'Saving...' : 'Save Changes'}
               </Button>
             </div>

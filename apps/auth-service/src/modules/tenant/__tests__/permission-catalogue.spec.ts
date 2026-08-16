@@ -69,7 +69,7 @@ describe('PERMISSION_CATEGORIES — messaging + AI coverage (Faz 7)', () => {
  */
 describe('entitledPermissionCategories — UI catalogue entitlement filter', () => {
   it('with full entitlement, reproduces the entire catalogue verbatim', () => {
-    const view = entitledPermissionCategories(CATALOGUE_CAPABILITIES);
+    const view = entitledPermissionCategories(new Set(CATALOGUE_CAPABILITIES));
 
     expect(Object.keys(view).sort()).toEqual(Object.keys(PERMISSION_CATEGORIES).sort());
     for (const [categoryKey, category] of Object.entries(PERMISSION_CATEGORIES)) {

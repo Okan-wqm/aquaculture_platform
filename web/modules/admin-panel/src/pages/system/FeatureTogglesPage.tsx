@@ -18,7 +18,7 @@ interface FeatureToggleForm {
   key: string;
   name: string;
   description: string;
-  scope: 'global' | 'tenant' | 'user';
+  scope: FeatureToggle['scope'];
   category: string;
   rolloutPercentage: number;
   isExperimental: boolean;
@@ -34,13 +34,21 @@ const defaultForm: FeatureToggleForm = {
   isExperimental: false,
 };
 
+const FEATURE_TOGGLE_SCOPE_FILTERS = ['user', 'environment', 'tenant', 'global'] as const;
+const FEATURE_TOGGLE_STATUS_FILTERS = [
+  'disabled',
+  'enabled',
+  'scheduled',
+  'percentage_rollout',
+] as const;
+
 // ============================================================================
 // Component
 // ============================================================================
 
 export const FeatureTogglesPage: React.FC = () => {
   // State
-  const [toggles, setToggles] = useState<FeatureToggle[]>([]);
+  const [toggles, setToggles] = useState<readonly FeatureToggle[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -65,26 +73,12 @@ export const FeatureTogglesPage: React.FC = () => {
 
     try {
       const response = await systemSettingsApi.getFeatureToggles({
-        scope: filterScope !== 'all' ? filterScope : undefined,
-        status: filterStatus !== 'all' ? filterStatus : undefined,
+        scope: FEATURE_TOGGLE_SCOPE_FILTERS.find((scope) => scope === filterScope),
+        status: FEATURE_TOGGLE_STATUS_FILTERS.find((status) => status === filterStatus),
         category: filterCategory !== 'all' ? filterCategory : undefined,
         search: searchTerm || undefined,
       });
-      // Normalise the API response shape to a flat array (BUG-014)
-      type FeatureToggleListResponse = FeatureToggle[] | { data: FeatureToggle[] } | { items: FeatureToggle[]; total?: number };
-      const r = response as unknown as FeatureToggleListResponse;
-      let toggleList: FeatureToggle[];
-      if (Array.isArray(r)) {
-        toggleList = r;
-      } else if ('items' in r && Array.isArray(r.items)) {
-        toggleList = r.items;
-      } else if ('data' in r && Array.isArray(r.data)) {
-        toggleList = r.data;
-      } else {
-        console.error('API returned unexpected format for feature toggles', r);
-        toggleList = [];
-      }
-      setToggles(toggleList);
+      setToggles([...response.items]);
     } catch (err) {
       console.error('Failed to load feature toggles:', err);
       setError('Failed to load feature toggles');
@@ -106,16 +100,12 @@ export const FeatureTogglesPage: React.FC = () => {
     try {
       const newEnabled = toggle.status !== 'enabled';
       await systemSettingsApi.toggleFeature(toggle.id, newEnabled);
-      setToggles(
-        toggles.map((t) =>
-          t.id === toggle.id
-            ? { ...t, status: newEnabled ? 'enabled' : 'disabled' }
-            : t
-        )
-      );
+      await loadData();
     } catch (err) {
       console.error('Failed to toggle feature:', err);
-      setError(err instanceof Error ? err.message : 'Failed to toggle feature flag. Please try again.');
+      setError(
+        err instanceof Error ? err.message : 'Failed to toggle feature flag. Please try again.',
+      );
     }
   };
 
@@ -124,7 +114,7 @@ export const FeatureTogglesPage: React.FC = () => {
 
     setSaving(true);
     try {
-      const newToggle = await systemSettingsApi.createFeatureToggle({
+      await systemSettingsApi.createFeatureToggle({
         key: formData.key,
         name: formData.name,
         description: formData.description,
@@ -134,12 +124,14 @@ export const FeatureTogglesPage: React.FC = () => {
         isExperimental: formData.isExperimental,
         status: 'disabled',
       });
-      setToggles([newToggle, ...toggles]);
+      await loadData();
       setShowCreateModal(false);
       setFormData(defaultForm);
     } catch (err) {
       console.error('Failed to create toggle:', err);
-      setError(err instanceof Error ? err.message : 'Failed to create feature flag. Please try again.');
+      setError(
+        err instanceof Error ? err.message : 'Failed to create feature flag. Please try again.',
+      );
     } finally {
       setSaving(false);
     }
@@ -150,21 +142,21 @@ export const FeatureTogglesPage: React.FC = () => {
 
     setSaving(true);
     try {
-      const updated = await systemSettingsApi.updateFeatureToggle(selectedToggle.id, {
+      await systemSettingsApi.updateFeatureToggle(selectedToggle.id, {
         name: formData.name,
         description: formData.description,
-        scope: formData.scope,
         category: formData.category,
         rolloutPercentage: formData.rolloutPercentage,
-        isExperimental: formData.isExperimental,
       });
-      setToggles(toggles.map((t) => (t.id === updated.id ? updated : t)));
+      await loadData();
       setShowEditModal(false);
       setSelectedToggle(null);
       setFormData(defaultForm);
     } catch (err) {
       console.error('Failed to update toggle:', err);
-      setError(err instanceof Error ? err.message : 'Failed to update feature flag. Please try again.');
+      setError(
+        err instanceof Error ? err.message : 'Failed to update feature flag. Please try again.',
+      );
     } finally {
       setSaving(false);
     }
@@ -178,7 +170,9 @@ export const FeatureTogglesPage: React.FC = () => {
       setToggles(toggles.filter((t) => t.id !== toggle.id));
     } catch (err) {
       console.error('Failed to delete toggle:', err);
-      setError(err instanceof Error ? err.message : 'Failed to delete feature flag. Please try again.');
+      setError(
+        err instanceof Error ? err.message : 'Failed to delete feature flag. Please try again.',
+      );
     }
   };
 
@@ -200,9 +194,7 @@ export const FeatureTogglesPage: React.FC = () => {
   // Helpers
   // ============================================================================
 
-  // Ensure toggles is always an array
-  const safeToggles = Array.isArray(toggles) ? toggles : [];
-  const categories = [...new Set(safeToggles.map((t) => t.category).filter(Boolean))];
+  const categories = [...new Set(toggles.map((toggle) => toggle.category).filter(Boolean))];
 
   const getStatusBadge = (status: string) => {
     const variants: Record<string, 'success' | 'default' | 'info' | 'warning'> = {
@@ -224,11 +216,11 @@ export const FeatureTogglesPage: React.FC = () => {
   };
 
   const stats = {
-    total: safeToggles.length,
-    enabled: safeToggles.filter((t) => t.status === 'enabled').length,
-    disabled: safeToggles.filter((t) => t.status === 'disabled').length,
-    rollout: safeToggles.filter((t) => t.status === 'percentage_rollout').length,
-    experimental: safeToggles.filter((t) => t.isExperimental).length,
+    total: toggles.length,
+    enabled: toggles.filter((toggle) => toggle.status === 'enabled').length,
+    disabled: toggles.filter((toggle) => toggle.status === 'disabled').length,
+    rollout: toggles.filter((toggle) => toggle.status === 'percentage_rollout').length,
+    experimental: toggles.filter((toggle) => toggle.isExperimental).length,
   };
 
   // ============================================================================
@@ -261,7 +253,12 @@ export const FeatureTogglesPage: React.FC = () => {
         </div>
         <Button onClick={() => setShowCreateModal(true)}>
           <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+            />
           </svg>
           Create Toggle
         </Button>
@@ -361,21 +358,23 @@ export const FeatureTogglesPage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {safeToggles.length === 0 ? (
+              {toggles.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
                     No feature toggles found
                   </td>
                 </tr>
               ) : (
-                safeToggles.map((toggle) => (
+                toggles.map((toggle) => (
                   <tr key={toggle.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4">
                       <div className="flex flex-col">
                         <div className="flex items-center gap-2">
                           <span className="font-medium text-gray-900">{toggle.name}</span>
                           {toggle.isExperimental && (
-                            <Badge variant="warning" size="sm">Experimental</Badge>
+                            <Badge variant="warning" size="sm">
+                              Experimental
+                            </Badge>
                           )}
                         </div>
                         <span className="text-sm font-mono text-gray-500">{toggle.key}</span>
@@ -387,7 +386,9 @@ export const FeatureTogglesPage: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${getScopeBadge(toggle.scope)}`}>
+                      <span
+                        className={`px-2 py-1 text-xs font-medium rounded-full ${getScopeBadge(toggle.scope)}`}
+                      >
                         {toggle.scope}
                       </span>
                     </td>
@@ -497,23 +498,36 @@ export const FeatureTogglesPage: React.FC = () => {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Scope
-                    </label>
-                    <Select
-                      value={formData.scope}
-                      onChange={(e) => setFormData({ ...formData, scope: e.target.value as FeatureToggleForm['scope'] })}
-                      options={[
-                        { value: 'global', label: 'Global' },
-                        { value: 'tenant', label: 'Tenant' },
-                        { value: 'user', label: 'User' },
-                      ]}
-                    />
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Scope</label>
+                    {showEditModal ? (
+                      <p className="rounded border border-gray-200 bg-gray-50 px-3 py-2 text-sm capitalize text-gray-700">
+                        {formData.scope}
+                      </p>
+                    ) : (
+                      <Select
+                        value={formData.scope}
+                        onChange={(event) => {
+                          const scope = event.target.value;
+                          if (
+                            scope === 'global' ||
+                            scope === 'tenant' ||
+                            scope === 'user' ||
+                            scope === 'environment'
+                          ) {
+                            setFormData({ ...formData, scope });
+                          }
+                        }}
+                        options={[
+                          { value: 'global', label: 'Global' },
+                          { value: 'tenant', label: 'Tenant' },
+                          { value: 'user', label: 'User' },
+                          { value: 'environment', label: 'Environment' },
+                        ]}
+                      />
+                    )}
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Category
-                    </label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
                     <Input
                       value={formData.category}
                       onChange={(e) => setFormData({ ...formData, category: e.target.value })}
@@ -532,24 +546,32 @@ export const FeatureTogglesPage: React.FC = () => {
                       min="0"
                       max="100"
                       value={formData.rolloutPercentage}
-                      onChange={(e) => setFormData({ ...formData, rolloutPercentage: parseInt(e.target.value) })}
+                      onChange={(e) =>
+                        setFormData({ ...formData, rolloutPercentage: parseInt(e.target.value) })
+                      }
                       className="flex-1"
                     />
-                    <span className="w-12 text-center font-medium">{formData.rolloutPercentage}%</span>
+                    <span className="w-12 text-center font-medium">
+                      {formData.rolloutPercentage}%
+                    </span>
                   </div>
                 </div>
 
-                <div className="flex flex-wrap gap-4">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formData.isExperimental}
-                      onChange={(e) => setFormData({ ...formData, isExperimental: e.target.checked })}
-                      className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-sm text-gray-700">Experimental</span>
-                  </label>
-                </div>
+                {!showEditModal && (
+                  <div className="flex flex-wrap gap-4">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.isExperimental}
+                        onChange={(e) =>
+                          setFormData({ ...formData, isExperimental: e.target.checked })
+                        }
+                        className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-gray-700">Experimental</span>
+                    </label>
+                  </div>
+                )}
               </div>
 
               <div className="flex justify-end gap-3 mt-8 pt-4 border-t">

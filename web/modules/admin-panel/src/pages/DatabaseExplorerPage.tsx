@@ -8,61 +8,46 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Button, Input, Badge, Alert, Modal } from '@aquaculture/shared-ui';
 import { databaseApi } from '../services/adminApi';
+import { downloadAdminOwnedBlob } from '../services/browser-capabilities';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-interface ColumnInfo {
-  columnName: string;
-  dataType: string;
-  isNullable: boolean;
-  columnDefault: string | null;
-  isPrimaryKey: boolean;
-  isForeignKey: boolean;
-  foreignKeyTable?: string;
-  foreignKeyColumn?: string;
-  isSensitive?: boolean;
-}
+type ExplorerSchemas = Awaited<ReturnType<typeof databaseApi.getExplorerSchemas>>;
+type ExplorerSchemaNames = ExplorerSchemas['schemas'];
+type TableInfo = Awaited<ReturnType<typeof databaseApi.getExplorerTables>>[number];
+type TableData = Awaited<ReturnType<typeof databaseApi.getExplorerTableData>>;
+type ColumnInfo = TableData['columns'][number];
+type TableRow = TableData['rows'][number];
 
 // Sensitive columns that should be visually marked
 const SENSITIVE_COLUMN_PATTERNS = [
-  'password', 'secret', 'token', 'api_key', 'hash', 'salt',
-  'mfa_secret', 'credential', 'private_key', 'encryption_key',
+  'password',
+  'secret',
+  'token',
+  'api_key',
+  'hash',
+  'salt',
+  'mfa_secret',
+  'credential',
+  'private_key',
+  'encryption_key',
 ];
 
 const isSensitiveColumnName = (name: string): boolean => {
   const lowerName = name.toLowerCase();
-  return SENSITIVE_COLUMN_PATTERNS.some(
-    (pattern) => lowerName.includes(pattern),
-  );
+  return SENSITIVE_COLUMN_PATTERNS.some((pattern) => lowerName.includes(pattern));
 };
-
-interface TableInfo {
-  tableName: string;
-  schemaName: string;
-  rowCount: number;
-  sizeBytes: number;
-  columns: ColumnInfo[];
-}
-
-interface TableData {
-  tableName: string;
-  columns: ColumnInfo[];
-  rows: Record<string, unknown>[];
-  totalRows: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
 
 // ============================================================================
 // API Functions (via centralized databaseApi)
 // ============================================================================
 
-const fetchSchemas = (): Promise<string[]> => databaseApi.getExplorerSchemas();
+const fetchSchemas = (): Promise<ExplorerSchemas> => databaseApi.getExplorerSchemas();
 
-const fetchTables = (schema: string): Promise<TableInfo[]> => databaseApi.getExplorerTables(schema);
+const fetchTables = (schema: string): Promise<readonly TableInfo[]> =>
+  databaseApi.getExplorerTables(schema);
 
 const fetchTableData = (
   schema: string,
@@ -70,59 +55,46 @@ const fetchTableData = (
   page = 1,
   limit = 50,
   orderBy?: string,
-  orderDirection?: 'ASC' | 'DESC'
+  orderDirection?: 'ASC' | 'DESC',
 ): Promise<TableData> =>
   databaseApi.getExplorerTableData(schema, table, { page, limit, orderBy, orderDirection });
 
 const insertRow = (
   schema: string,
   table: string,
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
 ): Promise<Record<string, unknown>> => databaseApi.insertExplorerRow(schema, table, data);
 
 const updateRow = (
   schema: string,
   table: string,
   id: string,
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
 ): Promise<Record<string, unknown>> => databaseApi.updateExplorerRow(schema, table, id, data);
 
-const deleteRow = (
-  schema: string,
-  table: string,
-  id: string
-): Promise<void> => databaseApi.deleteExplorerRow(schema, table, id);
+const deleteRow = async (schema: string, table: string, id: string): Promise<void> => {
+  await databaseApi.deleteExplorerRow(schema, table, id);
+};
 
 async function exportTableData(
   schema: string,
   table: string,
   format: 'csv' | 'json',
   orderBy?: string,
-  orderDirection?: 'ASC' | 'DESC'
+  orderDirection?: 'ASC' | 'DESC',
 ): Promise<void> {
-  // Export uses a download URL -- must use direct fetch for blob response
-  const url = databaseApi.exportExplorerTable(schema, table, format, orderBy, orderDirection);
-  const { getAccessToken } = await import('@aquaculture/shared-ui');
-  const token = getAccessToken();
-  const response = await fetch(url, {
-    credentials: 'include',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  const response = await databaseApi.exportExplorerTable(
+    schema,
+    table,
+    format,
+    orderBy,
+    orderDirection,
+  );
+
+  downloadAdminOwnedBlob({
+    blob: response.blob,
+    filename: response.filename,
   });
-
-  if (!response.ok) {
-    throw new Error('Failed to export data');
-  }
-
-  // Trigger file download
-  const blob = await response.blob();
-  const blobUrl = window.URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = blobUrl;
-  a.download = `${table}_export.${format}`;
-  document.body.appendChild(a);
-  a.click();
-  window.URL.revokeObjectURL(blobUrl);
-  document.body.removeChild(a);
 }
 
 // ============================================================================
@@ -153,10 +125,15 @@ const isMaskedValue = (value: unknown): boolean => {
   return value === MASKED_VALUE;
 };
 
-const getDataTypeBadgeColor = (dataType: string): 'info' | 'success' | 'warning' | 'error' | 'default' => {
-  if (dataType.includes('int') || dataType.includes('numeric') || dataType.includes('decimal')) return 'info';
-  if (dataType.includes('varchar') || dataType.includes('text') || dataType.includes('char')) return 'success';
-  if (dataType.includes('timestamp') || dataType.includes('date') || dataType.includes('time')) return 'warning';
+const getDataTypeBadgeColor = (
+  dataType: string,
+): 'info' | 'success' | 'warning' | 'error' | 'default' => {
+  if (dataType.includes('int') || dataType.includes('numeric') || dataType.includes('decimal'))
+    return 'info';
+  if (dataType.includes('varchar') || dataType.includes('text') || dataType.includes('char'))
+    return 'success';
+  if (dataType.includes('timestamp') || dataType.includes('date') || dataType.includes('time'))
+    return 'warning';
   if (dataType.includes('bool')) return 'error';
   if (dataType.includes('json') || dataType.includes('uuid')) return 'default';
   return 'default';
@@ -169,8 +146,8 @@ const getDataTypeBadgeColor = (dataType: string): 'info' | 'success' | 'warning'
 interface RowEditorModalProps {
   isOpen: boolean;
   onClose: () => void;
-  columns: ColumnInfo[];
-  row?: Record<string, unknown>;
+  columns: readonly ColumnInfo[];
+  row?: TableRow;
   onSave: (data: Record<string, unknown>) => Promise<void>;
   mode: 'create' | 'edit';
 }
@@ -208,8 +185,12 @@ const RowEditorModal: React.FC<RowEditorModalProps> = ({
     // Validate required fields before submitting (BUG-015)
     if (mode === 'create') {
       const missingFields = columns.filter(
-        (col) => !col.isNullable && !col.columnDefault && (formData[col.columnName] || '').trim() === ''
-          && !col.columnDefault?.includes('gen_random_uuid') && !col.columnDefault?.includes('nextval')
+        (col) =>
+          !col.isNullable &&
+          !col.columnDefault &&
+          (formData[col.columnName] || '').trim() === '' &&
+          !col.columnDefault?.includes('gen_random_uuid') &&
+          !col.columnDefault?.includes('nextval'),
       );
       if (missingFields.length > 0) {
         setError(`Required fields missing: ${missingFields.map((c) => c.columnName).join(', ')}`);
@@ -232,7 +213,12 @@ const RowEditorModal: React.FC<RowEditorModalProps> = ({
           }
         } else if (col.dataType.includes('int')) {
           parsedData[col.columnName] = parseInt(value, 10);
-        } else if (col.dataType.includes('numeric') || col.dataType.includes('decimal') || col.dataType.includes('float') || col.dataType.includes('double')) {
+        } else if (
+          col.dataType.includes('numeric') ||
+          col.dataType.includes('decimal') ||
+          col.dataType.includes('float') ||
+          col.dataType.includes('double')
+        ) {
           parsedData[col.columnName] = parseFloat(value);
         } else if (col.dataType.includes('bool')) {
           parsedData[col.columnName] = value.toLowerCase() === 'true' || value === '1';
@@ -250,7 +236,10 @@ const RowEditorModal: React.FC<RowEditorModalProps> = ({
       // Remove auto-generated columns for create
       if (mode === 'create') {
         columns.forEach((col) => {
-          if (col.columnDefault?.includes('gen_random_uuid') || col.columnDefault?.includes('nextval')) {
+          if (
+            col.columnDefault?.includes('gen_random_uuid') ||
+            col.columnDefault?.includes('nextval')
+          ) {
             delete parsedData[col.columnName];
           }
         });
@@ -282,60 +271,54 @@ const RowEditorModal: React.FC<RowEditorModalProps> = ({
         {columns.map((col) => {
           const isSensitive = col.isSensitive || isSensitiveColumnName(col.columnName);
           return (
-          <div key={col.columnName}>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              {col.columnName}
-              {col.isPrimaryKey && (
-                <Badge variant="info" className="ml-2">
-                  PK
-                </Badge>
+            <div key={col.columnName}>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {col.columnName}
+                {col.isPrimaryKey && (
+                  <Badge variant="info" className="ml-2">
+                    PK
+                  </Badge>
+                )}
+                {col.isForeignKey && (
+                  <Badge variant="warning" className="ml-1">
+                    FK
+                  </Badge>
+                )}
+                {isSensitive && (
+                  <Badge variant="error" className="ml-1">
+                    Sensitive
+                  </Badge>
+                )}
+                {!col.isNullable && !col.columnDefault && (
+                  <span className="text-red-500 ml-1">*</span>
+                )}
+              </label>
+              {isSensitive ? (
+                <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-500 italic">
+                  [Sensitive field — not shown for security. Clear to unset.]
+                </div>
+              ) : (
+                <Input
+                  value={formData[col.columnName] || ''}
+                  onChange={(e) => setFormData({ ...formData, [col.columnName]: e.target.value })}
+                  placeholder={col.columnDefault || col.dataType}
+                  disabled={
+                    mode === 'edit' &&
+                    col.isPrimaryKey &&
+                    col.columnDefault?.includes('gen_random_uuid')
+                  }
+                />
               )}
-              {col.isForeignKey && (
-                <Badge variant="warning" className="ml-1">
-                  FK
-                </Badge>
-              )}
-              {isSensitive && (
-                <Badge variant="error" className="ml-1">
-                  Sensitive
-                </Badge>
-              )}
-              {!col.isNullable && !col.columnDefault && (
-                <span className="text-red-500 ml-1">*</span>
-              )}
-            </label>
-            {isSensitive ? (
-              <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-500 italic">
-                [Sensitive field — not shown for security. Clear to unset.]
+              <div className="flex items-center gap-2 mt-1">
+                <Badge variant={getDataTypeBadgeColor(col.dataType)}>{col.dataType}</Badge>
+                {col.isNullable && <span className="text-xs text-gray-500">nullable</span>}
+                {col.columnDefault && (
+                  <span className="text-xs text-gray-500">
+                    default: {col.columnDefault.substring(0, 30)}
+                  </span>
+                )}
               </div>
-            ) : (
-              <Input
-                value={formData[col.columnName] || ''}
-                onChange={(e) =>
-                  setFormData({ ...formData, [col.columnName]: e.target.value })
-                }
-                placeholder={col.columnDefault || col.dataType}
-                disabled={
-                  mode === 'edit' &&
-                  col.isPrimaryKey &&
-                  col.columnDefault?.includes('gen_random_uuid')
-                }
-              />
-            )}
-            <div className="flex items-center gap-2 mt-1">
-              <Badge variant={getDataTypeBadgeColor(col.dataType)}>
-                {col.dataType}
-              </Badge>
-              {col.isNullable && (
-                <span className="text-xs text-gray-500">nullable</span>
-              )}
-              {col.columnDefault && (
-                <span className="text-xs text-gray-500">
-                  default: {col.columnDefault.substring(0, 30)}
-                </span>
-              )}
             </div>
-          </div>
           );
         })}
       </div>
@@ -358,9 +341,10 @@ const RowEditorModal: React.FC<RowEditorModalProps> = ({
 
 const DatabaseExplorerPage: React.FC = () => {
   // State
-  const [schemas, setSchemas] = useState<string[]>([]);
+  const [schemas, setSchemas] = useState<ExplorerSchemaNames>([]);
+  const [writesEnabled, setWritesEnabled] = useState(false);
   const [selectedSchema, setSelectedSchema] = useState('public');
-  const [tables, setTables] = useState<TableInfo[]>([]);
+  const [tables, setTables] = useState<readonly TableInfo[]>([]);
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [tableData, setTableData] = useState<TableData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -375,7 +359,7 @@ const DatabaseExplorerPage: React.FC = () => {
   // Modals
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editorMode, setEditorMode] = useState<'create' | 'edit'>('create');
-  const [editingRow, setEditingRow] = useState<Record<string, unknown> | undefined>();
+  const [editingRow, setEditingRow] = useState<TableRow | undefined>();
 
   // Delete confirmation
   const [deleteConfirm, setDeleteConfirm] = useState<{
@@ -390,7 +374,10 @@ const DatabaseExplorerPage: React.FC = () => {
   // Load schemas
   useEffect(() => {
     fetchSchemas()
-      .then(setSchemas)
+      .then((result) => {
+        setSchemas(result.schemas);
+        setWritesEnabled(result.capabilities.writesEnabled);
+      })
       .catch((err) => setError(err.message));
   }, []);
 
@@ -423,7 +410,7 @@ const DatabaseExplorerPage: React.FC = () => {
         page,
         limit,
         orderBy,
-        orderDirection
+        orderDirection,
       );
       setTableData(data);
     } catch (err) {
@@ -464,7 +451,7 @@ const DatabaseExplorerPage: React.FC = () => {
     setIsEditorOpen(true);
   };
 
-  const handleEditRow = (row: Record<string, unknown>) => {
+  const handleEditRow = (row: TableRow) => {
     setEditorMode('edit');
     setEditingRow(row);
     setIsEditorOpen(true);
@@ -498,7 +485,7 @@ const DatabaseExplorerPage: React.FC = () => {
     }
   };
 
-  const confirmDelete = (row: Record<string, unknown>) => {
+  const confirmDelete = (row: TableRow) => {
     const pkColumn = tableData?.columns.find((c) => c.isPrimaryKey);
     if (pkColumn) {
       setDeleteConfirm({
@@ -532,9 +519,7 @@ const DatabaseExplorerPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Database Explorer</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            View and manage database tables
-          </p>
+          <p className="mt-1 text-sm text-gray-500">View and manage database tables</p>
         </div>
         <div className="mt-4 sm:mt-0 flex gap-2">
           <select
@@ -560,13 +545,33 @@ const DatabaseExplorerPage: React.FC = () => {
                   {exporting ? (
                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 mr-2"></div>
                   ) : (
-                    <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    <svg
+                      className="w-4 h-4 mr-2"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                      />
                     </svg>
                   )}
                   Export
-                  <svg className="w-4 h-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  <svg
+                    className="w-4 h-4 ml-1"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M19 9l-7 7-7-7"
+                    />
                   </svg>
                 </Button>
                 {showExportMenu && (
@@ -575,8 +580,18 @@ const DatabaseExplorerPage: React.FC = () => {
                       className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 rounded-t-lg"
                       onClick={() => handleExport('csv')}
                     >
-                      <svg className="w-4 h-4 inline mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      <svg
+                        className="w-4 h-4 inline mr-2"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                        />
                       </svg>
                       CSV
                     </button>
@@ -584,20 +599,42 @@ const DatabaseExplorerPage: React.FC = () => {
                       className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 rounded-b-lg"
                       onClick={() => handleExport('json')}
                     >
-                      <svg className="w-4 h-4 inline mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                      <svg
+                        className="w-4 h-4 inline mr-2"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
+                        />
                       </svg>
                       JSON
                     </button>
                   </div>
                 )}
               </div>
-              <Button onClick={handleCreateRow}>
-                <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-                New Row
-              </Button>
+              {writesEnabled && (
+                <Button onClick={handleCreateRow}>
+                  <svg
+                    className="w-4 h-4 mr-2"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 4v16m8-8H4"
+                    />
+                  </svg>
+                  New Row
+                </Button>
+              )}
             </>
           )}
         </div>
@@ -658,14 +695,14 @@ const DatabaseExplorerPage: React.FC = () => {
                   {selectedTableInfo && (
                     <Badge variant="default">{formatBytes(selectedTableInfo.sizeBytes)}</Badge>
                   )}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={loadTableData}
-                    disabled={loading}
-                  >
+                  <Button variant="ghost" size="sm" onClick={loadTableData} disabled={loading}>
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                      />
                     </svg>
                   </Button>
                 </div>
@@ -677,7 +714,8 @@ const DatabaseExplorerPage: React.FC = () => {
                   <thead className="bg-gray-50">
                     <tr>
                       {tableData.columns.map((col) => {
-                        const isSensitive = col.isSensitive || isSensitiveColumnName(col.columnName);
+                        const isSensitive =
+                          col.isSensitive || isSensitiveColumnName(col.columnName);
                         return (
                           <th
                             key={col.columnName}
@@ -685,46 +723,74 @@ const DatabaseExplorerPage: React.FC = () => {
                               isSensitive ? 'text-orange-600 bg-orange-50' : 'text-gray-500'
                             }`}
                             onClick={() => handleSort(col.columnName)}
-                            title={isSensitive ? 'This column contains sensitive data (masked)' : undefined}
+                            title={
+                              isSensitive
+                                ? 'This column contains sensitive data (masked)'
+                                : undefined
+                            }
                           >
                             <div className="flex items-center gap-1">
                               {col.columnName}
                               {col.isPrimaryKey && (
-                                <svg className="w-3 h-3 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
+                                <svg
+                                  className="w-3 h-3 text-yellow-500"
+                                  fill="currentColor"
+                                  viewBox="0 0 20 20"
+                                >
                                   <path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" />
                                   <path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" />
                                 </svg>
                               )}
                               {isSensitive && (
-                                <svg className="w-3 h-3 text-orange-500" fill="currentColor" viewBox="0 0 20 20" aria-label="Hassas veri - Maskeli">
-                                  <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                                <svg
+                                  className="w-3 h-3 text-orange-500"
+                                  fill="currentColor"
+                                  viewBox="0 0 20 20"
+                                  aria-label="Hassas veri - Maskeli"
+                                >
+                                  <path
+                                    fillRule="evenodd"
+                                    d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z"
+                                    clipRule="evenodd"
+                                  />
                                 </svg>
                               )}
                               {orderBy === col.columnName && (
-                                <svg className={`w-3 h-3 ${orderDirection === 'DESC' ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                                <svg
+                                  className={`w-3 h-3 ${orderDirection === 'DESC' ? 'rotate-180' : ''}`}
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                  stroke="currentColor"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M5 15l7-7 7 7"
+                                  />
                                 </svg>
                               )}
                             </div>
                           </th>
                         );
                       })}
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                        Actions
-                      </th>
+                      {writesEnabled && (
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                          Actions
+                        </th>
+                      )}
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {tableData.rows.map((row, idx) => {
                       const pkCol = tableData.columns.find((c) => c.isPrimaryKey);
-                      const rowKey = pkCol
-                        ? String(row[pkCol.columnName])
-                        : idx;
+                      const rowKey = pkCol ? String(row[pkCol.columnName]) : idx;
 
                       return (
                         <tr key={rowKey} className="hover:bg-gray-50">
                           {tableData.columns.map((col, colIdx) => {
-                            const isSensitive = col.isSensitive || isSensitiveColumnName(col.columnName);
+                            const isSensitive =
+                              col.isSensitive || isSensitiveColumnName(col.columnName);
                             const valueIsMasked = isMaskedValue(row[col.columnName]);
 
                             return (
@@ -733,14 +799,26 @@ const DatabaseExplorerPage: React.FC = () => {
                                 className={`px-4 py-2 text-sm max-w-xs truncate ${
                                   valueIsMasked ? 'bg-orange-50' : ''
                                 } ${isSensitive ? 'text-orange-600' : 'text-gray-900'}`}
-                                title={valueIsMasked ? 'Sensitive data (masked)' : formatValue(row[col.columnName])}
+                                title={
+                                  valueIsMasked
+                                    ? 'Sensitive data (masked)'
+                                    : formatValue(row[col.columnName])
+                                }
                               >
                                 {row[col.columnName] === null ? (
                                   <span className="text-gray-500 italic">NULL</span>
                                 ) : valueIsMasked ? (
                                   <span className="flex items-center gap-1 text-orange-600 font-mono">
-                                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                                      <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                                    <svg
+                                      className="w-3 h-3"
+                                      fill="currentColor"
+                                      viewBox="0 0 20 20"
+                                    >
+                                      <path
+                                        fillRule="evenodd"
+                                        d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z"
+                                        clipRule="evenodd"
+                                      />
                                     </svg>
                                     {MASKED_VALUE}
                                   </span>
@@ -754,26 +832,40 @@ const DatabaseExplorerPage: React.FC = () => {
                               </td>
                             );
                           })}
-                          <td className="px-4 py-2 text-right whitespace-nowrap">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleEditRow(row)}
-                            >
-                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                              </svg>
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => confirmDelete(row)}
-                            >
-                              <svg className="w-4 h-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                            </Button>
-                          </td>
+                          {writesEnabled && (
+                            <td className="px-4 py-2 text-right whitespace-nowrap">
+                              <Button variant="ghost" size="sm" onClick={() => handleEditRow(row)}>
+                                <svg
+                                  className="w-4 h-4"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                  stroke="currentColor"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                                  />
+                                </svg>
+                              </Button>
+                              <Button variant="ghost" size="sm" onClick={() => confirmDelete(row)}>
+                                <svg
+                                  className="w-4 h-4 text-red-500"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                  stroke="currentColor"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                  />
+                                </svg>
+                              </Button>
+                            </td>
+                          )}
                         </tr>
                       );
                     })}
@@ -787,7 +879,10 @@ const DatabaseExplorerPage: React.FC = () => {
                   <div className="text-sm text-gray-500">
                     Page {tableData.page} / {tableData.totalPages} (
                     {((tableData.page - 1) * tableData.limit + 1).toLocaleString()} -{' '}
-                    {Math.min(tableData.page * tableData.limit, tableData.totalRows).toLocaleString()}{' '}
+                    {Math.min(
+                      tableData.page * tableData.limit,
+                      tableData.totalRows,
+                    ).toLocaleString()}{' '}
                     / {tableData.totalRows.toLocaleString()})
                   </div>
                   <div className="flex gap-2">
@@ -815,8 +910,7 @@ const DatabaseExplorerPage: React.FC = () => {
         </Card>
       </div>
 
-      {/* Row Editor Modal */}
-      {tableData && (
+      {writesEnabled && tableData && (
         <RowEditorModal
           isOpen={isEditorOpen}
           onClose={() => setIsEditorOpen(false)}
@@ -827,27 +921,25 @@ const DatabaseExplorerPage: React.FC = () => {
         />
       )}
 
-      {/* Delete Confirmation Modal */}
-      <Modal
-        isOpen={deleteConfirm.show}
-        onClose={() => setDeleteConfirm({ show: false, id: '' })}
-        title="Delete Row"
-      >
-        <p className="text-gray-600 mb-4">
-          Are you sure you want to delete this row? This action cannot be undone.
-        </p>
-        <div className="flex justify-end gap-3">
-          <Button
-            variant="outline"
-            onClick={() => setDeleteConfirm({ show: false, id: '' })}
-          >
-            Cancel
-          </Button>
-          <Button variant="danger" onClick={handleDeleteRow}>
-            Delete
-          </Button>
-        </div>
-      </Modal>
+      {writesEnabled && (
+        <Modal
+          isOpen={deleteConfirm.show}
+          onClose={() => setDeleteConfirm({ show: false, id: '' })}
+          title="Delete Row"
+        >
+          <p className="text-gray-600 mb-4">
+            Are you sure you want to delete this row? This action cannot be undone.
+          </p>
+          <div className="flex justify-end gap-3">
+            <Button variant="outline" onClick={() => setDeleteConfirm({ show: false, id: '' })}>
+              Cancel
+            </Button>
+            <Button variant="danger" onClick={handleDeleteRow}>
+              Delete
+            </Button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 };

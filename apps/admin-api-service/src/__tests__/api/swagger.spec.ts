@@ -14,7 +14,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { IsString, IsNotEmpty } from 'class-validator';
 import request from 'supertest';
 
-import { Public } from '../../decorators/public.decorator';
+import { Public } from '@aquaculture/backend-common/decorators';
 
 class TestDto {
   @IsString()
@@ -56,14 +56,9 @@ describe('Swagger / OpenAPI Documentation', () => {
     // Mirror the Swagger config from main.ts
     const swaggerConfig = new DocumentBuilder()
       .setTitle('Aquaculture Admin API')
-      .setDescription(
-        'Platform administration API for the Aquaculture SaaS platform',
-      )
+      .setDescription('Platform administration API for the Aquaculture SaaS platform')
       .setVersion('1.0.0')
-      .addBearerAuth(
-        { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
-        'JWT',
-      )
+      .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'JWT')
       .addServer('/', 'Direct (dev)')
       .addServer('/api', 'Via nginx gateway')
       .build();

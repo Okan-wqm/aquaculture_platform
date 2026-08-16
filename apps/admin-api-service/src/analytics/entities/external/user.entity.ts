@@ -6,14 +6,8 @@
  * DO NOT modify - source of truth is auth-service.
  */
 
+import { Role, type Role as RoleCode } from '@platform/identity';
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
-
-export enum UserRole {
-  SUPER_ADMIN = 'SUPER_ADMIN',
-  TENANT_ADMIN = 'TENANT_ADMIN',
-  MODULE_MANAGER = 'MODULE_MANAGER',
-  MODULE_USER = 'MODULE_USER',
-}
 
 // Read from auth schema (shared database) - read-only reference
 @Entity('users', { schema: 'auth', synchronize: false })
@@ -30,8 +24,8 @@ export class UserReadOnly {
   @Column({ type: 'varchar', length: 100, nullable: true })
   lastName!: string | null;
 
-  @Column({ type: 'varchar', length: 50, default: UserRole.MODULE_USER })
-  role!: UserRole;
+  @Column({ type: 'varchar', length: 50, default: Role.MODULE_USER })
+  role!: RoleCode;
 
   @Column({ type: 'uuid', nullable: true })
   tenantId!: string | null;

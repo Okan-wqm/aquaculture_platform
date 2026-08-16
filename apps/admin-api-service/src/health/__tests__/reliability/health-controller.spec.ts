@@ -9,6 +9,8 @@ const createMockResponse = () => {
   const res: any = {
     status: jest.fn().mockReturnThis(),
     json: jest.fn().mockReturnThis(),
+    getHeader: jest.fn().mockReturnValue('health-test-request'),
+    setHeader: jest.fn().mockReturnThis(),
   };
   return res;
 };
@@ -19,6 +21,7 @@ describe('HealthController', () => {
   const mockHealthService = {
     isDraining: jest.fn(),
     checkDatabase: jest.fn(),
+    checkNats: jest.fn(),
     getSmtpStatus: jest.fn(),
     isStartupComplete: jest.fn(),
     getMetrics: jest.fn(),
@@ -28,12 +31,11 @@ describe('HealthController', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockHealthService.checkNats.mockResolvedValue(true);
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [HealthController],
-      providers: [
-        { provide: HealthService, useValue: mockHealthService },
-      ],
+      providers: [{ provide: HealthService, useValue: mockHealthService }],
     }).compile();
 
     controller = module.get<HealthController>(HealthController);
@@ -89,8 +91,30 @@ describe('HealthController', () => {
           status: 'ok',
           checks: expect.objectContaining({
             database: 'ok',
+            nats: 'ok',
             smtp: 'ok',
           }),
+        }),
+      );
+    });
+
+    it('should return 503 when NATS is unavailable', async () => {
+      const res = createMockResponse();
+      mockHealthService.isDraining.mockReturnValue(false);
+      mockHealthService.checkDatabase.mockResolvedValue(true);
+      mockHealthService.checkNats.mockResolvedValue(false);
+      mockHealthService.getSmtpStatus.mockReturnValue({
+        state: 'closed',
+        consecutiveFailures: 0,
+      });
+
+      await controller.readiness(res);
+
+      expect(res.status).toHaveBeenCalledWith(HttpStatus.SERVICE_UNAVAILABLE);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: 'not_ready',
+          checks: expect.objectContaining({ nats: 'error' }),
         }),
       );
     });
@@ -145,6 +169,7 @@ describe('HealthController', () => {
       await controller.readiness(res);
 
       expect(mockHealthService.checkDatabase).not.toHaveBeenCalled();
+      expect(mockHealthService.checkNats).not.toHaveBeenCalled();
     });
 
     it('should report SMTP error when circuit is open', async () => {
@@ -175,9 +200,7 @@ describe('HealthController', () => {
       controller.startup(res);
 
       expect(res.status).toHaveBeenCalledWith(HttpStatus.OK);
-      expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({ status: 'ok' }),
-      );
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'ok' }));
     });
 
     it('should return 503 when startup is not complete', () => {
@@ -187,9 +210,7 @@ describe('HealthController', () => {
       controller.startup(res);
 
       expect(res.status).toHaveBeenCalledWith(HttpStatus.SERVICE_UNAVAILABLE);
-      expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({ status: 'not_ready' }),
-      );
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'not_ready' }));
     });
   });
 

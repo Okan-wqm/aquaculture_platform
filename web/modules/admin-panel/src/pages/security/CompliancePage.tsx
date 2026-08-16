@@ -29,18 +29,28 @@ import {
 import React, { useState, useEffect, useCallback } from 'react';
 
 import { securityApi } from '../../services/adminApi';
-import type {
-  BackendComplianceReport,
-  BackendDataSubjectRequest,
-} from '../../services/types/security';
+import type { ComplianceReportDto, DataRequestDto } from '../../services/types/security';
 
 // ============================================================================
 // Types
 // ============================================================================
 
 type ComplianceType = 'gdpr' | 'ccpa' | 'hipaa' | 'pci_dss' | 'iso27001' | 'sox' | 'soc2';
-type DataRequestType = 'access' | 'rectification' | 'erasure' | 'portability' | 'restriction' | 'objection';
-type DataRequestStatus = 'pending' | 'in_progress' | 'identity_verification' | 'processing' | 'completed' | 'rejected';
+type ExecutableComplianceFramework = Exclude<ComplianceType, 'soc2'>;
+type DataRequestType =
+  | 'access'
+  | 'rectification'
+  | 'erasure'
+  | 'portability'
+  | 'restriction'
+  | 'objection';
+type DataRequestStatus =
+  | 'pending'
+  | 'in_progress'
+  | 'identity_verification'
+  | 'processing'
+  | 'completed'
+  | 'rejected';
 
 interface DataRequest {
   id: string;
@@ -53,7 +63,7 @@ interface DataRequest {
   requesterName: string;
   requesterEmail: string;
   description: string;
-  dataCategories?: string[];
+  dataCategories?: readonly string[];
   submittedAt: string;
   dueDate: string;
   assignedTo?: string;
@@ -94,8 +104,8 @@ interface ComplianceCheck {
   description: string;
   status: 'compliant' | 'non_compliant' | 'partial' | 'not_applicable';
   evidence?: string;
-  lastChecked: string;
-  nextReview: string;
+  lastChecked?: string;
+  nextReview?: string;
 }
 
 interface ComplianceStats {
@@ -106,14 +116,6 @@ interface ComplianceStats {
   overdueRequests: number;
   averageResolutionTime: number;
 }
-
-const toPrimitiveString = (value: unknown, fallback: string): string => {
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-    return String(value);
-  }
-
-  return fallback;
-};
 
 // ============================================================================
 // API Service - Using centralized securityApi with auth headers
@@ -136,10 +138,8 @@ async function fetchDataRequests(params: {
   if (params.searchQuery) apiParams.searchQuery = params.searchQuery;
 
   const result = await securityApi.getDataRequests(apiParams);
-  const data = Array.isArray(result?.data)
-    ? result.data.map(mapDataSubjectRequest)
-    : [];
-  const total = typeof result?.total === 'number' ? result.total : data.length;
+  const data = result.items.map(mapDataSubjectRequest);
+  const total = result.total;
   return {
     data,
     total,
@@ -156,47 +156,37 @@ async function fetchDataRequests(params: {
 
 async function fetchComplianceReports(): Promise<ComplianceReport[]> {
   const result = await securityApi.getComplianceReports({ limit: 50 });
-  return result.data.map(mapComplianceReport);
+  return result.items.map(mapComplianceReport);
 }
 
-async function fetchComplianceChecks(framework: string): Promise<ComplianceCheck[]> {
+async function fetchComplianceChecks(
+  framework: ExecutableComplianceFramework,
+): Promise<ComplianceCheck[]> {
   const result = await securityApi.getComplianceChecks(framework);
-  // SECURITY: Enforce response contract — backend compliance/checks/:framework
-  // might return {checks: [...], requirements: [...]} wrapper or error object.
-  // Only accept arrays; if wrapped, extract the array.
-  if (Array.isArray(result)) {
-    return result.map(mapComplianceCheck);
-  }
-  if (result && typeof result === 'object' && 'checks' in result) {
-    const checks = (result as { checks?: unknown }).checks;
-    if (Array.isArray(checks)) {
-      return checks.map(mapComplianceCheck);
-    }
-  }
-  throw new Error(`Compliance checks: expected array, got ${typeof result}`);
+  return result.map(mapComplianceCheck);
 }
 
-function mapDataSubjectRequest(request: BackendDataSubjectRequest): DataRequest {
+function mapDataSubjectRequest(request: DataRequestDto): DataRequest {
   const requestType: DataRequestType =
     request.requestType === 'deletion' ? 'erasure' : request.requestType;
 
   return {
     id: request.id,
     requestType,
-    complianceFramework: request.complianceFramework ?? 'gdpr',
+    complianceFramework: request.complianceFramework,
     status: request.status === 'expired' ? 'rejected' : request.status,
-    tenantId: request.tenantId ?? '',
-    tenantName: request.tenantName ?? request.tenantId ?? 'Unknown tenant',
+    tenantId: request.tenantId,
+    tenantName: request.tenantName,
     requesterId: request.requesterId ?? undefined,
-    requesterName: request.requesterName ?? request.requesterEmail,
+    requesterName: request.requesterName,
     requesterEmail: request.requesterEmail,
-    description: request.description ?? '',
+    description: request.description,
     dataCategories: request.dataCategories ?? undefined,
     submittedAt: request.createdAt,
     dueDate: request.dueDate,
     assignedTo: request.assignedTo ?? undefined,
     assignedToName: request.assignedToName ?? undefined,
-    identityVerified: request.identityVerified ?? request.status !== 'pending',
+    identityVerified: request.identityVerified,
     verifiedAt: request.verifiedAt ?? undefined,
     completedAt: request.completedAt ?? undefined,
     deliveryFormat: request.deliveryFormat ?? undefined,
@@ -205,72 +195,41 @@ function mapDataSubjectRequest(request: BackendDataSubjectRequest): DataRequest 
   };
 }
 
-function mapComplianceReport(report: BackendComplianceReport): ComplianceReport {
-  const resultFindings = report.detailedFindings?.complianceResults ?? [];
-  const violationFindings = (report.violations ?? []).map((violation, index) => ({
-    category: toPrimitiveString(violation.category, 'violation-' + String(index + 1)),
+function mapComplianceReport(report: ComplianceReportDto): ComplianceReport {
+  const findings = (report.violations ?? []).map((violation) => ({
+    category: violation.requirement,
     status: 'fail' as const,
-    description: toPrimitiveString(
-      violation.description ?? violation.message,
-      'Compliance violation',
-    ),
-    recommendation: typeof violation.recommendation === 'string'
-      ? violation.recommendation
-      : undefined,
+    description: violation.description,
+    recommendation: violation.remediation,
   }));
-  const findings = resultFindings.length > 0
-    ? resultFindings.map((finding) => ({
-        category: finding.category ?? finding.requirement ?? 'general',
-        status: finding.status === 'fail' || finding.status === 'non_compliant'
-          ? 'fail' as const
-          : finding.status === 'warning' || finding.status === 'partial'
-            ? 'warning' as const
-            : 'pass' as const,
-        description: finding.description ?? finding.requirement ?? 'Compliance check',
-        recommendation: finding.recommendation,
-      }))
-    : violationFindings;
 
   return {
     id: report.id,
     complianceType: report.complianceType === 'sox' ? 'sox' : report.complianceType,
     reportPeriodStart: report.reportPeriodStart,
     reportPeriodEnd: report.reportPeriodEnd,
-    generatedAt: report.generatedAt ?? report.createdAt,
-    generatedBy: report.generatedBy ?? '',
-    generatedByName: report.generatedByName ?? 'System',
+    generatedAt: report.createdAt,
+    generatedBy: report.generatedBy,
+    generatedByName: report.generatedByName,
     overallScore: report.complianceScore,
     totalChecks: findings.length,
-    passedChecks: findings.filter((finding) => finding.status === 'pass').length,
-    failedChecks: findings.filter((finding) => finding.status === 'fail').length,
-    warnings: findings.filter((finding) => finding.status === 'warning').length,
+    passedChecks: 0,
+    failedChecks: findings.length,
+    warnings: 0,
     findings,
   };
 }
 
 function mapComplianceCheck(
-  check: {
-    id: string;
-    category: string;
-    requirement: string;
-    description: string;
-    status: string;
-    evidence?: string;
-    lastChecked: string;
-    nextReview: string;
-  },
+  check: Awaited<ReturnType<typeof securityApi.getComplianceChecks>>[number],
 ): ComplianceCheck {
-  const allowed: ComplianceCheck['status'][] = [
-    'compliant',
-    'non_compliant',
-    'partial',
-    'not_applicable',
-  ];
   return {
-    ...check,
-    status: allowed.includes(check.status as ComplianceCheck['status'])
-      ? (check.status as ComplianceCheck['status'])
-      : 'not_applicable',
+    id: check.requirement.id,
+    category: check.requirement.category,
+    requirement: check.requirement.requirement,
+    description: check.details,
+    status: check.status,
+    evidence: check.evidence,
   };
 }
 
@@ -392,9 +351,7 @@ const DataRequestDetailModal: React.FC<{
               <AlertTriangle className="w-5 h-5 text-red-600" />
               <div>
                 <p className="font-medium text-red-800">This request is overdue</p>
-                <p className="text-sm text-red-600">
-                  Due date was {formatDate(request.dueDate)}
-                </p>
+                <p className="text-sm text-red-600">Due date was {formatDate(request.dueDate)}</p>
               </div>
             </div>
           )}
@@ -424,7 +381,9 @@ const DataRequestDetailModal: React.FC<{
             </div>
             <div>
               <span className="text-sm font-medium text-gray-500">Due Date</span>
-              <p className={`text-sm ${request.isOverdue ? 'text-red-600 font-medium' : 'text-gray-900'}`}>
+              <p
+                className={`text-sm ${request.isOverdue ? 'text-red-600 font-medium' : 'text-gray-900'}`}
+              >
                 {formatDate(request.dueDate)}
               </p>
             </div>
@@ -674,16 +633,10 @@ export const CompliancePage: React.FC = () => {
           );
           break;
         case 'reject':
-          await securityApi.rejectDataRequest(
-            selectedRequest.id,
-            'Rejected by administrator',
-          );
+          await securityApi.rejectDataRequest(selectedRequest.id, 'Rejected by administrator');
           break;
         case 'complete':
-          await securityApi.completeDataRequest(
-            selectedRequest.id,
-            'Completed by administrator',
-          );
+          await securityApi.completeDataRequest(selectedRequest.id, 'Completed by administrator');
           break;
         default:
           throw new Error(`Unknown action: ${action}`);
@@ -922,10 +875,15 @@ export const CompliancePage: React.FC = () => {
                   </tr>
                 ) : (
                   filteredRequests.map((request) => (
-                    <tr key={request.id} className={`hover:bg-gray-50 ${request.isOverdue ? 'bg-red-50' : ''}`}>
+                    <tr
+                      key={request.id}
+                      className={`hover:bg-gray-50 ${request.isOverdue ? 'bg-red-50' : ''}`}
+                    >
                       <td className="px-4 py-3">
                         <div className="text-sm font-medium text-gray-900">{request.id}</div>
-                        <div className="text-xs text-gray-500">{formatDate(request.submittedAt)}</div>
+                        <div className="text-xs text-gray-500">
+                          {formatDate(request.submittedAt)}
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         <div className="text-sm text-gray-900">{request.requesterName}</div>
@@ -947,12 +905,12 @@ export const CompliancePage: React.FC = () => {
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <div className={`text-sm ${request.isOverdue ? 'text-red-600 font-medium' : 'text-gray-900'}`}>
+                        <div
+                          className={`text-sm ${request.isOverdue ? 'text-red-600 font-medium' : 'text-gray-900'}`}
+                        >
                           {formatDate(request.dueDate)}
                         </div>
-                        {request.isOverdue && (
-                          <div className="text-xs text-red-500">Overdue</div>
-                        )}
+                        {request.isOverdue && <div className="text-xs text-red-500">Overdue</div>}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-500">
                         {request.assignedToName || '-'}
@@ -990,10 +948,7 @@ export const CompliancePage: React.FC = () => {
               </div>
             ) : (
               reports.map((report) => (
-                <div
-                  key={report.id}
-                  className="bg-white rounded-lg border border-gray-200 p-6"
-                >
+                <div key={report.id} className="bg-white rounded-lg border border-gray-200 p-6">
                   <div className="flex items-start justify-between">
                     <div>
                       <div className="flex items-center gap-3">
@@ -1005,15 +960,16 @@ export const CompliancePage: React.FC = () => {
                             report.overallScore >= 80
                               ? 'bg-green-100 text-green-800'
                               : report.overallScore >= 60
-                              ? 'bg-yellow-100 text-yellow-800'
-                              : 'bg-red-100 text-red-800'
+                                ? 'bg-yellow-100 text-yellow-800'
+                                : 'bg-red-100 text-red-800'
                           }`}
                         >
                           Score: {report.overallScore}%
                         </span>
                       </div>
                       <p className="text-sm text-gray-500 mt-1">
-                        Period: {formatDate(report.reportPeriodStart)} - {formatDate(report.reportPeriodEnd)}
+                        Period: {formatDate(report.reportPeriodStart)} -{' '}
+                        {formatDate(report.reportPeriodEnd)}
                       </p>
                     </div>
                     <button className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200">
@@ -1107,10 +1063,7 @@ export const CompliancePage: React.FC = () => {
               </div>
             ) : (
               checks.map((check) => (
-                <div
-                  key={check.id}
-                  className="bg-white rounded-lg border border-gray-200 p-4"
-                >
+                <div key={check.id} className="bg-white rounded-lg border border-gray-200 p-4">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="flex items-center gap-3">
@@ -1130,8 +1083,8 @@ export const CompliancePage: React.FC = () => {
                       )}
                     </div>
                     <div className="text-right text-xs text-gray-500 ml-4">
-                      <p>Last checked: {formatDate(check.lastChecked)}</p>
-                      <p>Next review: {formatDate(check.nextReview)}</p>
+                      {check.lastChecked && <p>Last checked: {formatDate(check.lastChecked)}</p>}
+                      {check.nextReview && <p>Next review: {formatDate(check.nextReview)}</p>}
                     </div>
                   </div>
                 </div>
@@ -1145,8 +1098,13 @@ export const CompliancePage: React.FC = () => {
       {selectedRequest && (
         <DataRequestDetailModal
           request={selectedRequest}
-          onClose={() => { setSelectedRequest(null); setActionError(null); }}
-          onAction={(action) => { void handleRequestAction(action); }}
+          onClose={() => {
+            setSelectedRequest(null);
+            setActionError(null);
+          }}
+          onAction={(action) => {
+            void handleRequestAction(action);
+          }}
           actionLoading={actionLoading}
           actionError={actionError}
         />

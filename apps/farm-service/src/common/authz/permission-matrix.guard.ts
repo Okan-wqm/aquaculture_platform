@@ -3,7 +3,7 @@
  *
  * Runtime fail-closed check that every GraphQL root operation hit
  * by a live request exists in the phase-6.1 permission matrix
- * (MUTATION_ROLES / QUERY_ROLES / UNGATED_OPERATIONS). Unknown
+ * (MUTATION_ROLES / QUERY_ROLES). Unknown
  * operations — a new @Mutation or @Query that landed WITHOUT a
  * matrix entry — return 403 before the resolver body runs.
  *
@@ -22,12 +22,6 @@
  *     matrix, not their role-set match (that is invariant-test
  *     territory at build time). Double-checking at runtime would
  *     duplicate work without catching an additional attack vector.
- *
- *   - **Grandfather pass.** Operations in `UNGATED_OPERATIONS`
- *     pass through untouched — phase 6.1.1 reduces that set one
- *     module at a time. Shipping the guard with pass-through for
- *     the grandfather set is the reason the guard can land
- *     TODAY without 403-ing 227 operations on merge.
  *
  *   - **GraphQL only.** The guard inspects `GqlExecutionContext`
  *     to pull `info.fieldName`. Non-GraphQL requests skip — REST
@@ -52,7 +46,6 @@ import { GqlContextType, GqlExecutionContext } from '@nestjs/graphql';
 import {
   MUTATION_ROLES,
   QUERY_ROLES,
-  UNGATED_OPERATIONS,
 } from './permission-matrix';
 
 @Injectable()
@@ -86,8 +79,7 @@ export class PermissionMatrixGuard implements CanActivate {
 
     const isKnown =
       Object.prototype.hasOwnProperty.call(MUTATION_ROLES, operationName) ||
-      Object.prototype.hasOwnProperty.call(QUERY_ROLES, operationName) ||
-      UNGATED_OPERATIONS.has(operationName);
+      Object.prototype.hasOwnProperty.call(QUERY_ROLES, operationName);
 
     if (isKnown) {
       return true;
@@ -96,7 +88,7 @@ export class PermissionMatrixGuard implements CanActivate {
     this.logger.error(
       `PermissionMatrixGuard: rejected unclassified operation "${operationName}". ` +
         'Every @Mutation / @Query must appear in permission-matrix.ts ' +
-        '(MUTATION_ROLES / QUERY_ROLES / UNGATED_OPERATIONS). Add the ' +
+        '(MUTATION_ROLES / QUERY_ROLES). Add the ' +
         'matrix entry in code review before shipping the resolver.',
     );
     throw new ForbiddenException(

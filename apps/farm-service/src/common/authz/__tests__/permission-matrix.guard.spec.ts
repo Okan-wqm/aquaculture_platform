@@ -6,7 +6,6 @@
  *   - field-resolver context (parentType not Mutation/Query) → pass
  *   - introspection field (`__schema`, `__type`) → pass
  *   - known role-gated operation → pass
- *   - grandfathered (UNGATED_OPERATIONS) operation → pass
  *   - unclassified operation → ForbiddenException
  */
 import { ExecutionContext, ForbiddenException } from '@nestjs/common';
@@ -78,7 +77,7 @@ describe('PermissionMatrixGuard', () => {
     expect(guard.canActivate(ctx)).toBe(true);
   });
 
-  it('passes a grandfathered ungated mutation', () => {
+  it('passes another generated mutation projection', () => {
     const ctx = makeGqlContext({
       fieldName: 'createFeed',
       parentType: 'Mutation',
@@ -94,7 +93,7 @@ describe('PermissionMatrixGuard', () => {
     expect(guard.canActivate(ctx)).toBe(true);
   });
 
-  it('passes a grandfathered ungated query', () => {
+  it('passes another generated query projection', () => {
     const ctx = makeGqlContext({
       fieldName: 'batches',
       parentType: 'Query',

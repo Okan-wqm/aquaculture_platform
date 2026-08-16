@@ -11,7 +11,11 @@
 
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { Card, Button, Alert, Badge } from '@aquaculture/shared-ui';
-import { getAccessToken } from '@aquaculture/shared-ui';
+import { databaseApi } from '../../services/adminApi';
+import {
+  createAdminDownloadFilename,
+  downloadAdminOwnedBlob,
+} from '../../services/browser-capabilities';
 
 // ============================================================================
 // Types
@@ -51,46 +55,14 @@ const DEFAULT_EDITOR_HEIGHT = 200;
 // API Functions
 // ============================================================================
 
-const API_BASE = '/api/database/explorer';
-
-const getAuthHeader = (): Record<string, string> => {
-  const token = getAccessToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
+const fetchSchemas = async (): Promise<readonly string[]> => {
+  const result = await databaseApi.getExplorerSchemas();
+  return result.schemas;
 };
 
-async function fetchSchemas(): Promise<string[]> {
-  const response = await fetch(`${API_BASE}/schemas`, {
-    credentials: 'include',
-    headers: { ...getAuthHeader() },
-  });
-  if (!response.ok) throw new Error('Failed to fetch schemas');
-  const json = await response.json();
-  return json && json.data ? json.data : json;
-}
-
 // Fix: C13 -- backend ExecuteQueryDto expects { sql, params }, not { schema, query }
-async function executeQuery(
-  _schema: string,
-  query: string
-): Promise<{ rows: Record<string, unknown>[]; rowCount: number; columns: string[] }> {
-  const response = await fetch(`${API_BASE}/query`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...getAuthHeader(),
-    },
-    // Fix: C13 -- backend ExecuteQueryDto.sql ile uyumlu
-    body: JSON.stringify({ sql: query }),
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.message || `Query failed with status ${response.status}`);
-  }
-
-  const json = await response.json();
-  return json && json.data ? json.data : json;
+async function executeQuery(_schema: string, query: string) {
+  return databaseApi.executeExplorerQuery(query);
 }
 
 // ============================================================================
@@ -147,7 +119,7 @@ const saveQueryToHistory = (query: string, schema: string): void => {
 
     const updatedHistory = [newItem, ...history.filter((h) => h.query !== preview)].slice(
       0,
-      MAX_HISTORY_ITEMS
+      MAX_HISTORY_ITEMS,
     );
 
     localStorage.setItem(QUERY_HISTORY_KEY, JSON.stringify(updatedHistory));
@@ -160,7 +132,20 @@ const saveQueryToHistory = (query: string, schema: string): void => {
 const isSelectOnlyQuery = (query: string): boolean => {
   const normalized = query.trim().replace(/\s+/g, ' ').toLowerCase();
   // Reject any statement that starts with a DML/DDL keyword
-  const forbiddenPrefixes = ['insert', 'update', 'delete', 'drop', 'truncate', 'alter', 'create', 'grant', 'revoke', 'exec', 'execute', 'call'];
+  const forbiddenPrefixes = [
+    'insert',
+    'update',
+    'delete',
+    'drop',
+    'truncate',
+    'alter',
+    'create',
+    'grant',
+    'revoke',
+    'exec',
+    'execute',
+    'call',
+  ];
   return !forbiddenPrefixes.some((kw) => normalized.startsWith(kw));
 };
 
@@ -178,25 +163,22 @@ const exportToCSV = (columns: string[], rows: Record<string, unknown>[]): void =
 
   const header = columns.map(escapeCsvValue).join(',');
   const dataRows = rows.map((row) =>
-    columns.map((col) => escapeCsvValue(formatValue(row[col]))).join(',')
+    columns.map((col) => escapeCsvValue(formatValue(row[col]))).join(','),
   );
 
   const csvContent = [header, ...dataRows].join('\n');
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `query_result_${new Date().toISOString().slice(0, 19).replace(/[:-]/g, '')}.csv`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  downloadAdminOwnedBlob({
+    blob,
+    filename: createAdminDownloadFilename(
+      `query_result_${new Date().toISOString().slice(0, 19).replace(/[:-]/g, '')}.csv`,
+    ),
+  });
 };
 
 const copyResultsToClipboard = async (
   columns: string[],
-  rows: Record<string, unknown>[]
+  rows: Record<string, unknown>[],
 ): Promise<boolean> => {
   try {
     const header = columns.join('\t');
@@ -219,7 +201,10 @@ interface LineNumbersProps {
 }
 
 const LineNumbers: React.FC<LineNumbersProps> = React.memo(({ lineCount, height }) => {
-  const lines = useMemo(() => Array.from({ length: Math.max(lineCount, 1) }, (_, i) => i + 1), [lineCount]);
+  const lines = useMemo(
+    () => Array.from({ length: Math.max(lineCount, 1) }, (_, i) => i + 1),
+    [lineCount],
+  );
 
   return (
     <div
@@ -260,7 +245,7 @@ const ResizeHandle: React.FC<ResizeHandleProps> = ({ onResize }) => {
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
     },
-    [onResize]
+    [onResize],
   );
 
   return (
@@ -405,8 +390,18 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
           <Button variant="outline" size="sm" onClick={onCopyToClipboard}>
             {copySuccess ? (
               <>
-                <svg className="w-4 h-4 mr-1 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                <svg
+                  className="w-4 h-4 mr-1 text-green-500"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M5 13l4 4L19 7"
+                  />
                 </svg>
                 Copied!
               </>
@@ -493,7 +488,10 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
 // Main Component
 // ============================================================================
 
-export const QueryEditor: React.FC<QueryEditorProps> = ({ defaultSchema = 'public', onQueryResult }) => {
+export const QueryEditor: React.FC<QueryEditorProps> = ({
+  defaultSchema = 'public',
+  onQueryResult,
+}) => {
   // State
   const [query, setQuery] = useState('');
   const [selectedSchema, setSelectedSchema] = useState(defaultSchema);
@@ -513,7 +511,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ defaultSchema = 'publi
   useEffect(() => {
     fetchSchemas()
       .then((fetchedSchemas) => {
-        setSchemas(fetchedSchemas);
+        setSchemas([...fetchedSchemas]);
         if (fetchedSchemas.length > 0 && !fetchedSchemas.includes(selectedSchema)) {
           setSelectedSchema(fetchedSchemas[0]);
         }
@@ -545,7 +543,9 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ defaultSchema = 'publi
     }
 
     if (!isSelectOnlyQuery(trimmedQuery)) {
-      setError('Only SELECT queries are allowed. INSERT, UPDATE, DELETE, DROP, and other write operations are not permitted.');
+      setError(
+        'Only SELECT queries are allowed. INSERT, UPDATE, DELETE, DROP, and other write operations are not permitted.',
+      );
       return;
     }
 
@@ -558,11 +558,13 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ defaultSchema = 'publi
     try {
       const response = await executeQuery(selectedSchema, trimmedQuery);
       const executionTimeMs = Math.round(performance.now() - startTime);
+      const rows = response.rows.map((row) => ({ ...row }));
+      const columns = [...new Set(rows.flatMap((row) => Object.keys(row)))];
 
       const queryResult: QueryResult = {
-        rows: response.rows,
+        rows,
         rowCount: response.rowCount,
-        columns: response.columns,
+        columns,
         executionTimeMs,
       };
 
@@ -574,7 +576,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ defaultSchema = 'publi
 
       // Call parent callback
       if (onQueryResult) {
-        onQueryResult({ rows: response.rows, rowCount: response.rowCount });
+        onQueryResult({ rows: [...response.rows], rowCount: response.rowCount });
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Query execution failed');
@@ -608,7 +610,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ defaultSchema = 'publi
         handleExecute();
       }
     },
-    [query, handleExecute]
+    [query, handleExecute],
   );
 
   // Clear editor
@@ -639,7 +641,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ defaultSchema = 'publi
     };
     document.addEventListener('mouseup', handleMouseUp);
     return () => document.removeEventListener('mouseup', handleMouseUp);
-  }, []);  
+  }, []);
 
   // Handle history selection
   const handleHistorySelect = useCallback((selectedQuery: string) => {
@@ -670,7 +672,12 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ defaultSchema = 'publi
       {/* Safety Warning */}
       <Alert type="warning">
         <div className="flex items-center gap-2">
-          <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg
+            className="w-5 h-5 flex-shrink-0"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -679,8 +686,8 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ defaultSchema = 'publi
             />
           </svg>
           <span>
-            <strong>Read-only mode:</strong> Only SELECT queries are allowed. Data modification queries
-            (INSERT, UPDATE, DELETE, DROP, etc.) will be rejected.
+            <strong>Read-only mode:</strong> Only SELECT queries are allowed. Data modification
+            queries (INSERT, UPDATE, DELETE, DROP, etc.) will be rejected.
           </span>
         </div>
       </Alert>

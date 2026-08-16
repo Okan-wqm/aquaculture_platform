@@ -359,7 +359,7 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) =>
-        buildRedisOptions(configService, 'farm', 'optional'),
+        buildRedisOptions(configService, 'farm', 'required'),
     }),
 
     // Targeted jsonb_set UPDATE helper — phase 5.7. Lets

@@ -4,16 +4,26 @@
 
 import { apiFetch } from '../http-client';
 import type { SystemMetrics, ServiceHealth, CircuitBreakerStatus } from '../types';
+import {
+  ADMIN_API_ROUTES,
+  type AdminApiRouteQuery,
+} from '../types/generated/admin-route-contracts';
+
+type MetricTrendQuery = AdminApiRouteQuery<'GET /system/metrics/trends'>;
 
 export const systemApi = {
-  getMetrics: () => apiFetch<SystemMetrics>('/system/metrics'),
-  getDatabaseMetrics: () => apiFetch<SystemMetrics['database']>('/system/metrics/database'),
-  getPlatformMetrics: () => apiFetch<SystemMetrics['platform']>('/system/metrics/platform'),
-  getResourceMetrics: () => apiFetch<SystemMetrics['resources']>('/system/metrics/resources'),
-  getServicesHealth: () => apiFetch<ServiceHealth[]>('/system/services/health'),
-  getMetricTrends: (metric: string, interval: string) =>
-    apiFetch<Array<{ timestamp: string; value: number }>>(`/system/metrics/trends?metric=${metric}&interval=${interval}`),
-  getCircuitBreakers: () => apiFetch<CircuitBreakerStatus>('/health/circuit-breakers'),
+  getMetrics: () => apiFetch(ADMIN_API_ROUTES['GET /system/metrics']),
+  getDatabaseMetrics: () => apiFetch(ADMIN_API_ROUTES['GET /system/metrics/database']),
+  getPlatformMetrics: () => apiFetch(ADMIN_API_ROUTES['GET /system/metrics/platform']),
+  getResourceMetrics: () => apiFetch(ADMIN_API_ROUTES['GET /system/metrics/resources']),
+  getServicesHealth: () => apiFetch(ADMIN_API_ROUTES['GET /system/services/health']),
+  getMetricTrends: (metric: MetricTrendQuery['metric'], interval: MetricTrendQuery['interval']) =>
+    apiFetch(ADMIN_API_ROUTES['GET /system/metrics/trends'], {
+      query: { metric: metric, interval: interval },
+    }),
+  getCircuitBreakers: () => apiFetch(ADMIN_API_ROUTES['GET /health/circuit-breakers']),
   resetCircuitBreaker: (name: string) =>
-    apiFetch<{ success: boolean; name: string; state: string }>(`/health/circuit-breakers/${name}/reset`, { method: 'POST' }),
+    apiFetch(ADMIN_API_ROUTES['POST /health/circuit-breakers/:name/reset'], {
+      path: { name: name },
+    }),
 };

@@ -10,10 +10,11 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { createStandardPaginatedResult } from '@platform/admin-http-contracts';
 import TenantManagementPage from '../TenantManagementPage';
 import {
   tenantsApi,
-  type PaginatedResult,
+  type StandardPaginatedResult,
   type Tenant,
   type TenantStats,
   TenantTier,
@@ -118,13 +119,12 @@ const mockTenants: Tenant[] = [
   },
 ];
 
-const mockTenantPage: PaginatedResult<Tenant> = {
-  data: mockTenants,
-  total: 4,
-  page: 1,
-  limit: 20,
-  totalPages: 1,
-};
+const mockTenantPage: StandardPaginatedResult<Tenant> = createStandardPaginatedResult(
+  mockTenants,
+  4,
+  1,
+  20,
+);
 
 const mockStats: TenantStats = {
   totalTenants: 4,

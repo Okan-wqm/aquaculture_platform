@@ -14,7 +14,20 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsString, IsOptional, IsBoolean, IsArray, IsNumber, IsObject, IsDefined, MaxLength, Min, Max, ArrayMaxSize, ValidateNested } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsBoolean,
+  IsArray,
+  IsNumber,
+  IsObject,
+  IsDefined,
+  MaxLength,
+  Min,
+  Max,
+  ArrayMaxSize,
+  ValidateNested,
+} from 'class-validator';
 import { Request } from 'express';
 
 import { getAuthUser } from '../../shared/authenticated-request';
@@ -31,6 +44,35 @@ import {
 } from '../entities/maintenance-mode.entity';
 import { ReleaseType, ReleaseStatus, ChangelogEntry } from '../entities/system-version.entity';
 import { GlobalSettingsService } from '../services/global-settings.service';
+import { AdminResponseContract } from '../../shared/admin-response-contract.decorator';
+import {
+  globalSettingsFeatureToggleContract,
+  type GlobalSettingsFeatureToggleDto,
+  globalSettingsQueryFeatureTogglesResponseContract,
+  type GlobalSettingsQueryFeatureTogglesResponseDto,
+  voidResponseContract,
+  type VoidResponseDto,
+  globalSettingsEvaluateFeatureToggleResponseContract,
+  type GlobalSettingsEvaluateFeatureToggleResponseDto,
+  globalSettingsMaintenanceWindowContract,
+  type GlobalSettingsMaintenanceWindowDto,
+  globalSettingsQueryMaintenanceModesResponseContract,
+  type GlobalSettingsQueryMaintenanceModesResponseDto,
+  globalSettingsMaintenanceCheckContract,
+  type GlobalSettingsMaintenanceCheckDto,
+  globalSettingsSystemVersionContract,
+  type GlobalSettingsSystemVersionDto,
+  globalSettingsQueryVersionsResponseContract,
+  type GlobalSettingsQueryVersionsResponseDto,
+  globalSettingsGetCurrentVersionResponseContract,
+  type GlobalSettingsGetCurrentVersionResponseDto,
+  neverResponseContract,
+  type NeverResponseDto,
+  globalSettingsGetProvisioningConfigResponseContract,
+  type GlobalSettingsGetProvisioningConfigResponseDto,
+  globalSettingsSystemHealthStatusContract,
+  type GlobalSettingsSystemHealthStatusDto,
+} from '../contracts/admin-http-response.contract';
 
 // ============================================================================
 // DTOs
@@ -182,7 +224,11 @@ class CreateMaintenanceDto {
 
   @IsOptional()
   @IsArray()
-  affectedServices?: Array<{ name: string; status: 'unavailable' | 'degraded' | 'read_only'; message?: string }>;
+  affectedServices?: Array<{
+    name: string;
+    status: 'unavailable' | 'degraded' | 'read_only';
+    message?: string;
+  }>;
 
   @IsDefined()
   scheduledStart!: Date;
@@ -344,7 +390,11 @@ class UpdateMaintenanceDto {
 
   @IsOptional()
   @IsArray()
-  affectedServices?: Array<{ name: string; status: 'unavailable' | 'degraded' | 'read_only'; message?: string }>;
+  affectedServices?: Array<{
+    name: string;
+    status: 'unavailable' | 'degraded' | 'read_only';
+    message?: string;
+  }>;
 
   @IsOptional()
   scheduledStart?: Date;
@@ -431,11 +481,15 @@ export class GlobalSettingsController {
   // Feature Toggles
   // ============================================================================
 
+  @AdminResponseContract(globalSettingsFeatureToggleContract)
   @Post('feature-toggles')
-  async createFeatureToggle(@Body() dto: CreateFeatureToggleDto) {
+  async createFeatureToggle(
+    @Body() dto: CreateFeatureToggleDto,
+  ): Promise<GlobalSettingsFeatureToggleDto> {
     return this.globalSettingsService.createFeatureToggle(dto);
   }
 
+  @AdminResponseContract(globalSettingsQueryFeatureTogglesResponseContract)
   @Get('feature-toggles')
   async queryFeatureToggles(
     @Query('scope') scope?: FeatureToggleScope,
@@ -444,7 +498,7 @@ export class GlobalSettingsController {
     @Query('search') search?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ) {
+  ): Promise<GlobalSettingsQueryFeatureTogglesResponseDto> {
     return this.globalSettingsService.queryFeatureToggles({
       scope,
       status,
@@ -455,36 +509,41 @@ export class GlobalSettingsController {
     });
   }
 
+  @AdminResponseContract(globalSettingsFeatureToggleContract)
   @Get('feature-toggles/:id')
-  async getFeatureToggle(@Param('id') id: string) {
+  async getFeatureToggle(@Param('id') id: string): Promise<GlobalSettingsFeatureToggleDto> {
     return this.globalSettingsService.getFeatureToggle(id);
   }
 
+  @AdminResponseContract(globalSettingsFeatureToggleContract)
   @Put('feature-toggles/:id')
   async updateFeatureToggle(
     @Param('id') id: string,
     @Body() dto: UpdateFeatureToggleDto,
-  ) {
+  ): Promise<GlobalSettingsFeatureToggleDto> {
     return this.globalSettingsService.updateFeatureToggle(id, dto);
   }
 
+  @AdminResponseContract(voidResponseContract)
   @Delete('feature-toggles/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async deleteFeatureToggle(@Param('id') id: string) {
+  async deleteFeatureToggle(@Param('id') id: string): Promise<void> {
     await this.globalSettingsService.deleteFeatureToggle(id);
   }
 
+  @AdminResponseContract(globalSettingsEvaluateFeatureToggleResponseContract)
   @Post('feature-toggles/evaluate')
   async evaluateFeatureToggle(
     @Query('key') key: string,
     @Body() context: EvaluateFeatureToggleDto,
-  ) {
+  ): Promise<GlobalSettingsEvaluateFeatureToggleResponseDto> {
     return this.globalSettingsService.evaluateFeatureToggle(key, context);
   }
 
+  @AdminResponseContract(voidResponseContract)
   @Post('feature-toggles/refresh-cache')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async refreshFeatureToggleCache() {
+  async refreshFeatureToggleCache(): Promise<void> {
     await this.globalSettingsService.refreshCaches();
   }
 
@@ -492,8 +551,11 @@ export class GlobalSettingsController {
   // Maintenance Mode
   // ============================================================================
 
+  @AdminResponseContract(globalSettingsMaintenanceWindowContract)
   @Post('maintenance')
-  async createMaintenanceMode(@Body() dto: CreateMaintenanceDto) {
+  async createMaintenanceMode(
+    @Body() dto: CreateMaintenanceDto,
+  ): Promise<GlobalSettingsMaintenanceWindowDto> {
     return this.globalSettingsService.createMaintenanceMode({
       ...dto,
       scheduledStart: new Date(dto.scheduledStart),
@@ -501,6 +563,7 @@ export class GlobalSettingsController {
     });
   }
 
+  @AdminResponseContract(globalSettingsQueryMaintenanceModesResponseContract)
   @Get('maintenance')
   async queryMaintenanceModes(
     @Query('scope') scope?: MaintenanceScope,
@@ -511,7 +574,7 @@ export class GlobalSettingsController {
     @Query('endDate') endDate?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ) {
+  ): Promise<GlobalSettingsQueryMaintenanceModesResponseDto> {
     return this.globalSettingsService.queryMaintenanceModes({
       scope,
       status,
@@ -524,13 +587,14 @@ export class GlobalSettingsController {
     });
   }
 
+  @AdminResponseContract(globalSettingsMaintenanceCheckContract)
   @Get('maintenance/check')
   async checkMaintenanceMode(
     @Query('tenantId') tenantId?: string,
     @Query('ipAddress') ipAddress?: string,
     @Query('userId') userId?: string,
     @Query('isSuperAdmin') isSuperAdmin?: string,
-  ) {
+  ): Promise<GlobalSettingsMaintenanceCheckDto> {
     return this.globalSettingsService.checkMaintenanceMode(
       tenantId,
       ipAddress,
@@ -539,16 +603,18 @@ export class GlobalSettingsController {
     );
   }
 
+  @AdminResponseContract(globalSettingsMaintenanceWindowContract)
   @Get('maintenance/:id')
-  async getMaintenanceMode(@Param('id') id: string) {
+  async getMaintenanceMode(@Param('id') id: string): Promise<GlobalSettingsMaintenanceWindowDto> {
     return this.globalSettingsService.getMaintenanceMode(id);
   }
 
+  @AdminResponseContract(globalSettingsMaintenanceWindowContract)
   @Put('maintenance/:id')
   async updateMaintenanceMode(
     @Param('id') id: string,
     @Body() dto: UpdateMaintenanceDto,
-  ) {
+  ): Promise<GlobalSettingsMaintenanceWindowDto> {
     return this.globalSettingsService.updateMaintenanceMode(id, {
       ...dto,
       scheduledStart: dto.scheduledStart ? new Date(dto.scheduledStart) : undefined,
@@ -556,26 +622,30 @@ export class GlobalSettingsController {
     });
   }
 
+  @AdminResponseContract(globalSettingsMaintenanceWindowContract)
   @Post('maintenance/:id/start')
-  async startMaintenance(@Param('id') id: string) {
+  async startMaintenance(@Param('id') id: string): Promise<GlobalSettingsMaintenanceWindowDto> {
     return this.globalSettingsService.startMaintenance(id);
   }
 
+  @AdminResponseContract(globalSettingsMaintenanceWindowContract)
   @Post('maintenance/:id/end')
-  async endMaintenance(@Param('id') id: string) {
+  async endMaintenance(@Param('id') id: string): Promise<GlobalSettingsMaintenanceWindowDto> {
     return this.globalSettingsService.endMaintenance(id);
   }
 
+  @AdminResponseContract(globalSettingsMaintenanceWindowContract)
   @Post('maintenance/:id/cancel')
-  async cancelMaintenance(@Param('id') id: string) {
+  async cancelMaintenance(@Param('id') id: string): Promise<GlobalSettingsMaintenanceWindowDto> {
     return this.globalSettingsService.cancelMaintenance(id);
   }
 
+  @AdminResponseContract(globalSettingsMaintenanceWindowContract)
   @Post('maintenance/:id/extend')
   async extendMaintenance(
     @Param('id') id: string,
     @Body() dto: ExtendMaintenanceDto,
-  ) {
+  ): Promise<GlobalSettingsMaintenanceWindowDto> {
     return this.globalSettingsService.extendMaintenance(id, dto.additionalMinutes);
   }
 
@@ -583,18 +653,20 @@ export class GlobalSettingsController {
   // Version Management
   // ============================================================================
 
+  @AdminResponseContract(globalSettingsSystemVersionContract)
   @Post('versions')
-  async createVersion(@Body() dto: CreateVersionDto) {
+  async createVersion(@Body() dto: CreateVersionDto): Promise<GlobalSettingsSystemVersionDto> {
     return this.globalSettingsService.createSystemVersion(dto);
   }
 
+  @AdminResponseContract(globalSettingsQueryVersionsResponseContract)
   @Get('versions')
   async queryVersions(
     @Query('releaseType') releaseType?: ReleaseType,
     @Query('status') status?: ReleaseStatus,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ) {
+  ): Promise<GlobalSettingsQueryVersionsResponseDto> {
     return this.globalSettingsService.queryVersions({
       releaseType,
       status,
@@ -603,21 +675,27 @@ export class GlobalSettingsController {
     });
   }
 
+  @AdminResponseContract(globalSettingsGetCurrentVersionResponseContract)
   @Get('versions/current')
-  async getCurrentVersion() {
+  async getCurrentVersion(): Promise<GlobalSettingsGetCurrentVersionResponseDto> {
     return this.globalSettingsService.getCurrentVersion();
   }
 
+  @AdminResponseContract(globalSettingsSystemVersionContract)
   @Post('versions/:id/deploy')
-  async deployVersion(@Param('id') id: string, @Body() dto: DeployVersionDto) {
+  async deployVersion(
+    @Param('id') id: string,
+    @Body() dto: DeployVersionDto,
+  ): Promise<GlobalSettingsSystemVersionDto> {
     return this.globalSettingsService.deployVersion(id, dto.deployedBy);
   }
 
+  @AdminResponseContract(globalSettingsSystemVersionContract)
   @Post('versions/:id/rollback')
   async rollbackVersion(
     @Param('id') id: string,
     @Body() dto: RollbackVersionDto,
-  ) {
+  ): Promise<GlobalSettingsSystemVersionDto> {
     return this.globalSettingsService.rollbackVersion(id, dto.reason, dto.rolledBackBy);
   }
 
@@ -625,11 +703,13 @@ export class GlobalSettingsController {
   // Global Configuration
   // ============================================================================
 
+  @AdminResponseContract(neverResponseContract)
   @Post('configs')
   createConfig(@Body() dto: CreateConfigDto): never {
     return this.globalSettingsService.createConfig(dto);
   }
 
+  @AdminResponseContract(neverResponseContract)
   @Get('configs')
   queryConfigs(
     @Query('category') category?: ConfigCategory,
@@ -637,7 +717,7 @@ export class GlobalSettingsController {
     @Query('search') search?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ): ReturnType<GlobalSettingsService['queryConfigs']> {
+  ): never {
     return this.globalSettingsService.queryConfigs({
       category,
       isSecret: isSecret !== undefined ? isSecret === 'true' : undefined,
@@ -647,23 +727,21 @@ export class GlobalSettingsController {
     });
   }
 
+  @AdminResponseContract(neverResponseContract)
   @Get('configs/:id')
   getConfig(@Param('id') id: string): never {
     return this.globalSettingsService.getConfigEntity(id);
   }
 
+  @AdminResponseContract(neverResponseContract)
   @Put('configs/:id')
-  updateConfig(
-    @Param('id') id: string,
-    @Body() dto: UpdateConfigDto,
-  ): never {
+  updateConfig(@Param('id') id: string, @Body() dto: UpdateConfigDto): never {
     return this.globalSettingsService.updateConfig(id, dto.value, 'admin', dto.reason);
   }
 
+  @AdminResponseContract(neverResponseContract)
   @Post('configs/bulk-update')
-  bulkUpdateConfigs(
-    @Body() dto: BulkUpdateConfigsDto,
-  ): never {
+  bulkUpdateConfigs(@Body() dto: BulkUpdateConfigsDto): never {
     return this.globalSettingsService.bulkUpdateConfigs(dto.updates, 'admin');
   }
 
@@ -673,16 +751,15 @@ export class GlobalSettingsController {
 
   /** SEC-M19: Removed @Public() — this endpoint exposes platform configuration
    *  and must be protected by the global APP_GUARD (PlatformAdminGuard). */
+  @AdminResponseContract(globalSettingsGetProvisioningConfigResponseContract)
   @Get('provisioning-config')
-  getProvisioningConfig(): ReturnType<GlobalSettingsService['getProvisioningConfig']> {
+  getProvisioningConfig(): GlobalSettingsGetProvisioningConfigResponseDto {
     return this.globalSettingsService.getProvisioningConfig();
   }
 
+  @AdminResponseContract(neverResponseContract)
   @Put('provisioning-config')
-  updateProvisioningConfig(
-    @Body() body: Record<string, string>,
-    @Req() req: Request,
-  ): never {
+  updateProvisioningConfig(@Body() body: Record<string, string>, @Req() req: Request): never {
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
       throw new BadRequestException('Invalid configuration payload');
     }
@@ -695,8 +772,9 @@ export class GlobalSettingsController {
   // System Status
   // ============================================================================
 
+  @AdminResponseContract(globalSettingsSystemHealthStatusContract)
   @Get('status')
-  async getSystemStatus() {
+  async getSystemStatus(): Promise<GlobalSettingsSystemHealthStatusDto> {
     return this.globalSettingsService.getSystemStatus();
   }
 }

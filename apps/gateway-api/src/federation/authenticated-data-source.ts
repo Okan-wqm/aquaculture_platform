@@ -1,4 +1,4 @@
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 
 import { RemoteGraphQLDataSource } from '@apollo/gateway';
 import type { GraphQLDataSourceProcessOptions } from '@apollo/gateway/dist/datasources/types';
@@ -7,9 +7,28 @@ import {
   GatewayGraphQLRequestContext,
   GatewayGraphQLResponse,
 } from '@apollo/server-gateway-interface';
-import { buildGatewayVerifiedUserAssertion, buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
+import {
+  buildGatewayVerifiedUserAssertion,
+  buildSignedInternalHeaders,
+  requireCanonicalGatewayAssertionRoles,
+} from '@aquaculture/backend-common/http';
+import type {
+  ImpersonationOperationDescriptor,
+  ImpersonationPermissionsContract,
+} from '@aquaculture/shared-contracts';
+import { ForbiddenException } from '@nestjs/common';
 
 import { JwtPayload } from '../guards/auth.guard';
+import type { ImpersonationOperationAuthorizer } from '../types';
+import {
+  enforceImpersonationOperations,
+  resolveGraphqlImpersonationOperations,
+} from '../security/impersonation-operation-authority';
+import {
+  assertImpersonationReceiptLedgerCommitted,
+  expectImpersonationOperationDispatch,
+  markImpersonationOperationDispatched,
+} from '../security/impersonation-receipt-completion';
 
 export interface RequestHeaders {
   authorization?: string;
@@ -46,6 +65,10 @@ export interface RequestWithUser {
    * verified user-assertion below.
    */
   effectiveTenantId?: string;
+  /** Canonical active impersonation provenance resolved by gateway middleware. */
+  impersonationSessionId?: string;
+  impersonationPermissions?: ImpersonationPermissionsContract;
+  authorizeImpersonationOperations?: ImpersonationOperationAuthorizer;
 }
 
 export interface GatewayContext {
@@ -58,6 +81,8 @@ type MutableHeaderSet = {
 };
 
 export type GatewaySubgraphRequest = {
+  query?: string;
+  operationName?: string;
   http?: {
     headers: MutableHeaderSet;
     method?: string;
@@ -66,7 +91,7 @@ export type GatewaySubgraphRequest = {
   [key: string]: unknown;
 };
 
-const TENANT_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const TENANT_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 type RemoteFetcher = RemoteGraphQLDataSource<GatewayContext>['fetcher'];
 type FetcherInit = NonNullable<Parameters<RemoteFetcher>[1]>;
@@ -111,6 +136,15 @@ function setHeader(headers: Record<string, string>, name: string, value: string)
   headers[name] = value;
 }
 
+function deleteHeader(headers: Record<string, string>, name: string): void {
+  const lower = name.toLowerCase();
+  for (const key of Object.keys(headers)) {
+    if (key.toLowerCase() === lower) delete headers[key];
+  }
+}
+
+const IMPERSONATION_DISPATCH_HEADER = 'x-gateway-impersonation-dispatch-id';
+
 function bodyForServiceIdentitySigning(body: FetcherInit['body']): string | Buffer {
   if (body === undefined || body === null) {
     return '';
@@ -129,8 +163,20 @@ function bodyForServiceIdentitySigning(body: FetcherInit['body']): string | Buff
 export class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
   private readonly secret?: string;
   private readonly serviceAudience?: string;
+  private readonly pendingImpersonationDispatches = new Map<
+    string,
+    {
+      readonly request: RequestWithUser;
+      readonly operations: readonly ImpersonationOperationDescriptor[];
+    }
+  >();
 
-  constructor(config: { url?: string; secret?: string; serviceAudience?: string; fetcher?: RemoteFetcher }) {
+  constructor(config: {
+    url?: string;
+    secret?: string;
+    serviceAudience?: string;
+    fetcher?: RemoteFetcher;
+  }) {
     const dataSourceConfig: Partial<RemoteGraphQLDataSource<GatewayContext>> = {
       url: config.url,
     };
@@ -156,6 +202,8 @@ export class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayCont
     return async (url, init): ReturnType<RemoteFetcher> => {
       const requestInit = init ?? {};
       const headers = normalizeFetcherHeaders(requestInit.headers);
+      const impersonationDispatchId = getHeader(headers, IMPERSONATION_DISPATCH_HEADER);
+      deleteHeader(headers, IMPERSONATION_DISPATCH_HEADER);
       const tenantId = getHeader(headers, 'x-tenant-id') ?? '';
       const signedTenantId = TENANT_UUID_RE.test(tenantId) ? tenantId : '';
       const subgraphUrl = new URL(String(url), 'http://subgraph.local');
@@ -168,9 +216,7 @@ export class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayCont
         path: subgraphUrl.pathname,
         query: subgraphUrl.search,
         contentType,
-        assertionHash: assertion
-          ? createHash('sha256').update(assertion).digest('hex')
-          : undefined,
+        assertionHash: assertion ? createHash('sha256').update(assertion).digest('hex') : undefined,
         audience: this.serviceAudience ?? subgraphUrl.hostname,
         body: bodyForServiceIdentitySigning(requestInit.body),
         secret: this.secret,
@@ -179,11 +225,20 @@ export class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayCont
         setHeader(headers, key, value);
       }
       requestInit.headers = headers;
+      if (!impersonationDispatchId) return upstream(url, requestInit);
+      const pending = this.pendingImpersonationDispatches.get(impersonationDispatchId);
+      if (!pending) {
+        throw new ForbiddenException('Impersonation dispatch is absent from the receipt ledger');
+      }
+      this.pendingImpersonationDispatches.delete(impersonationDispatchId);
+      markImpersonationOperationDispatched(pending.request, pending.operations);
       return upstream(url, requestInit);
     };
   }
 
-  override willSendRequest(params: GraphQLDataSourceProcessOptions<GatewayContext>): void {
+  override async willSendRequest(
+    params: GraphQLDataSourceProcessOptions<GatewayContext>,
+  ): Promise<void> {
     const { request, context } = params;
     const subgraphRequest = request as GatewaySubgraphRequest;
 
@@ -263,7 +318,39 @@ export class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayCont
     }
 
     const user = req.user;
+    const hasImpersonationContext =
+      req.impersonationSessionId !== undefined || req.impersonationPermissions !== undefined;
+    if (hasImpersonationContext && !user) {
+      throw new ForbiddenException(
+        'Canonical impersonation context requires an authenticated user',
+      );
+    }
     if (user) {
+      if (hasImpersonationContext) {
+        if (
+          !req.impersonationSessionId ||
+          !req.impersonationPermissions ||
+          !this.serviceAudience ||
+          typeof subgraphRequest.query !== 'string'
+        ) {
+          throw new ForbiddenException('Canonical impersonation context is incomplete');
+        }
+        const operations = resolveGraphqlImpersonationOperations({
+          query: subgraphRequest.query,
+          operationName: subgraphRequest.operationName,
+          module: this.serviceAudience,
+        });
+        enforceImpersonationOperations(req.impersonationPermissions, operations);
+        if (!req.authorizeImpersonationOperations) {
+          throw new ForbiddenException('Impersonation authorization receipt callback is missing');
+        }
+        expectImpersonationOperationDispatch(req, operations);
+        await req.authorizeImpersonationOperations(operations);
+        assertImpersonationReceiptLedgerCommitted(req);
+        const dispatchId = randomUUID();
+        this.pendingImpersonationDispatches.set(dispatchId, { request: req, operations });
+        httpRequest.headers.set(IMPERSONATION_DISPATCH_HEADER, dispatchId);
+      }
       httpRequest.headers.set(
         'x-verified-user-assertion',
         buildGatewayVerifiedUserAssertion({
@@ -274,7 +361,7 @@ export class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayCont
           // `tenantId` as the home/source tenant for audit. This is bound into
           // the HMAC so it cannot be spoofed and survives header-stripping.
           effectiveTenantId: req.effectiveTenantId ?? user.tenantId,
-          roles: user.roles ?? [],
+          roles: requireCanonicalGatewayAssertionRoles(user.roles ?? []),
           email: user.email,
           mfaVerified: user.mfaVerified,
           // SEC-HIGH-051 / SEC-HIGH-052: thread the object-level authorization
@@ -285,7 +372,8 @@ export class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayCont
           // MT-HIGH-054: thread the tenant-RBAC capabilities so subgraph
           // @RequireTenantPermission / hasResourcePermission checks work on the
           // production gateway path (else every non-admin fails closed).
-          resourcePermissions: (user as JwtPayload & { resourcePermissions?: string[] }).resourcePermissions,
+          resourcePermissions: (user as JwtPayload & { resourcePermissions?: string[] })
+            .resourcePermissions,
           // SSOT-C-13: thread the plan tier ordinal so farm/sensor resolvers can
           // enforce per-plan resource quotas on the production gateway path.
           planLevel: (user as JwtPayload & { planLevel?: number }).planLevel,
@@ -294,6 +382,8 @@ export class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayCont
           // authenticated path carries it tamper-proof end to end.
           clientIp,
           clientUserAgent,
+          impersonationSessionId: req.impersonationSessionId,
+          impersonationPermissions: req.impersonationPermissions,
         }),
       );
     }

@@ -5,13 +5,16 @@
  * Bu sayede dashboard hızlı yüklenir ve geçmiş veriler karşılaştırılabilir.
  */
 
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  Index,
-} from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from 'typeorm';
+import type { ReportDefinitionStatus, ReportExecutionStatus } from '../dto/report-contract.dto';
+import type {
+  ReportFormat,
+  ReportArtifactCommitState,
+  ReportMeasurementProofV1,
+  ReportMeasurementState,
+  ReportType,
+} from '@platform/reporting-contracts';
+import type { AnalyticsMetricSectionProjectionV1 } from '@aquaculture/shared-contracts';
 
 // ============================================================================
 // Metric Types
@@ -24,73 +27,11 @@ export type MetricCategory = 'tenant' | 'user' | 'financial' | 'system' | 'usage
 // Metric Interfaces
 // ============================================================================
 
-export interface TenantMetrics {
-  total: number;
-  active: number;
-  inactive: number;
-  trial: number;
-  suspended: number;
-  newThisMonth: number;
-  churnedThisMonth: number;
-  churnRate: number;
-  growthRate: number;
-  byPlan: Record<string, number>;
-  byRegion: Record<string, number>;
-}
-
-export interface UserMetrics {
-  total: number;
-  active: number;
-  inactive: number;
-  newThisMonth: number;
-  activeLastDay: number;
-  activeLastWeek: number;
-  activeLastMonth: number;
-  growthRate: number;
-  avgUsersPerTenant: number;
-  byRole: Record<string, number>;
-}
-
-export interface FinancialMetrics {
-  mrr: number;
-  arr: number;
-  arpu: number;
-  arppu: number;
-  ltv: number;
-  totalRevenue: number;
-  revenueThisMonth: number;
-  revenueGrowthRate: number;
-  pendingPayments: number;
-  overduePayments: number;
-  refunds: number;
-  byPlan: Record<string, number>;
-  byCurrency: Record<string, number>;
-}
-
-export interface SystemMetrics {
-  totalStorageBytes: number;
-  usedStorageBytes: number;
-  storageUtilization: number;
-  apiCallsToday: number;
-  apiCallsThisMonth: number;
-  avgResponseTimeMs: number;
-  errorRate: number;
-  uptimePercent: number;
-  activeConnections: number;
-  queuedJobs: number;
-}
-
-export interface UsageMetrics {
-  moduleUsage: Record<string, {
-    activeUsers: number;
-    totalSessions: number;
-    avgSessionDuration: number;
-  }>;
-  featureAdoption: Record<string, number>;
-  topFeatures: Array<{ feature: string; usage: number }>;
-  peakHours: number[];
-  avgDailyActiveUsers: number;
-}
+export type TenantMetrics = AnalyticsMetricSectionProjectionV1<'tenants'>;
+export type UserMetrics = AnalyticsMetricSectionProjectionV1<'users'>;
+export type FinancialMetrics = AnalyticsMetricSectionProjectionV1<'financial'>;
+export type SystemMetrics = AnalyticsMetricSectionProjectionV1<'system'>;
+export type UsageMetrics = AnalyticsMetricSectionProjectionV1<'usage'>;
 
 // ============================================================================
 // Entity
@@ -182,43 +123,9 @@ export interface ChartData {
 // Report Types
 // ============================================================================
 
-export type ReportType =
-  | 'tenant_overview'
-  | 'tenant_churn'
-  | 'financial_revenue'
-  | 'financial_payments'
-  | 'usage_modules'
-  | 'usage_features'
-  | 'system_performance';
-
-export type ReportFormat = 'json' | 'csv' | 'pdf';
-
-export interface ReportRequest {
-  type: ReportType;
-  format: ReportFormat;
-  startDate: Date;
-  endDate: Date;
-  filters?: Record<string, unknown>;
-  includeCharts?: boolean;
-}
-
-export interface ReportResult {
-  id: string;
-  type: ReportType;
-  format: ReportFormat;
-  title: string;
-  generatedAt: Date;
-  data: unknown;
-  summary?: Record<string, unknown>;
-  downloadUrl?: string;
-}
-
 // ============================================================================
 // Report Definition Entity (Saved Reports)
 // ============================================================================
-
-export type ReportDefinitionStatus = 'active' | 'inactive' | 'draft';
-export type ReportSchedule = 'manual' | 'daily' | 'weekly' | 'monthly';
 
 @Entity('report_definitions', { schema: 'admin', synchronize: false })
 @Index(['createdBy'])
@@ -231,7 +138,7 @@ export class ReportDefinition {
   name!: string;
 
   @Column({ type: 'text', nullable: true })
-  description?: string;
+  description?: string | null;
 
   @Column({ type: 'varchar', length: 50 })
   type!: ReportType;
@@ -242,29 +149,14 @@ export class ReportDefinition {
   @Column({ type: 'varchar', length: 20, default: 'active' })
   status!: ReportDefinitionStatus;
 
-  @Column({ type: 'varchar', length: 20, default: 'manual' })
-  schedule!: ReportSchedule;
-
   @Column({ type: 'jsonb', nullable: true })
-  defaultFilters?: Record<string, unknown>;
-
-  @Column({ type: 'jsonb', nullable: true })
-  recipients?: string[];
-
-  @Column({ type: 'boolean', default: false })
-  includeCharts!: boolean;
+  defaultFilters?: Record<string, unknown> | null;
 
   @Column({ type: 'uuid', nullable: true })
-  createdBy?: string;
+  createdBy?: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
-  createdByEmail?: string;
-
-  @Column({ type: 'timestamptz', nullable: true })
-  lastRunAt?: Date;
-
-  @Column({ type: 'int', default: 0 })
-  runCount!: number;
+  createdByEmail?: string | null;
 
   @CreateDateColumn()
   createdAt!: Date;
@@ -277,8 +169,6 @@ export class ReportDefinition {
 // Report Execution Entity (Execution History)
 // ============================================================================
 
-export type ReportExecutionStatus = 'pending' | 'running' | 'completed' | 'failed';
-
 @Entity('report_executions', { schema: 'admin', synchronize: false })
 @Index(['definitionId'])
 @Index(['status'])
@@ -288,7 +178,7 @@ export class ReportExecution {
   id!: string;
 
   @Column({ type: 'uuid', nullable: true })
-  definitionId?: string;
+  definitionId?: string | null;
 
   @Column({ type: 'varchar', length: 200 })
   reportName!: string;
@@ -303,53 +193,89 @@ export class ReportExecution {
   status!: ReportExecutionStatus;
 
   @Column({ type: 'timestamptz', nullable: true })
-  startDate?: Date;
+  startDate?: Date | null;
 
   @Column({ type: 'timestamptz', nullable: true })
-  endDate?: Date;
+  endDate?: Date | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  filters?: Record<string, unknown>;
+  filters?: Record<string, unknown> | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  summary?: Record<string, unknown>;
+  summary?: Record<string, unknown> | null;
 
   @Column({ type: 'int', nullable: true })
-  rowCount?: number;
+  rowCount?: number | null;
 
   @Column({ type: 'int', nullable: true })
-  fileSizeBytes?: number;
+  fileSizeBytes?: number | null;
 
   @Column({ type: 'varchar', length: 1024, nullable: true })
-  artifactObjectKey?: string;
+  artifactObjectKey?: string | null;
 
   @Column({ type: 'varchar', length: 64, nullable: true })
-  artifactSha256?: string;
+  artifactSha256?: string | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  artifactContentType?: string;
-
-  @Column({ type: 'varchar', length: 500, nullable: true })
-  downloadUrl?: string;
+  artifactContentType?: string | null;
 
   @Column({ type: 'timestamptz', nullable: true })
-  downloadExpiresAt?: Date;
+  downloadExpiresAt?: Date | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  previewRows?: Array<Record<string, unknown>> | null;
+
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  previewSha256?: string | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  measurementProof?: ReportMeasurementProofV1 | null;
+
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  measurementProofSha256?: string | null;
+
+  @Column({ type: 'varchar', length: 1024, nullable: true })
+  stagedArtifactObjectKey?: string | null;
+
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  stagedArtifactSha256?: string | null;
+
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  artifactCommitState?: ReportArtifactCommitState | null;
+
+  @Column({ type: 'varchar', length: 64 })
+  capabilityCatalogSha256!: string;
+
+  @Column({ type: 'varchar', length: 64 })
+  measurementCatalogSha256!: string;
+
+  @Column({ type: 'varchar', length: 64 })
+  authorityGraphSha256!: string;
+
+  @Column({ type: 'int' })
+  artifactMaximumBytes!: number;
+
+  @Column({ type: 'int' })
+  previewMaximumRows!: number;
+
+  @Column({ type: 'varchar', length: 20 })
+  measurementState!: ReportMeasurementState;
 
   @Column({ type: 'text', nullable: true })
-  errorMessage?: string;
+  errorMessage?: string | null;
 
   @Column({ type: 'int', nullable: true })
-  durationMs?: number;
+  durationMs?: number | null;
 
   @Column({ type: 'uuid', nullable: true })
-  executedBy?: string;
+  executedBy?: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
-  executedByEmail?: string;
+  executedByEmail?: string | null;
 
   @CreateDateColumn()
   createdAt!: Date;
 
   @Column({ type: 'timestamptz', nullable: true })
-  completedAt?: Date;
+  completedAt?: Date | null;
 }

@@ -29,9 +29,23 @@
     /* Paths */
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@aquaculture/shared-contracts": ["../../libs/shared-contracts/src/index.ts"],
+      "@platform/admin-http-contracts": ["../../platform/libs/admin-http-contracts/src/index.ts"],
+      "@platform/event-contracts": ["../../libs/event-contracts/src/index.ts"],
+      "@platform/identity": ["../../libs/event-contracts/src/roles.ts"],
+      "@platform/tenant-permissions": ["../../libs/event-contracts/src/tenant-permissions.ts"],
+      "@platform/pagination-contracts": ["../../platform/libs/pagination-contracts/src/index.ts"]
     }
   },
   "include": ["src"],
-  "exclude": ["node_modules", "dist", "src/**/*.spec.ts", "src/**/*.spec.tsx", "src/**/*.test.ts", "src/**/*.test.tsx", "src/test-setup.ts"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/**/*.spec.ts",
+    "src/**/*.spec.tsx",
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/test-setup.ts"
+  ]
 }

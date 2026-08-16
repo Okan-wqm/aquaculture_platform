@@ -38,6 +38,7 @@ import {
 import { TenantExecutionContextModule } from '@aquaculture/backend-common/context';
 import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
+import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
 import {
   CorrelationIdMiddleware,
   createTenantSchemaMiddleware,
@@ -313,6 +314,13 @@ type QueryComplexityOperationContext = {
     // Replaced the per-service JwtModule.registerAsync block (WS2.B,
     // 2026-04-14) — single source of truth for all consumer services.
     PlatformJwtModule,
+
+    RedisModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) =>
+        buildRedisOptions(configService, 'messaging', 'required'),
+    }),
 
     // Rate limiting
     ThrottlerModule,

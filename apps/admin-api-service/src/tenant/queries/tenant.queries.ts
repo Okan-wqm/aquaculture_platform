@@ -1,4 +1,5 @@
 import { TenantStatus, TenantPlan } from '../entities/tenant.entity';
+import type { AdminSqlIdentifierKey } from '@platform/admin-http-contracts';
 
 export class GetTenantByIdQuery {
   constructor(public readonly tenantId: string) {}
@@ -20,7 +21,7 @@ export class ListTenantsQuery {
       limit: number;
     },
     public readonly sort?: {
-      field: string;
+      field: AdminSqlIdentifierKey<'GET /admin/tenants'>;
       order: 'ASC' | 'DESC';
     },
   ) {}

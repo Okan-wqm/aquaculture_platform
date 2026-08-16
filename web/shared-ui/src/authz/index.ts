@@ -1,10 +1,6 @@
 /**
- * Frontend authorization helpers — mirror of the backend permission
- * matrix + the `useCanMutate(name)` hook that gates rendering.
- *
- * Drift is locked by `__tests__/permission-matrix.parity.test.ts`:
- * reads the backend source at test time and asserts every mutation
- * in this file's matrix carries the SAME role set as the backend.
+ * Frontend authorization helpers generated from the canonical farm operation
+ * contract plus the `useCanMutate(name)` hook that gates rendering.
  */
 export {
   FRONTEND_MUTATION_ROLES,

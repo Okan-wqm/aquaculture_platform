@@ -5,10 +5,12 @@
  */
 
 import {
-  Controller,
-  Get,
-  Query,
   BadRequestException,
+  Controller,
+  DefaultValuePipe,
+  Get,
+  ParseIntPipe,
+  Query,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
@@ -20,6 +22,35 @@ import {
   TimeSeriesResponse,
 } from '../entities/analytics-snapshot.entity';
 import { AnalyticsService } from '../services/analytics.service';
+import { AdminResponseContract } from '../../shared/admin-response-contract.decorator';
+import {
+  analyticsDashboardSummaryContract,
+  type AnalyticsDashboardSummaryDto,
+  analyticsGetKpiComparisonsResponseContract,
+  type AnalyticsGetKpiComparisonsResponseDto,
+  analyticsTenantMetricsContract,
+  type AnalyticsTenantMetricsDto,
+  analyticsSnapshotTrendResponseContract,
+  type AnalyticsSnapshotTrendResponseDto,
+  analyticsTimeSeriesDataContract,
+  type AnalyticsTimeSeriesDataDto,
+  analyticsUserMetricsContract,
+  type AnalyticsUserMetricsDto,
+  analyticsChartDataContract,
+  type AnalyticsChartDataDto,
+  analyticsFinancialMetricsContract,
+  type AnalyticsFinancialMetricsDto,
+  analyticsRevenueAnalyticsContract,
+  type AnalyticsRevenueAnalyticsDto,
+  analyticsGetRevenueAnalyticsByPlanResponseArrayContract,
+  type AnalyticsGetRevenueAnalyticsByPlanResponseDto,
+  analyticsSystemMetricsContract,
+  type AnalyticsSystemMetricsDto,
+  analyticsUsageMetricsContract,
+  type AnalyticsUsageMetricsDto,
+  analyticsAnalyticsSnapshotArrayContract,
+  type AnalyticsAnalyticsSnapshotDto,
+} from '../contracts/admin-http-response.contract';
 
 // INPUT VALIDATION: Constants for parameter limits
 const MIN_DATA_POINTS = 1;
@@ -27,9 +58,6 @@ const MAX_DATA_POINTS = 365;
 const VALID_PERIODS = ['day', 'week', 'month', 'year'] as const;
 const VALID_RANGES = ['7d', '30d', '90d', '1y'] as const;
 const VALID_GRANULARITIES = ['day', 'week', 'month'] as const;
-
-type AnalyticsTrendResponse = TimeSeriesData | TimeSeriesResponse;
-type RevenueTrendAnalyticsResponse = Awaited<ReturnType<AnalyticsService['getRevenueTrendAnalytics']>>;
 
 /**
  * Validate and sanitize dataPoints parameter
@@ -53,9 +81,12 @@ function validateDataPoints(value: unknown): number {
  * Shorthand: '30d' (30 days), '12m' (12 months), '1y' (1 year), '4w' (4 weeks)
  * Returns { period, dataPoints } where period is the base unit and dataPoints is extracted from shorthand
  */
-function parsePeriodParameter(value: string, defaultDataPoints: number): { period: 'day' | 'week' | 'month' | 'year'; dataPoints: number } {
+function parsePeriodParameter(
+  value: string,
+  defaultDataPoints: number,
+): { period: 'day' | 'week' | 'month' | 'year'; dataPoints: number } {
   // Check if it's a standard period format
-  if (VALID_PERIODS.includes(value as typeof VALID_PERIODS[number])) {
+  if (VALID_PERIODS.includes(value as (typeof VALID_PERIODS)[number])) {
     return { period: value as 'day' | 'week' | 'month' | 'year', dataPoints: defaultDataPoints };
   }
 
@@ -101,7 +132,7 @@ function parseRangeParameter(
   };
 
   const typedGranularity = granularity
-    ? granularity as AnalyticsGranularity
+    ? (granularity as AnalyticsGranularity)
     : defaultGranularity[typedRange];
 
   if (!VALID_GRANULARITIES.includes(typedGranularity)) {
@@ -176,13 +207,15 @@ export class AnalyticsController {
   // Dashboard Summary
   // ============================================================================
 
+  @AdminResponseContract(analyticsDashboardSummaryContract)
   @Get('dashboard')
-  getDashboardSummary(): ReturnType<AnalyticsService['getDashboardSummary']> {
+  getDashboardSummary(): Promise<AnalyticsDashboardSummaryDto> {
     return this.analyticsService.getDashboardSummary();
   }
 
+  @AdminResponseContract(analyticsGetKpiComparisonsResponseContract)
   @Get('kpi-comparisons')
-  getKpiComparisons(): ReturnType<AnalyticsService['getKpiComparisons']> {
+  getKpiComparisons(): Promise<AnalyticsGetKpiComparisonsResponseDto> {
     return this.analyticsService.getKpiComparisons();
   }
 
@@ -190,48 +223,41 @@ export class AnalyticsController {
   // Tenant Metrics
   // ============================================================================
 
+  @AdminResponseContract(analyticsTenantMetricsContract)
   @Get('tenants')
-  getTenantMetrics(): ReturnType<AnalyticsService['getTenantMetrics']> {
+  getTenantMetrics(): Promise<AnalyticsTenantMetricsDto> {
     return this.analyticsService.getTenantMetrics();
   }
 
+  @AdminResponseContract(analyticsSnapshotTrendResponseContract)
   @Get('tenants/growth')
   async getTenantGrowthTrend(
-    @Query('range') range?: string,
+    @Query('range') range = '30d',
     @Query('granularity') granularity?: string,
-    @Query('period') period = 'month',
-    @Query('dataPoints') dataPoints: unknown = 12,
-  ): Promise<AnalyticsTrendResponse> {
-    if (range) {
-      const parsedRange = parseRangeParameter(range, granularity);
-      const trend = await this.analyticsService.getTenantGrowthTrend({
-        period: parsedRange.period,
-        dataPoints: parsedRange.dataPoints,
-      });
-      return toTimeSeriesResponse(trend, parsedRange.range, parsedRange.granularity, 'admin.analytics_snapshots');
-    }
-
-    // INPUT VALIDATION: Parse period (supports shorthand like '30d', '12m')
-    // If dataPoints is provided explicitly, use it; otherwise extract from period shorthand
-    const parsedPeriod = parsePeriodParameter(period, 12);
-
-    // If explicit dataPoints provided, validate and use it; otherwise use parsed value
-    const explicitDataPoints = dataPoints !== 12 ? validateDataPoints(dataPoints) : parsedPeriod.dataPoints;
-
-    return this.analyticsService.getTenantGrowthTrend({
-      period: parsedPeriod.period,
-      dataPoints: explicitDataPoints,
+  ): Promise<AnalyticsSnapshotTrendResponseDto> {
+    const parsedRange = parseRangeParameter(range, granularity);
+    const trend = await this.analyticsService.getTenantGrowthTrend({
+      period: parsedRange.period,
+      dataPoints: parsedRange.dataPoints,
     });
+    return toTimeSeriesResponse(
+      trend,
+      parsedRange.range,
+      parsedRange.granularity,
+      'admin.analytics_snapshots',
+    );
   }
 
+  @AdminResponseContract(analyticsTimeSeriesDataContract)
   @Get('tenants/churn')
   getChurnRateTrend(
     @Query('period') period = 'month',
-    @Query('dataPoints') dataPoints: unknown = 12,
-  ): ReturnType<AnalyticsService['getChurnRateTrend']> {
+    @Query('dataPoints', new DefaultValuePipe(12), ParseIntPipe) dataPoints = 12,
+  ): Promise<AnalyticsTimeSeriesDataDto> {
     // INPUT VALIDATION: Parse period (supports shorthand like '30d', '12m')
     const parsedPeriod = parsePeriodParameter(period, 12);
-    const explicitDataPoints = dataPoints !== 12 ? validateDataPoints(dataPoints) : parsedPeriod.dataPoints;
+    const explicitDataPoints =
+      dataPoints !== 12 ? validateDataPoints(dataPoints) : parsedPeriod.dataPoints;
 
     return this.analyticsService.getChurnRateTrend({
       period: parsedPeriod.period,
@@ -243,39 +269,34 @@ export class AnalyticsController {
   // User Metrics
   // ============================================================================
 
+  @AdminResponseContract(analyticsUserMetricsContract)
   @Get('users')
-  getUserMetrics(): ReturnType<AnalyticsService['getUserMetrics']> {
+  getUserMetrics(): Promise<AnalyticsUserMetricsDto> {
     return this.analyticsService.getUserMetrics();
   }
 
+  @AdminResponseContract(analyticsSnapshotTrendResponseContract)
   @Get('users/activity')
   async getUserActivityTrend(
-    @Query('range') range?: string,
+    @Query('range') range = '30d',
     @Query('granularity') granularity?: string,
-    @Query('period') period = 'day',
-    @Query('dataPoints') dataPoints: unknown = 30,
-  ): Promise<AnalyticsTrendResponse> {
-    if (range) {
-      const parsedRange = parseRangeParameter(range, granularity);
-      const trend = await this.analyticsService.getUserActivityTrend({
-        period: parsedRange.period,
-        dataPoints: parsedRange.dataPoints,
-      });
-      return toTimeSeriesResponse(trend, parsedRange.range, parsedRange.granularity, 'admin.analytics_snapshots');
-    }
-
-    // INPUT VALIDATION: Parse period (supports shorthand like '30d', '12m')
-    const parsedPeriod = parsePeriodParameter(period, 30);
-    const explicitDataPoints = dataPoints !== 30 ? validateDataPoints(dataPoints) : parsedPeriod.dataPoints;
-
-    return this.analyticsService.getUserActivityTrend({
-      period: parsedPeriod.period,
-      dataPoints: explicitDataPoints,
+  ): Promise<AnalyticsSnapshotTrendResponseDto> {
+    const parsedRange = parseRangeParameter(range, granularity);
+    const trend = await this.analyticsService.getUserActivityTrend({
+      period: parsedRange.period,
+      dataPoints: parsedRange.dataPoints,
     });
+    return toTimeSeriesResponse(
+      trend,
+      parsedRange.range,
+      parsedRange.granularity,
+      'admin.analytics_snapshots',
+    );
   }
 
+  @AdminResponseContract(analyticsChartDataContract)
   @Get('users/heatmap')
-  getUserActivityHeatmap(): ReturnType<AnalyticsService['getUserActivityHeatmap']> {
+  getUserActivityHeatmap(): Promise<AnalyticsChartDataDto> {
     return this.analyticsService.getUserActivityHeatmap();
   }
 
@@ -283,19 +304,22 @@ export class AnalyticsController {
   // Financial Metrics
   // ============================================================================
 
+  @AdminResponseContract(analyticsFinancialMetricsContract)
   @Get('financial')
-  getFinancialMetrics(): ReturnType<AnalyticsService['getFinancialMetrics']> {
+  getFinancialMetrics(): Promise<AnalyticsFinancialMetricsDto> {
     return this.analyticsService.getFinancialMetrics();
   }
 
+  @AdminResponseContract(analyticsTimeSeriesDataContract)
   @Get('financial/revenue')
   getRevenueTrend(
     @Query('period') period = 'month',
-    @Query('dataPoints') dataPoints: unknown = 12,
-  ): ReturnType<AnalyticsService['getRevenueTrend']> {
+    @Query('dataPoints', new DefaultValuePipe(12), ParseIntPipe) dataPoints = 12,
+  ): Promise<AnalyticsTimeSeriesDataDto> {
     // INPUT VALIDATION: Parse period (supports shorthand like '30d', '12m')
     const parsedPeriod = parsePeriodParameter(period, 12);
-    const explicitDataPoints = dataPoints !== 12 ? validateDataPoints(dataPoints) : parsedPeriod.dataPoints;
+    const explicitDataPoints =
+      dataPoints !== 12 ? validateDataPoints(dataPoints) : parsedPeriod.dataPoints;
 
     return this.analyticsService.getRevenueTrend({
       period: parsedPeriod.period,
@@ -303,8 +327,9 @@ export class AnalyticsController {
     });
   }
 
+  @AdminResponseContract(analyticsChartDataContract)
   @Get('financial/by-plan')
-  getRevenueByPlan(): ReturnType<AnalyticsService['getRevenueByPlanChart']> {
+  getRevenueByPlan(): Promise<AnalyticsChartDataDto> {
     return this.analyticsService.getRevenueByPlanChart();
   }
 
@@ -315,56 +340,62 @@ export class AnalyticsController {
   /**
    * Get revenue analytics - matches frontend RevenueAnalytics interface
    */
+  @AdminResponseContract(analyticsRevenueAnalyticsContract)
   @Get('revenue')
-  getRevenueAnalytics(): ReturnType<AnalyticsService['getRevenueAnalytics']> {
+  getRevenueAnalytics(): Promise<AnalyticsRevenueAnalyticsDto> {
     return this.analyticsService.getRevenueAnalytics();
   }
 
+  @AdminResponseContract(analyticsGetRevenueAnalyticsByPlanResponseArrayContract)
   @Get('revenue/by-plan')
-  getRevenueAnalyticsByPlan(): ReturnType<AnalyticsService['getRevenueByPlanAnalytics']> {
+  getRevenueAnalyticsByPlan(): Promise<AnalyticsGetRevenueAnalyticsByPlanResponseDto[]> {
     return this.analyticsService.getRevenueByPlanAnalytics();
   }
 
+  @AdminResponseContract(analyticsSnapshotTrendResponseContract)
   @Get('revenue/trend')
   async getRevenueAnalyticsTrend(
-    @Query('range') range?: string,
+    @Query('range') range = '30d',
     @Query('granularity') granularity?: string,
-    @Query('period') period = '12m',
-  ): Promise<TimeSeriesResponse | RevenueTrendAnalyticsResponse> {
-    if (range) {
-      const parsedRange = parseRangeParameter(range, granularity);
-      const trend = await this.analyticsService.getRevenueTrend({
-        period: parsedRange.period,
-        dataPoints: parsedRange.dataPoints,
-      });
-      return toTimeSeriesResponse(trend, parsedRange.range, parsedRange.granularity, 'admin.analytics_snapshots');
-    }
-
-    return this.analyticsService.getRevenueTrendAnalytics(period);
+  ): Promise<AnalyticsSnapshotTrendResponseDto> {
+    const parsedRange = parseRangeParameter(range, granularity);
+    const trend = await this.analyticsService.getRevenueTrend({
+      period: parsedRange.period,
+      dataPoints: parsedRange.dataPoints,
+    });
+    return toTimeSeriesResponse(
+      trend,
+      parsedRange.range,
+      parsedRange.granularity,
+      'admin.analytics_snapshots',
+    );
   }
 
   // ============================================================================
   // System Metrics
   // ============================================================================
 
+  @AdminResponseContract(analyticsSystemMetricsContract)
   @Get('system')
-  getSystemMetrics(): ReturnType<AnalyticsService['getSystemMetrics']> {
+  getSystemMetrics(): Promise<AnalyticsSystemMetricsDto> {
     return this.analyticsService.getSystemMetrics();
   }
 
+  @AdminResponseContract(analyticsTimeSeriesDataContract)
   @Get('system/api-calls')
   getApiCallsTrend(
     @Query('period') period: 'day' | 'week' | 'month' | 'year' = 'day',
     @Query('dataPoints') dataPoints = 30,
-  ): ReturnType<AnalyticsService['getApiCallsTrend']> {
+  ): Promise<AnalyticsTimeSeriesDataDto> {
     return this.analyticsService.getApiCallsTrend({ period, dataPoints });
   }
 
+  @AdminResponseContract(analyticsTimeSeriesDataContract)
   @Get('system/errors')
   getErrorRateTrend(
     @Query('period') period: 'day' | 'week' | 'month' | 'year' = 'day',
     @Query('dataPoints') dataPoints = 30,
-  ): ReturnType<AnalyticsService['getErrorRateTrend']> {
+  ): Promise<AnalyticsTimeSeriesDataDto> {
     return this.analyticsService.getErrorRateTrend({ period, dataPoints });
   }
 
@@ -372,18 +403,21 @@ export class AnalyticsController {
   // Usage Metrics
   // ============================================================================
 
+  @AdminResponseContract(analyticsUsageMetricsContract)
   @Get('usage')
-  getUsageMetrics(): ReturnType<AnalyticsService['getUsageMetrics']> {
+  getUsageMetrics(): Promise<AnalyticsUsageMetricsDto> {
     return this.analyticsService.getUsageMetrics();
   }
 
+  @AdminResponseContract(analyticsChartDataContract)
   @Get('usage/modules')
-  getModuleUsageChart(): ReturnType<AnalyticsService['getModuleUsageChart']> {
+  getModuleUsageChart(): Promise<AnalyticsChartDataDto> {
     return this.analyticsService.getModuleUsageChart();
   }
 
+  @AdminResponseContract(analyticsChartDataContract)
   @Get('usage/features')
-  getFeatureAdoptionChart(): ReturnType<AnalyticsService['getFeatureAdoptionChart']> {
+  getFeatureAdoptionChart(): Promise<AnalyticsChartDataDto> {
     return this.analyticsService.getFeatureAdoptionChart();
   }
 
@@ -391,13 +425,14 @@ export class AnalyticsController {
   // Snapshots
   // ============================================================================
 
+  @AdminResponseContract(analyticsAnalyticsSnapshotArrayContract)
   @Get('snapshots')
   async getSnapshots(
     @Query('category') category: 'tenant' | 'user' | 'financial' | 'system' | 'usage',
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string,
     @Query('snapshotType') snapshotType?: 'daily' | 'weekly' | 'monthly' | 'yearly',
-  ): ReturnType<AnalyticsService['getSnapshots']> {
+  ): Promise<AnalyticsAnalyticsSnapshotDto[]> {
     // BUG-023 fix: validate date strings before constructing Date objects.
     // new Date('invalid') silently produces Invalid Date which causes DB query errors.
     const parsedStart = new Date(startDate);

@@ -1,17 +1,45 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import {
+  auditStatisticsProjectionHasValidEvidenceV2,
+  createAuditStatisticsScopeV2,
+  type AuditStatisticsScopeV2,
+} from '@aquaculture/shared-contracts';
+import {
+  ADMIN_AUDIT_WRITE_POLICY,
+  ADMIN_AUDIT_TRUST_CLASS,
+  adminAuditDefinition,
+  type ActiveAdminAuditAction,
+  type AdminAuditAction,
+  type AdminAuditActionForPolicy,
+  type AdminAuditWritePolicy,
+} from '@platform/admin-http-contracts';
 import {
   Repository,
   Between,
+  EntityManager,
   FindOptionsWhere,
   MoreThanOrEqual,
   LessThanOrEqual,
+  SelectQueryBuilder,
 } from 'typeorm';
 
-import { AuditLog, AuditSeverity } from './audit.entity';
+import {
+  createStandardPaginatedResult,
+  IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 
-export interface AuditLogInput {
-  action: string;
+import { AuditLog } from './audit.entity';
+import { ADMIN_AUDIT_APPEND_SQL } from './audit-database-authority';
+import type { AuditSeverity, AuditStatisticsDto } from './dto/audit-log.dto';
+
+export interface AuditLogInput<TAction extends ActiveAdminAuditAction = ActiveAdminAuditAction> {
+  action: TAction;
   entityType: string;
   entityId?: string;
   tenantId?: string;
@@ -22,13 +50,24 @@ export interface AuditLogInput {
   details?: Record<string, unknown>;
   previousValue?: Record<string, unknown>;
   newValue?: Record<string, unknown>;
-  severity?: AuditSeverity;
   requestId?: string;
   sessionId?: string;
 }
 
+export type MandatoryTransactionalAuditInput = AuditLogInput<
+  AdminAuditActionForPolicy<'MANDATORY_IN_TRANSACTION'>
+>;
+
+export type MandatoryDisclosureAuditInput = AuditLogInput<
+  AdminAuditActionForPolicy<'MANDATORY_BEFORE_DISCLOSURE'>
+>;
+
+export type OptionalTelemetryAuditInput = AuditLogInput<
+  AdminAuditActionForPolicy<'OPTIONAL_TELEMETRY'>
+>;
+
 export interface AuditLogFilter {
-  action?: string;
+  action?: AdminAuditAction;
   entityType?: string;
   entityId?: string;
   tenantId?: string;
@@ -40,33 +79,52 @@ export interface AuditLogFilter {
   search?: string;
 }
 
-export interface PaginatedAuditLogs {
-  data: AuditLog[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
+interface AuditStatisticsAggregateRow {
+  total_logs?: unknown;
+  observed_logs?: unknown;
+  legacy_unverified_logs?: unknown;
+  last_24_hours?: unknown;
+  by_action?: unknown;
+  by_severity?: unknown;
+  by_entity_type?: unknown;
+  top_users?: unknown;
 }
 
-interface ActionCountRow {
-  action?: string | null;
-  count: string;
+function parseAuditCount(value: unknown, field: string): number {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new ServiceUnavailableException(`Audit statistics source returned invalid ${field}`);
+  }
+  return parsed;
 }
 
-interface SeverityCountRow {
-  severity?: string | null;
-  count: string;
+function parseAuditArray(value: unknown, field: string): unknown[] {
+  let parsed = value;
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed) as unknown;
+    } catch {
+      throw new ServiceUnavailableException(`Audit statistics source returned malformed ${field}`);
+    }
+  }
+  if (!Array.isArray(parsed)) {
+    throw new ServiceUnavailableException(`Audit statistics source omitted ${field}`);
+  }
+  return parsed;
 }
 
-interface EntityTypeCountRow {
-  entityType?: string | null;
-  count: string;
+function parseAuditString(value: unknown, field: string): string {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new ServiceUnavailableException(`Audit statistics source returned invalid ${field}`);
+  }
+  return value;
 }
 
-interface UserCountRow {
-  userId?: string | null;
-  email?: string | null;
-  count: string;
+function parseAuditRecord(value: unknown, field: string): Readonly<Record<string, unknown>> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new ServiceUnavailableException(`Audit statistics source returned invalid ${field}`);
+  }
+  return value as Readonly<Record<string, unknown>>;
 }
 
 @Injectable()
@@ -79,22 +137,89 @@ export class AuditLogService {
   ) {}
 
   /**
-   * Log an audit event
+   * Append a mandatory audit event and surface persistence failures to the
+   * caller. Security-critical workflows use this boundary so state cannot be
+   * reported as successful when its forensic record was dropped.
    */
-  async log(input: AuditLogInput): Promise<AuditLog | null> {
-    try {
-      const auditLog = this.auditLogRepository.create({
-        ...input,
-        severity: input.severity || this.determineSeverity(input.action),
-      });
-
-      const savedLog = await this.auditLogRepository.save(auditLog);
-
-      this.logger.debug(
-        `Audit log created: ${input.action} by ${input.performedBy}`,
+  private async recordWithRepository<TAction extends ActiveAdminAuditAction>(
+    repository: Repository<AuditLog>,
+    input: AuditLogInput<TAction>,
+    expectedPolicy: AdminAuditWritePolicy,
+  ): Promise<AuditLog> {
+    const definition = adminAuditDefinition(input.action);
+    if (definition.lifecycle !== 'ACTIVE' || definition.writePolicy !== expectedPolicy) {
+      throw new TypeError(
+        `Audit action ${input.action} requires ${String(definition.writePolicy)}, not ${expectedPolicy}`,
       );
+    }
+    const rows = await repository.manager.query<AuditLog[]>(ADMIN_AUDIT_APPEND_SQL, [
+      input.action,
+      input.entityType,
+      input.entityId ?? null,
+      input.tenantId ?? null,
+      input.performedBy,
+      input.performedByEmail ?? null,
+      input.ipAddress ?? null,
+      input.userAgent ?? null,
+      input.details ?? null,
+      input.previousValue ?? null,
+      input.newValue ?? null,
+      definition.severity,
+      input.requestId ?? null,
+      input.sessionId ?? null,
+    ]);
+    const receipt = Array.isArray(rows) && rows.length === 1 ? rows[0] : undefined;
+    if (
+      receipt === undefined ||
+      receipt.action !== input.action ||
+      receipt.trustClass !== ADMIN_AUDIT_TRUST_CLASS.AUTHORITATIVE_RUNTIME ||
+      receipt.provenance != null
+    ) {
+      throw new ServiceUnavailableException(
+        'Canonical admin audit append authority returned an invalid receipt',
+      );
+    }
+    const savedLog = repository.create(receipt);
 
-      return savedLog;
+    this.logger.debug(`Audit log created: ${input.action} by ${input.performedBy}`);
+
+    return savedLog;
+  }
+
+  /**
+   * Append through the caller's EntityManager so a security state transition
+   * and its audit row commit or roll back as one PostgreSQL transaction.
+   */
+  async appendInTransaction(
+    entityManager: EntityManager,
+    input: MandatoryTransactionalAuditInput,
+  ): Promise<AuditLog> {
+    return this.recordWithRepository(
+      entityManager.withRepository(this.auditLogRepository),
+      input,
+      ADMIN_AUDIT_WRITE_POLICY.MANDATORY_IN_TRANSACTION,
+    );
+  }
+
+  /**
+   * Append evidence before returning sensitive data to the caller.
+   */
+  async appendBeforeDisclosure(input: MandatoryDisclosureAuditInput): Promise<AuditLog> {
+    return this.recordWithRepository(
+      this.auditLogRepository,
+      input,
+      ADMIN_AUDIT_WRITE_POLICY.MANDATORY_BEFORE_DISCLOSURE,
+    );
+  }
+
+  /** Best-effort is deliberately unrepresentable outside telemetry actions. */
+  async appendOptionalTelemetry(input: OptionalTelemetryAuditInput): Promise<AuditLog | null> {
+    try {
+      return await this.recordWithRepository(
+        this.auditLogRepository,
+        input,
+        ADMIN_AUDIT_WRITE_POLICY.OPTIONAL_TELEMETRY,
+      );
     } catch (error) {
       // BUG-029 fix: return null instead of an unsaved entity that callers
       // may mistakenly treat as persisted (e.g., checking .id for existence).
@@ -114,111 +239,99 @@ export class AuditLogService {
     filter: AuditLogFilter,
     page = 1,
     limit = 50,
-  ): Promise<PaginatedAuditLogs> {
-    try {
-      const skip = (page - 1) * limit;
-      const take = Math.min(limit, 100);
+  ): Promise<IStandardPaginatedResult<AuditLog>> {
+    const skip = (page - 1) * limit;
+    const take = Math.min(limit, 100);
 
-      const queryBuilder = this.auditLogRepository
-        .createQueryBuilder('audit')
-        .orderBy('audit.createdAt', 'DESC');
+    const queryBuilder = this.filteredQuery(filter).orderBy('audit.createdAt', 'DESC');
 
-      if (filter.action) {
-        queryBuilder.andWhere('audit.action = :action', { action: filter.action });
-      }
+    queryBuilder.skip(skip).take(take);
 
-      if (filter.entityType) {
-        queryBuilder.andWhere('audit.entityType = :entityType', {
-          entityType: filter.entityType,
-        });
-      }
+    const [data, total] = await queryBuilder.getManyAndCount();
 
-      if (filter.entityId) {
-        queryBuilder.andWhere('audit.entityId = :entityId', {
-          entityId: filter.entityId,
-        });
-      }
+    return createStandardPaginatedResult(data, total, page, take);
+  }
 
-      if (filter.tenantId) {
-        queryBuilder.andWhere('audit.tenantId = :tenantId', {
-          tenantId: filter.tenantId,
-        });
-      }
+  /**
+   * Bounded canonical export projection. Unlike page queries this does not
+   * silently clamp to 100 rows; the route owns the explicit artifact budget.
+   */
+  async getExportRows(filter: AuditLogFilter, limit = 100_000): Promise<AuditLog[]> {
+    return this.filteredQuery(filter).orderBy('audit.createdAt', 'ASC').take(limit).getMany();
+  }
 
-      if (filter.performedBy) {
-        queryBuilder.andWhere('audit.performedBy = :performedBy', {
-          performedBy: filter.performedBy,
-        });
-      }
+  private filteredQuery(filter: AuditLogFilter): SelectQueryBuilder<AuditLog> {
+    const queryBuilder = this.auditLogRepository.createQueryBuilder('audit');
 
-      if (filter.performedByEmail) {
-        queryBuilder.andWhere('audit.performedByEmail = :performedByEmail', {
-          performedByEmail: filter.performedByEmail,
-        });
-      }
-
-      if (filter.severity) {
-        queryBuilder.andWhere('audit.severity = :severity', {
-          severity: filter.severity,
-        });
-      }
-
-      if (filter.startDate) {
-        queryBuilder.andWhere('audit.createdAt >= :startDate', {
-          startDate: filter.startDate,
-        });
-      }
-
-      if (filter.endDate) {
-        queryBuilder.andWhere('audit.createdAt <= :endDate', {
-          endDate: filter.endDate,
-        });
-      }
-
-      if (filter.search) {
-        // MED-006 fix: restrict search to safe, non-sensitive indexed fields only.
-        // Casting details::text was allowing substring matches against JSONB blobs that
-        // may contain PII, API keys, or other sensitive data stored in audit entries.
-        queryBuilder.andWhere(
-          '(audit.action ILIKE :search OR audit.entityType ILIKE :search OR audit.entityId ILIKE :search)',
-          { search: `%${filter.search}%` },
-        );
-      }
-
-      queryBuilder.skip(skip).take(take);
-
-      const [data, total] = await queryBuilder.getManyAndCount();
-
-      return {
-        data,
-        total,
-        page,
-        limit: take,
-        totalPages: Math.ceil(total / take),
-      };
-    } catch (error) {
-      this.logger.error(
-        `Failed to query audit logs: ${(error as Error).message}`,
-        (error as Error).stack,
-      );
-      return {
-        data: [],
-        total: 0,
-        page,
-        limit: Math.min(limit, 100),
-        totalPages: 0,
-      };
+    if (filter.action) {
+      queryBuilder.andWhere('audit.action = :action', { action: filter.action });
     }
+
+    if (filter.entityType) {
+      queryBuilder.andWhere('audit.entityType = :entityType', {
+        entityType: filter.entityType,
+      });
+    }
+
+    if (filter.entityId) {
+      queryBuilder.andWhere('audit.entityId = :entityId', {
+        entityId: filter.entityId,
+      });
+    }
+
+    if (filter.tenantId) {
+      queryBuilder.andWhere('audit.tenantId = :tenantId', {
+        tenantId: filter.tenantId,
+      });
+    }
+
+    if (filter.performedBy) {
+      queryBuilder.andWhere('audit.performedBy = :performedBy', {
+        performedBy: filter.performedBy,
+      });
+    }
+
+    if (filter.performedByEmail) {
+      queryBuilder.andWhere('audit.performedByEmail = :performedByEmail', {
+        performedByEmail: filter.performedByEmail,
+      });
+    }
+
+    if (filter.severity) {
+      queryBuilder.andWhere('audit.severity = :severity', {
+        severity: filter.severity,
+      });
+    }
+
+    if (filter.startDate) {
+      queryBuilder.andWhere('audit.createdAt >= :startDate', {
+        startDate: filter.startDate,
+      });
+    }
+
+    if (filter.endDate) {
+      queryBuilder.andWhere('audit.createdAt <= :endDate', {
+        endDate: filter.endDate,
+      });
+    }
+
+    if (filter.search) {
+      // MED-006 fix: restrict search to safe, non-sensitive indexed fields only.
+      // Casting details::text was allowing substring matches against JSONB blobs that
+      // may contain PII, API keys, or other sensitive data stored in audit entries.
+      queryBuilder.andWhere(
+        '(audit.action ILIKE :search OR audit.entityType ILIKE :search OR audit.entityId ILIKE :search)',
+        { search: `%${filter.search}%` },
+      );
+    }
+
+    return queryBuilder;
   }
 
   /**
    * Get audit logs for a specific entity
    */
-  async getEntityHistory(
-    entityType: string,
-    entityId: string,
-    limit = 100,
-  ): Promise<AuditLog[]> {
+  async getEntityHistory(entityType: string, entityId: string, limit = 100): Promise<AuditLog[]> {
     return this.auditLogRepository.find({
       where: { entityType, entityId },
       order: { createdAt: 'DESC' },
@@ -280,10 +393,7 @@ export class AuditLogService {
    * "tenantId accidentally undefined" footgun, pass `null` or `undefined`
    * deliberately — the meta-audit entry records the absence.
    */
-  async getSecurityLogs(
-    tenantId?: string,
-    limit = 100,
-  ): Promise<AuditLog[]> {
+  async getSecurityLogs(tenantId?: string, limit = 100): Promise<AuditLog[]> {
     const securityActions = [
       'LOGIN_SUCCESS',
       'LOGIN_FAILED',
@@ -326,185 +436,200 @@ export class AuditLogService {
     tenantId?: string,
     startDate?: Date,
     endDate?: Date,
-  ): Promise<{
-    totalLogs: number;
-    last24Hours: number;
-    byAction: Array<{ action: string; count: number }>;
-    bySeverity: Array<{ severity: string; count: number }>;
-    byEntityType: Array<{ entityType: string; count: number }>;
-    topUsers: Array<{ userId: string; email: string; count: number }>;
-  }> {
-    // Calculate date for last 24 hours
-    const last24HoursDate = new Date();
-    last24HoursDate.setHours(last24HoursDate.getHours() - 24);
-
-    // Build base where clause.
-    //
-    // `1=1` when tenantId is absent is an EXPLICIT platform-wide branch
-    // — see getSecurityLogs() JSDoc above for the cross-tenant
-    // authorisation model (PlatformAdminGuard + AdminBypassRlsInterceptor).
-    // The literal is used instead of an empty string because TypeORM's
-    // `andWhere('')` does not no-op cleanly — a truthy placeholder is
-    // needed so subsequent `andWhere(dateWhere)` chains compose.
-    // WHY: DO NOT remove this comment without updating the getSecurityLogs
-    // docblock too; they are co-load-bearing in review.
-    const baseWhere = tenantId ? 'audit.tenantId = :tenantId' : '1=1';
-    const baseParams = tenantId ? { tenantId } : {};
-
-    // Build date range where clause
-    let dateWhere = '';
-    const dateParams: Record<string, Date> = {};
-    if (startDate) {
-      dateWhere += ' AND audit.createdAt >= :startDate';
-      dateParams['startDate'] = startDate;
+  ): Promise<AuditStatisticsDto> {
+    const asOf = new Date();
+    if (startDate && Number.isNaN(startDate.getTime())) {
+      throw new BadRequestException('startDate must be a valid ISO 8601 date');
     }
-    if (endDate) {
-      dateWhere += ' AND audit.createdAt <= :endDate';
-      dateParams['endDate'] = endDate;
+    if (endDate && Number.isNaN(endDate.getTime())) {
+      throw new BadRequestException('endDate must be a valid ISO 8601 date');
+    }
+    const boundedEndDate = endDate && endDate < asOf ? endDate : asOf;
+    if (startDate && startDate > boundedEndDate) {
+      throw new BadRequestException('startDate must not exceed the statistics cut endDate');
+    }
+    const last24HoursDate = new Date(asOf.getTime() - 24 * 60 * 60 * 1000);
+    const scope: AuditStatisticsScopeV2 = createAuditStatisticsScopeV2({
+      tenantId,
+      startDate,
+      endDate: boundedEndDate,
+      asOf,
+    });
+
+    // One SQL statement owns both the observed cut and its qualified subset.
+    // Imported legacy rows remain visible through observed/legacy counters but
+    // can never inflate completeness, critical severity, or top-user claims.
+    const rows = await this.auditLogRepository.query<AuditStatisticsAggregateRow[]>(
+      `
+        WITH observed AS MATERIALIZED (
+          SELECT
+            "action",
+            "severity",
+            "trustClass",
+            "entityType",
+            "performedBy",
+            "performedByEmail",
+            "createdAt"
+          FROM "admin"."audit_logs"
+          WHERE ($1::uuid IS NULL OR "tenantId" = $1::uuid)
+            AND ($2::timestamptz IS NULL OR "createdAt" >= $2::timestamptz)
+            AND "createdAt" <= $3::timestamptz
+        ),
+        scoped AS MATERIALIZED (
+          SELECT
+            "action",
+            "severity",
+            "entityType",
+            "performedBy",
+            "performedByEmail",
+            "createdAt"
+          FROM observed
+          WHERE "trustClass" = 'AUTHORITATIVE_RUNTIME'
+        ),
+        action_counts AS (
+          SELECT "action", COUNT(*) AS count
+          FROM scoped
+          GROUP BY "action"
+        ),
+        severity_counts AS (
+          SELECT "severity", COUNT(*) AS count
+          FROM scoped
+          GROUP BY "severity"
+        ),
+        entity_type_counts AS (
+          SELECT "entityType", COUNT(*) AS count
+          FROM scoped
+          GROUP BY "entityType"
+        ),
+        top_user_counts AS (
+          SELECT "performedBy", "performedByEmail", COUNT(*) AS count
+          FROM scoped
+          GROUP BY "performedBy", "performedByEmail"
+          ORDER BY count DESC, "performedBy" ASC, "performedByEmail" ASC NULLS LAST
+          LIMIT 10
+        )
+        SELECT
+          (SELECT COUNT(*)::text FROM scoped) AS total_logs,
+          (SELECT COUNT(*)::text FROM observed) AS observed_logs,
+          (
+            SELECT COUNT(*)::text
+            FROM observed
+            WHERE "trustClass" = 'LEGACY_UNVERIFIED'
+          ) AS legacy_unverified_logs,
+          (
+            SELECT COUNT(*)::text
+            FROM scoped
+            WHERE "createdAt" >= $4::timestamptz
+          ) AS last_24_hours,
+          COALESCE(
+            (
+              SELECT jsonb_agg(
+                jsonb_build_object('action', "action", 'count', count::text)
+                ORDER BY count DESC, "action" ASC
+              )
+              FROM action_counts
+            ),
+            '[]'::jsonb
+          ) AS by_action,
+          COALESCE(
+            (
+              SELECT jsonb_agg(
+                jsonb_build_object('severity', "severity", 'count', count::text)
+                ORDER BY count DESC, "severity" ASC
+              )
+              FROM severity_counts
+            ),
+            '[]'::jsonb
+          ) AS by_severity,
+          COALESCE(
+            (
+              SELECT jsonb_agg(
+                jsonb_build_object('entityType', "entityType", 'count', count::text)
+                ORDER BY count DESC, "entityType" ASC
+              )
+              FROM entity_type_counts
+            ),
+            '[]'::jsonb
+          ) AS by_entity_type,
+          COALESCE(
+            (
+              SELECT jsonb_agg(
+                jsonb_build_object(
+                  'userId', "performedBy",
+                  'email', "performedByEmail",
+                  'count', count::text
+                )
+                ORDER BY count DESC, "performedBy" ASC, "performedByEmail" ASC NULLS LAST
+              )
+              FROM top_user_counts
+            ),
+            '[]'::jsonb
+          ) AS top_users
+      `,
+      [tenantId ?? null, startDate ?? null, boundedEndDate, last24HoursDate],
+    );
+    const aggregate = rows[0];
+    if (!aggregate) {
+      throw new ServiceUnavailableException('Audit statistics source omitted its aggregate row');
     }
 
-    const [
-      totalLogs,
-      last24Hours,
-      byActionResults,
-      bySeverityResults,
-      byEntityTypeResults,
-      topUsersResults,
-    ] = await Promise.all([
-      // Total logs count
-      this.auditLogRepository
-        .createQueryBuilder('audit')
-        .where(baseWhere + dateWhere, { ...baseParams, ...dateParams })
-        .getCount(),
+    const byAction = parseAuditArray(aggregate.by_action, 'byAction').map((value, index) => {
+      const row = parseAuditRecord(value, `byAction[${index}]`);
+      return {
+        action: parseAuditString(row.action, `byAction[${index}].action`),
+        count: parseAuditCount(row.count, `byAction[${index}].count`),
+      };
+    });
+    const bySeverity = parseAuditArray(aggregate.by_severity, 'bySeverity').map((value, index) => {
+      const row = parseAuditRecord(value, `bySeverity[${index}]`);
+      return {
+        severity: parseAuditString(row.severity, `bySeverity[${index}].severity`),
+        count: parseAuditCount(row.count, `bySeverity[${index}].count`),
+      };
+    });
+    const byEntityType = parseAuditArray(aggregate.by_entity_type, 'byEntityType').map(
+      (value, index) => {
+        const row = parseAuditRecord(value, `byEntityType[${index}]`);
+        return {
+          entityType: parseAuditString(row.entityType, `byEntityType[${index}].entityType`),
+          count: parseAuditCount(row.count, `byEntityType[${index}].count`),
+        };
+      },
+    );
+    const topUsers = parseAuditArray(aggregate.top_users, 'topUsers').map((value, index) => {
+      const row = parseAuditRecord(value, `topUsers[${index}]`);
+      const email = row.email;
+      if (email !== null && typeof email !== 'string') {
+        throw new ServiceUnavailableException(
+          `Audit statistics source returned invalid topUsers[${index}].email`,
+        );
+      }
+      return {
+        userId: parseAuditString(row.userId, `topUsers[${index}].userId`),
+        email,
+        count: parseAuditCount(row.count, `topUsers[${index}].count`),
+      };
+    });
 
-      // Last 24 hours count
-      this.auditLogRepository
-        .createQueryBuilder('audit')
-        .where(baseWhere, baseParams)
-        .andWhere('audit.createdAt >= :last24HoursDate', { last24HoursDate })
-        .getCount(),
-
-      // By action
-      this.auditLogRepository
-        .createQueryBuilder('audit')
-        .select('audit.action', 'action')
-        .addSelect('COUNT(*)', 'count')
-        .where(baseWhere + dateWhere, { ...baseParams, ...dateParams })
-        .groupBy('audit.action')
-        .orderBy('count', 'DESC')
-        .getRawMany<ActionCountRow>(),
-
-      // By severity
-      this.auditLogRepository
-        .createQueryBuilder('audit')
-        .select('audit.severity', 'severity')
-        .addSelect('COUNT(*)', 'count')
-        .where(baseWhere + dateWhere, { ...baseParams, ...dateParams })
-        .groupBy('audit.severity')
-        .orderBy('count', 'DESC')
-        .getRawMany<SeverityCountRow>(),
-
-      // By entity type
-      this.auditLogRepository
-        .createQueryBuilder('audit')
-        .select('audit.entityType', 'entityType')
-        .addSelect('COUNT(*)', 'count')
-        .where(baseWhere + dateWhere, { ...baseParams, ...dateParams })
-        .groupBy('audit.entityType')
-        .orderBy('count', 'DESC')
-        .getRawMany<EntityTypeCountRow>(),
-
-      // Top users with email
-      this.auditLogRepository
-        .createQueryBuilder('audit')
-        .select('audit.performedBy', 'userId')
-        .addSelect('audit.performedByEmail', 'email')
-        .addSelect('COUNT(*)', 'count')
-        .where(baseWhere + dateWhere, { ...baseParams, ...dateParams })
-        .groupBy('audit.performedBy')
-        .addGroupBy('audit.performedByEmail')
-        .orderBy('count', 'DESC')
-        .limit(10)
-        .getRawMany<UserCountRow>(),
-    ]);
-
-    // Transform results to expected format (arrays instead of objects)
-    const byAction = byActionResults.map((r) => ({
-      action: r.action || 'unknown',
-      count: parseInt(r.count, 10),
-    }));
-
-    const bySeverity = bySeverityResults.map((r) => ({
-      severity: r.severity || 'info',
-      count: parseInt(r.count, 10),
-    }));
-
-    const byEntityType = byEntityTypeResults.map((r) => ({
-      entityType: r.entityType || 'unknown',
-      count: parseInt(r.count, 10),
-    }));
-
-    const topUsers = topUsersResults.map((r) => ({
-      userId: r.userId || 'unknown',
-      email: r.email || 'unknown@unknown.com',
-      count: parseInt(r.count, 10),
-    }));
-
-    return {
-      totalLogs,
-      last24Hours,
+    const projection: AuditStatisticsDto = {
+      scope,
+      totalLogs: parseAuditCount(aggregate.total_logs, 'totalLogs'),
+      observedLogs: parseAuditCount(aggregate.observed_logs, 'observedLogs'),
+      legacyUnverifiedLogs: parseAuditCount(
+        aggregate.legacy_unverified_logs,
+        'legacyUnverifiedLogs',
+      ),
+      last24Hours: parseAuditCount(aggregate.last_24_hours, 'last24Hours'),
       byAction,
       bySeverity,
       byEntityType,
       topUsers,
     };
-  }
-
-  /**
-   * Immutable admin audit logs are never purged in-process.
-   *
-   * Retention workflows may archive or partition storage outside this service,
-   * but this append-only source of truth must not issue DELETE statements.
-   */
-  purgeOldLogs(retentionDays: number): number {
-    this.logger.warn(
-      `Skipped immutable audit log purge request for retentionDays=${retentionDays}`,
-    );
-
-    return 0;
-  }
-
-  private determineSeverity(action: string): AuditSeverity {
-    const criticalActions = [
-      'TENANT_SUSPENDED',
-      'TENANT_DEACTIVATED',
-      'TENANT_ARCHIVED',
-      'USER_DELETED',
-      'USER_LOCKED',
-      'TOKEN_REVOKED',
-      'PERMISSION_DENIED',
-      'SUSPICIOUS_ACTIVITY',
-      'DATA_EXPORT',
-    ];
-
-    const warningActions = [
-      'USER_IMPERSONATED',
-      'USER_PASSWORD_RESET',
-      'TENANT_TIER_CHANGED',
-      'TENANT_LIMITS_UPDATED',
-      'SYSTEM_SETTING_CHANGED',
-      'MAINTENANCE_MODE_ENABLED',
-      'LOGIN_FAILED',
-    ];
-
-    if (criticalActions.includes(action)) {
-      return AuditSeverity.CRITICAL;
+    if (!auditStatisticsProjectionHasValidEvidenceV2(projection)) {
+      throw new ServiceUnavailableException(
+        'Audit statistics projection did not reconcile to its scoped total',
+      );
     }
-
-    if (warningActions.includes(action)) {
-      return AuditSeverity.WARNING;
-    }
-
-    return AuditSeverity.INFO;
+    return projection;
   }
 }

@@ -1,0 +1,1442 @@
+{
+  "schemaVersion": "admin-panel-branch-reconciliation.v1",
+  "authority": "admin-panel-branch-commit-disposition",
+  "auditedAt": "2026-08-09T00:00:00Z",
+  "sourceBranches": [
+    {
+      "ref": "origin/main",
+      "tip": "8d8d54365ada11d45b43374af76e9814c5958ff0",
+      "relationToAuditedRange": "BASELINE_REF"
+    },
+    {
+      "ref": "origin/claude/admin-panel-rc1-pagination-envelope",
+      "tip": "85448f20487be0a6ea841ddbf2bb63e504fa7059",
+      "relationToAuditedRange": "ANCESTOR_OF_AUDITED_TIP"
+    },
+    {
+      "ref": "origin/claude/admin-panel-e2e-audit-9b80i5",
+      "tip": "e6e46717c8f55be7dd70d6545b0247f0cfd55822",
+      "relationToAuditedRange": "ANCESTOR_OF_AUDITED_TIP"
+    },
+    {
+      "ref": "origin/claude/admin-contracts-codegen",
+      "tip": "399810500bf8c1724c0da450219ab0a5e5912cec",
+      "relationToAuditedRange": "AUDITED_TIP"
+    },
+    {
+      "ref": "origin/claude/farm-feeding-protocol-f92y38",
+      "tip": "d19d4aabf5dc618e4f6211be8b58166e4f126444",
+      "relationToAuditedRange": "OUTSIDE_AUDITED_RANGE"
+    }
+  ],
+  "auditedRange": {
+    "baselineRef": "origin/main",
+    "auditedRef": "origin/claude/admin-contracts-codegen",
+    "mergeBaseExclusive": "bdaf00bf633151927740304985551a012e5e2e5c",
+    "tipInclusive": "399810500bf8c1724c0da450219ab0a5e5912cec",
+    "commitCount": 106,
+    "orderedCommitSequenceSha256": "d34229fe631714adf938b916f63b3d204ae8acfd6ce66ff9718d515557ff088b"
+  },
+  "vocabularies": {
+    "phases": [
+      "AUDIT_EVIDENCE",
+      "REMEDIATION_ROADMAP",
+      "PHASE_0_FLAGSHIP_FLOWS",
+      "PHASE_1_CONTRACT_LAYER",
+      "PHASE_2_TELEMETRY_SECURITY_TRUTH",
+      "PHASE_3_CONTROL_PLANE",
+      "PHASE_4_UX_POLISH",
+      "CONTRACT_CODEGEN_EXTENSION",
+      "DELIVERY_MAINTENANCE"
+    ],
+    "dispositions": [
+      "SUPERSEDED",
+      "REJECTED_WITH_REASON",
+      "ALREADY_MAIN",
+      "REIMPLEMENTED_ROOT_ARCH",
+      "STILL_OPEN"
+    ]
+  },
+  "dispositionCounts": {
+    "SUPERSEDED": 15,
+    "REJECTED_WITH_REASON": 3,
+    "ALREADY_MAIN": 4,
+    "REIMPLEMENTED_ROOT_ARCH": 41,
+    "STILL_OPEN": 43
+  },
+  "currentEvidenceCatalog": {
+    "EV-SUPERSEDED-AUDIT": {
+      "state": "HISTORICAL_ONLY",
+      "summary": "The commit only creates or repairs the superseded branch-local audit, roadmap, or generated evidence record; it is retained as provenance and is not an implementation candidate.",
+      "locations": [
+        "docs/evidence/admin-panel-branch-reconciliation/reconciliation-authority.v1.json"
+      ]
+    },
+    "EV-REJECTED-REGEX-GATE": {
+      "state": "REJECTED",
+      "summary": "The change adjusts a grep or regex symptom without establishing the compiler-owned authority required by the current architecture.",
+      "locations": ["tests/invariants/admin-http-contract-ssot.spec.ts", "tools/codegen/"]
+    },
+    "EV-REJECTED-FORMAT-SCOPE": {
+      "state": "REJECTED",
+      "summary": "Format-scope bookkeeping is not a domain or contract implementation and must not be replayed as product remediation.",
+      "locations": ["tools/quality/format-scope.json"]
+    },
+    "EV-MAIN-CI": {
+      "state": "SATISFIED_ON_MAIN",
+      "summary": "The current baseline already carries the CI/type-check authority needed by this semantic change; the historical commit itself is not replayed.",
+      "locations": [".github/workflows/", "package.json"]
+    },
+    "EV-MAIN-NATS-ACL": {
+      "state": "SATISFIED_ON_MAIN",
+      "summary": "The current NATS service authority grants auth-service the governed announcement publish subject.",
+      "locations": ["infrastructure/nats/services.yaml", "infrastructure/docker/nats/nats.conf"]
+    },
+    "EV-MAIN-AUTH-SQL": {
+      "state": "SATISFIED_ON_MAIN",
+      "summary": "The current admin users read path qualifies the auth-owned tenant relation and projects the live audit column.",
+      "locations": ["apps/admin-api-service/src/users/users.service.ts"]
+    },
+    "EV-ROOT-ADMIN-HTTP-CONTRACT": {
+      "state": "REIMPLEMENTED",
+      "summary": "The active worktree replaces branch-local mirrors and per-route patches with the executable admin response-contract DAG, canonical pagination projection, generated frontend contracts, and route-demand equality gates.",
+      "locations": [
+        "platform/libs/admin-http-contracts/",
+        "platform/libs/pagination-contracts/",
+        "tools/codegen/admin-contracts/",
+        "web/modules/admin-panel/src/generated/",
+        "docs/evidence/admin-http-contracts/admin-route-contract-manifest.generated.json"
+      ]
+    },
+    "EV-ROOT-BACKUP-ROUTE-RETIREMENT": {
+      "state": "REIMPLEMENTED",
+      "summary": "The active worktree physically removes all eleven legacy admin backup and restore routes plus the pg_dump/file-delete/cron/fake-PITR service, runtime backup entities, tenant-deprovision dependency, frontend retirement tab, dead response projections, and the 410 compatibility lifecycle. Destructive schema deletion now admits tenant erasure evidence only; historical backup migrations remain immutable history, not runtime authority.",
+      "locations": [
+        "apps/admin-api-service/src/database-management/database-management.module.ts",
+        "apps/admin-api-service/src/shared/admin-response-contract.decorator.ts",
+        "apps/admin-api-service/src/bootstrap/admin-request-contract.guard.ts",
+        "libs/backend-common/src/database/schema-manager.service.ts",
+        "apps/db-migrate/src/tenant-schema-provisioner.ts",
+        "tools/codegen/admin-contracts/generate.ts",
+        "tests/invariants/admin-backup-encryption-ssot.spec.ts",
+        "docs/evidence/admin-http-contracts/admin-route-contract-manifest.generated.json"
+      ]
+    },
+    "EV-ROOT-NATS-RUNTIME-PROFILE": {
+      "state": "REIMPLEMENTED",
+      "summary": "admin-api onboarding outcomes are consumed through a byte-deterministic runtime profile compiled from the service catalog and event registry; the live handler asserts exact handler equality and subscribes the catalog-derived durable event set.",
+      "locations": [
+        "platform/libs/service-catalog/src/index.ts",
+        "libs/event-contracts/src/platform-event-registry.ts",
+        "libs/backend-common/src/nats/service-nats-runtime-profiles.ts",
+        "apps/admin-api-service/src/tenant/handlers/tenant-onboarding-ack.handler.ts",
+        "apps/admin-api-service/src/tenant/tenant.module.ts",
+        "infrastructure/nats/services.yaml"
+      ]
+    },
+    "EV-ROOT-ONBOARDING-ACTIVATION": {
+      "state": "REIMPLEMENTED",
+      "summary": "Tenant activation is guarded by an exact generation-bound PostgreSQL evidence seal: the final onboarding publication, activation-proof consume, tenant transition, command receipt, and durable auth outbox write execute under owner-specific typed authorities instead of a timing-based wait/requeue loop.",
+      "locations": [
+        "apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts",
+        "apps/admin-api-service/src/migrations/1808300000000-EnforceTenantOnboardingAckMonotonicity.ts",
+        "apps/auth-service/src/modules/tenant/services/tenant-provisioning-command.service.ts",
+        "libs/event-contracts/src/tenant-commands.ts",
+        "tests/invariants/tenant-provisioning-ssot.spec.ts"
+      ]
+    },
+    "EV-ROOT-ACTOR-IDENTITY": {
+      "state": "REIMPLEMENTED",
+      "summary": "Human support mutations persist the authenticated JWT actor UUID, authorless cron mutations use the single canonical system-principal UUID, and every client-provided UUID in the affected support boundary is rejected before persistence when malformed.",
+      "locations": [
+        "libs/backend-common/src/constants/system-actor.ts",
+        "apps/admin-api-service/src/impersonation/services/feature-flag-debug.service.ts",
+        "apps/admin-api-service/src/support/controllers/ticket.controller.ts",
+        "apps/admin-api-service/src/support/services/ticket.service.ts",
+        "apps/admin-api-service/src/support/controllers/announcement.controller.ts",
+        "apps/admin-api-service/src/support/controllers/messaging.controller.ts",
+        "apps/admin-api-service/src/support/controllers/onboarding.controller.ts"
+      ]
+    },
+    "EV-ROOT-REPORTING-AUTHORITY": {
+      "state": "REIMPLEMENTED",
+      "summary": "The active worktree replaces schedule, dead URL, synthetic artifact, empty preview, range, and pagination patches with one compiled reporting authority graph, an execution-pinned catalog and resource cut, independently attested measurement adapters, a canonical paginated decoder, and a durable CAS artifact commit and reconciliation protocol; production measurements remain fail-closed until owner-qualified facts exist.",
+      "locations": [
+        "platform/libs/reporting-contracts/",
+        "apps/admin-api-service/src/analytics/",
+        "apps/admin-api-service/src/migrations/1808400000000-EnforceReportCapabilityAuthority.ts",
+        "web/modules/admin-panel/src/pages/reporting/",
+        "web/modules/admin-panel/src/pages/ReportsPage.tsx",
+        "docs/evidence/admin-http-contracts/admin-route-contract-manifest.generated.json"
+      ]
+    },
+    "EV-ROOT-ROLE-VOCABULARY": {
+      "state": "REIMPLEMENTED",
+      "summary": "The active worktree makes the event-contract role vocabulary the only authored authority and projects backend validation, route contracts, and frontend labels from it under an exact-set invariant.",
+      "locations": [
+        "libs/event-contracts/src/roles.ts",
+        "apps/admin-api-service/src/users/users-role-authority.spec.ts",
+        "web/modules/admin-panel/src/pages/user-role-projections.ts",
+        "tests/invariants/rbac-vocabulary-ssot.spec.ts"
+      ]
+    },
+    "EV-ROOT-ANALYTICS-METRIC-AUTHORITY": {
+      "state": "REIMPLEMENTED",
+      "summary": "The active worktree replaces fabricated analytics values and route-specific compatibility shapes with a closed metric catalog, canonical catalog digest and evidence projection, nullable unavailable metrics, source-failure rejection, and one generated trend response contract.",
+      "locations": [
+        "libs/shared-contracts/src/analytics-metric-catalog.ts",
+        "apps/admin-api-service/src/analytics/services/analytics.service.ts",
+        "apps/admin-api-service/src/analytics/contracts/admin-http-response.contract.ts",
+        "web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx"
+      ]
+    },
+    "EV-MAIN-ANALYTICS-INVOICE-STATUS": {
+      "state": "SATISFIED_ON_MAIN",
+      "summary": "The current analytics owner excludes refunded invoices from outstanding receivables by summing only pending and sent rows while projecting refunded totals separately.",
+      "locations": ["apps/admin-api-service/src/analytics/services/analytics.service.ts"]
+    },
+    "EV-ROOT-CACHE-AUTHORITY": {
+      "state": "REIMPLEMENTED",
+      "summary": "The active worktree replaces snapshot and log-only cache behavior with a Redis-owned measured projection, canonical invalidation request/receipt contract, exact deletion accounting, and frontend receipt verification.",
+      "locations": [
+        "libs/shared-contracts/src/admin-cache-invalidation.ts",
+        "apps/admin-api-service/src/impersonation/services/cache-inspector.service.ts",
+        "web/modules/admin-panel/src/pages/system/DebugToolsPage.tsx"
+      ]
+    },
+    "EV-ROOT-ADMIN-AUDIT-AUTHORITY": {
+      "state": "REIMPLEMENTED",
+      "summary": "The active worktree replaces audit vocabulary patches and duplicate activity writers with one typed action/write-policy/severity catalog, one generated browser/server contract surface, one SECURITY DEFINER append authority, one separately fenced retention-delete role, durable provenance for every pre-trust/imported row, and verified-request actor attribution. Runtime code cannot promote historical rows or directly INSERT, UPDATE, or DELETE audit evidence.",
+      "locations": [
+        "platform/libs/admin-http-contracts/src/audit-authority.ts",
+        "apps/admin-api-service/src/audit/audit-database-authority.ts",
+        "apps/admin-api-service/src/audit/audit.service.ts",
+        "apps/admin-api-service/src/database-management/controllers/explorer.controller.ts",
+        "apps/admin-api-service/src/migrations/1808750000000-EstablishAdminAuditTrustClasses.ts",
+        "apps/admin-api-service/src/migrations/1808800000000-ConsolidateTenantActivityAuthority.ts",
+        "apps/admin-api-service/src/migrations/1808900000000-ConsolidateAdminActivityAuthority.ts",
+        "apps/admin-api-service/src/migrations/__tests__/180875-180890-admin-audit-authority.integration.spec.ts",
+        "tests/invariants/admin-audit-authority-ssot.spec.ts"
+      ]
+    },
+    "EV-OPEN-NATS": {
+      "state": "OPEN",
+      "summary": "admin-api still declares tenant-onboarding event handlers without a catalog-derived Nest NATS runtime profile; an inline bootstrap flag would repeat the drift instead of closing it.",
+      "locations": [
+        "apps/admin-api-service/src/main.ts",
+        "apps/admin-api-service/src/tenant/handlers/tenant-onboarding-ack.handler.ts",
+        "libs/backend-common/src/bootstrap/create-service-app.ts",
+        "libs/event-contracts/src/platform-event-registry.ts",
+        "platform/libs/service-catalog/src/index.ts"
+      ]
+    },
+    "EV-OPEN-SAGA": {
+      "state": "OPEN",
+      "summary": "The active tenant-provisioning workflow has not yet been proven against the branch commit's activation/ack barrier and retry semantics.",
+      "locations": [
+        "apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts"
+      ]
+    },
+    "EV-OPEN-LEGAL-HOLD": {
+      "state": "OPEN",
+      "summary": "The messaging owner requires approverId and a governed release reason, while the active admin/frontend request shape still supplies only holdId and tenantId.",
+      "locations": [
+        "apps/admin-api-service/src/messaging/",
+        "apps/messaging-service/src/compliance/services/legal-hold.service.ts",
+        "web/modules/admin-panel/src/pages/messaging/MessagingCompliancePage.tsx"
+      ]
+    },
+    "EV-OPEN-SUPPORT-OWNERSHIP": {
+      "state": "OPEN",
+      "summary": "Announcements, support tickets, and support messaging still have competing auth/admin ownership paths; a single owner and typed cross-service command surface have not been established.",
+      "locations": [
+        "apps/admin-api-service/src/support/",
+        "apps/auth-service/src/modules/announcement/",
+        "apps/auth-service/src/modules/support/",
+        "apps/auth-service/src/modules/messaging/"
+      ]
+    },
+    "EV-OPEN-EDGE-ROUTING": {
+      "state": "OPEN",
+      "summary": "The active compose/nginx surfaces are not all projected from one edge-routing authority, so replaying a branch-local config edit would preserve topology drift.",
+      "locations": [
+        "infrastructure/nginx/droplet.conf",
+        "infrastructure/docker/nginx/",
+        "docker-compose.yml",
+        "docker-compose.droplet.yml"
+      ]
+    },
+    "EV-OPEN-SECURITY": {
+      "state": "OPEN",
+      "summary": "The audited security behavior remains incomplete in the active tree: revocation, failed-auth throttling, distributed rate limits, CSRF/CORS posture, and actor attribution require root authority closure.",
+      "locations": [
+        "apps/admin-api-service/src/guards/",
+        "apps/admin-api-service/src/health/health.controller.ts",
+        "libs/backend-common/src/security/throttler/",
+        "libs/shared-contracts/src/http/csrf-security-posture.ts"
+      ]
+    },
+    "EV-OPEN-TELEMETRY": {
+      "state": "OPEN",
+      "summary": "The audited UI/API surface still contains ungrounded health, security, or operational telemetry and lacks a complete measured-or-unknown authority.",
+      "locations": [
+        "apps/admin-api-service/src/analytics/",
+        "apps/admin-api-service/src/security/",
+        "apps/admin-api-service/src/system-management/"
+      ]
+    },
+    "EV-OPEN-ANALYTICS": {
+      "state": "OPEN",
+      "summary": "The active analytics/reporting implementation has not adopted the branch commit's data-grounding behavior and still requires source-owned measurements with explicit unknown states.",
+      "locations": [
+        "apps/admin-api-service/src/analytics/",
+        "web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx",
+        "web/modules/admin-panel/src/pages/ReportsPage.tsx"
+      ]
+    },
+    "EV-OPEN-CONFIG-OWNERSHIP": {
+      "state": "OPEN",
+      "summary": "Tenant configuration ownership is only partially moved to config-service: writes and reads do not yet form one enforced, non-fabricated authority.",
+      "locations": [
+        "apps/config-service/src/configuration/",
+        "apps/admin-api-service/src/settings/",
+        "web/modules/admin-panel/src/pages/TenantConfigurationPage.tsx"
+      ]
+    },
+    "EV-OPEN-CACHE-AUTHORITY": {
+      "state": "OPEN",
+      "summary": "The cache inspector still needs a Redis-owned measured projection and real invalidation semantics; snapshot/fake-success behavior is not accepted.",
+      "locations": [
+        "apps/admin-api-service/src/impersonation/services/",
+        "libs/backend-common/src/redis/"
+      ]
+    },
+    "EV-OPEN-IMPERSONATION": {
+      "state": "OPEN",
+      "summary": "Impersonation lifecycle, consumer, revocation, audit, and metrics semantics have not been closed as one security state machine in the active tree.",
+      "locations": ["apps/admin-api-service/src/impersonation/"]
+    },
+    "EV-OPEN-GENERAL": {
+      "state": "OPEN",
+      "summary": "Read-only comparison found no complete equivalent in the active root architecture; the historical diff must be redesigned or independently verified before implementation.",
+      "locations": ["apps/admin-api-service/", "web/modules/admin-panel/"]
+    }
+  },
+  "testProofCatalog": {
+    "TP-AUTHORITY-INVARIANT": {
+      "status": "EXECUTABLE",
+      "kind": "JEST_INVARIANT",
+      "command": "npx jest --config tests/invariants/jest.config.ts --runTestsByPath tests/invariants/admin-panel-branch-reconciliation.spec.ts --runInBand",
+      "locations": ["tests/invariants/admin-panel-branch-reconciliation.spec.ts"]
+    },
+    "TP-DIFF-INSPECTION": {
+      "status": "READ_ONLY_AUDIT",
+      "kind": "PINNED_DAG_REVIEW",
+      "command": "git show <exact-sha>",
+      "locations": [
+        "docs/evidence/admin-panel-branch-reconciliation/reconciliation-authority.v1.json"
+      ]
+    },
+    "TP-ADMIN-HTTP-SSOT": {
+      "status": "EXECUTABLE",
+      "kind": "COMPILER_AND_INVARIANT",
+      "command": "npx jest --config tests/invariants/jest.config.ts --runTestsByPath tests/invariants/admin-http-contract-ssot.spec.ts tests/invariants/admin-contract-compiler-negative-fixtures.spec.ts --runInBand",
+      "locations": [
+        "tests/invariants/admin-http-contract-ssot.spec.ts",
+        "tests/invariants/admin-contract-compiler-negative-fixtures.spec.ts"
+      ]
+    },
+    "TP-BACKUP-RUNTIME-RETIREMENT": {
+      "status": "EXECUTABLE",
+      "kind": "ABSENCE_CENSUS_AND_GENERATED_EXACT_SET",
+      "command": "npx jest --config tests/invariants/jest.config.ts --runTestsByPath tests/invariants/admin-backup-encryption-ssot.spec.ts tests/invariants/tenant-provisioning-ssot.spec.ts --runInBand && npm run codegen:admin-contracts:check",
+      "locations": [
+        "tests/invariants/admin-backup-encryption-ssot.spec.ts",
+        "tests/invariants/tenant-provisioning-ssot.spec.ts",
+        "docs/evidence/admin-http-contracts/admin-route-contract-manifest.generated.json"
+      ]
+    },
+    "TP-NATS-RUNTIME-SSOT": {
+      "status": "EXECUTABLE",
+      "kind": "CATALOG_COMPILER_AND_HANDLER_TEST",
+      "command": "npx jest --config libs/backend-common/jest.config.ts --runTestsByPath libs/backend-common/src/nats/__tests__/service-nats-runtime-profiles.spec.ts --runInBand && npx nx test admin-api-service --runInBand --testPathPatterns=tenant-onboarding-ack.handler.spec.ts",
+      "locations": [
+        "libs/backend-common/src/nats/__tests__/service-nats-runtime-profiles.spec.ts",
+        "apps/admin-api-service/src/tenant/handlers/tenant-onboarding-ack.handler.spec.ts",
+        "tests/invariants/tenant-provisioning-ssot.spec.ts"
+      ]
+    },
+    "TP-ONBOARDING-ACTIVATION-SSOT": {
+      "status": "EXECUTABLE",
+      "kind": "DATABASE_CONTRACT_AND_WORKFLOW_TEST",
+      "command": "npx nx test admin-api-service --runInBand --testPathPatterns='(tenant-provisioning-workflow.service|1808300000000-EnforceTenantOnboardingAckMonotonicity|tenant-onboarding-ack.handler).spec.ts'",
+      "locations": [
+        "apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.spec.ts",
+        "apps/admin-api-service/src/migrations/__tests__/1808300000000-EnforceTenantOnboardingAckMonotonicity.spec.ts",
+        "apps/admin-api-service/src/migrations/__tests__/1808300000000-EnforceTenantOnboardingAckMonotonicity.integration.spec.ts",
+        "apps/admin-api-service/src/tenant/handlers/tenant-onboarding-ack.handler.spec.ts",
+        "apps/auth-service/src/modules/tenant/services/__tests__/lifecycle-commands.spec.ts",
+        "tests/invariants/tenant-provisioning-ssot.spec.ts"
+      ]
+    },
+    "TP-ACTOR-IDENTITY-SSOT": {
+      "status": "EXECUTABLE",
+      "kind": "BOUNDARY_AND_PERSISTENCE_REGRESSION",
+      "command": "npx nx test admin-api-service --runInBand --testPathPatterns='(feature-flag-debug|ticket).service.spec.ts' && npx jest --config libs/backend-common/jest.config.ts --runInBand --testPathPatterns=system-actor.spec.ts",
+      "locations": [
+        "apps/admin-api-service/src/impersonation/services/__tests__/feature-flag-debug.service.spec.ts",
+        "apps/admin-api-service/src/support/services/__tests__/ticket.service.spec.ts",
+        "libs/backend-common/src/constants/__tests__/system-actor.spec.ts"
+      ]
+    },
+    "TP-REPORTING-AUTHORITY-SSOT": {
+      "status": "EXECUTABLE",
+      "kind": "CATALOG_DATABASE_CAS_AND_FRONTEND_CONTRACT",
+      "command": "npx jest --config platform/libs/reporting-contracts/jest.config.ts --runTestsByPath platform/libs/reporting-contracts/src/index.spec.ts --runInBand && npx jest --config apps/admin-api-service/jest.config.ts --runTestsByPath apps/admin-api-service/src/analytics/services/report-measurement-adapter.registry.spec.ts apps/admin-api-service/src/analytics/services/reports-artifact-atomicity.spec.ts apps/admin-api-service/src/analytics/services/reports-capability.service.spec.ts apps/admin-api-service/src/migrations/__tests__/1808400000000-EnforceReportCapabilityAuthority.spec.ts apps/admin-api-service/src/migrations/__tests__/1808400000000-EnforceReportCapabilityAuthority.integration.spec.ts --runInBand && (cd web/modules/admin-panel && npx vitest run --config vite.config.ts src/pages/ReportsPage.spec.tsx)",
+      "locations": [
+        "platform/libs/reporting-contracts/src/index.spec.ts",
+        "apps/admin-api-service/src/analytics/services/report-measurement-adapter.registry.spec.ts",
+        "apps/admin-api-service/src/analytics/services/reports-artifact-atomicity.spec.ts",
+        "apps/admin-api-service/src/analytics/services/reports-capability.service.spec.ts",
+        "apps/admin-api-service/src/migrations/__tests__/1808400000000-EnforceReportCapabilityAuthority.spec.ts",
+        "apps/admin-api-service/src/migrations/__tests__/1808400000000-EnforceReportCapabilityAuthority.integration.spec.ts",
+        "web/modules/admin-panel/src/pages/ReportsPage.spec.tsx"
+      ]
+    },
+    "TP-ROLE-VOCABULARY-SSOT": {
+      "status": "EXECUTABLE",
+      "kind": "CLOSED_VOCABULARY_AND_PROJECTION_INVARIANT",
+      "command": "npx jest --config tests/invariants/jest.config.ts --runTestsByPath tests/invariants/rbac-vocabulary-ssot.spec.ts --runInBand && npx jest --config apps/admin-api-service/jest.config.ts --runTestsByPath apps/admin-api-service/src/users/users-role-authority.spec.ts --runInBand && (cd web/modules/admin-panel && npx vitest run --config vite.config.ts src/pages/__tests__/user-role-projections.spec.ts)",
+      "locations": [
+        "tests/invariants/rbac-vocabulary-ssot.spec.ts",
+        "apps/admin-api-service/src/users/users-role-authority.spec.ts",
+        "web/modules/admin-panel/src/pages/__tests__/user-role-projections.spec.ts"
+      ]
+    },
+    "TP-ANALYTICS-METRIC-AUTHORITY": {
+      "status": "EXECUTABLE",
+      "kind": "CATALOG_BACKEND_CONTRACT_AND_FRONTEND_PROJECTION",
+      "command": "npx jest --config libs/shared-contracts/jest.config.ts --runTestsByPath libs/shared-contracts/src/__tests__/analytics-metric-catalog.spec.ts --runInBand && npx jest --config apps/admin-api-service/jest.config.ts --runTestsByPath apps/admin-api-service/src/analytics/services/analytics-metric-authority.spec.ts apps/admin-api-service/src/analytics/contracts/admin-http-response.contract.spec.ts --runInBand && (cd web/modules/admin-panel && npx vitest run --config vite.config.ts src/pages/AnalyticsDashboardPage.spec.tsx)",
+      "locations": [
+        "libs/shared-contracts/src/__tests__/analytics-metric-catalog.spec.ts",
+        "apps/admin-api-service/src/analytics/services/analytics-metric-authority.spec.ts",
+        "apps/admin-api-service/src/analytics/contracts/admin-http-response.contract.spec.ts",
+        "web/modules/admin-panel/src/pages/AnalyticsDashboardPage.spec.tsx"
+      ]
+    },
+    "TP-CACHE-AUTHORITY": {
+      "status": "EXECUTABLE",
+      "kind": "REDIS_ADAPTER_RECEIPT_AND_FRONTEND_VERIFICATION",
+      "command": "npx jest --config libs/shared-contracts/jest.config.ts --runTestsByPath libs/shared-contracts/src/__tests__/admin-cache-invalidation.spec.ts --runInBand && npx jest --config apps/admin-api-service/jest.config.ts --runTestsByPath apps/admin-api-service/src/impersonation/services/__tests__/cache-inspector.service.spec.ts --runInBand && (cd web/modules/admin-panel && npx vitest run --config vite.config.ts src/pages/system/DebugToolsPage.spec.tsx)",
+      "locations": [
+        "libs/shared-contracts/src/__tests__/admin-cache-invalidation.spec.ts",
+        "apps/admin-api-service/src/impersonation/services/__tests__/cache-inspector.service.spec.ts",
+        "web/modules/admin-panel/src/pages/system/DebugToolsPage.spec.tsx"
+      ]
+    },
+    "TP-ADMIN-AUDIT-AUTHORITY": {
+      "status": "EXECUTABLE",
+      "kind": "TYPED_CATALOG_DATABASE_AUTHORITY_AND_FAILURE_INJECTION",
+      "command": "npx jest --config platform/libs/admin-http-contracts/jest.config.ts --runTestsByPath platform/libs/admin-http-contracts/src/audit-authority.spec.ts --runInBand && npx jest --config apps/admin-api-service/jest.config.ts --runTestsByPath apps/admin-api-service/src/audit/__tests__/audit.service.record-await.spec.ts apps/admin-api-service/src/migrations/__tests__/1808750000000-EstablishAdminAuditTrustClasses.spec.ts apps/admin-api-service/src/migrations/__tests__/1808800000000-ConsolidateTenantActivityAuthority.spec.ts apps/admin-api-service/src/migrations/__tests__/1808900000000-ConsolidateAdminActivityAuthority.spec.ts apps/admin-api-service/src/migrations/__tests__/1808600000000-impersonation-security-authority.integration.spec.ts apps/admin-api-service/src/migrations/__tests__/180875-180890-admin-audit-authority.integration.spec.ts --runInBand && npx jest --config tests/invariants/jest.config.ts --runTestsByPath tests/invariants/admin-audit-authority-ssot.spec.ts tests/invariants/audit-immutability-triggers.spec.ts --runInBand",
+      "locations": [
+        "platform/libs/admin-http-contracts/src/audit-authority.spec.ts",
+        "apps/admin-api-service/src/audit/__tests__/audit.service.record-await.spec.ts",
+        "apps/admin-api-service/src/migrations/__tests__/1808750000000-EstablishAdminAuditTrustClasses.spec.ts",
+        "apps/admin-api-service/src/migrations/__tests__/1808800000000-ConsolidateTenantActivityAuthority.spec.ts",
+        "apps/admin-api-service/src/migrations/__tests__/1808900000000-ConsolidateAdminActivityAuthority.spec.ts",
+        "apps/admin-api-service/src/migrations/__tests__/1808600000000-impersonation-security-authority.integration.spec.ts",
+        "apps/admin-api-service/src/migrations/__tests__/180875-180890-admin-audit-authority.integration.spec.ts",
+        "tests/invariants/admin-audit-authority-ssot.spec.ts",
+        "tests/invariants/audit-immutability-triggers.spec.ts"
+      ]
+    },
+    "TP-CURRENT-TREE-INSPECTION": {
+      "status": "READ_ONLY_AUDIT",
+      "kind": "SOURCE_COMPARISON",
+      "command": "git diff --find-renames <exact-sha>^ <exact-sha>",
+      "locations": [
+        "docs/evidence/admin-panel-branch-reconciliation/reconciliation-authority.v1.json"
+      ]
+    },
+    "TP-OPEN-DESIGN-GAP": {
+      "status": "NOT_SATISFIED",
+      "kind": "NEGATIVE_SOURCE_INSPECTION",
+      "command": "inspect current owner, consumer, runtime, and invariant surfaces",
+      "locations": [
+        "docs/evidence/admin-panel-branch-reconciliation/reconciliation-authority.v1.json"
+      ]
+    },
+    "TP-NATS-NEGATIVE-INSPECTION": {
+      "status": "NOT_SATISFIED",
+      "kind": "REGISTRY_BOOTSTRAP_SET_COMPARISON",
+      "command": "compare PLATFORM_EVENT_REGISTRY consumers, service catalog runtime profiles, decorator handlers, and bootstrap symbols",
+      "locations": [
+        "libs/event-contracts/src/platform-event-registry.ts",
+        "platform/libs/service-catalog/src/index.ts",
+        "libs/backend-common/src/bootstrap/create-service-app.ts",
+        "apps/admin-api-service/src/main.ts"
+      ]
+    }
+  },
+  "commits": [
+    {
+      "ordinal": 1,
+      "sha": "8f37830790db2f4e3d50b570b5f4849ebb727b61",
+      "phase": "AUDIT_EVIDENCE",
+      "disposition": "SUPERSEDED",
+      "subject": "chore(reviews): admin panel FE-BE-DB end-to-end audit — 383 findings, verdict matrix, fix designs",
+      "currentEvidence": ["EV-SUPERSEDED-AUDIT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-DIFF-INSPECTION"]
+    },
+    {
+      "ordinal": 2,
+      "sha": "281a8e66758e02bf4cf714084260b8c633b56b8a",
+      "phase": "AUDIT_EVIDENCE",
+      "disposition": "SUPERSEDED",
+      "subject": "chore(reviews): admin panel audit — stage 1/8 remediation designs appended",
+      "currentEvidence": ["EV-SUPERSEDED-AUDIT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-DIFF-INSPECTION"]
+    },
+    {
+      "ordinal": 3,
+      "sha": "c119422caaef5e23e4c55272c5619f41bedcc887",
+      "phase": "AUDIT_EVIDENCE",
+      "disposition": "SUPERSEDED",
+      "subject": "chore(reviews): admin panel audit — stage 2/8 remediation designs appended",
+      "currentEvidence": ["EV-SUPERSEDED-AUDIT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-DIFF-INSPECTION"]
+    },
+    {
+      "ordinal": 4,
+      "sha": "33010d1144295b73ac8e80369e220c52425d184b",
+      "phase": "AUDIT_EVIDENCE",
+      "disposition": "SUPERSEDED",
+      "subject": "chore(reviews): admin panel audit — stage 3/8 remediation designs appended",
+      "currentEvidence": ["EV-SUPERSEDED-AUDIT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-DIFF-INSPECTION"]
+    },
+    {
+      "ordinal": 5,
+      "sha": "3956cc06e94223ea8322ebd4ad581641fa6c92af",
+      "phase": "AUDIT_EVIDENCE",
+      "disposition": "SUPERSEDED",
+      "subject": "chore(reviews): admin panel audit — stage 4/8 remediation designs appended",
+      "currentEvidence": ["EV-SUPERSEDED-AUDIT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-DIFF-INSPECTION"]
+    },
+    {
+      "ordinal": 6,
+      "sha": "f042fb22b3a49c8e484047b579e2f43d987f86cf",
+      "phase": "AUDIT_EVIDENCE",
+      "disposition": "SUPERSEDED",
+      "subject": "chore(reviews): admin panel audit — stage 5/8 remediation designs appended",
+      "currentEvidence": ["EV-SUPERSEDED-AUDIT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-DIFF-INSPECTION"]
+    },
+    {
+      "ordinal": 7,
+      "sha": "3ac8b382c5a2930d46ce36587a9fc93f1b4a79f3",
+      "phase": "AUDIT_EVIDENCE",
+      "disposition": "SUPERSEDED",
+      "subject": "chore(reviews): admin panel audit — stage 6/8 remediation designs appended",
+      "currentEvidence": ["EV-SUPERSEDED-AUDIT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-DIFF-INSPECTION"]
+    },
+    {
+      "ordinal": 8,
+      "sha": "acbb3b2b664bc823292ba232483518560ec384fb",
+      "phase": "AUDIT_EVIDENCE",
+      "disposition": "SUPERSEDED",
+      "subject": "chore(reviews): admin panel audit — stage 7/8 remediation designs appended",
+      "currentEvidence": ["EV-SUPERSEDED-AUDIT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-DIFF-INSPECTION"]
+    },
+    {
+      "ordinal": 9,
+      "sha": "4c52fe23e6ad6664cbc6b51a6c785748f607e696",
+      "phase": "AUDIT_EVIDENCE",
+      "disposition": "SUPERSEDED",
+      "subject": "chore(reviews): admin panel audit — stage 8/8 remediation designs appended",
+      "currentEvidence": ["EV-SUPERSEDED-AUDIT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-DIFF-INSPECTION"]
+    },
+    {
+      "ordinal": 10,
+      "sha": "7cf95989e818ca526a075f4d8249aaa7f1f1fd24",
+      "phase": "AUDIT_EVIDENCE",
+      "disposition": "SUPERSEDED",
+      "subject": "chore(reviews): admin panel audit — sweep stage remediation designs appended",
+      "currentEvidence": ["EV-SUPERSEDED-AUDIT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-DIFF-INSPECTION"]
+    },
+    {
+      "ordinal": 11,
+      "sha": "c056985eb0355c7a799df89e1e447d0a6e7987f2",
+      "phase": "AUDIT_EVIDENCE",
+      "disposition": "SUPERSEDED",
+      "subject": "chore(reviews): admin panel audit — remediation design complete (383/383)",
+      "currentEvidence": ["EV-SUPERSEDED-AUDIT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-DIFF-INSPECTION"]
+    },
+    {
+      "ordinal": 12,
+      "sha": "59dfc8102e2e03519be68d107e8a8376b7fa39eb",
+      "phase": "REMEDIATION_ROADMAP",
+      "disposition": "SUPERSEDED",
+      "subject": "docs(plans): admin panel remediation roadmap — 374 findings sequenced into 5 phases",
+      "currentEvidence": ["EV-SUPERSEDED-AUDIT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-DIFF-INSPECTION"]
+    },
+    {
+      "ordinal": 13,
+      "sha": "c3c296caf5a1e46b2daa3b1cc877e7062683de6d",
+      "phase": "PHASE_0_FLAGSHIP_FLOWS",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(admin-api): wire NATS transport so tenant-onboarding consumers are live (ADMIN-HIGH-003)",
+      "currentEvidence": ["EV-ROOT-NATS-RUNTIME-PROFILE"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-NATS-RUNTIME-SSOT"]
+    },
+    {
+      "ordinal": 14,
+      "sha": "78d6d04c01d3896f5aee75b648247bab2aae7cb1",
+      "phase": "PHASE_0_FLAGSHIP_FLOWS",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(admin-api): order onboarding-ack barrier before tenant activation + generic wait/requeue (ADMIN-CRITICAL-006)",
+      "currentEvidence": ["EV-ROOT-ONBOARDING-ACTIVATION"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ONBOARDING-ACTIVATION-SSOT"]
+    },
+    {
+      "ordinal": 15,
+      "sha": "271c30bed3ce6beb0e3e31071076f13d2217ec0e",
+      "phase": "PHASE_1_CONTRACT_LAYER",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(admin-api): canonical paginated-response envelope, phase A (ADMIN-CRITICAL-009)",
+      "currentEvidence": ["EV-ROOT-ADMIN-HTTP-CONTRACT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ADMIN-HTTP-SSOT"]
+    },
+    {
+      "ordinal": 16,
+      "sha": "8600ebac661de179327dca837718b70917580407",
+      "phase": "PHASE_0_FLAGSHIP_FLOWS",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(admin-api): source support/debug actor UUIDs from auth context, not hardcoded strings (22P02 500s)",
+      "currentEvidence": ["EV-ROOT-ACTOR-IDENTITY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ACTOR-IDENTITY-SSOT"]
+    },
+    {
+      "ordinal": 17,
+      "sha": "cc6e59508d53f2154584372f3c84233187ac5971",
+      "phase": "PHASE_0_FLAGSHIP_FLOWS",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(admin-api): reclassify impersonation_sessions as operational, not append-only (APA-288)",
+      "currentEvidence": ["EV-OPEN-IMPERSONATION"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 18,
+      "sha": "c1cd8c4a44fb591f8ef5388ce65951821dae559d",
+      "phase": "PHASE_0_FLAGSHIP_FLOWS",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(admin-panel): repoint feature-toggle primary action to the real backend route (APA-251)",
+      "currentEvidence": ["EV-ROOT-ADMIN-HTTP-CONTRACT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ADMIN-HTTP-SSOT"]
+    },
+    {
+      "ordinal": 19,
+      "sha": "637e41a5d45c570c95e92eb76aa082bca33f0349",
+      "phase": "DELIVERY_MAINTENANCE",
+      "disposition": "ALREADY_MAIN",
+      "subject": "chore(ci): fix scripts type-check ESM import + pin debt-plan manifest to registry",
+      "currentEvidence": ["EV-MAIN-CI"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-CURRENT-TREE-INSPECTION"]
+    },
+    {
+      "ordinal": 20,
+      "sha": "72ff91c1ab79a8b7aec1faa38e5d7a48341a2b6e",
+      "phase": "DELIVERY_MAINTENANCE",
+      "disposition": "STILL_OPEN",
+      "subject": "chore(deps): pin brace-expansion to patched versions (GHSA-3jxr-9vmj-r5cp)",
+      "currentEvidence": ["EV-OPEN-GENERAL"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 21,
+      "sha": "559f65a244651573aee8e4d9546b7f51bc5c93fc",
+      "phase": "PHASE_0_FLAGSHIP_FLOWS",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(admin-api): security dashboard renders \"No telemetry\" instead of fabricating a healthy score (APA-240)",
+      "currentEvidence": ["EV-OPEN-TELEMETRY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 22,
+      "sha": "f4b2fb3b4bdbcd67dc227b258fc90142d2b79418",
+      "phase": "AUDIT_EVIDENCE",
+      "disposition": "SUPERSEDED",
+      "subject": "chore(reviews): fix ADMIN-CRITICAL-016 evidence path-shape (invariants-fast)",
+      "currentEvidence": ["EV-SUPERSEDED-AUDIT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-DIFF-INSPECTION"]
+    },
+    {
+      "ordinal": 23,
+      "sha": "a7e40a3854cf84e9b50f580edb5a5832fced74b4",
+      "phase": "PHASE_0_FLAGSHIP_FLOWS",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(messaging): enforce legal-hold release dual-approver contract end-to-end (APA-163)",
+      "currentEvidence": ["EV-OPEN-LEGAL-HOLD"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 24,
+      "sha": "cb4a88afc240613886cc3eefe7375b3e7368fc9d",
+      "phase": "DELIVERY_MAINTENANCE",
+      "disposition": "SUPERSEDED",
+      "subject": "test(admin-panel): import jest-dom matchers in the compliance page spec (CI type-check)",
+      "currentEvidence": ["EV-SUPERSEDED-AUDIT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-DIFF-INSPECTION"]
+    },
+    {
+      "ordinal": 25,
+      "sha": "b10d1208e8eb3d9f108748e3c8c94d071e236a76",
+      "phase": "PHASE_1_CONTRACT_LAYER",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(admin-panel): delete 18 phantom API fns, fix live Acknowledge 404, un-suppress contract gate (APA-254)",
+      "currentEvidence": ["EV-ROOT-ADMIN-HTTP-CONTRACT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ADMIN-HTTP-SSOT"]
+    },
+    {
+      "ordinal": 26,
+      "sha": "75c3fd96d0a8b1faf55de3eb8f5fef11e38ab6cc",
+      "phase": "PHASE_0_FLAGSHIP_FLOWS",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(admin-panel): unify the role vocabulary on one SSoT so canonical roles validate (APA-050)",
+      "currentEvidence": ["EV-ROOT-ROLE-VOCABULARY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ROLE-VOCABULARY-SSOT"]
+    },
+    {
+      "ordinal": 27,
+      "sha": "e34f503b58562da27645c1427254ab4f0f1f9e4d",
+      "phase": "DELIVERY_MAINTENANCE",
+      "disposition": "REJECTED_WITH_REASON",
+      "subject": "fix(event-contracts): reword roles SSoT comment so the SSOT-H-06 grep matches only the canonical enum (APA-050)",
+      "currentEvidence": ["EV-REJECTED-REGEX-GATE"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-DIFF-INSPECTION"]
+    },
+    {
+      "ordinal": 28,
+      "sha": "2f118a3b72eea36add627bb4dd32928ae9fa589b",
+      "phase": "PHASE_0_FLAGSHIP_FLOWS",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(infra): unify the /api edge-routing contract on one nginx SSoT so every stack reaches admin-api (APA-252, APA-253)",
+      "currentEvidence": ["EV-OPEN-EDGE-ROUTING"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 29,
+      "sha": "3b8d58b556c49505a015eb0ff716b55d183be473",
+      "phase": "PHASE_0_FLAGSHIP_FLOWS",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(support): consolidate announcements onto the auth.announcements SSoT so broadcasts actually deliver (APA-201)",
+      "currentEvidence": ["EV-OPEN-SUPPORT-OWNERSHIP"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 30,
+      "sha": "b9e22832baac096b0408d7bc91ae664f40cdfb52",
+      "phase": "PHASE_0_FLAGSHIP_FLOWS",
+      "disposition": "ALREADY_MAIN",
+      "subject": "fix(infra): grant auth_service the AnnouncementPublished NATS publish subject (APA-201)",
+      "currentEvidence": ["EV-MAIN-NATS-ACL"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-CURRENT-TREE-INSPECTION"]
+    },
+    {
+      "ordinal": 31,
+      "sha": "9fc9506cc9e12a7f0b9707cea9fbe1a1b631419a",
+      "phase": "DELIVERY_MAINTENANCE",
+      "disposition": "REJECTED_WITH_REASON",
+      "subject": "test(invariants): narrow regex capture groups in the publisher/subscriber parity gate",
+      "currentEvidence": ["EV-REJECTED-REGEX-GATE"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-DIFF-INSPECTION"]
+    },
+    {
+      "ordinal": 32,
+      "sha": "f92a0ba4ead882d347cfd0b88655e465f8962899",
+      "phase": "PHASE_1_CONTRACT_LAYER",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(admin-api): complete the canonical paginated SSoT — migrate every list producer and delete the legacy interceptor branch (APA-106, RC-1b)",
+      "currentEvidence": ["EV-ROOT-ADMIN-HTTP-CONTRACT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ADMIN-HTTP-SSOT"]
+    },
+    {
+      "ordinal": 33,
+      "sha": "c9a40660d09d13fd05a60e2f66cd5c5e30b2cab5",
+      "phase": "PHASE_0_FLAGSHIP_FLOWS",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(support): consolidate support tickets onto the auth SSoT and drop the admin duplicate (APA-213 tickets)",
+      "currentEvidence": ["EV-OPEN-SUPPORT-OWNERSHIP"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 34,
+      "sha": "933a02656af18de9ebf2f0240c126efeda431683",
+      "phase": "PHASE_0_FLAGSHIP_FLOWS",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(support): consolidate support messaging onto the auth SSoT, dropping the admin duplicate (APA-213 messaging) — fully closes the split-brain silo",
+      "currentEvidence": ["EV-OPEN-SUPPORT-OWNERSHIP"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 35,
+      "sha": "741a5ef77fa187d8fef59e286e40f09e87917a11",
+      "phase": "PHASE_1_CONTRACT_LAYER",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(admin-api): make every @Body/@Query a validated DTO class so the global ValidationPipe engages, and harden sortBy against SQL ORDER BY injection (Phase-1 RC-2)",
+      "currentEvidence": ["EV-OPEN-GENERAL"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 36,
+      "sha": "894cbbf5f2bb1633e10ef8b1e01ac537eea85718",
+      "phase": "PHASE_1_CONTRACT_LAYER",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(admin-api): reconcile the FE↔DTO write contracts so invite/maintenance/backup/toggle/time-range/dashboard/revoke actually work (Phase-1 RC-4)",
+      "currentEvidence": ["EV-ROOT-BACKUP-ROUTE-RETIREMENT", "EV-OPEN-GENERAL"],
+      "testProof": [
+        "TP-AUTHORITY-INVARIANT",
+        "TP-ADMIN-HTTP-SSOT",
+        "TP-BACKUP-RUNTIME-RETIREMENT",
+        "TP-OPEN-DESIGN-GAP"
+      ]
+    },
+    {
+      "ordinal": 37,
+      "sha": "b02cf28718b411f69b4b3db13466d3184768bf7f",
+      "phase": "PHASE_1_CONTRACT_LAYER",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(admin-api): give the two mixed-@Query list handlers one validated query DTO so filters bind instead of 400ing (Phase-1 RC-3)",
+      "currentEvidence": ["EV-OPEN-GENERAL"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 38,
+      "sha": "6cdadfbbe92327cf94981d51337064c0bb704e6e",
+      "phase": "PHASE_1_CONTRACT_LAYER",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(admin-api): declare static routes before their :param siblings so shadowed endpoints are reachable (Phase-1 RC-6 route-shadowing)",
+      "currentEvidence": ["EV-OPEN-GENERAL"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 39,
+      "sha": "c84c2ab67a5ec425318175b8d03cbfd10025aa1d",
+      "phase": "PHASE_2_TELEMETRY_SECURITY_TRUTH",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(admin-api): replace inline time-window predicates with intent-named withinLast/olderThan so the recency check stops counting the inverse (Phase-1 APA-319)",
+      "currentEvidence": ["EV-OPEN-GENERAL"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 40,
+      "sha": "f46a214eeaaafd624720c7102b54246a58fd7099",
+      "phase": "DELIVERY_MAINTENANCE",
+      "disposition": "REJECTED_WITH_REASON",
+      "subject": "chore(quality): register the APA-319 files in the format-scope manifest",
+      "currentEvidence": ["EV-REJECTED-FORMAT-SCOPE"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-DIFF-INSPECTION"]
+    },
+    {
+      "ordinal": 41,
+      "sha": "182bd2226e6c4319a561c9c3207183150268ff32",
+      "phase": "PHASE_1_CONTRACT_LAYER",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(admin-api): bind GET /billing/payments to a validated query DTO so a non-UUID filter is a 400, not a 500, and repoint the FE box to a debounced invoice-number search (Phase-1 APA-087)",
+      "currentEvidence": ["EV-OPEN-GENERAL"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 42,
+      "sha": "bdcbf98c385ada748f9dbbc769b23d00a996497b",
+      "phase": "PHASE_1_CONTRACT_LAYER",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(admin-panel): derive the SUPER_ADMIN sidebar from one route manifest so 10 mounted-but-hidden admin pages become reachable (Phase-1 RC-6 nav SSoT)",
+      "currentEvidence": ["EV-OPEN-GENERAL"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 43,
+      "sha": "0ff2f46016a277097798382672b7ff204b65c58c",
+      "phase": "PHASE_1_CONTRACT_LAYER",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(admin-panel): bind the audit-severity vocabulary to the backend AuditSeverity SSoT so warning/info rows render and filters match (Phase-1 RC-5)",
+      "currentEvidence": ["EV-ROOT-ADMIN-AUDIT-AUTHORITY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ADMIN-AUDIT-AUTHORITY", "TP-ADMIN-HTTP-SSOT"]
+    },
+    {
+      "ordinal": 44,
+      "sha": "47a2e2596cf5bba6489ba3f12e1956d70e0c7b00",
+      "phase": "PHASE_1_CONTRACT_LAYER",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(admin): bind the data-request status filter to the DataRequestStatus SSoT so bogus states 400 instead of silently returning nothing (Phase-1 RC-5)",
+      "currentEvidence": ["EV-OPEN-GENERAL"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 45,
+      "sha": "616238bfbd8d44be5a1585ac1131dc926dd6f5f0",
+      "phase": "PHASE_1_CONTRACT_LAYER",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(admin-panel): delete the conflicting local DataRequestStatus type so CompliancePage uses the SSoT mirror (completes APA-236)",
+      "currentEvidence": ["EV-OPEN-GENERAL"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 46,
+      "sha": "44e91174eac76a7ace8439f163e9731fb4e544af",
+      "phase": "PHASE_1_CONTRACT_LAYER",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(admin): bind the audit-action filter to the backend AuditAction SSoT so auditor filters match rows instead of returning zero (Phase-1 RC-5)",
+      "currentEvidence": ["EV-ROOT-ADMIN-AUDIT-AUTHORITY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ADMIN-AUDIT-AUTHORITY", "TP-ADMIN-HTTP-SSOT"]
+    },
+    {
+      "ordinal": 47,
+      "sha": "4ff65264cc3c92364293739559985a3daa155a8e",
+      "phase": "PHASE_1_CONTRACT_LAYER",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(admin-panel): bind the messaging-audit action filter to the backend ComplianceAction vocabulary so it can actually narrow rows (Phase-1 RC-5)",
+      "currentEvidence": ["EV-OPEN-GENERAL"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 48,
+      "sha": "c82a58d3543e276ccbd95564feedf8a5be03ea2c",
+      "phase": "PHASE_2_TELEMETRY_SECURITY_TRUTH",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(admin): make the SecurityDashboard tell the truth — wire the dead filters, count resolved incidents server-side, drop the phantom tenant field",
+      "currentEvidence": ["EV-OPEN-TELEMETRY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 49,
+      "sha": "4600a256d5e698c2877579f433a187275c89cb25",
+      "phase": "PHASE_1_CONTRACT_LAYER",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(admin): stream the DB-explorer JSON export as a StreamableFile so the interceptor cannot envelope it into a corrupt download",
+      "currentEvidence": ["EV-ROOT-ADMIN-HTTP-CONTRACT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ADMIN-HTTP-SSOT", "TP-BACKUP-RUNTIME-RETIREMENT"]
+    },
+    {
+      "ordinal": 50,
+      "sha": "531baf5326b8e6f153b3aaf36b05917e8024afb8",
+      "phase": "PHASE_2_TELEMETRY_SECURITY_TRUTH",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(admin): make the DB-explorer mask symmetric — never persist its own mask sentinel and never egress a real secret on writes",
+      "currentEvidence": ["EV-OPEN-SECURITY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 51,
+      "sha": "92e54156e323f8045582fe446520be49b6ea641c",
+      "phase": "PHASE_2_TELEMETRY_SECURITY_TRUTH",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(admin): attribute DB-explorer read/export/raw-SQL audits to the real operator via one request-bound audit sink",
+      "currentEvidence": ["EV-ROOT-ADMIN-AUDIT-AUTHORITY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ADMIN-AUDIT-AUTHORITY"]
+    },
+    {
+      "ordinal": 52,
+      "sha": "20e21cba0b389e47df4efd80e061805633c35c5a",
+      "phase": "PHASE_4_UX_POLISH",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(admin): render DB-explorer write controls from the server's write capability so they aren't offered when they only 403",
+      "currentEvidence": ["EV-OPEN-GENERAL"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 53,
+      "sha": "f131648550e8afed8c89e62f83f914c6c8113428",
+      "phase": "PHASE_1_CONTRACT_LAYER",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(admin-panel): align the database types to the backend entities so the pages stop reading phantom fields",
+      "currentEvidence": ["EV-ROOT-ADMIN-HTTP-CONTRACT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ADMIN-HTTP-SSOT"]
+    },
+    {
+      "ordinal": 54,
+      "sha": "2f19c7326dda9cf98a4ae94929700244a5ca08a3",
+      "phase": "PHASE_1_CONTRACT_LAYER",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "refactor(admin): nominally type the audit action so writers cannot drift out of the AuditAction vocabulary (APA-224 write-side)",
+      "currentEvidence": ["EV-ROOT-ADMIN-AUDIT-AUTHORITY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ADMIN-AUDIT-AUTHORITY"]
+    },
+    {
+      "ordinal": 55,
+      "sha": "d2579f5189fbedef43c4d000ee682e5cf6a20b0a",
+      "phase": "PHASE_2_TELEMETRY_SECURITY_TRUTH",
+      "disposition": "STILL_OPEN",
+      "subject": "security(admin): consult token revocation in PlatformAdminGuard so force-logout actually cuts a live SUPER_ADMIN session (APA-367)",
+      "currentEvidence": ["EV-OPEN-SECURITY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 56,
+      "sha": "21ccaf4dd037f193c556bf827427f2e92a68af65",
+      "phase": "PHASE_1_CONTRACT_LAYER",
+      "disposition": "STILL_OPEN",
+      "subject": "refactor(admin): converge the four isPublic guard-bypass definitions onto the one platform symbol (APA-371)",
+      "currentEvidence": ["EV-OPEN-SECURITY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 57,
+      "sha": "84ccc073d8f848186b486c1c124ffb069341e2c1",
+      "phase": "PHASE_2_TELEMETRY_SECURITY_TRUTH",
+      "disposition": "STILL_OPEN",
+      "subject": "security(admin): close the throttle-coverage gaps on sensitive admin mutations (APA-370)",
+      "currentEvidence": ["EV-OPEN-SECURITY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 58,
+      "sha": "ec58fc1831413b476835d45c0326b84eb98743eb",
+      "phase": "PHASE_2_TELEMETRY_SECURITY_TRUTH",
+      "disposition": "STILL_OPEN",
+      "subject": "security(web): remove the dead double-submit CSRF control and make the cookie name an SSoT (APA-366)",
+      "currentEvidence": ["EV-OPEN-SECURITY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 59,
+      "sha": "55e124c1c84b6233697e74eb72a9e4890d7f13a0",
+      "phase": "PHASE_2_TELEMETRY_SECURITY_TRUTH",
+      "disposition": "STILL_OPEN",
+      "subject": "chore(admin): drop the dead X-Impersonate-User CORS header and gate the CORS allow-list (APA-373)",
+      "currentEvidence": ["EV-OPEN-SECURITY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 60,
+      "sha": "110ecd4c3b48ad85be27022745e69fddc085a70d",
+      "phase": "PHASE_2_TELEMETRY_SECURITY_TRUTH",
+      "disposition": "STILL_OPEN",
+      "subject": "security(admin): app-throttle failed admin auth per-IP and raise it out of debug (APA-369)",
+      "currentEvidence": ["EV-OPEN-SECURITY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 61,
+      "sha": "ea3478f8998b36eb2189d57216baff94c10495a3",
+      "phase": "PHASE_2_TELEMETRY_SECURITY_TRUTH",
+      "disposition": "STILL_OPEN",
+      "subject": "security(throttler): distribute rate limiting over Redis and scope the kill switch to non-prod (APA-368)",
+      "currentEvidence": ["EV-OPEN-SECURITY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 62,
+      "sha": "b8ea051a7d1cd6928908b18bbbf7d91284621f94",
+      "phase": "PHASE_4_UX_POLISH",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(admin-api): accept Unicode names in the user-search allowlist (APA-054)",
+      "currentEvidence": ["EV-OPEN-GENERAL"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 63,
+      "sha": "d4ac0cf416d9beb4cf2d79317da3114a71e6c86c",
+      "phase": "PHASE_1_CONTRACT_LAYER",
+      "disposition": "ALREADY_MAIN",
+      "subject": "fix(admin-api): qualify auth.tenants and project the real audit column in users reads (APA-052, APA-053)",
+      "currentEvidence": ["EV-MAIN-AUTH-SQL"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-CURRENT-TREE-INSPECTION"]
+    },
+    {
+      "ordinal": 64,
+      "sha": "374b1193550ee8de8f02d6aa79d3d2f186945017",
+      "phase": "PHASE_1_CONTRACT_LAYER",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(admin-panel): render the real index-recommendation contract, not a phantom SQL field (APA-324)",
+      "currentEvidence": ["EV-ROOT-ADMIN-HTTP-CONTRACT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ADMIN-HTTP-SSOT"]
+    },
+    {
+      "ordinal": 65,
+      "sha": "14f1afdacfc7b1c8ff7c7f0c0384936750815be9",
+      "phase": "PHASE_1_CONTRACT_LAYER",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(admin): bind the schema-validate and backup-schedule wire contracts to the FE (APA-320, APA-321)",
+      "currentEvidence": ["EV-ROOT-ADMIN-HTTP-CONTRACT", "EV-ROOT-BACKUP-ROUTE-RETIREMENT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ADMIN-HTTP-SSOT"]
+    },
+    {
+      "ordinal": 66,
+      "sha": "9fa91233bf6976b34945b3c0e7084d4583cf3572",
+      "phase": "PHASE_2_TELEMETRY_SECURITY_TRUTH",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "security(admin): derive audit actor from the verified JWT, not a hardcoded 'admin' (APA-247)",
+      "currentEvidence": ["EV-ROOT-ADMIN-AUDIT-AUTHORITY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ADMIN-AUDIT-AUTHORITY"]
+    },
+    {
+      "ordinal": 67,
+      "sha": "1e5223c6815afe49272d4cc0b2ca69a90d67acf0",
+      "phase": "PHASE_4_UX_POLISH",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(billing): one canonical form for discount codes; reject non-canonical input (APA-107)",
+      "currentEvidence": ["EV-OPEN-GENERAL"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 68,
+      "sha": "1aecc85edc1eb5697ad0bf9ce68ff2cdf16e67fd",
+      "phase": "PHASE_2_TELEMETRY_SECURITY_TRUTH",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(admin-api): stop masking failed reads as empty successes (APA-145, APA-122)",
+      "currentEvidence": ["EV-OPEN-TELEMETRY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 69,
+      "sha": "358dcaa548cd00eb81ec3472db881e8be137e7fd",
+      "phase": "PHASE_2_TELEMETRY_SECURITY_TRUTH",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(analytics): stop inventing system-performance metrics; unmeasured is null (APA-143)",
+      "currentEvidence": ["EV-ROOT-ANALYTICS-METRIC-AUTHORITY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ANALYTICS-METRIC-AUTHORITY"]
+    },
+    {
+      "ordinal": 70,
+      "sha": "314322e634fe0aa9b3a715868e3f0be0cbb10967",
+      "phase": "PHASE_2_TELEMETRY_SECURITY_TRUTH",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(analytics): make unmeasured system metrics untypeable as numbers (APA-131)",
+      "currentEvidence": ["EV-ROOT-ANALYTICS-METRIC-AUTHORITY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ANALYTICS-METRIC-AUTHORITY"]
+    },
+    {
+      "ordinal": 71,
+      "sha": "abadc83858550bfb1d69d290997bdfe67a2019bf",
+      "phase": "PHASE_2_TELEMETRY_SECURITY_TRUTH",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(analytics): delete the unsourceable byRegion field and purge it from snapshots (APA-132)",
+      "currentEvidence": ["EV-ROOT-ANALYTICS-METRIC-AUTHORITY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ANALYTICS-METRIC-AUTHORITY"]
+    },
+    {
+      "ordinal": 72,
+      "sha": "26c25d3978a7c424276e5cb36738646c82151cfb",
+      "phase": "PHASE_2_TELEMETRY_SECURITY_TRUTH",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(analytics): model PostgreSQL `date` columns as the string the driver returns (APA-130)",
+      "currentEvidence": ["EV-OPEN-ANALYTICS"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 73,
+      "sha": "ede9c3419df9a2da6ade9216d7000ae70d26a78a",
+      "phase": "PHASE_2_TELEMETRY_SECURITY_TRUTH",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(analytics): make \"not instrumented\" representable so usage metrics stop inventing modules (APA-133)",
+      "currentEvidence": ["EV-ROOT-ANALYTICS-METRIC-AUTHORITY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ANALYTICS-METRIC-AUTHORITY"]
+    },
+    {
+      "ordinal": 74,
+      "sha": "dba655efefad16d30b0b8afc33f38f087ef574e5",
+      "phase": "PHASE_2_TELEMETRY_SECURITY_TRUTH",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(analytics): read the payments report from billing instead of synthesising it (APA-138)",
+      "currentEvidence": ["EV-OPEN-ANALYTICS"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 75,
+      "sha": "9bac3949c921b1cf0bfadd7f6819474e7798f869",
+      "phase": "PHASE_2_TELEMETRY_SECURITY_TRUTH",
+      "disposition": "ALREADY_MAIN",
+      "subject": "fix(analytics): stop counting refunded invoices as outstanding receivables (APA-138)",
+      "currentEvidence": ["EV-MAIN-ANALYTICS-INVOICE-STATUS"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-CURRENT-TREE-INSPECTION"]
+    },
+    {
+      "ordinal": 76,
+      "sha": "cb60b5612f4b0da1ca56e0a82c5ecfc5ae9ec5be",
+      "phase": "PHASE_2_TELEMETRY_SECURITY_TRUTH",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(analytics): give admin-api one pricing source instead of two (APA-147)",
+      "currentEvidence": ["EV-OPEN-ANALYTICS"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 77,
+      "sha": "c1a9b3976f66e69cb76b9b2ef69f8ffcb22d09d0",
+      "phase": "PHASE_2_TELEMETRY_SECURITY_TRUTH",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(analytics): report tenant churn as unmeasured instead of proxying a last-write timestamp (APA-135)",
+      "currentEvidence": ["EV-ROOT-ANALYTICS-METRIC-AUTHORITY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ANALYTICS-METRIC-AUTHORITY"]
+    },
+    {
+      "ordinal": 78,
+      "sha": "b7811573ab4ce29d92ba44ac3abef874e2dfe6d1",
+      "phase": "PHASE_2_TELEMETRY_SECURITY_TRUTH",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(admin-panel): derive KPI trend direction from the value and give the dashboard a failure state (APA-134, APA-136)",
+      "currentEvidence": ["EV-ROOT-ANALYTICS-METRIC-AUTHORITY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ANALYTICS-METRIC-AUTHORITY"]
+    },
+    {
+      "ordinal": 79,
+      "sha": "fd0ff69e4230a44d31ae7e0859151e0a761039b1",
+      "phase": "PHASE_4_UX_POLISH",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(admin-panel): page the report history instead of capping it at the first 20 (APA-148)",
+      "currentEvidence": ["EV-ROOT-REPORTING-AUTHORITY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-REPORTING-AUTHORITY-SSOT"]
+    },
+    {
+      "ordinal": 80,
+      "sha": "23b4063dafc4599123ca49427c67b904213858d7",
+      "phase": "PHASE_3_CONTROL_PLANE",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(analytics): retire the report schedule nothing ever executed (APA-141)",
+      "currentEvidence": ["EV-ROOT-REPORTING-AUTHORITY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-REPORTING-AUTHORITY-SSOT"]
+    },
+    {
+      "ordinal": 81,
+      "sha": "334d7dda3dd52eb8b8884199eee231bd82981bb3",
+      "phase": "PHASE_4_UX_POLISH",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(admin-panel): scope the range control to the trends it actually drives (APA-137)",
+      "currentEvidence": ["EV-ROOT-ANALYTICS-METRIC-AUTHORITY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ANALYTICS-METRIC-AUTHORITY"]
+    },
+    {
+      "ordinal": 82,
+      "sha": "9a41879c197e69abf2ec0bed89541dc46abe0896",
+      "phase": "PHASE_4_UX_POLISH",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(analytics): delete the download link that could never resolve (APA-146)",
+      "currentEvidence": ["EV-ROOT-REPORTING-AUTHORITY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-REPORTING-AUTHORITY-SSOT"]
+    },
+    {
+      "ordinal": 83,
+      "sha": "61cf98b608378dc30553597cc02aeb7fc76f50f2",
+      "phase": "PHASE_2_TELEMETRY_SECURITY_TRUTH",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(analytics): stop signing an artifact for a report nobody measured (APA-142)",
+      "currentEvidence": ["EV-ROOT-REPORTING-AUTHORITY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-REPORTING-AUTHORITY-SSOT"]
+    },
+    {
+      "ordinal": 84,
+      "sha": "26430eb71066f01eaace68d25c5983df66e20dce",
+      "phase": "PHASE_2_TELEMETRY_SECURITY_TRUTH",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(analytics): give the report preview the rows it was always missing (APA-144)",
+      "currentEvidence": ["EV-ROOT-REPORTING-AUTHORITY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-REPORTING-AUTHORITY-SSOT"]
+    },
+    {
+      "ordinal": 85,
+      "sha": "bca1a1f5be858a49e1d0f00a7dbb5ad9574ef1b8",
+      "phase": "PHASE_4_UX_POLISH",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(analytics): honour the date range, or do not accept one (APA-140)",
+      "currentEvidence": ["EV-ROOT-REPORTING-AUTHORITY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-REPORTING-AUTHORITY-SSOT"]
+    },
+    {
+      "ordinal": 86,
+      "sha": "c153f269ce1915d9be84e8fd6b71b94366c2e944",
+      "phase": "PHASE_2_TELEMETRY_SECURITY_TRUTH",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(billing): record every applied plan change, not only scheduled downgrades (APA-139)",
+      "currentEvidence": ["EV-OPEN-ANALYTICS"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 87,
+      "sha": "09e23a32f136b00863d6c0f071c5b5602f250fcd",
+      "phase": "PHASE_2_TELEMETRY_SECURITY_TRUTH",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(analytics): build the revenue report from dated billing facts (APA-139)",
+      "currentEvidence": ["EV-OPEN-ANALYTICS"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 88,
+      "sha": "5479f542b636c989ec2786930e9a8d7ec68ab21a",
+      "phase": "PHASE_4_UX_POLISH",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(admin-panel): delete the API stubs that threw before a promise existed (APA-151)",
+      "currentEvidence": ["EV-OPEN-GENERAL"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 89,
+      "sha": "1e67039888f8e05b8b5c92e2540a8578b3e6fe79",
+      "phase": "PHASE_1_CONTRACT_LAYER",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(admin-panel): bind the analytics types to what the backend returns (APA-149)",
+      "currentEvidence": ["EV-ROOT-ADMIN-HTTP-CONTRACT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ADMIN-HTTP-SSOT"]
+    },
+    {
+      "ordinal": 90,
+      "sha": "14d8f8884e5ff88d4a33b024a9149a212a41125e",
+      "phase": "PHASE_1_CONTRACT_LAYER",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(admin-panel): stop deriving a write payload from the read model (APA-150)",
+      "currentEvidence": ["EV-OPEN-GENERAL"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 91,
+      "sha": "e6e46717c8f55be7dd70d6545b0247f0cfd55822",
+      "phase": "PHASE_2_TELEMETRY_SECURITY_TRUTH",
+      "disposition": "STILL_OPEN",
+      "subject": "security(admin-panel): pin the SameSite posture the CSRF theater left behind (APA-152)",
+      "currentEvidence": ["EV-OPEN-SECURITY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 92,
+      "sha": "4a73ff847d2a964f8334ac9f9a2489ecb47e964a",
+      "phase": "PHASE_1_CONTRACT_LAYER",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(admin-panel): read the rows out of the paginated envelope (APA-106)",
+      "currentEvidence": ["EV-ROOT-ADMIN-HTTP-CONTRACT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ADMIN-HTTP-SSOT"]
+    },
+    {
+      "ordinal": 93,
+      "sha": "cb0bfe1309f45b6813f70b8b6d948be5b504675f",
+      "phase": "PHASE_1_CONTRACT_LAYER",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(admin-api): make the canonical paginated envelope the only one (APA-283)",
+      "currentEvidence": ["EV-ROOT-ADMIN-HTTP-CONTRACT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ADMIN-HTTP-SSOT"]
+    },
+    {
+      "ordinal": 94,
+      "sha": "3948599c407f0f78e3b6f0b5de43890b5c2d229e",
+      "phase": "PHASE_2_TELEMETRY_SECURITY_TRUTH",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(admin): give the impersonation audit surface numbers that mean something (APA-297)",
+      "currentEvidence": ["EV-OPEN-IMPERSONATION"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 95,
+      "sha": "85448f20487be0a6ea841ddbf2bb63e504fa7059",
+      "phase": "PHASE_1_CONTRACT_LAYER",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(admin): stop rendering a compliance requirement object as a React child (APA-232, APA-233)",
+      "currentEvidence": ["EV-ROOT-ADMIN-HTTP-CONTRACT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ADMIN-HTTP-SSOT"]
+    },
+    {
+      "ordinal": 96,
+      "sha": "d9205a30acbdea134ae4fd6fd35da1fc4f831632",
+      "phase": "CONTRACT_CODEGEN_EXTENSION",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "feat(admin-contracts): generate the panel's backend types instead of declaring them twice (APA-248)",
+      "currentEvidence": ["EV-ROOT-ADMIN-HTTP-CONTRACT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ADMIN-HTTP-SSOT"]
+    },
+    {
+      "ordinal": 97,
+      "sha": "4c847983b8ffc36544c75366925150b19d09f6d4",
+      "phase": "AUDIT_EVIDENCE",
+      "disposition": "SUPERSEDED",
+      "subject": "docs(admin-contracts): record what extending the manifest to the next 30 types found",
+      "currentEvidence": ["EV-SUPERSEDED-AUDIT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-DIFF-INSPECTION"]
+    },
+    {
+      "ordinal": 98,
+      "sha": "a69d006482c5cf817ade650403867e568a060dc6",
+      "phase": "CONTRACT_CODEGEN_EXTENSION",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "feat(admin-contracts): migrate the next 24 contracts and fix what the compiler found (ADMIN-HIGH-087)",
+      "currentEvidence": ["EV-ROOT-ADMIN-HTTP-CONTRACT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ADMIN-HTTP-SSOT"]
+    },
+    {
+      "ordinal": 99,
+      "sha": "cf61804f7583f8c8cfd721f98e0117e5d6646463",
+      "phase": "CONTRACT_CODEGEN_EXTENSION",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(admin-contracts): give the entitlement and sellable tier sets one author each",
+      "currentEvidence": ["EV-ROOT-ADMIN-HTTP-CONTRACT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ADMIN-HTTP-SSOT"]
+    },
+    {
+      "ordinal": 100,
+      "sha": "468623b4090a8c8e420ae55996919142c2ffb840",
+      "phase": "CONTRACT_CODEGEN_EXTENSION",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(admin-tenant): stop returning the tenant entity, whose tier is a getter",
+      "currentEvidence": ["EV-ROOT-ADMIN-HTTP-CONTRACT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ADMIN-HTTP-SSOT"]
+    },
+    {
+      "ordinal": 101,
+      "sha": "406b6b9f0da179a54a8acdda878668f62defe8cd",
+      "phase": "CONTRACT_CODEGEN_EXTENSION",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "feat(admin-contracts): generate `as const` vocabularies, and close the users + system read contracts",
+      "currentEvidence": ["EV-ROOT-ADMIN-HTTP-CONTRACT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ADMIN-HTTP-SSOT"]
+    },
+    {
+      "ordinal": 102,
+      "sha": "fbde815c8b1679d3b250929485aa56b25c12a2c1",
+      "phase": "CONTRACT_CODEGEN_EXTENSION",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(admin-contracts): name every route's response shape, and retire the Backend* twins",
+      "currentEvidence": ["EV-ROOT-ADMIN-HTTP-CONTRACT"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-ADMIN-HTTP-SSOT"]
+    },
+    {
+      "ordinal": 103,
+      "sha": "64de9c858579124e3e5927c6476244c562888665",
+      "phase": "CONTRACT_CODEGEN_EXTENSION",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(impersonation): declare every route's return type, and render the permission model that exists",
+      "currentEvidence": ["EV-OPEN-IMPERSONATION"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 104,
+      "sha": "eaabb955f4d2ac946bb59dfac4303dd6b0a4841a",
+      "phase": "PHASE_2_TELEMETRY_SECURITY_TRUTH",
+      "disposition": "STILL_OPEN",
+      "subject": "fix(admin-system): stop drawing a perfect health gauge over a snapshot nobody took",
+      "currentEvidence": ["EV-OPEN-TELEMETRY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 105,
+      "sha": "d56bfc9e4473583eaf3744091292068cc8c9244a",
+      "phase": "PHASE_3_CONTROL_PLANE",
+      "disposition": "STILL_OPEN",
+      "subject": "feat(tenant-config): give config-service the argument that lets it own tenant configuration",
+      "currentEvidence": ["EV-OPEN-CONFIG-OWNERSHIP"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-OPEN-DESIGN-GAP"]
+    },
+    {
+      "ordinal": 106,
+      "sha": "399810500bf8c1724c0da450219ab0a5e5912cec",
+      "phase": "PHASE_3_CONTROL_PLANE",
+      "disposition": "REIMPLEMENTED_ROOT_ARCH",
+      "subject": "fix(admin-debug): clear the cache that exists, instead of logging that we did",
+      "currentEvidence": ["EV-ROOT-CACHE-AUTHORITY"],
+      "testProof": ["TP-AUTHORITY-INVARIANT", "TP-CACHE-AUTHORITY"]
+    }
+  ]
+}

@@ -7,91 +7,70 @@
  * columns); only startSession's response carries the raw impersonation token.
  */
 
-import { apiFetch, buildQueryString } from '../http-client';
-import type {
-  PaginatedResult,
-  PaginationParams,
-  ImpersonationPermission,
-  ImpersonationSession,
-  ImpersonationSessionStatus,
-  ImpersonationReasonCode,
-  StartImpersonationRequest,
-  StartImpersonationResponse,
-  ImpersonationAction,
-} from '../types';
+import { apiFetch } from '../http-client';
+import type { StartImpersonationRequest } from '../types';
+import {
+  ADMIN_API_ROUTES,
+  type AdminApiRouteBody,
+  type AdminApiRouteQuery,
+} from '../types/generated/admin-route-contracts';
+
+type GrantPermissionInput = AdminApiRouteBody<'POST /impersonation/permissions'>;
+type PermissionQuery = AdminApiRouteQuery<'GET /impersonation/permissions'>;
+type SessionQuery = AdminApiRouteQuery<'GET /impersonation/sessions'>;
 
 export const impersonationApi = {
   // Permissions
-  getPermissions: (params?: { tenantId?: string; isActive?: boolean } & PaginationParams) =>
-    apiFetch<PaginatedResult<ImpersonationPermission>>(`/impersonation/permissions?${buildQueryString(params || {})}`),
+  getPermissions: (params: PermissionQuery = {}) =>
+    apiFetch(ADMIN_API_ROUTES['GET /impersonation/permissions'], { query: params }),
   // Fix: backend uses superAdminId as path param (GET /permissions/:superAdminId)
-  getPermission: (superAdminId: string) => apiFetch<ImpersonationPermission>(`/impersonation/permissions/${superAdminId}`),
-  grantPermission: (data: {
-    superAdminId: string;
-    superAdminEmail?: string;
-    allowedTenants?: string[];
-    restrictedTenants?: string[];
-    defaultPermissions?: Record<string, unknown>;
-    maxSessionDurationMinutes?: number;
-    maxConcurrentSessions?: number;
-    requireReason?: boolean;
-    requireTicketReference?: boolean;
-    notifyTenantAdmin?: boolean;
-    expiresAt?: string;
-    notes?: string;
-  }) =>
-    apiFetch<ImpersonationPermission>('/impersonation/permissions', { method: 'POST', body: JSON.stringify(data) }),
-  // TODO: No backend PUT endpoint for updating permissions (only POST grant and POST revoke)
-  updatePermission: (_id: string, _data: Partial<ImpersonationPermission>) => {
-    throw new Error('Not implemented: no backend PUT endpoint for /impersonation/permissions/:id. Use grant/revoke instead.');
-  },
+  getPermission: (superAdminId: string) =>
+    apiFetch(ADMIN_API_ROUTES['GET /impersonation/permissions/:superAdminId'], {
+      path: { superAdminId: superAdminId },
+    }),
+  grantPermission: (data: GrantPermissionInput) =>
+    apiFetch(ADMIN_API_ROUTES['POST /impersonation/permissions'], { body: data }),
   // Fix: backend uses POST /permissions/:superAdminId/revoke (no body needed, auth from JWT)
   revokePermission: (superAdminId: string, _revokedBy?: string, _reason?: string) =>
-    apiFetch<void>(`/impersonation/permissions/${superAdminId}/revoke`, { method: 'POST' }),
+    apiFetch(ADMIN_API_ROUTES['POST /impersonation/permissions/:superAdminId/revoke'], {
+      path: { superAdminId: superAdminId },
+    }),
   // Fix: backend uses path params GET /permissions/:superAdminId/check/:tenantId (not query params)
   checkPermission: (tenantId: string, adminId: string) =>
-    apiFetch<{ hasPermission: boolean; permission?: ImpersonationPermission }>(`/impersonation/permissions/${adminId}/check/${tenantId}`),
+    apiFetch(ADMIN_API_ROUTES['GET /impersonation/permissions/:superAdminId/check/:tenantId'], {
+      path: { superAdminId: adminId, tenantId: tenantId },
+    }),
 
   // Sessions
-  // Query params mirror backend QuerySessionsDto (superAdminId/targetTenantId,
-  // not adminId/tenantId); the list envelope is { items, total } — the backend
-  // does not wrap sessions in the page/limit/totalPages shape.
-  getSessions: (
-    params?: {
-      superAdminId?: string;
-      targetTenantId?: string;
-      status?: ImpersonationSessionStatus;
-      reason?: ImpersonationReasonCode;
-    } & PaginationParams,
-  ) =>
-    apiFetch<{ items: ImpersonationSession[]; total: number }>(`/impersonation/sessions?${buildQueryString(params || {})}`),
-  getSession: (id: string) => apiFetch<ImpersonationSession>(`/impersonation/sessions/${id}`),
+  // Query and canonical page response are both generated from the backend
+  // route-contract DAG; no local pagination envelope is maintained here.
+  getSessions: (params: SessionQuery = {}, options?: { readonly signal?: AbortSignal }) =>
+    apiFetch(ADMIN_API_ROUTES['GET /impersonation/sessions'], {
+      query: params,
+      signal: options?.signal,
+    }),
+  getSession: (id: string) =>
+    apiFetch(ADMIN_API_ROUTES['GET /impersonation/sessions/:id'], { path: { id: id } }),
   startSession: (data: StartImpersonationRequest) =>
-    apiFetch<StartImpersonationResponse>('/impersonation/sessions/start', { method: 'POST', body: JSON.stringify(data) }),
+    apiFetch(ADMIN_API_ROUTES['POST /impersonation/sessions/start'], { body: data }),
   endSession: (id: string) =>
-    apiFetch<ImpersonationSession>(`/impersonation/sessions/${id}/end`, { method: 'POST' }),
+    apiFetch(ADMIN_API_ROUTES['POST /impersonation/sessions/:id/end'], {
+      path: { id: id },
+      body: {},
+    }),
   extendSession: (id: string, additionalMinutes: number) =>
-    apiFetch<ImpersonationSession>(`/impersonation/sessions/${id}/extend`, { method: 'POST', body: JSON.stringify({ additionalMinutes }) }),
+    apiFetch(ADMIN_API_ROUTES['POST /impersonation/sessions/:id/extend'], {
+      path: { id: id },
+      body: { additionalMinutes },
+    }),
   // Backend TerminateSessionDto accepts ONLY { reason } (required); the
   // terminating admin's identity comes from the JWT, never the body.
   revokeSession: (id: string, reason: string) =>
-    apiFetch<ImpersonationSession>(`/impersonation/sessions/${id}/terminate`, { method: 'POST', body: JSON.stringify({ reason }) }),
-  getActiveSessions: () => apiFetch<ImpersonationSession[]>('/impersonation/sessions/active'),
-  // TODO: No backend GET endpoint for session actions
-  getSessionActions: (_sessionId: string): Promise<ImpersonationAction[]> => {
-    throw new Error('Not implemented: no backend GET endpoint for /impersonation/sessions/:id/actions');
-  },
-  // Fix: backend uses POST /sessions/:id/log-action (not /sessions/:id/actions)
-  logAction: (sessionId: string, data: Omit<ImpersonationAction, 'timestamp'>) =>
-    apiFetch<void>(`/impersonation/sessions/${sessionId}/log-action`, { method: 'POST', body: JSON.stringify(data) }),
-
+    apiFetch(ADMIN_API_ROUTES['POST /impersonation/sessions/:id/terminate'], {
+      path: { id: id },
+      body: { reason },
+    }),
+  getActiveSessions: () => apiFetch(ADMIN_API_ROUTES['GET /impersonation/sessions/active']),
   // Dashboard
-  getImpersonationStats: () =>
-    apiFetch<{
-      activeSessions: number;
-      totalSessions: number;
-      activePermissions: number;
-      topAdmins: Array<{ adminId: string; email: string; sessionCount: number }>;
-      recentSessions: ImpersonationSession[];
-    }>('/impersonation/stats'),
+  getImpersonationStats: () => apiFetch(ADMIN_API_ROUTES['GET /impersonation/stats']),
 };

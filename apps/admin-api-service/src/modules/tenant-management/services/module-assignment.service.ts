@@ -4,7 +4,10 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventBus } from '@nestjs/cqrs';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { createBaseEvent, type BillingProvisioningModuleItem } from '@platform/event-contracts';
+import type { PricingModuleQuantities } from '@platform/pricing-metric-vocabulary';
 import { DataSource } from 'typeorm';
+
+import { canonicalWireJsonContentSha256V1 } from '@aquaculture/shared-contracts';
 
 import { PlanTier, BillingCycle } from '../../../billing/entities/plan-definition.entity';
 import {
@@ -17,19 +20,7 @@ import { AuthTenantProvisioningClientService } from '../../../tenant/services/au
 /**
  * Module quantities for pricing calculation
  */
-export interface ModuleQuantities {
-  users?: number;
-  farms?: number;
-  ponds?: number;
-  sensors?: number;
-  employees?: number;
-  storageGb?: number;
-  apiCalls?: number;
-  alerts?: number;
-  reports?: number;
-  integrations?: number;
-  devices?: number;
-}
+export type ModuleQuantities = PricingModuleQuantities;
 
 /**
  * Single module assignment request
@@ -223,18 +214,6 @@ export class ModuleAssignmentService {
       this.publishModulesAssignedEvent(tenantId, assignedModules, pricing, assignedBy);
     }
 
-    // Create audit log
-    await this.createAuditLog(
-      tenantId,
-      'MODULES_ASSIGNED',
-      {
-        assignedModules,
-        failedModules,
-        pricing: pricing ? { monthlyTotal: pricing.monthlyTotal, tier, billingCycle } : undefined,
-      },
-      assignedBy,
-    );
-
     return {
       success: failedModules.length === 0,
       tenantId,
@@ -284,9 +263,6 @@ export class ModuleAssignmentService {
       moduleId,
       removedBy,
     });
-
-    // Create audit log
-    await this.createAuditLog(tenantId, 'MODULE_REMOVED', { moduleId }, removedBy);
 
     this.logger.log(`Module ${moduleId} removed from tenant ${tenantId}`);
   }
@@ -546,52 +522,11 @@ export class ModuleAssignmentService {
     });
   }
 
-  private async createAuditLog(
-    tenantId: string,
-    action: string,
-    details: Record<string, unknown>,
-    performedBy: string,
-  ): Promise<void> {
-    try {
-      await this.dataSource.query(
-        `
-        INSERT INTO admin.audit_logs (
-          id, "tenantId", action, "entityType", "entityId",
-          details, "performedBy", "createdAt"
-        ) VALUES (
-          gen_random_uuid(), $1, $2, 'tenant_modules', $1,
-          $3, $4, NOW()
-        )
-        `,
-        [tenantId, action, JSON.stringify(details), performedBy],
-      );
-    } catch (error) {
-      // Don't fail the main operation if audit logging fails
-      this.logger.warn(`Failed to create audit log: ${(error as Error).message}`);
-    }
-  }
-
   private commandRequestReference(commandType: string, tenantId: string, payload: unknown): string {
     return `${commandType}:${tenantId}:${this.hashPayload(payload)}`;
   }
 
   private hashPayload(payload: unknown): string {
-    return crypto.createHash('sha256').update(this.stableStringify(payload)).digest('hex');
-  }
-
-  private stableStringify(value: unknown): string {
-    if (Array.isArray(value)) {
-      return `[${value.map((item) => this.stableStringify(item)).join(',')}]`;
-    }
-
-    if (value && typeof value === 'object') {
-      const record = value as Record<string, unknown>;
-      return `{${Object.keys(record)
-        .sort()
-        .map((key) => `${JSON.stringify(key)}:${this.stableStringify(record[key])}`)
-        .join(',')}}`;
-    }
-
-    return JSON.stringify(value);
+    return canonicalWireJsonContentSha256V1(payload);
   }
 }

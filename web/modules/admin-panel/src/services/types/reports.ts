@@ -1,54 +1,26 @@
-/**
- * Reports domain types
- */
+/** Report wire contracts generated from backend executable projections. */
 
-export type ReportType =
-  | 'tenant_overview'
-  | 'tenant_churn'
-  | 'financial_revenue'
-  | 'financial_payments'
-  | 'usage_modules'
-  | 'usage_features'
-  | 'system_performance';
-export type ReportFormat = 'pdf' | 'csv' | 'json';
-export type ReportStatus = 'pending' | 'running' | 'completed' | 'failed';
+import type {
+  AdminResponseProjectionById,
+  AdminResponseProjectionId,
+} from './generated/admin-route-contracts';
 
-export interface ReportDefinition {
-  id: string;
-  name: string;
-  description?: string;
-  type: ReportType;
-  schedule?: string;
-  filters?: Record<string, unknown>;
-  columns?: string[];
-  isActive: boolean;
-  lastRunAt?: string;
-  nextRunAt?: string;
-  createdBy: string;
-  createdAt: string;
-}
+type ReportProjectionPrefix =
+  'apps/admin-api-service/src/analytics/contracts/admin-http-response.contract.ts';
+type ReportProjectionId = Extract<
+  AdminResponseProjectionId,
+  `${ReportProjectionPrefix}#${string}`
+>;
+type ReportProjectionName =
+  ReportProjectionId extends `${ReportProjectionPrefix}#${infer TName}` ? TName : never;
+type ReportProjection<TName extends ReportProjectionName> =
+  AdminResponseProjectionById<`${ReportProjectionPrefix}#${TName}`>;
 
-export interface ReportExecution {
-  id: string;
-  definitionId?: string;
-  reportName: string;
-  reportType: ReportType;
-  status: ReportStatus;
-  format: ReportFormat;
-  downloadUrl?: string;
-  downloadExpiresAt?: string;
-  fileSizeBytes?: number;
-  rowCount?: number;
-  summary?: Record<string, unknown>;
-  errorMessage?: string;
-  durationMs?: number;
-  createdAt: string;
-  startDate?: string;
-  endDate?: string;
-  completedAt?: string;
-  executedBy?: string;
-  executedByEmail?: string;
-}
+export type ReportDefinitionDto = ReportProjection<'ReportsReportDefinitionDtoDto'>;
+export type ReportExecutionDto = ReportProjection<'ReportsReportExecutionDtoDto'>;
+export type ReportType = ReportDefinitionDto['type'];
+export type ReportFormat = ReportDefinitionDto['defaultFormat'];
+export type ReportStatus = ReportExecutionDto['status'];
 
 export interface ReportData {
   columns: Array<{ key: string; label: string; type: string }>;

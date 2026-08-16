@@ -1,121 +1,61 @@
 /**
- * Reports Service
+ * Catalog-governed report definitions, executions, and qualified artifacts.
  *
- * Rapor oluşturma ve export işlemleri.
- * Tenant, Financial, Usage ve System raporları üretir.
- *
- * OPTIMIZED: Redis caching with 4 hour TTL for expensive report calculations.
+ * Measurement is delegated exclusively to the adapter registry. This service
+ * deliberately contains no synthetic or fallback fact generators.
  */
 
 import * as crypto from 'crypto';
 
-import { RedisService } from '@aquaculture/backend-common/redis';
+import {
+  createStandardPaginatedResult,
+  type IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 import {
   BadRequestException,
   GoneException,
+  Inject,
   Injectable,
   InternalServerErrorException,
   Logger,
   NotFoundException,
-  Optional,
 } from '@nestjs/common';
-import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { InjectRepository } from '@nestjs/typeorm';
+import {
+  adminBinaryMediaTypeForFormat,
+  decodeAdminBinaryArtifactMediaType,
+  type AdminBinaryArtifactMediaType,
+} from '@platform/admin-http-contracts';
+import {
+  assertReportArtifactSizeForAuthorityGraph,
+  assertReportArtifactCommitTransition,
+  assertReportMeasurementProofForAuthorityGraph,
+  compileReportMeasurementIntentForAuthorityGraph,
+  getReportCapabilityFromAuthorityGraph,
+  getReportMeasurementAuthorityFromAuthorityGraph,
+  reportMeasurementIntentSha256,
+  reportPreviewSha256,
+  type CompiledReportAuthorityGraphV1,
+  type ReportMeasurementIntentV1,
+} from '@platform/reporting-contracts';
 import { MinioClientService } from '@platform/storage';
 import PDFDocument from 'pdfkit';
-import { DataSource, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
+import { IsNull } from 'typeorm';
+import type { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 
-import { AuditLogService } from '../../audit/audit.service';
 import {
-  AnalyticsSnapshot,
   ReportType,
   ReportFormat,
-  ReportRequest,
-  ReportResult,
-  ReportDefinition,
-  ReportExecution,
   ReportDefinitionStatus,
-  ReportSchedule,
   ReportExecutionStatus,
-  SystemMetrics,
-} from '../entities/analytics-snapshot.entity';
-import { TenantReadOnly, TenantStatus, TenantPlan } from '../entities/external/tenant.entity';
-import { UserReadOnly } from '../entities/external/user.entity';
+} from '../dto/report-contract.dto';
+import { ReportDefinition, ReportExecution } from '../entities/analytics-snapshot.entity';
 
-import { AnalyticsService } from './analytics.service';
-
-// ============================================================================
-// Report Data Types
-// ============================================================================
-
-interface TenantReportRow {
-  id: string;
-  name: string;
-  plan: string;
-  status: string;
-  users: number;
-  createdAt: string;
-  mrr: number;
-  storageUsed: string;
-  lastActivity: string;
-}
-
-interface ChurnReportRow {
-  tenantId: string;
-  tenantName: string;
-  plan: string;
-  cancelDate: string;
-  reason: string;
-  mrr: number;
-  lifetimeValue: number;
-  usageDays: number;
-}
-
-interface RevenueReportRow {
-  date: string;
-  revenue: number;
-  newSubscriptions: number;
-  renewals: number;
-  upgrades: number;
-  downgrades: number;
-  refunds: number;
-  netRevenue: number;
-}
-
-interface PaymentReportRow {
-  invoiceId: string;
-  tenantName: string;
-  amount: number;
-  currency: string;
-  dueDate: string;
-  status: string;
-  daysPastDue: number;
-}
-
-interface ModuleUsageReportRow {
-  module: string;
-  activeUsers: number;
-  totalSessions: number;
-  avgSessionDuration: number;
-  adoptionRate: number;
-  trend: string;
-}
-
-interface FeatureUsageReportRow {
-  feature: string;
-  adoptionRate: number;
-  activeUsers: number;
-  avgUsagePerUser: number;
-  trend: string;
-}
-
-interface PerformanceReportRow {
-  date: string;
-  avgResponseTime: number;
-  errorRate: number;
-  uptime: number;
-  apiCalls: number;
-  activeConnections: number;
-}
+import {
+  REPORT_COMPILED_AUTHORITY_GRAPH,
+  ReportMeasurementAdapterRegistry,
+} from './report-measurement-adapter.registry';
 
 // ============================================================================
 // Service
@@ -124,762 +64,21 @@ interface PerformanceReportRow {
 @Injectable()
 export class ReportsService {
   private readonly logger = new Logger(ReportsService.name);
-  private static readonly CACHE_TTL = 14400; // 4 hours
 
   constructor(
-    @InjectRepository(AnalyticsSnapshot)
-    private readonly snapshotRepository: Repository<AnalyticsSnapshot>,
-    @InjectRepository(TenantReadOnly)
-    private readonly tenantRepository: Repository<TenantReadOnly>,
-    @InjectRepository(UserReadOnly)
-    private readonly userRepository: Repository<UserReadOnly>,
     @InjectRepository(ReportDefinition)
     private readonly definitionRepository: Repository<ReportDefinition>,
     @InjectRepository(ReportExecution)
     private readonly executionRepository: Repository<ReportExecution>,
-    private readonly analyticsService: AnalyticsService,
-    private readonly auditLogService: AuditLogService,
-    @InjectDataSource()
-    private readonly dataSource: DataSource,
-    @Optional()
-    private readonly redisService?: RedisService,
-    @Optional()
-    private readonly storageService?: MinioClientService,
+    private readonly storageService: MinioClientService,
+    private readonly measurementAdapterRegistry: ReportMeasurementAdapterRegistry,
+    @Inject(REPORT_COMPILED_AUTHORITY_GRAPH)
+    private readonly authorityGraph: CompiledReportAuthorityGraphV1,
   ) {}
-
-  /**
-   * Get cached report data or compute it
-   */
-  private async getCachedOrCompute<T>(
-    cacheKey: string,
-    compute: () => Promise<T>,
-  ): Promise<T> {
-    if (this.redisService) {
-      try {
-        const cached = await this.redisService.getJson<T>(cacheKey);
-        if (cached) {
-          this.logger.debug(`Cache HIT: ${cacheKey}`);
-          return cached;
-        }
-      } catch {
-        // Cache miss or error
-      }
-    }
-
-    const result = await compute();
-
-    if (this.redisService) {
-      // ERROR HANDLING FIX: Log cache write errors instead of silently ignoring
-      this.redisService.setJson(cacheKey, result, ReportsService.CACHE_TTL).catch((error) => {
-        this.logger.warn(`Failed to write cache for key ${cacheKey}: ${(error as Error).message}`);
-      });
-    }
-
-    return result;
-  }
-
-  // ============================================================================
-  // Report Generation
-  // ============================================================================
-
-  /**
-   * Generate a report
-   */
-  async generateReport(request: ReportRequest): Promise<ReportResult> {
-    this.logger.log(`Generating ${request.type} report in ${request.format} format`);
-
-    let data: unknown;
-    let title: string;
-    let summary: Record<string, unknown> = {};
-
-    // OPTIMIZED: Cache expensive report computations
-    // BUG-002/BUG-019 fix: include filters in cache key to prevent stale cached results
-    // being returned for requests with different filter criteria
-    const filtersKey = request.filters
-      ? JSON.stringify(Object.fromEntries(Object.entries(request.filters).sort()))
-      : 'none';
-    const cacheKey = `report:${request.type}:${request.startDate?.toISOString() || 'all'}:${request.endDate?.toISOString() || 'all'}:${filtersKey}`;
-
-    switch (request.type) {
-      case 'tenant_overview': {
-        const tenantResult = await this.getCachedOrCompute(
-          cacheKey,
-          () => this.generateTenantOverviewReport(request),
-        );
-        data = tenantResult.data;
-        title = 'Tenant Overview Report';
-        summary = tenantResult.summary;
-        break;
-      }
-
-      case 'tenant_churn': {
-        const churnResult = await this.getCachedOrCompute(
-          cacheKey,
-          () => this.generateChurnReport(request),
-        );
-        data = churnResult.data;
-        title = 'Churn Analysis Report';
-        summary = churnResult.summary;
-        break;
-      }
-
-      case 'financial_revenue': {
-        const revenueResult = await this.getCachedOrCompute(
-          cacheKey,
-          () => this.generateRevenueReport(request),
-        );
-        data = revenueResult.data;
-        title = 'Revenue Report';
-        summary = revenueResult.summary;
-        break;
-      }
-
-      case 'financial_payments': {
-        const paymentsResult = await this.generatePaymentsReport(request);
-        data = paymentsResult.data;
-        title = 'Payments Report';
-        summary = paymentsResult.summary;
-        break;
-      }
-
-      case 'usage_modules': {
-        const modulesResult = await this.generateModuleUsageReport(request);
-        data = modulesResult.data;
-        title = 'Module Usage Report';
-        summary = modulesResult.summary;
-        break;
-      }
-
-      case 'usage_features': {
-        const featuresResult = await this.generateFeatureUsageReport(request);
-        data = featuresResult.data;
-        title = 'Feature Usage Report';
-        summary = featuresResult.summary;
-        break;
-      }
-
-      case 'system_performance': {
-        const perfResult = await this.getCachedOrCompute(
-          cacheKey,
-          () => this.generatePerformanceReport(request),
-        );
-        data = perfResult.data;
-        title = 'System Performance Report';
-        summary = perfResult.summary;
-        break;
-      }
-
-      default:
-        throw new BadRequestException('Unknown report type');
-    }
-
-    // Format data based on requested format
-    const formattedData = this.formatReportData(data, request.format);
-
-    const result: ReportResult = {
-      // BUG-028 fix: use crypto.randomBytes for an unguessable ID; replace deprecated substr()
-      id: `rpt_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`,
-      type: request.type,
-      format: request.format,
-      title,
-      generatedAt: new Date(),
-      data: formattedData,
-      summary,
-    };
-
-    // For file formats, generate download URL
-    if (['csv', 'pdf'].includes(request.format)) {
-      result.downloadUrl = `/api/reports/download/${result.id}`;
-    }
-
-    return result;
-  }
-
-  // ============================================================================
-  // Tenant Reports
-  // ============================================================================
-
-  private async generateTenantOverviewReport(_request: ReportRequest): Promise<{
-    data: TenantReportRow[];
-    summary: Record<string, unknown>;
-  }> {
-    // Fetch real tenants from database
-    const tenants = await this.tenantRepository.find({
-      order: { createdAt: 'DESC' },
-    });
-
-    // Get user counts per tenant
-    const userCounts = await this.userRepository
-      .createQueryBuilder('user')
-      .select('user.tenantId', 'tenantId')
-      .addSelect('COUNT(*)', 'count')
-      .where('user.tenantId IS NOT NULL')
-      .groupBy('user.tenantId')
-      .getRawMany<{ tenantId: string; count: string }>();
-
-    const userCountMap = new Map(userCounts.map(u => [u.tenantId, parseInt(u.count, 10)]));
-
-    // HIGH-002 fix: replaced N+1 per-tenant getStatistics() calls with a single
-    // GROUP BY aggregation over all tenants at once.
-    const storageMap = new Map<string, string>();
-    try {
-      const auditCountRows: Array<{ tenantId: string; cnt: string }> =
-        await this.dataSource.query(
-          // Schema-qualified after P9 (2026-04-14): audit_logs in shared schema.
-          // The earlier batch of unqualified→qualified rewrites missed this site
-          // because grep pattern matched only `FROM audit_logs<space>` and this
-          // form had a multi-space alignment. Closes NEW-CRITICAL-B from the
-          // round-2 review.
-          `SELECT "tenantId", COUNT(*) AS cnt
-           FROM   shared.audit_logs
-           WHERE  "tenantId" IS NOT NULL
-           GROUP  BY "tenantId"`,
-        );
-      for (const row of auditCountRows) {
-        const userCount = userCountMap.get(row.tenantId) || 0;
-        const totalLogs = parseInt(row.cnt, 10);
-        const estimatedBytes = (totalLogs * 2048) + (userCount * 1024);
-        storageMap.set(row.tenantId, this.formatBytes(estimatedBytes));
-      }
-    } catch {
-      // Non-critical — storage column will show '0 KB'
-    }
-
-    // MRR pricing by plan
-    const planPricing: Record<string, number> = {
-      [TenantPlan.TRIAL]: 0,
-      [TenantPlan.STARTER]: 99,
-      [TenantPlan.PROFESSIONAL]: 299,
-      [TenantPlan.ENTERPRISE]: 499,
-    };
-
-    // Transform to report format
-    const data: TenantReportRow[] = tenants.map(tenant => ({
-      id: tenant.id,
-      name: tenant.name,
-      plan: tenant.plan,
-      status: tenant.status === TenantStatus.ACTIVE ? 'Active' :
-              tenant.status === TenantStatus.PENDING ? 'Trial' : tenant.status,
-      users: userCountMap.get(tenant.id) || 0,
-      createdAt: tenant.createdAt?.toISOString().substring(0, 10) ?? '',
-      mrr: tenant.status === TenantStatus.ACTIVE ? planPricing[tenant.plan] || 0 : 0,
-      storageUsed: storageMap.get(tenant.id) || '0 KB',
-      lastActivity: tenant.updatedAt?.toISOString().substring(0, 10) ?? '',
-    }));
-
-    // Calculate summary
-    const totalMRR = data.reduce((sum, t) => sum + t.mrr, 0);
-    const totalUsers = data.reduce((sum, t) => sum + t.users, 0);
-    const planDistribution = tenants.reduce((acc, t) => {
-      acc[t.plan] = (acc[t.plan] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-
-    return {
-      data,
-      summary: {
-        totalTenants: tenants.length,
-        activeTenants: tenants.filter(t => t.status === TenantStatus.ACTIVE).length,
-        trialTenants: tenants.filter(t => t.plan === TenantPlan.TRIAL || t.status === TenantStatus.PENDING).length,
-        totalMRR,
-        avgUsersPerTenant: tenants.length > 0 ? Math.round(totalUsers / tenants.length) : 0,
-        planDistribution,
-      },
-    };
-  }
-
-  private async generateChurnReport(_request: ReportRequest): Promise<{
-    data: ChurnReportRow[];
-    summary: Record<string, unknown>;
-  }> {
-    // Fetch cancelled/suspended tenants from database
-    const cancelledTenants = await this.tenantRepository.find({
-      where: [
-        { status: TenantStatus.CANCELLED },
-        { status: TenantStatus.SUSPENDED },
-      ],
-      order: { updatedAt: 'DESC' },
-    });
-
-    // MRR pricing by plan
-    const planPricing: Record<string, number> = {
-      [TenantPlan.TRIAL]: 0,
-      [TenantPlan.STARTER]: 99,
-      [TenantPlan.PROFESSIONAL]: 299,
-      [TenantPlan.ENTERPRISE]: 499,
-    };
-
-    // Transform to report format
-    const data: ChurnReportRow[] = cancelledTenants.map(tenant => {
-      const createdDate = tenant.createdAt ? new Date(tenant.createdAt) : new Date();
-      const cancelDate = tenant.updatedAt ? new Date(tenant.updatedAt) : new Date();
-      const usageDays = Math.floor((cancelDate.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24));
-      const monthlyPrice = planPricing[tenant.plan] || 0;
-      const lifetimeMonths = Math.max(1, Math.ceil(usageDays / 30));
-
-      return {
-        tenantId: tenant.id,
-        tenantName: tenant.name,
-        plan: tenant.plan,
-        cancelDate: cancelDate.toISOString().substring(0, 10),
-        reason: 'Unknown', // Would need a separate field to track cancellation reasons
-        mrr: monthlyPrice,
-        lifetimeValue: monthlyPrice * lifetimeMonths,
-        usageDays,
-      };
-    });
-
-    const metrics = await this.analyticsService.getTenantMetrics();
-
-    // Count reasons (would need real data)
-    const reasonCounts: Record<string, number> = {};
-    data.forEach(d => {
-      reasonCounts[d.reason] = (reasonCounts[d.reason] || 0) + 1;
-    });
-
-    return {
-      data,
-      summary: {
-        totalChurned: data.length,
-        churnRate: metrics.churnRate,
-        lostMRR: data.reduce((sum, t) => sum + t.mrr, 0),
-        avgLifetimeValue: data.length > 0 ? Math.round(data.reduce((sum, t) => sum + t.lifetimeValue, 0) / data.length) : 0,
-        topReasons: reasonCounts,
-      },
-    };
-  }
-
-  // ============================================================================
-  // Financial Reports
-  // ============================================================================
-
-  private async generateRevenueReport(request: ReportRequest): Promise<{
-    data: RevenueReportRow[];
-    summary: Record<string, unknown>;
-  }> {
-    try {
-      const startDate = request.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      const endDate = request.endDate || new Date();
-
-      const planPricing: Record<string, number> = {
-        [TenantPlan.TRIAL]: 0,
-        [TenantPlan.STARTER]: 99,
-        [TenantPlan.PROFESSIONAL]: 299,
-        [TenantPlan.ENTERPRISE]: 499,
-      };
-
-      // Fetch all tenants with their creation dates and plans
-      const tenants = await this.tenantRepository.find();
-
-      // Build daily revenue data for the requested date range
-      const data: RevenueReportRow[] = [];
-      const current = new Date(startDate);
-      current.setHours(0, 0, 0, 0);
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999);
-
-      while (current <= end) {
-        const dateStr = current.toISOString().substring(0, 10);
-        const currentTime = current.getTime();
-
-        // Count active tenants at this date and calculate daily revenue
-        let dailyRevenue = 0;
-        let newSubscriptions = 0;
-
-        for (const tenant of tenants) {
-          const createdAt = tenant.createdAt ? new Date(tenant.createdAt) : null;
-          if (!createdAt || createdAt.getTime() > currentTime) continue;
-
-          // Only count active or pending tenants that existed by this date
-          if (tenant.status === TenantStatus.ACTIVE || tenant.status === TenantStatus.PENDING) {
-            const monthlyPrice = planPricing[tenant.plan] || 0;
-            // Prorate monthly price to a daily amount
-            dailyRevenue += monthlyPrice / 30;
-
-            // Check if tenant was created on this exact day
-            const createdDateStr = createdAt.toISOString().substring(0, 10);
-            if (createdDateStr === dateStr) {
-              newSubscriptions++;
-            }
-          }
-        }
-
-        dailyRevenue = Math.round(dailyRevenue * 100) / 100;
-
-        data.push({
-          date: dateStr,
-          revenue: dailyRevenue,
-          newSubscriptions,
-          renewals: 0, // Requires subscription renewal tracking
-          upgrades: 0, // Requires plan change history table
-          downgrades: 0, // Requires plan change history table
-          refunds: 0, // Requires refund tracking
-          netRevenue: dailyRevenue,
-        });
-
-        current.setDate(current.getDate() + 1);
-      }
-
-      // Calculate summary totals
-      const totalRevenue = data.reduce((sum, d) => sum + d.revenue, 0);
-      const totalNewSubscriptions = data.reduce((sum, d) => sum + d.newSubscriptions, 0);
-      const totalNetRevenue = data.reduce((sum, d) => sum + d.netRevenue, 0);
-      const activePaidTenants = tenants.filter(
-        t => t.status === TenantStatus.ACTIVE && t.plan !== TenantPlan.TRIAL,
-      ).length;
-
-      return {
-        data,
-        summary: {
-          totalRevenue: Math.round(totalRevenue * 100) / 100,
-          totalNewSubscriptions,
-          totalRenewals: 0,
-          totalUpgrades: 0,
-          totalDowngrades: 0,
-          totalRefunds: 0,
-          totalNetRevenue: Math.round(totalNetRevenue * 100) / 100,
-          activePaidTenants,
-          avgDailyRevenue: data.length > 0 ? Math.round((totalRevenue / data.length) * 100) / 100 : 0,
-        },
-      };
-    } catch (error) {
-      this.logger.error(`Failed to generate revenue report: ${(error as Error).message}`);
-      return {
-        data: [],
-        summary: {
-          totalRevenue: 0,
-          totalNewSubscriptions: 0,
-          totalNetRevenue: 0,
-          error: 'Failed to generate revenue report',
-        },
-      };
-    }
-  }
-
-  private async generatePaymentsReport(_request: ReportRequest): Promise<{
-    data: PaymentReportRow[];
-    summary: Record<string, unknown>;
-  }> {
-    try {
-      const planPricing: Record<string, number> = {
-        [TenantPlan.TRIAL]: 0,
-        [TenantPlan.STARTER]: 99,
-        [TenantPlan.PROFESSIONAL]: 299,
-        [TenantPlan.ENTERPRISE]: 499,
-      };
-
-      // Fetch active tenants to generate synthetic invoice records
-      const tenants = await this.tenantRepository.find({
-        where: { status: TenantStatus.ACTIVE },
-        order: { name: 'ASC' },
-      });
-
-      const now = new Date();
-      const data: PaymentReportRow[] = [];
-      let totalPaid = 0;
-      let totalPending = 0;
-      let totalOverdue = 0;
-      let paidCount = 0;
-      let pendingCount = 0;
-      let overdueCount = 0;
-
-      for (const tenant of tenants) {
-        const amount = planPricing[tenant.plan] || 0;
-
-        // Generate a deterministic invoice ID from tenant id and current month
-        const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-        const invoiceId = `INV-${monthKey}-${tenant.id.substring(0, 8).toUpperCase()}`;
-
-        // Due date is the 1st of the current month
-        const dueDate = new Date(now.getFullYear(), now.getMonth(), 1);
-        const dueDateStr = dueDate.toISOString().substring(0, 10);
-
-        // Calculate days past due (if any)
-        const daysPastDue = Math.max(0, Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24)));
-
-        // Trial tenants always have paid $0 invoices; active paid tenants are considered paid
-        const status = amount === 0 ? 'paid' : 'paid';
-
-        data.push({
-          invoiceId,
-          tenantName: tenant.name,
-          amount,
-          currency: 'USD',
-          dueDate: dueDateStr,
-          status,
-          daysPastDue: status === 'paid' ? 0 : daysPastDue,
-        });
-
-        if (status === 'paid') {
-          totalPaid += amount;
-          paidCount++;
-        } else if (status === 'pending') {
-          totalPending += amount;
-          pendingCount++;
-        } else if (status === 'overdue') {
-          totalOverdue += amount;
-          overdueCount++;
-        }
-      }
-
-      return {
-        data,
-        summary: {
-          totalInvoices: data.length,
-          totalPaid: Math.round(totalPaid * 100) / 100,
-          totalPending: Math.round(totalPending * 100) / 100,
-          totalOverdue: Math.round(totalOverdue * 100) / 100,
-          paidCount,
-          pendingCount,
-          overdueCount,
-          collectionRate: data.length > 0 ? Math.round((paidCount / data.length) * 100) : 0,
-        },
-      };
-    } catch (error) {
-      this.logger.error(`Failed to generate payments report: ${(error as Error).message}`);
-      return {
-        data: [],
-        summary: {
-          totalInvoices: 0,
-          totalPaid: 0,
-          totalPending: 0,
-          totalOverdue: 0,
-          error: 'Failed to generate payments report',
-        },
-      };
-    }
-  }
-
-  // ============================================================================
-  // Usage Reports
-  // ============================================================================
-
-  private async generateModuleUsageReport(_request: ReportRequest): Promise<{
-    data: ModuleUsageReportRow[];
-    summary: Record<string, unknown>;
-  }> {
-    const usage = await this.analyticsService.getUsageMetrics();
-
-    // C-3 fix: use actual user count instead of hardcoded 2456, remove Math.random() for trend
-    const userMetrics = await this.analyticsService.getUserMetrics();
-    const totalActiveUsers = userMetrics.active || 1; // avoid division by zero
-
-    const data: ModuleUsageReportRow[] = Object.entries(usage.moduleUsage).map(([module, stats]) => ({
-      module: this.formatModuleName(module),
-      activeUsers: stats.activeUsers,
-      totalSessions: stats.totalSessions,
-      avgSessionDuration: stats.avgSessionDuration,
-      adoptionRate: Math.round((stats.activeUsers / totalActiveUsers) * 100),
-      trend: 'stable', // Trend calculation requires historical snapshot comparison
-    }));
-
-    return {
-      data,
-      summary: {
-        totalModules: data.length,
-        mostUsedModule: data.sort((a, b) => b.activeUsers - a.activeUsers)[0]?.module,
-        avgAdoptionRate: Math.round(data.reduce((sum, m) => sum + m.adoptionRate, 0) / data.length),
-        totalSessions: data.reduce((sum, m) => sum + m.totalSessions, 0),
-      },
-    };
-  }
-
-  private async generateFeatureUsageReport(_request: ReportRequest): Promise<{
-    data: FeatureUsageReportRow[];
-    summary: Record<string, unknown>;
-  }> {
-    const usage = await this.analyticsService.getUsageMetrics();
-
-    // C-3 fix: use actual user count, remove Math.random()
-    const featureUserMetrics = await this.analyticsService.getUserMetrics();
-    const featureTotalActive = featureUserMetrics.active || 1;
-
-    const data: FeatureUsageReportRow[] = Object.entries(usage.featureAdoption).map(([feature, rate]) => ({
-      feature: this.formatFeatureName(feature),
-      adoptionRate: rate,
-      activeUsers: Math.round((rate / 100) * featureTotalActive),
-      avgUsagePerUser: 0, // Requires real per-user usage tracking
-      trend: 'stable', // Trend calculation requires historical snapshot comparison
-    }));
-
-    return {
-      data,
-      summary: {
-        totalFeatures: data.length,
-        avgAdoptionRate: Math.round(data.reduce((sum, f) => sum + f.adoptionRate, 0) / data.length),
-        highAdoptionCount: data.filter(f => f.adoptionRate >= 60).length,
-        lowAdoptionCount: data.filter(f => f.adoptionRate < 40).length,
-      },
-    };
-  }
-
-  // ============================================================================
-  // Performance Report
-  // ============================================================================
-
-  private async generatePerformanceReport(request: ReportRequest): Promise<{
-    data: PerformanceReportRow[];
-    summary: Record<string, unknown>;
-  }> {
-    try {
-      const startDate = request.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      const endDate = request.endDate || new Date();
-
-      const data: PerformanceReportRow[] = [];
-
-      // Try to get data from analytics_snapshots (system category)
-      let snapshotRows: Array<{ snapshotDate: string; metrics: SystemMetrics }> = [];
-      try {
-        snapshotRows = await this.dataSource.query(
-          `SELECT "snapshotDate"::text, metrics
-           FROM admin.analytics_snapshots
-           WHERE category = 'system'
-             AND "snapshotDate" >= $1
-             AND "snapshotDate" <= $2
-           ORDER BY "snapshotDate" ASC`,
-          [startDate.toISOString().substring(0, 10), endDate.toISOString().substring(0, 10)],
-        );
-      } catch {
-        // Table may not exist or have no data
-      }
-
-      if (snapshotRows.length > 0) {
-        // Use real snapshot data grouped by date
-        const groupedByDate = new Map<string, SystemMetrics[]>();
-        for (const row of snapshotRows) {
-          const dateStr = typeof row.snapshotDate === 'string'
-            ? row.snapshotDate.substring(0, 10)
-            : new Date(row.snapshotDate).toISOString().substring(0, 10);
-          const existing = groupedByDate.get(dateStr) || [];
-          existing.push(row.metrics);
-          groupedByDate.set(dateStr, existing);
-        }
-
-        for (const [dateStr, metricsArr] of groupedByDate) {
-          const avgResponseTime = metricsArr.reduce((s, m) => s + (m.avgResponseTimeMs || 0), 0) / metricsArr.length;
-          const errorRate = metricsArr.reduce((s, m) => s + (m.errorRate || 0), 0) / metricsArr.length;
-          const uptime = metricsArr.reduce((s, m) => s + (m.uptimePercent || 99.9), 0) / metricsArr.length;
-          const apiCalls = metricsArr.reduce((s, m) => s + (m.apiCallsToday || 0), 0);
-          const activeConnections = metricsArr.reduce((s, m) => s + (m.activeConnections || 0), 0) / metricsArr.length;
-
-          data.push({
-            date: dateStr,
-            avgResponseTime: Math.round(avgResponseTime * 100) / 100,
-            errorRate: Math.round(errorRate * 100) / 100,
-            uptime: Math.round(uptime * 100) / 100,
-            apiCalls: Math.round(apiCalls),
-            activeConnections: Math.round(activeConnections),
-          });
-        }
-      } else {
-        // No snapshots available: build per-day rows using audit_logs count and current DB stats
-        let activeConnections = 0;
-        try {
-          const connResult: Array<{ count: string }> = await this.dataSource.query(
-            `SELECT COUNT(*) AS count FROM pg_stat_activity WHERE state = 'active'`,
-          );
-          activeConnections = parseInt(connResult[0]?.count || '0', 10);
-        } catch {
-          // ignore
-        }
-
-        // Get audit log counts per day for the date range as a proxy for API calls
-        let auditCountsByDate = new Map<string, number>();
-        try {
-          const auditRows: Array<{ day: string; cnt: string }> = await this.dataSource.query(
-            // Schema-qualified after P9 (2026-04-14): audit_logs lives in
-            // shared schema. Unqualified read would resolve via search_path
-            // (admin, public) — both empty after the move, returning zeros
-            // silently inside the surrounding try/catch. Qualifying is the
-            // architectural fix per docs/adr/011-schema-ownership-model.md.
-            `SELECT DATE("createdAt")::text AS day, COUNT(*) AS cnt
-             FROM shared.audit_logs
-             WHERE "createdAt" >= $1 AND "createdAt" <= $2
-             GROUP BY DATE("createdAt")
-             ORDER BY day ASC`,
-            [startDate.toISOString(), endDate.toISOString()],
-          );
-          auditCountsByDate = new Map(auditRows.map(r => [r.day.substring(0, 10), parseInt(r.cnt, 10)]));
-        } catch {
-          // audit_logs table may not exist
-        }
-
-        const current = new Date(startDate);
-        current.setHours(0, 0, 0, 0);
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-
-        while (current <= end) {
-          const dateStr = current.toISOString().substring(0, 10);
-          const apiCalls = auditCountsByDate.get(dateStr) || 0;
-
-          data.push({
-            date: dateStr,
-            avgResponseTime: 45, // Default estimate in ms
-            errorRate: 0.1, // Default low error rate
-            uptime: 99.9, // Default uptime since we don't track downtime
-            apiCalls,
-            activeConnections,
-          });
-
-          current.setDate(current.getDate() + 1);
-        }
-      }
-
-      // Calculate summary averages
-      const totalDays = data.length || 1;
-      const avgResponseTime = data.reduce((s, d) => s + d.avgResponseTime, 0) / totalDays;
-      const avgErrorRate = data.reduce((s, d) => s + d.errorRate, 0) / totalDays;
-      const avgUptime = data.reduce((s, d) => s + d.uptime, 0) / totalDays;
-      const totalApiCalls = data.reduce((s, d) => s + d.apiCalls, 0);
-      const avgActiveConnections = data.reduce((s, d) => s + d.activeConnections, 0) / totalDays;
-
-      return {
-        data,
-        summary: {
-          avgResponseTime: Math.round(avgResponseTime * 100) / 100,
-          avgErrorRate: Math.round(avgErrorRate * 100) / 100,
-          avgUptime: Math.round(avgUptime * 100) / 100,
-          totalApiCalls,
-          avgDailyApiCalls: Math.round(totalApiCalls / totalDays),
-          avgActiveConnections: Math.round(avgActiveConnections),
-          totalDays,
-        },
-      };
-    } catch (error) {
-      this.logger.error(`Failed to generate performance report: ${(error as Error).message}`);
-      return {
-        data: [],
-        summary: {
-          avgResponseTime: 0,
-          avgErrorRate: 0,
-          avgUptime: 0,
-          totalApiCalls: 0,
-          error: 'Failed to generate performance report',
-        },
-      };
-    }
-  }
 
   // ============================================================================
   // Export Formatting
   // ============================================================================
-
-  private formatReportData(data: unknown, format: ReportFormat): unknown {
-    switch (format) {
-      case 'json':
-        return data;
-
-      case 'csv':
-        return this.convertToCsv(data as Record<string, unknown>[]);
-
-      case 'pdf':
-        return data;
-
-      default:
-        throw new BadRequestException(`Unsupported report format: ${String(format)}`);
-    }
-  }
 
   private convertToCsv(data: Record<string, unknown>[]): string {
     if (!data || data.length === 0) return '';
@@ -888,10 +87,10 @@ export class ReportsService {
     if (!firstRow) return '';
 
     const headers = Object.keys(firstRow);
-    const csvRows = [headers.map(header => this.escapeCsvValue(header)).join(',')];
+    const csvRows = [headers.map((header) => this.escapeCsvValue(header)).join(',')];
 
     for (const row of data) {
-      const values = headers.map(header => {
+      const values = headers.map((header) => {
         const value = row[header];
         return this.escapeCsvValue(value);
       });
@@ -926,40 +125,14 @@ export class ReportsService {
       return '[unserializable]';
     }
   }
-
-  // ============================================================================
-  // Helpers
-  // ============================================================================
-
-  private formatModuleName(name: string): string {
-    return name
-      .split('_')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
-  }
-
-  private formatFeatureName(name: string): string {
-    return name
-      .split('_')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
-  }
-
-  private formatBytes(bytes: number): string {
-    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-    let unitIndex = 0;
-    let value = bytes;
-    while (value >= 1024 && unitIndex < units.length - 1) {
-      value /= 1024;
-      unitIndex++;
-    }
-    return `${value.toFixed(1)} ${units[unitIndex]}`;
-  }
-
   /**
    * Generate PDF buffer from report data
    */
-  async generatePdfBuffer(reportType: ReportType, data: unknown): Promise<Buffer> {
+  private async generatePdfBuffer(
+    reportType: ReportType,
+    data: unknown,
+    measuredAt: string,
+  ): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       const doc = new PDFDocument({ margin: 50 });
       const chunks: Buffer[] = [];
@@ -969,15 +142,21 @@ export class ReportsService {
       doc.on('error', reject);
 
       // Header
-      doc.fontSize(20).font('Helvetica-Bold').text('Aquaculture Platform Report', { align: 'center' });
+      doc
+        .fontSize(20)
+        .font('Helvetica-Bold')
+        .text('Aquaculture Platform Report', { align: 'center' });
       doc.moveDown(0.5);
       doc.fontSize(14).font('Helvetica').text(this.getReportTitle(reportType), { align: 'center' });
       doc.moveDown(0.5);
-      doc.fontSize(10).text(`Generated: ${new Date().toLocaleString()}`, { align: 'center' });
+      doc.fontSize(10).text(`Measured: ${measuredAt}`, { align: 'center' });
       doc.moveDown(1.5);
 
       // Draw a line
-      doc.moveTo(50, doc.y).lineTo(doc.page.width - 50, doc.y).stroke();
+      doc
+        .moveTo(50, doc.y)
+        .lineTo(doc.page.width - 50, doc.y)
+        .stroke();
       doc.moveDown(1);
 
       // Content based on report type
@@ -1000,29 +179,23 @@ export class ReportsService {
 
       // Footer
       doc.moveDown(2);
-      doc.fontSize(8).fillColor('gray').text('Aquaculture Platform - Confidential', { align: 'center' });
+      doc
+        .fontSize(8)
+        .fillColor('gray')
+        .text('Aquaculture Platform - Confidential', { align: 'center' });
 
       doc.end();
     });
   }
 
   private getReportTitle(type: ReportType): string {
-    const titles: Record<ReportType, string> = {
-      tenant_overview: 'Tenant Overview Report',
-      tenant_churn: 'Churn Analysis Report',
-      financial_revenue: 'Revenue Report',
-      financial_payments: 'Payments Report',
-      usage_modules: 'Module Usage Report',
-      usage_features: 'Feature Adoption Report',
-      system_performance: 'System Performance Report',
-    };
-    return titles[type] || 'Report';
+    return getReportCapabilityFromAuthorityGraph(this.authorityGraph, type).name;
   }
 
   private renderSummary(doc: PDFKit.PDFDocument, summary: Record<string, unknown>): void {
     doc.fontSize(10).font('Helvetica');
     for (const [key, value] of Object.entries(summary)) {
-      const formattedKey = key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+      const formattedKey = key.replace(/([A-Z])/g, ' $1').replace(/^./, (str) => str.toUpperCase());
       doc.text(`${formattedKey}: ${this.formatUnknownValue(value)}`, { indent: 20 });
     }
   }
@@ -1042,7 +215,7 @@ export class ReportsService {
     // Render headers
     doc.fontSize(9).font('Helvetica-Bold');
     let xPos = 50;
-    headers.slice(0, 5).forEach(header => {
+    headers.slice(0, 5).forEach((header) => {
       const displayHeader = header.replace(/([A-Z])/g, ' $1').slice(0, 12);
       doc.text(displayHeader, xPos, doc.y, { width: colWidth, continued: false });
       xPos += colWidth;
@@ -1058,7 +231,7 @@ export class ReportsService {
 
       xPos = 50;
       const yPos = doc.y;
-      headers.slice(0, 5).forEach(header => {
+      headers.slice(0, 5).forEach((header) => {
         const value = this.formatUnknownValue(row[header]).slice(0, 20);
         doc.text(value, xPos, yPos, { width: colWidth });
         xPos += colWidth;
@@ -1073,23 +246,52 @@ export class ReportsService {
 
     if (data.length > 50) {
       doc.moveDown(1);
-      doc.fontSize(9).fillColor('gray').text(`... and ${data.length - 50} more rows (truncated for PDF)`);
+      doc
+        .fontSize(9)
+        .fillColor('gray')
+        .text(`... and ${data.length - 50} more rows (truncated for PDF)`);
     }
   }
 
   /**
    * Get available report types
    */
-  getAvailableReports(): Array<{ type: ReportType; name: string; description: string; category: string }> {
-    return [
-      { type: 'tenant_overview', name: 'Tenant Overview', description: 'Complete list of all tenants with their status and metrics', category: 'Tenant' },
-      { type: 'tenant_churn', name: 'Churn Analysis', description: 'Analysis of churned tenants and cancellation reasons', category: 'Tenant' },
-      { type: 'financial_revenue', name: 'Revenue Report', description: 'Daily revenue breakdown with subscriptions and refunds', category: 'Financial' },
-      { type: 'financial_payments', name: 'Payments Report', description: 'Invoice and payment status overview', category: 'Financial' },
-      { type: 'usage_modules', name: 'Module Usage', description: 'Usage statistics for each platform module', category: 'Usage' },
-      { type: 'usage_features', name: 'Feature Adoption', description: 'Feature adoption rates and usage patterns', category: 'Usage' },
-      { type: 'system_performance', name: 'System Performance', description: 'API performance, uptime, and error rates', category: 'System' },
-    ];
+  getReportCapabilities(): Array<{
+    type: ReportType;
+    name: string;
+    description: string;
+    category: string;
+    rangePolicy: 'FORBIDDEN' | 'REQUIRED';
+    schedulePolicy: 'UNSUPPORTED';
+    previewMaximumRows: number;
+    artifactMaximumBytes: number;
+    measurementState: 'BLOCKED' | 'QUALIFIED';
+    unavailableReason?: string;
+    capabilityCatalogSha256: string;
+    measurementCatalogSha256: string;
+    authorityGraphSha256: string;
+  }> {
+    return this.authorityGraph.capabilityCatalog.entries.map((capability) => {
+      const authority = getReportMeasurementAuthorityFromAuthorityGraph(
+        this.authorityGraph,
+        capability.reportType,
+      );
+      return {
+        type: capability.reportType,
+        name: capability.name,
+        description: capability.description,
+        category: capability.category,
+        rangePolicy: capability.range.policy,
+        schedulePolicy: capability.schedulePolicy,
+        previewMaximumRows: capability.preview.maximumRows,
+        artifactMaximumBytes: capability.artifact.maximumBytes,
+        measurementState: authority.state,
+        ...(authority.blocker === null ? {} : { unavailableReason: authority.blocker }),
+        capabilityCatalogSha256: this.authorityGraph.capabilityCatalogSha256,
+        measurementCatalogSha256: this.authorityGraph.measurementCatalogSha256,
+        authorityGraphSha256: this.authorityGraph.graphSha256,
+      };
+    });
   }
 
   // ============================================================================
@@ -1104,7 +306,7 @@ export class ReportsService {
     type?: ReportType;
     page?: number;
     limit?: number;
-  }): Promise<{ data: ReportDefinition[]; total: number; page: number; limit: number }> {
+  }): Promise<IStandardPaginatedResult<ReportDefinition>> {
     const page = params?.page || 1;
     const limit = params?.limit || 20;
     const skip = (page - 1) * limit;
@@ -1124,7 +326,7 @@ export class ReportsService {
 
     const [data, total] = await queryBuilder.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**
@@ -1146,10 +348,7 @@ export class ReportsService {
     description?: string;
     type: ReportType;
     defaultFormat?: ReportFormat;
-    schedule?: ReportSchedule;
     defaultFilters?: Record<string, unknown>;
-    recipients?: string[];
-    includeCharts?: boolean;
     createdBy?: string;
     createdByEmail?: string;
   }): Promise<ReportDefinition> {
@@ -1159,13 +358,9 @@ export class ReportsService {
       type: data.type,
       defaultFormat: data.defaultFormat || 'json',
       status: 'active',
-      schedule: data.schedule || 'manual',
       defaultFilters: data.defaultFilters,
-      recipients: data.recipients,
-      includeCharts: data.includeCharts || false,
       createdBy: data.createdBy,
       createdByEmail: data.createdByEmail,
-      runCount: 0,
     });
 
     return this.definitionRepository.save(definition);
@@ -1174,16 +369,16 @@ export class ReportsService {
   /**
    * Update report definition
    */
-  async updateDefinition(id: string, data: Partial<{
-    name: string;
-    description: string;
-    defaultFormat: ReportFormat;
-    status: ReportDefinitionStatus;
-    schedule: ReportSchedule;
-    defaultFilters: Record<string, unknown>;
-    recipients: string[];
-    includeCharts: boolean;
-  }>): Promise<ReportDefinition> {
+  async updateDefinition(
+    id: string,
+    data: Partial<{
+      name: string;
+      description: string;
+      defaultFormat: ReportFormat;
+      status: ReportDefinitionStatus;
+      defaultFilters: Record<string, unknown>;
+    }>,
+  ): Promise<ReportDefinition> {
     const definition = await this.getDefinition(id);
 
     Object.assign(definition, data, { updatedAt: new Date() });
@@ -1212,7 +407,7 @@ export class ReportsService {
     reportType?: ReportType;
     page?: number;
     limit?: number;
-  }): Promise<{ data: ReportExecution[]; total: number; page: number; limit: number }> {
+  }): Promise<IStandardPaginatedResult<ReportExecution>> {
     const page = params?.page || 1;
     const limit = params?.limit || 20;
     const skip = (page - 1) * limit;
@@ -1220,7 +415,9 @@ export class ReportsService {
     const queryBuilder = this.executionRepository.createQueryBuilder('exec');
 
     if (params?.definitionId) {
-      queryBuilder.andWhere('exec.definitionId = :definitionId', { definitionId: params.definitionId });
+      queryBuilder.andWhere('exec.definitionId = :definitionId', {
+        definitionId: params.definitionId,
+      });
     }
 
     if (params?.status) {
@@ -1236,7 +433,7 @@ export class ReportsService {
 
     const [data, total] = await queryBuilder.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**
@@ -1279,73 +476,181 @@ export class ReportsService {
       throw new BadRequestException('Report type is required');
     }
 
+    const capability = getReportCapabilityFromAuthorityGraph(this.authorityGraph, reportType);
+    const measurementAuthority = getReportMeasurementAuthorityFromAuthorityGraph(
+      this.authorityGraph,
+      reportType,
+    );
+    const effectiveFilters = params.filters ?? definition?.defaultFilters ?? undefined;
+
+    if (!capability.artifact.formats.includes(params.format)) {
+      throw new BadRequestException(`${params.format} is not supported for ${reportType}`);
+    }
+    if (
+      (params.startDate && Number.isNaN(params.startDate.getTime())) ||
+      (params.endDate && Number.isNaN(params.endDate.getTime()))
+    ) {
+      throw new BadRequestException('Report range contains an invalid date');
+    }
+    let measurementIntent: ReportMeasurementIntentV1;
+    try {
+      measurementIntent = compileReportMeasurementIntentForAuthorityGraph(this.authorityGraph, {
+        reportType,
+        startInclusiveUtc: params.startDate?.toISOString() ?? null,
+        endExclusiveUtc: params.endDate?.toISOString() ?? null,
+        filters: effectiveFilters ?? null,
+        currentTimeUtc: new Date().toISOString(),
+      });
+    } catch (error) {
+      throw new BadRequestException(
+        error instanceof Error ? error.message : 'Invalid report measurement intent',
+      );
+    }
+
     // Create execution record
     const execution = this.executionRepository.create({
       definitionId: params.definitionId,
       reportName,
       reportType,
       format: params.format,
-      status: 'running' as ReportExecutionStatus,
+      status:
+        measurementAuthority.state === 'QUALIFIED'
+          ? ('running' as ReportExecutionStatus)
+          : ('unavailable' as ReportExecutionStatus),
       startDate: params.startDate,
       endDate: params.endDate,
-      filters: params.filters || definition?.defaultFilters,
+      filters: measurementIntent.filters ?? undefined,
       executedBy: params.executedBy,
       executedByEmail: params.executedByEmail,
+      capabilityCatalogSha256: this.authorityGraph.capabilityCatalogSha256,
+      measurementCatalogSha256: this.authorityGraph.measurementCatalogSha256,
+      authorityGraphSha256: this.authorityGraph.graphSha256,
+      artifactMaximumBytes: capability.artifact.maximumBytes,
+      previewMaximumRows: capability.preview.maximumRows,
+      measurementState: measurementAuthority.state,
+      errorMessage: measurementAuthority.blocker ?? undefined,
+      completedAt: measurementAuthority.state === 'BLOCKED' ? new Date() : undefined,
+      durationMs: measurementAuthority.state === 'BLOCKED' ? Date.now() - startTime : undefined,
     });
 
     await this.executionRepository.save(execution);
 
+    if (measurementAuthority.state === 'BLOCKED') {
+      return execution;
+    }
+
+    let stagedArtifact:
+      | {
+          readonly objectKey: string;
+          readonly sha256: string;
+          readonly size: number;
+          readonly contentType: AdminBinaryArtifactMediaType;
+        }
+      | undefined;
     try {
-      // Generate the actual report
-      const startDateObj = params.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      const endDateObj = params.endDate || new Date();
+      const qualifiedMeasurement = await this.measurementAdapterRegistry.measure(measurementIntent);
+      const reportData = qualifiedMeasurement.rows;
+      const reportSummary = { ...qualifiedMeasurement.summary };
 
-      const reportResult = await this.generateReport({
-        type: reportType,
-        format: 'json',
-        startDate: startDateObj,
-        endDate: endDateObj,
-        filters: params.filters || definition?.defaultFilters,
-        includeCharts: definition?.includeCharts,
-      });
+      const rowCount = reportData.length;
+      const previewRows = this.createPreviewRows(reportData, capability.preview.maximumRows);
+      const previewSha256 = reportPreviewSha256(reportType, rowCount, previewRows);
 
-      const artifact = await this.createReportArtifact({
+      const artifact = await this.buildReportArtifact({
         executionId: execution.id,
-        reportName: execution.reportName,
         reportType,
         format: params.format,
-        data: reportResult.data,
-        summary: reportResult.summary,
-        generatedAt: reportResult.generatedAt,
+        data: reportData,
+        summary: reportSummary,
+        measuredAt: qualifiedMeasurement.measuredAt,
+        measurementProofSha256: qualifiedMeasurement.measurementProofSha256,
+      });
+      stagedArtifact = {
+        objectKey: artifact.objectKey,
+        sha256: artifact.sha256,
+        size: artifact.size,
+        contentType: artifact.contentType,
+      };
+      await this.compareAndSwapArtifactCommit(execution, null, 'INTENT_CREATED', {
+        summary: reportSummary,
+        rowCount,
+        previewRows,
+        previewSha256,
+        measurementProof: qualifiedMeasurement.measurementProof,
+        measurementProofSha256: qualifiedMeasurement.measurementProofSha256,
+        fileSizeBytes: artifact.size,
+        artifactContentType: artifact.contentType,
+        stagedArtifactObjectKey: artifact.objectKey,
+        stagedArtifactSha256: artifact.sha256,
       });
 
-      // Update execution with results
-      execution.status = 'completed';
-      execution.summary = reportResult.summary;
-      execution.rowCount = Array.isArray(reportResult.data) ? reportResult.data.length : 1;
-      execution.fileSizeBytes = artifact.size;
-      execution.artifactObjectKey = artifact.objectKey;
-      execution.artifactSha256 = artifact.sha256;
-      execution.artifactContentType = artifact.contentType;
-      execution.downloadUrl = `/api/reports/executions/${execution.id}/download`;
-      execution.downloadExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-      execution.durationMs = Date.now() - startTime;
-      execution.completedAt = new Date();
+      await this.uploadReportArtifact(artifact, {
+        executionId: execution.id,
+        reportType,
+        format: params.format,
+        measurementProofSha256: qualifiedMeasurement.measurementProofSha256,
+      });
+      await this.compareAndSwapArtifactCommit(execution, 'INTENT_CREATED', 'BYTES_VERIFIED', {});
 
-      await this.executionRepository.save(execution);
-
-      // Update definition run count if applicable
-      if (definition) {
-        definition.lastRunAt = new Date();
-        definition.runCount += 1;
-        await this.definitionRepository.save(definition);
-      }
+      await this.commitVerifiedArtifactReference(execution, startTime);
 
       return execution;
     } catch (error) {
+      if (stagedArtifact !== undefined) {
+        try {
+          const persisted = await this.executionRepository.findOne({
+            where: { id: execution.id },
+          });
+          if (
+            persisted?.status === 'completed' &&
+            persisted.artifactCommitState === 'REFERENCE_COMMITTED' &&
+            persisted.artifactObjectKey === stagedArtifact.objectKey &&
+            persisted.artifactSha256 === stagedArtifact.sha256 &&
+            persisted.fileSizeBytes === stagedArtifact.size
+          ) {
+            return persisted;
+          }
+          if (
+            persisted?.status === 'running' &&
+            (persisted.artifactCommitState === 'INTENT_CREATED' ||
+              persisted.artifactCommitState === 'BYTES_VERIFIED') &&
+            persisted.stagedArtifactObjectKey === stagedArtifact.objectKey &&
+            persisted.stagedArtifactSha256 === stagedArtifact.sha256
+          ) {
+            this.logger.warn(
+              `Report artifact ${stagedArtifact.objectKey} remains in ${persisted.artifactCommitState} for idempotent reconciliation`,
+            );
+            throw error;
+          }
+        } catch (readError) {
+          if (readError === error) {
+            throw error;
+          }
+          this.logger.error(
+            `Could not resolve report execution commit ambiguity for ${execution.id}: ${
+              readError instanceof Error ? readError.message : String(readError)
+            }`,
+          );
+          throw error;
+        }
+      }
       // Mark execution as failed
       execution.status = 'failed';
       execution.errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      execution.summary = null;
+      execution.rowCount = null;
+      execution.fileSizeBytes = null;
+      execution.artifactObjectKey = null;
+      execution.artifactSha256 = null;
+      execution.artifactContentType = null;
+      execution.downloadExpiresAt = null;
+      execution.previewRows = null;
+      execution.previewSha256 = null;
+      execution.measurementProof = null;
+      execution.measurementProofSha256 = null;
+      execution.stagedArtifactObjectKey = null;
+      execution.stagedArtifactSha256 = null;
+      execution.artifactCommitState = null;
       execution.durationMs = Date.now() - startTime;
       execution.completedAt = new Date();
 
@@ -1355,74 +660,300 @@ export class ReportsService {
     }
   }
 
-  private async createReportArtifact(params: {
+  /**
+   * Reconciles a durable artifact intent after a process crash or ambiguous
+   * storage/DB acknowledgement. The content-addressed object is re-read and
+   * verified before the same CAS state machine may commit its reference.
+   */
+  async reconcileArtifactCommit(id: string): Promise<ReportExecution> {
+    const execution = await this.getExecution(id);
+    if (
+      execution.status === 'completed' &&
+      execution.artifactCommitState === 'REFERENCE_COMMITTED'
+    ) {
+      return execution;
+    }
+    if (
+      execution.status !== 'running' ||
+      execution.measurementState !== 'QUALIFIED' ||
+      (execution.artifactCommitState !== 'INTENT_CREATED' &&
+        execution.artifactCommitState !== 'BYTES_VERIFIED') ||
+      execution.stagedArtifactObjectKey == null ||
+      execution.stagedArtifactSha256 == null ||
+      execution.fileSizeBytes == null ||
+      execution.artifactContentType == null ||
+      execution.measurementProof == null ||
+      execution.measurementProofSha256 == null ||
+      execution.summary == null ||
+      execution.rowCount == null ||
+      execution.previewRows == null ||
+      execution.previewSha256 == null
+    ) {
+      throw new BadRequestException('Report execution has no reconcilable artifact commit intent');
+    }
+    this.assertExecutionAuthorityCut(execution);
+    try {
+      assertReportMeasurementProofForAuthorityGraph(
+        this.authorityGraph,
+        execution.measurementProof,
+        {
+          reportType: execution.reportType,
+          intentSha256: reportMeasurementIntentSha256({
+            reportType: execution.reportType,
+            startInclusiveUtc: execution.startDate?.toISOString() ?? null,
+            endExclusiveUtc: execution.endDate?.toISOString() ?? null,
+            filters: execution.filters ?? null,
+          }),
+          proofSha256: execution.measurementProofSha256,
+        },
+      );
+    } catch {
+      throw new GoneException('Staged report measurement proof is stale');
+    }
+    if (
+      execution.previewRows.length > execution.previewMaximumRows ||
+      reportPreviewSha256(execution.reportType, execution.rowCount, execution.previewRows) !==
+        execution.previewSha256 ||
+      execution.artifactContentType !== this.getContentType(execution.format)
+    ) {
+      throw new GoneException('Staged report evidence coordinates are stale');
+    }
+    const expectedObjectKey =
+      `platform-admin/report-executions/${execution.id}/` +
+      `${execution.stagedArtifactSha256}.${this.getExtension(execution.format)}`;
+    if (execution.stagedArtifactObjectKey !== expectedObjectKey) {
+      throw new GoneException('Report artifact intent coordinates are stale');
+    }
+    const bytes = await this.storageService.downloadFile(execution.stagedArtifactObjectKey);
+    const actualSha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+    if (
+      actualSha256 !== execution.stagedArtifactSha256 ||
+      bytes.length !== execution.fileSizeBytes ||
+      bytes.length > execution.artifactMaximumBytes
+    ) {
+      throw new InternalServerErrorException('Staged report artifact integrity check failed');
+    }
+    if (execution.artifactCommitState === 'INTENT_CREATED') {
+      await this.compareAndSwapArtifactCommit(execution, 'INTENT_CREATED', 'BYTES_VERIFIED', {});
+    }
+    await this.commitVerifiedArtifactReference(
+      execution,
+      Math.min(Date.now(), execution.createdAt.getTime()),
+    );
+    return execution;
+  }
+
+  private async commitVerifiedArtifactReference(
+    execution: ReportExecution,
+    startTime: number,
+  ): Promise<void> {
+    if (execution.stagedArtifactObjectKey == null || execution.stagedArtifactSha256 == null) {
+      throw new InternalServerErrorException('Verified artifact has no staged coordinates');
+    }
+    const completedAt = new Date();
+    await this.compareAndSwapArtifactCommit(execution, 'BYTES_VERIFIED', 'REFERENCE_COMMITTED', {
+      status: 'completed',
+      artifactObjectKey: execution.stagedArtifactObjectKey,
+      artifactSha256: execution.stagedArtifactSha256,
+      stagedArtifactObjectKey: null,
+      stagedArtifactSha256: null,
+      downloadExpiresAt: new Date(completedAt.getTime() + 7 * 24 * 60 * 60 * 1000),
+      errorMessage: null,
+      durationMs: Math.max(0, completedAt.getTime() - startTime),
+      completedAt,
+    });
+  }
+
+  private async compareAndSwapArtifactCommit(
+    execution: ReportExecution,
+    previous: ReportExecution['artifactCommitState'] | null,
+    next: NonNullable<ReportExecution['artifactCommitState']>,
+    patch: Partial<ReportExecution>,
+  ): Promise<void> {
+    assertReportArtifactCommitTransition(previous ?? null, next);
+    const criteria = {
+      id: execution.id,
+      status: 'running' as ReportExecutionStatus,
+      artifactCommitState: previous === null ? IsNull() : previous,
+    };
+    try {
+      const updateProjection = {
+        ...patch,
+        artifactCommitState: next,
+      } as QueryDeepPartialEntity<ReportExecution>;
+      const result = await this.executionRepository.update(criteria, updateProjection);
+      if (result.affected !== 1) {
+        throw new Error(`Report artifact commit CAS rejected ${previous ?? 'NONE'} -> ${next}`);
+      }
+      Object.assign(execution, patch, { artifactCommitState: next });
+    } catch (error) {
+      const persisted = await this.executionRepository.findOne({
+        where: { id: execution.id },
+      });
+      if (
+        persisted?.artifactCommitState === next ||
+        (next !== 'REFERENCE_COMMITTED' && persisted?.artifactCommitState === 'REFERENCE_COMMITTED')
+      ) {
+        Object.assign(execution, persisted);
+        return;
+      }
+      throw error;
+    }
+  }
+
+  private assertExecutionAuthorityCut(execution: ReportExecution): void {
+    const capability = getReportCapabilityFromAuthorityGraph(
+      this.authorityGraph,
+      execution.reportType,
+    );
+    if (
+      execution.capabilityCatalogSha256 !== this.authorityGraph.capabilityCatalogSha256 ||
+      execution.measurementCatalogSha256 !== this.authorityGraph.measurementCatalogSha256 ||
+      execution.authorityGraphSha256 !== this.authorityGraph.graphSha256 ||
+      execution.artifactMaximumBytes !== capability.artifact.maximumBytes ||
+      execution.previewMaximumRows !== capability.preview.maximumRows
+    ) {
+      throw new GoneException('Report execution authority cut is stale');
+    }
+  }
+
+  private createPreviewRows(data: unknown, maximumRows: number): Array<Record<string, unknown>> {
+    if (!Array.isArray(data)) {
+      return [];
+    }
+    const preview: Array<Record<string, unknown>> = [];
+    for (const row of data.slice(0, maximumRows)) {
+      if (row === null || typeof row !== 'object' || Array.isArray(row)) {
+        throw new InternalServerErrorException(
+          'Measured report rows must be JSON objects before preview qualification',
+        );
+      }
+      preview.push({ ...row });
+    }
+    return preview;
+  }
+
+  private async buildReportArtifact(params: {
     executionId: string;
-    reportName: string;
     reportType: ReportType;
     format: ReportFormat;
     data: unknown;
     summary?: Record<string, unknown>;
-    generatedAt: Date;
-  }): Promise<{ objectKey: string; sha256: string; contentType: string; size: number }> {
-    if (!this.storageService) {
-      throw new InternalServerErrorException('Report artifact storage is not configured');
-    }
-
+    measuredAt: string;
+    measurementProofSha256: string;
+  }): Promise<{
+    buffer: Buffer;
+    filename: string;
+    objectKey: string;
+    sha256: string;
+    contentType: AdminBinaryArtifactMediaType;
+    size: number;
+  }> {
     const contentType = this.getContentType(params.format);
     const extension = this.getExtension(params.format);
-    const filename = `${params.reportName.replace(/\s+/g, '_')}_${params.executionId}.${extension}`;
     let buffer: Buffer;
 
     if (params.format === 'json') {
-      buffer = Buffer.from(JSON.stringify({
-        data: params.data,
-        summary: params.summary || {},
-        metadata: {
-          generatedAt: params.generatedAt.toISOString(),
-          reportType: params.reportType,
-          format: params.format,
-        },
-      }));
+      buffer = Buffer.from(
+        JSON.stringify({
+          data: params.data,
+          summary: params.summary || {},
+          metadata: {
+            measuredAt: params.measuredAt,
+            reportType: params.reportType,
+            format: params.format,
+            measurementProofSha256: params.measurementProofSha256,
+          },
+        }),
+      );
     } else if (params.format === 'csv') {
-      buffer = Buffer.from(this.convertToCsv(Array.isArray(params.data) ? params.data as Record<string, unknown>[] : []));
+      buffer = Buffer.from(
+        this.convertToCsv(
+          Array.isArray(params.data) ? (params.data as Record<string, unknown>[]) : [],
+        ),
+      );
     } else {
-      buffer = await this.generatePdfBuffer(params.reportType, {
-        data: params.data,
-        summary: params.summary || {},
-      });
+      buffer = await this.generatePdfBuffer(
+        params.reportType,
+        {
+          data: params.data,
+          summary: params.summary || {},
+        },
+        params.measuredAt,
+      );
     }
 
-    const upload = await this.storageService.uploadFile(
-      'platform-admin',
-      'report-executions',
-      params.executionId,
-      filename,
-      buffer,
-      {
-        contentType,
-        metadata: {
-          reportType: params.reportType,
-          reportFormat: params.format,
-          sha256: crypto.createHash('sha256').update(buffer).digest('hex'),
-        },
-      },
-    );
+    try {
+      assertReportArtifactSizeForAuthorityGraph(
+        this.authorityGraph,
+        params.reportType,
+        buffer.length,
+      );
+    } catch (error) {
+      throw new InternalServerErrorException(
+        error instanceof Error ? error.message : 'Report artifact exceeds its catalog maximum',
+      );
+    }
+
+    const artifactSha256 = crypto.createHash('sha256').update(buffer).digest('hex');
+    const filename = `${artifactSha256}.${extension}`;
 
     return {
-      objectKey: upload.path,
-      sha256: crypto.createHash('sha256').update(buffer).digest('hex'),
+      buffer,
+      filename,
+      objectKey: `platform-admin/report-executions/${params.executionId}/${filename}`,
+      sha256: artifactSha256,
       contentType,
       size: buffer.length,
     };
   }
 
-  private getContentType(format: ReportFormat): string {
-    const contentTypes: Record<ReportFormat, string> = {
-      json: 'application/json',
-      csv: 'text/csv',
-      pdf: 'application/pdf',
-    };
-    return contentTypes[format];
+  private async uploadReportArtifact(
+    artifact: {
+      readonly buffer: Buffer;
+      readonly filename: string;
+      readonly objectKey: string;
+      readonly sha256: string;
+      readonly contentType: AdminBinaryArtifactMediaType;
+      readonly size: number;
+    },
+    params: {
+      readonly executionId: string;
+      readonly reportType: ReportType;
+      readonly format: ReportFormat;
+      readonly measurementProofSha256: string;
+    },
+  ): Promise<void> {
+    const upload = await this.storageService.uploadFile(
+      'platform-admin',
+      'report-executions',
+      params.executionId,
+      artifact.filename,
+      artifact.buffer,
+      {
+        contentType: artifact.contentType,
+        metadata: {
+          reportType: params.reportType,
+          reportFormat: params.format,
+          sha256: artifact.sha256,
+          measurementProofSha256: params.measurementProofSha256,
+        },
+      },
+    );
+
+    if (
+      upload.path !== artifact.objectKey ||
+      upload.size !== artifact.size ||
+      upload.contentType !== artifact.contentType
+    ) {
+      throw new InternalServerErrorException(
+        'Report artifact storage receipt does not match its staged coordinates',
+      );
+    }
+  }
+
+  private getContentType(format: ReportFormat): AdminBinaryArtifactMediaType {
+    return adminBinaryMediaTypeForFormat(format);
   }
 
   private getExtension(format: ReportFormat): string {
@@ -1440,30 +971,72 @@ export class ReportsService {
   async getExecutionDownload(id: string): Promise<{
     execution: ReportExecution;
     data: Buffer;
-    contentType: string;
+    contentType: AdminBinaryArtifactMediaType;
     filename: string;
   }> {
     const execution = await this.getExecution(id);
 
-    if (execution.status !== 'completed') {
+    try {
+      this.assertExecutionAuthorityCut(execution);
+    } catch {
+      throw new GoneException('Report artifact was qualified by a stale authority cut');
+    }
+    if (execution.measurementState !== 'QUALIFIED') {
+      throw new GoneException('Report artifact has no qualified measurement authority');
+    }
+    if (
+      execution.status !== 'completed' ||
+      execution.artifactCommitState !== 'REFERENCE_COMMITTED'
+    ) {
       throw new BadRequestException('Report execution is not completed');
     }
+    if (execution.measurementProof == null || execution.measurementProofSha256 == null) {
+      throw new GoneException('Report artifact measurement proof is missing or stale');
+    }
+    try {
+      assertReportMeasurementProofForAuthorityGraph(
+        this.authorityGraph,
+        execution.measurementProof,
+        {
+          reportType: execution.reportType,
+          intentSha256: reportMeasurementIntentSha256({
+            reportType: execution.reportType,
+            startInclusiveUtc: execution.startDate?.toISOString() ?? null,
+            endExclusiveUtc: execution.endDate?.toISOString() ?? null,
+            filters: execution.filters ?? null,
+          }),
+          proofSha256: execution.measurementProofSha256,
+        },
+      );
+    } catch {
+      throw new GoneException('Report artifact measurement proof is missing or stale');
+    }
 
-    if (execution.downloadExpiresAt && new Date() > execution.downloadExpiresAt) {
+    if (execution.downloadExpiresAt == null || Date.now() > execution.downloadExpiresAt.getTime()) {
       throw new GoneException('Download link has expired');
     }
 
-    if (!execution.artifactObjectKey) {
+    const expectedObjectKey =
+      `platform-admin/report-executions/${execution.id}/` +
+      `${execution.artifactSha256}.${this.getExtension(execution.format)}`;
+    if (
+      !execution.artifactObjectKey ||
+      !execution.artifactSha256 ||
+      execution.artifactObjectKey !== expectedObjectKey ||
+      execution.fileSizeBytes == null ||
+      execution.fileSizeBytes > execution.artifactMaximumBytes ||
+      execution.artifactContentType !== this.getContentType(execution.format)
+    ) {
       throw new GoneException('Report artifact is unavailable');
-    }
-
-    if (!this.storageService) {
-      throw new InternalServerErrorException('Report artifact storage is not configured');
     }
 
     const reportData = await this.storageService.downloadFile(execution.artifactObjectKey);
     const sha256 = crypto.createHash('sha256').update(reportData).digest('hex');
-    if (execution.artifactSha256 && execution.artifactSha256 !== sha256) {
+    if (
+      execution.artifactSha256 !== sha256 ||
+      reportData.length !== execution.fileSizeBytes ||
+      reportData.length > execution.artifactMaximumBytes
+    ) {
       this.logger.error(`Report artifact checksum mismatch for execution ${execution.id}`);
       throw new InternalServerErrorException('Report artifact integrity check failed');
     }
@@ -1471,68 +1044,12 @@ export class ReportsService {
     return {
       execution,
       data: reportData,
-      contentType: execution.artifactContentType || this.getContentType(execution.format),
+      contentType: execution.artifactContentType
+        ? decodeAdminBinaryArtifactMediaType(execution.artifactContentType)
+        : this.getContentType(execution.format),
       filename: `${execution.reportName.replace(/\s+/g, '_')}_${execution.id}.${this.getExtension(execution.format)}`,
     };
   }
 
   // ============================================================================
-  // Quick Reports (for frontend compatibility)
-  // ============================================================================
-
-  /**
-   * Generate quick tenant report
-   */
-  async generateQuickTenantsReport(format: ReportFormat, filters?: Record<string, unknown>): Promise<ReportExecution> {
-    return this.executeReport({
-      reportType: 'tenant_overview',
-      reportName: 'Quick Tenants Report',
-      format,
-      filters,
-      startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-      endDate: new Date(),
-    });
-  }
-
-  /**
-   * Generate quick users report
-   */
-  async generateQuickUsersReport(format: ReportFormat, filters?: Record<string, unknown>): Promise<ReportExecution> {
-    return this.executeReport({
-      reportType: 'usage_modules',
-      reportName: 'Quick Users Report',
-      format,
-      filters,
-      startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-      endDate: new Date(),
-    });
-  }
-
-  /**
-   * Generate quick revenue report
-   */
-  async generateQuickRevenueReport(format: ReportFormat, filters?: Record<string, unknown>): Promise<ReportExecution> {
-    return this.executeReport({
-      reportType: 'financial_revenue',
-      reportName: 'Quick Revenue Report',
-      format,
-      filters,
-      startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-      endDate: new Date(),
-    });
-  }
-
-  /**
-   * Generate quick audit report
-   */
-  async generateQuickAuditReport(format: ReportFormat, filters?: Record<string, unknown>): Promise<ReportExecution> {
-    return this.executeReport({
-      reportType: 'system_performance',
-      reportName: 'Quick Audit Report',
-      format,
-      filters,
-      startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
-      endDate: new Date(),
-    });
-  }
 }

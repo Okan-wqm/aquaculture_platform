@@ -2,6 +2,12 @@ import * as crypto from 'crypto';
 
 import { getTenantSchemaName, queryRowsNormalized } from '@aquaculture/backend-common/database';
 import {
+  createTenantOnboardingRequirementSnapshot,
+  decodeTenantOnboardingRequirementSnapshot,
+  evaluateTenantOnboardingBarrier,
+  type TenantOnboardingRequirementSnapshotV1,
+} from '@aquaculture/backend-common/nats';
+import {
   BadRequestException,
   ConflictException,
   Injectable,
@@ -19,7 +25,8 @@ import {
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, EntityManager } from 'typeorm';
 
-import { AuditLogService } from '../../audit/audit.service';
+import { canonicalWireJsonContentSha256V1 } from '@aquaculture/shared-contracts';
+
 import {
   BillingCycle as ModuleBillingCycle,
   PlanTier as ModulePlanTier,
@@ -38,6 +45,10 @@ import {
 import { Tenant, TenantPlan, TenantSettings, TenantStatus } from '../entities/tenant.entity';
 
 import { AuthTenantProvisioningClientService } from './auth-tenant-provisioning-client.service';
+import {
+  TENANT_PROVISIONING_STEPS,
+  type TenantProvisioningStepName,
+} from './tenant-provisioning-steps';
 import { TenantProvisioningService } from './tenant-provisioning.service';
 
 interface TenantProvisioningRunRow {
@@ -51,6 +62,12 @@ interface TenantProvisioningRunRow {
   currentStep: string | null;
   lastError: string | null;
   attempts: number;
+  onboardingQualification?: 'LEGACY_UNQUALIFIED' | 'QUALIFIED';
+  onboardingGeneration?: number | null;
+  onboardingRequirements?: unknown;
+  onboardingRequirementsDigest?: string | null;
+  onboardingRequestedAt?: Date | null;
+  onboardingDeadlineAt?: Date | null;
   nextRetryAt?: Date | null;
   leaseToken?: string | null;
   leasedBy?: string | null;
@@ -103,20 +120,15 @@ class DbMigrateProvisioningPendingError extends Error {
   }
 }
 
-const PROVISIONING_STEPS = [
-  'reserve_auth_tenant',
-  'audit_create_requested',
-  'assign_modules',
-  'publish_provisioning_requested',
-  'wait_for_db_migrate_provisioner',
-  'provision_application_resources',
-  'create_subscription',
-  'activate_tenant',
-  'audit_provisioned',
-  'publish_onboarding_requested',
-  'wait_for_onboarding_ack',
-  'publish_tenant_provisioned',
-] as const;
+class TenantOnboardingPendingError extends Error {
+  constructor(
+    message: string,
+    readonly retryAfterMs: number,
+  ) {
+    super(message);
+    this.name = 'TenantOnboardingPendingError';
+  }
+}
 
 @Injectable()
 export class TenantProvisioningWorkflowService {
@@ -127,7 +139,6 @@ export class TenantProvisioningWorkflowService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
-    private readonly auditLogService: AuditLogService,
     private readonly provisioningService: TenantProvisioningService,
     private readonly moduleAssignmentService: ModuleAssignmentService,
     private readonly authProvisioningClient: AuthTenantProvisioningClientService,
@@ -142,6 +153,7 @@ export class TenantProvisioningWorkflowService {
     const payload = this.normalizeCreatePayload(data);
     const normalizedKey = this.normalizeIdempotencyKey(idempotencyKey);
     const requestHash = this.hashPayload(payload);
+    const onboardingSnapshot = createTenantOnboardingRequirementSnapshot();
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -153,7 +165,9 @@ export class TenantProvisioningWorkflowService {
         `SELECT id, "tenantId", "idempotencyKey", "requestHash", "requestPayload",
                 "actorUserId", state, "currentStep", "lastError", attempts,
                 "nextRetryAt", "leaseToken", "leasedBy", "heartbeatAt", "leaseExpiresAt",
-                "startedAt", "completedAt", "createdAt", "updatedAt"
+                "startedAt", "completedAt", "createdAt", "updatedAt",
+                "onboardingQualification", "onboardingGeneration",
+                "onboardingRequirements", "onboardingRequirementsDigest"
            FROM admin.tenant_provisioning_runs
           WHERE "actorUserId" = $1 AND "idempotencyKey" = $2
           FOR UPDATE`,
@@ -192,9 +206,13 @@ export class TenantProvisioningWorkflowService {
         queryRunner.manager,
         `INSERT INTO admin.tenant_provisioning_runs (
              id, "tenantId", "idempotencyKey", "requestHash", "requestPayload",
-             "actorUserId", state, attempts, "createdAt", "updatedAt"
+             "actorUserId", state, attempts, "onboardingRequirements",
+             "onboardingRequirementsDigest", "onboardingQualification",
+             "onboardingGeneration", "onboardingRequestedAt", "onboardingDeadlineAt",
+             "createdAt", "updatedAt"
            ) VALUES (
-             $7, $1, $2, $3, $4::jsonb, $5, $6, 0, now(), now()
+             $7, $1, $2, $3, $4::jsonb, $5, $6, 0, $8::jsonb, $9,
+             'QUALIFIED', 1, NULL, NULL, now(), now()
            )
            RETURNING id, "tenantId", "idempotencyKey", "requestHash", "requestPayload",
                      "actorUserId", state, "currentStep", "lastError", attempts,
@@ -208,6 +226,8 @@ export class TenantProvisioningWorkflowService {
           actorUserId,
           TenantProvisioningState.QUEUED,
           operationId,
+          JSON.stringify(onboardingSnapshot),
+          onboardingSnapshot.snapshotDigest,
         ],
       );
 
@@ -217,6 +237,13 @@ export class TenantProvisioningWorkflowService {
       }
 
       await this.seedProvisioningSteps(queryRunner.manager, run.id);
+      await this.seedOnboardingRequirements(
+        queryRunner.manager,
+        run.id,
+        tenantId,
+        1,
+        onboardingSnapshot,
+      );
 
       await queryRunner.commitTransaction();
       return this.toAcceptedResponse(run, this.hydrateCreatedTenant(tenantDraft, payload));
@@ -268,7 +295,9 @@ export class TenantProvisioningWorkflowService {
         `SELECT id, "tenantId", "idempotencyKey", "requestHash", "requestPayload",
                 "actorUserId", state, "currentStep", "lastError", attempts,
                 "nextRetryAt", "leaseToken", "leasedBy", "heartbeatAt", "leaseExpiresAt",
-                "startedAt", "completedAt", "createdAt", "updatedAt"
+                "startedAt", "completedAt", "createdAt", "updatedAt",
+                "onboardingQualification", "onboardingGeneration",
+                "onboardingRequirements", "onboardingRequirementsDigest"
            FROM admin.tenant_provisioning_runs
           WHERE id = $1
           FOR UPDATE`,
@@ -282,7 +311,8 @@ export class TenantProvisioningWorkflowService {
       if (
         current.state === TenantProvisioningState.QUEUED ||
         current.state === TenantProvisioningState.RESERVING ||
-        current.state === TenantProvisioningState.RUNNING
+        current.state === TenantProvisioningState.RUNNING ||
+        current.state === TenantProvisioningState.WAITING_ONBOARDING
       ) {
         return current;
       }
@@ -294,6 +324,18 @@ export class TenantProvisioningWorkflowService {
       if (current.state !== TenantProvisioningState.FAILED) {
         throw new ConflictException('Only failed tenant provisioning operations can be retried');
       }
+
+      const onboardingSnapshot =
+        current.onboardingQualification === 'LEGACY_UNQUALIFIED'
+          ? createTenantOnboardingRequirementSnapshot()
+          : decodeTenantOnboardingRequirementSnapshot(
+              current.onboardingRequirements,
+              current.onboardingRequirementsDigest ?? '',
+            );
+      const onboardingGeneration =
+        current.onboardingQualification === 'LEGACY_UNQUALIFIED'
+          ? 1
+          : (current.onboardingGeneration ?? 0) + 1;
 
       const rows = await this.managerRows<TenantProvisioningRunRow>(
         manager,
@@ -308,15 +350,44 @@ export class TenantProvisioningWorkflowService {
                 "heartbeatAt" = NULL,
                 "leaseExpiresAt" = NULL,
                 "completedAt" = NULL,
+                "onboardingQualification" = 'QUALIFIED',
+                "onboardingGeneration" = $3,
+                "onboardingRequirements" = $4::jsonb,
+                "onboardingRequirementsDigest" = $5,
+                "onboardingRequestedAt" = NULL,
+                "onboardingDeadlineAt" = NULL,
+                "onboardingPublicationOutboxId" = NULL,
+                "onboardingPublicationEventId" = NULL,
+                "onboardingPublicationDigest" = NULL,
+                "onboardingSealGeneration" = NULL,
+                "onboardingSealEvidence" = NULL,
+                "onboardingSealEvidenceRoot" = NULL,
+                "onboardingSealToken" = NULL,
+                "onboardingActivationConsumedAt" = NULL,
+                "onboardingSafetyFailure" = NULL,
                 "updatedAt" = now()
           WHERE id = $1
           RETURNING id, "tenantId", "idempotencyKey", "requestHash", "requestPayload",
                     "actorUserId", state, "currentStep", "lastError", attempts,
                     "nextRetryAt", "leaseToken", "leasedBy", "heartbeatAt", "leaseExpiresAt",
                     "startedAt", "completedAt", "createdAt", "updatedAt"`,
-        [operationId, TenantProvisioningState.QUEUED],
+        [
+          operationId,
+          TenantProvisioningState.QUEUED,
+          onboardingGeneration,
+          JSON.stringify(onboardingSnapshot),
+          onboardingSnapshot.snapshotDigest,
+        ],
       );
 
+      await this.seedProvisioningSteps(manager, operationId);
+      await this.seedOnboardingRequirements(
+        manager,
+        operationId,
+        current.tenantId,
+        onboardingGeneration,
+        onboardingSnapshot,
+      );
       await this.managerRows(
         manager,
         `UPDATE admin.tenant_provisioning_steps
@@ -326,8 +397,17 @@ export class TenantProvisioningWorkflowService {
                 "startedAt" = NULL,
                 "completedAt" = NULL,
                 "updatedAt" = now()
-          WHERE "runId" = $1 AND state <> $3`,
-        [operationId, TenantProvisioningState.QUEUED, TenantProvisioningState.SUCCEEDED],
+          WHERE "runId" = $1
+            AND (
+              state <> $3
+              OR "stepOrder" >= $4
+            )`,
+        [
+          operationId,
+          TenantProvisioningState.QUEUED,
+          TenantProvisioningState.SUCCEEDED,
+          this.stepOrder('publish_onboarding_requested'),
+        ],
       );
 
       shouldProcess = true;
@@ -367,21 +447,6 @@ export class TenantProvisioningWorkflowService {
         await this.beginProvisioning(run, tenant.id);
       });
 
-      await this.runStep(run.id, leaseToken, 'audit_create_requested', async () => {
-        await this.auditLogService.log({
-          action: 'TENANT_CREATE_REQUESTED',
-          entityType: 'tenant',
-          entityId: tenant.id,
-          performedBy: run.actorUserId,
-          details: {
-            operationId: run.id,
-            name: tenant.name,
-            slug: tenant.slug,
-            moduleIds: payload.moduleIds,
-          },
-        });
-      });
-
       await this.runStep(run.id, leaseToken, 'assign_modules', async () => {
         await this.assignModulesWithPricing(tenant, payload, run.actorUserId);
       });
@@ -415,7 +480,6 @@ export class TenantProvisioningWorkflowService {
           adminFirstName: this.getFirstName(tenant.primaryContact?.name),
           adminLastName: this.getLastName(tenant.primaryContact?.name),
           skipSchemaCreation: true,
-          finalizeActivation: false,
           operationId: run.id,
           idempotencyKeyBase: run.idempotencyKey,
           payloadHash: run.requestHash,
@@ -431,42 +495,16 @@ export class TenantProvisioningWorkflowService {
         await this.createTenantSubscription(run, tenant, payload);
       });
 
-      await this.runStep(run.id, leaseToken, 'activate_tenant', async () => {
-        await this.activateTenantAfterVerification(run, tenant.id);
-      });
-
-      await this.runStep(run.id, leaseToken, 'audit_provisioned', async () => {
-        await this.auditLogService.log({
-          action: 'TENANT_PROVISIONED',
-          entityType: 'tenant',
-          entityId: tenant.id,
-          performedBy: run.actorUserId,
-          details: {
-            operationId: run.id,
-            moduleIds: payload.moduleIds,
-            tenantStatus: TenantStatus.ACTIVE,
-          },
-        });
-      });
-
       await this.runStep(run.id, leaseToken, 'publish_onboarding_requested', async () => {
-        await this.enqueueEvent(
-          {
-            ...createBaseEvent('TenantOnboardingRequested', tenant.id, {
-              aggregateId: tenant.id,
-              aggregateType: 'Tenant',
-            }),
-            operationId: run.id,
-            slug: tenant.slug,
-            name: tenant.name,
-            moduleIds: payload.moduleIds,
-          },
-          'tenant-onboarding-requested:' + run.id,
-        );
+        await this.publishTenantOnboardingRequested(run, tenant, payload.moduleIds ?? []);
       });
 
       await this.runStep(run.id, leaseToken, 'wait_for_onboarding_ack', async () => {
-        await this.assertTenantOnboardingAcks(run.id);
+        await this.assertTenantOnboardingBarrier(run.id, tenant.id);
+      });
+
+      await this.runStep(run.id, leaseToken, 'activate_tenant', async () => {
+        await this.activateTenantAfterVerification(run, tenant.id);
       });
 
       await this.runStep(run.id, leaseToken, 'publish_tenant_provisioned', async () => {
@@ -503,6 +541,10 @@ export class TenantProvisioningWorkflowService {
         await this.markRunWaitingForDbMigrate(run.id, error, run.leaseToken);
         return;
       }
+      if (error instanceof TenantOnboardingPendingError) {
+        await this.markRunWaitingForOnboarding(run.id, error, run.leaseToken);
+        return;
+      }
       const markedFailed = await this.markRunFailed(run.id, error, run.leaseToken);
       if (markedFailed) {
         await this.publishFailure((await this.getRun(run.id)) ?? run, error);
@@ -524,11 +566,11 @@ export class TenantProvisioningWorkflowService {
       const rows = await this.queryRows<IdRow>(
         `SELECT id
            FROM admin.tenant_provisioning_runs
-          WHERE state = $1
+          WHERE state IN ($1, $2)
             AND ("nextRetryAt" IS NULL OR "nextRetryAt" <= now())
           ORDER BY "createdAt" ASC
           LIMIT 3`,
-        [TenantProvisioningState.QUEUED],
+        [TenantProvisioningState.QUEUED, TenantProvisioningState.WAITING_ONBOARDING],
       );
 
       for (const row of rows) {
@@ -595,40 +637,218 @@ export class TenantProvisioningWorkflowService {
   }
 
   private hashPayload(payload: CreateTenantDto): string {
-    return crypto.createHash('sha256').update(this.stableStringify(payload)).digest('hex');
+    return canonicalWireJsonContentSha256V1(payload);
   }
 
-  private async assertTenantOnboardingAcks(operationId: string): Promise<void> {
-    const requiredServices = this.requiredOnboardingServices();
-
+  private async assertTenantOnboardingBarrier(
+    operationId: string,
+    tenantId: string,
+  ): Promise<void> {
     const rows = await this.queryRows<{
-      service: string;
-      status: 'ACK' | 'FAILED';
+      requirements: unknown;
+      requirementsDigest: string;
+      qualification: string;
+      generation: number | null;
+      requestedAt: Date | null;
+      deadlineAt: Date | null;
+      safetyFailure: unknown;
+      service: string | null;
+      requirementDigest: string | null;
+      status: 'ACK' | 'FAILED' | null;
       error: string | null;
+      acknowledgedAt: Date | null;
     }>(
-      `SELECT service, status, error
-         FROM admin.tenant_onboarding_acks
-        WHERE "operationId" = $1`,
-      [operationId],
+      `SELECT r."onboardingRequirements" AS requirements,
+              r."onboardingRequirementsDigest" AS "requirementsDigest",
+              r."onboardingQualification" AS qualification,
+              r."onboardingGeneration" AS generation,
+              r."onboardingRequestedAt" AS "requestedAt",
+              r."onboardingDeadlineAt" AS "deadlineAt",
+              r."onboardingSafetyFailure" AS "safetyFailure",
+              requirement.service,
+              requirement."requirementsDigest" AS "requirementDigest",
+              acknowledgement.status,
+              acknowledgement.error,
+              acknowledgement."acknowledgedAt"
+         FROM admin.tenant_provisioning_runs r
+         LEFT JOIN admin.tenant_onboarding_requirements requirement
+           ON requirement."operationId" = r.id
+          AND requirement."tenantId" = r."tenantId"
+          AND requirement.generation = r."onboardingGeneration"
+         LEFT JOIN admin.tenant_onboarding_acks acknowledgement
+           ON acknowledgement."operationId" = requirement."operationId"
+          AND acknowledgement."tenantId" = requirement."tenantId"
+          AND acknowledgement.generation = requirement.generation
+          AND acknowledgement.service = requirement.service
+        WHERE r.id = $1 AND r."tenantId" = $2
+        ORDER BY requirement.service ASC`,
+      [operationId, tenantId],
     );
-    const failed = rows.filter((row) => row.status === 'FAILED');
-    if (failed.length > 0) {
+    const authority = rows[0];
+    if (!authority) {
+      throw new Error('Tenant onboarding operation authority is missing');
+    }
+    if (
+      authority.qualification !== 'QUALIFIED' ||
+      !Number.isSafeInteger(authority.generation) ||
+      authority.safetyFailure !== null
+    ) {
+      throw new Error('Tenant onboarding operation authority is unqualified or safety-failed');
+    }
+    const snapshot = decodeTenantOnboardingRequirementSnapshot(
+      authority.requirements,
+      authority.requirementsDigest,
+    );
+    const evidence = rows
+      .filter(
+        (row): row is typeof row & { service: string; requirementDigest: string } =>
+          row.service !== null && row.requirementDigest !== null,
+      )
+      .map((row) => ({
+        service: row.service,
+        requirementsDigest: row.requirementDigest,
+        status: row.status,
+        error: row.error,
+        acknowledgedAtMs: row.acknowledgedAt ? new Date(row.acknowledgedAt).getTime() : null,
+      }));
+    const decision = evaluateTenantOnboardingBarrier(
+      snapshot,
+      evidence,
+      authority.requestedAt ? new Date(authority.requestedAt).getTime() : Number.NaN,
+      authority.deadlineAt ? new Date(authority.deadlineAt).getTime() : Number.NaN,
+      Date.now(),
+    );
+    if (decision.state === 'FAILED') {
       throw new Error(
-        `Tenant onboarding failed from owner services: ${failed.map((row) => `${row.service}${row.error ? ` (${row.error})` : ''}`).join(', ')}`,
+        `Tenant onboarding failed from owner services: ${decision.failures
+          .map(({ service, error }) => `${service}${error ? ` (${error})` : ''}`)
+          .join(', ')}`,
       );
     }
-    const acked = new Set(rows.filter((row) => row.status === 'ACK').map((row) => row.service));
-    const missing = requiredServices.filter((service) => !acked.has(service));
-    if (missing.length > 0) {
-      throw new Error(`Tenant onboarding ack missing from owner services: ${missing.join(', ')}`);
+    if (decision.state === 'EXPIRED') {
+      throw new Error(
+        `Tenant onboarding deadline exceeded with missing owner services: ${decision.missingServices.join(', ')}`,
+      );
+    }
+    if (decision.state === 'WAITING') {
+      throw new TenantOnboardingPendingError(
+        `Tenant onboarding ack pending from owner services: ${decision.missingServices.join(', ')}`,
+        decision.retryAfterMs,
+      );
     }
   }
 
-  private requiredOnboardingServices(): string[] {
-    return (process.env['TENANT_ONBOARDING_REQUIRED_SERVICES'] ?? 'farm-service')
-      .split(',')
-      .map((service) => service.trim())
-      .filter((service) => service.length > 0);
+  /**
+   * Mints the request window and its outbox row under one run lock and one
+   * transaction. A crash can expose neither half: commit makes both durable,
+   * rollback makes neither durable. A replay observes the already-armed
+   * authority and does not mint a second request for the same generation.
+   */
+  private async publishTenantOnboardingRequested(
+    run: TenantProvisioningRunRow,
+    tenant: Tenant,
+    moduleIds: readonly string[],
+  ): Promise<void> {
+    if (!run.leaseToken) {
+      throw new Error('Tenant onboarding publication requires the active operation lease');
+    }
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction('SERIALIZABLE');
+    try {
+      const rows = await this.managerRows<{
+        onboardingQualification: string;
+        onboardingGeneration: number;
+        onboardingRequirements: unknown;
+        onboardingRequirementsDigest: string;
+        onboardingRequestedAt: Date | null;
+        onboardingDeadlineAt: Date | null;
+        onboardingPublicationDigest: string | null;
+      }>(
+        queryRunner.manager,
+        `SELECT "onboardingQualification", "onboardingGeneration",
+                "onboardingRequirements", "onboardingRequirementsDigest",
+                "onboardingRequestedAt", "onboardingDeadlineAt",
+                "onboardingPublicationDigest"
+           FROM admin.tenant_provisioning_runs
+          WHERE id = $1 AND "tenantId" = $2
+            AND state = 'RUNNING' AND "leaseToken" = $3
+          FOR UPDATE`,
+        [run.id, tenant.id, run.leaseToken],
+      );
+      const authority = rows[0];
+      if (!authority || authority.onboardingQualification !== 'QUALIFIED') {
+        throw new Error('Tenant onboarding publication authority is unavailable');
+      }
+      const snapshot = decodeTenantOnboardingRequirementSnapshot(
+        authority.onboardingRequirements,
+        authority.onboardingRequirementsDigest,
+      );
+      if (!Number.isSafeInteger(authority.onboardingGeneration)) {
+        throw new Error('Tenant onboarding generation is invalid');
+      }
+
+      const publicationRows = authority.onboardingRequestedAt
+        ? await this.managerRows<{
+            outboxId: string;
+            eventId: string;
+            publicationDigest: string;
+            requestedAt: Date;
+            deadlineAt: Date;
+          }>(
+            queryRunner.manager,
+            `SELECT "outboxId", "eventId", "publicationDigest", "requestedAt", "deadlineAt"
+               FROM admin.assert_tenant_onboarding_publication($1::uuid, $2::uuid, $3::integer)`,
+            [run.id, tenant.id, authority.onboardingGeneration],
+          )
+        : await this.managerRows<{
+            outboxId: string;
+            eventId: string;
+            publicationDigest: string;
+            requestedAt: Date;
+            deadlineAt: Date;
+          }>(
+            queryRunner.manager,
+            `SELECT "outboxId", "eventId", "publicationDigest", "requestedAt", "deadlineAt"
+               FROM admin.publish_tenant_onboarding_request(
+                 $1::uuid, $2::uuid, $3::integer, $4::jsonb
+               )`,
+            [
+              run.id,
+              tenant.id,
+              authority.onboardingGeneration,
+              JSON.stringify({
+                ...createBaseEvent('TenantOnboardingRequested', tenant.id, {
+                  aggregateId: tenant.id,
+                  aggregateType: 'Tenant',
+                }),
+                operationId: run.id,
+                generation: authority.onboardingGeneration,
+                slug: tenant.slug,
+                name: tenant.name,
+                moduleIds: [...moduleIds],
+              }),
+            ],
+          );
+      const publication = publicationRows[0];
+      if (
+        !publication ||
+        !/^[0-9]+$/.test(publication.outboxId) ||
+        !/^[0-9a-f]{64}$/.test(publication.publicationDigest) ||
+        new Date(publication.deadlineAt).getTime() - new Date(publication.requestedAt).getTime() !==
+          snapshot.ackDeadlineMs ||
+        (authority.onboardingPublicationDigest !== null &&
+          publication.publicationDigest !== authority.onboardingPublicationDigest)
+      ) {
+        throw new Error('Tenant onboarding publication proof differs from its durable authority');
+      }
+      await queryRunner.commitTransaction();
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   private buildAuthCommandMetadata(
@@ -638,7 +858,7 @@ export class TenantProvisioningWorkflowService {
     idempotencyKeyBase: string,
     requestHash: string,
     actorUserId: string,
-    _payload: unknown,
+    payload: unknown,
   ): {
     operationId: string;
     tenantId: string;
@@ -655,23 +875,9 @@ export class TenantProvisioningWorkflowService {
         source: 'admin-api-service',
         commandType,
         requestPayloadHash: requestHash,
+        commandAuthority: payload,
       },
     };
-  }
-
-  private stableStringify(value: unknown): string {
-    if (Array.isArray(value)) {
-      return `[${value.map((item) => this.stableStringify(item)).join(',')}]`;
-    }
-
-    if (this.isRecord(value)) {
-      return `{${Object.keys(value)
-        .sort()
-        .map((key) => `${JSON.stringify(key)}:${this.stableStringify(value[key])}`)
-        .join(',')}}`;
-    }
-
-    return JSON.stringify(value);
   }
 
   private isRecord(value: unknown): value is Record<string, unknown> {
@@ -1080,17 +1286,12 @@ export class TenantProvisioningWorkflowService {
     // billing command receipt (the subscription itself is deduped regardless).
     const seed = `reconcile-subscription:${tenantId}`;
     const operationId = this.deterministicUuid(seed);
-    const requestPayloadHash = crypto
-      .createHash('sha256')
-      .update(
-        this.stableStringify({
-          tenantId,
-          tier: tenant.tier,
-          billingCycle,
-          moduleIds: assignedModules.map((module) => module.moduleId),
-        }),
-      )
-      .digest('hex');
+    const requestPayloadHash = canonicalWireJsonContentSha256V1({
+      tenantId,
+      tier: tenant.tier,
+      billingCycle,
+      moduleIds: assignedModules.map((module) => module.moduleId),
+    });
 
     const result = await this.billingCommandClient.provisionTenantSubscription({
       operationId,
@@ -1385,6 +1586,27 @@ export class TenantProvisioningWorkflowService {
     run: TenantProvisioningRunRow,
     tenantId: string,
   ): Promise<void> {
+    const generation = run.onboardingGeneration;
+    if (typeof generation !== 'number' || !Number.isSafeInteger(generation) || generation < 1) {
+      throw new Error('Tenant onboarding activation requires a qualified generation');
+    }
+    const sealed = await this.queryRows<{
+      sealToken: string;
+      generation: number;
+      evidenceRoot: string;
+      publicationDigest: string;
+    }>(
+      `SELECT "sealToken", generation, "evidenceRoot", "publicationDigest"
+         FROM admin.seal_tenant_onboarding_activation($1::uuid, $2::uuid, $3::integer)`,
+      [run.id, tenantId, generation],
+    );
+    const seal = sealed[0];
+    if (!seal || seal.generation !== generation) {
+      throw new Error('Tenant onboarding activation seal was not minted');
+    }
+    if (!/^[0-9a-f]{64}$/.test(seal.publicationDigest)) {
+      throw new Error('Tenant onboarding activation seal has an invalid publication digest');
+    }
     await this.authProvisioningClient.activateTenant({
       ...this.buildAuthCommandMetadata(
         'ActivateTenant',
@@ -1393,8 +1615,20 @@ export class TenantProvisioningWorkflowService {
         run.idempotencyKey,
         run.requestHash,
         run.actorUserId,
-        { step: 'activate_tenant' },
+        {
+          step: 'activate_tenant',
+          onboardingGeneration: generation,
+          onboardingEvidenceRoot: seal.evidenceRoot,
+          onboardingSealToken: seal.sealToken,
+        },
       ),
+      activationProof: {
+        schemaVersion: 'tenant-onboarding-activation-proof.v1',
+        generation,
+        sealToken: seal.sealToken,
+        evidenceRoot: seal.evidenceRoot,
+        publicationDigest: seal.publicationDigest,
+      },
     });
   }
 
@@ -1422,25 +1656,29 @@ export class TenantProvisioningWorkflowService {
       `UPDATE admin.tenant_provisioning_runs
           SET state = $2,
               attempts = attempts + 1,
-              "leaseToken" = $5,
-              "leasedBy" = $6,
+              "leaseToken" = $6,
+              "leasedBy" = $7,
               "heartbeatAt" = now(),
-              "leaseExpiresAt" = now() + ($7::text)::interval,
+              "leaseExpiresAt" = now() + ($8::text)::interval,
               "startedAt" = COALESCE("startedAt", now()),
               "completedAt" = NULL,
               "updatedAt" = now()
         WHERE id = $1
-          AND state = $3
-          AND attempts < $4
+          AND state IN ($3, $4)
+          AND attempts < $5
           AND ("nextRetryAt" IS NULL OR "nextRetryAt" <= now())
         RETURNING id, "tenantId", "idempotencyKey", "requestHash", "requestPayload",
                   "actorUserId", state, "currentStep", "lastError", attempts,
                   "nextRetryAt", "leaseToken", "leasedBy", "heartbeatAt", "leaseExpiresAt",
-                  "startedAt", "completedAt", "createdAt", "updatedAt"`,
+                  "startedAt", "completedAt", "createdAt", "updatedAt",
+                  "onboardingQualification", "onboardingGeneration",
+                  "onboardingRequirements", "onboardingRequirementsDigest",
+                  "onboardingRequestedAt", "onboardingDeadlineAt"`,
       [
         operationId,
         TenantProvisioningState.RUNNING,
         TenantProvisioningState.QUEUED,
+        TenantProvisioningState.WAITING_ONBOARDING,
         MAX_OPERATION_ATTEMPTS,
         leaseToken,
         workerId,
@@ -1451,7 +1689,7 @@ export class TenantProvisioningWorkflowService {
   }
 
   private async seedProvisioningSteps(manager: EntityManager, runId: string): Promise<void> {
-    for (const [index, stepName] of PROVISIONING_STEPS.entries()) {
+    for (const [index, stepName] of TENANT_PROVISIONING_STEPS.entries()) {
       await manager.query(
         `INSERT INTO admin.tenant_provisioning_steps (
            id, "runId", "stepName", "stepOrder", state, attempts, "createdAt", "updatedAt"
@@ -1467,8 +1705,25 @@ export class TenantProvisioningWorkflowService {
     }
   }
 
-  private stepOrder(stepName: string): number {
-    const index = PROVISIONING_STEPS.indexOf(stepName as (typeof PROVISIONING_STEPS)[number]);
+  private async seedOnboardingRequirements(
+    manager: EntityManager,
+    operationId: string,
+    tenantId: string,
+    generation: number,
+    snapshot: TenantOnboardingRequirementSnapshotV1,
+  ): Promise<void> {
+    for (const service of snapshot.requiredServices) {
+      await manager.query(
+        `INSERT INTO admin.tenant_onboarding_requirements (
+           "operationId", "tenantId", generation, service, "requirementsDigest", "createdAt"
+         ) VALUES ($1, $2, $3, $4, $5, now())`,
+        [operationId, tenantId, generation, service, snapshot.snapshotDigest],
+      );
+    }
+  }
+
+  private stepOrder(stepName: TenantProvisioningStepName): number {
+    const index = TENANT_PROVISIONING_STEPS.indexOf(stepName);
     return index === -1 ? 999 : index + 1;
   }
 
@@ -1504,7 +1759,7 @@ export class TenantProvisioningWorkflowService {
   private async runStep(
     runId: string,
     leaseToken: string | null | undefined,
-    stepName: string,
+    stepName: TenantProvisioningStepName,
     work: () => Promise<void>,
   ): Promise<void> {
     const existingRows = await this.queryRows<TenantProvisioningStepRow>(
@@ -1692,6 +1947,56 @@ export class TenantProvisioningWorkflowService {
     );
   }
 
+  private async markRunWaitingForOnboarding(
+    runId: string,
+    error: TenantOnboardingPendingError,
+    leaseToken?: string | null,
+  ): Promise<void> {
+    const rows = await this.queryRows<TenantProvisioningRunRow>(
+      `UPDATE admin.tenant_provisioning_runs
+          SET state = $2,
+              "lastError" = $3,
+              attempts = GREATEST(attempts - 1, 0),
+              "nextRetryAt" = now() + ($5::text)::interval,
+              "leaseToken" = NULL,
+              "leasedBy" = NULL,
+              "heartbeatAt" = NULL,
+              "leaseExpiresAt" = NULL,
+              "updatedAt" = now()
+        WHERE id = $1
+          AND state = 'RUNNING'
+          AND ($4::uuid IS NULL OR "leaseToken" = $4::uuid)
+        RETURNING id, "tenantId", "idempotencyKey", "requestHash", "requestPayload",
+                  "actorUserId", state, "currentStep", "lastError", attempts,
+                  "nextRetryAt", "leaseToken", "leasedBy", "heartbeatAt", "leaseExpiresAt",
+                  "startedAt", "completedAt", "createdAt", "updatedAt"`,
+      [
+        runId,
+        TenantProvisioningState.WAITING_ONBOARDING,
+        error.message,
+        leaseToken ?? null,
+        `${error.retryAfterMs} milliseconds`,
+      ],
+    );
+    if (rows.length === 0) {
+      this.logger.warn(
+        `Skipping onboarding wait transition for operation ${runId} because this worker no longer holds the lease`,
+      );
+      return;
+    }
+
+    await this.queryRows(
+      `UPDATE admin.tenant_provisioning_steps
+          SET state = $3,
+              "lastError" = $4,
+              "completedAt" = NULL,
+              "updatedAt" = now()
+        WHERE "runId" = $1 AND "stepName" = $2`,
+      [runId, 'wait_for_onboarding_ack', TenantProvisioningState.QUEUED, error.message],
+    );
+    this.logger.log(`Tenant provisioning operation ${runId} is waiting for onboarding ACKs`);
+  }
+
   private async markRunFailed(
     runId: string,
     error: unknown,
@@ -1875,6 +2180,7 @@ export class TenantProvisioningWorkflowService {
       case TenantProvisioningState.QUEUED:
       case TenantProvisioningState.RESERVING:
       case TenantProvisioningState.RUNNING:
+      case TenantProvisioningState.WAITING_ONBOARDING:
         return 2_000;
       default:
         return 0;

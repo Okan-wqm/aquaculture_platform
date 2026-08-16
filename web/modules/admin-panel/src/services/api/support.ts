@@ -2,138 +2,214 @@
  * Support API (Tickets, Messaging, Announcements, Onboarding)
  */
 
-import { apiFetch, buildQueryString } from '../http-client';
+import { apiFetch } from '../http-client';
 import type {
-  PaginatedResult,
+  StandardPaginatedResult,
   PaginationParams,
   DateRangeParams,
   SupportTicket,
-  TicketReply,
   TicketStats,
   TicketStatus,
   TicketPriority,
   TicketCategory,
-  MessageThread,
-  SupportMessage,
   Announcement,
   OnboardingStep,
   TenantOnboarding,
 } from '../types';
+import {
+  ADMIN_API_ROUTES,
+  type AdminApiRouteBody,
+  type AdminApiRouteQuery,
+} from '../types/generated/admin-route-contracts';
+
+type TicketsQuery = AdminApiRouteQuery<'GET /support/tickets'>;
+type CreateTicketInput = AdminApiRouteBody<'POST /support/tickets'>;
+type ChangeTicketStatusInput = AdminApiRouteBody<'POST /support/tickets/:id/status'>;
+type ChangeTicketPriorityInput = AdminApiRouteBody<'POST /support/tickets/:id/priority'>;
+type MessageThreadsQuery = AdminApiRouteQuery<'GET /support/messages/threads'>;
+type AnnouncementsQuery = AdminApiRouteQuery<'GET /support/announcements'>;
+type OnboardingQuery = AdminApiRouteQuery<'GET /support/onboarding'>;
 
 export const supportApi = {
   // Tickets
-  getTickets: (params?: {
-    status?: TicketStatus[];
-    priority?: TicketPriority[];
-    category?: TicketCategory[];
-    tenantId?: string;
-    assignedTo?: string;
-    search?: string;
-  } & PaginationParams & DateRangeParams) =>
-    apiFetch<PaginatedResult<SupportTicket>>(`/support/tickets?${buildQueryString(params || {})}`),
-  getTicket: (id: string) => apiFetch<SupportTicket>(`/support/tickets/${id}`),
-  getTicketReplies: (ticketId: string) => apiFetch<TicketReply[]>(`/support/tickets/${ticketId}/replies`),
-  createTicket: (data: { subject: string; description: string; category: TicketCategory; priority: TicketPriority; tenantId: string; createdBy: string }) =>
-    apiFetch<SupportTicket>('/support/tickets', { method: 'POST', body: JSON.stringify(data) }),
+  getTickets: (params: TicketsQuery = {}) =>
+    apiFetch(ADMIN_API_ROUTES['GET /support/tickets'], { query: params }),
+  getTicket: (id: string) =>
+    apiFetch(ADMIN_API_ROUTES['GET /support/tickets/:id'], { path: { id: id } }),
+  createTicket: (data: CreateTicketInput) =>
+    apiFetch(ADMIN_API_ROUTES['POST /support/tickets'], { body: data }),
   // Fix: backend uses PUT (not PATCH)
-  updateTicket: (id: string, data: Partial<{ status: TicketStatus; priority: TicketPriority; assignedTo: string; tags: string[] }>) =>
-    apiFetch<SupportTicket>(`/support/tickets/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  addReply: (ticketId: string, data: { content: string; isInternal?: boolean; createdBy: string }) =>
-    apiFetch<TicketReply>(`/support/tickets/${ticketId}/replies`, { method: 'POST', body: JSON.stringify(data) }),
+  updateTicket: (
+    id: string,
+    data: Partial<{
+      status: TicketStatus;
+      priority: TicketPriority;
+      assignedTo: string;
+      tags: string[];
+    }>,
+  ) => apiFetch(ADMIN_API_ROUTES['PUT /support/tickets/:id'], { path: { id: id }, body: data }),
   assignTicket: (id: string, assignedTo: string, assignedToName: string) =>
-    apiFetch<SupportTicket>(`/support/tickets/${id}/assign`, { method: 'POST', body: JSON.stringify({ assignedTo, assignedToName }) }),
+    apiFetch(ADMIN_API_ROUTES['POST /support/tickets/:id/assign'], {
+      path: { id: id },
+      body: { assignedTo, assignedToName },
+    }),
   // Fix: backend uses POST /support/tickets/:id/status with { status: 'closed' } (no /close endpoint)
   closeTicket: (id: string, _resolution?: string) =>
-    apiFetch<SupportTicket>(`/support/tickets/${id}/status`, { method: 'POST', body: JSON.stringify({ status: 'closed' }) }),
-  getTicketStats: () => apiFetch<TicketStats>('/support/tickets/stats'),
-  getTicketStatsByCategory: () =>
-    apiFetch<Array<{ category: string; count: number; avgResolutionTime: number }>>('/support/tickets/stats/by-category'),
-  getTicketStatsByPriority: () =>
-    apiFetch<Array<{ priority: string; count: number; avgResolutionTime: number }>>('/support/tickets/stats/by-priority'),
-  getUnassignedTickets: (params?: PaginationParams) =>
-    apiFetch<PaginatedResult<SupportTicket>>(`/support/tickets/unassigned?${buildQueryString(params || {})}`),
-  getSlaRiskTickets: () =>
-    apiFetch<Array<{ id: string; subject: string; priority: string; hoursUntilBreach: number; tenantName: string }>>('/support/tickets/sla-risk'),
-  submitSatisfaction: (ticketId: string, data: { rating: number; feedback?: string; submittedBy: string }) =>
-    apiFetch<{ success: boolean }>(`/support/tickets/${ticketId}/satisfaction`, {
-      method: 'POST',
-      body: JSON.stringify(data),
+    apiFetch(ADMIN_API_ROUTES['POST /support/tickets/:id/status'], {
+      path: { id: id },
+      body: { status: 'closed' },
     }),
-  getTicketTeam: () => apiFetch<Array<{ id: string; name: string; activeTickets: number }>>('/support/tickets/team'),
-  getTicketComments: (ticketId: string) => apiFetch<Array<{ id: string; ticketId: string; authorId: string; authorName: string; authorType: string; content: string; isInternal: boolean; attachments: unknown[]; createdAt: string }>>(`/support/tickets/${ticketId}/comments`),
+  getTicketStats: () => apiFetch(ADMIN_API_ROUTES['GET /support/tickets/stats']),
+  getTicketStatsByCategory: () =>
+    apiFetch(ADMIN_API_ROUTES['GET /support/tickets/stats/by-category']),
+  getTicketStatsByPriority: () =>
+    apiFetch(ADMIN_API_ROUTES['GET /support/tickets/stats/by-priority']),
+  getUnassignedTickets: (params?: PaginationParams) =>
+    apiFetch(ADMIN_API_ROUTES['GET /support/tickets/unassigned'], { query: params || {} }),
+  getSlaRiskTickets: () => apiFetch(ADMIN_API_ROUTES['GET /support/tickets/sla-risk']),
+  submitSatisfaction: (
+    ticketId: string,
+    data: { rating: number; feedback?: string; submittedBy: string },
+  ) =>
+    apiFetch(ADMIN_API_ROUTES['POST /support/tickets/:id/satisfaction'], {
+      path: { id: ticketId },
+      body: data,
+    }),
+  getTicketTeam: () => apiFetch(ADMIN_API_ROUTES['GET /support/tickets/team']),
+  getTicketComments: (ticketId: string) =>
+    apiFetch(ADMIN_API_ROUTES['GET /support/tickets/by-id/:id/comments'], {
+      path: { id: ticketId },
+      query: {  },
+    }),
   addTicketComment: (ticketId: string, data: { content: string; isInternal?: boolean }) =>
-    apiFetch<unknown>(`/support/tickets/${ticketId}/comments`, { method: 'POST', body: JSON.stringify(data) }),
-  updateTicketStatus: (ticketId: string, status: string, changedByName?: string) =>
-    apiFetch<unknown>(`/support/tickets/${ticketId}/status`, { method: 'POST', body: JSON.stringify({ status, changedByName }) }),
-  updateTicketPriority: (ticketId: string, priority: string, changedByName?: string) =>
-    apiFetch<unknown>(`/support/tickets/${ticketId}/priority`, { method: 'POST', body: JSON.stringify({ priority, changedByName }) }),
+    apiFetch(ADMIN_API_ROUTES['POST /support/tickets/by-id/:id/comments'], {
+      path: { id: ticketId },
+      body: data,
+    }),
+  updateTicketStatus: (
+    ticketId: string,
+    status: ChangeTicketStatusInput['status'],
+    changedByName?: string,
+  ) =>
+    apiFetch(ADMIN_API_ROUTES['POST /support/tickets/:id/status'], {
+      path: { id: ticketId },
+      body: { status, changedByName },
+    }),
+  updateTicketPriority: (
+    ticketId: string,
+    priority: ChangeTicketPriorityInput['priority'],
+    changedByName?: string,
+  ) =>
+    apiFetch(ADMIN_API_ROUTES['POST /support/tickets/:id/priority'], {
+      path: { id: ticketId },
+      body: { priority, changedByName },
+    }),
 
   // Messaging - Backend: /support/messages
-  getMessageThreads: (params?: { tenantId?: string; status?: string } & PaginationParams) =>
-    apiFetch<PaginatedResult<MessageThread>>(`/support/messages/threads?${buildQueryString(params || {})}`),
-  getThread: (threadId: string) => apiFetch<MessageThread>(`/support/messages/threads/${threadId}`),
-  getThreadMessages: (threadId: string) => apiFetch<SupportMessage[]>(`/support/messages/threads/${threadId}/messages`),
-  createThread: (data: { tenantId: string; subject: string; content: string; senderName: string }) =>
-    apiFetch<MessageThread>('/support/messages/threads', { method: 'POST', body: JSON.stringify(data) }),
+  getMessageThreads: (params: MessageThreadsQuery = {}) =>
+    apiFetch(ADMIN_API_ROUTES['GET /support/messages/threads'], { query: params }),
+  getThread: (threadId: string) =>
+    apiFetch(ADMIN_API_ROUTES['GET /support/messages/threads/:threadId'], {
+      path: { threadId: threadId },
+    }),
+  getThreadMessages: (threadId: string) =>
+    apiFetch(ADMIN_API_ROUTES['GET /support/messages/threads/:threadId/messages'], {
+      path: { threadId: threadId },
+      query: {  },
+    }),
+  createThread: (data: {
+    tenantId: string;
+    subject: string;
+    content: string;
+    senderName: string;
+  }) => apiFetch(ADMIN_API_ROUTES['POST /support/messages/threads'], { body: data }),
   sendSupportMessage: (threadId: string, data: { content: string; senderName: string }) =>
-    apiFetch<SupportMessage>(`/support/messages/threads/${threadId}/messages`, { method: 'POST', body: JSON.stringify(data) }),
+    apiFetch(ADMIN_API_ROUTES['POST /support/messages/threads/:threadId/messages'], {
+      path: { threadId: threadId },
+      body: data,
+    }),
   markAsRead: (threadId: string) =>
-    apiFetch<void>(`/support/messages/threads/${threadId}/read`, { method: 'POST' }),
+    apiFetch(ADMIN_API_ROUTES['POST /support/messages/threads/:threadId/read'], {
+      path: { threadId: threadId },
+    }),
   archiveThread: (threadId: string) =>
-    apiFetch<void>(`/support/messages/threads/${threadId}/archive`, { method: 'POST' }),
+    apiFetch(ADMIN_API_ROUTES['POST /support/messages/threads/:threadId/archive'], {
+      path: { threadId: threadId },
+    }),
   closeThread: (threadId: string) =>
-    apiFetch<void>(`/support/messages/threads/${threadId}/close`, { method: 'POST' }),
+    apiFetch(ADMIN_API_ROUTES['POST /support/messages/threads/:threadId/close'], {
+      path: { threadId: threadId },
+    }),
   reopenThread: (threadId: string) =>
-    apiFetch<void>(`/support/messages/threads/${threadId}/reopen`, { method: 'POST' }),
-  sendBulkMessage: (data: { subject: string; content: string; tenantIds?: string[]; sendEmail: boolean }) =>
-    apiFetch<void>('/support/messages/bulk', { method: 'POST', body: JSON.stringify(data) }),
-  getUnreadCount: () => apiFetch<{ unreadCount: number }>('/support/messages/unread-count'),
-  getMessagingStats: () => apiFetch<Record<string, unknown>>('/support/messages/stats'),
+    apiFetch(ADMIN_API_ROUTES['POST /support/messages/threads/:threadId/reopen'], {
+      path: { threadId: threadId },
+    }),
+  sendBulkMessage: (data: {
+    subject: string;
+    content: string;
+    tenantIds?: string[];
+    sendEmail: boolean;
+  }) => apiFetch(ADMIN_API_ROUTES['POST /support/messages/bulk'], { body: data }),
+  getUnreadCount: () => apiFetch(ADMIN_API_ROUTES['GET /support/messages/unread-count']),
+  getMessagingStats: () => apiFetch(ADMIN_API_ROUTES['GET /support/messages/stats']),
 
   // Announcements
-  getAnnouncements: (params?: { type?: string; isPublished?: boolean } & PaginationParams) =>
-    apiFetch<PaginatedResult<Announcement>>(`/support/announcements?${buildQueryString(params || {})}`),
-  getAnnouncement: (id: string) => apiFetch<Announcement>(`/support/announcements/${id}`),
-  createAnnouncement: (data: Omit<Announcement, 'id' | 'viewCount' | 'acknowledgedCount' | 'createdAt' | 'updatedAt'>) =>
-    apiFetch<Announcement>('/support/announcements', { method: 'POST', body: JSON.stringify(data) }),
+  getAnnouncements: (params: AnnouncementsQuery = {}) =>
+    apiFetch(ADMIN_API_ROUTES['GET /support/announcements'], { query: params }),
+  getAnnouncement: (id: string) =>
+    apiFetch(ADMIN_API_ROUTES['GET /support/announcements/:id'], { path: { id: id } }),
+  createAnnouncement: (
+    data: Omit<Announcement, 'id' | 'viewCount' | 'acknowledgedCount' | 'createdAt' | 'updatedAt'>,
+  ) => apiFetch(ADMIN_API_ROUTES['POST /support/announcements'], { body: data }),
   updateAnnouncement: (id: string, data: Partial<Announcement>) =>
-    apiFetch<Announcement>(`/support/announcements/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    apiFetch(ADMIN_API_ROUTES['PUT /support/announcements/:id'], { path: { id: id }, body: data }),
   publishAnnouncement: (id: string) =>
-    apiFetch<Announcement>(`/support/announcements/${id}/publish`, { method: 'POST' }),
+    apiFetch(ADMIN_API_ROUTES['POST /support/announcements/:id/publish'], { path: { id: id } }),
   // Fix: H18 -- backend path uyumu (unpublish -> cancel)
   unpublishAnnouncement: (id: string) =>
-    apiFetch<Announcement>(`/support/announcements/${id}/cancel`, { method: 'POST' }),
+    apiFetch(ADMIN_API_ROUTES['POST /support/announcements/:id/cancel'], { path: { id: id } }),
   deleteAnnouncement: (id: string) =>
-    apiFetch<void>(`/support/announcements/${id}`, { method: 'DELETE' }),
-  getAnnouncementStats: () =>
-    apiFetch<{ total: number; published: number; scheduled: number; draft: number; expired: number; totalViews: number; totalAcknowledgments: number; byType: Record<string, number> }>('/support/announcements/stats'),
+    apiFetch(ADMIN_API_ROUTES['DELETE /support/announcements/:id'], { path: { id: id } }),
+  getAnnouncementStats: () => apiFetch(ADMIN_API_ROUTES['GET /support/announcements/stats']),
   getAnnouncementAcknowledgments: (id: string) =>
-    apiFetch<{ acknowledgments: Array<{ userId: string; userName: string; tenantId: string; viewedAt: string; acknowledgedAt: string | null }> }>(`/support/announcements/${id}/acknowledgments`),
+    apiFetch(ADMIN_API_ROUTES['GET /support/announcements/:id/acknowledgments'], {
+      path: { id: id },
+    }),
 
   // Onboarding - Backend: /support/onboarding
-  getOnboardingSteps: () => apiFetch<OnboardingStep[]>('/support/onboarding/steps'),
-  getTenantOnboardings: (params?: { status?: string } & PaginationParams) =>
-    apiFetch<PaginatedResult<TenantOnboarding>>(`/support/onboarding?${buildQueryString(params || {})}`),
-  getTenantOnboarding: (tenantId: string) => apiFetch<TenantOnboarding>(`/support/onboarding/${tenantId}`),
+  getOnboardingSteps: () => apiFetch(ADMIN_API_ROUTES['GET /support/onboarding/steps']),
+  getTenantOnboardings: (params: OnboardingQuery = {}) =>
+    apiFetch(ADMIN_API_ROUTES['GET /support/onboarding'], { query: params }),
+  getTenantOnboarding: (tenantId: string) =>
+    apiFetch(ADMIN_API_ROUTES['GET /support/onboarding/:tenantId'], {
+      path: { tenantId: tenantId },
+    }),
   initializeOnboarding: (tenantId: string, tenantName: string) =>
-    apiFetch<TenantOnboarding>('/support/onboarding/initialize', {
-      method: 'POST',
-      body: JSON.stringify({ tenantId, tenantName })
+    apiFetch(ADMIN_API_ROUTES['POST /support/onboarding/initialize'], {
+      body: { tenantId, tenantName },
     }),
   completeOnboardingStep: (tenantId: string, stepId: string) =>
-    apiFetch<TenantOnboarding>(`/support/onboarding/${tenantId}/step/${stepId}/complete`, { method: 'POST' }),
-  skipOnboardingStep: (tenantId: string, stepId: string) =>
-    apiFetch<TenantOnboarding>(`/support/onboarding/${tenantId}/step/${stepId}/skip`, { method: 'POST' }),
-  skipOnboarding: (tenantId: string) =>
-    apiFetch<TenantOnboarding>(`/support/onboarding/${tenantId}/skip`, { method: 'POST' }),
-  assignOnboardingGuide: (tenantId: string, guideId: string, guideName: string) =>
-    apiFetch<TenantOnboarding>(`/support/onboarding/${tenantId}/assign-guide`, {
-      method: 'POST',
-      body: JSON.stringify({ guideId, guideName })
+    apiFetch(ADMIN_API_ROUTES['POST /support/onboarding/:tenantId/step/:stepId/complete'], {
+      path: { tenantId: tenantId, stepId: stepId },
     }),
-  getOnboardingStats: () =>
-    apiFetch<{ notStarted: number; inProgress: number; completed: number; stalled: number; avgCompletionDays: number }>('/support/onboarding/stats'),
-  getTenantsNeedingAttention: () => apiFetch<TenantOnboarding[]>('/support/onboarding/needs-attention'),
+  skipOnboardingStep: (tenantId: string, stepId: string) =>
+    apiFetch(ADMIN_API_ROUTES['POST /support/onboarding/:tenantId/step/:stepId/skip'], {
+      path: { tenantId: tenantId, stepId: stepId },
+    }),
+  skipOnboarding: (tenantId: string) =>
+    apiFetch(ADMIN_API_ROUTES['POST /support/onboarding/:tenantId/skip'], {
+      path: { tenantId: tenantId },
+    }),
+  assignOnboardingGuide: (tenantId: string, guideId: string, guideName: string) =>
+    apiFetch(ADMIN_API_ROUTES['POST /support/onboarding/:tenantId/assign-guide'], {
+      path: { tenantId: tenantId },
+      body: { guideId, guideName },
+    }),
+  getOnboardingStats: () => apiFetch(ADMIN_API_ROUTES['GET /support/onboarding/stats']),
+  getTenantsNeedingAttention: () =>
+    apiFetch(ADMIN_API_ROUTES['GET /support/onboarding/needs-attention']),
   getTrainingResources: (category?: string) =>
-    apiFetch<Array<{ id: string; title: string; type: string; category: string; url: string }>>(`/support/onboarding/resources/all${category ? `?category=${category}` : ''}`),
+    apiFetch(ADMIN_API_ROUTES['GET /support/onboarding/resources/all'], {
+      query: { category: category },
+    }),
 };

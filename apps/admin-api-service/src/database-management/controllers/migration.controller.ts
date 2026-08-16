@@ -24,6 +24,23 @@ import { Request } from 'express';
 import { getAuthUser } from '../../shared/authenticated-request';
 import { MigrationStatus } from '../entities/database-management.entity';
 import { MigrationManagementService } from '../services/migration-management.service';
+import type { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import { AdminResponseContract } from '../../shared/admin-response-contract.decorator';
+import {
+  migrationGetAvailableMigrationsResponseArrayContract,
+  type MigrationGetAvailableMigrationsResponseDto,
+  migrationGetMigrationSummaryResponseContract,
+  type MigrationGetMigrationSummaryResponseDto,
+  migrationMigrationPlanArrayContract,
+  type MigrationMigrationPlanDto,
+  migrationSchemaMigrationArrayContract,
+  type MigrationSchemaMigrationDto,
+  neverResponseContract,
+  type NeverResponseDto,
+  migrationGetBatchMigrationStatusResponseContract,
+  type MigrationGetBatchMigrationStatusResponseDto,
+  migrationSchemaMigrationPageContract,
+} from '../contracts/admin-http-response.contract';
 
 // ============================================================================
 // DTOs
@@ -95,13 +112,15 @@ export class MigrationController {
   // Migration Registry
   // ============================================================================
 
+  @AdminResponseContract(migrationGetAvailableMigrationsResponseArrayContract)
   @Get('available')
-  getAvailableMigrations() {
+  getAvailableMigrations(): MigrationGetAvailableMigrationsResponseDto[] {
     return this.migrationService.getAvailableMigrations();
   }
 
+  @AdminResponseContract(migrationGetMigrationSummaryResponseContract)
   @Get('summary')
-  async getMigrationSummary() {
+  async getMigrationSummary(): Promise<MigrationGetMigrationSummaryResponseDto> {
     return this.migrationService.getMigrationSummary();
   }
 
@@ -109,16 +128,23 @@ export class MigrationController {
   // Single Tenant Migration
   // ============================================================================
 
+  @AdminResponseContract(migrationMigrationPlanArrayContract)
   @Get('tenant/:tenantId/pending')
-  async getPendingMigrations(@Param('tenantId') tenantId: string) {
+  async getPendingMigrations(
+    @Param('tenantId') tenantId: string,
+  ): Promise<MigrationMigrationPlanDto[]> {
     return this.migrationService.getPendingMigrations(tenantId);
   }
 
+  @AdminResponseContract(migrationSchemaMigrationArrayContract)
   @Get('tenant/:tenantId/history')
-  async getTenantMigrationHistory(@Param('tenantId') tenantId: string) {
+  async getTenantMigrationHistory(
+    @Param('tenantId') tenantId: string,
+  ): Promise<MigrationSchemaMigrationDto[]> {
     return this.migrationService.getMigrationHistory(tenantId);
   }
 
+  @AdminResponseContract(neverResponseContract)
   @Post('tenant/:tenantId/run')
   @HttpCode(HttpStatus.OK)
   runMigration(
@@ -131,16 +157,11 @@ export class MigrationController {
       throw new BadRequestException('version is required');
     }
     // Use JWT sub for executedBy — prevents audit trail manipulation via client body
-    const executedBy = getAuthUser(req)?.sub
-      ?? 'unknown-admin';
-    return this.migrationService.runMigration(
-      tenantId,
-      dto.version,
-      dto.isDryRun,
-      executedBy,
-    );
+    const executedBy = getAuthUser(req)?.sub ?? 'unknown-admin';
+    return this.migrationService.runMigration(tenantId, dto.version, dto.isDryRun, executedBy);
   }
 
+  @AdminResponseContract(neverResponseContract)
   @Post('tenant/:tenantId/rollback')
   @HttpCode(HttpStatus.OK)
   rollbackMigration(
@@ -153,41 +174,32 @@ export class MigrationController {
       throw new BadRequestException('version is required');
     }
     // SECURITY: Use JWT sub for executedBy — prevents identity falsification
-    const executedBy = getAuthUser(req)?.sub
-      ?? 'unknown-admin';
-    return this.migrationService.rollbackMigration(
-      tenantId,
-      dto.version,
-      executedBy,
-    );
+    const executedBy = getAuthUser(req)?.sub ?? 'unknown-admin';
+    return this.migrationService.rollbackMigration(tenantId, dto.version, executedBy);
   }
 
   // ============================================================================
   // Batch Migration
   // ============================================================================
 
+  @AdminResponseContract(neverResponseContract)
   @Post('batch/run')
   @HttpCode(HttpStatus.OK)
-  runBatchMigration(
-    @Body() dto: BatchMigrationDto,
-    @Req() req: Request,
-  ): never {
+  runBatchMigration(@Body() dto: BatchMigrationDto, @Req() req: Request): never {
     this.assertRuntimeMigrationEndpointAllowed();
     if (!dto.version) {
       throw new BadRequestException('version is required');
     }
     // SECURITY: Use JWT sub for executedBy — prevents identity falsification
-    const executedBy = getAuthUser(req)?.sub
-      ?? 'unknown-admin';
-    return this.migrationService.runBatchMigration(
-      dto.version,
-      dto.isDryRun,
-      executedBy,
-    );
+    const executedBy = getAuthUser(req)?.sub ?? 'unknown-admin';
+    return this.migrationService.runBatchMigration(dto.version, dto.isDryRun, executedBy);
   }
 
+  @AdminResponseContract(migrationGetBatchMigrationStatusResponseContract)
   @Get('batch/:version/status')
-  async getBatchMigrationStatus(@Param('version') version: string) {
+  async getBatchMigrationStatus(
+    @Param('version') version: string,
+  ): Promise<MigrationGetBatchMigrationStatusResponseDto> {
     return this.migrationService.getBatchMigrationStatus(version);
   }
 
@@ -195,13 +207,14 @@ export class MigrationController {
   // Migration History
   // ============================================================================
 
+  @AdminResponseContract(migrationSchemaMigrationPageContract)
   @Get('history')
   async getAllMigrationHistory(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('status') status?: MigrationStatus,
     @Query('version') version?: string,
-  ) {
+  ): Promise<IStandardPaginatedResult<MigrationSchemaMigrationDto>> {
     return this.migrationService.getAllMigrationHistory({
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,

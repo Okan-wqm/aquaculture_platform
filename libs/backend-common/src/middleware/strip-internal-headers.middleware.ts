@@ -55,6 +55,10 @@ import { createHash } from 'crypto';
 
 import { Injectable, NestMiddleware, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  IMPERSONATION_CREDENTIAL_HEADER,
+  IMPERSONATION_SESSION_HEADER,
+} from '@aquaculture/shared-contracts';
 import type { Request, Response, NextFunction } from 'express';
 
 import { serviceIdentityAudiencesForService } from '../../../../platform/libs/service-catalog/src/index';
@@ -79,6 +83,8 @@ const INTERNAL_HEADERS_TO_STRIP = [
   'x-user-roles',
   'x-tenant-id',
   'x-act-as-tenant',
+  IMPERSONATION_CREDENTIAL_HEADER,
+  IMPERSONATION_SESSION_HEADER,
   'x-verified-user-assertion',
   // ORPHAN-MEDIUM-319: gateway-minted client network identity. Trusted by
   // resolveClientNetworkContext ONLY when the request carries a verified

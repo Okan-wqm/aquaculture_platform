@@ -11,6 +11,8 @@
  * Subject convention: request.auth.tenant.<CommandType>
  */
 
+import type { InvitableRoleCode, PlatformRoleCode } from './roles';
+
 // ==================== NATS Subject Constants ====================
 
 export const TENANT_COMMAND_SUBJECTS = {
@@ -20,6 +22,7 @@ export const TENANT_COMMAND_SUBJECTS = {
   CREATE_FIRST_ADMIN_INVITE: 'request.auth.tenant.CreateFirstAdminInvite',
   BEGIN_PROVISIONING: 'request.auth.tenant.BeginProvisioning',
   ACTIVATE_TENANT: 'request.auth.tenant.ActivateTenant',
+  RESUME_TENANT: 'request.auth.tenant.ResumeTenant',
   FAIL_PROVISIONING: 'request.auth.tenant.FailProvisioning',
   DEPROVISION_TENANT: 'request.auth.tenant.DeprovisionTenant',
   SUSPEND_TENANT: 'request.auth.tenant.SuspendTenant',
@@ -243,9 +246,7 @@ export interface RemoveTenantModuleResult {
  */
 export interface RollbackTenantProvisioningCommand extends AuthTenantCommandMetadata {
   /** Which provisioning steps completed and need rollback */
-  completedSteps: Array<
-    'create_admin' | 'setup_roles' | 'assign_modules' | 'activate_tenant'
-  >;
+  completedSteps: Array<'create_admin' | 'setup_roles' | 'assign_modules' | 'activate_tenant'>;
   /** Reason for rollback (for audit logging) */
   reason: string;
   /** Correlation ID for distributed tracing */
@@ -274,7 +275,83 @@ export interface RollbackTenantProvisioningResult {
  */
 export type BeginProvisioningCommand = AuthTenantCommandMetadata;
 
-export type ActivateTenantCommand = AuthTenantCommandMetadata;
+export const TENANT_ONBOARDING_ACTIVATION_PROOF_SCHEMA_VERSION =
+  'tenant-onboarding-activation-proof.v1' as const;
+
+export interface TenantOnboardingActivationProofV1 {
+  readonly schemaVersion: typeof TENANT_ONBOARDING_ACTIVATION_PROOF_SCHEMA_VERSION;
+  readonly generation: number;
+  readonly sealToken: string;
+  readonly evidenceRoot: string;
+  readonly publicationDigest: string;
+}
+
+/**
+ * Provisioning activation is admitted only by the exact onboarding generation
+ * sealed by admin-api and atomically consumed by the auth tenant writer.
+ */
+export interface ActivateTenantCommand extends AuthTenantCommandMetadata {
+  readonly activationProof: TenantOnboardingActivationProofV1;
+}
+
+/**
+ * Resumes an operational tenant after an explicit suspension. This command is
+ * deliberately distinct from provisioning activation: resumption cannot
+ * consume or bypass an onboarding publication seal.
+ */
+export type ResumeTenantCommand = AuthTenantCommandMetadata;
+
+const ACTIVATION_PROOF_KEYS = Object.freeze([
+  'evidenceRoot',
+  'generation',
+  'publicationDigest',
+  'schemaVersion',
+  'sealToken',
+] as const);
+const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function decodeTenantOnboardingActivationProof(
+  value: unknown,
+): TenantOnboardingActivationProofV1 {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('tenant onboarding activation proof must be an object');
+  }
+  const keys = Object.keys(value).sort();
+  if (
+    keys.length !== ACTIVATION_PROOF_KEYS.length ||
+    keys.some((key, index) => key !== ACTIVATION_PROOF_KEYS[index])
+  ) {
+    throw new Error('tenant onboarding activation proof has unknown or missing fields');
+  }
+  const schemaVersion = Reflect.get(value, 'schemaVersion');
+  const generation = Reflect.get(value, 'generation');
+  const sealToken = Reflect.get(value, 'sealToken');
+  const evidenceRoot = Reflect.get(value, 'evidenceRoot');
+  const publicationDigest = Reflect.get(value, 'publicationDigest');
+  if (schemaVersion !== TENANT_ONBOARDING_ACTIVATION_PROOF_SCHEMA_VERSION) {
+    throw new Error('tenant onboarding activation proof schema version is unsupported');
+  }
+  if (!Number.isSafeInteger(generation) || generation < 1) {
+    throw new Error('tenant onboarding activation proof generation must be a positive integer');
+  }
+  if (typeof sealToken !== 'string' || !UUID_PATTERN.test(sealToken)) {
+    throw new Error('tenant onboarding activation proof seal token must be a UUID');
+  }
+  if (typeof evidenceRoot !== 'string' || !SHA256_HEX_PATTERN.test(evidenceRoot)) {
+    throw new Error('tenant onboarding activation proof evidence root must be SHA-256');
+  }
+  if (typeof publicationDigest !== 'string' || !SHA256_HEX_PATTERN.test(publicationDigest)) {
+    throw new Error('tenant onboarding activation proof publication digest must be SHA-256');
+  }
+  return Object.freeze({
+    schemaVersion,
+    generation,
+    sealToken,
+    evidenceRoot,
+    publicationDigest,
+  });
+}
 
 export interface FailProvisioningCommand extends AuthTenantCommandMetadata {
   reason: string;
@@ -349,8 +426,8 @@ export interface AdminCreateUserCommand {
    * pre-hash. Plaintext never touches a log line (SENSITIVE_FIELDS mask).
    */
   password: string;
-  /** Platform role (SUPER_ADMIN / TENANT_ADMIN / MODULE_MANAGER / MODULE_USER) */
-  role: string;
+  /** Canonical platform role. */
+  role: PlatformRoleCode;
   /** Tenant UUID — NULL for SUPER_ADMIN users */
   tenantId?: string | null;
   /** Correlation ID for distributed tracing */
@@ -369,7 +446,7 @@ export interface AdminCreateUserResult {
     email: string;
     firstName: string | null;
     lastName: string | null;
-    role: string;
+    role: PlatformRoleCode;
     tenantId: string | null;
     isActive: boolean;
     createdAt: string;
@@ -529,6 +606,7 @@ export type TenantProvisioningCommand =
   | SetupTenantRolesCommand
   | AssignTenantModulesCommand
   | ActivateTenantCommand
+  | ResumeTenantCommand
   | FailProvisioningCommand
   | SuspendTenantLifecycleCommand
   | DeprovisionTenantCommand
@@ -558,8 +636,8 @@ export interface AdminUpdateUserCommand {
   firstName?: string;
   /** Family name — set to patch, undefined to leave unchanged */
   lastName?: string;
-  /** Platform role (SUPER_ADMIN / TENANT_ADMIN / MODULE_MANAGER / MODULE_USER) */
-  role?: string;
+  /** Canonical platform role. */
+  role?: PlatformRoleCode;
   /**
    * Tenant UUID or null. `undefined` leaves the current value; `null`
    * is an explicit assignment (user becomes tenantless, typical for
@@ -586,7 +664,7 @@ export interface AdminUpdateUserResult {
     email: string;
     firstName: string | null;
     lastName: string | null;
-    role: string;
+    role: PlatformRoleCode;
     tenantId: string | null;
     isActive: boolean;
     lastLoginAt: string | null;
@@ -701,7 +779,7 @@ export interface AdminInviteUserCommand {
    * SUPER_ADMIN is NEVER invited — SUPER_ADMIN accounts are minted
    * via AdminCreateUserCommand by a platform operator.
    */
-  role: string;
+  role: InvitableRoleCode;
   /** Module UUIDs the invitee is granted access to. Ignored for TENANT_ADMIN. */
   moduleIds?: string[];
   /**
@@ -786,6 +864,4 @@ export type AuthAdminCommand =
   | AdminUpdateModuleCommand
   | AdminDeleteModuleCommand;
 
-export type AuthPublicCommand =
-  | PublicRequestPasswordResetCommand
-  | PublicResetPasswordCommand;
+export type AuthPublicCommand = PublicRequestPasswordResetCommand | PublicResetPasswordCommand;

@@ -7,10 +7,13 @@
 
 import React, { useCallback, useMemo, useState, useEffect } from 'react';
 import { Card, Button, Input, Select, Badge, Table } from '@aquaculture/shared-ui';
+import { auditStatisticsProjectionHasValidEvidenceV2 } from '@aquaculture/shared-contracts';
+import { ADMIN_AUDIT_ACTIONS, type AdminAuditAction } from '@platform/admin-http-contracts';
 import type { TableColumn } from '@aquaculture/shared-ui';
 import { useAsyncData, usePagination, useFilters } from '../hooks';
 import { auditApi, tenantsApi } from '../services/adminApi';
-import type { AuditLog, AuditLogStats, Tenant } from '../services/adminApi';
+import { downloadAdminOwnedBlob } from '../services/browser-capabilities';
+import type { AuditLogDto, AuditStatisticsDto, Tenant } from '../services/adminApi';
 import { TenantTier, TenantStatus } from '../services/adminApi';
 
 // ============================================================================
@@ -43,16 +46,13 @@ const INITIAL_FILTERS: AuditFilters = {
 
 const ACTION_TYPES = [
   { value: '', label: 'All Actions' },
-  { value: 'CREATE', label: 'Create' },
-  { value: 'UPDATE', label: 'Update' },
-  { value: 'DELETE', label: 'Delete' },
-  { value: 'LOGIN', label: 'Login' },
-  { value: 'LOGOUT', label: 'Logout' },
-  { value: 'ASSIGN', label: 'Assign' },
-  { value: 'REVOKE', label: 'Revoke' },
-  { value: 'ACTIVATE', label: 'Activate' },
-  { value: 'DEACTIVATE', label: 'Deactivate' },
-  { value: 'SUSPEND', label: 'Suspend' },
+  ...ADMIN_AUDIT_ACTIONS.map((action) => ({
+    value: action,
+    label: action
+      .split('_')
+      .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
+      .join(' '),
+  })),
 ];
 
 const ENTITY_TYPES = [
@@ -68,9 +68,8 @@ const ENTITY_TYPES = [
 
 const SEVERITY_LEVELS = [
   { value: '', label: 'All Severities' },
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
+  { value: 'info', label: 'Info' },
+  { value: 'warning', label: 'Warning' },
   { value: 'critical', label: 'Critical' },
 ];
 
@@ -101,49 +100,24 @@ const formatRelativeTime = (dateStr: string): string => {
   return formatDateTime(dateStr);
 };
 
-const getActionBadgeVariant = (action: string): 'success' | 'info' | 'error' | 'warning' | 'default' => {
-  const variants: Record<string, 'success' | 'info' | 'error' | 'warning' | 'default'> = {
-    CREATE: 'success',
-    UPDATE: 'info',
-    DELETE: 'error',
-    LOGIN: 'default',
-    LOGOUT: 'default',
-    ASSIGN: 'info',
-    REVOKE: 'warning',
-    ACTIVATE: 'success',
-    DEACTIVATE: 'error',
-    SUSPEND: 'warning',
-  };
-  return variants[action] || 'default';
+const getActionBadgeVariant = (
+  action: AdminAuditAction,
+): 'success' | 'info' | 'error' | 'warning' | 'default' => {
+  if (/(?:DELETED|ERASURE|TERMINATED|DENIED|FAILED|REVOKED)$/u.test(action)) return 'error';
+  if (/(?:CREATED|STARTED|ACTIVATED|GRANTED|SUCCESS)$/u.test(action)) return 'success';
+  if (/(?:UPDATED|EXTENDED|CHANGED|ASSIGNED)$/u.test(action)) return 'info';
+  if (/(?:READ|ACCESSED|EXPORT|RAW_SQL)$/u.test(action)) return 'warning';
+  return 'default';
 };
 
 const getSeverityBadgeVariant = (severity: string): 'default' | 'info' | 'warning' | 'error' => {
   const variants: Record<string, 'default' | 'info' | 'warning' | 'error'> = {
-    low: 'default',
-    medium: 'info',
-    high: 'warning',
+    info: 'info',
+    warning: 'warning',
     critical: 'error',
   };
   return variants[severity] || 'default';
 };
-
-/**
- * Escape a CSV cell value to prevent formula injection and handle special characters.
- * Prefixes cells starting with =, +, -, @, \t, \r with a single quote inside double quotes.
- * Wraps cells containing commas, double quotes, or newlines in double quotes.
- */
-function escapeCsvCell(value: unknown): string {
-  const str = String(value ?? '');
-  // Formula injection protection
-  if (/^[=+\-@\t\r]/.test(str)) {
-    return `"'${str.replace(/"/g, '""')}"`;
-  }
-  // Quote cells containing comma, double quote, or newline
-  if (/[",\n\r]/.test(str)) {
-    return `"${str.replace(/"/g, '""')}"`;
-  }
-  return str;
-}
 
 // ============================================================================
 // Sub-components
@@ -156,16 +130,23 @@ interface StatsCardProps {
   valueColor?: string;
 }
 
-const StatsCard: React.FC<StatsCardProps> = ({ title, value, subtitle, valueColor = 'text-gray-900' }) => (
+const StatsCard: React.FC<StatsCardProps> = ({
+  title,
+  value,
+  subtitle,
+  valueColor = 'text-gray-900',
+}) => (
   <Card className="p-4">
     <p className="text-sm text-gray-500">{title}</p>
-    <p className={`text-2xl font-bold ${valueColor}`}>{typeof value === 'number' ? value.toLocaleString() : value}</p>
+    <p className={`text-2xl font-bold ${valueColor}`}>
+      {typeof value === 'number' ? value.toLocaleString() : value}
+    </p>
     {subtitle && <p className="text-xs text-gray-500 mt-1">{subtitle}</p>}
   </Card>
 );
 
 interface LogDetailModalProps {
-  log: AuditLog;
+  log: AuditLogDto;
   onClose: () => void;
 }
 
@@ -180,7 +161,12 @@ const LogDetailModal: React.FC<LogDetailModalProps> = ({ log, onClose }) => (
           </div>
           <Button variant="ghost" size="sm" onClick={onClose}>
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </Button>
         </div>
@@ -197,6 +183,11 @@ const LogDetailModal: React.FC<LogDetailModalProps> = ({ log, onClose }) => (
             <DetailField label="Severity">
               <Badge variant={getSeverityBadgeVariant(log.severity)}>{log.severity}</Badge>
             </DetailField>
+            <DetailField label="Evidence trust">
+              <Badge variant={log.trustClass === 'AUTHORITATIVE_RUNTIME' ? 'success' : 'warning'}>
+                {log.trustClass}
+              </Badge>
+            </DetailField>
             <DetailField label="IP Address" value={log.ipAddress} mono />
             <DetailField label="Tenant ID" value={log.tenantId || '-'} mono />
           </div>
@@ -208,11 +199,11 @@ const LogDetailModal: React.FC<LogDetailModalProps> = ({ log, onClose }) => (
             </p>
           </div>
 
-          {log.metadata && Object.keys(log.metadata).length > 0 && (
+          {log.details && Object.keys(log.details).length > 0 && (
             <div>
               <label className="text-xs text-gray-500">Metadata</label>
               <pre className="text-sm bg-gray-50 p-3 rounded overflow-auto max-h-64">
-                {JSON.stringify(log.metadata, null, 2)}
+                {JSON.stringify(log.details, null, 2)}
               </pre>
             </div>
           )}
@@ -252,22 +243,17 @@ const DetailField: React.FC<DetailFieldProps> = ({ label, value, subtitle, mono,
 
 const AuditLogPage: React.FC = () => {
   // Detail modal state
-  const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
+  const [selectedLog, setSelectedLog] = useState<AuditLogDto | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
   // Filters with URL sync and debounce for search
-  const {
-    filters,
-    debouncedFilters,
-    setFilter,
-    resetFilters,
-    hasActiveFilters,
-  } = useFilters<AuditFilters>({
-    initialFilters: INITIAL_FILTERS,
-    syncUrl: true,
-    debounceDelay: 300,
-    debounceKeys: ['search'],
-  });
+  const { filters, debouncedFilters, setFilter, resetFilters, hasActiveFilters } =
+    useFilters<AuditFilters>({
+      initialFilters: INITIAL_FILTERS,
+      syncUrl: true,
+      debounceDelay: 300,
+      debounceKeys: ['search'],
+    });
 
   // Pagination
   const pagination = usePagination({
@@ -278,7 +264,7 @@ const AuditLogPage: React.FC = () => {
   // Fetch tenants for filter dropdown
   const fetchTenants = useCallback(async () => {
     const result = await tenantsApi.list({ limit: 100 });
-    return result.data;
+    return [...result.items];
   }, []);
 
   const { data: tenants } = useAsyncData<Tenant[]>(fetchTenants, {
@@ -303,7 +289,7 @@ const AuditLogPage: React.FC = () => {
 
     const result = await auditApi.query(params);
     pagination.setTotal(result.total);
-    return result.data;
+    return [...result.items];
   }, [pagination.page, pagination.limit, debouncedFilters]);
 
   const {
@@ -311,7 +297,7 @@ const AuditLogPage: React.FC = () => {
     loading,
     error,
     refresh,
-  } = useAsyncData<AuditLog[]>(fetchLogs, {
+  } = useAsyncData<AuditLogDto[]>(fetchLogs, {
     cacheKey: `audit-logs-${JSON.stringify(debouncedFilters)}-${pagination.page}`,
     cacheTTL: 30000,
   });
@@ -321,14 +307,20 @@ const AuditLogPage: React.FC = () => {
     return auditApi.getStatistics(
       debouncedFilters.tenantId || undefined,
       debouncedFilters.startDate || undefined,
-      debouncedFilters.endDate || undefined
+      debouncedFilters.endDate || undefined,
     );
   }, [debouncedFilters.tenantId, debouncedFilters.startDate, debouncedFilters.endDate]);
 
-  const { data: stats } = useAsyncData<AuditLogStats>(fetchStats, {
-    cacheKey: `audit-stats-${debouncedFilters.tenantId}`,
+  const { data: stats, error: statsError } = useAsyncData<AuditStatisticsDto>(fetchStats, {
+    cacheKey: `audit-stats-${debouncedFilters.tenantId}-${debouncedFilters.startDate}-${debouncedFilters.endDate}`,
     cacheTTL: 60000,
   });
+  const qualifiedStats =
+    stats !== null && auditStatisticsProjectionHasValidEvidenceV2(stats) ? stats : null;
+  const statsEvidenceError =
+    stats !== null && qualifiedStats === null
+      ? 'Audit statistics evidence did not reconcile to its declared scope'
+      : statsError;
 
   // Reset to page 1 when filters change
   useEffect(() => {
@@ -338,108 +330,110 @@ const AuditLogPage: React.FC = () => {
   // Export handler
   const handleExport = async () => {
     try {
-      const params: Record<string, string> = { limit: '10000' };
-      if (filters.action) params.action = filters.action;
-      if (filters.severity) params.severity = filters.severity;
-      if (filters.entityType) params.entityType = filters.entityType;
-      if (filters.tenantId) params.tenantId = filters.tenantId;
-      if (filters.search) params.search = filters.search; // Fix: H22 -- include search filter
-      if (filters.startDate) params.startDate = filters.startDate;
-      if (filters.endDate) params.endDate = filters.endDate;
-
-      const result = await auditApi.query(params);
-
-      const headers = ['Date', 'Action', 'Entity', 'Entity ID', 'User', 'Severity', 'IP Address'];
-      const rows = result.data.map((log) => [
-        escapeCsvCell(formatDateTime(log.createdAt)),
-        escapeCsvCell(log.action),
-        escapeCsvCell(log.entityType),
-        escapeCsvCell(log.entityId),
-        escapeCsvCell(log.performedByEmail),
-        escapeCsvCell(log.severity),
-        escapeCsvCell(log.ipAddress),
-      ]);
-
-      const csvContent = [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `audit-logs-${new Date().toISOString().split('T')[0]}.csv`;
-      link.click();
-      URL.revokeObjectURL(url); // Fix: H22 -- prevent memory leak
+      const result = await auditApi.export({
+        action: filters.action || undefined,
+        severity: filters.severity || undefined,
+        entityType: filters.entityType || undefined,
+        tenantId: filters.tenantId || undefined,
+        search: filters.search || undefined,
+        startDate: filters.startDate || undefined,
+        endDate: filters.endDate || undefined,
+      });
+      downloadAdminOwnedBlob({
+        blob: result.blob,
+        filename: result.filename,
+      });
     } catch (err) {
       setExportError('Export failed: ' + (err as Error).message);
     }
   };
 
   // Table columns
-  const columns: TableColumn<AuditLog>[] = useMemo(() => [
-    {
-      key: 'createdAt',
-      header: 'Date',
-      sortable: true,
-      render: (log) => (
-        <div>
-          <span className="text-sm text-gray-900">{formatRelativeTime(log.createdAt)}</span>
-          <p className="text-xs text-gray-500">{formatDateTime(log.createdAt)}</p>
-        </div>
-      ),
-    },
-    {
-      key: 'action',
-      header: 'Action',
-      sortable: true,
-      render: (log) => <Badge variant={getActionBadgeVariant(log.action)}>{log.action}</Badge>,
-    },
-    {
-      key: 'entityType',
-      header: 'Entity',
-      sortable: true,
-      render: (log) => (
-        <div>
-          <p className="font-medium text-gray-900">{log.entityType}</p>
-          <p className="text-xs text-gray-500 truncate max-w-[120px]">ID: {log.entityId}</p>
-        </div>
-      ),
-    },
-    {
-      key: 'performedByEmail',
-      header: 'User',
-      sortable: true,
-      render: (log) => (
-        <div className="max-w-[180px]">
-          <p className="text-sm text-gray-900 truncate">{log.performedByEmail}</p>
-        </div>
-      ),
-    },
-    {
-      key: 'severity',
-      header: 'Severity',
-      sortable: true,
-      render: (log) => <Badge variant={getSeverityBadgeVariant(log.severity)}>{log.severity}</Badge>,
-    },
-    {
-      key: 'ipAddress',
-      header: 'IP',
-      render: (log) => <code className="text-xs bg-gray-100 px-2 py-1 rounded">{log.ipAddress}</code>,
-    },
-    {
-      key: 'actions',
-      header: '',
-      render: (log) => (
-        <Button size="sm" variant="ghost" onClick={() => setSelectedLog(log)}>
-          Details
-        </Button>
-      ),
-    },
-  ], []);
+  const columns: TableColumn<AuditLogDto>[] = useMemo(
+    () => [
+      {
+        key: 'createdAt',
+        header: 'Date',
+        sortable: true,
+        render: (log) => (
+          <div>
+            <span className="text-sm text-gray-900">{formatRelativeTime(log.createdAt)}</span>
+            <p className="text-xs text-gray-500">{formatDateTime(log.createdAt)}</p>
+          </div>
+        ),
+      },
+      {
+        key: 'action',
+        header: 'Action',
+        sortable: true,
+        render: (log) => <Badge variant={getActionBadgeVariant(log.action)}>{log.action}</Badge>,
+      },
+      {
+        key: 'entityType',
+        header: 'Entity',
+        sortable: true,
+        render: (log) => (
+          <div>
+            <p className="font-medium text-gray-900">{log.entityType}</p>
+            <p className="text-xs text-gray-500 truncate max-w-[120px]">ID: {log.entityId}</p>
+          </div>
+        ),
+      },
+      {
+        key: 'performedByEmail',
+        header: 'User',
+        sortable: true,
+        render: (log) => (
+          <div className="max-w-[180px]">
+            <p className="text-sm text-gray-900 truncate">{log.performedByEmail}</p>
+          </div>
+        ),
+      },
+      {
+        key: 'severity',
+        header: 'Severity',
+        sortable: true,
+        render: (log) => (
+          <Badge variant={getSeverityBadgeVariant(log.severity)}>{log.severity}</Badge>
+        ),
+      },
+      {
+        key: 'trustClass',
+        header: 'Evidence trust',
+        render: (log) => (
+          <Badge variant={log.trustClass === 'AUTHORITATIVE_RUNTIME' ? 'success' : 'warning'}>
+            {log.trustClass}
+          </Badge>
+        ),
+      },
+      {
+        key: 'ipAddress',
+        header: 'IP',
+        render: (log) => (
+          <code className="text-xs bg-gray-100 px-2 py-1 rounded">{log.ipAddress}</code>
+        ),
+      },
+      {
+        key: 'actions',
+        header: '',
+        render: (log) => (
+          <Button size="sm" variant="ghost" onClick={() => setSelectedLog(log)}>
+            Details
+          </Button>
+        ),
+      },
+    ],
+    [],
+  );
 
   // Tenant options for filter
-  const tenantOptions = useMemo(() => [
-    { value: '', label: 'All Tenants' },
-    ...(tenants || []).map((t) => ({ value: t.id, label: t.name })),
-  ], [tenants]);
+  const tenantOptions = useMemo(
+    () => [
+      { value: '', label: 'All Tenants' },
+      ...(tenants || []).map((t) => ({ value: t.id, label: t.name })),
+    ],
+    [tenants],
+  );
 
   return (
     <div className="space-y-6">
@@ -448,19 +442,30 @@ const AuditLogPage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Audit Logs</h1>
           <p className="mt-1 text-sm text-gray-500">
-            System activity logs {pagination.total > 0 && `(${pagination.total.toLocaleString()} records)`}
+            System activity logs{' '}
+            {pagination.total > 0 && `(${pagination.total.toLocaleString()} records)`}
           </p>
         </div>
         <div className="mt-4 sm:mt-0 flex gap-2">
           <Button variant="outline" onClick={refresh} disabled={loading}>
             <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
             </svg>
             Refresh
           </Button>
           <Button variant="outline" onClick={handleExport}>
             <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+              />
             </svg>
             Export
           </Button>
@@ -471,34 +476,67 @@ const AuditLogPage: React.FC = () => {
       {exportError && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center justify-between">
           <span className="text-red-700 text-sm">{exportError}</span>
-          <button onClick={() => setExportError(null)} className="text-red-400 hover:text-red-600 ml-4">
+          <button
+            onClick={() => setExportError(null)}
+            className="text-red-400 hover:text-red-600 ml-4"
+          >
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+              <path
+                fillRule="evenodd"
+                d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                clipRule="evenodd"
+              />
             </svg>
           </button>
         </div>
       )}
 
       {/* Stats */}
-      {stats && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatsCard title="Total Logs" value={stats.totalLogs ?? 0} />
-          <StatsCard title="Last 24 Hours" value={stats.last24Hours ?? 0} valueColor="text-blue-600" />
-          <StatsCard
-            title="Critical Events"
-            value={
-              Array.isArray(stats.bySeverity)
-                ? stats.bySeverity.find((s) => s.severity === 'critical')?.count ?? 0
-                : 0
-            }
-            valueColor="text-red-600"
-          />
-          <StatsCard
-            title="Most Active User"
-            value={Array.isArray(stats.topUsers) && stats.topUsers[0]?.email ? stats.topUsers[0].email : '-'}
-            subtitle={`${Array.isArray(stats.topUsers) && stats.topUsers[0]?.count ? stats.topUsers[0].count : 0} actions`}
-          />
-        </div>
+      {statsEvidenceError && (
+        <Card className="p-4 bg-red-50 border-red-200">
+          <p className="text-red-600">Audit statistics read rejected: {statsEvidenceError}</p>
+        </Card>
+      )}
+
+      {qualifiedStats && (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatsCard title="Qualified Logs" value={qualifiedStats.totalLogs} />
+            <StatsCard
+              title="Last 24 Hours"
+              value={qualifiedStats.last24Hours}
+              valueColor="text-blue-600"
+            />
+            <StatsCard
+              title="Critical Events"
+              value={
+                qualifiedStats.bySeverity.find((severity) => severity.severity === 'critical')
+                  ?.count ?? 0
+              }
+              valueColor="text-red-600"
+            />
+            <StatsCard
+              title="Most Active User"
+              value={
+                qualifiedStats.topUsers[0]?.email ??
+                qualifiedStats.topUsers[0]?.userId ??
+                'No scoped activity'
+              }
+              subtitle={
+                qualifiedStats.topUsers[0]
+                  ? `${qualifiedStats.topUsers[0].count} actions`
+                  : undefined
+              }
+            />
+          </div>
+          <p className="text-xs text-gray-500">
+            Statistics scope {qualifiedStats.scope.scopeSha256} · authoritative runtime rows{' '}
+            {qualifiedStats.totalLogs.toLocaleString()} / observed{' '}
+            {qualifiedStats.observedLogs.toLocaleString()} · legacy unverified{' '}
+            {qualifiedStats.legacyUnverifiedLogs.toLocaleString()} · as of{' '}
+            {formatDateTime(qualifiedStats.scope.asOf)}
+          </p>
+        </>
       )}
 
       {/* Filters */}
@@ -510,8 +548,18 @@ const AuditLogPage: React.FC = () => {
               value={filters.search}
               onChange={(e) => setFilter('search', e.target.value)}
               leftIcon={
-                <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                <svg
+                  className="w-5 h-5 text-gray-500"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                  />
                 </svg>
               }
             />
@@ -601,7 +649,8 @@ const AuditLogPage: React.FC = () => {
           {pagination.totalPages > 1 && (
             <div className="flex items-center justify-between">
               <p className="text-sm text-gray-500">
-                Page {pagination.page} of {pagination.totalPages} ({pagination.total.toLocaleString()} records)
+                Page {pagination.page} of {pagination.totalPages} (
+                {pagination.total.toLocaleString()} records)
               </p>
               <div className="flex gap-2">
                 <Button
@@ -627,9 +676,7 @@ const AuditLogPage: React.FC = () => {
       )}
 
       {/* Detail Modal */}
-      {selectedLog && (
-        <LogDetailModal log={selectedLog} onClose={() => setSelectedLog(null)} />
-      )}
+      {selectedLog && <LogDetailModal log={selectedLog} onClose={() => setSelectedLog(null)} />}
     </div>
   );
 };

@@ -14,7 +14,7 @@ import {
   hasResourcePermission,
   TENANT_PANEL_CAPABILITIES,
 } from '@aquaculture/shared-ui';
-import type { UserRole } from '@aquaculture/shared-ui';
+import { Role, type Role as PlatformRole } from '@platform/identity';
 import MainLayout from './layouts/MainLayout';
 import AuthLayout from './layouts/AuthLayout';
 import LoginPage from './pages/LoginPage';
@@ -69,11 +69,11 @@ const TenantAdminModule = lazy(() => import('tenantAdmin/Module'));
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
-  requiredRoles?: string[];
+  requiredRoles?: readonly PlatformRole[];
   // MT-HIGH-060 delegation: any-of tenant-RBAC capabilities that also satisfy
   // this route. A user passes if they hold a required ROLE *or* a required
   // CAPABILITY — letting a tenant admin delegate panel access to a custom role.
-  requiredCapabilities?: string[];
+  requiredCapabilities?: readonly string[];
   requiredModule?: string;
 }
 
@@ -105,7 +105,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = memo(({ children, required
   // and neither is satisfied, deny.
   if ((requiredRoles?.length ?? 0) > 0 || (requiredCapabilities?.length ?? 0) > 0) {
     const hasRequiredRole =
-      requiredRoles?.some((role) => hasRoleOrHigher(role as UserRole)) ?? false;
+      requiredRoles?.some((role) => hasRoleOrHigher(role)) ?? false;
     const hasRequiredCapability =
       requiredCapabilities?.some((cap) => hasResourcePermission(user, cap)) ?? false;
     if (!hasRequiredRole && !hasRequiredCapability) {
@@ -144,9 +144,9 @@ const RoleBasedRedirect: React.FC = () => {
   }
 
   switch (user.role) {
-    case 'SUPER_ADMIN':
+    case Role.SUPER_ADMIN:
       return <Navigate to="/admin" replace />;
-    case 'TENANT_ADMIN':
+    case Role.TENANT_ADMIN:
       return <Navigate to="/tenant" replace />;
     default:
       return <Navigate to="/dashboard" replace />;
@@ -275,7 +275,7 @@ const App: React.FC = () => {
         <Route
           path="/admin/*"
           element={
-            <ProtectedRoute requiredRoles={['SUPER_ADMIN']}>
+            <ProtectedRoute requiredRoles={[Role.SUPER_ADMIN]}>
               <ErrorBoundary moduleName="Admin Panel">
                 <Suspense fallback={<RemoteModuleLoader moduleName="Admin Panel" />}>
                   <AdminPanelModule />
@@ -289,7 +289,7 @@ const App: React.FC = () => {
         <Route
           path="/tenant/*"
           element={
-            <ProtectedRoute requiredRoles={['TENANT_ADMIN']} requiredCapabilities={[...TENANT_PANEL_CAPABILITIES]}>
+            <ProtectedRoute requiredRoles={[Role.TENANT_ADMIN]} requiredCapabilities={TENANT_PANEL_CAPABILITIES}>
               <ErrorBoundary moduleName="Tenant Admin">
                 <Suspense fallback={<RemoteModuleLoader moduleName="Tenant Admin" />}>
                   <TenantAdminModule />

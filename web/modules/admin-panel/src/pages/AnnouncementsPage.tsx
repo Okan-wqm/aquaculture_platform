@@ -35,26 +35,19 @@ import {
   type Announcement,
   type AnnouncementType,
   type AnnouncementStatus,
-  type AnnouncementTarget,
 } from '../services/adminApi';
+import type { AdminApiRouteResponse } from '../services/types/generated/admin-route-contracts';
 
-interface AnnouncementStats {
-  total: number;
-  published: number;
-  scheduled: number;
-  draft: number;
-  expired: number;
-  totalViews: number;
-  totalAcknowledgments: number;
-  byType: Record<AnnouncementType, number>;
-}
+type AnnouncementStats = AdminApiRouteResponse<'GET /support/announcements/stats'>;
+type AnnouncementAcknowledgment =
+  AdminApiRouteResponse<'GET /support/announcements/:id/acknowledgments'>['acknowledgments'][number];
 
 // ============================================================================
 // Component
 // ============================================================================
 
 export const AnnouncementsPage: React.FC = () => {
-  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [announcements, setAnnouncements] = useState<readonly Announcement[]>([]);
   const [stats, setStats] = useState<AnnouncementStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -75,7 +68,7 @@ export const AnnouncementsPage: React.FC = () => {
       if (typeFilter !== 'all') params.type = typeFilter;
 
       const result = await supportApi.getAnnouncements(params);
-      setAnnouncements(result.data || []);
+      setAnnouncements([...result.items]);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
       setAnnouncements([]);
@@ -99,9 +92,12 @@ export const AnnouncementsPage: React.FC = () => {
     fetchStats();
   }, [fetchAnnouncements, fetchStats]);
 
-  const filteredAnnouncements = announcements.filter(ann => {
-    if (searchQuery && !ann.title.toLowerCase().includes(searchQuery.toLowerCase()) &&
-        !ann.content.toLowerCase().includes(searchQuery.toLowerCase())) {
+  const filteredAnnouncements = announcements.filter((ann) => {
+    if (
+      searchQuery &&
+      !ann.title.toLowerCase().includes(searchQuery.toLowerCase()) &&
+      !ann.content.toLowerCase().includes(searchQuery.toLowerCase())
+    ) {
       return false;
     }
     return true;
@@ -109,29 +105,42 @@ export const AnnouncementsPage: React.FC = () => {
 
   const getTypeIcon = (type: AnnouncementType) => {
     switch (type) {
-      case 'info': return <Info size={16} className="text-blue-500" />;
-      case 'warning': return <AlertTriangle size={16} className="text-yellow-500" />;
-      case 'critical': return <AlertCircle size={16} className="text-red-500" />;
-      case 'maintenance': return <Wrench size={16} className="text-purple-500" />;
+      case 'info':
+        return <Info size={16} className="text-blue-500" />;
+      case 'warning':
+        return <AlertTriangle size={16} className="text-yellow-500" />;
+      case 'critical':
+        return <AlertCircle size={16} className="text-red-500" />;
+      case 'maintenance':
+        return <Wrench size={16} className="text-purple-500" />;
     }
   };
 
   const getTypeColor = (type: AnnouncementType) => {
     switch (type) {
-      case 'info': return 'bg-blue-100 text-blue-700';
-      case 'warning': return 'bg-yellow-100 text-yellow-700';
-      case 'critical': return 'bg-red-100 text-red-700';
-      case 'maintenance': return 'bg-purple-100 text-purple-700';
+      case 'info':
+        return 'bg-blue-100 text-blue-700';
+      case 'warning':
+        return 'bg-yellow-100 text-yellow-700';
+      case 'critical':
+        return 'bg-red-100 text-red-700';
+      case 'maintenance':
+        return 'bg-purple-100 text-purple-700';
     }
   };
 
   const getStatusColor = (status: AnnouncementStatus) => {
     switch (status) {
-      case 'draft': return 'bg-gray-100 text-gray-700';
-      case 'scheduled': return 'bg-blue-100 text-blue-700';
-      case 'published': return 'bg-green-100 text-green-700';
-      case 'expired': return 'bg-gray-100 text-gray-500';
-      case 'cancelled': return 'bg-red-100 text-red-700';
+      case 'draft':
+        return 'bg-gray-100 text-gray-700';
+      case 'scheduled':
+        return 'bg-blue-100 text-blue-700';
+      case 'published':
+        return 'bg-green-100 text-green-700';
+      case 'expired':
+        return 'bg-gray-100 text-gray-500';
+      case 'cancelled':
+        return 'bg-red-100 text-red-700';
     }
   };
 
@@ -177,7 +186,9 @@ export const AnnouncementsPage: React.FC = () => {
 
   const handleCreateAnnouncement = async (data: Partial<Announcement>) => {
     try {
-      await supportApi.createAnnouncement(data as Parameters<typeof supportApi.createAnnouncement>[0]);
+      await supportApi.createAnnouncement(
+        data as Parameters<typeof supportApi.createAnnouncement>[0],
+      );
       setShowCreateModal(false);
       fetchAnnouncements();
       fetchStats();
@@ -197,7 +208,10 @@ export const AnnouncementsPage: React.FC = () => {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => { fetchAnnouncements(); fetchStats(); }}
+              onClick={() => {
+                fetchAnnouncements();
+                fetchStats();
+              }}
               className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
             >
               <RefreshCw size={18} />
@@ -237,11 +251,15 @@ export const AnnouncementsPage: React.FC = () => {
             </div>
             <div className="bg-purple-50 rounded-lg p-3">
               <div className="text-sm text-purple-600">Total Views</div>
-              <div className="text-xl font-semibold text-purple-700">{(stats.totalViews ?? 0).toLocaleString()}</div>
+              <div className="text-xl font-semibold text-purple-700">
+                {(stats.totalViews ?? 0).toLocaleString()}
+              </div>
             </div>
             <div className="bg-indigo-50 rounded-lg p-3">
               <div className="text-sm text-indigo-600">Acknowledged</div>
-              <div className="text-xl font-semibold text-indigo-700">{(stats.totalAcknowledgments ?? 0).toLocaleString()}</div>
+              <div className="text-xl font-semibold text-indigo-700">
+                {(stats.totalAcknowledgments ?? 0).toLocaleString()}
+              </div>
             </div>
           </div>
         )}
@@ -326,10 +344,14 @@ export const AnnouncementsPage: React.FC = () => {
                           <h3 className="text-lg font-semibold text-gray-900">
                             {announcement.title}
                           </h3>
-                          <span className={`px-2 py-0.5 text-xs rounded-full ${getStatusColor(announcement.status)}`}>
+                          <span
+                            className={`px-2 py-0.5 text-xs rounded-full ${getStatusColor(announcement.status)}`}
+                          >
                             {announcement.status}
                           </span>
-                          <span className={`px-2 py-0.5 text-xs rounded-full ${getTypeColor(announcement.type)}`}>
+                          <span
+                            className={`px-2 py-0.5 text-xs rounded-full ${getTypeColor(announcement.type)}`}
+                          >
                             {announcement.type}
                           </span>
                         </div>
@@ -482,7 +504,9 @@ const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
   const [scheduleType, setScheduleType] = useState<'now' | 'scheduled'>('now');
   const [publishAt, setPublishAt] = useState('');
   const [expiresAt, setExpiresAt] = useState('');
-  const [requiresAcknowledgment, setRequiresAcknowledgment] = useState(announcement?.requiresAcknowledgment ?? false);
+  const [requiresAcknowledgment, setRequiresAcknowledgment] = useState(
+    announcement?.requiresAcknowledgment ?? false,
+  );
 
   const handleSubmit = () => {
     onSave({
@@ -544,10 +568,13 @@ const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
                   onClick={() => setType(t)}
                   className={`flex items-center justify-center gap-2 px-4 py-2 rounded-lg border transition-colors ${
                     type === t
-                      ? t === 'info' ? 'bg-blue-100 border-blue-300 text-blue-700'
-                      : t === 'warning' ? 'bg-yellow-100 border-yellow-300 text-yellow-700'
-                      : t === 'critical' ? 'bg-red-100 border-red-300 text-red-700'
-                      : 'bg-purple-100 border-purple-300 text-purple-700'
+                      ? t === 'info'
+                        ? 'bg-blue-100 border-blue-300 text-blue-700'
+                        : t === 'warning'
+                          ? 'bg-yellow-100 border-yellow-300 text-yellow-700'
+                          : t === 'critical'
+                            ? 'bg-red-100 border-red-300 text-red-700'
+                            : 'bg-purple-100 border-purple-300 text-purple-700'
                       : 'border-gray-300 text-gray-700 hover:bg-gray-50'
                   }`}
                 >
@@ -569,7 +596,9 @@ const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
                 type="button"
                 onClick={() => setIsGlobal(true)}
                 className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border ${
-                  isGlobal ? 'bg-blue-100 border-blue-300 text-blue-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                  isGlobal
+                    ? 'bg-blue-100 border-blue-300 text-blue-700'
+                    : 'border-gray-300 text-gray-700 hover:bg-gray-50'
                 }`}
               >
                 <Globe size={18} />
@@ -579,7 +608,9 @@ const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
                 type="button"
                 onClick={() => setIsGlobal(false)}
                 className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border ${
-                  !isGlobal ? 'bg-blue-100 border-blue-300 text-blue-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                  !isGlobal
+                    ? 'bg-blue-100 border-blue-300 text-blue-700'
+                    : 'border-gray-300 text-gray-700 hover:bg-gray-50'
                 }`}
               >
                 <Target size={18} />
@@ -596,7 +627,9 @@ const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
                 type="button"
                 onClick={() => setScheduleType('now')}
                 className={`flex-1 px-4 py-2 rounded-lg border ${
-                  scheduleType === 'now' ? 'bg-blue-100 border-blue-300 text-blue-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                  scheduleType === 'now'
+                    ? 'bg-blue-100 border-blue-300 text-blue-700'
+                    : 'border-gray-300 text-gray-700 hover:bg-gray-50'
                 }`}
               >
                 Save as Draft
@@ -605,7 +638,9 @@ const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
                 type="button"
                 onClick={() => setScheduleType('scheduled')}
                 className={`flex-1 px-4 py-2 rounded-lg border ${
-                  scheduleType === 'scheduled' ? 'bg-blue-100 border-blue-300 text-blue-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                  scheduleType === 'scheduled'
+                    ? 'bg-blue-100 border-blue-300 text-blue-700'
+                    : 'border-gray-300 text-gray-700 hover:bg-gray-50'
                 }`}
               >
                 Schedule
@@ -678,13 +713,7 @@ const AnnouncementStatsModal: React.FC<AnnouncementStatsModalProps> = ({
   announcement,
   onClose,
 }) => {
-  const [acknowledgments, setAcknowledgments] = useState<Array<{
-    userId: string;
-    userName: string;
-    tenantId: string;
-    viewedAt: string;
-    acknowledgedAt: string | null;
-  }>>([]);
+  const [acknowledgments, setAcknowledgments] = useState<readonly AnnouncementAcknowledgment[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -728,7 +757,9 @@ const AnnouncementStatsModal: React.FC<AnnouncementStatsModalProps> = ({
             {announcement.requiresAcknowledgment && (
               <div className="bg-green-50 rounded-lg p-4 text-center">
                 <CheckCircle size={24} className="mx-auto text-green-600 mb-2" />
-                <div className="text-2xl font-bold text-green-700">{announcement.acknowledgmentCount}</div>
+                <div className="text-2xl font-bold text-green-700">
+                  {announcement.acknowledgmentCount}
+                </div>
                 <div className="text-sm text-green-600">Acknowledged</div>
               </div>
             )}
@@ -745,7 +776,10 @@ const AnnouncementStatsModal: React.FC<AnnouncementStatsModalProps> = ({
               ) : acknowledgments.length > 0 ? (
                 <div className="space-y-2">
                   {acknowledgments.map((ack) => (
-                    <div key={ack.userId} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div
+                      key={ack.userId}
+                      className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                    >
                       <div>
                         <div className="font-medium text-gray-900">{ack.userName}</div>
                         <div className="text-sm text-gray-500">Tenant: {ack.tenantId}</div>

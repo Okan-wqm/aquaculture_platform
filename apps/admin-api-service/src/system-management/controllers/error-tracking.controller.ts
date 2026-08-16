@@ -11,11 +11,44 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import type { AdminSqlIdentifierKey } from '@platform/admin-http-contracts';
 
-import { IsString, IsOptional, IsObject, IsArray, IsNumber, IsBoolean, IsUUID, MaxLength, ArrayMaxSize } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsObject,
+  IsArray,
+  IsNumber,
+  IsBoolean,
+  IsUUID,
+  MaxLength,
+  ArrayMaxSize,
+} from 'class-validator';
 
 import { ErrorSeverity, ErrorStatus, ErrorContext } from '../entities/error-tracking.entity';
 import { ErrorTrackingService, ErrorReport } from '../services/error-tracking.service';
+import { AdminResponseContract } from '../../shared/admin-response-contract.decorator';
+import {
+  errorTrackingErrorDashboardContract,
+  type ErrorTrackingErrorDashboardDto,
+  errorTrackingGetErrorStatsResponseArrayContract,
+  type ErrorTrackingGetErrorStatsResponseDto,
+  errorTrackingErrorOccurrenceContract,
+  type ErrorTrackingErrorOccurrenceDto,
+  errorTrackingQueryErrorGroupsResponseContract,
+  type ErrorTrackingQueryErrorGroupsResponseDto,
+  errorTrackingErrorGroupContract,
+  type ErrorTrackingErrorGroupDto,
+  errorTrackingQueryOccurrencesResponseContract,
+  type ErrorTrackingQueryOccurrencesResponseDto,
+  errorTrackingGetOccurrencesForGroupResponseContract,
+  type ErrorTrackingGetOccurrencesForGroupResponseDto,
+  errorTrackingErrorAlertRuleContract,
+  type ErrorTrackingErrorAlertRuleDto,
+  errorTrackingErrorAlertRuleArrayContract,
+  voidResponseContract,
+  type VoidResponseDto,
+} from '../contracts/admin-http-response.contract';
 
 // ============================================================================
 // DTOs
@@ -202,12 +235,13 @@ export class ErrorTrackingController {
   // Dashboard
   // ============================================================================
 
+  @AdminResponseContract(errorTrackingErrorDashboardContract)
   @Get('dashboard')
   async getErrorDashboard(
     @Query('service') service?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
-  ) {
+  ): Promise<ErrorTrackingErrorDashboardDto> {
     return this.errorTrackingService.getErrorDashboard({
       service,
       start: startDate ? new Date(startDate) : undefined,
@@ -215,12 +249,13 @@ export class ErrorTrackingController {
     });
   }
 
+  @AdminResponseContract(errorTrackingGetErrorStatsResponseArrayContract)
   @Get('stats')
   async getErrorStats(
     @Query('groupBy') groupBy: 'service' | 'errorType' | 'severity' | 'tenant',
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
-  ) {
+  ): Promise<ErrorTrackingGetErrorStatsResponseDto[]> {
     return this.errorTrackingService.getErrorStats({
       groupBy,
       start: startDate ? new Date(startDate) : undefined,
@@ -232,8 +267,9 @@ export class ErrorTrackingController {
   // Error Reporting
   // ============================================================================
 
+  @AdminResponseContract(errorTrackingErrorOccurrenceContract)
   @Post('report')
-  async reportError(@Body() dto: ReportErrorDto) {
+  async reportError(@Body() dto: ReportErrorDto): Promise<ErrorTrackingErrorOccurrenceDto> {
     return this.errorTrackingService.reportError(dto);
   }
 
@@ -241,6 +277,7 @@ export class ErrorTrackingController {
   // Error Groups
   // ============================================================================
 
+  @AdminResponseContract(errorTrackingQueryErrorGroupsResponseContract)
   @Get('groups')
   async queryErrorGroups(
     @Query('status') status?: ErrorStatus,
@@ -251,9 +288,9 @@ export class ErrorTrackingController {
     @Query('isRegression') isRegression?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-    @Query('sortBy') sortBy?: 'occurrenceCount' | 'lastSeenAt' | 'firstSeenAt' | 'userCount',
+    @Query('sortBy') sortBy?: AdminSqlIdentifierKey<'GET /system/errors/groups'>,
     @Query('sortOrder') sortOrder?: 'ASC' | 'DESC',
-  ) {
+  ): Promise<ErrorTrackingQueryErrorGroupsResponseDto> {
     return this.errorTrackingService.queryErrorGroups({
       status,
       severity,
@@ -268,13 +305,18 @@ export class ErrorTrackingController {
     });
   }
 
+  @AdminResponseContract(errorTrackingErrorGroupContract)
   @Get('groups/:id')
-  async getErrorGroup(@Param('id') id: string) {
+  async getErrorGroup(@Param('id') id: string): Promise<ErrorTrackingErrorGroupDto> {
     return this.errorTrackingService.getErrorGroup(id);
   }
 
+  @AdminResponseContract(errorTrackingErrorGroupContract)
   @Put('groups/:id')
-  async updateErrorGroup(@Param('id') id: string, @Body() dto: UpdateErrorGroupDto) {
+  async updateErrorGroup(
+    @Param('id') id: string,
+    @Body() dto: UpdateErrorGroupDto,
+  ): Promise<ErrorTrackingErrorGroupDto> {
     let result = await this.errorTrackingService.getErrorGroup(id);
 
     if (dto.status) {
@@ -293,11 +335,12 @@ export class ErrorTrackingController {
     return result;
   }
 
+  @AdminResponseContract(errorTrackingErrorGroupContract)
   @Post('groups/:id/resolve')
   async resolveErrorGroup(
     @Param('id') id: string,
     @Body() dto: ResolveErrorGroupDto,
-  ) {
+  ): Promise<ErrorTrackingErrorGroupDto> {
     return this.errorTrackingService.updateErrorGroupStatus(
       id,
       ErrorStatus.RESOLVED,
@@ -306,28 +349,30 @@ export class ErrorTrackingController {
     );
   }
 
+  @AdminResponseContract(errorTrackingErrorGroupContract)
   @Post('groups/:id/acknowledge')
-  async acknowledgeErrorGroup(@Param('id') id: string) {
+  async acknowledgeErrorGroup(@Param('id') id: string): Promise<ErrorTrackingErrorGroupDto> {
     return this.errorTrackingService.updateErrorGroupStatus(id, ErrorStatus.ACKNOWLEDGED);
   }
 
+  @AdminResponseContract(errorTrackingErrorGroupContract)
   @Post('groups/:id/ignore')
-  async ignoreErrorGroup(@Param('id') id: string) {
+  async ignoreErrorGroup(@Param('id') id: string): Promise<ErrorTrackingErrorGroupDto> {
     return this.errorTrackingService.updateErrorGroupStatus(id, ErrorStatus.IGNORED);
   }
 
+  @AdminResponseContract(errorTrackingErrorGroupContract)
   @Post('groups/:id/assign')
   async assignErrorGroup(
     @Param('id') id: string,
     @Body() dto: AssignErrorGroupDto,
-  ) {
+  ): Promise<ErrorTrackingErrorGroupDto> {
     return this.errorTrackingService.assignErrorGroup(id, dto.assigneeId);
   }
 
+  @AdminResponseContract(errorTrackingErrorGroupContract)
   @Post('groups/merge')
-  async mergeErrorGroups(
-    @Body() dto: MergeErrorGroupsDto,
-  ) {
+  async mergeErrorGroups(@Body() dto: MergeErrorGroupsDto): Promise<ErrorTrackingErrorGroupDto> {
     return this.errorTrackingService.mergeErrorGroups(dto.targetId, dto.sourceIds);
   }
 
@@ -335,6 +380,7 @@ export class ErrorTrackingController {
   // Error Occurrences
   // ============================================================================
 
+  @AdminResponseContract(errorTrackingQueryOccurrencesResponseContract)
   @Get('occurrences')
   async queryOccurrences(
     @Query('service') service?: string,
@@ -346,7 +392,7 @@ export class ErrorTrackingController {
     @Query('endDate') endDate?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ) {
+  ): Promise<ErrorTrackingQueryOccurrencesResponseDto> {
     return this.errorTrackingService.queryOccurrences({
       service,
       severity,
@@ -360,17 +406,19 @@ export class ErrorTrackingController {
     });
   }
 
+  @AdminResponseContract(errorTrackingErrorOccurrenceContract)
   @Get('occurrences/:id')
-  async getErrorOccurrence(@Param('id') id: string) {
+  async getErrorOccurrence(@Param('id') id: string): Promise<ErrorTrackingErrorOccurrenceDto> {
     return this.errorTrackingService.getErrorOccurrence(id);
   }
 
+  @AdminResponseContract(errorTrackingGetOccurrencesForGroupResponseContract)
   @Get('groups/:groupId/occurrences')
   async getOccurrencesForGroup(
     @Param('groupId') groupId: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ) {
+  ): Promise<ErrorTrackingGetOccurrencesForGroupResponseDto> {
     return this.errorTrackingService.getOccurrencesForGroup(groupId, {
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
@@ -381,27 +429,31 @@ export class ErrorTrackingController {
   // Alert Rules
   // ============================================================================
 
+  @AdminResponseContract(errorTrackingErrorAlertRuleContract)
   @Post('alert-rules')
-  async createAlertRule(@Body() dto: CreateAlertRuleDto) {
+  async createAlertRule(@Body() dto: CreateAlertRuleDto): Promise<ErrorTrackingErrorAlertRuleDto> {
     return this.errorTrackingService.createAlertRule(dto);
   }
 
+  @AdminResponseContract(errorTrackingErrorAlertRuleArrayContract)
   @Get('alert-rules')
-  async getAlertRules() {
+  async getAlertRules(): Promise<ErrorTrackingErrorAlertRuleDto[]> {
     return this.errorTrackingService.getAlertRules();
   }
 
+  @AdminResponseContract(errorTrackingErrorAlertRuleContract)
   @Put('alert-rules/:id')
   async updateAlertRule(
     @Param('id') id: string,
     @Body() dto: UpdateErrorAlertRuleDto,
-  ) {
+  ): Promise<ErrorTrackingErrorAlertRuleDto> {
     return this.errorTrackingService.updateAlertRule(id, dto);
   }
 
+  @AdminResponseContract(voidResponseContract)
   @Delete('alert-rules/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async deleteAlertRule(@Param('id') id: string) {
+  async deleteAlertRule(@Param('id') id: string): Promise<void> {
     await this.errorTrackingService.deleteAlertRule(id);
   }
 }

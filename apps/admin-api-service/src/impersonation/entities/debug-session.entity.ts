@@ -1,10 +1,4 @@
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  Index,
-} from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from 'typeorm';
 
 export enum DebugSessionType {
   QUERY_INSPECTION = 'query_inspection',
@@ -202,53 +196,6 @@ export class CapturedApiCall {
 
   @Column()
   timestamp!: Date;
-
-  @CreateDateColumn()
-  createdAt!: Date;
-}
-
-@Entity('cache_entries_snapshot', { schema: 'admin' })
-@Index(['debugSessionId', 'capturedAt'])
-@Index(['tenantId', 'key'])
-export class CacheEntrySnapshot {
-  @PrimaryGeneratedColumn('uuid')
-  id!: string;
-
-  @Column({ type: 'uuid', nullable: true })
-  debugSessionId?: string;
-
-  @Column({ type: 'uuid', nullable: true })
-  tenantId?: string;
-
-  @Column({ length: 500 })
-  key!: string;
-
-  @Column({ type: 'jsonb', nullable: true })
-  value?: unknown;
-
-  @Column({ type: 'int', nullable: true })
-  sizeBytes?: number;
-
-  @Column({ type: 'int', nullable: true })
-  ttlSeconds?: number;
-
-  @Column({ nullable: true })
-  expiresAt?: Date;
-
-  @Column({ type: 'int', default: 0 })
-  hitCount!: number;
-
-  @Column({ nullable: true })
-  lastAccessedAt?: Date;
-
-  @Column({ length: 100, nullable: true })
-  cacheStore?: string;
-
-  @Column({ type: 'jsonb', nullable: true })
-  tags?: string[];
-
-  @Column()
-  capturedAt!: Date;
 
   @CreateDateColumn()
   createdAt!: Date;

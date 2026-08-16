@@ -6,22 +6,19 @@
 
 import React, { useState, useEffect } from 'react';
 import { Card, Button, Badge } from '@aquaculture/shared-ui';
-import {
-  usersApi,
-  RoleTemplate,
-  Permission,
-  RoleHierarchyItem,
-} from '../services/adminApi';
+import { usersApi, RoleTemplate, Permission, RoleHierarchyItem } from '../services/adminApi';
 
 // ============================================================================
 // Role Management Page
 // ============================================================================
 
 const RoleManagementPage: React.FC = () => {
-  const [roles, setRoles] = useState<RoleHierarchyItem[]>([]);
-  const [permissions, setPermissions] = useState<Record<string, Permission[]>>({});
+  const [roles, setRoles] = useState<readonly RoleHierarchyItem[]>([]);
+  const [permissions, setPermissions] = useState<Readonly<Record<string, readonly Permission[]>>>(
+    {},
+  );
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
-  const [selectedRolePermissions, setSelectedRolePermissions] = useState<string[]>([]);
+  const [selectedRolePermissions, setSelectedRolePermissions] = useState<readonly string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,8 +45,7 @@ const RoleManagementPage: React.FC = () => {
       if (rolesData.length > 0 && rolesData[0]) {
         setSelectedRole(rolesData[0].code);
       }
-    } catch (err) {
-      console.error('Failed to load roles and permissions:', err);
+    } catch {
       setRoles([]);
       setPermissions({});
       setError('Failed to load roles and permissions. Please try again.');
@@ -62,18 +58,9 @@ const RoleManagementPage: React.FC = () => {
     try {
       const perms = await usersApi.getRolePermissions(roleCode);
       setSelectedRolePermissions(perms);
-    } catch (err) {
-      console.error('Failed to load role permissions:', err);
+    } catch {
       setSelectedRolePermissions([]);
     }
-  };
-
-  const getRoleLevelColor = (level: number): string => {
-    if (level >= 90) return 'bg-red-100 text-red-800';
-    if (level >= 70) return 'bg-purple-100 text-purple-800';
-    if (level >= 50) return 'bg-yellow-100 text-yellow-800';
-    if (level >= 30) return 'bg-blue-100 text-blue-800';
-    return 'bg-gray-100 text-gray-800';
   };
 
   const selectedRoleData = roles.find((r) => r.code === selectedRole);
@@ -88,9 +75,7 @@ const RoleManagementPage: React.FC = () => {
 
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
-        {error}
-      </div>
+      <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">{error}</div>
     );
   }
 
@@ -100,21 +85,17 @@ const RoleManagementPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Role Management</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            System roles and permissions hierarchy
-          </p>
+          <p className="mt-1 text-sm text-gray-500">System roles and permissions hierarchy</p>
         </div>
       </div>
 
       {/* Role Hierarchy Visualization */}
       <Card className="p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">
-          Role Hierarchy
-        </h3>
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Role Hierarchy</h3>
         <div className="relative">
           {/* Hierarchy Tree */}
           <div className="flex flex-col space-y-2">
-            {roles.map((role, index) => (
+            {roles.map((role) => (
               <div
                 key={role.code}
                 className={`flex items-center p-3 rounded-lg cursor-pointer transition-all ${
@@ -127,7 +108,8 @@ const RoleManagementPage: React.FC = () => {
               >
                 {/* Level Indicator */}
                 <div
-                  className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold ${getRoleLevelColor(role.level)}`}
+                  className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-sm font-bold text-white"
+                  style={{ backgroundColor: role.color }}
                 >
                   {role.level}
                 </div>
@@ -135,9 +117,7 @@ const RoleManagementPage: React.FC = () => {
                 {/* Role Info */}
                 <div className="ml-4 flex-grow">
                   <div className="flex items-center">
-                    <span className="font-semibold text-gray-900">
-                      {role.name}
-                    </span>
+                    <span className="font-semibold text-gray-900">{role.name}</span>
                     {role.isSystem && (
                       <Badge variant="info" className="ml-2">
                         System
@@ -149,10 +129,16 @@ const RoleManagementPage: React.FC = () => {
 
                 {/* Permission Count */}
                 <div className="flex-shrink-0 text-right">
-                  <span className="text-2xl font-bold text-gray-700">
-                    {role.permissions != null ? role.permissions.length : '\u2014'}
-                  </span>
-                  <p className="text-xs text-gray-500">permissions</p>
+                  {role.permissionMode === 'all' ? (
+                    <>
+                      <span className="text-2xl font-bold text-gray-700">
+                        {role.permissionCount}
+                      </span>
+                      <p className="text-xs text-gray-500">all capabilities</p>
+                    </>
+                  ) : (
+                    <p className="text-sm font-medium text-gray-600">Tenant assigned</p>
+                  )}
                 </div>
               </div>
             ))}
@@ -163,9 +149,7 @@ const RoleManagementPage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Role Details */}
         <Card className="p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">
-            Role Details
-          </h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Role Details</h3>
           {selectedRoleData ? (
             <div className="space-y-4">
               <div>
@@ -179,9 +163,7 @@ const RoleManagementPage: React.FC = () => {
                 </p>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-500">
-                  Hierarchy Level
-                </label>
+                <label className="text-sm font-medium text-gray-500">Hierarchy Level</label>
                 <div className="flex items-center mt-1">
                   <div className="flex-grow bg-gray-200 rounded-full h-2">
                     <div
@@ -189,15 +171,11 @@ const RoleManagementPage: React.FC = () => {
                       style={{ width: `${selectedRoleData.level}%` }}
                     ></div>
                   </div>
-                  <span className="ml-2 text-sm font-medium">
-                    {selectedRoleData.level}
-                  </span>
+                  <span className="ml-2 text-sm font-medium">{selectedRoleData.level}</span>
                 </div>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-500">
-                  Description
-                </label>
+                <label className="text-sm font-medium text-gray-500">Description</label>
                 <p className="text-gray-700">{selectedRoleData.description}</p>
               </div>
               <div>
@@ -221,6 +199,12 @@ const RoleManagementPage: React.FC = () => {
           <h3 className="text-lg font-semibold text-gray-900 mb-4">
             Permissions for {selectedRoleData?.name || 'Selected Role'}
           </h3>
+          {selectedRoleData?.permissionMode === 'assigned' && (
+            <p className="mb-4 rounded border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+              Capabilities for this platform role are assigned by each tenant. This catalogue lists
+              grantable capabilities, not a static grant set.
+            </p>
+          )}
           <div className="space-y-6 max-h-[500px] overflow-y-auto">
             {Object.entries(permissions).map(([category, perms]) => (
               <div key={category}>
@@ -230,9 +214,7 @@ const RoleManagementPage: React.FC = () => {
                 </h4>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                   {perms.map((permission) => {
-                    const hasPermission = selectedRolePermissions.includes(
-                      permission.code,
-                    );
+                    const hasPermission = selectedRolePermissions.includes(permission.code);
                     return (
                       <div
                         key={permission.code}
@@ -246,9 +228,7 @@ const RoleManagementPage: React.FC = () => {
                         <div className="flex items-center">
                           <div
                             className={`w-4 h-4 rounded flex items-center justify-center mr-2 ${
-                              hasPermission
-                                ? 'bg-green-500 text-white'
-                                : 'bg-gray-300'
+                              hasPermission ? 'bg-green-500 text-white' : 'bg-gray-300'
                             }`}
                           >
                             {hasPermission && (
@@ -283,36 +263,18 @@ const RoleManagementPage: React.FC = () => {
         </Card>
       </div>
 
-      {/* Role Assignment Info */}
+      {/* Role Assignment Info — derived from the API role authority. */}
       <Card className="p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">
-          Role Assignment Rules
-        </h3>
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Role Assignment Rules</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-red-50 rounded-lg p-4">
-            <h4 className="font-semibold text-red-800">Super Admin (100)</h4>
-            <p className="text-sm text-red-700 mt-1">
-              Can assign any role to any user across the platform
-            </p>
-          </div>
-          <div className="bg-purple-50 rounded-lg p-4">
-            <h4 className="font-semibold text-purple-800">Tenant Admin (90)</h4>
-            <p className="text-sm text-purple-700 mt-1">
-              Can assign roles up to their level within their tenant
-            </p>
-          </div>
-          <div className="bg-green-50 rounded-lg p-4">
-            <h4 className="font-semibold text-green-800">Module Manager (70)</h4>
-            <p className="text-sm text-green-700 mt-1">
-              Can invite Module Users only within their assigned modules
-            </p>
-          </div>
-          <div className="bg-gray-50 rounded-lg p-4">
-            <h4 className="font-semibold text-gray-800">Module User (10)</h4>
-            <p className="text-sm text-gray-700 mt-1">
-              Cannot assign roles to other users
-            </p>
-          </div>
+          {roles.map((role) => (
+            <div key={role.code} className="rounded-lg bg-gray-50 p-4">
+              <h4 className="font-semibold text-gray-800">
+                {role.name} ({role.level})
+              </h4>
+              <p className="mt-1 text-sm text-gray-700">{role.description}</p>
+            </div>
+          ))}
         </div>
       </Card>
     </div>

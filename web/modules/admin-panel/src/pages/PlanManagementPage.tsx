@@ -6,19 +6,14 @@
 
 import React, { useState, useEffect } from 'react';
 import { Card, Button, Badge, Input } from '@aquaculture/shared-ui';
-import {
-  billingApi,
-  PlanDefinition,
-  PlanTier,
-  BillingCycle,
-} from '../services/adminApi';
+import { billingApi, PlanDefinition, PlanTier, BillingCycle } from '../services/adminApi';
 
 // ============================================================================
 // Plan Management Page
 // ============================================================================
 
 const PlanManagementPage: React.FC = () => {
-  const [plans, setPlans] = useState<PlanDefinition[]>([]);
+  const [plans, setPlans] = useState<readonly PlanDefinition[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<PlanDefinition | null>(null);
@@ -63,8 +58,8 @@ const PlanManagementPage: React.FC = () => {
     }
   };
 
-  const getTierColor = (tier: PlanTier): string => {
-    const colors: Record<PlanTier, string> = {
+  const getTierColor = (tier: PlanDefinition['tier']): string => {
+    const colors: Record<PlanDefinition['tier'], string> = {
       [PlanTier.FREE]: 'bg-gray-100 text-gray-800',
       [PlanTier.STARTER]: 'bg-blue-100 text-blue-800',
       [PlanTier.PROFESSIONAL]: 'bg-purple-100 text-purple-800',
@@ -117,9 +112,7 @@ const PlanManagementPage: React.FC = () => {
           </p>
         </div>
         <div className="mt-4 sm:mt-0 flex gap-2">
-          {plans.length === 0 && (
-            <Button onClick={handleSeedPlans}>Seed Default Plans</Button>
-          )}
+          {plans.length === 0 && <Button onClick={handleSeedPlans}>Seed Default Plans</Button>}
           <Button variant="primary">Create New Plan</Button>
         </div>
       </div>
@@ -127,11 +120,22 @@ const PlanManagementPage: React.FC = () => {
       {/* Pricing Info */}
       <Card className="p-4 bg-blue-50 border-blue-200">
         <div className="flex items-center gap-3">
-          <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          <svg
+            className="w-5 h-5 text-blue-600"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
           </svg>
           <span className="text-sm text-blue-800">
-            Tum fiyatlar <strong>aylik</strong> olarak belirlenmistir. Modul bazli fiyatlandirma aktiftir.
+            Tum fiyatlar <strong>aylik</strong> olarak belirlenmistir. Modul bazli fiyatlandirma
+            aktiftir.
           </span>
         </div>
       </Card>
@@ -154,7 +158,9 @@ const PlanManagementPage: React.FC = () => {
 
             {/* Plan Header */}
             <div className="text-center mb-4">
-              <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getTierColor(plan.tier)}`}>
+              <span
+                className={`px-3 py-1 rounded-full text-xs font-semibold ${getTierColor(plan.tier)}`}
+              >
                 {plan.tier.toUpperCase()}
               </span>
               <h3 className="mt-3 text-xl font-bold text-gray-900">{plan.name}</h3>
@@ -166,9 +172,7 @@ const PlanManagementPage: React.FC = () => {
               <div className="text-3xl font-bold text-gray-900">
                 {formatCurrency(plan.pricing.monthly.basePrice)}
               </div>
-              <div className="text-sm text-gray-500">
-                aylik
-              </div>
+              <div className="text-sm text-gray-500">aylik</div>
             </div>
 
             {/* Key Limits */}
@@ -197,8 +201,18 @@ const PlanManagementPage: React.FC = () => {
               <ul className="space-y-1 text-sm">
                 {plan.features.coreFeatures.slice(0, 3).map((feature, idx) => (
                   <li key={idx} className="flex items-center gap-2">
-                    <svg className="w-4 h-4 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    <svg
+                      className="w-4 h-4 text-green-500"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M5 13l4 4L19 7"
+                      />
                     </svg>
                     {feature}
                   </li>
@@ -240,11 +254,7 @@ const PlanManagementPage: React.FC = () => {
                   Details
                 </Button>
                 {plan.isActive && (
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    onClick={() => handleDeprecatePlan(plan.id)}
-                  >
+                  <Button variant="danger" size="sm" onClick={() => handleDeprecatePlan(plan.id)}>
                     Deprecate
                   </Button>
                 )}
@@ -282,7 +292,9 @@ const PlanManagementPage: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-sm text-gray-500 mb-1">Temel Fiyat</div>
-                    <div className="text-2xl font-bold text-blue-600">{formatCurrency(selectedPlan.pricing.monthly.basePrice)}/ay</div>
+                    <div className="text-2xl font-bold text-blue-600">
+                      {formatCurrency(selectedPlan.pricing.monthly.basePrice)}/ay
+                    </div>
                   </div>
                   <div className="text-right">
                     <div className="text-xs text-gray-500">Modul bazli fiyatlandirma</div>
@@ -298,15 +310,21 @@ const PlanManagementPage: React.FC = () => {
               <div className="grid grid-cols-3 gap-4">
                 <div className="p-3 bg-gray-50 rounded-lg">
                   <div className="text-xs text-gray-500 mb-1">Per User</div>
-                  <div className="font-bold">{formatCurrency(selectedPlan.pricing.monthly.perUserPrice)}</div>
+                  <div className="font-bold">
+                    {formatCurrency(selectedPlan.pricing.monthly.perUserPrice)}
+                  </div>
                 </div>
                 <div className="p-3 bg-gray-50 rounded-lg">
                   <div className="text-xs text-gray-500 mb-1">Per Farm</div>
-                  <div className="font-bold">{formatCurrency(selectedPlan.pricing.monthly.perFarmPrice)}</div>
+                  <div className="font-bold">
+                    {formatCurrency(selectedPlan.pricing.monthly.perFarmPrice)}
+                  </div>
                 </div>
                 <div className="p-3 bg-gray-50 rounded-lg">
                   <div className="text-xs text-gray-500 mb-1">Per Module</div>
-                  <div className="font-bold">{formatCurrency(selectedPlan.pricing.monthly.perModulePrice)}</div>
+                  <div className="font-bold">
+                    {formatCurrency(selectedPlan.pricing.monthly.perModulePrice)}
+                  </div>
                 </div>
               </div>
             </div>
@@ -343,12 +361,32 @@ const PlanManagementPage: React.FC = () => {
                       }`}
                     >
                       {value ? (
-                        <svg className="w-4 h-4 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        <svg
+                          className="w-4 h-4 text-green-500"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M5 13l4 4L19 7"
+                          />
                         </svg>
                       ) : (
-                        <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        <svg
+                          className="w-4 h-4 text-gray-500"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M6 18L18 6M6 6l12 12"
+                          />
                         </svg>
                       )}
                       <span className={`text-sm ${value ? 'text-green-800' : 'text-gray-500'}`}>
@@ -368,7 +406,9 @@ const PlanManagementPage: React.FC = () => {
                     <div className="text-sm font-medium text-gray-500 mb-2">Core Features</div>
                     <div className="flex flex-wrap gap-2">
                       {selectedPlan.features.coreFeatures.map((feature, idx) => (
-                        <Badge key={idx} variant="default">{feature}</Badge>
+                        <Badge key={idx} variant="default">
+                          {feature}
+                        </Badge>
                       ))}
                     </div>
                   </div>
@@ -378,7 +418,9 @@ const PlanManagementPage: React.FC = () => {
                     <div className="text-sm font-medium text-gray-500 mb-2">Advanced Features</div>
                     <div className="flex flex-wrap gap-2">
                       {selectedPlan.features.advancedFeatures.map((feature, idx) => (
-                        <Badge key={idx} variant="info">{feature}</Badge>
+                        <Badge key={idx} variant="info">
+                          {feature}
+                        </Badge>
                       ))}
                     </div>
                   </div>
@@ -388,7 +430,9 @@ const PlanManagementPage: React.FC = () => {
                     <div className="text-sm font-medium text-gray-500 mb-2">Premium Features</div>
                     <div className="flex flex-wrap gap-2">
                       {selectedPlan.features.premiumFeatures.map((feature, idx) => (
-                        <Badge key={idx} variant="warning">{feature}</Badge>
+                        <Badge key={idx} variant="warning">
+                          {feature}
+                        </Badge>
                       ))}
                     </div>
                   </div>
@@ -406,7 +450,8 @@ const PlanManagementPage: React.FC = () => {
                   <span className="font-medium">Trial Days:</span> {selectedPlan.trialDays || 0}
                 </div>
                 <div>
-                  <span className="font-medium">Grace Period:</span> {selectedPlan.gracePeriodDays || 0} days
+                  <span className="font-medium">Grace Period:</span>{' '}
+                  {selectedPlan.gracePeriodDays || 0} days
                 </div>
               </div>
             </div>

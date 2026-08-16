@@ -59,7 +59,7 @@ const STATUS_FILTERS: { value: CustomPlanStatus | 'all'; label: string }[] = [
 const CustomPlansListPage: React.FC = () => {
   const navigate = useNavigate();
 
-  const [plans, setPlans] = useState<CustomPlan[]>([]);
+  const [plans, setPlans] = useState<readonly CustomPlan[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -203,7 +203,9 @@ const CustomPlansListPage: React.FC = () => {
   };
 
   const handleDelete = async (planId: string, planName: string) => {
-    if (!confirm(`Are you sure you want to delete the plan "${planName}"? This cannot be undone.`)) {
+    if (
+      !confirm(`Are you sure you want to delete the plan "${planName}"? This cannot be undone.`)
+    ) {
       return;
     }
 
@@ -284,10 +286,7 @@ const CustomPlansListPage: React.FC = () => {
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
           {error}
-          <button
-            onClick={() => setError(null)}
-            className="ml-4 text-red-500 hover:text-red-700"
-          >
+          <button onClick={() => setError(null)} className="ml-4 text-red-500 hover:text-red-700">
             Dismiss
           </button>
         </div>
@@ -320,7 +319,9 @@ const CustomPlansListPage: React.FC = () => {
               }`}
               onClick={() =>
                 setStatusFilter(
-                  statusFilter === statusItem.value ? 'all' : (statusItem.value as CustomPlanStatus)
+                  statusFilter === statusItem.value
+                    ? 'all'
+                    : (statusItem.value as CustomPlanStatus),
                 )
               }
             >
@@ -345,9 +346,7 @@ const CustomPlansListPage: React.FC = () => {
             <select
               className="w-full sm:w-48 px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               value={statusFilter}
-              onChange={(e) =>
-                setStatusFilter(e.target.value as CustomPlanStatus | 'all')
-              }
+              onChange={(e) => setStatusFilter(e.target.value as CustomPlanStatus | 'all')}
             >
               {STATUS_FILTERS.map((f) => (
                 <option key={f.value} value={f.value}>
@@ -417,16 +416,17 @@ const CustomPlansListPage: React.FC = () => {
 
                       {/* Tenant */}
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-mono text-gray-600 truncate max-w-[180px]" title={plan.tenantId}>
+                        <div
+                          className="text-sm font-mono text-gray-600 truncate max-w-[180px]"
+                          title={plan.tenantId}
+                        >
                           {plan.tenantId}
                         </div>
                       </td>
 
                       {/* Tier */}
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <Badge variant="info">
-                          {TIER_LABELS[plan.tier] || plan.tier}
-                        </Badge>
+                        <Badge variant="info">{TIER_LABELS[plan.tier] || plan.tier}</Badge>
                       </td>
 
                       {/* Monthly Total */}
@@ -444,7 +444,8 @@ const CustomPlansListPage: React.FC = () => {
                       {/* Modules */}
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-600">
-                          {plan.modules?.length || 0} module{(plan.modules?.length || 0) !== 1 ? 's' : ''}
+                          {plan.modules?.length || 0} module
+                          {(plan.modules?.length || 0) !== 1 ? 's' : ''}
                         </div>
                       </td>
 
@@ -460,14 +461,15 @@ const CustomPlansListPage: React.FC = () => {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <Badge variant={statusCfg.variant}>{statusCfg.label}</Badge>
                         {plan.rejectionReason && plan.status === CustomPlanStatus.REJECTED && (
-                          <div className="text-xs text-red-500 mt-1 truncate max-w-[140px]" title={plan.rejectionReason}>
+                          <div
+                            className="text-xs text-red-500 mt-1 truncate max-w-[140px]"
+                            title={plan.rejectionReason}
+                          >
                             {plan.rejectionReason}
                           </div>
                         )}
                         {plan.approvedBy && plan.status === CustomPlanStatus.APPROVED && (
-                          <div className="text-xs text-gray-400 mt-1">
-                            by {plan.approvedBy}
-                          </div>
+                          <div className="text-xs text-gray-400 mt-1">by {plan.approvedBy}</div>
                         )}
                       </td>
 
@@ -537,9 +539,7 @@ const CustomPlansListPage: React.FC = () => {
                             variant="outline"
                             size="sm"
                             disabled={isLoading}
-                            onClick={() =>
-                              setCloneModal({ planId: plan.id, planName: plan.name })
-                            }
+                            onClick={() => setCloneModal({ planId: plan.id, planName: plan.name })}
                           >
                             Clone
                           </Button>

@@ -1,4 +1,12 @@
 import { SetMetadata, applyDecorators } from '@nestjs/common';
+import {
+  PLATFORM_ROLE_CODES,
+  PLATFORM_ROLE_HIERARCHY,
+  Role,
+  roleAtLeast,
+} from '@platform/identity';
+
+export { Role };
 
 /**
  * Roles metadata key
@@ -13,67 +21,24 @@ export const ROLES_KEY = 'roles';
  * MODULE_MANAGER: Full module access within tenant, manages module users
  * MODULE_USER: Limited module access within tenant
  */
-export enum Role {
-  /**
-   * System administrator - highest privilege
-   * - Manages all tenants
-   * - Creates tenant admins
-   * - System-wide settings
-   * - No tenant restriction
-   */
-  SUPER_ADMIN = 'SUPER_ADMIN',
-
-  /**
-   * Tenant administrator
-   * - Manages single tenant
-   * - Creates module managers/users
-   * - Access to all tenant modules
-   * - Tenant-level settings
-   */
-  TENANT_ADMIN = 'TENANT_ADMIN',
-
-  /**
-   * Module manager
-   * - Manages single module within tenant
-   * - Creates module users
-   * - Full access to assigned module
-   * - Module-level settings
-   */
-  MODULE_MANAGER = 'MODULE_MANAGER',
-
-  /**
-   * Module user
-   * - Limited access to assigned module
-   * - Read and basic write operations
-   * - No user management
-   */
-  MODULE_USER = 'MODULE_USER',
-}
-
 /**
  * Role hierarchy for permission inheritance
  * Higher roles inherit permissions from lower roles
  */
-export const ROLE_HIERARCHY: Record<Role, Role[]> = {
-  [Role.SUPER_ADMIN]: [Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER],
-  [Role.TENANT_ADMIN]: [Role.MODULE_MANAGER, Role.MODULE_USER],
-  [Role.MODULE_MANAGER]: [Role.MODULE_USER],
-  [Role.MODULE_USER]: [],
-};
+export const ROLE_HIERARCHY = PLATFORM_ROLE_HIERARCHY;
 
 /**
  * Check if a role has permission of another role (hierarchy check)
  */
 export function roleHasPermission(userRole: Role, requiredRole: Role): boolean {
-  if (userRole === requiredRole) return true;
-  return ROLE_HIERARCHY[userRole]?.includes(requiredRole) ?? false;
+  return roleAtLeast(userRole, requiredRole);
 }
 
 /**
  * Check if user role satisfies any of required roles
  */
-export function hasAnyRole(userRole: Role, requiredRoles: Role[]): boolean {
-  return requiredRoles.some(required => roleHasPermission(userRole, required));
+export function hasAnyRole(userRole: Role, requiredRoles: readonly Role[]): boolean {
+  return requiredRoles.some((required) => roleHasPermission(userRole, required));
 }
 
 /**
@@ -96,7 +61,8 @@ export const TenantAdminOrHigher = () => Roles(Role.SUPER_ADMIN, Role.TENANT_ADM
 /**
  * ModuleManager or higher decorator
  */
-export const ModuleManagerOrHigher = () => Roles(Role.SUPER_ADMIN, Role.TENANT_ADMIN, Role.MODULE_MANAGER);
+export const ModuleManagerOrHigher = () =>
+  Roles(Role.SUPER_ADMIN, Role.TENANT_ADMIN, Role.MODULE_MANAGER);
 
 /**
  * ModuleUser or higher decorator — every authenticated platform role.
@@ -107,8 +73,7 @@ export const ModuleManagerOrHigher = () => Roles(Role.SUPER_ADMIN, Role.TENANT_A
  * intent "any authenticated tenant member" is visible in metadata and
  * testable via ROLES_KEY reflection.
  */
-export const ModuleUserOrHigher = () =>
-  Roles(Role.SUPER_ADMIN, Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER);
+export const ModuleUserOrHigher = () => Roles(...PLATFORM_ROLE_CODES);
 
 /**
  * Skip tenant guard decorator - for endpoints that don't require tenant context
@@ -127,10 +92,7 @@ export const IS_PUBLIC_KEY = 'isPublic';
 // class or a method — and carries the MethodDecorator & ClassDecorator
 // typing without any hand-rolled target/descriptor bridging.
 export const Public = (): MethodDecorator & ClassDecorator =>
-  applyDecorators(
-    SetMetadata(IS_PUBLIC_KEY, true),
-    SetMetadata(SKIP_TENANT_GUARD_KEY, true),
-  );
+  applyDecorators(SetMetadata(IS_PUBLIC_KEY, true), SetMetadata(SKIP_TENANT_GUARD_KEY, true));
 
 /**
  * Check if metadata indicates public access

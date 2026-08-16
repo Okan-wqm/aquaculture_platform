@@ -33,11 +33,11 @@ interface TenantOption {
 export function useActiveTenants() {
   const fetcher = useCallback(async () => {
     const result = await tenantsApi.list({ status: TenantStatus.ACTIVE, limit: 500 });
-    const tenants: TenantOption[] = (result.data || []).map((t: Tenant) => ({
-      id: t.id,
-      name: t.name,
-      tier: t.tier,
-      status: t.status,
+    const tenants: TenantOption[] = result.items.map((tenant: Tenant) => ({
+      id: tenant.id,
+      name: tenant.name,
+      tier: tenant.tier,
+      status: tenant.status,
     }));
     return tenants;
   }, []);

@@ -29,6 +29,35 @@ export type BuildKind =
   | 'infra';
 export type ReadinessContract = 'docker-healthcheck' | 'one-shot-success' | 'none';
 export type EventStoreTenantScopePolicy = 'tenant-bound' | 'all-tenants' | 'none';
+export type NatsConsumerAdapter = 'event-bus';
+export type NatsConsumerReadiness = 'required';
+
+/**
+ * Runtime coordinates for a catalog-owned NATS consumer.
+ *
+ * Event identity, subject, schema, producer and ACL stay owned by
+ * PLATFORM_EVENT_REGISTRY. The service catalog owns only the runtime binding:
+ * which service loads which exported handler and which durable-consumer
+ * revision it runs. The executable profile compiler joins both authorities and
+ * rejects an unknown registry key or a consumer/ACL mismatch.
+ */
+export interface ServiceNatsConsumerSubscription {
+  readonly registryKey: string;
+  readonly consumerVersion: string;
+  readonly durable: true;
+}
+
+export interface ServiceNatsConsumerDeclaration {
+  readonly adapter: NatsConsumerAdapter;
+  readonly handlerSymbol: string;
+  readonly readiness: NatsConsumerReadiness;
+  readonly subscriptions: readonly ServiceNatsConsumerSubscription[];
+  /** Coordinator timing policy for the durable tenant-onboarding ACK barrier. */
+  readonly tenantOnboardingBarrier?: {
+    readonly ackDeadlineMs: number;
+    readonly retryIntervalMs: number;
+  };
+}
 /**
  * Prometheus scrape surface of a service (OBS-HIGH-001).
  *
@@ -163,6 +192,12 @@ export interface ServiceCatalogEntry {
   requiredSecrets: readonly string[];
   eventStoreTenantScopePolicy?: EventStoreTenantScopePolicy;
   serviceIdentityAudience?: string;
+  /**
+   * NATS inbound runtime binding coordinates. Message definitions and ACLs are
+   * deliberately not copied here; they are joined from PLATFORM_EVENT_REGISTRY
+   * by SERVICE_NATS_RUNTIME_PROFILES.
+   */
+  natsConsumer?: ServiceNatsConsumerDeclaration;
   gatewaySubgraph?: GatewaySubgraphCatalogEntry;
   /** Frontend entries only: workspace path of the module's package.json (SSOT for build + image-matrix paths). */
   modulePath?: string;
@@ -760,6 +795,27 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     startupBudgetSeconds: 60,
     requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
     requiredEnv: ['ADMIN_SERVICE_DB_PASS', 'ENCRYPTION_KEY'],
+    natsConsumer: {
+      adapter: 'event-bus',
+      handlerSymbol: 'TenantOnboardingAckHandler',
+      readiness: 'required',
+      subscriptions: [
+        {
+          registryKey: 'TenantOnboardingAck',
+          consumerVersion: 'tenant-onboarding-v1',
+          durable: true,
+        },
+        {
+          registryKey: 'TenantOnboardingFailed',
+          consumerVersion: 'tenant-onboarding-v1',
+          durable: true,
+        },
+      ],
+      tenantOnboardingBarrier: {
+        ackDeadlineMs: 15 * 60 * 1000,
+        retryIntervalMs: 10 * 1000,
+      },
+    },
   }),
   buildEntry({
     serviceId: 'config-service',
@@ -1431,6 +1487,43 @@ export function validateServiceCatalog(
         serviceId: entry.serviceId,
         message: 'node service must declare a service identity audience',
       });
+    }
+    if (entry.natsConsumer) {
+      if (entry.buildKind !== 'node-service') {
+        errors.push({
+          serviceId: entry.serviceId,
+          message: 'NATS consumer runtime requires a node-service catalog entry',
+        });
+      }
+      if (entry.natsConsumer.subscriptions.length === 0) {
+        errors.push({
+          serviceId: entry.serviceId,
+          message: 'NATS consumer runtime must bind at least one registry subscription',
+        });
+      }
+      const registryKeys = entry.natsConsumer.subscriptions.map(
+        (subscription) => subscription.registryKey,
+      );
+      if (new Set(registryKeys).size !== registryKeys.length) {
+        errors.push({
+          serviceId: entry.serviceId,
+          message: 'NATS consumer runtime contains duplicate registry keys',
+        });
+      }
+      const barrier = entry.natsConsumer.tenantOnboardingBarrier;
+      if (
+        barrier &&
+        (!Number.isSafeInteger(barrier.ackDeadlineMs) ||
+          !Number.isSafeInteger(barrier.retryIntervalMs) ||
+          barrier.retryIntervalMs <= 0 ||
+          barrier.ackDeadlineMs <= barrier.retryIntervalMs)
+      ) {
+        errors.push({
+          serviceId: entry.serviceId,
+          message:
+            'NATS onboarding barrier requires safe positive timing with deadline greater than retry interval',
+        });
+      }
     }
     // OBS-HIGH-001: metrics completeness is structural, not optional.
     // A NestJS backend without a Prometheus scrape surface is an

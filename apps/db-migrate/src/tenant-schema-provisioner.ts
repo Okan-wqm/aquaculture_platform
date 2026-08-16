@@ -674,7 +674,6 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 function assertDeleteProof(job: TenantSchemaJob): void {
   const payload = asRecord(job.requestPayload);
   const proof = asRecord(payload?.['cleanupProof']);
-  const backup = asRecord(proof?.['backup']);
   const tombstone = asRecord(payload?.['tombstone']);
   const preCounts = asRecord(proof?.['preCounts']);
   const existingSchemas = preCounts?.['existingSchemas'];
@@ -687,26 +686,14 @@ function assertDeleteProof(job: TenantSchemaJob): void {
       `[tenant-schema-provisioner] DELETE job ${job.id} cleanupProof does not match job`,
     );
   }
-  if (proof['purpose'] !== 'tenant_deprovision' && proof['purpose'] !== 'tenant_erasure') {
+  if (proof['purpose'] !== 'tenant_erasure') {
     throw new Error(
-      `[tenant-schema-provisioner] DELETE job ${job.id} requires tenant_deprovision or tenant_erasure proof`,
+      `[tenant-schema-provisioner] DELETE job ${job.id} requires tenant_erasure proof`,
     );
   }
   if (typeof proof['legalHoldCheckedAt'] !== 'string' || proof['legalHoldCheckedAt'].length === 0) {
     throw new Error(
       `[tenant-schema-provisioner] DELETE job ${job.id} requires legal-hold evidence`,
-    );
-  }
-  if (
-    proof['purpose'] === 'tenant_deprovision' &&
-    (!backup ||
-      backup['isEncrypted'] !== true ||
-      typeof backup['checksum'] !== 'string' ||
-      backup['checksum'].length === 0 ||
-      Number(backup['sizeBytes']) <= 0)
-  ) {
-    throw new Error(
-      `[tenant-schema-provisioner] DELETE job ${job.id} requires encrypted backup evidence`,
     );
   }
   if (!preCounts || !Array.isArray(existingSchemas)) {

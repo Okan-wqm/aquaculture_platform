@@ -36,6 +36,7 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
+import { HMI_WRITE_ROLE_CODES } from '@platform/identity';
 
 // TODO: Replace with '@aquaculture/scada-types' path alias when monorepo build supports it.
 import type { AlarmStatusSummary, HmiRole, TagValueChange } from './scada-types';
@@ -98,7 +99,7 @@ function buildScadaWsCorsConfig(): {
 /* ------------------------------------------------------------------ */
 
 /** Roles that are permitted to write tag values. */
-const WRITE_ALLOWED_ROLES: HmiRole[] = ['operator', 'engineer', 'supervisor', 'admin'];
+const WRITE_ALLOWED_ROLES: readonly HmiRole[] = HMI_WRITE_ROLE_CODES;
 
 /** Maximum number of concurrent connections per tenant. */
 const MAX_CONNECTIONS_PER_TENANT = 50;

@@ -1,8 +1,16 @@
-import { IsArray, IsUUID, ArrayMaxSize, IsString, IsOptional, IsBoolean, MaxLength, IsEnum } from 'class-validator';
+import {
+  IsArray,
+  IsUUID,
+  ArrayMaxSize,
+  IsString,
+  IsOptional,
+  IsBoolean,
+  MaxLength,
+  IsEnum,
+} from 'class-validator';
+import { TenantPlan, TenantStatus } from '@platform/event-contracts';
 
-import { TenantActivity, TenantNote, TenantBillingInfo } from '../entities/tenant-activity.entity';
-import { Tenant } from '../entities/tenant.entity';
-
+import type { TenantActivityDto, TenantNoteDto } from './tenant-activity.dto';
 import { TenantLimitsDto } from './tenant.dto';
 
 export type TenantAvailableAction =
@@ -29,7 +37,7 @@ export interface UserStatsByRole {
 }
 
 // Module Usage Statistics
-export interface ModuleUsageStats {
+export interface TenantModuleUsageStats {
   moduleId: string;
   moduleCode: string;
   moduleName: string;
@@ -90,9 +98,8 @@ export interface TenantDetailDto {
   domain?: string;
 
   // Status & Tier
-  status: string;
-  tier: string;
-  plan?: string;
+  status: TenantStatus;
+  tier: TenantPlan;
   trialEndsAt?: Date;
   // Suspension audit (DB-ADMIN-HIGH-003): real auth.tenants columns written
   // only by auth-service; NULL when the tenant is not suspended.
@@ -146,11 +153,11 @@ export interface TenantDetailDto {
   resourceUsage?: ResourceUsage;
 
   // Modules
-  modules?: ModuleUsageStats[];
+  modules?: TenantModuleUsageStats[];
 
   // Activity & Notes
-  recentActivities?: TenantActivity[];
-  notes?: TenantNote[];
+  recentActivities?: TenantActivityDto[];
+  notes?: TenantNoteDto[];
 
   // Billing
   billing?: BillingSummary;
@@ -161,30 +168,18 @@ export interface TenantDetailDto {
   createdBy?: string;
   // NOTE: lastActivityAt was removed (DB-ADMIN-HIGH-003 cleanup): no
   // auth.tenants column ever backed it, so the field was always undefined.
-  // Tenant activity lives in recentActivities (admin.tenant_activities).
-}
-
-// Tenant List Item (optimized for list view)
-export interface TenantListItemDto {
-  id: string;
-  name: string;
-  slug: string;
-  domain?: string;
-  status: string;
-  tier: string;
-  contactEmail?: string;
-  userCount: number;
-  farmCount: number;
-  sensorCount: number;
-  activeModulesCount?: number;
-  // NOTE: lastActivityAt was removed (DB-ADMIN-HIGH-003 cleanup): the list
-  // mapper never populated it and no auth.tenants column backed it.
-  createdAt: Date;
+  // Tenant activity is projected from source-owner command receipts.
 }
 
 // Note categories allowed for tenant notes (HIGH-003 fix)
-const ALLOWED_NOTE_CATEGORIES = ['general', 'billing', 'support', 'compliance', 'technical'] as const;
-type NoteCategory = typeof ALLOWED_NOTE_CATEGORIES[number];
+const ALLOWED_NOTE_CATEGORIES = [
+  'general',
+  'billing',
+  'support',
+  'compliance',
+  'technical',
+] as const;
+type NoteCategory = (typeof ALLOWED_NOTE_CATEGORIES)[number];
 
 // HIGH-003 fix: typed DTO with validation decorators to prevent oversized/malicious note content
 export class CreateTenantNoteDto {

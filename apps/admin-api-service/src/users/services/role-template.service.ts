@@ -1,433 +1,169 @@
 import { Injectable } from '@nestjs/common';
+import {
+  PLATFORM_ROLE_CODES,
+  PLATFORM_ROLE_DEFINITIONS,
+  Role,
+  isPlatformRole,
+  type PlatformPermissionMode,
+  type PlatformRoleDefinition,
+} from '@platform/identity';
+import {
+  TENANT_PERMISSION_CATEGORIES,
+  TENANT_PERMISSION_CODES,
+  type TenantPermissionCode,
+} from '@platform/tenant-permissions';
 
-/**
- * Permission definition
- */
 export interface Permission {
-  code: string;
-  name: string;
-  description: string;
-  category: string;
+  readonly code: TenantPermissionCode;
+  readonly name: string;
+  readonly description: string;
+  readonly category: string;
 }
 
-/**
- * Role template definition
- */
-export interface RoleTemplate {
-  code: string;
-  name: string;
-  description: string;
-  level: number; // Higher = more permissions
-  permissions: string[];
-  isSystem: boolean; // System roles cannot be modified
-  color: string;
-  icon: string;
+export interface RoleTemplate extends PlatformRoleDefinition {
+  readonly permissions: readonly TenantPermissionCode[];
+  readonly isSystem: true;
 }
 
+export interface RoleHierarchyItem extends PlatformRoleDefinition {
+  readonly isSystem: true;
+  readonly permissionCount: number;
+}
+
+function titleCase(value: string): string {
+  return value
+    .split(/[-_]/u)
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(' ');
+}
+
+function permissionCatalogue(): readonly Permission[] {
+  const permissions: Permission[] = [];
+  for (const [categoryCode, category] of Object.entries(TENANT_PERMISSION_CATEGORIES)) {
+    for (const [resourceCode, resource] of Object.entries(category.resources)) {
+      for (const action of resource.actions) {
+        const code = `${resourceCode}:${action}`;
+        const canonical = TENANT_PERMISSION_CODES.find((permission) => permission === code);
+        if (canonical === undefined) {
+          throw new TypeError(`permission catalogue did not derive ${code}`);
+        }
+        permissions.push(
+          Object.freeze({
+            code: canonical,
+            name: `${titleCase(action)} ${resource.name}`,
+            description: `${titleCase(action)} access for ${resource.name}`,
+            category: category.name || categoryCode,
+          }),
+        );
+      }
+    }
+  }
+  return Object.freeze(permissions.sort((left, right) => left.code.localeCompare(right.code)));
+}
+
+const PERMISSIONS = permissionCatalogue();
+
+function permissionsForMode(mode: PlatformPermissionMode): readonly TenantPermissionCode[] {
+  return mode === 'all' ? TENANT_PERMISSION_CODES : Object.freeze([]);
+}
+
+function roleTemplate(definition: PlatformRoleDefinition): RoleTemplate {
+  return Object.freeze({
+    ...definition,
+    permissions: permissionsForMode(definition.permissionMode),
+    isSystem: true,
+  });
+}
+
+const ROLE_TEMPLATES: Readonly<Record<Role, RoleTemplate>> = Object.freeze({
+  [Role.SUPER_ADMIN]: roleTemplate(PLATFORM_ROLE_DEFINITIONS[Role.SUPER_ADMIN]),
+  [Role.TENANT_ADMIN]: roleTemplate(PLATFORM_ROLE_DEFINITIONS[Role.TENANT_ADMIN]),
+  [Role.MODULE_MANAGER]: roleTemplate(PLATFORM_ROLE_DEFINITIONS[Role.MODULE_MANAGER]),
+  [Role.MODULE_USER]: roleTemplate(PLATFORM_ROLE_DEFINITIONS[Role.MODULE_USER]),
+});
+
 /**
- * Role Template Service
- * Manages role templates and custom tenant roles
+ * Read-only projection of the canonical platform roles and tenant capability
+ * catalogue. Tenant-specific grants remain owned by auth-service; this service
+ * never fabricates a static grant set for MODULE_MANAGER or MODULE_USER.
  */
 @Injectable()
 export class RoleTemplateService {
-
-  // System-wide permissions
-  private readonly permissions: Permission[] = [
-    // Dashboard
-    { code: 'dashboard:view', name: 'View Dashboard', description: 'Access to main dashboard', category: 'Dashboard' },
-    { code: 'dashboard:analytics', name: 'View Analytics', description: 'Access to analytics and reports', category: 'Dashboard' },
-
-    // User Management
-    { code: 'users:view', name: 'View Users', description: 'View user list', category: 'Users' },
-    { code: 'users:create', name: 'Create Users', description: 'Create new users', category: 'Users' },
-    { code: 'users:edit', name: 'Edit Users', description: 'Edit user details', category: 'Users' },
-    { code: 'users:delete', name: 'Delete Users', description: 'Delete users', category: 'Users' },
-    { code: 'users:invite', name: 'Invite Users', description: 'Send user invitations', category: 'Users' },
-    { code: 'users:roles', name: 'Manage Roles', description: 'Assign roles to users', category: 'Users' },
-
-    // Farm Management
-    { code: 'farms:view', name: 'View Farms', description: 'View farm list and details', category: 'Farms' },
-    { code: 'farms:create', name: 'Create Farms', description: 'Create new farms', category: 'Farms' },
-    { code: 'farms:edit', name: 'Edit Farms', description: 'Edit farm details', category: 'Farms' },
-    { code: 'farms:delete', name: 'Delete Farms', description: 'Delete farms', category: 'Farms' },
-    { code: 'farms:manage', name: 'Manage Farms', description: 'Full farm management', category: 'Farms' },
-
-    // Pond Management
-    { code: 'ponds:view', name: 'View Ponds', description: 'View pond list and details', category: 'Ponds' },
-    { code: 'ponds:create', name: 'Create Ponds', description: 'Create new ponds', category: 'Ponds' },
-    { code: 'ponds:edit', name: 'Edit Ponds', description: 'Edit pond details', category: 'Ponds' },
-    { code: 'ponds:delete', name: 'Delete Ponds', description: 'Delete ponds', category: 'Ponds' },
-
-    // Sensor Management
-    { code: 'sensors:view', name: 'View Sensors', description: 'View sensor list and data', category: 'Sensors' },
-    { code: 'sensors:create', name: 'Create Sensors', description: 'Add new sensors', category: 'Sensors' },
-    { code: 'sensors:edit', name: 'Edit Sensors', description: 'Edit sensor configuration', category: 'Sensors' },
-    { code: 'sensors:delete', name: 'Delete Sensors', description: 'Remove sensors', category: 'Sensors' },
-    { code: 'sensors:calibrate', name: 'Calibrate Sensors', description: 'Calibrate sensor readings', category: 'Sensors' },
-
-    // Alert Management
-    { code: 'alerts:view', name: 'View Alerts', description: 'View alerts and notifications', category: 'Alerts' },
-    { code: 'alerts:create', name: 'Create Alert Rules', description: 'Create alert rules', category: 'Alerts' },
-    { code: 'alerts:edit', name: 'Edit Alert Rules', description: 'Edit alert rules', category: 'Alerts' },
-    { code: 'alerts:delete', name: 'Delete Alert Rules', description: 'Delete alert rules', category: 'Alerts' },
-    { code: 'alerts:acknowledge', name: 'Acknowledge Alerts', description: 'Mark alerts as acknowledged', category: 'Alerts' },
-
-    // Feed Management
-    { code: 'feed:view', name: 'View Feed', description: 'View feed inventory and schedules', category: 'Feed' },
-    { code: 'feed:create', name: 'Create Feed Records', description: 'Add feed records', category: 'Feed' },
-    { code: 'feed:edit', name: 'Edit Feed Records', description: 'Edit feed records', category: 'Feed' },
-    { code: 'feed:schedule', name: 'Manage Feed Schedules', description: 'Create and manage feeding schedules', category: 'Feed' },
-
-    // Reports
-    { code: 'reports:view', name: 'View Reports', description: 'Access to reports', category: 'Reports' },
-    { code: 'reports:create', name: 'Create Reports', description: 'Generate custom reports', category: 'Reports' },
-    { code: 'reports:export', name: 'Export Reports', description: 'Export reports to files', category: 'Reports' },
-
-    // Settings
-    { code: 'settings:view', name: 'View Settings', description: 'View system settings', category: 'Settings' },
-    { code: 'settings:edit', name: 'Edit Settings', description: 'Modify system settings', category: 'Settings' },
-
-    // Billing (Tenant Admin only)
-    { code: 'billing:view', name: 'View Billing', description: 'View billing information', category: 'Billing' },
-    { code: 'billing:manage', name: 'Manage Billing', description: 'Manage billing and subscriptions', category: 'Billing' },
-
-    // Audit
-    { code: 'audit:view', name: 'View Audit Logs', description: 'Access audit log history', category: 'Audit' },
-
-    // API
-    { code: 'api:manage', name: 'Manage API Keys', description: 'Create and manage API keys', category: 'API' },
-  ];
-
-  // System role templates
-  private readonly roleTemplates: RoleTemplate[] = [
-    {
-      code: 'SUPER_ADMIN',
-      name: 'Super Admin',
-      description: 'Platform-wide administrator with full system access',
-      level: 100,
-      permissions: ['*'], // All permissions
-      isSystem: true,
-      color: '#FF0000',
-      icon: 'shield-check',
-    },
-    {
-      code: 'TENANT_ADMIN',
-      name: 'Tenant Admin',
-      description: 'Tenant administrator with full tenant access',
-      level: 90,
-      permissions: [
-        'dashboard:view',
-        'dashboard:analytics',
-        'users:view',
-        'users:create',
-        'users:edit',
-        'users:delete',
-        'users:invite',
-        'users:roles',
-        'farms:view',
-        'farms:create',
-        'farms:edit',
-        'farms:delete',
-        'farms:manage',
-        'ponds:view',
-        'ponds:create',
-        'ponds:edit',
-        'ponds:delete',
-        'sensors:view',
-        'sensors:create',
-        'sensors:edit',
-        'sensors:delete',
-        'sensors:calibrate',
-        'alerts:view',
-        'alerts:create',
-        'alerts:edit',
-        'alerts:delete',
-        'alerts:acknowledge',
-        'feed:view',
-        'feed:create',
-        'feed:edit',
-        'feed:schedule',
-        'reports:view',
-        'reports:create',
-        'reports:export',
-        'settings:view',
-        'settings:edit',
-        'billing:view',
-        'billing:manage',
-        'audit:view',
-        'api:manage',
-      ],
-      isSystem: true,
-      color: '#6366F1',
-      icon: 'user-cog',
-    },
-    {
-      code: 'MODULE_MANAGER',
-      name: 'Module Manager',
-      description: 'Manager with access to assigned modules',
-      level: 70,
-      permissions: [
-        'dashboard:view',
-        'dashboard:analytics',
-        'users:view',
-        'users:invite',
-        'farms:view',
-        'farms:create',
-        'farms:edit',
-        'ponds:view',
-        'ponds:create',
-        'ponds:edit',
-        'sensors:view',
-        'sensors:create',
-        'sensors:edit',
-        'sensors:calibrate',
-        'alerts:view',
-        'alerts:create',
-        'alerts:edit',
-        'alerts:acknowledge',
-        'feed:view',
-        'feed:create',
-        'feed:edit',
-        'feed:schedule',
-        'reports:view',
-        'reports:create',
-        'reports:export',
-        'settings:view',
-      ],
-      isSystem: true,
-      color: '#10B981',
-      icon: 'briefcase',
-    },
-    {
-      code: 'SUPERVISOR',
-      name: 'Supervisor',
-      description: 'Supervisor with limited management capabilities',
-      level: 50,
-      permissions: [
-        'dashboard:view',
-        'users:view',
-        'farms:view',
-        'ponds:view',
-        'ponds:edit',
-        'sensors:view',
-        'sensors:calibrate',
-        'alerts:view',
-        'alerts:acknowledge',
-        'feed:view',
-        'feed:create',
-        'feed:edit',
-        'reports:view',
-        'reports:create',
-      ],
-      isSystem: false,
-      color: '#F59E0B',
-      icon: 'clipboard-check',
-    },
-    {
-      code: 'OPERATOR',
-      name: 'Operator',
-      description: 'Field operator with basic operational access',
-      level: 30,
-      permissions: [
-        'dashboard:view',
-        'farms:view',
-        'ponds:view',
-        'sensors:view',
-        'alerts:view',
-        'alerts:acknowledge',
-        'feed:view',
-        'feed:create',
-      ],
-      isSystem: false,
-      color: '#3B82F6',
-      icon: 'wrench',
-    },
-    {
-      code: 'MODULE_USER',
-      name: 'Viewer',
-      description: 'Read-only access to assigned modules',
-      level: 10,
-      permissions: [
-        'dashboard:view',
-        'farms:view',
-        'ponds:view',
-        'sensors:view',
-        'alerts:view',
-        'feed:view',
-        'reports:view',
-      ],
-      isSystem: true,
-      color: '#6B7280',
-      icon: 'eye',
-    },
-  ];
-
-  // RBAC-MEDIUM-011: this is a pure in-memory role/permission CATALOGUE
-  // reference (getAllPermissions/getPermissionsByCategory/getRoleTemplates/…),
-  // consumed read-only by the SUPER_ADMIN role-reference endpoints. It has no
-  // DataSource: the former createCustomRole/getTenantCustomRoles wrote/read an
-  // unqualified `tenant_custom_roles` table that NO migration creates (every
-  // call threw "relation does not exist" or swallowed it and returned []) and
-  // had zero callers — dead code, removed. Tenant-configurable roles are owned
-  // by the auth-service tenant-RBAC system (auth.tenant_roles /
-  // tenant_role_permissions), NOT this catalogue.
-
-  /**
-   * Get all system permissions
-   */
-  getAllPermissions(): Permission[] {
-    return this.permissions;
+  getAllPermissions(): readonly Permission[] {
+    return PERMISSIONS;
   }
 
-  /**
-   * Get permissions grouped by category
-   */
-  getPermissionsByCategory(): Record<string, Permission[]> {
-    return this.permissions.reduce(
-      (acc, perm) => {
-        if (!acc[perm.category]) {
-          acc[perm.category] = [];
-        }
-        const categoryPerms = acc[perm.category];
-        if (categoryPerms) {
-          categoryPerms.push(perm);
-        }
-        return acc;
-      },
-      {} as Record<string, Permission[]>,
+  getPermissionsByCategory(): Readonly<Record<string, readonly Permission[]>> {
+    const grouped: Record<string, Permission[]> = {};
+    for (const permission of PERMISSIONS) {
+      const category = grouped[permission.category] ?? [];
+      category.push(permission);
+      grouped[permission.category] = category;
+    }
+    return Object.freeze(
+      Object.fromEntries(
+        Object.entries(grouped).map(([category, permissions]) => [
+          category,
+          Object.freeze(permissions),
+        ]),
+      ),
     );
   }
 
-  /**
-   * Get all role templates
-   */
-  getAllRoleTemplates(): RoleTemplate[] {
-    return this.roleTemplates;
+  getAllRoleTemplates(): readonly RoleTemplate[] {
+    return Object.freeze(PLATFORM_ROLE_CODES.map((role) => ROLE_TEMPLATES[role]));
   }
 
-  /**
-   * Get role template by code
-   */
   getRoleTemplate(code: string): RoleTemplate | undefined {
-    return this.roleTemplates.find((r) => r.code === code);
+    return isPlatformRole(code) ? ROLE_TEMPLATES[code] : undefined;
   }
 
-  /**
-   * Get available roles for a user level
-   * Users can only assign roles at their level or below
-   */
-  getAssignableRoles(userRoleCode: string): RoleTemplate[] {
-    const userRole = this.roleTemplates.find((r) => r.code === userRoleCode);
-    if (!userRole) {
-      return [];
-    }
-
-    return this.roleTemplates.filter((r) => r.level <= userRole.level);
+  getAssignableRoles(userRoleCode: string): readonly RoleTemplate[] {
+    const userRole = this.getRoleTemplate(userRoleCode);
+    if (userRole === undefined) return Object.freeze([]);
+    if (userRole.code === Role.SUPER_ADMIN) return this.getAllRoleTemplates();
+    return Object.freeze(this.getAllRoleTemplates().filter((role) => role.level < userRole.level));
   }
 
-  /**
-   * Check if user has a specific permission
-   */
-  hasPermission(roleCode: string, permissionCode: string): boolean {
-    const role = this.roleTemplates.find((r) => r.code === roleCode);
-    if (!role) {
-      return false;
-    }
-
-    // Wildcard means all permissions
-    if (role.permissions.includes('*')) {
-      return true;
-    }
-
-    return role.permissions.includes(permissionCode);
+  getRolePermissions(roleCode: string): readonly TenantPermissionCode[] {
+    return this.getRoleTemplate(roleCode)?.permissions ?? Object.freeze([]);
   }
 
-  /**
-   * Get permissions for a role
-   */
-  getRolePermissions(roleCode: string): string[] {
-    const role = this.roleTemplates.find((r) => r.code === roleCode);
-    if (!role) {
-      return [];
-    }
-
-    // Wildcard means all permissions
-    if (role.permissions.includes('*')) {
-      return this.permissions.map((p) => p.code);
-    }
-
-    return role.permissions;
+  getRoleHierarchy(): readonly RoleHierarchyItem[] {
+    return Object.freeze(
+      this.getAllRoleTemplates()
+        .map((role) =>
+          Object.freeze({
+            code: role.code,
+            name: role.name,
+            description: role.description,
+            level: role.level,
+            permissionMode: role.permissionMode,
+            color: role.color,
+            icon: role.icon,
+            isSystem: true as const,
+            permissionCount: role.permissions.length,
+          }),
+        )
+        .sort((left, right) => right.level - left.level),
+    );
   }
 
-  /**
-   * Get role hierarchy for display
-   */
-  getRoleHierarchy(): Array<{
-    code: string;
-    name: string;
-    level: number;
-    description: string;
-    color: string;
-    icon: string;
-    isSystem: boolean;
-    permissionCount: number;
-  }> {
-    return this.roleTemplates
-      .map((r) => ({
-        code: r.code,
-        name: r.name,
-        level: r.level,
-        description: r.description,
-        color: r.color,
-        icon: r.icon,
-        isSystem: r.isSystem,
-        permissionCount:
-          r.permissions.includes('*')
-            ? this.permissions.length
-            : r.permissions.length,
-      }))
-      .sort((a, b) => b.level - a.level);
-  }
-
-  /**
-   * Validate role assignment
-   */
   canAssignRole(
     assignerRole: string,
     targetRole: string,
-  ): { allowed: boolean; reason?: string } {
-    const assignerTemplate = this.getRoleTemplate(assignerRole);
-    const targetTemplate = this.getRoleTemplate(targetRole);
-
-    if (!assignerTemplate) {
-      return { allowed: false, reason: 'Invalid assigner role' };
-    }
-
-    if (!targetTemplate) {
-      return { allowed: false, reason: 'Invalid target role' };
-    }
-
-    // SUPER_ADMIN can assign any role
-    if (assignerRole === 'SUPER_ADMIN') {
-      return { allowed: true };
-    }
-
-    // Cannot assign roles higher than your own
-    if (targetTemplate.level > assignerTemplate.level) {
+  ): { readonly allowed: boolean; readonly reason?: string } {
+    const assigner = this.getRoleTemplate(assignerRole);
+    if (assigner === undefined) return { allowed: false, reason: 'Invalid assigner role' };
+    const target = this.getRoleTemplate(targetRole);
+    if (target === undefined) return { allowed: false, reason: 'Invalid target role' };
+    if (assigner.code === Role.SUPER_ADMIN) return { allowed: true };
+    if (target.level >= assigner.level) {
       return {
         allowed: false,
-        reason: `Cannot assign ${targetTemplate.name} role (level ${targetTemplate.level}) as your role level is ${assignerTemplate.level}`,
+        reason: `Cannot assign ${target.name} from ${assigner.name}`,
       };
     }
-
-    // Cannot assign same level (except for SUPER_ADMIN)
-    if (targetTemplate.level === assignerTemplate.level) {
-      return {
-        allowed: false,
-        reason: `Cannot assign role at your own level`,
-      };
-    }
-
     return { allowed: true };
   }
 }

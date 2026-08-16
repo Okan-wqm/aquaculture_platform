@@ -1,7 +1,4 @@
-import {
-  UpdateTenantDto,
-  SuspendTenantDto,
-} from '../dto/tenant.dto';
+import { UpdateTenantDto, SuspendTenantDto } from '../dto/tenant.dto';
 
 export class UpdateTenantCommand {
   constructor(
@@ -19,10 +16,10 @@ export class SuspendTenantCommand {
   ) {}
 }
 
-export class ActivateTenantCommand {
+export class ResumeTenantCommand {
   constructor(
     public readonly tenantId: string,
-    public readonly activatedBy: string,
+    public readonly resumedBy: string,
   ) {}
 }
 

@@ -56,13 +56,7 @@
  *   - EventBus unavailable → subscription no-ops, log warning
  *     (dev harnesses without NATS still boot)
  */
-import {
-  Inject,
-  Injectable,
-  Logger,
-  OnModuleInit,
-  Optional,
-} from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { withTenantContext } from '@aquaculture/backend-common/context';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
 import {
@@ -78,8 +72,7 @@ import { RegulatorySettingsSeederService } from '../../regulatory/services/regul
 import { EquipmentTypeCatalogCheckerService } from '../../equipment/services/equipment-type-catalog-checker.service';
 import { FinanceCategorySeedService } from '../../finance/services/finance-category-seed.service';
 
-const UUID_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 interface SeederSummary {
   name: string;
@@ -102,7 +95,8 @@ export class TenantOnboardingEventHandler
     private readonly regulatorySettingsSeeder: RegulatorySettingsSeederService,
     private readonly equipmentTypeChecker: EquipmentTypeCatalogCheckerService,
     private readonly financeCategorySeeder: FinanceCategorySeedService,
-    @Optional() @Inject('EVENT_BUS')
+    @Optional()
+    @Inject('EVENT_BUS')
     private readonly eventBus: IEventBus | undefined,
   ) {}
 
@@ -152,9 +146,7 @@ export class TenantOnboardingEventHandler
       // Species catalogue — Atlantic Salmon + cleaner fish. Batch
       // creation needs at least one active species to link against.
       summaries.push(
-        await this.runSeeder('species', () =>
-          this.speciesSeeder.seedDefaults(event.tenantId),
-        ),
+        await this.runSeeder('species', () => this.speciesSeeder.seedDefaults(event.tenantId)),
       );
 
       // Feeding protocols — life-stage protocols for Atlantic Salmon
@@ -206,9 +198,7 @@ export class TenantOnboardingEventHandler
         `(${event.name ?? 'unnamed'}): ` +
         `${ok.length}/${summaries.length} seeders ok, ` +
         `${totalSeeded} rows created, ${totalSkipped} skipped` +
-        (failed.length
-          ? ` — failed: ${failed.map((f) => f.name).join(', ')}`
-          : ''),
+        (failed.length ? ` — failed: ${failed.map((f) => f.name).join(', ')}` : ''),
     );
 
     const eventBus = this.eventBus;
@@ -223,6 +213,7 @@ export class TenantOnboardingEventHandler
           aggregateType: 'Tenant',
         }),
         operationId: event.operationId,
+        generation: event.generation,
         service: 'farm-service',
         error: failed.map((f) => `${f.name}: ${f.error ?? 'failed'}`).join('; '),
       });
@@ -235,6 +226,7 @@ export class TenantOnboardingEventHandler
         aggregateType: 'Tenant',
       }),
       operationId: event.operationId,
+      generation: event.generation,
       service: 'farm-service',
       acknowledgedAt: new Date().toISOString(),
     });

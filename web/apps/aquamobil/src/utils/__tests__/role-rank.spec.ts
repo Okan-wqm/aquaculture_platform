@@ -8,16 +8,13 @@
 
 import { describe, it, expect } from 'vitest';
 
+import { PLATFORM_ROLE_CODES, PLATFORM_ROLE_DEFINITIONS } from '@platform/identity';
 import type { Role } from '../../generated/graphql';
 import { roleRank, meetsRoleFloor } from '../role-rank';
 
-// Highest -> lowest privilege, mirroring backend ROLE_HIERARCHY.
-const ORDERED_HIGH_TO_LOW: readonly Role[] = [
-  'SUPER_ADMIN',
-  'TENANT_ADMIN',
-  'MODULE_MANAGER',
-  'MODULE_USER',
-];
+const ORDERED_HIGH_TO_LOW: readonly Role[] = [...PLATFORM_ROLE_CODES].sort(
+  (left, right) => PLATFORM_ROLE_DEFINITIONS[right].level - PLATFORM_ROLE_DEFINITIONS[left].level,
+);
 
 describe('roleRank', () => {
   it('ranks strictly decreasing from SUPER_ADMIN down to MODULE_USER', () => {

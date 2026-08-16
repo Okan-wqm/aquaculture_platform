@@ -23,6 +23,7 @@ import {
   type RemoveTenantModuleResult,
   type ReserveTenantCommand,
   type ReserveTenantResult,
+  type ResumeTenantCommand,
   type RollbackTenantProvisioningCommand,
   type RollbackTenantProvisioningResult,
   type SetupTenantRolesCommand,
@@ -43,9 +44,8 @@ export class AuthTenantProvisioningClientService {
     private readonly authNatsClient: ClientProxy,
   ) {
     const configured = parseInt(process.env['AUTH_NATS_TIMEOUT_MS'] ?? '', 10);
-    this.timeoutMs = Number.isFinite(configured) && configured > 0
-      ? configured
-      : DEFAULT_AUTH_NATS_TIMEOUT_MS;
+    this.timeoutMs =
+      Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_AUTH_NATS_TIMEOUT_MS;
   }
 
   async reserveTenant(command: ReserveTenantCommand): Promise<ReserveTenantResult> {
@@ -64,11 +64,13 @@ export class AuthTenantProvisioningClientService {
     return this.requireSuccess(result, 'Auth tenant role setup failed');
   }
 
-  async assignTenantModules(command: AssignTenantModulesCommand): Promise<AssignTenantModulesResult> {
-    const result = await this.sendAuthCommand<AssignTenantModulesCommand, AssignTenantModulesResult>(
-      TENANT_COMMAND_SUBJECTS.ASSIGN_TENANT_MODULES,
-      command,
-    );
+  async assignTenantModules(
+    command: AssignTenantModulesCommand,
+  ): Promise<AssignTenantModulesResult> {
+    const result = await this.sendAuthCommand<
+      AssignTenantModulesCommand,
+      AssignTenantModulesResult
+    >(TENANT_COMMAND_SUBJECTS.ASSIGN_TENANT_MODULES, command);
     return this.requireSuccess(result, 'Auth tenant module assignment failed');
   }
 
@@ -96,6 +98,14 @@ export class AuthTenantProvisioningClientService {
     return this.requireSuccess(result, 'Auth tenant activation failed');
   }
 
+  async resumeTenant(command: ResumeTenantCommand): Promise<AuthTenantCommandResult> {
+    const result = await this.sendAuthCommand<ResumeTenantCommand, AuthTenantCommandResult>(
+      TENANT_COMMAND_SUBJECTS.RESUME_TENANT,
+      command,
+    );
+    return this.requireSuccess(result, 'Auth tenant resumption failed');
+  }
+
   async failProvisioning(command: FailProvisioningCommand): Promise<AuthTenantCommandResult> {
     const result = await this.sendAuthCommand<FailProvisioningCommand, AuthTenantCommandResult>(
       TENANT_COMMAND_SUBJECTS.FAIL_PROVISIONING,
@@ -105,10 +115,10 @@ export class AuthTenantProvisioningClientService {
   }
 
   async suspendTenant(command: SuspendTenantLifecycleCommand): Promise<AuthTenantCommandResult> {
-    const result = await this.sendAuthCommand<SuspendTenantLifecycleCommand, AuthTenantCommandResult>(
-      TENANT_COMMAND_SUBJECTS.SUSPEND_TENANT,
-      command,
-    );
+    const result = await this.sendAuthCommand<
+      SuspendTenantLifecycleCommand,
+      AuthTenantCommandResult
+    >(TENANT_COMMAND_SUBJECTS.SUSPEND_TENANT, command);
     return this.requireSuccess(result, 'Auth tenant suspension failed');
   }
 
@@ -121,10 +131,10 @@ export class AuthTenantProvisioningClientService {
   }
 
   async archiveTenant(command: ArchiveTenantLifecycleCommand): Promise<AuthTenantCommandResult> {
-    const result = await this.sendAuthCommand<ArchiveTenantLifecycleCommand, AuthTenantCommandResult>(
-      TENANT_COMMAND_SUBJECTS.ARCHIVE_TENANT,
-      command,
-    );
+    const result = await this.sendAuthCommand<
+      ArchiveTenantLifecycleCommand,
+      AuthTenantCommandResult
+    >(TENANT_COMMAND_SUBJECTS.ARCHIVE_TENANT, command);
     return this.requireSuccess(result, 'Auth tenant archive failed');
   }
 
@@ -155,9 +165,7 @@ export class AuthTenantProvisioningClientService {
         this.authNatsClient.send<TResult, TCommand>(subject, command).pipe(
           timeout(this.timeoutMs),
           catchError((err: Error) => {
-            this.logger.error(
-              `NATS request failed: subject=${subject}, error=${err.message}`,
-            );
+            this.logger.error(`NATS request failed: subject=${subject}, error=${err.message}`);
             return throwError(() => err);
           }),
         ),
@@ -165,9 +173,7 @@ export class AuthTenantProvisioningClientService {
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       if (message.includes('Timeout')) {
-        throw new BadGatewayException(
-          `Auth service did not respond within ${this.timeoutMs}ms`,
-        );
+        throw new BadGatewayException(`Auth service did not respond within ${this.timeoutMs}ms`);
       }
       if (message.includes('not connected') || message.includes('CONN_CLOSED')) {
         throw new ServiceUnavailableException('Auth service is currently unavailable');

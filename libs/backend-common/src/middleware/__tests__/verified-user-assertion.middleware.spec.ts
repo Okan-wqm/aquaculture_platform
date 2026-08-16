@@ -1,4 +1,9 @@
-import { BadRequestException } from '@nestjs/common';
+import {
+  canonicalJsonStringify,
+  createCanonicalJsonDocumentV1,
+  encodeGatewayVerifiedUserAssertionV1,
+} from '@aquaculture/shared-contracts';
+import { BadRequestException, Logger } from '@nestjs/common';
 import type { NextFunction, Response } from 'express';
 
 import type { TenantRequest } from '../../types/tenant-request.interface';
@@ -7,21 +12,30 @@ import { VerifiedUserAssertionMiddleware } from '../verified-user-assertion.midd
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const EFFECTIVE_TENANT = '22222222-2222-4222-8222-222222222222';
 
-function encodeAssertion(overrides: Record<string, unknown> = {}): string {
-  const assertion = {
+function assertionValue(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
     issuer: 'gateway-api',
     subject: 'user-1',
-    tenantId: TENANT,
+    tenantId: EFFECTIVE_TENANT,
     effectiveTenantId: EFFECTIVE_TENANT,
-    roles: ['FARM_MANAGER'],
+    roles: ['MODULE_MANAGER'],
     email: 'user@example.com',
     mfaVerified: true,
     issuedAt: new Date().toISOString(),
-    assertionId: 'assertion-1',
+    assertionId: '44444444-4444-4444-8444-444444444444',
     ...overrides,
   };
+}
 
-  return Buffer.from(JSON.stringify(assertion), 'utf8').toString('base64url');
+function encodeAssertion(overrides: Record<string, unknown> = {}): string {
+  return encodeGatewayVerifiedUserAssertionV1(assertionValue(overrides));
+}
+
+function encodeUncheckedAssertion(overrides: Record<string, unknown> = {}): string {
+  const canonical = canonicalJsonStringify(
+    createCanonicalJsonDocumentV1(assertionValue(overrides)),
+  );
+  return Buffer.from(canonical, 'utf8').toString('base64url');
 }
 
 function createRequest(overrides: Partial<TenantRequest> = {}): TenantRequest {
@@ -86,7 +100,7 @@ describe('VerifiedUserAssertionMiddleware', () => {
       expect.objectContaining({
         sub: 'user-1',
         tenantId: EFFECTIVE_TENANT,
-        roles: ['FARM_MANAGER'],
+        roles: ['MODULE_MANAGER'],
         mfaVerified: true,
       }),
     );
@@ -95,6 +109,89 @@ describe('VerifiedUserAssertionMiddleware', () => {
     expect(req.headers['x-user-roles']).toBeUndefined();
     expect(req.headers['x-user-payload']).toBeUndefined();
     expect(req.headers['x-act-as-tenant']).toBeUndefined();
+  });
+
+  it('preserves a complete canonical impersonation context', () => {
+    const req = createRequest({
+      headers: {
+        'x-verified-user-assertion': encodeAssertion({
+          tenantId: TENANT,
+          roles: ['SUPER_ADMIN'],
+          impersonationSessionId: '33333333-3333-4333-8333-333333333333',
+          impersonationPermissions: {
+            canViewData: true,
+            canModifyData: false,
+            canAccessSettings: false,
+            canManageUsers: false,
+            canViewBilling: false,
+            canExportData: false,
+            allowedModules: ['farm'],
+          },
+        }),
+      },
+    });
+
+    middleware.use(req, {} as Response, next);
+
+    expect(next).toHaveBeenCalledWith();
+    expect(req.verifiedUserAssertion).toMatchObject({
+      impersonationSessionId: '33333333-3333-4333-8333-333333333333',
+      impersonationPermissions: { allowedModules: ['farm'] },
+    });
+  });
+
+  it('rejects partial or non-canonical impersonation claims', () => {
+    const req = createRequest({
+      headers: {
+        'x-verified-user-assertion': encodeUncheckedAssertion({
+          roles: ['SUPER_ADMIN'],
+          impersonationSessionId: '33333333-3333-4333-8333-333333333333',
+          impersonationPermissions: {
+            canViewData: true,
+            canModifyData: false,
+            canAccessSettings: false,
+            canManageUsers: false,
+            canViewBilling: false,
+            canExportData: false,
+            allowedModules: ['farm-service'],
+          },
+        }),
+      },
+    });
+
+    middleware.use(req, {} as Response, next);
+
+    expect(next.mock.calls[0]?.[0]).toHaveProperty(
+      'message',
+      expect.stringContaining('ASSERTION_INVALID_SHAPE'),
+    );
+  });
+
+  it('rejects unknown impersonation permission fields', () => {
+    const req = createRequest({
+      headers: {
+        'x-verified-user-assertion': encodeUncheckedAssertion({
+          roles: ['SUPER_ADMIN'],
+          impersonationSessionId: '33333333-3333-4333-8333-333333333333',
+          impersonationPermissions: {
+            canViewData: true,
+            canModifyData: false,
+            canAccessSettings: false,
+            canManageUsers: false,
+            canViewBilling: false,
+            canExportData: false,
+            canDeleteAnything: true,
+          },
+        }),
+      },
+    });
+
+    middleware.use(req, {} as Response, next);
+
+    expect(next.mock.calls[0]?.[0]).toHaveProperty(
+      'message',
+      expect.stringContaining('ASSERTION_INVALID_SHAPE'),
+    );
   });
 
   it('does NOT strip legacy identity headers when NO assertion is present (dev/E2E path)', () => {
@@ -146,17 +243,41 @@ describe('VerifiedUserAssertionMiddleware', () => {
     expect(next).toHaveBeenCalledWith();
   });
 
-  it('does not require user assertions for signed GraphQL introspection', () => {
+  it('rejects unsigned production GraphQL requests even when they mix introspection fields', () => {
     const req = createRequest({
       method: 'POST',
       originalUrl: '/graphql',
       url: '/graphql',
-      body: { operationName: 'IntrospectionQuery', query: '{ __schema { queryType { name } } }' },
+      verifiedIdentity: undefined,
+      body: {
+        operationName: 'MixedQuery',
+        query: '{ __schema { queryType { name } } viewer { id } }',
+      },
     });
 
     middleware.use(req, {} as Response, next);
 
-    expect(next).toHaveBeenCalledWith();
+    expect(next.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({ message: 'Subgraph request requires service identity' }),
+    );
+  });
+
+  it('never logs request query strings when rejecting identity', () => {
+    const warning = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+    const req = createRequest({
+      method: 'POST',
+      originalUrl: '/graphql?access_token=must-not-leak',
+      url: '/graphql?access_token=must-not-leak',
+      verifiedIdentity: undefined,
+    });
+
+    middleware.use(req, {} as Response, next);
+
+    expect(warning).toHaveBeenCalledWith(
+      expect.stringContaining('POST /graphql: Subgraph request requires service identity'),
+    );
+    expect(warning.mock.calls.flat().join(' ')).not.toContain('must-not-leak');
+    warning.mockRestore();
   });
 
   it('does not require user assertions from non-gateway internal callers', () => {
@@ -232,7 +353,7 @@ describe('VerifiedUserAssertionMiddleware', () => {
     const req = createRequest({
       headers: {
         'x-verified-user-assertion': encodeAssertion({
-          assignedSiteIds: ['site-a', 'site-b'],
+          assignedSiteIds: ['site-b', 'site-a'],
           mobileFeatures: ['mortality', 'harvest'],
         }),
       },
@@ -244,11 +365,11 @@ describe('VerifiedUserAssertionMiddleware', () => {
     expect(req.user).toEqual(
       expect.objectContaining({
         assignedSiteIds: ['site-a', 'site-b'],
-        mobileFeatures: ['mortality', 'harvest'],
+        mobileFeatures: ['harvest', 'mortality'],
       }),
     );
     expect(req.verifiedUserAssertion?.assignedSiteIds).toEqual(['site-a', 'site-b']);
-    expect(req.verifiedUserAssertion?.mobileFeatures).toEqual(['mortality', 'harvest']);
+    expect(req.verifiedUserAssertion?.mobileFeatures).toEqual(['harvest', 'mortality']);
   });
 
   // MT-HIGH-054: without this round-trip every non-admin fails closed on any
@@ -267,19 +388,19 @@ describe('VerifiedUserAssertionMiddleware', () => {
     expect(next).toHaveBeenCalledWith();
     expect(req.user).toEqual(
       expect.objectContaining({
-        resourcePermissions: ['channels:create_group', 'ai_assistant:use'],
+        resourcePermissions: ['ai_assistant:use', 'channels:create_group'],
       }),
     );
     expect(req.verifiedUserAssertion?.resourcePermissions).toEqual([
-      'channels:create_group',
       'ai_assistant:use',
+      'channels:create_group',
     ]);
   });
 
   it('rejects a malformed resourcePermissions claim (non-string members) fail-closed', () => {
     const req = createRequest({
       headers: {
-        'x-verified-user-assertion': encodeAssertion({
+        'x-verified-user-assertion': encodeUncheckedAssertion({
           resourcePermissions: ['ok:action', 42],
         }),
       },
@@ -289,7 +410,7 @@ describe('VerifiedUserAssertionMiddleware', () => {
 
     const error = next.mock.calls[0]?.[0];
     expect(error).toBeInstanceOf(BadRequestException);
-    expect(error).toHaveProperty('message', expect.stringContaining('resourcePermissions'));
+    expect(error).toHaveProperty('message', expect.stringContaining('ASSERTION_INVALID_SHAPE'));
   });
 
   it('ORPHAN-MEDIUM-319: round-trips clientIp + clientUserAgent onto the parsed assertion', () => {
@@ -316,7 +437,7 @@ describe('VerifiedUserAssertionMiddleware', () => {
   it('ORPHAN-MEDIUM-319: rejects a malformed clientIp claim fail-closed', () => {
     const req = createRequest({
       headers: {
-        'x-verified-user-assertion': encodeAssertion({ clientIp: 42 }),
+        'x-verified-user-assertion': encodeUncheckedAssertion({ clientIp: 42 }),
       },
     });
 
@@ -329,7 +450,9 @@ describe('VerifiedUserAssertionMiddleware', () => {
   it('ORPHAN-MEDIUM-319: rejects an oversized clientUserAgent claim fail-closed', () => {
     const req = createRequest({
       headers: {
-        'x-verified-user-assertion': encodeAssertion({ clientUserAgent: 'x'.repeat(1025) }),
+        'x-verified-user-assertion': encodeUncheckedAssertion({
+          clientUserAgent: 'x'.repeat(1025),
+        }),
       },
     });
 
@@ -379,7 +502,7 @@ describe('VerifiedUserAssertionMiddleware', () => {
   it('rejects a malformed planLevel claim (non-number, fail-closed)', () => {
     const req = createRequest({
       headers: {
-        'x-verified-user-assertion': encodeAssertion({ planLevel: 'pro' }),
+        'x-verified-user-assertion': encodeUncheckedAssertion({ planLevel: 'pro' }),
       },
     });
 
@@ -392,7 +515,9 @@ describe('VerifiedUserAssertionMiddleware', () => {
   it('rejects a malformed assignedSiteIds claim (non-string member, fail-closed)', () => {
     const req = createRequest({
       headers: {
-        'x-verified-user-assertion': encodeAssertion({ assignedSiteIds: ['site-a', 42] }),
+        'x-verified-user-assertion': encodeUncheckedAssertion({
+          assignedSiteIds: ['site-a', 42],
+        }),
       },
     });
 
@@ -400,13 +525,13 @@ describe('VerifiedUserAssertionMiddleware', () => {
 
     const error = next.mock.calls[0]?.[0];
     expect(error).toBeInstanceOf(BadRequestException);
-    expect(error).toHaveProperty('message', expect.stringContaining('invalid assignedSiteIds'));
+    expect(error).toHaveProperty('message', expect.stringContaining('ASSERTION_INVALID_SHAPE'));
   });
 
   it('rejects a malformed mobileFeatures claim (non-array, fail-closed)', () => {
     const req = createRequest({
       headers: {
-        'x-verified-user-assertion': encodeAssertion({ mobileFeatures: 'mortality' }),
+        'x-verified-user-assertion': encodeUncheckedAssertion({ mobileFeatures: 'mortality' }),
       },
     });
 
@@ -414,6 +539,6 @@ describe('VerifiedUserAssertionMiddleware', () => {
 
     const error = next.mock.calls[0]?.[0];
     expect(error).toBeInstanceOf(BadRequestException);
-    expect(error).toHaveProperty('message', expect.stringContaining('invalid mobileFeatures'));
+    expect(error).toHaveProperty('message', expect.stringContaining('ASSERTION_INVALID_SHAPE'));
   });
 });

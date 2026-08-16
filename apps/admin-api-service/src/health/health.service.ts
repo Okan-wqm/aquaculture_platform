@@ -1,5 +1,6 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
+import { NatsEventBus } from '@platform/event-bus';
 import { DataSource } from 'typeorm';
 
 import { GracefulShutdownService } from '../lifecycle/graceful-shutdown.service';
@@ -14,6 +15,7 @@ export class HealthService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly emailSenderService: EmailSenderService,
+    private readonly eventBus: NatsEventBus,
     @Optional() private readonly shutdownService?: GracefulShutdownService,
   ) {}
 
@@ -37,9 +39,18 @@ export class HealthService {
       await this.dataSource.query('SELECT 1');
       return true;
     } catch (error) {
-      this.logger.error(
-        `Database health check failed: ${(error as Error).message}`,
-      );
+      this.logger.error(`Database health check failed: ${(error as Error).message}`);
+      return false;
+    }
+  }
+
+  /** NATS is a mandatory dependency because onboarding completion is event-driven. */
+  async checkNats(): Promise<boolean> {
+    try {
+      const health = await this.eventBus.getHealth();
+      return health.isHealthy && health.connectionState === 'connected';
+    } catch (error) {
+      this.logger.error(`NATS health check failed: ${(error as Error).message}`);
       return false;
     }
   }
@@ -50,7 +61,10 @@ export class HealthService {
   }
 
   /** Get all circuit breaker statuses */
-  getCircuitBreakers(): Record<string, { state: string; consecutiveFailures: number; lastFailureTime: number }> {
+  getCircuitBreakers(): Record<
+    string,
+    { state: string; consecutiveFailures: number; lastFailureTime: number }
+  > {
     return {
       smtp: this.emailSenderService.getCircuitStatus(),
     };

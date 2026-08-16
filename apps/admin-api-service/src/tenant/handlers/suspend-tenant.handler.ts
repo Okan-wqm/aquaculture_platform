@@ -1,31 +1,18 @@
 import * as crypto from 'crypto';
 
-import {
-  Injectable,
-  NotFoundException,
-  BadRequestException,
-  Logger,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
-import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import {
-  TenantSuspendedEvent,
-  TenantActivatedEvent,
-  TenantArchivedEvent,
-  TenantStatusChangedEvent,
-  canTransition,
-  createBaseEvent,
-} from '@platform/event-contracts';
-import { OutboxPublisher } from '@platform/outbox';
-import { DataSource, QueryRunner, Repository } from 'typeorm';
-
-import { AuditLogService } from '../../audit/audit.service';
+import { InjectRepository } from '@nestjs/typeorm';
+import { canTransition } from '@platform/event-contracts';
+import { Repository } from 'typeorm';
 import {
   SuspendTenantCommand,
-  ActivateTenantCommand,
+  ResumeTenantCommand,
   DeactivateTenantCommand,
   ArchiveTenantCommand,
 } from '../commands/tenant.commands';
+import { toTenantSummary } from '../dto/tenant-summary.dto';
+import type { TenantSummaryDto } from '../dto/tenant-summary.dto';
 import { Tenant, TenantStatus } from '../entities/tenant.entity';
 import { AuthTenantProvisioningClientService } from '../services/auth-tenant-provisioning-client.service';
 
@@ -46,8 +33,9 @@ import { AuthTenantProvisioningClientService } from '../services/auth-tenant-pro
  *   2. delegate the write to auth-service via NATS request/reply and treat the
  *      reply as the persistence receipt.
  *   3. re-read the fresh row the owner just committed (same DB) so the
- *      synchronous return contract stays truthful, and record the admin-side
- *      activity row + outbox events atomically in a local transaction.
+ *      synchronous return contract stays truthful. The owner's immutable
+ *      command receipt and TenantStatusChanged outbox row are the evidence;
+ *      admin must not create a second lifecycle/audit authority.
  *
  * No handler here writes auth.tenants — enforced by
  * tests/invariants/admin-no-auth-tenants-writes.spec.ts.
@@ -56,21 +44,17 @@ import { AuthTenantProvisioningClientService } from '../services/auth-tenant-pro
 @Injectable()
 @CommandHandler(SuspendTenantCommand)
 export class SuspendTenantHandler
-  implements ICommandHandler<SuspendTenantCommand, Tenant>
+  implements ICommandHandler<SuspendTenantCommand, TenantSummaryDto>
 {
   private readonly logger = new Logger(SuspendTenantHandler.name);
 
   constructor(
     @InjectRepository(Tenant)
     private readonly tenantRepository: Repository<Tenant>,
-    @InjectDataSource()
-    private readonly dataSource: DataSource,
-    private readonly outboxPublisher: OutboxPublisher,
-    private readonly auditLogService: AuditLogService,
     private readonly authProvisioningClient: AuthTenantProvisioningClientService,
   ) {}
 
-  async execute(command: SuspendTenantCommand): Promise<Tenant> {
+  async execute(command: SuspendTenantCommand): Promise<TenantSummaryDto> {
     const { tenantId, data, suspendedBy } = command;
 
     const tenant = await this.tenantRepository.findOne({
@@ -90,110 +74,35 @@ export class SuspendTenantHandler
       );
     }
 
-    const previousStatus = tenant.status;
-
     // The owner persists status + suspendedAt/suspendedReason/suspendedBy
     // (DB-ADMIN-HIGH-003) atomically; a non-success reply throws before any
     // local side effect.
     await this.authProvisioningClient.suspendTenant({
-      ...buildLifecycleCommandMetadata(
-        'SuspendTenant',
-        tenantId,
-        suspendedBy,
-        { reason: data.reason },
-      ),
+      ...buildLifecycleCommandMetadata('SuspendTenant', tenantId, suspendedBy, {
+        reason: data.reason,
+      }),
       reason: data.reason,
     });
 
-    const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
-      const refreshed = await requireFreshTenantRow(
-        queryRunner,
-        tenantId,
-        'suspension',
-      );
-
-      await queryRunner.manager.query(
-        `INSERT INTO admin.tenant_activities
-           ("tenantId", "activityType", title, description,
-            "previousValue", "newValue", "performedBy", "createdAt")
-         VALUES
-           ($1, 'suspended', 'Status changed: suspended', $2,
-            jsonb_build_object('status', $3::text),
-            '{"status":"suspended"}'::jsonb,
-            $4, NOW())`,
-        [tenantId, data.reason || 'Tenant suspended', previousStatus, suspendedBy],
-      );
-
-      const suspendedEvent: TenantSuspendedEvent = {
-        ...createBaseEvent<TenantSuspendedEvent>('TenantSuspended', tenantId, { aggregateId: tenantId, aggregateType: 'Tenant' }),
-        reason: data.reason,
-        suspendedBy,
-      };
-      await this.outboxPublisher.enqueue(suspendedEvent, queryRunner.manager, {
-        aggregateId: tenantId,
-      });
-
-      // Publish TenantStatusChangedEvent for generic status-change consumers
-      const statusChangedEvent: TenantStatusChangedEvent = {
-        ...createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged', tenantId, { aggregateId: tenantId, aggregateType: 'Tenant' }),
-        previousStatus,
-        newStatus: TenantStatus.SUSPENDED,
-        reason: data.reason,
-      };
-      await this.outboxPublisher.enqueue(statusChangedEvent, queryRunner.manager, {
-        aggregateId: tenantId,
-      });
-
-      await queryRunner.commitTransaction();
-
-      this.logger.warn(
-        `Tenant suspended: ${tenantId} by ${suspendedBy}. Reason: ${data.reason}`,
-      );
-
-      await this.auditLogService.log({
-        action: 'TENANT_SUSPENDED',
-        entityType: 'tenant',
-        entityId: tenantId,
-        performedBy: suspendedBy,
-        details: {
-          reason: data.reason,
-          previousStatus,
-        },
-      });
-
-      return refreshed;
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+    const refreshed = await requireFreshTenantRow(this.tenantRepository, tenantId, 'suspension');
+    this.logger.warn(`Tenant suspended: ${tenantId} by ${suspendedBy}. Reason: ${data.reason}`);
+    return toTenantSummary(refreshed);
   }
 }
 
 @Injectable()
-@CommandHandler(ActivateTenantCommand)
-export class ActivateTenantHandler
-  implements ICommandHandler<ActivateTenantCommand, Tenant>
-{
-  private readonly logger = new Logger(ActivateTenantHandler.name);
+@CommandHandler(ResumeTenantCommand)
+export class ResumeTenantHandler implements ICommandHandler<ResumeTenantCommand, TenantSummaryDto> {
+  private readonly logger = new Logger(ResumeTenantHandler.name);
 
   constructor(
     @InjectRepository(Tenant)
     private readonly tenantRepository: Repository<Tenant>,
-    @InjectDataSource()
-    private readonly dataSource: DataSource,
-    private readonly outboxPublisher: OutboxPublisher,
-    private readonly auditLogService: AuditLogService,
     private readonly authProvisioningClient: AuthTenantProvisioningClientService,
   ) {}
 
-  async execute(command: ActivateTenantCommand): Promise<Tenant> {
-    const { tenantId, activatedBy } = command;
+  async execute(command: ResumeTenantCommand): Promise<TenantSummaryDto> {
+    const { tenantId, resumedBy } = command;
 
     const tenant = await this.tenantRepository.findOne({
       where: { id: tenantId },
@@ -203,110 +112,41 @@ export class ActivateTenantHandler
       throw new NotFoundException(`Tenant with ID '${tenantId}' not found`);
     }
 
-    // MT-HIGH-003: the machine owns the legal source states for -> ACTIVE
-    // (SUSPENDED/DEACTIVATED/CANCELLED reactivation + PROVISIONING finalize).
-    // ARCHIVED/PURGED/PENDING are rejected — re-archival or terminal states
-    // cannot be activated.
-    if (!canTransition(tenant.status, TenantStatus.ACTIVE)) {
+    // Resumption is deliberately narrower than the canonical machine edge set:
+    // onboarding owns PROVISIONING -> ACTIVE and only a sealed ActivateTenant
+    // may drive it. This command owns SUSPENDED -> ACTIVE only.
+    if (tenant.status !== TenantStatus.SUSPENDED) {
       throw new BadRequestException(
-        `Cannot activate a tenant in ${tenant.status} state — it is not a legal source for ACTIVE.`,
+        `Cannot resume a tenant in ${tenant.status} state — only SUSPENDED tenants can be resumed.`,
       );
     }
-
-    const previousStatus = tenant.status;
 
     // The owner persists status = ACTIVE and clears the suspension audit trio
     // (DB-ADMIN-HIGH-003) atomically.
-    await this.authProvisioningClient.activateTenant({
-      ...buildLifecycleCommandMetadata(
-        'ActivateTenant',
-        tenantId,
-        activatedBy,
-        {},
-      ),
+    await this.authProvisioningClient.resumeTenant({
+      ...buildLifecycleCommandMetadata('ResumeTenant', tenantId, resumedBy, {}),
     });
 
-    const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
-      const refreshed = await requireFreshTenantRow(
-        queryRunner,
-        tenantId,
-        'activation',
-      );
-
-      await queryRunner.manager.query(
-        `INSERT INTO admin.tenant_activities
-           ("tenantId", "activityType", title, description,
-            "previousValue", "newValue", "performedBy", "createdAt")
-         VALUES
-           ($1, 'activated', 'Status changed: active', 'Tenant activated',
-            jsonb_build_object('status', $2::text),
-            '{"status":"active"}'::jsonb,
-            $3, NOW())`,
-        [tenantId, previousStatus, activatedBy],
-      );
-
-      const activatedEvent: TenantActivatedEvent = {
-        ...createBaseEvent<TenantActivatedEvent>('TenantActivated', tenantId, { aggregateId: tenantId, aggregateType: 'Tenant' }),
-        activatedBy,
-      };
-      await this.outboxPublisher.enqueue(activatedEvent, queryRunner.manager, {
-        aggregateId: tenantId,
-      });
-
-      // Publish TenantStatusChangedEvent for generic status-change consumers
-      const statusChangedEvent: TenantStatusChangedEvent = {
-        ...createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged', tenantId, { aggregateId: tenantId, aggregateType: 'Tenant' }),
-        previousStatus,
-        newStatus: TenantStatus.ACTIVE,
-      };
-      await this.outboxPublisher.enqueue(statusChangedEvent, queryRunner.manager, {
-        aggregateId: tenantId,
-      });
-
-      await queryRunner.commitTransaction();
-
-      this.logger.log(`Tenant activated: ${tenantId} by ${activatedBy}`);
-
-      await this.auditLogService.log({
-        action: 'TENANT_ACTIVATED',
-        entityType: 'tenant',
-        entityId: tenantId,
-        performedBy: activatedBy,
-        details: { previousStatus },
-      });
-
-      return refreshed;
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+    const refreshed = await requireFreshTenantRow(this.tenantRepository, tenantId, 'activation');
+    this.logger.log(`Tenant resumed: ${tenantId} by ${resumedBy}`);
+    return toTenantSummary(refreshed);
   }
 }
 
 @Injectable()
 @CommandHandler(DeactivateTenantCommand)
 export class DeactivateTenantHandler
-  implements ICommandHandler<DeactivateTenantCommand, Tenant>
+  implements ICommandHandler<DeactivateTenantCommand, TenantSummaryDto>
 {
   private readonly logger = new Logger(DeactivateTenantHandler.name);
 
   constructor(
     @InjectRepository(Tenant)
     private readonly tenantRepository: Repository<Tenant>,
-    @InjectDataSource()
-    private readonly dataSource: DataSource,
-    private readonly outboxPublisher: OutboxPublisher,
-    private readonly auditLogService: AuditLogService,
     private readonly authProvisioningClient: AuthTenantProvisioningClientService,
   ) {}
 
-  async execute(command: DeactivateTenantCommand): Promise<Tenant> {
+  async execute(command: DeactivateTenantCommand): Promise<TenantSummaryDto> {
     const { tenantId, reason, deactivatedBy } = command;
 
     const tenant = await this.tenantRepository.findOne({
@@ -326,78 +166,31 @@ export class DeactivateTenantHandler
       );
     }
 
-    const previousStatus = tenant.status;
     await this.authProvisioningClient.deprovisionTenant({
-      ...buildLifecycleCommandMetadata(
-        'DeprovisionTenant',
-        tenantId,
-        deactivatedBy,
-        { reason },
-      ),
+      ...buildLifecycleCommandMetadata('DeprovisionTenant', tenantId, deactivatedBy, { reason }),
       reason,
     });
 
-    const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
-      const refreshed = await requireFreshTenantRow(
-        queryRunner,
-        tenantId,
-        'deactivation',
-      );
-
-      const statusChangedEvent: TenantStatusChangedEvent = {
-        ...createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged', tenantId, { aggregateId: tenantId, aggregateType: 'Tenant' }),
-        previousStatus,
-        newStatus: TenantStatus.DEACTIVATED,
-        reason,
-      };
-      await this.outboxPublisher.enqueue(statusChangedEvent, queryRunner.manager, {
-        aggregateId: tenantId,
-      });
-
-      await queryRunner.commitTransaction();
-
-      this.logger.warn(`Tenant deactivated: ${tenantId} by ${deactivatedBy}`);
-
-      await this.auditLogService.log({
-        action: 'TENANT_DEACTIVATED',
-        entityType: 'tenant',
-        entityId: tenantId,
-        performedBy: deactivatedBy,
-        details: { reason, previousStatus },
-      });
-
-      return refreshed;
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+    const refreshed = await requireFreshTenantRow(this.tenantRepository, tenantId, 'deactivation');
+    this.logger.warn(`Tenant deactivated: ${tenantId} by ${deactivatedBy}`);
+    return toTenantSummary(refreshed);
   }
 }
 
 @Injectable()
 @CommandHandler(ArchiveTenantCommand)
 export class ArchiveTenantHandler
-  implements ICommandHandler<ArchiveTenantCommand, Tenant>
+  implements ICommandHandler<ArchiveTenantCommand, TenantSummaryDto>
 {
   private readonly logger = new Logger(ArchiveTenantHandler.name);
 
   constructor(
     @InjectRepository(Tenant)
     private readonly tenantRepository: Repository<Tenant>,
-    @InjectDataSource()
-    private readonly dataSource: DataSource,
-    private readonly outboxPublisher: OutboxPublisher,
-    private readonly auditLogService: AuditLogService,
     private readonly authProvisioningClient: AuthTenantProvisioningClientService,
   ) {}
 
-  async execute(command: ArchiveTenantCommand): Promise<Tenant> {
+  async execute(command: ArchiveTenantCommand): Promise<TenantSummaryDto> {
     const { tenantId, archivedBy } = command;
 
     const tenant = await this.tenantRepository.findOne({
@@ -418,64 +211,13 @@ export class ArchiveTenantHandler
       );
     }
 
-    const previousStatus = tenant.status;
     await this.authProvisioningClient.archiveTenant({
-      ...buildLifecycleCommandMetadata(
-        'ArchiveTenant',
-        tenantId,
-        archivedBy,
-        {},
-      ),
+      ...buildLifecycleCommandMetadata('ArchiveTenant', tenantId, archivedBy, {}),
     });
 
-    const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
-      const refreshed = await requireFreshTenantRow(
-        queryRunner,
-        tenantId,
-        'archival',
-      );
-
-      const archivedEvent: TenantArchivedEvent = {
-        ...createBaseEvent<TenantArchivedEvent>('TenantArchived', tenantId, { aggregateId: tenantId, aggregateType: 'Tenant' }),
-        archivedBy,
-      };
-      await this.outboxPublisher.enqueue(archivedEvent, queryRunner.manager, {
-        aggregateId: tenantId,
-      });
-
-      // Publish TenantStatusChangedEvent for generic status-change consumers
-      const statusChangedEvent: TenantStatusChangedEvent = {
-        ...createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged', tenantId, { aggregateId: tenantId, aggregateType: 'Tenant' }),
-        previousStatus,
-        newStatus: TenantStatus.ARCHIVED,
-      };
-      await this.outboxPublisher.enqueue(statusChangedEvent, queryRunner.manager, {
-        aggregateId: tenantId,
-      });
-
-      await queryRunner.commitTransaction();
-
-      this.logger.warn(`Tenant archived: ${tenantId} by ${archivedBy}`);
-
-      await this.auditLogService.log({
-        action: 'TENANT_ARCHIVED',
-        entityType: 'tenant',
-        entityId: tenantId,
-        performedBy: archivedBy,
-        details: { previousStatus },
-      });
-
-      return refreshed;
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+    const refreshed = await requireFreshTenantRow(this.tenantRepository, tenantId, 'archival');
+    this.logger.warn(`Tenant archived: ${tenantId} by ${archivedBy}`);
+    return toTenantSummary(refreshed);
   }
 }
 
@@ -493,11 +235,11 @@ export class ArchiveTenantHandler
  * error, not a fabricated entity.
  */
 async function requireFreshTenantRow(
-  queryRunner: QueryRunner,
+  tenantRepository: Pick<Repository<Tenant>, 'findOne'>,
   tenantId: string,
   transitionLabel: string,
 ): Promise<Tenant> {
-  const refreshed = await queryRunner.manager.findOne(Tenant, {
+  const refreshed = await tenantRepository.findOne({
     where: { id: tenantId },
   });
   if (!refreshed) {

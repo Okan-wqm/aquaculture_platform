@@ -8,6 +8,10 @@ import { useLocation, useNavigate } from 'react-router-dom';
 
 import CreateInvoiceModal, { type CreateInvoicePayload } from '../components/CreateInvoiceModal';
 import { billingApi, InvoiceOverview } from '../services/adminApi';
+import {
+  createAdminDownloadFilename,
+  downloadAdminOwnedBlob,
+} from '../services/browser-capabilities';
 
 interface Invoice {
   id: string;
@@ -18,7 +22,15 @@ interface Invoice {
   amount: number;
   amountPaid: number;
   amountDue: number;
-  status: 'draft' | 'pending' | 'sent' | 'paid' | 'partially_paid' | 'overdue' | 'void' | 'refunded';
+  status:
+    | 'draft'
+    | 'pending'
+    | 'sent'
+    | 'paid'
+    | 'partially_paid'
+    | 'overdue'
+    | 'void'
+    | 'refunded';
   currency: string;
   dueDate: string;
   paidAt?: string | null;
@@ -73,7 +85,10 @@ const InvoicesPage: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(location.pathname === invoiceCreateRoute);
 
   // Toast notification
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [toast, setToast] = useState<{
+    message: string;
+    type: 'success' | 'error' | 'info';
+  } | null>(null);
 
   // Mark as Paid modal
   const [showMarkPaidModal, setShowMarkPaidModal] = useState(false);
@@ -96,7 +111,7 @@ const InvoicesPage: React.FC = () => {
       setError(null);
 
       const data = await billingApi.getInvoices({
-        status: statusFilter !== 'all' ? statusFilter : undefined,
+        status: statusFilter !== 'all' ? [statusFilter] : undefined,
         search: searchTerm || undefined,
         limit: 100,
       });
@@ -104,7 +119,8 @@ const InvoicesPage: React.FC = () => {
       const mappedInvoices: Invoice[] = (data.invoices || []).map((inv: InvoiceOverview) => ({
         ...inv,
         amount: typeof inv.amount === 'string' ? parseFloat(inv.amount) : inv.amount,
-        amountPaid: typeof inv.amountPaid === 'string' ? parseFloat(inv.amountPaid) : inv.amountPaid,
+        amountPaid:
+          typeof inv.amountPaid === 'string' ? parseFloat(inv.amountPaid) : inv.amountPaid,
         amountDue: typeof inv.amountDue === 'string' ? parseFloat(inv.amountDue) : inv.amountDue,
         status: inv.status as Invoice['status'],
       }));
@@ -144,26 +160,31 @@ const InvoicesPage: React.FC = () => {
     setShowCreateModal(location.pathname === invoiceCreateRoute);
   }, [invoiceCreateRoute, location.pathname, location.search]);
 
-  const updateInvoiceListQuery = useCallback((next: { status?: string; search?: string }) => {
-    const params = new URLSearchParams(location.search);
-    const nextStatus = next.status ?? statusFilter;
-    const nextSearch = next.search ?? searchTerm;
+  const updateInvoiceListQuery = useCallback(
+    (next: { status?: string; search?: string }) => {
+      const params = new URLSearchParams(location.search);
+      const nextStatus = next.status ?? statusFilter;
+      const nextSearch = next.search ?? searchTerm;
 
-    if (nextStatus && nextStatus !== 'all') {
-      params.set('status', nextStatus);
-    } else {
-      params.delete('status');
-    }
+      if (nextStatus && nextStatus !== 'all') {
+        params.set('status', nextStatus);
+      } else {
+        params.delete('status');
+      }
 
-    if (nextSearch.trim()) {
-      params.set('search', nextSearch.trim());
-    } else {
-      params.delete('search');
-    }
+      if (nextSearch.trim()) {
+        params.set('search', nextSearch.trim());
+      } else {
+        params.delete('search');
+      }
 
-    const query = params.toString();
-    navigate(`${invoiceListRoute}${query ? `?${query}` : ''}`, { replace: location.pathname === invoiceListRoute });
-  }, [invoiceListRoute, location.pathname, location.search, navigate, searchTerm, statusFilter]);
+      const query = params.toString();
+      navigate(`${invoiceListRoute}${query ? `?${query}` : ''}`, {
+        replace: location.pathname === invoiceListRoute,
+      });
+    },
+    [invoiceListRoute, location.pathname, location.search, navigate, searchTerm, statusFilter],
+  );
 
   const handleSearchChange = (value: string): void => {
     setSearchTerm(value);
@@ -194,7 +215,10 @@ const InvoicesPage: React.FC = () => {
       return;
     }
     if (amount > selectedInvoice.amountDue) {
-      showToast(`Amount exceeds amount due (${formatCurrency(selectedInvoice.amountDue, selectedInvoice.currency)})`, 'error');
+      showToast(
+        `Amount exceeds amount due (${formatCurrency(selectedInvoice.amountDue, selectedInvoice.currency)})`,
+        'error',
+      );
       return;
     }
 
@@ -239,12 +263,15 @@ const InvoicesPage: React.FC = () => {
    * Handles submission from the extracted CreateInvoiceModal component.
    * Delegates to the billing API, then refreshes the invoice list and stats.
    */
-  const handleCreateInvoiceSubmit = useCallback(async (data: CreateInvoicePayload): Promise<void> => {
-    await billingApi.createInvoice(data);
-    showToast('Invoice created successfully', 'success');
-    closeCreateInvoice();
-    await Promise.all([fetchInvoices(), fetchStats()]);
-  }, [closeCreateInvoice, fetchInvoices, fetchStats]);
+  const handleCreateInvoiceSubmit = useCallback(
+    async (data: CreateInvoicePayload): Promise<void> => {
+      await billingApi.createInvoice(data);
+      showToast('Invoice created successfully', 'success');
+      closeCreateInvoice();
+      await Promise.all([fetchInvoices(), fetchStats()]);
+    },
+    [closeCreateInvoice, fetchInvoices, fetchStats],
+  );
 
   /**
    * Export invoices to a CSV file.
@@ -305,14 +332,12 @@ const InvoicesPage: React.FC = () => {
     ].join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `invoices-${new Date().toISOString().split('T')[0]}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    downloadAdminOwnedBlob({
+      blob,
+      filename: createAdminDownloadFilename(
+        `invoices-${new Date().toISOString().split('T')[0]}.csv`,
+      ),
+    });
 
     showToast(`Exported ${invoices.length} invoices`, 'success');
   };
@@ -329,7 +354,8 @@ const InvoicesPage: React.FC = () => {
     setShowVoidModal(true);
   };
 
-  const canMarkPaid = selectedInvoice && !['paid', 'void', 'refunded', 'draft'].includes(selectedInvoice.status);
+  const canMarkPaid =
+    selectedInvoice && !['paid', 'void', 'refunded', 'draft'].includes(selectedInvoice.status);
   const canVoid = selectedInvoice && !['paid', 'void', 'refunded'].includes(selectedInvoice.status);
 
   const statusColors: Record<string, string> = {
@@ -358,11 +384,15 @@ const InvoicesPage: React.FC = () => {
     <div className="space-y-6">
       {/* Toast Notification */}
       {toast && (
-        <div className={`fixed top-4 right-4 z-[100] px-4 py-3 rounded-lg shadow-lg text-sm font-medium transition-all ${
-          toast.type === 'success' ? 'bg-green-50 text-green-800 border border-green-200' :
-          toast.type === 'error' ? 'bg-red-50 text-red-800 border border-red-200' :
-          'bg-blue-50 text-blue-800 border border-blue-200'
-        }`}>
+        <div
+          className={`fixed top-4 right-4 z-[100] px-4 py-3 rounded-lg shadow-lg text-sm font-medium transition-all ${
+            toast.type === 'success'
+              ? 'bg-green-50 text-green-800 border border-green-200'
+              : toast.type === 'error'
+                ? 'bg-red-50 text-red-800 border border-red-200'
+                : 'bg-blue-50 text-blue-800 border border-blue-200'
+          }`}
+        >
           {toast.message}
         </div>
       )}
@@ -371,9 +401,7 @@ const InvoicesPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Invoices</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Manage and track all tenant invoices
-          </p>
+          <p className="mt-1 text-sm text-gray-500">Manage and track all tenant invoices</p>
         </div>
         <div className="flex gap-2">
           <button
@@ -399,19 +427,27 @@ const InvoicesPage: React.FC = () => {
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
           <p className="text-sm text-gray-500">Total Amount</p>
-          <p className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(stats.totalAmount)}</p>
+          <p className="text-2xl font-bold text-gray-900 mt-1">
+            {formatCurrency(stats.totalAmount)}
+          </p>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
           <p className="text-sm text-gray-500">Paid</p>
-          <p className="text-2xl font-bold text-green-600 mt-1">{formatCurrency(stats.totalPaid)}</p>
+          <p className="text-2xl font-bold text-green-600 mt-1">
+            {formatCurrency(stats.totalPaid)}
+          </p>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
           <p className="text-sm text-gray-500">Pending</p>
-          <p className="text-2xl font-bold text-yellow-600 mt-1">{formatCurrency(stats.totalPending)}</p>
+          <p className="text-2xl font-bold text-yellow-600 mt-1">
+            {formatCurrency(stats.totalPending)}
+          </p>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
           <p className="text-sm text-gray-500">Overdue</p>
-          <p className="text-2xl font-bold text-red-600 mt-1">{formatCurrency(stats.totalOverdue)}</p>
+          <p className="text-2xl font-bold text-red-600 mt-1">
+            {formatCurrency(stats.totalOverdue)}
+          </p>
         </div>
       </div>
 
@@ -449,7 +485,12 @@ const InvoicesPage: React.FC = () => {
                 stroke="currentColor"
                 viewBox="0 0 24 24"
               >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
               </svg>
             </div>
           </div>
@@ -487,8 +528,18 @@ const InvoicesPage: React.FC = () => {
           </div>
         ) : invoices.length === 0 ? (
           <div className="p-8 text-center text-gray-500">
-            <svg className="mx-auto h-12 w-12 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            <svg
+              className="mx-auto h-12 w-12 text-gray-500"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={1.5}
+                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+              />
             </svg>
             <p className="mt-2">No invoices found</p>
           </div>
@@ -521,31 +572,43 @@ const InvoicesPage: React.FC = () => {
                 <tr key={invoice.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div>
-                      <div className="text-sm font-medium text-gray-900">{invoice.invoiceNumber}</div>
+                      <div className="text-sm font-medium text-gray-900">
+                        {invoice.invoiceNumber}
+                      </div>
                       <div className="text-xs text-gray-500">{formatDate(invoice.createdAt)}</div>
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div>
-                      <div className="text-sm font-medium text-gray-900">{invoice.tenantName || 'Unknown'}</div>
+                      <div className="text-sm font-medium text-gray-900">
+                        {invoice.tenantName || 'Unknown'}
+                      </div>
                       <div className="text-xs text-gray-500">{invoice.tenantEmail || '-'}</div>
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-semibold text-gray-900">{formatCurrency(invoice.amount, invoice.currency)}</div>
+                    <div className="text-sm font-semibold text-gray-900">
+                      {formatCurrency(invoice.amount, invoice.currency)}
+                    </div>
                     {invoice.amountDue > 0 && invoice.amountDue < invoice.amount && (
-                      <div className="text-xs text-orange-600">Due: {formatCurrency(invoice.amountDue, invoice.currency)}</div>
+                      <div className="text-xs text-orange-600">
+                        Due: {formatCurrency(invoice.amountDue, invoice.currency)}
+                      </div>
                     )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${statusColors[invoice.status] || 'bg-gray-100 text-gray-700'}`}>
+                    <span
+                      className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${statusColors[invoice.status] || 'bg-gray-100 text-gray-700'}`}
+                    >
                       {statusLabels[invoice.status] || invoice.status}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm text-gray-900">{formatDate(invoice.dueDate)}</div>
                     {invoice.paidAt && (
-                      <div className="text-xs text-green-600">Paid: {formatDate(invoice.paidAt)}</div>
+                      <div className="text-xs text-green-600">
+                        Paid: {formatDate(invoice.paidAt)}
+                      </div>
                     )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
@@ -569,13 +632,20 @@ const InvoicesPage: React.FC = () => {
           <div className="bg-white rounded-xl shadow-xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b border-gray-200">
               <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-gray-900">{selectedInvoice.invoiceNumber}</h2>
+                <h2 className="text-lg font-semibold text-gray-900">
+                  {selectedInvoice.invoiceNumber}
+                </h2>
                 <button
                   onClick={() => setSelectedInvoice(null)}
                   className="text-gray-500 hover:text-gray-600"
                 >
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
                   </svg>
                 </button>
               </div>
@@ -583,7 +653,9 @@ const InvoicesPage: React.FC = () => {
             <div className="p-6 space-y-4">
               <div className="flex justify-between">
                 <span className="text-sm text-gray-500">Tenant</span>
-                <span className="text-sm font-medium text-gray-900">{selectedInvoice.tenantName || 'Unknown'}</span>
+                <span className="text-sm font-medium text-gray-900">
+                  {selectedInvoice.tenantName || 'Unknown'}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-sm text-gray-500">Email</span>
@@ -591,13 +663,17 @@ const InvoicesPage: React.FC = () => {
               </div>
               <div className="flex justify-between">
                 <span className="text-sm text-gray-500">Status</span>
-                <span className={`px-2 py-1 text-xs font-medium rounded-full ${statusColors[selectedInvoice.status] || 'bg-gray-100 text-gray-700'}`}>
+                <span
+                  className={`px-2 py-1 text-xs font-medium rounded-full ${statusColors[selectedInvoice.status] || 'bg-gray-100 text-gray-700'}`}
+                >
                   {statusLabels[selectedInvoice.status] || selectedInvoice.status}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-sm text-gray-500">Issue Date</span>
-                <span className="text-sm text-gray-900">{formatDate(selectedInvoice.issueDate)}</span>
+                <span className="text-sm text-gray-900">
+                  {formatDate(selectedInvoice.issueDate)}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-sm text-gray-500">Due Date</span>
@@ -606,22 +682,29 @@ const InvoicesPage: React.FC = () => {
               <div className="flex justify-between">
                 <span className="text-sm text-gray-500">Period</span>
                 <span className="text-sm text-gray-900">
-                  {formatDate(selectedInvoice.periodStart)} - {formatDate(selectedInvoice.periodEnd)}
+                  {formatDate(selectedInvoice.periodStart)} -{' '}
+                  {formatDate(selectedInvoice.periodEnd)}
                 </span>
               </div>
 
               <div className="border-t border-gray-200 pt-4 mt-4">
                 <div className="flex justify-between py-2">
                   <span className="text-sm text-gray-600">Subtotal</span>
-                  <span className="text-sm font-medium text-gray-900">{formatCurrency(selectedInvoice.amount, selectedInvoice.currency)}</span>
+                  <span className="text-sm font-medium text-gray-900">
+                    {formatCurrency(selectedInvoice.amount, selectedInvoice.currency)}
+                  </span>
                 </div>
                 <div className="flex justify-between py-2">
                   <span className="text-sm text-gray-600">Amount Paid</span>
-                  <span className="text-sm font-medium text-green-600">{formatCurrency(selectedInvoice.amountPaid, selectedInvoice.currency)}</span>
+                  <span className="text-sm font-medium text-green-600">
+                    {formatCurrency(selectedInvoice.amountPaid, selectedInvoice.currency)}
+                  </span>
                 </div>
                 <div className="flex justify-between pt-3 border-t border-gray-200 mt-3">
                   <span className="text-sm font-semibold text-gray-900">Amount Due</span>
-                  <span className="text-sm font-bold text-gray-900">{formatCurrency(selectedInvoice.amountDue, selectedInvoice.currency)}</span>
+                  <span className="text-sm font-bold text-gray-900">
+                    {formatCurrency(selectedInvoice.amountDue, selectedInvoice.currency)}
+                  </span>
                 </div>
               </div>
             </div>
@@ -682,7 +765,10 @@ const InvoicesPage: React.FC = () => {
             </div>
             <div className="p-6 border-t border-gray-200 flex gap-3">
               <button
-                onClick={() => { setShowMarkPaidModal(false); setMarkPaidAmount(''); }}
+                onClick={() => {
+                  setShowMarkPaidModal(false);
+                  setMarkPaidAmount('');
+                }}
                 className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
                 disabled={markPaidLoading}
               >
@@ -719,7 +805,10 @@ const InvoicesPage: React.FC = () => {
                 </p>
               </div>
               <div>
-                <label htmlFor="invoice-void-reason" className="block text-sm font-medium text-gray-700 mb-1">
+                <label
+                  htmlFor="invoice-void-reason"
+                  className="block text-sm font-medium text-gray-700 mb-1"
+                >
                   Reason for voiding
                 </label>
                 <textarea
@@ -734,7 +823,10 @@ const InvoicesPage: React.FC = () => {
             </div>
             <div className="p-6 border-t border-gray-200 flex gap-3">
               <button
-                onClick={() => { setShowVoidModal(false); setVoidReason(''); }}
+                onClick={() => {
+                  setShowVoidModal(false);
+                  setVoidReason('');
+                }}
                 className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
                 disabled={voidLoading}
               >
@@ -756,10 +848,7 @@ const InvoicesPage: React.FC = () => {
 
       {/* Create Invoice Modal -- extracted to separate component for maintainability */}
       {showCreateModal && (
-        <CreateInvoiceModal
-          onSubmit={handleCreateInvoiceSubmit}
-          onClose={closeCreateInvoice}
-        />
+        <CreateInvoiceModal onSubmit={handleCreateInvoiceSubmit} onClose={closeCreateInvoice} />
       )}
     </div>
   );

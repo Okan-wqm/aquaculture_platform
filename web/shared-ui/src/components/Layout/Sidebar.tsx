@@ -21,7 +21,7 @@ export type SidebarTheme = 'default' | 'admin' | 'tenant';
 
 export interface SidebarProps {
   /** Navigation items */
-  items: NavItem[];
+  items: readonly NavItem[];
   /** Active path */
   activePath?: string;
   /** Navigation handler */

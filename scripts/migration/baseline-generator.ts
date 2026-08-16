@@ -90,14 +90,13 @@ import { execSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync } from 'node:fs';
 import { resolve, join, basename, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { appendOnlyTableBaseNames } from '../../libs/backend-common/src/constants/protected-tables';
 
 // ESM-safe __dirname equivalent — tools/gates/tsconfig.json compiles
 // modules as ESM; require/__dirname is unavailable. fileURLToPath +
 // dirname recovers the script's directory.
 const SCRIPT_DIR =
-  typeof __dirname === 'string'
-    ? __dirname
-    : dirname(fileURLToPath(import.meta.url));
+  typeof __dirname === 'string' ? __dirname : dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, '..', '..');
 
 /**
@@ -242,7 +241,15 @@ function audit(svc: { service: string; schema: string; tenantScoped: boolean }):
   // Services use either src/migrations/ (auth, admin-api, event-store,
   // messaging) or src/database/migrations/. Try both.
   const candidates = [
-    join(REPO_ROOT, 'apps', svc.service, 'src', 'database', 'migrations', '1800000000000-Baseline.ts'),
+    join(
+      REPO_ROOT,
+      'apps',
+      svc.service,
+      'src',
+      'database',
+      'migrations',
+      '1800000000000-Baseline.ts',
+    ),
     join(REPO_ROOT, 'apps', svc.service, 'src', 'migrations', '1800000000000-Baseline.ts'),
   ];
   const baseline = candidates.find((p) => existsSync(p));
@@ -294,7 +301,7 @@ function audit(svc: { service: string; schema: string; tenantScoped: boolean }):
   if (svc.service === 'sensor-service') {
     if (!/create_hypertable\s*\(/i.test(src)) {
       result.failures.push(
-        "sensor-service baseline missing create_hypertable() call — hand-author required (TypeORM does not emit hypertable DDL)",
+        'sensor-service baseline missing create_hypertable() call — hand-author required (TypeORM does not emit hypertable DDL)',
       );
     } else {
       result.passes++;
@@ -327,16 +334,7 @@ function audit(svc: { service: string; schema: string; tenantScoped: boolean }):
   // (e) immutability triggers for known audit tables.
   // Use schema-qualified exact-name regex so a bare 'audit_logs' check
   // does not false-match 'farm_audit_logs' / 'sensor_audit_logs'.
-  const PROTECTED_TABLE_NAMES = [
-    'audit_logs',
-    'farm_audit_logs',
-    'sensor_audit_logs',
-    'payroll_audit',
-    'alert_audit_log',
-    'tool_execution_audit',
-    'compliance_audit_log',
-    'impersonation_sessions',
-  ];
+  const PROTECTED_TABLE_NAMES = appendOnlyTableBaseNames();
   for (const tbl of PROTECTED_TABLE_NAMES) {
     // Exact match against `CREATE TABLE "<schema>"."<tbl>"`.
     if (new RegExp(`CREATE TABLE "[^"]+"\\."${tbl}"`, 'i').test(src)) {
@@ -366,16 +364,13 @@ function verify(svc: { service: string }): void {
 function main(): void {
   const args = parseArgs();
   if (!args.mode) {
-    console.error(
-      'Missing mode flag. Use one of: --archive-old, --generate, --audit, --verify',
-    );
+    console.error('Missing mode flag. Use one of: --archive-old, --generate, --audit, --verify');
     process.exit(2);
   }
 
-  const targets =
-    args.all
-      ? SERVICE_ORDER
-      : SERVICE_ORDER.filter((s) => s.service === args.service);
+  const targets = args.all
+    ? SERVICE_ORDER
+    : SERVICE_ORDER.filter((s) => s.service === args.service);
 
   if (targets.length === 0) {
     console.error(`No service matches --service "${args.service}" and --all not set`);

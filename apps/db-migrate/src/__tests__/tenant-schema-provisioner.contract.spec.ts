@@ -106,9 +106,10 @@ describe('tenant schema provisioner contract', () => {
       'Tenant schema deletion requires cleanupProof evidence',
     );
     expect(provisioningFunction).toContain("'PROVISION'");
-    expect(deletionFunction).toContain("'tenant_deprovision', 'tenant_erasure'");
+    expect(deletionFunction).toContain('Tenant schema deletion requires tenant_erasure cleanupProof');
+    expect(deletionFunction).not.toContain('tenant_deprovision');
     expect(deletionFunction).toContain('Tenant schema deletion requires cleanupProof evidence');
-    expect(deletionFunction).toContain('Tenant schema deletion requires encrypted backup evidence');
+    expect(deletionFunction).not.toContain('Tenant schema deletion requires encrypted backup evidence');
     expect(deletionFunction).toContain("'DELETE'");
   });
 

@@ -10,17 +10,22 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, Button, Badge, Input, Select, Alert, RadioGroup } from '@aquaculture/shared-ui';
+import { canonicalWireJsonContentSha256V1 } from '@aquaculture/shared-contracts';
+import {
+  PRICING_METRIC_CATALOG,
+  PricingMetricType,
+} from '@platform/pricing-metric-vocabulary';
+import { reloadAdminApplication } from '../services/browser-capabilities';
 import {
   tenantsApi,
   modulesApi,
   billingApi,
-  PricingMetricType,
   TenantTier,
   TenantProvisioningState,
   PlanTier,
   BillingCycle,
   type SystemModule,
-  type CreateTenantDto,
+  type CreateTenantInput,
   type CreateTenantAcceptedResponse,
   type ModulePricingWithModule,
   type ModuleQuantities,
@@ -34,7 +39,7 @@ import {
 // ============================================================================
 
 // Tier'ı burada tanımlıyoruz (fix plan yok, sadece indirim oranları için)
-type PricingTier = 'free' | 'starter' | 'professional' | 'enterprise' | 'custom';
+type PricingTier = Exclude<NonNullable<CreateTenantInput['tier']>, 'trial'>;
 
 // Selectable pricing tiers surfaced in the wizard (Billing Revival Faz B). FREE
 // is a permanent $0 tier; the paid tiers keep their existing pricing behaviour.
@@ -114,83 +119,21 @@ const initialFormData: TenantFormData = {
   maxStorage: -1,
 };
 
-// Helper to check if metric is BASE_PRICE (handles both string and enum)
-const isBasePrice = (metricType: string | PricingMetricType): boolean => {
-  return metricType === 'BASE_PRICE' || metricType === PricingMetricType.BASE_PRICE;
-};
+const isBasePrice = (metricType: PricingMetricType): boolean =>
+  metricType === PricingMetricType.BASE_PRICE;
 
-// Single source of truth for metric labels (BUG-018: removed duplicate getMetricLabel)
-const metricLabels: Record<PricingMetricType, string> = {
-  [PricingMetricType.BASE_PRICE]: 'Base Price',
-  [PricingMetricType.PER_USER]: 'Per User',
-  [PricingMetricType.PER_FARM]: 'Per Farm',
-  [PricingMetricType.PER_POND]: 'Per Pond',
-  [PricingMetricType.PER_SENSOR]: 'Per Sensors',
-  [PricingMetricType.PER_DEVICE]: 'Per Device',
-  [PricingMetricType.PER_GB_STORAGE]: 'Per GB Storage',
-  [PricingMetricType.PER_API_CALL]: 'Per API Call',
-  [PricingMetricType.PER_ALERT]: 'Per Alert',
-  [PricingMetricType.PER_REPORT]: 'Per Report',
-  [PricingMetricType.PER_SMS]: 'Per SMS',
-  [PricingMetricType.PER_EMAIL]: 'Per Email',
-  [PricingMetricType.PER_INTEGRATION]: 'Per Integration',
-};
+const getMetricLabel = (metricType: PricingMetricType): string =>
+  PRICING_METRIC_CATALOG[metricType].label;
 
-// Single source of truth for metric → quantity field mapping (BUG-018: removed duplicate getQuantityField)
-const metricToQuantityField: Record<PricingMetricType, keyof ModuleQuantities | null> = {
-  [PricingMetricType.BASE_PRICE]: null,
-  [PricingMetricType.PER_USER]: 'users',
-  [PricingMetricType.PER_FARM]: 'farms',
-  [PricingMetricType.PER_POND]: 'ponds',
-  [PricingMetricType.PER_SENSOR]: 'sensors',
-  [PricingMetricType.PER_DEVICE]: 'devices',
-  [PricingMetricType.PER_GB_STORAGE]: 'storageGb',
-  [PricingMetricType.PER_API_CALL]: 'apiCalls',
-  [PricingMetricType.PER_ALERT]: 'alerts',
-  [PricingMetricType.PER_REPORT]: 'reports',
-  [PricingMetricType.PER_SMS]: null,
-  [PricingMetricType.PER_EMAIL]: null,
-  [PricingMetricType.PER_INTEGRATION]: 'integrations',
-};
-
-// Derived helpers that use the single source of truth
-const getMetricLabel = (metricType: string | PricingMetricType): string =>
-  metricLabels[metricType as PricingMetricType] || metricType;
-
-const getQuantityField = (metricType: string | PricingMetricType): keyof ModuleQuantities | null =>
-  metricToQuantityField[metricType as PricingMetricType] ?? null;
+const getQuantityField = (metricType: PricingMetricType): keyof ModuleQuantities | null =>
+  PRICING_METRIC_CATALOG[metricType].quantityField;
 
 const TENANT_CREATE_IDEMPOTENCY_PREFIX = 'admin-panel:tenant-create:idempotency:';
 
-const stableStringify = (value: unknown): string => {
-  if (Array.isArray(value)) {
-    return `[${value.map((item) => stableStringify(item)).join(',')}]`;
-  }
-
-  if (value && typeof value === 'object') {
-    const record = value as Record<string, unknown>;
-    return `{${Object.keys(record)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
-      .join(',')}}`;
-  }
-
-  return JSON.stringify(value);
-};
-
-const hashString = (value: string): string => {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(16).padStart(8, '0');
-};
-
 const getTenantCreateIdempotency = (
-  payload: CreateTenantDto,
+  payload: CreateTenantInput,
 ): { key: string; storageKey?: string } => {
-  const storageKey = `${TENANT_CREATE_IDEMPOTENCY_PREFIX}${hashString(stableStringify(payload))}`;
+  const storageKey = `${TENANT_CREATE_IDEMPOTENCY_PREFIX}${canonicalWireJsonContentSha256V1(payload)}`;
 
   if (typeof window === 'undefined') {
     return { key: crypto.randomUUID() };
@@ -413,7 +356,7 @@ const CreateTenantPage: React.FC = () => {
   // State
   const [currentStep, setCurrentStep] = useState(0);
   const [formData, setFormData] = useState<TenantFormData>(initialFormData);
-  const [modulePricings, setModulePricings] = useState<ModulePricingWithModule[]>([]);
+  const [modulePricings, setModulePricings] = useState<readonly ModulePricingWithModule[]>([]);
   const [priceCalculation, setPriceCalculation] = useState<PricingCalculation | null>(null);
   const [loading, setLoading] = useState(false);
   const [dataLoading, setDataLoading] = useState(true);
@@ -441,11 +384,10 @@ const CreateTenantPage: React.FC = () => {
       try {
         // Get module pricings with module details
         const pricings = await billingApi.getModulePricingWithModules();
-        const safePricings = Array.isArray(pricings) ? pricings : [];
-        setModulePricings(safePricings);
+        setModulePricings(pricings);
 
         // Initialize module configs from pricings with includedQuantity as defaults
-        const configs: ModuleConfig[] = safePricings.map((p) => {
+        const configs: ModuleConfig[] = pricings.map((p) => {
           // Extract includedQuantity from pricing metrics as default values
           const defaultQuantities: ModuleQuantities = {
             users: 1,
@@ -460,27 +402,12 @@ const CreateTenantPage: React.FC = () => {
             integrations: 0,
           };
 
-          // Parse pricingMetrics if it's a string (JSONB from API sometimes comes as string)
-          let metrics = p.pricingMetrics;
-          if (typeof metrics === 'string') {
-            try {
-              metrics = JSON.parse(metrics);
-            } catch {
-              // metrics remains as-is if parsing fails
+          p.pricingMetrics.forEach((metric) => {
+            const field = getQuantityField(metric.type);
+            if (field && metric.includedQuantity && metric.includedQuantity > 0) {
+              defaultQuantities[field] = metric.includedQuantity;
             }
-          }
-
-          // Set defaults from includedQuantity in pricing metrics (BUG-020: typed instead of any)
-          if (metrics && Array.isArray(metrics)) {
-            (metrics as Array<{ type: string; includedQuantity?: number; price?: number }>).forEach(
-              (metric) => {
-                const field = getQuantityField(metric.type);
-                if (field && metric.includedQuantity && metric.includedQuantity > 0) {
-                  defaultQuantities[field] = metric.includedQuantity;
-                }
-              },
-            );
-          }
+          });
 
           return {
             moduleId: p.moduleId,
@@ -497,11 +424,10 @@ const CreateTenantPage: React.FC = () => {
         // Try to load basic modules as fallback
         try {
           const result = await modulesApi.list({ isActive: true, limit: 50 });
-          const modules = Array.isArray(result?.data) ? result.data : [];
-          const configs: ModuleConfig[] = modules.map((m: SystemModule) => ({
-            moduleId: m.id,
-            moduleCode: m.code,
-            moduleName: m.name,
+          const configs: ModuleConfig[] = result.items.map((module: SystemModule) => ({
+            moduleId: module.id,
+            moduleCode: module.code,
+            moduleName: module.name,
             enabled: false,
             quantities: {
               users: 1,
@@ -540,21 +466,19 @@ const CreateTenantPage: React.FC = () => {
     enabledModules.forEach((config) => {
       const pricing = modulePricings.find((p) => p.moduleId === config.moduleId);
       if (pricing?.pricingMetrics && Array.isArray(pricing.pricingMetrics)) {
-        pricing.pricingMetrics.forEach(
-          (metric: { type: string; price?: number; includedQuantity?: number }) => {
-            if (isBasePrice(metric.type)) {
-              localTotal += metric.price || 0;
-            } else {
-              const field = getQuantityField(metric.type);
-              if (field) {
-                const qty = config.quantities[field] ?? 0;
-                const included = metric.includedQuantity ?? 0;
-                const billable = Math.max(0, qty - included);
-                localTotal += billable * (metric.price || 0);
-              }
+        pricing.pricingMetrics.forEach((metric) => {
+          if (isBasePrice(metric.type)) {
+            localTotal += metric.price || 0;
+          } else {
+            const field = getQuantityField(metric.type);
+            if (field) {
+              const qty = config.quantities[field] ?? 0;
+              const included = metric.includedQuantity ?? 0;
+              const billable = Math.max(0, qty - included);
+              localTotal += billable * (metric.price || 0);
             }
-          },
-        );
+          }
+        });
       }
     });
 
@@ -757,14 +681,14 @@ const CreateTenantPage: React.FC = () => {
 
       // Create tenant with modules in a single request
       // Backend will handle module assignment, pricing calculation, and subscription creation
-      const createData: CreateTenantDto = {
+      const createData: CreateTenantInput = {
         name: formData.name,
         slug: formData.slug || undefined,
         description: formData.description || undefined,
         // FREE is a first-class tier now (Billing Revival Faz B) — pass the real
         // selection through instead of the old free→STARTER coercion, so the
         // backend provisions a genuine plan_tier='free' subscription.
-        tier: formData.pricingTier as TenantTier,
+        tier: formData.pricingTier,
         domain: formData.domain.trim().toLowerCase() || undefined,
         country: formData.country.trim().toUpperCase() || undefined,
         region: formData.region.trim() || undefined,
@@ -1046,7 +970,7 @@ const CreateTenantPage: React.FC = () => {
             <Button variant="outline" onClick={() => navigate('/admin/tenants')}>
               Tenant List
             </Button>
-            <Button onClick={() => window.location.reload()}>Create Another</Button>
+            <Button onClick={reloadAdminApplication}>Create Another</Button>
           </div>
         </Card>
       </div>
@@ -1221,7 +1145,14 @@ const CreateTenantPage: React.FC = () => {
                   vertical={false}
                   options={TIER_OPTIONS}
                   value={formData.pricingTier}
-                  onChange={(value) => updateFormData('pricingTier', value as PricingTier)}
+                  onChange={(value) => {
+                    const pricingTier = TIER_OPTIONS.find(
+                      (option) => option.value === value,
+                    )?.value;
+                    if (pricingTier !== undefined) {
+                      updateFormData('pricingTier', pricingTier);
+                    }
+                  }}
                 />
                 {formData.pricingTier === 'free' && (
                   <Alert type="info" className="mt-4">

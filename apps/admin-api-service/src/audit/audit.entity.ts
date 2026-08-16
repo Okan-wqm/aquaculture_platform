@@ -1,61 +1,12 @@
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from 'typeorm';
 import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  Index,
-} from 'typeorm';
-
-export enum AuditAction {
-  // Tenant actions
-  TENANT_CREATED = 'TENANT_CREATED',
-  TENANT_UPDATED = 'TENANT_UPDATED',
-  TENANT_SUSPENDED = 'TENANT_SUSPENDED',
-  TENANT_ACTIVATED = 'TENANT_ACTIVATED',
-  TENANT_DEACTIVATED = 'TENANT_DEACTIVATED',
-  TENANT_ARCHIVED = 'TENANT_ARCHIVED',
-  TENANT_TIER_CHANGED = 'TENANT_TIER_CHANGED',
-  TENANT_LIMITS_UPDATED = 'TENANT_LIMITS_UPDATED',
-
-  // User actions
-  USER_CREATED = 'USER_CREATED',
-  USER_UPDATED = 'USER_UPDATED',
-  USER_DELETED = 'USER_DELETED',
-  USER_ROLE_CHANGED = 'USER_ROLE_CHANGED',
-  USER_IMPERSONATED = 'USER_IMPERSONATED',
-  USER_PASSWORD_RESET = 'USER_PASSWORD_RESET',
-  USER_LOCKED = 'USER_LOCKED',
-  USER_UNLOCKED = 'USER_UNLOCKED',
-
-  // Configuration actions
-  CONFIG_CREATED = 'CONFIG_CREATED',
-  CONFIG_UPDATED = 'CONFIG_UPDATED',
-  CONFIG_DELETED = 'CONFIG_DELETED',
-
-  // System actions
-  SYSTEM_SETTING_CHANGED = 'SYSTEM_SETTING_CHANGED',
-  MAINTENANCE_MODE_ENABLED = 'MAINTENANCE_MODE_ENABLED',
-  MAINTENANCE_MODE_DISABLED = 'MAINTENANCE_MODE_DISABLED',
-
-  // Security actions
-  LOGIN_SUCCESS = 'LOGIN_SUCCESS',
-  LOGIN_FAILED = 'LOGIN_FAILED',
-  LOGOUT = 'LOGOUT',
-  TOKEN_REVOKED = 'TOKEN_REVOKED',
-  PERMISSION_DENIED = 'PERMISSION_DENIED',
-  SUSPICIOUS_ACTIVITY = 'SUSPICIOUS_ACTIVITY',
-
-  // Data actions
-  DATA_EXPORT = 'DATA_EXPORT',
-  DATA_IMPORT = 'DATA_IMPORT',
-  BULK_OPERATION = 'BULK_OPERATION',
-}
-
-export enum AuditSeverity {
-  INFO = 'info',
-  WARNING = 'warning',
-  CRITICAL = 'critical',
-}
+  ADMIN_AUDIT_SEVERITY,
+  ADMIN_AUDIT_TRUST_CLASS,
+  type AdminAuditAction,
+  type AdminAuditLegacyProvenanceV1,
+  type AdminAuditSeverity,
+  type AdminAuditTrustClass,
+} from '@platform/admin-http-contracts';
 
 /**
  * admin-api-service's own audit log table — distinct from
@@ -68,7 +19,7 @@ export enum AuditSeverity {
  * impersonation start/stop, tenant suspension, plan changes, etc. These
  * are written under `BypassRlsService.withBypass()` (admin-api wraps every
  * request via AdminBypassRlsInterceptor) and need extended fields
- * (`AuditAction` enum, `AuditSeverity`, structured details) that don't
+ * (the shared audit action catalog, severity and structured details) that don't
  * fit `shared.audit_logs`'s tighter schema.
  *
  * # Why explicit `schema: 'admin'`
@@ -92,7 +43,7 @@ export class AuditLog {
   id!: string;
 
   @Column({ type: 'varchar', length: 100 })
-  action!: string;
+  action!: AdminAuditAction;
 
   @Column({ type: 'varchar', length: 50 })
   entityType!: string;
@@ -130,10 +81,25 @@ export class AuditLog {
 
   @Column({
     type: 'enum',
-    enum: AuditSeverity,
-    default: AuditSeverity.INFO,
+    enum: ADMIN_AUDIT_SEVERITY,
+    default: ADMIN_AUDIT_SEVERITY.INFO,
   })
-  severity!: AuditSeverity;
+  severity!: AdminAuditSeverity;
+
+  /**
+   * Runtime evidence and unverified historical imports share a query surface,
+   * never a trust claim. Completeness projections include only
+   * AUTHORITATIVE_RUNTIME rows.
+   */
+  @Column({
+    type: 'enum',
+    enum: ADMIN_AUDIT_TRUST_CLASS,
+    default: ADMIN_AUDIT_TRUST_CLASS.AUTHORITATIVE_RUNTIME,
+  })
+  trustClass!: AdminAuditTrustClass;
+
+  @Column({ type: 'jsonb', nullable: true })
+  provenance?: AdminAuditLegacyProvenanceV1;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
   requestId?: string;

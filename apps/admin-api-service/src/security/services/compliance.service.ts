@@ -10,16 +10,23 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, LessThan, MoreThan, In } from 'typeorm';
 
-import {
-  DataRequest,
-  DataRequestType,
-  DataRequestStatus,
-  ComplianceReport,
+import { DataRequest, ComplianceReport, SecurityIncident } from '../entities/security.entity';
+import type {
   ComplianceType,
   ComplianceViolation,
-  ActivityLog,
-  SecurityIncident,
-} from '../entities/security.entity';
+  DataRequestStatus,
+  DataRequestType,
+} from '../contracts/security-vocabulary';
+import type {
+  ComplianceCheckResultDto,
+  ComplianceRequirementDto,
+  DataInventoryDto,
+  DataRequestStatsDto,
+} from '../dto/security-response.dto';
+import {
+  createStandardPaginatedResult,
+  IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 
 // ============================================================================
 // Interfaces
@@ -38,40 +45,11 @@ export interface DataRequestCreateParams {
   specificData?: string;
 }
 
-export interface ComplianceRequirement {
-  id: string;
-  framework: ComplianceType;
-  requirement: string;
-  description: string;
-  category: string;
-  isMandatory: boolean;
-  verificationMethod: string;
-}
-
-export interface ComplianceCheckResult {
-  requirement: ComplianceRequirement;
-  status: 'compliant' | 'non_compliant' | 'partial' | 'not_applicable';
-  details: string;
-  evidence?: string;
-  remediation?: string;
-}
-
-export interface DataInventory {
-  category: string;
-  dataTypes: string[];
-  sources: string[];
-  purposes: string[];
-  retentionPeriod: string;
-  legalBasis: string;
-  thirdPartySharing: boolean;
-  crossBorderTransfer: boolean;
-}
-
 // ============================================================================
 // Compliance Requirements
 // ============================================================================
 
-const GDPR_REQUIREMENTS: ComplianceRequirement[] = [
+const GDPR_REQUIREMENTS: ComplianceRequirementDto[] = [
   {
     id: 'gdpr-1',
     framework: 'gdpr',
@@ -167,8 +145,6 @@ export class ComplianceService {
     private readonly dataRequestRepository: Repository<DataRequest>,
     @InjectRepository(ComplianceReport)
     private readonly reportRepository: Repository<ComplianceReport>,
-    @InjectRepository(ActivityLog)
-    private readonly activityRepository: Repository<ActivityLog>,
     @InjectRepository(SecurityIncident)
     private readonly incidentRepository: Repository<SecurityIncident>,
   ) {}
@@ -250,12 +226,7 @@ export class ComplianceService {
     startDate?: Date;
     endDate?: Date;
     overdue?: boolean;
-  }): Promise<{
-    data: DataRequest[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  }): Promise<IStandardPaginatedResult<DataRequest>> {
     const {
       page = 1,
       limit = 20,
@@ -273,7 +244,8 @@ export class ComplianceService {
     if (tenantId) qb.andWhere('request.tenantId = :tenantId', { tenantId });
     if (requestType) qb.andWhere('request.requestType = :requestType', { requestType });
     if (status) qb.andWhere('request.status = :status', { status });
-    if (complianceFramework) qb.andWhere('request.complianceFramework = :complianceFramework', { complianceFramework });
+    if (complianceFramework)
+      qb.andWhere('request.complianceFramework = :complianceFramework', { complianceFramework });
     if (startDate) qb.andWhere('request.createdAt >= :startDate', { startDate });
     if (endDate) qb.andWhere('request.createdAt <= :endDate', { endDate });
     if (overdue) {
@@ -289,7 +261,7 @@ export class ComplianceService {
 
     const [data, total] = await qb.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**
@@ -440,14 +412,7 @@ export class ComplianceService {
     tenantId?: string;
     startDate?: Date;
     endDate?: Date;
-  }): Promise<{
-    total: number;
-    byStatus: Record<DataRequestStatus, number>;
-    byType: Record<DataRequestType, number>;
-    avgResponseDays: number;
-    overdueCount: number;
-    completionRate: number;
-  }> {
+  }): Promise<DataRequestStatsDto> {
     const { tenantId, startDate, endDate } = options;
 
     const qb = this.dataRequestRepository.createQueryBuilder('request');
@@ -459,26 +424,39 @@ export class ComplianceService {
 
     // By status
     const byStatus = {} as Record<DataRequestStatus, number>;
-    const statuses: DataRequestStatus[] = ['pending', 'in_progress', 'completed', 'rejected', 'expired'];
+    const statuses: DataRequestStatus[] = [
+      'pending',
+      'in_progress',
+      'completed',
+      'rejected',
+      'expired',
+    ];
     statuses.forEach((s) => {
       byStatus[s] = all.filter((r) => r.status === s).length;
     });
 
     // By type
     const byType = {} as Record<DataRequestType, number>;
-    const types: DataRequestType[] = ['access', 'deletion', 'portability', 'rectification', 'restriction'];
+    const types: DataRequestType[] = [
+      'access',
+      'deletion',
+      'portability',
+      'rectification',
+      'restriction',
+    ];
     types.forEach((t) => {
       byType[t] = all.filter((r) => r.requestType === t).length;
     });
 
     // Average response time
     const completedWithTime = all.filter((r) => r.completedAt && r.createdAt);
-    const avgResponseDays = completedWithTime.length > 0
-      ? completedWithTime.reduce((sum, r) => {
-          const days = (r.completedAt!.getTime() - r.createdAt.getTime()) / (1000 * 60 * 60 * 24);
-          return sum + days;
-        }, 0) / completedWithTime.length
-      : 0;
+    const avgResponseDays =
+      completedWithTime.length > 0
+        ? completedWithTime.reduce((sum, r) => {
+            const days = (r.completedAt!.getTime() - r.createdAt.getTime()) / (1000 * 60 * 60 * 24);
+            return sum + days;
+          }, 0) / completedWithTime.length
+        : 0;
 
     // Overdue count
     const now = new Date();
@@ -487,9 +465,8 @@ export class ComplianceService {
     ).length;
 
     // Completion rate
-    const completionRate = all.length > 0
-      ? (all.filter((r) => r.status === 'completed').length / all.length) * 100
-      : 0;
+    const completionRate =
+      all.length > 0 ? (all.filter((r) => r.status === 'completed').length / all.length) * 100 : 0;
 
     return {
       total: all.length,
@@ -563,14 +540,19 @@ export class ComplianceService {
       includesAllTenants: !params.includedTenants || params.includedTenants.length === 0,
       totalDataRequests: requestStats.total,
       completedDataRequests: requestStats.byStatus.completed || 0,
-      pendingDataRequests: (requestStats.byStatus.pending || 0) + (requestStats.byStatus.in_progress || 0),
+      pendingDataRequests:
+        (requestStats.byStatus.pending || 0) + (requestStats.byStatus.in_progress || 0),
       avgResponseTimeDays: requestStats.avgResponseDays,
       securityIncidents: incidents,
       dataBreaches,
       complianceScore,
       violations: violations.length > 0 ? violations : null,
       recommendations: recommendations.length > 0 ? recommendations : null,
-      executiveSummary: this.generateExecutiveSummary(params.complianceType, complianceScore, violations.length),
+      executiveSummary: this.generateExecutiveSummary(
+        params.complianceType,
+        complianceScore,
+        violations.length,
+      ),
       detailedFindings: {
         complianceResults,
         requestStats,
@@ -604,12 +586,7 @@ export class ComplianceService {
     complianceType?: ComplianceType;
     startDate?: Date;
     endDate?: Date;
-  }): Promise<{
-    data: ComplianceReport[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  }): Promise<IStandardPaginatedResult<ComplianceReport>> {
     const { page = 1, limit = 20, complianceType, startDate, endDate } = options;
 
     const qb = this.reportRepository.createQueryBuilder('report');
@@ -624,15 +601,15 @@ export class ComplianceService {
 
     const [data, total] = await qb.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**
    * Run compliance checks for a framework
    */
-  async runComplianceChecks(framework: ComplianceType): Promise<ComplianceCheckResult[]> {
+  async runComplianceChecks(framework: ComplianceType): Promise<ComplianceCheckResultDto[]> {
     const requirements = this.getRequirements(framework);
-    const results: ComplianceCheckResult[] = [];
+    const results: ComplianceCheckResultDto[] = [];
 
     for (const req of requirements) {
       const result = await this.checkRequirement(req);
@@ -645,7 +622,7 @@ export class ComplianceService {
   /**
    * Get compliance requirements for a framework
    */
-  getRequirements(framework: ComplianceType): ComplianceRequirement[] {
+  getRequirements(framework: ComplianceType): ComplianceRequirementDto[] {
     switch (framework) {
       case 'gdpr':
         return GDPR_REQUIREMENTS;
@@ -697,9 +674,10 @@ export class ComplianceService {
    * that explicitly elevates each `partial` to `compliant`
    * upon evidence-document review.
    */
-  private async checkRequirement(req: ComplianceRequirement): Promise<ComplianceCheckResult> {
+  private async checkRequirement(req: ComplianceRequirementDto): Promise<ComplianceCheckResultDto> {
     switch (req.id) {
-      case 'gdpr-2': { // Data Subject Rights
+      case 'gdpr-2': {
+        // Data Subject Rights
         const pendingRequests = await this.dataRequestRepository.count({
           where: { status: In(['pending', 'in_progress']) },
         });
@@ -719,7 +697,8 @@ export class ComplianceService {
         };
       }
 
-      case 'gdpr-3': { // Breach Notification
+      case 'gdpr-3': {
+        // Breach Notification
         const recentBreaches = await this.incidentRepository.count({
           where: {
             dataBreached: true,
@@ -769,7 +748,7 @@ export class ComplianceService {
   /**
    * Calculate compliance score
    */
-  private calculateComplianceScore(results: ComplianceCheckResult[]): number {
+  private calculateComplianceScore(results: ComplianceCheckResultDto[]): number {
     if (results.length === 0) return 100;
 
     const scores: Record<string, number> = {
@@ -787,7 +766,7 @@ export class ComplianceService {
    * Generate recommendations based on compliance results
    */
   private generateRecommendations(
-    results: ComplianceCheckResult[],
+    results: ComplianceCheckResultDto[],
     stats: { overdueCount: number; avgResponseDays: number },
   ): string[] {
     const recommendations: string[] = [];
@@ -802,16 +781,12 @@ export class ComplianceService {
 
     const partial = results.filter((r) => r.status === 'partial');
     if (partial.length > 0) {
-      recommendations.push(
-        `Review and improve ${partial.length} partially compliant area(s)`,
-      );
+      recommendations.push(`Review and improve ${partial.length} partially compliant area(s)`);
     }
 
     // Based on data request stats
     if (stats.overdueCount > 0) {
-      recommendations.push(
-        `Process ${stats.overdueCount} overdue data request(s)`,
-      );
+      recommendations.push(`Process ${stats.overdueCount} overdue data request(s)`);
     }
 
     if (stats.avgResponseDays > 20) {
@@ -856,7 +831,7 @@ export class ComplianceService {
   /**
    * Get data inventory (records of processing activities)
    */
-  getDataInventory(): DataInventory[] {
+  getDataInventory(): DataInventoryDto[] {
     // In production, this would come from configuration/database
     return [
       {
@@ -992,8 +967,7 @@ export class ComplianceService {
   }
 
   private formatPeriod(start: Date, end: Date): string {
-    const format = (d: Date) =>
-      d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    const format = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
     return `${format(start)} - ${format(end)}`;
   }
 
@@ -1001,7 +975,7 @@ export class ComplianceService {
     action: string,
     metadata: Record<string, unknown>,
   ): Promise<void> {
-    // Would integrate with ActivityLoggingService
+    // Compliance workflow evidence is emitted by its source-owner command authority.
     this.logger.log(`Compliance activity: ${action}`, metadata);
   }
 }

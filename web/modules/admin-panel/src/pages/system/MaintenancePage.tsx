@@ -8,32 +8,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Button, Badge, Input, Select } from '@aquaculture/shared-ui';
 import { systemSettingsApi } from '../../services/adminApi';
+import type { AdminApiRouteResponse } from '../../services/types/generated/admin-route-contracts';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-interface MaintenanceWindow {
-  id: string;
-  title: string;
-  description: string;
-  scope: 'global' | 'tenant' | 'service' | 'region';
-  type: 'scheduled' | 'emergency' | 'rolling_update' | 'database_migration' | 'security_patch';
-  status: 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | 'extended';
-  scheduledStart: string;
-  scheduledEnd?: string;
-  actualStart?: string;
-  actualEnd?: string;
-  estimatedDurationMinutes: number;
-  userMessage?: string;
-  allowReadOnlyAccess: boolean;
-  bypassForSuperAdmins: boolean;
-  affectedTenants?: string[];
-  affectedServices?: { name: string; status: string }[];
-  createdBy: string;
-  createdAt: string;
-  updatedAt: string;
-}
+type MaintenanceWindow =
+  AdminApiRouteResponse<'GET /system/settings/maintenance'>['items'][number];
 
 interface MaintenanceForm {
   title: string;
@@ -88,9 +70,7 @@ export const MaintenancePage: React.FC = () => {
     setError(null);
     try {
       const response = await systemSettingsApi.getMaintenanceWindows();
-      // Ensure response is an array
-      const data = Array.isArray(response) ? response : [];
-      setMaintenanceList(data as unknown as MaintenanceWindow[]);
+      setMaintenanceList([...response.items]);
     } catch (err) {
       console.error('Failed to load maintenance windows:', err);
       setError('Failed to load maintenance windows. Please try again.');
@@ -120,20 +100,19 @@ export const MaintenancePage: React.FC = () => {
       const apiData = {
         title: formData.title,
         description: formData.description,
-        scope: formData.scope as 'global' | 'tenant' | 'service',
-        type: formData.type as 'scheduled' | 'emergency' | 'rolling',
+        scope: formData.scope,
+        type: formData.type,
         scheduledStart: formData.scheduledStart,
         scheduledEnd: scheduledEnd.toISOString(),
         userMessage: formData.userMessage,
         allowReadOnlyAccess: formData.allowReadOnlyAccess,
         bypassForSuperAdmins: formData.bypassForSuperAdmins,
-        createdBy: 'admin', // Would come from auth context
         affectedServices: [],
       };
 
       const newMaintenance = await systemSettingsApi.createMaintenanceWindow(apiData);
 
-      setMaintenanceList([newMaintenance as unknown as MaintenanceWindow, ...maintenanceList]);
+      await loadData();
       setShowCreateModal(false);
       setFormData(defaultForm);
     } catch (err) {

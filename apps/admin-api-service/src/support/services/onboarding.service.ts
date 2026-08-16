@@ -14,6 +14,7 @@ import {
   OnboardingStep,
   TrainingSession,
 } from '../entities/support.entity';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
 // ============================================================================
 // Onboarding Steps Configuration
@@ -259,12 +260,7 @@ export class OnboardingService {
     page?: number;
     limit?: number;
     status?: OnboardingStatus;
-  }): Promise<{
-    data: OnboardingProgress[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  }): Promise<IStandardPaginatedResult<OnboardingProgress>> {
     const { page = 1, limit = 20, status } = options;
 
     const where: Record<string, unknown> = {};
@@ -277,7 +273,7 @@ export class OnboardingService {
       take: limit,
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult(data, total, page, limit);
   }
 
   /**

@@ -106,8 +106,7 @@ export class AuthResolver {
     limit: 5,
     windowMs: 15 * 60_000,
     identifier: ({ args }) =>
-      ((args?.['input'] as { email?: string } | undefined)?.email ?? '').toLowerCase() ||
-      undefined,
+      ((args?.['input'] as { email?: string } | undefined)?.email ?? '').toLowerCase() || undefined,
   })
   @Public()
   @Mutation(() => AuthPayload)
@@ -148,11 +147,9 @@ export class AuthResolver {
     // SECURITY: Prefer httpOnly cookie, fall back to body for backward
     // compatibility. express cookies are untyped at the boundary —
     // narrow before the token flows into the auth service.
-    const cookieToken: unknown = context.req.cookies?.refresh_token;
+    const cookieToken: unknown = context.req.cookies?.[REFRESH_TOKEN_COOKIE_NAME];
     const token =
-      typeof cookieToken === 'string' && cookieToken.length > 0
-        ? cookieToken
-        : input.refreshToken;
+      typeof cookieToken === 'string' && cookieToken.length > 0 ? cookieToken : input.refreshToken;
     if (!token) {
       throw new UnauthorizedException('No refresh token provided');
     }
@@ -202,8 +199,7 @@ export class AuthResolver {
     limit: 3,
     windowMs: 60 * 60_000,
     identifier: ({ args }) =>
-      ((args?.['input'] as { email?: string } | undefined)?.email ?? '').toLowerCase() ||
-      undefined,
+      ((args?.['input'] as { email?: string } | undefined)?.email ?? '').toLowerCase() || undefined,
   })
   @Public()
   @Mutation(() => Boolean)

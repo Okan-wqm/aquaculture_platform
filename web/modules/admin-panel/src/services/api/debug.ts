@@ -2,24 +2,24 @@
  * Debug Tools API
  */
 
-import { apiFetch, buildQueryString } from '../http-client';
-import type {
-  PaginatedResult,
-  PaginationParams,
-  DateRangeParams,
-  DebugSession,
-  DebugSessionType,
-  CapturedQuery,
-  CapturedApiCall,
-  CacheEntry,
-  FeatureFlagOverride,
-} from '../types';
+import { apiFetch } from '../http-client';
+import type { PaginationParams, DebugSessionType } from '../types';
+import {
+  ADMIN_API_ROUTES,
+  type AdminApiRouteQuery,
+} from '../types/generated/admin-route-contracts';
+
+type DebugSessionsQuery = AdminApiRouteQuery<'GET /debug/sessions'>;
+type CapturedQueriesQuery = AdminApiRouteQuery<'GET /debug/queries'>;
+type CapturedApiCallsQuery = AdminApiRouteQuery<'GET /debug/api-calls'>;
+type CacheEntriesQuery = AdminApiRouteQuery<'GET /debug/cache'>;
 
 export const debugApi = {
   // Debug Sessions
-  getSessions: (params?: { tenantId?: string; sessionType?: string; isActive?: boolean } & PaginationParams) =>
-    apiFetch<PaginatedResult<DebugSession>>(`/debug/sessions?${buildQueryString(params || {})}`),
-  getSession: (id: string) => apiFetch<DebugSession>(`/debug/sessions/${id}`),
+  getSessions: (params: DebugSessionsQuery = {}) =>
+    apiFetch(ADMIN_API_ROUTES['GET /debug/sessions'], { query: params }),
+  getSession: (id: string) =>
+    apiFetch(ADMIN_API_ROUTES['GET /debug/sessions/:id'], { path: { id: id } }),
   startSession: (data: {
     tenantId: string;
     adminId: string;
@@ -28,78 +28,58 @@ export const debugApi = {
     filters?: Record<string, unknown>;
     maxResults?: number;
     expiresAt?: string;
-  }) =>
-    apiFetch<DebugSession>('/debug/sessions', { method: 'POST', body: JSON.stringify(data) }),
+  }) => apiFetch(ADMIN_API_ROUTES['POST /debug/sessions'], { body: data }),
   endSession: (id: string) =>
-    apiFetch<DebugSession>(`/debug/sessions/${id}/end`, { method: 'POST' }),
+    apiFetch(ADMIN_API_ROUTES['POST /debug/sessions/:id/end'], { path: { id: id } }),
 
   // Query Inspector
-  getCapturedQueries: (params?: {
-    tenantId?: string;
-    queryType?: string;
-    isSlowQuery?: boolean;
-    hasError?: boolean;
-  } & PaginationParams & DateRangeParams) =>
-    apiFetch<PaginatedResult<CapturedQuery>>(`/debug/queries?${buildQueryString(params || {})}`),
+  getCapturedQueries: (params: CapturedQueriesQuery) =>
+    apiFetch(ADMIN_API_ROUTES['GET /debug/queries'], { query: params }),
   getQueryExplain: (queryId: string) =>
-    apiFetch<{ plan: Record<string, unknown> }>(`/debug/queries/${queryId}/explain`),
+    apiFetch(ADMIN_API_ROUTES['GET /debug/queries/:id/explain'], { path: { id: queryId } }),
   getSlowQueryAnalysis: (tenantId: string, threshold?: number) =>
-    apiFetch<{
-      slowQueries: CapturedQuery[];
-      summary: { avgDuration: number; maxDuration: number; totalQueries: number };
-      recommendations: string[];
-    }>(`/debug/queries/slow-analysis?tenantId=${tenantId}${threshold ? `&threshold=${threshold}` : ''}`),
+    apiFetch(ADMIN_API_ROUTES['GET /debug/queries/slow-analysis'], {
+      query: { tenantId: tenantId, threshold: threshold },
+    }),
 
   // API Log Viewer
-  getCapturedApiCalls: (params?: {
-    tenantId?: string;
-    method?: string;
-    endpoint?: string;
-    statusCode?: number;
-    hasError?: boolean;
-  } & PaginationParams & DateRangeParams) =>
-    apiFetch<PaginatedResult<CapturedApiCall>>(`/debug/api-calls?${buildQueryString(params || {})}`),
-  getApiCallDetails: (id: string) => apiFetch<CapturedApiCall>(`/debug/api-calls/${id}`),
+  getCapturedApiCalls: (params: CapturedApiCallsQuery) =>
+    apiFetch(ADMIN_API_ROUTES['GET /debug/api-calls'], { query: params }),
+  getApiCallDetails: (id: string) =>
+    apiFetch(ADMIN_API_ROUTES['GET /debug/api-calls/:id'], { path: { id: id } }),
   getApiUsageSummary: (tenantId: string, period?: string) =>
-    apiFetch<{
-      totalCalls: number;
-      byEndpoint: Array<{ endpoint: string; count: number; avgDuration: number }>;
-      byStatus: Array<{ status: number; count: number }>;
-      errorRate: number;
-    }>(`/debug/api-calls/summary?tenantId=${tenantId}${period ? `&period=${period}` : ''}`),
+    apiFetch(ADMIN_API_ROUTES['GET /debug/api-calls/summary'], {
+      query: { tenantId: tenantId, period: period },
+    }),
 
   // Cache Inspector
-  getCacheEntries: (params?: { tenantId?: string; cacheStore?: string; keyPattern?: string } & PaginationParams) =>
-    apiFetch<PaginatedResult<CacheEntry>>(`/debug/cache?${buildQueryString(params || {})}`),
-  getCacheEntry: (key: string) => apiFetch<CacheEntry>(`/debug/cache/${encodeURIComponent(key)}`),
+  listCacheEntries: (params: CacheEntriesQuery) =>
+    apiFetch(ADMIN_API_ROUTES['GET /debug/cache'], { query: params }),
+  getCacheEntry: (key: string) =>
+    apiFetch(ADMIN_API_ROUTES['GET /debug/cache/:key'], { path: { key: key } }),
   invalidateCacheEntry: (key: string) =>
-    apiFetch<void>(`/debug/cache/${encodeURIComponent(key)}`, { method: 'DELETE' }),
-  invalidateCacheByPattern: (pattern: string, tenantId?: string) =>
-    apiFetch<{ invalidated: number }>('/debug/cache/invalidate', { method: 'POST', body: JSON.stringify({ pattern, tenantId }) }),
-  getCacheStats: (tenantId?: string) =>
-    apiFetch<{
-      totalEntries: number;
-      totalSize: number;
-      hitRate: number;
-      missRate: number;
-      byStore: Array<{ store: string; entries: number; size: number }>;
-    }>(`/debug/cache/stats${tenantId ? `?tenantId=${tenantId}` : ''}`),
+    apiFetch(ADMIN_API_ROUTES['DELETE /debug/cache/:key'], { path: { key: key } }),
+  invalidateCacheByPattern: (pattern: string) =>
+    apiFetch(ADMIN_API_ROUTES['POST /debug/cache/invalidate'], { body: { pattern } }),
+  getCacheStats: () => apiFetch(ADMIN_API_ROUTES['GET /debug/cache/stats']),
 
   // Feature Flag Overrides
   getFeatureOverrides: (params?: { tenantId?: string; isActive?: boolean } & PaginationParams) =>
-    apiFetch<PaginatedResult<FeatureFlagOverride>>(`/debug/feature-overrides?${buildQueryString(params || {})}`),
-  getFeatureOverride: (id: string) => apiFetch<FeatureFlagOverride>(`/debug/feature-overrides/${id}`),
+    apiFetch(ADMIN_API_ROUTES['GET /debug/feature-overrides'], { query: params || {} }),
+  getFeatureOverride: (id: string) =>
+    apiFetch(ADMIN_API_ROUTES['GET /debug/feature-overrides/:id'], { path: { id: id } }),
   createFeatureOverride: (data: {
     tenantId: string;
     featureKey: string;
+    originalValue: unknown;
     overrideValue: unknown;
-    adminId: string;
     reason?: string;
     expiresAt?: string;
-  }) =>
-    apiFetch<FeatureFlagOverride>('/debug/feature-overrides', { method: 'POST', body: JSON.stringify(data) }),
-  revertFeatureOverride: (id: string, revertedBy: string) =>
-    apiFetch<FeatureFlagOverride>(`/debug/feature-overrides/${id}/revert`, { method: 'POST', body: JSON.stringify({ revertedBy }) }),
+  }) => apiFetch(ADMIN_API_ROUTES['POST /debug/feature-overrides'], { body: data }),
+  revertFeatureOverride: (id: string) =>
+    apiFetch(ADMIN_API_ROUTES['POST /debug/feature-overrides/:id/revert'], { path: { id: id } }),
   getActiveOverridesForTenant: (tenantId: string) =>
-    apiFetch<FeatureFlagOverride[]>(`/debug/feature-overrides/tenant/${tenantId}/active`),
+    apiFetch(ADMIN_API_ROUTES['GET /debug/feature-overrides/tenant/:tenantId/active'], {
+      path: { tenantId: tenantId },
+    }),
 };

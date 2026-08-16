@@ -8,6 +8,8 @@ const mockRedisEval = jest.fn<
 const mockRedisGet = jest.fn();
 const mockRedisMget = jest.fn();
 const mockRedisQuit = jest.fn();
+const mockRedisScan = jest.fn();
+const mockRedisDel = jest.fn();
 
 jest.mock('ioredis', () =>
   jest.fn().mockImplementation(() => ({
@@ -18,6 +20,8 @@ jest.mock('ioredis', () =>
     eval: mockRedisEval,
     get: mockRedisGet,
     mget: mockRedisMget,
+    scan: mockRedisScan,
+    del: mockRedisDel,
   })),
 );
 
@@ -32,11 +36,15 @@ describe('RedisService key prefixing', () => {
     mockRedisGet.mockReset();
     mockRedisMget.mockReset();
     mockRedisQuit.mockReset();
+    mockRedisScan.mockReset();
+    mockRedisDel.mockReset();
     mockRedisSet.mockResolvedValue('OK');
     mockRedisSetex.mockResolvedValue('OK');
     mockRedisEval.mockResolvedValue(1_000_000);
     mockRedisGet.mockResolvedValue(null);
     mockRedisMget.mockResolvedValue([null, null]);
+    mockRedisScan.mockResolvedValue(['0', []]);
+    mockRedisDel.mockResolvedValue(0);
   });
 
   it('preserves an explicit empty keyPrefix', async () => {
@@ -129,6 +137,45 @@ describe('RedisService key prefixing', () => {
     mockRedisEval.mockResolvedValueOnce('1000000');
     await expect(service.setMaxSafeInteger('key', 1_000_000, 86_400)).rejects.toThrow(
       'Redis returned an invalid max-integer result',
+    );
+  });
+
+  it('discovers a complete stable mutation set before deleting bounded physical-key batches', async () => {
+    const service = new RedisService({
+      url: 'redis://redis:6379',
+      keyPrefix: 'admin:',
+    });
+    const logicalKeys = Array.from(
+      { length: 205 },
+      (_unused, index) => `report:${String(index).padStart(3, '0')}`,
+    );
+    mockRedisScan
+      .mockResolvedValueOnce([
+        '17',
+        [...logicalKeys.slice(100).map((key) => `admin:${key}`), 'admin:report:000'],
+      ])
+      .mockResolvedValueOnce(['0', logicalKeys.slice(0, 100).map((key) => `admin:${key}`)]);
+    mockRedisDel.mockResolvedValueOnce(100).mockResolvedValueOnce(100).mockResolvedValueOnce(5);
+
+    const evidence = await service.deletePatternWithEvidence('report:*');
+
+    expect(mockRedisScan).toHaveBeenNthCalledWith(1, '0', 'MATCH', 'admin:report:*', 'COUNT', 100);
+    expect(mockRedisScan).toHaveBeenNthCalledWith(2, '17', 'MATCH', 'admin:report:*', 'COUNT', 100);
+    expect(evidence).toEqual({
+      schemaVersion: 'redis-pattern-deletion-evidence.v1',
+      matchedKeys: logicalKeys,
+      deletedCount: 205,
+    });
+    expect(mockRedisDel).toHaveBeenCalledTimes(3);
+    expect(mockRedisDel.mock.calls[0]).toEqual(
+      logicalKeys.slice(0, 100).map((key) => `admin:${key}`),
+    );
+    expect(mockRedisDel.mock.calls[1]).toEqual(
+      logicalKeys.slice(100, 200).map((key) => `admin:${key}`),
+    );
+    expect(mockRedisDel.mock.calls[2]).toEqual(logicalKeys.slice(200).map((key) => `admin:${key}`));
+    expect(mockRedisScan.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      mockRedisDel.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
     );
   });
 });

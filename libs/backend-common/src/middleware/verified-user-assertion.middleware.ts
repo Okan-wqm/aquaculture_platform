@@ -1,7 +1,8 @@
+import { decodeGatewayVerifiedUserAssertionHeaderV1 } from '@aquaculture/shared-contracts';
 import { BadRequestException, Injectable, Logger, NestMiddleware } from '@nestjs/common';
 import type { NextFunction, Request, Response } from 'express';
 
-import type { VerifiedUserAssertion, TenantRequest } from '../types/tenant-request.interface';
+import type { TenantRequest, VerifiedUserAssertion } from '../types/tenant-request.interface';
 
 const ASSERTION_HEADER = 'x-verified-user-assertion';
 const LEGACY_IDENTITY_HEADERS = [
@@ -10,9 +11,6 @@ const LEGACY_IDENTITY_HEADERS = [
   'x-user-roles',
   'x-act-as-tenant',
 ] as const;
-
-const ASSERTION_MAX_AGE_MS = 5 * 60 * 1000;
-const TENANT_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Parses the gateway-minted farm identity assertion after service HMAC
@@ -64,7 +62,7 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
         req.user = {
           sub: assertion.subject,
           tenantId: req.tenantId,
-          roles: assertion.roles,
+          roles: [...assertion.roles],
           email: assertion.email ?? undefined,
           mfaVerified: assertion.mfaVerified,
           // SEC-HIGH-051 / SEC-HIGH-052: expose the object-level authorization
@@ -73,10 +71,10 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
           // be undefined at every prod resolver and all non-managers would
           // fail-closed — a functional outage.
           ...(assertion.assignedSiteIds !== undefined
-            ? { assignedSiteIds: assertion.assignedSiteIds }
+            ? { assignedSiteIds: [...assertion.assignedSiteIds] }
             : {}),
           ...(assertion.mobileFeatures !== undefined
-            ? { mobileFeatures: assertion.mobileFeatures }
+            ? { mobileFeatures: [...assertion.mobileFeatures] }
             : {}),
           // SSOT-C-13: expose the plan tier ordinal so resource-create handlers
           // can enforce per-plan quotas on the production gateway path.
@@ -87,7 +85,7 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
           // capability-gated route (a functional outage — same class as the
           // sites/mobileFeatures fix above).
           ...(assertion.resourcePermissions !== undefined
-            ? { resourcePermissions: assertion.resourcePermissions }
+            ? { resourcePermissions: [...assertion.resourcePermissions] }
             : {}),
         };
 
@@ -109,134 +107,25 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
 
       next();
     } catch (error) {
+      const path = this.requestPath(req);
+      const reason = error instanceof Error ? error.message : 'ASSERTION_INVALID';
       this.logger.warn(
-        `Rejected verified user assertion on ${req.method} ${req.originalUrl ?? req.url}: ${(error as Error).message}`,
+        `Rejected verified user assertion on ${req.method} ${path}: ${reason}`,
       );
       next(error);
     }
   }
 
   private parseAssertion(value: string): VerifiedUserAssertion {
-    let decoded: string;
     try {
-      decoded = Buffer.from(value, 'base64url').toString('utf8');
-    } catch {
-      throw new BadRequestException('Verified user assertion is not valid base64url');
+      return decodeGatewayVerifiedUserAssertionHeaderV1(value);
+    } catch (error) {
+      const code = error instanceof Error ? error.message : 'ASSERTION_INVALID';
+      if (code === 'ASSERTION_EXPIRED_OR_NOT_YET_VALID') {
+        throw new BadRequestException('Verified user assertion is expired or not yet valid');
+      }
+      throw new BadRequestException(`Verified user assertion is invalid (${code})`);
     }
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(decoded);
-    } catch {
-      throw new BadRequestException('Verified user assertion is not valid JSON');
-    }
-
-    if (!parsed || typeof parsed !== 'object') {
-      throw new BadRequestException('Verified user assertion must be an object');
-    }
-
-    const candidate = parsed as Partial<VerifiedUserAssertion>;
-    if (candidate.issuer !== 'gateway-api' || typeof candidate.subject !== 'string') {
-      throw new BadRequestException('Verified user assertion has invalid issuer or subject');
-    }
-    if (
-      !Array.isArray(candidate.roles) ||
-      candidate.roles.some((role) => typeof role !== 'string')
-    ) {
-      throw new BadRequestException('Verified user assertion roles must be strings');
-    }
-    if (typeof candidate.issuedAt !== 'string') {
-      throw new BadRequestException('Verified user assertion has invalid issuedAt');
-    }
-    const issuedAtMs = Date.parse(candidate.issuedAt);
-    if (Number.isNaN(issuedAtMs) || Math.abs(Date.now() - issuedAtMs) > ASSERTION_MAX_AGE_MS) {
-      throw new BadRequestException('Verified user assertion is expired or not yet valid');
-    }
-    if (
-      !this.isOptionalTenant(candidate.tenantId) ||
-      !this.isOptionalTenant(candidate.effectiveTenantId)
-    ) {
-      throw new BadRequestException('Verified user assertion has invalid tenant');
-    }
-    if (candidate.assertionId !== undefined && typeof candidate.assertionId !== 'string') {
-      throw new BadRequestException('Verified user assertion has invalid assertionId');
-    }
-    // SEC-HIGH-051 / SEC-HIGH-052: the object-level authorization claims are
-    // optional, but when present each must be a string[] whose members are all
-    // strings — reject a malformed claim fail-closed (mirrors the roles check).
-    if (!this.isOptionalStringArray(candidate.assignedSiteIds)) {
-      throw new BadRequestException('Verified user assertion has invalid assignedSiteIds');
-    }
-    if (!this.isOptionalStringArray(candidate.mobileFeatures)) {
-      throw new BadRequestException('Verified user assertion has invalid mobileFeatures');
-    }
-    // MT-HIGH-054: resourcePermissions is optional but, when present, must be a
-    // string[] — reject a malformed claim fail-closed (mirrors the checks above).
-    if (!this.isOptionalStringArray(candidate.resourcePermissions)) {
-      throw new BadRequestException('Verified user assertion has invalid resourcePermissions');
-    }
-    // SSOT-C-13: planLevel is optional, but when present must be a finite
-    // number — reject a malformed claim fail-closed (mirrors the checks above).
-    if (
-      candidate.planLevel !== undefined &&
-      (typeof candidate.planLevel !== 'number' || !Number.isFinite(candidate.planLevel))
-    ) {
-      throw new BadRequestException('Verified user assertion has invalid planLevel');
-    }
-    // ORPHAN-MEDIUM-319: optional client network identity — when present each
-    // must be a bounded string (an IP literal is <= 45 chars incl. IPv6; the
-    // UA cap mirrors common proxy limits). Reject malformed values
-    // fail-closed like every other claim.
-    if (!this.isOptionalBoundedString(candidate.clientIp, 64)) {
-      throw new BadRequestException('Verified user assertion has invalid clientIp');
-    }
-    if (!this.isOptionalBoundedString(candidate.clientUserAgent, 1024)) {
-      throw new BadRequestException('Verified user assertion has invalid clientUserAgent');
-    }
-
-    return {
-      issuer: candidate.issuer,
-      subject: candidate.subject,
-      tenantId: candidate.tenantId ?? null,
-      effectiveTenantId: candidate.effectiveTenantId ?? candidate.tenantId ?? null,
-      roles: candidate.roles,
-      email: candidate.email ?? null,
-      mfaVerified: candidate.mfaVerified ?? false,
-      issuedAt: candidate.issuedAt,
-      assertionId: candidate.assertionId,
-      assignedSiteIds: candidate.assignedSiteIds,
-      mobileFeatures: candidate.mobileFeatures,
-      resourcePermissions: candidate.resourcePermissions,
-      planLevel: candidate.planLevel,
-      clientIp: candidate.clientIp ?? null,
-      clientUserAgent: candidate.clientUserAgent ?? null,
-    };
-  }
-
-  /**
-   * An optional claim is valid iff it is undefined OR a string[] whose members
-   * are all strings. A non-array or a non-string member is a malformed claim
-   * and is rejected fail-closed by the caller.
-   */
-  /**
-   * An optional scalar claim is valid iff it is undefined, null, or a
-   * non-empty string within the length bound.
-   */
-  private isOptionalBoundedString(
-    value: unknown,
-    maxLength: number,
-  ): value is string | null | undefined {
-    if (value === undefined || value === null) {
-      return true;
-    }
-    return typeof value === 'string' && value.length > 0 && value.length <= maxLength;
-  }
-
-  private isOptionalStringArray(value: unknown): value is string[] | undefined {
-    if (value === undefined) {
-      return true;
-    }
-    return Array.isArray(value) && value.every((member) => typeof member === 'string');
   }
 
   private requiresGatewayAssertion(req: TenantRequest): boolean {
@@ -259,16 +148,11 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
   }
 
   private requiresServiceIdentity(req: TenantRequest): boolean {
-    return (
-      process.env['NODE_ENV'] === 'production' &&
-      !this.isProbePath(req) &&
-      !this.isIntrospectionQuery(req.body as { query?: string; operationName?: string } | undefined)
-    );
+    return process.env['NODE_ENV'] === 'production' && !this.isProbePath(req);
   }
 
   private isProbePath(req: Request): boolean {
-    const rawPath = req.originalUrl ?? req.url ?? req.path ?? '/';
-    const path = rawPath.split('?')[0] || '/';
+    const path = this.requestPath(req);
     return (
       path === '/metrics' ||
       path === '/health' ||
@@ -279,31 +163,9 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
     );
   }
 
-  private isOptionalTenant(value: unknown): boolean {
-    return (
-      value === undefined ||
-      value === null ||
-      (typeof value === 'string' && TENANT_UUID_RE.test(value))
-    );
-  }
-
-  private isIntrospectionQuery(
-    body: { query?: string; operationName?: string } | undefined,
-  ): boolean {
-    if (!body) {
-      return false;
-    }
-    if (body.operationName === 'IntrospectionQuery') {
-      return true;
-    }
-    const query = body.query;
-    if (typeof query !== 'string') {
-      return false;
-    }
-    const compact = query.replace(/\s+/g, ' ');
-    return (
-      compact.includes('__schema') || compact.includes('__type') || compact.includes('_service')
-    );
+  private requestPath(req: Request): string {
+    const rawPath = req.originalUrl ?? req.url ?? req.path ?? '/';
+    return rawPath.split('?')[0] || '/';
   }
 
   private getHeader(req: Request, name: string): string | undefined {

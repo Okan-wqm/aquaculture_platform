@@ -33,6 +33,25 @@ import { firstValueFrom, timeout, catchError, throwError } from 'rxjs';
 
 import { ConfigService } from '@nestjs/config';
 import { CurrentUser, CurrentUserData } from '../decorators/current-user.decorator';
+import { AdminResponseContract } from '../shared/admin-response-contract.decorator';
+import {
+  messagingAdminComplianceStatsResponseContract,
+  type MessagingAdminComplianceStatsResponseDto,
+  messagingAdminLegalHoldResponseArrayContract,
+  type MessagingAdminLegalHoldResponseDto,
+  messagingAdminLegalHoldResponseContract,
+  messagingAdminRetentionPolicyResponseArrayContract,
+  type MessagingAdminRetentionPolicyResponseDto,
+  messagingAdminRetentionPolicyResponseContract,
+  neverResponseContract,
+  type NeverResponseDto,
+  messagingAdminAuditLogResponseContract,
+  type MessagingAdminAuditLogResponseDto,
+  messagingAdminExportResponseContract,
+  type MessagingAdminExportResponseDto,
+  messagingAdminPersonaResponseArrayContract,
+  type MessagingAdminPersonaResponseDto,
+} from './contracts/admin-http-response.contract';
 
 /** Default NATS request timeout when MESSAGING_NATS_TIMEOUT_MS is not configured. */
 const DEFAULT_NATS_TIMEOUT_MS = 15_000;
@@ -127,11 +146,12 @@ export class MessagingAdminController {
    * Get compliance statistics for a tenant's messaging data.
    * @param tenantId - UUID of the target tenant
    */
+  @AdminResponseContract(messagingAdminComplianceStatsResponseContract)
   @Get('compliance/stats')
   @ApiOperation({ summary: 'Get messaging compliance statistics' })
   async getComplianceStats(
     @Query('tenantId') tenantId: string,
-  ): Promise<ComplianceStatsResponse> {
+  ): Promise<MessagingAdminComplianceStatsResponseDto> {
     return this.sendNatsRequest<ComplianceStatsResponse>(
       'request.messaging.admin.complianceStats',
       { tenantId },
@@ -144,61 +164,57 @@ export class MessagingAdminController {
    * List all legal holds for a tenant.
    * @param tenantId - UUID of the target tenant
    */
+  @AdminResponseContract(messagingAdminLegalHoldResponseArrayContract)
   @Get('compliance/legal-holds')
   @ApiOperation({ summary: 'List legal holds for a tenant' })
   async getLegalHolds(
     @Query('tenantId') tenantId: string,
-  ): Promise<LegalHoldResponse[]> {
-    return this.sendNatsRequest<LegalHoldResponse[]>(
-      'request.messaging.admin.getLegalHolds',
-      { tenantId },
-    );
+  ): Promise<MessagingAdminLegalHoldResponseDto[]> {
+    return this.sendNatsRequest<LegalHoldResponse[]>('request.messaging.admin.getLegalHolds', {
+      tenantId,
+    });
   }
 
   /**
    * Create a new legal hold on messaging data.
    */
+  @AdminResponseContract(messagingAdminLegalHoldResponseContract)
   @Post('compliance/legal-holds')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a legal hold' })
   async createLegalHold(
     @Body() dto: CreateLegalHoldDto,
     @CurrentUser() user: CurrentUserData,
-  ): Promise<LegalHoldResponse> {
-    return this.sendNatsRequest<LegalHoldResponse>(
-      'request.messaging.admin.createLegalHold',
-      {
-        tenantId: dto.tenantId,
-        userId: user.id,
-        channelId: dto.channelId ?? null,
-        reason: dto.reason,
-        legalMatterId: dto.legalMatterId,
-        legalMatterDescription: dto.legalMatterDescription,
-        requestedBy: dto.requestedBy,
-        expiresAt: dto.expiresAt,
-      },
-    );
+  ): Promise<MessagingAdminLegalHoldResponseDto> {
+    return this.sendNatsRequest<LegalHoldResponse>('request.messaging.admin.createLegalHold', {
+      tenantId: dto.tenantId,
+      userId: user.id,
+      channelId: dto.channelId ?? null,
+      reason: dto.reason,
+      legalMatterId: dto.legalMatterId,
+      legalMatterDescription: dto.legalMatterDescription,
+      requestedBy: dto.requestedBy,
+      expiresAt: dto.expiresAt,
+    });
   }
 
   /**
    * Release (deactivate) an existing legal hold.
    * @param id - UUID of the legal hold to release
    */
+  @AdminResponseContract(messagingAdminLegalHoldResponseContract)
   @Delete('compliance/legal-holds/:id')
   @ApiOperation({ summary: 'Release a legal hold' })
   async releaseLegalHold(
     @Param('id', ParseUUIDPipe) id: string,
     @Query('tenantId') tenantId: string,
     @CurrentUser() user: CurrentUserData,
-  ): Promise<LegalHoldResponse> {
-    return this.sendNatsRequest<LegalHoldResponse>(
-      'request.messaging.admin.releaseLegalHold',
-      {
-        holdId: id,
-        tenantId,
-        userId: user.id,
-      },
-    );
+  ): Promise<MessagingAdminLegalHoldResponseDto> {
+    return this.sendNatsRequest<LegalHoldResponse>('request.messaging.admin.releaseLegalHold', {
+      holdId: id,
+      tenantId,
+      userId: user.id,
+    });
   }
 
   // ── Retention Policies ──────────────────────────────────────────────
@@ -207,11 +223,12 @@ export class MessagingAdminController {
    * List all retention policies for a tenant.
    * @param tenantId - UUID of the target tenant
    */
+  @AdminResponseContract(messagingAdminRetentionPolicyResponseArrayContract)
   @Get('retention/policies')
   @ApiOperation({ summary: 'List retention policies for a tenant' })
   async getRetentionPolicies(
     @Query('tenantId') tenantId: string,
-  ): Promise<RetentionPolicyResponse[]> {
+  ): Promise<MessagingAdminRetentionPolicyResponseDto[]> {
     return this.sendNatsRequest<RetentionPolicyResponse[]>(
       'request.messaging.admin.getRetentionPolicies',
       { tenantId },
@@ -222,13 +239,14 @@ export class MessagingAdminController {
    * Create or update a retention policy.
    * @param id - Tenant ID (used as scope identifier)
    */
+  @AdminResponseContract(messagingAdminRetentionPolicyResponseContract)
   @Put('retention/policies/:id')
   @ApiOperation({ summary: 'Update a retention policy' })
   async updateRetentionPolicy(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateRetentionPolicyDto,
     @CurrentUser() user: CurrentUserData,
-  ): Promise<RetentionPolicyResponse> {
+  ): Promise<MessagingAdminRetentionPolicyResponseDto> {
     return this.sendNatsRequest<RetentionPolicyResponse>(
       'request.messaging.admin.updateRetentionPolicy',
       {
@@ -246,12 +264,13 @@ export class MessagingAdminController {
    * Get messaging monitoring statistics.
    * Not yet implemented in messaging-service.
    */
+  @AdminResponseContract(neverResponseContract)
   @Get('monitoring/stats')
   @ApiOperation({ summary: 'Get messaging monitoring statistics' })
   async getMonitoringStats(): Promise<never> {
     throw new HttpException(
       'Messaging monitoring stats not yet implemented in messaging-service. ' +
-      'Requires real-time metrics aggregation endpoint.',
+        'Requires real-time metrics aggregation endpoint.',
       HttpStatus.NOT_IMPLEMENTED,
     );
   }
@@ -264,6 +283,7 @@ export class MessagingAdminController {
    * @param limit - Number of entries per page (max 100)
    * @param cursor - Cursor for pagination
    */
+  @AdminResponseContract(messagingAdminAuditLogResponseContract)
   @Get('audit')
   @ApiOperation({ summary: 'Get compliance audit log entries' })
   async getAuditLog(
@@ -275,20 +295,17 @@ export class MessagingAdminController {
     @Query('resourceType') resourceType?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
-  ): Promise<AuditLogResponse> {
-    return this.sendNatsRequest<AuditLogResponse>(
-      'request.messaging.admin.getAuditLog',
-      {
-        tenantId,
-        limit: limit ? parseInt(limit, 10) : 25,
-        cursor: cursor ?? null,
-        userId,
-        action,
-        resourceType,
-        startDate,
-        endDate,
-      },
-    );
+  ): Promise<MessagingAdminAuditLogResponseDto> {
+    return this.sendNatsRequest<AuditLogResponse>('request.messaging.admin.getAuditLog', {
+      tenantId,
+      limit: limit ? parseInt(limit, 10) : 25,
+      cursor: cursor ?? null,
+      userId,
+      action,
+      resourceType,
+      startDate,
+      endDate,
+    });
   }
 
   // ── Tenant Messaging Overview ───────────────────────────────────────
@@ -297,12 +314,13 @@ export class MessagingAdminController {
    * Get tenant list with messaging statistics.
    * Not yet implemented in messaging-service.
    */
+  @AdminResponseContract(neverResponseContract)
   @Get('tenants')
   @ApiOperation({ summary: 'List tenants with messaging stats' })
   async getTenants(): Promise<never> {
     throw new HttpException(
       'Tenant messaging overview not yet implemented in messaging-service. ' +
-      'Requires cross-tenant aggregation endpoint.',
+        'Requires cross-tenant aggregation endpoint.',
       HttpStatus.NOT_IMPLEMENTED,
     );
   }
@@ -313,6 +331,7 @@ export class MessagingAdminController {
    * Trigger a data export for a specific tenant.
    * @param id - UUID of the tenant to export
    */
+  @AdminResponseContract(messagingAdminExportResponseContract)
   @Post('tenants/:id/export')
   @HttpCode(HttpStatus.ACCEPTED)
   @ApiOperation({ summary: 'Trigger tenant data export' })
@@ -320,15 +339,12 @@ export class MessagingAdminController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: TriggerExportDto,
     @CurrentUser() user: CurrentUserData,
-  ): Promise<ExportResponse> {
-    return this.sendNatsRequest<ExportResponse>(
-      'request.messaging.admin.triggerExport',
-      {
-        tenantId: id,
-        userId: user.id,
-        format: dto.format ?? 'json',
-      },
-    );
+  ): Promise<MessagingAdminExportResponseDto> {
+    return this.sendNatsRequest<ExportResponse>('request.messaging.admin.triggerExport', {
+      tenantId: id,
+      userId: user.id,
+      format: dto.format ?? 'json',
+    });
   }
 
   // ── AI Personas ─────────────────────────────────────────────────────
@@ -337,32 +353,15 @@ export class MessagingAdminController {
    * Get AI personas configuration for a tenant.
    * @param tenantId - UUID of the target tenant
    */
+  @AdminResponseContract(messagingAdminPersonaResponseArrayContract)
   @Get('personas')
   @ApiOperation({ summary: 'Get AI personas configuration' })
   async getPersonas(
     @Query('tenantId') tenantId: string,
-  ): Promise<PersonaResponse[]> {
-    return this.sendNatsRequest<PersonaResponse[]>(
-      'request.messaging.admin.getPersonas',
-      { tenantId },
-    );
-  }
-
-  /**
-   * Update an AI persona configuration.
-   * Not yet implemented in messaging-service (personas are currently static).
-   * @param id - Persona ID
-   */
-  @Put('personas/:id')
-  @ApiOperation({ summary: 'Update AI persona configuration' })
-  async updatePersona(
-    @Param('id') _id: string,
-  ): Promise<never> {
-    throw new HttpException(
-      'AI persona configuration update not yet implemented in messaging-service. ' +
-      'Personas are currently static; per-tenant configuration is planned.',
-      HttpStatus.NOT_IMPLEMENTED,
-    );
+  ): Promise<MessagingAdminPersonaResponseDto[]> {
+    return this.sendNatsRequest<PersonaResponse[]>('request.messaging.admin.getPersonas', {
+      tenantId,
+    });
   }
 
   // ── NATS Helper ─────────────────────────────────────────────────────
@@ -375,18 +374,13 @@ export class MessagingAdminController {
    * @returns Response from messaging-service
    * @throws HttpException on timeout or NATS errors
    */
-  private async sendNatsRequest<T>(
-    pattern: string,
-    payload: Record<string, unknown>,
-  ): Promise<T> {
+  private async sendNatsRequest<T>(pattern: string, payload: Record<string, unknown>): Promise<T> {
     try {
       const result = await firstValueFrom(
         this.natsClient.send<T>(pattern, payload).pipe(
           timeout(this.natsTimeoutMs),
           catchError((err: Error) => {
-            this.logger.error(
-              `NATS request failed: pattern=${pattern}, error=${err.message}`,
-            );
+            this.logger.error(`NATS request failed: pattern=${pattern}, error=${err.message}`);
             return throwError(() => err);
           }),
         ),
@@ -416,10 +410,7 @@ export class MessagingAdminController {
         throw err;
       }
 
-      throw new HttpException(
-        `Messaging service error: ${message}`,
-        HttpStatus.BAD_GATEWAY,
-      );
+      throw new HttpException(`Messaging service error: ${message}`, HttpStatus.BAD_GATEWAY);
     }
   }
 }

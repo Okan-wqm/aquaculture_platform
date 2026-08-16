@@ -555,7 +555,7 @@ function resolvePort(
  *   enableTelemetry: true,
  *   hasGraphQL: true,
  *   helmetOptions: { contentSecurityPolicy: false },
- *   additionalCorsHeaders: ['X-CSRF-Token', 'X-Requested-With'],
+ *   additionalCorsHeaders: ['X-Requested-With'],
  *   onBeforeListen: async (app) => {
  *     app.use(cookieParser());
  *   },

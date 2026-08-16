@@ -1,3 +1,5 @@
+import { gql } from 'graphql-tag';
+
 /**
  * GraphQL Operations for Platform Configuration (config-service subgraph)
  *
@@ -6,9 +8,8 @@
  * config-service's first runtime consumer; the legacy admin-api settings
  * stores are retired 410-Gone).
  *
- * Consumed by hooks/usePlatformConfiguration.ts via useAdminQuery /
- * TanStack mutation over the shared-ui graphqlClient — the same transport
- * pattern as graphql/messaging-operations.ts.
+ * GraphQL codegen validates these operations against the composed supergraph
+ * and emits TypedDocumentNode authorities consumed by the admin GraphQL kernel.
  */
 
 /**
@@ -20,7 +21,7 @@
  * string for keys first created through setConfiguration, `null` for a secret
  * with no stored value, and the redaction sentinel for a stored secret.
  */
-export const PLATFORM_CONFIGURATIONS_QUERY = `
+export const PLATFORM_CONFIGURATIONS_QUERY = gql`
   query PlatformConfigurations($service: String!) {
     effectiveConfigurationsByService(service: $service) {
       key
@@ -37,7 +38,7 @@ export const PLATFORM_CONFIGURATIONS_QUERY = `
  * Resolver: ConfigurationResolver.setConfiguration (admin-gated; a tenantless
  * SUPER_ADMIN writes the SYSTEM-tenant platform rows).
  */
-export const SET_PLATFORM_CONFIGURATION_MUTATION = `
+export const SET_PLATFORM_CONFIGURATION_MUTATION = gql`
   mutation SetPlatformConfiguration(
     $service: String!
     $key: String!

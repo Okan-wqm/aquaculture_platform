@@ -8,13 +8,15 @@ import { ImpersonationController } from './controllers';
 import {
   ImpersonationSession,
   ImpersonationPermission,
+  ImpersonationAuthorizationReceipt,
+  ImpersonationAuthorizationOperationReceipt,
 } from './entities';
 
 // Services -- only impersonation-related
 import { ImpersonationService } from './services';
 
 // Fix: H15 -- Debug tools (DebugToolsController, DebugSession, CapturedQuery,
-// CapturedApiCall, CacheEntrySnapshot, FeatureFlagOverride, DebugToolsService
+// CapturedApiCall, FeatureFlagOverride, DebugToolsService
 // ve alt servisleri) ayrı DebugToolsModule'a taşındı.
 // ImpersonationModule artık sadece impersonation sorumluluğunu taşır (SRP).
 
@@ -24,16 +26,14 @@ import { ImpersonationService } from './services';
     TypeOrmModule.forFeature([
       ImpersonationSession,
       ImpersonationPermission,
+      ImpersonationAuthorizationReceipt,
+      ImpersonationAuthorizationOperationReceipt,
     ]),
     // H-S2-04: AuditLogModule enables USER_IMPERSONATED events in central audit log.
     AuditLogModule,
   ],
   controllers: [ImpersonationController],
-  providers: [
-    ImpersonationService,
-  ],
-  exports: [
-    ImpersonationService,
-  ],
+  providers: [ImpersonationService],
+  exports: [ImpersonationService],
 })
 export class ImpersonationModule {}

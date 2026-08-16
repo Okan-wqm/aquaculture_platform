@@ -24,7 +24,7 @@ export interface ModuleStats {
   activeModules: number;
   coreModules: number;
   totalAssignments: number;
-  moduleUsage: Array<{ moduleId: string; moduleName: string; tenantsCount: number }>;
+  moduleUsage: readonly { moduleId: string; moduleName: string; tenantsCount: number }[];
 }
 
 export interface TenantModuleAssignment {

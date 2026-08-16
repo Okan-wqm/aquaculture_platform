@@ -15,6 +15,8 @@
  * micro-frontends share a single lifecycle instance.
  */
 
+import { isTenantPermissionCode, type TenantPermissionCode } from '@platform/tenant-permissions';
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -101,21 +103,19 @@ function decodeJwtExp(token: string): number | null {
  * or malformed claim yields an empty list (fail-closed for UI: nothing extra
  * shown). Exported so the auth layer can attach it to the current user.
  */
-export function decodeResourcePermissions(token: string): string[] {
+export function decodeResourcePermissions(token: string): TenantPermissionCode[] {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return [];
 
     const payload = parts[1];
     const padded = payload.replace(/-/g, '+').replace(/_/g, '/');
-    const parsed = JSON.parse(atob(padded)) as { resourcePermissions?: unknown };
+    const parsed: unknown = JSON.parse(atob(padded));
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return [];
+    const resourcePermissions = Reflect.get(parsed, 'resourcePermissions');
 
-    if (
-      Array.isArray(parsed.resourcePermissions) &&
-      parsed.resourcePermissions.every((p): p is string => typeof p === 'string')
-    ) {
-      // The type predicate narrows the array to string[] here, so no cast.
-      return parsed.resourcePermissions;
+    if (Array.isArray(resourcePermissions) && resourcePermissions.every(isTenantPermissionCode)) {
+      return resourcePermissions;
     }
     return [];
   } catch {
@@ -150,7 +150,9 @@ class TokenLifecycleManagerImpl implements TokenLifecycleManager {
     // resolveBarrierAsExpired() rejects this barrier during failed initialization.
     // Actual rejection handling is done by waitForReady() callers.
     this.readyPromise = this.createBarrier();
-    this.readyPromise.catch(() => { /* handled by waitForReady() callers */ });
+    this.readyPromise.catch(() => {
+      /* handled by waitForReady() callers */
+    });
   }
 
   // --------------------------------------------------------------------------
@@ -259,7 +261,9 @@ class TokenLifecycleManagerImpl implements TokenLifecycleManager {
       }
       // Create a fresh barrier for subsequent waitForReady() calls
       this.readyPromise = this.createBarrier();
-      this.readyPromise.catch(() => { /* handled by waitForReady() callers */ });
+      this.readyPromise.catch(() => {
+        /* handled by waitForReady() callers */
+      });
     }
   }
 
@@ -276,7 +280,9 @@ class TokenLifecycleManagerImpl implements TokenLifecycleManager {
     this.state = 'INITIALIZING';
     this.refreshRetryCount = 0;
     this.readyPromise = this.createBarrier();
-    this.readyPromise.catch(() => { /* handled by waitForReady() callers */ });
+    this.readyPromise.catch(() => {
+      /* handled by waitForReady() callers */
+    });
   }
 
   // --------------------------------------------------------------------------
@@ -349,10 +355,7 @@ class TokenLifecycleManagerImpl implements TokenLifecycleManager {
       return;
     }
 
-    const refreshAtMs = Math.max(
-      ttlSec * PROACTIVE_REFRESH_RATIO * 1000,
-      MIN_REFRESH_INTERVAL_MS,
-    );
+    const refreshAtMs = Math.max(ttlSec * PROACTIVE_REFRESH_RATIO * 1000, MIN_REFRESH_INTERVAL_MS);
 
     if (import.meta.env.DEV) {
       console.debug(
@@ -377,7 +380,9 @@ class TokenLifecycleManagerImpl implements TokenLifecycleManager {
     this.readyPromise = this.createBarrier();
     // Prevent unhandled rejection if silentRefresh() fails —
     // waitForReady() callers handle the rejection themselves.
-    this.readyPromise.catch(() => { /* handled by waitForReady() callers */ });
+    this.readyPromise.catch(() => {
+      /* handled by waitForReady() callers */
+    });
 
     try {
       const { silentRefresh, getAccessToken } = await import('./api-client');
@@ -421,7 +426,11 @@ class TokenLifecycleManagerImpl implements TokenLifecycleManager {
             );
           }
           this.transition('READY');
-          try { this.readyResolve?.(); } catch { /* already resolved */ }
+          try {
+            this.readyResolve?.();
+          } catch {
+            /* already resolved */
+          }
           // Re-schedule with remaining TTL
           this.scheduleProactiveRefresh(currentToken);
           return;

@@ -9,8 +9,23 @@
  * - MODULE_USER: Limited module access
  */
 
-import React, { createContext, useContext, useReducer, useEffect, useCallback, useMemo } from 'react';
-import { setTokens, clearSession, getAccessToken, setTenantId, graphqlClient } from '../utils/api-client';
+import React, {
+  createContext,
+  useContext,
+  useReducer,
+  useEffect,
+  useCallback,
+  useMemo,
+} from 'react';
+import { PLATFORM_ROLE_DEFINITIONS, Role, type Role as PlatformRole } from '@platform/identity';
+import type { TenantPermissionCode } from '@platform/tenant-permissions';
+import {
+  setTokens,
+  clearSession,
+  getAccessToken,
+  setTenantId,
+  graphqlClient,
+} from '../utils/api-client';
 import { tokenLifecycle, decodeResourcePermissions } from '../utils/token-lifecycle';
 import { logoutCleanup } from '../utils/logout-cleanup';
 
@@ -21,7 +36,7 @@ import { logoutCleanup } from '../utils/logout-cleanup';
 /**
  * User roles matching backend Role enum
  */
-export type UserRole = 'SUPER_ADMIN' | 'TENANT_ADMIN' | 'MODULE_MANAGER' | 'MODULE_USER';
+export type UserRole = PlatformRole;
 
 /**
  * Module info returned from backend
@@ -56,7 +71,7 @@ export interface AuthUser {
    * action/UI visibility via useAuth().hasPermission — the backend enforces
    * independently. Empty for admins (who bypass) and for ungranted users.
    */
-  resourcePermissions?: string[];
+  resourcePermissions?: TenantPermissionCode[];
 }
 
 /**
@@ -97,7 +112,10 @@ declare global {
  */
 type AuthAction =
   | { type: 'AUTH_START' }
-  | { type: 'AUTH_SUCCESS'; payload: { user: AuthUser; modules: UserModule[]; redirectPath: string } }
+  | {
+      type: 'AUTH_SUCCESS';
+      payload: { user: AuthUser; modules: UserModule[]; redirectPath: string };
+    }
   | { type: 'AUTH_FAILURE'; payload: string }
   | { type: 'LOGOUT' }
   | { type: 'CLEAR_ERROR' }
@@ -160,23 +178,19 @@ interface AuthContextValue extends AuthState {
 // Role Hierarchy (matching backend)
 // ============================================================================
 
-const ROLE_HIERARCHY: Record<UserRole, UserRole[]> = {
-  SUPER_ADMIN: ['TENANT_ADMIN', 'MODULE_MANAGER', 'MODULE_USER'],
-  TENANT_ADMIN: ['MODULE_MANAGER', 'MODULE_USER'],
-  MODULE_MANAGER: ['MODULE_USER'],
-  MODULE_USER: [],
-};
-
 function roleHasPermission(userRole: UserRole, requiredRole: UserRole): boolean {
-  if (userRole === requiredRole) return true;
-  return ROLE_HIERARCHY[userRole]?.includes(requiredRole) ?? false;
+  return PLATFORM_ROLE_DEFINITIONS[userRole].level >= PLATFORM_ROLE_DEFINITIONS[requiredRole].level;
 }
 
-function roleHasModuleAccess(userRole: UserRole | undefined, modules: UserModule[], moduleCode: string): boolean {
+function roleHasModuleAccess(
+  userRole: UserRole | undefined,
+  modules: UserModule[],
+  moduleCode: string,
+): boolean {
   if (!userRole) return false;
   // SUPER_ADMIN has platform access, not tenant-module access.
-  if (userRole === 'SUPER_ADMIN') return false;
-  if (userRole === 'TENANT_ADMIN') return true;
+  if (userRole === Role.SUPER_ADMIN) return false;
+  if (userRole === Role.TENANT_ADMIN) return true;
   return modules.some((m) => m.code === moduleCode);
 }
 
@@ -218,11 +232,13 @@ function createAuthBridgeSnapshot(payload: {
   });
 }
 
-function publishAuthBridgeSnapshot(payload: {
-  user: AuthUser;
-  modules: UserModule[];
-  redirectPath: string;
-} | null): void {
+function publishAuthBridgeSnapshot(
+  payload: {
+    user: AuthUser;
+    modules: UserModule[];
+    redirectPath: string;
+  } | null,
+): void {
   const bridge = getAuthBridgeState();
   if (!bridge) return;
   bridge.snapshot = payload ? createAuthBridgeSnapshot(payload) : null;
@@ -416,13 +432,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
   /**
    * Login - returns redirect path for navigation, or MFA challenge if MFA is enabled
    */
-  const login = useCallback(async (payload: LoginPayload): Promise<LoginResult> => {
-    dispatch({ type: 'AUTH_START' });
+  const login = useCallback(
+    async (payload: LoginPayload): Promise<LoginResult> => {
+      dispatch({ type: 'AUTH_START' });
 
-    try {
-      // WHY: Fetch accessType on login so platform access guard can be enforced
-      // immediately without waiting for a separate me() query.
-      const LOGIN_MUTATION = `
+      try {
+        // WHY: Fetch accessType on login so platform access guard can be enforced
+        // immediately without waiting for a separate me() query.
+        const LOGIN_MUTATION = `
         mutation Login($input: LoginInput!) {
           login(input: $input) {
             accessToken
@@ -444,79 +461,82 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
         }
       `;
 
-      const response = await graphqlClient.request<{
-        login: {
-          accessToken: string;
-          refreshToken: string;
-          redirectUrl: string;
-          mfaRequired?: boolean;
-          mfaToken?: string;
-          user: AuthUser;
-        };
-      }>(LOGIN_MUTATION, {
-        input: {
-          email: payload.email,
-          password: payload.password,
-          rememberMe: payload.rememberMe ?? false,
-        },
-      });
+        const response = await graphqlClient.request<{
+          login: {
+            accessToken: string;
+            refreshToken: string;
+            redirectUrl: string;
+            mfaRequired?: boolean;
+            mfaToken?: string;
+            user: AuthUser;
+          };
+        }>(LOGIN_MUTATION, {
+          input: {
+            email: payload.email,
+            password: payload.password,
+            rememberMe: payload.rememberMe ?? false,
+          },
+        });
 
-      if (!response?.login) {
-        throw new Error('Invalid server response');
+        if (!response?.login) {
+          throw new Error('Invalid server response');
+        }
+
+        // MFA required — return challenge info without completing login
+        if (response.login.mfaRequired && response.login.mfaToken) {
+          // Stop loading state but don't set error — MFA challenge UI will take over
+          dispatch({ type: 'SET_LOADING', payload: false });
+          return {
+            mfaRequired: true,
+            mfaToken: response.login.mfaToken,
+          };
+        }
+
+        const { accessToken: loginAccessToken, user, redirectUrl } = response.login;
+
+        // Save access token in memory (refresh token is set as httpOnly cookie by server)
+        setTokens(loginAccessToken);
+
+        // Save tenant ID for multi-tenant context. Null clears stale tenant scope
+        // for platform-level SUPER_ADMIN sessions.
+        setTenantId(user.tenantId ?? null);
+
+        // Validate redirectUrl is a safe relative path (SEC-005: prevent open redirect)
+        const safeRedirectUrl = sanitizeRedirectUrl(redirectUrl);
+        const redirectPath = safeRedirectUrl || getDefaultRedirect(user.role);
+
+        // Fetch user data with modules after login
+        const meData = await fetchMe();
+        if (!meData) {
+          clearSession();
+          publishAuthBridgeSnapshot(null);
+          throw new Error('Session verification failed');
+        }
+
+        setTenantId(meData.user.tenantId ?? null);
+        const authSuccessPayload = { user: meData.user, modules: meData.modules, redirectPath };
+        publishAuthBridgeSnapshot(authSuccessPayload);
+        dispatch({ type: 'AUTH_SUCCESS', payload: authSuccessPayload });
+
+        return { redirectPath };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Login failed';
+        dispatch({ type: 'AUTH_FAILURE', payload: message });
+        throw error;
       }
-
-      // MFA required — return challenge info without completing login
-      if (response.login.mfaRequired && response.login.mfaToken) {
-        // Stop loading state but don't set error — MFA challenge UI will take over
-        dispatch({ type: 'SET_LOADING', payload: false });
-        return {
-          mfaRequired: true,
-          mfaToken: response.login.mfaToken,
-        };
-      }
-
-      const { accessToken: loginAccessToken, user, redirectUrl } = response.login;
-
-      // Save access token in memory (refresh token is set as httpOnly cookie by server)
-      setTokens(loginAccessToken);
-
-      // Save tenant ID for multi-tenant context. Null clears stale tenant scope
-      // for platform-level SUPER_ADMIN sessions.
-      setTenantId(user.tenantId ?? null);
-
-      // Validate redirectUrl is a safe relative path (SEC-005: prevent open redirect)
-      const safeRedirectUrl = sanitizeRedirectUrl(redirectUrl);
-      const redirectPath = safeRedirectUrl || getDefaultRedirect(user.role);
-
-      // Fetch user data with modules after login
-      const meData = await fetchMe();
-      if (!meData) {
-        clearSession();
-        publishAuthBridgeSnapshot(null);
-        throw new Error('Session verification failed');
-      }
-
-      setTenantId(meData.user.tenantId ?? null);
-      const authSuccessPayload = { user: meData.user, modules: meData.modules, redirectPath };
-      publishAuthBridgeSnapshot(authSuccessPayload);
-      dispatch({ type: 'AUTH_SUCCESS', payload: authSuccessPayload });
-
-      return { redirectPath };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Login failed';
-      dispatch({ type: 'AUTH_FAILURE', payload: message });
-      throw error;
-    }
-  }, [fetchMe]);
+    },
+    [fetchMe],
+  );
 
   /**
    * Verify MFA login — completes login after MFA challenge
    */
-  const verifyMfaLogin = useCallback(async (payload: VerifyMfaLoginPayload): Promise<{ redirectPath: string }> => {
-    dispatch({ type: 'AUTH_START' });
+  const verifyMfaLogin = useCallback(
+    async (payload: VerifyMfaLoginPayload): Promise<{ redirectPath: string }> => {
+      dispatch({ type: 'AUTH_START' });
 
-    try {
-      const VERIFY_MFA_LOGIN_MUTATION = `
+      try {
+        const VERIFY_MFA_LOGIN_MUTATION = `
         mutation VerifyMfaLogin($input: VerifyMfaLoginInput!) {
           verifyMfaLogin(input: $input) {
             accessToken
@@ -536,57 +556,59 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
         }
       `;
 
-      const response = await graphqlClient.request<{
-        verifyMfaLogin: {
-          accessToken: string;
-          refreshToken: string;
-          redirectUrl: string;
-          user: AuthUser;
-        };
-      }>(VERIFY_MFA_LOGIN_MUTATION, {
-        input: {
-          mfaToken: payload.mfaToken,
-          code: payload.code,
-        },
-      });
+        const response = await graphqlClient.request<{
+          verifyMfaLogin: {
+            accessToken: string;
+            refreshToken: string;
+            redirectUrl: string;
+            user: AuthUser;
+          };
+        }>(VERIFY_MFA_LOGIN_MUTATION, {
+          input: {
+            mfaToken: payload.mfaToken,
+            code: payload.code,
+          },
+        });
 
-      if (!response?.verifyMfaLogin) {
-        throw new Error('Invalid server response');
+        if (!response?.verifyMfaLogin) {
+          throw new Error('Invalid server response');
+        }
+
+        const { accessToken: loginAccessToken, user, redirectUrl } = response.verifyMfaLogin;
+
+        // Save access token in memory (refresh token is set as httpOnly cookie by server)
+        setTokens(loginAccessToken);
+
+        // Save tenant ID for multi-tenant context. Null clears stale tenant scope
+        // for platform-level SUPER_ADMIN sessions.
+        setTenantId(user.tenantId ?? null);
+
+        // Validate redirectUrl is a safe relative path (SEC-005: prevent open redirect)
+        const safeRedirectUrl = sanitizeRedirectUrl(redirectUrl);
+        const redirectPath = safeRedirectUrl || getDefaultRedirect(user.role);
+
+        // Fetch user data with modules after login
+        const meData = await fetchMe();
+        if (!meData) {
+          clearSession();
+          publishAuthBridgeSnapshot(null);
+          throw new Error('Session verification failed');
+        }
+
+        setTenantId(meData.user.tenantId ?? null);
+        const authSuccessPayload = { user: meData.user, modules: meData.modules, redirectPath };
+        publishAuthBridgeSnapshot(authSuccessPayload);
+        dispatch({ type: 'AUTH_SUCCESS', payload: authSuccessPayload });
+
+        return { redirectPath };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'MFA verification failed';
+        dispatch({ type: 'AUTH_FAILURE', payload: message });
+        throw error;
       }
-
-      const { accessToken: loginAccessToken, user, redirectUrl } = response.verifyMfaLogin;
-
-      // Save access token in memory (refresh token is set as httpOnly cookie by server)
-      setTokens(loginAccessToken);
-
-      // Save tenant ID for multi-tenant context. Null clears stale tenant scope
-      // for platform-level SUPER_ADMIN sessions.
-      setTenantId(user.tenantId ?? null);
-
-      // Validate redirectUrl is a safe relative path (SEC-005: prevent open redirect)
-      const safeRedirectUrl = sanitizeRedirectUrl(redirectUrl);
-      const redirectPath = safeRedirectUrl || getDefaultRedirect(user.role);
-
-      // Fetch user data with modules after login
-      const meData = await fetchMe();
-      if (!meData) {
-        clearSession();
-        publishAuthBridgeSnapshot(null);
-        throw new Error('Session verification failed');
-      }
-
-      setTenantId(meData.user.tenantId ?? null);
-      const authSuccessPayload = { user: meData.user, modules: meData.modules, redirectPath };
-      publishAuthBridgeSnapshot(authSuccessPayload);
-      dispatch({ type: 'AUTH_SUCCESS', payload: authSuccessPayload });
-
-      return { redirectPath };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'MFA verification failed';
-      dispatch({ type: 'AUTH_FAILURE', payload: message });
-      throw error;
-    }
-  }, [fetchMe]);
+    },
+    [fetchMe],
+  );
 
   /**
    * Logout
@@ -642,17 +664,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
    * so they only get new identities when the role actually changes.
    */
   const userRole = state.user?.role;
-  const isSuperAdmin = useCallback(() => userRole === 'SUPER_ADMIN', [userRole]);
-  const isTenantAdmin = useCallback(() => userRole === 'TENANT_ADMIN', [userRole]);
-  const isModuleManager = useCallback(() => userRole === 'MODULE_MANAGER', [userRole]);
-  const isModuleUser = useCallback(() => userRole === 'MODULE_USER', [userRole]);
+  const isSuperAdmin = useCallback(() => userRole === Role.SUPER_ADMIN, [userRole]);
+  const isTenantAdmin = useCallback(() => userRole === Role.TENANT_ADMIN, [userRole]);
+  const isModuleManager = useCallback(() => userRole === Role.MODULE_MANAGER, [userRole]);
+  const isModuleUser = useCallback(() => userRole === Role.MODULE_USER, [userRole]);
 
   const hasRoleOrHigher = useCallback(
     (role: UserRole): boolean => {
       if (!userRole) return false;
       return roleHasPermission(userRole, role);
     },
-    [userRole]
+    [userRole],
   );
 
   const stateModules = state.modules;
@@ -660,26 +682,40 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
     (moduleCode: string): boolean => {
       return roleHasModuleAccess(userRole, stateModules, moduleCode);
     },
-    [userRole, stateModules]
+    [userRole, stateModules],
   );
 
   // PERF-001: Memoize context value to prevent full subtree re-render on every parent render
-  const value = useMemo<AuthContextValue>(() => ({
-    ...state,
-    login,
-    verifyMfaLogin,
-    logout,
-    clearError,
-    refreshAuth,
-    isSuperAdmin,
-    isTenantAdmin,
-    isModuleManager,
-    isModuleUser,
-    hasRoleOrHigher,
-    hasModuleAccess,
-  }), [state, login, verifyMfaLogin, logout, clearError, refreshAuth,
-      isSuperAdmin, isTenantAdmin, isModuleManager,
-      isModuleUser, hasRoleOrHigher, hasModuleAccess]);
+  const value = useMemo<AuthContextValue>(
+    () => ({
+      ...state,
+      login,
+      verifyMfaLogin,
+      logout,
+      clearError,
+      refreshAuth,
+      isSuperAdmin,
+      isTenantAdmin,
+      isModuleManager,
+      isModuleUser,
+      hasRoleOrHigher,
+      hasModuleAccess,
+    }),
+    [
+      state,
+      login,
+      verifyMfaLogin,
+      logout,
+      clearError,
+      refreshAuth,
+      isSuperAdmin,
+      isTenantAdmin,
+      isModuleManager,
+      isModuleUser,
+      hasRoleOrHigher,
+      hasModuleAccess,
+    ],
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
@@ -703,12 +739,12 @@ function sanitizeRedirectUrl(url?: string | null): string | null {
 
 function getDefaultRedirect(role: UserRole): string {
   switch (role) {
-    case 'SUPER_ADMIN':
+    case Role.SUPER_ADMIN:
       return '/admin';
-    case 'TENANT_ADMIN':
+    case Role.TENANT_ADMIN:
       return '/tenant';
-    case 'MODULE_MANAGER':
-    case 'MODULE_USER':
+    case Role.MODULE_MANAGER:
+    case Role.MODULE_USER:
       return '/dashboard';
     default:
       return '/';
@@ -752,10 +788,10 @@ export function useAuthContext(): AuthContextValue {
       },
       clearError: () => {},
       refreshAuth: async () => {},
-      isSuperAdmin: () => user.role === 'SUPER_ADMIN',
-      isTenantAdmin: () => user.role === 'TENANT_ADMIN',
-      isModuleManager: () => user.role === 'MODULE_MANAGER',
-      isModuleUser: () => user.role === 'MODULE_USER',
+      isSuperAdmin: () => user.role === Role.SUPER_ADMIN,
+      isTenantAdmin: () => user.role === Role.TENANT_ADMIN,
+      isModuleManager: () => user.role === Role.MODULE_MANAGER,
+      isModuleUser: () => user.role === Role.MODULE_USER,
       hasRoleOrHigher: (role: UserRole) => roleHasPermission(user.role, role),
       hasModuleAccess: (moduleCode: string) => roleHasModuleAccess(user.role, modules, moduleCode),
     };
@@ -765,7 +801,9 @@ export function useAuthContext(): AuthContextValue {
   // snapshot was published by AuthProvider. Never trust client-decoded JWT
   // role claims for route authorization.
   if (import.meta.env.DEV) {
-    console.warn('AuthContext not available — microfrontend loaded outside AuthProvider. Denying access.');
+    console.warn(
+      'AuthContext not available — microfrontend loaded outside AuthProvider. Denying access.',
+    );
   }
 
   const fallbackValue: AuthContextValue = {

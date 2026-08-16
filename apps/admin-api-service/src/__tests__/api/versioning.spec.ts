@@ -11,7 +11,7 @@ import {
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 
-import { Public } from '../../decorators/public.decorator';
+import { Public } from '@aquaculture/backend-common/decorators';
 
 /**
  * Test controller that exposes versioned and unversioned routes.
@@ -58,46 +58,40 @@ describe('API Versioning', () => {
 
   describe('URI-based versioning configuration', () => {
     it('should respond at unversioned path (VERSION_NEUTRAL backward compat)', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/test-versioning/ping');
+      const response = await request(app.getHttpServer()).get('/test-versioning/ping');
 
       expect(response.status).toBe(HttpStatus.OK);
       expect(response.body).toEqual({ version: 'default', message: 'pong' });
     });
 
     it('should respond at /v1/ prefixed path', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/v1/test-versioning/ping');
+      const response = await request(app.getHttpServer()).get('/v1/test-versioning/ping');
 
       expect(response.status).toBe(HttpStatus.OK);
       expect(response.body).toEqual({ version: 'default', message: 'pong' });
     });
 
     it('should return 404 for unknown version prefix', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/v99/test-versioning/ping');
+      const response = await request(app.getHttpServer()).get('/v99/test-versioning/ping');
 
       expect(response.status).toBe(HttpStatus.NOT_FOUND);
     });
 
     it('should serve @Version("2") endpoint at /v2/ prefix only', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/v2/test-versioning/v2-only');
+      const response = await request(app.getHttpServer()).get('/v2/test-versioning/v2-only');
 
       expect(response.status).toBe(HttpStatus.OK);
       expect(response.body).toEqual({ version: '2', message: 'v2 only' });
     });
 
     it('should NOT serve @Version("2") endpoint at /v1/ prefix', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/v1/test-versioning/v2-only');
+      const response = await request(app.getHttpServer()).get('/v1/test-versioning/v2-only');
 
       expect(response.status).toBe(HttpStatus.NOT_FOUND);
     });
 
     it('should NOT serve @Version("2") endpoint at unversioned path', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/test-versioning/v2-only');
+      const response = await request(app.getHttpServer()).get('/test-versioning/v2-only');
 
       expect(response.status).toBe(HttpStatus.NOT_FOUND);
     });

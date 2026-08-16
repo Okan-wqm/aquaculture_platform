@@ -1,7 +1,8 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
-import { resolve } from 'path';
+
+import { AQUAMOBIL_SOURCE_PATH_ALIASES } from './source-path-aliases';
 
 export default defineConfig({
   base: '/mobile/',
@@ -80,18 +81,8 @@ export default defineConfig({
     }),
   ],
   resolve: {
-    alias: {
-      '@': resolve(__dirname, 'src'),
-      '@aquaculture/farm-shared': resolve(__dirname, '../../../libs/farm-shared/src'),
-      // MSG-MEDIUM-057: path-aliased (NOT npm-installed) so the messaging media
-      // MIME allowlist SSoT survives the standalone aquamobil Docker build
-      // context — mirrors the farm-shared precedent above. The shared-contracts
-      // entry is ZERO-dependency (a frozen string array + derived union, no
-      // JSX/React/event-contracts import), so it cannot trigger the
-      // bare-specifier resolution hazard the farm-shared dedupe comment below
-      // documents.
-      '@aquaculture/shared-contracts': resolve(__dirname, '../../../libs/shared-contracts/src'),
-    },
+    // Production and test builds consume one source-coordinate authority.
+    alias: AQUAMOBIL_SOURCE_PATH_ALIASES,
     // Dedupe React across the aliased farm-shared boundary.
     //
     // WHY: aquamobil's Docker build (`Dockerfile.aquamobil`) is a standalone

@@ -37,7 +37,6 @@ export type {
   UpdateTenantRoleInput,
   TenantPlan,
   TenantStatus,
-  UserRole,
   UserStatus,
   SubscriptionInfo,
   EdgeDeviceListItem,

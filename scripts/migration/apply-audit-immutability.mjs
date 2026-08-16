@@ -9,15 +9,9 @@
  *
  * Idempotent — re-runnable; checks for the marker comment before adding.
  *
- * Audit tables addressed:
- *   admin.audit_logs                  (admin-api-service)
- *   admin.impersonation_sessions      (admin-api-service)
- *   auth.audit_logs                   (auth-service)
- *   farm.farm_audit_logs              (farm-service)
- *   hr.payroll_audit                  (hr-service)
- *   ai.tool_execution_audit           (ai-service)
- *   alert.alert_audit_log             (alert-engine)
- *   messaging.compliance_audit_log    (messaging-service)
+ * Target tables are read from the append-only catalog in backend-common.
+ * Operational lifecycle tables (notably admin.impersonation_sessions) are
+ * deliberately absent and therefore cannot be frozen by this script.
  *
  * Usage: node scripts/migration/apply-audit-immutability.mjs
  */
@@ -28,16 +22,49 @@ import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
-const TARGETS = [
-  { svc: 'admin-api-service', schema: 'admin', migDir: 'src/migrations', tables: ['audit_logs', 'impersonation_sessions'] },
-  { svc: 'auth-service', schema: 'auth', migDir: 'src/migrations', tables: ['audit_logs'] },
-  { svc: 'farm-service', schema: 'farm', migDir: 'src/database/migrations', tables: ['farm_audit_logs'] },
-  { svc: 'hr-service', schema: 'hr', migDir: 'src/database/migrations', tables: ['payroll_audit'] },
-  { svc: 'ai-service', schema: 'ai', migDir: 'src/database/migrations', tables: ['tool_execution_audit'] },
-  { svc: 'alert-engine', schema: 'alert', migDir: 'src/database/migrations', tables: ['alert_audit_log'] },
-  { svc: 'messaging-service', schema: 'messaging', migDir: 'src/migrations', tables: ['compliance_audit_log'] },
-  { svc: 'sensor-service', schema: 'sensor', migDir: 'src/database/migrations', tables: ['sensor_audit_logs'] },
-];
+function loadTargets() {
+  const catalogPath = resolve(
+    REPO_ROOT,
+    'libs/backend-common/src/constants/append-only-table-catalog.json',
+  );
+  const catalog = JSON.parse(readFileSync(catalogPath, 'utf8'));
+  if (!Array.isArray(catalog)) {
+    throw new Error('append-only-table-catalog.json must contain an array');
+  }
+
+  const grouped = new Map();
+  for (const entry of catalog) {
+    if (!entry || typeof entry !== 'object' || typeof entry.qualifiedName !== 'string') {
+      throw new Error('append-only catalog entries require qualifiedName');
+    }
+    if (!entry.baseline) continue;
+    const { service, schema, migrationDirectory } = entry.baseline;
+    if (
+      typeof service !== 'string' ||
+      typeof schema !== 'string' ||
+      typeof migrationDirectory !== 'string'
+    ) {
+      throw new Error(`invalid baseline target for ${entry.qualifiedName}`);
+    }
+    const [qualifiedSchema, table, extra] = entry.qualifiedName.split('.');
+    if (!qualifiedSchema || !table || extra || qualifiedSchema !== schema) {
+      throw new Error(`baseline schema does not match ${entry.qualifiedName}`);
+    }
+
+    const key = `${service}\u0000${schema}\u0000${migrationDirectory}`;
+    const target = grouped.get(key) ?? {
+      svc: service,
+      schema,
+      migDir: migrationDirectory,
+      tables: [],
+    };
+    target.tables.push(table);
+    grouped.set(key, target);
+  }
+  return [...grouped.values()];
+}
+
+const TARGETS = loadTargets();
 
 const UP_MARKER = '// ── Faz 3.5 hand-author addition — audit immutability triggers ──';
 const DOWN_MARKER = '// Reverse Faz 3.5 audit immutability triggers';

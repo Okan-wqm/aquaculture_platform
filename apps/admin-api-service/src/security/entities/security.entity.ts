@@ -16,244 +16,23 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-
-// ============================================================================
-// Enums & Types
-// ============================================================================
-
-export type ActivityCategory =
-  | 'user_action'
-  | 'system_event'
-  | 'api_call'
-  | 'data_access'
-  | 'security_event'
-  | 'configuration'
-  | 'authentication';
-
-export type ActivitySeverity = 'debug' | 'info' | 'warning' | 'error' | 'critical';
-
-export type SecurityEventType =
-  | 'failed_login'
-  | 'brute_force_attempt'
-  | 'suspicious_activity'
-  | 'unauthorized_access'
-  | 'privilege_escalation'
-  | 'data_exfiltration'
-  | 'malware_detected'
-  | 'api_abuse'
-  | 'rate_limit_exceeded'
-  | 'sql_injection_attempt'
-  | 'xss_attempt'
-  | 'csrf_attempt'
-  | 'account_lockout'
-  | 'password_spray'
-  | 'credential_stuffing'
-  | 'session_hijacking'
-  | 'ip_blacklisted'
-  | 'geo_anomaly'
-  | 'device_anomaly'
-  | 'time_anomaly';
-
-export type SecurityEventStatus = 'detected' | 'investigating' | 'confirmed' | 'mitigated' | 'false_positive' | 'escalated';
-
-export type ThreatLevel = 'low' | 'medium' | 'high' | 'critical';
-
-export type ComplianceType = 'gdpr' | 'ccpa' | 'hipaa' | 'pci_dss' | 'sox' | 'iso27001';
-
-export type DataRequestType = 'access' | 'deletion' | 'portability' | 'rectification' | 'restriction';
-
-export type DataRequestStatus = 'pending' | 'in_progress' | 'completed' | 'rejected' | 'expired';
-
-export type IncidentStatus = 'open' | 'investigating' | 'contained' | 'eradicated' | 'recovered' | 'closed';
-
-export type IncidentSeverity = 'low' | 'medium' | 'high' | 'critical';
-
-// ============================================================================
-// Interfaces
-// ============================================================================
-
-export interface GeoLocation {
-  country: string;
-  countryCode: string;
-  region: string;
-  city: string;
-  latitude: number;
-  longitude: number;
-  timezone: string;
-}
-
-export interface DeviceInfo {
-  userAgent: string;
-  browser: string;
-  browserVersion: string;
-  os: string;
-  osVersion: string;
-  device: string;
-  deviceType: 'desktop' | 'mobile' | 'tablet' | 'bot' | 'unknown';
-  isMobile: boolean;
-  isBot: boolean;
-}
-
-export interface RequestInfo {
-  method: string;
-  path: string;
-  query: Record<string, unknown>;
-  headers: Record<string, string>;
-  body?: Record<string, unknown>;
-  responseStatus?: number;
-  responseTime?: number;
-  responseSize?: number;
-}
-
-export interface AnomalyDetails {
-  type: string;
-  score: number;
-  threshold: number;
-  baseline: Record<string, unknown>;
-  current: Record<string, unknown>;
-  factors: string[];
-}
-
-export interface ThreatIndicator {
-  type: 'ip' | 'domain' | 'url' | 'hash' | 'email' | 'user_agent';
-  value: string;
-  source: string;
-  confidence: number;
-  lastSeen: Date;
-  tags: string[];
-}
-
-export interface ComplianceViolation {
-  requirement: string;
-  description: string;
-  severity: 'low' | 'medium' | 'high' | 'critical';
-  remediation: string;
-  deadline?: Date;
-}
-
-export interface RetentionPolicy {
-  category: ActivityCategory;
-  retentionDays: number;
-  archiveAfterDays?: number;
-  deleteAfterArchiveDays?: number;
-}
-
-// ============================================================================
-// Activity Log Entity
-// ============================================================================
-
-@Entity('activity_logs', { schema: 'admin' })
-@Index(['tenantId', 'createdAt'])
-@Index(['userId', 'createdAt'])
-@Index(['category', 'createdAt'])
-@Index(['severity', 'createdAt'])
-@Index(['ipAddress', 'createdAt'])
-@Index(['action', 'createdAt'])
-@Index(['entityType'])
-@Index(['entityId'])
-export class ActivityLog {
-  @PrimaryGeneratedColumn('uuid')
-  id!: string;
-
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  tenantId?: string | null;
-
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  tenantName?: string | null;
-
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  userId?: string | null;
-
-  @Column({ type: 'varchar', length: 255, nullable: true })
-  userName?: string | null;
-
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  userEmail?: string | null;
-
-  @Column({ type: 'varchar', length: 50 })
-  category!: ActivityCategory;
-
-  @Column({ type: 'varchar', length: 20, default: 'info' })
-  severity!: ActivitySeverity;
-
-  @Column({ type: 'varchar', length: 100 })
-  action!: string;
-
-  @Column({ type: 'text' })
-  description!: string;
-
-  // Entity affected by this action
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  entityType?: string | null;
-
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  entityId?: string | null;
-
-  @Column({ type: 'varchar', length: 255, nullable: true })
-  entityName?: string | null;
-
-  // Request details
-  @Column({ type: 'varchar', length: 45 })
-  ipAddress!: string;
-
-  @Column({ type: 'jsonb', nullable: true })
-  geoLocation?: GeoLocation | null;
-
-  @Column({ type: 'jsonb', nullable: true })
-  deviceInfo?: DeviceInfo | null;
-
-  @Column({ type: 'jsonb', nullable: true })
-  requestInfo?: RequestInfo | null;
-
-  // Session info
-  @Column({ type: 'varchar', length: 255, nullable: true })
-  sessionId?: string | null;
-
-  @Column({ type: 'varchar', length: 255, nullable: true })
-  correlationId?: string | null;
-
-  // Change tracking
-  @Column({ type: 'jsonb', nullable: true })
-  previousValue?: Record<string, unknown> | null;
-
-  @Column({ type: 'jsonb', nullable: true })
-  newValue?: Record<string, unknown> | null;
-
-  @Column({ type: 'jsonb', nullable: true })
-  changedFields?: string[] | null;
-
-  // Additional metadata
-  @Column({ type: 'jsonb', nullable: true })
-  metadata?: Record<string, unknown> | null;
-
-  // Tags for categorization
-  @Column({ type: 'simple-array', nullable: true })
-  tags?: string[] | null;
-
-  // Outcome
-  @Column({ type: 'boolean', default: true })
-  success!: boolean;
-
-  @Column({ type: 'text', nullable: true })
-  errorMessage?: string | null;
-
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  errorCode?: string | null;
-
-  // Duration in milliseconds
-  @Column({ type: 'int', nullable: true })
-  duration?: number | null;
-
-  @CreateDateColumn()
-  createdAt!: Date;
-
-  // For archival tracking
-  @Column({ type: 'boolean', default: false })
-  isArchived!: boolean;
-
-  @Column({ type: 'timestamptz', nullable: true })
-  archivedAt?: Date | null;
-}
+import type {
+  AnomalyDetails,
+  ComplianceType,
+  ComplianceViolation,
+  DataRequestStatus,
+  DataRequestType,
+  DeviceInfo,
+  GeoLocation,
+  IncidentSeverity,
+  IncidentStatus,
+  RetentionPolicy,
+  SecurityEventStatus,
+  SecurityEventType,
+  ThreatIndicator,
+  ThreatIndicatorType,
+  ThreatLevel,
+} from '../contracts/security-vocabulary';
 
 // ============================================================================
 // Security Event Entity
@@ -508,7 +287,7 @@ export class ThreatIntelligence {
   id!: string;
 
   @Column({ type: 'varchar', length: 50 })
-  indicatorType!: 'ip' | 'domain' | 'url' | 'hash' | 'email' | 'user_agent' | 'cidr';
+  indicatorType!: ThreatIndicatorType;
 
   @Column({ type: 'varchar', length: 500 })
   value!: string;
@@ -775,63 +554,6 @@ export class ComplianceReport {
 
   @Column({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null;
-
-  @CreateDateColumn()
-  createdAt!: Date;
-
-  @UpdateDateColumn()
-  updatedAt!: Date;
-}
-
-// ============================================================================
-// Retention Policy Entity
-// ============================================================================
-
-@Entity('retention_policies', { schema: 'admin' })
-@Index(['name'], { unique: true })
-export class RetentionPolicyEntity {
-  @PrimaryGeneratedColumn('uuid')
-  id!: string;
-
-  @Column({ type: 'varchar', length: 100, unique: true })
-  name!: string;
-
-  @Column({ type: 'varchar', length: 50 })
-  category!: ActivityCategory;
-
-  @Column({ type: 'text', nullable: true })
-  description?: string | null;
-
-  // Retention settings
-  @Column({ type: 'int' })
-  retentionDays!: number;
-
-  @Column({ type: 'int', nullable: true })
-  archiveAfterDays?: number | null;
-
-  @Column({ type: 'int', nullable: true })
-  deleteAfterArchiveDays?: number | null;
-
-  // Scope
-  @Column({ type: 'boolean', default: true })
-  isGlobal!: boolean;
-
-  @Column({ type: 'simple-array', nullable: true })
-  specificTenants?: string[] | null;
-
-  // Compliance requirements
-  @Column({ type: 'simple-array', nullable: true })
-  complianceFrameworks?: ComplianceType[] | null;
-
-  @Column({ type: 'boolean', default: true })
-  isActive!: boolean;
-
-  // Audit
-  @Column({ type: 'varchar', length: 100 })
-  createdBy!: string;
-
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  updatedBy?: string | null;
 
   @CreateDateColumn()
   createdAt!: Date;

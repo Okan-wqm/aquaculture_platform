@@ -75,7 +75,6 @@ describe.skip('Tenant Management E2E Tests', () => {
   beforeAll(async () => {
     // Note: In actual E2E tests, you would use a real test database
     // For this mock version, we demonstrate the test structure
-
     // const moduleFixture: TestingModule = await Test.createTestingModule({
     //   imports: [
     //     ConfigModule.forRoot({ isGlobal: true }),
@@ -95,7 +94,6 @@ describe.skip('Tenant Management E2E Tests', () => {
     //     ModulesModule,
     //   ],
     // }).compile();
-
     // app = moduleFixture.createNestApplication();
     // app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
     // await app.init();
@@ -167,7 +165,7 @@ describe.skip('Tenant Management E2E Tests', () => {
 
       it('should retrieve tenant by slug', async () => {
         // const response = await request(app.getHttpServer())
-        //   .get(`/tenants/slug/${validTenantData.slug}`)
+        //   .get(`/tenants/lookup/slug/${validTenantData.slug}`)
         //   .set(superAdminHeaders)
         //   .expect(HttpStatus.OK);
 
@@ -308,7 +306,6 @@ describe.skip('Tenant Management E2E Tests', () => {
       //   .set(superAdminHeaders)
       //   .send({ ...validTenantData, slug: 'module-test-tenant' });
       // testTenantId = response.body.id;
-
       // Get a test module ID
       // const modulesResponse = await request(app.getHttpServer())
       //   .get('/modules')

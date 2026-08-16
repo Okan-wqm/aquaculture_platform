@@ -72,6 +72,7 @@ import {
   type RemoveTenantModuleResult,
   type ReserveTenantCommand,
   type ReserveTenantResult,
+  type ResumeTenantCommand,
   type RollbackTenantProvisioningCommand,
   type RollbackTenantProvisioningResult,
   type SetupTenantRolesCommand,
@@ -122,8 +123,7 @@ export class AuthAdminNatsHandler {
       return [];
     }
     return value.filter(
-      (row): row is T =>
-        typeof row === 'object' && row !== null && !Array.isArray(row),
+      (row): row is T => typeof row === 'object' && row !== null && !Array.isArray(row),
     );
   }
 
@@ -136,9 +136,7 @@ export class AuthAdminNatsHandler {
    * making double-hashing and column-name drift impossible.
    */
   @MessagePattern(AUTH_ADMIN_COMMAND_SUBJECTS.CREATE_USER)
-  async createUser(
-    @Payload() command: AdminCreateUserCommand,
-  ): Promise<AdminCreateUserResult> {
+  async createUser(@Payload() command: AdminCreateUserCommand): Promise<AdminCreateUserResult> {
     try {
       const user = await this.userLifecycleService.adminCreateUser({
         email: command.email,
@@ -166,9 +164,7 @@ export class AuthAdminNatsHandler {
       const errorCode = this.mapCreateError(err);
       const message = err instanceof Error ? err.message : String(err);
       // SECURITY: log the error code path, never the caller's password.
-      this.logger.warn(
-        `adminCreateUser failed: code=${errorCode}, reason=${message}`,
-      );
+      this.logger.warn(`adminCreateUser failed: code=${errorCode}, reason=${message}`);
       return { success: false, errorCode, error: message };
     }
   }
@@ -213,9 +209,7 @@ export class AuthAdminNatsHandler {
    * names columns.
    */
   @MessagePattern(AUTH_ADMIN_COMMAND_SUBJECTS.UPDATE_USER)
-  async updateUser(
-    @Payload() command: AdminUpdateUserCommand,
-  ): Promise<AdminUpdateUserResult> {
+  async updateUser(@Payload() command: AdminUpdateUserCommand): Promise<AdminUpdateUserResult> {
     try {
       const user = await this.userLifecycleService.adminUpdateUser(command.userId, {
         firstName: command.firstName,
@@ -262,9 +256,7 @@ export class AuthAdminNatsHandler {
     @Payload() command: AdminDeactivateUserCommand,
   ): Promise<AdminDeactivateUserResult> {
     try {
-      const result = await this.userLifecycleService.adminDeactivateUser(
-        command.userId,
-      );
+      const result = await this.userLifecycleService.adminDeactivateUser(command.userId);
       return {
         success: true,
         userId: result.userId,
@@ -292,9 +284,7 @@ export class AuthAdminNatsHandler {
     @Payload() command: AdminForceLogoutUserCommand,
   ): Promise<AdminForceLogoutUserResult> {
     try {
-      const result = await this.userLifecycleService.adminForceLogout(
-        command.userId,
-      );
+      const result = await this.userLifecycleService.adminForceLogout(command.userId);
       return {
         success: true,
         userId: result.userId,
@@ -332,14 +322,10 @@ export class AuthAdminNatsHandler {
       // The service throws NotFound for both "user not found" and
       // "tenant not found"; disambiguate on the message so admin-api
       // can surface the correct REST status.
-      return err.message.toLowerCase().includes('tenant')
-        ? 'TENANT_NOT_FOUND'
-        : 'USER_NOT_FOUND';
+      return err.message.toLowerCase().includes('tenant') ? 'TENANT_NOT_FOUND' : 'USER_NOT_FOUND';
     }
     if (err instanceof BadRequestException) {
-      return err.message.toLowerCase().includes('role')
-        ? 'INVALID_ROLE'
-        : 'VALIDATION_ERROR';
+      return err.message.toLowerCase().includes('role') ? 'INVALID_ROLE' : 'VALIDATION_ERROR';
     }
     return 'INTERNAL_ERROR';
   }
@@ -363,9 +349,7 @@ export class AuthAdminNatsHandler {
    * with snake_case columns drifting from the entity definitions.
    */
   @MessagePattern(AUTH_ADMIN_COMMAND_SUBJECTS.INVITE_USER)
-  async inviteUser(
-    @Payload() command: AdminInviteUserCommand,
-  ): Promise<AdminInviteUserResult> {
+  async inviteUser(@Payload() command: AdminInviteUserCommand): Promise<AdminInviteUserResult> {
     try {
       const result = await this.userLifecycleService.adminInviteUser({
         tenantId: command.tenantId,
@@ -405,9 +389,7 @@ export class AuthAdminNatsHandler {
     @Payload() query: AdminCheckUserLimitQuery,
   ): Promise<AdminCheckUserLimitResult> {
     try {
-      const result = await this.userLifecycleService.adminCheckUserLimit(
-        query.tenantId,
-      );
+      const result = await this.userLifecycleService.adminCheckUserLimit(query.tenantId);
       return {
         success: true,
         canCreate: result.canCreate,
@@ -481,10 +463,12 @@ export class AuthAdminNatsHandler {
     @Payload() command: AdminDeleteModuleCommand,
   ): Promise<AdminDeleteModuleResult> {
     try {
-      const assignments = this.rowsFromQuery<CountRow>(await this.moduleRepository.manager.query(
-        `SELECT COUNT(*)::int AS count FROM auth.tenant_modules WHERE "moduleId" = $1`,
-        [command.moduleId],
-      ));
+      const assignments = this.rowsFromQuery<CountRow>(
+        await this.moduleRepository.manager.query(
+          `SELECT COUNT(*)::int AS count FROM auth.tenant_modules WHERE "moduleId" = $1`,
+          [command.moduleId],
+        ),
+      );
       if (Number(assignments[0]?.count ?? 0) > 0) {
         throw new ConflictException('Cannot delete module that is assigned to tenants');
       }
@@ -505,9 +489,7 @@ export class AuthAdminNatsHandler {
   }
 
   @MessagePattern(TENANT_COMMAND_SUBJECTS.RESERVE_TENANT)
-  async reserveTenant(
-    @Payload() command: ReserveTenantCommand,
-  ): Promise<ReserveTenantResult> {
+  async reserveTenant(@Payload() command: ReserveTenantCommand): Promise<ReserveTenantResult> {
     try {
       const result = await this.tenantProvisioningCommandService.reserveTenant(command);
       return {
@@ -536,9 +518,7 @@ export class AuthAdminNatsHandler {
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      this.logger.warn(
-        `setupTenantRoles failed: tenantId=${command.tenantId}, reason=${message}`,
-      );
+      this.logger.warn(`setupTenantRoles failed: tenantId=${command.tenantId}, reason=${message}`);
       return { success: false, error: message };
     }
   }
@@ -601,9 +581,7 @@ export class AuthAdminNatsHandler {
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      this.logger.warn(
-        `createTenantAdmin failed: tenantId=${command.tenantId}, reason=${message}`,
-      );
+      this.logger.warn(`createTenantAdmin failed: tenantId=${command.tenantId}, reason=${message}`);
       return { success: false, error: message };
     }
   }
@@ -629,6 +607,18 @@ export class AuthAdminNatsHandler {
       return { success: true, ...result };
     } catch (err) {
       return this.toTenantCommandFailure(command, 'activateTenant', err);
+    }
+  }
+
+  @MessagePattern(TENANT_COMMAND_SUBJECTS.RESUME_TENANT)
+  async resumeTenantLifecycle(
+    @Payload() command: ResumeTenantCommand,
+  ): Promise<AuthTenantCommandResult> {
+    try {
+      const result = await this.tenantProvisioningCommandService.resumeTenant(command);
+      return { success: true, ...result };
+    } catch (err) {
+      return this.toTenantCommandFailure(command, 'resumeTenant', err);
     }
   }
 
@@ -685,7 +675,8 @@ export class AuthAdminNatsHandler {
     @Payload() command: RollbackTenantProvisioningCommand,
   ): Promise<RollbackTenantProvisioningResult> {
     try {
-      const result = await this.tenantProvisioningCommandService.rollbackTenantProvisioning(command);
+      const result =
+        await this.tenantProvisioningCommandService.rollbackTenantProvisioning(command);
       return { success: true, ...result };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

@@ -1,19 +1,18 @@
 import {
-  Injectable,
+  BadRequestException,
   CanActivate,
   ExecutionContext,
-  BadRequestException,
   ForbiddenException,
-  ServiceUnavailableException,
   Inject,
+  Injectable,
   Logger,
   Optional,
+  ServiceUnavailableException,
 } from '@nestjs/common';
-import { GqlExecutionContext } from '@nestjs/graphql';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
-import { SKIP_TENANT_GUARD_KEY, IS_PUBLIC_KEY, Role } from '../decorators/roles.decorator';
-import { TenantRequest } from '../types/tenant-request.interface';
+import { GqlExecutionContext } from '@nestjs/graphql';
+
 // IMPORTANT: import from tokens, NOT from `audit-log.service` / `audit-log.entity`.
 // Importing the service would chain through `audit-log.entity` and fire the
 // `@Entity()` decorator on every backend-common consumer, polluting TypeORM's
@@ -24,9 +23,11 @@ import {
   AuditSeverity,
   type IAuditLogService,
 } from '../audit/audit-log.tokens';
+import { IS_PUBLIC_KEY, Role, SKIP_TENANT_GUARD_KEY } from '../decorators/roles.decorator';
+import type { TenantRequest } from '../types/tenant-request.interface';
 
 /** UUID v4 format validator. */
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /**
  * Tenant Guard — enforces tenant isolation for every authenticated request.
@@ -40,9 +41,9 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
  *   accepting them would allow tenant context spoofing.
  *
  *   **SUPER_ADMIN** — May impersonate a specific tenant only through the
- *   gateway-resolved, HMAC-bound effective-tenant context. Regular subgraphs
- *   consume the verified user assertion; auth-service consumes the verified
- *   gateway service identity because it verifies the user's JWT itself.
+ *   gateway-resolved, HMAC-bound verified user assertion. The matching gateway
+ *   service identity authenticates the transport, but cannot authorize a
+ *   tenant switch without the assertion's session and permission provenance.
  *
  * Skip behaviour:
  * - `@SkipTenantGuard()` skips tenant validation for a single route that
@@ -127,7 +128,11 @@ export class TenantGuard implements CanActivate {
 
     if (contextType === 'graphql') {
       const gqlCtx = GqlExecutionContext.create(context);
-      request = gqlCtx.getContext().req as TenantRequest;
+      const gqlContext = gqlCtx.getContext<{ readonly req?: unknown }>();
+      if (typeof gqlContext.req !== 'object' || gqlContext.req === null) {
+        throw new BadRequestException('GraphQL request context is required');
+      }
+      request = gqlContext.req as TenantRequest;
     } else {
       request = context.switchToHttp().getRequest<TenantRequest>();
     }
@@ -137,8 +142,7 @@ export class TenantGuard implements CanActivate {
     // ---------------------------------------------------------------
     // SUPER_ADMIN: operates in system scope, no tenant enforcement.
     // A tenant impersonation target must come from the gateway's verified
-    // assertion, or from the HMAC-bound effective tenant on auth's direct
-    // JWT-verification path.
+    // assertion. A verified service identity alone never authorizes a switch.
     //
     // SECURITY (H-13): Cross-tenant access is mandatory audit-logged.
     // ---------------------------------------------------------------
@@ -163,6 +167,8 @@ export class TenantGuard implements CanActivate {
             actAs.clientIp,
             actAs.clientUserAgent,
             actAs.mfaVerified,
+            actAs.impersonationSessionId,
+            actAs.effectivePermissions,
           );
         }
 
@@ -201,9 +207,7 @@ export class TenantGuard implements CanActivate {
    */
   private isSuperAdmin(user?: TenantRequest['user']): boolean {
     if (!user) return false;
-    if (user.roles?.includes(Role.SUPER_ADMIN)) return true;
-    if (user.role === Role.SUPER_ADMIN) return true;
-    return false;
+    return user.roles?.includes(Role.SUPER_ADMIN) === true;
   }
 
   /**
@@ -263,6 +267,10 @@ export class TenantGuard implements CanActivate {
     assertedClientIp: string | undefined,
     assertedClientUserAgent: string | undefined,
     mfaVerified: boolean,
+    impersonationSessionId: string,
+    effectivePermissions: NonNullable<
+      NonNullable<TenantRequest['verifiedUserAssertion']>['impersonationPermissions']
+    >,
   ): Promise<void> {
     const endpoint = `${request.method} ${request.url}`;
     const timestamp = new Date().toISOString();
@@ -294,8 +302,8 @@ export class TenantGuard implements CanActivate {
     try {
       await this.auditLogService.recordAwait({
         action: 'SUPER_ADMIN_CROSS_TENANT_ACCESS',
-        resource: 'TenantGuard',
-        resourceId: targetTenantId,
+        resource: 'ImpersonationSession',
+        resourceId: impersonationSessionId,
         userId: user?.sub ?? null,
         userEmail: user?.email ?? null,
         tenantId: targetTenantId,
@@ -305,6 +313,8 @@ export class TenantGuard implements CanActivate {
           endpoint,
           timestamp,
           mfaVerified,
+          impersonationSessionId,
+          effectivePermissions,
         },
         actorHomeTenantId:
           sourceTenantId === 'system' ? null : sourceTenantId,
@@ -332,10 +342,11 @@ export class TenantGuard implements CanActivate {
   /**
    * Resolve the single trusted SUPER_ADMIN tenant target.
    *
-   * The verified assertion is authoritative in regular subgraphs. Auth-service
-   * verifies the access JWT itself, so it consumes the HMAC-bound effective
-   * tenant from the verified gateway service identity. Raw browser headers are
-   * never trusted in production.
+   * The verified assertion is the sole cross-tenant authority. Service
+   * identity authenticates the gateway transport but cannot authorize a tenant
+   * switch by itself; the assertion must also carry the canonical admin-api
+   * session id and effective permission snapshot. Raw browser headers are only
+   * conflict/rejection signals.
    */
   private resolveTrustedActAs(
     request: TenantRequest,
@@ -347,6 +358,10 @@ export class TenantGuard implements CanActivate {
         mfaVerified: boolean;
         clientIp?: string;
         clientUserAgent?: string;
+        impersonationSessionId: string;
+        effectivePermissions: NonNullable<
+          NonNullable<TenantRequest['verifiedUserAssertion']>['impersonationPermissions']
+        >;
       }
     | undefined {
     const assertion = request.verifiedUserAssertion;
@@ -364,15 +379,20 @@ export class TenantGuard implements CanActivate {
       const targetTenantId = assertion.effectiveTenantId ?? undefined;
       if (!targetTenantId) {
         if (rawActAs) {
-          throw new ForbiddenException('Act-as tenant conflicts with verified user assertion');
+          throw new ForbiddenException('Raw act-as tenant header is not accepted downstream');
         }
         return undefined;
       }
       this.assertValidActAsTenant(targetTenantId);
-      if (rawActAs && rawActAs !== targetTenantId) {
-        throw new ForbiddenException('Act-as tenant conflicts with verified user assertion');
+      if (rawActAs) {
+        throw new ForbiddenException('Raw act-as tenant header is not accepted downstream');
       }
       this.assertGatewayIdentityMatchesTarget(request, targetTenantId);
+      if (!assertion.impersonationSessionId || !assertion.impersonationPermissions) {
+        throw new ForbiddenException(
+          'Cross-tenant access requires a canonical impersonation assertion',
+        );
+      }
 
       return {
         sourceTenantId: assertion.tenantId ?? 'system',
@@ -380,6 +400,8 @@ export class TenantGuard implements CanActivate {
         mfaVerified: assertion.mfaVerified,
         clientIp: assertion.clientIp ?? undefined,
         clientUserAgent: assertion.clientUserAgent ?? undefined,
+        impersonationSessionId: assertion.impersonationSessionId,
+        effectivePermissions: assertion.impersonationPermissions,
       };
     }
 
@@ -388,37 +410,23 @@ export class TenantGuard implements CanActivate {
         ? request.verifiedIdentity.effectiveTenantId
         : undefined;
     if (identityTarget) {
-      this.assertValidActAsTenant(identityTarget);
-      if (rawActAs && rawActAs !== identityTarget) {
-        throw new ForbiddenException(
-          'Act-as tenant conflicts with verified gateway identity',
-        );
-      }
-      this.assertGatewayIdentityMatchesTarget(request, identityTarget);
-      return {
-        sourceTenantId: user?.tenantId ?? 'system',
-        targetTenantId: identityTarget,
-        mfaVerified: user?.mfaVerified === true,
-      };
+      throw new ForbiddenException(
+        'Cross-tenant access requires a canonical verified impersonation assertion',
+      );
     }
 
-    if (!rawActAs) {
-      return undefined;
+    if (rawActAs) {
+      throw new ForbiddenException(
+        'Raw act-as tenant headers cannot authorize cross-tenant access',
+      );
     }
-
-    this.assertValidActAsTenant(rawActAs);
-    this.assertGatewayIdentityMatchesTarget(request, rawActAs);
-    return {
-      sourceTenantId: user?.tenantId ?? 'system',
-      targetTenantId: rawActAs,
-      mfaVerified: user?.mfaVerified === true,
-    };
+    return undefined;
   }
 
   private assertValidActAsTenant(tenantId: string): void {
     if (!UUID_REGEX.test(tenantId)) {
       throw new BadRequestException(
-        'X-Act-As-Tenant header must be a valid UUID',
+        'Impersonation target tenant must be a valid UUID',
       );
     }
   }
@@ -429,12 +437,9 @@ export class TenantGuard implements CanActivate {
   ): void {
     const identity = request.verifiedIdentity;
     if (!identity) {
-      if (this.isProduction) {
-        throw new ForbiddenException(
-          'Cross-tenant access requires a verified gateway identity',
-        );
-      }
-      return;
+      throw new ForbiddenException(
+        'Cross-tenant access requires a verified gateway identity',
+      );
     }
 
     if (
@@ -472,12 +477,11 @@ export class TenantGuard implements CanActivate {
   }
 
   /**
-   * Extract the X-Act-As-Tenant header for SUPER_ADMIN tenant impersonation.
+   * Read the legacy X-Act-As-Tenant header only to reject conflicts and
+   * header-only authorization attempts. It is never a tenant source.
    *
-   * SECURITY (C-04): This is the ONLY mechanism for super admins to specify a
-   * target tenant. The generic X-Tenant-Id header, query params, and request
-   * body are intentionally excluded to maintain a single auditable impersonation
-   * vector and eliminate confusion with attacker-controlled inputs.
+   * The gateway's verified user assertion is the only accepted act-as
+   * authority; service identity authenticates only the transport.
    */
   private extractActAsTenantHeader(request: TenantRequest): string | undefined {
     const header = request.headers['x-act-as-tenant'];

@@ -12,10 +12,42 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
-import { IsString, IsOptional, IsNumber, IsObject, IsArray, MaxLength, Min, Max } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsNumber,
+  IsObject,
+  IsArray,
+  MaxLength,
+  Min,
+  Max,
+} from 'class-validator';
 
 import { JobStatus, JobType, JobPriority, JobRetryPolicy } from '../entities/job-queue.entity';
 import { JobQueueService, JobDefinition } from '../services/job-queue.service';
+import {
+  AdminQueryEncoding,
+  AdminResponseContract,
+} from '../../shared/admin-response-contract.decorator';
+import {
+  jobQueueJobDashboardContract,
+  type JobQueueJobDashboardDto,
+  jobQueueJobQueueContract,
+  type JobQueueJobQueueDto,
+  jobQueueJobQueueArrayContract,
+  jobQueueJobQueueStatsContract,
+  type JobQueueJobQueueStatsDto,
+  jobQueueBackgroundJobContract,
+  type JobQueueBackgroundJobDto,
+  jobQueueQueryJobsResponseContract,
+  type JobQueueQueryJobsResponseDto,
+  jobQueueGetJobLogsResponseContract,
+  type JobQueueGetJobLogsResponseDto,
+  jobQueueRetryFailedJobsResponseContract,
+  type JobQueueRetryFailedJobsResponseDto,
+  jobQueuePurgeCompletedJobsResponseContract,
+  type JobQueuePurgeCompletedJobsResponseDto,
+} from '../contracts/admin-http-response.contract';
 
 // ============================================================================
 // DTOs
@@ -298,8 +330,9 @@ export class JobQueueController {
   // Dashboard
   // ============================================================================
 
+  @AdminResponseContract(jobQueueJobDashboardContract)
   @Get('dashboard')
-  async getJobDashboard() {
+  async getJobDashboard(): Promise<JobQueueJobDashboardDto> {
     return this.jobQueueService.getJobDashboard();
   }
 
@@ -307,38 +340,48 @@ export class JobQueueController {
   // Queue Management
   // ============================================================================
 
+  @AdminResponseContract(jobQueueJobQueueContract)
   @Post('queues')
-  async createQueue(@Body() dto: CreateQueueDto) {
+  async createQueue(@Body() dto: CreateQueueDto): Promise<JobQueueJobQueueDto> {
     return this.jobQueueService.createQueue(dto);
   }
 
+  @AdminResponseContract(jobQueueJobQueueArrayContract)
   @Get('queues')
-  async getAllQueues() {
+  async getAllQueues(): Promise<JobQueueJobQueueDto[]> {
     return this.jobQueueService.getAllQueues();
   }
 
+  @AdminResponseContract(jobQueueJobQueueContract)
   @Get('queues/:name')
-  async getQueue(@Param('name') name: string) {
+  async getQueue(@Param('name') name: string): Promise<JobQueueJobQueueDto> {
     return this.jobQueueService.getQueue(name);
   }
 
+  @AdminResponseContract(jobQueueJobQueueContract)
   @Put('queues/:name')
-  async updateQueue(@Param('name') name: string, @Body() dto: UpdateQueueDto) {
+  async updateQueue(
+    @Param('name') name: string,
+    @Body() dto: UpdateQueueDto,
+  ): Promise<JobQueueJobQueueDto> {
     return this.jobQueueService.updateQueue(name, dto);
   }
 
+  @AdminResponseContract(jobQueueJobQueueContract)
   @Post('queues/:name/pause')
-  async pauseQueue(@Param('name') name: string) {
+  async pauseQueue(@Param('name') name: string): Promise<JobQueueJobQueueDto> {
     return this.jobQueueService.pauseQueue(name);
   }
 
+  @AdminResponseContract(jobQueueJobQueueContract)
   @Post('queues/:name/resume')
-  async resumeQueue(@Param('name') name: string) {
+  async resumeQueue(@Param('name') name: string): Promise<JobQueueJobQueueDto> {
     return this.jobQueueService.resumeQueue(name);
   }
 
+  @AdminResponseContract(jobQueueJobQueueStatsContract)
   @Get('queues/:name/stats')
-  async getQueueStats(@Param('name') name: string) {
+  async getQueueStats(@Param('name') name: string): Promise<JobQueueJobQueueStatsDto> {
     return this.jobQueueService.getQueueStats(name);
   }
 
@@ -346,8 +389,9 @@ export class JobQueueController {
   // Job Management
   // ============================================================================
 
+  @AdminResponseContract(jobQueueBackgroundJobContract)
   @Post()
-  async createJob(@Body() dto: CreateJobDto) {
+  async createJob(@Body() dto: CreateJobDto): Promise<JobQueueBackgroundJobDto> {
     const definition: JobDefinition = {
       ...dto,
       scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : undefined,
@@ -355,24 +399,24 @@ export class JobQueueController {
     return this.jobQueueService.createJob(definition);
   }
 
+  @AdminResponseContract(jobQueueBackgroundJobContract)
   @Post('schedule')
-  async scheduleJob(
-    @Body() dto: ScheduleJobDto,
-  ) {
+  async scheduleJob(@Body() dto: ScheduleJobDto): Promise<JobQueueBackgroundJobDto> {
     const { scheduledAt: scheduledAtStr, ...rest } = dto;
     const definition: JobDefinition = rest;
     return this.jobQueueService.scheduleJob(definition, new Date(scheduledAtStr));
   }
 
+  @AdminResponseContract(jobQueueBackgroundJobContract)
   @Post('recurring')
-  async scheduleRecurringJob(
-    @Body() dto: RecurringJobDto,
-  ) {
+  async scheduleRecurringJob(@Body() dto: RecurringJobDto): Promise<JobQueueBackgroundJobDto> {
     const { cronExpression, ...rest } = dto;
     const definition: JobDefinition = rest;
     return this.jobQueueService.scheduleRecurringJob(definition, cronExpression);
   }
 
+  @AdminResponseContract(jobQueueQueryJobsResponseContract)
+  @AdminQueryEncoding({ tags: 'comma-separated' })
   @Get()
   async queryJobs(
     @Query('queueName') queueName?: string,
@@ -383,7 +427,7 @@ export class JobQueueController {
     @Query('search') search?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ) {
+  ): Promise<JobQueueQueryJobsResponseDto> {
     return this.jobQueueService.queryJobs({
       queueName,
       status,
@@ -396,36 +440,42 @@ export class JobQueueController {
     });
   }
 
+  @AdminResponseContract(jobQueueBackgroundJobContract)
   @Get(':id')
-  async getJob(@Param('id') id: string) {
+  async getJob(@Param('id') id: string): Promise<JobQueueBackgroundJobDto> {
     return this.jobQueueService.getJob(id);
   }
 
+  @AdminResponseContract(jobQueueBackgroundJobContract)
   @Post(':id/cancel')
-  async cancelJob(@Param('id') id: string) {
+  async cancelJob(@Param('id') id: string): Promise<JobQueueBackgroundJobDto> {
     return this.jobQueueService.cancelJob(id);
   }
 
+  @AdminResponseContract(jobQueueBackgroundJobContract)
   @Post(':id/retry')
-  async retryJob(@Param('id') id: string) {
+  async retryJob(@Param('id') id: string): Promise<JobQueueBackgroundJobDto> {
     return this.jobQueueService.retryJob(id);
   }
 
+  @AdminResponseContract(jobQueueBackgroundJobContract)
   @Post(':id/pause')
-  async pauseJob(@Param('id') id: string) {
+  async pauseJob(@Param('id') id: string): Promise<JobQueueBackgroundJobDto> {
     return this.jobQueueService.pauseJob(id);
   }
 
+  @AdminResponseContract(jobQueueBackgroundJobContract)
   @Post(':id/resume')
-  async resumeJob(@Param('id') id: string) {
+  async resumeJob(@Param('id') id: string): Promise<JobQueueBackgroundJobDto> {
     return this.jobQueueService.resumeJob(id);
   }
 
-  @Put(':id/progress')
+  @AdminResponseContract(jobQueueBackgroundJobContract)
+  @Put('by-id/:id/progress')
   async updateJobProgress(
     @Param('id') id: string,
     @Body() dto: UpdateJobProgressDto,
-  ) {
+  ): Promise<JobQueueBackgroundJobDto> {
     return this.jobQueueService.updateJobProgress(id, dto);
   }
 
@@ -433,12 +483,13 @@ export class JobQueueController {
   // Job Execution Logs
   // ============================================================================
 
-  @Get(':id/logs')
+  @AdminResponseContract(jobQueueGetJobLogsResponseContract)
+  @Get('by-id/:id/logs')
   async getJobLogs(
     @Param('id') id: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ) {
+  ): Promise<JobQueueGetJobLogsResponseDto> {
     return this.jobQueueService.getJobLogs(id, {
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
@@ -449,14 +500,20 @@ export class JobQueueController {
   // Bulk Operations
   // ============================================================================
 
+  @AdminResponseContract(jobQueueRetryFailedJobsResponseContract)
   @Post('retry-failed')
-  async retryFailedJobs(@Body() dto: RetryFailedJobsDto) {
+  async retryFailedJobs(
+    @Body() dto: RetryFailedJobsDto,
+  ): Promise<JobQueueRetryFailedJobsResponseDto> {
     const count = await this.jobQueueService.retryFailedJobs(dto.queueName);
     return { retriedCount: count };
   }
 
+  @AdminResponseContract(jobQueuePurgeCompletedJobsResponseContract)
   @Post('purge-completed')
-  async purgeCompletedJobs(@Body() dto: PurgeCompletedJobsDto) {
+  async purgeCompletedJobs(
+    @Body() dto: PurgeCompletedJobsDto,
+  ): Promise<JobQueuePurgeCompletedJobsResponseDto> {
     const count = await this.jobQueueService.purgeCompletedJobs(dto.olderThanDays);
     return { purgedCount: count };
   }

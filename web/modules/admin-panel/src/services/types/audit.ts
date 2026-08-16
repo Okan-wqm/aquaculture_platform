@@ -1,27 +1,20 @@
-/**
- * Audit log domain types
- */
+/** Audit wire contracts generated from backend executable projections. */
 
-export interface AuditLog {
-  id: string;
-  action: string;
-  entityType: string;
-  entityId: string;
-  tenantId: string | null;
-  performedBy: string;
-  performedByEmail: string;
-  severity: 'low' | 'medium' | 'high' | 'critical';
-  metadata: Record<string, unknown>;
-  ipAddress: string;
-  userAgent: string;
-  createdAt: string;
-  [key: string]: unknown;
-}
+import type {
+  AdminResponseProjectionById,
+  AdminResponseProjectionId,
+} from './generated/admin-route-contracts';
 
-export interface AuditLogStats {
-  totalLogs: number;
-  last24Hours: number;
-  bySeverity: Array<{ severity: string; count: number }>;
-  byAction: Array<{ action: string; count: number }>;
-  topUsers: Array<{ userId: string; email: string; count: number }>;
-}
+type AuditProjectionPrefix =
+  'apps/admin-api-service/src/audit/contracts/admin-http-response.contract.ts';
+type AuditProjectionId = Extract<
+  AdminResponseProjectionId,
+  `${AuditProjectionPrefix}#${string}`
+>;
+type AuditProjectionName =
+  AuditProjectionId extends `${AuditProjectionPrefix}#${infer TName}` ? TName : never;
+type AuditProjection<TName extends AuditProjectionName> =
+  AdminResponseProjectionById<`${AuditProjectionPrefix}#${TName}`>;
+
+export type AuditLogDto = AuditProjection<'AuditLogAuditLogDtoDto'>;
+export type AuditStatisticsDto = AuditProjection<'AuditLogAuditStatisticsDtoDto'>;

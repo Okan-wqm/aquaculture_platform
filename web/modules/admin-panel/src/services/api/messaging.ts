@@ -14,38 +14,22 @@
  * @see ADR-012 Phase 3
  */
 
-import { apiFetch, buildQueryString } from '../http-client';
-import type { PaginatedResult } from '../types';
+import { apiFetch } from '../http-client';
+import { ADMIN_API_ROUTES } from '../types/generated/admin-route-contracts';
+import type {
+  AdminApiRouteQuery,
+  AdminApiRouteResponse,
+} from '../types/generated/admin-route-contracts';
 
 // ============================================================================
 // Types -- Compliance
 // ============================================================================
 
 /** Aggregated compliance statistics returned by GET /messaging/compliance/stats */
-export interface ComplianceStats {
-  messagesUnderLegalHold: number;
-  pendingRetentionCleanup: number;
-  activeExports: number;
-  complianceScore: number;
-  activeHoldsCount: number;
-  retentionPoliciesCount: number;
-  auditEntriesCount: number;
-}
+export type ComplianceStats = AdminApiRouteResponse<'GET /messaging/compliance/stats'>;
 
 /** Legal hold record returned by GET /messaging/compliance/legal-holds */
-export interface LegalHold {
-  id: string;
-  tenantId: string;
-  tenantName: string;
-  channelId: string | null;
-  channelName: string | null;
-  reason: string;
-  startedBy: string;
-  startedAt: string;
-  releasedBy: string | null;
-  releasedAt: string | null;
-  isActive: boolean;
-}
+export type LegalHold = AdminApiRouteResponse<'GET /messaging/compliance/legal-holds'>[number];
 
 /** Payload for POST /messaging/compliance/legal-holds */
 export interface CreateLegalHoldInput {
@@ -62,49 +46,25 @@ export interface CreateLegalHoldInput {
 // Types -- Retention
 // ============================================================================
 
-export interface RetentionPolicy {
-  id: string;
-  tenantId: string;
-  tenantName: string;
-  defaultRetention: '90d' | '1y' | '3y' | 'indefinite';
-  channelOverridesCount: number;
-  lastCleanup: string | null;
-  nextCleanup: string;
-  messagesCount: number;
-  expiredCount: number;
-}
+export type RetentionPolicy = AdminApiRouteResponse<'GET /messaging/retention/policies'>[number];
 
 export interface RetentionPolicyUpdate {
-  defaultRetention: string;
-  applyToAll: boolean;
+  channelId?: string | null;
+  retentionDays: number;
 }
 
 // ============================================================================
 // Types -- Audit
 // ============================================================================
 
-export interface MessagingAuditEntry {
-  id: string;
-  timestamp: string;
-  tenantId: string;
-  tenantName: string;
-  userId: string;
-  userName: string;
-  action: string;
-  details: string;
-  channelId?: string;
-  messageId?: string;
-}
+export type MessagingAuditResult = AdminApiRouteResponse<'GET /messaging/audit'>;
 
-export interface MessagingAuditFilters {
-  tenantId?: string;
-  userId?: string;
-  action?: string;
-  startDate?: string;
-  endDate?: string;
-  page?: number;
-  pageSize?: number;
-}
+export type MessagingAuditEntry = MessagingAuditResult['items'][number];
+
+export type MessagingAuditFilters = AdminApiRouteQuery<'GET /messaging/audit'>;
+
+type ComplianceStatsQuery = AdminApiRouteQuery<'GET /messaging/compliance/stats'>;
+type LegalHoldsQuery = AdminApiRouteQuery<'GET /messaging/compliance/legal-holds'>;
 
 // ============================================================================
 // Types -- Shared (used across compliance page sections)
@@ -137,34 +97,14 @@ export interface DailyAuditData {
 // ============================================================================
 
 /** Result returned by POST /messaging/tenants/:id/export */
-export interface ExportTriggerResult {
-  jobId: string;
-  status: string;
-  format: string;
-  recordCount: number;
-  isUnderLegalHold: boolean;
-  exportedAt: string;
-}
+export type ExportTriggerResult = AdminApiRouteResponse<'POST /messaging/tenants/:id/export'>;
 
 // ============================================================================
 // Types -- AI Personas
 // ============================================================================
 
 /** Persona definition returned by GET /messaging/personas */
-export interface AiPersonaDefinition {
-  /** Persona ID matching ai-service persona IDs. Null = general AI assistant. */
-  id: string | null;
-  /** Human-readable display name. */
-  name: string;
-  /** Short description of what the persona specializes in. */
-  description: string;
-  /** Icon identifier for frontend rendering (Lucide icon name). */
-  icon: string;
-  /** Theme color key for UI styling. */
-  color: string;
-  /** List of capability labels describing what the persona can do. */
-  capabilities: string[];
-}
+export type AiPersonaDefinition = AdminApiRouteResponse<'GET /messaging/personas'>[number];
 
 // ============================================================================
 // API
@@ -177,10 +117,10 @@ export const messagingApi = {
    * Fetch compliance statistics.
    * @param tenantId - Optional tenant filter. Omit for platform-wide stats.
    */
-  getComplianceStats: (tenantId?: string): Promise<ComplianceStats> =>
-    apiFetch<ComplianceStats>(
-      `/messaging/compliance/stats${tenantId ? `?${buildQueryString({ tenantId })}` : ''}`,
-    ),
+  getComplianceStats: (
+    tenantId: ComplianceStatsQuery['tenantId'],
+  ): Promise<AdminApiRouteResponse<'GET /messaging/compliance/stats'>> =>
+    apiFetch(ADMIN_API_ROUTES['GET /messaging/compliance/stats'], { query: { tenantId } }),
 
   // ── Legal Holds ──
 
@@ -188,43 +128,47 @@ export const messagingApi = {
    * Fetch legal holds list.
    * @param tenantId - Optional tenant filter. Omit for all tenants.
    */
-  getLegalHolds: (tenantId?: string): Promise<LegalHold[]> =>
-    apiFetch<LegalHold[]>(
-      `/messaging/compliance/legal-holds${tenantId ? `?${buildQueryString({ tenantId })}` : ''}`,
-    ),
+  getLegalHolds: (
+    tenantId: LegalHoldsQuery['tenantId'],
+  ): Promise<AdminApiRouteResponse<'GET /messaging/compliance/legal-holds'>> =>
+    apiFetch(ADMIN_API_ROUTES['GET /messaging/compliance/legal-holds'], { query: { tenantId } }),
 
   /** Create a new legal hold on messaging data. */
-  createLegalHold: (input: CreateLegalHoldInput): Promise<LegalHold> =>
-    apiFetch<LegalHold>('/messaging/compliance/legal-holds', {
-      method: 'POST',
-      body: JSON.stringify(input),
-    }),
+  createLegalHold: (
+    input: CreateLegalHoldInput,
+  ): Promise<AdminApiRouteResponse<'POST /messaging/compliance/legal-holds'>> =>
+    apiFetch(ADMIN_API_ROUTES['POST /messaging/compliance/legal-holds'], { body: input }),
 
   /**
    * Release (deactivate) an existing legal hold.
    * @param holdId - UUID of the legal hold to release
    * @param tenantId - Tenant that owns the hold
    */
-  releaseLegalHold: (holdId: string, tenantId: string): Promise<void> =>
-    apiFetch<void>(
-      `/messaging/compliance/legal-holds/${holdId}?${buildQueryString({ tenantId })}`,
-      { method: 'DELETE' },
-    ),
+  releaseLegalHold: (
+    holdId: string,
+    tenantId: string,
+  ): Promise<AdminApiRouteResponse<'DELETE /messaging/compliance/legal-holds/:id'>> =>
+    apiFetch(ADMIN_API_ROUTES['DELETE /messaging/compliance/legal-holds/:id'], {
+      path: { id: holdId },
+      query: { tenantId },
+    }),
 
   // ── Retention ──
 
   /** Fetch all tenant retention policies */
-  getRetentionPolicies: (): Promise<RetentionPolicy[]> =>
-    apiFetch<RetentionPolicy[]>('/messaging/retention/policies'),
+  getRetentionPolicies: (
+    tenantId: string,
+  ): Promise<AdminApiRouteResponse<'GET /messaging/retention/policies'>> =>
+    apiFetch(ADMIN_API_ROUTES['GET /messaging/retention/policies'], { query: { tenantId } }),
 
   /** Update a single tenant retention policy */
   updateRetentionPolicy: (
     policyId: string,
     update: RetentionPolicyUpdate,
-  ): Promise<RetentionPolicy> =>
-    apiFetch<RetentionPolicy>(`/messaging/retention/policies/${policyId}`, {
-      method: 'PUT',
-      body: JSON.stringify(update),
+  ): Promise<AdminApiRouteResponse<'PUT /messaging/retention/policies/:id'>> =>
+    apiFetch(ADMIN_API_ROUTES['PUT /messaging/retention/policies/:id'], {
+      path: { id: policyId },
+      body: update,
     }),
 
   // ── Monitoring ──
@@ -235,17 +179,15 @@ export const messagingApi = {
    * because real-time metrics infrastructure is not yet available.
    */
   getMonitoringStats: (): Promise<unknown> =>
-    apiFetch<unknown>('/messaging/monitoring/stats'),
+    apiFetch(ADMIN_API_ROUTES['GET /messaging/monitoring/stats']),
 
   // ── Audit ──
 
   /** Query messaging audit log with pagination and filters */
   getAuditLog: (
-    filters?: MessagingAuditFilters,
-  ): Promise<PaginatedResult<MessagingAuditEntry>> =>
-    apiFetch<PaginatedResult<MessagingAuditEntry>>(
-      `/messaging/audit?${buildQueryString({ ...(filters || {}) })}`,
-    ),
+    filters: MessagingAuditFilters,
+  ): Promise<AdminApiRouteResponse<'GET /messaging/audit'>> =>
+    apiFetch(ADMIN_API_ROUTES['GET /messaging/audit'], { query: filters }),
 
   // ── Data Export ──
 
@@ -257,10 +199,10 @@ export const messagingApi = {
   triggerExport: (
     tenantId: string,
     format: 'csv' | 'json' = 'json',
-  ): Promise<ExportTriggerResult> =>
-    apiFetch<ExportTriggerResult>(`/messaging/tenants/${tenantId}/export`, {
-      method: 'POST',
-      body: JSON.stringify({ format }),
+  ): Promise<AdminApiRouteResponse<'POST /messaging/tenants/:id/export'>> =>
+    apiFetch(ADMIN_API_ROUTES['POST /messaging/tenants/:id/export'], {
+      path: { id: tenantId },
+      body: { format },
     }),
 
   // ── AI Personas ──
@@ -270,23 +212,6 @@ export const messagingApi = {
    * Returns the list of available personas from the backend registry.
    * @param tenantId - UUID of the tenant
    */
-  getPersonas: (tenantId: string): Promise<AiPersonaDefinition[]> =>
-    apiFetch<AiPersonaDefinition[]>(
-      `/messaging/personas?${buildQueryString({ tenantId })}`,
-    ),
-
-  /**
-   * Update an AI persona configuration.
-   * IMPORTANT: Currently returns 501 (Not Implemented) because personas are static.
-   * @param personaId - Persona identifier
-   * @param updates - Fields to update
-   */
-  updatePersona: (
-    personaId: string,
-    updates: Record<string, unknown>,
-  ): Promise<unknown> =>
-    apiFetch<unknown>(`/messaging/personas/${personaId}`, {
-      method: 'PUT',
-      body: JSON.stringify(updates),
-    }),
+  getPersonas: (tenantId: string): Promise<AdminApiRouteResponse<'GET /messaging/personas'>> =>
+    apiFetch(ADMIN_API_ROUTES['GET /messaging/personas'], { query: { tenantId } }),
 };

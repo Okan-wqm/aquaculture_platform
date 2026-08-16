@@ -5,10 +5,6 @@
  * - Input: StandardPaginationInput (page, limit, sortBy, sortOrder)
  * - Output: StandardPaginatedResponse<T> (items, total, page, limit, totalPages, hasNextPage, hasPreviousPage)
  *
- * Legacy Pattern (offset/limit with hasMore) — @deprecated Phase 4 complete, remove in Phase 5:
- * - Input: PaginationInput
- * - Output: PaginatedResponse<T>
- *
  * @module Pagination
  */
 export {
@@ -25,12 +21,6 @@ export {
   fromCqrsPaginated,
   safeSortField,
   safeSortOrder,
-  // Legacy (deprecated — Phase 4 complete, remove in Phase 5)
-  PaginationInput,
-  PaginatedResponse,
-  type IPaginatedResult,
-  calculateHasMore,
-  createPaginatedResult,
 } from './pagination.dto';
 
 // Cursor pagination primitive — phase 5.1. Opaque-cursor

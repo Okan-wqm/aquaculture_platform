@@ -3,20 +3,15 @@
 // graph can cause @nestjs/common to be mid-evaluation when decorated classes load,
 // meaning reflect-metadata hasn't executed yet. This guarantees it loads first.
 import 'reflect-metadata';
-import { VersioningType, VERSION_NEUTRAL } from '@nestjs/common';
 import { bootstrapService } from '@aquaculture/backend-common/bootstrap';
+import { ADMIN_HTTP_ROUTE_POLICY } from '@platform/admin-http-contracts';
 import { AppModule } from './app.module';
+import { adminHttpBootstrapRouteOptions } from './bootstrap/admin-http-route-policy';
 
 bootstrapService(AppModule, {
   serviceName: 'admin-api-service',
   portEnvVar: 'PORT',
-
-  // API Versioning — URI-based (e.g., /v1/tenants)
-  // VERSION_NEUTRAL keeps existing unversioned routes working.
-  versioning: {
-    type: VersioningType.URI,
-    defaultVersion: ['1', VERSION_NEUTRAL],
-  },
+  ...adminHttpBootstrapRouteOptions(ADMIN_HTTP_ROUTE_POLICY),
 
   // Swagger UI — auto-disabled in production (SEC-L14)
   swagger: {
@@ -31,6 +26,5 @@ bootstrapService(AppModule, {
   additionalCorsHeaders: [
     'X-Tenant-ID',
     'X-Request-ID',
-    'X-Impersonate-User',
   ],
 });

@@ -2,7 +2,7 @@
  * Billing API (Plans, Subscriptions, Invoices, Discounts, Module Pricing, Custom Plans, Payments)
  */
 
-import { apiFetch, buildQueryString } from '../http-client';
+import { apiFetch } from '../http-client';
 import type {
   PlanDefinition,
   PlanTier,
@@ -23,8 +23,6 @@ import type {
   QuoteRequest,
   PricingCalculation,
   PricingComparisonResult,
-  CreateSubscriptionDto,
-  CreateSubscriptionResult,
   CustomPlan,
   CustomPlanFilter,
   PaginatedCustomPlans,
@@ -37,127 +35,146 @@ import type {
   AggregationPeriod,
   MeterType,
 } from '../types';
+import {
+  ADMIN_API_ROUTES,
+  type AdminApiRouteBody,
+  type AdminApiRoutePath,
+  type AdminApiRouteQuery,
+} from '../types/generated/admin-route-contracts';
+
+type CreatePlanInput = AdminApiRouteBody<'POST /billing/plans'>;
+type UpdatePlanInput = AdminApiRouteBody<'PUT /billing/plans/:id'>;
+type PlanTierPath = AdminApiRoutePath<'GET /billing/plans/tier/:tier'>;
+type CreateDiscountInput = AdminApiRouteBody<'POST /billing/discounts'>;
+type UpdateDiscountInput = AdminApiRouteBody<'PUT /billing/discounts/:id'>;
+type BulkCreateDiscountInput = AdminApiRouteBody<'POST /billing/discounts/bulk-create'>;
+type ChangePlanInput = AdminApiRouteBody<'POST /billing/subscriptions/change-plan'>;
+type InvoiceQuery = AdminApiRouteQuery<'GET /billing/invoices'>;
+type PaymentQuery = AdminApiRouteQuery<'GET /billing/payments'>;
 
 export const billingApi = {
   // Plans
   getPlans: (includeInactive = false) =>
-    apiFetch<PlanDefinition[]>(`/billing/plans?includeInactive=${includeInactive}`),
-  getPublicPlans: () => apiFetch<PlanDefinition[]>('/billing/plans/public'),
-  getPlanById: (id: string) => apiFetch<PlanDefinition>(`/billing/plans/${id}`),
-  getPlanByCode: (code: string) => apiFetch<PlanDefinition>(`/billing/plans/code/${code}`),
-  createPlan: (data: Partial<PlanDefinition>) =>
-    apiFetch<PlanDefinition>('/billing/plans', { method: 'POST', body: JSON.stringify(data) }),
-  updatePlan: (id: string, data: Partial<PlanDefinition>) =>
-    apiFetch<PlanDefinition>(`/billing/plans/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    apiFetch(ADMIN_API_ROUTES['GET /billing/plans'], {
+      query: { includeInactive: includeInactive },
+    }),
+  getPublicPlans: () => apiFetch(ADMIN_API_ROUTES['GET /billing/plans/public']),
+  getPlanById: (id: string) =>
+    apiFetch(ADMIN_API_ROUTES['GET /billing/plans/:id'], { path: { id: id } }),
+  getPlanByCode: (code: string) =>
+    apiFetch(ADMIN_API_ROUTES['GET /billing/plans/code/:code'], { path: { code: code } }),
+  createPlan: (data: CreatePlanInput) =>
+    apiFetch(ADMIN_API_ROUTES['POST /billing/plans'], { body: data }),
+  updatePlan: (id: string, data: UpdatePlanInput) =>
+    apiFetch(ADMIN_API_ROUTES['PUT /billing/plans/:id'], { path: { id: id }, body: data }),
   deprecatePlan: (id: string, _updatedBy?: string) =>
-    apiFetch<PlanDefinition>(`/billing/plans/${id}/deprecate`, { method: 'POST' }),
+    apiFetch(ADMIN_API_ROUTES['POST /billing/plans/:id/deprecate'], { path: { id: id } }),
   comparePlans: (currentPlanId: string, newPlanId: string) =>
-    apiFetch<Record<string, unknown>>('/billing/plans/compare', { method: 'POST', body: JSON.stringify({ currentPlanId, newPlanId }) }),
-  seedPlans: (_createdBy?: string) =>
-    apiFetch<{ success: boolean }>('/billing/plans/seed', { method: 'POST' }),
-  getPlanByTier: (tier: string) =>
-    apiFetch<PlanDefinition>(`/billing/plans/tier/${tier}`),
-  getDefaultLimitsForTier: (tier: string) =>
-    apiFetch<{ users: number; farms: number; sensors: number; storage: number; apiCallsPerDay: number }>(`/billing/plans/defaults/${tier}`),
+    apiFetch(ADMIN_API_ROUTES['POST /billing/plans/compare'], {
+      body: { currentPlanId, newPlanId },
+    }),
+  seedPlans: (_createdBy?: string) => apiFetch(ADMIN_API_ROUTES['POST /billing/plans/seed']),
+  getPlanByTier: (tier: PlanTierPath['tier']) =>
+    apiFetch(ADMIN_API_ROUTES['GET /billing/plans/tier/:tier'], { path: { tier: tier } }),
+  getDefaultLimitsForTier: (tier: PlanTierPath['tier']) =>
+    apiFetch(ADMIN_API_ROUTES['GET /billing/plans/defaults/:tier'], { path: { tier: tier } }),
 
   // Discount Codes
   getDiscountCodes: (options?: { isActive?: boolean; includeExpired?: boolean }) =>
-    apiFetch<DiscountCode[]>(`/billing/discounts?${buildQueryString(options || {})}`),
-  getDiscountStats: () => apiFetch<DiscountStats>('/billing/discounts/stats'),
-  getDiscountById: (id: string) => apiFetch<DiscountCode>(`/billing/discounts/${id}`),
-  getDiscountByCode: (code: string) => apiFetch<{ found: boolean; discount?: DiscountCode }>(`/billing/discounts/code/${code}`),
-  createDiscountCode: (data: Partial<DiscountCode>) => {
-    const { createdBy: _createdBy, ...payload } = data;
-    return apiFetch<DiscountCode>('/billing/discounts', { method: 'POST', body: JSON.stringify(payload) });
-  },
-  updateDiscountCode: (id: string, data: Partial<DiscountCode>) =>
-    apiFetch<DiscountCode>(`/billing/discounts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    apiFetch(ADMIN_API_ROUTES['GET /billing/discounts'], { query: options || {} }),
+  getDiscountStats: () => apiFetch(ADMIN_API_ROUTES['GET /billing/discounts/stats']),
+  getDiscountById: (id: string) =>
+    apiFetch(ADMIN_API_ROUTES['GET /billing/discounts/:id'], { path: { id: id } }),
+  getDiscountByCode: (code: string) =>
+    apiFetch(ADMIN_API_ROUTES['GET /billing/discounts/lookup/code/:code'], {
+      path: { code: code },
+    }),
+  createDiscountCode: (data: CreateDiscountInput) =>
+    apiFetch(ADMIN_API_ROUTES['POST /billing/discounts'], { body: data }),
+  updateDiscountCode: (id: string, data: UpdateDiscountInput) =>
+    apiFetch(ADMIN_API_ROUTES['PUT /billing/discounts/:id'], { path: { id: id }, body: data }),
   deactivateDiscountCode: (id: string, _updatedBy?: string) =>
-    apiFetch<DiscountCode>(`/billing/discounts/${id}/deactivate`, { method: 'POST' }),
+    apiFetch(ADMIN_API_ROUTES['POST /billing/discounts/:id/deactivate'], { path: { id: id } }),
   validateDiscountCode: (code: string, tenantId: string, planId?: string, orderAmount?: number) =>
-    apiFetch<{ valid: boolean; discountCode?: DiscountCode; discountAmount?: number }>('/billing/discounts/validate', {
-      method: 'POST',
-      body: JSON.stringify({ code, tenantId, planId, orderAmount }),
+    apiFetch(ADMIN_API_ROUTES['POST /billing/discounts/validate'], {
+      body: { code, tenantId, planId, orderAmount },
     }),
   generateUniqueCode: (prefix?: string, length?: number) =>
-    apiFetch<{ code: string }>('/billing/discounts/generate-code', { method: 'POST', body: JSON.stringify({ prefix, length }) }),
-  applyDiscount: (code: string, tenantId: string, originalAmount: number, options?: { subscriptionId?: string; invoiceId?: string; planId?: string; redeemedBy?: string }) =>
-    apiFetch<{ success: boolean; originalAmount: number; discountAmount: number; finalAmount: number; redemptionId?: string }>('/billing/discounts/apply', {
-      method: 'POST',
-      body: JSON.stringify({ code, tenantId, originalAmount, ...options }),
+    apiFetch(ADMIN_API_ROUTES['POST /billing/discounts/generate-code'], {
+      body: { prefix, length },
     }),
-  bulkCreateDiscounts: (count: number, template: Omit<Partial<DiscountCode>, 'code'>, codePrefix?: string) =>
-    apiFetch<{ success: boolean; count: number; codes: DiscountCode[] }>('/billing/discounts/bulk-create', {
-      method: 'POST',
-      body: JSON.stringify({ count, template, codePrefix }),
+  applyDiscount: (
+    code: string,
+    tenantId: string,
+    originalAmount: number,
+    options?: { subscriptionId?: string; invoiceId?: string; planId?: string; redeemedBy?: string },
+  ) =>
+    apiFetch(ADMIN_API_ROUTES['POST /billing/discounts/apply'], {
+      body: { code, tenantId, originalAmount, ...options },
+    }),
+  bulkCreateDiscounts: ({ count, template, codePrefix }: BulkCreateDiscountInput) =>
+    apiFetch(ADMIN_API_ROUTES['POST /billing/discounts/bulk-create'], {
+      body: { count, template, codePrefix },
     }),
   getDiscountRedemptions: (discountId: string) =>
-    apiFetch<Array<{ id: string; tenantId: string; tenantName: string; redeemedAt: string; amount: number }>>(`/billing/discounts/${discountId}/redemptions`),
+    apiFetch(ADMIN_API_ROUTES['GET /billing/discounts/:id/redemptions'], {
+      path: { id: discountId },
+      query: {  },
+    }),
   getTenantRedemptions: (tenantId: string) =>
-    apiFetch<Array<{ id: string; discountCode: string; redeemedAt: string; amount: number }>>(`/billing/tenant/${tenantId}/redemptions`),
+    apiFetch(ADMIN_API_ROUTES['GET /billing/tenant/:tenantId/redemptions'], {
+      path: { tenantId: tenantId },
+      query: {  },
+    }),
 
   // Subscriptions
-  createSubscription: (data: CreateSubscriptionDto) =>
-    apiFetch<CreateSubscriptionResult>('/billing/subscriptions', { method: 'POST', body: JSON.stringify(data) }),
   getSubscriptions: (filters?: {
     status?: SubscriptionStatus[];
     planTier?: PlanTier[];
     search?: string;
     limit?: number;
     offset?: number;
-  }) => apiFetch<{ subscriptions: SubscriptionOverview[]; total: number }>(`/billing/subscriptions?${buildQueryString(filters || {})}`),
-  getSubscriptionStats: () => apiFetch<SubscriptionStats>('/billing/subscriptions/stats'),
+  }) => apiFetch(ADMIN_API_ROUTES['GET /billing/subscriptions'], { query: filters || {} }),
+  getSubscriptionStats: () => apiFetch(ADMIN_API_ROUTES['GET /billing/subscriptions/stats']),
   getSubscriptionReminders: () =>
-    apiFetch<Array<{ tenantId: string; tenantName: string; daysUntilExpiry: number; type: 'trial' | 'subscription' }>>('/billing/subscriptions/reminders'),
+    apiFetch(ADMIN_API_ROUTES['GET /billing/subscriptions/reminders']),
   getSubscriptionByTenant: (tenantId: string) =>
-    apiFetch<SubscriptionOverview | null>(`/billing/subscriptions/tenant/${tenantId}`),
-  changePlan: (request: { tenantId: string; currentPlanId: string; newPlanId: string; changedBy?: string }) => {
-    const { changedBy: _changedBy, ...payload } = request;
-    return apiFetch<Record<string, unknown>>('/billing/subscriptions/change-plan', { method: 'POST', body: JSON.stringify(payload) });
-  },
+    apiFetch(ADMIN_API_ROUTES['GET /billing/subscriptions/tenant/:tenantId'], {
+      path: { tenantId: tenantId },
+    }),
+  changePlan: (request: ChangePlanInput) =>
+    apiFetch(ADMIN_API_ROUTES['POST /billing/subscriptions/change-plan'], { body: request }),
   cancelSubscription: (tenantId: string, reason: string, _cancelledBy?: string) =>
-    apiFetch<{ success: boolean }>(`/billing/subscriptions/tenant/${tenantId}/cancel`, {
-      method: 'POST',
-      body: JSON.stringify({ reason }),
+    apiFetch(ADMIN_API_ROUTES['POST /billing/subscriptions/tenant/:tenantId/cancel'], {
+      path: { tenantId: tenantId },
+      body: { reason },
     }),
   reactivateSubscription: (tenantId: string, _reactivatedBy?: string) =>
-    apiFetch<{ success: boolean }>(`/billing/subscriptions/tenant/${tenantId}/reactivate`, {
-      method: 'POST',
+    apiFetch(ADMIN_API_ROUTES['POST /billing/subscriptions/tenant/:tenantId/reactivate'], {
+      path: { tenantId: tenantId },
     }),
   extendTrial: (tenantId: string, additionalDays: number, _extendedBy?: string) =>
-    apiFetch<{ success: boolean; newTrialEnd: string }>(`/billing/subscriptions/tenant/${tenantId}/extend-trial`, {
-      method: 'POST',
-      body: JSON.stringify({ additionalDays }),
+    apiFetch(ADMIN_API_ROUTES['POST /billing/subscriptions/tenant/:tenantId/extend-trial'], {
+      path: { tenantId: tenantId },
+      body: { additionalDays },
     }),
-  processRenewals: () =>
-    apiFetch<{ processed: number; failed: number; renewals: Array<{ tenantId: string; success: boolean; message?: string }> }>('/billing/subscriptions/process-renewals', {
-      method: 'POST',
-    }),
-
   // Invoices
-  getInvoices: (params?: { status?: string; search?: string; limit?: number; offset?: number }) => {
-    const searchParams = new URLSearchParams();
-    if (params?.status) searchParams.append('status', params.status);
-    if (params?.search) searchParams.append('search', params.search);
-    if (params?.limit) searchParams.append('limit', String(params.limit));
-    if (params?.offset) searchParams.append('offset', String(params.offset));
-    return apiFetch<{ invoices: InvoiceOverview[]; total: number }>(
-      `/billing/invoices?${searchParams.toString()}`
-    );
-  },
-  getInvoiceStats: () =>
-    apiFetch<InvoiceStats>('/billing/invoices/stats'),
+  getInvoices: (params: InvoiceQuery = {}) =>
+    apiFetch(ADMIN_API_ROUTES['GET /billing/invoices'], { query: params }),
+  getInvoiceStats: () => apiFetch(ADMIN_API_ROUTES['GET /billing/invoices/stats']),
   getInvoiceById: (invoiceId: string) =>
-    apiFetch<InvoiceOverview>(`/billing/invoices/${invoiceId}`),
+    apiFetch(ADMIN_API_ROUTES['GET /billing/invoices/:invoiceId'], {
+      path: { invoiceId: invoiceId },
+    }),
   markInvoicePaid: (invoiceId: string, amount: number) =>
-    apiFetch<{ success: boolean; invoice: InvoiceOverview }>(`/billing/invoices/${invoiceId}/mark-paid`, {
-      method: 'POST',
-      body: JSON.stringify({ amount }),
+    apiFetch(ADMIN_API_ROUTES['POST /billing/invoices/:invoiceId/mark-paid'], {
+      path: { invoiceId: invoiceId },
+      body: { amount },
     }),
   voidInvoice: (invoiceId: string, reason: string) =>
-    apiFetch<{ success: boolean }>(`/billing/invoices/${invoiceId}/void`, {
-      method: 'POST',
-      body: JSON.stringify({ reason }),
+    apiFetch(ADMIN_API_ROUTES['POST /billing/invoices/:invoiceId/void'], {
+      path: { invoiceId: invoiceId },
+      body: { reason },
     }),
   createInvoice: (data: {
     tenantId: string;
@@ -182,102 +199,124 @@ export const billingApi = {
     periodStart: string;
     periodEnd: string;
     notes?: string;
-  }) =>
-    apiFetch<InvoiceOverview>('/billing/invoices', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
+  }) => apiFetch(ADMIN_API_ROUTES['POST /billing/invoices'], { body: data }),
 
   // Payments
-  getPayments: (params?: { status?: string; invoiceId?: string; limit?: number; offset?: number }) => {
-    const searchParams = new URLSearchParams();
-    if (params?.status) searchParams.append('status', params.status);
-    if (params?.invoiceId) searchParams.append('invoiceId', params.invoiceId);
-    if (params?.limit) searchParams.append('limit', String(params.limit));
-    if (params?.offset) searchParams.append('offset', String(params.offset));
-    return apiFetch<{ payments: PaymentOverview[]; total: number }>(
-      `/billing/payments?${searchParams.toString()}`
-    );
-  },
+  getPayments: (params: PaymentQuery = {}) =>
+    apiFetch(ADMIN_API_ROUTES['GET /billing/payments'], { query: params }),
   recordPayment: (data: RecordPaymentDto) =>
-    apiFetch<PaymentOverview>('/billing/payments', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
+    apiFetch(ADMIN_API_ROUTES['POST /billing/payments'], { body: data }),
   refundPayment: (data: RefundPaymentDto) =>
-    apiFetch<PaymentOverview>('/billing/payments/refund', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
+    apiFetch(ADMIN_API_ROUTES['POST /billing/payments/refund'], { body: data }),
 
   // Module Pricing
-  getModulePricings: () =>
-    apiFetch<ModulePricing[]>('/billing/module-pricing'),
+  getModulePricings: () => apiFetch(ADMIN_API_ROUTES['GET /billing/module-pricing']),
   getModulePricingByCode: (moduleCode: string) =>
-    apiFetch<ModulePricing | null>(`/billing/module-pricing/code/${moduleCode}`),
-  getModulePricingWithModules: () =>
-    apiFetch<ModulePricingWithModule[]>('/billing/module-pricing/with-modules'),
-  setModulePricing: (data: SetModulePricingDto) =>
-    apiFetch<ModulePricing>('/billing/module-pricing', { method: 'POST', body: JSON.stringify(data) }),
-  updateModulePricing: (pricingId: string, data: Partial<SetModulePricingDto>) =>
-    apiFetch<ModulePricing>(`/billing/module-pricing/${pricingId}`, { method: 'PUT', body: JSON.stringify(data) }),
-  deactivateModulePricing: (pricingId: string) =>
-    apiFetch<{ success: boolean }>(`/billing/module-pricing/${pricingId}/deactivate`, { method: 'POST' }),
-  seedModulePricing: (moduleIdMap: Record<string, string>) =>
-    apiFetch<{ success: boolean; seededCount: number }>('/billing/module-pricing/seed', {
-      method: 'POST',
-      body: JSON.stringify({ moduleIdMap }),
+    apiFetch(ADMIN_API_ROUTES['GET /billing/module-pricing/lookup/code/:moduleCode'], {
+      path: { moduleCode: moduleCode },
     }),
+  getModulePricingWithModules: () =>
+    apiFetch(ADMIN_API_ROUTES['GET /billing/module-pricing/with-modules']),
+  setModulePricing: (data: SetModulePricingDto) =>
+    apiFetch(ADMIN_API_ROUTES['POST /billing/module-pricing'], { body: data }),
+  updateModulePricing: (pricingId: string, data: Partial<SetModulePricingDto>) =>
+    apiFetch(ADMIN_API_ROUTES['PUT /billing/module-pricing/:pricingId'], {
+      path: { pricingId: pricingId },
+      body: data,
+    }),
+  deactivateModulePricing: (pricingId: string) =>
+    apiFetch(ADMIN_API_ROUTES['POST /billing/module-pricing/:pricingId/deactivate'], {
+      path: { pricingId: pricingId },
+    }),
+  seedModulePricing: (moduleIdMap: Record<string, string>) =>
+    apiFetch(ADMIN_API_ROUTES['POST /billing/module-pricing/seed'], { body: { moduleIdMap } }),
 
   // Pricing Calculator
   calculatePricing: (request: QuoteRequest) =>
-    apiFetch<PricingCalculation>('/billing/pricing/calculate', { method: 'POST', body: JSON.stringify(request) }),
+    apiFetch(ADMIN_API_ROUTES['POST /billing/pricing/calculate'], { body: request }),
   getQuickEstimate: (moduleCodes: string[], tier: PlanTier, quantities?: ModuleQuantities) =>
-    apiFetch<{ monthlyTotal: number; annualTotal: number }>('/billing/pricing/quick-estimate', {
-      method: 'POST',
-      body: JSON.stringify({ moduleCodes, tier, quantities }),
+    apiFetch(ADMIN_API_ROUTES['POST /billing/pricing/quick-estimate'], {
+      body: { moduleCodes, tier, quantities },
     }),
   comparePricing: (config1: QuoteRequest, config2: QuoteRequest) =>
-    apiFetch<PricingComparisonResult>('/billing/pricing/compare', {
-      method: 'POST',
-      body: JSON.stringify({ config1, config2 }),
-    }),
+    apiFetch(ADMIN_API_ROUTES['POST /billing/pricing/compare'], { body: { config1, config2 } }),
 
   // Custom Plans
   getCustomPlans: (filter?: CustomPlanFilter) =>
-    apiFetch<PaginatedCustomPlans>(`/billing/custom-plans?${buildQueryString((filter || {}) as Record<string, unknown>)}`),
+    apiFetch(ADMIN_API_ROUTES['GET /billing/custom-plans'], {
+      query: (filter || {}) as Record<string, unknown>,
+    }),
   getCustomPlan: (planId: string) =>
-    apiFetch<CustomPlan>(`/billing/custom-plans/${planId}`),
+    apiFetch(ADMIN_API_ROUTES['GET /billing/custom-plans/:planId'], { path: { planId: planId } }),
   getCustomPlanByTenant: (tenantId: string) =>
-    apiFetch<CustomPlan | null>(`/billing/custom-plans/tenant/${tenantId}`),
+    apiFetch(ADMIN_API_ROUTES['GET /billing/custom-plans/tenant/:tenantId'], {
+      path: { tenantId: tenantId },
+    }),
   createCustomPlan: (data: CreateCustomPlanDto) => {
     const { createdBy: _createdBy, ...payload } = data;
-    return apiFetch<CustomPlan>('/billing/custom-plans', { method: 'POST', body: JSON.stringify(payload) });
+    return apiFetch(ADMIN_API_ROUTES['POST /billing/custom-plans'], { body: payload });
   },
   updateCustomPlan: (planId: string, data: UpdateCustomPlanDto) =>
-    apiFetch<CustomPlan>(`/billing/custom-plans/${planId}`, { method: 'PUT', body: JSON.stringify(data) }),
+    apiFetch(ADMIN_API_ROUTES['PUT /billing/custom-plans/:planId'], {
+      path: { planId: planId },
+      body: data,
+    }),
   submitCustomPlanForApproval: (planId: string) =>
-    apiFetch<CustomPlan>(`/billing/custom-plans/${planId}/submit`, { method: 'POST' }),
+    apiFetch(ADMIN_API_ROUTES['POST /billing/custom-plans/:planId/submit'], {
+      path: { planId: planId },
+    }),
   approveCustomPlan: (planId: string, _approverId?: string) =>
-    apiFetch<CustomPlan>(`/billing/custom-plans/${planId}/approve`, { method: 'POST' }),
+    apiFetch(ADMIN_API_ROUTES['POST /billing/custom-plans/:planId/approve'], {
+      path: { planId: planId },
+    }),
   rejectCustomPlan: (planId: string, reason: string, _rejectedBy?: string) =>
-    apiFetch<CustomPlan>(`/billing/custom-plans/${planId}/reject`, { method: 'POST', body: JSON.stringify({ reason }) }),
+    apiFetch(ADMIN_API_ROUTES['POST /billing/custom-plans/:planId/reject'], {
+      path: { planId: planId },
+      body: { reason },
+    }),
   activateCustomPlan: (planId: string) =>
-    apiFetch<CustomPlan>(`/billing/custom-plans/${planId}/activate`, { method: 'POST' }),
+    apiFetch(ADMIN_API_ROUTES['POST /billing/custom-plans/:planId/activate'], {
+      path: { planId: planId },
+    }),
   deleteCustomPlan: (planId: string) =>
-    apiFetch<{ success: boolean }>(`/billing/custom-plans/${planId}`, { method: 'DELETE' }),
+    apiFetch(ADMIN_API_ROUTES['DELETE /billing/custom-plans/:planId'], {
+      path: { planId: planId },
+    }),
   cloneCustomPlan: (planId: string, newTenantId: string) =>
-    apiFetch<CustomPlan>(`/billing/custom-plans/${planId}/clone`, { method: 'POST', body: JSON.stringify({ newTenantId }) }),
+    apiFetch(ADMIN_API_ROUTES['POST /billing/custom-plans/:planId/clone'], {
+      path: { planId: planId },
+      body: { newTenantId },
+    }),
 
   // Usage Metering
   getUsageSummary: (params?: { period?: AggregationPeriod; dateFrom?: string; dateTo?: string }) =>
-    apiFetch<UsageSummaryStats>(`/billing/usage/summary?${buildQueryString(params || {})}`),
-  getAllTenantsUsage: (params?: { period?: AggregationPeriod; dateFrom?: string; dateTo?: string; limit?: number; offset?: number }) =>
-    apiFetch<{ tenants: TenantUsageOverview[]; total: number }>(`/billing/usage/tenants?${buildQueryString(params || {})}`),
-  getTenantUsageOverview: (tenantId: string, params?: { period?: AggregationPeriod; dateFrom?: string; dateTo?: string }) =>
-    apiFetch<TenantUsageOverview>(`/billing/usage/tenant/${tenantId}?${buildQueryString(params || {})}`),
-  getUsageTrends: (params?: { period?: AggregationPeriod; meterType?: MeterType; tenantId?: string; numPeriods?: number }) =>
-    apiFetch<UsageTrendPoint[]>(`/billing/usage/trends?${buildQueryString(params || {})}`),
-  getTopTenantsByUsage: (meterType: MeterType, params?: { period?: AggregationPeriod; limit?: number; dateFrom?: string; dateTo?: string }) =>
-    apiFetch<TopTenantUsage[]>(`/billing/usage/top-tenants?${buildQueryString({ meterType, ...(params || {}) })}`),
+    apiFetch(ADMIN_API_ROUTES['GET /billing/usage/summary'], { query: params || {} }),
+  getAllTenantsUsage: (params?: {
+    period?: AggregationPeriod;
+    dateFrom?: string;
+    dateTo?: string;
+    limit?: number;
+    offset?: number;
+  }) => apiFetch(ADMIN_API_ROUTES['GET /billing/usage/tenants'], { query: params || {} }),
+  getTenantUsageOverview: (
+    tenantId: string,
+    params?: { period?: AggregationPeriod; dateFrom?: string; dateTo?: string },
+  ) =>
+    apiFetch(ADMIN_API_ROUTES['GET /billing/usage/tenant/:tenantId'], {
+      path: { tenantId: tenantId },
+      query: params || {},
+    }),
+  getUsageTrends: (params?: {
+    period?: AggregationPeriod;
+    meterType?: MeterType;
+    tenantId?: string;
+    numPeriods?: number;
+  }) => apiFetch(ADMIN_API_ROUTES['GET /billing/usage/trends'], { query: params || {} }),
+  getTopTenantsByUsage: (
+    meterType: MeterType,
+    params?: { period?: AggregationPeriod; limit?: number; dateFrom?: string; dateTo?: string },
+  ) =>
+    apiFetch(ADMIN_API_ROUTES['GET /billing/usage/top-tenants'], {
+      query: { meterType, ...(params || {}) },
+    }),
 };

@@ -10,6 +10,7 @@ import {
   Req,
   HttpCode,
   HttpStatus,
+  NotFoundException,
   UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
@@ -40,6 +41,45 @@ import {
 
 import { DebugSessionType, QueryLogType } from '../entities/debug-session.entity';
 import { DebugToolsService } from '../services/debug-tools.service';
+import type { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import { AdminResponseContract } from '../../shared/admin-response-contract.decorator';
+import {
+  debugToolsDebugDashboardContract,
+  type DebugToolsDebugDashboardDto,
+  debugToolsDebugSessionPageContract,
+  type DebugToolsDebugSessionDto,
+  debugToolsDebugSessionContract,
+  debugToolsDebugSessionArrayContract,
+  voidResponseContract,
+  type VoidResponseDto,
+  debugToolsQueryInspectorResultContract,
+  type DebugToolsQueryInspectorResultDto,
+  debugToolsGetQueryExplainPlanResponseContract,
+  type DebugToolsGetQueryExplainPlanResponseDto,
+  debugToolsSlowQueryAnalysisContract,
+  type DebugToolsSlowQueryAnalysisDto,
+  debugToolsApiLogResultContract,
+  type DebugToolsApiLogResultDto,
+  debugToolsApiUsageSummaryContract,
+  type DebugToolsApiUsageSummaryDto,
+  debugToolsCapturedApiCallContract,
+  type DebugToolsCapturedApiCallDto,
+  debugToolsCacheStatsContract,
+  type DebugToolsCacheStatsDto,
+  debugToolsCacheNamespaceListingContract,
+  type DebugToolsCacheNamespaceListingDto,
+  debugToolsCacheKeyValueContract,
+  type DebugToolsCacheKeyValueDto,
+  debugToolsCacheInvalidationReceiptContract,
+  type DebugToolsCacheInvalidationReceiptDto,
+  debugToolsFeatureFlagOverrideContract,
+  type DebugToolsFeatureFlagOverrideDto,
+  debugToolsFeatureFlagOverrideArrayContract,
+  debugToolsGetFeatureFlagValueResponseContract,
+  type DebugToolsGetFeatureFlagValueResponseDto,
+  debugToolsQueryOverridesResponseContract,
+  type DebugToolsQueryOverridesResponseDto,
+} from '../contracts/admin-http-response.contract';
 
 // ============================================================================
 // DTOs
@@ -290,58 +330,18 @@ class CreateFeatureFlagOverrideDto {
   expiresAt?: string;
 }
 
-class CaptureSnapshotDto {
+class ListCacheEntriesDto {
   @IsOptional()
-  @IsUUID()
-  tenantId?: string;
-
-  @IsNotEmpty()
   @IsString()
-  @MaxLength(1000)
-  key!: string;
-
-  @IsOptional()
-  value?: unknown;
+  @MaxLength(500)
+  keyPattern?: string;
 
   @IsOptional()
   @Type(() => Number)
   @IsInt()
-  @Min(0)
-  sizeBytes?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  ttlSeconds?: number;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(50)
-  expiresAt?: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  hitCount?: number;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(50)
-  lastAccessedAt?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(255)
-  cacheStore?: string;
-
-  @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(50)
-  @IsString({ each: true })
-  @MaxLength(100, { each: true })
-  tags?: string[];
+  @Min(1)
+  @Max(1000)
+  limit?: number;
 }
 
 class InvalidateCachePatternDto {
@@ -349,10 +349,6 @@ class InvalidateCachePatternDto {
   @IsString()
   @MaxLength(500)
   pattern!: string;
-
-  @IsOptional()
-  @IsUUID()
-  tenantId?: string;
 }
 
 // ============================================================================
@@ -375,8 +371,11 @@ export class DebugToolsController {
   // Dashboard
   // ============================================================================
 
+  @AdminResponseContract(debugToolsDebugDashboardContract)
   @Get('dashboard')
-  async getDebugDashboard(@Query('tenantId') tenantId?: string) {
+  async getDebugDashboard(
+    @Query('tenantId') tenantId?: string,
+  ): Promise<DebugToolsDebugDashboardDto> {
     return this.debugToolsService.getDebugDashboard(tenantId);
   }
 
@@ -384,6 +383,7 @@ export class DebugToolsController {
   // Debug Sessions
   // ============================================================================
 
+  @AdminResponseContract(debugToolsDebugSessionPageContract)
   @Get('sessions')
   async getSessions(
     @Query('tenantId') tenantId?: string,
@@ -391,7 +391,7 @@ export class DebugToolsController {
     @Query('isActive') isActive?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ) {
+  ): Promise<IStandardPaginatedResult<DebugToolsDebugSessionDto>> {
     return this.debugToolsService.querySessions({
       tenantId,
       sessionType,
@@ -401,12 +401,13 @@ export class DebugToolsController {
     });
   }
 
+  @AdminResponseContract(debugToolsDebugSessionContract)
   @Post('sessions')
   async startDebugSession(
     @Body() dto: StartDebugSessionDto,
     // Fix: C6 -- JWT-based identity, client-supplied adminId kaldırıldı
     @Req() req: Request,
-  ) {
+  ): Promise<DebugToolsDebugSessionDto> {
     const adminId = getAuthUserId(req);
     if (!adminId) {
       throw new UnauthorizedException('User not authenticated');
@@ -428,18 +429,23 @@ export class DebugToolsController {
     });
   }
 
+  @AdminResponseContract(debugToolsDebugSessionContract)
   @Post('sessions/:id/end')
-  async endDebugSession(@Param('id') sessionId: string) {
+  async endDebugSession(@Param('id') sessionId: string): Promise<DebugToolsDebugSessionDto> {
     return this.debugToolsService.endDebugSession(sessionId);
   }
 
+  @AdminResponseContract(debugToolsDebugSessionContract)
   @Get('sessions/:id')
-  async getDebugSession(@Param('id') sessionId: string) {
+  async getDebugSession(@Param('id') sessionId: string): Promise<DebugToolsDebugSessionDto> {
     return this.debugToolsService.getDebugSession(sessionId);
   }
 
+  @AdminResponseContract(debugToolsDebugSessionArrayContract)
   @Get('sessions/tenant/:tenantId')
-  async getActiveSessionsForTenant(@Param('tenantId') tenantId: string) {
+  async getActiveSessionsForTenant(
+    @Param('tenantId') tenantId: string,
+  ): Promise<DebugToolsDebugSessionDto[]> {
     return this.debugToolsService.getActiveSessionsForTenant(tenantId);
   }
 
@@ -447,12 +453,14 @@ export class DebugToolsController {
   // Query Inspector
   // ============================================================================
 
+  @AdminResponseContract(voidResponseContract)
   @Post('queries/capture')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async captureQuery(@Body() dto: CaptureQueryDto) {
+  async captureQuery(@Body() dto: CaptureQueryDto): Promise<void> {
     await this.debugToolsService.captureQuery(dto);
   }
 
+  @AdminResponseContract(debugToolsQueryInspectorResultContract)
   @Get('queries')
   async inspectQueries(
     @Query('tenantId') tenantId: string,
@@ -465,7 +473,7 @@ export class DebugToolsController {
     @Query('endDate') endDate?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ) {
+  ): Promise<DebugToolsQueryInspectorResultDto> {
     return this.debugToolsService.inspectQueries({
       tenantId,
       debugSessionId,
@@ -480,16 +488,20 @@ export class DebugToolsController {
     });
   }
 
+  @AdminResponseContract(debugToolsGetQueryExplainPlanResponseContract)
   @Get('queries/:id/explain')
-  async getQueryExplainPlan(@Param('id') queryId: string) {
+  async getQueryExplainPlan(
+    @Param('id') queryId: string,
+  ): Promise<DebugToolsGetQueryExplainPlanResponseDto> {
     return this.debugToolsService.getQueryExplainPlan(queryId);
   }
 
+  @AdminResponseContract(debugToolsSlowQueryAnalysisContract)
   @Get('queries/slow-analysis')
   async getSlowQueryAnalysis(
     @Query('tenantId') tenantId: string,
     @Query('threshold') threshold?: number,
-  ) {
+  ): Promise<DebugToolsSlowQueryAnalysisDto> {
     return this.debugToolsService.getSlowQueryAnalysis(
       tenantId,
       threshold ? Number(threshold) : undefined,
@@ -500,12 +512,14 @@ export class DebugToolsController {
   // API Log Viewer
   // ============================================================================
 
+  @AdminResponseContract(voidResponseContract)
   @Post('api-calls/capture')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async captureApiCall(@Body() dto: CaptureApiCallDto) {
+  async captureApiCall(@Body() dto: CaptureApiCallDto): Promise<void> {
     await this.debugToolsService.captureApiCall(dto);
   }
 
+  @AdminResponseContract(debugToolsApiLogResultContract)
   @Get('api-calls')
   async inspectApiCalls(
     @Query('tenantId') tenantId: string,
@@ -519,7 +533,7 @@ export class DebugToolsController {
     @Query('endDate') endDate?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ) {
+  ): Promise<DebugToolsApiLogResultDto> {
     return this.debugToolsService.inspectApiCalls({
       tenantId,
       debugSessionId,
@@ -535,16 +549,18 @@ export class DebugToolsController {
     });
   }
 
+  @AdminResponseContract(debugToolsApiUsageSummaryContract)
   @Get('api-calls/summary')
   async getApiUsageSummary(
     @Query('tenantId') tenantId: string,
     @Query('period') period?: string,
-  ) {
+  ): Promise<DebugToolsApiUsageSummaryDto> {
     return this.debugToolsService.getApiUsageSummary(tenantId, period);
   }
 
+  @AdminResponseContract(debugToolsCapturedApiCallContract)
   @Get('api-calls/:id')
-  async getApiCallDetails(@Param('id') id: string) {
+  async getApiCallDetails(@Param('id') id: string): Promise<DebugToolsCapturedApiCallDto> {
     return this.debugToolsService.getApiCallDetails(id);
   }
 
@@ -552,79 +568,58 @@ export class DebugToolsController {
   // Cache Inspector
   // ============================================================================
 
+  @AdminResponseContract(debugToolsCacheStatsContract)
   @Get('cache/stats')
-  async getCacheStats(@Query('tenantId') tenantId?: string) {
-    return this.debugToolsService.getCacheStats(tenantId);
+  async getCacheStats(): Promise<DebugToolsCacheStatsDto> {
+    return this.debugToolsService.getCacheStats();
   }
 
+  @AdminResponseContract(debugToolsCacheNamespaceListingContract)
   @Get('cache')
-  async snapshotCache(
-    @Query('tenantId') tenantId: string,
-    @Query('debugSessionId') debugSessionId?: string,
-    @Query('cacheStore') cacheStore?: string,
-  ) {
-    return this.debugToolsService.snapshotCache(tenantId, debugSessionId, cacheStore);
+  async listCacheEntries(
+    @Query() query: ListCacheEntriesDto,
+  ): Promise<DebugToolsCacheNamespaceListingDto> {
+    return this.debugToolsService.listCacheEntries(query.keyPattern ?? '*', query.limit ?? 500);
   }
 
-  @Post('cache/capture')
-  async captureCacheEntry(@Body() dto: CaptureSnapshotDto) {
-    return this.debugToolsService.captureCacheEntry({
-      ...dto,
-      expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
-      lastAccessedAt: dto.lastAccessedAt ? new Date(dto.lastAccessedAt) : undefined,
-    });
-  }
-
+  @AdminResponseContract(debugToolsCacheKeyValueContract)
   @Get('cache/:key')
-  async getCacheEntry(@Param('key') key: string) {
-    return this.debugToolsService.getCacheEntry(decodeURIComponent(key));
+  async getCacheEntry(@Param('key') key: string): Promise<DebugToolsCacheKeyValueDto> {
+    const decodedKey = decodeURIComponent(key);
+    const entry = await this.debugToolsService.getCacheEntry(decodedKey);
+    if (entry === null) {
+      throw new NotFoundException(`Cache entry ${decodedKey} not found`);
+    }
+    return entry;
   }
 
+  @AdminResponseContract(debugToolsCacheInvalidationReceiptContract)
   @Delete('cache/:key')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async invalidateCacheByKey(@Param('key') key: string) {
-    await this.debugToolsService.invalidateCacheByKey(decodeURIComponent(key));
+  async invalidateCacheByKey(
+    @Param('key') key: string,
+  ): Promise<DebugToolsCacheInvalidationReceiptDto> {
+    return this.debugToolsService.invalidateCacheKey(decodeURIComponent(key));
   }
 
+  @AdminResponseContract(debugToolsCacheInvalidationReceiptContract)
   @Post('cache/invalidate')
   async invalidateCacheByPattern(
     @Body() dto: InvalidateCachePatternDto,
-  ) {
-    const count = await this.debugToolsService.invalidateCachePattern(
-      dto.tenantId || '',
-      dto.pattern,
-    );
-    return { invalidated: count };
-  }
-
-  @Delete('cache/:tenantId/:key')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async invalidateCacheKey(
-    @Param('tenantId') tenantId: string,
-    @Param('key') key: string,
-  ) {
-    await this.debugToolsService.invalidateCacheKey(tenantId, key);
-  }
-
-  @Delete('cache/tenant/:tenantId')
-  async invalidateCachePatternForTenant(
-    @Param('tenantId') tenantId: string,
-    @Query('pattern') pattern: string,
-  ) {
-    const count = await this.debugToolsService.invalidateCachePattern(tenantId, pattern);
-    return { invalidatedCount: count };
+  ): Promise<DebugToolsCacheInvalidationReceiptDto> {
+    return this.debugToolsService.invalidateCachePattern(dto.pattern);
   }
 
   // ============================================================================
   // Feature Flag Override
   // ============================================================================
 
+  @AdminResponseContract(debugToolsFeatureFlagOverrideContract)
   @Post('feature-overrides')
   async createFeatureFlagOverride(
     @Body() dto: CreateFeatureFlagOverrideDto,
     // Fix: C6 -- JWT-based identity, client-supplied adminId kaldırıldı
     @Req() req: Request,
-  ) {
+  ): Promise<DebugToolsFeatureFlagOverrideDto> {
     const adminId = getAuthUserId(req);
     if (!adminId) {
       throw new UnauthorizedException('User not authenticated');
@@ -636,12 +631,13 @@ export class DebugToolsController {
     });
   }
 
+  @AdminResponseContract(debugToolsFeatureFlagOverrideContract)
   @Post('feature-overrides/:id/revert')
   async revertFeatureFlagOverride(
     @Param('id') overrideId: string,
     // Fix: C6 -- JWT-based identity, client-supplied adminId kaldırıldı
     @Req() req: Request,
-  ) {
+  ): Promise<DebugToolsFeatureFlagOverrideDto> {
     const revertedBy = getAuthUserId(req);
     if (!revertedBy) {
       throw new UnauthorizedException('User not authenticated');
@@ -649,27 +645,29 @@ export class DebugToolsController {
     return this.debugToolsService.revertFeatureFlagOverride(overrideId, revertedBy);
   }
 
+  @AdminResponseContract(debugToolsFeatureFlagOverrideArrayContract)
   @Get('feature-overrides/tenant/:tenantId')
-  async getOverridesForTenant(@Param('tenantId') tenantId: string) {
+  async getOverridesForTenant(
+    @Param('tenantId') tenantId: string,
+  ): Promise<DebugToolsFeatureFlagOverrideDto[]> {
     return this.debugToolsService.getActiveOverridesForTenant(tenantId);
   }
 
+  @AdminResponseContract(debugToolsFeatureFlagOverrideArrayContract)
   @Get('feature-overrides/tenant/:tenantId/active')
-  async getActiveOverridesForTenant(@Param('tenantId') tenantId: string) {
+  async getActiveOverridesForTenant(
+    @Param('tenantId') tenantId: string,
+  ): Promise<DebugToolsFeatureFlagOverrideDto[]> {
     return this.debugToolsService.getActiveOverridesForTenant(tenantId);
   }
 
-  @Get('feature-overrides/:id')
-  async getFeatureOverride(@Param('id') id: string) {
-    return this.debugToolsService.getFeatureOverride(id);
-  }
-
+  @AdminResponseContract(debugToolsGetFeatureFlagValueResponseContract)
   @Get('feature-overrides/value')
   async getFeatureFlagValue(
     @Query('tenantId') tenantId: string,
     @Query('featureKey') featureKey: string,
     @Query('defaultValue') defaultValue: string,
-  ) {
+  ): Promise<DebugToolsGetFeatureFlagValueResponseDto> {
     // H24 fix: Sanitize JSON.parse to prevent prototype pollution
     // Only accept primitive values (string, number, boolean, null)
     let parsed: unknown;
@@ -683,14 +681,17 @@ export class DebugToolsController {
       parsed = String(defaultValue);
     }
 
-    const value = await this.debugToolsService.getFeatureFlagValue(
-      tenantId,
-      featureKey,
-      parsed,
-    );
+    const value = await this.debugToolsService.getFeatureFlagValue(tenantId, featureKey, parsed);
     return { value };
   }
 
+  @AdminResponseContract(debugToolsFeatureFlagOverrideContract)
+  @Get('feature-overrides/:id')
+  async getFeatureOverride(@Param('id') id: string): Promise<DebugToolsFeatureFlagOverrideDto> {
+    return this.debugToolsService.getFeatureOverride(id);
+  }
+
+  @AdminResponseContract(debugToolsQueryOverridesResponseContract)
   @Get('feature-overrides')
   async queryOverrides(
     @Query('tenantId') tenantId?: string,
@@ -700,7 +701,7 @@ export class DebugToolsController {
     @Query('limit') limit?: number,
     // Fix: C6 -- JWT-based identity, client-supplied adminId kaldırıldı
     @Req() req?: Request,
-  ) {
+  ): Promise<DebugToolsQueryOverridesResponseDto> {
     const adminId = req ? getAuthUserId(req) : undefined;
     return this.debugToolsService.queryOverrides({
       tenantId,

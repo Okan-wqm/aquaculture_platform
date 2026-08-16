@@ -22,7 +22,8 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"],
-      "@aquaculture/shared-ui": ["../../shared-ui/src"]
+      "@aquaculture/shared-ui": ["../../shared-ui/src"],
+      "@platform/identity": ["../../../libs/event-contracts/src/roles.ts"]
     }
   },
   "include": ["src"],

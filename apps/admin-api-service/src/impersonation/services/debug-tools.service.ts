@@ -6,7 +6,6 @@ import {
   DebugSession,
   CapturedQuery,
   CapturedApiCall,
-  CacheEntrySnapshot,
   FeatureFlagOverride,
   DebugSessionType,
   QueryLogType,
@@ -18,7 +17,9 @@ import { DebugSessionService } from './debug-session.service';
 import {
   QueryInspectorResult,
   ApiLogResult,
-  CacheInspectorResult,
+  CacheInvalidationReceiptV1,
+  CacheKeyValue,
+  CacheNamespaceListing,
   DebugDashboard,
   SlowQueryAnalysis,
   ApiUsageSummary,
@@ -26,13 +27,14 @@ import {
 } from './debug-tools-types';
 import { FeatureFlagDebugService } from './feature-flag-debug.service';
 import { QueryInspectorService } from './query-inspector.service';
+import { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
 // Re-export types for backward compatibility — interfaces require
 // `export type` under isolatedModules.
 export type {
   QueryInspectorResult,
   ApiLogResult,
-  CacheInspectorResult,
+  CacheNamespaceListing,
   DebugDashboard,
 } from './debug-tools-types';
 
@@ -106,7 +108,7 @@ export class DebugToolsService {
     isActive?: boolean;
     page?: number;
     limit?: number;
-  }): Promise<{ data: DebugSession[]; total: number; page: number; limit: number }> {
+  }): Promise<IStandardPaginatedResult<DebugSession>> {
     return this.sessionService.querySessions(params);
   }
 
@@ -204,48 +206,24 @@ export class DebugToolsService {
 
   // ==================== Cache Inspector ====================
 
-  async snapshotCache(
-    tenantId: string,
-    debugSessionId?: string,
-    cacheStore?: string,
-  ): Promise<CacheInspectorResult> {
-    return this.cacheInspector.snapshotCache(tenantId, debugSessionId, cacheStore);
+  async listCacheEntries(pattern: string, limit: number): Promise<CacheNamespaceListing> {
+    return this.cacheInspector.listEntries(pattern, limit);
   }
 
-  async captureCacheEntry(data: {
-    tenantId?: string;
-    debugSessionId?: string;
-    key: string;
-    value?: unknown;
-    sizeBytes?: number;
-    ttlSeconds?: number;
-    expiresAt?: Date;
-    hitCount?: number;
-    lastAccessedAt?: Date;
-    cacheStore?: string;
-    tags?: string[];
-  }): Promise<CacheEntrySnapshot> {
-    return this.cacheInspector.captureCacheEntry(data);
+  async getCacheEntry(key: string): Promise<CacheKeyValue | null> {
+    return this.cacheInspector.getEntry(key);
   }
 
-  async getCacheEntry(key: string): Promise<CacheEntrySnapshot | null> {
-    return this.cacheInspector.getCacheEntry(key);
+  async invalidateCacheKey(key: string): Promise<CacheInvalidationReceiptV1> {
+    return this.cacheInspector.invalidateKey(key);
   }
 
-  async invalidateCacheByKey(key: string): Promise<void> {
-    return this.cacheInspector.invalidateCacheByKey(key);
+  async invalidateCachePattern(pattern: string): Promise<CacheInvalidationReceiptV1> {
+    return this.cacheInspector.invalidatePattern(pattern);
   }
 
-  async invalidateCacheKey(tenantId: string, key: string): Promise<void> {
-    return this.cacheInspector.invalidateCacheKey(tenantId, key);
-  }
-
-  async invalidateCachePattern(tenantId: string, pattern: string): Promise<number> {
-    return this.cacheInspector.invalidateCachePattern(tenantId, pattern);
-  }
-
-  async getCacheStats(tenantId?: string): Promise<CacheStats> {
-    return this.cacheInspector.getCacheStats(tenantId);
+  async getCacheStats(): Promise<CacheStats> {
+    return this.cacheInspector.getStats();
   }
 
   // ==================== Feature Flag Override ====================
@@ -262,7 +240,10 @@ export class DebugToolsService {
     return this.featureFlagDebug.createFeatureFlagOverride(data);
   }
 
-  async revertFeatureFlagOverride(overrideId: string, revertedBy: string): Promise<FeatureFlagOverride> {
+  async revertFeatureFlagOverride(
+    overrideId: string,
+    revertedBy: string,
+  ): Promise<FeatureFlagOverride> {
     return this.featureFlagDebug.revertFeatureFlagOverride(overrideId, revertedBy);
   }
 
@@ -274,7 +255,11 @@ export class DebugToolsService {
     return this.featureFlagDebug.getFeatureOverride(id);
   }
 
-  async getFeatureFlagValue(tenantId: string, featureKey: string, defaultValue: unknown): Promise<unknown> {
+  async getFeatureFlagValue(
+    tenantId: string,
+    featureKey: string,
+    defaultValue: unknown,
+  ): Promise<unknown> {
     return this.featureFlagDebug.getFeatureFlagValue(tenantId, featureKey, defaultValue);
   }
 

@@ -21,6 +21,16 @@
 
 ---
 
+## ORPHAN-HIGH-695 — the destructive-DDL gate rejected the migrations that FORBID truncation: `TRUNCATE` matched as a bare word — RESOLVED (this PR)
+
+**Discovered:** 2026-08-16 (landing the rescued FARM-CRITICAL-241 provenance migration; pre-commit refused it with five CRITICAL R1 violations, all false).
+**Evidence:** `tools/gates/migration-sql-lint.ts` rule `R1-destructive-without-marker` matched `/\bTRUNCATE\b/i` against raw SQL. In `1808600000000-ProtectFeedingRecordBackfillProvenance.ts` every one of the five hits destroyed nothing: `REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON feeding_record_provenance FROM PUBLIC` (:121) and the same for `farm_service` (:128) are privilege _withdrawals_; `IF TG_OP = 'TRUNCATE'` (:143) and its `RAISE EXCEPTION` message (:145) are string literals inside a trigger body; `BEFORE TRUNCATE ON feeding_record_provenance` (:209) is the trigger event that makes the table un-truncatable. A migration whose entire purpose is immutability was blocked for naming the operation it forbids.
+**Root cause:** the rule matched a token, not a statement. The file already owned the machinery to tell them apart — `tokenizeSqlStructure` deliberately skips string literals, dollar-quoted bodies and comments, and `routineConfigurationSetOffsets` (used by R4) is the same "exempt this construct" shape — but R1 never used it.
+**Why the marker was not the answer:** the only other way through was to write `-- DESTRUCTIVE:` on a statement that destroys nothing. That marker is a merge precondition carrying a documented pg_dump backup, a pre-merge rollback migration and an ops stage-gate; attaching it to a REVOKE would make it unreadable as a signal exactly where it matters most.
+**Remediation (this PR):** `destructiveTruncateOffsets()` walks the tokenised statements and keeps only `TRUNCATE` used as a statement verb. A statement led by `GRANT`/`REVOKE` yields a privilege list, so every `TRUNCATE` in it is exempt; a `TRUNCATE` preceded by `BEFORE`/`AFTER`/`OR` is a trigger event; and a regex hit with no `word` token at its offset came from a string or comment and is excluded by construction, because the tokeniser never emits those. R1 filters its `TRUNCATE` hits through that set; `DROP COLUMN`, `DROP TABLE` and `DROP SCHEMA ... CASCADE` are untouched.
+**Validation:** `tools/gates/migration-sql-lint.spec.ts` grows from 6 to 14 tests — five prove the non-destructive spellings pass (revoked privilege, granted privilege, `BEFORE TRUNCATE`, `OR TRUNCATE`, string literal in a routine body), two prove a real `TRUNCATE` and `TRUNCATE TABLE ONLY` are still CRITICAL, and one proves the `-- DESTRUCTIVE:` marker still clears a genuine one. `--mode=file` against the provenance migration now reports clean.
+**Owner:** data-expert. **Deadline:** closed by this PR's merge.
+
 ## ORPHAN-HIGH-415 — source-schema write-guard reconciler aborts EVERY prod deploy on declarative-partitioned guarded tables (messaging.messages / message_receipts) — RESOLVED (this PR)
 
 **Discovered:** 2026-07-14 (operator flagged that post-merge main `CI - Affected` deploy-production keeps failing; `aqua-db-migrate` aborts BEFORE service containers start).

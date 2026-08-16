@@ -327,7 +327,12 @@ def _refresh_index(
     index: dict[str, Any] = {
         "schema_version": 2,
         "generated_at": _utc_now(),
-        "source_ledger": _events_path(repo_root).relative_to(repo_root).as_posix(),
+        # E21-d audit catch (ORPHAN-693) — same class as the governance-path
+        # fix in emit_finding: under ARIA_REPO_STATE_ROOT the events ledger
+        # lives outside the repo tree; relative to the store that owns it.
+        "source_ledger": _events_path(repo_root).relative_to(
+            _findings_dir(repo_root).parent
+        ).as_posix(),
         "source_ledger_tip_hash": source_tip,
         "findings": rows,
     }
@@ -468,7 +473,13 @@ def emit_finding(
             "claim_type": claim_type,
             "evidence_chain_id": chain_id,
             "originating_skill": originating_skill,
-            "path": output_path.relative_to(repo_path).as_posix(),
+            # E21-d audit catch (ORPHAN-693): under ARIA_REPO_STATE_ROOT the
+            # finding store lives OUTSIDE the repo tree, and relative_to(repo)
+            # raised ValueError — every emit_finding crashed the moment the
+            # durable-store redirect was active. The path is relative to the
+            # store that OWNS it (identical output when there is no redirect,
+            # because repo_state_root(repo) == repo then).
+            "path": output_path.relative_to(findings_dir.parent).as_posix(),
         },
     )
     return record
@@ -827,6 +838,9 @@ def list_fix_verified_bindings(repo_root: str | Path) -> list[dict[str, Any]]:
                 "experiment_id": verification.get("experiment_id"),
                 "evidence_chain_id": doc.get("evidence_chain_id"),
                 "commit_sha": verification.get("commit_sha"),
+                # E21-d — the regression re-runner resolves the original
+                # observation (and through it the fix's change_id) by this id.
+                "validation_run_id": verification.get("validation_run_id"),
             })
     return rows
 

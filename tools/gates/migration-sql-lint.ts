@@ -343,6 +343,64 @@ function routineConfigurationSetOffsets(sql: string): ReadonlySet<number> {
 }
 
 /**
+ * Offsets where `TRUNCATE` is the verb of a statement — i.e. the destructive
+ * form `TRUNCATE [TABLE] <name>`.
+ *
+ * The word appears in three other places where it destroys nothing, and a bare
+ * `\bTRUNCATE\b` match cannot tell them apart:
+ *
+ *   - a privilege name in `GRANT`/`REVOKE ... TRUNCATE ON <table>` — the REVOKE
+ *     form is the exact opposite of destructive, it takes the ability away;
+ *   - a trigger event in `CREATE TRIGGER ... BEFORE TRUNCATE ON <table>`, which
+ *     is how a table is made un-truncatable;
+ *   - a string literal such as `IF TG_OP = 'TRUNCATE'` inside a trigger body.
+ *
+ * The first two are decided structurally here. The third needs no rule: the
+ * tokeniser skips string literals, dollar-quoted bodies and comments, so a
+ * regex hit with no matching `word` token at its offset came from text, not
+ * from SQL structure, and is excluded by construction.
+ *
+ * Without this, a migration whose whole purpose is to make a table immutable is
+ * rejected for naming the operation it forbids, and the only way through is to
+ * mark a non-destructive statement `-- DESTRUCTIVE:` — which would make the
+ * marker meaningless for the statements that really are.
+ */
+function destructiveTruncateOffsets(sql: string): ReadonlySet<number> {
+  const tokens = tokenizeSqlStructure(sql);
+  const destructiveOffsets = new Set<number>();
+  let statementStart = 0;
+
+  for (let boundary = 0; boundary <= tokens.length; boundary++) {
+    if (boundary < tokens.length && tokens[boundary]?.value !== ';') continue;
+
+    const statement = tokens.slice(statementStart, boundary);
+    statementStart = boundary + 1;
+
+    // A privilege list: every TRUNCATE in it names a privilege, not an action.
+    if (isSqlWord(statement[0], 'grant') || isSqlWord(statement[0], 'revoke')) continue;
+
+    for (let index = 0; index < statement.length; index++) {
+      const token = statement[index];
+      if (!isSqlWord(token, 'truncate') || !token) continue;
+
+      // A trigger event list: `BEFORE TRUNCATE`, `AFTER TRUNCATE`, `OR TRUNCATE`.
+      const previous = statement[index - 1];
+      if (
+        isSqlWord(previous, 'before') ||
+        isSqlWord(previous, 'after') ||
+        isSqlWord(previous, 'or')
+      ) {
+        continue;
+      }
+
+      destructiveOffsets.add(token.start);
+    }
+  }
+
+  return destructiveOffsets;
+}
+
+/**
  * Rule registry. Each rule's regex is tuned to minimise false positives
  * on the existing 66 migrations' sample corpus; changes here should be
  * paired with a negative-test fixture.
@@ -354,10 +412,13 @@ const RULES: readonly Rule[] = [
     // DROP COLUMN / DROP TABLE (not IF EXISTS) / TRUNCATE / DROP SCHEMA CASCADE
     // without an adjacent `-- DESTRUCTIVE:` comment on the same statement.
     scan: (sql) => {
+      const truncateVerbOffsets = destructiveTruncateOffsets(sql);
       const hits = [
         ...collectMatches(sql, /\bDROP\s+COLUMN\b(?![^\n;]*\bIF\s+EXISTS\b)/i),
         ...collectMatches(sql, /\bDROP\s+TABLE\b(?!\s+IF\s+EXISTS\b)/i),
-        ...collectMatches(sql, /\bTRUNCATE\b/i),
+        ...collectMatches(sql, /\bTRUNCATE\b/i).filter(({ start }) =>
+          truncateVerbOffsets.has(start),
+        ),
         ...collectMatches(sql, /\bDROP\s+SCHEMA\b[^;]*\bCASCADE\b/i),
       ];
       // Filter out hits that have a same-statement DESTRUCTIVE marker.

@@ -1,0 +1,1182 @@
+name: PostgreSQL DR Bootstrap Candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      main_sha:
+        description: Exact 40-character SHA currently at protected refs/heads/main
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: postgres-dr-bootstrap-candidate
+  cancel-in-progress: false
+
+env:
+  CANDIDATE_PREDICATE_TYPE: https://github.com/Okan-wqm/aquaculture_platform/attestations/postgres-dr-bootstrap-candidate/v1
+  IMAGE_REPOSITORY: ghcr.io/okan-wqm/aquaculture_platform/postgres
+  POLICY_PATH: .github/manifests/postgres-dr-bootstrap-policy.json
+  REQUIRED_CHECK_SELECTOR: .github/scripts/select-effective-required-check.jq
+  REQUIRED_CHECKS_PATH: .github/manifests/main-required-status-checks.json
+  WORKFLOW_PATH: .github/workflows/postgres-dr-bootstrap-candidate.yml
+
+jobs:
+  authorize-main:
+    name: Prove exact protected main authority
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout dispatch commit
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Require exact current protected main and successful merge checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_MAIN_SHA: ${{ inputs.main_sha }}
+          REF_PROTECTED: ${{ github.ref_protected }}
+        run: |
+          set -euo pipefail
+          export LC_ALL=C
+          [[ "${REQUESTED_MAIN_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          test "${GITHUB_WORKFLOW_REF}" = \
+            "${GITHUB_REPOSITORY}/${WORKFLOW_PATH}@refs/heads/main"
+          test "${GITHUB_WORKFLOW_SHA}" = "${REQUESTED_MAIN_SHA}"
+          test "${GITHUB_EVENT_NAME}" = workflow_dispatch
+          test "${GITHUB_REF}" = refs/heads/main
+          test "${REF_PROTECTED}" = true
+          test "${GITHUB_SHA}" = "${REQUESTED_MAIN_SHA}"
+          test "$(git rev-parse HEAD)" = "${REQUESTED_MAIN_SHA}"
+          git fetch --force --no-tags origin \
+            refs/heads/main:refs/remotes/origin/main
+          test "$(git rev-parse refs/remotes/origin/main)" = "${REQUESTED_MAIN_SHA}"
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+          COMMIT="${RUNNER_TEMP}/commit.json"
+          PULL_PAGES="${RUNNER_TEMP}/pull-pages.json"
+          PULLS="${RUNNER_TEMP}/pulls.json"
+          MERGED_PULL="${RUNNER_TEMP}/merged-pull.json"
+          CHECK_PAGES="${RUNNER_TEMP}/check-pages.json"
+          CHECKS="${RUNNER_TEMP}/checks.json"
+          BRANCH_PROTECTION="${RUNNER_TEMP}/branch-protection.json"
+          BRANCH_PROTECTION_AUTHORITY="${RUNNER_TEMP}/branch-protection-authority.json"
+          gh api \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${GITHUB_REPOSITORY}/commits/${REQUESTED_MAIN_SHA}" \
+            > "${COMMIT}"
+          jq --exit-status \
+            --arg repository "${GITHUB_REPOSITORY}" \
+            '
+              .schema_version == 1 and
+              .repository == $repository and
+              .branch == "main" and
+              .branch_protection.enforce_admins == true and
+              .required_status_checks.strict == true and
+              (.required_status_checks.contexts | length) > 0 and
+              (.required_status_checks.contexts | length) ==
+                (.required_status_checks.contexts | unique | length) and
+              (.required_status_checks.checks | sort_by(.context, .app_id) |
+                map(.context)) ==
+                (.required_status_checks.contexts | sort) and
+              all(.required_status_checks.checks[];
+                (.app_id | type) == "number" and .app_id > 0)
+            ' "${REQUIRED_CHECKS_PATH}" >/dev/null
+          gh api \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${GITHUB_REPOSITORY}/branches/main/protection" \
+            > "${BRANCH_PROTECTION}"
+          jq --exit-status \
+            '
+              (.enforce_admins.enabled | type) == "boolean" and
+              (.required_status_checks.strict | type) == "boolean" and
+              (.required_status_checks.contexts | type) == "array" and
+              (.required_status_checks.checks | type) == "array" and
+              all(.required_status_checks.checks[];
+                (.context | type) == "string" and
+                (.app_id | type) == "number" and .app_id > 0)
+            ' "${BRANCH_PROTECTION}" >/dev/null
+          jq --sort-keys \
+            '{
+              enforce_admins: .enforce_admins.enabled,
+              strict: .required_status_checks.strict,
+              contexts: (.required_status_checks.contexts | sort),
+              checks: ([.required_status_checks.checks[] | {context, app_id}] |
+                sort_by(.context, .app_id))
+            }' "${BRANCH_PROTECTION}" > "${BRANCH_PROTECTION_AUTHORITY}"
+          jq --exit-status \
+            --slurpfile manifest "${REQUIRED_CHECKS_PATH}" \
+            '
+              .enforce_admins == $manifest[0].branch_protection.enforce_admins and
+              .strict == $manifest[0].required_status_checks.strict and
+              .contexts == ($manifest[0].required_status_checks.contexts | sort) and
+              .checks == ($manifest[0].required_status_checks.checks |
+                sort_by(.context, .app_id))
+            ' "${BRANCH_PROTECTION_AUTHORITY}" >/dev/null
+          jq --exit-status \
+            --arg sha "${REQUESTED_MAIN_SHA}" \
+            '.sha == $sha and .commit.verification.verified == true and (.parents | length) == 2' \
+            "${COMMIT}" >/dev/null
+
+          gh api --paginate --slurp \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${GITHUB_REPOSITORY}/commits/${REQUESTED_MAIN_SHA}/pulls?per_page=100" \
+            > "${PULL_PAGES}"
+          jq '[.[] | .[]]' "${PULL_PAGES}" > "${PULLS}"
+          jq \
+            --arg repository "${GITHUB_REPOSITORY}" \
+            --arg merge_sha "${REQUESTED_MAIN_SHA}" \
+            '[.[] | select(
+              .state == "closed" and
+              .merged_at != null and
+              .merge_commit_sha == $merge_sha and
+              .base.ref == "main" and
+              .base.repo.full_name == $repository and
+              .head.repo.full_name == $repository
+            )]' "${PULLS}" > "${MERGED_PULL}"
+          test "$(jq 'length' "${MERGED_PULL}")" -eq 1
+          PR_HEAD_SHA=$(jq --raw-output '.[0].head.sha' "${MERGED_PULL}")
+          PR_MERGED_AT=$(jq --raw-output '.[0].merged_at' "${MERGED_PULL}")
+          [[ "${PR_HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]
+
+          gh api --paginate --slurp \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${GITHUB_REPOSITORY}/commits/${PR_HEAD_SHA}/check-runs?filter=all&per_page=100" \
+            > "${CHECK_PAGES}"
+          jq '[.[] | .check_runs[]]' "${CHECK_PAGES}" > "${CHECKS}"
+          while IFS= read -r CONTEXT; do
+            EFFECTIVE_CHECK="${RUNNER_TEMP}/effective-check.json"
+            EXPECTED_APP_IDS=$(jq --compact-output \
+              --arg context "${CONTEXT}" \
+              '[.required_status_checks.checks[] |
+                select(.context == $context) | .app_id]' "${REQUIRED_CHECKS_PATH}")
+            test "$(jq 'length' <<< "${EXPECTED_APP_IDS}")" -eq 1
+            EXPECTED_APP_ID=$(jq '.[0]' <<< "${EXPECTED_APP_IDS}")
+            CONTEXT_CHECKS="${RUNNER_TEMP}/context-checks.json"
+            CONTEXT_CHECKS_JSONL="${RUNNER_TEMP}/context-checks.jsonl"
+            : > "${CONTEXT_CHECKS_JSONL}"
+            while IFS= read -r CHECK_CANDIDATE; do
+              CANDIDATE_DETAILS_URL=$(jq --raw-output '.details_url' <<< "${CHECK_CANDIDATE}")
+              CANDIDATE_CHECK_ID=$(jq '.id' <<< "${CHECK_CANDIDATE}")
+              [[ "${CANDIDATE_CHECK_ID}" =~ ^[1-9][0-9]*$ ]]
+              [[ "${CANDIDATE_DETAILS_URL}" =~ ^https://github.com/${GITHUB_REPOSITORY}/actions/runs/([1-9][0-9]*)/job/([1-9][0-9]*)$ ]]
+              CANDIDATE_RUN_ID=${BASH_REMATCH[1]}
+              CANDIDATE_JOB_ID=${BASH_REMATCH[2]}
+              test "${CANDIDATE_CHECK_ID}" = "${CANDIDATE_JOB_ID}"
+              CANDIDATE_JOB="${RUNNER_TEMP}/candidate-job.json"
+              gh api \
+                --header 'Accept: application/vnd.github+json' \
+                --header 'X-GitHub-Api-Version: 2022-11-28' \
+                "/repos/${GITHUB_REPOSITORY}/actions/jobs/${CANDIDATE_JOB_ID}" \
+                > "${CANDIDATE_JOB}"
+              jq --exit-status \
+                --argjson check "${CHECK_CANDIDATE}" \
+                --argjson job_id "${CANDIDATE_JOB_ID}" \
+                --argjson run_id "${CANDIDATE_RUN_ID}" \
+                --arg head_sha "${PR_HEAD_SHA}" \
+                --arg repository "${GITHUB_REPOSITORY}" \
+                '
+                  .id == $job_id and .id == $check.id and
+                  .run_id == $run_id and
+                  (.run_attempt | type) == "number" and .run_attempt > 0 and
+                  (.created_at | type) == "string" and
+                  (.created_at | fromdateiso8601 | type) == "number" and
+                  .head_sha == $head_sha and
+                  .status == $check.status and .conclusion == $check.conclusion and
+                  .started_at == $check.started_at and
+                  .completed_at == $check.completed_at and
+                  .check_run_url ==
+                    ("https://api.github.com/repos/" + $repository +
+                      "/check-runs/" + ($job_id | tostring))
+                ' "${CANDIDATE_JOB}" >/dev/null
+              CANDIDATE_CREATED_AT=$(jq --raw-output '.created_at' "${CANDIDATE_JOB}")
+              CANDIDATE_RUN_ATTEMPT=$(jq '.run_attempt' "${CANDIDATE_JOB}")
+              jq --compact-output \
+                --arg created_at "${CANDIDATE_CREATED_AT}" \
+                --argjson workflow_job_id "${CANDIDATE_JOB_ID}" \
+                --argjson workflow_run_id "${CANDIDATE_RUN_ID}" \
+                --argjson workflow_run_attempt "${CANDIDATE_RUN_ATTEMPT}" \
+                '. + {
+                  created_at: $created_at,
+                  workflow_job_id: $workflow_job_id,
+                  workflow_run_id: $workflow_run_id,
+                  workflow_run_attempt: $workflow_run_attempt
+                }' <<< "${CHECK_CANDIDATE}" >> "${CONTEXT_CHECKS_JSONL}"
+            done < <(
+              jq --compact-output \
+                --arg context "${CONTEXT}" \
+                --arg head_sha "${PR_HEAD_SHA}" \
+                --arg details_prefix "https://github.com/${GITHUB_REPOSITORY}/actions/runs/" \
+                --argjson app_id "${EXPECTED_APP_ID}" \
+                '.[] | select(
+                  .name == $context and .head_sha == $head_sha and
+                  .app.slug == "github-actions" and .app.id == $app_id and
+                  (.details_url | type) == "string" and
+                  (.details_url | startswith($details_prefix))
+                )' "${CHECKS}"
+            )
+            jq --slurp '.' "${CONTEXT_CHECKS_JSONL}" > "${CONTEXT_CHECKS}"
+            jq --from-file "${REQUIRED_CHECK_SELECTOR}" --exit-status \
+              --arg context "${CONTEXT}" \
+              --arg head_sha "${PR_HEAD_SHA}" \
+              --arg merged_at "${PR_MERGED_AT}" \
+              --arg details_prefix "https://github.com/${GITHUB_REPOSITORY}/actions/runs/" \
+              --argjson app_id "${EXPECTED_APP_ID}" \
+              "${CONTEXT_CHECKS}" > "${EFFECTIVE_CHECK}"
+            EXPECTED_WORKFLOWS=$(jq --compact-output \
+              --arg context "${CONTEXT}" \
+              '[.workflow_contracts[] as $contract |
+                $contract.contexts[] |
+                select(.context == $context) |
+                $contract.workflow]' "${REQUIRED_CHECKS_PATH}")
+            test "$(jq 'length' <<< "${EXPECTED_WORKFLOWS}")" -eq 1
+            EXPECTED_WORKFLOW=$(jq --raw-output '.[0]' <<< "${EXPECTED_WORKFLOWS}")
+            DETAILS_URL=$(jq --raw-output '.details_url' "${EFFECTIVE_CHECK}")
+            CHECK_RUN_ID=$(jq '.id' "${EFFECTIVE_CHECK}")
+            [[ "${CHECK_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+            [[ "${DETAILS_URL}" =~ ^https://github.com/${GITHUB_REPOSITORY}/actions/runs/([1-9][0-9]*)/job/([1-9][0-9]*)$ ]]
+            WORKFLOW_RUN_ID=${BASH_REMATCH[1]}
+            WORKFLOW_JOB_ID=${BASH_REMATCH[2]}
+            test "${CHECK_RUN_ID}" = "${WORKFLOW_JOB_ID}"
+            WORKFLOW_JOB="${RUNNER_TEMP}/workflow-job.json"
+            gh api \
+              --header 'Accept: application/vnd.github+json' \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              "/repos/${GITHUB_REPOSITORY}/actions/jobs/${WORKFLOW_JOB_ID}" \
+              > "${WORKFLOW_JOB}"
+            jq --exit-status \
+              --argjson job_id "${WORKFLOW_JOB_ID}" \
+              --argjson run_id "${WORKFLOW_RUN_ID}" \
+              --arg head_sha "${PR_HEAD_SHA}" \
+              --arg repository "${GITHUB_REPOSITORY}" \
+              --slurpfile check "${EFFECTIVE_CHECK}" \
+              '
+                .id == $job_id and
+                .run_id == $run_id and
+                (.run_attempt | type) == "number" and .run_attempt > 0 and
+                .head_sha == $head_sha and
+                .status == "completed" and .conclusion == "success" and
+                .created_at == $check[0].created_at and
+                .started_at == $check[0].started_at and
+                .completed_at == $check[0].completed_at and
+                .check_run_url ==
+                  ("https://api.github.com/repos/" + $repository +
+                    "/check-runs/" + ($job_id | tostring))
+              ' "${WORKFLOW_JOB}" >/dev/null
+            WORKFLOW_RUN_ATTEMPT=$(jq '.run_attempt' "${WORKFLOW_JOB}")
+            WORKFLOW_RUN="${RUNNER_TEMP}/workflow-run.json"
+            gh api \
+              --header 'Accept: application/vnd.github+json' \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              "/repos/${GITHUB_REPOSITORY}/actions/runs/${WORKFLOW_RUN_ID}/attempts/${WORKFLOW_RUN_ATTEMPT}" \
+              > "${WORKFLOW_RUN}"
+            jq --exit-status \
+              --argjson run_id "${WORKFLOW_RUN_ID}" \
+              --argjson run_attempt "${WORKFLOW_RUN_ATTEMPT}" \
+              --arg head_sha "${PR_HEAD_SHA}" \
+              --arg repository "${GITHUB_REPOSITORY}" \
+              --arg workflow "${EXPECTED_WORKFLOW}" \
+              '
+                .id == $run_id and
+                .run_attempt == $run_attempt and
+                .event == "pull_request" and
+                .head_sha == $head_sha and
+                .head_repository.full_name == $repository and
+                .path == $workflow and
+                .status == "completed" and
+                .conclusion == "success"
+              ' "${WORKFLOW_RUN}" >/dev/null
+          done < <(jq --raw-output '.required_status_checks.contexts[]' "${REQUIRED_CHECKS_PATH}")
+
+  build:
+    name: Build immutable PostgreSQL candidate
+    needs: authorize-main
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_digest: ${{ steps.build.outputs.digest }}
+      immutable_tag: ${{ steps.coordinates.outputs.immutable_tag }}
+    steps:
+      - name: Checkout authorized main
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Recheck exact main and policy boundary
+        env:
+          REQUESTED_MAIN_SHA: ${{ inputs.main_sha }}
+          REF_PROTECTED: ${{ github.ref_protected }}
+        run: |
+          set -euo pipefail
+          export LC_ALL=C
+          test "${GITHUB_WORKFLOW_REF}" = \
+            "${GITHUB_REPOSITORY}/${WORKFLOW_PATH}@refs/heads/main"
+          test "${GITHUB_WORKFLOW_SHA}" = "${REQUESTED_MAIN_SHA}"
+          test "${GITHUB_REF}" = refs/heads/main
+          test "${REF_PROTECTED}" = true
+          test "${GITHUB_SHA}" = "${REQUESTED_MAIN_SHA}"
+          test "$(git rev-parse HEAD)" = "${REQUESTED_MAIN_SHA}"
+          git fetch --force --no-tags origin \
+            refs/heads/main:refs/remotes/origin/main
+          test "$(git rev-parse refs/remotes/origin/main)" = "${REQUESTED_MAIN_SHA}"
+          jq --exit-status \
+            --arg workflow "${WORKFLOW_PATH}" \
+            --arg image "${IMAGE_REPOSITORY}" \
+            '
+              .schema_version == 1 and
+              .finding_ids == ["INFRA-HIGH-073"] and
+              .does_not_close_findings == ["INFRA-HIGH-033"] and
+              .release.workflow == $workflow and
+              .release.event == "workflow_dispatch" and
+              .release.ref == "refs/heads/main" and
+              .release.explicit_main_sha_input == "main_sha" and
+              .release.protected_ref_signal == "github.ref_protected" and
+              .release.live_environment_authority_snapshot_required == true and
+              .release.live_branch_protection_snapshot_required == true and
+              .release.required_check_selector ==
+                ".github/scripts/select-effective-required-check.jq" and
+              .release.required_check_effective_order ==
+                "created_at_then_id_as_of_merge" and
+              .release.required_check_creation_authority ==
+                "actions_job.created_at" and
+              .release.required_check_workflow_path_binding == true and
+              .release.required_check_job_attempt_binding == true and
+              .release.signing_environment_protection == {
+                can_admins_bypass: false,
+                prevent_self_review: true,
+                minimum_reviewers: 2,
+                deployment_branch: "main"
+              } and
+              .release.image_repository == $image and
+              .release.candidate_predicate_type ==
+                "https://github.com/Okan-wqm/aquaculture_platform/attestations/postgres-dr-bootstrap-candidate/v1" and
+              .release.authority_predicate_type ==
+                "https://github.com/Okan-wqm/aquaculture_platform/attestations/postgres-dr-bootstrap-release-authority/v1" and
+              .release.cosign_version == "v3.0.6" and
+              .release.cosign_linux_amd64_sha256 ==
+                "c956e5dfcac53d52bcf058360d579472f0c1d2d9b69f55209e256fe7783f4c74" and
+              .release.immutable_tag_template == "<main_sha>-<run_id>-<run_attempt>" and
+              .release.mutable_tags == [] and
+              .build_boundary == {
+                environment: null,
+                production_secrets: [],
+                ssh_enabled: false,
+                deployment_enabled: false
+              } and
+              .bootstrap.channel == "provider-console" and
+              .bootstrap.allowed_compose_services == ["postgres"] and
+              .bootstrap.compose_interpolation_tag_source == "expected_main_sha" and
+              .bootstrap.legacy_github_ssh_enabled == false and
+              .bootstrap.requires_production_deploy_unlock == false and
+              .bootstrap.repository_variable_mutation_enabled == false and
+              .bootstrap.tag_mutation_enabled == false and
+              .bootstrap.pre_execution_signature_verification_required == true and
+              .bootstrap.global_nonblocking_lock_required == true and
+              .bootstrap.pinned_host_paths == {
+                deploy_root: "/var/lib/aqua/deploy/checkout",
+                deploy_env_file: "/var/aqua-saas/.env",
+                state_root: "/var/lib/aqua/deploy/dr-bootstrap",
+                control_plane_lock: "/var/lib/aqua/deploy/control-plane.lock"
+              } and
+              .bootstrap.shared_control_plane_lock == {
+                mode: "exclusive-nonblocking",
+                held_from_before_supply_chain_pull_through_terminal_state: true
+              } and
+              .bootstrap.state_machine == {
+                helper: "infrastructure/scripts/postgres-dr-bootstrap-state.sh",
+                durable_phases: [
+                  "VERIFYING",
+                  "PREPARED",
+                  "FORWARD_STARTED",
+                  "ROLLBACK_STARTED",
+                  "ROLLED_BACK",
+                  "COMMITTED"
+                ],
+                exact_prior_recovery_required: true,
+                power_loss_reentry_required: true,
+                reentry_after_rollback: "require_new_signed_run_attempt"
+              } and
+              .bootstrap.signed_init_directory ==
+                "infrastructure/docker/init-scripts" and
+              .bootstrap.release_root_safe_path_pattern ==
+                "^/[A-Za-z0-9._/-]+$" and
+              .bootstrap.rendered_init_mount_assertion_required == true and
+              .bootstrap.registry_pull == {
+                mode: "anonymous-public-only",
+                docker_config_path: "/etc/aqua/dr-bootstrap-public-registry/config.json",
+                credential_entries_allowed: false
+              } and
+              .bootstrap.provider_cosign == {
+                path: "/usr/local/bin/cosign",
+                version: "v3.0.6",
+                sha256: "c956e5dfcac53d52bcf058360d579472f0c1d2d9b69f55209e256fe7783f4c74",
+                root_owned_nonwritable: true
+              }
+            ' "${POLICY_PATH}" >/dev/null
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+      - name: Verify PostgreSQL DR contract
+        id: contract
+        run: |
+          set -euo pipefail
+          export LC_ALL=C
+          CONTRACT_MANIFEST=.github/manifests/postgres-dr-contract.sha256
+          test -f "${CONTRACT_MANIFEST}"
+          test ! -L "${CONTRACT_MANIFEST}"
+          test "$(wc -l < "${CONTRACT_MANIFEST}")" -eq 7
+          sha256sum --strict --check "${CONTRACT_MANIFEST}"
+          CONTRACT_SHA256=$(sha256sum --binary "${CONTRACT_MANIFEST}" | awk '{print $1}')
+          [[ "${CONTRACT_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          printf 'sha256=%s\n' "${CONTRACT_SHA256}" >> "${GITHUB_OUTPUT}"
+
+      - name: Resolve immutable coordinates
+        id: coordinates
+        run: |
+          set -euo pipefail
+          IMMUTABLE_TAG="${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          [[ "${IMMUTABLE_TAG}" =~ ^[0-9a-f]{40}-[1-9][0-9]*-[1-9][0-9]*$ ]]
+          printf 'immutable_tag=%s\n' "${IMMUTABLE_TAG}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Login to GHCR
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build and push one run-scoped image
+        id: build
+        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
+        with:
+          context: .
+          file: infrastructure/docker/Dockerfile.postgres-walg
+          platforms: linux/amd64
+          push: true
+          sbom: true
+          provenance: mode=max
+          tags: ${{ env.IMAGE_REPOSITORY }}:${{ steps.coordinates.outputs.immutable_tag }}
+          build-args: |
+            BUILD_MAIN_SHA=${{ github.sha }}
+            POSTGRES_DR_CONTRACT_SHA256=${{ steps.contract.outputs.sha256 }}
+
+      - name: Assemble unsigned candidate
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          IMMUTABLE_TAG: ${{ steps.coordinates.outputs.immutable_tag }}
+          DR_CONTRACT_SHA256: ${{ steps.contract.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          export LC_ALL=C
+          [[ "${IMAGE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          test "${IMMUTABLE_TAG}" = \
+            "${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          RELEASE_ROOT=release-unsigned
+          REPOSITORY_ROOT="${RELEASE_ROOT}/repository"
+          mkdir -p "${REPOSITORY_ROOT}"
+          MATERIALS_TSV="${RUNNER_TEMP}/postgres-dr-bootstrap-materials.tsv"
+          cat > "${MATERIALS_TSV}" <<'MATERIALS'
+          policy	.github/manifests/postgres-dr-bootstrap-policy.json
+          required-checks	.github/manifests/main-required-status-checks.json
+          required-check-selector	.github/scripts/select-effective-required-check.jq
+          release-workflow	.github/workflows/postgres-dr-bootstrap-candidate.yml
+          provider-console-bootstrap	infrastructure/scripts/provider-console-bootstrap-postgres-walg.sh
+          provider-state-machine	infrastructure/scripts/postgres-dr-bootstrap-state.sh
+          production-compose	docker-compose.droplet.yml
+          postgres-rollback-compose	infrastructure/deploy/postgres-dr-bootstrap-rollback.override.yml
+          postgres-image-policy	.github/manifests/postgres-image.json
+          postgres-dr-contract	.github/manifests/postgres-dr-contract.sha256
+          postgres-dockerfile	infrastructure/docker/Dockerfile.postgres-walg
+          postgres-init-databases	infrastructure/docker/init-scripts/01-init-databases.sql
+          postgres-ssl-entrypoint	infrastructure/docker/scripts/postgres-ssl-entrypoint.sh
+          postgres-walg-healthcheck	infrastructure/docker/scripts/postgres-walg-healthcheck.sh
+          walg-archive-command	infrastructure/docker/scripts/walg-archive-command.sh
+          walg-load-secrets	infrastructure/docker/scripts/walg-load-secrets.sh
+          walg-restore-command	infrastructure/docker/scripts/walg-restore-command.sh
+          walg-runtime-command	infrastructure/docker/scripts/walg-runtime-command.sh
+          MATERIALS
+          MATERIAL_LINES="${RUNNER_TEMP}/postgres-dr-bootstrap-materials.jsonl"
+          : > "${MATERIAL_LINES}"
+          while IFS=$'\t' read -r ROLE PATH_VALUE; do
+            test -n "${ROLE}"
+            test -n "${PATH_VALUE}"
+            test -f "${PATH_VALUE}"
+            test ! -L "${PATH_VALUE}"
+            install -D -m 0644 "${PATH_VALUE}" \
+              "${REPOSITORY_ROOT}/${PATH_VALUE}"
+            SHA256=$(sha256sum --binary "${PATH_VALUE}" | awk '{print $1}')
+            jq --compact-output --null-input \
+              --arg role "${ROLE}" \
+              --arg path "${PATH_VALUE}" \
+              --arg sha256 "${SHA256}" \
+              '{role: $role, path: $path, sha256: $sha256}' \
+              >> "${MATERIAL_LINES}"
+          done < "${MATERIALS_TSV}"
+          jq --slurp '.' "${MATERIAL_LINES}" > "${RUNNER_TEMP}/materials.json"
+          POLICY_SHA256=$(sha256sum --binary "${POLICY_PATH}" | awk '{print $1}')
+          jq --sort-keys --null-input \
+            --arg repository "${GITHUB_REPOSITORY}" \
+            --arg ref "${GITHUB_REF}" \
+            --arg main_sha "${GITHUB_SHA}" \
+            --arg workflow "${WORKFLOW_PATH}" \
+            --arg workflow_ref "${GITHUB_WORKFLOW_REF}" \
+            --arg workflow_sha "${GITHUB_WORKFLOW_SHA}" \
+            --arg run_id "${GITHUB_RUN_ID}" \
+            --arg run_attempt "${GITHUB_RUN_ATTEMPT}" \
+            --arg image_repository "${IMAGE_REPOSITORY}" \
+            --arg immutable_tag "${IMMUTABLE_TAG}" \
+            --arg image_digest "${IMAGE_DIGEST}" \
+            --arg policy_path "${POLICY_PATH}" \
+            --arg policy_sha256 "${POLICY_SHA256}" \
+            --arg dr_contract_sha256 "${DR_CONTRACT_SHA256}" \
+            --slurpfile materials "${RUNNER_TEMP}/materials.json" \
+            '{
+              schema_version: 1,
+              predicate_type: "https://github.com/Okan-wqm/aquaculture_platform/attestations/postgres-dr-bootstrap-candidate/v1",
+              source: {
+                repository: $repository,
+                ref: $ref,
+                main_sha: $main_sha
+              },
+              build: {
+                workflow: $workflow,
+                workflow_ref: $workflow_ref,
+                workflow_sha: $workflow_sha,
+                run_id: $run_id,
+                run_attempt: $run_attempt
+              },
+              image: {
+                repository: $image_repository,
+                immutable_tag: $immutable_tag,
+                digest: $image_digest,
+                reference: ($image_repository + "@" + $image_digest)
+              },
+              policy: {
+                path: $policy_path,
+                sha256: $policy_sha256
+              },
+              postgres_dr_contract_sha256: $dr_contract_sha256,
+              bootstrap: {
+                channel: "provider-console",
+                compose_project: "aqua-saas",
+                allowed_compose_services: ["postgres"]
+              },
+              materials: $materials[0]
+            }' > "${RELEASE_ROOT}/candidate.json"
+          chmod 0644 "${RELEASE_ROOT}/candidate.json"
+          jq --exit-status \
+            --arg expected_ref "${IMAGE_REPOSITORY}@${IMAGE_DIGEST}" \
+            --arg main_sha "${GITHUB_SHA}" \
+            '.image.reference == $expected_ref and .source.main_sha == $main_sha' \
+            "${RELEASE_ROOT}/candidate.json" >/dev/null
+          test -z "$(find "${RELEASE_ROOT}" -type l -print -quit)"
+
+      - name: Upload run-scoped unsigned candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: postgres-dr-bootstrap-unsigned-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-unsigned/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+          overwrite: false
+          include-hidden-files: true
+
+  sign:
+    name: Sign PostgreSQL DR bootstrap candidate
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment:
+      name: production-backup-release
+      deployment: false
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      id-token: write
+      packages: write
+      pull-requests: read
+    steps:
+      - name: Checkout authorized main
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Download exact unsigned candidate
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: postgres-dr-bootstrap-unsigned-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-signed
+
+      - name: Re-prove current main, protected environment, and candidate materials
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_MAIN_SHA: ${{ inputs.main_sha }}
+          REF_PROTECTED: ${{ github.ref_protected }}
+          IMAGE_DIGEST: ${{ needs.build.outputs.image_digest }}
+          IMMUTABLE_TAG: ${{ needs.build.outputs.immutable_tag }}
+        run: |
+          set -euo pipefail
+          umask 077
+          export LC_ALL=C
+          test "${GITHUB_WORKFLOW_REF}" = \
+            "${GITHUB_REPOSITORY}/${WORKFLOW_PATH}@refs/heads/main"
+          test "${GITHUB_WORKFLOW_SHA}" = "${REQUESTED_MAIN_SHA}"
+          test "${GITHUB_REF}" = refs/heads/main
+          test "${REF_PROTECTED}" = true
+          test "${GITHUB_SHA}" = "${REQUESTED_MAIN_SHA}"
+          test "$(git rev-parse HEAD)" = "${REQUESTED_MAIN_SHA}"
+          git fetch --force --no-tags origin \
+            refs/heads/main:refs/remotes/origin/main
+          test "$(git rev-parse refs/remotes/origin/main)" = "${REQUESTED_MAIN_SHA}"
+          [[ "${IMAGE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          test "${IMMUTABLE_TAG}" = \
+            "${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          test -f release-signed/candidate.json
+          test ! -L release-signed/candidate.json
+
+          jq --exit-status \
+            --arg repository "${GITHUB_REPOSITORY}" \
+            --arg main_sha "${GITHUB_SHA}" \
+            --arg run_id "${GITHUB_RUN_ID}" \
+            --arg run_attempt "${GITHUB_RUN_ATTEMPT}" \
+            --arg workflow_ref "${GITHUB_WORKFLOW_REF}" \
+            --arg workflow_sha "${GITHUB_WORKFLOW_SHA}" \
+            --arg image_repository "${IMAGE_REPOSITORY}" \
+            --arg immutable_tag "${IMMUTABLE_TAG}" \
+            --arg image_digest "${IMAGE_DIGEST}" \
+            '
+              .schema_version == 1 and
+              .predicate_type == "https://github.com/Okan-wqm/aquaculture_platform/attestations/postgres-dr-bootstrap-candidate/v1" and
+              .source == {
+                repository: $repository,
+                ref: "refs/heads/main",
+                main_sha: $main_sha
+              } and
+              .build == {
+                workflow: ".github/workflows/postgres-dr-bootstrap-candidate.yml",
+                workflow_ref: $workflow_ref,
+                workflow_sha: $workflow_sha,
+                run_id: $run_id,
+                run_attempt: $run_attempt
+              } and
+              .image == {
+                repository: $image_repository,
+                immutable_tag: $immutable_tag,
+                digest: $image_digest,
+                reference: ($image_repository + "@" + $image_digest)
+              } and
+              .bootstrap == {
+                channel: "provider-console",
+                compose_project: "aqua-saas",
+                allowed_compose_services: ["postgres"]
+              }
+            ' release-signed/candidate.json >/dev/null
+          while IFS=$'\t' read -r PATH_VALUE EXPECTED_SHA256; do
+            case "${PATH_VALUE}" in
+              /* | *..*) exit 1 ;;
+            esac
+            MATERIAL="release-signed/repository/${PATH_VALUE}"
+            test -f "${MATERIAL}"
+            test ! -L "${MATERIAL}"
+            test "$(sha256sum --binary "${MATERIAL}" | awk '{print $1}')" = \
+              "${EXPECTED_SHA256}"
+            cmp --silent "${PATH_VALUE}" "${MATERIAL}"
+          done < <(
+            jq --raw-output '.materials[] | [.path, .sha256] | @tsv' \
+              release-signed/candidate.json
+          )
+          test -z "$(find release-signed -type l -print -quit)"
+
+          ENVIRONMENT="${RUNNER_TEMP}/environment.json"
+          ENVIRONMENT_BRANCHES="${RUNNER_TEMP}/environment-branches.json"
+          COMMIT="${RUNNER_TEMP}/commit.json"
+          PULL_PAGES="${RUNNER_TEMP}/pull-pages.json"
+          PULLS="${RUNNER_TEMP}/pulls.json"
+          MERGED_PULL="${RUNNER_TEMP}/merged-pull.json"
+          CHECK_PAGES="${RUNNER_TEMP}/check-pages.json"
+          CHECKS="${RUNNER_TEMP}/checks.json"
+          VERIFIED_CHECKS="${RUNNER_TEMP}/verified-checks.json"
+          ENVIRONMENT_AUTHORITY="${RUNNER_TEMP}/environment-authority.json"
+          BRANCH_PROTECTION="${RUNNER_TEMP}/branch-protection.json"
+          BRANCH_PROTECTION_AUTHORITY="${RUNNER_TEMP}/branch-protection-authority.json"
+          gh api \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${GITHUB_REPOSITORY}/environments/production-backup-release" \
+            > "${ENVIRONMENT}"
+          gh api \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${GITHUB_REPOSITORY}/environments/production-backup-release/deployment-branch-policies?per_page=100" \
+            > "${ENVIRONMENT_BRANCHES}"
+          jq --exit-status \
+            '
+              .name == "production-backup-release" and
+              .can_admins_bypass == false and
+              .deployment_branch_policy == {
+                protected_branches: false,
+                custom_branch_policies: true
+              } and
+              ([.protection_rules[] | select(.type == "required_reviewers")] | length) == 1 and
+              ([.protection_rules[] | select(.type == "required_reviewers")][0] |
+                .prevent_self_review == true and (.reviewers | length) >= 2)
+            ' "${ENVIRONMENT}" >/dev/null
+          jq --exit-status \
+            '[.branch_policies[] | {name, type}] == [{name: "main", type: "branch"}]' \
+            "${ENVIRONMENT_BRANCHES}" >/dev/null
+          jq --sort-keys \
+            --slurpfile branches "${ENVIRONMENT_BRANCHES}" \
+            '
+              ([.protection_rules[] | select(.type == "required_reviewers")][0]) as $rule |
+              {
+                name: .name,
+                can_admins_bypass: .can_admins_bypass,
+                prevent_self_review: $rule.prevent_self_review,
+                reviewers: (
+                  [$rule.reviewers[] | {
+                    type: .type,
+                    id: .reviewer.id,
+                    name: (.reviewer.login // .reviewer.slug //
+                      error("reviewer identity is missing"))
+                  }] | sort_by(.type, .id)
+                ),
+                deployment_branch_policies: (
+                  [$branches[0].branch_policies[] | {name, type}] |
+                    sort_by(.type, .name)
+                )
+              }
+            ' "${ENVIRONMENT}" > "${ENVIRONMENT_AUTHORITY}"
+          jq --exit-status \
+            '
+              .name == "production-backup-release" and
+              .can_admins_bypass == false and
+              .prevent_self_review == true and
+              (.reviewers | length) >= 2 and
+              ([.reviewers[] | (.type + ":" + (.id | tostring))] | unique | length) ==
+                (.reviewers | length) and
+              all(.reviewers[];
+                (.type == "User" or .type == "Team") and
+                (.id | type) == "number" and .id > 0 and
+                (.name | type) == "string" and (.name | length) > 0) and
+              .deployment_branch_policies == [{name: "main", type: "branch"}]
+            ' "${ENVIRONMENT_AUTHORITY}" >/dev/null
+
+          gh api \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${GITHUB_REPOSITORY}/branches/main/protection" \
+            > "${BRANCH_PROTECTION}"
+          jq --exit-status \
+            '
+              (.enforce_admins.enabled | type) == "boolean" and
+              (.required_status_checks.strict | type) == "boolean" and
+              (.required_status_checks.contexts | type) == "array" and
+              (.required_status_checks.checks | type) == "array" and
+              all(.required_status_checks.checks[];
+                (.context | type) == "string" and
+                (.app_id | type) == "number" and .app_id > 0)
+            ' "${BRANCH_PROTECTION}" >/dev/null
+          jq --sort-keys \
+            '{
+              enforce_admins: .enforce_admins.enabled,
+              strict: .required_status_checks.strict,
+              contexts: (.required_status_checks.contexts | sort),
+              checks: ([.required_status_checks.checks[] | {context, app_id}] |
+                sort_by(.context, .app_id))
+            }' "${BRANCH_PROTECTION}" > "${BRANCH_PROTECTION_AUTHORITY}"
+          jq --exit-status \
+            --slurpfile manifest "${REQUIRED_CHECKS_PATH}" \
+            '
+              .enforce_admins == $manifest[0].branch_protection.enforce_admins and
+              .strict == $manifest[0].required_status_checks.strict and
+              .contexts == ($manifest[0].required_status_checks.contexts | sort) and
+              .checks == ($manifest[0].required_status_checks.checks |
+                sort_by(.context, .app_id))
+            ' "${BRANCH_PROTECTION_AUTHORITY}" >/dev/null
+
+          gh api \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}" > "${COMMIT}"
+          jq --exit-status \
+            --arg sha "${GITHUB_SHA}" \
+            '.sha == $sha and .commit.verification.verified == true and (.parents | length) == 2' \
+            "${COMMIT}" >/dev/null
+          gh api --paginate --slurp \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls?per_page=100" \
+            > "${PULL_PAGES}"
+          jq '[.[] | .[]]' "${PULL_PAGES}" > "${PULLS}"
+          jq \
+            --arg repository "${GITHUB_REPOSITORY}" \
+            --arg merge_sha "${GITHUB_SHA}" \
+            '[.[] | select(
+              .state == "closed" and
+              .merged_at != null and
+              .merge_commit_sha == $merge_sha and
+              .base.ref == "main" and
+              .base.repo.full_name == $repository and
+              .head.repo.full_name == $repository
+            )]' "${PULLS}" > "${MERGED_PULL}"
+          test "$(jq 'length' "${MERGED_PULL}")" -eq 1
+          PR_NUMBER=$(jq --raw-output '.[0].number' "${MERGED_PULL}")
+          PR_HEAD_SHA=$(jq --raw-output '.[0].head.sha' "${MERGED_PULL}")
+          PR_MERGED_AT=$(jq --raw-output '.[0].merged_at' "${MERGED_PULL}")
+          gh api --paginate --slurp \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${GITHUB_REPOSITORY}/commits/${PR_HEAD_SHA}/check-runs?filter=all&per_page=100" \
+            > "${CHECK_PAGES}"
+          jq '[.[] | .check_runs[]]' "${CHECK_PAGES}" > "${CHECKS}"
+          : > "${RUNNER_TEMP}/verified-checks.jsonl"
+          while IFS= read -r CONTEXT; do
+            EFFECTIVE_CHECK="${RUNNER_TEMP}/effective-check.json"
+            EXPECTED_APP_IDS=$(jq --compact-output \
+              --arg context "${CONTEXT}" \
+              '[.required_status_checks.checks[] |
+                select(.context == $context) | .app_id]' "${REQUIRED_CHECKS_PATH}")
+            test "$(jq 'length' <<< "${EXPECTED_APP_IDS}")" -eq 1
+            EXPECTED_APP_ID=$(jq '.[0]' <<< "${EXPECTED_APP_IDS}")
+            CONTEXT_CHECKS="${RUNNER_TEMP}/context-checks.json"
+            CONTEXT_CHECKS_JSONL="${RUNNER_TEMP}/context-checks.jsonl"
+            : > "${CONTEXT_CHECKS_JSONL}"
+            while IFS= read -r CHECK_CANDIDATE; do
+              CANDIDATE_DETAILS_URL=$(jq --raw-output '.details_url' <<< "${CHECK_CANDIDATE}")
+              CANDIDATE_CHECK_ID=$(jq '.id' <<< "${CHECK_CANDIDATE}")
+              [[ "${CANDIDATE_CHECK_ID}" =~ ^[1-9][0-9]*$ ]]
+              [[ "${CANDIDATE_DETAILS_URL}" =~ ^https://github.com/${GITHUB_REPOSITORY}/actions/runs/([1-9][0-9]*)/job/([1-9][0-9]*)$ ]]
+              CANDIDATE_RUN_ID=${BASH_REMATCH[1]}
+              CANDIDATE_JOB_ID=${BASH_REMATCH[2]}
+              test "${CANDIDATE_CHECK_ID}" = "${CANDIDATE_JOB_ID}"
+              CANDIDATE_JOB="${RUNNER_TEMP}/candidate-job.json"
+              gh api \
+                --header 'Accept: application/vnd.github+json' \
+                --header 'X-GitHub-Api-Version: 2022-11-28' \
+                "/repos/${GITHUB_REPOSITORY}/actions/jobs/${CANDIDATE_JOB_ID}" \
+                > "${CANDIDATE_JOB}"
+              jq --exit-status \
+                --argjson check "${CHECK_CANDIDATE}" \
+                --argjson job_id "${CANDIDATE_JOB_ID}" \
+                --argjson run_id "${CANDIDATE_RUN_ID}" \
+                --arg head_sha "${PR_HEAD_SHA}" \
+                --arg repository "${GITHUB_REPOSITORY}" \
+                '
+                  .id == $job_id and .id == $check.id and
+                  .run_id == $run_id and
+                  (.run_attempt | type) == "number" and .run_attempt > 0 and
+                  (.created_at | type) == "string" and
+                  (.created_at | fromdateiso8601 | type) == "number" and
+                  .head_sha == $head_sha and
+                  .status == $check.status and .conclusion == $check.conclusion and
+                  .started_at == $check.started_at and
+                  .completed_at == $check.completed_at and
+                  .check_run_url ==
+                    ("https://api.github.com/repos/" + $repository +
+                      "/check-runs/" + ($job_id | tostring))
+                ' "${CANDIDATE_JOB}" >/dev/null
+              CANDIDATE_CREATED_AT=$(jq --raw-output '.created_at' "${CANDIDATE_JOB}")
+              CANDIDATE_RUN_ATTEMPT=$(jq '.run_attempt' "${CANDIDATE_JOB}")
+              jq --compact-output \
+                --arg created_at "${CANDIDATE_CREATED_AT}" \
+                --argjson workflow_job_id "${CANDIDATE_JOB_ID}" \
+                --argjson workflow_run_id "${CANDIDATE_RUN_ID}" \
+                --argjson workflow_run_attempt "${CANDIDATE_RUN_ATTEMPT}" \
+                '. + {
+                  created_at: $created_at,
+                  workflow_job_id: $workflow_job_id,
+                  workflow_run_id: $workflow_run_id,
+                  workflow_run_attempt: $workflow_run_attempt
+                }' <<< "${CHECK_CANDIDATE}" >> "${CONTEXT_CHECKS_JSONL}"
+            done < <(
+              jq --compact-output \
+                --arg context "${CONTEXT}" \
+                --arg head_sha "${PR_HEAD_SHA}" \
+                --arg details_prefix "https://github.com/${GITHUB_REPOSITORY}/actions/runs/" \
+                --argjson app_id "${EXPECTED_APP_ID}" \
+                '.[] | select(
+                  .name == $context and .head_sha == $head_sha and
+                  .app.slug == "github-actions" and .app.id == $app_id and
+                  (.details_url | type) == "string" and
+                  (.details_url | startswith($details_prefix))
+                )' "${CHECKS}"
+            )
+            jq --slurp '.' "${CONTEXT_CHECKS_JSONL}" > "${CONTEXT_CHECKS}"
+            jq --from-file "${REQUIRED_CHECK_SELECTOR}" --exit-status \
+              --arg context "${CONTEXT}" \
+              --arg head_sha "${PR_HEAD_SHA}" \
+              --arg merged_at "${PR_MERGED_AT}" \
+              --arg details_prefix "https://github.com/${GITHUB_REPOSITORY}/actions/runs/" \
+              --argjson app_id "${EXPECTED_APP_ID}" \
+              "${CONTEXT_CHECKS}" > "${EFFECTIVE_CHECK}"
+            EXPECTED_WORKFLOWS=$(jq --compact-output \
+              --arg context "${CONTEXT}" \
+              '[.workflow_contracts[] as $contract |
+                $contract.contexts[] |
+                select(.context == $context) |
+                $contract.workflow]' "${REQUIRED_CHECKS_PATH}")
+            test "$(jq 'length' <<< "${EXPECTED_WORKFLOWS}")" -eq 1
+            EXPECTED_WORKFLOW=$(jq --raw-output '.[0]' <<< "${EXPECTED_WORKFLOWS}")
+            DETAILS_URL=$(jq --raw-output '.details_url' "${EFFECTIVE_CHECK}")
+            CHECK_RUN_ID=$(jq '.id' "${EFFECTIVE_CHECK}")
+            [[ "${CHECK_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+            [[ "${DETAILS_URL}" =~ ^https://github.com/${GITHUB_REPOSITORY}/actions/runs/([1-9][0-9]*)/job/([1-9][0-9]*)$ ]]
+            WORKFLOW_RUN_ID=${BASH_REMATCH[1]}
+            WORKFLOW_JOB_ID=${BASH_REMATCH[2]}
+            test "${CHECK_RUN_ID}" = "${WORKFLOW_JOB_ID}"
+            WORKFLOW_JOB="${RUNNER_TEMP}/workflow-job.json"
+            gh api \
+              --header 'Accept: application/vnd.github+json' \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              "/repos/${GITHUB_REPOSITORY}/actions/jobs/${WORKFLOW_JOB_ID}" \
+              > "${WORKFLOW_JOB}"
+            jq --exit-status \
+              --argjson job_id "${WORKFLOW_JOB_ID}" \
+              --argjson run_id "${WORKFLOW_RUN_ID}" \
+              --arg head_sha "${PR_HEAD_SHA}" \
+              --arg repository "${GITHUB_REPOSITORY}" \
+              --slurpfile check "${EFFECTIVE_CHECK}" \
+              '
+                .id == $job_id and
+                .run_id == $run_id and
+                (.run_attempt | type) == "number" and .run_attempt > 0 and
+                .head_sha == $head_sha and
+                .status == "completed" and .conclusion == "success" and
+                .created_at == $check[0].created_at and
+                .started_at == $check[0].started_at and
+                .completed_at == $check[0].completed_at and
+                .check_run_url ==
+                  ("https://api.github.com/repos/" + $repository +
+                    "/check-runs/" + ($job_id | tostring))
+              ' "${WORKFLOW_JOB}" >/dev/null
+            WORKFLOW_RUN_ATTEMPT=$(jq '.run_attempt' "${WORKFLOW_JOB}")
+            WORKFLOW_RUN="${RUNNER_TEMP}/workflow-run.json"
+            gh api \
+              --header 'Accept: application/vnd.github+json' \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              "/repos/${GITHUB_REPOSITORY}/actions/runs/${WORKFLOW_RUN_ID}/attempts/${WORKFLOW_RUN_ATTEMPT}" \
+              > "${WORKFLOW_RUN}"
+            jq --exit-status \
+              --argjson run_id "${WORKFLOW_RUN_ID}" \
+              --argjson run_attempt "${WORKFLOW_RUN_ATTEMPT}" \
+              --arg head_sha "${PR_HEAD_SHA}" \
+              --arg repository "${GITHUB_REPOSITORY}" \
+              --arg workflow "${EXPECTED_WORKFLOW}" \
+              '
+                .id == $run_id and
+                .run_attempt == $run_attempt and
+                .event == "pull_request" and
+                .head_sha == $head_sha and
+                .head_repository.full_name == $repository and
+                .path == $workflow and
+                .status == "completed" and
+                .conclusion == "success"
+              ' "${WORKFLOW_RUN}" >/dev/null
+            jq --compact-output \
+              --arg workflow_path "${EXPECTED_WORKFLOW}" \
+              --argjson workflow_job_id "${WORKFLOW_JOB_ID}" \
+              --argjson workflow_run_id "${WORKFLOW_RUN_ID}" \
+              --argjson workflow_run_attempt "${WORKFLOW_RUN_ATTEMPT}" \
+              '. + {
+                workflow_path: $workflow_path,
+                workflow_job_id: $workflow_job_id,
+                workflow_run_id: $workflow_run_id,
+                workflow_run_attempt: $workflow_run_attempt
+              }' "${EFFECTIVE_CHECK}" >> "${RUNNER_TEMP}/verified-checks.jsonl"
+          done < <(jq --raw-output '.required_status_checks.contexts[]' "${REQUIRED_CHECKS_PATH}")
+          jq --slurp '.' "${RUNNER_TEMP}/verified-checks.jsonl" > "${VERIFIED_CHECKS}"
+          test "$(jq --compact-output \
+            '.required_status_checks.contexts | sort' "${REQUIRED_CHECKS_PATH}")" = \
+            "$(jq --compact-output '[.[].name] | sort' "${VERIFIED_CHECKS}")"
+          test "$(jq '.required_status_checks.contexts | length' \
+            "${REQUIRED_CHECKS_PATH}")" -eq "$(jq 'length' "${VERIFIED_CHECKS}")"
+
+          REQUIRED_CHECKS_SHA256=$(sha256sum --binary "${REQUIRED_CHECKS_PATH}" | awk '{print $1}')
+          jq --sort-keys --null-input \
+            --arg repository "${GITHUB_REPOSITORY}" \
+            --arg ref "${GITHUB_REF}" \
+            --arg main_sha "${GITHUB_SHA}" \
+            --arg run_id "${GITHUB_RUN_ID}" \
+            --arg run_attempt "${GITHUB_RUN_ATTEMPT}" \
+            --arg pr_number "${PR_NUMBER}" \
+            --arg pr_head_sha "${PR_HEAD_SHA}" \
+            --arg pr_merged_at "${PR_MERGED_AT}" \
+            --arg image_digest "${IMAGE_DIGEST}" \
+            --arg workflow_path "${WORKFLOW_PATH}" \
+            --arg workflow_ref "${GITHUB_WORKFLOW_REF}" \
+            --arg workflow_sha "${GITHUB_WORKFLOW_SHA}" \
+            --arg required_checks_path "${REQUIRED_CHECKS_PATH}" \
+            --arg required_checks_sha256 "${REQUIRED_CHECKS_SHA256}" \
+            --argjson ref_protected "${REF_PROTECTED}" \
+            --slurpfile checks "${VERIFIED_CHECKS}" \
+            --slurpfile branch_protection "${BRANCH_PROTECTION_AUTHORITY}" \
+            --slurpfile environment_authority "${ENVIRONMENT_AUTHORITY}" \
+            '{
+              schema_version: 1,
+              predicate_type: "https://github.com/Okan-wqm/aquaculture_platform/attestations/postgres-dr-bootstrap-release-authority/v1",
+              repository: $repository,
+              ref: $ref,
+              ref_protected: $ref_protected,
+              branch_protection: $branch_protection[0],
+              main_sha: $main_sha,
+              run_id: $run_id,
+              run_attempt: $run_attempt,
+              image_digest: $image_digest,
+              dispatch_workflow: {
+                path: $workflow_path,
+                ref: $workflow_ref,
+                sha: $workflow_sha
+              },
+              signing_environment: "production-backup-release",
+              signing_environment_protection: $environment_authority[0],
+              required_checks_manifest: {
+                path: $required_checks_path,
+                sha256: $required_checks_sha256
+              },
+              pull_request: {
+                number: ($pr_number | tonumber),
+                head_sha: $pr_head_sha,
+                merge_commit_sha: $main_sha,
+                merged_at: $pr_merged_at
+              },
+              required_checks: $checks[0]
+            }' > release-signed/release-authority.json
+          chmod 0644 release-signed/release-authority.json
+
+      - name: Install pinned cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.0.6
+
+      - name: Login to GHCR for digest signing
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Sign image, candidate, and release authority
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE_DIGEST: ${{ needs.build.outputs.image_digest }}
+        run: |
+          set -euo pipefail
+          export LC_ALL=C
+          test "${GITHUB_WORKFLOW_REF}" = \
+            "${GITHUB_REPOSITORY}/${WORKFLOW_PATH}@refs/heads/main"
+          test "${GITHUB_WORKFLOW_SHA}" = "${GITHUB_SHA}"
+          test "$(cosign version 2>/dev/null | awk '$1 == "GitVersion:" {print $2}')" = v3.0.6
+          test "$(sha256sum --binary "$(command -v cosign)" | awk '{print $1}')" = \
+            c956e5dfcac53d52bcf058360d579472f0c1d2d9b69f55209e256fe7783f4c74
+          IMAGE_REF="${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"
+          IDENTITY="https://github.com/${GITHUB_REPOSITORY}/${WORKFLOW_PATH}@refs/heads/main"
+          require_current_main() {
+            local current_main_ref
+            current_main_ref=$(mktemp "${RUNNER_TEMP}/current-main-at-signing.XXXXXXXX")
+            gh api \
+              --header 'Accept: application/vnd.github+json' \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              "/repos/${GITHUB_REPOSITORY}/git/ref/heads/main" \
+              > "${current_main_ref}"
+            jq --exit-status \
+              --arg expected_sha "${GITHUB_SHA}" \
+              '.ref == "refs/heads/main" and
+                .object.type == "commit" and .object.sha == $expected_sha' \
+              "${current_main_ref}" >/dev/null
+            rm -f -- "${current_main_ref}"
+          }
+          BRANCH_PROTECTION_RECHECK="${RUNNER_TEMP}/branch-protection-recheck.json"
+          BRANCH_AUTHORITY_RECHECK="${RUNNER_TEMP}/branch-authority-recheck.json"
+          SIGNED_BRANCH_AUTHORITY="${RUNNER_TEMP}/signed-branch-authority.json"
+          gh api \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${GITHUB_REPOSITORY}/branches/main/protection" \
+            > "${BRANCH_PROTECTION_RECHECK}"
+          jq --sort-keys \
+            '{
+              enforce_admins: .enforce_admins.enabled,
+              strict: .required_status_checks.strict,
+              contexts: (.required_status_checks.contexts | sort),
+              checks: ([.required_status_checks.checks[] | {context, app_id}] |
+                sort_by(.context, .app_id))
+            }' "${BRANCH_PROTECTION_RECHECK}" > "${BRANCH_AUTHORITY_RECHECK}"
+          jq --sort-keys '.branch_protection' \
+            release-signed/release-authority.json > "${SIGNED_BRANCH_AUTHORITY}"
+          cmp --silent "${BRANCH_AUTHORITY_RECHECK}" "${SIGNED_BRANCH_AUTHORITY}"
+          jq --exit-status \
+            --arg workflow_path "${WORKFLOW_PATH}" \
+            --arg workflow_ref "${GITHUB_WORKFLOW_REF}" \
+            --arg workflow_sha "${GITHUB_WORKFLOW_SHA}" \
+            '.dispatch_workflow == {
+              path: $workflow_path,
+              ref: $workflow_ref,
+              sha: $workflow_sha
+            }' release-signed/release-authority.json >/dev/null
+          require_current_main
+          cosign sign --yes "${IMAGE_REF}"
+          require_current_main
+          cosign attest --yes \
+            --type "${CANDIDATE_PREDICATE_TYPE}" \
+            --predicate release-signed/candidate.json \
+            "${IMAGE_REF}"
+          for SUBJECT in \
+            release-signed/candidate.json \
+            release-signed/release-authority.json; do
+            require_current_main
+            cosign sign-blob --yes \
+              --bundle "${SUBJECT}.sigstore.json" \
+              "${SUBJECT}"
+            cosign verify-blob \
+              --bundle "${SUBJECT}.sigstore.json" \
+              --certificate-identity "${IDENTITY}" \
+              --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+              --certificate-github-workflow-repository "${GITHUB_REPOSITORY}" \
+              --certificate-github-workflow-ref 'refs/heads/main' \
+              --certificate-github-workflow-sha "${GITHUB_SHA}" \
+              --certificate-github-workflow-trigger 'workflow_dispatch' \
+              --certificate-github-workflow-name "${GITHUB_WORKFLOW}" \
+              "${SUBJECT}"
+          done
+          require_current_main
+          cosign verify \
+            --certificate-identity "${IDENTITY}" \
+            --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+            --certificate-github-workflow-sha "${GITHUB_SHA}" \
+            "${IMAGE_REF}" >/dev/null
+          cosign verify-attestation \
+            --type "${CANDIDATE_PREDICATE_TYPE}" \
+            --certificate-identity "${IDENTITY}" \
+            --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+            --certificate-github-workflow-sha "${GITHUB_SHA}" \
+            "${IMAGE_REF}" >/dev/null
+
+      - name: Upload immutable signed candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: postgres-dr-bootstrap-candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-signed/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+          overwrite: false
+          include-hidden-files: true

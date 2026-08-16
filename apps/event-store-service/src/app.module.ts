@@ -21,6 +21,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { EventStoreModule } from './event-store/event-store.module';
+import { FindingRegistryModule } from './finding-registry/finding-registry.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { EventStoreServiceIdentityGuard } from './guards/event-store-service-identity.guard';
 import { HealthModule } from './health/health.module';
@@ -97,6 +98,7 @@ const EventStoreSchemaVersionGate = createSchemaVersionGate('event_store');
     CryptoShredModule,
 
     EventStoreModule,
+    FindingRegistryModule,
     ProjectionsModule,
     HealthModule,
     // OBS-HIGH-001: Prometheus GET /metrics scrape endpoint + HTTP metrics

@@ -21,6 +21,15 @@
 
 ---
 
+## ORPHAN-HIGH-694 — the tenant-reality watchdog's two new alerts routed to nowhere: `severity: high` matches no Alertmanager route — RESOLVED (this PR)
+
+**Discovered:** 2026-08-16 (reconciling PR #1114 onto main during the codex-takeover consolidation; `invariants-fast` and `deploy-ssot-gates` both went red on the same assertion).
+**Evidence:** `infrastructure/monitoring/droplet/rules/60-dataflow-integrity.yml` labelled `TenantProvisioningNeverCompleted` and `TenantRealityProbeStale` with `severity: high`. `infrastructure/monitoring/droplet/alertmanager.yml` routes exactly three severity matchers — `severity = none` (to the `null` receiver), `severity = critical`, `severity = warning` — so `routedSeverities()` in `tests/invariants/monitoring-alert-delivery.spec.ts:102-118` yields `{critical, warning}` and both rules landed in the drop-everything default. Every other rule in the same file already uses `critical` or `warning` (`OutboxRelayNotRunning`, `CronJobNeverRan`, `TenantActiveWithoutPhysicalSchema`, `RuntimeSupervisorStale`, `TenantProvisioningRunsFailing`, `TenantProvisioningRunStuck`); `high` existed nowhere else in the platform's alert vocabulary.
+**Root cause:** severity was written as free prose rather than chosen from the routed vocabulary. The failure mode is silent by construction: the rule loads, the probe reports, the dashboard shows an armed watchdog, and the page never fires.
+**Remediation (this PR):** severities taken from the file's own precedent rather than invented. `TenantProvisioningNeverCompleted` -> `warning`, matching `TenantProvisioningRunStuck`; it is the precursor state and its own description says it becomes the CRITICAL above once the tenant flips to ACTIVE. `TenantRealityProbeStale` -> `critical`, matching `RuntimeSupervisorStale`; a probe that stopped reporting publishes no counts, which reads exactly like every tenant being consistent, so it silently disables the CRITICAL above it and carries that weight. Runbook headings follow the labels so the page an operator opens states the severity the alert carries.
+**Validation:** `npm run invariants:fast` — 224 suites / 2396 tests green, `monitoring-alert-delivery` and `deploy-ssot-contract` included. The gate that caught this (`routes every severity that a rule actually uses`) already existed; it was doing its job.
+**Owner:** observability-expert. **Deadline:** closed by this PR's merge.
+
 ## ORPHAN-HIGH-415 — source-schema write-guard reconciler aborts EVERY prod deploy on declarative-partitioned guarded tables (messaging.messages / message_receipts) — RESOLVED (this PR)
 
 **Discovered:** 2026-07-14 (operator flagged that post-merge main `CI - Affected` deploy-production keeps failing; `aqua-db-migrate` aborts BEFORE service containers start).
@@ -7980,6 +7989,47 @@ Per-tenant tables live only in tenant schemas, so a tenant without one cannot ho
 **Deliberately not fixed here.** Creating two tenant schemas on production is a data-shaping act with migration-ledger and RLS consequences, and the right first question is why they were never created rather than how fast they can be. That question needs the tenant-provisioning path read end to end (auth-service tenant creation → `tenant_schema_jobs` → provisioner claim) against these three rows.
 
 **Owner:** operator to route (candidate: multi-tenant-saas-expert). **Status:** OPEN.
+
+## ORPHAN-HIGH-576 — tenant provisioning had no metric, no alarm and no check against physical reality: an ACTIVE tenant with no schema renders as a healthy customer — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, W-B slice while building the parity probe; confirmed firsthand against the production database, not from code.
+
+Provisioning verifies only its own bookkeeping. The saga compares `admin.tenant_schemas` against `platform.tenant_schema_jobs` and never asks `information_schema.schemata` whether the schema those two rows describe actually exists. Two ledgers agreeing with each other is not evidence about the database, so "ACTIVE, provisioned, nothing there" is a reachable and stable state — and it is the one state that looks perfect from the panel. Login works, the tenant list is green, and every per-tenant write has nowhere to land.
+
+Nothing measured this. Provisioning exported zero metrics and had zero alert rules, and the poll endpoint fetched per-step detail and discarded it before returning, so even a human watching the API could not see which of the eight steps had run. The gap was found by hand (ORPHAN-HIGH-570) after months.
+
+**Evidence, production, 2026-08-06.** `auth.tenants` holds three rows; `information_schema.schemata` holds one `tenant_*` schema. Oceanfarm is `ACTIVE` with no schema — the sinister class. Suderra AS is `PENDING` with no schema — the visible half. The Codex test tenant is consistent, with 211 tables in `tenant_7f6b08ab90e246d3`.
+
+**Fix (this PR):** the `tenant_reality_parity` probe in `tools/watchdog/probe-runner.mjs` joins `auth.tenants` against `information_schema.schemata` in one statement, deriving the schema name exactly as `getTenantSchemaName()` does (`libs/backend-common/src/database/tenant-schema.utils.ts:76` — `tenant_` plus the first 16 hex characters of the UUID, not the whole UUID). `ACTIVE` without a usable schema is CRITICAL and exits 3; a non-active status without one is a warning. A schema that exists but holds no table counts as missing: an empty shell stores no data either, and it is the shape a half-finished run leaves behind. Three alert rules in `60-dataflow-integrity.yml` read it, including one for the probe's own absence — the other two are count-based, so a dead probe would publish no counts, which reads exactly like every tenant being consistent.
+
+**The scrape surface stays identity-free.** Metrics carry counts per finding class and never a tenant id, name or healthy total. `probe_finding_count{class="active_without_usable_schema"}` tells an operator that something is broken and nothing about who; the runbook carries the SQL that names the tenant, against a database that already requires credentials. A `tenant` label would have turned the node_exporter textfile — readable by anything that can reach the port — into a customer list, and the healthy total alone would disclose the customer count.
+
+**Verified red before it could be trusted.** `node tools/watchdog/probe-runner.mjs --repo /var/aqua-saas` on production: `tenants=3 consistent=1 active-without-usable-schema=1 unprovisioned-pending=1`, `critical_count: 1`, exit 3. A parity probe that first reports green on a known-broken system has proved only that it runs.
+
+**Not in this slice.** The two missing schemas are not created here — that is a data-shaping act on production with migration-ledger and RLS consequences, and it remains ORPHAN-HIGH-570's question of why they were never created. The RLS defect that stopped the eight provisioning steps from starting is fixed on `fix/tenant-provisioning-receipt-rls` and is untouched here. The poll endpoint still discards per-step detail; this probe measures the outcome, not the progress, so that surface remains blind and is tracked as remaining work.
+
+**Owner:** claude (this session). **Status:** RESOLVED for detection; the two broken tenants remain OPEN under ORPHAN-HIGH-570.
+
+## ORPHAN-CRITICAL-578 — every alert rule shipped today was decorative: the metrics were never scraped, the probe's exit code was swallowed by a pipe, and the rules file is not in the deployed checkout — RESOLVED (code side; deploy side is operator's)
+
+**Discovered:** 2026-08-06 by an adversarial verifier reviewing my own W-B/W-C work, then confirmed firsthand against the running system. This is the same defect class those slices were built to close — a guarantee that does not run — reproduced by the person closing it.
+
+Four independent breaks, each sufficient on its own:
+
+1. **Exit code swallowed.** `.github/workflows/dataflow-integrity-watchdog.yml` ran `node probe-runner.mjs … | tee probe-evidence.json` and then read `$?` — which is `tee`'s status, not the probe's. Proven at the shell: `(exit 3) | tee /dev/null; echo $?` prints `0`. So `if: exit_code == '3'` never matched and the CRITICAL→ARIA bridge could not fire even once.
+2. **No metrics written.** The same step never passed `--textfile`, so the probe's `probe_ok` / `probe_finding_count` series were computed and discarded.
+3. **No collector to read them.** `aqua-node-exporter` runs with `--path.rootfs=/host` only — no `--collector.textfile.directory`, no mount. The T0 supervisor writes to `/var/lib/node_exporter/textfile/` too, so its metrics were equally unread.
+4. **Rules not deployed.** Prometheus mounts its rules from `/var/lib/aqua/deploy/checkout`, which is pinned at `7f1508dad` (2026-07-15) — **388 commits behind main**. `/etc/prometheus/rules/` holds four files dated 2026-06-28; `60-dataflow-integrity.yml` is absent and `/api/v1/rules` shows no group from it. Every rule added today — outbox stall, tenant isolation, cron heartbeat, supervisor, tenant reality — is dead on arrival in production.
+
+**Fix (this PR):** the pipe is gone and the status is captured directly; `--textfile` is passed and the resulting metrics are uploaded as an artefact so evidence survives even where the collector is not writable; node-exporter gains the textfile collector and the matching read-only mount in `docker-compose.droplet.yml`. `TenantRealityProbeStale` was rewritten — `absent()` alone would have fired from the first load and never cleared, and a permanently-firing alert is a muted one, so the safety net would have been the first thing switched off.
+
+**Also fixed here (found in the same review):** the probe counted a `PURGED`/`ARCHIVED`/`CANCELLED` tenant with no schema as unfinished provisioning. For those states the ABSENCE of a schema is correct and its PRESENCE is the defect — a completed GDPR erasure would have paged forever, and a schema outliving its purged tenant (data that should be gone, still on disk) went unnoticed. Both directions are now classified and tested.
+
+**Structural change, not a patch:** the classification lived inside a script that opens a database connection on import, so no test could reach it — an edit inverting the ACTIVE and retired branches would have stayed green. It now lives in `tools/watchdog/tenant-reality.mjs` beside the wire-format parser, with 10 tests (`npm run watchdog:test`). Live behaviour after the refactor is byte-identical: exit 3, `tenants=3 consistent=1 active-without-usable-schema=1 unprovisioned-pending=1`.
+
+**NOT fixed here, and it is the biggest one:** production runs a checkout 388 commits behind main under a deploy freeze. Until that lifts, none of today's work — including the tenant-provisioning fix — is real in production. That is an operator decision, not a code change, and it is stated rather than worked around.
+
+**Owner:** claude (this session). **Status:** RESOLVED (code); deploy gap open and owned by the operator.
 
 ## ORPHAN-HIGH-572 — every outbox alarm watches the queue, so a relay that stopped reads as a queue with nothing in it — RESOLVED (this PR)
 

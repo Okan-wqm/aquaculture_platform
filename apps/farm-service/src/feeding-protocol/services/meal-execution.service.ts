@@ -522,8 +522,8 @@ export class MealExecutionService {
 
   /**
    * Düzeltme stok hareketi: pozitif delta ek OUT (site-kapsamlı FEFO), negatif
-   * delta orijinal düşümün lokasyonuna İADE (IN). Storage izi olmayan feed'de
-   * (Phase-A) düşüm hiç yapılmamıştı — düzeltme de atlanır (gözlemlenebilir).
+   * delta orijinal düşümün lokasyonuna İADE (IN). Tek-ledger cutover sonrası
+   * eksik projection veya eksik orijinal hareket fail-closed olur.
    */
   private async applyStorageCorrection(
     manager: EntityManager,
@@ -532,13 +532,6 @@ export class MealExecutionService {
     delta: number,
     siteId: string | null,
   ): Promise<void> {
-    const hasPresence = await this.stockMovementService.feedHasStoragePresence(
-      manager,
-      params.tenantId,
-      meal.feedId,
-    );
-    if (!hasPresence) return;
-
     const pour = (meal.pours ?? []).find((entry) => entry.pourIndex === params.pourIndex);
     const idempotencyKey = `meal-correct-${params.mealId}-${params.pourIndex}-${pour?.corrections ?? 1}`;
 

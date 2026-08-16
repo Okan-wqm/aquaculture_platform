@@ -983,6 +983,22 @@ def _phase_twin_refresh(context: PhaseContext) -> dict[str, Any]:
     return refresh_twin_map(workspace_root=context.workspace_root, base_dir=context.base_dir)
 
 
+def _phase_experiment_author(context: PhaseContext) -> dict[str, Any]:
+    """X2 (ORPHAN-701) — the night authors before the bench selects.
+
+    Falsifiable open findings gain red-contract, finding-bound
+    experiments through the ONE registration writer; the planner right
+    after this phase finally has an admissible set to choose from.
+    """
+    from .experiment_author import author_night_experiments
+
+    return author_night_experiments(
+        context.workspace_root,
+        cycle_id=context.cycle_id,
+        base_dir=context.base_dir,
+    )
+
+
 def _phase_experiment_night(context: PhaseContext) -> dict[str, Any]:
     """E21-d (ORPHAN-693) — the night runs the Deney Masası.
 
@@ -2402,6 +2418,15 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
     # closed-set identity rule) because runs, change-chains and finding
     # events are all writes; record_and_continue because a crashed bench
     # must not cost a night whose other organs succeeded.
+    # X2 (ORPHAN-701) — authoring runs immediately BEFORE the bench so an
+    # experiment minted tonight is selectable tonight. Writes (recipes +
+    # experiment rows) → WRITES_PERMITTED; record_and_continue like every
+    # bench organ.
+    CyclePhase(
+        "experiment_author", "post_tool", _phase_experiment_author,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="experiment_author",
+    ),
     CyclePhase(
         "experiment_night", "post_tool", _phase_experiment_night,
         precondition=WRITES_PERMITTED, on_error="record_and_continue",

@@ -281,11 +281,13 @@ def _human_required_summary(tools_root: Path) -> dict[str, Any]:
 
     items = list_human_required(base_dir=tools_root, include_resolved=False)
     if not items:
-        return {"open": 0, "breaching_sla": 0, "items": []}
+        return {"open": 0, "breaching_sla": 0, "items": [], "tiers": {}}
     now = datetime.now(timezone.utc)
     breaching = 0
+    tiers: dict[str, int] = {}
     for item in items:
         deadline = item.get("sla_deadline")
+        recorded = item.get("recorded_at")
         if not isinstance(deadline, str):
             continue
         try:
@@ -294,7 +296,29 @@ def _human_required_summary(tools_root: Path) -> dict[str, Any]:
             continue
         if dt < now:
             breaching += 1
-    return {"open": len(items), "breaching_sla": breaching, "items": items[:5]}
+            # X4 (ORPHAN-699) — the critical_observation N+k*SLA ladder,
+            # applied to the operator-triage queue: a breach used to be one
+            # report line forever; now age relative to the SLA window sets
+            # an escalation tier the renderer amplifies. Tier is derived,
+            # never stored — the ledger stays append-only and re-renders
+            # honestly as time passes.
+            try:
+                start = datetime.fromisoformat(str(recorded).replace("Z", "+00:00"))
+                window = (dt - start) or None
+            except (ValueError, TypeError):
+                window = None
+            tier = "breach"
+            if window:
+                age_windows = (now - dt) / window
+                if age_windows >= 5:
+                    tier = "critical_attention"
+                elif age_windows >= 3:
+                    tier = "sustained_breach"
+                elif age_windows >= 2:
+                    tier = "escalated"
+            item["sla_tier"] = tier
+            tiers[tier] = tiers.get(tier, 0) + 1
+    return {"open": len(items), "breaching_sla": breaching, "items": items[:5], "tiers": tiers}
 
 
 def _normalize_finding_status(row: dict[str, Any]) -> str | None:
@@ -1271,7 +1295,16 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
         f"- Breaching SLA: {hr_breach}",
         *(
             [
-                f"- {item.get('request_id')} [{item.get('severity')}] sla {item.get('sla_deadline')} — {item.get('reason', '')[:80]}"
+                f"- **ESKALASYON**: {count} item(s) at tier '{tier}' — operator action overdue"
+                for tier, count in sorted((hr.get("tiers") or {}).items())
+                if tier != "breach" and count
+            ]
+        ),
+        *(
+            [
+                f"- {item.get('request_id')} [{item.get('severity')}]"
+                + (f" tier={item.get('sla_tier')}" if item.get('sla_tier') and item.get('sla_tier') != 'breach' else "")
+                + f" sla {item.get('sla_deadline')} — {item.get('reason', '')[:80]}"
                 for item in hr.get("items") or []
             ]
             or ["- (no operator-triage queue items)"]

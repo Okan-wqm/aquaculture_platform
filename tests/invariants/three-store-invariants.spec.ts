@@ -8,7 +8,7 @@
  * Enforces 3-way hash/ID consistency across the three sources of truth
  * for review findings:
  *
- *   1. `docs/reviews/_registry/findings.jsonl` (the ledger)
+ *   1. `docs/reviews/_registry/findings.jsonl` (current authority)
  *      — hash-chained append-only log. The `finding-registry-integrity`
  *        spec already verifies chain integrity internally; this spec
  *        treats it as authoritative for (state, closing_commits,
@@ -23,9 +23,11 @@
  *      — the `review_file` path recorded against each finding must
  *        exist on disk AND contain the finding's id as an anchor.
  *
- * When Phase 12.1 lands the PostgreSQL `event_store.findings` table,
- * this spec pivots to sourcing the ledger from the table (configured
- * via env var, jsonl remains the mirror for workstation tooling).
+ * PostgreSQL `event_store.finding_events` is the immutable candidate ledger.
+ * Authority does not move until full replay and two distinct protected-main
+ * parity cycles pass. After that explicit cutover, JSONL becomes a generated
+ * audit mirror; this invariant must then read the selected authority rather
+ * than silently switching based on environment.
  *
  * # Why this spec exists
  *
@@ -89,7 +91,10 @@ function loadRegistry(): Finding[] {
   if (!existsSync(REGISTRY_PATH)) return [];
   const raw = readFileSync(REGISTRY_PATH, 'utf8').trim();
   if (!raw) return [];
-  return raw.split('\n').filter(Boolean).map((line) => JSON.parse(line) as Finding);
+  return raw
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as Finding);
 }
 
 function commitExists(sha: string): boolean {
@@ -134,8 +139,8 @@ function commitMessage(sha: string): string {
 // Known legacy drift (explicit allowlist — do not grow)
 // ---------------------------------------------------------------------------
 //
-// Each entry documents a pre-Phase-6 drift the Phase 12.1 registry
-// migration cleans up. The invariant stays STRICT for every
+// Each entry documents a pre-Phase-6 drift the registry truth-freeze wave
+// cleans up. The invariant stays STRICT for every
 // non-allowlisted (finding-id, sha) pair — new fix commits MUST carry
 // canonical `Closes: … #{PREFIX}-{SEVERITY}-{NNN}` trailers and the
 // registry MUST cite existing anchors.
@@ -149,7 +154,7 @@ function commitMessage(sha: string): string {
 // `// PHASE-12.1-FIX:` comment describing the remediation step.
 //
 // Do not add new entries without an accompanying plan item. Drift
-// introduced AFTER Phase 12.1 is a strict test failure.
+// introduced after authority cutover is a strict test failure.
 
 /** (finding-id, short-sha) pairs whose trailer pre-dates strict ID form. */
 const LEGACY_TRAILER_DRIFT: ReadonlyArray<[string, string]> = [
@@ -520,7 +525,7 @@ describe('three-store invariants', () => {
       }
     });
 
-    it('every closing_commits SHA\'s message contains a Closes: trailer referencing the finding id', () => {
+    it("every closing_commits SHA's message contains a Closes: trailer referencing the finding id", () => {
       for (const e of resolved) {
         for (const sha of e.closing_commits) {
           if (sha === 'pending' || sha.length < 7) continue;

@@ -22400,8 +22400,6 @@ export type TransferBatchInput = {
   quantity: Scalars['Int']['input'];
   /** Optional mobile command payload schema version */
   schemaVersion?: InputMaybe<Scalars['String']['input']>;
-  /** Kapasite kontrolünü atla */
-  skipCapacityCheck?: InputMaybe<Scalars['Boolean']['input']>;
   sourceTankId: Scalars['ID']['input'];
   transferReason?: InputMaybe<Scalars['String']['input']>;
   transferredAt?: InputMaybe<Scalars['DateTime']['input']>;

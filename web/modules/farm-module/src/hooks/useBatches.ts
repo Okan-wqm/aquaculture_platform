@@ -117,7 +117,6 @@ export interface TransferBatchInput {
   transferredAt?: string;
   transferReason?: string;
   notes?: string;
-  skipCapacityCheck?: boolean;
 }
 
 /** One grading destination as edited in the UI — the per-output envelope is attached by useRecordGrading. */

@@ -9893,9 +9893,6 @@ input TransferBatchInput {
   transferredAt: DateTime
   transferReason: String
   notes: String
-
-  """Kapasite kontrolünü atla"""
-  skipCapacityCheck: Boolean = false
 }
 
 input RecordGradingInput {

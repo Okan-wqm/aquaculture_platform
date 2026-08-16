@@ -77,6 +77,10 @@ _BLOCKED_REASON_KINDS = frozenset({
     "env_deps_missing",
     "autonomy_orchestrator_refused",
     "preflight_standard_warnings",
+    # E18-b — a mid-run disk-full append now names itself (ledger.py
+    # environment_failure:disk_full); the anchor's blocked-reason surface
+    # carries it instead of a phase stack trace.
+    "environment_failure_disk_full",
 })
 
 

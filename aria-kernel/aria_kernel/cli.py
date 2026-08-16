@@ -911,8 +911,10 @@ def build_parser() -> argparse.ArgumentParser:
     matrix_check = add_subparser(matrix_sub, "check")
     matrix_check.add_argument("--change-id", required=True)
     matrix_check.add_argument("--repo-root", default=".")
-    matrix_check.add_argument("--validation-run-ref-json", default=None,
-        help="Path to JSON list of structured validation_run_refs (cmd, exit_code, log_path, ran_at).")
+    # ORPHAN-696 — the hand-written evidence flag is GONE (twin of the
+    # pattern ORPHAN-675 removed): refs now derive from the validation-runs
+    # ledger itself, so a ref claiming a command that never ran cannot be
+    # typed into existence.
     matrix_check.add_argument("--validation-mode", choices=["enforced", "historical_attestation"],
         default="enforced")
     matrix_required = add_subparser(matrix_sub, "list-required")
@@ -2933,9 +2935,22 @@ def _main(argv: list[str] | None = None) -> int:
 
     # Plan 020 Phase 8.C — validation matrix CLI dispatch.
     if args.command == "validation-matrix" and args.validation_matrix_command == "check":
-        candidate_refs: list[Any] = []
-        if args.validation_run_ref_json:
-            candidate_refs = json.loads(Path(args.validation_run_ref_json).read_text(encoding="utf-8"))
+        # ORPHAN-696 — candidate refs come from the LEDGER, never a file an
+        # operator typed. Only rows the single writer stamped `ok` qualify
+        # as pass evidence; the gate still decides whether the required
+        # commands are among them.
+        from aria_kernel.validation_runs_ledger import list_validation_runs_for_change
+
+        candidate_refs = [
+            {
+                "cmd": row.get("cmd"),
+                "exit_code": row.get("exit_code"),
+                "log_path": row.get("log_path"),
+                "ran_at": row.get("recorded_at"),
+            }
+            for row in list_validation_runs_for_change(args.change_id, base_dir=args.tools_dir)
+            if row.get("status") == "ok"
+        ]
         try:
             result = enforce_validation_matrix(
                 change_id=args.change_id,

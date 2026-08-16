@@ -21,6 +21,16 @@
 
 ---
 
+## ORPHAN-HIGH-695 — the destructive-DDL gate rejected the migrations that FORBID truncation: `TRUNCATE` matched as a bare word — RESOLVED (this PR)
+
+**Discovered:** 2026-08-16 (landing the rescued FARM-CRITICAL-241 provenance migration; pre-commit refused it with five CRITICAL R1 violations, all false).
+**Evidence:** `tools/gates/migration-sql-lint.ts` rule `R1-destructive-without-marker` matched `/\bTRUNCATE\b/i` against raw SQL. In `1808600000000-ProtectFeedingRecordBackfillProvenance.ts` every one of the five hits destroyed nothing: `REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON feeding_record_provenance FROM PUBLIC` (:121) and the same for `farm_service` (:128) are privilege _withdrawals_; `IF TG_OP = 'TRUNCATE'` (:143) and its `RAISE EXCEPTION` message (:145) are string literals inside a trigger body; `BEFORE TRUNCATE ON feeding_record_provenance` (:209) is the trigger event that makes the table un-truncatable. A migration whose entire purpose is immutability was blocked for naming the operation it forbids.
+**Root cause:** the rule matched a token, not a statement. The file already owned the machinery to tell them apart — `tokenizeSqlStructure` deliberately skips string literals, dollar-quoted bodies and comments, and `routineConfigurationSetOffsets` (used by R4) is the same "exempt this construct" shape — but R1 never used it.
+**Why the marker was not the answer:** the only other way through was to write `-- DESTRUCTIVE:` on a statement that destroys nothing. That marker is a merge precondition carrying a documented pg_dump backup, a pre-merge rollback migration and an ops stage-gate; attaching it to a REVOKE would make it unreadable as a signal exactly where it matters most.
+**Remediation (this PR):** `destructiveTruncateOffsets()` walks the tokenised statements and keeps only `TRUNCATE` used as a statement verb. A statement led by `GRANT`/`REVOKE` yields a privilege list, so every `TRUNCATE` in it is exempt; a `TRUNCATE` preceded by `BEFORE`/`AFTER`/`OR` is a trigger event; and a regex hit with no `word` token at its offset came from a string or comment and is excluded by construction, because the tokeniser never emits those. R1 filters its `TRUNCATE` hits through that set; `DROP COLUMN`, `DROP TABLE` and `DROP SCHEMA ... CASCADE` are untouched.
+**Validation:** `tools/gates/migration-sql-lint.spec.ts` grows from 6 to 14 tests — five prove the non-destructive spellings pass (revoked privilege, granted privilege, `BEFORE TRUNCATE`, `OR TRUNCATE`, string literal in a routine body), two prove a real `TRUNCATE` and `TRUNCATE TABLE ONLY` are still CRITICAL, and one proves the `-- DESTRUCTIVE:` marker still clears a genuine one. `--mode=file` against the provenance migration now reports clean.
+**Owner:** data-expert. **Deadline:** closed by this PR's merge.
+
 ## ORPHAN-HIGH-694 — the tenant-reality watchdog's two new alerts routed to nowhere: `severity: high` matches no Alertmanager route — RESOLVED (this PR)
 
 **Discovered:** 2026-08-16 (reconciling PR #1114 onto main during the codex-takeover consolidation; `invariants-fast` and `deploy-ssot-gates` both went red on the same assertion).
@@ -29,6 +39,84 @@
 **Remediation (this PR):** severities taken from the file's own precedent rather than invented. `TenantProvisioningNeverCompleted` -> `warning`, matching `TenantProvisioningRunStuck`; it is the precursor state and its own description says it becomes the CRITICAL above once the tenant flips to ACTIVE. `TenantRealityProbeStale` -> `critical`, matching `RuntimeSupervisorStale`; a probe that stopped reporting publishes no counts, which reads exactly like every tenant being consistent, so it silently disables the CRITICAL above it and carries that weight. Runbook headings follow the labels so the page an operator opens states the severity the alert carries.
 **Validation:** `npm run invariants:fast` — 224 suites / 2396 tests green, `monitoring-alert-delivery` and `deploy-ssot-contract` included. The gate that caught this (`routes every severity that a rule actually uses`) already existed; it was doing its job.
 **Owner:** observability-expert. **Deadline:** closed by this PR's merge.
+
+    "contexts": ["sens-enterprise-summary", "merge-gate", "aria-merge-authority", "build-status"],
+    "checks": [
+      {
+        "context": "aria-merge-authority",
+        "app_id": 15368
+      },
+      {
+        "context": "build-status",
+        "app_id": 15368
+      },
+      {
+        "context": "merge-gate",
+        "app_id": 15368
+      },
+      {
+        "context": "sens-enterprise-summary",
+        "app_id": 15368
+      }
+    ]
+    "expected": "GitHub main branch protection exists, admin enforcement is enabled, strict mode is true, required status check contexts match, and every context is bound to the exact required_status_checks.checks app_id."
+
+## ORPHAN-MEDIUM-696 — required status checks were pinned by NAME only, so the manifest could not notice a relaxed binding — RESOLVED (this PR)
+
+**Discovered:** 2026-08-16 (slicing the rescued codex DR-bootstrap pile; the pile carried this hardening as a second, separable capability alongside INFRA-HIGH-073).
+**Evidence:** `.github/manifests/main-required-status-checks.json` declared only `required_status_checks.contexts` (four names). `tools/gates/required-status-checks.ts` `checkLiveContract` then folded the live response's `contexts` and `checks[].context` into ONE sorted set and compared names — `sortedUnique([...contexts, ...checks.map(c => c.context)])` — so the `app_id` GitHub returns on every `checks[]` entry was parsed and discarded. Live protection today binds all four contexts to `app_id 15368` (verified: `gh api repos/:owner/:repo/branches/main/protection`), but nothing in the repo asserted it: if that binding were relaxed to "any app", both the static and the live gate would still report ok.
+**Root cause:** the manifest modelled a required check as a string. A check is a (context, producer) pair — a context satisfied by a different app is a different check, and name-only matching cannot express that.
+**Remediation (this PR):** the manifest gains `required_status_checks.checks[]`, one `{context, app_id}` per context, and the gate parses `app_id` on both sides, asserts the manifest binds every context exactly once with a positive integer, and compares live contexts without collapsing them into the checks set. The manifest now states what the live protection already enforces, so a future relaxation fails the gate instead of passing unnoticed.
+**Validation:** `gates:required-status-checks` static contract ok; `gates:required-status-checks:live` ok against the real branch protection.
+**Owner:** infra-expert. **Deadline:** closed by this PR's merge.
+
+    checks: RequiredStatusCheck[];
+
+interface RequiredStatusCheck {
+context: string;
+app_id: number;
+}
+
+app_id: number;
+checks: requireRecordArray(
+raw.required_status_checks.checks,
+'required_status_checks.checks',
+).map((check, index) => ({
+context: requireString(check.context, `required_status_checks.checks[${index}].context`),
+app_id: requireNumber(check.app_id, `required_status_checks.checks[${index}].app_id`),
+})),
+const manifestChecks = [...manifest.required_status_checks.checks].sort(
+(left, right) => left.context.localeCompare(right.context) || left.app_id - right.app_id,
+);
+if (
+JSON.stringify(manifestChecks.map((check) => check.context)) !==
+JSON.stringify(manifestContexts)
+) {
+errors.push('required_status_checks.checks must bind every context exactly once');
+}
+if (manifestChecks.some((check) => !Number.isInteger(check.app_id) || check.app_id <= 0)) {
+errors.push('required_status_checks.checks app_id values must be positive integers');
+}
+app_id: requireNumber(check.app_id, `${field}.checks[${index}].app_id`),
+const liveContexts = [...response.required_status_checks.contexts].sort((left, right) =>
+left.localeCompare(right),
+);
+if (JSON.stringify(liveContexts) !== JSON.stringify(expectedContexts)) {
+errors.push(
+`GitHub raw required status contexts=${JSON.stringify(liveContexts)}, manifest contexts=${JSON.stringify(expectedContexts)}`,
+);
+}
+const expectedChecks = [...manifest.required_status_checks.checks].sort(
+(left, right) => left.context.localeCompare(right.context) || left.app_id - right.app_id,
+);
+const liveChecks = [...response.required_status_checks.checks].sort(
+(left, right) => left.context.localeCompare(right.context) || left.app_id - right.app_id,
+);
+if (JSON.stringify(liveChecks) !== JSON.stringify(expectedChecks)) {
+errors.push(
+`GitHub required status check app bindings=${JSON.stringify(liveChecks)}, manifest checks=${JSON.stringify(expectedChecks)}`,
+);
+}
 
 ## ORPHAN-HIGH-415 — source-schema write-guard reconciler aborts EVERY prod deploy on declarative-partitioned guarded tables (messaging.messages / message_receipts) — RESOLVED (this PR)
 

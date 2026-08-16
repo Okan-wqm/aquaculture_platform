@@ -1,0 +1,215 @@
+{
+  "calibrated_weights": {
+    "belief_revalidation": {
+      "base": 40.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 40.0
+    },
+    "belief_stale": {
+      "base": 60.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 60.0
+    },
+    "contradiction": {
+      "base": 70.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 70.0
+    },
+    "discovery_incomplete": {
+      "base": 70.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 70.0
+    },
+    "evidence_gone": {
+      "base": 80.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 80.0
+    },
+    "migration_surface_repeat": {
+      "base": 30.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 30.0
+    },
+    "own_pr_ci": {
+      "base": 90.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 90.0
+    },
+    "runtime_signal": {
+      "base": 85.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 85.0
+    },
+    "shadow_raw_delta": {
+      "base": 50.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 50.0
+    },
+    "tool_quarantine": {
+      "base": 90.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 90.0
+    },
+    "uncertainty_repeat": {
+      "base": 55.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 55.0
+    }
+  },
+  "cycle_id": "cyc-20260816T182612Z-auto",
+  "generated_at": "2026-08-16T19:55:36+00:00",
+  "pressures": [
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [
+        "typeorm-entity-schema-adapter"
+      ],
+      "cycle_id": "cyc-20260816T182612Z-auto",
+      "drift_class": "schema_drift",
+      "evidence": [
+        "apps/ai-service/src/database/migrations/1800000000000-Baseline.ts",
+        "apps/ai-service/src/database/migrations/1800100000000-CreateAiOutbox.ts",
+        "apps/ai-service/src/database/migrations/1801000000000-EnsureAiTenantErasureProofLedger.ts",
+        "apps/ai-service/src/database/migrations/1802000000000-AddByokTenantAiCredentials.ts",
+        "apps/ai-service/src/database/migrations/1802100000000-CreateConversationTurns.ts"
+      ],
+      "pressure_id": "pressure:migration-surface-repeat:repetition",
+      "reason": "repository has repeated TypeORM migration surfaces",
+      "recommended_action": "continue TypeORM schema drift checks",
+      "schema_version": 1,
+      "score": 100.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 253,
+        "recency_decay": 1.0,
+        "source_weight": 30.0
+      },
+      "severity": "medium",
+      "source": "migration_surface_repeat",
+      "tool_id": null,
+      "type": "REPETITION"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20260816T182612Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "aria-tools/memory/uncertainties.jsonl"
+      ],
+      "pressure_id": "pressure:uncertainty-repeat:pressure-candidate-tools-unreachable-pressure-migration-surface-repeat-repetition",
+      "reason": "uncertainty 'pressure_candidate_tools_unreachable' for pressure:migration-surface-repeat:repetition recorded 11 times with no escalation \u2014 an advisory nobody reads is not advice",
+      "recommended_action": "read the repeated 'pressure_candidate_tools_unreachable' rows for pressure:migration-surface-repeat:repetition and fix the producer or the condition; the pressure decays when the rows stop",
+      "schema_version": 1,
+      "score": 100.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 11,
+        "recency_decay": 1.0,
+        "source_weight": 55.0
+      },
+      "severity": "medium",
+      "source": "uncertainty_repeat",
+      "tool_id": null,
+      "type": "REPETITION"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [
+        "doc-staleness-adapter"
+      ],
+      "cycle_id": "cyc-20260816T182612Z-auto",
+      "drift_class": "adapter_shadow",
+      "evidence": [
+        "docs/DEPLOY.md",
+        "docs/FUXA_GAP_IMPLEMENTATION_PLAN.md",
+        "docs/HMI_TRANSFORMATION_PLAN.md",
+        "docs/LORAWAN_API.md",
+        "docs/LORAWAN_ARCHITECTURE.md",
+        "docs/LORAWAN_SETUP.md",
+        "docs/PID_SIMULATOR.md",
+        "docs/SCADA.md",
+        "docs/SCADA_BUILDER_WIRING.md",
+        "docs/SCADA_EDGE_DEPLOY.md",
+        "docs/SCADA_SIMULATION_MODE.md",
+        "docs/admin-panel-triangle-audit/2026-05-20/README.md",
+        "docs/admin-panel-triangle-audit/2026-05-20/admin-billing/implementation-record.md",
+        "docs/admin-panel-triangle-audit/2026-05-20/decision-record.md",
+        "docs/admin-panel-triangle-audit/2026-05-20/findings.md",
+        "docs/admin-panel-triangle-audit/2026-05-20/implementation-log.md",
+        "docs/admin-panel-triangle-audit/2026-05-20/out-of-scope-observations.md",
+        "docs/admin-panel-triangle-audit/2026-05-20/validation.md",
+        "docs/admin-panel-triangle-audit/2026-05-21/admin-billing-runtime-contract/README.md",
+        "docs/admin-panel-triangle-audit/2026-05-22/admin-security/README.md"
+      ],
+      "pressure_id": "pressure:shadow-raw-delta:doc-staleness-adapter",
+      "reason": "raw SHADOW findings increased for doc-staleness-adapter: +1",
+      "recommended_action": "sample and judge increased SHADOW findings before calibration",
+      "schema_version": 1,
+      "score": 50.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 50.0
+      },
+      "severity": "medium",
+      "source": "shadow_raw_delta",
+      "tool_id": "doc-staleness-adapter",
+      "type": "REPETITION"
+    }
+  ],
+  "schema_version": 1,
+  "summary": {
+    "contradiction": 0,
+    "repetition": 3,
+    "unknown": 0
+  }
+}

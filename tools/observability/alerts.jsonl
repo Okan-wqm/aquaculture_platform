@@ -1,0 +1,1 @@
+{"cycle_id":"cyc-20260816T182612Z-auto","ledger_hash":"sha256:6037b15b45bcec45e35f8cea24f5d36257302c55936f0d9cd8383405f5cfba66","observed":5795875,"previous_ledger_hash":null,"reason":"cycle_duration_slo","recorded_at":"2026-08-16T20:03:03+00:00","schema_version":1,"slo_state":"degraded","threshold":"warning>600s_or_1.5x_p50 degraded>900s_or_2x_p50"}

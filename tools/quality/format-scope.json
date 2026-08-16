@@ -27083,6 +27083,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "aria-config/genesis_policy.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "aria-debts/_index.json",
       "prettier_managed": true
     },

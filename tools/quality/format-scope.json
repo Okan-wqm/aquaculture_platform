@@ -7087,6 +7087,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/db-migrate/src/__tests__/migration-execution-context.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/db-migrate/src/__tests__/orphan-type-reclamation.spec.ts",
       "prettier_managed": true
     },
@@ -7601,6 +7607,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/__tests__/e2e/code-sequences-schema-alignment.postgres.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/__tests__/e2e/feeding-record-provenance-rollback.postgres.spec.ts",
       "prettier_managed": true
     },
     {
@@ -9272,6 +9284,12 @@
       "prettier_managed": true
     },
     {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/__tests__/1808600000000-ProtectFeedingRecordBackfillProvenance.spec.ts",
+      "prettier_managed": true
+    },
+    {
       "class": "archive_immutable",
       "content_sha256": "ef2b9a69f2aca0ffb24f36c9d193741f669acec7cd840d23808dd27691a3bd65",
       "hash_policy": "sha256",
@@ -10198,6 +10216,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/database/migrations/1808500000000-RestoreAuditImmutabilityContract.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1808600000000-ProtectFeedingRecordBackfillProvenance.ts",
       "prettier_managed": true
     },
     {
@@ -11818,6 +11842,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/feeding/entities/feeding-program.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feeding/entities/feeding-record-provenance.entity.ts",
       "prettier_managed": true
     },
     {

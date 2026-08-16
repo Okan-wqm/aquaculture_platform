@@ -30,6 +30,7 @@
 **Remediation (this PR):** `destructiveTruncateOffsets()` walks the tokenised statements and keeps only `TRUNCATE` used as a statement verb. A statement led by `GRANT`/`REVOKE` yields a privilege list, so every `TRUNCATE` in it is exempt; a `TRUNCATE` preceded by `BEFORE`/`AFTER`/`OR` is a trigger event; and a regex hit with no `word` token at its offset came from a string or comment and is excluded by construction, because the tokeniser never emits those. R1 filters its `TRUNCATE` hits through that set; `DROP COLUMN`, `DROP TABLE` and `DROP SCHEMA ... CASCADE` are untouched.
 **Validation:** `tools/gates/migration-sql-lint.spec.ts` grows from 6 to 14 tests — five prove the non-destructive spellings pass (revoked privilege, granted privilege, `BEFORE TRUNCATE`, `OR TRUNCATE`, string literal in a routine body), two prove a real `TRUNCATE` and `TRUNCATE TABLE ONLY` are still CRITICAL, and one proves the `-- DESTRUCTIVE:` marker still clears a genuine one. `--mode=file` against the provenance migration now reports clean.
 **Owner:** data-expert. **Deadline:** closed by this PR's merge.
+
 ## ORPHAN-HIGH-694 — the tenant-reality watchdog's two new alerts routed to nowhere: `severity: high` matches no Alertmanager route — RESOLVED (this PR)
 
 **Discovered:** 2026-08-16 (reconciling PR #1114 onto main during the codex-takeover consolidation; `invariants-fast` and `deploy-ssot-gates` both went red on the same assertion).

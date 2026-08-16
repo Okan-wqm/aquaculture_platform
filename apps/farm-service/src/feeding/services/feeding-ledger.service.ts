@@ -16,8 +16,8 @@
  *      belgeli tenant-geneli fallback (D-9, gözlemlenebilir warn); idempotency
  *      anahtarı öğün dökümünde `meal-deduct-${mealId}-${pourIndex}`, manuel
  *      yolda `feeding-deduct-${recordId}` — replay çift düşüm YAPAMAZ.
- *      Storage'da HİÇ izi olmayan feed için düşüm atlanır (Phase-A davranışı,
- *      gözlemlenebilir warn — sessiz sapma değil).
+ *      Tek-ledger cutover sonrası kullanılabilir stok satırı yoksa kayıt
+ *      FAIL-CLOSED olur; projection yokluğu eski uyumluluk yolunu açamaz.
  *  (d) `FeedingRecordedEvent` outbox — AYNI manager (outbox invariantı);
  *      additive `mealId/pourIndex/dayPlanId/unitId` alanları taşınır.
  *
@@ -191,9 +191,9 @@ export class FeedingLedgerService {
   }
 
   /**
-   * FEFO düşümü — site kapsamlı (D-9). Storage'da hiç izi olmayan feed'de
-   * düşüm ATLANIR (Phase-A: feed_inventory-only tenant'lar; gözlemlenebilir
-   * warn); storage-izli feed'de uygun lot yoksa FAIL-CLOSED fırlatır.
+   * FEFO düşümü — site kapsamlı (D-9). Tek-ledger cutover sonrasında uygun
+   * lot yoksa projection satırının geçmişte var olup olmadığına bakmadan
+   * FAIL-CLOSED fırlatır.
    */
   private async deductFromStorage(
     manager: EntityManager,
@@ -202,20 +202,6 @@ export class FeedingLedgerService {
     saved: FeedingRecord,
     params: RecordFeedParams,
   ): Promise<void> {
-    const hasStoragePresence = await this.stockMovementService.feedHasStoragePresence(
-      manager,
-      tenantId,
-      params.feedId,
-    );
-    if (!hasStoragePresence) {
-      this.logger.warn(
-        'Storage ledger not tracked for feed — skipping in-transaction storage deduction ' +
-          `(Phase-A tenant). feedId=${params.feedId}, recordId=${saved.id}, ` +
-          `actualKg=${params.actualAmountKg}`,
-      );
-      return;
-    }
-
     const location = await this.stockMovementService.resolveFeedDeductionLocation(
       manager,
       tenantId,
@@ -225,7 +211,7 @@ export class FeedingLedgerService {
       params.siteId,
     );
     if (!location) {
-      // Storage-izli feed'de gerçek eksik → 400 + tam rollback (fail-closed).
+      // Kanonik ledger'da kullanılabilir stok yok → 400 + tam rollback.
       throw new BadRequestException(
         params.feedBatchNumber
           ? `Feed ${params.feedId} lot "${params.feedBatchNumber}" has no available storage stock ` +

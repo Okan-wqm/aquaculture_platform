@@ -186,6 +186,12 @@ def update_memory(
         quarantined_tool_ids = _quarantined_tool_ids(root)
         beliefs_written += _mark_quarantined_source_beliefs(root, cycle_id, quarantined_tool_ids)
         beliefs_written += _ingest_memory_candidates(root, cycle_id, quarantined_tool_ids, workspace_root=workspace_root)
+    # E21-c (ORPHAN-693) — reproduced findings feed the belief system
+    # through THIS module (İ1: memory.py stays the only belief author; the
+    # experiment lane never writes beliefs itself).
+    beliefs_written += _record_experiment_reproduction_beliefs(
+        root, cycle_id, workspace_root=workspace_root, base_dir=base_dir,
+    )
     return {
         "schema_version": 1,
         "cycle_id": cycle_id,
@@ -1138,6 +1144,92 @@ def _ingest_memory_candidates(
                     reason=f"memory candidate rejected: {exc}",
                     evidence_refs=_array_of_strings(candidate.get("evidence_refs")),
                 )
+    return written
+
+
+def _record_experiment_reproduction_beliefs(
+    root: Path,
+    cycle_id: str,
+    *,
+    workspace_root: str | Path | None,
+    base_dir: str | Path | None,
+) -> int:
+    """E21-c (ORPHAN-693) — an executed reproduction becomes remembered knowledge.
+
+    WHY: the Deney Masası's whole point is that re-production outranks
+    re-reading — but until this leg, a reproduced finding upgraded the
+    FINDING record and taught the memory nothing: the next night's judges
+    would re-derive from scratch what an experiment had already proven.
+
+    WHAT: for every observation in THIS cycle that matched its contract
+    with a RED run on a finding-bound experiment, record (or re-support)
+    the belief that the finding reproduces deterministically. Evidence
+    refs are the finding's own scope files, so the standard repo-evidence
+    policy applies unchanged — no new evidence class, no parallel writer.
+    """
+    if workspace_root is None:
+        return 0
+    from .experiment import get_experiment, list_experiment_observations
+    try:
+        observations = list_experiment_observations(base_dir=base_dir)
+    except GovernanceError:
+        return 0
+    written = 0
+    for row in observations:
+        if row.get("cycle_id") != cycle_id or row.get("matched") is not True:
+            continue
+        if str(row.get("run_status") or "") != "failed":
+            continue
+        try:
+            experiment = get_experiment(
+                str(row.get("experiment_id") or ""), base_dir=base_dir
+            )
+        except GovernanceError:
+            continue
+        finding_ref = experiment.get("finding_ref")
+        if not finding_ref:
+            continue
+        try:
+            from .finding import show_finding
+
+            finding_doc = show_finding(workspace_root, str(finding_ref))
+        except GovernanceError as exc:
+            _record_uncertainty(
+                root,
+                cycle_id=cycle_id,
+                belief_id=f"finding-reproduced-{str(finding_ref).lower()}",
+                reason=f"experiment reproduction belief skipped: {exc}",
+                evidence_refs=[],
+            )
+            continue
+        scope_files = [
+            str(item)
+            for item in (finding_doc.get("scope") or {}).get("files") or []
+            if isinstance(item, str) and item.strip()
+        ]
+        if not scope_files:
+            _record_uncertainty(
+                root,
+                cycle_id=cycle_id,
+                belief_id=f"finding-reproduced-{str(finding_ref).lower()}",
+                reason="experiment reproduction belief skipped: finding carries no scope files to cite",
+                evidence_refs=[],
+            )
+            continue
+        _record_belief(
+            root,
+            cycle_id=cycle_id,
+            belief_id=f"finding-reproduced-{str(finding_ref).lower()}",
+            claim=(
+                f"finding {finding_ref} reproduces deterministically under "
+                f"recipe {experiment.get('recipe_ref')} "
+                f"(experiment {experiment.get('experiment_id')})"
+            ),
+            evidence_refs=scope_files,
+            confidence=0.75,
+            workspace_root=workspace_root,
+        )
+        written += 1
     return written
 
 

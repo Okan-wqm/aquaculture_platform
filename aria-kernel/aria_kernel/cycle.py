@@ -983,6 +983,24 @@ def _phase_twin_refresh(context: PhaseContext) -> dict[str, Any]:
     return refresh_twin_map(workspace_root=context.workspace_root, base_dir=context.base_dir)
 
 
+def _phase_experiment_night(context: PhaseContext) -> dict[str, Any]:
+    """E21-d (ORPHAN-693) — the night runs the Deney Masası.
+
+    Pending problem-experiments run and, on a matched red, CONFIRM their
+    finding; fix-verified recipes re-run as regression watch. Budgeted,
+    disclosed, and record_and_continue — a bench crash must not cost the
+    night. The heavy thinking lives in experiment_night.py; the cycle
+    only supplies identity and roots.
+    """
+    from .experiment_night import run_night_experiments
+
+    return run_night_experiments(
+        context.workspace_root,
+        cycle_id=context.cycle_id,
+        base_dir=context.base_dir,
+    )
+
+
 def _phase_watchdog(context: PhaseContext) -> dict[str, Any]:
     """M13/E12-c (ORPHAN-677) — the watchdog's eyes join the nightly body.
 
@@ -2349,6 +2367,18 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
         "decision_questioning", "post_tool", _phase_decision_questioning,
         precondition=WRITES_PERMITTED, on_error="record_and_continue",
         state_key="decision_questioning",
+    ),
+    # E21-d (ORPHAN-693) — the experiment bench joins the nightly body:
+    # pending problem-experiments run (matched red → certainty CONFIRMED
+    # through the E21-c bridge) and fix-verified recipes re-run as the
+    # regression watch. WRITES_PERMITTED (existing precondition — the
+    # closed-set identity rule) because runs, change-chains and finding
+    # events are all writes; record_and_continue because a crashed bench
+    # must not cost a night whose other organs succeeded.
+    CyclePhase(
+        "experiment_night", "post_tool", _phase_experiment_night,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="experiment_night",
     ),
     # The judgment supply chain, in dependency order and BEFORE calibration:
     # fixtures stay fresh, findings get sampled, judges fan out, consensus is

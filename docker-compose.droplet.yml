@@ -2029,8 +2029,14 @@ services:
     restart: unless-stopped
     command:
       - '--path.rootfs=/host'
+      # Without this collector the probe and supervisor textfiles are written
+      # and never read: the metrics exist on disk, no series ever reaches
+      # Prometheus, and every rule that depends on them is decorative.
+      - '--collector.textfile.directory=/var/lib/node_exporter/textfile'
     volumes:
       - /:/host:ro,rslave
+      # Same host path the T0 supervisor and the hourly probe runner write to.
+      - /var/lib/node_exporter/textfile:/var/lib/node_exporter/textfile:ro
     networks:
       - aqua-internal
     deploy:

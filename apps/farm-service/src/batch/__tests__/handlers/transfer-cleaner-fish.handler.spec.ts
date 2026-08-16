@@ -32,6 +32,7 @@ import { TankBatch, CleanerFishDetail } from '../../entities/tank-batch.entity';
 import { TankOperation } from '../../entities/tank-operation.entity';
 import { Equipment } from '../../../equipment/entities/equipment.entity';
 import { Species } from '../../../species/entities/species.entity';
+import { RecordingBatchAggregateMutationPort } from '../../../__tests__/support/durable-mutation-test-authority';
 
 const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
@@ -138,34 +139,40 @@ function makeHarness(opts: HarnessOpts = {}): {
   const destTankBatch: Partial<TankBatch> | null = opts.destTankBatch ?? null;
 
   const species: Partial<Species> | null =
-    opts.species === null ? null : opts.species ?? {
-      id: 'species-lumpfish',
-      tenantId: TENANT,
-      commonName: 'Lumpfish',
-    };
+    opts.species === null
+      ? null
+      : (opts.species ?? {
+          id: 'species-lumpfish',
+          tenantId: TENANT,
+          commonName: 'Lumpfish',
+        });
 
   const batchRepository: Partial<Repository<Batch>> = {
     findOne: jest.fn().mockResolvedValue(cleanerBatch),
   };
   const tankBatchRepository: Partial<Repository<TankBatch>> = {
-    findOne: jest.fn().mockImplementation((options?: FindOneOptions<TankBatch>) =>
-      Promise.resolve(whereTankId(options) === 'tank-src' ? sourceTankBatch : destTankBatch),
-    ),
+    findOne: jest
+      .fn()
+      .mockImplementation((options?: FindOneOptions<TankBatch>) =>
+        Promise.resolve(whereTankId(options) === 'tank-src' ? sourceTankBatch : destTankBatch),
+      ),
     create: jest.fn().mockImplementation((p: Partial<TankBatch>) => ({ ...p })),
   };
   const operationRepository: Partial<Repository<TankOperation>> = {
     create: jest.fn().mockImplementation((p: Partial<TankOperation>) => p),
   };
   const equipmentRepository: Partial<Repository<Equipment>> = {
-    findOne: jest.fn().mockImplementation((options?: FindOneOptions<Equipment>) =>
-      Promise.resolve(whereId(options) === 'tank-src' ? sourceTank : destTank),
-    ),
+    findOne: jest
+      .fn()
+      .mockImplementation((options?: FindOneOptions<Equipment>) =>
+        Promise.resolve(whereId(options) === 'tank-src' ? sourceTank : destTank),
+      ),
   };
   const speciesRepository: Partial<Repository<Species>> = {
     findOne: jest.fn().mockResolvedValue(species),
   };
 
-  const { mockDataSource, mockQueryRunner } = createMockDataSource();
+  const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSource();
   const commit = mockQueryRunner.commitTransaction as jest.Mock;
   const rollback = mockQueryRunner.rollbackTransaction as jest.Mock;
 
@@ -176,6 +183,7 @@ function makeHarness(opts: HarnessOpts = {}): {
   const outboxPublisher: Pick<OutboxPublisher, 'enqueue'> = { enqueue };
 
   const handler = new TransferCleanerFishHandler(
+    new RecordingBatchAggregateMutationPort(mockManager),
     batchRepository as Repository<Batch>,
     tankBatchRepository as Repository<TankBatch>,
     operationRepository as Repository<TankOperation>,
@@ -188,12 +196,14 @@ function makeHarness(opts: HarnessOpts = {}): {
   return { handler, enqueue, commit, rollback };
 }
 
-function makeCommand(overrides: Partial<{
-  quantity: number;
-  reason: string;
-  sourceTankId: string;
-  destinationTankId: string;
-}> = {}): TransferCleanerFishCommand {
+function makeCommand(
+  overrides: Partial<{
+    quantity: number;
+    reason: string;
+    sourceTankId: string;
+    destinationTankId: string;
+  }> = {},
+): TransferCleanerFishCommand {
   return new TransferCleanerFishCommand(
     TENANT,
     {
@@ -241,18 +251,14 @@ describe('TransferCleanerFishHandler — transactional outbox', () => {
       },
     });
 
-    await expect(handler.execute(makeCommand())).rejects.toThrow(
-      'outbox-enqueue-failed',
-    );
+    await expect(handler.execute(makeCommand())).rejects.toThrow('outbox-enqueue-failed');
     expect(rollback).toHaveBeenCalledTimes(1);
     expect(commit).not.toHaveBeenCalled();
   });
 
   it('NotFoundException on missing cleaner batch — no tx opened', async () => {
     const { handler, enqueue } = makeHarness({ cleanerBatch: null });
-    await expect(handler.execute(makeCommand())).rejects.toThrow(
-      NotFoundException,
-    );
+    await expect(handler.execute(makeCommand())).rejects.toThrow(NotFoundException);
     expect(enqueue).not.toHaveBeenCalled();
   });
 
@@ -260,35 +266,27 @@ describe('TransferCleanerFishHandler — transactional outbox', () => {
     const { handler, enqueue } = makeHarness({
       cleanerBatch: { batchType: BatchType.PRODUCTION },
     });
-    await expect(handler.execute(makeCommand())).rejects.toThrow(
-      BadRequestException,
-    );
+    await expect(handler.execute(makeCommand())).rejects.toThrow(BadRequestException);
     expect(enqueue).not.toHaveBeenCalled();
   });
 
   it('BadRequestException when source and destination tanks are the same — no tx opened', async () => {
     const { handler, enqueue } = makeHarness();
     await expect(
-      handler.execute(
-        makeCommand({ sourceTankId: 'tank-src', destinationTankId: 'tank-src' }),
-      ),
+      handler.execute(makeCommand({ sourceTankId: 'tank-src', destinationTankId: 'tank-src' })),
     ).rejects.toThrow(BadRequestException);
     expect(enqueue).not.toHaveBeenCalled();
   });
 
   it('NotFoundException when source tank is missing — no tx opened', async () => {
     const { handler, enqueue } = makeHarness({ sourceTank: null });
-    await expect(handler.execute(makeCommand())).rejects.toThrow(
-      NotFoundException,
-    );
+    await expect(handler.execute(makeCommand())).rejects.toThrow(NotFoundException);
     expect(enqueue).not.toHaveBeenCalled();
   });
 
   it('NotFoundException when source TankBatch is missing — no tx opened', async () => {
     const { handler, enqueue } = makeHarness({ sourceTankBatch: null });
-    await expect(handler.execute(makeCommand())).rejects.toThrow(
-      NotFoundException,
-    );
+    await expect(handler.execute(makeCommand())).rejects.toThrow(NotFoundException);
     expect(enqueue).not.toHaveBeenCalled();
   });
 
@@ -303,25 +301,21 @@ describe('TransferCleanerFishHandler — transactional outbox', () => {
         cleanerFishBiomassKg: 0,
       },
     });
-    await expect(handler.execute(makeCommand())).rejects.toThrow(
-      BadRequestException,
-    );
+    await expect(handler.execute(makeCommand())).rejects.toThrow(BadRequestException);
     expect(enqueue).not.toHaveBeenCalled();
   });
 
   it('BadRequestException on quantity over-spend — no tx opened', async () => {
     const { handler, enqueue } = makeHarness();
-    await expect(
-      handler.execute(makeCommand({ quantity: 9999 })),
-    ).rejects.toThrow(BadRequestException);
+    await expect(handler.execute(makeCommand({ quantity: 9999 }))).rejects.toThrow(
+      BadRequestException,
+    );
     expect(enqueue).not.toHaveBeenCalled();
   });
 
   it('NotFoundException when destination tank is missing — no tx opened', async () => {
     const { handler, enqueue } = makeHarness({ destTank: null });
-    await expect(handler.execute(makeCommand())).rejects.toThrow(
-      NotFoundException,
-    );
+    await expect(handler.execute(makeCommand())).rejects.toThrow(NotFoundException);
     expect(enqueue).not.toHaveBeenCalled();
   });
 });

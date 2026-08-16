@@ -18,12 +18,14 @@ import { DeleteTankCommand } from '../commands/delete-tank.command';
 import { Tank } from '../entities/tank.entity';
 
 import { tankAuditSnapshot } from './tank-audit.util';
+import { BatchAggregateMutationPort } from '../../batch/batch-aggregate-mutation.port';
 
 @CommandHandler(DeleteTankCommand)
 export class DeleteTankHandler implements ICommandHandler<DeleteTankCommand, boolean> {
   private readonly logger = new Logger(DeleteTankHandler.name);
 
   constructor(
+    private readonly batchMutations: BatchAggregateMutationPort,
     private readonly dataSource: DataSource,
     private readonly auditLogService: AuditLogService,
     private readonly outboxPublisher: OutboxPublisher,
@@ -35,78 +37,88 @@ export class DeleteTankHandler implements ICommandHandler<DeleteTankCommand, boo
 
     this.logger.log(`Deleting tank: ${id} for tenant: ${tenantId}`);
 
-    await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-      const tankRepository = tenantManagerRepo(queryRunner.manager, Tank, tenantId);
-      const tankBatchRepository = tenantManagerRepo(queryRunner.manager, TankBatch, tenantId);
+    await runInTenantTransaction(
+      this.dataSource,
+      'farm',
+      tenantId,
+      async (queryRunner, mutationSession) => {
+        const tankRepository = tenantManagerRepo(queryRunner.manager, Tank, tenantId);
+        const tankBatchRepository = tenantManagerRepo(queryRunner.manager, TankBatch, tenantId);
 
-      const tank = await tankRepository.findOne({
-        where: { id, tenantId },
-      });
+        const tank = await tankRepository.findOne({
+          where: { id, tenantId },
+        });
 
-      if (!tank) {
-        throw new NotFoundException(`Tank with id "${id}" not found`);
-      }
+        if (!tank) {
+          throw new NotFoundException(`Tank with id "${id}" not found`);
+        }
 
-      const tankBatches = await tankBatchRepository.find({ where: { tankId: id, tenantId } });
-      const batchesWithStock = tankBatches.filter(
-        (batch) =>
-          Number(batch.totalQuantity || 0) > 0 ||
-          Number(batch.totalBiomassKg || 0) > 0 ||
-          Number(batch.cleanerFishQuantity || 0) > 0 ||
-          Number(batch.cleanerFishBiomassKg || 0) > 0,
-      );
-
-      if (Number(tank.currentBiomass || 0) > 0 || batchesWithStock.length > 0) {
-        throw new BadRequestException(
-          `Cannot delete tank "${tank.name}": it has active biomass or stock allocations. ` +
-            'Please transfer or harvest first.',
+        const tankBatches = await tankBatchRepository.find({ where: { tankId: id, tenantId } });
+        const batchesWithStock = tankBatches.filter(
+          (batch) =>
+            Number(batch.totalQuantity || 0) > 0 ||
+            Number(batch.totalBiomassKg || 0) > 0 ||
+            Number(batch.cleanerFishQuantity || 0) > 0 ||
+            Number(batch.cleanerFishBiomassKg || 0) > 0,
         );
-      }
 
-      const before = tankAuditSnapshot(tank);
-      const deletedAt = new Date();
-      if (tankBatches.length > 0) {
-        await tankBatchRepository.delete({ tankId: id });
-      }
-      tank.isActive = false;
-      tank.updatedBy = userId;
+        if (Number(tank.currentBiomass || 0) > 0 || batchesWithStock.length > 0) {
+          throw new BadRequestException(
+            `Cannot delete tank "${tank.name}": it has active biomass or stock allocations. ` +
+              'Please transfer or harvest first.',
+          );
+        }
 
-      const saved = await tankRepository.save(tank);
-      await this.farmStockProjection.refreshContainers(queryRunner.manager, tenantId, [saved.id]);
+        const before = tankAuditSnapshot(tank);
+        const deletedAt = new Date();
+        if (tankBatches.length > 0) {
+          await this.batchMutations.pruneEmptyTankBatchProjection(mutationSession, {
+            tankId: id,
+          });
+        }
+        tank.isActive = false;
+        tank.updatedBy = userId;
 
-      await this.auditLogService.logWithManager(queryRunner.manager, {
-        tenantId,
-        entityType: 'Tank',
-        entityId: id,
-        action: AuditAction.SOFT_DELETE,
-        userId,
-        changes: {
-          before,
-          after: tankAuditSnapshot(saved),
-        },
-        metadata: { source: 'SITES_SETUP_TANK' },
-        entityVersion: saved.version,
-        summary: `Soft deleted tank ${saved.code}`,
-      });
+        const saved = await this.batchMutations.commitTankTransition(mutationSession, {
+          intent: 'tank_delete',
+          aggregate: tank,
+        });
+        await this.farmStockProjection.refreshContainers(queryRunner.manager, tenantId, [saved.id]);
 
-      const event: TankDeletedEvent = {
-        ...createBaseEvent<TankDeletedEvent>('TankDeleted', tenantId, {
-          aggregateId: saved.id,
-          aggregateType: 'Tank',
+        await this.auditLogService.logWithManager(queryRunner.manager, {
+          tenantId,
+          entityType: 'Tank',
+          entityId: id,
+          action: AuditAction.SOFT_DELETE,
           userId,
-        }),
-        tankId: saved.id,
-        departmentId: saved.departmentId,
-        name: saved.name,
-        code: saved.code,
-        deletedAt: toEventIso(deletedAt),
-      };
-      await this.outboxPublisher.enqueue(event, queryRunner.manager, {
-        aggregateId: saved.id,
-      });
+          changes: {
+            before,
+            after: tankAuditSnapshot(saved),
+          },
+          metadata: { source: 'SITES_SETUP_TANK' },
+          entityVersion: saved.version,
+          summary: `Soft deleted tank ${saved.code}`,
+        });
 
-      this.logger.log(`Tank soft-deleted: ${id}`);
-    });
+        const event: TankDeletedEvent = {
+          ...createBaseEvent<TankDeletedEvent>('TankDeleted', tenantId, {
+            aggregateId: saved.id,
+            aggregateType: 'Tank',
+            userId,
+          }),
+          tankId: saved.id,
+          departmentId: saved.departmentId,
+          name: saved.name,
+          code: saved.code,
+          deletedAt: toEventIso(deletedAt),
+        };
+        await this.outboxPublisher.enqueue(event, queryRunner.manager, {
+          aggregateId: saved.id,
+        });
+
+        this.logger.log(`Tank soft-deleted: ${id}`);
+      },
+    );
 
     return true;
   }

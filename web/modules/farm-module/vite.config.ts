@@ -54,6 +54,14 @@ export default defineConfig(({ mode }) => {
       alias: {
         '@': resolve(__dirname, 'src'),
         '@aquaculture/shared-ui': sharedUiAlias,
+        '@aquaculture/shared-contracts': resolve(
+          __dirname,
+          '../../../libs/shared-contracts/src/index.ts',
+        ),
+        '@aquaculture/feeding-contracts': resolve(
+          __dirname,
+          '../../../libs/feeding-contracts/src/index.ts',
+        ),
         // Water-chemistry presentation components import from shared-ui SOURCE
         // (bundled per-remote, NOT via the federation singleton) so recharts is
         // never forced into the shared-ui singleton. See

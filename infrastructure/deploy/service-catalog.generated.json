@@ -3,7 +3,7 @@
     "generatedFrom": "platform/libs/service-catalog/src/index.ts",
     "generator": "scripts/service-catalog/generate-artifacts.ts",
     "generatorVersion": 3,
-    "catalogHash": "b314e8353e82369711981b1beff7d5e51b4624753693371e9dc0ea08f5178a2a",
+    "catalogHash": "56836e438ea335b6d9233994733e8b2174992afd3fecd5191e0a7252058b95e0",
     "note": "do not edit by hand"
   },
   "activeDropletComposeServices": [
@@ -15,6 +15,7 @@
     "gateway-api",
     "auth-service",
     "farm-service",
+    "farm-feeding-scheduler",
     "sensor-service",
     "hr-service",
     "hydroponics-service",
@@ -51,6 +52,7 @@
     "gateway-api",
     "auth-service",
     "farm-service",
+    "farm-feeding-scheduler",
     "sensor-service",
     "hr-service",
     "hydroponics-service",
@@ -81,6 +83,7 @@
       "gateway-api",
       "auth-service",
       "farm-service",
+      "farm-feeding-scheduler",
       "sensor-service",
       "hr-service",
       "hydroponics-service",
@@ -116,6 +119,7 @@
       "gateway-api",
       "auth-service",
       "farm-service",
+      "farm-feeding-scheduler",
       "sensor-service",
       "hr-service",
       "hydroponics-service",
@@ -149,6 +153,7 @@
       "CONFIG",
       "EVENT_STORE",
       "FARM",
+      "FARM_FEEDING_SCHEDULER",
       "GATEWAY",
       "HR",
       "HYDROPONICS",
@@ -156,6 +161,104 @@
       "NOTIFICATION",
       "OBSERVABILITY",
       "SENSOR"
+    ],
+    "databaseLoginPrincipals": [
+      {
+        "serviceId": "admin-api-service",
+        "role": "admin_service",
+        "passwordEnv": "ADMIN_SERVICE_DB_PASS",
+        "purpose": "service_runtime"
+      },
+      {
+        "serviceId": "ai-service",
+        "role": "ai_service",
+        "passwordEnv": "AI_SERVICE_DB_PASS",
+        "purpose": "service_runtime"
+      },
+      {
+        "serviceId": "alert-engine",
+        "role": "alert_service",
+        "passwordEnv": "ALERT_SERVICE_DB_PASS",
+        "purpose": "service_runtime"
+      },
+      {
+        "serviceId": "auth-service",
+        "role": "auth_service",
+        "passwordEnv": "AUTH_SERVICE_DB_PASS",
+        "purpose": "service_runtime"
+      },
+      {
+        "serviceId": "billing-service",
+        "role": "billing_service",
+        "passwordEnv": "BILLING_SERVICE_DB_PASS",
+        "purpose": "service_runtime"
+      },
+      {
+        "serviceId": "config-service",
+        "role": "config_service",
+        "passwordEnv": "CONFIG_SERVICE_DB_PASS",
+        "purpose": "service_runtime"
+      },
+      {
+        "serviceId": "event-store-service",
+        "role": "event_store_service",
+        "passwordEnv": "EVENT_STORE_SERVICE_DB_PASS",
+        "purpose": "service_runtime"
+      },
+      {
+        "serviceId": "farm-feeding-scheduler",
+        "role": "farm_feeding_scheduler",
+        "passwordEnv": "FARM_FEEDING_SCHEDULER_DB_PASS",
+        "purpose": "service_runtime"
+      },
+      {
+        "serviceId": "farm-service",
+        "role": "farm_service",
+        "passwordEnv": "FARM_SERVICE_DB_PASS",
+        "purpose": "service_runtime"
+      },
+      {
+        "serviceId": "gateway-api",
+        "role": "gateway_service",
+        "passwordEnv": "GATEWAY_SERVICE_DB_PASS",
+        "purpose": "service_runtime"
+      },
+      {
+        "serviceId": "hr-service",
+        "role": "hr_service",
+        "passwordEnv": "HR_SERVICE_DB_PASS",
+        "purpose": "service_runtime"
+      },
+      {
+        "serviceId": "hydroponics-service",
+        "role": "hydroponics_service",
+        "passwordEnv": "HYDROPONICS_SERVICE_DB_PASS",
+        "purpose": "service_runtime"
+      },
+      {
+        "serviceId": "messaging-service",
+        "role": "messaging_service",
+        "passwordEnv": "MESSAGING_SERVICE_DB_PASS",
+        "purpose": "service_runtime"
+      },
+      {
+        "serviceId": "notification-service",
+        "role": "notification_service",
+        "passwordEnv": "NOTIFICATION_SERVICE_DB_PASS",
+        "purpose": "service_runtime"
+      },
+      {
+        "serviceId": "observability-service",
+        "role": "observability_service",
+        "passwordEnv": "OBSERVABILITY_SERVICE_DB_PASS",
+        "purpose": "service_runtime"
+      },
+      {
+        "serviceId": "sensor-service",
+        "role": "sensor_service",
+        "passwordEnv": "SENSOR_SERVICE_DB_PASS",
+        "purpose": "service_runtime"
+      }
     ],
     "nxFrontendProjects": [
       "admin-panel",
@@ -173,63 +276,83 @@
     "readinessServices": [
       {
         "serviceId": "gateway-api",
-        "port": 3000
+        "port": 3000,
+        "path": "/health/ready"
       },
       {
         "serviceId": "auth-service",
-        "port": 3000
+        "port": 3000,
+        "path": "/health/ready"
       },
       {
         "serviceId": "farm-service",
-        "port": 3000
+        "port": 3000,
+        "path": "/health/ready"
+      },
+      {
+        "serviceId": "farm-feeding-scheduler",
+        "port": 3000,
+        "path": "/health/ready"
       },
       {
         "serviceId": "sensor-service",
-        "port": 3000
+        "port": 3000,
+        "path": "/health/ready"
       },
       {
         "serviceId": "hr-service",
-        "port": 3000
+        "port": 3000,
+        "path": "/health/ready"
       },
       {
         "serviceId": "hydroponics-service",
-        "port": 3000
+        "port": 3000,
+        "path": "/health/ready"
       },
       {
         "serviceId": "messaging-service",
-        "port": 3000
+        "port": 3000,
+        "path": "/health/ready"
       },
       {
         "serviceId": "alert-engine",
-        "port": 3000
+        "port": 3000,
+        "path": "/health/ready"
       },
       {
         "serviceId": "billing-service",
-        "port": 3000
+        "port": 3000,
+        "path": "/health/ready"
       },
       {
         "serviceId": "notification-service",
-        "port": 3000
+        "port": 3000,
+        "path": "/health/ready"
       },
       {
         "serviceId": "admin-api-service",
-        "port": 3000
+        "port": 3000,
+        "path": "/health/ready"
       },
       {
         "serviceId": "config-service",
-        "port": 3000
+        "port": 3000,
+        "path": "/health/ready"
       },
       {
         "serviceId": "event-store-service",
-        "port": 3000
+        "port": 3000,
+        "path": "/health/ready"
       },
       {
         "serviceId": "observability-service",
-        "port": 3009
+        "port": 3009,
+        "path": "/health/ready"
       },
       {
         "serviceId": "ai-service",
-        "port": 3000
+        "port": 3000,
+        "path": "/health/ready"
       }
     ],
     "frontendImageMatrix": [
@@ -302,6 +425,7 @@
     "gateway-api",
     "auth-service",
     "farm-service",
+    "farm-feeding-scheduler",
     "sensor-service",
     "hr-service",
     "hydroponics-service",
@@ -344,6 +468,7 @@
     "CREDENTIAL_ENCRYPTION_KEY",
     "ENCRYPTION_KEY",
     "EVENT_STORE_SERVICE_DB_PASS",
+    "FARM_FEEDING_SCHEDULER_DB_PASS",
     "FARM_SERVICE_DB_PASS",
     "GATEWAY_SERVICE_DB_PASS",
     "HR_SERVICE_DB_PASS",

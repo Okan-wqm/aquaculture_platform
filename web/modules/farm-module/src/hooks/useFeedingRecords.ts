@@ -5,7 +5,13 @@
  * management via GraphQL API.
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
+import type { FeedingMethodGraphqlNameV1 } from '@aquaculture/feeding-contracts';
+import {
+  useAuth,
+  graphqlClient,
+  createTenantQueryKey,
+  createTenantInvalidationKey,
+} from '@aquaculture/shared-ui';
 import {
   FEEDING_RECORD_QUERY,
   FEEDING_RECORDS_QUERY,
@@ -24,7 +30,7 @@ import {
  * not the DB string values (lowercase). GraphQL enums are always referenced
  * by their key in queries and variables.
  */
-export type FeedingMethod = 'MANUAL' | 'AUTOMATIC' | 'DEMAND' | 'BROADCAST' | 'SPOT';
+export type FeedingMethod = FeedingMethodGraphqlNameV1;
 
 export type FishAppetite = 'EXCELLENT' | 'GOOD' | 'MODERATE' | 'POOR' | 'NONE';
 
@@ -86,7 +92,6 @@ export interface FeedingRecord {
   isVarianceAcceptable: boolean;
 }
 
-
 export interface PlannedFeeding {
   batchId: string;
   batchCode: string;
@@ -146,7 +151,6 @@ export interface FeedingRecordConnection {
   hasPreviousPage: boolean;
 }
 
-
 // Input types
 export interface FeedingRecordFilterInput {
   batchId?: string;
@@ -157,9 +161,8 @@ export interface FeedingRecordFilterInput {
   feedingMethod?: FeedingMethod;
 }
 
-
-
 export interface CreateFeedingRecordInput {
+  operationRequestId?: string;
   batchId: string;
   tankId?: string;
   feedingDate: string;
@@ -192,9 +195,6 @@ export interface UpdateFeedingRecordInput {
   verifiedBy?: string;
 }
 
-
-
-
 // ============================================================================
 // FEEDING RECORD HOOKS
 // ============================================================================
@@ -210,7 +210,7 @@ export function useFeedingRecord(id: string) {
     queryFn: async () => {
       const data = await graphqlClient.request<{ feedingRecord: FeedingRecord }>(
         FEEDING_RECORD_QUERY,
-        { id }
+        { id },
       );
       return data.feedingRecord;
     },
@@ -229,7 +229,14 @@ export function useFeedingRecordsList(
   const { token, tenantId, isAuthenticated, isLoading: authLoading } = useAuth();
 
   return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'feedingRecords', 'list', tenantId, filter, pagination),
+    queryKey: createTenantQueryKey(
+      tenantId,
+      'feedingRecords',
+      'list',
+      tenantId,
+      filter,
+      pagination,
+    ),
     queryFn: async () => {
       if (!tenantId) {
         throw new Error('Tenant context required');
@@ -242,7 +249,7 @@ export function useFeedingRecordsList(
             page: pagination?.page ?? 1,
             limit: pagination?.limit ?? 20,
           },
-        }
+        },
       );
       return data.feedingRecords;
     },
@@ -251,7 +258,11 @@ export function useFeedingRecordsList(
     retry: (failureCount, error) => {
       if (error instanceof Error) {
         const message = error.message.toLowerCase();
-        if (message.includes('unauthenticated') || message.includes('unauthorized') || message.includes('tenant')) {
+        if (
+          message.includes('unauthenticated') ||
+          message.includes('unauthorized') ||
+          message.includes('tenant')
+        ) {
           return false;
         }
       }
@@ -293,12 +304,12 @@ export function useDailyFeedingPlan(
     queryFn: async () => {
       const data = await graphqlClient.request<{ dailyFeedingPlan: DailyFeedingPlanResponse }>(
         DAILY_FEEDING_PLAN_QUERY,
-        { siteId, date: toISODateTime(date) }
+        { siteId, date: toISODateTime(date) },
       );
       return data.dailyFeedingPlan;
     },
     staleTime: 30000,
-    enabled: !!token && !!tenantId && !!siteId && (options?.enabled !== false),
+    enabled: !!token && !!tenantId && !!siteId && options?.enabled !== false,
   });
 }
 
@@ -315,16 +326,25 @@ export function useFeedingSummary(
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'feedingRecords', 'summary', tenantId, entityType, entityId, startDate, endDate),
+    queryKey: createTenantQueryKey(
+      tenantId,
+      'feedingRecords',
+      'summary',
+      tenantId,
+      entityType,
+      entityId,
+      startDate,
+      endDate,
+    ),
     queryFn: async () => {
       const data = await graphqlClient.request<{ feedingSummary: FeedingSummaryResponse }>(
         FEEDING_SUMMARY_QUERY,
-        { entityType, entityId, startDate, endDate }
+        { entityType, entityId, startDate, endDate },
       );
       return data.feedingSummary;
     },
     staleTime: 60000,
-    enabled: !!token && !!tenantId && !!entityId && (options?.enabled !== false),
+    enabled: !!token && !!tenantId && !!entityId && options?.enabled !== false,
   });
 }
 
@@ -345,12 +365,16 @@ export function useCreateFeedingRecord() {
       }
       const data = await graphqlClient.request<{ createFeedingRecord: FeedingRecord }>(
         CREATE_FEEDING_RECORD_MUTATION,
-        { input }
+        {
+          input: { ...input, operationRequestId: input.operationRequestId ?? crypto.randomUUID() },
+        },
       );
       return data.createFeedingRecord;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feedingRecords') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'feedingRecords'),
+      });
       queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feeding') });
     },
   });
@@ -373,12 +397,14 @@ export function useUpdateFeedingRecord() {
       }
       const data = await graphqlClient.request<{ updateFeedingRecord: FeedingRecord }>(
         UPDATE_FEEDING_RECORD_MUTATION,
-        { id, input }
+        { id, input },
       );
       return data.updateFeedingRecord;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feedingRecords') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'feedingRecords'),
+      });
       queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feeding') });
     },
   });
@@ -387,4 +413,3 @@ export function useUpdateFeedingRecord() {
 // ============================================================================
 // FEED INVENTORY HOOKS
 // ============================================================================
-

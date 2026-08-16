@@ -19,6 +19,7 @@ import { NatsEventBus } from '@platform/event-bus';
 
 // Handlers
 import { RecordMortalityHandler } from '../../batch/handlers/record-mortality.handler';
+import { RecordingBatchAggregateMutationPort } from '../support/durable-mutation-test-authority';
 import { MortalityCullPolicyService } from '../../batch/services/mortality-cull-policy.service';
 import { RemovalQuantityPolicyService } from '../../batch/services/removal-quantity-policy.service';
 
@@ -181,6 +182,7 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
     });
 
     handler = new RecordMortalityHandler(
+      new RecordingBatchAggregateMutationPort(mockManager),
       mockDataSource,
       {} as Repository<Batch>,
       {} as Repository<MortalityRecord>,
@@ -402,6 +404,7 @@ describe('Race Condition Protection: Cross-handler concurrent safety', () => {
     });
 
     const handler = new RecordMortalityHandler(
+      new RecordingBatchAggregateMutationPort(mockManager),
       mockDataSource,
       {} as Repository<Batch>,
       {} as Repository<MortalityRecord>,

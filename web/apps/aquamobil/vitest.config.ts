@@ -3,36 +3,26 @@ import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
 
 import { loadVitestResourceProfile } from '../../../tools/testing/vitest-resource-policy';
+import { AQUAMOBIL_SOURCE_ALIAS_AUTHORITY } from './source-alias-authority';
 
 const resourceProfile = loadVitestResourceProfile('reactDom');
-
-// WHY: Aquamobil has its own node_modules/react (hoisted differently from root).
-// @testing-library/react (in root node_modules) imports react-dom from root,
-// while component code resolves to the local copy. This creates the classic
-// dual-React-instance error ("Cannot read properties of null (reading 'useState')").
-// Pinning react + react-dom to the ROOT copy ensures all imports share a single
-// React instance — @testing-library and component code both use the same one.
-const rootNodeModules = resolve(__dirname, '../../../node_modules');
 
 export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      '@': resolve(__dirname, 'src'),
-      '@aquaculture/farm-shared': resolve(__dirname, '../../../libs/farm-shared/src'),
-      // MSG-MEDIUM-057: mirror the vite.config.ts alias so the shared MIME
-      // allowlist SSoT resolves under vitest too (this config has its own alias
-      // block, separate from vite.config.ts).
-      '@aquaculture/shared-contracts': resolve(__dirname, '../../../libs/shared-contracts/src'),
-      'react': resolve(rootNodeModules, 'react'),
-      'react-dom': resolve(rootNodeModules, 'react-dom'),
-      'react/jsx-runtime': resolve(rootNodeModules, 'react/jsx-runtime'),
-      'react/jsx-dev-runtime': resolve(rootNodeModules, 'react/jsx-dev-runtime'),
+      ...AQUAMOBIL_SOURCE_ALIAS_AUTHORITY,
     },
+    // The production and test graphs share one React resolution rule. Dedupe
+    // resolves from the active AquaMobil package whether npm hoists the
+    // workspace or installs it standalone; hard-coding either node_modules
+    // location makes the other topology load a second React dispatcher.
+    dedupe: ['react', 'react-dom'],
   },
   test: {
     globals: false,
     environment: 'jsdom',
+    setupFiles: [resolve(__dirname, 'src/test/setup.ts')],
     root: resolve(__dirname),
     include: ['src/**/*.{spec,test}.{ts,tsx}'],
     exclude: ['**/node_modules/**', '**/dist/**'],

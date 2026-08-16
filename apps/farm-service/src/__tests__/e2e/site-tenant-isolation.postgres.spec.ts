@@ -159,6 +159,10 @@ import {
   createSourceEquipmentTypesReferenceTable,
   createTenantSchemaFromSource,
 } from './helpers/tenant-schema-harness';
+import {
+  createFarmDurableMutationTestComposition,
+  type FarmDurableMutationTestComposition,
+} from '../support/durable-mutation-test-authority';
 
 const TENANT_A = '4b529829-ea79-48da-982c-cd6fbec8ffb7';
 const TENANT_B = '7c2f4e10-3d2a-4b4e-9f18-f8b16f0d5a10';
@@ -250,6 +254,7 @@ describe('Site tenant isolation on real Postgres', () => {
   let parameterConfigRepository: Repository<WaterQualityParameterConfig>;
   let tankCodeGenerator: CodeGeneratorService;
   let harness: SiteHarness;
+  let mutationComposition: FarmDurableMutationTestComposition;
 
   function requireDataSource(): DataSource {
     if (!dataSource) {
@@ -334,7 +339,9 @@ describe('Site tenant isolation on real Postgres', () => {
     const parameterConfigCache = new ParameterConfigCacheService(parameterConfigRepository);
     const tankOutboxPublisher = new OutboxPublisher(FarmOutbox);
     const farmStockProjection = new FarmStockProjectionService();
+    mutationComposition = await createFarmDurableMutationTestComposition();
     const createTankHandler = new CreateTankHandler(
+      mutationComposition.batchMutations,
       dataSource,
       auditLogService,
       tankCodeGenerator,
@@ -342,12 +349,14 @@ describe('Site tenant isolation on real Postgres', () => {
       farmStockProjection,
     );
     const updateTankHandler = new UpdateTankHandler(
+      mutationComposition.batchMutations,
       dataSource,
       auditLogService,
       tankOutboxPublisher,
       farmStockProjection,
     );
     const deleteTankHandler = new DeleteTankHandler(
+      mutationComposition.batchMutations,
       dataSource,
       auditLogService,
       tankOutboxPublisher,
@@ -376,6 +385,7 @@ describe('Site tenant isolation on real Postgres', () => {
         new OutboxPublisher(FarmOutbox),
       ),
       deleteSite: new DeleteSiteHandler(
+        mutationComposition.batchMutations,
         dataSource,
         auditLogService,
         new OutboxPublisher(FarmOutbox),
@@ -411,6 +421,7 @@ describe('Site tenant isolation on real Postgres', () => {
         new OutboxPublisher(FarmOutbox),
       ),
       deleteDepartment: new DeleteDepartmentHandler(
+        mutationComposition.batchMutations,
         dataSource,
         auditLogService,
         new OutboxPublisher(FarmOutbox),
@@ -447,6 +458,7 @@ describe('Site tenant isolation on real Postgres', () => {
       listTanks: new ListTanksHandler(dataSource),
       updateTank: updateTankHandler,
       updateTankStatus: new UpdateTankStatusHandler(
+        mutationComposition.batchMutations,
         dataSource,
         auditLogService,
         new OutboxPublisher(FarmOutbox),
@@ -482,6 +494,7 @@ describe('Site tenant isolation on real Postgres', () => {
   });
 
   afterAll(async () => {
+    await mutationComposition?.close();
     if (dataSource?.isInitialized) {
       await dataSource.destroy();
     }
@@ -1140,6 +1153,7 @@ describe('Site tenant isolation on real Postgres', () => {
     );
     const rowCountBeforeRollback = await tankRowCount(getTenantSchemaName(TENANT_A), TENANT_A);
     const auditFailingCreateTank = new CreateTankHandler(
+      mutationComposition.batchMutations,
       requireDataSource(),
       createFailingAuditLogService('audit down'),
       tankCodeGenerator,

@@ -12,6 +12,7 @@ import {
   imageBuildTargets,
   infraImageBuildMatrix,
   packageBuildProjects,
+  metricsEndpointServices,
   requiredRuntimeEnv,
   requiredRuntimeSecrets,
   schemaOwningServices,
@@ -167,6 +168,32 @@ describe('platform service catalog executable views', () => {
     // the hardcoded-3000 view produced a false-negative production
     // verify on 2026-06-11).
     expect(ready.get('observability-service')).toBe(3009);
+    expect(readinessServices()).toContainEqual({
+      serviceId: 'farm-feeding-scheduler',
+      port: 3000,
+      path: '/health/ready',
+    });
+  });
+
+  it('derives scheduler metrics adoption from its Node-worker capability', () => {
+    const scheduler = PLATFORM_SERVICE_CATALOG.find(
+      (entry) => entry.serviceId === 'farm-feeding-scheduler',
+    );
+
+    expect(scheduler?.buildKind).toBe('node-worker');
+    expect(scheduler?.metricsExposure).toBe('prom-endpoint');
+    expect(metricsEndpointServices()).toContainEqual(scheduler);
+
+    const optedOut = PLATFORM_SERVICE_CATALOG.map((entry) =>
+      entry.serviceId === 'farm-feeding-scheduler'
+        ? { ...entry, metricsExposure: 'none' as const }
+        : entry,
+    );
+    expect(validateServiceCatalog(optedOut)).toContainEqual({
+      serviceId: 'farm-feeding-scheduler',
+      message:
+        'Prometheus-capable Node runtime must expose a Prometheus endpoint (metricsExposure prom-endpoint)',
+    });
   });
 
   it('declares one migration authority for every schema-owning runtime service', () => {

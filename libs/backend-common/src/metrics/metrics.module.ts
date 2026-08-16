@@ -1,5 +1,6 @@
 import { Module, Global, MiddlewareConsumer, NestModule } from '@nestjs/common';
 
+import { CronHeartbeatService } from './cron-heartbeat.service';
 import { MetricsController } from './metrics.controller';
 import { MetricsMiddleware } from './metrics.middleware';
 import { ServiceMetricsService } from './metrics.service';
@@ -49,8 +50,8 @@ import { ServiceMetricsService } from './metrics.service';
 @Global()
 @Module({
   controllers: [MetricsController],
-  providers: [ServiceMetricsService],
-  exports: [ServiceMetricsService],
+  providers: [ServiceMetricsService, CronHeartbeatService],
+  exports: [ServiceMetricsService, CronHeartbeatService],
 })
 export class ServiceMetricsModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {

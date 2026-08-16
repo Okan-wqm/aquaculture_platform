@@ -67,12 +67,10 @@ describe('@TenantFanOut decorator', () => {
   });
 
   it('rejects concurrency outside [1, 32]', () => {
-    expect(() =>
-      TenantFanOut({ lockClass: 'tenant-local', concurrency: 0 }),
-    ).toThrow(/\[1, 32\]/);
-    expect(() =>
-      TenantFanOut({ lockClass: 'tenant-local', concurrency: 100 }),
-    ).toThrow(/\[1, 32\]/);
+    expect(() => TenantFanOut({ lockClass: 'tenant-local', concurrency: 0 })).toThrow(/\[1, 32\]/);
+    expect(() => TenantFanOut({ lockClass: 'tenant-local', concurrency: 100 })).toThrow(
+      /\[1, 32\]/,
+    );
   });
 
   it('concurrency defaults to 8 when omitted', () => {
@@ -137,9 +135,105 @@ describe('@SourceOnlyMigration decorator', () => {
 
     expect(isSourceOnlyMigration(SourceOnly)).toBe(true);
     expect(getSourceOnlyMigrationMetadata(SourceOnly)).toMatchObject({
+      schemaVersion: 'migration-execution-scope/v1',
+      scope: 'source-only',
       reason: 'outbox is source-owned infrastructure',
       target: SourceOnly,
     });
+    expect(Object.isFrozen(Reflect.get(SourceOnly, 'migrationExecutionScope'))).toBe(true);
+  });
+
+  it('decodes an exact frozen structural declaration without running the decorator', () => {
+    class PinnedSourceOnly {
+      readonly migrationName = 'PinnedSourceOnly';
+    }
+    Object.defineProperty(PinnedSourceOnly, 'migrationExecutionScope', {
+      configurable: false,
+      enumerable: false,
+      value: Object.freeze({
+        schemaVersion: 'migration-execution-scope/v1',
+        scope: 'source-only',
+        reason: 'pinned historical control-plane state',
+      }),
+      writable: false,
+    });
+
+    expect(getSourceOnlyMigrationMetadata(PinnedSourceOnly)).toEqual({
+      schemaVersion: 'migration-execution-scope/v1',
+      scope: 'source-only',
+      reason: 'pinned historical control-plane state',
+      target: PinnedSourceOnly,
+    });
+  });
+
+  it('rejects a writable structural declaration binding', () => {
+    class RebindableSourceOnly {
+      readonly migrationName = 'RebindableSourceOnly';
+    }
+    Object.defineProperty(RebindableSourceOnly, 'migrationExecutionScope', {
+      configurable: true,
+      enumerable: false,
+      value: Object.freeze({
+        schemaVersion: 'migration-execution-scope/v1',
+        scope: 'source-only',
+        reason: 'a valid value cannot compensate for a rebindable authority',
+      }),
+      writable: true,
+    });
+
+    expect(() => isSourceOnlyMigration(RebindableSourceOnly)).toThrow(
+      'must be an exact frozen migration-execution-scope/v1 declaration',
+    );
+  });
+
+  it.each([
+    {
+      name: 'unknown version',
+      declaration: Object.freeze({
+        schemaVersion: 'migration-execution-scope/v2',
+        scope: 'source-only',
+        reason: 'unknown contracts cannot be inferred',
+      }),
+    },
+    {
+      name: 'extra field',
+      declaration: Object.freeze({
+        schemaVersion: 'migration-execution-scope/v1',
+        scope: 'source-only',
+        reason: 'the exact field set is authoritative',
+        skipTenants: true,
+      }),
+    },
+    {
+      name: 'unknown scope',
+      declaration: Object.freeze({
+        schemaVersion: 'migration-execution-scope/v1',
+        scope: 'tenant-and-source',
+        reason: 'unknown execution scopes cannot default to source-only',
+      }),
+    },
+    {
+      name: 'mutable declaration',
+      declaration: {
+        schemaVersion: 'migration-execution-scope/v1',
+        scope: 'source-only',
+        reason: 'routing metadata cannot change after class load',
+      },
+    },
+  ])('rejects a $name structural declaration', ({ declaration }) => {
+    class InvalidSourceOnly {
+      readonly migrationName = 'InvalidSourceOnly';
+    }
+    Object.defineProperty(InvalidSourceOnly, 'migrationExecutionScope', {
+      configurable: false,
+      enumerable: false,
+      value: declaration,
+      writable: false,
+    });
+
+    expect(() => isSourceOnlyMigration(InvalidSourceOnly)).toThrow(
+      'must be an exact frozen migration-execution-scope/v1 declaration',
+    );
   });
 
   it('returns null for undecorated classes', () => {

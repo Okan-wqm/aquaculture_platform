@@ -1,4 +1,9 @@
-import { DataSource } from 'typeorm';
+import {
+  bootPostgresContainer,
+  shutdownHarness,
+  type HarnessContext,
+} from '@platform/migration-harness';
+import type { DataSource } from 'typeorm';
 
 import { MODULE_SCHEMAS } from '../schema-manager.service';
 import type { ModuleSchema } from '../schema-manager.service';
@@ -12,12 +17,11 @@ import type { WatchdogReport } from '../watchdog/watchdog-runner';
 /**
  * Watchdog Integration Tests
  *
- * These tests require a running PostgreSQL database (aqua-postgres container).
+ * These tests boot the canonical migration-harness PostgreSQL image.
  * They validate that the watchdog scanners correctly detect violations by
  * intentionally introducing contamination, cross-tenant data, and schema drift.
  *
- * Run with: npx jest --testPathPattern=watchdog.integration --no-cache
- * Requires: DATABASE_HOST, DATABASE_PORT, DATABASE_USER, DATABASE_PASSWORD, DATABASE_NAME
+ * Run with: npx nx test backend-common --runInBand watchdog.integration.spec.ts
  */
 
 const TEST_TENANT_ID_A = 'a1aa1111-bbbb-4ccc-8ddd-eeeeeeeeee01';
@@ -32,21 +36,18 @@ const scannerFixtureModule: ModuleSchema = {
 
 describe('Watchdog Integration Tests', () => {
   let dataSource: DataSource;
+  let harness: HarnessContext | undefined;
   let createdAuthSchema = false;
   let createdAuthTenantsTable = false;
   const schemaA = getTenantSchemaName(TEST_TENANT_ID_A);
   const schemaB = getTenantSchemaName(TEST_TENANT_ID_B);
 
   beforeAll(async () => {
-    dataSource = new DataSource({
-      type: 'postgres',
-      host: process.env['DATABASE_HOST'] || 'localhost',
-      port: parseInt(process.env['DATABASE_PORT'] || '5432'),
-      username: process.env['DATABASE_USER'] || 'aquaculture',
-      password: process.env['DATABASE_PASSWORD'] || 'aquaculture',
-      database: process.env['DATABASE_NAME'] || 'aquaculture',
+    harness = await bootPostgresContainer({
+      startTimeoutMs: 90_000,
+      labels: { 'aqua.test-authority': 'backend-common-watchdog' },
     });
-    await dataSource.initialize();
+    dataSource = harness.dataSource;
 
     const authSchemaExists: { exists: boolean }[] = await dataSource.query(
       `SELECT EXISTS (
@@ -70,22 +71,25 @@ describe('Watchdog Integration Tests', () => {
         )
       `);
     }
-  }, 30_000);
+  }, 120_000);
 
   afterAll(async () => {
-    if (dataSource.isInitialized) {
-      await dataSource.query(`DROP SCHEMA IF EXISTS "${schemaA}" CASCADE`);
-      await dataSource.query(`DROP SCHEMA IF EXISTS "${schemaB}" CASCADE`);
-      await dataSource.query(`DROP SCHEMA IF EXISTS "${SCANNER_SOURCE_SCHEMA}" CASCADE`);
-      if (createdAuthTenantsTable) {
-        await dataSource.query('DROP TABLE "auth"."tenants"');
+    try {
+      if (dataSource?.isInitialized) {
+        await dataSource.query(`DROP SCHEMA IF EXISTS "${schemaA}" CASCADE`);
+        await dataSource.query(`DROP SCHEMA IF EXISTS "${schemaB}" CASCADE`);
+        await dataSource.query(`DROP SCHEMA IF EXISTS "${SCANNER_SOURCE_SCHEMA}" CASCADE`);
+        if (createdAuthTenantsTable) {
+          await dataSource.query('DROP TABLE "auth"."tenants"');
+        }
+        if (createdAuthSchema) {
+          await dataSource.query('DROP SCHEMA "auth"');
+        }
       }
-      if (createdAuthSchema) {
-        await dataSource.query('DROP SCHEMA "auth"');
-      }
-      await dataSource.destroy();
+    } finally {
+      await shutdownHarness(harness);
     }
-  }, 15_000);
+  }, 30_000);
 
   describe('SourceSchemaScanner', () => {
     afterEach(async () => {

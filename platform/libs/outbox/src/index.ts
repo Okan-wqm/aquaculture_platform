@@ -34,13 +34,17 @@ export { assertOutboxTenantIntegrity, OutboxTenantIntegrityError } from './tenan
 export { OutboxMetricsService } from './outbox-metrics.service';
 export { OutboxModule } from './outbox.module';
 export {
+  buildEventDlqDownSql,
+  buildEventDlqUpSql,
   buildTenantErasureTargetProofLedgerDownSql,
   buildTenantErasureTargetProofLedgerUpSql,
   buildTransactionalOutboxDownSql,
   buildTransactionalOutboxUpSql,
+  EVENT_DLQ_TABLE,
   TENANT_ERASURE_TARGET_PROOF_LEDGER_TABLE,
 } from './outbox-migration';
 export type {
+  EventDlqDdlOptions,
   TenantErasureTargetProofLedgerDdlOptions,
   TransactionalOutboxDdlOptions,
 } from './outbox-migration';

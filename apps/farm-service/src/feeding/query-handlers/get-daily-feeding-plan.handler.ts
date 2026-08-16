@@ -20,7 +20,7 @@ import {
   GetDailyFeedingPlanQuery,
   DailyFeedingPlanResult,
 } from '../queries/get-daily-feeding-plan.query';
-import { FeedingProgram } from '../entities/feeding-program.entity';
+import { FeedingProgram, FeedingProgramStatus } from '../entities/feeding-program.entity';
 import { FeedingProgramTank } from '../entities/feeding-program-tank.entity';
 import { DailyFeedingExecution } from '../entities/daily-feeding-execution.entity';
 import { Site } from '../../site/entities/site.entity';
@@ -68,7 +68,7 @@ export class GetDailyFeedingPlanHandler
       const programs = await queryRunner.manager.find(FeedingProgram, {
         where: { tenantId, siteId, isDeleted: false },
       });
-      const activePrograms = programs.filter((p) => p.status === ('active' as never));
+      const activePrograms = programs.filter((p) => p.status === FeedingProgramStatus.ACTIVE);
 
       // Get program tank assignments
       const programIds = activePrograms.map((p) => p.id);

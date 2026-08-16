@@ -10,6 +10,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { FEEDING_MEAL_MOBILE_COMMAND_V1 } from '@aquaculture/feeding-contracts/feeding-record-vocabulary';
 
 import {
   OPERATION_MUTATIONS,
@@ -27,8 +28,8 @@ const ALL_OPERATION_TYPES: readonly OperationType[] = [
   'recordMortality',
   'recordCull',
   'createHarvestRecord',
-  'recordFeeding',
-  'recordMealFeeding',
+  FEEDING_MEAL_MOBILE_COMMAND_V1.operationType,
+  'finalizeMeal',
   'clockIn',
   'clockOut',
   'createLeaveRequest',
@@ -51,6 +52,14 @@ const ALL_OPERATION_TYPES: readonly OperationType[] = [
 ] as const;
 
 describe('operation-registry (MOB-MEDIUM-002)', () => {
+  it('projects the feeding identity into exactly one mobile registry key', () => {
+    expect(
+      Object.keys(OPERATION_MUTATIONS).filter(
+        (operationType) => operationType === FEEDING_MEAL_MOBILE_COMMAND_V1.operationType,
+      ),
+    ).toEqual([FEEDING_MEAL_MOBILE_COMMAND_V1.operationType]);
+  });
+
   it('covers every OperationType except the blob lane with a mutation document', () => {
     for (const type of ALL_OPERATION_TYPES) {
       if (type === 'uploadAndSendMessage') continue;
@@ -76,6 +85,16 @@ describe('operation-registry (MOB-MEDIUM-002)', () => {
     expect(variables).toEqual({ id: 'msg-2' });
   });
 
+  it('projects the durable queue identity into finalizeMeal operationRequestId', () => {
+    expect(
+      buildOperationVariables('finalizeMeal', {
+        mealId: 'meal-1',
+        clientCommandId: 'command-1',
+        payloadHash: 'hash',
+      }),
+    ).toEqual({ input: { mealId: 'meal-1', operationRequestId: 'command-1' } });
+  });
+
   it('shapes every other operation as { input: payload } verbatim (envelope intact)', () => {
     const payload = {
       batchId: 'b-1',
@@ -91,7 +110,10 @@ describe('operation-registry (MOB-MEDIUM-002)', () => {
     const followUp = getLeaveSubmitFollowUp('createLeaveRequest', {
       createLeaveRequest: { id: 'leave-9' },
     });
-    expect(followUp).toEqual({ query: OPERATION_MUTATIONS.submitLeaveRequest, variables: { id: 'leave-9' } });
+    expect(followUp).toEqual({
+      query: OPERATION_MUTATIONS.submitLeaveRequest,
+      variables: { id: 'leave-9' },
+    });
   });
 
   it('returns null follow-up for non-leave ops and rejects a missing created id', () => {

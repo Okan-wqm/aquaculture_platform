@@ -51,8 +51,9 @@ export class BackfillFeedInventoryToStorageLedger1806100000000 implements Migrat
     }
 
     // ── 1. Default migration location per site with orphan feed stock ──────
-    // Orphan = positive feed_inventory balance for a feed with ZERO
-    // storage_inventory rows in this schema (feedHasStoragePresence === false).
+    // Orphan = positive legacy feed_inventory balance for a feed with ZERO
+    // storage_inventory rows in this schema. This is a one-time bootstrap
+    // classification; runtime tracking is owned by immutable stock movements.
     await queryRunner.query(`
       INSERT INTO storage_locations
         (tenant_id, site_id, name, code, type, capacity_unit, used_capacity, is_active, is_deleted, version)

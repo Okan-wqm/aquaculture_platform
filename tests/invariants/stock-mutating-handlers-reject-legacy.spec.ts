@@ -18,9 +18,6 @@ const STOCK_MUTATING_HANDLERS = [
   'apps/farm-service/src/batch/handlers/record-mortality.handler.ts',
   'apps/farm-service/src/batch/handlers/record-cull.handler.ts',
   'apps/farm-service/src/batch/handlers/transfer-batch.handler.ts',
-  // C-17 (feeding-protocol SSoT Faz 5): recordMealFeeding stok düşürür —
-  // legacy (envelope'suz) mod reddi yapısal olarak korunur.
-  'apps/farm-service/src/feeding-protocol/services/meal-execution.service.ts',
 ];
 
 describe('stock-mutating handlers reject legacy idempotency mode', () => {
@@ -31,5 +28,30 @@ describe('stock-mutating handlers reject legacy idempotency mode', () => {
     expect(source).toMatch(/receipt\.mode\s*===\s*'legacy'/);
     // The reject is a BadRequestException for the missing idempotency envelope.
     expect(source).toMatch(/throw new BadRequestException\([^)]*idempotency envelope/);
+  });
+
+  it('keeps mobile meal identity validation in the canonical codec consumed by the sole port', () => {
+    const coordinator = readFileSync(
+      path.join(
+        REPO_ROOT,
+        'apps/farm-service/src/feeding-protocol/services/feeding-operation-coordinator.service.ts',
+      ),
+      'utf8',
+    );
+    const codec = readFileSync(
+      path.join(
+        REPO_ROOT,
+        'apps/farm-service/src/feeding-protocol/feeding-operation-command.codec.ts',
+      ),
+      'utf8',
+    );
+
+    expect(coordinator).toMatch(
+      /const candidate = compileFeedingOperationCommandArtifactV1\(command\)/,
+    );
+    expect(coordinator).toMatch(/const admittedCommand = candidate\.command/);
+    expect(coordinator).not.toMatch(/command\.envelope\.clientCommandId/);
+    expect(codec).toMatch(/identity\.requestId\s*!==\s*envelope\.clientCommandId/);
+    expect(codec).toMatch(/mobile meal requestId differs from its envelope identity/);
   });
 });

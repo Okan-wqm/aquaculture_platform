@@ -89,6 +89,22 @@ import { AddEnvironmentMetricSyncOutcomes1807200000000 } from './1807200000000-A
 import { AddSuperAdminCrossTenantAuditAction1807900000000 } from './1807900000000-AddSuperAdminCrossTenantAuditAction';
 import { AddSatelliteCoverageProvenance1808000000000 } from './1808000000000-AddSatelliteCoverageProvenance';
 import { RestoreAuditImmutabilityContract1808500000000 } from './1808500000000-RestoreAuditImmutabilityContract';
+import { CreateFeedingOperationControlPlane1808600000000 } from './1808600000000-CreateFeedingOperationControlPlane';
+import { InstallFeedingOperationMutationKernel1808700000000 } from './1808700000000-InstallFeedingOperationMutationKernel';
+import { AddTankOperationCountProvenance1808800000000 } from './1808800000000-AddTankOperationCountProvenance';
+import { CreateFeedingHistoricalProvenanceAuthority1808900000000 } from './1808900000000-CreateFeedingHistoricalProvenanceAuthority';
+import { CompleteFeedInventoryLedgerBackfillBySourceRow1809000000000 } from './1809000000000-CompleteFeedInventoryLedgerBackfillBySourceRow';
+import { AddDayPlanLiveProtocolResolution1809100000000 } from './1809100000000-AddDayPlanLiveProtocolResolution';
+import { BoundDayPlanRecalculationAudit1809200000000 } from './1809200000000-BoundDayPlanRecalculationAudit';
+import { WidenMealWindowReemissionIndex1809300000000 } from './1809300000000-WidenMealWindowReemissionIndex';
+import { EnforceSingleLiveProtocolAssignment1809400000000 } from './1809400000000-EnforceSingleLiveProtocolAssignment';
+import { AlignFeedingMealMethodAuthority1809500000000 } from './1809500000000-AlignFeedingMealMethodAuthority';
+import { CompileForecastPoolAuthority1809600000000 } from './1809600000000-CompileForecastPoolAuthority';
+import { EnforceStorageInventoryPhysicalKey1809700000000 } from './1809700000000-EnforceStorageInventoryPhysicalKey';
+import { PreserveStockMovementLotReceiptProvenance1809800000000 } from './1809800000000-PreserveStockMovementLotReceiptProvenance';
+import { BindStockCorrectionAllocationFamily1809900000000 } from './1809900000000-BindStockCorrectionAllocationFamily';
+import { CreateFeedingRecordWriteProvenanceAuthority1810000000000 } from './1810000000000-CreateFeedingRecordWriteProvenanceAuthority';
+import { AddFeedingMealReadinessProjection1810100000000 } from './1810100000000-AddFeedingMealReadinessProjection';
 
 /**
  * Canonical farm-service migration class list.
@@ -175,4 +191,20 @@ export const FARM_MIGRATIONS = [
   AddSuperAdminCrossTenantAuditAction1807900000000,
   AddSatelliteCoverageProvenance1808000000000,
   RestoreAuditImmutabilityContract1808500000000,
+  CreateFeedingOperationControlPlane1808600000000,
+  InstallFeedingOperationMutationKernel1808700000000,
+  AddTankOperationCountProvenance1808800000000,
+  CreateFeedingHistoricalProvenanceAuthority1808900000000,
+  CompleteFeedInventoryLedgerBackfillBySourceRow1809000000000,
+  AddDayPlanLiveProtocolResolution1809100000000,
+  BoundDayPlanRecalculationAudit1809200000000,
+  WidenMealWindowReemissionIndex1809300000000,
+  EnforceSingleLiveProtocolAssignment1809400000000,
+  AlignFeedingMealMethodAuthority1809500000000,
+  CompileForecastPoolAuthority1809600000000,
+  EnforceStorageInventoryPhysicalKey1809700000000,
+  PreserveStockMovementLotReceiptProvenance1809800000000,
+  BindStockCorrectionAllocationFamily1809900000000,
+  CreateFeedingRecordWriteProvenanceAuthority1810000000000,
+  AddFeedingMealReadinessProjection1810100000000,
 ] as const;

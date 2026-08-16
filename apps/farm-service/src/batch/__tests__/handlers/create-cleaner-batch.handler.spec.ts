@@ -31,6 +31,7 @@ import { Batch } from '../../entities/batch.entity';
 import { Species } from '../../../species/entities/species.entity';
 import type { CodeGeneratorService } from '../../../database/services/code-generator.service';
 import type { FinanceSettingsService } from '../../../finance/services/finance-settings.service';
+import { RecordingBatchAggregateMutationPort } from '../../../__tests__/support/durable-mutation-test-authority';
 
 const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
@@ -91,6 +92,7 @@ function makeHarness(opts: HarnessOpts = {}): {
   };
 
   const handler = new CreateCleanerBatchHandler(
+    new RecordingBatchAggregateMutationPort(mockManager),
     batchRepository as Repository<Batch>,
     speciesRepository as Repository<Species>,
     codeGenerator as CodeGeneratorService,

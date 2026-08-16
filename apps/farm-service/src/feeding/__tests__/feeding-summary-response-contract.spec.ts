@@ -1,5 +1,12 @@
+import { Test } from '@nestjs/testing';
+import { CommandBus, QueryBus } from '@platform/cqrs';
+import { DataSource } from 'typeorm';
+
 import { FeedingResolver } from '../resolvers/feeding.resolver';
 import { FeedingSummaryResult } from '../queries/get-feeding-summary.query';
+import { GrowthSimulatorService } from '../services/growth-simulator.service';
+import { FeedConsumptionForecastService } from '../services/feed-consumption-forecast.service';
+import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 
 /**
  * Feeding-summary read-back contract (ORPHAN-MEDIUM-270). The resolver returned
@@ -33,13 +40,26 @@ describe('FeedingResolver.feedingSummary — response contract completeness', ()
     dailyTrend: [],
   };
 
-  function resolverReturning(value: FeedingSummaryResult): FeedingResolver {
+  async function resolverReturning(value: FeedingSummaryResult): Promise<FeedingResolver> {
     const queryBus = { execute: jest.fn().mockResolvedValue(value) };
-    return new FeedingResolver({} as never, queryBus as never, {} as never, {} as never, {} as never);
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        FeedingResolver,
+        { provide: CommandBus, useValue: { execute: jest.fn() } },
+        { provide: QueryBus, useValue: queryBus },
+        { provide: GrowthSimulatorService, useValue: {} },
+        { provide: FeedConsumptionForecastService, useValue: {} },
+        { provide: DataSource, useValue: {} },
+      ],
+    })
+      .overrideGuard(GqlAuthGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
+    return moduleRef.get(FeedingResolver);
   }
 
   it('maps the handler Result onto a fully-populated FeedingSummaryResponse', async () => {
-    const resolver = resolverReturning(result);
+    const resolver = await resolverReturning(result);
 
     const response = await resolver.feedingSummary('t1', 'batch', 'batch-1', undefined, undefined);
 
@@ -60,8 +80,16 @@ describe('FeedingResolver.feedingSummary — response contract completeness', ()
 
     // No non-nullable field is left undefined (the exact prior failure mode)
     const required: Array<keyof typeof response> = [
-      'startDate', 'endDate', 'totalFeedGivenKg', 'totalPlannedKg', 'varianceKg',
-      'variancePercent', 'totalFeedings', 'avgFeedingKg', 'totalCost', 'byFeedType',
+      'startDate',
+      'endDate',
+      'totalFeedGivenKg',
+      'totalPlannedKg',
+      'varianceKg',
+      'variancePercent',
+      'totalFeedings',
+      'avgFeedingKg',
+      'totalCost',
+      'byFeedType',
     ];
     for (const key of required) {
       expect(response[key]).toBeDefined();
@@ -69,7 +97,7 @@ describe('FeedingResolver.feedingSummary — response contract completeness', ()
   });
 
   it('sets batchId for a batch summary and leaves siteId/currency nullable', async () => {
-    const resolver = resolverReturning({ ...result, entityType: 'tank', entityId: 'tank-9' });
+    const resolver = await resolverReturning({ ...result, entityType: 'tank', entityId: 'tank-9' });
 
     const response = await resolver.feedingSummary('t1', 'tank', 'tank-9', undefined, undefined);
 

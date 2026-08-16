@@ -22,6 +22,7 @@ import {
   isUuidTypeDrift,
   normalizeInformationSchemaType,
 } from './schema-drift/type-normalization';
+import { compareForeignKeyPresence } from './schema-drift/foreign-key-presence';
 
 export const SCHEMA_DRIFT_CLEAN_SIGNAL =
   BOOT_INVARIANT_SIGNALS.schema_drift_clean.pattern;
@@ -939,29 +940,26 @@ export function createSchemaDriftValidator(
               AND c.contype = 'f'`,
           [schema, tableName],
         );
-      const dbCount = rows.length;
-      const entityCount = entityForeignKeys.length;
-      if (dbCount === entityCount) return;
+      const drift = compareForeignKeyPresence(entityForeignKeys.length, rows.length);
+      if (!drift) return;
 
       const dbDefs = rows
         .map((r) => `${r.conname}: ${r.definition}`)
         .join(' ; ');
 
-      if (entityCount > dbCount) {
-        const delta = entityCount - dbCount;
+      if (drift.direction === 'missing_in_database') {
         this.route(
           'foreign_key_presence',
-          `[${schema}.${tableName}] entity declares ${entityCount} FK(s) but DB has ${dbCount} foreign-key constraint(s) — ${delta} missing in DB. ` +
+          `[${schema}.${tableName}] entity declares ${drift.entityCount} FK(s) but DB has ${drift.databaseCount} foreign-key constraint(s) — ${drift.delta} missing in DB. ` +
             `Likely cause: a CREATE-then-ALTER FK migration with the ALTER step swallowed (HR HealHrEnumTypeDrift class) or a FK addition not yet migrated. ` +
             `DB-side: ${dbDefs}`,
           errorViolations,
           warningViolations,
         );
       } else {
-        const delta = dbCount - entityCount;
         this.route(
           'foreign_key_presence',
-          `[${schema}.${tableName}] DB has ${dbCount} foreign-key constraint(s) but entity declares ${entityCount} FK(s) — ${delta} orphaned in DB. ` +
+          `[${schema}.${tableName}] DB has ${drift.databaseCount} foreign-key constraint(s) but entity declares ${drift.entityCount} FK(s) — ${drift.delta} orphaned in DB. ` +
             `Likely cause: an FK was dropped from the entity model but the constraint not removed from DB. DB-side: ${dbDefs}`,
           errorViolations,
           warningViolations,

@@ -2,6 +2,15 @@ import { createTenantConnectionBootstrap } from '../tenant-connection-bootstrap.
 import { requestContextStorage } from '../../logging/request-context';
 
 describe('createTenantConnectionBootstrap', () => {
+  it('fails boot closed with actionable remediation when the pg pool is absent', () => {
+    const Bootstrap = createTenantConnectionBootstrap('messaging');
+    const dataSource = { driver: {} } as never;
+
+    expect(() => new Bootstrap(dataSource).onModuleInit()).toThrow(
+      /TenantConnectionBootstrap\[messaging\].*REMEDIATION/,
+    );
+  });
+
   it('derives tenant search_path from tenantId when schemaName is absent', async () => {
     const { dataSource, pool, client } = createDataSourceMock();
     const Bootstrap = createTenantConnectionBootstrap('messaging');

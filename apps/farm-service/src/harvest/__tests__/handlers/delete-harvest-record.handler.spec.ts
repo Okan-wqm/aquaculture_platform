@@ -24,15 +24,13 @@ import type { EntityManager, Repository } from 'typeorm';
 
 import { DeleteHarvestRecordHandler } from '../../handlers/delete-harvest-record.handler';
 import { DeleteHarvestRecordCommand } from '../../commands/delete-harvest-record.command';
-import {
-  HarvestRecord,
-  HarvestRecordStatus,
-} from '../../entities/harvest-record.entity';
+import { HarvestRecord, HarvestRecordStatus } from '../../entities/harvest-record.entity';
 import { Batch } from '../../../batch/entities/batch.entity';
 import { TankBatch } from '../../../batch/entities/tank-batch.entity';
 import { Tank } from '../../../tank/entities/tank.entity';
 import type { OutboxPublisher } from '@platform/outbox';
 import { FarmStockProjectionService } from '../../../farm-stock/farm-stock-projection.service';
+import { RecordingBatchAggregateMutationPort } from '../../../__tests__/support/durable-mutation-test-authority';
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111';
 
@@ -116,9 +114,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     if (name === 'Tank') return tank;
     return null;
   });
-  (mockManager.save as jest.Mock).mockImplementation(
-    async (_: unknown, entity: unknown) => entity,
-  );
+  (mockManager.save as jest.Mock).mockImplementation(async (_: unknown, entity: unknown) => entity);
 
   const enqueue = jest.fn(async (event: unknown, em: EntityManager) => {
     if (opts.enqueueImpl) return opts.enqueueImpl(event, em);
@@ -135,6 +131,7 @@ function makeHarness(opts: HarnessOpts = {}) {
   const tankBatchService = { applyBatchDelta };
 
   const handler = new DeleteHarvestRecordHandler(
+    new RecordingBatchAggregateMutationPort(mockManager),
     harvestRepository as unknown as Repository<HarvestRecord>,
     batchRepository,
     tankBatchRepository,
@@ -176,11 +173,7 @@ describe('DeleteHarvestRecordHandler — transactional outbox', () => {
     expect(event['reversedBiomassKg']).toBe(350);
     expect(typeof event['cancelledAt']).toBe('string');
 
-    expect(refreshContainers).toHaveBeenCalledWith(
-      expect.any(Object),
-      TENANT_ID,
-      ['tank-1'],
-    );
+    expect(refreshContainers).toHaveBeenCalledWith(expect.any(Object), TENANT_ID, ['tank-1']);
     expect(commit).toHaveBeenCalledTimes(1);
   });
 
@@ -194,9 +187,9 @@ describe('DeleteHarvestRecordHandler — transactional outbox', () => {
     // totalQuantity (which left the per-batch SSoT stale).
     expect(applyBatchDelta).toHaveBeenCalledTimes(1);
     const call = applyBatchDelta.mock.calls[0];
-    expect(call[1]).toBe(TENANT_ID);
-    expect(call[2]).toBe('tank-1');
-    const delta = call[3];
+    expect(call[2]).toBe(TENANT_ID);
+    expect(call[3]).toBe('tank-1');
+    const delta = call[4];
     expect(delta.batchId).toBe('batch-1');
     expect(delta.quantityDelta).toBe(100);
     expect(delta.biomassDelta).toBe(350);
@@ -207,9 +200,7 @@ describe('DeleteHarvestRecordHandler — transactional outbox', () => {
       record: { status: HarvestRecordStatus.DISPATCHED } as HarvestRecord,
     });
 
-    await expect(handler.execute(makeCommand())).rejects.toThrow(
-      BadRequestException,
-    );
+    await expect(handler.execute(makeCommand())).rejects.toThrow(BadRequestException);
     expect(enqueue).not.toHaveBeenCalled();
     expect(applyBatchDelta).not.toHaveBeenCalled();
   });
@@ -219,9 +210,7 @@ describe('DeleteHarvestRecordHandler — transactional outbox', () => {
       record: { status: HarvestRecordStatus.DELIVERED } as HarvestRecord,
     });
 
-    await expect(handler.execute(makeCommand())).rejects.toThrow(
-      BadRequestException,
-    );
+    await expect(handler.execute(makeCommand())).rejects.toThrow(BadRequestException);
     expect(enqueue).not.toHaveBeenCalled();
     expect(applyBatchDelta).not.toHaveBeenCalled();
   });
@@ -233,9 +222,7 @@ describe('DeleteHarvestRecordHandler — transactional outbox', () => {
 
     // The pre-fix guard let CANCELLED pass: every re-delete re-added
     // quantityHarvested to the batch AND the tank (double-restocking).
-    await expect(handler.execute(makeCommand())).rejects.toThrow(
-      BadRequestException,
-    );
+    await expect(handler.execute(makeCommand())).rejects.toThrow(BadRequestException);
     expect(enqueue).not.toHaveBeenCalled();
     expect(applyBatchDelta).not.toHaveBeenCalled();
   });
@@ -247,9 +234,7 @@ describe('DeleteHarvestRecordHandler — transactional outbox', () => {
       },
     });
 
-    await expect(handler.execute(makeCommand())).rejects.toThrow(
-      'outbox-enqueue-failed',
-    );
+    await expect(handler.execute(makeCommand())).rejects.toThrow('outbox-enqueue-failed');
     expect(rollback).toHaveBeenCalledTimes(1);
     expect(commit).not.toHaveBeenCalled();
   });
@@ -257,9 +242,7 @@ describe('DeleteHarvestRecordHandler — transactional outbox', () => {
   it('NotFoundException when harvest record is missing — no event', async () => {
     const { handler, enqueue } = makeHarness({ record: null });
 
-    await expect(handler.execute(makeCommand())).rejects.toThrow(
-      NotFoundException,
-    );
+    await expect(handler.execute(makeCommand())).rejects.toThrow(NotFoundException);
     expect(enqueue).not.toHaveBeenCalled();
   });
 

@@ -12,7 +12,7 @@ import {
   createTenantInvalidationKey,
 } from '@aquaculture/shared-ui';
 
-import { stableStringify } from '../utils/command-envelope';
+import { hashCommandPayload } from '../utils/command-envelope';
 
 // Types - GraphQL enum KEY'leri ile uyumlu (UPPERCASE)
 export type BatchStatus =
@@ -583,10 +583,13 @@ export function useBatchList(
       const sortBy = options?.sortBy ?? 'stockedAt';
       const sortOrder = options?.sortOrder ?? 'DESC';
       const fetchPage = async (page: number, limit: number): Promise<BatchListResponse> => {
-        const data = await graphqlClient.request<{ batches: BatchListResponse }>(
-          BATCH_LIST_QUERY,
-          { filter, page, limit, sortBy, sortOrder },
-        );
+        const data = await graphqlClient.request<{ batches: BatchListResponse }>(BATCH_LIST_QUERY, {
+          filter,
+          page,
+          limit,
+          sortBy,
+          sortOrder,
+        });
         return data.batches;
       };
 
@@ -814,13 +817,7 @@ const CREATE_HARVEST_RECORD_MUTATION = `
 // double-decrementing inventory. The canonical stableStringify lives in
 // utils/command-envelope.ts (FARM-LOW-141/235 — web'in tek kopyası).
 async function hashPayload(payload: object): Promise<string> {
-  const digest = await crypto.subtle.digest(
-    'SHA-256',
-    new TextEncoder().encode(stableStringify(payload)),
-  );
-  return Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('');
+  return hashCommandPayload(payload);
 }
 
 /**

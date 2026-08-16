@@ -111,7 +111,8 @@ class RecordMortalityDto {
   tankId!: string;
   batchId!: string;
   operationDate!: string;
-  quantity!: number;
+  quantity?: number;
+  biomassKg?: number;
   avgWeightG?: number;
   reason?: string;
   detail?: string;
@@ -124,7 +125,8 @@ class RecordCullDto {
   tankId!: string;
   batchId!: string;
   operationDate!: string;
-  quantity!: number;
+  quantity?: number;
+  biomassKg?: number;
   avgWeightG?: number;
   reason?: string;
   detail?: string;
@@ -138,7 +140,8 @@ class RecordTransferDto {
   batchId!: string;
   destinationTankId!: string;
   operationDate!: string;
-  quantity!: number;
+  quantity?: number;
+  biomassKg?: number;
   avgWeightG?: number;
   reason?: string;
   notes?: string;
@@ -163,7 +166,8 @@ class BatchListQueryDto {
 }
 
 function verifiedContext(req: TenantRequest): VerifiedBatchContext {
-  const tenantId = req.verifiedUserAssertion?.effectiveTenantId ?? req.user?.tenantId ?? req.tenantId;
+  const tenantId =
+    req.verifiedUserAssertion?.effectiveTenantId ?? req.user?.tenantId ?? req.tenantId;
   const actorUserId = req.verifiedUserAssertion?.subject ?? req.user?.sub;
 
   if (!tenantId || !actorUserId) {
@@ -176,8 +180,7 @@ function verifiedContext(req: TenantRequest): VerifiedBatchContext {
     roles: (req.verifiedUserAssertion?.roles ?? req.user?.roles ?? []) as Role[],
     // SEC-HIGH-051: prefer the HMAC-bound assertion's site claim; fall back to
     // the direct-JWT req.user on the non-gateway path. Default [] is fail-closed.
-    assignedSiteIds:
-      req.verifiedUserAssertion?.assignedSiteIds ?? req.user?.assignedSiteIds ?? [],
+    assignedSiteIds: req.verifiedUserAssertion?.assignedSiteIds ?? req.user?.assignedSiteIds ?? [],
   };
 }
 
@@ -227,10 +230,7 @@ export class BatchController {
    */
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  async createBatch(
-    @Req() req: TenantRequest,
-    @Body() dto: CreateBatchDto,
-  ) {
+  async createBatch(@Req() req: TenantRequest, @Body() dto: CreateBatchDto) {
     const { tenantId, actorUserId } = verifiedContext(req);
 
     const batch = await this.commandBus.execute(
@@ -262,10 +262,7 @@ export class BatchController {
    * GET /api/batches - Batch listesi
    */
   @Get()
-  async listBatches(
-    @Req() req: TenantRequest,
-    @Query() query: BatchListQueryDto,
-  ) {
+  async listBatches(@Req() req: TenantRequest, @Query() query: BatchListQueryDto) {
     const { tenantId } = verifiedContext(req);
     const filters: BatchListFilters = {};
 
@@ -297,10 +294,7 @@ export class BatchController {
    * GET /api/batches/:id - Batch detay
    */
   @Get(':id')
-  async getBatch(
-    @Req() req: TenantRequest,
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  async getBatch(@Req() req: TenantRequest, @Param('id', ParseUUIDPipe) id: string) {
     const { tenantId } = verifiedContext(req);
     const batch = await this.queryBus.execute(new GetBatchQuery(tenantId, id));
 
@@ -354,10 +348,7 @@ export class BatchController {
    */
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async deleteBatch(
-    @Req() req: TenantRequest,
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  async deleteBatch(@Req() req: TenantRequest, @Param('id', ParseUUIDPipe) id: string) {
     const { tenantId, actorUserId } = verifiedContext(req);
     await this.commandBus.execute(new DeleteBatchCommand({ tenantId, batchId: id, actorUserId }));
   }
@@ -429,10 +420,7 @@ export class BatchController {
    * GET /api/batches/:id/operations - Batch'in operasyon geçmişi
    */
   @Get(':id/operations')
-  async getBatchOperations(
-    @Req() req: TenantRequest,
-    @Param('id', ParseUUIDPipe) batchId: string,
-  ) {
+  async getBatchOperations(@Req() req: TenantRequest, @Param('id', ParseUUIDPipe) batchId: string) {
     const { tenantId } = verifiedContext(req);
     const operations = await this.batchService.getBatchOperations(batchId, tenantId);
 
@@ -446,10 +434,7 @@ export class BatchController {
    * GET /api/batches/:id/metrics - Batch metrikleri
    */
   @Get(':id/metrics')
-  async getBatchMetrics(
-    @Req() req: TenantRequest,
-    @Param('id', ParseUUIDPipe) batchId: string,
-  ) {
+  async getBatchMetrics(@Req() req: TenantRequest, @Param('id', ParseUUIDPipe) batchId: string) {
     const { tenantId } = verifiedContext(req);
     const metrics = await this.queryBus.execute(new GetBatchPerformanceQuery(tenantId, batchId));
 
@@ -490,6 +475,7 @@ export class TankOperationsController {
         {
           tankId: dto.tankId,
           quantity: dto.quantity,
+          biomassKg: dto.biomassKg,
           avgWeightG: dto.avgWeightG,
           reason: parseMortalityReason(dto.reason),
           detail: dto.detail,
@@ -515,10 +501,7 @@ export class TankOperationsController {
    */
   @Post('cull')
   @HttpCode(HttpStatus.CREATED)
-  async recordCull(
-    @Req() req: TenantRequest,
-    @Body() dto: RecordCullDto,
-  ) {
+  async recordCull(@Req() req: TenantRequest, @Body() dto: RecordCullDto) {
     const { tenantId, actorUserId, roles, assignedSiteIds } = verifiedContext(req);
 
     const operation = await this.commandBus.execute(
@@ -528,6 +511,7 @@ export class TankOperationsController {
         {
           tankId: dto.tankId,
           quantity: dto.quantity,
+          biomassKg: dto.biomassKg,
           avgWeightG: dto.avgWeightG,
           reason: parseCullReason(dto.reason),
           detail: dto.detail,
@@ -552,10 +536,7 @@ export class TankOperationsController {
    */
   @Post('transfer')
   @HttpCode(HttpStatus.CREATED)
-  async recordTransfer(
-    @Req() req: TenantRequest,
-    @Body() dto: RecordTransferDto,
-  ) {
+  async recordTransfer(@Req() req: TenantRequest, @Body() dto: RecordTransferDto) {
     const { tenantId, actorUserId, roles, assignedSiteIds } = verifiedContext(req);
 
     const operation = await this.commandBus.execute(
@@ -566,6 +547,7 @@ export class TankOperationsController {
           sourceTankId: dto.tankId,
           destinationTankId: dto.destinationTankId,
           quantity: dto.quantity,
+          biomassKg: dto.biomassKg,
           avgWeightG: dto.avgWeightG,
           transferReason: dto.reason,
           transferredAt: new Date(dto.operationDate),
@@ -581,7 +563,7 @@ export class TankOperationsController {
     return {
       success: true,
       data: operation,
-      message: `${dto.quantity} adet ${dto.tankId} -> ${dto.destinationTankId} transfer edildi`,
+      message: `${dto.quantity ?? `${dto.biomassKg}kg'dan türetilen`} adet ${dto.tankId} -> ${dto.destinationTankId} transfer edildi`,
     };
   }
 
@@ -590,10 +572,7 @@ export class TankOperationsController {
    */
   @Post('harvest')
   @HttpCode(HttpStatus.CREATED)
-  async recordHarvest(
-    @Req() req: TenantRequest,
-    @Body() dto: RecordHarvestDto,
-  ) {
+  async recordHarvest(@Req() req: TenantRequest, @Body() dto: RecordHarvestDto) {
     const { tenantId, actorUserId, roles, assignedSiteIds } = verifiedContext(req);
     const totalBiomass = dto.totalWeightKg ?? (dto.quantity * (dto.avgWeightG ?? 0)) / 1000;
 

@@ -1,6 +1,15 @@
 import { clsx } from 'clsx';
 import { Navbar, Block, BlockTitle, Button, List, ListItem } from 'konsta/react';
-import { Cloud, CloudOff, RefreshCw, Trash2, CheckCircle, AlertCircle, Clock, RotateCcw } from 'lucide-react';
+import {
+  Cloud,
+  CloudOff,
+  RefreshCw,
+  Trash2,
+  CheckCircle,
+  AlertCircle,
+  Clock,
+  RotateCcw,
+} from 'lucide-react';
 import type { JSX } from 'react';
 
 import { DataFreshness } from '@/components/DataFreshness';
@@ -18,7 +27,6 @@ const OPERATION_LABELS: Record<string, { label: string; icon: string }> = {
   recordMortality: { label: 'Mortality', icon: '💀' },
   recordCull: { label: 'Cull', icon: '✂️' },
   createHarvestRecord: { label: 'Harvest', icon: '📦' },
-  recordFeeding: { label: 'Feeding', icon: '🐟' },
   recordTransfer: { label: 'Transfer', icon: '🔄' },
   createWaterQuality: { label: 'Water Quality', icon: '💧' },
   // Warehouse operations
@@ -68,9 +76,7 @@ export function SyncStatusPage(): JSX.Element {
         <div
           className={clsx(
             'flex items-center justify-center gap-3 p-4 rounded-xl',
-            isOnline
-              ? 'bg-green-50 dark:bg-green-900/20'
-              : 'bg-amber-50 dark:bg-amber-900/20'
+            isOnline ? 'bg-green-50 dark:bg-green-900/20' : 'bg-amber-50 dark:bg-amber-900/20',
           )}
         >
           {isOnline ? (
@@ -78,9 +84,7 @@ export function SyncStatusPage(): JSX.Element {
               <Cloud className="text-green-500" size={32} />
               <div>
                 <h3 className="font-semibold text-green-700 dark:text-green-300">Online</h3>
-                <p className="text-sm text-green-600 dark:text-green-400">
-                  Connected to server
-                </p>
+                <p className="text-sm text-green-600 dark:text-green-400">Connected to server</p>
               </div>
             </>
           ) : (
@@ -105,7 +109,9 @@ export function SyncStatusPage(): JSX.Element {
             <p className="text-gray-500">Pending Operations</p>
           </div>
           <Button
-            onClick={() => { void syncNow(); }}
+            onClick={() => {
+              void syncNow();
+            }}
             disabled={!isOnline || pendingCount === 0 || isSyncing}
             className="!bg-aqua-500"
           >
@@ -124,8 +130,10 @@ export function SyncStatusPage(): JSX.Element {
               const config = OPERATION_LABELS[op.type] || { label: op.type, icon: '📝' };
               // BUG-17: Distinguish between retryable failures (will auto-retry)
               // and permanently failed operations (exceeded MAX_RETRY_COUNT).
-              const isPermanentlyFailed = op.status === 'failed' && op.retryCount >= MAX_RETRY_COUNT;
-              const isRetrying = op.status === 'failed' && op.retryCount > 0 && op.retryCount < MAX_RETRY_COUNT;
+              const isPermanentlyFailed =
+                op.status === 'failed' && op.retryCount >= MAX_RETRY_COUNT;
+              const isRetrying =
+                op.status === 'failed' && op.retryCount > 0 && op.retryCount < MAX_RETRY_COUNT;
 
               const statusIcon =
                 op.status === 'syncing' ? (
@@ -176,7 +184,9 @@ export function SyncStatusPage(): JSX.Element {
                     <div className="flex items-center gap-2">
                       {statusIcon}
                       <button
-                        onClick={() => { void removeFromQueue(op.id); }}
+                        onClick={() => {
+                          void removeFromQueue(op.id);
+                        }}
                         aria-label="Remove queued operation"
                         className="min-h-touch min-w-touch flex items-center justify-center text-red-500 touch-feedback"
                       >

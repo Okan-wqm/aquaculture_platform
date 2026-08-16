@@ -6,7 +6,7 @@
  * - onModuleInit subscribes via the cross-tenant wildcard
  * - events with missing/invalid tenantId are rejected before any write
  * - the per-tenant AsyncLocalStorage context carries the derived schemaName
- * - service errors are swallowed (no NATS poison-message redelivery loop)
+ * - service errors propagate to the durable event-bus retry/DLQ authority
  */
 
 // Mock the logging subpath BEFORE importing the handler so the context spy is
@@ -104,10 +104,10 @@ describe('WaterQualityCriticalEventHandler', () => {
     expect(service.recordCriticalWaterQuality).toHaveBeenCalledWith(event);
   });
 
-  it('swallows service errors so NATS does not redeliver a poison message', async () => {
+  it('rethrows service errors so the one-shot signal reaches the durable shelf', async () => {
     const { handler, service } = makeHandler();
     service.recordCriticalWaterQuality.mockRejectedValueOnce(new Error('db down'));
 
-    await expect(handler.handle(makeEvent(TENANT_ID))).resolves.toBeUndefined();
+    await expect(handler.handle(makeEvent(TENANT_ID))).rejects.toThrow('db down');
   });
 });

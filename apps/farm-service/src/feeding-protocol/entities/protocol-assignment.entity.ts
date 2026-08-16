@@ -6,7 +6,7 @@
  * (`resolveTankSiteId`) zaten bu kimliği kullanır — kimlik migration'ı
  * gerektirmez ve SEC-HIGH-051 deseni değişmeden çalışır.
  *
- * Bir ünitede aynı anda TEK aktif atama olabilir (partial unique index).
+ * Bir ünitede aynı anda TEK canlı (active veya paused) atama olabilir.
  * Operasyonel override'lar (vardiya kaydırma, öğün sayısı, oran ayarı,
  * ünite-bazlı beklenen-FCR override'ları — R11) ve oruç/ilaçlı-yem
  * pencereleri (D-12) atamada yaşar; protokol şablonu değişmez.
@@ -37,6 +37,14 @@ export enum FeedingUnitType {
   POND = 'pond',
   CAGE = 'cage',
 }
+
+/**
+ * Physical PostgreSQL enum shared by protocol assignments and day plans.
+ * Runtime SQL and TypeORM metadata consume this coordinate from one authority
+ * so synchronize-based proof schemas cannot drift from production migrations.
+ */
+export const FEEDING_UNIT_TYPE_DATABASE_ENUM =
+  'feeding_protocol_assignments_unittype_enum' as const;
 
 registerEnumType(FeedingUnitType, {
   name: 'FeedingUnitType',
@@ -96,7 +104,7 @@ export interface AssignmentSuspension {
 
 @ObjectType('ProtocolAssignment')
 @Entity('feeding_protocol_assignments')
-@Index(['tenantId', 'unitId'], { unique: true, where: `"status" = 'active'` })
+@Index(['tenantId', 'unitId'], { unique: true, where: `"status" <> 'ended'` })
 @Index(['tenantId', 'protocolId'])
 @Index(['tenantId', 'status'])
 @Index(['tenantId', 'unitId', 'effectiveFrom'])
@@ -116,7 +124,11 @@ export class ProtocolAssignment {
   unitId!: string;
 
   @Field(() => FeedingUnitType)
-  @Column({ type: 'enum', enum: FeedingUnitType })
+  @Column({
+    type: 'enum',
+    enum: FeedingUnitType,
+    enumName: FEEDING_UNIT_TYPE_DATABASE_ENUM,
+  })
   unitType!: FeedingUnitType;
 
   /** Denormalize görünüm alanları (liste/timeline UI'ları — repo deseni). */

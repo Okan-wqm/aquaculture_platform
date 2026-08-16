@@ -6,9 +6,9 @@
  * AMA yazma tx'i İÇİNDE `resolveTankSiteId` + `assertSiteAssignment`
  * fail-closed koşar (SEC-HIGH-051 — rol kapısı UX, site kapısı güvenlik).
  *
- * Bu resolver CQRS bus'ı ATLAMAZ-ihlal etmez: mutasyonlar tek yazma servisi
- * `MealExecutionService`'e (Controller → Service deseni; feeding-program
- * resolver emsali), okuma `runInTenantRead` sorgusuna gider.
+ * Mutasyonlar closed `FEEDING_OPERATION_COMMAND_PORT` sözleşmesine doğrudan
+ * gider; resolver'a domain manager veya ikinci bir command facade verilmez.
+ * Okuma `runInTenantRead` sorgusuna gider.
  *
  * @module FeedingProtocol/Resolvers
  */
@@ -23,7 +23,7 @@ import {
   Float,
   Int,
 } from '@nestjs/graphql';
-import { UseGuards } from '@nestjs/common';
+import { Inject, UseGuards } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, In } from 'typeorm';
 import {
@@ -40,11 +40,14 @@ import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import { FcrResolvedSource } from '../entities/feeding-protocol-v2.entity';
 import { FeedingDayPlan } from '../entities/feeding-day-plan.entity';
 import { FeedingMeal } from '../entities/feeding-meal.entity';
-import { MealExecutionService } from '../services/meal-execution.service';
-import { DayPlanAdminService } from '../services/day-plan-admin.service';
+import {
+  FEEDING_OPERATION_COMMAND_PORT,
+  type FeedingOperationCommandPort,
+} from '../feeding-operation-command.port';
 import { DayPlanAdminResultView, MealFeedingResultView } from '../dto/meal-execution.results';
 import {
   CorrectMealPourInput,
+  FinalizeMealInput,
   RecordMealFeedingInput,
   SkipMealInput,
 } from '../dto/meal-execution.inputs';
@@ -55,13 +58,23 @@ interface CallerClaims {
   assignedSiteIds?: string[];
 }
 
+type MealExecutionCommandPort = Pick<
+  FeedingOperationCommandPort,
+  | 'recordMeal'
+  | 'correctMeal'
+  | 'finalizeMeal'
+  | 'skipMeal'
+  | 'regenerateDayPlan'
+  | 'transitionFeed'
+>;
+
 @UseGuards(GqlAuthGuard)
 @Resolver(() => FeedingDayPlan)
 export class MealExecutionResolver {
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
-    private readonly mealExecutionService: MealExecutionService,
-    private readonly dayPlanAdminService: DayPlanAdminService,
+    @Inject(FEEDING_OPERATION_COMMAND_PORT)
+    private readonly operationPort: MealExecutionCommandPort,
   ) {}
 
   /**
@@ -133,50 +146,50 @@ export class MealExecutionResolver {
 
   @ResolveField(() => Float, { nullable: true })
   waterTempC(@Parent() plan: FeedingDayPlan): number | null {
-    return plan.snapshot.waterTempC;
+    return plan.resolution.waterTempC;
   }
 
   @ResolveField(() => String)
   temperatureSource(@Parent() plan: FeedingDayPlan): string {
-    return plan.snapshot.temperatureSource;
+    return plan.resolution.temperatureSource;
   }
 
   @ResolveField(() => Boolean)
   usingDefaultTemperature(@Parent() plan: FeedingDayPlan): boolean {
-    return plan.snapshot.usingDefaultTemperature;
+    return plan.resolution.temperatureSource === 'none';
   }
 
   @ResolveField(() => ID)
   feedId(@Parent() plan: FeedingDayPlan): string {
-    return plan.snapshot.feed.id;
+    return plan.resolution.feed.id;
   }
 
   @ResolveField(() => String)
   feedCode(@Parent() plan: FeedingDayPlan): string {
-    return plan.snapshot.feed.code;
+    return plan.resolution.feed.code;
   }
 
   @ResolveField(() => String)
   feedName(@Parent() plan: FeedingDayPlan): string {
-    return plan.snapshot.feed.name;
+    return plan.resolution.feed.name;
   }
 
   @ResolveField(() => Float)
   effectiveRatePercent(@Parent() plan: FeedingDayPlan): number {
-    return plan.snapshot.effectiveRatePercent;
+    return plan.resolution.effectiveRatePercent;
   }
 
   @ResolveField(() => Float)
   expectedFcr(@Parent() plan: FeedingDayPlan): number {
-    return plan.snapshot.expectedFcr;
+    return plan.resolution.expectedFcr;
   }
 
   @ResolveField(() => FcrResolvedSource)
   fcrResolvedSource(@Parent() plan: FeedingDayPlan): FcrResolvedSource {
-    return plan.snapshot.fcrResolvedSource;
+    return plan.resolution.fcrResolvedSource;
   }
 
-  /** D-2 rozeti: band dominant-biomass'tan seçildi, tank karışık (B3 öncesi snapshot'ta false). */
+  /** D-2 rozeti: tank karışık; band tankın adet-ağırlıklı ortalama ağırlığından seçildi. */
   @ResolveField(() => Boolean)
   mixedBatch(@Parent() plan: FeedingDayPlan): boolean {
     return plan.snapshot.mixedBatch ?? false;
@@ -196,16 +209,18 @@ export class MealExecutionResolver {
     @CurrentUser() user: CallerClaims,
     @Args('input') input: RecordMealFeedingInput,
   ): Promise<MealFeedingResultView> {
-    return this.mealExecutionService.recordMealFeeding({
+    const envelope = mobileCommandEnvelopeFromInput(input);
+    return this.operationPort.recordMeal({
       tenantId,
-      userId: user.sub,
+      actorId: user.sub,
+      requestId: envelope.clientCommandId,
       caller: { sub: user.sub, roles: user.roles, assignedSiteIds: user.assignedSiteIds },
       mealId: input.mealId,
       pourKg: input.pourKg,
       finalize: input.finalize,
       feedingMethod: input.feedingMethod,
       notes: input.notes,
-      envelope: mobileCommandEnvelopeFromInput(input),
+      envelope,
     });
   }
 
@@ -217,13 +232,31 @@ export class MealExecutionResolver {
     @CurrentUser() user: CallerClaims,
     @Args('input') input: CorrectMealPourInput,
   ): Promise<MealFeedingResultView> {
-    return this.mealExecutionService.correctMealPour({
+    return this.operationPort.correctMeal({
       tenantId,
-      userId: user.sub,
+      actorId: user.sub,
+      requestId: input.operationRequestId,
       caller: { sub: user.sub, roles: user.roles, assignedSiteIds: user.assignedSiteIds },
       mealId: input.mealId,
       pourIndex: input.pourIndex,
       correctedKg: input.correctedKg,
+    });
+  }
+
+  /** Close an existing partial meal without creating a synthetic pour. */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @Mutation(() => MealFeedingResultView)
+  async finalizeMeal(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: CallerClaims,
+    @Args('input') input: FinalizeMealInput,
+  ): Promise<MealFeedingResultView> {
+    return this.operationPort.finalizeMeal({
+      tenantId,
+      actorId: user.sub,
+      requestId: input.operationRequestId,
+      caller: { sub: user.sub, roles: user.roles, assignedSiteIds: user.assignedSiteIds },
+      mealId: input.mealId,
     });
   }
 
@@ -234,9 +267,10 @@ export class MealExecutionResolver {
     @CurrentUser() user: CallerClaims,
     @Args('input') input: SkipMealInput,
   ): Promise<MealFeedingResultView> {
-    return this.mealExecutionService.skipMeal({
+    return this.operationPort.skipMeal({
       tenantId,
-      userId: user.sub,
+      actorId: user.sub,
+      requestId: input.operationRequestId,
       caller: { sub: user.sub, roles: user.roles, assignedSiteIds: user.assignedSiteIds },
       mealId: input.mealId,
       reason: input.reason,
@@ -254,8 +288,14 @@ export class MealExecutionResolver {
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: CallerClaims,
     @Args('unitId', { type: () => ID }) unitId: string,
+    @Args('operationRequestId', { type: () => ID }) operationRequestId: string,
   ): Promise<DayPlanAdminResultView> {
-    return this.dayPlanAdminService.regenerateDayPlan(tenantId, user.sub, unitId);
+    return this.operationPort.regenerateDayPlan({
+      tenantId,
+      actorId: user.sub,
+      unitId,
+      requestId: operationRequestId,
+    });
   }
 
   /**
@@ -270,7 +310,14 @@ export class MealExecutionResolver {
     @CurrentUser() user: CallerClaims,
     @Args('unitId', { type: () => ID }) unitId: string,
     @Args('toFeedId', { type: () => ID }) toFeedId: string,
+    @Args('operationRequestId', { type: () => ID }) operationRequestId: string,
   ): Promise<DayPlanAdminResultView> {
-    return this.dayPlanAdminService.transitionUnitFeed(tenantId, user.sub, unitId, toFeedId);
+    return this.operationPort.transitionFeed({
+      tenantId,
+      actorId: user.sub,
+      unitId,
+      toFeedId,
+      requestId: operationRequestId,
+    });
   }
 }

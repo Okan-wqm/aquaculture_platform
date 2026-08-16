@@ -17,15 +17,22 @@
  * Usage: ts-node ... emit-subgraph-sdl.ts <subgraph-name> <service-dir>
  *   e.g. emit-subgraph-sdl.ts auth apps/auth-service
  */
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
 import { buildSubgraphSchema, printSubgraphSchema } from '@apollo/subgraph';
 import { printSchemaWithDirectives } from '@graphql-tools/utils';
 import { NestFactory } from '@nestjs/core';
 import { GraphQLSchemaBuilderModule, GraphQLSchemaFactory } from '@nestjs/graphql';
+import { assertValidSchema } from 'graphql';
 import { gql } from 'graphql-tag';
+
+import {
+  canonicalResolverSourcePath,
+  compareCanonicalUtf16,
+  compileResolverConstructorRegistry,
+} from './lib/resolver-metadata-registry';
 
 // Federation v2 link — the directives a NestJS code-first subgraph can emit.
 const FEDERATION_V2_LINK =
@@ -33,6 +40,19 @@ const FEDERATION_V2_LINK =
   'import: ["@key", "@shareable", "@external", "@requires", "@provides", ' +
   '"@tag", "@extends", "@override", "@inaccessible", "@composeDirective", ' +
   '"@interfaceObject"])';
+
+function isModuleExports(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === 'object' && value !== null;
+}
+
+function errorDetails(error: unknown): unknown | undefined {
+  if (typeof error !== 'object' || error === null || !('details' in error)) return undefined;
+  return error.details;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 function repoRoot(): string {
   return resolve(__dirname, '..', '..');
@@ -52,10 +72,11 @@ async function main(): Promise<void> {
   // Recursive readdir (typed via @types/node, no glob dependency) — collect
   // every *.resolver.ts under the service's src/.
   const srcDir = join(root, serviceDir, 'src');
-  const resolverFiles = readdirSync(srcDir, { recursive: true, encoding: 'utf8' })
+  const resolverSourcePaths = readdirSync(srcDir, { recursive: true, encoding: 'utf8' })
     .filter((entry): entry is string => typeof entry === 'string' && entry.endsWith('.resolver.ts'))
-    .map((entry) => join(srcDir, entry));
-  if (resolverFiles.length === 0) {
+    .map(canonicalResolverSourcePath)
+    .sort(compareCanonicalUtf16);
+  if (resolverSourcePaths.length === 0) {
     process.stderr.write(`no *.resolver.ts found under ${serviceDir}/src\n`);
     process.exit(1);
   }
@@ -66,15 +87,28 @@ async function main(): Promise<void> {
   // opens a DB/NATS connection (that happens at DI instantiation, which we never
   // do — we only reflect decorator metadata into the global TypeMetadataStorage).
   const requireTs = createRequire(__filename);
-  const resolverCtors: unknown[] = [];
-  for (const file of resolverFiles) {
-    const mod = requireTs(file) as Record<string, unknown>;
-    for (const exported of Object.values(mod)) {
-      if (typeof exported === 'function' && /Resolver$/.test((exported as { name: string }).name)) {
-        resolverCtors.push(exported);
-      }
+  const realSourceRoot = realpathSync.native(srcDir);
+  const realSourceOwners = new Map<string, string>();
+  const resolverModules = resolverSourcePaths.map((sourcePath) => {
+    const file = join(srcDir, sourcePath);
+    const realFile = realpathSync.native(file);
+    const relativeRealFile = relative(realSourceRoot, realFile);
+    if (relativeRealFile.startsWith('..') || isAbsolute(relativeRealFile)) {
+      throw new Error(`resolver source escapes service root: ${sourcePath}`);
     }
-  }
+    const priorOwner = realSourceOwners.get(realFile);
+    if (priorOwner) {
+      throw new Error(`duplicate resolver source identity: ${priorOwner} and ${sourcePath}`);
+    }
+    realSourceOwners.set(realFile, sourcePath);
+    const moduleExports: unknown = requireTs(realFile);
+    if (!isModuleExports(moduleExports)) {
+      throw new TypeError(`resolver module does not expose an export record: ${sourcePath}`);
+    }
+    return { sourcePath, exports: moduleExports };
+  });
+  const resolverRegistry = compileResolverConstructorRegistry(resolverModules);
+  const resolverCtors = resolverRegistry.map((registration) => registration.constructor);
 
   const app = await NestFactory.createApplicationContext(GraphQLSchemaBuilderModule, {
     logger: false,
@@ -83,16 +117,18 @@ async function main(): Promise<void> {
 
   // Build the base code-first schema (federation v2 needs no extra directives —
   // @key etc. are carried by the @Directive decorators on the entity types).
-  const schema = await schemaFactory.create(resolverCtors as never[], [], {
-    skipCheck: true,
+  const schema = await schemaFactory.create(resolverCtors, [], {
+    skipCheck: false,
     orphanedTypes: [],
   });
+  assertValidSchema(schema);
 
   // Reproduce GraphQLFederationFactory.generateSchemaFromCodeFirst:
   // print-with-directives -> prepend the federation @link -> buildSubgraphSchema.
   const printed = printSchemaWithDirectives(schema);
   const typeDefs = `${FEDERATION_V2_LINK}\n\n${printed}`;
   const federated = buildSubgraphSchema(gql(typeDefs));
+  assertValidSchema(federated);
   const sdl = printSubgraphSchema(federated);
 
   const outPath = join(root, 'dist', 'graphql', 'subgraphs', `${subgraphName}.graphql`);
@@ -100,25 +136,17 @@ async function main(): Promise<void> {
   const artifact = `${sdl}\n`;
   writeFileSync(outPath, artifact);
 
-  // Some services retain a committed schema.graphql snapshot for tooling that
-  // cannot consume the composed supergraph. Keep that snapshot derived from
-  // the exact same code-first metadata as the runtime subgraph artifact.
-  // Services without a committed snapshot do not gain a second schema copy.
-  const committedSnapshotPath = join(root, serviceDir, 'schema.graphql');
-  if (existsSync(committedSnapshotPath)) {
-    writeFileSync(committedSnapshotPath, artifact);
-  }
   await app.close();
 
   process.stdout.write(
-    `emitted ${subgraphName} SDL: ${outPath} (${sdl.length} bytes, ${resolverCtors.length} resolvers)\n`,
+    `emitted ${subgraphName} SDL: ${outPath} (${sdl.length} bytes, ${resolverRegistry.length} resolvers)\n`,
   );
   process.exit(0);
 }
 
 main().catch((error: unknown) => {
-  const err = error as { message?: string; details?: unknown };
-  if (err?.details) process.stderr.write(`${JSON.stringify(err.details)}\n`);
-  process.stderr.write(`FATAL emitting subgraph SDL: ${err?.message ?? String(error)}\n`);
+  const details = errorDetails(error);
+  if (details !== undefined) process.stderr.write(`${JSON.stringify(details)}\n`);
+  process.stderr.write(`FATAL emitting subgraph SDL: ${errorMessage(error)}\n`);
   process.exit(1);
 });

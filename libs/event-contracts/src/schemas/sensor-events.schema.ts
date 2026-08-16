@@ -1,9 +1,5 @@
 import type { JSONSchemaType } from 'ajv';
-import {
-  BASE_EVENT_PROPERTIES,
-  BASE_EVENT_REQUIRED,
-  UUID_PATTERN,
-} from './common.schema';
+import { BASE_EVENT_PROPERTIES, BASE_EVENT_REQUIRED, UUID_PATTERN } from './common.schema';
 
 /**
  * @module SensorEventSchemas
@@ -86,6 +82,41 @@ interface WireSensorMetricIngested {
   pondId?: string;
 }
 
+interface WireFeedingWindowReadinessVerdictV1 {
+  unitId: string;
+  unitCode: string;
+  mealId: string;
+  dayPlanId: string;
+  scheduledAt: string;
+  status: 'ready' | 'low_oxygen' | 'no_reading' | 'not_instrumented';
+  minDissolvedOxygen: number;
+  observedDissolvedOxygen?: number;
+  observedAt?: string;
+  lowOxygenReductionPercent?: number;
+}
+
+interface WireFeedingWindowReadinessV1 {
+  eventId: string;
+  eventType: 'FeedingWindowReadiness';
+  timestamp: string;
+  tenantId: string;
+  version: number;
+  aggregateId?: string;
+  aggregateType?: string;
+  correlationId?: string;
+  causationId?: string;
+  userId?: string;
+  retryCount?: number;
+  schemaVersion: 'feeding-window-readiness/v1';
+  sourceWindowEventId: string;
+  windowStart: string;
+  windowEnd: string;
+  evaluatedAt: string;
+  batchIndex: number;
+  batchCount: number;
+  verdicts: WireFeedingWindowReadinessVerdictV1[];
+}
+
 const PRODUCER_TS_MIN_MS = 1_704_067_200_000; // 2024-01-01T00:00:00Z
 const PRODUCER_TS_MAX_MS = 4_102_444_800_000; // 2100-01-01T00:00:00Z
 
@@ -123,13 +154,84 @@ const SENSOR_METRIC_INGESTED_SCHEMA: JSONSchemaType<WireSensorMetricIngested> = 
   additionalProperties: false,
 } as JSONSchemaType<WireSensorMetricIngested>;
 
+const FEEDING_WINDOW_READINESS_SCHEMA: JSONSchemaType<WireFeedingWindowReadinessV1> = {
+  type: 'object',
+  properties: {
+    ...BASE_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'FeedingWindowReadiness' } as const,
+    schemaVersion: {
+      type: 'string',
+      const: 'feeding-window-readiness/v1',
+    } as const,
+    sourceWindowEventId: { type: 'string', pattern: UUID_PATTERN } as const,
+    windowStart: { type: 'string', format: 'date-time' } as const,
+    windowEnd: { type: 'string', format: 'date-time' } as const,
+    evaluatedAt: { type: 'string', format: 'date-time' } as const,
+    batchIndex: { type: 'integer', minimum: 0, maximum: 9999 } as const,
+    batchCount: { type: 'integer', minimum: 1, maximum: 10000 } as const,
+    verdicts: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 500,
+      items: {
+        type: 'object',
+        properties: {
+          unitId: { type: 'string', pattern: UUID_PATTERN } as const,
+          unitCode: { type: 'string', minLength: 1, maxLength: 64 } as const,
+          mealId: { type: 'string', pattern: UUID_PATTERN } as const,
+          dayPlanId: { type: 'string', pattern: UUID_PATTERN } as const,
+          scheduledAt: { type: 'string', format: 'date-time' } as const,
+          status: {
+            type: 'string',
+            enum: ['ready', 'low_oxygen', 'no_reading', 'not_instrumented'],
+          } as const,
+          minDissolvedOxygen: { type: 'number', minimum: 0, maximum: 20 } as const,
+          observedDissolvedOxygen: {
+            type: 'number',
+            minimum: 0,
+            maximum: 20,
+            nullable: true,
+          } as const,
+          observedAt: { type: 'string', format: 'date-time', nullable: true } as const,
+          lowOxygenReductionPercent: {
+            type: 'number',
+            minimum: 0,
+            maximum: 100,
+            nullable: true,
+          } as const,
+        },
+        required: [
+          'unitId',
+          'unitCode',
+          'mealId',
+          'dayPlanId',
+          'scheduledAt',
+          'status',
+          'minDissolvedOxygen',
+        ],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: [
+    ...BASE_EVENT_REQUIRED,
+    'schemaVersion',
+    'sourceWindowEventId',
+    'windowStart',
+    'windowEnd',
+    'evaluatedAt',
+    'batchIndex',
+    'batchCount',
+    'verdicts',
+  ],
+  additionalProperties: false,
+} as JSONSchemaType<WireFeedingWindowReadinessV1>;
+
 /**
- * Map of every sensor event type the validator knows about. Today
- * `SensorMetricIngested` is the only entry — the typed
- * `SensorReadingEvent` is published by the NestJS consumer AFTER it
- * has already passed the schema-equivalent shape check via
- * `createBaseEvent` + the typed interface, so it does not cross an
- * untrusted boundary the same way.
+ * Map of every sensor event type with a governed runtime wire contract.
+ * `FeedingWindowReadiness` crosses service boundaries and is persisted as a
+ * farm projection, so consumers validate the same contract instead of
+ * maintaining local envelope allowlists.
  *
  * Adding a new sensor event to this map is the workflow that wires
  * it into runtime validation; the validator dispatcher (`validator.ts`)
@@ -137,6 +239,7 @@ const SENSOR_METRIC_INGESTED_SCHEMA: JSONSchemaType<WireSensorMetricIngested> = 
  */
 export const SENSOR_EVENT_SCHEMAS = {
   SensorMetricIngested: SENSOR_METRIC_INGESTED_SCHEMA,
+  FeedingWindowReadiness: FEEDING_WINDOW_READINESS_SCHEMA,
 } as const;
 
 export type SensorEventType = keyof typeof SENSOR_EVENT_SCHEMAS;

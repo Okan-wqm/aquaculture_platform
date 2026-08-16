@@ -18,15 +18,15 @@ export { MortalityReason } from '../entities/tank-operation.enums';
 import { MortalityReason } from '../entities/tank-operation.enums';
 
 export interface RecordMortalityPayload {
-  tankId: string;                // Tank ID (hangi tank'ta)
-  quantity: number;              // Ölü sayısı
-  avgWeightG?: number;           // Ortalama ağırlık (gram)
+  tankId: string; // Tank ID (hangi tank'ta)
+  quantity?: number; // Ölü sayısı (yalnız-kg modunda türetilir)
+  avgWeightG?: number; // Ortalama ağırlık (gram)
   /** D-3 mod (b): tane+kg — verilen kg aynen düşer, kalan ortalama kayar. */
   biomassKg?: number;
-  reason: MortalityReason;       // Ölüm nedeni
-  detail?: string;               // Detaylı açıklama
-  observedAt: Date;              // Gözlem tarihi
-  observedBy?: string;           // Gözlemleyen kişi
+  reason: MortalityReason; // Ölüm nedeni
+  detail?: string; // Detaylı açıklama
+  observedAt: Date; // Gözlem tarihi
+  observedBy?: string; // Gözlemleyen kişi
   notes?: string;
 }
 

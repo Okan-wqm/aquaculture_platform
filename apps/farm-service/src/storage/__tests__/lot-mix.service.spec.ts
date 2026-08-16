@@ -33,21 +33,21 @@ interface MixRepoDouble {
   createQueryBuilder: jest.Mock;
 }
 
-interface ManagerDouble {
-  getRepository: jest.Mock;
-}
-
 function makeInventoryRows(
   rows: Array<Partial<StorageInventory>>,
 ): Array<Partial<StorageInventory>> {
   return rows;
 }
 
+function mock<T>(implementation: Partial<T>): T {
+  return implementation as T;
+}
+
 function makeDoubles(opts: { residentLots?: Array<Partial<StorageInventory>> }): {
   service: LotMixService;
   inventoryRepo: InventoryRepoDouble;
   mixRepo: MixRepoDouble;
-  manager: ManagerDouble;
+  manager: EntityManager;
 } {
   const inventoryRepo: InventoryRepoDouble = {
     find: jest.fn().mockResolvedValue(opts.residentLots ?? []),
@@ -62,13 +62,13 @@ function makeDoubles(opts: { residentLots?: Array<Partial<StorageInventory>> }):
     createQueryBuilder: jest.fn(),
   };
 
-  const manager: ManagerDouble = {
-    getRepository: jest.fn((entity: unknown) => {
-      if (entity === StorageInventory) return inventoryRepo;
-      if (entity === StorageLotMix) return mixRepo;
-      throw new Error(`unexpected repository request: ${String(entity)}`);
-    }),
-  };
+  const getRepository = jest.fn();
+  getRepository.mockImplementation((entity: unknown) => {
+    if (entity === StorageInventory) return inventoryRepo;
+    if (entity === StorageLotMix) return mixRepo;
+    throw new Error(`unexpected repository request: ${String(entity)}`);
+  });
+  const manager = mock<EntityManager>({ getRepository });
 
   return {
     service: new LotMixService(),
@@ -82,6 +82,7 @@ const TENANT = '11111111-1111-4111-8111-111111111111';
 const LOCATION = '22222222-2222-4222-8222-222222222222';
 const ITEM = '33333333-3333-4333-8333-333333333333';
 const USER = '44444444-4444-4444-8444-444444444444';
+const MIXED_AT = new Date('2026-08-08T12:30:00.000Z');
 
 describe('LotMixService.detect', () => {
   it('is a no-op when the incoming movement has no lotNumber', async () => {
@@ -94,7 +95,8 @@ describe('LotMixService.detect', () => {
       incomingLotNumber: null,
       incomingQuantityKg: 100,
       userId: USER,
-      manager: manager as unknown as EntityManager,
+      mixedAt: MIXED_AT,
+      manager,
     });
     expect(outcome.mixCreated).toBe(false);
     expect(outcome.mix).toBeNull();
@@ -112,7 +114,8 @@ describe('LotMixService.detect', () => {
       incomingLotNumber: 'LOT-A',
       incomingQuantityKg: 100,
       userId: USER,
-      manager: manager as unknown as EntityManager,
+      mixedAt: MIXED_AT,
+      manager,
     });
     expect(outcome.mixCreated).toBe(false);
     expect(mixRepo.create).not.toHaveBeenCalled();
@@ -130,7 +133,8 @@ describe('LotMixService.detect', () => {
       incomingLotNumber: 'LOT-A',
       incomingQuantityKg: 100,
       userId: USER,
-      manager: manager as unknown as EntityManager,
+      mixedAt: MIXED_AT,
+      manager,
     });
     expect(outcome.mixCreated).toBe(false);
     expect(mixRepo.create).not.toHaveBeenCalled();
@@ -148,7 +152,8 @@ describe('LotMixService.detect', () => {
       incomingLotNumber: 'LOT-A',
       incomingQuantityKg: 100,
       userId: USER,
-      manager: manager as unknown as EntityManager,
+      mixedAt: MIXED_AT,
+      manager,
     });
     expect(outcome.mixCreated).toBe(false);
     expect(mixRepo.create).not.toHaveBeenCalled();
@@ -167,7 +172,8 @@ describe('LotMixService.detect', () => {
       incomingQuantityKg: 75,
       manufacturer: 'Skretting',
       userId: USER,
-      manager: manager as unknown as EntityManager,
+      mixedAt: MIXED_AT,
+      manager,
     });
     expect(outcome.mixCreated).toBe(true);
     expect(outcome.effectiveLotNumber).toBe('MIX-LOT-NEW-LOT-OLD');
@@ -204,7 +210,8 @@ describe('LotMixService.detect', () => {
       incomingLotNumber: 'LOT-M',
       incomingQuantityKg: 30,
       userId: USER,
-      manager: manager as unknown as EntityManager,
+      mixedAt: MIXED_AT,
+      manager,
     });
     // Sorted composite: A, M, Z.
     expect(outcome.effectiveLotNumber).toBe('MIX-LOT-A-LOT-M-LOT-Z');
@@ -232,7 +239,8 @@ describe('LotMixService.detect', () => {
       incomingQuantityKg: 60,
       incomingExpiryDate: incomingExpiry,
       userId: USER,
-      manager: manager as unknown as EntityManager,
+      mixedAt: MIXED_AT,
+      manager,
     });
     const created = mixRepo.create.mock.calls[0][0] as {
       contributingLots: LotContribution[];

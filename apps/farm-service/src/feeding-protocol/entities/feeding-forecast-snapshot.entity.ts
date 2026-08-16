@@ -2,13 +2,13 @@
  * FeedingForecastSnapshot — materyalize tükenme-tahmini satırı (Faz 7, K-10).
  *
  * 07:00 cron'u (ve D-6 event-driven yenileme) MAKS ufukta (120 gün) hesaplar
- * ve `(tenantId, siteScopeKey)` unique anahtarı üzerinden upsert eder;
+ * ve immutable generation exact-set'i olarak yazar;
  * `protocolFeedForecast` sorgusu ile mobil `warehouseSummary` AYNI satırı
  * okur ve istenen ufka DİLİMLER — sorgu anında yeniden hesap yoktur
  * (belirlenebilir bayatlık: `computedAt` UI'da tazelik göstergesidir).
  *
- * `siteScopeKey`: site UUID'si; sitesiz (belgeli tenant-geneli fallback, D-9)
- * kapsam için sabit 'tenant'. jsonb kolonları plan §5'in grafik-hazır
+ * `siteScopeKey`: TENANT otoritesi için `tenant`, bilgi projeksiyonu için Site
+ * UUID'sidir; `poolScope` bu semantiği fail-closed taşır. jsonb kolonları grafik-hazır
  * serilerini taşır — bunlar SORGU sonucu değil ÇIKTI deposudur; tel şekli
  * Faz 7 GraphQL katmanında tipli DTO'larla açılır.
  *
@@ -23,6 +23,12 @@ import {
   VersionColumn,
   Index,
 } from 'typeorm';
+import type {
+  FeedingForecastAlertV1,
+  FeedingForecastBandPathV1,
+  FeedingForecastMortalityProvenanceV1,
+  FeedingForecastPoolScope,
+} from '@aquaculture/feeding-contracts';
 
 // ============================================================================
 // JSONB VALUE OBJECTS — plan §5 forecast çıktı şekilleri
@@ -60,29 +66,27 @@ export interface ForecastPerUnit {
   unitId: string;
   unitName: string;
   unitCode: string;
-  currentFeedId: string | null;
+  /** Day-zero feed selected before the simulation advances biomass. */
+  currentFeedId: FeedingForecastBandPathV1['currentFeedId'];
+  /** Feed selected at the end of the simulated horizon. */
+  terminalFeedId: FeedingForecastBandPathV1['terminalFeedId'];
   transitions: ForecastUnitTransition[];
 }
 
-export interface ForecastAlert {
-  type: 'STOCKOUT_FORECAST' | 'TRANSITION_COVERAGE_GAP' | 'REORDER_NOW';
-  feedId: string;
-  unitId?: string;
-  days: number;
-}
+export type ForecastAlert = FeedingForecastAlertV1;
 
-/** Ölüm projeksiyonu varsayımı — çıktıda AÇIKÇA işaretlenir (K-17). */
-export interface ForecastMortalityAssumption {
-  applied: boolean;
-  source: 'species_survival_rate' | 'none';
-}
+/** TENANT is the coverage authority; SITE is an informational transfer view. */
+export type ForecastPoolScope = FeedingForecastPoolScope;
+
+/** Exact, per-unit provenance; a global boolean cannot represent mixed pools. */
+export type ForecastMortalityAssumption = FeedingForecastMortalityProvenanceV1;
 
 // ============================================================================
 // ENTITY
 // ============================================================================
 
 @Entity('feeding_forecast_snapshots')
-@Index(['tenantId', 'siteScopeKey'], { unique: true })
+@Index(['tenantId', 'generationId', 'siteScopeKey'], { unique: true })
 @Index(['computedAt'])
 export class FeedingForecastSnapshot {
   @PrimaryGeneratedColumn('uuid')
@@ -92,9 +96,19 @@ export class FeedingForecastSnapshot {
   @Index()
   tenantId!: string;
 
-  /** Site UUID'si ya da belgeli tenant-geneli fallback için 'tenant' (D-9). */
+  /** Tenant authority key or informational Site UUID. */
   @Column({ length: 100 })
   siteScopeKey!: string;
+
+  /** Null is reserved for byte-preserved pre-generation quarantine rows. */
+  @Column({ type: 'varchar', length: 8, nullable: true })
+  poolScope!: ForecastPoolScope | null;
+
+  @Column('uuid')
+  generationId!: string;
+
+  @Column({ type: 'char', length: 64 })
+  payloadDigest!: string;
 
   /** Hesaplanan MAKS ufuk (120) — sorgular bunun altına dilimler (K-10). */
   @Column({ type: 'int' })

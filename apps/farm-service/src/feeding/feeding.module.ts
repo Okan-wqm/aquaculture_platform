@@ -44,8 +44,6 @@ import { FeedSelectorService } from './services/feed-selector.service';
 import { BilinearInterpolationService } from './services/bilinear-interpolation.service';
 import { GrowthSimulatorService } from './services/growth-simulator.service';
 import { FeedConsumptionForecastService } from './services/feed-consumption-forecast.service';
-import { FeedingProgramService } from './services/feeding-program.service';
-import { DailyFeedingExecutionService } from './services/daily-feeding-execution.service';
 import { FeedingLedgerService } from './services/feeding-ledger.service';
 import { WaterTemperatureService } from '../water-quality/services/water-temperature.service';
 // D-7 (plan-dışı yem bağlama): stateless motor yardımcıları doğrudan provider —
@@ -55,7 +53,6 @@ import { DayPlanRecalcService } from '../feeding-protocol/services/day-plan-reca
 import { BiomassGrowthApplierService } from '../feeding-protocol/services/biomass-growth-applier.service';
 
 // Handlers
-import { FeedingCommandHandlers } from './handlers';
 import { FeedingQueryHandlers } from './query-handlers';
 
 // Resolvers
@@ -66,8 +63,6 @@ import { FeedingResolvers } from './resolvers';
 // CreateFeedingRecordHandler. Imported here so the DI container
 // resolves the service for every feeding command handler.
 import { BackdatePolicyModule } from '../common/services/backdate-policy.module';
-// Phase 4.2: restoreFeedingProgram mutation delegates to RestoreService.
-import { RestoreModule } from '../common/services/restore.module';
 // Feed dual-SSoT write-path correctness (Phase A): the feeding write path
 // asserts the batch is feedable (BatchModule → BatchDomainService) and
 // deducts feed from the storage ledger inside the feeding transaction
@@ -80,6 +75,13 @@ import { InventoryModule } from '../storage/storage.module';
 // of a hardcoded literal. FinanceModule does not import FeedingModule,
 // so there is no DI cycle.
 import { FinanceModule } from '../finance/finance.module';
+import { CreateFeedingRecordOperationExecutor } from './executors/create-feeding-record-operation.executor';
+import { UpdateFeedingRecordOperationExecutor } from './executors/update-feeding-record-operation.executor';
+import { FeedingStorageCorrectionService } from './services/feeding-storage-correction.service';
+import {
+  FEEDING_AGGREGATE_MUTATION_PORT_PROVIDER,
+  FeedingAggregateMutationPort,
+} from '../feeding-protocol/feeding-aggregate-mutation.writer';
 
 @Module({
   imports: [
@@ -100,7 +102,6 @@ import { FinanceModule } from '../finance/finance.module';
       FarmMobileCommandReceipt,
     ]),
     BackdatePolicyModule,
-    RestoreModule,
     BatchModule,
     InventoryModule,
     FinanceModule,
@@ -112,8 +113,6 @@ import { FinanceModule } from '../finance/finance.module';
     BilinearInterpolationService,
     GrowthSimulatorService,
     FeedConsumptionForecastService,
-    FeedingProgramService,
-    DailyFeedingExecutionService,
     // TEK yem yazma yolu (P-05) — manuel handler + v2 motoru + drain-window
     // legacy execution kaydı aynı servise delege eder.
     FeedingLedgerService,
@@ -125,7 +124,10 @@ import { FinanceModule } from '../finance/finance.module';
     // SEC-HIGH-051 / SEC-HIGH-052: site authz SSoT + mobile-feature guard.
     SiteAuthorizationService,
     MobileFeatureGuard,
-    ...FeedingCommandHandlers,
+    CreateFeedingRecordOperationExecutor,
+    UpdateFeedingRecordOperationExecutor,
+    FeedingStorageCorrectionService,
+    FEEDING_AGGREGATE_MUTATION_PORT_PROVIDER,
     ...FeedingQueryHandlers,
     ...FeedingResolvers,
   ],
@@ -136,8 +138,11 @@ import { FinanceModule } from '../finance/finance.module';
     BilinearInterpolationService,
     GrowthSimulatorService,
     FeedConsumptionForecastService,
-    FeedingProgramService,
-    DailyFeedingExecutionService,
+    CreateFeedingRecordOperationExecutor,
+    UpdateFeedingRecordOperationExecutor,
+    FeedingStorageCorrectionService,
+    FeedingAggregateMutationPort,
+    MobileCommandReceiptService,
   ],
 })
 export class FeedingModule {}

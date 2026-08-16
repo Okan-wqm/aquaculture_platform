@@ -19,14 +19,7 @@ import {
   VersionColumn,
 } from 'typeorm';
 import { DecimalTransformer } from '@aquaculture/backend-common/database';
-import {
-  ObjectType,
-  Field,
-  ID,
-  Float,
-  Int,
-  registerEnumType,
-} from '@nestjs/graphql';
+import { ObjectType, Field, ID, Float, Int, registerEnumType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 import { Site } from '../../site/entities/site.entity';
 import { Department } from '../../department/entities/department.entity';
@@ -39,15 +32,15 @@ import { Department } from '../../department/entities/department.entity';
  * Sistem tipi
  */
 export enum SystemType {
-  RAS = 'ras',                       // Recirculating Aquaculture System
-  FLOW_THROUGH = 'flow_through',     // Akış geçişli sistem
-  POND = 'pond',                     // Havuz sistemi
-  CAGE = 'cage',                     // Kafes sistemi
-  RACEWAY = 'raceway',               // Kanal sistemi
-  HATCHERY = 'hatchery',             // Kuluçkahane sistemi
-  NURSERY = 'nursery',               // Fidanlık sistemi
-  BIOFLOC = 'biofloc',               // Biofloc sistemi
-  AQUAPONICS = 'aquaponics',         // Akuaponik sistem
+  RAS = 'ras', // Recirculating Aquaculture System
+  FLOW_THROUGH = 'flow_through', // Akış geçişli sistem
+  POND = 'pond', // Havuz sistemi
+  CAGE = 'cage', // Kafes sistemi
+  RACEWAY = 'raceway', // Kanal sistemi
+  HATCHERY = 'hatchery', // Kuluçkahane sistemi
+  NURSERY = 'nursery', // Fidanlık sistemi
+  BIOFLOC = 'biofloc', // Biofloc sistemi
+  AQUAPONICS = 'aquaponics', // Akuaponik sistem
   OTHER = 'other',
 }
 
@@ -60,10 +53,10 @@ registerEnumType(SystemType, {
  * Sistem durumu
  */
 export enum SystemStatus {
-  OPERATIONAL = 'operational',       // Çalışır
-  MAINTENANCE = 'maintenance',       // Bakımda
-  OFFLINE = 'offline',               // Devre dışı
-  CONSTRUCTION = 'construction',     // Yapım aşamasında
+  OPERATIONAL = 'operational', // Çalışır
+  MAINTENANCE = 'maintenance', // Bakımda
+  OFFLINE = 'offline', // Devre dışı
+  CONSTRUCTION = 'construction', // Yapım aşamasında
 }
 
 registerEnumType(SystemStatus, {
@@ -108,13 +101,13 @@ export class System {
   // DEPARTMENT İLİŞKİSİ
   // -------------------------------------------------------------------------
 
-  @Field({ nullable: true })
+  @Field(() => ID, { nullable: true })
   @Column('uuid', { nullable: true })
-  departmentId?: string;
+  departmentId!: string | null;
 
   @ManyToOne(() => Department, { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'departmentId' })
-  department?: Department;
+  department?: Department | null;
 
   // -------------------------------------------------------------------------
   // PARENT SYSTEM İLİŞKİSİ (Self-referencing)
@@ -147,7 +140,7 @@ export class System {
 
   @Field()
   @Column({ length: 20 })
-  code!: string;                        // "SYS-01", "RAS-A"
+  code!: string; // "SYS-01", "RAS-A"
 
   @Field(() => SystemType)
   @Column({
@@ -166,16 +159,28 @@ export class System {
   // -------------------------------------------------------------------------
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })
-  totalVolumeM3?: number;              // Toplam su hacmi (m³)
+  @Column({
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+    transformer: new DecimalTransformer(),
+  })
+  totalVolumeM3?: number; // Toplam su hacmi (m³)
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 12, scale: 2, nullable: true, transformer: new DecimalTransformer() })
-  maxBiomassKg?: number;               // Maksimum biyokütle (kg)
+  @Column({
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+    transformer: new DecimalTransformer(),
+  })
+  maxBiomassKg?: number; // Maksimum biyokütle (kg)
 
   @Field(() => Int, { nullable: true })
   @Column({ type: 'int', nullable: true })
-  tankCount?: number;                  // Tank sayısı
+  tankCount?: number; // Tank sayısı
 
   // -------------------------------------------------------------------------
   // DURUM

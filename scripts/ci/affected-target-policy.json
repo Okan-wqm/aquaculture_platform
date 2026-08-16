@@ -28,7 +28,6 @@
         "event-contracts": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
         "event-store-service": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
         "farm-module": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
-        "farm-service": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
         "gateway-api": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
         "hr-service": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
         "hydroponics-service": "CI run 26116890061: existing lint debt, unrelated to deploy/migration recovery.",
@@ -50,6 +49,10 @@
     "test:contract": {
       "knownUnstableProjects": {}
     },
+    "test:integration": {
+      "knownUnstableProjects": {},
+      "notes": "Strict. Integration targets own real database and tenant-boundary proofs; a failing suite must be fixed, never quarantined."
+    },
     "test": {
       "knownUnstableProjects": {
         "@aquaculture/hr-module": "CI run 26116890061: existing unit-test debt, unrelated to deploy/migration recovery.",
@@ -61,7 +64,6 @@
         "config-service": "CI run 26116890061: existing unit-test debt, unrelated to deploy/migration recovery.",
         "dashboard": "CI run 26116890061: existing unit-test debt, unrelated to deploy/migration recovery.",
         "farm-module": "CI run 26116890061: existing unit-test debt, unrelated to deploy/migration recovery.",
-        "farm-service": "CI run 26116890061: existing unit-test debt, unrelated to deploy/migration recovery.",
         "gateway-api": "CI run 26116890061: existing unit-test debt, unrelated to deploy/migration recovery.",
         "hr-service": "CI run 26116890061: existing unit-test debt, unrelated to deploy/migration recovery.",
         "messaging-service": "CI run 26116890061: project unit target is unstable; messaging release behavior is covered by the dedicated E2E Messaging workflow and migration gates.",

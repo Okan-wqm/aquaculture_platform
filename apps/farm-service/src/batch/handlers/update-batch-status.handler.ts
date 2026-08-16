@@ -22,6 +22,7 @@ import { DataSource } from 'typeorm';
 import { UpdateBatchStatusCommand } from '../commands/update-batch-status.command';
 import { Batch, BatchStatus } from '../entities/batch.entity';
 import { BatchLifecyclePolicyService } from '../services/batch-lifecycle-policy.service';
+import { BatchAggregateMutationPort } from '../batch-aggregate-mutation.port';
 
 @Injectable()
 @CommandHandler(UpdateBatchStatusCommand)
@@ -29,6 +30,7 @@ export class UpdateBatchStatusHandler implements ICommandHandler<UpdateBatchStat
   private readonly logger = new Logger(UpdateBatchStatusHandler.name);
 
   constructor(
+    private readonly batchMutations: BatchAggregateMutationPort,
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
@@ -38,67 +40,80 @@ export class UpdateBatchStatusHandler implements ICommandHandler<UpdateBatchStat
   async execute(command: UpdateBatchStatusCommand): Promise<Batch> {
     const { tenantId, batchId, newStatus, reason, updatedBy } = command;
 
-    const savedBatch = await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-      const batchRepo = tenantManagerRepo(queryRunner.manager, Batch, tenantId);
-      // Pessimistic lock: prevents concurrent status transitions racing through
-      // canTransitionTo() check before either commits (same pattern as CloseBatchHandler).
-      const batch = await batchRepo.findOne({
-        where: { id: batchId, tenantId, isActive: true },
-        lock: { mode: 'pessimistic_write' },
-      });
+    const savedBatch = await runInTenantTransaction(
+      this.dataSource,
+      'farm',
+      tenantId,
+      async (queryRunner, mutationSession) => {
+        const batchRepo = tenantManagerRepo(queryRunner.manager, Batch, tenantId);
+        // Pessimistic lock: prevents concurrent status transitions racing through
+        // canTransitionTo() check before either commits (same pattern as CloseBatchHandler).
+        const batch = await batchRepo.findOne({
+          where: { id: batchId, tenantId, isActive: true },
+          lock: { mode: 'pessimistic_write' },
+        });
 
-      if (!batch) {
-        throw new NotFoundException(`Batch ${batchId} bulunamadı`);
-      }
+        if (!batch) {
+          throw new NotFoundException(`Batch ${batchId} bulunamadı`);
+        }
 
-      this.lifecyclePolicy.assertCanTransitionStatus(batch, newStatus);
+        this.lifecyclePolicy.assertCanTransitionStatus(batch, newStatus);
 
-      const previousStatus = batch.status;
-      const statusChangedAt = new Date();
+        const previousStatus = batch.status;
+        const statusChangedAt = new Date();
 
-      batch.status = newStatus;
-      batch.statusChangedAt = statusChangedAt;
-      batch.statusReason = reason;
-      batch.updatedBy = updatedBy;
+        batch.status = newStatus;
+        batch.statusChangedAt = statusChangedAt;
+        batch.statusReason = reason;
+        batch.updatedBy = updatedBy;
 
-      switch (newStatus) {
-        case BatchStatus.HARVESTED:
-          if (!batch.actualHarvestDate) {
-            batch.actualHarvestDate = statusChangedAt;
-          }
-          // FARM-CRITICAL-050 (defense-in-depth): a terminal status retires the
-          // batch — converge the overloaded isActive soft-delete flag with the
-          // operational reality so any read that still filters on isActive:true
-          // stops surfacing a closed cycle. isOperational() remains the PRIMARY
-          // mortality/cull gate; this is make-it-automatic belt-and-braces.
-          batch.isActive = false;
-          break;
-        case BatchStatus.FAILED:
-        case BatchStatus.CLOSED:
-        case BatchStatus.TRANSFERRED:
-          batch.isActive = false;
-          break;
-        case BatchStatus.ACTIVE:
-          break;
-      }
+        switch (newStatus) {
+          case BatchStatus.HARVESTED:
+            if (!batch.actualHarvestDate) {
+              batch.actualHarvestDate = statusChangedAt;
+            }
+            // FARM-CRITICAL-050 (defense-in-depth): a terminal status retires the
+            // batch — converge the overloaded isActive soft-delete flag with the
+            // operational reality so any read that still filters on isActive:true
+            // stops surfacing a closed cycle. isOperational() remains the PRIMARY
+            // mortality/cull gate; this is make-it-automatic belt-and-braces.
+            batch.isActive = false;
+            break;
+          case BatchStatus.FAILED:
+          case BatchStatus.CLOSED:
+          case BatchStatus.TRANSFERRED:
+            batch.isActive = false;
+            break;
+          case BatchStatus.ACTIVE:
+            break;
+        }
 
-      const savedBatch = await batchRepo.save(batch);
+        const savedBatch = await this.batchMutations.commitBatchTransition(mutationSession, {
+          intent: 'batch_status_change',
+          aggregate: batch,
+        });
 
-      // Enqueue BatchStatusChangedEvent into the transactional outbox BEFORE commit.
-      const statusEvent: BatchStatusChangedEvent = {
-        ...createBaseEvent<BatchStatusChangedEvent>('BatchStatusChanged', tenantId, { aggregateId: savedBatch.id, aggregateType: 'Batch' }),
-        timestamp: statusChangedAt.toISOString(),
-        userId: updatedBy,
-        batchId: savedBatch.id,
-        previousStatus,
-        newStatus,
-        reason,
-      };
-      await this.outboxPublisher.enqueue(statusEvent, queryRunner.manager);
+        // Enqueue BatchStatusChangedEvent into the transactional outbox BEFORE commit.
+        const statusEvent: BatchStatusChangedEvent = {
+          ...createBaseEvent<BatchStatusChangedEvent>('BatchStatusChanged', tenantId, {
+            aggregateId: savedBatch.id,
+            aggregateType: 'Batch',
+          }),
+          timestamp: statusChangedAt.toISOString(),
+          userId: updatedBy,
+          batchId: savedBatch.id,
+          previousStatus,
+          newStatus,
+          reason,
+        };
+        await this.outboxPublisher.enqueue(statusEvent, queryRunner.manager);
 
-      this.logger.log(`Batch ${batchId} status: ${previousStatus} → ${newStatus}, tenant: ${tenantId}`);
-      return savedBatch;
-    });
+        this.logger.log(
+          `Batch ${batchId} status: ${previousStatus} → ${newStatus}, tenant: ${tenantId}`,
+        );
+        return savedBatch;
+      },
+    );
 
     return savedBatch;
   }

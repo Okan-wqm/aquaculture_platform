@@ -18,6 +18,7 @@ import { AlertSeverity } from '../../../database/entities/alert-rule.entity';
 import {
   AlertIncident,
   IncidentStatus,
+  TimelineEventType,
 } from '../../../database/entities/alert-incident.entity';
 import { EscalationManagerService } from '../../../escalation/escalation-manager.service';
 import {
@@ -40,6 +41,26 @@ function makeSpec(overrides: Partial<FarmSignalIncidentSpec> = {}): FarmSignalIn
     triggeredAt: TRIGGERED_AT,
     signalLabel: 'mortality',
     ...overrides,
+  };
+}
+
+function openIncident(severity: AlertSeverity): {
+  incident: AlertIncident;
+  recordOccurrence: jest.SpyInstance;
+  addTimelineEvent: jest.SpyInstance;
+} {
+  const incident = new AlertIncident();
+  incident.id = 'incident-existing';
+  incident.occurrenceCount = 1;
+  incident.status = IncidentStatus.NEW;
+  incident.severity = severity;
+  incident.description = 'opened seven days ago';
+  incident.triggerData = { historyId: 'history-1' };
+  incident.timeline = [];
+  return {
+    incident,
+    recordOccurrence: jest.spyOn(incident, 'recordOccurrence'),
+    addTimelineEvent: jest.spyOn(incident, 'addTimelineEvent'),
   };
 }
 
@@ -102,16 +123,7 @@ describe('FarmSignalIncidentService', () => {
   });
 
   it('bumps an existing open incident instead of creating a new one', async () => {
-    // Structurally-sufficient open-incident fixture: a single typed widening
-    // (not unsafe casts) — the service only reads status/occurrenceCount and
-    // calls recordOccurrence on it.
-    const recordOccurrence = jest.fn();
-    const existing = {
-      id: 'incident-existing',
-      occurrenceCount: 1,
-      status: IncidentStatus.NEW,
-      recordOccurrence,
-    } as Partial<AlertIncident> as AlertIncident;
+    const { incident: existing, recordOccurrence } = openIncident(AlertSeverity.CRITICAL);
     const { service, incidentRepo, escalation } = makeService({ existingIncident: existing });
 
     await service.ensureIncident(makeSpec());
@@ -121,6 +133,57 @@ describe('FarmSignalIncidentService', () => {
     expect(incidentRepo.save).toHaveBeenCalledWith(existing);
     expect(incidentRepo.create).not.toHaveBeenCalled();
     expect(escalation.startEscalation).not.toHaveBeenCalled();
+  });
+
+  it('promotes an open incident and re-runs escalation for a more severe occurrence', async () => {
+    const { incident: existing, addTimelineEvent } = openIncident(AlertSeverity.WARNING);
+    const { service, incidentRepo, escalation } = makeService({ existingIncident: existing });
+
+    await service.ensureIncident(
+      makeSpec({
+        severity: AlertSeverity.CRITICAL,
+        description: '2 days of cover remaining',
+        triggerData: { historyId: 'history-2', daysOfCover: 2 },
+      }),
+    );
+
+    expect(existing.severity).toBe(AlertSeverity.CRITICAL);
+    expect(existing.description).toBe('2 days of cover remaining');
+    expect(existing.triggerData).toEqual({ historyId: 'history-2', daysOfCover: 2 });
+    expect(addTimelineEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: TimelineEventType.ESCALATED,
+        data: { previousSeverity: AlertSeverity.WARNING, severity: AlertSeverity.CRITICAL },
+      }),
+    );
+    expect(incidentRepo.create).not.toHaveBeenCalled();
+    expect(escalation.startEscalation).toHaveBeenCalledWith(
+      existing,
+      AlertSeverity.CRITICAL,
+      RULE_ID,
+    );
+  });
+
+  it('does not de-escalate or re-page on a less severe occurrence', async () => {
+    const { incident: existing, addTimelineEvent } = openIncident(AlertSeverity.CRITICAL);
+    const { service, escalation } = makeService({ existingIncident: existing });
+
+    await service.ensureIncident(makeSpec({ severity: AlertSeverity.WARNING }));
+
+    expect(existing.severity).toBe(AlertSeverity.CRITICAL);
+    expect(addTimelineEvent).not.toHaveBeenCalled();
+    expect(escalation.startEscalation).not.toHaveBeenCalled();
+  });
+
+  it('keeps the promoted incident write when escalation delivery rejects', async () => {
+    const { incident: existing } = openIncident(AlertSeverity.WARNING);
+    const { service, incidentRepo, escalation } = makeService({ existingIncident: existing });
+    escalation.startEscalation.mockRejectedValueOnce(new Error('policy service down'));
+
+    await expect(
+      service.ensureIncident(makeSpec({ severity: AlertSeverity.CRITICAL })),
+    ).resolves.toBeUndefined();
+    expect(incidentRepo.save).toHaveBeenCalledWith(existing);
   });
 
   it('does not fail the incident write when escalation rejects (non-blocking)', async () => {

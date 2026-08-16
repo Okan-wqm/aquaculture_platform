@@ -23,6 +23,7 @@ import { UpdateBatchWeightFromSampleCommand } from '../../commands/update-batch-
 import { GrowthMeasurement } from '../../entities/growth-measurement.entity';
 import { Batch } from '../../../batch/entities/batch.entity';
 import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
+import { RecordingBatchAggregateMutationPort } from '../../../__tests__/support/durable-mutation-test-authority';
 
 const TENANT_UUID = '11111111-1111-4111-8111-111111111111';
 const BATCH_ID = 'batch-1';
@@ -120,6 +121,7 @@ function makeHarness(opts: HarnessOpts = {}) {
   measurementRepository.findOne.mockResolvedValue(measurement as GrowthMeasurement | null);
 
   const handler = new UpdateBatchWeightFromSampleHandler(
+    new RecordingBatchAggregateMutationPort(mockManager),
     dataSource as DataSource,
     measurementRepository,
   );

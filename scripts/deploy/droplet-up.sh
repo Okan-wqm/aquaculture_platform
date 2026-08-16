@@ -63,7 +63,9 @@ fi
 # shellcheck source=infrastructure/deploy/service-catalog.deploy.vars
 . "${CATALOG_DEPLOY_ENV}"
 APPLICATION_IMAGE_SERVICES="${CATALOG_APPLICATION_IMAGE_SERVICES:?generated application image services missing}"
-SERVICE_DB_ROLES="${CATALOG_SERVICE_DB_ROLE_PREFIXES:?generated service DB role prefixes missing}"
+DATABASE_LOGIN_SECRET_ENVS="${CATALOG_DATABASE_LOGIN_SECRET_ENVS:?generated database login secret envs missing}"
+read -r -a READINESS_SERVICE_SPECS <<< \
+  "${CATALOG_READINESS_SERVICES:?generated readiness service list missing}"
 
 if [ -n "${DEPLOY_IMAGE_DIGESTS_B64:-}" ]; then
   printf '%s' "${DEPLOY_IMAGE_DIGESTS_B64}" | base64 -d > "${DEPLOY_IMAGE_DIGESTS_FILE}"
@@ -105,8 +107,8 @@ esac
 # generate_credential loop provisions those passwords from the generated
 # platform service catalog deploy artifact.
 #
-# Adding a new service-role requires a catalog runtime dbRole; this script
-# must not carry a hand-written duplicate list.
+# Adding a login principal requires a catalog runtime dbRole or bounded
+# auxiliaryDatabasePrincipal; this script carries no hand-written role list.
 #
 # 2026-05-19: AI, OBSERVABILITY, EVENT_STORE, CONFIG appended after the
 # 2026-05-18 cutover deploy 26082203809 aborted at:
@@ -114,8 +116,8 @@ esac
 #   vars are missing or empty: AI_SERVICE_DB_PASS, OBSERVABILITY_SERVICE_DB_PASS,
 #   EVENT_STORE_SERVICE_DB_PASS, CONFIG_SERVICE_DB_PASS.
 #
-# The full-deploy and selective-deploy paths both consume SERVICE_DB_ROLES,
-# which is derived from CATALOG_SERVICE_DB_ROLE_PREFIXES above.
+# Every deploy path consumes DATABASE_LOGIN_SECRET_ENVS, generated from the
+# same principal catalog used by database bootstrap.
 # ──────────────────────────────────────────────────────────────────────────
 read_env_file_value() {
   local name="$1"
@@ -826,6 +828,7 @@ rollback_and_record() {
 check_ready_endpoint() {
   local svc="$1"
   local port="$2"
+  local path="$3"
   local container_id
 
   container_id=$(docker compose -f docker-compose.droplet.yml ps -q "$svc" 2>/dev/null || true)
@@ -834,25 +837,27 @@ check_ready_endpoint() {
     return 1
   fi
 
-  docker exec "${container_id}" curl -sf "http://localhost:${port}/health/ready" >/dev/null
+  docker exec "${container_id}" curl -sf "http://localhost:${port}${path}" >/dev/null
 }
 
 run_readiness_sweep() {
-  echo "=== /health/ready sweep for critical services ==="
+  echo "=== Catalog-owned readiness sweep ==="
   local failures=0
 
-  for spec in \
-    "gateway-api:3000" \
-    "auth-service:3000" \
-    "farm-service:3000" \
-    "sensor-service:3000" \
-    "messaging-service:3000"; do
-    local svc="${spec%%:*}"
-    local port="${spec##*:}"
-    if check_ready_endpoint "${svc}" "${port}"; then
+  for spec in "${READINESS_SERVICE_SPECS[@]}"; do
+    local svc
+    local port
+    local path
+    IFS=: read -r svc port path <<< "${spec}"
+    if [ -z "${svc}" ] || [ -z "${port}" ] || [ -z "${path}" ]; then
+      echo "::error::Invalid generated readiness coordinate: ${spec}"
+      failures=$((failures + 1))
+      continue
+    fi
+    if check_ready_endpoint "${svc}" "${port}" "${path}"; then
       echo "  ${svc}: ready"
     else
-      echo "::error::${svc}: /health/ready failed"
+      echo "::error::${svc}: ${path} failed"
       failures=$((failures + 1))
     fi
   done
@@ -996,8 +1001,8 @@ fi
 # Phase A2 — docker-compose interpolation valid
 echo "=== Pre-flight: generated service DB credentials ==="
 ENV_FILE="${DEPLOY_ENV_FILE}"
-for SVC in ${SERVICE_DB_ROLES}; do
-  generate_credential "${SVC}_SERVICE_DB_PASS" "${ENV_FILE}"
+for SECRET_ENV in ${DATABASE_LOGIN_SECRET_ENVS}; do
+  generate_credential "${SECRET_ENV}" "${ENV_FILE}"
 done
 
 # Phase A2a — ensure required secrets exist in .env BEFORE interpolation.
@@ -1219,10 +1224,9 @@ if [ "$FULL_DEPLOY" = "true" ]; then
     generate_credential "NATS_${SVC}_SVC_PASS"
   done
 
-  # PostgreSQL per-service role passwords
-  # SSoT: SERVICE_DB_ROLES is generated from the platform service catalog.
-  for SVC in ${SERVICE_DB_ROLES}; do
-    generate_credential "${SVC}_SERVICE_DB_PASS"
+  # PostgreSQL login-principal passwords; generated from the platform catalog.
+  for SECRET_ENV in ${DATABASE_LOGIN_SECRET_ENVS}; do
+    generate_credential "${SECRET_ENV}"
   done
 
   # Application secrets
@@ -1375,9 +1379,9 @@ else
     generate_credential "NATS_${SVC}_SVC_USER"
     generate_credential "NATS_${SVC}_SVC_PASS"
   done
-  # SSoT: SERVICE_DB_ROLES is generated from the platform service catalog.
-  for SVC in ${SERVICE_DB_ROLES}; do
-    generate_credential "${SVC}_SERVICE_DB_PASS"
+  # SSoT: login-principal secret names are generated from the platform catalog.
+  for SECRET_ENV in ${DATABASE_LOGIN_SECRET_ENVS}; do
+    generate_credential "${SECRET_ENV}"
   done
 
   # Application secrets

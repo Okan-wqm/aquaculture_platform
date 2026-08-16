@@ -58,7 +58,7 @@ trap 'rm -rf "${SNAPSHOT_DIR}"' EXIT
 # Schema files referenced in codegen.ts (ADR-013 scope: 8 services)
 # These must match the 'schema' array in codegen.ts exactly.
 SCHEMA_FILES=(
-  "apps/farm-service/schema.graphql"
+  "dist/graphql/subgraphs/farm.graphql"
   "apps/sensor-service/schema.graphql"
   "apps/hr-service/schema.graphql"
   "apps/auth-service/schema.graphql"

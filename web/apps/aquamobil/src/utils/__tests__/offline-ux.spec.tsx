@@ -52,7 +52,7 @@ describe('optimistic KPI bumps (MOB-LOW-011)', () => {
     expect(queryClient.getQueryData(key)).toMatchObject({ mortalityCount: 3, wqReadingsCount: 1 });
   });
 
-  it('bumps WQ readings and feeding-completed for their operations', () => {
+  it('bumps WQ readings and finalized-meal feeding-completed counts', () => {
     const key = ['tenant', TENANT, 'dailyOpsCounts', TENANT];
     queryClient.setQueryData(key, {
       mortalityCount: 0,
@@ -62,7 +62,11 @@ describe('optimistic KPI bumps (MOB-LOW-011)', () => {
     });
 
     applyOptimisticKpiBump(queryClient, TENANT, 'createWaterQuality');
-    applyOptimisticKpiBump(queryClient, TENANT, 'recordFeeding');
+    applyOptimisticKpiBump(queryClient, TENANT, 'recordMealFeeding', {
+      mealId: 'meal-1',
+      pourKg: 2,
+      finalize: true,
+    });
 
     expect(queryClient.getQueryData(key)).toMatchObject({
       wqReadingsCount: 2,

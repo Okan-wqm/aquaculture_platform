@@ -49,7 +49,11 @@ describe('FCRCalculationService', () => {
       initialQuantity,
       currentQuantity,
       weight: {
-        initial: { avgWeight: initialAvgWeightG, totalBiomass: params.startBiomassKg, measuredAt: new Date() },
+        initial: {
+          avgWeight: initialAvgWeightG,
+          totalBiomass: params.startBiomassKg,
+          measuredAt: new Date(),
+        },
         theoretical: { avgWeight: 0, totalBiomass: 0, lastCalculatedAt: new Date(), basedOnFCR: 0 },
         actual: {
           avgWeight: actualAvgWeightG,
@@ -71,12 +75,14 @@ describe('FCRCalculationService', () => {
   const mockGrowthMeasurementRepository = {
     find: jest.fn(),
     createQueryBuilder: jest.fn(),
+    manager: { query: jest.fn() },
   };
 
   // getTargetFCR v2 zinciri (P-14) ham SQL'i repository.manager.query üzerinden
   // atar — varsayılan boş sonuç: v2 ataması yok, zincir legacy dallara düşer.
   const mockManagerQuery = jest.fn();
   const mockBatchRepository = {
+    find: jest.fn(),
     findOne: jest.fn(),
     manager: { query: mockManagerQuery },
   };
@@ -106,6 +112,7 @@ describe('FCRCalculationService', () => {
     select: jest.fn().mockReturnThis(),
     orderBy: jest.fn().mockReturnThis(),
     getRawOne: jest.fn(),
+    getMany: jest.fn(),
     getOne: jest.fn(),
   };
 
@@ -177,6 +184,7 @@ describe('FCRCalculationService', () => {
     mockTankOperationRepository.createQueryBuilder.mockReturnValue(mockLedgerQueryBuilder);
     mockLedgerQueryBuilder.getRawOne.mockResolvedValue({ netRemovedKg: 0 });
     mockManagerQuery.mockResolvedValue([]);
+    mockGrowthMeasurementRepository.manager.query.mockResolvedValue([]);
   });
 
   describe('calculatePeriodFCR', () => {
@@ -195,7 +203,7 @@ describe('FCRCalculationService', () => {
 
     it('should calculate FCR correctly for valid data', async () => {
       // Feeding records: total 150kg feed
-      mockFeedingRecordRepository.find.mockResolvedValue([
+      mockQueryBuilder.getMany.mockResolvedValue([
         { id: '1', actualAmount: 50 },
         { id: '2', actualAmount: 50 },
         { id: '3', actualAmount: 50 },
@@ -222,7 +230,7 @@ describe('FCRCalculationService', () => {
     });
 
     it('should return warning when less than 2 measurements', async () => {
-      mockFeedingRecordRepository.find.mockResolvedValue([{ id: '1', actualAmount: 50 }]);
+      mockQueryBuilder.getMany.mockResolvedValue([{ id: '1', actualAmount: 50 }]);
 
       mockGrowthMeasurementRepository.find.mockResolvedValue([
         { id: '1', estimatedBiomass: 1000, measurementDate: startDate },
@@ -235,7 +243,7 @@ describe('FCRCalculationService', () => {
     });
 
     it('should return warning for negative or zero growth', async () => {
-      mockFeedingRecordRepository.find.mockResolvedValue([{ id: '1', actualAmount: 50 }]);
+      mockQueryBuilder.getMany.mockResolvedValue([{ id: '1', actualAmount: 50 }]);
 
       // No growth - same biomass
       mockGrowthMeasurementRepository.find.mockResolvedValue([
@@ -251,7 +259,7 @@ describe('FCRCalculationService', () => {
 
     it('should warn for abnormally high FCR', async () => {
       // 510kg feed for 100kg growth = FCR 5.1
-      mockFeedingRecordRepository.find.mockResolvedValue([{ id: '1', actualAmount: 510 }]);
+      mockQueryBuilder.getMany.mockResolvedValue([{ id: '1', actualAmount: 510 }]);
 
       mockGrowthMeasurementRepository.find.mockResolvedValue([
         { id: '1', estimatedBiomass: 1000, measurementDate: startDate },
@@ -271,7 +279,7 @@ describe('FCRCalculationService', () => {
 
     it('should warn for abnormally low FCR', async () => {
       // 40kg feed for 100kg growth = FCR 0.4
-      mockFeedingRecordRepository.find.mockResolvedValue([{ id: '1', actualAmount: 40 }]);
+      mockQueryBuilder.getMany.mockResolvedValue([{ id: '1', actualAmount: 40 }]);
 
       mockGrowthMeasurementRepository.find.mockResolvedValue([
         { id: '1', estimatedBiomass: 1000, measurementDate: startDate },
@@ -290,7 +298,7 @@ describe('FCRCalculationService', () => {
     });
 
     it('should include FCR analysis in result', async () => {
-      mockFeedingRecordRepository.find.mockResolvedValue([{ id: '1', actualAmount: 150 }]);
+      mockQueryBuilder.getMany.mockResolvedValue([{ id: '1', actualAmount: 150 }]);
 
       mockGrowthMeasurementRepository.find.mockResolvedValue([
         { id: '1', estimatedBiomass: 1000, measurementDate: startDate },
@@ -421,10 +429,9 @@ describe('FCRCalculationService', () => {
 
       await service.calculateCumulativeFCR(batchId, tenantId, endDate);
 
-      expect(mockLedgerQueryBuilder.andWhere).toHaveBeenCalledWith(
-        'op.operationDate <= :endDate',
-        { endDate },
-      );
+      expect(mockLedgerQueryBuilder.andWhere).toHaveBeenCalledWith('op.operationDate <= :endDate', {
+        endDate,
+      });
     });
   });
 
@@ -432,11 +439,16 @@ describe('FCRCalculationService', () => {
     const tenantId = 'tenant-123';
     const batchId = 'batch-456';
 
+    const trendRows = (
+      analyses: Array<{ periodFCR: number; cumulativeFCR?: number }>,
+    ): void => {
+      mockGrowthMeasurementRepository.manager.query.mockResolvedValue(
+        analyses.map((fcrAnalysis) => ({ batchId, fcrAnalysis })),
+      );
+    };
+
     it('should return stable trend when insufficient data', async () => {
-      mockGrowthMeasurementRepository.find.mockResolvedValue([
-        { id: '1', fcrAnalysis: { periodFCR: 1.5 } },
-        { id: '2', fcrAnalysis: { periodFCR: 1.4 } },
-      ]);
+      trendRows([{ periodFCR: 1.5 }, { periodFCR: 1.4 }]);
 
       const result = await service.analyzeFCRTrend(batchId, tenantId);
 
@@ -445,27 +457,12 @@ describe('FCRCalculationService', () => {
     });
 
     it('should detect improving trend (decreasing FCR)', async () => {
-      mockGrowthMeasurementRepository.find.mockResolvedValue([
-        {
-          id: '1',
-          fcrAnalysis: { periodFCR: 1.8, cumulativeFCR: 1.8 },
-          measurementDate: new Date('2024-01-01'),
-        },
-        {
-          id: '2',
-          fcrAnalysis: { periodFCR: 1.6, cumulativeFCR: 1.7 },
-          measurementDate: new Date('2024-01-08'),
-        },
-        {
-          id: '3',
-          fcrAnalysis: { periodFCR: 1.4, cumulativeFCR: 1.6 },
-          measurementDate: new Date('2024-01-15'),
-        },
-        {
-          id: '4',
-          fcrAnalysis: { periodFCR: 1.2, cumulativeFCR: 1.5 },
-          measurementDate: new Date('2024-01-22'),
-        },
+      // Query contract is newest-first (rn=1 first).
+      trendRows([
+        { periodFCR: 1.2, cumulativeFCR: 1.5 },
+        { periodFCR: 1.4, cumulativeFCR: 1.6 },
+        { periodFCR: 1.6, cumulativeFCR: 1.7 },
+        { periodFCR: 1.8, cumulativeFCR: 1.8 },
       ]);
 
       const result = await service.analyzeFCRTrend(batchId, tenantId);
@@ -475,27 +472,11 @@ describe('FCRCalculationService', () => {
     });
 
     it('should detect declining trend (increasing FCR)', async () => {
-      mockGrowthMeasurementRepository.find.mockResolvedValue([
-        {
-          id: '1',
-          fcrAnalysis: { periodFCR: 1.2, cumulativeFCR: 1.2 },
-          measurementDate: new Date('2024-01-01'),
-        },
-        {
-          id: '2',
-          fcrAnalysis: { periodFCR: 1.4, cumulativeFCR: 1.3 },
-          measurementDate: new Date('2024-01-08'),
-        },
-        {
-          id: '3',
-          fcrAnalysis: { periodFCR: 1.6, cumulativeFCR: 1.4 },
-          measurementDate: new Date('2024-01-15'),
-        },
-        {
-          id: '4',
-          fcrAnalysis: { periodFCR: 1.8, cumulativeFCR: 1.5 },
-          measurementDate: new Date('2024-01-22'),
-        },
+      trendRows([
+        { periodFCR: 1.8, cumulativeFCR: 1.5 },
+        { periodFCR: 1.6, cumulativeFCR: 1.4 },
+        { periodFCR: 1.4, cumulativeFCR: 1.3 },
+        { periodFCR: 1.2, cumulativeFCR: 1.2 },
       ]);
 
       const result = await service.analyzeFCRTrend(batchId, tenantId);
@@ -505,11 +486,11 @@ describe('FCRCalculationService', () => {
     });
 
     it('should include recommendations for declining trend', async () => {
-      mockGrowthMeasurementRepository.find.mockResolvedValue([
-        { id: '1', fcrAnalysis: { periodFCR: 1.2 }, measurementDate: new Date('2024-01-01') },
-        { id: '2', fcrAnalysis: { periodFCR: 1.5 }, measurementDate: new Date('2024-01-08') },
-        { id: '3', fcrAnalysis: { periodFCR: 1.8 }, measurementDate: new Date('2024-01-15') },
-        { id: '4', fcrAnalysis: { periodFCR: 2.1 }, measurementDate: new Date('2024-01-22') },
+      trendRows([
+        { periodFCR: 2.1 },
+        { periodFCR: 1.8 },
+        { periodFCR: 1.5 },
+        { periodFCR: 1.2 },
       ]);
 
       const result = await service.analyzeFCRTrend(batchId, tenantId);
@@ -686,18 +667,16 @@ describe('FCRCalculationService', () => {
     });
 
     it('fcrSource=feed protokolde band yeminin FCR matrisi ağırlık ekseninde interpolasyonla çözülür', async () => {
-      mockManagerQuery
-        .mockResolvedValueOnce([v2Row({ fcrSource: 'feed' })])
-        .mockResolvedValueOnce([
-          {
-            matrix: {
-              temperatures: [10],
-              weights: [100, 200],
-              rates: [[2.5, 2.0]],
-              fcrMatrix: [[1.0, 1.4]],
-            },
+      mockManagerQuery.mockResolvedValueOnce([v2Row({ fcrSource: 'feed' })]).mockResolvedValueOnce([
+        {
+          matrix: {
+            temperatures: [10],
+            weights: [100, 200],
+            rates: [[2.5, 2.0]],
+            fcrMatrix: [[1.0, 1.4]],
           },
-        ]);
+        },
+      ]);
 
       const result = await service.compareFCR(batchId, tenantId);
 
@@ -719,6 +698,44 @@ describe('FCRCalculationService', () => {
 
       expect(mockManagerQuery).toHaveBeenCalledTimes(1);
       expect(result.targetFCR).toBe(1.35);
+    });
+
+    it('bulk target projection keeps every fallback leg bounded and reuses one resolver', async () => {
+      const batchIds = ['batch-a', 'batch-b', 'batch-c'];
+      mockBatchRepository.find.mockResolvedValue(
+        batchIds.map((id) =>
+          Object.assign(makeBatch({ currentBiomassKg: 1200, startBiomassKg: 1000 }), {
+            id,
+            tenantId,
+            species: undefined,
+            speciesId: 'species-1',
+          }),
+        ),
+      );
+      mockManagerQuery
+        // No active v2 assignment: all three continue through the same resolver.
+        .mockResolvedValueOnce([])
+        // One bounded legacy projection; only batch-b has a program table.
+        .mockResolvedValueOnce([
+          {
+            batchId: 'batch-b',
+            fcrTable: {
+              temperatures: [10],
+              weights: [100, 200],
+              fcrValues: [[1.1, 1.5]],
+            },
+          },
+        ]);
+
+      const targets = await service.getTargetFCRForBatches(tenantId, batchIds);
+
+      expect(targets.get('batch-b')).toBeCloseTo(1.18, 10);
+      expect(targets.get('batch-a')).toBe(1.5);
+      expect(targets.get('batch-c')).toBe(1.5);
+      expect(mockBatchLocationRepository.findOne).not.toHaveBeenCalled();
+      expect(mockFeedingProgramTankRepository.findOne).not.toHaveBeenCalled();
+      expect(mockSpeciesRepository.findOne).not.toHaveBeenCalled();
+      expect(mockManagerQuery).toHaveBeenCalledTimes(2);
     });
 
     it('kullanıcı override (batch.fcr.target) her şeyden önce gelir — v2 sorgusu atılmaz', async () => {

@@ -367,7 +367,7 @@ export class FeedSelectorService {
     const protocolRows = await this.assignmentRepo.query(
       `SELECT "id", "name", "feedId", "growthStageProtocols", "temperatureRanges"
          FROM "${schemaName}".feeding_protocols
-        WHERE "id" = $1 AND "tenantId" = $2 AND "isActive" = true AND "isDeleted" = false
+        WHERE "id" = $1 AND "tenantId" = $2 AND "isActive" = true
         LIMIT 1`,
       [protocolId, tenantId],
     );

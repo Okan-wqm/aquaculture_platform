@@ -23,6 +23,8 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, QueryRunner } from 'typeorm';
+
+import { round2 } from '../../common/utils/rounding.util';
 import { runInTenantRead } from '@aquaculture/backend-common/database';
 
 import { FarmDomainMetricsService } from '../../common/metrics/farm-domain-metrics.service';
@@ -91,10 +93,6 @@ interface ManualPeriodRow {
   minC: string | number | null;
   maxC: string | number | null;
   coverageDays: string | number | null;
-}
-
-function round2(value: number): number {
-  return Math.round(value * 100) / 100;
 }
 
 /**
@@ -295,10 +293,7 @@ export class WaterTemperatureService {
    * yarışı değil KESİN öncelik + tazelik kapısıdır — atanmış ama bayat bir
    * sensör, dünkü taze manuel girişi gölgeleyemez.
    */
-  async getEffectiveTemperature(
-    tenantId: string,
-    unitId: string,
-  ): Promise<EffectiveTemperature> {
+  async getEffectiveTemperature(tenantId: string, unitId: string): Promise<EffectiveTemperature> {
     const map = await this.getEffectiveTemperaturesForUnits(tenantId, [unitId]);
     return map.get(unitId) ?? { celsius: null, source: 'none' };
   }
@@ -321,9 +316,14 @@ export class WaterTemperatureService {
     }
 
     await runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-      const sensorRows = await this.readSourceIsolated(queryRunner, 'sensor', tenantId, 'bulk', () =>
-        queryRunner.manager.query(
-          `SELECT DISTINCT ON (u."unitId")
+      const sensorRows = await this.readSourceIsolated(
+        queryRunner,
+        'sensor',
+        tenantId,
+        'bulk',
+        () =>
+          queryRunner.manager.query(
+            `SELECT DISTINCT ON (u."unitId")
                   u."unitId"        AS "unitId",
                   stl."temperatureC" AS celsius,
                   stl."measuredAt"   AS "measuredAt",
@@ -340,8 +340,8 @@ export class WaterTemperatureService {
             WHERE u."temperatureSensorId" IS NOT NULL
               AND stl."measuredAt" >= now() - ($3 || ' hours')::interval
             ORDER BY u."unitId", stl."measuredAt" DESC`,
-          [unitIds, tenantId, String(SENSOR_FRESHNESS_HOURS)],
-        ) as Promise<Array<DatedTemperatureRow & { unitId: string }>>,
+            [unitIds, tenantId, String(SENSOR_FRESHNESS_HOURS)],
+          ) as Promise<Array<DatedTemperatureRow & { unitId: string }>>,
       );
       for (const row of sensorRows ?? []) {
         const dated = WaterTemperatureService.toDatedTemperature(row);
@@ -358,9 +358,14 @@ export class WaterTemperatureService {
       const unresolved = unitIds.filter((id) => result.get(id)?.source === 'none');
       if (unresolved.length === 0) return null;
 
-      const manualRows = await this.readSourceIsolated(queryRunner, 'manual', tenantId, 'bulk', () =>
-        queryRunner.manager.query(
-          `SELECT DISTINCT ON (m."unitId")
+      const manualRows = await this.readSourceIsolated(
+        queryRunner,
+        'manual',
+        tenantId,
+        'bulk',
+        () =>
+          queryRunner.manager.query(
+            `SELECT DISTINCT ON (m."unitId")
                   m."unitId"    AS "unitId",
                   m."temperature" AS celsius,
                   m."measuredAt"  AS "measuredAt"
@@ -374,8 +379,8 @@ export class WaterTemperatureService {
                   AND "measuredAt" >= now() - ($3 || ' hours')::interval
              ) m
             ORDER BY m."unitId", m."measuredAt" DESC`,
-          [unresolved, tenantId, String(MANUAL_FRESHNESS_HOURS)],
-        ) as Promise<Array<DatedTemperatureRow & { unitId: string }>>,
+            [unresolved, tenantId, String(MANUAL_FRESHNESS_HOURS)],
+          ) as Promise<Array<DatedTemperatureRow & { unitId: string }>>,
       );
       for (const row of manualRows ?? []) {
         const dated = WaterTemperatureService.toDatedTemperature(row);

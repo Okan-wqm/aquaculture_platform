@@ -142,16 +142,10 @@ export function createRlsConnectionBootstrap(serviceName: string): Type<OnModule
       // in libs/backend-common/src/database/pg-pool-from-data-source.util.ts.
       // Sister bootstrap (TenantConnectionBootstrap) uses the
       // same util — both stay in lockstep automatically.
-      const pool = getPgPoolFromDataSource(this.dataSource);
-      if (!pool) {
-        const message =
-          'Cannot patch connection pool — pg Pool not found on DataSource driver. ' +
-          'RLS GUC propagation is INACTIVE, so this service cannot start safely. ' +
-          'REMEDIATION: configure TypeOrmModule with an initialized PostgreSQL ' +
-          'DataSource or register RlsModule.forBypassOnly for a pool-less service.';
-        this.logger.error(message);
-        throw new Error(message);
-      }
+      const pool = getPgPoolFromDataSource(
+        this.dataSource,
+        `RlsConnectionBootstrap[${serviceName}]`,
+      );
 
       const originalConnect = pool.connect.bind(pool);
       const logger = this.logger;

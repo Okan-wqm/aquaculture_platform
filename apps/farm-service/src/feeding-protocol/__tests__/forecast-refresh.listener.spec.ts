@@ -3,53 +3,72 @@
  * aynı tenant'ın olay patlaması TEK yeniden hesapta birleşir, feed-dışı ve
  * out/waste stok hareketleri tetiklemez, geçersiz tenant fail-closed.
  */
-import type { BaseEvent } from '@platform/event-contracts';
+import { createBaseEvent, type BaseEvent } from '@platform/event-contracts';
+import type { DataSource } from 'typeorm';
 
 import {
   FORECAST_REFRESH_DEBOUNCE_MS,
   ForecastRefreshListener,
 } from '../listeners/forecast-refresh.listener';
-import { ProtocolFeedForecastService } from '../services/protocol-feed-forecast.service';
+import type { FeedingOperationCommandPort } from '../feeding-operation-command.port';
 
 const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const SITE = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
-/** Tek-cast mock köprüsü (feeding-cron-v2 spec ailesiyle aynı desen). */
+/** Tek-cast mock köprüsü (scheduled operation spec ailesiyle aynı desen). */
 function mock<T>(impl: Partial<T>): T {
   return impl as T;
 }
 
 function event(overrides: Partial<BaseEvent> & Record<string, unknown>): BaseEvent {
-  return { eventType: 'FeedTypeTransitioned', tenantId: TENANT, ...overrides } as BaseEvent;
+  return Object.assign(
+    createBaseEvent('FeedingProtocolAssigned', TENANT, {
+      aggregateId: SITE,
+      aggregateType: 'ProtocolAssignment',
+    }),
+    { siteId: SITE },
+    overrides,
+  );
 }
 
 describe('ForecastRefreshListener (D-6)', () => {
-  const refreshTenant = jest.fn().mockResolvedValue(1);
-  const listener = new ForecastRefreshListener(
-    mock<ProtocolFeedForecastService>({ refreshTenant }),
-  );
+  const refreshForecast = jest.fn<
+    ReturnType<FeedingOperationCommandPort['refreshForecast']>,
+    Parameters<FeedingOperationCommandPort['refreshForecast']>
+  >(() => Promise.resolve(1));
+  const listener = new ForecastRefreshListener({ refreshForecast }, mock<DataSource>({}));
 
   beforeEach(() => {
     jest.useFakeTimers();
-    refreshTenant.mockClear();
+    refreshForecast.mockClear();
   });
   afterEach(() => {
     jest.useRealTimers();
   });
 
   it('aynı tenantın olay patlamasını tek yeniden hesapta birleştirir (trailing debounce)', async () => {
+    const first = event({});
+    await listener.onEvent(first);
     await listener.onEvent(event({}));
-    await listener.onEvent(event({ eventType: 'FeedingProtocolAssigned' }));
-    await listener.onEvent(event({ eventType: 'FeedingProtocolAssignmentPaused' }));
-    expect(refreshTenant).not.toHaveBeenCalled();
+    await listener.onEvent(event({}));
+    expect(refreshForecast).not.toHaveBeenCalled();
 
     jest.advanceTimersByTime(FORECAST_REFRESH_DEBOUNCE_MS);
-    expect(refreshTenant).toHaveBeenCalledTimes(1);
-    expect(refreshTenant).toHaveBeenCalledWith(TENANT);
+    await Promise.resolve();
+    expect(refreshForecast).toHaveBeenCalledTimes(1);
+    expect(refreshForecast).toHaveBeenCalledWith({
+      tenantId: TENANT,
+      siteId: SITE,
+      actorId: 'event-bus:feeding-forecast',
+      requestId: first.eventId,
+      emitCoverageEvents: false,
+    });
 
     // Pencere kapandıktan sonra yeni olay yeni pencere açar.
     await listener.onEvent(event({}));
     jest.advanceTimersByTime(FORECAST_REFRESH_DEBOUNCE_MS);
-    expect(refreshTenant).toHaveBeenCalledTimes(2);
+    await Promise.resolve();
+    expect(refreshForecast).toHaveBeenCalledTimes(2);
   });
 
   it('stok hareketlerinde yalnız feed in|adjustment tetikler (out/waste/chemical değil)', () => {

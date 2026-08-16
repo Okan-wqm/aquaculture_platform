@@ -1,90 +1,104 @@
-/**
- * Create FeedingRecord DTO
- * @module Feeding/DTO
- */
-import { InputType, Field, Float, Int, ID } from '@nestjs/graphql';
+import { Type } from 'class-transformer';
 import {
-  IsNotEmpty,
-  IsString,
-  IsOptional,
+  IsDate,
   IsEnum,
+  IsInt,
   IsNumber,
+  IsOptional,
+  IsString,
   IsUUID,
-  IsDateString,
-  IsObject,
-  Min,
   Max,
   MaxLength,
+  Min,
   ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
-import GraphQLJSON from 'graphql-type-json';
+import { Field, Float, ID, InputType, Int, registerEnumType } from '@nestjs/graphql';
+import {
+  FEEDING_DISSOLVED_OXYGEN_RANGE,
+  FEEDING_FISH_APPETITE,
+  FEEDING_INTENSITY_RANGE,
+  FEEDING_SCHOOLING_BEHAVIOR,
+  FEEDING_SURFACE_ACTIVITY,
+  FEEDING_VISIBILITY,
+  FEEDING_WATER_TEMPERATURE_RANGE,
+  FEEDING_WEATHER,
+  FEEDING_WIND_LEVEL,
+  type FeedingFishAppetite,
+  type FeedingRecordEnvironment,
+  type FeedingRecordFishBehavior,
+  type FeedingSchoolingBehavior,
+  type FeedingSurfaceActivity,
+  type FeedingVisibility,
+  type FeedingWeather,
+  type FeedingWindLevel,
+} from '@aquaculture/feeding-contracts';
+
 import {
   FeedingMethod,
-  FishAppetite,
+  type FeedingMethod as FeedingMethodValue,
 } from '../entities/feeding-record.entity';
 
-/**
- * Feeding environment input
- */
+registerEnumType(FEEDING_WEATHER, { name: 'FeedingWeather' });
+registerEnumType(FEEDING_WIND_LEVEL, { name: 'FeedingWindLevel' });
+registerEnumType(FEEDING_VISIBILITY, { name: 'FeedingVisibility' });
+registerEnumType(FEEDING_SURFACE_ACTIVITY, { name: 'FeedingSurfaceActivity' });
+registerEnumType(FEEDING_SCHOOLING_BEHAVIOR, { name: 'FeedingSchoolingBehavior' });
+
+/** GraphQL projection of the shared closed environment vocabulary. */
 @InputType()
-export class FeedingEnvironmentInput {
+export class FeedingEnvironmentInput implements FeedingRecordEnvironment {
   @Field(() => Float, { nullable: true })
   @IsOptional()
   @IsNumber()
-  @Min(-5)
-  @Max(45)
+  @Min(FEEDING_WATER_TEMPERATURE_RANGE.minimum)
+  @Max(FEEDING_WATER_TEMPERATURE_RANGE.maximum)
   waterTemp?: number;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
   @IsNumber()
-  @Min(0)
-  @Max(20)
+  @Min(FEEDING_DISSOLVED_OXYGEN_RANGE.minimum)
+  @Max(FEEDING_DISSOLVED_OXYGEN_RANGE.maximum)
   dissolvedOxygen?: number;
 
-  @Field({ nullable: true })
+  @Field(() => FEEDING_WEATHER, { nullable: true })
   @IsOptional()
-  @IsString()
-  weather?: 'sunny' | 'cloudy' | 'rainy' | 'stormy';
+  @IsEnum(FEEDING_WEATHER)
+  weather?: FeedingWeather;
 
-  @Field({ nullable: true })
+  @Field(() => FEEDING_WIND_LEVEL, { nullable: true })
   @IsOptional()
-  @IsString()
-  windLevel?: 'calm' | 'light' | 'moderate' | 'strong';
+  @IsEnum(FEEDING_WIND_LEVEL)
+  windLevel?: FeedingWindLevel;
 
-  @Field({ nullable: true })
+  @Field(() => FEEDING_VISIBILITY, { nullable: true })
   @IsOptional()
-  @IsString()
-  visibility?: 'clear' | 'turbid' | 'very_turbid';
+  @IsEnum(FEEDING_VISIBILITY)
+  visibility?: FeedingVisibility;
 }
 
-/**
- * Fish behavior input
- */
+/** GraphQL projection of the shared closed fish-behaviour vocabulary. */
 @InputType()
-export class FishBehaviorInput {
-  @Field(() => FishAppetite)
-  @IsNotEmpty()
-  @IsEnum(FishAppetite)
-  appetite!: FishAppetite;
+export class FishBehaviorInput implements FeedingRecordFishBehavior {
+  @Field(() => FEEDING_FISH_APPETITE)
+  @IsEnum(FEEDING_FISH_APPETITE)
+  appetite!: FeedingFishAppetite;
 
   @Field(() => Int)
-  @IsNotEmpty()
-  @IsNumber()
-  @Min(1)
-  @Max(10)
+  @IsInt()
+  @Min(FEEDING_INTENSITY_RANGE.minimum)
+  @Max(FEEDING_INTENSITY_RANGE.maximum)
   feedingIntensity!: number;
 
-  @Field({ nullable: true })
+  @Field(() => FEEDING_SURFACE_ACTIVITY, { nullable: true })
   @IsOptional()
-  @IsString()
-  surfaceActivity?: 'normal' | 'high' | 'low' | 'none';
+  @IsEnum(FEEDING_SURFACE_ACTIVITY)
+  surfaceActivity?: FeedingSurfaceActivity;
 
-  @Field({ nullable: true })
+  @Field(() => FEEDING_SCHOOLING_BEHAVIOR, { nullable: true })
   @IsOptional()
-  @IsString()
-  schoolingBehavior?: 'normal' | 'scattered' | 'tight';
+  @IsEnum(FEEDING_SCHOOLING_BEHAVIOR)
+  schoolingBehavior?: FeedingSchoolingBehavior;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -93,13 +107,13 @@ export class FishBehaviorInput {
   abnormalBehavior?: string;
 }
 
-/**
- * Create feeding record input
- */
 @InputType()
 export class CreateFeedingRecordInput {
   @Field(() => ID)
-  @IsNotEmpty()
+  @IsUUID()
+  operationRequestId!: string;
+
+  @Field(() => ID)
   @IsUUID()
   batchId!: string;
 
@@ -108,43 +122,30 @@ export class CreateFeedingRecordInput {
   @IsUUID()
   tankId?: string;
 
-  @Field(() => ID, { nullable: true })
-  @IsOptional()
-  @IsUUID()
-  pondId?: string;
-
-  @Field(() => ID, { nullable: true })
-  @IsOptional()
-  @IsUUID()
-  batchLocationId?: string;
+  @Field()
+  @IsDate()
+  feedingDate!: Date;
 
   @Field()
-  @IsNotEmpty()
-  @IsDateString()
-  feedingDate!: string;
-
-  @Field()
-  @IsNotEmpty()
   @IsString()
   @MaxLength(10)
   feedingTime!: string;
 
   @Field(() => Int, { defaultValue: 1 })
   @IsOptional()
-  @IsNumber()
+  @IsInt()
   @Min(1)
   @Max(20)
   feedingSequence?: number;
 
   @Field(() => Int, { defaultValue: 1 })
   @IsOptional()
-  @IsNumber()
+  @IsInt()
   @Min(1)
   @Max(20)
   totalMealsToday?: number;
 
   @Field(() => ID)
-  @IsNotEmpty()
   @IsUUID()
   feedId!: string;
 
@@ -155,13 +156,11 @@ export class CreateFeedingRecordInput {
   feedBatchNumber?: string;
 
   @Field(() => Float)
-  @IsNotEmpty()
   @IsNumber()
   @Min(0)
   plannedAmount!: number;
 
   @Field(() => Float)
-  @IsNotEmpty()
   @IsNumber()
   @Min(0)
   actualAmount!: number;
@@ -187,7 +186,7 @@ export class CreateFeedingRecordInput {
   @Field(() => FeedingMethod, { defaultValue: FeedingMethod.MANUAL })
   @IsOptional()
   @IsEnum(FeedingMethod)
-  feedingMethod?: FeedingMethod;
+  feedingMethod?: FeedingMethodValue;
 
   @Field(() => ID, { nullable: true })
   @IsOptional()
@@ -196,7 +195,7 @@ export class CreateFeedingRecordInput {
 
   @Field(() => Int, { nullable: true })
   @IsOptional()
-  @IsNumber()
+  @IsInt()
   @Min(1)
   feedingDurationMinutes?: number;
 
@@ -213,7 +212,6 @@ export class CreateFeedingRecordInput {
   currency?: string;
 
   @Field(() => ID)
-  @IsNotEmpty()
   @IsUUID()
   fedBy!: string;
 

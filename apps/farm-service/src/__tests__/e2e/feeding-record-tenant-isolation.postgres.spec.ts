@@ -17,6 +17,7 @@ import {
   getTenantSchemaName,
   withTenantContext,
 } from '@aquaculture/backend-common';
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import {
   bootPostgresContainer,
@@ -26,60 +27,108 @@ import {
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, Repository } from 'typeorm';
 
-import { Batch, BatchInputType, BatchStatus } from '../../batch/entities/batch.entity';
+import { Batch } from '../../batch/entities/batch.entity';
 import { BatchDocument } from '../../batch/entities/batch-document.entity';
-import { TankAllocation, AllocationType } from '../../batch/entities/tank-allocation.entity';
+import { BatchLocation } from '../../batch/entities/batch-location.entity';
+import { TankAllocation } from '../../batch/entities/tank-allocation.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { TankOperation } from '../../batch/entities/tank-operation.entity';
-import { BatchService } from '../../batch/services/batch.service';
-import { BatchDomainService } from '../../batch/services/batch-domain.service';
-import { BatchLifecyclePolicyService } from '../../batch/services/batch-lifecycle-policy.service';
-import { MortalityCullPolicyService } from '../../batch/services/mortality-cull-policy.service';
-import {
-  Department,
-  DepartmentStatus,
-  DepartmentType,
-} from '../../department/entities/department.entity';
+import { Department } from '../../department/entities/department.entity';
 import { Feed, FeedStatus, FeedType, FloatingType } from '../../feed/entities/feed.entity';
 import { CreateFeedingRecordCommand } from '../../feeding/commands/create-feeding-record.command';
+import { DailyFeedingExecution } from '../../feeding/entities/daily-feeding-execution.entity';
+import { FeedingProgramTank } from '../../feeding/entities/feeding-program-tank.entity';
+import { FeedingProgram } from '../../feeding/entities/feeding-program.entity';
 import {
   FeedingRecord,
   FeedingMethod,
   FishAppetite,
 } from '../../feeding/entities/feeding-record.entity';
 import { CreateFeedingRecordHandler } from '../../feeding/handlers/create-feeding-record.handler';
-import { FeedingLedgerService } from '../../feeding/services/feeding-ledger.service';
-import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
 import { GetFeedingRecordsHandler } from '../../feeding/query-handlers/get-feeding-records.handler';
 import { GetFeedingSummaryHandler } from '../../feeding/query-handlers/get-feeding-summary.handler';
 import { GetFeedingRecordsQuery } from '../../feeding/queries/get-feeding-records.query';
 import { GetFeedingSummaryQuery } from '../../feeding/queries/get-feeding-summary.query';
 import { FarmOutbox } from '../../outbox/farm-outbox.entity';
-import {
-  Species,
-  SpeciesCategory,
-  SpeciesStatus,
-  SpeciesWaterType,
-} from '../../species/entities/species.entity';
-import { Site, SiteStatus, SiteType } from '../../site/entities/site.entity';
+import { FinanceSettings } from '../../finance/entities/finance-settings.entity';
+import { Species } from '../../species/entities/species.entity';
+import { Site } from '../../site/entities/site.entity';
 import { Supplier } from '../../supplier/entities/supplier.entity';
-import {
-  Tank,
-  TankMaterial,
-  TankStatus,
-  TankType,
-  WaterType,
-} from '../../tank/entities/tank.entity';
+import { Tank } from '../../tank/entities/tank.entity';
 import { StockMovementService } from '../../storage/services/stock-movement.service';
+import { StockMutationLockAuthority } from '../../storage/services/stock-mutation-lock.authority';
 import { LotMixService } from '../../storage/services/lot-mix.service';
-import { StorageLocation, StorageLocationType } from '../../storage/entities/storage-location.entity';
+import {
+  StorageLocation,
+  StorageLocationType,
+} from '../../storage/entities/storage-location.entity';
 import { StorageInventory, StorageItemType } from '../../storage/entities/storage-inventory.entity';
 import { StockMovement } from '../../storage/entities/stock-movement.entity';
 import { StorageLotMix } from '../../storage/entities/storage-lot-mix.entity';
+import { Equipment } from '../../equipment/entities/equipment.entity';
+import { EquipmentSystem } from '../../equipment/entities/equipment-system.entity';
+import { EquipmentType } from '../../equipment/entities/equipment-type.entity';
+import { SubSystem } from '../../system/entities/sub-system.entity';
+import { System } from '../../system/entities/system.entity';
+import {
+  FeedingDayPlan,
+  FeedingDayPlanStatus,
+} from '../../feeding-protocol/entities/feeding-day-plan.entity';
+import { FeedingMeal } from '../../feeding-protocol/entities/feeding-meal.entity';
+import { FeedingUnitType } from '../../feeding-protocol/entities/protocol-assignment.entity';
+import { FcrResolvedSource } from '../../feeding-protocol/entities/feeding-protocol-v2.entity';
+import {
+  applyTenantMigrationAuthorities,
+  createFarmOutboxTable,
+  createSourceEquipmentTypesReferenceTable,
+  createTenantSchemaFromSource,
+} from './helpers/tenant-schema-harness';
+import {
+  createFarmDurableMutationTestComposition,
+  type FarmDurableMutationTestComposition,
+} from '../support/durable-mutation-test-authority';
+import {
+  createBatchCommandTestHarness,
+  type BatchCommandTestHarness,
+} from './helpers/batch-command-test-harness';
+import { createFeedingRecordCommandTestHandler } from './helpers/feeding-operation-test-harness';
+import { createStockedTenantFixtureV1 } from './helpers/stocked-tenant-fixture';
+import { CreateFeedingHistoricalProvenanceAuthority1808900000000 } from '../../database/migrations/1808900000000-CreateFeedingHistoricalProvenanceAuthority';
+import { CreateFeedingRecordWriteProvenanceAuthority1810000000000 } from '../../database/migrations/1810000000000-CreateFeedingRecordWriteProvenanceAuthority';
 
 const TENANT_A = '4b529829-ea79-48da-982c-cd6fbec8ffb7';
 const TENANT_B = '7c2f4e10-3d2a-4b4e-9f18-f8b16f0d5a10';
 const USER_ID = 'f1b7b266-5e20-4c37-8ab2-b7ef18db3a21';
+const FEED_ID = '10000000-0000-4000-8000-000000000003';
+const TENANT_BUSINESS_TABLES = [
+  'sites',
+  'departments',
+  'systems',
+  'sub_systems',
+  'equipment',
+  'equipment_systems',
+  'tanks',
+  'species',
+  'batches_v2',
+  'batch_documents',
+  'batch_locations',
+  'tank_allocations',
+  'tank_batches',
+  'tank_operations',
+  'suppliers',
+  'feeds',
+  'storage_locations',
+  'storage_inventory',
+  'stock_movements',
+  'storage_lot_mixes',
+  'feeding_records',
+  'finance_settings',
+  'feeding_programs',
+  'feeding_program_tanks',
+  'feeding_day_plans',
+  'feeding_meals',
+  'daily_feeding_executions',
+] as const;
 
 interface TenantFixture {
   site: Site;
@@ -97,17 +146,10 @@ jest.setTimeout(120_000);
 describe('Feeding record tenant isolation on real Postgres', () => {
   let pg: HarnessContext | undefined;
   let dataSource: DataSource | undefined;
-  let siteRepository: Repository<Site>;
-  let departmentRepository: Repository<Department>;
-  let speciesRepository: Repository<Species>;
-  let tankRepository: Repository<Tank>;
   let batchRepository: Repository<Batch>;
-  let allocationRepository: Repository<TankAllocation>;
-  let tankBatchRepository: Repository<TankBatch>;
-  let operationRepository: Repository<TankOperation>;
   let feedRepository: Repository<Feed>;
-  let feedingRecordRepository: Repository<FeedingRecord>;
-  let batchService: BatchService;
+  let mutationComposition: FarmDurableMutationTestComposition;
+  let batchCommands: BatchCommandTestHarness;
   let createFeedingRecord: CreateFeedingRecordHandler;
   let getFeedingRecords: GetFeedingRecordsHandler;
   let getFeedingSummary: GetFeedingSummaryHandler;
@@ -115,6 +157,8 @@ describe('Feeding record tenant isolation on real Postgres', () => {
   beforeAll(async () => {
     pg = await bootPostgresContainer({ startTimeoutMs: 90_000 });
     await pg.dataSource.query('CREATE SCHEMA farm');
+    await createFarmOutboxTable(pg.dataSource);
+    await createSourceEquipmentTypesReferenceTable(pg.dataSource);
 
     dataSource = new DataSource({
       type: 'postgres',
@@ -123,10 +167,16 @@ describe('Feeding record tenant isolation on real Postgres', () => {
       entities: [
         Site,
         Department,
+        System,
+        SubSystem,
+        Equipment,
+        EquipmentSystem,
+        EquipmentType,
         Tank,
         Species,
         Batch,
         BatchDocument,
+        BatchLocation,
         TankAllocation,
         TankBatch,
         TankOperation,
@@ -137,6 +187,12 @@ describe('Feeding record tenant isolation on real Postgres', () => {
         StockMovement,
         StorageLotMix,
         FeedingRecord,
+        FinanceSettings,
+        FeedingProgram,
+        FeedingProgramTank,
+        FeedingDayPlan,
+        FeedingMeal,
+        DailyFeedingExecution,
         FarmOutbox,
       ],
       synchronize: true,
@@ -147,70 +203,62 @@ describe('Feeding record tenant isolation on real Postgres', () => {
     });
 
     await dataSource.initialize();
-    await createFarmOutboxTable(dataSource);
-
     const TenantConnectionBootstrap = createTenantConnectionBootstrap('farm');
     new TenantConnectionBootstrap(dataSource).onModuleInit();
 
-    await createTenantSchema(dataSource, getTenantSchemaName(TENANT_A));
-    await createTenantSchema(dataSource, getTenantSchemaName(TENANT_B));
-
-    siteRepository = dataSource.getRepository(Site);
-    departmentRepository = dataSource.getRepository(Department);
-    speciesRepository = dataSource.getRepository(Species);
-    tankRepository = dataSource.getRepository(Tank);
-    batchRepository = dataSource.getRepository(Batch);
-    allocationRepository = dataSource.getRepository(TankAllocation);
-    tankBatchRepository = dataSource.getRepository(TankBatch);
-    operationRepository = dataSource.getRepository(TankOperation);
-    feedRepository = dataSource.getRepository(Feed);
-    feedingRecordRepository = dataSource.getRepository(FeedingRecord);
-
-    batchService = new BatchService(
-      batchRepository,
-      allocationRepository,
-      tankBatchRepository,
-      operationRepository,
-      tankRepository,
+    await createTenantSchemaFromSource(
       dataSource,
-      new MortalityCullPolicyService(),
+      getTenantSchemaName(TENANT_A),
+      TENANT_BUSINESS_TABLES,
     );
+    await createTenantSchemaFromSource(
+      dataSource,
+      getTenantSchemaName(TENANT_B),
+      TENANT_BUSINESS_TABLES,
+    );
+    // Promote both empty tenant schemas through the production append-only
+    // provenance authority before live aggregates are created. Day plans are
+    // then created through FeedingAggregateMutationPort, which atomically
+    // appends the policy proof required by the migration's projection guard.
+    await installFeedingProvenanceAuthorities(TENANT_A);
+    await installFeedingProvenanceAuthorities(TENANT_B);
+
+    batchRepository = dataSource.getRepository(Batch);
+    feedRepository = dataSource.getRepository(Feed);
 
     const outboxPublisher = new OutboxPublisher(FarmOutbox);
-    const backdatePolicy = { validate: jest.fn() };
-    const batchDomainService = new BatchDomainService(new BatchLifecyclePolicyService());
+    mutationComposition = await createFarmDurableMutationTestComposition();
+    batchCommands = createBatchCommandTestHarness({
+      dataSource,
+      batchMutations: mutationComposition.batchMutations,
+      feedingMutations: mutationComposition.feedingMutations,
+      outboxPublisher,
+    });
     // REAL sink: storage-tracked feed → FEFO lot decrement + roll-up +
     // LowStockDetected all inside the feeding transaction.
     const stockMovementService = new StockMovementService(
       new LotMixService(),
       new SiteAuthorizationService(),
       outboxPublisher,
+      new StockMutationLockAuthority(),
     );
     // P-05 tek yem yazma yolu: handler artık GERÇEK FeedingLedgerService'e
     // delege eder (kayıt + batch aggregate + FEFO düşüm + outbox tek noktada).
-    // D-7 motor yardımcıları mock — bu fixture'ın payload'ları tankId
-    // taşımadığı için plan bağlama dalı hiç koşmaz.
-    const feedingLedger = new FeedingLedgerService(
-      stockMovementService,
-      new FinanceSettingsService(dataSource),
-      outboxPublisher,
-    );
-    createFeedingRecord = new CreateFeedingRecordHandler(
-      feedingRecordRepository,
-      batchRepository,
-      feedRepository,
+    // The command enters through the current operation port and binds the
+    // immutable local-day plan/FCR snapshot before the ledger write.
+    createFeedingRecord = createFeedingRecordCommandTestHandler({
       dataSource,
-      backdatePolicy as never,
-      batchDomainService,
-      feedingLedger,
-      { lockUnitForGrowth: jest.fn().mockResolvedValue(null) } as never,
-      { recalcForUnit: jest.fn().mockResolvedValue(null) } as never,
-    );
+      feedingMutations: mutationComposition.feedingMutations,
+      batchMutations: mutationComposition.batchMutations,
+      stockMovementService,
+      outboxPublisher,
+    });
     getFeedingRecords = new GetFeedingRecordsHandler(dataSource);
     getFeedingSummary = new GetFeedingSummaryHandler(dataSource);
   });
 
   afterAll(async () => {
+    await mutationComposition?.close();
     if (dataSource?.isInitialized) {
       await dataSource.destroy();
     }
@@ -218,8 +266,8 @@ describe('Feeding record tenant isolation on real Postgres', () => {
   });
 
   it('keeps feeding writes, inventory deduction, and outbox events isolated per tenant', async () => {
-    const fixtureA = await createTenantFixture(TENANT_A);
-    const fixtureB = await createTenantFixture(TENANT_B);
+    const fixtureA = await createFeedingTenantFixture(TENANT_A);
+    const fixtureB = await createFeedingTenantFixture(TENANT_B);
 
     await withTenantContext(TENANT_A, () =>
       createFeedingRecord.execute(
@@ -246,12 +294,21 @@ describe('Feeding record tenant isolation on real Postgres', () => {
             notes: 'tenant-a morning feeding',
           },
           USER_ID,
+          'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         ),
       ),
     );
 
-    expect(await tenantRowCount('feeding_records', TENANT_A)).toBe(1);
-    expect(await tenantRowCount('feeding_records', TENANT_B)).toBe(0);
+    expect(
+      await withTenantContext(TENANT_A, () =>
+        dataSource!.manager.count(FeedingRecord, { where: { tenantId: TENANT_A } }),
+      ),
+    ).toBe(1);
+    expect(
+      await withTenantContext(TENANT_B, () =>
+        dataSource!.manager.count(FeedingRecord, { where: { tenantId: TENANT_B } }),
+      ),
+    ).toBe(0);
     expect(await sourceTenantRowCount('feeding_records', TENANT_A)).toBe(0);
 
     const tenantABatch = await withTenantContext(TENANT_A, () =>
@@ -284,8 +341,16 @@ describe('Feeding record tenant isolation on real Postgres', () => {
     expect(Number(tenantBLot.quantity)).toBe(50);
     expect(Number(tenantBFeed.quantity)).toBe(50);
     expect(tenantBFeed.status).toBe(FeedStatus.AVAILABLE);
-    expect(await tenantRowCount('stock_movements', TENANT_A)).toBe(1);
-    expect(await tenantRowCount('stock_movements', TENANT_B)).toBe(0);
+    expect(
+      await withTenantContext(TENANT_A, () =>
+        dataSource!.manager.count(StockMovement, { where: { tenantId: TENANT_A } }),
+      ),
+    ).toBe(1);
+    expect(
+      await withTenantContext(TENANT_B, () =>
+        dataSource!.manager.count(StockMovement, { where: { tenantId: TENANT_B } }),
+      ),
+    ).toBe(0);
 
     const tenantARecords = await withTenantContext(TENANT_A, () =>
       getFeedingRecords.execute(
@@ -334,6 +399,7 @@ describe('Feeding record tenant isolation on real Postgres', () => {
         feedId: fixtureA.feed.id,
         feedName: 'Shared Salmon Feed',
         totalKg: 10,
+        cost: 25,
         percentage: 100,
       },
     ]);
@@ -341,114 +407,84 @@ describe('Feeding record tenant isolation on real Postgres', () => {
     const tenantAOutboxRows = await outboxRows(TENANT_A);
     const tenantBOutboxRows = await outboxRows(TENANT_B);
     expect(tenantAOutboxRows.map((row) => row.eventType).sort()).toEqual([
+      'BatchAllocatedToTank',
+      'BatchCreated',
       'FeedingRecorded',
       'LowStockDetected',
+      'StockMovementRecorded',
     ]);
-    expect(tenantBOutboxRows).toHaveLength(0);
+    expect(tenantBOutboxRows.map((row) => row.eventType).sort()).toEqual([
+      'BatchAllocatedToTank',
+      'BatchCreated',
+    ]);
     expect(tenantAOutboxRows.every((row) => row.payload?.tenantId === TENANT_A)).toBe(true);
   });
 
-  async function createTenantFixture(tenantId: string): Promise<TenantFixture> {
-    const site = await withTenantContext(tenantId, () =>
-      siteRepository.save(
-        siteRepository.create({
-          tenantId,
-          name: 'Feeding Site',
-          code: 'FEEDING-SITE',
-          type: SiteType.LAND_BASED,
-          country: 'NO',
-          timezone: 'UTC',
-          status: SiteStatus.ACTIVE,
-          isActive: true,
-        }),
-      ),
+  async function createFeedingTenantFixture(tenantId: string): Promise<TenantFixture> {
+    const { site, department, species, tank, batch } = await createStockedTenantFixtureV1(
+      dataSource!,
+      batchCommands,
+      {
+        tenantId,
+        codePrefix: 'FEEDING',
+        userId: USER_ID,
+      },
     );
-    const department = await withTenantContext(tenantId, () =>
-      departmentRepository.save(
-        departmentRepository.create({
-          tenantId,
+    const dayPlanId = await runInTenantTransaction(
+      dataSource!,
+      'farm',
+      tenantId,
+      (_queryRunner, session) =>
+        mutationComposition.feedingMutations.createDayPlanIfAbsent(session, {
+          assignmentId: '10000000-0000-4000-8000-000000000001',
+          protocolId: '10000000-0000-4000-8000-000000000002',
+          unitId: tank.id,
           siteId: site.id,
-          name: 'Feeding Department',
-          code: 'FEEDING-DEPT',
-          type: DepartmentType.PRODUCTION,
-          status: DepartmentStatus.ACTIVE,
-          isActive: true,
-          isDeleted: false,
-          createdBy: USER_ID,
-          updatedBy: USER_ID,
+          unitType: FeedingUnitType.TANK,
+          unitName: tank.name,
+          unitCode: tank.code,
+          planDate: '2026-04-29',
+          snapshot: {
+            avgWeightG: 10,
+            fishCount: 100,
+            biomassKg: 1,
+            waterTempC: null,
+            temperatureSource: 'none',
+            usingDefaultTemperature: true,
+            bandIndex: 0,
+            feed: { id: FEED_ID, code: 'FEED-SHARED', name: 'Shared Salmon Feed' },
+            baseRatePercent: 2,
+            tempMultiplier: 1,
+            effectiveRatePercent: 2,
+            expectedFcr: 1.25,
+            fcrResolvedSource: FcrResolvedSource.BAND,
+          },
+          resolution: {
+            schemaVersion: 'protocol-resolution/v1',
+            resolvedAt: '2026-04-29T00:00:00.000Z',
+            bandIndex: 0,
+            feed: { id: FEED_ID, code: 'FEED-SHARED', name: 'Shared Salmon Feed' },
+            baseRatePercent: 2,
+            tempMultiplier: 1,
+            effectiveRatePercent: 2,
+            expectedFcr: 1.25,
+            fcrResolvedSource: FcrResolvedSource.BAND,
+            bandBasisWeightG: 10,
+            waterTempC: null,
+            temperatureSource: 'none',
+          },
+          plannedTotalKg: 8,
+          mealsPlanned: 2,
+          status: FeedingDayPlanStatus.PLANNED,
+          growthPolicyVersion: 1,
+          growthApplicationMode: 'per_meal',
         }),
-      ),
     );
-    const species = await withTenantContext(tenantId, () =>
-      speciesRepository.save(
-        speciesRepository.create({
-          tenantId,
-          scientificName: 'Salmo salar',
-          commonName: 'Atlantic Salmon',
-          code: 'SALMON',
-          category: SpeciesCategory.FISH,
-          waterType: SpeciesWaterType.SALTWATER,
-          status: SpeciesStatus.ACTIVE,
-          isActive: true,
-          isCleanerFish: false,
-          isDeleted: false,
-          tags: [],
-          createdBy: USER_ID,
-          updatedBy: USER_ID,
-        }),
-      ),
-    );
-    const tank = await withTenantContext(tenantId, () =>
-      tankRepository.save(
-        tankRepository.create({
-          tenantId,
-          name: 'Feeding Tank',
-          code: 'FEEDING-TANK',
-          departmentId: department.id,
-          tankType: TankType.CIRCULAR,
-          material: TankMaterial.FIBERGLASS,
-          waterType: WaterType.SALTWATER,
-          diameter: 5,
-          depth: 2,
-          waterDepth: 2,
-          maxBiomass: 1500,
-          currentBiomass: 1,
-          currentCount: 100,
-          maxDensity: 30,
-          status: TankStatus.ACTIVE,
-          isActive: true,
-          createdBy: USER_ID,
-          updatedBy: USER_ID,
-        }),
-      ),
-    );
-    const batch = await withTenantContext(tenantId, () =>
-      batchService.createBatch({
-        tenantId,
-        batchNumber: 'BATCH-SHARED-FEEDING',
-        speciesId: species.id,
-        inputType: BatchInputType.FRY,
-        initialQuantity: 100,
-        initialAvgWeightG: 10,
-        stockedAt: new Date('2026-04-29T00:00:00.000Z'),
-        currency: 'USD',
-        createdBy: USER_ID,
-      }),
-    );
-    await withTenantContext(tenantId, () =>
-      batchService.allocateBatchToTank({
-        tenantId,
-        batchId: batch.id,
-        tankId: tank.id,
-        quantity: 100,
-        avgWeightG: 10,
-        allocationType: AllocationType.INITIAL_STOCKING,
-        allocatedBy: USER_ID,
-      }),
-    );
+    expect(dayPlanId).not.toBeNull();
     const feed = await withTenantContext(tenantId, () =>
       feedRepository.save(
         feedRepository.create({
+          id: FEED_ID,
           tenantId,
           name: 'Shared Salmon Feed',
           code: 'FEED-SHARED',
@@ -475,6 +511,8 @@ describe('Feeding record tenant isolation on real Postgres', () => {
           name: 'Feed Warehouse',
           code: 'FEED-WH',
           type: StorageLocationType.WAREHOUSE,
+          capacityUnit: 'kg',
+          usedCapacity: 0,
           isActive: true,
           isDeleted: false,
           createdBy: USER_ID,
@@ -502,20 +540,19 @@ describe('Feeding record tenant isolation on real Postgres', () => {
     return { site, department, species, tank, batch, feed, storageLocation, storageLot };
   }
 
-  async function tenantRowCount(table: string, tenantId: string): Promise<number> {
-    const rows: Array<{ count: string }> = await dataSource!.query(
-      `SELECT COUNT(*)::text AS count FROM "${getTenantSchemaName(tenantId)}"."${table}" WHERE "tenantId" = $1`,
-      [tenantId],
-    );
-    return Number(rows[0]?.count ?? 0);
-  }
-
   async function sourceTenantRowCount(table: string, tenantId: string): Promise<number> {
     const rows: Array<{ count: string }> = await dataSource!.query(
       `SELECT COUNT(*)::text AS count FROM "farm"."${table}" WHERE "tenantId" = $1`,
       [tenantId],
     );
     return Number(rows[0]?.count ?? 0);
+  }
+
+  async function installFeedingProvenanceAuthorities(tenantId: string): Promise<void> {
+    await applyTenantMigrationAuthorities(dataSource!, getTenantSchemaName(tenantId), [
+      new CreateFeedingHistoricalProvenanceAuthority1808900000000(),
+      new CreateFeedingRecordWriteProvenanceAuthority1810000000000(),
+    ]);
   }
 
   async function outboxRows(
@@ -527,70 +564,3 @@ describe('Feeding record tenant isolation on real Postgres', () => {
     );
   }
 });
-
-async function createTenantSchema(dataSource: DataSource, schema: string): Promise<void> {
-  await dataSource.query(`CREATE SCHEMA "${schema}"`);
-  await dataSource.query(`CREATE TABLE "${schema}"."sites" (LIKE "farm"."sites" INCLUDING ALL)`);
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."departments" (LIKE "farm"."departments" INCLUDING ALL)`,
-  );
-  await dataSource.query(`CREATE TABLE "${schema}"."tanks" (LIKE "farm"."tanks" INCLUDING ALL)`);
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."species" (LIKE "farm"."species" INCLUDING ALL)`,
-  );
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."batches_v2" (LIKE "farm"."batches_v2" INCLUDING ALL)`,
-  );
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."batch_documents" (LIKE "farm"."batch_documents" INCLUDING ALL)`,
-  );
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."tank_allocations" (LIKE "farm"."tank_allocations" INCLUDING ALL)`,
-  );
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."tank_batches" (LIKE "farm"."tank_batches" INCLUDING ALL)`,
-  );
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."tank_operations" (LIKE "farm"."tank_operations" INCLUDING ALL)`,
-  );
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."suppliers" (LIKE "farm"."suppliers" INCLUDING ALL)`,
-  );
-  await dataSource.query(`CREATE TABLE "${schema}"."feeds" (LIKE "farm"."feeds" INCLUDING ALL)`);
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."storage_locations" (LIKE "farm"."storage_locations" INCLUDING ALL)`,
-  );
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."storage_inventory" (LIKE "farm"."storage_inventory" INCLUDING ALL)`,
-  );
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."stock_movements" (LIKE "farm"."stock_movements" INCLUDING ALL)`,
-  );
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."storage_lot_mixes" (LIKE "farm"."storage_lot_mixes" INCLUDING ALL)`,
-  );
-  await dataSource.query(
-    `CREATE TABLE "${schema}"."feeding_records" (LIKE "farm"."feeding_records" INCLUDING ALL)`,
-  );
-}
-
-async function createFarmOutboxTable(dataSource: DataSource): Promise<void> {
-  await dataSource.query(`
-    CREATE TABLE IF NOT EXISTS "farm"."outbox_events" (
-      "id" BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-      "eventType" VARCHAR(100) NOT NULL,
-      "tenantId" UUID NULL,
-      "aggregateId" UUID NULL,
-      "payload" JSONB NOT NULL,
-      "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
-      "publishedAt" TIMESTAMPTZ NULL,
-      "retryCount" INTEGER NOT NULL DEFAULT 0,
-      "lastError" TEXT NULL,
-      "nextAttemptAt" TIMESTAMPTZ NULL,
-      "idempotencyKey" VARCHAR(255) NULL,
-      "isDeadLettered" BOOLEAN NOT NULL DEFAULT false,
-      "leasedAt" TIMESTAMPTZ NULL,
-      "leasedBy" VARCHAR(128) NULL
-    )
-  `);
-}

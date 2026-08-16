@@ -20,6 +20,8 @@
     "paths": {
       "@/*": ["src/*"],
       "@aquaculture/shared-ui": ["../../shared-ui/src"],
+      "@aquaculture/shared-contracts": ["../../../libs/shared-contracts/src/index.ts"],
+      "@aquaculture/feeding-contracts": ["../../../libs/feeding-contracts/src/index.ts"],
       "@platform/shared-ui/*": ["../../shared-ui/src/*"],
       "@aquaculture/farm-shared": ["../../../libs/farm-shared/src"],
       "@platform/aquaculture-engines": ["../../../libs/aquaculture-engines/src/index.ts"]

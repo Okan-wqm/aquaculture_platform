@@ -17,7 +17,11 @@
  *
  * @module Events/Listeners
  */
-import { isValidUUID, runInTenantTransaction } from '@aquaculture/backend-common/database';
+import {
+  isValidUUID,
+  queryRowsWithStringColumn,
+  runInTenantTransaction,
+} from '@aquaculture/backend-common/database';
 import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
 import type { BaseEvent, SensorReadingEvent } from '@platform/event-contracts';
@@ -27,6 +31,7 @@ import {
   WATER_TEMPERATURE_MAX_C,
   WATER_TEMPERATURE_MIN_C,
 } from '../../water-quality/services/water-temperature.service';
+import { SensorTemperatureRecalcAuthority } from '../../feeding-protocol/services/sensor-temperature-recalc.authority';
 
 /** Max tolerated clock skew for a reading's timestamp (5 minutes). */
 const MAX_FUTURE_SKEW_MS = 5 * 60_000;
@@ -37,6 +42,7 @@ export class SensorTemperatureProjectionListener implements IEventHandler<BaseEv
 
   constructor(
     private readonly dataSource: DataSource,
+    private readonly recalcAuthority: SensorTemperatureRecalcAuthority,
     @Optional()
     @Inject('EVENT_BUS')
     private readonly eventBus?: IEventBus,
@@ -109,26 +115,39 @@ export class SensorTemperatureProjectionListener implements IEventHandler<BaseEv
     const day = measuredAt.toISOString().slice(0, 10);
 
     try {
-      await runInTenantTransaction(this.dataSource, 'farm', event.tenantId, async (queryRunner) => {
-        // Newest-wins: only advance the row when this reading is strictly newer,
-        // so redelivery / out-of-order events cannot regress the latest value.
-        await queryRunner.manager.query(
-          `INSERT INTO "sensor_temperature_latest"
+      await runInTenantTransaction(
+        this.dataSource,
+        'farm',
+        event.tenantId,
+        async (queryRunner, mutationSession) => {
+          // Newest-wins: only advance the row when this reading is strictly newer,
+          // so redelivery / out-of-order events cannot regress the latest value.
+          const latestResult: unknown = await queryRunner.manager.query(
+            `INSERT INTO "sensor_temperature_latest"
              ("tenantId", "sensorId", "temperatureC", "measuredAt")
            VALUES ($1, $2, $3, $4)
            ON CONFLICT ("tenantId", "sensorId") DO UPDATE
              SET "temperatureC" = EXCLUDED."temperatureC",
                  "measuredAt" = EXCLUDED."measuredAt"
-           WHERE "sensor_temperature_latest"."measuredAt" < EXCLUDED."measuredAt"`,
-          [event.tenantId, reading.sensorId, reading.readingTemperature, measuredAt],
-        );
+           WHERE "sensor_temperature_latest"."measuredAt" < EXCLUDED."measuredAt"
+           RETURNING "sensorId"`,
+            [event.tenantId, reading.sensorId, reading.readingTemperature, measuredAt],
+          );
+          const advancedLatest = queryRowsWithStringColumn(
+            latestResult,
+            'sensorId',
+            'Sensor temperature newest-wins projection',
+          );
+          if (advancedLatest.length > 1) {
+            throw new Error('Sensor temperature newest-wins projection returned multiple rows');
+          }
 
-        // Daily rollup accumulation (RPT-005). The `lastMeasuredAt` watermark
-        // makes accumulation idempotent under at-least-once redelivery /
-        // out-of-order events: the row only advances on a strictly newer
-        // reading, so the same reading can never be counted twice.
-        await queryRunner.manager.query(
-          `INSERT INTO "sensor_temperature_daily"
+          // Daily rollup accumulation (RPT-005). The `lastMeasuredAt` watermark
+          // makes accumulation idempotent under at-least-once redelivery /
+          // out-of-order events: the row only advances on a strictly newer
+          // reading, so the same reading can never be counted twice.
+          await queryRunner.manager.query(
+            `INSERT INTO "sensor_temperature_daily"
              ("tenantId", "sensorId", "day", "sumC", "minC", "maxC", "sampleCount", "lastMeasuredAt")
            VALUES ($1, $2, $3, $4, $4, $4, 1, $5)
            ON CONFLICT ("tenantId", "sensorId", "day") DO UPDATE
@@ -139,9 +158,24 @@ export class SensorTemperatureProjectionListener implements IEventHandler<BaseEv
                  "lastMeasuredAt" = EXCLUDED."lastMeasuredAt",
                  "updatedAt" = now()
            WHERE "sensor_temperature_daily"."lastMeasuredAt" < EXCLUDED."lastMeasuredAt"`,
-          [event.tenantId, reading.sensorId, day, reading.readingTemperature, measuredAt],
-        );
-      });
+            [event.tenantId, reading.sensorId, day, reading.readingTemperature, measuredAt],
+          );
+
+          // Redelivery/out-of-order readings may still fill a historical daily
+          // bucket, but only a reading that advanced the live projection can
+          // mutate current feeding plans. The target authority is bounded and
+          // deterministic and shares this exact tenant transaction/session.
+          if (advancedLatest.length === 1) {
+            await this.recalcAuthority.recalcAffectedUnits(
+              queryRunner.manager,
+              mutationSession,
+              event.tenantId,
+              reading.sensorId,
+              temperature,
+            );
+          }
+        },
+      );
     } catch (error) {
       this.logger.error(
         `SensorReading projection failed for tenant ${event.tenantId.substring(0, 8)}...: ` +

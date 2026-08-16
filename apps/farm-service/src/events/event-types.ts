@@ -112,29 +112,6 @@ export interface WorkOrderOverdueEventPayload {
 // ============================================================================
 
 /**
- * Event emitted when inventory stock is low
- */
-export interface LowStockAlertEventPayload {
-  tenantId: string;
-  alertType: 'feed' | 'spare_part' | 'chemical';
-  items: Array<{
-    id: string;
-    name: string;
-    code?: string;
-    currentStock: number;
-    minStock: number;
-    unit: string;
-    percentageRemaining: number;
-  }>;
-  outOfStock: Array<{
-    id: string;
-    name: string;
-    code?: string;
-    unit: string;
-  }>;
-}
-
-/**
  * Event emitted for inventory low stock (spare parts)
  */
 export interface InventoryLowStockEventPayload {
@@ -153,118 +130,6 @@ export interface InventoryLowStockEventPayload {
     minStock: number;
     category?: string;
   }>;
-}
-
-// ============================================================================
-// FEEDING EVENTS
-// ============================================================================
-
-/**
- * Event emitted when a feeding is completed
- */
-export interface FeedingCompletedEventPayload {
-  tenantId: string;
-  feedingId: string;
-  batchId: string;
-  batchNumber: string;
-  tankId: string;
-  tankCode?: string;
-  feedId: string;
-  feedName: string;
-  quantity: number;
-  unit: string;
-  feedingTime: Date;
-  fedBy: string;
-  notes?: string;
-}
-
-/**
- * Event emitted for feeding reminders
- */
-export interface FeedingReminderEventPayload {
-  batchId: string;
-  batchNumber: string;
-  tankId: string;
-  tankCode: string;
-  feedId: string;
-  feedName: string;
-  scheduledTime: Date;
-  quantity: number;
-  unit: string;
-  reminderTime: Date;
-}
-
-/**
- * Event emitted for daily feeding summary
- */
-export interface FeedingDailySummaryEventPayload {
-  tenantId: string;
-  date: Date;
-  summary: {
-    planned: number;
-    completed: number;
-    skipped: number;
-    totalFeedUsed: number;
-  };
-}
-
-/**
- * Event emitted for FCR alerts
- */
-export interface FeedingFCRAlertEventPayload {
-  tenantId: string;
-  alerts: Array<{
-    batchId: string;
-    batchNumber: string;
-    currentFCR: number;
-    targetFCR: number;
-    variance: number;
-    alertLevel: 'warning' | 'critical';
-  }>;
-}
-
-/**
- * Event emitted for feed low stock alerts
- */
-export interface FeedingLowStockEventPayload {
-  tenantId: string;
-  feeds: Array<{
-    feedId: string;
-    feedName: string;
-    currentStock: number;
-    minStock: number;
-  }>;
-}
-
-/**
- * Event emitted for feed expiry warnings
- */
-export interface FeedingExpiryWarningEventPayload {
-  tenantId: string;
-  feeds: Array<{
-    feedId: string;
-    feedName: string;
-    expiryDate: Date;
-    quantity: number;
-  }>;
-  daysUntilExpiry: number;
-}
-
-/**
- * Event emitted for weekly feed forecast
- */
-export interface FeedingWeeklyForecastEventPayload {
-  tenantId: string;
-  forecast: {
-    totalRequired: number;
-    byFeedType: Array<{
-      feedId: string;
-      feedName: string;
-      quantity: number;
-    }>;
-    currentStock: number;
-    shortfall: number;
-  };
 }
 
 // ============================================================================
@@ -398,15 +263,6 @@ export const EventNames = {
   OUT_OF_STOCK_ALERT: 'inventory.outOfStock',
   STOCK_REPLENISHED: 'inventory.replenished',
 
-  // Feeding events
-  FEEDING_COMPLETED: 'feeding.completed',
-  FEEDING_REMINDER: 'feeding.reminder',
-  FEEDING_DAILY_SUMMARY: 'feeding.dailySummary',
-  FEEDING_FCR_ALERTS: 'feeding.fcrAlerts',
-  FEEDING_LOW_STOCK: 'feeding.lowStock',
-  FEEDING_EXPIRY_WARNING: 'feeding.expiryWarning',
-  FEEDING_WEEKLY_FORECAST: 'feeding.weeklyForecast',
-
   // Report events
   REPORT_WEEKLY_MAINTENANCE: 'report.weeklyMaintenance',
   REPORT_MONTHLY_COMPLIANCE: 'report.monthlyCompliance',
@@ -420,8 +276,7 @@ export const EventNames = {
 
   // Alert events
   ALERT_HIGH_MORTALITY: 'alert.highMortality',
-  ALERT_FCR_THRESHOLD: 'alert.fcrThreshold',
   ALERT_WATER_QUALITY: 'alert.waterQuality',
 } as const;
 
-export type EventName = typeof EventNames[keyof typeof EventNames];
+export type EventName = (typeof EventNames)[keyof typeof EventNames];

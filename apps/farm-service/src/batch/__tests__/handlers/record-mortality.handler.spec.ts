@@ -10,12 +10,18 @@
  *
  * @module Batch/Tests
  */
-import { NotFoundException, BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
+import {
+  NotFoundException,
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { Role } from '@aquaculture/backend-common/decorators';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { DataSource, Repository, EntityManager } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
+import { mockTenantTransactionControlQuery } from '@aquaculture/testing';
 import { FarmStockProjectionService } from '../../../farm-stock/farm-stock-projection.service';
 import { AuditLogService } from '../../../database/services/audit-log.service';
 import { MortalityCullPolicyService } from '../../services/mortality-cull-policy.service';
@@ -30,6 +36,7 @@ import { Equipment } from '../../../equipment/entities/equipment.entity';
 import { Tank } from '../../../tank/entities/tank.entity';
 import { EquipmentType } from '../../../equipment/entities/equipment-type.entity';
 import { Department } from '../../../department/entities/department.entity';
+import { RecordingBatchAggregateMutationPort } from '../../../__tests__/support/durable-mutation-test-authority';
 
 const ENVELOPE = { clientCommandId: 'cmd-1', payloadHash: 'hash-1' };
 
@@ -72,8 +79,9 @@ function createMockQueryRunner(manager: MockManager) {
     release: jest.fn().mockResolvedValue(undefined),
     // runInTenantTransaction pins search_path + asserts the RLS GUC via
     // queryRunner.query (distinct from the receipt service's manager.query).
-    // Returning [] makes the boundary readback assertion skip (no live DB).
-    query: jest.fn().mockResolvedValue([]),
+    // The shared fixture owns the transaction-control SQL protocol, including
+    // the canonical database clock read used by mutation sessions.
+    query: jest.fn().mockImplementation(mockTenantTransactionControlQuery),
     manager: manager as unknown as EntityManager,
   };
 }
@@ -146,17 +154,20 @@ describe('RecordMortalityHandler', () => {
     };
   }
 
-  function makeCommand(quantity = 50, overrides: Partial<{
-    reason: MortalityReason;
-    observedAt: Date;
-    avgWeightG: number;
-    envelope: { clientCommandId: string; payloadHash: string } | undefined;
-    // SEC-HIGH-051: domain-logic tests default to a MODULE_MANAGER so site authz
-    // bypasses via the canonical hierarchy; the dedicated site-authz suite below
-    // exercises the MODULE_USER deny/allow paths explicitly.
-    userRoles: Role[];
-    callerAssignedSiteIds: string[];
-  }> = {}) {
+  function makeCommand(
+    quantity = 50,
+    overrides: Partial<{
+      reason: MortalityReason;
+      observedAt: Date;
+      avgWeightG: number;
+      envelope: { clientCommandId: string; payloadHash: string } | undefined;
+      // SEC-HIGH-051: domain-logic tests default to a MODULE_MANAGER so site authz
+      // bypasses via the canonical hierarchy; the dedicated site-authz suite below
+      // exercises the MODULE_USER deny/allow paths explicitly.
+      userRoles: Role[];
+      callerAssignedSiteIds: string[];
+    }> = {},
+  ) {
     return new RecordMortalityCommand(
       tenantId,
       batchId,
@@ -200,6 +211,7 @@ describe('RecordMortalityHandler', () => {
     } as Partial<FarmStockProjectionService> as FarmStockProjectionService;
 
     const handler = new RecordMortalityHandler(
+      new RecordingBatchAggregateMutationPort(manager),
       dataSource,
       {} as Repository<Batch>,
       {} as Repository<MortalityRecord>,
@@ -241,6 +253,7 @@ describe('RecordMortalityHandler', () => {
       manager.findOne.mockImplementation((entity: unknown) => {
         if (entity === Batch) return Promise.resolve(makeBatch({ currentQuantity: 30 }));
         if (entity === Equipment) return Promise.resolve(makeEquipment());
+        if (entity === TankBatch) return Promise.resolve(makeTankBatch({ totalQuantity: 30 }));
         return Promise.resolve(null);
       });
 
@@ -261,8 +274,9 @@ describe('RecordMortalityHandler', () => {
 
       await handler.execute(makeCommand(50));
 
-      const savedBatch = manager.save.mock.calls
-        .find(([entity]: [unknown]) => entity === Batch)?.[1] as Partial<Batch> | undefined;
+      const savedBatch = manager.save.mock.calls.find(
+        ([entity]: [unknown]) => entity === Batch,
+      )?.[1] as Partial<Batch> | undefined;
       expect(savedBatch?.currentQuantity).toBe(9_950);
       expect(savedBatch?.totalMortality).toBe(150);
     });
@@ -279,8 +293,9 @@ describe('RecordMortalityHandler', () => {
 
       // Quantity 30 === currentQuantity: exactly at boundary — should succeed
       await handler.execute(makeCommand(30));
-      const savedBatch = manager.save.mock.calls
-        .find(([entity]: [unknown]) => entity === Batch)?.[1] as Partial<Batch> | undefined;
+      const savedBatch = manager.save.mock.calls.find(
+        ([entity]: [unknown]) => entity === Batch,
+      )?.[1] as Partial<Batch> | undefined;
       expect(savedBatch?.currentQuantity).toBeGreaterThanOrEqual(0);
     });
   });
@@ -384,16 +399,25 @@ describe('RecordMortalityHandler', () => {
     it('FARM-HIGH-052: rejects legacy mode (no idempotency envelope)', async () => {
       // No envelope → begin() returns legacy
       const { handler, manager } = buildHandler({ query: jest.fn().mockResolvedValue([]) });
-      await expect(
-        handler.execute(makeCommand(50, { envelope: undefined })),
-      ).rejects.toThrow(BadRequestException);
+      await expect(handler.execute(makeCommand(50, { envelope: undefined }))).rejects.toThrow(
+        BadRequestException,
+      );
       expect(manager.findOne).not.toHaveBeenCalled();
     });
 
     it('FARM-HIGH-052: same clientCommandId twice replays without double decrement', async () => {
-      const queryMock = jest.fn()
+      const queryMock = jest
+        .fn()
         .mockResolvedValueOnce([]) // INSERT DO NOTHING → conflict
-        .mockResolvedValueOnce([{ payloadHash: 'hash-1', status: 'COMPLETED', responseType: 'Batch', responseId: batchId, responsePayload: { id: batchId } }]);
+        .mockResolvedValueOnce([
+          {
+            payloadHash: 'hash-1',
+            status: 'COMPLETED',
+            responseType: 'Batch',
+            responseId: batchId,
+            responsePayload: { id: batchId },
+          },
+        ]);
       const { handler, manager, outboxPublisher } = buildHandler({ query: queryMock });
       manager.findOne.mockResolvedValueOnce(makeBatch()); // replay reload
 
@@ -408,7 +432,8 @@ describe('RecordMortalityHandler', () => {
         if (entity === Batch) return Promise.resolve(makeBatch());
         if (entity === Equipment) return Promise.resolve(makeEquipment());
         // TankBatch holds a DIFFERENT batch
-        if (entity === TankBatch) return Promise.resolve(makeTankBatch({ primaryBatchId: 'other-batch' }));
+        if (entity === TankBatch)
+          return Promise.resolve(makeTankBatch({ primaryBatchId: 'other-batch' }));
         return Promise.resolve(null);
       });
 
@@ -452,10 +477,16 @@ describe('RecordMortalityHandler', () => {
 
     it('FARM-LOW-050: rejects mortality that breaches the cumulative-initial ceiling', async () => {
       const { handler, manager } = buildHandler();
-      const batch = makeBatch({ initialQuantity: 100, totalMortality: 90, cullCount: 0, currentQuantity: 10_000 });
+      const batch = makeBatch({
+        initialQuantity: 100,
+        totalMortality: 90,
+        cullCount: 0,
+        currentQuantity: 10_000,
+      });
       manager.findOne.mockImplementation((entity: unknown) => {
         if (entity === Batch) return Promise.resolve(batch);
         if (entity === Equipment) return Promise.resolve(makeEquipment());
+        if (entity === TankBatch) return Promise.resolve(makeTankBatch());
         return Promise.resolve(null);
       });
       // 90 + 0 + 0 + 20 = 110 > 100 → reject
@@ -491,7 +522,8 @@ describe('RecordMortalityHandler', () => {
         if (entity === Batch) return Promise.resolve(makeBatch());
         if (entity === Equipment) return Promise.resolve(makeEquipment({ departmentId: DEPT }));
         if (entity === TankBatch) return Promise.resolve(makeTankBatch());
-        if (entity === Department) return Promise.resolve(departmentSiteId ? { id: DEPT, siteId: departmentSiteId } : null);
+        if (entity === Department)
+          return Promise.resolve(departmentSiteId ? { id: DEPT, siteId: departmentSiteId } : null);
         return Promise.resolve(null);
       });
     }

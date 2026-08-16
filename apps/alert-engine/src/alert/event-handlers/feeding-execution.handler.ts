@@ -9,9 +9,12 @@
  */
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { requiresDurableDelivery } from '@platform/event-contracts';
 import type {
   BaseEvent,
+  ConsumedFarmSignalEventType,
   FeedTypeTransitionedEvent,
+  FeedingWindowReadinessEvent,
   MealMissedEvent,
   MealUnderfedEvent,
   UnfedUnitDetectedEvent,
@@ -21,12 +24,13 @@ import { requestContextStorage, RequestContext } from '@aquaculture/backend-comm
 
 import { FeedingExecutionAlertService } from '../services/feeding-execution-alert.service';
 
-const SUBSCRIBED_TYPES = [
+const SUBSCRIBED_TYPES: readonly ConsumedFarmSignalEventType[] = [
   'MealUnderfed',
   'MealMissed',
   'UnfedUnitDetected',
   'FeedTypeTransitioned',
-] as const;
+  'FeedingWindowReadiness',
+];
 
 @Injectable()
 export class FeedingExecutionEventHandler implements IEventHandler<BaseEvent>, OnModuleInit {
@@ -79,15 +83,26 @@ export class FeedingExecutionEventHandler implements IEventHandler<BaseEvent>, O
           await this.executionAlertService.recordFeedTransitioned(
             event as FeedTypeTransitionedEvent,
           );
+        } else if (event.eventType === 'FeedingWindowReadiness') {
+          const readiness = event as FeedingWindowReadinessEvent;
+          for (const verdict of readiness.verdicts) {
+            if (verdict.status !== 'ready') {
+              await this.executionAlertService.recordFeedingWindowReadiness(
+                readiness,
+                verdict,
+              );
+            }
+          }
         }
       });
     } catch (error) {
-      // Swallow so NATS does not redeliver a poison message indefinitely —
-      // az-atım/missed/unfed sinyalleri sonraki cron döngüsünde yeniden üretilir.
       this.logger.error(
         `Error handling ${event.eventType}: ${(error as Error).message}`,
         (error as Error).stack,
       );
+      if (requiresDurableDelivery(event.eventType)) {
+        throw error;
+      }
     }
   }
 }

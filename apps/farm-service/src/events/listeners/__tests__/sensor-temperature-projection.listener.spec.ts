@@ -5,15 +5,24 @@
 import { createBaseEvent } from '@platform/event-contracts';
 import type { BaseEvent, SensorReadingEvent } from '@platform/event-contracts';
 import type { DataSource } from 'typeorm';
+import type { SensorTemperatureRecalcAuthority } from '../../../feeding-protocol/services/sensor-temperature-recalc.authority';
+
+function mock<T>(implementation: Partial<T>): T {
+  return implementation as T;
+}
 
 const managerQuery = jest.fn().mockResolvedValue(undefined);
+const transactionSession = Object.freeze({ scope: 'sensor-temperature-test-session' });
 const runInTenantTransaction = jest.fn(
   async (
     _ds: unknown,
     _schema: string,
     _tenantId: string,
-    cb: (qr: { manager: { query: typeof managerQuery } }) => Promise<void>,
-  ) => cb({ manager: { query: managerQuery } }),
+    cb: (
+      qr: { manager: { query: typeof managerQuery } },
+      session: typeof transactionSession,
+    ) => Promise<void>,
+  ) => cb({ manager: { query: managerQuery } }, transactionSession),
 );
 
 jest.mock('@aquaculture/backend-common/database', () => ({
@@ -22,7 +31,10 @@ jest.mock('@aquaculture/backend-common/database', () => ({
     ds: unknown,
     schema: string,
     tenantId: string,
-    cb: (qr: { manager: { query: typeof managerQuery } }) => Promise<void>,
+    cb: (
+      qr: { manager: { query: typeof managerQuery } },
+      session: typeof transactionSession,
+    ) => Promise<void>,
   ) => runInTenantTransaction(ds, schema, tenantId, cb),
 }));
 
@@ -45,11 +57,15 @@ function makeEvent(overrides: Partial<SensorReadingEvent> = {}): BaseEvent {
 }
 
 describe('SensorTemperatureProjectionListener', () => {
-  const listener = new SensorTemperatureProjectionListener({} as DataSource);
+  const recalcAffectedUnits = jest.fn().mockResolvedValue(1);
+  const recalcAuthority = mock<SensorTemperatureRecalcAuthority>({ recalcAffectedUnits });
+  const listener = new SensorTemperatureProjectionListener(mock<DataSource>({}), recalcAuthority);
 
   beforeEach(() => {
-    managerQuery.mockClear();
+    managerQuery.mockReset();
+    managerQuery.mockResolvedValueOnce([{ sensorId: SENSOR }]).mockResolvedValueOnce([]);
     runInTenantTransaction.mockClear();
+    recalcAffectedUnits.mockClear();
   });
 
   it('upserts the latest temperature for the sensor (newest-wins guard in SQL)', async () => {
@@ -61,7 +77,30 @@ describe('SensorTemperatureProjectionListener', () => {
     expect(sql).toContain('INSERT INTO "sensor_temperature_latest"');
     expect(sql).toContain('ON CONFLICT ("tenantId", "sensorId") DO UPDATE');
     expect(sql).toContain('"sensor_temperature_latest"."measuredAt" < EXCLUDED."measuredAt"');
+    expect(sql).toContain('RETURNING "sensorId"');
     expect(params).toEqual([TENANT, SENSOR, 13.2, new Date('2026-07-04T10:00:00.000Z')]);
+  });
+
+  it('requests one bounded recalc in the same transaction only when latest advances', async () => {
+    await listener.handle(makeEvent({}));
+
+    expect(recalcAffectedUnits).toHaveBeenCalledWith(
+      expect.objectContaining({ query: managerQuery }),
+      transactionSession,
+      TENANT,
+      SENSOR,
+      13.2,
+    );
+  });
+
+  it('does not reprice current plans when a stale/redelivered reading loses newest-wins CAS', async () => {
+    managerQuery.mockReset();
+    managerQuery.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+
+    await listener.handle(makeEvent({}));
+
+    expect(managerQuery).toHaveBeenCalledTimes(2);
+    expect(recalcAffectedUnits).not.toHaveBeenCalled();
   });
 
   it('accumulates the daily rollup with a watermark guard for idempotency (RPT-005)', async () => {

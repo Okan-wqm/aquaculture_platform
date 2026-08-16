@@ -2,15 +2,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { QueryFailedError } from 'typeorm';
 
-import {
-  ArtifactService,
-  canonicalJsonStringify,
-  contentSha256,
-} from '../artifact.service';
-import {
-  DeployArtifact,
-  DeployArtifactType,
-} from '../entities/deploy-artifact.entity';
+import { ArtifactService, deployArtifactCanonicalJsonV1, contentSha256 } from '../artifact.service';
+import { DeployArtifact, DeployArtifactType } from '../entities/deploy-artifact.entity';
 
 const TENANT = 'tenant-uuid-1';
 
@@ -34,10 +27,7 @@ describe('ArtifactService — content-addressed immutability', () => {
     };
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        ArtifactService,
-        { provide: getRepositoryToken(DeployArtifact), useValue: repo },
-      ],
+      providers: [ArtifactService, { provide: getRepositoryToken(DeployArtifact), useValue: repo }],
     }).compile();
 
     service = module.get(ArtifactService);
@@ -46,7 +36,7 @@ describe('ArtifactService — content-addressed immutability', () => {
   it('canonical serialization is key-order independent (same content → same sha)', () => {
     const a = { screens: [{ id: 's1', widgets: [] }], meta: { schemaVersion: 2 } };
     const b = { meta: { schemaVersion: 2 }, screens: [{ widgets: [], id: 's1' }] };
-    expect(canonicalJsonStringify(a)).toBe(canonicalJsonStringify(b));
+    expect(deployArtifactCanonicalJsonV1(a)).toBe(deployArtifactCanonicalJsonV1(b));
     expect(contentSha256(a)).toBe(contentSha256(b));
   });
 

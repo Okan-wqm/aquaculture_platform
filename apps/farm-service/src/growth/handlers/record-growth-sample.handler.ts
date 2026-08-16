@@ -37,15 +37,22 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import { toEventIso,
+import {
+  toEventIso,
   createBaseEvent,
   type GrowthSampleRecordedEvent,
 } from '@platform/event-contracts';
 import { RecordGrowthSampleCommand } from '../commands/record-growth-sample.command';
-import { GrowthMeasurement, MeasurementType, MeasurementMethod, StatisticalSummary } from '../entities/growth-measurement.entity';
+import {
+  GrowthMeasurement,
+  MeasurementType,
+  MeasurementMethod,
+  StatisticalSummary,
+} from '../entities/growth-measurement.entity';
 import { Batch } from '../../batch/entities/batch.entity';
 import { FCRCalculationService } from '../services/fcr-calculation.service';
 import { BackdatePolicyService } from '../../common/services/backdate-policy.service';
+import { BatchAggregateMutationPort } from '../../batch/batch-aggregate-mutation.port';
 
 // Growth statistics (StatisticalSummary.weight.confidenceInterval) are computed
 // at a 95% confidence interval, so a recorded sample stamps the batch weight
@@ -54,8 +61,11 @@ const WEIGHT_SAMPLE_CONFIDENCE_PERCENT = 95;
 
 @Injectable()
 @CommandHandler(RecordGrowthSampleCommand)
-export class RecordGrowthSampleHandler implements ICommandHandler<RecordGrowthSampleCommand, GrowthMeasurement> {
+export class RecordGrowthSampleHandler
+  implements ICommandHandler<RecordGrowthSampleCommand, GrowthMeasurement>
+{
   constructor(
+    private readonly batchMutations: BatchAggregateMutationPort,
     private readonly dataSource: DataSource,
     @InjectRepository(GrowthMeasurement)
     private readonly measurementRepository: Repository<GrowthMeasurement>,
@@ -150,9 +160,10 @@ export class RecordGrowthSampleHandler implements ICommandHandler<RecordGrowthSa
         payload.measurementDate,
       );
 
-      const dailyGrowthRate = daysSincePrevious > 0
-        ? (measurement.averageWeight - previousMeasurement.averageWeight) / daysSincePrevious
-        : 0;
+      const dailyGrowthRate =
+        daysSincePrevious > 0
+          ? (measurement.averageWeight - previousMeasurement.averageWeight) / daysSincePrevious
+          : 0;
 
       const sgr = this.calculateSGR(
         previousMeasurement.averageWeight,
@@ -205,58 +216,66 @@ export class RecordGrowthSampleHandler implements ICommandHandler<RecordGrowthSa
     // (pool-checkout routing alone is not sufficient for transactional writes,
     // per pinTenantTransactionSearchPath), so the locked read + per-tenant
     // writes (batches_v2, growth_measurements) land in the correct schema.
-    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-      const saved = await queryRunner.manager.save(GrowthMeasurement, measurement);
+    return runInTenantTransaction(
+      this.dataSource,
+      'farm',
+      tenantId,
+      async (queryRunner, mutationSession) => {
+        const saved = await queryRunner.manager.save(GrowthMeasurement, measurement);
 
-      if (saved.updateBatchWeight) {
-        // Re-read the batch under pessimistic_write INSIDE the tx so the write
-        // targets the live row, not the stale snapshot loaded above. We mutate
-        // ONLY the weight.actual provenance fields — never the whole entity —
-        // so a concurrent mortality/cull/harvest that decremented
-        // currentQuantity/feed cannot be reverted by this sample (lost-update).
-        const lockedBatch = await queryRunner.manager.findOne(Batch, {
-          where: { id: payload.batchId, tenantId },
-          lock: { mode: 'pessimistic_write' },
-        });
-        if (!lockedBatch) {
-          throw new NotFoundException(`Batch ${payload.batchId} bulunamadı`);
+        if (saved.updateBatchWeight) {
+          // Re-read the batch under pessimistic_write INSIDE the tx so the write
+          // targets the live row, not the stale snapshot loaded above. We mutate
+          // ONLY the weight.actual provenance fields — never the whole entity —
+          // so a concurrent mortality/cull/harvest that decremented
+          // currentQuantity/feed cannot be reverted by this sample (lost-update).
+          const lockedBatch = await queryRunner.manager.findOne(Batch, {
+            where: { id: payload.batchId, tenantId },
+            lock: { mode: 'pessimistic_write' },
+          });
+          if (!lockedBatch) {
+            throw new NotFoundException(`Batch ${payload.batchId} bulunamadı`);
+          }
+          if (lockedBatch.weight?.actual) {
+            lockedBatch.weight.actual.avgWeight = saved.averageWeight;
+            // totalBiomass is the at-sample snapshot of the JSONB provenance
+            // block; current biomass is derived on read from the live count ×
+            // avgWeight, so this stored figure is provenance, not authority.
+            lockedBatch.weight.actual.totalBiomass = saved.estimatedBiomass;
+            lockedBatch.weight.actual.lastMeasuredAt = saved.measurementDate;
+            lockedBatch.weight.actual.sampleSize = saved.sampleSize;
+            // Statistics are computed at a 95% confidence interval
+            // (StatisticalSummary.weight.confidenceInterval), so the provenance
+            // confidence level for this sample is 95%.
+            lockedBatch.weight.actual.confidencePercent = WEIGHT_SAMPLE_CONFIDENCE_PERCENT;
+          }
+          await this.batchMutations.commitBatchTransition(mutationSession, {
+            intent: 'growth_applied',
+            aggregate: lockedBatch,
+          });
+
+          saved.isProcessed = true;
+          await queryRunner.manager.save(GrowthMeasurement, saved);
         }
-        if (lockedBatch.weight?.actual) {
-          lockedBatch.weight.actual.avgWeight = saved.averageWeight;
-          // totalBiomass is the at-sample snapshot of the JSONB provenance
-          // block; current biomass is derived on read from the live count ×
-          // avgWeight, so this stored figure is provenance, not authority.
-          lockedBatch.weight.actual.totalBiomass = saved.estimatedBiomass;
-          lockedBatch.weight.actual.lastMeasuredAt = saved.measurementDate;
-          lockedBatch.weight.actual.sampleSize = saved.sampleSize;
-          // Statistics are computed at a 95% confidence interval
-          // (StatisticalSummary.weight.confidenceInterval), so the provenance
-          // confidence level for this sample is 95%.
-          lockedBatch.weight.actual.confidencePercent = WEIGHT_SAMPLE_CONFIDENCE_PERCENT;
-        }
-        await queryRunner.manager.save(Batch, lockedBatch);
 
-        saved.isProcessed = true;
-        await queryRunner.manager.save(GrowthMeasurement, saved);
-      }
+        const event: GrowthSampleRecordedEvent = {
+          ...createBaseEvent<GrowthSampleRecordedEvent>('GrowthSampleRecorded', tenantId, {
+            aggregateId: saved.id,
+            aggregateType: 'GrowthMeasurement',
+          }),
+          batchId: saved.batchId,
+          measurementId: saved.id,
+          sampleSize: saved.sampleSize,
+          averageWeightG: saved.averageWeight,
+          weightCV: saved.weightCV,
+          measurementDate: toEventIso(saved.measurementDate),
+          performance: saved.performance,
+        };
+        await this.outboxPublisher.enqueue(event, queryRunner.manager);
 
-      const event: GrowthSampleRecordedEvent = {
-        ...createBaseEvent<GrowthSampleRecordedEvent>('GrowthSampleRecorded', tenantId, {
-          aggregateId: saved.id,
-          aggregateType: 'GrowthMeasurement',
-        }),
-        batchId: saved.batchId,
-        measurementId: saved.id,
-        sampleSize: saved.sampleSize,
-        averageWeightG: saved.averageWeight,
-        weightCV: saved.weightCV,
-        measurementDate: toEventIso(saved.measurementDate),
-        performance: saved.performance,
-      };
-      await this.outboxPublisher.enqueue(event, queryRunner.manager);
-
-      return saved;
-    });
+        return saved;
+      },
+    );
   }
 
   private calculateDaysBetween(start: Date, end: Date): number {
@@ -276,6 +295,6 @@ export class RecordGrowthSampleHandler implements ICommandHandler<RecordGrowthSa
     days: number,
     dailyGrowthRate: number,
   ): number {
-    return startWeight + (days * dailyGrowthRate);
+    return startWeight + days * dailyGrowthRate;
   }
 }

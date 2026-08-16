@@ -29,7 +29,8 @@ import { DeployArtifactType } from '../deploy-artifact/entities/deploy-artifact.
 import { ReleaseBundle } from '../release-bundle/entities/release-bundle.entity';
 import { ReleaseBundleService } from '../release-bundle/release-bundle.service';
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
-import { QualityCodes, SensorMetricInput } from '../database/entities/sensor-metric.entity';
+import { SensorMetricInput } from '../database/entities/sensor-metric.entity';
+import { QualityCodes } from '../database/sensor-quality.authority';
 import { Sensor, SensorStatus } from '../database/entities/sensor.entity';
 import {
   DeviceEvent,

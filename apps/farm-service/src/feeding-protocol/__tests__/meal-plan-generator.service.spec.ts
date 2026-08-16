@@ -12,7 +12,6 @@ import {
   mixedTankStats,
   type ComputeDayPlanInput,
 } from '../services/meal-plan-generator.service';
-import { ProtocolRateService } from '../services/protocol-rate.service';
 import { FeedingDayPlanStatus } from '../entities/feeding-day-plan.entity';
 import {
   FcrResolvedSource,
@@ -20,6 +19,13 @@ import {
   type MealSchedule,
 } from '../entities/feeding-protocol-v2.entity';
 import type { EffectiveTemperature } from '../../water-quality/services/water-temperature.service';
+import { RecordingFeedingAggregateMutationPort } from '../../__tests__/support/durable-mutation-test-authority';
+import {
+  createProtocolResolutionTestAuthority,
+  feedingProtocolTestMutationInstant,
+  FEEDING_PROTOCOL_TEST_TIMEZONES,
+} from '../../__tests__/support/feeding-protocol-test-authority';
+import { PROTOCOL_RESOLUTION_CONTRACT_V1 } from '../protocol-resolution.contract';
 
 const SCHEDULE: MealSchedule = {
   mealsPerDay: 2,
@@ -65,7 +71,10 @@ const PROTOCOL = {
 const TEMP_NONE: EffectiveTemperature = { celsius: null, source: 'none' };
 const TEMP_COLD: EffectiveTemperature = { celsius: 8, source: 'sensor', sensorId: 's1' };
 
-const service = new MealPlanGeneratorService(new ProtocolRateService());
+const service = new MealPlanGeneratorService(
+  new RecordingFeedingAggregateMutationPort(),
+  createProtocolResolutionTestAuthority(),
+);
 
 const baseInput = (): ComputeDayPlanInput => ({
   assignment: { overrides: {}, suspensions: [], currentFeedId: undefined },
@@ -73,7 +82,8 @@ const baseInput = (): ComputeDayPlanInput => ({
   stock: { fishCount: 1000, biomassKg: 50, avgWeightG: 50 },
   temperature: TEMP_NONE,
   planDate: '2026-07-20',
-  timezone: 'Europe/Istanbul',
+  timezone: FEEDING_PROTOCOL_TEST_TIMEZONES.ISTANBUL,
+  mutationInstant: feedingProtocolTestMutationInstant('2026-07-20T00:00:00.000Z'),
 });
 
 describe('mixedTankStats (D-2 — FARM-MEDIUM-231, saf)', () => {
@@ -145,6 +155,46 @@ describe('MealPlanGeneratorService.computeDayPlan', () => {
     expect(plan!.snapshot.temperatureSource).toBe('none');
     expect(plan!.meals.map((meal) => meal.plannedKg)).toEqual([0.9, 0.6]);
     expect(plan!.snapshot.fcrResolvedSource).toBe(FcrResolvedSource.BAND);
+  });
+
+  it('uses the governed tank count-weighted average as the only band basis', () => {
+    const input = baseInput();
+    input.stock = {
+      fishCount: 1000,
+      biomassKg: 150,
+      avgWeightG: 150,
+      mixedBatch: true,
+      weightCvPercent: 80,
+    };
+
+    const plan = service.computeDayPlan(input);
+
+    expect(PROTOCOL_RESOLUTION_CONTRACT_V1.bandBasis).toEqual({
+      semantic: 'tank_count_weighted_average_weight_g',
+      sourceCoordinate: 'TankBatch.avgWeightG',
+    });
+    expect(plan!.resolution.bandBasisWeightG).toBe(150);
+    expect(plan!.resolution.bandIndex).toBe(1);
+    expect(plan!.resolution.feed.id).toBe('feed-b');
+  });
+
+  it('preserves an operator-pinned band on next-day generation when auto transition is disabled', () => {
+    const input = baseInput();
+    input.assignment.currentBandIndex = 0;
+    input.assignment.currentFeedId = 'feed-a';
+    input.stock = { fishCount: 1000, biomassKg: 150, avgWeightG: 150 };
+    input.protocol = {
+      ...PROTOCOL,
+      settings: { ...PROTOCOL.settings, autoTransition: false },
+    };
+    input.planDate = '2026-07-21';
+
+    const plan = service.computeDayPlan(input);
+
+    expect(plan!.resolution.bandBasisWeightG).toBe(150);
+    expect(plan!.resolution.bandIndex).toBe(0);
+    expect(plan!.resolution.feed.id).toBe('feed-a');
+    expect(plan!.meals.every((meal) => meal.feedId === 'feed-a')).toBe(true);
   });
 
   it('applies the K-18 chain: band rate x temp multiplier x (1 + rateAdj/100)', () => {

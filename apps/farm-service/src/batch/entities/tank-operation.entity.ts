@@ -21,14 +21,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { DecimalTransformer } from '@aquaculture/backend-common/database';
-import {
-  ObjectType,
-  Field,
-  ID,
-  Float,
-  Int,
-  registerEnumType,
-} from '@nestjs/graphql';
+import { ObjectType, Field, ID, Float, Int, registerEnumType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 import { Batch } from './batch.entity';
 // Type-only import to avoid circular dependency at runtime
@@ -43,11 +36,7 @@ import type { Tank } from '../../tank/entities/tank.entity';
 // FARM-HIGH-054 + FARM-MEDIUM-052.
 // ============================================================================
 
-import {
-  OperationType,
-  CullReason,
-  MortalityReason,
-} from './tank-operation.enums';
+import { OperationType, CullReason, MortalityReason } from './tank-operation.enums';
 
 export { OperationType, CullReason, MortalityReason } from './tank-operation.enums';
 
@@ -158,15 +147,31 @@ export class TankOperation {
 
   @Field(() => Int)
   @Column({ type: 'int' })
-  quantity!: number;                        // İşlem adedi
+  quantity!: number; // İşlem adedi
+
+  @Field()
+  @Column({ type: 'boolean', default: false })
+  countDerived!: boolean; // Yalnız-kg girişinden türetilen adet
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
-  avgWeightG?: number;                     // Ortalama ağırlık (g)
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+    transformer: new DecimalTransformer(),
+  })
+  avgWeightG?: number; // Ortalama ağırlık (g)
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
-  biomassKg?: number;                      // Toplam biomass (kg)
+  @Column({
+    type: 'decimal',
+    precision: 15,
+    scale: 2,
+    nullable: true,
+    transformer: new DecimalTransformer(),
+  })
+  biomassKg?: number; // Toplam biomass (kg)
 
   // -------------------------------------------------------------------------
   // MORTALITY DETAYLARI
@@ -206,7 +211,7 @@ export class TankOperation {
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
-  destinationTankId?: string;         // Transfer hedefi
+  destinationTankId?: string; // Transfer hedefi
 
   @ManyToOne('Tank', { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'destinationTankId' })
@@ -226,16 +231,28 @@ export class TankOperation {
   // -------------------------------------------------------------------------
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
-  harvestTotalWeightKg?: number;           // Hasat toplam ağırlık
+  @Column({
+    type: 'decimal',
+    precision: 15,
+    scale: 2,
+    nullable: true,
+    transformer: new DecimalTransformer(),
+  })
+  harvestTotalWeightKg?: number; // Hasat toplam ağırlık
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
-  harvestPricePerKg?: number;              // kg başına fiyat
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+    transformer: new DecimalTransformer(),
+  })
+  harvestPricePerKg?: number; // kg başına fiyat
 
   @Field({ nullable: true })
   @Column({ length: 255, nullable: true })
-  harvestBuyer?: string;                   // Alıcı
+  harvestBuyer?: string; // Alıcı
 
   // -------------------------------------------------------------------------
   // CLEANER FISH DETAYLARI
@@ -288,7 +305,7 @@ export class TankOperation {
 
   @Field()
   @Column('uuid')
-  performedBy!: string;                     // İşlemi yapan kullanıcı
+  performedBy!: string; // İşlemi yapan kullanıcı
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })
@@ -348,10 +365,7 @@ export class TankOperation {
    * Retention Rate'i etkiler mi? (mortality + cull)
    */
   affectsRetentionRate(): boolean {
-    return [
-      OperationType.MORTALITY,
-      OperationType.CULL,
-    ].includes(this.operationType);
+    return [OperationType.MORTALITY, OperationType.CULL].includes(this.operationType);
   }
 
   /**
@@ -382,9 +396,8 @@ export class TankOperation {
    * Cleaner fish stok artıran operasyon mu?
    */
   isCleanerFishStockIncreasing(): boolean {
-    return [
-      OperationType.CLEANER_DEPLOYMENT,
-      OperationType.CLEANER_TRANSFER_IN,
-    ].includes(this.operationType);
+    return [OperationType.CLEANER_DEPLOYMENT, OperationType.CLEANER_TRANSFER_IN].includes(
+      this.operationType,
+    );
   }
 }

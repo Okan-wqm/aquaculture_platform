@@ -31,6 +31,16 @@
   },
   {
     "targets": [
+      "farm-feeding-scheduler:3000"
+    ],
+    "labels": {
+      "app": "farm-feeding-scheduler",
+      "namespace": "aquaculture",
+      "criticality": "critical"
+    }
+  },
+  {
+    "targets": [
       "sensor-service:3000"
     ],
     "labels": {

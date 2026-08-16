@@ -107,8 +107,8 @@ export class TankDepartmentInfo {
   @Field()
   name!: string;
 
-  @Field({ nullable: true })
-  siteId?: string;
+  @Field(() => ID, { nullable: true })
+  siteId?: string | null;
 
   @Field(() => TankSiteInfo, { nullable: true })
   site?: TankSiteInfo;
@@ -267,9 +267,7 @@ export class TankResolver {
     @CurrentUser('planLevel') planLevel: number | undefined,
   ): Promise<Tank> {
     this.logger.log(`Creating tank: ${input.name}`);
-    return this.commandBus.execute(
-      new CreateTankCommand(tenantId, userId, input, planLevel),
-    );
+    return this.commandBus.execute(new CreateTankCommand(tenantId, userId, input, planLevel));
   }
 
   /**

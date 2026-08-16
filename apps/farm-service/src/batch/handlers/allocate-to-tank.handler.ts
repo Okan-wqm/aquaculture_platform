@@ -16,8 +16,15 @@
  * @module Batch/Handlers
  */
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
-import { Injectable, NotFoundException, BadRequestException, Logger, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  Logger,
+  ConflictException,
+} from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import type { BatchAllocatedToTankEvent } from '@platform/event-contracts';
@@ -42,6 +49,7 @@ import { TankAllocation } from '../entities/tank-allocation.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
 import { TankBatchService } from '../services/tank-batch.service';
 import { resolveSiteIdFromDepartment } from '../utils/tank-lookup.util';
+import { BatchAggregateMutationPort } from '../batch-aggregate-mutation.port';
 
 /**
  * Map the command's AllocationType enum to the BatchAllocatedToTankEvent
@@ -50,9 +58,7 @@ import { resolveSiteIdFromDepartment } from '../utils/tank-lookup.util';
  * / GRADING / HARVEST do not produce an "allocated to tank" event
  * semantically and therefore throw rather than silently remapping.
  */
-function toAllocationTypeCode(
-  input: AllocationType,
-): 'initial' | 'transfer_in' | 'split' {
+function toAllocationTypeCode(input: AllocationType): 'initial' | 'transfer_in' | 'split' {
   switch (input) {
     case AllocationType.INITIAL_STOCKING:
       return 'initial';
@@ -76,6 +82,7 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
   private readonly logger = new Logger(AllocateToTankHandler.name);
 
   constructor(
+    private readonly batchMutations: BatchAggregateMutationPort,
     @InjectRepository(Batch)
     private readonly batchRepository: Repository<Batch>,
     @InjectRepository(TankAllocation)
@@ -95,10 +102,8 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
     // aggregates derived. Shared with transfer/mortality/cull so every stock
     // mutation updates a tank the same way (no divergent hand-written copies).
     private readonly tankBatchService: TankBatchService,
-    private readonly farmStockProjection: FarmStockProjectionService =
-      defaultFarmStockProjectionForDirectHandlerConstruction(),
-    private readonly mobileCommandReceipts: MobileCommandReceiptService =
-      defaultMobileCommandReceiptsForDirectHandlerConstruction(),
+    private readonly farmStockProjection: FarmStockProjectionService = defaultFarmStockProjectionForDirectHandlerConstruction(),
+    private readonly mobileCommandReceipts: MobileCommandReceiptService = defaultMobileCommandReceiptsForDirectHandlerConstruction(),
   ) {}
 
   /**
@@ -111,265 +116,283 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
   async execute(command: AllocateToTankCommand): Promise<Batch> {
     const { tenantId, batchId, payload, allocatedBy, userRoles, callerAssignedSiteIds } = command;
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction('SERIALIZABLE');
-
-    try {
-      const receipt = await this.mobileCommandReceipts.begin(queryRunner.manager, {
-        tableName: 'farm_mobile_command_receipts',
-        tenantId,
-        envelope: command.mobileCommand,
-        operationType: 'allocateBatchToTank',
-        responseType: 'Batch',
-      });
-      if (receipt.mode === 'replay') {
-        const replayed = receipt.responseId
-          ? await queryRunner.manager.findOne(Batch, {
-              where: { id: receipt.responseId, tenantId, isActive: true },
-            })
-          : null;
-        if (!replayed) {
-          throw new ConflictException('Mobile command receipt response is no longer available');
+    return runInTenantTransaction(
+      this.dataSource,
+      'farm',
+      tenantId,
+      async (queryRunner, mutationSession) => {
+        const receipt = await this.mobileCommandReceipts.begin(queryRunner.manager, {
+          tableName: 'farm_mobile_command_receipts',
+          tenantId,
+          envelope: command.mobileCommand,
+          operationType: 'allocateBatchToTank',
+          responseType: 'Batch',
+        });
+        if (receipt.mode === 'replay') {
+          const replayed = receipt.responseId
+            ? await queryRunner.manager.findOne(Batch, {
+                where: { id: receipt.responseId, tenantId, isActive: true },
+              })
+            : null;
+          if (!replayed) {
+            throw new ConflictException('Mobile command receipt response is no longer available');
+          }
+          return replayed;
         }
-        await queryRunner.commitTransaction();
-        return replayed;
-      }
 
-      // Batch bul with pessimistic lock
-      const batch = await queryRunner.manager.findOne(Batch, {
-        where: { id: batchId, tenantId, isActive: true },
-        lock: { mode: 'pessimistic_write' },
-      });
-
-      if (!batch) {
-        throw new NotFoundException(`Batch ${batchId} bulunamadı`);
-      }
-
-      // Equipment compatibility row or canonical Tank row bul with pessimistic lock
-      let equipment = await queryRunner.manager.findOne(Equipment, {
-        where: { id: payload.tankId, tenantId, isActive: true, isDeleted: false },
-        lock: { mode: 'pessimistic_write' },
-      });
-      let canonicalTank: Tank | null = null;
-
-      if (!equipment) {
-        canonicalTank = await queryRunner.manager.findOne(Tank, {
-          where: { id: payload.tankId, tenantId, isActive: true },
+        // Batch bul with pessimistic lock
+        const batch = await queryRunner.manager.findOne(Batch, {
+          where: { id: batchId, tenantId, isActive: true },
           lock: { mode: 'pessimistic_write' },
         });
-        if (canonicalTank) {
-          equipment = this.tankToCapacityEquipment(canonicalTank);
+
+        if (!batch) {
+          throw new NotFoundException(`Batch ${batchId} bulunamadı`);
         }
-      }
 
-      if (!equipment) {
-        throw new NotFoundException(`Tank ${payload.tankId} bulunamadı`);
-      }
-
-      // SEC-HIGH-051: object-level site authorization. The tank is already
-      // loaded+locked above, so resolve its owning site from the known
-      // departmentId (one Department lookup, no redundant tank re-lookup) and
-      // assert the caller is assigned to it BEFORE any allocation write.
-      // MODULE_MANAGER+ bypasses; an unassigned/unresolved site for a MODULE_USER
-      // is DENIED. canonicalTank (legacy) carries departmentId; the adapted
-      // Equipment may not, so prefer the canonical row's departmentId.
-      const departmentId = canonicalTank?.departmentId ?? equipment.departmentId;
-      const tankSiteId = await resolveSiteIdFromDepartment(queryRunner.manager, departmentId, tenantId);
-      this.siteAuth.assertSiteAssignment({
-        caller: { sub: allocatedBy, roles: userRoles, assignedSiteIds: callerAssignedSiteIds },
-        siteId: tankSiteId,
-      });
-
-      // Existing biomass on the tank — pull the cleaner-fish component
-      // from the tank_batches row (if any) so the capacity check can
-      // account for mixed-use tanks (salmon + cleaner fish coexisting).
-      const existingTankBatch = await queryRunner.manager.findOne(TankBatch, {
-        where: { tenantId, tankId: payload.tankId },
-      });
-
-      // LIFE-SAFETY: Hard capacity enforcement with admin override.
-      // Centralised in TankCapacityService — checks status, biomass and
-      // density axes consistently across every handler that places fish
-      // into a tank (allocate, transfer, deploy-cleaner-fish). Admin
-      // users (SUPER_ADMIN / TENANT_ADMIN) may override with audit log.
-      const biomassKg = (payload.quantity * payload.avgWeightG) / 1000;
-
-      const capacity = this.tankCapacityService.enforce({
-        mode: 'admin-override',
-        equipment,
-        existing: {
-          salmonBiomassKg: Number(equipment.currentBiomass || 0),
-          cleanerBiomassKg: Number(existingTankBatch?.cleanerFishBiomassKg || 0),
-        },
-        incomingBiomassKg: biomassKg,
-        callerRoles: userRoles,
-        callerUserId: allocatedBy,
-      });
-
-      const effectiveVolume = capacity.tankVolumeM3;
-      const densityKgM3 = capacity.projectedDensityKgM3;
-
-      // Allocation kaydı oluştur
-      const allocation = queryRunner.manager.create(TankAllocation, {
-        tenantId,
-        batchId,
-        tankId: payload.tankId,
-        allocationType: payload.allocationType,
-        allocationDate: payload.allocatedAt || new Date(),
-        quantity: payload.quantity,
-        avgWeightG: payload.avgWeightG,
-        biomassKg,
-        densityKgM3,
-        // Denormalized fields
-        batchNumber: batch.batchNumber,
-        tankCode: equipment.code,
-        tankName: equipment.name,
-        allocatedBy,
-        notes: payload.notes,
-        isDeleted: false,
-      });
-
-      // The TankAllocation ledger row still persists (audit/history); the handler
-      // now returns the Batch, so the saved row no longer needs to be captured.
-      await queryRunner.manager.save(allocation);
-
-      // TankBatch composition: batchDetails[] is the SSoT, aggregates derived.
-      // Routed through the shared TankBatchService so allocate, transfer,
-      // mortality and cull all mutate a tank's stock identically — and the
-      // per-batch detail is ALWAYS persisted (it was discarded for single-batch
-      // tanks, which hid the just-stocked batch from the snapshot read model).
-      const savedTankBatch = await this.tankBatchService.applyBatchDelta(
-        queryRunner.manager,
-        tenantId,
-        payload.tankId,
-        {
-          batchId,
-          batchNumber: batch.batchNumber,
-          quantityDelta: payload.quantity,
-          biomassDelta: biomassKg,
-          avgWeightG: payload.avgWeightG,
-        },
-        { code: equipment.code, name: equipment.name, volumeM3: Number(effectiveVolume) || 0 },
-      );
-
-      // Capacity flags are allocate-specific (from TankCapacityService.enforce);
-      // persist them onto the SSoT-derived row. Admin-override keeps the flag
-      // `true` for the audit trail without throwing.
-      savedTankBatch.isOverCapacity = capacity.isOverCapacity;
-      savedTankBatch.capacityUsedPercent = capacity.utilizationPercent;
-      await queryRunner.manager.save(savedTankBatch);
-      const tankBatch = savedTankBatch;
-
-      // Phase 1.1: when an admin consciously overrode the capacity gate
-      // we record a CAPACITY_BLOCKED row in farm_audit_logs. The write
-      // goes through the same transactional manager so the audit row
-      // commits or rolls back atomically with the allocation. The
-      // service.enforce() call already logged a warn-level line; this
-      // is the durable trail post-hoc analysis can query.
-      if (capacity.isOverCapacity) {
-        await this.auditLogService.logWithManager(queryRunner.manager, {
-          tenantId,
-          entityType: 'TankBatch',
-          entityId: savedTankBatch.id,
-          action: AuditAction.CAPACITY_BLOCKED,
-          userId: allocatedBy,
-          changes: {
-            after: {
-              tankId: payload.tankId,
-              batchId,
-              incomingBiomassKg: biomassKg,
-              projectedBiomassKg: capacity.projectedBiomassKg,
-              projectedDensityKgM3: capacity.projectedDensityKgM3,
-              maxBiomassKg: capacity.maxBiomassKg,
-              maxDensityKgM3: capacity.maxDensityKgM3,
-              utilizationPercent: capacity.utilizationPercent,
-              isOverBiomass: capacity.isOverBiomass,
-              isOverDensity: capacity.isOverDensity,
-              primaryBlockReason: capacity.primaryBlockReason,
-            },
-          },
-          metadata: {
-            source: 'AllocateToTankHandler',
-          },
-          summary:
-            `Admin override: allocated ${biomassKg.toFixed(2)} kg into ` +
-            `tank ${equipment.code ?? payload.tankId} despite ${capacity.primaryBlockReason} ` +
-            `cap (${capacity.utilizationPercent.toFixed(1)}% utilization)`,
+        // Equipment compatibility row or canonical Tank row bul with pessimistic lock
+        let equipment = await queryRunner.manager.findOne(Equipment, {
+          where: { id: payload.tankId, tenantId, isActive: true, isDeleted: false },
+          lock: { mode: 'pessimistic_write' },
         });
-      }
+        let canonicalTank: Tank | null = null;
 
-      // Canonical container güncelle
-      if (canonicalTank) {
-        canonicalTank.currentBiomass = tankBatch.totalBiomassKg;
-        canonicalTank.currentCount = tankBatch.totalQuantity;
-        if (canonicalTank.status === TankStatus.PREPARING || canonicalTank.status === TankStatus.FALLOW) {
-          canonicalTank.status = TankStatus.ACTIVE;
-          canonicalTank.statusChangedAt = new Date();
+        if (!equipment) {
+          canonicalTank = await queryRunner.manager.findOne(Tank, {
+            where: { id: payload.tankId, tenantId, isActive: true },
+            lock: { mode: 'pessimistic_write' },
+          });
+          if (canonicalTank) {
+            equipment = this.tankToCapacityEquipment(canonicalTank);
+          }
         }
-        await queryRunner.manager.save(canonicalTank);
-      } else {
-        equipment.currentBiomass = tankBatch.totalBiomassKg;
-        equipment.currentCount = tankBatch.totalQuantity;
-        if (equipment.status === EquipmentStatus.PREPARING || equipment.status === EquipmentStatus.FALLOW) {
-          equipment.status = EquipmentStatus.ACTIVE;
+
+        if (!equipment) {
+          throw new NotFoundException(`Tank ${payload.tankId} bulunamadı`);
         }
-        await queryRunner.manager.save(equipment);
-      }
 
-      // Batch status güncelle (ilk stoklama ise)
-      if (batch.status === BatchStatus.QUARANTINE && payload.allocationType === AllocationType.INITIAL_STOCKING) {
-        batch.status = BatchStatus.ACTIVE;
-        batch.statusChangedAt = new Date();
-        await queryRunner.manager.save(batch);
-      }
+        // SEC-HIGH-051: object-level site authorization. The tank is already
+        // loaded+locked above, so resolve its owning site from the known
+        // departmentId (one Department lookup, no redundant tank re-lookup) and
+        // assert the caller is assigned to it BEFORE any allocation write.
+        // MODULE_MANAGER+ bypasses; an unassigned/unresolved site for a MODULE_USER
+        // is DENIED. canonicalTank (legacy) carries departmentId; the adapted
+        // Equipment may not, so prefer the canonical row's departmentId.
+        const departmentId = canonicalTank?.departmentId ?? equipment.departmentId;
+        const tankSiteId = await resolveSiteIdFromDepartment(
+          queryRunner.manager,
+          departmentId,
+          tenantId,
+        );
+        this.siteAuth.assertSiteAssignment({
+          caller: { sub: allocatedBy, roles: userRoles, assignedSiteIds: callerAssignedSiteIds },
+          siteId: tankSiteId,
+        });
 
-      await this.farmStockProjection.refreshContainers(
-        queryRunner.manager,
-        tenantId,
-        [payload.tankId],
-      );
+        // Existing biomass on the tank — pull the cleaner-fish component
+        // from the tank_batches row (if any) so the capacity check can
+        // account for mixed-use tanks (salmon + cleaner fish coexisting).
+        const existingTankBatch = await queryRunner.manager.findOne(TankBatch, {
+          where: { tenantId, tankId: payload.tankId },
+        });
 
-      // Enqueue BatchAllocatedToTankEvent into the transactional outbox BEFORE commit.
-      const allocationDate = payload.allocatedAt || new Date();
-      const eventBiomassKg = (payload.quantity * (payload.avgWeightG ?? 0)) / 1000;
-      const allocationEvent: BatchAllocatedToTankEvent = {
-        ...createBaseEvent<BatchAllocatedToTankEvent>('BatchAllocatedToTank', tenantId, { aggregateId: batchId, aggregateType: 'Batch' }),
-        userId: allocatedBy,
-        batchId,
-        tankId: payload.tankId,
-        quantity: payload.quantity,
-        biomassKg: eventBiomassKg,
-        allocationType: toAllocationTypeCode(payload.allocationType),
-        allocationDate: toEventIso(allocationDate),
-      };
-      await this.outboxPublisher.enqueue(allocationEvent, queryRunner.manager);
-      await this.mobileCommandReceipts.complete(queryRunner.manager, {
-        tableName: 'farm_mobile_command_receipts',
-        receipt,
-        responseType: 'Batch',
-        responseId: batch.id,
-        responsePayload: { id: batch.id },
-      });
+        // LIFE-SAFETY: Hard capacity enforcement with admin override.
+        // Centralised in TankCapacityService — checks status, biomass and
+        // density axes consistently across every handler that places fish
+        // into a tank (allocate, transfer, deploy-cleaner-fish). Admin
+        // users (SUPER_ADMIN / TENANT_ADMIN) may override with audit log.
+        const biomassKg = (payload.quantity * payload.avgWeightG) / 1000;
 
-      await queryRunner.commitTransaction();
+        const capacity = this.tankCapacityService.enforce({
+          mode: 'admin-override',
+          equipment,
+          existing: {
+            salmonBiomassKg: Number(equipment.currentBiomass || 0),
+            cleanerBiomassKg: Number(existingTankBatch?.cleanerFishBiomassKg || 0),
+          },
+          incomingBiomassKg: biomassKg,
+          callerRoles: userRoles,
+          callerUserId: allocatedBy,
+        });
 
-      this.logger.log(
-        `Batch ${batchId} allocated to tank ${payload.tankId} — ` +
-        `qty=${payload.quantity}, type=${payload.allocationType}, tenant=${tenantId}`,
-      );
+        const effectiveVolume = capacity.tankVolumeM3;
+        const densityKgM3 = capacity.projectedDensityKgM3;
 
-      // Return the (updated) Batch — the @Mutation declares `() => Batch` and the
-      // web/mobile clients read `Batch{currentQuantity,…}` to refresh after
-      // stocking. Returning the TankAllocation here previously gave the client a
-      // malformed object, so the tank/batch counts didn't refresh post-allocation.
-      return batch;
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+        // Allocation kaydı oluştur
+        const allocation = queryRunner.manager.create(TankAllocation, {
+          tenantId,
+          batchId,
+          tankId: payload.tankId,
+          allocationType: payload.allocationType,
+          allocationDate: payload.allocatedAt || new Date(),
+          quantity: payload.quantity,
+          avgWeightG: payload.avgWeightG,
+          biomassKg,
+          densityKgM3,
+          // Denormalized fields
+          batchNumber: batch.batchNumber,
+          tankCode: equipment.code,
+          tankName: equipment.name,
+          allocatedBy,
+          notes: payload.notes,
+          isDeleted: false,
+        });
+
+        // The TankAllocation ledger row still persists (audit/history); the handler
+        // now returns the Batch, so the saved row no longer needs to be captured.
+        await queryRunner.manager.save(allocation);
+
+        // TankBatch composition: batchDetails[] is the SSoT, aggregates derived.
+        // Routed through the shared TankBatchService so allocate, transfer,
+        // mortality and cull all mutate a tank's stock identically — and the
+        // per-batch detail is ALWAYS persisted (it was discarded for single-batch
+        // tanks, which hid the just-stocked batch from the snapshot read model).
+        const savedTankBatch = await this.tankBatchService.applyBatchDelta(
+          queryRunner.manager,
+          mutationSession,
+          tenantId,
+          payload.tankId,
+          {
+            batchId,
+            batchNumber: batch.batchNumber,
+            quantityDelta: payload.quantity,
+            biomassDelta: biomassKg,
+            avgWeightG: payload.avgWeightG,
+          },
+          { code: equipment.code, name: equipment.name, volumeM3: Number(effectiveVolume) || 0 },
+        );
+
+        // Capacity flags are allocate-specific (from TankCapacityService.enforce);
+        // persist them onto the SSoT-derived row. Admin-override keeps the flag
+        // `true` for the audit trail without throwing.
+        savedTankBatch.isOverCapacity = capacity.isOverCapacity;
+        savedTankBatch.capacityUsedPercent = capacity.utilizationPercent;
+        await this.batchMutations.commitTankBatchTransition(mutationSession, {
+          intent: 'stock_allocation',
+          aggregate: savedTankBatch,
+        });
+        const tankBatch = savedTankBatch;
+
+        // Phase 1.1: when an admin consciously overrode the capacity gate
+        // we record a CAPACITY_BLOCKED row in farm_audit_logs. The write
+        // goes through the same transactional manager so the audit row
+        // commits or rolls back atomically with the allocation. The
+        // service.enforce() call already logged a warn-level line; this
+        // is the durable trail post-hoc analysis can query.
+        if (capacity.isOverCapacity) {
+          await this.auditLogService.logWithManager(queryRunner.manager, {
+            tenantId,
+            entityType: 'TankBatch',
+            entityId: savedTankBatch.id,
+            action: AuditAction.CAPACITY_BLOCKED,
+            userId: allocatedBy,
+            changes: {
+              after: {
+                tankId: payload.tankId,
+                batchId,
+                incomingBiomassKg: biomassKg,
+                projectedBiomassKg: capacity.projectedBiomassKg,
+                projectedDensityKgM3: capacity.projectedDensityKgM3,
+                maxBiomassKg: capacity.maxBiomassKg,
+                maxDensityKgM3: capacity.maxDensityKgM3,
+                utilizationPercent: capacity.utilizationPercent,
+                isOverBiomass: capacity.isOverBiomass,
+                isOverDensity: capacity.isOverDensity,
+                primaryBlockReason: capacity.primaryBlockReason,
+              },
+            },
+            metadata: {
+              source: 'AllocateToTankHandler',
+            },
+            summary:
+              `Admin override: allocated ${biomassKg.toFixed(2)} kg into ` +
+              `tank ${equipment.code ?? payload.tankId} despite ${capacity.primaryBlockReason} ` +
+              `cap (${capacity.utilizationPercent.toFixed(1)}% utilization)`,
+          });
+        }
+
+        // Canonical container güncelle
+        if (canonicalTank) {
+          canonicalTank.currentBiomass = tankBatch.totalBiomassKg;
+          canonicalTank.currentCount = tankBatch.totalQuantity;
+          if (
+            canonicalTank.status === TankStatus.PREPARING ||
+            canonicalTank.status === TankStatus.FALLOW
+          ) {
+            canonicalTank.status = TankStatus.ACTIVE;
+            canonicalTank.statusChangedAt = new Date();
+          }
+          await this.batchMutations.commitTankTransition(mutationSession, {
+            intent: 'stock_allocation',
+            aggregate: canonicalTank,
+          });
+        } else {
+          equipment.currentBiomass = tankBatch.totalBiomassKg;
+          equipment.currentCount = tankBatch.totalQuantity;
+          if (
+            equipment.status === EquipmentStatus.PREPARING ||
+            equipment.status === EquipmentStatus.FALLOW
+          ) {
+            equipment.status = EquipmentStatus.ACTIVE;
+          }
+          await queryRunner.manager.save(equipment);
+        }
+
+        // Batch status güncelle (ilk stoklama ise)
+        if (
+          batch.status === BatchStatus.QUARANTINE &&
+          payload.allocationType === AllocationType.INITIAL_STOCKING
+        ) {
+          batch.status = BatchStatus.ACTIVE;
+          batch.statusChangedAt = new Date();
+          await this.batchMutations.commitBatchTransition(mutationSession, {
+            intent: 'stock_allocation',
+            aggregate: batch,
+          });
+        }
+
+        await this.farmStockProjection.refreshContainers(queryRunner.manager, tenantId, [
+          payload.tankId,
+        ]);
+
+        // Enqueue BatchAllocatedToTankEvent into the transactional outbox BEFORE commit.
+        const allocationDate = payload.allocatedAt || new Date();
+        const eventBiomassKg = (payload.quantity * (payload.avgWeightG ?? 0)) / 1000;
+        const allocationEvent: BatchAllocatedToTankEvent = {
+          ...createBaseEvent<BatchAllocatedToTankEvent>('BatchAllocatedToTank', tenantId, {
+            aggregateId: batchId,
+            aggregateType: 'Batch',
+          }),
+          userId: allocatedBy,
+          batchId,
+          tankId: payload.tankId,
+          quantity: payload.quantity,
+          biomassKg: eventBiomassKg,
+          allocationType: toAllocationTypeCode(payload.allocationType),
+          allocationDate: toEventIso(allocationDate),
+        };
+        await this.outboxPublisher.enqueue(allocationEvent, queryRunner.manager);
+        await this.mobileCommandReceipts.complete(queryRunner.manager, {
+          tableName: 'farm_mobile_command_receipts',
+          receipt,
+          responseType: 'Batch',
+          responseId: batch.id,
+          responsePayload: { id: batch.id },
+        });
+
+        this.logger.log(
+          `Batch ${batchId} allocated to tank ${payload.tankId} — ` +
+            `qty=${payload.quantity}, type=${payload.allocationType}, tenant=${tenantId}`,
+        );
+
+        // Return the (updated) Batch — the @Mutation declares `() => Batch` and the
+        // web/mobile clients read `Batch{currentQuantity,…}` to refresh after
+        // stocking. Returning the TankAllocation here previously gave the client a
+        // malformed object, so the tank/batch counts didn't refresh post-allocation.
+        return batch;
+      },
+      { isolationLevel: 'SERIALIZABLE' },
+    );
   }
 
   private tankToCapacityEquipment(tank: Tank): Equipment {

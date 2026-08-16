@@ -134,84 +134,97 @@ export class TankCountReconcileService {
     const dryRun = opts.dryRun ?? true;
     const tankFilter = opts.tankIds && opts.tankIds.length > 0 ? new Set(opts.tankIds) : null;
 
-    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-      const manager = queryRunner.manager;
-      const ledger: LedgerRow[] = await manager.query(LEDGER_SQL, [tenantId]);
-      const rows: TankCountReconcileRow[] = [];
+    return runInTenantTransaction(
+      this.dataSource,
+      'farm',
+      tenantId,
+      async (queryRunner, mutationSession) => {
+        const manager = queryRunner.manager;
+        const ledger: LedgerRow[] = await manager.query(LEDGER_SQL, [tenantId]);
+        const rows: TankCountReconcileRow[] = [];
 
-      for (const entry of ledger) {
-        if (tankFilter && !tankFilter.has(entry.tankId)) {
-          continue;
-        }
-        const ledgerQuantity = Math.trunc(Number(entry.trueQty));
-        const tankBatch = await manager.findOne(TankBatch, {
-          where: { tenantId, tankId: entry.tankId },
-        });
-        const details = tankBatch?.batchDetails ?? [];
-        const detail = details.find((d) => d.batchId === entry.batchId);
-        const isPrimary = tankBatch?.primaryBatchId === entry.batchId;
-        // Pre-SSoT rows carry batchDetails=NULL but a converged totalQuantity —
-        // for the primary batch that total IS the baseline; reading 0 here made
-        // the first version report phantom deltas on already-correct tanks.
-        const currentQuantity =
-          detail?.quantity ??
-          (details.length === 0 && isPrimary ? Math.trunc(Number(tankBatch?.totalQuantity ?? 0)) : 0);
-        const delta = ledgerQuantity - currentQuantity;
-        // Fail-closed: no inflow history or a negative net = incomplete ledger
-        // (e.g. initial stocking predates the createBatch allocation write).
-        const ledgerComplete = Number(entry.inflowRows) > 0 && ledgerQuantity >= 0;
-        // A pre-SSoT row still needs a zero-delta self-heal when batchDetails is
-        // missing (seeds the per-batch SSoT from the correct totals). The old
-        // stale-MIRROR heal condition is gone with the currentQuantity column
-        // (A1 retirement, ORPHAN-HIGH-353 step 2) — every read is totalQuantity.
-        const needsHeal = tankBatch != null && details.length === 0;
-
-        let applied = false;
-        let healed = false;
-        if (!dryRun && ledgerComplete && tankBatch) {
-          if (delta !== 0) {
-            await this.applyCorrection(manager, tenantId, entry.tankId, {
-              batchId: entry.batchId,
-              batchNumber: detail?.batchNumber ?? tankBatch.primaryBatchNumber ?? '',
-              delta,
-              avgWeightG: detail?.avgWeightG ?? Number(tankBatch.avgWeightG ?? 0),
-            });
-            applied = true;
-          } else if (needsHeal) {
-            // Zero-delta write through the single writer: seeds batchDetails from
-            // the (correct) totals and re-derives the aggregates + currentCount.
-            await this.tankBatchService.applyBatchDelta(manager, tenantId, entry.tankId, {
-              batchId: entry.batchId,
-              batchNumber: detail?.batchNumber ?? tankBatch.primaryBatchNumber ?? '',
-              quantityDelta: 0,
-              biomassDelta: 0,
-            });
-            healed = true;
+        for (const entry of ledger) {
+          if (tankFilter && !tankFilter.has(entry.tankId)) {
+            continue;
           }
+          const ledgerQuantity = Math.trunc(Number(entry.trueQty));
+          const tankBatch = await manager.findOne(TankBatch, {
+            where: { tenantId, tankId: entry.tankId },
+          });
+          const details = tankBatch?.batchDetails ?? [];
+          const detail = details.find((d) => d.batchId === entry.batchId);
+          const isPrimary = tankBatch?.primaryBatchId === entry.batchId;
+          // Pre-SSoT rows carry batchDetails=NULL but a converged totalQuantity —
+          // for the primary batch that total IS the baseline; reading 0 here made
+          // the first version report phantom deltas on already-correct tanks.
+          const currentQuantity =
+            detail?.quantity ??
+            (details.length === 0 && isPrimary
+              ? Math.trunc(Number(tankBatch?.totalQuantity ?? 0))
+              : 0);
+          const delta = ledgerQuantity - currentQuantity;
+          // Fail-closed: no inflow history or a negative net = incomplete ledger
+          // (e.g. initial stocking predates the createBatch allocation write).
+          const ledgerComplete = Number(entry.inflowRows) > 0 && ledgerQuantity >= 0;
+          // A pre-SSoT row still needs a zero-delta self-heal when batchDetails is
+          // missing (seeds the per-batch SSoT from the correct totals). The old
+          // stale-MIRROR heal condition is gone with the currentQuantity column
+          // (A1 retirement, ORPHAN-HIGH-353 step 2) — every read is totalQuantity.
+          const needsHeal = tankBatch != null && details.length === 0;
+
+          let applied = false;
+          let healed = false;
+          if (!dryRun && ledgerComplete && tankBatch) {
+            if (delta !== 0) {
+              await this.applyCorrection(manager, mutationSession, tenantId, entry.tankId, {
+                batchId: entry.batchId,
+                batchNumber: detail?.batchNumber ?? tankBatch.primaryBatchNumber ?? '',
+                delta,
+                avgWeightG: detail?.avgWeightG ?? Number(tankBatch.avgWeightG ?? 0),
+              });
+              applied = true;
+            } else if (needsHeal) {
+              // Zero-delta write through the single writer: seeds batchDetails from
+              // the (correct) totals and re-derives the aggregates + currentCount.
+              await this.tankBatchService.applyBatchDelta(
+                manager,
+                mutationSession,
+                tenantId,
+                entry.tankId,
+                {
+                  batchId: entry.batchId,
+                  batchNumber: detail?.batchNumber ?? tankBatch.primaryBatchNumber ?? '',
+                  quantityDelta: 0,
+                  biomassDelta: 0,
+                },
+              );
+              healed = true;
+            }
+          }
+
+          rows.push({
+            tankId: entry.tankId,
+            batchId: entry.batchId,
+            batchNumber: detail?.batchNumber ?? tankBatch?.primaryBatchNumber ?? '',
+            currentQuantity,
+            ledgerQuantity,
+            delta,
+            ledgerComplete,
+            applied,
+            healed,
+          });
         }
 
-        rows.push({
-          tankId: entry.tankId,
-          batchId: entry.batchId,
-          batchNumber: detail?.batchNumber ?? tankBatch?.primaryBatchNumber ?? '',
-          currentQuantity,
-          ledgerQuantity,
-          delta,
-          ledgerComplete,
-          applied,
-          healed,
-        });
-      }
-
-      const drifted = rows.filter((r) => r.delta !== 0);
-      const incomplete = rows.filter((r) => !r.ledgerComplete);
-      this.logger.log(
-        `[TankCountReconcile] tenant=${tenantId.substring(0, 8)} dryRun=${dryRun} ` +
-          `scanned=${rows.length} drifted=${drifted.length} incomplete=${incomplete.length} ` +
-          `applied=${rows.filter((r) => r.applied).length} healed=${rows.filter((r) => r.healed).length}`,
-      );
-      return rows;
-    });
+        const drifted = rows.filter((r) => r.delta !== 0);
+        const incomplete = rows.filter((r) => !r.ledgerComplete);
+        this.logger.log(
+          `[TankCountReconcile] tenant=${tenantId.substring(0, 8)} dryRun=${dryRun} ` +
+            `scanned=${rows.length} drifted=${drifted.length} incomplete=${incomplete.length} ` +
+            `applied=${rows.filter((r) => r.applied).length} healed=${rows.filter((r) => r.healed).length}`,
+        );
+        return rows;
+      },
+    );
   }
 
   /**
@@ -222,12 +235,13 @@ export class TankCountReconcileService {
    */
   private async applyCorrection(
     manager: EntityManager,
+    mutationSession: import('@aquaculture/backend-common/database').TenantMutationSession,
     tenantId: string,
     tankId: string,
     correction: { batchId: string; batchNumber: string; delta: number; avgWeightG: number },
   ): Promise<void> {
     const biomassDelta = (correction.delta * correction.avgWeightG) / 1000;
-    await this.tankBatchService.applyBatchDelta(manager, tenantId, tankId, {
+    await this.tankBatchService.applyBatchDelta(manager, mutationSession, tenantId, tankId, {
       batchId: correction.batchId,
       batchNumber: correction.batchNumber,
       quantityDelta: correction.delta,

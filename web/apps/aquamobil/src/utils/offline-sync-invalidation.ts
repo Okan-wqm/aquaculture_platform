@@ -1,4 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query';
+import { FEEDING_MEAL_MOBILE_COMMAND_V1 } from '@aquaculture/feeding-contracts/feeding-record-vocabulary';
 
 import type { OperationType } from '@/types';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
@@ -16,12 +17,23 @@ const SYNC_INVALIDATION_SEGMENTS = {
   recordMortality: [['tanks'], ['dailyOpsCounts'], ['stockEventsSummary'], ['ai']],
   recordCull: [['tanks'], ['dailyOpsCounts'], ['stockEventsSummary'], ['ai']],
   createHarvestRecord: [['tanks'], ['dailyOpsCounts'], ['stockEventsSummary'], ['ai']],
-  recordFeeding: [['tanks'], ['feedingDayPlans'], ['dailyOpsCounts'], ['stockEventsSummary'], ['ai']],
   // Faz 6 öğün cutover'ı: senkronlanan döküm gün planı kartlarını, hub
   // sayaçlarını, tank kartlarını (biomass büyümesi) ve depo kapsamını tazeler.
-  recordMealFeeding: [['feedingDayPlans'], ['dailyOpsCounts'], ['tanks'], ['warehouseSummary']],
+  [FEEDING_MEAL_MOBILE_COMMAND_V1.operationType]: [
+    ['feedingDayPlans'],
+    ['dailyOpsCounts'],
+    ['tanks'],
+    ['warehouseSummary'],
+  ],
+  finalizeMeal: [['feedingDayPlans'], ['dailyOpsCounts'], ['tanks']],
   recordTransfer: [['tanks'], ['dailyOpsCounts'], ['stockEventsSummary'], ['ai']],
-  createWaterQuality: [['tanks'], ['equipment-params'], ['waterQuality'], ['dailyOpsCounts'], ['ai']],
+  createWaterQuality: [
+    ['tanks'],
+    ['equipment-params'],
+    ['waterQuality'],
+    ['dailyOpsCounts'],
+    ['ai'],
+  ],
   recordStockMovement: [['stockEventsSummary'], ['stock-at-location'], ['warehouseSummary']],
   transferStock: [['stockEventsSummary'], ['stock-at-location'], ['warehouseSummary']],
   // MOB-HIGH-006: a synced offline ack must clear the unacked badge/banner
@@ -34,7 +46,12 @@ const SYNC_INVALIDATION_SEGMENTS = {
   recordWelfareAssessment: [['reportDrafts'], ['reportDeadlines']],
   recordEscapeIncident: [['reportDrafts'], ['reportDeadlines']],
   clockIn: [['dailyOpsCounts'], ['todaysAttendance'], ['attendanceRecords'], ['attendanceSummary']],
-  clockOut: [['dailyOpsCounts'], ['todaysAttendance'], ['attendanceRecords'], ['attendanceSummary']],
+  clockOut: [
+    ['dailyOpsCounts'],
+    ['todaysAttendance'],
+    ['attendanceRecords'],
+    ['attendanceSummary'],
+  ],
   createLeaveRequest: [['leaveRequests'], ['leaveBalances']],
   completeTask: [['myTasks'], ['taskStats'], ['dailyOpsCounts']],
   startTask: [['myTasks'], ['taskStats'], ['dailyOpsCounts']],
@@ -42,13 +59,32 @@ const SYNC_INVALIDATION_SEGMENTS = {
   // the task detail/list read models — invalidate them so a synced offline
   // toggle becomes visible without waiting for staleTime.
   setChecklistItem: [['myTasks'], ['task']],
-  sendMessage: [['messaging', 'channels'], ['messaging', 'messages'], ['messaging', 'unreadCount']],
+  sendMessage: [
+    ['messaging', 'channels'],
+    ['messaging', 'messages'],
+    ['messaging', 'unreadCount'],
+  ],
   // MSG-MEDIUM-055: the binary offline lane produces a sent message on replay,
   // so it invalidates the SAME messaging read models as a plain sendMessage.
-  uploadAndSendMessage: [['messaging', 'channels'], ['messaging', 'messages'], ['messaging', 'unreadCount']],
-  editMessage: [['messaging', 'channels'], ['messaging', 'messages']],
-  deleteMessage: [['messaging', 'channels'], ['messaging', 'messages'], ['messaging', 'unreadCount']],
-  markMessagesRead: [['messaging', 'channels'], ['messaging', 'messages'], ['messaging', 'unreadCount']],
+  uploadAndSendMessage: [
+    ['messaging', 'channels'],
+    ['messaging', 'messages'],
+    ['messaging', 'unreadCount'],
+  ],
+  editMessage: [
+    ['messaging', 'channels'],
+    ['messaging', 'messages'],
+  ],
+  deleteMessage: [
+    ['messaging', 'channels'],
+    ['messaging', 'messages'],
+    ['messaging', 'unreadCount'],
+  ],
+  markMessagesRead: [
+    ['messaging', 'channels'],
+    ['messaging', 'messages'],
+    ['messaging', 'unreadCount'],
+  ],
 } satisfies Record<OperationType, readonly (readonly unknown[])[]>;
 
 // WHY: dedup is performed on the raw segments (BEFORE the tenant prefix is

@@ -1,4 +1,5 @@
 import { BaseEvent } from './base-event';
+import type { FeedingMethodValue } from '@aquaculture/feeding-contracts';
 
 // ====================================================================
 // Shared enum codes — single source of truth for backend, frontend,
@@ -151,6 +152,11 @@ export interface MortalityRecordedEvent extends BaseEvent {
   siteId?: string;
   tankId?: string;
   quantity: number;
+  /**
+   * Present on v2+ events. Absence means the historical v1 producer did not
+   * preserve count provenance; consumers must not reinterpret that as false.
+   */
+  countDerived?: boolean;
   reason: MortalityReasonCode;
   mortalityDate: string;
   newTotalMortality: number;
@@ -175,6 +181,8 @@ export interface CullRecordedEvent extends BaseEvent {
   siteId?: string;
   tankId?: string;
   quantity: number;
+  /** v2+ provenance; absent on historical v1 payloads. */
+  countDerived?: boolean;
   reason: CullReasonCode;
   detail?: string;
   culledAt: string;
@@ -408,6 +416,8 @@ export interface BatchTransferredEvent extends BaseEvent {
   sourceTankId: string;
   destinationTankId: string;
   quantity: number;
+  /** v2+ provenance; absent on historical v1 payloads. */
+  countDerived?: boolean;
   biomassKg: number;
   transferDate: string;
   reason?: string;
@@ -885,7 +895,7 @@ export interface MealFedEvent extends BaseEvent {
   /** Kümülatif gerçekleşen (Σ pours). */
   actualKg: number;
   fedAt: string;
-  feedingMethod?: string;
+  feedingMethod?: FeedingMethodValue;
 }
 
 export interface MealSkippedEvent extends BaseEvent {

@@ -24,10 +24,17 @@ import {
 } from 'typeorm';
 import { ObjectType, Field, ID, Int, Float, registerEnumType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
+import { FEEDING_MEAL_QUANTITY_POLICY_V1 } from '@aquaculture/feeding-contracts';
 
 import { FcrResolvedSource } from './feeding-protocol-v2.entity';
-import { FeedingUnitType } from './protocol-assignment.entity';
+import { FEEDING_UNIT_TYPE_DATABASE_ENUM, FeedingUnitType } from './protocol-assignment.entity';
 import { FeedingMeal } from './feeding-meal.entity';
+import {
+  DAY_PLAN_GROWTH_APPLICATION_MODE,
+  type DayPlanGrowthApplicationMode,
+} from '../day-plan-growth-reconciliation.authority';
+import type { DayPlanResolutionV1 } from '../protocol-resolution.contract';
+export type { DayPlanResolutionV1 } from '../protocol-resolution.contract';
 
 // ============================================================================
 // ENUMS
@@ -70,8 +77,8 @@ export interface DayPlanSnapshot {
   expectedFcr: number;
   fcrResolvedSource: FcrResolvedSource;
   /**
-   * D-2 karışık-tank görünürlüğü (FARM-MEDIUM-231): band dominant-biomass
-   * batch'ten seçilir; tank karışıksa rozet + yüksek ağırlık-CV'sinde uyarı.
+   * D-2 karışık-tank görünürlüğü (FARM-MEDIUM-231): band TankBatch.avgWeightG
+   * adet-ağırlıklı ortalamasından seçilir; karışım ve yüksek CV görünür kalır.
    * B3 öncesi üretilen snapshot'larda alanlar yoktur (opsiyonel bundan).
    */
   mixedBatch?: boolean;
@@ -95,7 +102,10 @@ export interface RecalcLogEntry {
     /** Öğün finalize'ındaki per_meal büyümesi sonrası kalan öğün recalc'ı. */
     | 'meal_growth'
     /** correctMealPour düzeltmesi sonrası growth-delta recalc'ı (C-11). */
-    | 'pour_correction';
+    | 'pour_correction'
+    | 'manual_transition'
+    /** Manuel kayıt miktar düzeltmesinin growth-delta recalc'ı. */
+    | 'manual_feeding_correction';
   /** Yeniden hesap sonrası kalan öğünlerin toplam planlanan kg'ı. */
   remainingPlannedKg: number;
   biomassKg?: number;
@@ -111,7 +121,7 @@ export interface RecalcLogEntry {
 @Index(['tenantId', 'unitId', 'planDate'], { unique: true })
 @Index(['tenantId', 'planDate'])
 @Index(['tenantId', 'planDate'], {
-  where: '"rollupAppliedAt" IS NULL',
+  where: `"growthApplicationMode" = 'daily' AND status IN ('in_progress', 'completed')`,
 })
 @Index(['assignmentId', 'planDate'])
 @Index(['tenantId', 'siteId', 'planDate'])
@@ -144,7 +154,11 @@ export class FeedingDayPlan {
   siteId!: string;
 
   @Field(() => FeedingUnitType)
-  @Column({ type: 'enum', enum: FeedingUnitType })
+  @Column({
+    type: 'enum',
+    enum: FeedingUnitType,
+    enumName: FEEDING_UNIT_TYPE_DATABASE_ENUM,
+  })
   unitType!: FeedingUnitType;
 
   @Field()
@@ -164,13 +178,26 @@ export class FeedingDayPlan {
   @Column({ type: 'jsonb' })
   snapshot!: DayPlanSnapshot;
 
+  @Field(() => GraphQLJSON)
+  @Column({ type: 'jsonb' })
+  resolution!: DayPlanResolutionV1;
+
   @Field(() => Float)
-  @Column({ type: 'numeric', precision: 12, scale: 3 })
+  @Column({
+    type: 'numeric',
+    precision: FEEDING_MEAL_QUANTITY_POLICY_V1.storagePrecision,
+    scale: FEEDING_MEAL_QUANTITY_POLICY_V1.storageScale,
+  })
   plannedTotalKg!: number;
 
   /** Plan-dışı manuel yemler (D-7) — gün-sonu varyansına dahil. */
   @Field(() => Float)
-  @Column({ type: 'numeric', precision: 12, scale: 3, default: 0 })
+  @Column({
+    type: 'numeric',
+    precision: FEEDING_MEAL_QUANTITY_POLICY_V1.storagePrecision,
+    scale: FEEDING_MEAL_QUANTITY_POLICY_V1.storageScale,
+    default: 0,
+  })
   unplannedActualKg!: number;
 
   @Field(() => Int)
@@ -185,7 +212,41 @@ export class FeedingDayPlan {
   })
   status!: FeedingDayPlanStatus;
 
-  /** DAILY growth modunda rollup idempotency damgası. */
+  /** Üretim anında dondurulan, versioned growth-policy sözleşmesi. */
+  @Field(() => Int, { nullable: true })
+  @Column({ type: 'smallint', nullable: true })
+  growthPolicyVersion?: number;
+
+  /** Protokol güncellense bile planın growth semantiği değişmez. */
+  @Field(() => DAY_PLAN_GROWTH_APPLICATION_MODE, { nullable: true })
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  growthApplicationMode?: DayPlanGrowthApplicationMode;
+
+  /** Büyümeye çevrilmiş kümülatif gerçek yem miktarı. */
+  @Field(() => Float)
+  @Column({
+    type: 'numeric',
+    precision: FEEDING_MEAL_QUANTITY_POLICY_V1.storagePrecision,
+    scale: FEEDING_MEAL_QUANTITY_POLICY_V1.storageScale,
+    default: 0,
+  })
+  rollupAppliedKg!: number;
+
+  /** Denetlenebilir kümülatif growth karşılığı. */
+  @Field(() => Float)
+  @Column({
+    type: 'numeric',
+    precision: FEEDING_MEAL_QUANTITY_POLICY_V1.storagePrecision,
+    scale: FEEDING_MEAL_QUANTITY_POLICY_V1.storageScale,
+    default: 0,
+  })
+  rollupGrowthKg!: number;
+
+  @Field({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
+  rollupLastRunAt?: Date;
+
+  /** @deprecated Kümülatif miktar mutabakatı için yalnız blue-green izi. */
   @Field({ nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
   rollupAppliedAt?: Date;
@@ -197,6 +258,11 @@ export class FeedingDayPlan {
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb', default: () => "'[]'" })
   recalcLog!: RecalcLogEntry[];
+
+  /** Monotonic total; recalcLog is a bounded recent projection. */
+  @Field(() => Int)
+  @Column({ type: 'int', default: 0 })
+  recalcCount!: number;
 
   @Field()
   @CreateDateColumn({ type: 'timestamptz' })

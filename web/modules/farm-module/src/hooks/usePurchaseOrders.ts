@@ -2,7 +2,12 @@
  * Purchase Order hooks for farm-module
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
+import {
+  useAuth,
+  graphqlClient,
+  createTenantQueryKey,
+  createTenantInvalidationKey,
+} from '@aquaculture/shared-ui';
 
 // Types
 export enum PurchaseOrderCategory {
@@ -92,6 +97,7 @@ export interface CreatePurchaseOrderInput {
 }
 
 export interface ReceiveDeliveryInput {
+  receiptId: string;
   purchaseOrderId: string;
   storageLocationId: string;
   items: {
@@ -211,7 +217,7 @@ export function usePurchaseOrders(filter?: {
     queryFn: async () => {
       const data = await graphqlClient.request<{ purchaseOrders: PaginatedPurchaseOrders }>(
         LIST_PURCHASE_ORDERS,
-        { filter }
+        { filter },
       );
       return data.purchaseOrders;
     },
@@ -228,7 +234,7 @@ export function usePurchaseOrder(id?: string) {
     queryFn: async () => {
       const data = await graphqlClient.request<{ purchaseOrder: PurchaseOrder }>(
         GET_PURCHASE_ORDER,
-        { id }
+        { id },
       );
       return data.purchaseOrder;
     },
@@ -244,7 +250,7 @@ export function usePendingDeliveries() {
     queryKey: createTenantQueryKey(tenantId, 'purchaseOrders', 'pending'),
     queryFn: async () => {
       const data = await graphqlClient.request<{ pendingDeliveries: PurchaseOrder[] }>(
-        GET_PENDING_DELIVERIES
+        GET_PENDING_DELIVERIES,
       );
       return data.pendingDeliveries;
     },
@@ -263,12 +269,14 @@ export function useCreatePurchaseOrder() {
       if (!tenantId) throw new Error('Tenant context required.');
       const data = await graphqlClient.request<{ createPurchaseOrder: PurchaseOrder }>(
         CREATE_PURCHASE_ORDER,
-        { input }
+        { input },
       );
       return data.createPurchaseOrder;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'purchaseOrders') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'purchaseOrders'),
+      });
     },
   });
 }
@@ -283,12 +291,14 @@ export function useUpdatePurchaseOrderStatus() {
       if (!tenantId) throw new Error('Tenant context required.');
       const data = await graphqlClient.request<{ updatePurchaseOrderStatus: PurchaseOrder }>(
         UPDATE_PO_STATUS,
-        { input }
+        { input },
       );
       return data.updatePurchaseOrderStatus;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'purchaseOrders') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'purchaseOrders'),
+      });
     },
   });
 }
@@ -303,15 +313,23 @@ export function useReceiveDelivery() {
       if (!tenantId) throw new Error('Tenant context required.');
       const data = await graphqlClient.request<{ receiveDelivery: PurchaseOrder }>(
         RECEIVE_DELIVERY,
-        { input }
+        { input },
       );
       return data.receiveDelivery;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'purchaseOrders') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'storageInventory') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'stockMovements') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'storageOverview') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'purchaseOrders'),
+      });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'storageInventory'),
+      });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'stockMovements'),
+      });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'storageOverview'),
+      });
     },
   });
 }
@@ -324,14 +342,15 @@ export function useCancelPurchaseOrder() {
     mutationFn: async (id: string) => {
       if (!token) throw new Error('Authentication required.');
       if (!tenantId) throw new Error('Tenant context required.');
-      const data = await graphqlClient.request<{ cancelPurchaseOrder: PurchaseOrder }>(
-        CANCEL_PO,
-        { id }
-      );
+      const data = await graphqlClient.request<{ cancelPurchaseOrder: PurchaseOrder }>(CANCEL_PO, {
+        id,
+      });
       return data.cancelPurchaseOrder;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'purchaseOrders') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'purchaseOrders'),
+      });
     },
   });
 }
@@ -352,12 +371,14 @@ export function useSubmitPurchaseOrder() {
       if (!tenantId) throw new Error('Tenant context required.');
       const data = await graphqlClient.request<{ updatePurchaseOrderStatus: PurchaseOrder }>(
         UPDATE_PO_STATUS,
-        { input: { id, status: PurchaseOrderStatus.SUBMITTED } }
+        { input: { id, status: PurchaseOrderStatus.SUBMITTED } },
       );
       return data.updatePurchaseOrderStatus;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'purchaseOrders') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'purchaseOrders'),
+      });
     },
   });
 }
@@ -377,12 +398,14 @@ export function useApprovePurchaseOrder() {
       if (!tenantId) throw new Error('Tenant context required.');
       const data = await graphqlClient.request<{ approvePurchaseOrder: PurchaseOrder }>(
         APPROVE_PO,
-        { id }
+        { id },
       );
       return data.approvePurchaseOrder;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'purchaseOrders') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'purchaseOrders'),
+      });
     },
   });
 }

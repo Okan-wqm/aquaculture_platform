@@ -97,6 +97,7 @@ describe('TankCountReconcileService.reconcile', () => {
     expect(applyBatchDelta).toHaveBeenCalledTimes(1);
     expect(applyBatchDelta).toHaveBeenCalledWith(
       expect.anything(),
+      expect.anything(),
       TENANT,
       TANK,
       expect.objectContaining({
@@ -137,6 +138,7 @@ describe('TankCountReconcileService.reconcile', () => {
     expect(rows[0]!.applied).toBe(false);
     expect(applyBatchDelta).toHaveBeenCalledTimes(1);
     expect(applyBatchDelta).toHaveBeenCalledWith(
+      expect.anything(),
       expect.anything(),
       TENANT,
       TANK,

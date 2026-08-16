@@ -14,6 +14,7 @@ import { Species } from '../../../species/entities/species.entity';
 import { CodeGeneratorService } from '../../../database/services/code-generator.service';
 import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
 import type { FinanceSettingsService } from '../../../finance/services/finance-settings.service';
+import { RecordingBatchAggregateMutationPort } from '../../../__tests__/support/durable-mutation-test-authority';
 
 /** Typed partial-mock helper (repo pattern — keeps mocks type-safe without a blanket cast). */
 function mock<T>(impl: Partial<T>): T {
@@ -77,6 +78,7 @@ describe('CreateBatchHandler', () => {
       Promise.resolve({ id: 'batch-new-123', ...(data as object) }),
     );
     handler = new CreateBatchHandler(
+      new RecordingBatchAggregateMutationPort(mockManager),
       mockDataSource as any,
       mockBatchRepository,
       mockDocumentRepository as any,
@@ -91,9 +93,7 @@ describe('CreateBatchHandler', () => {
   });
 
   it('creates a quarantine batch with generated batchNumber', async () => {
-    const result = await handler.execute(
-      new CreateBatchCommand(tenantId, payload, createdBy),
-    );
+    const result = await handler.execute(new CreateBatchCommand(tenantId, payload, createdBy));
 
     expect(result.id).toBe('batch-new-123');
     expect(result.batchNumber).toBe('B-2024-00042');
@@ -167,11 +167,7 @@ describe('CreateBatchHandler', () => {
   it('validates initialQuantity is positive before database writes', async () => {
     await expect(
       handler.execute(
-        new CreateBatchCommand(
-          tenantId,
-          { ...payload, initialQuantity: 0 },
-          createdBy,
-        ),
+        new CreateBatchCommand(tenantId, { ...payload, initialQuantity: 0 }, createdBy),
       ),
     ).rejects.toThrow('Initial quantity must be positive');
 
@@ -181,11 +177,7 @@ describe('CreateBatchHandler', () => {
   it('validates initialAvgWeightG is positive before database writes', async () => {
     await expect(
       handler.execute(
-        new CreateBatchCommand(
-          tenantId,
-          { ...payload, initialAvgWeightG: -5 },
-          createdBy,
-        ),
+        new CreateBatchCommand(tenantId, { ...payload, initialAvgWeightG: -5 }, createdBy),
       ),
     ).rejects.toThrow('Initial average weight must be positive');
 

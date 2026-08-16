@@ -77,6 +77,7 @@ import { DataSource, QueryRunner } from 'typeorm';
 import type { PostgresConnectionOptions } from 'typeorm/driver/postgres/PostgresConnectionOptions';
 
 import { parseArgs } from './cli-args';
+import { reconcileFeedingWriterAuthorities } from './feeding-operation-authority';
 import {
   readLedgerHead,
   rollbackSchemaMigrations,
@@ -243,10 +244,7 @@ async function runSchemaPostMigrationHardening(
       // pass below. Merging the SSoT ledgers with any config excludes keeps the
       // sweep from ever touching them.
       const ledgerExcludes = getInfrastructureAuditLedgers(schema);
-      const mergedExcludes = [
-        ...(rlsOptions.excludeTables ?? []),
-        ...ledgerExcludes,
-      ];
+      const mergedExcludes = [...(rlsOptions.excludeTables ?? []), ...ledgerExcludes];
       await applyTenantRlsToSchema(queryRunner, {
         schemaOverride: schema,
         logger: helperLogger,
@@ -360,6 +358,37 @@ async function withReleaseMigrationLock<T>(
         lockName,
       });
     }
+  } finally {
+    await queryRunner.release();
+    await dataSource.destroy();
+  }
+}
+
+async function reconcileFeedingAuthorityAfterFanout(
+  database: RunSchemaOptions['database'],
+): Promise<void> {
+  const dataSource = createControlDataSource(database);
+  await dataSource.initialize();
+  const queryRunner = dataSource.createQueryRunner();
+  try {
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    const result = await reconcileFeedingWriterAuthorities(queryRunner, {
+      actor: 'aqua-db-migrate',
+      operationId:
+        process.env['DEPLOY_RELEASE_ID'] ?? process.env['DEPLOY_SHA'] ?? 'local-db-migrate',
+      reason: 'release_convergence',
+    });
+    await queryRunner.commitTransaction();
+    log({
+      level: 'info',
+      message: 'Feeding writer authority converged',
+      context: 'DbMigrateFeedingAuthority',
+      ...result,
+    });
+  } catch (error) {
+    if (queryRunner.isTransactionActive) await queryRunner.rollbackTransaction();
+    throw error;
   } finally {
     await queryRunner.release();
     await dataSource.destroy();
@@ -1411,6 +1440,22 @@ async function main(): Promise<number> {
       }
     }
 
+    // The source migration projects the one feeding catalogue; only this
+    // release writer activates/revokes tenant generations from it. Runtime
+    // deliberately has no fallback authority, so drift blocks admission.
+    try {
+      await reconcileFeedingAuthorityAfterFanout(database);
+    } catch (err: unknown) {
+      log({
+        level: 'error',
+        message: 'Feeding writer authority convergence failed — aborting deploy',
+        context: 'DbMigrateFeedingAuthority',
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+      return 1;
+    }
+
     // ── Phase 1.4 — Stray tenant-journal self-heal (ORPHAN-MEDIUM-386) ──────
     // Drops `migrations_<svc>` journals inside tenant schemas whose source
     // schema is NOT tenant-aware (journal bookkeeping the retired runtime
@@ -1478,7 +1523,8 @@ async function main(): Promise<number> {
     } catch (err: unknown) {
       log({
         level: 'warn',
-        message: 'Post-fan-out orphan-type reclamation failed (non-fatal) — orphan type left for a later release',
+        message:
+          'Post-fan-out orphan-type reclamation failed (non-fatal) — orphan type left for a later release',
         context: 'DbMigrateOrphanTypeReclamation',
         error: err instanceof Error ? err.message : String(err),
       });

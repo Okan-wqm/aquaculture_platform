@@ -40,11 +40,25 @@ import { Injectable, OnApplicationBootstrap, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, QueryRunner } from 'typeorm';
 import { randomUUID } from 'crypto';
-import { BypassRlsService } from '@aquaculture/backend-common/database';
+import {
+  BypassRlsService,
+  runInTenantTransaction,
+  type TenantMutationSession,
+} from '@aquaculture/backend-common/database';
 import { GLOBAL_TENANT_UUID } from '@aquaculture/backend-common/tenant';
 import { EQUIPMENT_TYPES_SEED } from '../../equipment/seeds/equipment-types.seed';
 import { CHEMICAL_TYPES_SEED } from '../../chemical/seeds/chemical-types.seed';
 import { SUPPLIER_TYPES_SEED } from '../../supplier/seeds/supplier-types.seed';
+import { BatchAggregateMutationPort } from '../../batch/batch-aggregate-mutation.port';
+import { Batch, BatchInputType, BatchStatus, BatchType } from '../../batch/entities/batch.entity';
+import { TankBatch } from '../../batch/entities/tank-batch.entity';
+import {
+  Tank,
+  TankMaterial,
+  TankStatus,
+  TankType,
+  WaterType,
+} from '../../tank/entities/tank.entity';
 
 /**
  * Interface for raw query row with id field
@@ -58,6 +72,7 @@ export class FarmSeedService implements OnApplicationBootstrap {
   private readonly logger = new Logger(FarmSeedService.name);
 
   constructor(
+    private readonly batchMutations: BatchAggregateMutationPort,
     @InjectDataSource()
     private readonly dataSource: DataSource,
     // Seed writes carry `tenantId = GLOBAL_TENANT_UUID` (all-zeros) which
@@ -84,9 +99,8 @@ export class FarmSeedService implements OnApplicationBootstrap {
       // under a system-owned `app.bypass_rls = 'on'` context — no tenant
       // request context exists during bootstrap, and the rows carry the
       // global-template tenantId which would otherwise trip RLS.
-      await this.bypassRls.withBypass(
-        'farm-seed:reference-data',
-        () => this.seedReferenceDataStandalone(),
+      await this.bypassRls.withBypass('farm-seed:reference-data', () =>
+        this.seedReferenceDataStandalone(),
       );
     } catch (error) {
       this.logger.error('Error during reference data seed:', error);
@@ -200,7 +214,9 @@ export class FarmSeedService implements OnApplicationBootstrap {
       [GLOBAL_TENANT_UUID],
     );
 
-    this.logger.log('  Seeded 4 global cleaner fish species (lumpfish, ballan, corkwing, goldsinny wrasse)');
+    this.logger.log(
+      '  Seeded 4 global cleaner fish species (lumpfish, ballan, corkwing, goldsinny wrasse)',
+    );
   }
 
   async seedFarmData() {
@@ -208,61 +224,77 @@ export class FarmSeedService implements OnApplicationBootstrap {
     this.logger.log('Starting Farm Module Comprehensive Seed');
     this.logger.log('========================================');
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
+    const bootstrapRunner = this.dataSource.createQueryRunner();
+    await bootstrapRunner.connect();
+    await bootstrapRunner.startTransaction();
+    let tenantId: string;
     try {
       // 1. Test tenant olustur
-      const tenantId = await this.ensureTestTenant(queryRunner);
-      this.logger.log(`Using tenant: ${tenantId}`);
-
-      // EquipmentTypes artık seedEquipmentTypesStandalone'da bağımsız çalışıyor
-
-      // 2. Site olustur
-      const siteId = await this.ensureSite(queryRunner, tenantId);
-
-      // 4. Department olustur
-      const departmentId = await this.ensureDepartment(queryRunner, tenantId, siteId);
-
-      // 5. System ve SubSystem olustur
-      const systemId = await this.ensureSystem(queryRunner, tenantId, siteId);
-      const subSystemId = await this.ensureSubSystem(queryRunner, tenantId, systemId);
-
-      // 6. Species olustur
-      const speciesIds = await this.seedSpecies(queryRunner, tenantId);
-
-      // 7. Tanks olustur (bagimsiz tank entity)
-      const tankIds = await this.seedTanks(queryRunner, tenantId, departmentId);
-
-      // 8. Feeds olustur
-      const feedIds = await this.seedFeeds(queryRunner, tenantId);
-
-      // 9. Feed Inventory olustur
-      await this.seedFeedInventory(queryRunner, tenantId, siteId, departmentId, feedIds);
-
-      // 10. Sample Batch olustur
-      const seabassId = speciesIds.seabass || Object.values(speciesIds)[0] || '';
-      await this.seedSampleBatch(queryRunner, tenantId, seabassId, tankIds);
-
-      await queryRunner.commitTransaction();
-
-      this.logger.log('========================================');
-      this.logger.log('Farm Module Seed completed successfully!');
-      this.logger.log('========================================');
-      this.logger.log(`Tenant ID: ${tenantId}`);
-      this.logger.log(`Site ID: ${siteId}`);
-      this.logger.log(`Department ID: ${departmentId}`);
-      this.logger.log(`Tanks: ${tankIds.length}`);
-      this.logger.log(`Species: ${Object.keys(speciesIds).length}`);
-      this.logger.log(`Feeds: ${feedIds.length}`);
-      this.logger.log('========================================');
+      tenantId = await this.ensureTestTenant(bootstrapRunner);
+      await bootstrapRunner.commitTransaction();
     } catch (error) {
-      await queryRunner.rollbackTransaction();
-      this.logger.error('Farm seed failed, rolling back:', error);
+      await bootstrapRunner.rollbackTransaction();
       throw error;
     } finally {
-      await queryRunner.release();
+      await bootstrapRunner.release();
+    }
+
+    try {
+      await runInTenantTransaction(
+        this.dataSource,
+        'farm',
+        tenantId,
+        async (queryRunner, mutationSession) => {
+          this.logger.log(`Using tenant: ${tenantId}`);
+
+          // EquipmentTypes artık seedEquipmentTypesStandalone'da bağımsız çalışıyor
+
+          // 2. Site olustur
+          const siteId = await this.ensureSite(queryRunner, tenantId);
+
+          // 4. Department olustur
+          const departmentId = await this.ensureDepartment(queryRunner, tenantId, siteId);
+
+          // 5. System ve SubSystem olustur
+          const systemId = await this.ensureSystem(queryRunner, tenantId, siteId);
+          const subSystemId = await this.ensureSubSystem(queryRunner, tenantId, systemId);
+
+          // 6. Species olustur
+          const speciesIds = await this.seedSpecies(queryRunner, tenantId);
+
+          // 7. Tanks olustur (bagimsiz tank entity)
+          const tankIds = await this.seedTanks(
+            queryRunner,
+            mutationSession,
+            tenantId,
+            departmentId,
+          );
+
+          // 8. Feeds olustur
+          const feedIds = await this.seedFeeds(queryRunner, tenantId);
+
+          // 9. Feed Inventory olustur
+          await this.seedFeedInventory(queryRunner, tenantId, siteId, departmentId, feedIds);
+
+          // 10. Sample Batch olustur
+          const seabassId = speciesIds.seabass || Object.values(speciesIds)[0] || '';
+          await this.seedSampleBatch(queryRunner, mutationSession, tenantId, seabassId, tankIds);
+
+          this.logger.log('========================================');
+          this.logger.log('Farm Module Seed completed successfully!');
+          this.logger.log('========================================');
+          this.logger.log(`Tenant ID: ${tenantId}`);
+          this.logger.log(`Site ID: ${siteId}`);
+          this.logger.log(`Department ID: ${departmentId}`);
+          this.logger.log(`Tanks: ${tankIds.length}`);
+          this.logger.log(`Species: ${Object.keys(speciesIds).length}`);
+          this.logger.log(`Feeds: ${feedIds.length}`);
+          this.logger.log('========================================');
+        },
+      );
+    } catch (error) {
+      this.logger.error('Farm seed failed, rolling back:', error);
+      throw error;
     }
   }
 
@@ -273,10 +305,9 @@ export class FarmSeedService implements OnApplicationBootstrap {
     const testTenantCode = 'FARM_TEST';
 
     // Mevcut tenant'i kontrol et
-    const existing = await queryRunner.query(
-      `SELECT id FROM tenants WHERE code = $1`,
-      [testTenantCode]
-    );
+    const existing = await queryRunner.query(`SELECT id FROM tenants WHERE code = $1`, [
+      testTenantCode,
+    ]);
 
     if (existing.length > 0) {
       this.logger.log('Test tenant already exists');
@@ -288,19 +319,23 @@ export class FarmSeedService implements OnApplicationBootstrap {
     await queryRunner.query(
       `INSERT INTO tenants (id, name, code, slug, status, "isActive", settings, "createdAt", "updatedAt")
        VALUES ($1, 'Farm Test Tenant', $2, 'farm-test', 'active', true, $3, NOW(), NOW())`,
-      [tenantId, testTenantCode, JSON.stringify({
-        locale: 'tr-TR',
-        timezone: 'Europe/Istanbul',
-        currency: 'TRY',
-        measurementSystem: 'metric',
-      })]
+      [
+        tenantId,
+        testTenantCode,
+        JSON.stringify({
+          locale: 'tr-TR',
+          timezone: 'Europe/Istanbul',
+          currency: 'TRY',
+          measurementSystem: 'metric',
+        }),
+      ],
     );
     this.logger.log(`Created test tenant: ${tenantId}`);
 
     // Farm module'u tenant'a ata (tenant_modules tablosu varsa)
     try {
       const farmModule = await queryRunner.query(
-        `SELECT id FROM modules WHERE code = 'farm' OR code = 'FARM' LIMIT 1`
+        `SELECT id FROM modules WHERE code = 'farm' OR code = 'FARM' LIMIT 1`,
       );
 
       if (farmModule.length > 0) {
@@ -308,7 +343,7 @@ export class FarmSeedService implements OnApplicationBootstrap {
           `INSERT INTO tenant_modules ("tenantId", "moduleId", "isActive", "createdAt")
            VALUES ($1, $2, true, NOW())
            ON CONFLICT DO NOTHING`,
-          [tenantId, farmModule[0].id]
+          [tenantId, farmModule[0].id],
         );
         this.logger.log('Assigned farm module to tenant');
       }
@@ -327,10 +362,9 @@ export class FarmSeedService implements OnApplicationBootstrap {
     this.logger.log('  Seeding equipment types with comprehensive specification schemas...');
 
     for (const et of EQUIPMENT_TYPES_SEED) {
-      const exists = await queryRunner.query(
-        `SELECT id FROM equipment_types WHERE code = $1`,
-        [et.code]
-      );
+      const exists = await queryRunner.query(`SELECT id FROM equipment_types WHERE code = $1`, [
+        et.code,
+      ]);
 
       if (exists.length > 0) {
         // UPDATE: Mevcut kaydın specificationSchema'sını güncelle
@@ -354,7 +388,7 @@ export class FarmSeedService implements OnApplicationBootstrap {
             et.allowedSubEquipmentTypes || [],
             et.sortOrder,
             et.code,
-          ]
+          ],
         );
         this.logger.log(`  Updated equipment type: ${et.name} (${et.code})`);
       } else {
@@ -371,7 +405,7 @@ export class FarmSeedService implements OnApplicationBootstrap {
             JSON.stringify(et.specificationSchema),
             et.allowedSubEquipmentTypes || [],
             et.sortOrder,
-          ]
+          ],
         );
         this.logger.log(`  Created equipment type: ${et.name} (${et.code})`);
       }
@@ -387,23 +421,22 @@ export class FarmSeedService implements OnApplicationBootstrap {
     this.logger.log('  Seeding chemical types...');
 
     for (const ct of CHEMICAL_TYPES_SEED) {
-      const exists = await queryRunner.query(
-        `SELECT id FROM chemical_types WHERE code = $1`,
-        [ct.code]
-      );
+      const exists = await queryRunner.query(`SELECT id FROM chemical_types WHERE code = $1`, [
+        ct.code,
+      ]);
 
       if (exists.length > 0) {
         await queryRunner.query(
           `UPDATE chemical_types
            SET name = $1, description = $2, icon = $3, "sortOrder" = $4, "updatedAt" = NOW()
            WHERE code = $5`,
-          [ct.name, ct.description, ct.icon, ct.sortOrder, ct.code]
+          [ct.name, ct.description, ct.icon, ct.sortOrder, ct.code],
         );
       } else {
         await queryRunner.query(
           `INSERT INTO chemical_types (id, name, code, description, icon, "isActive", "isSystem", "sortOrder", "createdAt", "updatedAt")
            VALUES (uuid_generate_v4(), $1, $2, $3, $4, true, true, $5, NOW(), NOW())`,
-          [ct.name, ct.code, ct.description, ct.icon, ct.sortOrder]
+          [ct.name, ct.code, ct.description, ct.icon, ct.sortOrder],
         );
         this.logger.log(`  Created chemical type: ${ct.name} (${ct.code})`);
       }
@@ -419,23 +452,22 @@ export class FarmSeedService implements OnApplicationBootstrap {
     this.logger.log('  Seeding supplier types...');
 
     for (const st of SUPPLIER_TYPES_SEED) {
-      const exists = await queryRunner.query(
-        `SELECT id FROM supplier_types WHERE code = $1`,
-        [st.code]
-      );
+      const exists = await queryRunner.query(`SELECT id FROM supplier_types WHERE code = $1`, [
+        st.code,
+      ]);
 
       if (exists.length > 0) {
         await queryRunner.query(
           `UPDATE supplier_types
            SET name = $1, description = $2, icon = $3, "sortOrder" = $4, "updatedAt" = NOW()
            WHERE code = $5`,
-          [st.name, st.description, st.icon, st.sortOrder, st.code]
+          [st.name, st.description, st.icon, st.sortOrder, st.code],
         );
       } else {
         await queryRunner.query(
           `INSERT INTO supplier_types (id, name, code, description, icon, "isActive", "isSystem", "sortOrder", "createdAt", "updatedAt")
            VALUES (uuid_generate_v4(), $1, $2, $3, $4, true, true, $5, NOW(), NOW())`,
-          [st.name, st.code, st.description, st.icon, st.sortOrder]
+          [st.name, st.code, st.description, st.icon, st.sortOrder],
         );
         this.logger.log(`  Created supplier type: ${st.name} (${st.code})`);
       }
@@ -445,10 +477,9 @@ export class FarmSeedService implements OnApplicationBootstrap {
   }
 
   private async ensureSite(queryRunner: QueryRunner, tenantId: string): Promise<string> {
-    const existing = await queryRunner.query(
-      `SELECT id FROM sites WHERE "tenantId" = $1 LIMIT 1`,
-      [tenantId]
-    );
+    const existing = await queryRunner.query(`SELECT id FROM sites WHERE "tenantId" = $1 LIMIT 1`, [
+      tenantId,
+    ]);
 
     if (existing.length > 0) {
       return existing[0].id;
@@ -458,17 +489,21 @@ export class FarmSeedService implements OnApplicationBootstrap {
     await queryRunner.query(
       `INSERT INTO sites (id, "tenantId", name, code, description, timezone, status, type, "isActive", "isDeleted", "createdAt", "updatedAt", version)
        VALUES ($1, $2, 'Bodrum Tesisi', 'BOD-01', 'Ana uretim tesisi - Bodrum', 'Europe/Istanbul', 'active', 'land_based', true, false, NOW(), NOW(), 1)`,
-      [siteId, tenantId]
+      [siteId, tenantId],
     );
 
     this.logger.log(`  Created site: Bodrum Tesisi`);
     return siteId;
   }
 
-  private async ensureDepartment(queryRunner: QueryRunner, tenantId: string, siteId: string): Promise<string> {
+  private async ensureDepartment(
+    queryRunner: QueryRunner,
+    tenantId: string,
+    siteId: string,
+  ): Promise<string> {
     const existing = await queryRunner.query(
       `SELECT id FROM departments WHERE "tenantId" = $1 AND "siteId" = $2 LIMIT 1`,
-      [tenantId, siteId]
+      [tenantId, siteId],
     );
 
     if (existing.length > 0) {
@@ -479,17 +514,21 @@ export class FarmSeedService implements OnApplicationBootstrap {
     await queryRunner.query(
       `INSERT INTO departments (id, "tenantId", "siteId", name, code, description, status, "isActive", "isDeleted", "createdAt", "updatedAt", version)
        VALUES ($1, $2, $3, 'Buyutme Departmani', 'GROW-01', 'Ana buyutme unitesi', 'active', true, false, NOW(), NOW(), 1)`,
-      [departmentId, tenantId, siteId]
+      [departmentId, tenantId, siteId],
     );
 
     this.logger.log(`  Created department: Buyutme Departmani`);
     return departmentId;
   }
 
-  private async ensureSystem(queryRunner: QueryRunner, tenantId: string, siteId: string): Promise<string> {
+  private async ensureSystem(
+    queryRunner: QueryRunner,
+    tenantId: string,
+    siteId: string,
+  ): Promise<string> {
     const existing = await queryRunner.query(
       `SELECT id FROM systems WHERE "tenantId" = $1 AND "siteId" = $2 LIMIT 1`,
-      [tenantId, siteId]
+      [tenantId, siteId],
     );
 
     if (existing.length > 0) {
@@ -500,17 +539,21 @@ export class FarmSeedService implements OnApplicationBootstrap {
     await queryRunner.query(
       `INSERT INTO systems (id, "tenantId", "siteId", name, code, description, type, status, "isActive", "createdAt", "updatedAt", version, "subSystemCount", "equipmentCount")
        VALUES ($1, $2, $3, 'RAS Sistemi 1', 'RAS-001', 'Recirculating Aquaculture System', 'ras', 'active', true, NOW(), NOW(), 1, 0, 0)`,
-      [systemId, tenantId, siteId]
+      [systemId, tenantId, siteId],
     );
 
     this.logger.log(`  Created system: RAS Sistemi 1`);
     return systemId;
   }
 
-  private async ensureSubSystem(queryRunner: QueryRunner, tenantId: string, systemId: string): Promise<string> {
+  private async ensureSubSystem(
+    queryRunner: QueryRunner,
+    tenantId: string,
+    systemId: string,
+  ): Promise<string> {
     const existing = await queryRunner.query(
       `SELECT id FROM sub_systems WHERE "tenantId" = $1 AND "systemId" = $2 LIMIT 1`,
-      [tenantId, systemId]
+      [tenantId, systemId],
     );
 
     if (existing.length > 0) {
@@ -521,7 +564,7 @@ export class FarmSeedService implements OnApplicationBootstrap {
     await queryRunner.query(
       `INSERT INTO sub_systems (id, "tenantId", "systemId", name, code, description, type, status, "isActive", "createdAt", "updatedAt", version, "equipmentCount", "tankCount")
        VALUES ($1, $2, $3, 'Buyutme Unitesi A', 'UNIT-A', 'Buyutme unitesi A - 6 tank', 'grow_out', 'active', true, NOW(), NOW(), 1, 0, 6)`,
-      [subSystemId, tenantId, systemId]
+      [subSystemId, tenantId, systemId],
     );
 
     this.logger.log(`  Created sub-system: Buyutme Unitesi A`);
@@ -531,7 +574,10 @@ export class FarmSeedService implements OnApplicationBootstrap {
   /**
    * Species (tur) verilerini olusturur
    */
-  private async seedSpecies(queryRunner: QueryRunner, tenantId: string): Promise<Record<string, string>> {
+  private async seedSpecies(
+    queryRunner: QueryRunner,
+    tenantId: string,
+  ): Promise<Record<string, string>> {
     const speciesIds: Record<string, string> = {};
 
     const speciesList = [
@@ -546,7 +592,14 @@ export class FarmSeedService implements OnApplicationBootstrap {
         family: 'Moronidae',
         genus: 'Dicentrarchus',
         optimalConditions: {
-          temperature: { min: 14, max: 28, optimal: 22, unit: 'celsius', criticalMin: 8, criticalMax: 32 },
+          temperature: {
+            min: 14,
+            max: 28,
+            optimal: 22,
+            unit: 'celsius',
+            criticalMin: 8,
+            criticalMax: 32,
+          },
           ph: { min: 7.5, max: 8.5, optimal: 8.0 },
           dissolvedOxygen: { min: 5, optimal: 7, critical: 3, unit: 'mg/L' },
           salinity: { min: 15, max: 40, optimal: 35, unit: 'ppt' },
@@ -582,7 +635,14 @@ export class FarmSeedService implements OnApplicationBootstrap {
         family: 'Sparidae',
         genus: 'Sparus',
         optimalConditions: {
-          temperature: { min: 12, max: 28, optimal: 24, unit: 'celsius', criticalMin: 6, criticalMax: 30 },
+          temperature: {
+            min: 12,
+            max: 28,
+            optimal: 24,
+            unit: 'celsius',
+            criticalMin: 6,
+            criticalMax: 30,
+          },
           ph: { min: 7.5, max: 8.5, optimal: 8.0 },
           dissolvedOxygen: { min: 5, optimal: 7, critical: 3, unit: 'mg/L' },
           salinity: { min: 15, max: 45, optimal: 35, unit: 'ppt' },
@@ -610,7 +670,14 @@ export class FarmSeedService implements OnApplicationBootstrap {
         family: 'Salmonidae',
         genus: 'Salmo',
         optimalConditions: {
-          temperature: { min: 8, max: 16, optimal: 12, unit: 'celsius', criticalMin: 2, criticalMax: 22 },
+          temperature: {
+            min: 8,
+            max: 16,
+            optimal: 12,
+            unit: 'celsius',
+            criticalMin: 2,
+            criticalMax: 22,
+          },
           ph: { min: 6.5, max: 8.0, optimal: 7.2 },
           dissolvedOxygen: { min: 6, optimal: 9, critical: 4, unit: 'mg/L' },
           salinity: { min: 28, max: 35, optimal: 33, unit: 'ppt' },
@@ -638,7 +705,14 @@ export class FarmSeedService implements OnApplicationBootstrap {
         family: 'Salmonidae',
         genus: 'Oncorhynchus',
         optimalConditions: {
-          temperature: { min: 10, max: 18, optimal: 14, unit: 'celsius', criticalMin: 4, criticalMax: 24 },
+          temperature: {
+            min: 10,
+            max: 18,
+            optimal: 14,
+            unit: 'celsius',
+            criticalMin: 4,
+            criticalMax: 24,
+          },
           ph: { min: 6.5, max: 8.5, optimal: 7.5 },
           dissolvedOxygen: { min: 6, optimal: 9, critical: 4, unit: 'mg/L' },
         },
@@ -659,7 +733,7 @@ export class FarmSeedService implements OnApplicationBootstrap {
     for (const sp of speciesList) {
       const existing = await queryRunner.query(
         `SELECT id FROM species WHERE "tenantId" = $1 AND code = $2`,
-        [tenantId, sp.code]
+        [tenantId, sp.code],
       );
 
       if (existing.length > 0) {
@@ -681,12 +755,20 @@ export class FarmSeedService implements OnApplicationBootstrap {
           'active', true, false, NOW(), NOW(), 1
         )`,
         [
-          speciesId, tenantId, sp.scientificName, sp.commonName, sp.localName, sp.code,
-          sp.category, sp.waterType, sp.family, sp.genus,
+          speciesId,
+          tenantId,
+          sp.scientificName,
+          sp.commonName,
+          sp.localName,
+          sp.code,
+          sp.category,
+          sp.waterType,
+          sp.family,
+          sp.genus,
           JSON.stringify(sp.optimalConditions),
           JSON.stringify(sp.growthParameters),
           sp.harvestDaysPerInputType ? JSON.stringify(sp.harvestDaysPerInputType) : null,
-        ]
+        ],
       );
 
       speciesIds[sp.key] = speciesId;
@@ -699,29 +781,89 @@ export class FarmSeedService implements OnApplicationBootstrap {
   /**
    * Tank verilerini olusturur (bagimsiz tanks tablosu)
    */
-  private async seedTanks(queryRunner: QueryRunner, tenantId: string, departmentId: string): Promise<string[]> {
+  private async seedTanks(
+    queryRunner: QueryRunner,
+    mutationSession: TenantMutationSession,
+    tenantId: string,
+    departmentId: string,
+  ): Promise<string[]> {
     const tankIds: string[] = [];
 
-    const existing = await queryRunner.query(
-      `SELECT id FROM tanks WHERE "tenantId" = $1 LIMIT 1`,
-      [tenantId]
-    );
+    const existing = await queryRunner.query(`SELECT id FROM tanks WHERE "tenantId" = $1 LIMIT 1`, [
+      tenantId,
+    ]);
 
     if (existing.length > 0) {
-      const allTanks = await queryRunner.query(
-        `SELECT id FROM tanks WHERE "tenantId" = $1`,
-        [tenantId]
-      );
+      const allTanks = await queryRunner.query(`SELECT id FROM tanks WHERE "tenantId" = $1`, [
+        tenantId,
+      ]);
       return allTanks.map((t: IdRow) => t.id);
     }
 
     const tanks = [
-      { name: 'Tank A1', code: 'TNK-A1', tankType: 'circular', diameter: 8, depth: 4, waterDepth: 3.5, maxDensity: 25, material: 'fiberglass', waterType: 'saltwater' },
-      { name: 'Tank A2', code: 'TNK-A2', tankType: 'circular', diameter: 8, depth: 4, waterDepth: 3.5, maxDensity: 25, material: 'fiberglass', waterType: 'saltwater' },
-      { name: 'Tank A3', code: 'TNK-A3', tankType: 'circular', diameter: 8, depth: 4, waterDepth: 3.5, maxDensity: 25, material: 'fiberglass', waterType: 'saltwater' },
-      { name: 'Tank B1', code: 'TNK-B1', tankType: 'rectangular', length: 12, width: 6, depth: 4, waterDepth: 3.5, maxDensity: 30, material: 'concrete', waterType: 'saltwater' },
-      { name: 'Tank B2', code: 'TNK-B2', tankType: 'rectangular', length: 12, width: 6, depth: 4, waterDepth: 3.5, maxDensity: 30, material: 'concrete', waterType: 'saltwater' },
-      { name: 'Raceway 1', code: 'RCW-01', tankType: 'raceway', length: 30, width: 3, depth: 1.2, waterDepth: 1.0, maxDensity: 35, material: 'concrete', waterType: 'saltwater' },
+      {
+        name: 'Tank A1',
+        code: 'TNK-A1',
+        tankType: TankType.CIRCULAR,
+        diameter: 8,
+        depth: 4,
+        waterDepth: 3.5,
+        maxDensity: 25,
+        material: TankMaterial.FIBERGLASS,
+      },
+      {
+        name: 'Tank A2',
+        code: 'TNK-A2',
+        tankType: TankType.CIRCULAR,
+        diameter: 8,
+        depth: 4,
+        waterDepth: 3.5,
+        maxDensity: 25,
+        material: TankMaterial.FIBERGLASS,
+      },
+      {
+        name: 'Tank A3',
+        code: 'TNK-A3',
+        tankType: TankType.CIRCULAR,
+        diameter: 8,
+        depth: 4,
+        waterDepth: 3.5,
+        maxDensity: 25,
+        material: TankMaterial.FIBERGLASS,
+      },
+      {
+        name: 'Tank B1',
+        code: 'TNK-B1',
+        tankType: TankType.RECTANGULAR,
+        length: 12,
+        width: 6,
+        depth: 4,
+        waterDepth: 3.5,
+        maxDensity: 30,
+        material: TankMaterial.CONCRETE,
+      },
+      {
+        name: 'Tank B2',
+        code: 'TNK-B2',
+        tankType: TankType.RECTANGULAR,
+        length: 12,
+        width: 6,
+        depth: 4,
+        waterDepth: 3.5,
+        maxDensity: 30,
+        material: TankMaterial.CONCRETE,
+      },
+      {
+        name: 'Raceway 1',
+        code: 'RCW-01',
+        tankType: TankType.RACEWAY,
+        length: 30,
+        width: 3,
+        depth: 1.2,
+        waterDepth: 1.0,
+        maxDensity: 35,
+        material: TankMaterial.CONCRETE,
+      },
     ];
 
     for (const tank of tanks) {
@@ -735,33 +877,40 @@ export class FarmSeedService implements OnApplicationBootstrap {
         volume = (tank.length || 0) * (tank.width || 0) * tank.depth;
       }
 
-      const waterVolume = tank.tankType === 'circular'
-        ? Math.PI * Math.pow((tank.diameter || 0) / 2, 2) * tank.waterDepth
-        : (tank.length || 0) * (tank.width || 0) * tank.waterDepth;
+      const waterVolume =
+        tank.tankType === 'circular'
+          ? Math.PI * Math.pow((tank.diameter || 0) / 2, 2) * tank.waterDepth
+          : (tank.length || 0) * (tank.width || 0) * tank.waterDepth;
 
       const maxBiomass = waterVolume * tank.maxDensity;
 
-      await queryRunner.query(
-        `INSERT INTO tanks (
-          id, "tenantId", "departmentId", name, code, description,
-          "tankType", material, "waterType",
-          diameter, length, width, depth, "waterDepth",
-          volume, "waterVolume", "maxBiomass", "currentBiomass", "maxDensity",
-          status, "isActive", "createdAt", "updatedAt", version
-        ) VALUES (
-          $1, $2, $3, $4, $5, $6,
-          $7, $8, $9,
-          $10, $11, $12, $13, $14,
-          $15, $16, $17, 0, $18,
-          'preparing', true, NOW(), NOW(), 1
-        )`,
-        [
-          tankId, tenantId, departmentId, tank.name, tank.code, `${tank.tankType} buyutme tanki`,
-          tank.tankType, tank.material, tank.waterType,
-          tank.diameter || null, tank.length || null, tank.width || null, tank.depth, tank.waterDepth,
-          Math.round(volume * 100) / 100, Math.round(waterVolume * 100) / 100, Math.round(maxBiomass * 100) / 100, tank.maxDensity,
-        ]
-      );
+      const tankEntity = queryRunner.manager.create(Tank, {
+        id: tankId,
+        tenantId,
+        departmentId,
+        name: tank.name,
+        code: tank.code,
+        description: `${tank.tankType} buyutme tanki`,
+        tankType: tank.tankType,
+        material: tank.material,
+        waterType: WaterType.SALTWATER,
+        diameter: tank.diameter,
+        length: tank.length,
+        width: tank.width,
+        depth: tank.depth,
+        waterDepth: tank.waterDepth,
+        volume: Math.round(volume * 100) / 100,
+        waterVolume: Math.round(waterVolume * 100) / 100,
+        maxBiomass: Math.round(maxBiomass * 100) / 100,
+        currentBiomass: 0,
+        maxDensity: tank.maxDensity,
+        status: TankStatus.PREPARING,
+        isActive: true,
+      });
+      await this.batchMutations.commitTankTransition(mutationSession, {
+        intent: 'seed_initialized',
+        aggregate: tankEntity,
+      });
 
       tankIds.push(tankId);
       this.logger.log(`  Created tank: ${tank.name} (${Math.round(volume)}m³)`);
@@ -776,16 +925,14 @@ export class FarmSeedService implements OnApplicationBootstrap {
   private async seedFeeds(queryRunner: QueryRunner, tenantId: string): Promise<string[]> {
     const feedIds: string[] = [];
 
-    const existing = await queryRunner.query(
-      `SELECT id FROM feeds WHERE "tenantId" = $1 LIMIT 1`,
-      [tenantId]
-    );
+    const existing = await queryRunner.query(`SELECT id FROM feeds WHERE "tenantId" = $1 LIMIT 1`, [
+      tenantId,
+    ]);
 
     if (existing.length > 0) {
-      const allFeeds = await queryRunner.query(
-        `SELECT id FROM feeds WHERE "tenantId" = $1`,
-        [tenantId]
-      );
+      const allFeeds = await queryRunner.query(`SELECT id FROM feeds WHERE "tenantId" = $1`, [
+        tenantId,
+      ]);
       return allFeeds.map((f: IdRow) => f.id);
     }
 
@@ -807,7 +954,7 @@ export class FarmSeedService implements OnApplicationBootstrap {
           energyUnit: 'MJ',
           phosphorus: 1.2,
         },
-        pricePerKg: 45.00,
+        pricePerKg: 45.0,
       },
       {
         name: 'Grower Pro 3mm',
@@ -826,7 +973,7 @@ export class FarmSeedService implements OnApplicationBootstrap {
           energyUnit: 'MJ',
           phosphorus: 1.0,
         },
-        pricePerKg: 35.00,
+        pricePerKg: 35.0,
       },
       {
         name: 'Grower Pro 5mm',
@@ -845,7 +992,7 @@ export class FarmSeedService implements OnApplicationBootstrap {
           energyUnit: 'MJ',
           phosphorus: 0.9,
         },
-        pricePerKg: 32.00,
+        pricePerKg: 32.0,
       },
       {
         name: 'Finisher Supreme 7mm',
@@ -863,7 +1010,7 @@ export class FarmSeedService implements OnApplicationBootstrap {
           energy: 23.5,
           energyUnit: 'MJ',
         },
-        pricePerKg: 28.00,
+        pricePerKg: 28.0,
       },
     ];
 
@@ -883,10 +1030,19 @@ export class FarmSeedService implements OnApplicationBootstrap {
           0, 100, true, NOW(), NOW(), 1
         )`,
         [
-          feedId, tenantId, feed.name, feed.code, `${feed.brand} ${feed.type} yemi`, feed.brand,
-          feed.type, feed.targetSpecies, feed.pelletSize, feed.floatingType,
-          JSON.stringify(feed.nutritionalContent), feed.pricePerKg,
-        ]
+          feedId,
+          tenantId,
+          feed.name,
+          feed.code,
+          `${feed.brand} ${feed.type} yemi`,
+          feed.brand,
+          feed.type,
+          feed.targetSpecies,
+          feed.pelletSize,
+          feed.floatingType,
+          JSON.stringify(feed.nutritionalContent),
+          feed.pricePerKg,
+        ],
       );
 
       feedIds.push(feedId);
@@ -910,11 +1066,11 @@ export class FarmSeedService implements OnApplicationBootstrap {
     tenantId: string,
     siteId: string,
     departmentId: string,
-    feedIds: string[]
+    feedIds: string[],
   ): Promise<void> {
     const existing = await queryRunner.query(
       `SELECT id FROM storage_inventory WHERE tenant_id = $1 AND item_type = 'feed' LIMIT 1`,
-      [tenantId]
+      [tenantId],
     );
 
     if (existing.length > 0) {
@@ -928,14 +1084,14 @@ export class FarmSeedService implements OnApplicationBootstrap {
        VALUES ($1, $2, 'Depo A', 'SEED-FEED-' || left($2::text, 8), 'warehouse', 'm3', 0, true, false, 1)
        ON CONFLICT DO NOTHING
        RETURNING id`,
-      [tenantId, siteId]
+      [tenantId, siteId],
     );
     const locationId: string =
       locationRows[0]?.id ??
       (
         await queryRunner.query(
           `SELECT id FROM storage_locations WHERE site_id = $1 AND code = 'SEED-FEED-' || left($1::text, 8)`,
-          [siteId]
+          [siteId],
         )
       )[0].id;
 
@@ -963,7 +1119,7 @@ export class FarmSeedService implements OnApplicationBootstrap {
                 '00000000-0000-0000-0000-000000000000', NOW() - INTERVAL '7 days'
          FROM feeds f WHERE f.id = $2
          ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING`,
-        [tenantId, feedId, inv.quantity, locationId, inv.lotNumber, expiryDate.toISOString()]
+        [tenantId, feedId, inv.quantity, locationId, inv.lotNumber, expiryDate.toISOString()],
       );
 
       await queryRunner.query(
@@ -972,7 +1128,7 @@ export class FarmSeedService implements OnApplicationBootstrap {
             lot_number, expiry_date, received_date, version)
          SELECT $1, $2, 'feed', $3, $4, COALESCE(f.unit, 'kg'), $5, $6, NOW() - INTERVAL '7 days', 1
          FROM feeds f WHERE f.id = $3`,
-        [tenantId, locationId, feedId, inv.quantity, inv.lotNumber, expiryDate.toISOString()]
+        [tenantId, locationId, feedId, inv.quantity, inv.lotNumber, expiryDate.toISOString()],
       );
 
       await queryRunner.query(
@@ -981,7 +1137,7 @@ export class FarmSeedService implements OnApplicationBootstrap {
                          WHEN $2 <= "minStock" THEN 'low_stock'
                          ELSE 'available' END::"farm"."feeds_status_enum"
          WHERE id = $1`,
-        [feedId, inv.quantity]
+        [feedId, inv.quantity],
       );
     }
 
@@ -993,13 +1149,14 @@ export class FarmSeedService implements OnApplicationBootstrap {
    */
   private async seedSampleBatch(
     queryRunner: QueryRunner,
+    mutationSession: TenantMutationSession,
     tenantId: string,
     speciesId: string,
-    tankIds: string[]
+    tankIds: string[],
   ): Promise<void> {
     const existing = await queryRunner.query(
       `SELECT id FROM batches_v2 WHERE "tenantId" = $1 LIMIT 1`,
-      [tenantId]
+      [tenantId],
     );
 
     if (existing.length > 0) {
@@ -1023,18 +1180,18 @@ export class FarmSeedService implements OnApplicationBootstrap {
       initial: {
         avgWeight: initialAvgWeight,
         totalBiomass: (initialQuantity * initialAvgWeight) / 1000,
-        measuredAt: stockedAt.toISOString(),
+        measuredAt: stockedAt,
       },
       theoretical: {
         avgWeight: currentAvgWeight,
         totalBiomass: (currentQuantity * currentAvgWeight) / 1000,
-        lastCalculatedAt: new Date().toISOString(),
+        lastCalculatedAt: new Date(),
         basedOnFCR: 1.5,
       },
       actual: {
         avgWeight: currentAvgWeight,
         totalBiomass: (currentQuantity * currentAvgWeight) / 1000,
-        lastMeasuredAt: new Date().toISOString(),
+        lastMeasuredAt: new Date(),
         sampleSize: 50,
         confidencePercent: 95,
       },
@@ -1059,14 +1216,14 @@ export class FarmSeedService implements OnApplicationBootstrap {
       actual: realizedGrowthKg > 0 ? totalFeedConsumed / realizedGrowthKg : 0,
       theoretical: 1.5,
       isUserOverride: false,
-      lastUpdatedAt: new Date().toISOString(),
+      lastUpdatedAt: new Date(),
     };
 
     const feedingSummary = {
       currentFeedName: 'Grower Pro 3mm',
       totalFeedGiven: totalFeedConsumed,
       totalFeedCost: totalFeedConsumed * 35,
-      lastFeedingAt: new Date().toISOString(),
+      lastFeedingAt: new Date(),
       avgDailyFeed: totalFeedConsumed / 90,
     };
 
@@ -1075,79 +1232,97 @@ export class FarmSeedService implements OnApplicationBootstrap {
       growthRate: {
         actual: (currentAvgWeight - initialAvgWeight) / 90,
         target: 1.5,
-        variancePercent: (((currentAvgWeight - initialAvgWeight) / 90) - 1.5) / 1.5 * 100,
+        variancePercent: (((currentAvgWeight - initialAvgWeight) / 90 - 1.5) / 1.5) * 100,
       },
       daysInProduction: 90,
       projections: {
-        harvestDate: expectedHarvestDate.toISOString(),
+        harvestDate: expectedHarvestDate,
         harvestWeight: 400,
         harvestBiomass: (currentQuantity * 400) / 1000,
-        confidenceLevel: 'medium',
+        confidenceLevel: 'medium' as const,
       },
     };
 
     const mortalitySummary = {
       totalMortality: initialQuantity - currentQuantity,
       mortalityRate: ((initialQuantity - currentQuantity) / initialQuantity) * 100,
-      lastMortalityAt: new Date().toISOString(),
+      lastMortalityAt: new Date(),
     };
 
-    await queryRunner.query(
-      `INSERT INTO batches_v2 (
-        id, "tenantId", "batchNumber", name, description,
-        "speciesId", "inputType", "initialQuantity", "currentQuantity",
-        "totalMortality", "cullCount", "totalFeedConsumed", "totalFeedCost",
-        weight, fcr, "feedingSummary", "growthMetrics", "mortalitySummary",
-        "stockedAt", "expectedHarvestDate", status, "statusChangedAt",
-        "isActive", "createdAt", "updatedAt", version
-      ) VALUES (
-        $1, $2, 'B-2024-00001', 'Levrek Partisi 1', 'Test levrek partisi - 50000 adet',
-        $3, 'fry', $4, $5,
-        $6, 0, $7, $8,
-        $9, $10, $11, $12, $13,
-        $14, $15, 'growing', NOW(),
-        true, NOW(), NOW(), 1
-      )`,
-      [
-        batchId, tenantId, speciesId, initialQuantity, currentQuantity,
-        initialQuantity - currentQuantity, totalFeedConsumed, totalFeedConsumed * 35,
-        JSON.stringify(weight), JSON.stringify(fcr), JSON.stringify(feedingSummary),
-        JSON.stringify(growthMetrics), JSON.stringify(mortalitySummary),
-        stockedAt.toISOString(), expectedHarvestDate.toISOString(),
-      ]
-    );
+    const batch = queryRunner.manager.create(Batch, {
+      id: batchId,
+      tenantId,
+      batchNumber: 'B-2024-00001',
+      name: 'Levrek Partisi 1',
+      description: 'Test levrek partisi - 50000 adet',
+      speciesId,
+      inputType: BatchInputType.FRY,
+      batchType: BatchType.PRODUCTION,
+      initialQuantity,
+      currentQuantity,
+      totalMortality: initialQuantity - currentQuantity,
+      cullCount: 0,
+      totalFeedConsumed,
+      totalFeedCost: totalFeedConsumed * 35,
+      weight,
+      fcr,
+      feedingSummary,
+      growthMetrics,
+      mortalitySummary,
+      stockedAt,
+      expectedHarvestDate,
+      status: BatchStatus.GROWING,
+      statusChangedAt: new Date(),
+      isActive: true,
+    });
+    await this.batchMutations.commitBatchTransition(mutationSession, {
+      intent: 'batch_seed',
+      aggregate: batch,
+    });
 
     this.logger.log(`  Created sample batch: B-2024-00001`);
 
     // Tank'a batch allocation yap (ilk tank'a)
     if (tankIds.length > 0) {
-      const tankBatchId = randomUUID();
       const biomass = weight.actual.totalBiomass;
-
-      await queryRunner.query(
-        `INSERT INTO tank_batches (
-          id, "tenantId", "tankId", "batchId",
-          "quantity", "biomassKg", "avgWeightG", "densityKgM3",
-          "allocatedAt", status, "isActive",
-          "createdAt", "updatedAt"
-        ) VALUES (
-          $1, $2, $3, $4,
-          $5, $6, $7, $8,
-          NOW(), 'active', true,
-          NOW(), NOW()
-        )`,
-        [
-          tankBatchId, tenantId, tankIds[0], batchId,
-          currentQuantity, biomass, currentAvgWeight,
-          biomass / 175.9, // circular tank volume
-        ]
-      );
+      const tankBatch = queryRunner.manager.create(TankBatch, {
+        id: randomUUID(),
+        tenantId,
+        tankId: tankIds[0]!,
+        primaryBatchId: batchId,
+        primaryBatchNumber: batch.batchNumber,
+        totalQuantity: currentQuantity,
+        avgWeightG: currentAvgWeight,
+        totalBiomassKg: biomass,
+        currentBiomassKg: biomass,
+        densityKgM3: biomass / 175.9,
+        isMixedBatch: false,
+        batchDetails: [
+          {
+            batchId,
+            batchNumber: batch.batchNumber,
+            quantity: currentQuantity,
+            avgWeightG: currentAvgWeight,
+            biomassKg: biomass,
+            percentageOfTank: 100,
+          },
+        ],
+        cleanerFishQuantity: 0,
+        cleanerFishBiomassKg: 0,
+        isOverCapacity: false,
+      });
+      await this.batchMutations.commitTankBatchTransition(mutationSession, {
+        intent: 'seed_initialized',
+        aggregate: tankBatch,
+      });
 
       // Tank'in currentBiomass'ini guncelle
-      await queryRunner.query(
-        `UPDATE tanks SET "currentBiomass" = $1, "currentCount" = $2, status = 'active' WHERE id = $3`,
-        [biomass, currentQuantity, tankIds[0]]
-      );
+      await this.batchMutations.replaceTankStockProjection(mutationSession, {
+        tankId: tankIds[0]!,
+        currentBiomassKg: biomass,
+        currentCount: currentQuantity,
+        lifecycle: 'activate',
+      });
 
       this.logger.log(`  Allocated batch to Tank A1`);
     }

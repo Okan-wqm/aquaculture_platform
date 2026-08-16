@@ -16,6 +16,7 @@ import { InventoryCountItem } from './entities/inventory-count-item.entity';
 import { StorageLotMix } from './entities/storage-lot-mix.entity';
 import { LotMixService } from './services/lot-mix.service';
 import { StockMovementService } from './services/stock-movement.service';
+import { StockMutationLockAuthority } from './services/stock-mutation-lock.authority';
 import { Site } from '../site/entities/site.entity';
 import { Feed } from '../feed/entities/feed.entity';
 import { Chemical } from '../chemical/entities/chemical.entity';
@@ -116,6 +117,7 @@ const QueryHandlers = [
     // RecordStockMovementHandler (here) and the feeding callers both use.
     // Exported so FeedingModule can deduct feed stock INSIDE the feeding
     // transaction (fail-closed, atomic) — see StockMovementService header.
+    StockMutationLockAuthority,
     StockMovementService,
     // SEC-HIGH-051 / SEC-HIGH-052: site authz SSoT + mobile-feature guard.
     SiteAuthorizationService,
@@ -123,9 +125,6 @@ const QueryHandlers = [
     ...CommandHandlers,
     ...QueryHandlers,
   ],
-  exports: [
-    TypeOrmModule,
-    StockMovementService,
-  ],
+  exports: [TypeOrmModule, StockMovementService],
 })
 export class InventoryModule {}

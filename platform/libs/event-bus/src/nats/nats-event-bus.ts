@@ -1,6 +1,8 @@
+import { Buffer } from 'node:buffer';
 import * as os from 'os';
 
 import { emitBootInvariantSignal } from '@aquaculture/backend-common/constants';
+import { DEAD_LETTER_SINK, type DeadLetterSink } from '@aquaculture/backend-common/events';
 import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
 // NATS v3 (@nats-io/* 3.x). v2 monolithic `nats` package split into
 // transport-node (Node connect), nats-core (connection + Msg primitives),
@@ -54,6 +56,12 @@ import {
 } from '../subjects/tenant-event-subject';
 
 import { DEFAULT_NATS_URL, DEFAULT_NATS_STREAM_NAME } from './event-bus-config.factory';
+import {
+  AQUACULTURE_EVENT_STREAM_PROFILE_V1,
+  NANOSECONDS_PER_DAY,
+  assertEventCapacityAdmissionV1,
+} from './event-stream-capacity.catalog';
+import { DEFAULT_CONSUMER_MAX_DELIVER, settleFailedMessage } from './message-disposition';
 import type { EventBusModuleOptions } from './nats.module';
 
 export interface CoreNatsConnectionSnapshot {
@@ -170,6 +178,7 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
 
   /** Optional event upcaster registry for v1→v2+ event schema migration */
   private readonly upcasterRegistry?: EventUpcasterRegistry;
+  private readonly deadLetterSink?: DeadLetterSink;
 
   /**
    * IMPORTANT: fail-closed — when true, broker unavailability always prevents
@@ -181,7 +190,9 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
     private readonly configService: ConfigService,
     @Inject('EVENT_BUS_OPTIONS') @Optional() moduleOptions?: EventBusModuleOptions,
     @Inject('EVENT_UPCASTER_REGISTRY') @Optional() upcasterRegistry?: EventUpcasterRegistry,
+    @Inject(DEAD_LETTER_SINK) @Optional() deadLetterSink?: DeadLetterSink,
   ) {
+    this.deadLetterSink = deadLetterSink;
     this.upcasterRegistry = upcasterRegistry;
     this.requireBroker = moduleOptions?.required ?? false;
     this.natsUrl = this.configService.get<string>('NATS_URL', DEFAULT_NATS_URL);
@@ -338,11 +349,7 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
     // A live @nats-io connection owns its own internal reconnect loop. Do not
     // open a second mTLS connection while it is reconnecting; retain exactly
     // one outer timer so a terminal close still converges on recovery.
-    if (
-      this.connectPromise === null &&
-      this.connection !== null &&
-      !this.connection.isClosed()
-    ) {
+    if (this.connectPromise === null && this.connection !== null && !this.connection.isClosed()) {
       this.scheduleReconnect();
       return;
     }
@@ -875,6 +882,7 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
         assertSubjectMatchesEvent(subject, event);
       }
       const payload = this.serializeEvent(event);
+      assertEventCapacityAdmissionV1(event.eventType, Buffer.byteLength(payload, 'utf8'));
 
       // NOTE: Intentionally NO `expect: { lastMsgID: ... }` option here.
       // `expect.lastMsgID` is a CAS-style assertion — it succeeds only on
@@ -1139,16 +1147,17 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
    * for metadata and potential additional streams.
    */
   private getStreamConfig(replicas: number): Partial<StreamConfig> {
+    const profile = AQUACULTURE_EVENT_STREAM_PROFILE_V1;
     return {
-      subjects: ['events.>', 'commands.>', 'queries.>'],
+      subjects: [...profile.subjects],
       retention: RetentionPolicy.Limits,
       storage: StorageType.File,
-      max_age: 7 * 24 * 60 * 60 * 1_000_000_000, // 7 days in nanoseconds
-      max_bytes: 1536 * 1024 * 1024, // 1.5GB — must be < nats.conf max_file_store (2GB)
-      max_msg_size: 1024 * 1024, // 1MB per message
-      max_msgs: 1_000_000, // 1M messages safety net
+      max_age: profile.retentionDays * NANOSECONDS_PER_DAY,
+      max_bytes: profile.maxBytes,
+      max_msg_size: profile.maxMessageBytes,
+      max_msgs: profile.maxMessages,
       discard: DiscardPolicy.Old,
-      duplicate_window: 2 * 60 * 1_000_000_000, // 2 minutes for deduplication
+      duplicate_window: profile.duplicateWindowNanoseconds,
       num_replicas: replicas,
     };
   }
@@ -1170,7 +1179,7 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
         deliver_policy: options?.startFrom === 'beginning' ? DeliverPolicy.All : DeliverPolicy.New,
         ack_policy: AckPolicy.Explicit,
         ack_wait: (options?.ackWait ?? 30) * 1000000000, // Convert to nanoseconds
-        max_deliver: options?.maxRetries ?? 3,
+        max_deliver: options?.maxRetries ?? DEFAULT_CONSUMER_MAX_DELIVER,
         filter_subject: subject,
       };
 
@@ -1230,45 +1239,68 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
   }
 
   private async processConsumerMessage(subject: string, msg: JsMsg): Promise<void> {
+    const deliveryCount = msg.info?.deliveryCount ?? 0;
+    let raw = '';
+    let event: IEvent;
     try {
-      // v3: msg.string() replaces StringCodec.decode(msg.data) — same UTF-8 bytes.
-      const event = this.deserializeEvent(msg.string());
-      const handlers = this.handlers.get(subject) ?? [];
-
-      // SECURITY: Handler failures must NOT be swallowed while the
-      // message is acked. A swallowed handler error permanently loses
-      // the event for that handler. Route failures to retry/DLQ instead.
-      let handlerFailed = false;
-      for (const handler of handlers) {
-        try {
-          await handler.handle(event);
-        } catch (handlerError) {
-          handlerFailed = true;
-          this.logger.error(
-            `Handler error for ${event.eventType} — message will be NAK'd for retry`,
-            handlerError,
-          );
-        }
-      }
-
-      if (handlerFailed) {
-        // v3: deliveryCount replaces v2's deprecated redeliveryCount alias
-        // (identical value) — exponential-backoff math unchanged.
-        const deliveryCount = msg.info?.deliveryCount ?? 0;
-        const backoffMs = Math.min(1000 * Math.pow(2, deliveryCount), 30000);
-        msg.nak(backoffMs);
-      } else {
-        msg.ack();
-      }
+      raw = msg.string();
+      event = this.deserializeEvent(raw);
     } catch (error) {
       this.logger.error(`Message processing error on ${subject}`, error);
-      // Exponential backoff on NAK: redelivery delay doubles per attempt.
-      // v3 deliveryCount = number of times delivered (v2's deprecated
-      // redeliveryCount alias, same value) — backoff math unchanged.
-      const deliveryCount = msg.info?.deliveryCount ?? 0;
-      const backoffMs = Math.min(1000 * Math.pow(2, deliveryCount), 30000);
-      msg.nak(backoffMs);
+      await this.retireOrRetry(subject, msg, deliveryCount, errorMessage(error), {
+        eventType: 'unparseable',
+        payload: { raw },
+      });
+      return;
     }
+
+    const handlerErrors: string[] = [];
+    for (const handler of this.handlers.get(subject) ?? []) {
+      try {
+        await handler.handle(event);
+      } catch (handlerError) {
+        handlerErrors.push(errorMessage(handlerError));
+        this.logger.error(`Handler error for ${event.eventType} on ${subject}`, handlerError);
+      }
+    }
+
+    if (handlerErrors.length === 0) {
+      msg.ack();
+      return;
+    }
+
+    await this.retireOrRetry(subject, msg, deliveryCount, handlerErrors.join(' | '), {
+      eventType: event.eventType,
+      eventId: event.eventId,
+      tenantId: event.tenantId,
+      payload: { ...event },
+    });
+  }
+
+  private async retireOrRetry(
+    subject: string,
+    msg: JsMsg,
+    deliveryCount: number,
+    error: string,
+    envelope: {
+      readonly eventType: string;
+      readonly eventId?: string;
+      readonly tenantId?: string;
+      readonly payload: Readonly<Record<string, unknown>>;
+    },
+  ): Promise<void> {
+    const hasRegisteredOptions = this.subscriptionOptions.has(subject);
+    const options = this.subscriptionOptions.get(subject);
+    await settleFailedMessage({
+      msg,
+      error,
+      envelope: { subject, deliveryCount, error, ...envelope },
+      maxDeliver: hasRegisteredOptions
+        ? (options?.maxRetries ?? DEFAULT_CONSUMER_MAX_DELIVER)
+        : undefined,
+      sink: this.deadLetterSink,
+      logger: this.logger,
+    });
   }
 
   /**

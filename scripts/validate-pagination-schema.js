@@ -5,7 +5,7 @@
  * Offset shape: { items, total, page, limit, totalPages, hasNextPage, hasPreviousPage }
  * Cursor shape: { edges, pageInfo }
  *
- * Scans all schema.graphql files and validates types matching:
+ * Scans the generated service-catalog subgraph artifacts and validates types matching:
  * - *Connection
  * - *ListResponse
  * - *PaginatedResponse
@@ -15,29 +15,41 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const OFFSET_REQUIRED_FIELDS = ['items', 'total', 'page', 'limit', 'totalPages', 'hasNextPage', 'hasPreviousPage'];
-const CURSOR_CONNECTION_REQUIRED_FIELDS = ['edges', 'pageInfo'];
-const PAGINATED_TYPE_PATTERNS = [/Connection$/, /ListResponse$/, /PaginatedResponse$/, /^Paginated/];
-
-const SCHEMA_DIRS = [
-  'apps/farm-service',
-  'apps/sensor-service',
-  'apps/hr-service',
-  'apps/auth-service',
-  'apps/billing-service',
-  'apps/config-service',
-  'apps/hydroponics-service',
-  'apps/alert-engine',
+const OFFSET_REQUIRED_FIELDS = [
+  'items',
+  'total',
+  'page',
+  'limit',
+  'totalPages',
+  'hasNextPage',
+  'hasPreviousPage',
 ];
+const CURSOR_CONNECTION_REQUIRED_FIELDS = ['edges', 'pageInfo'];
+const PAGINATED_TYPE_PATTERNS = [
+  /Connection$/,
+  /ListResponse$/,
+  /PaginatedResponse$/,
+  /^Paginated/,
+];
+
+const MANIFEST_PATH = 'infrastructure/apollo-router/codegen-schema.generated.json';
+if (!fs.existsSync(MANIFEST_PATH)) {
+  throw new Error(`Generated GraphQL registry manifest is missing: ${MANIFEST_PATH}`);
+}
+const manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'));
+if (!Array.isArray(manifest.schemaArtifactPaths) || manifest.schemaArtifactPaths.length === 0) {
+  throw new Error(`Generated GraphQL registry has no schemaArtifactPaths: ${MANIFEST_PATH}`);
+}
 
 let errors = 0;
 let checked = 0;
 
-for (const dir of SCHEMA_DIRS) {
-  const schemaPath = path.join(dir, 'schema.graphql');
+for (const artifactPath of manifest.schemaArtifactPaths) {
+  const schemaPath = path.normalize(artifactPath);
   if (!fs.existsSync(schemaPath)) {
-    console.warn(`⚠ Schema not found: ${schemaPath}`);
-    continue;
+    throw new Error(
+      `Generated subgraph artifact is missing: ${schemaPath}. Run the catalog-owned supergraph build first.`,
+    );
   }
 
   const schema = fs.readFileSync(schemaPath, 'utf8');
@@ -50,7 +62,7 @@ for (const dir of SCHEMA_DIRS) {
     const typeName = match[1];
     const typeBody = match[2];
 
-    const isPaginated = PAGINATED_TYPE_PATTERNS.some(p => p.test(typeName));
+    const isPaginated = PAGINATED_TYPE_PATTERNS.some((p) => p.test(typeName));
     if (!isPaginated) continue;
 
     checked++;
@@ -59,7 +71,7 @@ for (const dir of SCHEMA_DIRS) {
     const requiredFields = /CursorConnection$/.test(typeName)
       ? CURSOR_CONNECTION_REQUIRED_FIELDS
       : OFFSET_REQUIRED_FIELDS;
-    const missing = requiredFields.filter(f => !fields.includes(f));
+    const missing = requiredFields.filter((f) => !fields.includes(f));
     if (missing.length > 0) {
       console.error(`✗ ${schemaPath}: ${typeName} missing fields: ${missing.join(', ')}`);
       errors++;

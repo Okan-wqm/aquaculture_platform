@@ -27,10 +27,7 @@ import { EntityManager } from 'typeorm';
 
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { StorageInventory, StorageItemType } from '../entities/storage-inventory.entity';
-import {
-  LotContribution,
-  StorageLotMix,
-} from '../entities/storage-lot-mix.entity';
+import { LotContribution, StorageLotMix } from '../entities/storage-lot-mix.entity';
 
 export interface DetectMixParams {
   tenantId: string;
@@ -48,6 +45,8 @@ export interface DetectMixParams {
   manufacturer?: string | null;
   incomingExpiryDate?: Date | null;
   userId: string;
+  /** Canonical transaction/operation instant owned by the stock mutation scope. */
+  mixedAt: Date;
   /** EntityManager for transactional consistency with the parent movement. */
   manager: EntityManager;
 }
@@ -85,6 +84,7 @@ export class LotMixService {
       manufacturer,
       incomingExpiryDate,
       userId,
+      mixedAt,
       manager,
     } = params;
 
@@ -102,10 +102,7 @@ export class LotMixService {
     });
 
     const otherLots = existing.filter(
-      (row) =>
-        row.lotNumber &&
-        row.lotNumber !== incomingLotNumber &&
-        Number(row.quantity) > 0,
+      (row) => row.lotNumber && row.lotNumber !== incomingLotNumber && Number(row.quantity) > 0,
     );
 
     if (otherLots.length === 0) {
@@ -121,9 +118,7 @@ export class LotMixService {
           quantityKg: Number(row.quantity),
           contributionPct: 0,
           manufacturer: manufacturer ?? undefined,
-          expiryDate: row.expiryDate
-            ? this.toIsoDate(row.expiryDate)
-            : undefined,
+          expiryDate: row.expiryDate ? this.toIsoDate(row.expiryDate) : undefined,
         };
       }),
       {
@@ -131,25 +126,16 @@ export class LotMixService {
         quantityKg: incomingQuantityKg,
         contributionPct: 0,
         manufacturer: manufacturer ?? undefined,
-        expiryDate: incomingExpiryDate
-          ? this.toIsoDate(incomingExpiryDate)
-          : undefined,
+        expiryDate: incomingExpiryDate ? this.toIsoDate(incomingExpiryDate) : undefined,
       },
     ];
 
-    const totalQuantityKg = contributions.reduce(
-      (sum, c) => sum + c.quantityKg,
-      0,
-    );
+    const totalQuantityKg = contributions.reduce((sum, c) => sum + c.quantityKg, 0);
     for (const c of contributions) {
-      c.contributionPct =
-        totalQuantityKg > 0 ? (c.quantityKg / totalQuantityKg) * 100 : 0;
+      c.contributionPct = totalQuantityKg > 0 ? (c.quantityKg / totalQuantityKg) * 100 : 0;
     }
 
-    const effectiveLotNumber = [
-      'MIX',
-      ...contributions.map((c) => c.lotNumber).sort(),
-    ].join('-');
+    const effectiveLotNumber = ['MIX', ...contributions.map((c) => c.lotNumber).sort()].join('-');
 
     const mixRepo = tenantManagerRepo(manager, StorageLotMix, tenantId);
     const mix = mixRepo.create({
@@ -160,7 +146,7 @@ export class LotMixService {
       effectiveLotNumber,
       contributingLots: contributions,
       totalQuantityKg: totalQuantityKg.toFixed(2),
-      mixedAt: new Date(),
+      mixedAt,
       createdBy: userId,
     });
     const saved = await mixRepo.save(mix);

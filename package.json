@@ -29,7 +29,7 @@
     "test:e2e:water-chemistry": "npm --prefix e2e run test:water-chemistry",
     "test:e2e:mobile": "npm --prefix e2e run test:mobile",
     "lint": "node tools/toolchain/run.mjs nx affected --target=lint",
-    "lint:all": "node tools/toolchain/run.mjs nx run-many --target=lint --all",
+    "lint:all": "node scripts/ci/lint-all.mjs",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "type-check": "node tools/scripts/type-check-all.mjs",
@@ -78,6 +78,8 @@
     "start:frontend": "concurrently -k -n \"shell,modules\" -c \"cyan,magenta\" \"npm run start:shell\" \"sleep 5 && npm run start:modules\"",
     "start:all": "concurrently -k -n \"backend,frontend\" -c \"blue,green\" \"npm run start:backend\" \"sleep 30 && npm run start:frontend\"",
     "schema:generate": "node tools/toolchain/run.mjs nx run-many --target=build --all --parallel=2",
+    "schema:emit": "node scripts/apollo-router/build-supergraph.mjs",
+    "schema:emit:verify": "node scripts/apollo-router/verify-supergraph-determinism.mjs",
     "codegen": "graphql-codegen --config codegen.ts",
     "codegen:check": "graphql-codegen --config codegen.ts --check",
     "service-catalog:generate": "ts-node --project scripts/service-catalog/tsconfig.json scripts/service-catalog/generate-artifacts.ts",
@@ -134,6 +136,7 @@
     "gates:auth-db-ownership": "node scripts/ci/check-auth-db-ownership.mjs",
     "gates:migration-sql": "ts-node --project tools/gates/tsconfig.json tools/gates/migration-sql-lint.ts",
     "gates:clippy-affected": "ts-node --project tools/gates/tsconfig.json tools/gates/clippy-affected.ts",
+    "gates:test": "node tools/gates/run-all.mjs",
     "gates:clippy-affected:test": "ts-node --project tools/gates/tsconfig.json tools/gates/clippy-affected.spec.ts",
     "gates:commit-msg:test": "ts-node --project tools/gates/tsconfig.json tools/gates/commit-msg-validator.spec.ts",
     "gates:finding-registry:test": "ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry-store.spec.ts",
@@ -179,7 +182,10 @@
     "gates:enterprise-closure": "ts-node --project tools/gates/tsconfig.runtime.json tools/gates/enterprise-closure.ts",
     "quality:closure-run": "node tools/quality/quality.mjs closure-run --profile gates-all",
     "quality:format-scope:generate": "node tools/quality/quality.mjs format-scope generate",
-    "quality:format-scope:check": "node tools/quality/quality.mjs format-scope check"
+    "quality:format-scope:check": "node tools/quality/quality.mjs format-scope check",
+    "supervisor:test": "node --experimental-strip-types --test tools/supervisor/runtime-supervisor.spec.ts",
+    "supervisor:run": "node --experimental-strip-types tools/supervisor/runtime-supervisor.ts",
+    "tools:test": "node --experimental-strip-types --test \"tools/supervisor/*.spec.ts\" \"tools/watchdog/*.spec.mjs\""
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.93.0",
@@ -237,7 +243,7 @@
     "helmet": "^7.2.0",
     "immer": "^11.1.4",
     "ioredis": "^5.8.2",
-    "js-yaml": "^4.3.0",
+    "js-yaml": "^4.3.1",
     "minio": "^8.0.7",
     "modbus-serial": "^8.0.23",
     "motion": "^12.38.0",
@@ -359,6 +365,9 @@
     },
     "@nestjs/apollo": {
       "@apollo/server-plugin-landing-page-graphql-playground": "$@apollo/server-plugin-landing-page-graphql-playground"
+    },
+    "@nestjs/swagger": {
+      "js-yaml": "^4.3.1"
     },
     "typeorm": {
       "glob": "^13.0.6",

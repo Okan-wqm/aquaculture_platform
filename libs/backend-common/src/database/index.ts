@@ -17,10 +17,7 @@ export {
   queryRowsWithStringColumn,
   querySingleStringColumn,
 } from './query-result-normalizer';
-export type {
-  NormalizedQueryResult,
-  StringColumnRow,
-} from './query-result-normalizer';
+export type { NormalizedQueryResult, StringColumnRow } from './query-result-normalizer';
 
 // Source Schema Bootstrap
 export * from './source-schema-bootstrap.service';
@@ -37,6 +34,14 @@ export * from './query-result-normalizer';
 export * from './tenant-scoped-repository';
 export * from './tenant-scoped-repository.module';
 export * from './tenant-transaction';
+export type { TenantMutationSession } from './tenant-mutation-session';
+export {
+  pinTenantMutationInstantV1,
+  readTenantMutationInstantV1,
+  readTenantMutationSession,
+} from './tenant-mutation-session';
+export { mutationInstantDateV1, mutationInstantIsoV1 } from './mutation-instant';
+export type { MutationInstantV1 } from './mutation-instant';
 export * from './tenant-context-error';
 
 // Transformers
@@ -145,11 +150,14 @@ export type {
 // (CI invariant). See tenant-aware-schemas.ts for rationale.
 export { TENANT_AWARE_SCHEMAS, TENANT_SCHEMA_NAME_RE } from './tenant-aware-schemas';
 export {
+  MIGRATION_EXECUTION_SCOPE_V1_PROPERTY,
+  MIGRATION_EXECUTION_SCOPE_V1_SCHEMA,
   SourceOnlyMigration,
   getSourceOnlyMigrationMetadata,
   isSourceOnlyMigration,
 } from './tenant-fanout.decorator';
 export type {
+  MigrationExecutionScopeV1,
   SourceOnlyMigrationMetadata,
   SourceOnlyMigrationOptions,
 } from './tenant-fanout.decorator';

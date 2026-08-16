@@ -98,7 +98,8 @@ export const en = {
   'resetPassword.confirmPassword': 'Confirm Password',
   'resetPassword.submit': 'Reset Password',
   'resetPassword.success.title': 'Password Reset',
-  'resetPassword.success.message': 'Your password has been reset successfully. Redirecting to login...',
+  'resetPassword.success.message':
+    'Your password has been reset successfully. Redirecting to login...',
 
   // ── Accept Invitation ──
   'invitation.title': 'Accept Invitation',
@@ -225,8 +226,7 @@ export const en = {
   'feedingV2.assignments.fcrOverride.protocolDefault': 'Protocol default: {value}',
   'feedingV2.assignments.fcrOverride.overridden': 'Overridden',
   'feedingV2.assignments.fcrOverride.reset': 'Reset to default',
-  'feedingV2.assignments.speciesMismatch':
-    'Species mismatch — provide a reason to assign anyway',
+  'feedingV2.assignments.speciesMismatch': 'Species mismatch — provide a reason to assign anyway',
   'feedingV2.assignments.speciesMismatchReason': 'Mismatch reason',
   'feedingV2.assignments.empty': 'No assignments yet.',
   'feedingV2.assignments.manualTransition': 'Manual feed transition',
@@ -240,6 +240,8 @@ export const en = {
   'feedingV2.forecast.timelineTitle': 'Unit feed transitions (next {days} days)',
   'feedingV2.forecast.computedAt': 'As of {at}',
   'feedingV2.forecast.mortalityApplied': 'Mortality projection: species survival rate',
+  'feedingV2.forecast.mortalityPartial':
+    'Mortality projection: species rate for {applied}/{total} units',
   'feedingV2.forecast.mortalityNone': 'Mortality projection: none (conservative)',
   'feedingV2.forecast.empty': 'No feed consumption projected in this scope.',
   'feedingV2.forecast.noUnits': 'No units with an active protocol in this scope.',
@@ -250,7 +252,8 @@ export const en = {
   'feedingV2.forecast.gapBadge': 'GAP',
   'feedingV2.forecast.siteLabel': 'Site',
   'feedingV2.forecast.horizonLabel': 'Horizon (days)',
-  'feedingV2.forecast.notComputed': 'Forecast snapshot not computed yet — it is produced by the 07:00 sweep and refreshed on stock/transition events.',
+  'feedingV2.forecast.notComputed':
+    'Forecast snapshot not computed yet — it is produced by the 07:00 sweep and refreshed on stock/transition events.',
   'feedingV2.tab.mealBoard': 'Meal Board',
   'feedingV2.mealBoard.title': 'Meal Board',
   'feedingV2.mealBoard.subtitle':
@@ -289,6 +292,12 @@ export const en = {
   'feedingV2.mealBoard.status.skipped': 'Skipped',
   'feedingV2.mealBoard.status.missed': 'Missed',
   'feedingV2.mealBoard.status.cancelled': 'Cancelled',
+  'feedingV2.mealBoard.readiness.ready': 'O₂ ready',
+  'feedingV2.mealBoard.readiness.lowOxygen': 'Low O₂',
+  'feedingV2.mealBoard.readiness.noReading': 'O₂ reading missing',
+  'feedingV2.mealBoard.readiness.notInstrumented': 'O₂ sensor missing',
+  'feedingV2.mealBoard.readiness.title':
+    'Pre-meal dissolved oxygen: {observed} mg/L; protocol floor: {floor} mg/L',
   'feedingV2.mealBoard.planStatus.planned': 'Planned',
   'feedingV2.mealBoard.planStatus.in_progress': 'In progress',
   'feedingV2.mealBoard.planStatus.completed': 'Completed',
@@ -296,8 +305,13 @@ export const en = {
   'feedingV2.mealBoard.planStatus.cancelled': 'Cancelled',
   'feedingV2.mealBoard.addPour': 'Add pour',
   'feedingV2.mealBoard.finalize': 'Finish meal',
+  'feedingV2.mealBoard.finalizeExisting': 'Finish now',
+  'feedingV2.mealBoard.finalizeExistingConfirm':
+    'Finish this partial meal without recording another pour?',
   'feedingV2.mealBoard.skip': 'Skip',
   'feedingV2.mealBoard.pourKg': 'Pour (kg)',
+  'feedingV2.mealBoard.quantityInvalid':
+    'Amount must be between {minimumKg} and {maximumKg} kg in {stepKg} kg increments.',
   'feedingV2.mealBoard.finalizeHint':
     'Mark the meal finished after this pour — variance and growth are applied',
   'feedingV2.mealBoard.skipReason': 'Skip reason',

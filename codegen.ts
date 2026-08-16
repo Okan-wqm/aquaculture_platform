@@ -12,16 +12,13 @@ const manifest = JSON.parse(
 ) as CodegenSchemaManifest;
 
 const composedSupergraph = manifest.supergraphPath;
-const allowLocalFallback = process.env.GRAPHQL_CODEGEN_ALLOW_SCHEMA_FALLBACK === 'true';
-const legacyFallback = 'apps/farm-service/schema.graphql';
-
-if (!existsSync(composedSupergraph) && !allowLocalFallback) {
+if (!existsSync(composedSupergraph)) {
   throw new Error(
     `${composedSupergraph} is required for GraphQL codegen. Run schema:emit + apollo-router:compose first.`,
   );
 }
 
-const schema = existsSync(composedSupergraph) ? [composedSupergraph] : [legacyFallback];
+const schema = [composedSupergraph];
 
 // S1-CODEGEN: each operations output owns a DISJOINT document set. graphql-codegen
 // loads `documents` once per output and `typescript-operations` requires globally

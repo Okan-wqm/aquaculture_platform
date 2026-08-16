@@ -11,7 +11,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import { toEventIso,
+import {
+  toEventIso,
   createBaseEvent,
   type CleanerFishTransferredEvent,
 } from '@platform/event-contracts';
@@ -21,11 +22,15 @@ import { TankBatch, CleanerFishDetail } from '../entities/tank-batch.entity';
 import { TankOperation, OperationType } from '../entities/tank-operation.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';
 import { Species } from '../../species/entities/species.entity';
+import { BatchAggregateMutationPort } from '../batch-aggregate-mutation.port';
 
 @Injectable()
 @CommandHandler(TransferCleanerFishCommand)
-export class TransferCleanerFishHandler implements ICommandHandler<TransferCleanerFishCommand, Batch> {
+export class TransferCleanerFishHandler
+  implements ICommandHandler<TransferCleanerFishCommand, Batch>
+{
   constructor(
+    private readonly batchMutations: BatchAggregateMutationPort,
     @InjectRepository(Batch)
     private readonly batchRepository: Repository<Batch>,
     @InjectRepository(TankBatch)
@@ -54,7 +59,7 @@ export class TransferCleanerFishHandler implements ICommandHandler<TransferClean
 
     if (cleanerBatch.batchType !== BatchType.CLEANER_FISH) {
       throw new BadRequestException(
-        `Batch ${cleanerBatch.batchNumber} bir cleaner fish batch'i değil`
+        `Batch ${cleanerBatch.batchNumber} bir cleaner fish batch'i değil`,
       );
     }
 
@@ -87,18 +92,18 @@ export class TransferCleanerFishHandler implements ICommandHandler<TransferClean
     });
 
     if (!sourceTankBatch) {
-      throw new NotFoundException(`Kaynak tank ${payload.sourceTankId} için TankBatch kaydı bulunamadı`);
+      throw new NotFoundException(
+        `Kaynak tank ${payload.sourceTankId} için TankBatch kaydı bulunamadı`,
+      );
     }
 
     // Kaynak tankta bu batch var mı kontrol et
     const sourceDetails = sourceTankBatch.cleanerFishDetails || [];
-    const sourceBatchIndex = sourceDetails.findIndex(
-      (d) => d.batchId === cleanerBatch.id
-    );
+    const sourceBatchIndex = sourceDetails.findIndex((d) => d.batchId === cleanerBatch.id);
 
     if (sourceBatchIndex < 0) {
       throw new BadRequestException(
-        `Cleaner batch ${cleanerBatch.batchNumber} kaynak tankta bulunmuyor`
+        `Cleaner batch ${cleanerBatch.batchNumber} kaynak tankta bulunmuyor`,
       );
     }
 
@@ -107,7 +112,7 @@ export class TransferCleanerFishHandler implements ICommandHandler<TransferClean
     // Miktar kontrolü
     if (payload.quantity > sourceBatchDetail.quantity) {
       throw new BadRequestException(
-        `Transfer miktarı (${payload.quantity}) kaynak tanktaki cleaner fish miktarından (${sourceBatchDetail.quantity}) fazla olamaz`
+        `Transfer miktarı (${payload.quantity}) kaynak tanktaki cleaner fish miktarından (${sourceBatchDetail.quantity}) fazla olamaz`,
       );
     }
 
@@ -142,13 +147,20 @@ export class TransferCleanerFishHandler implements ICommandHandler<TransferClean
     }
 
     sourceTankBatch.cleanerFishDetails = sourceDetails;
-    sourceTankBatch.cleanerFishQuantity = Math.max(0, (sourceTankBatch.cleanerFishQuantity || 0) - payload.quantity);
-    sourceTankBatch.cleanerFishBiomassKg = Math.max(0, Number(sourceTankBatch.cleanerFishBiomassKg || 0) - biomassKg);
+    sourceTankBatch.cleanerFishQuantity = Math.max(
+      0,
+      (sourceTankBatch.cleanerFishQuantity || 0) - payload.quantity,
+    );
+    sourceTankBatch.cleanerFishBiomassKg = Math.max(
+      0,
+      Number(sourceTankBatch.cleanerFishBiomassKg || 0) - biomassKg,
+    );
 
     // Yoğunluk güncelle
     const sourceVolume = sourceTank.volume || 0;
     if (sourceVolume > 0) {
-      const totalBiomass = Number(sourceTankBatch.totalBiomassKg || 0) + Number(sourceTankBatch.cleanerFishBiomassKg);
+      const totalBiomass =
+        Number(sourceTankBatch.totalBiomassKg || 0) + Number(sourceTankBatch.cleanerFishBiomassKg);
       sourceTankBatch.densityKgM3 = totalBiomass / Number(sourceVolume);
     }
 
@@ -186,9 +198,7 @@ export class TransferCleanerFishHandler implements ICommandHandler<TransferClean
 
     // Hedef tanka ekle
     const destDetails = destTankBatch.cleanerFishDetails || [];
-    const destBatchIndex = destDetails.findIndex(
-      (d) => d.batchId === cleanerBatch.id
-    );
+    const destBatchIndex = destDetails.findIndex((d) => d.batchId === cleanerBatch.id);
 
     if (destBatchIndex >= 0) {
       // Mevcut kayda ekle
@@ -209,12 +219,12 @@ export class TransferCleanerFishHandler implements ICommandHandler<TransferClean
         speciesId: cleanerBatch.speciesId,
         speciesName,
         quantity: payload.quantity,
-        initialQuantity: payload.quantity,  // Transfer ilk yerleşim olarak sayılır
+        initialQuantity: payload.quantity, // Transfer ilk yerleşim olarak sayılır
         avgWeightG,
         biomassKg,
         sourceType: cleanerBatch.sourceType as 'farmed' | 'wild_caught',
         deployedAt: payload.transferredAt,
-        totalMortality: 0,                   // Yeni tank'ta mortality 0'dan başlar
+        totalMortality: 0, // Yeni tank'ta mortality 0'dan başlar
         mortalityRate: 0,
       };
       destDetails.push(newDetail);
@@ -222,12 +232,14 @@ export class TransferCleanerFishHandler implements ICommandHandler<TransferClean
 
     destTankBatch.cleanerFishDetails = destDetails;
     destTankBatch.cleanerFishQuantity = (destTankBatch.cleanerFishQuantity || 0) + payload.quantity;
-    destTankBatch.cleanerFishBiomassKg = Number(destTankBatch.cleanerFishBiomassKg || 0) + biomassKg;
+    destTankBatch.cleanerFishBiomassKg =
+      Number(destTankBatch.cleanerFishBiomassKg || 0) + biomassKg;
 
     // Yoğunluk güncelle
     const destVolume = destTank.volume || 0;
     if (destVolume > 0) {
-      const totalBiomass = Number(destTankBatch.totalBiomassKg || 0) + Number(destTankBatch.cleanerFishBiomassKg);
+      const totalBiomass =
+        Number(destTankBatch.totalBiomassKg || 0) + Number(destTankBatch.cleanerFishBiomassKg);
       destTankBatch.densityKgM3 = totalBiomass / Number(destVolume);
     }
 
@@ -298,36 +310,50 @@ export class TransferCleanerFishHandler implements ICommandHandler<TransferClean
     // rely on both source/destination snapshots landing together —
     // splitting would produce a moment where source-minus-transfer
     // and destination-without-transfer are observable simultaneously.
-    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-      await queryRunner.manager.save(TankBatch, sourceTankBatch);
-      await queryRunner.manager.save(TankBatch, destTankBatch);
-      await queryRunner.manager.save(TankOperation, transferOutOp);
-      await queryRunner.manager.save(TankOperation, transferInOp);
-      await queryRunner.manager.save(Batch, cleanerBatch);
+    return runInTenantTransaction(
+      this.dataSource,
+      'farm',
+      tenantId,
+      async (queryRunner, mutationSession) => {
+        await this.batchMutations.commitTankBatchTransition(mutationSession, {
+          intent: 'cleaner_fish_transferred',
+          aggregate: sourceTankBatch,
+        });
+        await this.batchMutations.commitTankBatchTransition(mutationSession, {
+          intent: 'cleaner_fish_transferred',
+          aggregate: destTankBatch,
+        });
+        await queryRunner.manager.save(TankOperation, transferOutOp);
+        await queryRunner.manager.save(TankOperation, transferInOp);
+        await this.batchMutations.commitBatchTransition(mutationSession, {
+          intent: 'cleaner_fish_transferred',
+          aggregate: cleanerBatch,
+        });
 
-      const event: CleanerFishTransferredEvent = {
-        ...createBaseEvent<CleanerFishTransferredEvent>('CleanerFishTransferred', tenantId, {
-          aggregateId: cleanerBatch.id,
-          aggregateType: 'Batch',
-        }),
-        cleanerBatchId: cleanerBatch.id,
-        sourceTankId: payload.sourceTankId,
-        destinationTankId: payload.destinationTankId,
-        speciesName,
-        quantity: payload.quantity,
-        avgWeightG,
-        biomassKg,
-        reason: payload.reason,
-        transferredAt: toEventIso(payload.transferredAt),
-        newSourceTankCleanerFishQuantity: sourceTankBatch.cleanerFishQuantity ?? 0,
-        newSourceTankCleanerFishBiomassKg: Number(sourceTankBatch.cleanerFishBiomassKg ?? 0),
-        newDestinationTankCleanerFishQuantity: destTankBatch.cleanerFishQuantity ?? 0,
-        newDestinationTankCleanerFishBiomassKg: Number(destTankBatch.cleanerFishBiomassKg ?? 0),
-        newDestinationTankDensityKgM3: Number(destTankBatch.densityKgM3 ?? 0),
-      };
-      await this.outboxPublisher.enqueue(event, queryRunner.manager);
+        const event: CleanerFishTransferredEvent = {
+          ...createBaseEvent<CleanerFishTransferredEvent>('CleanerFishTransferred', tenantId, {
+            aggregateId: cleanerBatch.id,
+            aggregateType: 'Batch',
+          }),
+          cleanerBatchId: cleanerBatch.id,
+          sourceTankId: payload.sourceTankId,
+          destinationTankId: payload.destinationTankId,
+          speciesName,
+          quantity: payload.quantity,
+          avgWeightG,
+          biomassKg,
+          reason: payload.reason,
+          transferredAt: toEventIso(payload.transferredAt),
+          newSourceTankCleanerFishQuantity: sourceTankBatch.cleanerFishQuantity ?? 0,
+          newSourceTankCleanerFishBiomassKg: Number(sourceTankBatch.cleanerFishBiomassKg ?? 0),
+          newDestinationTankCleanerFishQuantity: destTankBatch.cleanerFishQuantity ?? 0,
+          newDestinationTankCleanerFishBiomassKg: Number(destTankBatch.cleanerFishBiomassKg ?? 0),
+          newDestinationTankDensityKgM3: Number(destTankBatch.densityKgM3 ?? 0),
+        };
+        await this.outboxPublisher.enqueue(event, queryRunner.manager);
 
-      return cleanerBatch;
-    });
+        return cleanerBatch;
+      },
+    );
   }
 }

@@ -4,7 +4,7 @@
 > güncel API veya runtime sözleşmesi değildir. Özellikle eski `MapViewPage`,
 > tenant Sentinel credential formu, weather settings ve point/AOI/tile proxy
 > bölümleri emekliye ayrılmıştır. Güncel çevresel izleme sözleşmesi için
-> `apps/farm-service/schema.graphql`,
+> `dist/graphql/subgraphs/farm.graphql`,
 > `docs/api/openapi/farm-service.yaml` ve
 > `docs/runbooks/monitoring/farm-environment-monitoring.md` kaynak alınır.
 

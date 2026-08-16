@@ -44,12 +44,13 @@ import { randomBytes } from 'node:crypto';
 
 import {
   type EncryptedAtRestMetadata,
+  compareForeignKeyPresence,
   expectedEntityDbType,
   getEncryptedAtRestMetadata,
   isTenantDeltaAllowed,
   isUuidTypeDrift,
   normalizeInformationSchemaType,
-} from '@aquaculture/backend-common/database';
+} from '@aquaculture/backend-common/database/drift-inspection';
 import type { EntityMetadata, QueryRunner } from 'typeorm';
 
 import { queryRows } from './query-runner';
@@ -120,9 +121,7 @@ export async function expectNoDriftAgainst(
   await introspector.initialize();
 
   try {
-    const owned = introspector.entityMetadatas.filter(
-      (m) => m.schema === ctx.schema,
-    );
+    const owned = introspector.entityMetadatas.filter((m) => m.schema === ctx.schema);
     return await scanDrift(ctx, owned);
   } finally {
     if (introspector.isInitialized) await introspector.destroy();
@@ -202,9 +201,7 @@ async function scanDrift(
     // @EncryptedAtRest metadata for this entity (mirrors production
     // Class J semantics).
     const encryptedProperties: ReadonlyMap<string, EncryptedAtRestMetadata> =
-      typeof entity.target === 'function'
-        ? getEncryptedAtRestMetadata(entity.target)
-        : new Map();
+      typeof entity.target === 'function' ? getEncryptedAtRestMetadata(entity.target) : new Map();
 
     for (const column of entity.columns) {
       const dbName = column.databaseName;
@@ -221,8 +218,7 @@ async function scanDrift(
 
       // Class B — uuid type drift (only type-class the production validator
       // checks; broader type-coercion detection ships with R11 Phase 2)
-      const entityType =
-        typeof column.type === 'string' ? column.type : '';
+      const entityType = typeof column.type === 'string' ? column.type : '';
 
       // Class J — encrypted_column_protection: DB column must be bytea
       // when property is @EncryptedAtRest. Suppresses Class B + F for
@@ -257,15 +253,14 @@ async function scanDrift(
       // Class F — enum column collection for batched lookup below.
       // Skipped for encrypted columns (Class J contract).
       if (!isEncrypted && entityType === 'enum' && Array.isArray(column.enum)) {
-        const declaredLabels = (column.enum as readonly unknown[])
-          .filter((x): x is string => typeof x === 'string');
+        const declaredLabels = (column.enum as readonly unknown[]).filter(
+          (x): x is string => typeof x === 'string',
+        );
         if (declaredLabels.length > 0) {
           entityEnumColumns.push({
             dbName,
             typeName:
-              typeof column.enumName === 'string'
-                ? column.enumName
-                : `${tableName}_${dbName}_enum`,
+              typeof column.enumName === 'string' ? column.enumName : `${tableName}_${dbName}_enum`,
             declaredLabels,
           });
         }
@@ -343,9 +338,7 @@ async function scanDrift(
     );
     if (checkRows.length !== entityChecks.length) {
       const entityExprs = entityChecks.map((c) => c.expression.trim()).join(' ; ');
-      const dbDefs = checkRows
-        .map((r) => `${r.conname}: ${r.definition}`)
-        .join(' ; ');
+      const dbDefs = checkRows.map((r) => `${r.conname}: ${r.definition}`).join(' ; ');
       if (entityChecks.length > checkRows.length) {
         violations.push(
           `[${ctx.schema}.${tableName}] entity declares ${entityChecks.length} @Check() but DB has ${checkRows.length} — ${entityChecks.length - checkRows.length} missing in DB (entity-side: ${entityExprs}) (check_constraint)`,
@@ -358,13 +351,43 @@ async function scanDrift(
       byClass.check_constraint++;
     }
 
+    // Class K — foreign_key_presence. This uses the exact same pure decision
+    // kernel as production boot validation; only the pg_constraint reader is
+    // harness-local. The signal intentionally mirrors the production
+    // cardinality contract during the baseline-reset rollout.
+    const fkRows = await queryRows<{ conname: string; definition: string }>(
+      ctx.qr,
+      `SELECT c.conname, pg_get_constraintdef(c.oid) AS definition
+           FROM pg_constraint c
+           JOIN pg_class t ON t.oid = c.conrelid
+           JOIN pg_namespace n ON n.oid = t.relnamespace
+          WHERE n.nspname = $1
+            AND t.relname = $2
+            AND c.contype = 'f'`,
+      [ctx.schema, tableName],
+    );
+    const foreignKeyDrift = compareForeignKeyPresence(entity.foreignKeys.length, fkRows.length);
+    if (foreignKeyDrift) {
+      const dbDefinitions = fkRows
+        .map((row) => `${row.conname}: ${row.definition}`)
+        .join(' ; ');
+      if (foreignKeyDrift.direction === 'missing_in_database') {
+        violations.push(
+          `[${ctx.schema}.${tableName}] entity declares ${foreignKeyDrift.entityCount} FK(s) but DB has ${foreignKeyDrift.databaseCount} — ${foreignKeyDrift.delta} missing in DB (db-side: ${dbDefinitions}) (foreign_key_presence)`,
+        );
+      } else {
+        violations.push(
+          `[${ctx.schema}.${tableName}] DB has ${foreignKeyDrift.databaseCount} foreign-key constraint(s) but entity declares ${foreignKeyDrift.entityCount} — ${foreignKeyDrift.delta} orphaned (db-side: ${dbDefinitions}) (foreign_key_presence)`,
+        );
+      }
+      byClass.foreign_key_presence++;
+    }
+
     // Class E — orphan_column: DB has a column the entity does not
     // declare. Mirrors the production validator's Class E detection.
     // WARN severity per drift-classes.ts — but the harness reports it
     // via byClass.orphan_column so tests can gate on presence.
-    const entityColumnNames = new Set(
-      entity.columns.map((c) => c.databaseName),
-    );
+    const entityColumnNames = new Set(entity.columns.map((c) => c.databaseName));
     for (const dbCol of columnRows) {
       if (!entityColumnNames.has(dbCol.column_name)) {
         violations.push(
@@ -388,9 +411,7 @@ async function scanDrift(
     );
     const tenantSchemas = tenantSchemaRows.map((r) => r.schema_name);
     if (tenantSchemas.length > 0 && entities.length > 0) {
-      const tableNames = Array.from(
-        new Set(entities.map((e) => e.tableName)),
-      );
+      const tableNames = Array.from(new Set(entities.map((e) => e.tableName)));
       const schemasToScan = [ctx.schema, ...tenantSchemas];
       const shapeRows = await queryRows<{
         table_schema: string;
@@ -410,12 +431,8 @@ async function scanDrift(
       const shapesBySchemaTable = new Map<string, Map<string, string>>();
       for (const row of shapeRows) {
         const key = `${row.table_schema}.${row.table_name}`;
-        const shape =
-          shapesBySchemaTable.get(key) ?? new Map<string, string>();
-        shape.set(
-          row.column_name,
-          `${normalizeInformationSchemaType(row)}|${row.is_nullable}`,
-        );
+        const shape = shapesBySchemaTable.get(key) ?? new Map<string, string>();
+        shape.set(row.column_name, `${normalizeInformationSchemaType(row)}|${row.is_nullable}`);
         shapesBySchemaTable.set(key, shape);
       }
       for (const entity of entities) {
@@ -438,21 +455,15 @@ async function scanDrift(
             if (tenantSig === undefined) {
               diffs.push(`missing col '${col}'`);
             } else if (tenantSig !== sourceSig) {
-              diffs.push(
-                `col '${col}' source=${sourceSig} vs tenant=${tenantSig}`,
-              );
+              diffs.push(`col '${col}' source=${sourceSig} vs tenant=${tenantSig}`);
             }
           }
           // Extra-on-tenant columns — honor @AllowTenantDelta per
           // production validator semantics (R24).
-          const entityCtor =
-            typeof entity.target === 'function' ? entity.target : undefined;
+          const entityCtor = typeof entity.target === 'function' ? entity.target : undefined;
           for (const [col] of tenantShape) {
             if (!sourceShape.has(col)) {
-              if (
-                entityCtor !== undefined &&
-                isTenantDeltaAllowed(entityCtor, col)
-              ) {
+              if (entityCtor !== undefined && isTenantDeltaAllowed(entityCtor, col)) {
                 continue;
               }
               diffs.push(`extra col '${col}'`);

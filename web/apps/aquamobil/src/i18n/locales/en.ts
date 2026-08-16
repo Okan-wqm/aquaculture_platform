@@ -55,12 +55,14 @@ export const en = {
   'feeding.notes.placeholder': 'Additional observations...',
   'feeding.record': 'Record Feeding',
   'feeding.recordKg': 'Record {kg} kg',
+  'feeding.finalizeOnly': 'Finish meal (no more feed)',
   'feeding.recording': 'Recording...',
   'feeding.recorded': 'Recorded!',
   'feeding.queuedForSync': 'Queued for sync',
   'feeding.offlineWillSync': 'Offline - will sync when connected',
-  'feeding.errors.amountRequired': 'Amount must be greater than 0',
-  'feeding.errors.amountMax': 'Amount cannot exceed 10000 kg',
+  'feeding.errors.amountRequired': 'Amount must be at least {minimumKg} kg',
+  'feeding.errors.amountMax': 'Amount cannot exceed {maximumKg} kg',
+  'feeding.errors.amountPrecision': 'Amount must use {stepKg} kg increments',
   'feeding.errors.generic': 'Failed to record feeding',
 } as const;
 

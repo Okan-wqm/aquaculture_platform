@@ -38,11 +38,15 @@ import {
 import { Tank } from '../../tank/entities/tank.entity';
 import { CreateWaterQualityInput } from '../dto/create-water-quality.input';
 import { UpdateWaterQualityInput } from '../dto/update-water-quality.input';
+import { CreateBatchWaterQualityInput } from '../dto/create-batch-water-quality.input';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const EQUIPMENT = '22222222-2222-4222-8222-222222222222';
 const MEASUREMENT = '33333333-3333-4333-8333-333333333333';
 const USER = '44444444-4444-4444-8444-444444444444';
+const UNIT_A = '55555555-5555-4555-8555-555555555555';
+const UNIT_B = '66666666-6666-4666-8666-666666666666';
+const MUTATION_INSTANT = '2026-06-14T08:00:00.000Z';
 
 // SEC-HIGH-051: the caller threaded into WaterQualityService.create. A
 // MODULE_MANAGER bypasses the object-level site check via the canonical role
@@ -60,6 +64,7 @@ interface ServiceHarness {
   evaluate: jest.Mock;
   repository: ReturnType<typeof createMockRepository<WaterQualityMeasurement>>;
   mockManager: ReturnType<typeof createMockDataSource>['mockManager'];
+  mockQueryRunner: ReturnType<typeof createMockDataSource>['mockQueryRunner'];
   enqueue: jest.Mock;
   recalcForUnitMock: jest.Mock;
 }
@@ -80,7 +85,12 @@ async function buildService(): Promise<ServiceHarness> {
   const recalcForUnitMock = jest.fn().mockResolvedValue(null);
   const enqueue = jest.fn().mockResolvedValue(undefined);
 
-  const { mockDataSource, mockManager } = createMockDataSource();
+  const { mockDataSource, mockManager, mockQueryRunner } = createMockDataSource();
+  mockQueryRunner.query.mockImplementation((sql: string) =>
+    Promise.resolve(
+      sql.includes('transaction_timestamp()') ? [{ mutationInstant: MUTATION_INSTANT }] : [],
+    ),
+  );
 
   const moduleRef: TestingModule = await Test.createTestingModule({
     providers: [
@@ -101,7 +111,16 @@ async function buildService(): Promise<ServiceHarness> {
   }).compile();
 
   const service = moduleRef.get(WaterQualityService);
-  return { service, validate, evaluate, repository, mockManager, enqueue, recalcForUnitMock };
+  return {
+    service,
+    validate,
+    evaluate,
+    repository,
+    mockManager,
+    mockQueryRunner,
+    enqueue,
+    recalcForUnitMock,
+  };
 }
 
 function createInput(overrides: Partial<CreateWaterQualityData> = {}): CreateWaterQualityData {
@@ -254,6 +273,81 @@ describe('WaterQualityService — single-ingress validation', () => {
     });
   });
 
+  describe('createBatch()', () => {
+    const batchInput = (measurements: CreateBatchWaterQualityInput['measurements']) =>
+      ({
+        measuredAt: new Date(MUTATION_INSTANT),
+        source: MeasurementSource.MANUAL,
+        measurements,
+      }) satisfies CreateBatchWaterQualityInput;
+
+    it('reprices one deduplicated target per unit in canonical unit order inside the write transaction', async () => {
+      const { service, mockManager, recalcForUnitMock } = await buildService();
+      const input = batchInput([
+        {
+          equipmentId: UNIT_B,
+          dynamicParameters: { temperature: 16 },
+          idempotencyKey: '77777777-7777-4777-8777-777777777777',
+        },
+        {
+          equipmentId: UNIT_A,
+          dynamicParameters: { temperature: 12 },
+          idempotencyKey: '88888888-8888-4888-8888-888888888888',
+        },
+        {
+          equipmentId: UNIT_A,
+          dynamicParameters: { temperature: 12, pH: 7.2 },
+          idempotencyKey: '99999999-9999-4999-8999-999999999999',
+        },
+      ]);
+      mockManager.save.mockImplementation((_entityClass: unknown, data: unknown) =>
+        Promise.resolve(data),
+      );
+
+      await service.createBatch(TENANT, input, WQ_CALLER);
+
+      expect(recalcForUnitMock).toHaveBeenCalledTimes(2);
+      expect(
+        recalcForUnitMock.mock.calls.map((call) => [call[3], call[5].newTemperatureC]),
+      ).toEqual([
+        [UNIT_A, 12],
+        [UNIT_B, 16],
+      ]);
+      expect(recalcForUnitMock.mock.calls[0]![0]).toBe(mockManager);
+      expect(recalcForUnitMock.mock.calls[1]![0]).toBe(mockManager);
+      expect(recalcForUnitMock.mock.calls[1]![1]).toBe(recalcForUnitMock.mock.calls[0]![1]);
+      expect(recalcForUnitMock.mock.calls[1]![5].mutationInstant).toBe(
+        recalcForUnitMock.mock.calls[0]![5].mutationInstant,
+      );
+    });
+
+    it('rejects conflicting same-unit temperatures before opening the mutation transaction', async () => {
+      const { service, mockManager, mockQueryRunner, recalcForUnitMock, enqueue } =
+        await buildService();
+      const input = batchInput([
+        {
+          equipmentId: UNIT_A,
+          dynamicParameters: { temperature: 12 },
+          idempotencyKey: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        },
+        {
+          equipmentId: UNIT_A,
+          dynamicParameters: { temperature: 13 },
+          idempotencyKey: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        },
+      ]);
+
+      await expect(service.createBatch(TENANT, input, WQ_CALLER)).rejects.toThrow(
+        `Batch contains conflicting temperatures for feeding unit ${UNIT_A}`,
+      );
+
+      expect(mockQueryRunner.connect).not.toHaveBeenCalled();
+      expect(mockManager.save).not.toHaveBeenCalled();
+      expect(enqueue).not.toHaveBeenCalled();
+      expect(recalcForUnitMock).not.toHaveBeenCalled();
+    });
+  });
+
   describe('DTO single-ingress shape (legacy parameters removed)', () => {
     // COMPILE-TIME proof (the definitive guarantee): this spec is type-checked
     // under the project's strict tsconfig. A complete CreateWaterQualityInput
@@ -316,10 +410,11 @@ describe('WaterQualityService — single-ingress validation', () => {
       expect(mockManager.save).toHaveBeenCalledTimes(1);
       expect(recalcForUnitMock).toHaveBeenCalledWith(
         expect.anything(),
+        expect.anything(),
         TENANT,
         'tank-1',
         'temperature',
-        { newTemperatureC: 12.5 },
+        expect.objectContaining({ newTemperatureC: 12.5 }),
       );
     });
 

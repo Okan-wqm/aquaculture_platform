@@ -24,6 +24,10 @@ import {
   type MigrationLedgerHead,
   type RunSchemaOptions,
 } from './migration-orchestrator';
+import {
+  activateFeedingWriterAuthority,
+  revokeFeedingWriterAuthority,
+} from './feeding-operation-authority';
 import { SCHEMA_REGISTRY, type SchemaPostMigrationHardening } from './schema-registry';
 
 type TenantSchemaJobStatus =
@@ -528,6 +532,11 @@ async function commitTenantSchemaEvidence(
       args.sourceHeads,
       args.tenantHeads,
     );
+    await activateFeedingWriterAuthority(queryRunner, job.tenantId, {
+      actor: 'aqua-db-migrate/tenant-schema-provisioner',
+      operationId: job.operationId,
+      reason: job.jobType === 'RECONCILE_EXISTING_SCHEMA' ? 'tenant_reconcile' : 'tenant_provision',
+    });
     await writeJobEvidence(queryRunner, job, lease, {
       status: 'COMMITTED',
       sourceHeads: args.sourceHeads,
@@ -609,6 +618,11 @@ async function processDeleteJob(
       ],
       'writing admin.tenant_schemas delete evidence',
     );
+    await revokeFeedingWriterAuthority(queryRunner, job.tenantId, {
+      actor: 'aqua-db-migrate/tenant-schema-provisioner',
+      operationId: job.operationId,
+      reason: 'tenant_delete',
+    });
     await writeJobEvidence(queryRunner, job, lease, {
       status: 'DELETED',
       sourceHeads: {},

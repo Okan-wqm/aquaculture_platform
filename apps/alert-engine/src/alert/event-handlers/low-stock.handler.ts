@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { requiresDurableDelivery } from '@platform/event-contracts';
 import type { LowStockDetectedEvent } from '@platform/event-contracts';
 import { getTenantSchemaName, isValidUUID } from '@aquaculture/backend-common/database';
 import { requestContextStorage, RequestContext } from '@aquaculture/backend-common/logging';
@@ -73,11 +74,13 @@ export class LowStockEventHandler
         await this.lowStockAlertService.recordLowStockAlert(event);
       });
     } catch (error) {
-      // Swallow so NATS does not redeliver a poison message indefinitely.
       this.logger.error(
         `Error creating low-stock incident: ${(error as Error).message}`,
         (error as Error).stack,
       );
+      if (requiresDurableDelivery(event.eventType)) {
+        throw error;
+      }
     }
   }
 }

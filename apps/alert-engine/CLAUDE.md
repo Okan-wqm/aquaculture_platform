@@ -11,7 +11,7 @@ Alert rules, risk scoring, escalation, incident lifecycle. Schema: `alert` (tena
 
 Do not reclassify either by reading the word "audit".
 
-<!-- infra-tables:alert -->`migrations`, `alert_audit_log`, `alert_outbox`, `tenant_erasure_target_proofs`<!-- /infra-tables -->
+<!-- infra-tables:alert -->`migrations`, `alert_audit_log`, `alert_outbox`, `event_dlq`, `tenant_erasure_target_proofs`<!-- /infra-tables -->
 
 Proven against `MODULE_SCHEMAS` by `tests/invariants/nested-steering-parity.spec.ts` — edit the registry, never this copy.
 

@@ -11,7 +11,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import { toEventIso,
+import {
+  toEventIso,
   createBaseEvent,
   MORTALITY_REASONS,
   type CleanerFishMortalityRecordedEvent,
@@ -26,6 +27,7 @@ import { MortalityRecord, MortalityCause } from '../entities/mortality-record.en
 import { MortalityCullPolicyService } from '../services/mortality-cull-policy.service';
 import { Equipment } from '../../equipment/entities/equipment.entity';
 import { Species } from '../../species/entities/species.entity';
+import { BatchAggregateMutationPort } from '../batch-aggregate-mutation.port';
 
 /**
  * Normalise the command-layer mortality reason (lower-snake) to the
@@ -45,8 +47,11 @@ function toMortalityReasonCode(reason: string): MortalityReasonCode {
 
 @Injectable()
 @CommandHandler(RecordCleanerMortalityCommand)
-export class RecordCleanerMortalityHandler implements ICommandHandler<RecordCleanerMortalityCommand, Batch> {
+export class RecordCleanerMortalityHandler
+  implements ICommandHandler<RecordCleanerMortalityCommand, Batch>
+{
   constructor(
+    private readonly batchMutations: BatchAggregateMutationPort,
     @InjectRepository(Batch)
     private readonly batchRepository: Repository<Batch>,
     @InjectRepository(TankBatch)
@@ -78,7 +83,7 @@ export class RecordCleanerMortalityHandler implements ICommandHandler<RecordClea
 
     if (cleanerBatch.batchType !== BatchType.CLEANER_FISH) {
       throw new BadRequestException(
-        `Batch ${cleanerBatch.batchNumber} bir cleaner fish batch'i değil`
+        `Batch ${cleanerBatch.batchNumber} bir cleaner fish batch'i değil`,
       );
     }
 
@@ -109,13 +114,11 @@ export class RecordCleanerMortalityHandler implements ICommandHandler<RecordClea
 
     // Bu batch tankta var mı kontrol et
     const cleanerDetails = tankBatch.cleanerFishDetails || [];
-    const batchDetailIndex = cleanerDetails.findIndex(
-      (d) => d.batchId === cleanerBatch.id
-    );
+    const batchDetailIndex = cleanerDetails.findIndex((d) => d.batchId === cleanerBatch.id);
 
     if (batchDetailIndex < 0) {
       throw new BadRequestException(
-        `Cleaner batch ${cleanerBatch.batchNumber} bu tankta bulunmuyor`
+        `Cleaner batch ${cleanerBatch.batchNumber} bu tankta bulunmuyor`,
       );
     }
 
@@ -124,7 +127,7 @@ export class RecordCleanerMortalityHandler implements ICommandHandler<RecordClea
     // Miktar kontrolü
     if (payload.quantity > batchDetail.quantity) {
       throw new BadRequestException(
-        `Mortality miktarı (${payload.quantity}) tanktaki cleaner fish miktarından (${batchDetail.quantity}) fazla olamaz`
+        `Mortality miktarı (${payload.quantity}) tanktaki cleaner fish miktarından (${batchDetail.quantity}) fazla olamaz`,
       );
     }
     this.mortalityCullPolicy.assertAggregateWithinInitial({
@@ -161,9 +164,10 @@ export class RecordCleanerMortalityHandler implements ICommandHandler<RecordClea
 
     // Mortality bilgilerini güncelle
     batchDetail.totalMortality = (batchDetail.totalMortality || 0) + payload.quantity;
-    batchDetail.mortalityRate = batchDetail.initialQuantity > 0
-      ? (batchDetail.totalMortality / batchDetail.initialQuantity) * 100
-      : 0;
+    batchDetail.mortalityRate =
+      batchDetail.initialQuantity > 0
+        ? (batchDetail.totalMortality / batchDetail.initialQuantity) * 100
+        : 0;
     batchDetail.lastMortalityAt = payload.observedAt;
 
     // Eğer miktar sıfır olduysa batch detayını kaldır
@@ -174,14 +178,21 @@ export class RecordCleanerMortalityHandler implements ICommandHandler<RecordClea
     }
 
     tankBatch.cleanerFishDetails = cleanerDetails;
-    tankBatch.cleanerFishQuantity = Math.max(0, (tankBatch.cleanerFishQuantity || 0) - payload.quantity);
-    tankBatch.cleanerFishBiomassKg = Math.max(0, Number(tankBatch.cleanerFishBiomassKg || 0) - biomassKg);
+    tankBatch.cleanerFishQuantity = Math.max(
+      0,
+      (tankBatch.cleanerFishQuantity || 0) - payload.quantity,
+    );
+    tankBatch.cleanerFishBiomassKg = Math.max(
+      0,
+      Number(tankBatch.cleanerFishBiomassKg || 0) - biomassKg,
+    );
     tankBatch.lastMortalityAt = payload.observedAt;
 
     // Tank yoğunluğunu güncelle
     const tankVolume = tank.volume || 0;
     if (tankVolume > 0) {
-      const totalBiomass = Number(tankBatch.totalBiomassKg || 0) + Number(tankBatch.cleanerFishBiomassKg);
+      const totalBiomass =
+        Number(tankBatch.totalBiomassKg || 0) + Number(tankBatch.cleanerFishBiomassKg);
       tankBatch.densityKgM3 = totalBiomass / Number(tankVolume);
     }
 
@@ -259,38 +270,49 @@ export class RecordCleanerMortalityHandler implements ICommandHandler<RecordClea
     // alerting (species-specific mortality-rate thresholds) + Mattilsynet
     // compliance tooling consume this event; skipping it on a successful
     // write would leave ops blind to rate-of-loss trends.
-    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-      await queryRunner.manager.save(TankBatch, tankBatch);
-      await queryRunner.manager.save(Batch, cleanerBatch);
-      await queryRunner.manager.save(MortalityRecord, mortalityRecord);
-      await queryRunner.manager.save(TankOperation, operation);
+    return runInTenantTransaction(
+      this.dataSource,
+      'farm',
+      tenantId,
+      async (queryRunner, mutationSession) => {
+        await this.batchMutations.commitTankBatchTransition(mutationSession, {
+          intent: 'cleaner_fish_mortality',
+          aggregate: tankBatch,
+        });
+        await this.batchMutations.commitBatchTransition(mutationSession, {
+          intent: 'cleaner_fish_mortality',
+          aggregate: cleanerBatch,
+        });
+        await queryRunner.manager.save(MortalityRecord, mortalityRecord);
+        await queryRunner.manager.save(TankOperation, operation);
 
-      const newRate =
-        cleanerBatch.initialQuantity > 0
-          ? (cleanerBatch.totalMortality / cleanerBatch.initialQuantity) * 100
-          : 0;
-      const event: CleanerFishMortalityRecordedEvent = {
-        ...createBaseEvent<CleanerFishMortalityRecordedEvent>(
-          'CleanerFishMortalityRecorded',
-          tenantId,
-          { aggregateId: cleanerBatch.id, aggregateType: 'Batch' },
-        ),
-        cleanerBatchId: cleanerBatch.id,
-        tankId: payload.tankId,
-        speciesName,
-        quantity: payload.quantity,
-        biomassKg,
-        reason: toMortalityReasonCode(payload.reason),
-        detail: payload.detail,
-        observedAt: toEventIso(payload.observedAt),
-        newTankCleanerFishQuantity: tankBatch.cleanerFishQuantity ?? 0,
-        newTankCleanerFishBiomassKg: Number(tankBatch.cleanerFishBiomassKg ?? 0),
-        newCleanerBatchTotalMortality: cleanerBatch.totalMortality,
-        newCleanerBatchMortalityRate: newRate,
-      };
-      await this.outboxPublisher.enqueue(event, queryRunner.manager);
+        const newRate =
+          cleanerBatch.initialQuantity > 0
+            ? (cleanerBatch.totalMortality / cleanerBatch.initialQuantity) * 100
+            : 0;
+        const event: CleanerFishMortalityRecordedEvent = {
+          ...createBaseEvent<CleanerFishMortalityRecordedEvent>(
+            'CleanerFishMortalityRecorded',
+            tenantId,
+            { aggregateId: cleanerBatch.id, aggregateType: 'Batch' },
+          ),
+          cleanerBatchId: cleanerBatch.id,
+          tankId: payload.tankId,
+          speciesName,
+          quantity: payload.quantity,
+          biomassKg,
+          reason: toMortalityReasonCode(payload.reason),
+          detail: payload.detail,
+          observedAt: toEventIso(payload.observedAt),
+          newTankCleanerFishQuantity: tankBatch.cleanerFishQuantity ?? 0,
+          newTankCleanerFishBiomassKg: Number(tankBatch.cleanerFishBiomassKg ?? 0),
+          newCleanerBatchTotalMortality: cleanerBatch.totalMortality,
+          newCleanerBatchMortalityRate: newRate,
+        };
+        await this.outboxPublisher.enqueue(event, queryRunner.manager);
 
-      return cleanerBatch;
-    });
+        return cleanerBatch;
+      },
+    );
   }
 }

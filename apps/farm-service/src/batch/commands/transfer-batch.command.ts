@@ -11,16 +11,16 @@ import type { MobileCommandEnvelope } from '@aquaculture/backend-common/mobile-c
 import { ITenantCommand } from '@platform/cqrs';
 
 export interface TransferBatchPayload {
-  sourceTankId: string;          // Kaynak tank ID
-  destinationTankId: string;     // Hedef tank ID
-  quantity: number;              // Transfer edilecek adet
-  avgWeightG?: number;           // Ortalama ağırlık (otomatik hesaplanabilir)
+  sourceTankId: string; // Kaynak tank ID
+  destinationTankId: string; // Hedef tank ID
+  quantity?: number; // Transfer edilecek adet (yalnız-kg modunda türetilir)
+  avgWeightG?: number; // Ortalama ağırlık (otomatik hesaplanabilir)
   /** D-3 mod (b): tane+kg — verilen kg aynen düşer, kalan ortalama kayar. */
   biomassKg?: number;
-  transferReason?: string;       // Transfer nedeni
-  transferredAt?: Date;          // Transfer tarihi (default: now)
+  transferReason?: string; // Transfer nedeni
+  transferredAt?: Date; // Transfer tarihi (default: now)
   notes?: string;
-  skipCapacityCheck?: boolean;   // Kapasite kontrolünü atla (aşırı yüklemeye izin ver)
+  skipCapacityCheck?: boolean; // Kapasite kontrolünü atla (aşırı yüklemeye izin ver)
 }
 
 export class TransferBatchCommand implements ITenantCommand {

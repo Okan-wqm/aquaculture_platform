@@ -1,0 +1,35 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "../../dist/apps/farm-feeding-scheduler",
+    "rootDir": "../..",
+    "module": "commonjs",
+    "target": "ES2021",
+    "types": ["node"],
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "removeComments": true,
+    "strictPropertyInitialization": false
+  },
+  "include": [
+    "src/**/*.ts",
+    "../../libs/backend-common/src/**/*.ts",
+    "../../libs/feeding-contracts/src/**/*.ts",
+    "../../libs/shared-contracts/src/**/*.ts",
+    "../../platform/libs/service-catalog/src/**/*.ts"
+  ],
+  "exclude": [
+    "**/*.spec.ts",
+    "**/*.test.ts",
+    "../../libs/backend-common/src/**/*.spec.ts",
+    "../../libs/backend-common/src/**/*.test.ts",
+    "../../libs/backend-common/src/**/__tests__/**",
+    "../../libs/feeding-contracts/src/**/*.spec.ts",
+    "../../libs/shared-contracts/src/**/*.spec.ts",
+    "../../platform/libs/service-catalog/src/**/*.spec.ts",
+    "../../platform/libs/service-catalog/src/**/*.test.ts"
+  ]
+}

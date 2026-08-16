@@ -15,27 +15,36 @@
  * @module FeedingProtocol/Services
  */
 import { Injectable } from '@nestjs/common';
+import type {
+  MutationInstantV1,
+  TenantMutationSession,
+} from '@aquaculture/backend-common/database';
+import type { FeedingTimezone } from '@aquaculture/feeding-contracts';
+
+import { round3 } from '../../common/utils/rounding.util';
 import { EntityManager } from 'typeorm';
 
-import {
-  FcrMatrix,
-  FeedingProtocolV2,
-} from '../entities/feeding-protocol-v2.entity';
+import { FcrMatrix, FeedingProtocolV2 } from '../entities/feeding-protocol-v2.entity';
 import { ProtocolAssignment } from '../entities/protocol-assignment.entity';
 import {
   DayPlanSnapshot,
+  DayPlanResolutionV1,
   FeedingDayPlan,
   FeedingDayPlanStatus,
 } from '../entities/feeding-day-plan.entity';
 import { FeedingMeal, FeedingMealStatus } from '../entities/feeding-meal.entity';
-import { ProtocolRateService } from './protocol-rate.service';
-import {
-  effectiveMealSchedule,
-  materializeMeals,
-  suspensionFor,
-} from './meal-schedule.util';
+import { effectiveMealSchedule, materializeMeals, suspensionFor } from './meal-schedule.util';
 import type { EffectiveTemperature } from '../../water-quality/services/water-temperature.service';
 import type { BatchDetail } from '../../batch/entities/tank-batch.entity';
+import { FeedingAggregateMutationPort } from '../feeding-aggregate-mutation.writer';
+import {
+  freezeDayPlanGrowthPolicyV1,
+  type FrozenDayPlanGrowthPolicyV1,
+} from '../day-plan-growth-reconciliation.authority';
+import {
+  projectDayPlanResolutionV1,
+  ProtocolResolutionAuthority,
+} from './protocol-resolution.authority';
 
 // ============================================================================
 // TYPES
@@ -47,7 +56,7 @@ export interface UnitStockState {
   /** Üretim biomass'ı kg (temizlikçi hariç — TankBatch.totalBiomassKg, D-13). */
   biomassKg: number;
   avgWeightG: number;
-  /** D-2: tankta >1 üretim batch'i var (band dominant-biomass'tan seçilir). */
+  /** D-2: tankta birden fazla stoklu üretim batch'i bulunduğunu gösterir. */
   mixedBatch?: boolean;
   /** D-2: batch'ler arası ağırlık dağılımının değişim katsayısı (%). */
   weightCvPercent?: number | null;
@@ -57,8 +66,8 @@ export interface UnitStockState {
  * D-2 (SAF, spec pinli): TankBatch.batchDetails SSoT'sinden karışık-tank
  * istatistiği — `mixedBatch` (balıklı üretim batch'i sayısı ≥ 2) + batch'ler
  * arası ortalama-ağırlık dağılımının adet-ağırlıklı değişim katsayısı (%).
- * Band politikası dominant-biomass batch'ten hesaplanır; bu istatistik o
- * varsayımı operatöre GÖRÜNÜR kılar (rozet + yüksek-CV uyarısı).
+ * Band politikası tankın adet-ağırlıklı ortalama ağırlığından hesaplanır; bu
+ * istatistik heterojenliği operatöre görünür kılar (rozet + yüksek-CV uyarısı).
  */
 export function mixedTankStats(
   batchDetails: ReadonlyArray<Pick<BatchDetail, 'quantity' | 'avgWeightG'>> | null | undefined,
@@ -83,7 +92,10 @@ export function mixedTankStats(
 }
 
 export interface ComputeDayPlanInput {
-  assignment: Pick<ProtocolAssignment, 'overrides' | 'suspensions' | 'currentFeedId'>;
+  assignment: Pick<
+    ProtocolAssignment,
+    'overrides' | 'suspensions' | 'currentFeedId' | 'currentBandIndex'
+  >;
   protocol: Pick<
     FeedingProtocolV2,
     'bands' | 'defaultMealSchedule' | 'temperatureAdjustments' | 'fcrMatrix' | 'settings'
@@ -93,7 +105,9 @@ export interface ComputeDayPlanInput {
   /** Site saat dilimindeki takvim günü (YYYY-MM-DD, D-4). */
   planDate: string;
   /** Sitenin IANA saat dilimi (sites.timezone). */
-  timezone: string;
+  timezone: FeedingTimezone;
+  /** The sole durable mutation/evidence clock for this calculation. */
+  mutationInstant: MutationInstantV1;
   /** fcrSource=feed için bandın yem ürününün FCR matrisi (çağıran sağlar). */
   feedFcrMatrixByFeedId?: Map<string, FcrMatrix>;
 }
@@ -107,7 +121,9 @@ export interface ComputedMeal {
 }
 
 export interface ComputedDayPlan {
+  growthPolicy: FrozenDayPlanGrowthPolicyV1;
   snapshot: DayPlanSnapshot;
+  resolution: DayPlanResolutionV1;
   plannedTotalKg: number;
   status: FeedingDayPlanStatus.PLANNED | FeedingDayPlanStatus.SKIPPED;
   skipReason?: string;
@@ -132,7 +148,10 @@ export interface PersistDayPlanContext {
 
 @Injectable()
 export class MealPlanGeneratorService {
-  constructor(private readonly rateService: ProtocolRateService) {}
+  constructor(
+    private readonly feedingMutations: FeedingAggregateMutationPort,
+    private readonly resolutionAuthority: ProtocolResolutionAuthority,
+  ) {}
 
   /**
    * Saf gün planı hesabı. `null` = plan üretilmez (boş ünite veya bandsız
@@ -142,30 +161,19 @@ export class MealPlanGeneratorService {
     const { stock, protocol, assignment, temperature } = input;
     if (stock.fishCount <= 0 || stock.biomassKg <= 0) return null;
 
-    const resolved = this.rateService.bandFor(protocol.bands, stock.avgWeightG);
+    const resolved = this.resolutionAuthority.resolve({
+      protocol,
+      assignment,
+      bandBasisWeightG: this.resolutionAuthority.resolveBandBasisWeight({
+        avgWeightG: stock.avgWeightG,
+      }),
+      temperature,
+      feedFcrMatrixByFeedId: input.feedFcrMatrixByFeedId,
+      mutationInstant: input.mutationInstant,
+    });
     if (!resolved) return null;
-    const { band, index: bandIndex } = resolved;
-
-    const tempMultiplier = this.rateService.temperatureMultiplier(
-      protocol.temperatureAdjustments,
-      temperature.celsius,
-    );
-    const effectiveRate = this.rateService.effectiveRatePercent({
-      baseRatePercent: band.feedingRatePercent,
-      temperatureMultiplier: tempMultiplier,
-      rateAdjustmentPercent: assignment.overrides?.rateAdjustmentPercent,
-      minRatePercent: protocol.settings.minFeedingRatePercent,
-      maxRatePercent: protocol.settings.maxFeedingRatePercent,
-    });
-    const expectedFcr = this.rateService.resolveExpectedFcr({
-      band,
-      fcrSource: protocol.settings.fcrSource,
-      avgWeightG: stock.avgWeightG,
-      temperatureC: temperature.celsius,
-      protocolFcrMatrix: protocol.fcrMatrix,
-      feedFcrMatrix: input.feedFcrMatrixByFeedId?.get(band.feedId),
-      fcrOverrides: assignment.overrides?.fcrOverrides,
-    });
+    const { band, bandIndex, tempMultiplier, effectiveRatePercent, expectedFcr } = resolved;
+    const resolution = projectDayPlanResolutionV1(resolved);
 
     const snapshot: DayPlanSnapshot = {
       avgWeightG: round3(stock.avgWeightG),
@@ -178,21 +186,24 @@ export class MealPlanGeneratorService {
       feed: { id: band.feedId, code: band.feedCode, name: band.feedName },
       baseRatePercent: band.feedingRatePercent,
       tempMultiplier,
-      effectiveRatePercent: round3(effectiveRate),
-      expectedFcr: expectedFcr.value,
-      fcrResolvedSource: expectedFcr.source,
+      effectiveRatePercent,
+      expectedFcr,
+      fcrResolvedSource: resolved.fcrResolvedSource,
       mixedBatch: stock.mixedBatch ?? false,
       weightCvPercent: stock.weightCvPercent ?? null,
     };
 
-    const plannedTotalKg = round3((stock.biomassKg * effectiveRate) / 100);
+    const plannedTotalKg = round3((stock.biomassKg * effectiveRatePercent) / 100);
+    const growthPolicy = freezeDayPlanGrowthPolicyV1(protocol.settings.growthApplicationMode);
 
     // D-12: oruç penceresi günü atlar (otomatik devam); ilaç penceresi öğün
     // yemini medicatedFeedId ile değiştirir.
     const suspension = suspensionFor(assignment.suspensions, input.planDate);
     if (suspension?.type === 'fasting') {
       return {
+        growthPolicy,
         snapshot,
+        resolution,
         plannedTotalKg: 0,
         status: FeedingDayPlanStatus.SKIPPED,
         skipReason: `fasting: ${suspension.reason}`,
@@ -220,7 +231,14 @@ export class MealPlanGeneratorService {
       feedId: mealFeedId,
     }));
 
-    return { snapshot, plannedTotalKg, status: FeedingDayPlanStatus.PLANNED, meals };
+    return {
+      growthPolicy,
+      snapshot,
+      resolution,
+      plannedTotalKg,
+      status: FeedingDayPlanStatus.PLANNED,
+      meals,
+    };
   }
 
   /**
@@ -229,42 +247,32 @@ export class MealPlanGeneratorService {
    */
   async persistDayPlan(
     manager: EntityManager,
+    mutationSession: TenantMutationSession,
     context: PersistDayPlanContext,
     computed: ComputedDayPlan,
   ): Promise<string | null> {
-    const inserted: Array<{ id: string }> = await manager.query(
-      `INSERT INTO "feeding_day_plans"
-         (id, "tenantId", "assignmentId", "protocolId", "unitId", "siteId", "unitType",
-          "unitName", "unitCode", "planDate", snapshot, "plannedTotalKg",
-          "unplannedActualKg", "mealsPlanned", status, "skipReason", "recalcLog", version)
-       VALUES (uuid_generate_v4(), $1, $2, $3, $4, $5,
-               $6::feeding_protocol_assignments_unittype_enum, $7, $8, $9, $10::jsonb,
-               $11, 0, $12, $13::feeding_day_plans_status_enum, $14, '[]'::jsonb, 1)
-       ON CONFLICT ("tenantId", "unitId", "planDate") DO NOTHING
-       RETURNING id`,
-      [
-        context.tenantId,
-        context.assignmentId,
-        context.protocolId,
-        context.unitId,
-        context.siteId,
-        context.unitType,
-        context.unitName,
-        context.unitCode,
-        context.planDate,
-        JSON.stringify(computed.snapshot),
-        computed.plannedTotalKg,
-        computed.meals.length,
-        computed.status,
-        computed.skipReason ?? null,
-      ],
-    );
-    const dayPlanId = inserted[0]?.id;
+    const dayPlanId = await this.feedingMutations.createDayPlanIfAbsent(mutationSession, {
+      assignmentId: context.assignmentId,
+      protocolId: context.protocolId,
+      unitId: context.unitId,
+      siteId: context.siteId,
+      unitType: context.unitType,
+      unitName: context.unitName,
+      unitCode: context.unitCode,
+      planDate: context.planDate,
+      growthPolicyVersion: computed.growthPolicy.version,
+      growthApplicationMode: computed.growthPolicy.applicationMode,
+      snapshot: computed.snapshot,
+      resolution: computed.resolution,
+      plannedTotalKg: computed.plannedTotalKg,
+      mealsPlanned: computed.meals.length,
+      status: computed.status,
+      skipReason: computed.skipReason,
+    });
     if (!dayPlanId) return null;
 
     for (const meal of computed.meals) {
-      await manager.insert(FeedingMeal, {
-        tenantId: context.tenantId,
+      await this.feedingMutations.createScheduledMeal(mutationSession, {
         dayPlanId,
         unitId: context.unitId,
         siteId: context.siteId,
@@ -290,8 +298,4 @@ export class MealPlanGeneratorService {
   ): Promise<FeedingDayPlan | null> {
     return manager.findOne(FeedingDayPlan, { where: { tenantId, unitId, planDate } });
   }
-}
-
-function round3(value: number): number {
-  return Math.round((value + Number.EPSILON) * 1000) / 1000;
 }

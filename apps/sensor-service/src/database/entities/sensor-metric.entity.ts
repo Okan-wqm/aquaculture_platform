@@ -1,15 +1,9 @@
 import { ObjectType, Field, ID, Float, Int, registerEnumType } from '@nestjs/graphql';
-import {
-  Entity,
-  Column,
-  Index,
-  PrimaryColumn,
-  ManyToOne,
-  JoinColumn,
-} from 'typeorm';
+import { Entity, Column, Index, PrimaryColumn, ManyToOne, JoinColumn } from 'typeorm';
 
 import { SensorDataChannel } from './sensor-data-channel.entity';
 import { Sensor } from './sensor.entity';
+import { QualityCategory, qualityCategoryOf } from '../sensor-quality.authority';
 
 /**
  * Quality code categories aligned with OPC-UA standard
@@ -17,74 +11,17 @@ import { Sensor } from './sensor.entity';
  * Uncertain: 64-127 (questionable data)
  * Bad: 0-63 (unusable data)
  */
-export enum QualityCategory {
-  GOOD = 'good',
-  UNCERTAIN = 'uncertain',
-  BAD = 'bad',
-}
-
 registerEnumType(QualityCategory, {
   name: 'QualityCategory',
   description: 'OPC-UA aligned quality category',
 });
 
-/** First code in the OPC-UA DA "uncertain" band. */
-export const QUALITY_UNCERTAIN_MIN = 64;
-
-/**
- * First code in the OPC-UA DA "good" band. This is `quality_code`'s column
- * default and the threshold every SQL consumer spells as
- * `quality_code >= 192`.
- */
-export const QUALITY_GOOD_MIN = 192;
-
-/**
- * Band a raw `quality_code` falls in.
- *
- * The band boundaries used to be inline literals in the entity's
- * `qualityCategory` getter, which only helps code holding a hydrated
- * SensorMetric. The as-of read projection works on raw rows, so it needed
- * the same classification without an entity — and a second copy of `>= 192`
- * is exactly how two parts of one system start disagreeing about what
- * "good" means. One function, both callers.
- */
-export function qualityCategoryOf(code: number): QualityCategory {
-  if (code >= QUALITY_GOOD_MIN) return QualityCategory.GOOD;
-  if (code >= QUALITY_UNCERTAIN_MIN) return QualityCategory.UNCERTAIN;
-  return QualityCategory.BAD;
-}
-
-/**
- * Common quality codes (OPC-UA aligned)
- */
-export const QualityCodes = {
-  // Good (192-255)
-  GOOD: 192,
-  GOOD_LOCAL_OVERRIDE: 193,
-
-  // Uncertain (64-127)
-  UNCERTAIN: 64,
-  UNCERTAIN_LAST_USABLE: 65,
-  UNCERTAIN_SENSOR_NOT_ACCURATE: 66,
-  UNCERTAIN_EU_EXCEEDED: 67,
-  UNCERTAIN_SUBNORMAL: 68,
-
-  // Bad (0-63)
-  BAD: 0,
-  BAD_CONFIG_ERROR: 1,
-  BAD_NOT_CONNECTED: 2,
-  BAD_DEVICE_FAILURE: 3,
-  BAD_SENSOR_FAILURE: 4,
-  BAD_COMM_FAILURE: 5,
-  BAD_OUT_OF_SERVICE: 6,
-  BAD_WAITING_INITIAL: 7,
-} as const;
-
 /**
  * SensorMetric Entity
  *
  * NOTE: This entity is NOT registered in any module's forFeature() or the app.module entities list.
- * It is intentionally used only as a TypeScript type interface and for constants (QualityCodes).
+ * It supplies TypeScript/entity metadata; quality-code policy lives in the
+ * side-effect-free `sensor-quality.authority.ts` module.
  * The actual sensor_metrics table is created and managed via migrations (CreateSensorMetrics),
  * not TypeORM synchronize, because it is a TimescaleDB hypertable.
  *

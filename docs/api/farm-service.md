@@ -6,7 +6,7 @@ Farm-service is an internal service behind `gateway-api`. Business API access is
 
 ## GraphQL
 
-Committed SDL snapshot: `apps/farm-service/schema.graphql`.
+Canonical SDL artifact: `dist/graphql/subgraphs/farm.graphql`, generated from code-first resolver metadata by the service-catalog supergraph build.
 
 Root operations must have:
 

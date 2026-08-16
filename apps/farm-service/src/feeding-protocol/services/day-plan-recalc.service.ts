@@ -25,13 +25,21 @@
  * @module FeedingProtocol/Services
  */
 import { Injectable, Logger } from '@nestjs/common';
-import { EntityManager } from 'typeorm';
+import {
+  mutationInstantDateV1,
+  mutationInstantIsoV1,
+  type MutationInstantV1,
+  type TenantMutationSession,
+} from '@aquaculture/backend-common/database';
+import { EntityManager, In } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 import {
   createBaseEvent,
   FeedingProtocolAssignmentPausedEvent,
   FeedTypeTransitionedEvent,
 } from '@platform/event-contracts';
+
+import { round3 } from '../../common/utils/rounding.util';
 
 import { FeedingProtocolV2 } from '../entities/feeding-protocol-v2.entity';
 import {
@@ -45,8 +53,15 @@ import {
 } from '../entities/feeding-day-plan.entity';
 import { FeedingMeal, FeedingMealStatus } from '../entities/feeding-meal.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
-import { ProtocolRateService, ResolvedBand } from './protocol-rate.service';
 import { repriceRemaining } from './meal-schedule.util';
+import { FeedingAggregateMutationPort } from '../feeding-aggregate-mutation.writer';
+import {
+  projectDayPlanResolutionV1,
+  ProtocolResolutionAuthority,
+} from './protocol-resolution.authority';
+import { Feed } from '../../feed/entities/feed.entity';
+import { buildFeedFcrMatrixMap, collectFeedSourceFeedIds } from './feed-fcr-source.util';
+import { DAY_PLAN_RECALC_AUDIT_POLICY_V1 } from '../day-plan-recalc-audit.authority';
 
 export type RecalcReason = RecalcLogEntry['reason'];
 
@@ -57,12 +72,18 @@ export interface RecalcResult {
   remainingPlannedKg: number;
 }
 
+export interface DayPlanRecalcMutationV1 {
+  readonly mutationInstant: MutationInstantV1;
+  readonly newTemperatureC?: number | null;
+}
+
 @Injectable()
 export class DayPlanRecalcService {
   private readonly logger = new Logger(DayPlanRecalcService.name);
 
   constructor(
-    private readonly rateService: ProtocolRateService,
+    private readonly feedingMutations: FeedingAggregateMutationPort,
+    private readonly resolutionAuthority: ProtocolResolutionAuthority,
     private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
@@ -72,10 +93,11 @@ export class DayPlanRecalcService {
    */
   async recalcForUnit(
     manager: EntityManager,
+    mutationSession: TenantMutationSession,
     tenantId: string,
     unitId: string,
     reason: RecalcReason,
-    opts?: { newTemperatureC?: number | null },
+    mutation: DayPlanRecalcMutationV1,
   ): Promise<RecalcResult | null> {
     const dayPlan = await manager
       .createQueryBuilder(FeedingDayPlan, 'plan')
@@ -107,12 +129,18 @@ export class DayPlanRecalcService {
     if (fishCount <= 0 || biomassKg <= 0) {
       for (const meal of remainingMeals) {
         meal.status = FeedingMealStatus.CANCELLED;
-        await manager.save(meal);
+        await this.feedingMutations.commitMealTransition(mutationSession, {
+          intent: 'recalculated',
+          aggregate: meal,
+        });
       }
       dayPlan.status = FeedingDayPlanStatus.CANCELLED;
-      this.appendRecalcLog(dayPlan, reason, 0, biomassKg, 'unit emptied');
-      await manager.save(dayPlan);
-      await this.pauseAssignment(manager, tenantId, dayPlan.assignmentId, unitId);
+      this.appendRecalcLog(dayPlan, reason, 0, biomassKg, mutation.mutationInstant, 'unit emptied');
+      await this.feedingMutations.commitDayPlanTransition(mutationSession, {
+        intent: 'recalculated',
+        aggregate: dayPlan,
+      });
+      await this.pauseAssignment(manager, mutationSession, tenantId, dayPlan.assignmentId, unitId);
       return {
         dayPlanId: dayPlan.id,
         outcome: 'cancelled_empty_unit',
@@ -135,80 +163,100 @@ export class DayPlanRecalcService {
       this.logger.warn(
         `Recalc skipped: assignment/protocol missing for day plan ${dayPlan.id} (unit ${unitId}).`,
       );
-      return { dayPlanId: dayPlan.id, outcome: 'no_active_plan', transitioned: false, remainingPlannedKg: 0 };
+      return {
+        dayPlanId: dayPlan.id,
+        outcome: 'no_active_plan',
+        transitioned: false,
+        remainingPlannedKg: 0,
+      };
     }
 
-    // Band çözümü + histerezisli geçiş kararı.
-    const resolved = this.rateService.bandFor(protocol.bands, avgWeightG);
-    if (!resolved) {
-      return { dayPlanId: dayPlan.id, outcome: 'no_active_plan', transitioned: false, remainingPlannedKg: 0 };
-    }
-    const currentIndex = assignment.currentBandIndex ?? dayPlan.snapshot.bandIndex;
-    const effective = this.applyTransitionHysteresis(
-      resolved,
-      currentIndex,
-      avgWeightG,
+    const feedIds = collectFeedSourceFeedIds([protocol]);
+    const feeds = feedIds.length
+      ? await manager.find(Feed, {
+          where: { tenantId, id: In(feedIds) },
+          select: ['id', 'feedingMatrix2D'],
+        })
+      : [];
+    const currentIndex = assignment.currentBandIndex ?? dayPlan.resolution.bandIndex;
+    const resolution = this.resolutionAuthority.resolve({
       protocol,
-    );
+      assignment: {
+        overrides: assignment.overrides,
+        currentBandIndex: currentIndex,
+        currentFeedId: assignment.currentFeedId,
+      },
+      bandBasisWeightG: this.resolutionAuthority.resolveBandBasisWeight({ avgWeightG }),
+      temperature: {
+        celsius:
+          reason === 'temperature' && mutation.newTemperatureC !== undefined
+            ? mutation.newTemperatureC
+            : dayPlan.resolution.waterTempC,
+        source: dayPlan.resolution.temperatureSource,
+      },
+      feedFcrMatrixByFeedId: buildFeedFcrMatrixMap(feeds),
+      mutationInstant: mutation.mutationInstant,
+      bandSelection: reason === 'manual_transition' ? 'pinned_current' : 'policy',
+    });
+    if (!resolution) {
+      return {
+        dayPlanId: dayPlan.id,
+        outcome: 'no_active_plan',
+        transitioned: false,
+        remainingPlannedKg: 0,
+      };
+    }
+    const effective = { band: resolution.band, index: resolution.bandIndex };
     let transitioned = false;
-    if (
-      protocol.settings.autoTransition &&
-      effective.index !== currentIndex &&
-      effective.band.feedId !== (assignment.currentFeedId ?? dayPlan.snapshot.feed.id)
-    ) {
+    const bandChanged = effective.index !== currentIndex;
+    const fromFeedId = assignment.currentFeedId ?? dayPlan.resolution.feed.id;
+    const feedChanged = effective.band.feedId !== fromFeedId;
+    if (protocol.settings.autoTransition && bandChanged) {
       transitioned = true;
-      const fromFeedId = assignment.currentFeedId ?? dayPlan.snapshot.feed.id;
       assignment.currentFeedId = effective.band.feedId;
       assignment.currentBandIndex = effective.index;
-      assignment.lastTransitionAt = new Date();
+      assignment.lastTransitionAt = mutationInstantDateV1(mutation.mutationInstant);
       assignment.totalTransitions = (assignment.totalTransitions ?? 0) + 1;
-      await manager.save(assignment);
-      const event: FeedTypeTransitionedEvent = {
-        ...createBaseEvent<FeedTypeTransitionedEvent>('FeedTypeTransitioned', tenantId, {
-          aggregateId: unitId,
-          aggregateType: 'FeedingUnit',
-        }),
-        unitId,
-        unitCode: dayPlan.unitCode,
-        assignmentId: assignment.id,
-        fromFeedId,
-        toFeedId: effective.band.feedId,
-        toFeedCode: effective.band.feedCode,
-        bandIndex: effective.index,
-        avgWeightG,
-        automatic: true,
-      };
-      await this.outboxPublisher.enqueue(event, manager);
+      await this.feedingMutations.commitProtocolAssignmentTransition(mutationSession, {
+        intent: feedChanged ? 'feed_transitioned' : 'band_transitioned',
+        aggregate: assignment,
+      });
+      if (feedChanged) {
+        const event: FeedTypeTransitionedEvent = {
+          ...createBaseEvent<FeedTypeTransitionedEvent>('FeedTypeTransitioned', tenantId, {
+            aggregateId: unitId,
+            aggregateType: 'FeedingUnit',
+          }),
+          unitId,
+          unitCode: dayPlan.unitCode,
+          assignmentId: assignment.id,
+          fromFeedId,
+          toFeedId: effective.band.feedId,
+          toFeedCode: effective.band.feedCode,
+          bandIndex: effective.index,
+          avgWeightG,
+          automatic: true,
+        };
+        await this.outboxPublisher.enqueue(event, manager);
+      }
     }
 
     // Yeni günlük toplam (K-18 zinciri) → kalan öğünler KENDİ yüzdeleriyle
     // yeniden fiyatlanır; sıcaklık gerekçesinde yeni okuma kullanılır.
-    const temperatureC =
-      reason === 'temperature' && opts?.newTemperatureC !== undefined
-        ? opts.newTemperatureC
-        : dayPlan.snapshot.waterTempC;
-    const tempMultiplier = this.rateService.temperatureMultiplier(
-      protocol.temperatureAdjustments,
-      temperatureC,
-    );
-    const effectiveRate = this.rateService.effectiveRatePercent({
-      baseRatePercent: effective.band.feedingRatePercent,
-      temperatureMultiplier: tempMultiplier,
-      rateAdjustmentPercent: assignment.overrides?.rateAdjustmentPercent,
-      minRatePercent: protocol.settings.minFeedingRatePercent,
-      maxRatePercent: protocol.settings.maxFeedingRatePercent,
-    });
-    const newDailyTotalKg = round3((biomassKg * effectiveRate) / 100);
+    const newDailyTotalKg = round3((biomassKg * resolution.effectiveRatePercent) / 100);
     const newPlanned = repriceRemaining(remainingMeals, newDailyTotalKg);
 
     let remainingPlannedKg = 0;
-    const now = new Date();
+    const now = mutationInstantDateV1(mutation.mutationInstant);
     for (const [index, meal] of remainingMeals.entries()) {
       meal.plannedKg = newPlanned[index] ?? meal.plannedKg;
       meal.recalculatedAt = now;
-      if (transitioned) meal.feedId = effective.band.feedId;
+      meal.feedId = resolution.feed.id;
       remainingPlannedKg += Number(meal.plannedKg);
-      await manager.save(meal);
+      await this.feedingMutations.commitMealTransition(mutationSession, {
+        intent: 'recalculated',
+        aggregate: meal,
+      });
     }
 
     // Gün toplamı: kapanmış öğünlerin planı + kalanların yeni planı.
@@ -219,33 +267,14 @@ export class DayPlanRecalcService {
       .getMany();
     const settledPlannedKg = settledMeals.reduce((acc, meal) => acc + Number(meal.plannedKg), 0);
     dayPlan.plannedTotalKg = round3(settledPlannedKg + remainingPlannedKg);
-    this.appendRecalcLog(dayPlan, reason, remainingPlannedKg, biomassKg);
-    await manager.save(dayPlan);
+    dayPlan.resolution = projectDayPlanResolutionV1(resolution);
+    this.appendRecalcLog(dayPlan, reason, remainingPlannedKg, biomassKg, mutation.mutationInstant);
+    await this.feedingMutations.commitDayPlanTransition(mutationSession, {
+      intent: 'recalculated',
+      aggregate: dayPlan,
+    });
 
     return { dayPlanId: dayPlan.id, outcome: 'repriced', transitioned, remainingPlannedKg };
-  }
-
-  /**
-   * Histerezis (transitionBufferG): yukarı geçiş yeni bandın minWeight'ini
-   * buffer kadar aşmayı, aşağı geçiş yeni bandın maxWeight'inin buffer kadar
-   * altını şart koşar; şart sağlanmazsa MEVCUT band korunur.
-   */
-  private applyTransitionHysteresis(
-    resolved: ResolvedBand,
-    currentIndex: number,
-    avgWeightG: number,
-    protocol: Pick<FeedingProtocolV2, 'bands' | 'settings'>,
-  ): ResolvedBand {
-    if (resolved.index === currentIndex) return resolved;
-    const buffer = protocol.settings.transitionBufferG ?? 0;
-    const currentBand = protocol.bands[currentIndex];
-    if (!currentBand) return resolved;
-    if (resolved.index > currentIndex) {
-      if (avgWeightG >= resolved.band.minWeightG + buffer) return resolved;
-    } else if (avgWeightG <= resolved.band.maxWeightG - buffer) {
-      return resolved;
-    }
-    return { band: currentBand, index: currentIndex };
   }
 
   private appendRecalcLog(
@@ -253,22 +282,25 @@ export class DayPlanRecalcService {
     reason: RecalcReason,
     remainingPlannedKg: number,
     biomassKg: number,
+    mutationInstant: MutationInstantV1,
     note?: string,
   ): void {
+    dayPlan.recalcCount = Number(dayPlan.recalcCount ?? 0) + 1;
     dayPlan.recalcLog = [
       ...(dayPlan.recalcLog ?? []),
       {
-        at: new Date().toISOString(),
+        at: mutationInstantIsoV1(mutationInstant),
         reason,
         remainingPlannedKg: round3(remainingPlannedKg),
         biomassKg: round3(biomassKg),
         note,
       },
-    ];
+    ].slice(-DAY_PLAN_RECALC_AUDIT_POLICY_V1.retainedEntries);
   }
 
   private async pauseAssignment(
     manager: EntityManager,
+    mutationSession: TenantMutationSession,
     tenantId: string,
     assignmentId: string,
     unitId: string,
@@ -279,7 +311,10 @@ export class DayPlanRecalcService {
     });
     if (!assignment || assignment.status !== ProtocolAssignmentStatus.ACTIVE) return;
     assignment.status = ProtocolAssignmentStatus.PAUSED;
-    await manager.save(assignment);
+    await this.feedingMutations.commitProtocolAssignmentTransition(mutationSession, {
+      intent: 'feed_transitioned',
+      aggregate: assignment,
+    });
     const event: FeedingProtocolAssignmentPausedEvent = {
       ...createBaseEvent<FeedingProtocolAssignmentPausedEvent>(
         'FeedingProtocolAssignmentPaused',
@@ -294,8 +329,4 @@ export class DayPlanRecalcService {
     };
     await this.outboxPublisher.enqueue(event, manager);
   }
-}
-
-function round3(value: number): number {
-  return Math.round((value + Number.EPSILON) * 1000) / 1000;
 }

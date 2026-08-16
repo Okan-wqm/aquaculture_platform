@@ -97,30 +97,6 @@ export async function findTankOrEquipmentWithManager(
 }
 
 /**
- * Update biomass and count on the correct entity (Equipment or Tank) based on lookup result.
- * Uses EntityManager for transaction safety.
- */
-export async function updateTankBiomass(
-  manager: EntityManager,
-  lookupResult: TankLookupResult,
-  biomassKg: number,
-  count: number,
-): Promise<void> {
-  if (lookupResult.isFromTanksTable && lookupResult.originalTank) {
-    await manager
-      .createQueryBuilder()
-      .update(Tank)
-      .set({ currentBiomass: biomassKg, currentCount: count })
-      .where('id = :id', { id: lookupResult.originalTank.id })
-      .execute();
-  } else {
-    lookupResult.equipment.currentBiomass = biomassKg;
-    lookupResult.equipment.currentCount = count;
-    await manager.save(Equipment, lookupResult.equipment);
-  }
-}
-
-/**
  * SEC-HIGH-051: resolve a tank's owning Site id (the ONE tank site-resolver).
  *
  * WHY: object-level site authorization needs the site a batch/tank belongs to.
@@ -142,6 +118,50 @@ export async function resolveTankSiteId(
 ): Promise<string | null> {
   const lookup = await findTankOrEquipmentWithManager(manager, tankId, tenantId);
   return resolveSiteIdFromDepartment(manager, lookup?.equipment.departmentId, tenantId);
+}
+
+/**
+ * Bulk counterpart of {@link resolveTankSiteId} for read paths that authorize
+ * a set of feeding units. The result deliberately omits units whose site
+ * cannot be resolved: callers must treat absence as a fail-closed denial.
+ *
+ * Equipment and the legacy tanks table are resolved in one tenant-qualified
+ * statement so authorization cannot degrade into an N+1 lookup or silently
+ * skip one of the two unit authorities.
+ */
+export async function resolveUnitSiteIds(
+  manager: EntityManager,
+  unitIds: readonly string[],
+  tenantId: string,
+): Promise<ReadonlyMap<string, string>> {
+  const uniqueUnitIds = [...new Set(unitIds)].sort();
+  if (uniqueUnitIds.length === 0) return new Map();
+
+  const rows: Array<{ unitId: string; siteId: string | null }> = await manager.query(
+    `SELECT DISTINCT ON (u."unitId")
+            u."unitId" AS "unitId",
+            d."siteId" AS "siteId"
+       FROM (
+         SELECT "id" AS "unitId", "departmentId"
+           FROM equipment
+          WHERE "id" = ANY($1) AND "tenantId" = $2
+         UNION ALL
+         SELECT "id" AS "unitId", "departmentId"
+           FROM tanks
+          WHERE "id" = ANY($1) AND "tenantId" = $2
+       ) u
+       JOIN departments d
+         ON d."id" = u."departmentId" AND d."tenantId" = $2
+      WHERE u."departmentId" IS NOT NULL
+      ORDER BY u."unitId"`,
+    [uniqueUnitIds, tenantId],
+  );
+
+  return new Map(
+    rows
+      .filter((row): row is { unitId: string; siteId: string } => row.siteId !== null)
+      .map((row) => [row.unitId, row.siteId]),
+  );
 }
 
 /**
@@ -185,7 +205,7 @@ export function adaptTankToEquipment(tank: Tank): Equipment {
   adapted.volume = Number(tank.volume) || 0;
   adapted.currentBiomass = Number(tank.currentBiomass) || 0;
   adapted.currentCount = tank.currentCount || 0;
-  adapted.status = (tank.status as string) as EquipmentStatus;
+  adapted.status = tank.status as string as EquipmentStatus;
   adapted.isTank = true;
   adapted.isActive = tank.isActive;
   adapted.isDeleted = false;

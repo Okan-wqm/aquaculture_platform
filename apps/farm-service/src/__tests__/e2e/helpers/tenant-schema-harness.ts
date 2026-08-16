@@ -7,7 +7,16 @@
  * module source schema into each tenant schema; infrastructure tables stay in
  * the source schema.
  */
-import { DataSource } from 'typeorm';
+import { DataSource, type MigrationInterface } from 'typeorm';
+
+type TenantMigrationAuthority = Pick<MigrationInterface, 'up'>;
+
+function quoteIdentifier(value: string): string {
+  if (!/^[a-z_][a-z0-9_]*$/.test(value) || value.length > 63) {
+    throw new Error(`Unsafe tenant migration schema: ${value}`);
+  }
+  return `"${value}"`;
+}
 
 export async function createTenantSchemaFromSource(
   dataSource: DataSource,
@@ -19,6 +28,37 @@ export async function createTenantSchemaFromSource(
     await dataSource.query(
       `CREATE TABLE "${schema}"."${table}" (LIKE "farm"."${table}" INCLUDING ALL)`,
     );
+  }
+}
+
+/**
+ * Applies production migration authorities to one ephemeral tenant schema in
+ * declared order. Tests must never recreate governed functions or ledgers
+ * with local DDL because that would validate a second implementation.
+ */
+export async function applyTenantMigrationAuthorities(
+  dataSource: DataSource,
+  schema: string,
+  migrations: readonly TenantMigrationAuthority[],
+): Promise<void> {
+  if (migrations.length === 0) {
+    throw new Error('Tenant migration authority chain must not be empty');
+  }
+  const qualifiedSchema = quoteIdentifier(schema);
+  const queryRunner = dataSource.createQueryRunner();
+  await queryRunner.connect();
+  try {
+    await queryRunner.startTransaction();
+    try {
+      await queryRunner.query(`SET LOCAL search_path TO ${qualifiedSchema}, farm, public`);
+      for (const migration of migrations) await migration.up(queryRunner);
+      await queryRunner.commitTransaction();
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    }
+  } finally {
+    await queryRunner.release();
   }
 }
 

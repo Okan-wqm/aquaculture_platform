@@ -23,14 +23,16 @@
  * registers (filename: 'messaging-sw.ts' → emitted as messaging-sw.js).
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { promisify } from 'node:util';
 
 import { describe, it, expect, beforeAll } from 'vitest';
 
 const APP_DIR = resolve(__dirname, '../../..');
 const VITE_BIN = resolve(APP_DIR, '../../../node_modules/.bin/vite');
+const execFileAsync = promisify(execFile);
 // FE-CRITICAL-050-SW: vite.config.ts sets filename: 'messaging-sw.ts', so the
 // injectManifest sub-build emits dist/messaging-sw.js — NOT dist/sw.js. This is
 // the file virtual:pwa-register registers; asserting against it is asserting
@@ -45,14 +47,17 @@ const BUILD_TIMEOUT_MS = 300_000;
 let swSource = '';
 
 describe('FE-CRITICAL-050-SW: deployed service worker artifact', () => {
-  beforeAll(() => {
+  beforeAll(async () => {
     // Run the REAL production build. `vite build` drives VitePWA's injectManifest
     // strategy, which compiles src/pwa/messaging-sw.ts through its own Vite
     // sub-build and injects the precache manifest into self.__WB_MANIFEST.
-    execFileSync(VITE_BIN, ['build'], {
+    // Keep the Vitest worker event loop available while Vite runs. A synchronous
+    // child process blocks worker RPC long enough for the coordinator's
+    // `onTaskUpdate` call to time out even when every assertion passes.
+    await execFileAsync(VITE_BIN, ['build'], {
       cwd: APP_DIR,
-      stdio: 'pipe',
       env: { ...process.env, NODE_ENV: 'production' },
+      maxBuffer: 10 * 1024 * 1024,
     });
     expect(existsSync(SW_ARTIFACT)).toBe(true);
     swSource = readFileSync(SW_ARTIFACT, 'utf8');

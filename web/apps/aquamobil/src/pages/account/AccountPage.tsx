@@ -23,7 +23,11 @@ import type { DarkModePreference } from '@/hooks/useDarkMode';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useWebAuthn, storeBiometricEmail } from '@/hooks/useWebAuthn';
-import { clearCache, clearAllOperations } from '@/pwa/offline-queue';
+import {
+  clearCache,
+  clearAllOperations,
+  OFFLINE_QUEUE_CLEAR_AUTHORITIES_V1,
+} from '@/pwa/offline-queue';
 import type { Role } from '@/types';
 import { runAsyncAction } from '@/utils/async-action';
 import { getLastSyncAt } from '@/utils/last-sync';
@@ -47,10 +51,26 @@ const APP_VERSION = (import.meta.env.VITE_APP_VERSION as string | undefined) ?? 
 // detectable) — the old MANAGER/OPERATOR/VIEWER entries were phantom values the
 // server never emits and have been removed.
 const ROLE_BADGE_CONFIG: Record<Role, { bg: string; text: string; label: string }> = {
-  SUPER_ADMIN: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-300', label: 'Super Admin' },
-  TENANT_ADMIN: { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-700 dark:text-blue-300', label: 'Tenant Admin' },
-  MODULE_MANAGER: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-700 dark:text-purple-300', label: 'Manager' },
-  MODULE_USER: { bg: 'bg-emerald-100 dark:bg-emerald-900/30', text: 'text-emerald-700 dark:text-emerald-300', label: 'Operator' },
+  SUPER_ADMIN: {
+    bg: 'bg-red-100 dark:bg-red-900/30',
+    text: 'text-red-700 dark:text-red-300',
+    label: 'Super Admin',
+  },
+  TENANT_ADMIN: {
+    bg: 'bg-blue-100 dark:bg-blue-900/30',
+    text: 'text-blue-700 dark:text-blue-300',
+    label: 'Tenant Admin',
+  },
+  MODULE_MANAGER: {
+    bg: 'bg-purple-100 dark:bg-purple-900/30',
+    text: 'text-purple-700 dark:text-purple-300',
+    label: 'Manager',
+  },
+  MODULE_USER: {
+    bg: 'bg-emerald-100 dark:bg-emerald-900/30',
+    text: 'text-emerald-700 dark:text-emerald-300',
+    label: 'Operator',
+  },
 };
 
 // ============================================================================
@@ -94,7 +114,6 @@ function formatRelativeTime(isoString: string | null): string {
 /**
  * Retrieve the last sync timestamp from localStorage.
  */
-
 
 // ============================================================================
 // Confirmation Dialog Sub-component
@@ -352,7 +371,9 @@ function BiometricPanel({ onClose }: BiometricPanelProps): JSX.Element {
                     </div>
                   </div>
                   <button
-                    onClick={() => { void handleRemove(cred.credentialId); }}
+                    onClick={() => {
+                      void handleRemove(cred.credentialId);
+                    }}
                     className="p-2 text-red-400 hover:text-red-600 transition-colors"
                     title="Remove credential"
                   >
@@ -375,7 +396,9 @@ function BiometricPanel({ onClose }: BiometricPanelProps): JSX.Element {
             className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400 text-sm"
           />
           <button
-            onClick={() => { void handleEnable(); }}
+            onClick={() => {
+              void handleEnable();
+            }}
             disabled={isRegistering}
             className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl shadow-sm transition-all disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
           >
@@ -471,7 +494,10 @@ export function AccountPage(): JSX.Element {
     setClearQueueError(null);
     try {
       // SECURITY (C11): Clear only the current tenant's queue, not other tenants' ops
-      await clearAllOperations(authTenantId ?? undefined);
+      await clearAllOperations(
+        authTenantId ?? undefined,
+        OFFLINE_QUEUE_CLEAR_AUTHORITIES_V1.USER_PENDING_ONLY,
+      );
       setShowClearQueueDialog(false);
       // The OfflineProvider will refresh the pending count on next tick
     } catch (err) {
@@ -551,16 +577,8 @@ export function AccountPage(): JSX.Element {
         </div>
         {/* Curved wave transition matching other page headers */}
         <div className="relative">
-          <svg
-            viewBox="0 0 400 20"
-            fill="none"
-            className="w-full block"
-            preserveAspectRatio="none"
-          >
-            <path
-              d="M0 20V0c100 15 200 15 400 0v20z"
-              className="fill-gray-50 dark:fill-gray-950"
-            />
+          <svg viewBox="0 0 400 20" fill="none" className="w-full block" preserveAspectRatio="none">
+            <path d="M0 20V0c100 15 200 15 400 0v20z" className="fill-gray-50 dark:fill-gray-950" />
           </svg>
         </div>
       </div>
@@ -646,7 +664,9 @@ export function AccountPage(): JSX.Element {
               iconBg="bg-sky-50 dark:bg-sky-900/30"
               label="Clear Cache"
               subtitle="Remove cached data to free space"
-              onClick={() => { void handleClearCache(); }}
+              onClick={() => {
+                void handleClearCache();
+              }}
             />
 
             {/* Clear Queue — destructive, permanently deletes unsynced operations */}

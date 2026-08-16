@@ -19,6 +19,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type {
   FeedTypeTransitionedEvent,
+  FeedingWindowReadinessEvent,
+  FeedingWindowReadinessVerdictV1,
   MealMissedEvent,
   MealUnderfedEvent,
   UnfedUnitDetectedEvent,
@@ -27,6 +29,29 @@ import type {
 import { AlertSeverity } from '../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../entities/alert-history.entity';
 import { FarmSignalIncidentService } from './farm-signal-incident.service';
+
+function feedingWindowReadinessMessage(verdict: FeedingWindowReadinessVerdictV1): string {
+  switch (verdict.status) {
+    case 'low_oxygen':
+      return (
+        `${verdict.unitCode} dissolved oxygen ${verdict.observedDissolvedOxygen ?? '?'} mg/L ` +
+        `is below the ${verdict.minDissolvedOxygen} mg/L protocol floor before ` +
+        verdict.scheduledAt
+      );
+    case 'no_reading':
+      return (
+        `${verdict.unitCode} has a dissolved-oxygen sensor but no fresh reading before ` +
+        verdict.scheduledAt
+      );
+    case 'not_instrumented':
+      return (
+        `${verdict.unitCode} has an oxygen floor but no instrumented dissolved-oxygen ` +
+        `channel before ${verdict.scheduledAt}`
+      );
+    case 'ready':
+      throw new Error('Ready feeding-window verdicts do not create alerts');
+  }
+}
 
 @Injectable()
 export class FeedingExecutionAlertService {
@@ -187,6 +212,62 @@ export class FeedingExecutionAlertService {
         siteId: event.siteId,
         reason: event.reason,
         fishCount: event.fishCount,
+        triggeredAt,
+      },
+    });
+  }
+
+  async recordFeedingWindowReadiness(
+    event: FeedingWindowReadinessEvent,
+    verdict: FeedingWindowReadinessVerdictV1,
+  ): Promise<void> {
+    if (verdict.status === 'ready') return;
+    const ruleId = `system:feeding-window-oxygen:${verdict.unitId}`;
+    const ruleName = 'Pre-Meal Oxygen Guard';
+    const triggeredAt = new Date(event.evaluatedAt);
+    const message = feedingWindowReadinessMessage(verdict);
+
+    const history = await this.historyRepository.save(
+      this.historyRepository.create({
+        ruleId,
+        ruleName,
+        tenantId: event.tenantId,
+        severity: AlertSeverity.WARNING,
+        message,
+        triggeringData: {
+          source: 'sensor.feeding.window',
+          sourceWindowEventId: event.sourceWindowEventId,
+          status: verdict.status,
+          unitId: verdict.unitId,
+          unitCode: verdict.unitCode,
+          mealId: verdict.mealId,
+          dayPlanId: verdict.dayPlanId,
+          scheduledAt: verdict.scheduledAt,
+          minDissolvedOxygen: verdict.minDissolvedOxygen,
+          observedDissolvedOxygen: verdict.observedDissolvedOxygen ?? null,
+          observedAt: verdict.observedAt ?? null,
+          correlationId: event.correlationId,
+        },
+        triggeredAt,
+      }),
+    );
+
+    await this.farmSignalIncident.ensureIncident({
+      tenantId: event.tenantId,
+      ruleId,
+      title: `${ruleName}: ${verdict.unitCode}`,
+      description: message,
+      severity: AlertSeverity.WARNING,
+      triggeredAt,
+      signalLabel: 'feeding-window-oxygen',
+      triggerData: {
+        historyId: history.id,
+        sourceWindowEventId: event.sourceWindowEventId,
+        unitId: verdict.unitId,
+        mealId: verdict.mealId,
+        status: verdict.status,
+        minDissolvedOxygen: verdict.minDissolvedOxygen,
+        observedDissolvedOxygen: verdict.observedDissolvedOxygen ?? null,
         triggeredAt,
       },
     });

@@ -2,7 +2,7 @@
 # source: platform/libs/service-catalog/src/index.ts
 # generator: scripts/service-catalog/generate-artifacts.ts
 # generatorVersion: 3
-# catalogHash: b314e8353e82369711981b1beff7d5e51b4624753693371e9dc0ea08f5178a2a
+# catalogHash: 56836e438ea335b6d9233994733e8b2174992afd3fecd5191e0a7252058b95e0
 # do not edit by hand
 schema_version: 1
 defaults:
@@ -32,6 +32,9 @@ services:
   - name: farm-service
     level: critical
     reason: "generated from farm-service criticality in platform service catalog"
+  - name: farm-feeding-scheduler
+    level: critical
+    reason: "generated from farm-feeding-scheduler criticality in platform service catalog"
   - name: sensor-service
     level: critical
     reason: "generated from sensor-service criticality in platform service catalog"

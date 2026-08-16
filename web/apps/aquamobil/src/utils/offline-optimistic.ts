@@ -1,4 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query';
+import { FEEDING_MEAL_MOBILE_COMMAND_V1 } from '@aquaculture/feeding-contracts/feeding-record-vocabulary';
 
 import { createTenantQueryKey } from './tenant-query-keys';
 
@@ -33,7 +34,6 @@ type DailyOpsCounterKey = Exclude<keyof DailyOpsCountsSlice, 'feedingTotalCount'
 const DAILY_OPS_BUMPS: Partial<Record<OperationType, DailyOpsCounterKey>> = {
   recordMortality: 'mortalityCount',
   createWaterQuality: 'wqReadingsCount',
-  recordFeeding: 'feedingCompletedCount',
 };
 
 /** Queued op types that count as a stock event this week. */
@@ -53,11 +53,12 @@ function dailyOpsCounterFor(
   type: OperationType,
   payload?: OperationPayload,
 ): DailyOpsCounterKey | undefined {
-  if (type === 'recordMealFeeding') {
+  if (type === FEEDING_MEAL_MOBILE_COMMAND_V1.operationType) {
     return payload && 'finalize' in payload && payload.finalize === true
       ? 'feedingCompletedCount'
       : undefined;
   }
+  if (type === 'finalizeMeal') return 'feedingCompletedCount';
   return DAILY_OPS_BUMPS[type];
 }
 

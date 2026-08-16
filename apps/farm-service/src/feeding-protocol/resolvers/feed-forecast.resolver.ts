@@ -7,10 +7,9 @@
  * dışında kalan tükeniş/geçiş/alert alanları null'lanır/elenir — pencere
  * içinde görünmeyen şey iddia edilmez.
  *
- * `refresh:true` mekanizma değil yedektir (D-6 event-driven yenileme ana
- * yol): MANAGER+ ve tenant başına 5 dk'da 1 (in-memory throttle — instance
- * başına; cron + event yolu asıl tazeliği sağlar, throttle yalnız insan
- * tetiklemesini sınırlar).
+ * İnsan-tetikli yenileme ayrı `refreshProtocolFeedForecast` mutation'ıdır;
+ * bu Query saf bir materialized-view okumasıdır ve hiçbir write capability
+ * taşımaz.
  *
  * Authz: üç rol; MODULE_USER yalnız atandığı sitenin kapsamını okuyabilir
  * (fail-closed) — tenant-geneli fallback kapsamı ('tenant') site ataması
@@ -18,9 +17,8 @@
  *
  * @module FeedingProtocol/Resolvers
  */
-import { ForbiddenException } from '@nestjs/common';
-import { Args, ID, Int, Query, Resolver } from '@nestjs/graphql';
-import { UseGuards } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Inject, UseGuards } from '@nestjs/common';
+import { Args, ID, Int, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import {
@@ -31,21 +29,31 @@ import {
   roleHasPermission,
 } from '@aquaculture/backend-common/decorators';
 import { runInTenantRead } from '@aquaculture/backend-common/database';
+import { isValidUUID } from '@aquaculture/backend-common/database';
+import {
+  feedingForecastAlertWithinHorizonV1,
+  feedingForecastIsStaleV1,
+} from '@aquaculture/feeding-contracts';
 
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import {
   FeedingForecastSnapshot,
   ForecastPerFeed,
 } from '../entities/feeding-forecast-snapshot.entity';
-import { ProtocolFeedForecastView } from '../dto/feed-forecast.results';
+import { findActiveFeedingForecastSnapshotV1 } from '../feeding-forecast-generation.reader';
 import {
-  ProtocolFeedForecastService,
-  TENANT_SCOPE_KEY,
-} from '../services/protocol-feed-forecast.service';
+  ProtocolFeedForecastRefreshResultView,
+  ProtocolFeedForecastView,
+} from '../dto/feed-forecast.results';
+import { RefreshProtocolFeedForecastInput } from '../dto/feed-forecast.inputs';
+import { TENANT_SCOPE_KEY } from '../executors/protocol-feed-forecast.executor';
+import {
+  FEEDING_OPERATION_COMMAND_PORT,
+  type FeedingOperationCommandPort,
+} from '../feeding-operation-command.port';
 
 const DEFAULT_HORIZON_DAYS = 90;
 const MAX_HORIZON_DAYS = 120;
-const REFRESH_THROTTLE_MS = 5 * 60 * 1000;
 
 interface CallerClaims {
   sub: string;
@@ -53,14 +61,15 @@ interface CallerClaims {
   assignedSiteIds?: string[];
 }
 
+type ForecastRefreshCommandPort = Pick<FeedingOperationCommandPort, 'refreshForecast'>;
+
 @UseGuards(GqlAuthGuard)
 @Resolver(() => ProtocolFeedForecastView)
 export class FeedForecastResolver {
-  private readonly lastRefreshAtByTenant = new Map<string, number>();
-
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
-    private readonly forecastService: ProtocolFeedForecastService,
+    @Inject(FEEDING_OPERATION_COMMAND_PORT)
+    private readonly operationPort: ForecastRefreshCommandPort,
   ) {}
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
@@ -70,7 +79,6 @@ export class FeedForecastResolver {
     @CurrentUser() user: CallerClaims,
     @Args('siteId', { type: () => ID, nullable: true }) siteId?: string,
     @Args('horizonDays', { type: () => Int, nullable: true }) horizonDays?: number,
-    @Args('refresh', { nullable: true }) refresh?: boolean,
   ): Promise<ProtocolFeedForecastView | null> {
     const isManagerOrHigher = user.roles.some((role) =>
       roleHasPermission(role, Role.MODULE_MANAGER),
@@ -84,27 +92,36 @@ export class FeedForecastResolver {
       }
     }
 
-    if (refresh) {
-      if (!isManagerOrHigher) {
-        throw new ForbiddenException('refresh yalnız MODULE_MANAGER ve üstüne açıktır');
-      }
-      const last = this.lastRefreshAtByTenant.get(tenantId) ?? 0;
-      if (Date.now() - last >= REFRESH_THROTTLE_MS) {
-        this.lastRefreshAtByTenant.set(tenantId, Date.now());
-        await this.forecastService.refreshTenant(tenantId);
-      }
-    }
-
     const scopeKey = siteId ?? TENANT_SCOPE_KEY;
     const horizon = Math.max(1, Math.min(horizonDays ?? DEFAULT_HORIZON_DAYS, MAX_HORIZON_DAYS));
 
     const snapshot = await runInTenantRead(this.dataSource, 'farm', tenantId, (queryRunner) =>
-      queryRunner.manager.findOne(FeedingForecastSnapshot, {
-        where: { tenantId, siteScopeKey: scopeKey },
-      }),
+      findActiveFeedingForecastSnapshotV1(queryRunner.manager, tenantId, scopeKey),
     );
     if (!snapshot) return null;
-    return sliceSnapshotToHorizon(snapshot, horizon);
+    return sliceSnapshotToHorizon(snapshot, horizon, new Date());
+  }
+
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @Mutation(() => ProtocolFeedForecastRefreshResultView, {
+    name: 'refreshProtocolFeedForecast',
+  })
+  async refreshProtocolFeedForecast(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: CallerClaims,
+    @Args('input') input: RefreshProtocolFeedForecastInput,
+  ): Promise<ProtocolFeedForecastRefreshResultView> {
+    if (!isValidUUID(input.siteId) || !isValidUUID(input.operationRequestId)) {
+      throw new BadRequestException('siteId and operationRequestId must be UUID values');
+    }
+    const refreshedScopeCount = await this.operationPort.refreshForecast({
+      tenantId,
+      siteId: input.siteId,
+      actorId: user.sub,
+      requestId: input.operationRequestId,
+      emitCoverageEvents: false,
+    });
+    return { operationRequestId: input.operationRequestId, refreshedScopeCount };
   }
 }
 
@@ -112,7 +129,11 @@ export class FeedForecastResolver {
 export function sliceSnapshotToHorizon(
   snapshot: FeedingForecastSnapshot,
   horizon: number,
+  observedAt: Date,
 ): ProtocolFeedForecastView {
+  if (snapshot.poolScope === null) {
+    throw new Error('Unqualified forecast quarantine cannot be projected to GraphQL');
+  }
   const perFeed = snapshot.perFeed.map((feed: ForecastPerFeed) => {
     const inWindow = feed.daysOfCover !== null && feed.daysOfCover < horizon;
     return {
@@ -130,9 +151,13 @@ export function sliceSnapshotToHorizon(
     ...unit,
     transitions: unit.transitions.filter((t) => t.daysFromNow < horizon),
   }));
-  const alerts = snapshot.alerts.filter((alert) => alert.days < horizon);
+  const alerts = snapshot.alerts.filter((alert) =>
+    feedingForecastAlertWithinHorizonV1(alert, horizon),
+  );
   return {
     siteScopeKey: snapshot.siteScopeKey,
+    poolScope: snapshot.poolScope,
+    stale: feedingForecastIsStaleV1(snapshot.computedAt, observedAt),
     horizonDays: horizon,
     computedAt: snapshot.computedAt,
     perFeed,

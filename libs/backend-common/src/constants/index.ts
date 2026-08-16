@@ -7,6 +7,7 @@
 export { NATS_PATTERNS } from './nats-patterns';
 export {
   BOOT_INVARIANT_SIGNALS,
+  FEEDING_SCHEDULER_READY_SIGNAL,
   bootInvariantSignalRecord,
   emitBootInvariantSignal,
 } from './boot-invariant-signals';
@@ -31,7 +32,4 @@ export {
   isProtectedTable,
   matchesProtectedTablePattern,
 } from './protected-tables';
-export type {
-  ProtectedSchema,
-  ProtectedTable,
-} from './protected-tables';
+export type { ProtectedSchema, ProtectedTable } from './protected-tables';

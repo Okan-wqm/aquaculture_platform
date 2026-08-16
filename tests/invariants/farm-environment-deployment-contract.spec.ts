@@ -599,10 +599,6 @@ describe('INVARIANT: farm environmental monitoring deployment contract', () => {
   });
 
   it('keeps operational MCP site reads and tenant-admin authority catalog as separate contracts', () => {
-    const schema = fs.readFileSync(
-      path.join(REPO_ROOT, 'apps/farm-service/schema.graphql'),
-      'utf8',
-    );
     const resolver = fs.readFileSync(
       path.join(REPO_ROOT, 'apps/farm-service/src/site/site.resolver.ts'),
       'utf8',
@@ -612,8 +608,10 @@ describe('INVARIANT: farm environmental monitoring deployment contract', () => {
       'utf8',
     );
 
-    expect(schema).toContain('activeSites: [SiteResponse!]!');
-    expect(schema).toContain('activeSiteAccessCatalog: [SiteAccessCatalogItemResponse!]!');
+    expect(resolver).toContain("@Query(() => [SiteResponse], { name: 'activeSites' })");
+    expect(resolver).toContain(
+      "@Query(() => [SiteAccessCatalogItemResponse], { name: 'activeSiteAccessCatalog' })",
+    );
     expect(mcpSiteQueries).toContain('query ActiveSites {');
     expect(mcpSiteQueries).toContain('query ActiveSitesLight {');
     expect(resolver).toContain('ACTIVE_SITE_COLLECTION_HARD_CAP + 1');

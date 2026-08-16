@@ -3,6 +3,8 @@
  * month and ISO-week math must never fork per report type).
  */
 
+export { round2 } from '../../common/utils/rounding.util';
+
 export interface PeriodRange {
   /** Inclusive ISO date (yyyy-mm-dd). */
   fromDate: string;
@@ -63,10 +65,6 @@ export function isStandingStockStale(periodEndIso: string, now: Date): boolean {
   const periodEnd = new Date(`${periodEndIso}T00:00:00.000Z`);
   const freshFloor = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1);
   return periodEnd.getTime() < freshFloor;
-}
-
-export function round2(value: number): number {
-  return Math.round(value * 100) / 100;
 }
 
 /** ISO-8601 year + week of a calendar date (Thursday-anchored). */

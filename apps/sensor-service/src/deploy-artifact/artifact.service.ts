@@ -3,11 +3,12 @@ import { createHash } from 'crypto';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
-
 import {
-  DeployArtifact,
-  DeployArtifactType,
-} from './entities/deploy-artifact.entity';
+  canonicalJsonStringify,
+  createCanonicalJsonDocumentV1,
+} from '@aquaculture/shared-contracts';
+
+import { DeployArtifact, DeployArtifactType } from './entities/deploy-artifact.entity';
 
 export interface SnapshotInput {
   artifactType: DeployArtifactType;
@@ -23,26 +24,13 @@ export interface SnapshotInput {
  * addressing is independent of property insertion order. Arrays keep their
  * order — element order is semantically meaningful in deploy payloads.
  */
-export function canonicalJsonStringify(value: unknown): string {
-  if (value === null || typeof value !== 'object') {
-    return JSON.stringify(value);
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map((item) => canonicalJsonStringify(item ?? null)).join(',')}]`;
-  }
-  const record = value as Record<string, unknown>;
-  const keys = Object.keys(record)
-    .filter((key) => record[key] !== undefined)
-    .sort();
-  const body = keys
-    .map((key) => `${JSON.stringify(key)}:${canonicalJsonStringify(record[key])}`)
-    .join(',');
-  return `{${body}}`;
+export function deployArtifactCanonicalJsonV1(value: unknown): string {
+  return canonicalJsonStringify(createCanonicalJsonDocumentV1(value));
 }
 
 /** sha256 (hex) of the canonical JSON of `content`. */
 export function contentSha256(content: Record<string, unknown>): string {
-  return createHash('sha256').update(canonicalJsonStringify(content)).digest('hex');
+  return createHash('sha256').update(deployArtifactCanonicalJsonV1(content)).digest('hex');
 }
 
 /**

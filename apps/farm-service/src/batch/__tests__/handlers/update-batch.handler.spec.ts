@@ -27,6 +27,7 @@ import { UpdateBatchHandler } from '../../handlers/update-batch.handler';
 import { UpdateBatchCommand } from '../../commands/update-batch.command';
 import { Batch, BatchStatus } from '../../entities/batch.entity';
 import type { OutboxPublisher } from '@platform/outbox';
+import { RecordingBatchAggregateMutationPort } from '../../../__tests__/support/durable-mutation-test-authority';
 
 interface HarnessOpts {
   batch?: Partial<Batch> | null;
@@ -82,6 +83,7 @@ function makeHarness(opts: HarnessOpts = {}) {
   const batchRepository = {} as unknown as Repository<Batch>;
 
   const handler = new UpdateBatchHandler(
+    new RecordingBatchAggregateMutationPort(queryRunner.manager),
     batchRepository,
     dataSource as DataSource,
     outboxPublisher,
@@ -93,9 +95,7 @@ function makeHarness(opts: HarnessOpts = {}) {
 const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const USER = 'user-1';
 
-function makeCommand(
-  payload: ConstructorParameters<typeof UpdateBatchCommand>[2],
-) {
+function makeCommand(payload: ConstructorParameters<typeof UpdateBatchCommand>[2]) {
   return new UpdateBatchCommand(TENANT, 'batch-1', payload, USER);
 }
 
@@ -115,9 +115,7 @@ describe('UpdateBatchHandler — transactional outbox', () => {
   it('does not overwrite fields not in payload (notes-only edit preserves name)', async () => {
     const { handler, enqueue } = makeHarness();
 
-    const result = await handler.execute(
-      makeCommand({ notes: 'Updated Notes' }),
-    );
+    const result = await handler.execute(makeCommand({ notes: 'Updated Notes' }));
 
     expect(result.name).toBe('Old Name');
     expect(result.notes).toBe('Updated Notes');
@@ -128,9 +126,7 @@ describe('UpdateBatchHandler — transactional outbox', () => {
   it('throws NotFoundException when batch is missing — no tx commit, no event', async () => {
     const { handler, enqueue, commit } = makeHarness({ batch: null });
 
-    await expect(
-      handler.execute(makeCommand({ name: 'X' })),
-    ).rejects.toThrow(NotFoundException);
+    await expect(handler.execute(makeCommand({ name: 'X' }))).rejects.toThrow(NotFoundException);
     expect(enqueue).not.toHaveBeenCalled();
     expect(commit).not.toHaveBeenCalled();
   });
@@ -170,9 +166,9 @@ describe('UpdateBatchHandler — transactional outbox', () => {
       },
     });
 
-    await expect(
-      handler.execute(makeCommand({ notes: 'x' })),
-    ).rejects.toThrow('outbox-enqueue-failed');
+    await expect(handler.execute(makeCommand({ notes: 'x' }))).rejects.toThrow(
+      'outbox-enqueue-failed',
+    );
     expect(rollback).toHaveBeenCalledTimes(1);
     expect(commit).not.toHaveBeenCalled();
   });

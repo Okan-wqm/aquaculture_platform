@@ -47,9 +47,7 @@ export function UnitTransitionTimeline({ forecast }: Props): React.ReactElement 
           const boundaries = [0, ...unit.transitions.map((tr) => tr.daysFromNow), horizon];
           const feeds = [
             ...unit.transitions.map((tr) => tr.fromFeedId),
-            unit.transitions.length > 0
-              ? (unit.transitions[unit.transitions.length - 1]?.toFeedId ?? unit.currentFeedId)
-              : unit.currentFeedId,
+            unit.terminalFeedId,
           ];
           return (
             <div key={unit.unitId}>

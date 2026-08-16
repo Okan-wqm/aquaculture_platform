@@ -24,6 +24,7 @@ export * from './auth-events';
 export * from './tenant-events';
 export * from './tenant-commands';
 export * from './farm-events';
+export * from './event-delivery-semantics';
 export * from './sensor-events';
 export * from './sensor-reading-parameters';
 export * from './alert-events';

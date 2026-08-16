@@ -5,6 +5,7 @@ import {
   type HarnessContext,
   shutdownHarness,
 } from '@platform/migration-harness';
+import { databaseLoginPrincipals } from '@platform/service-catalog';
 
 import {
   runPlatformBootstrap,
@@ -42,23 +43,7 @@ const SQL_DIR = resolvePlatformBootstrapSqlDir(REPO_ROOT);
  * two lists in sync is a Tier-3 invariant (next bullet: a future code change
  * that adds a 16th role must also add its env var here, else this suite fails).
  */
-const SERVICE_ROLE_PASS_ENVS = [
-  'AUTH_SERVICE_DB_PASS',
-  'FARM_SERVICE_DB_PASS',
-  'SENSOR_SERVICE_DB_PASS',
-  'BILLING_SERVICE_DB_PASS',
-  'HR_SERVICE_DB_PASS',
-  'ALERT_SERVICE_DB_PASS',
-  'ADMIN_SERVICE_DB_PASS',
-  'GATEWAY_SERVICE_DB_PASS',
-  'NOTIFICATION_SERVICE_DB_PASS',
-  'HYDROPONICS_SERVICE_DB_PASS',
-  'AI_SERVICE_DB_PASS',
-  'MESSAGING_SERVICE_DB_PASS',
-  'OBSERVABILITY_SERVICE_DB_PASS',
-  'EVENT_STORE_SERVICE_DB_PASS',
-  'CONFIG_SERVICE_DB_PASS',
-] as const;
+const SERVICE_ROLE_PASS_ENVS = databaseLoginPrincipals().map((principal) => principal.passwordEnv);
 
 function withServiceRoleEnvs(): { restore: () => void } {
   const saved = new Map<string, string | undefined>();
@@ -80,9 +65,22 @@ function withServiceRoleEnvs(): { restore: () => void } {
 }
 
 const PLATFORM_SCHEMAS = [
-  'auth', 'farm', 'sensor', 'hr', 'messaging', 'hydroponics', 'alert',
-  'billing', 'notification', 'ai', 'admin', 'observability',
-  'event_store', 'config', 'gateway', 'shared',
+  'auth',
+  'farm',
+  'sensor',
+  'hr',
+  'messaging',
+  'hydroponics',
+  'alert',
+  'billing',
+  'notification',
+  'ai',
+  'admin',
+  'observability',
+  'event_store',
+  'config',
+  'gateway',
+  'shared',
 ] as const;
 
 const PLATFORM_FUNCTIONS = [
@@ -131,10 +129,9 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
   }
 
   async function countSchemas(): Promise<number> {
-    return countRows(
-      `SELECT COUNT(*)::text AS count FROM pg_namespace WHERE nspname = ANY($1)`,
-      [PLATFORM_SCHEMAS as unknown as string[]],
-    );
+    return countRows(`SELECT COUNT(*)::text AS count FROM pg_namespace WHERE nspname = ANY($1)`, [
+      [...PLATFORM_SCHEMAS],
+    ]);
   }
 
   async function countFunctions(): Promise<number> {
@@ -142,7 +139,7 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
       `SELECT COUNT(*)::text AS count
          FROM pg_proc p JOIN pg_namespace n ON p.pronamespace = n.oid
         WHERE n.nspname = 'public' AND p.proname = ANY($1)`,
-      [PLATFORM_FUNCTIONS as unknown as string[]],
+      [[...PLATFORM_FUNCTIONS]],
     );
   }
 
@@ -150,7 +147,7 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
     return countRows(
       `SELECT COUNT(*)::text AS count FROM pg_tables
         WHERE schemaname = 'shared' AND tablename = ANY($1)`,
-      [SHARED_SCHEMA_TABLES as unknown as string[]],
+      [[...SHARED_SCHEMA_TABLES]],
     );
   }
 
@@ -254,11 +251,7 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
     }
   }
 
-  async function queryAsRole<T>(
-    role: string,
-    query: string,
-    params: unknown[] = [],
-  ): Promise<T[]> {
+  async function queryAsRole<T>(role: string, query: string, params: unknown[] = []): Promise<T[]> {
     const qr = ctx.dataSource.createQueryRunner();
     try {
       await qr.query(`SET ROLE "${role}"`);
@@ -402,9 +395,7 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
           WHERE drill_run_id = $1`,
         [drillRunId],
       )) as Array<{ phase: string; backup_name: string }>;
-      expect(rows).toEqual([
-        { phase: 'BEFORE', backup_name: 'base_000000010000000000000001' },
-      ]);
+      expect(rows).toEqual([{ phase: 'BEFORE', backup_name: 'base_000000010000000000000001' }]);
 
       await expect(
         queryAsRole(
@@ -530,17 +521,12 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
       // so the 004 ALTER DEFAULT PRIVILEGES chain (which binds to the
       // creating role) is what grants the services DML below.
       await qr.query('DROP TABLE IF EXISTS compliance.__runtime_privilege_probe');
-      await qr.query(
-        'CREATE TABLE compliance.__runtime_privilege_probe (id integer PRIMARY KEY)',
-      );
+      await qr.query('CREATE TABLE compliance.__runtime_privilege_probe (id integer PRIMARY KEY)');
       await queryAsRole(
         'messaging_service',
         'INSERT INTO compliance.__runtime_privilege_probe (id) VALUES (1)',
       );
-      await queryAsRole(
-        'admin_service',
-        'SELECT id FROM compliance.__runtime_privilege_probe',
-      );
+      await queryAsRole('admin_service', 'SELECT id FROM compliance.__runtime_privilege_probe');
       await expect(
         queryAsRole(
           'messaging_service',
@@ -550,9 +536,15 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
 
       await qr.query('DROP TABLE IF EXISTS farm.__runtime_privilege_probe');
       await qr.query('CREATE TABLE farm.__runtime_privilege_probe (id integer PRIMARY KEY)');
-      await queryAsRole('farm_service', 'INSERT INTO farm.__runtime_privilege_probe (id) VALUES (1)');
+      await queryAsRole(
+        'farm_service',
+        'INSERT INTO farm.__runtime_privilege_probe (id) VALUES (1)',
+      );
       await expect(
-        queryAsRole('farm_service', 'ALTER TABLE farm.__runtime_privilege_probe ADD COLUMN forbidden integer'),
+        queryAsRole(
+          'farm_service',
+          'ALTER TABLE farm.__runtime_privilege_probe ADD COLUMN forbidden integer',
+        ),
       ).rejects.toThrow(/permission denied|must be owner/i);
       await expect(
         queryAsRole('farm_service', 'CREATE TABLE farm.__runtime_ddl_probe (id integer)'),

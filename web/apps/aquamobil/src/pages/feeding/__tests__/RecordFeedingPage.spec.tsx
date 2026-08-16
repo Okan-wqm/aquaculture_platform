@@ -14,6 +14,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor, cleanup, fireEvent } from '@testing-library/react';
 import { createElement, type ReactNode } from 'react';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import {
+  FEEDING_MEAL_MOBILE_COMMAND_V1,
+  FEEDING_MEAL_QUANTITY_POLICY_V1,
+  FEEDING_METHOD,
+  FEEDING_METHOD_GRAPHQL_NAME_V1,
+} from '@aquaculture/feeding-contracts/feeding-record-vocabulary';
 
 // ---------------------------------------------------------------------------
 // Hoisted mock state
@@ -169,23 +175,26 @@ describe('RecordFeedingPage — öğün cutover (Faz 6)', () => {
 
     fireEvent.click(openMeal as HTMLElement);
 
-    // Kalan plan miktarı (6.00) ön-dolu gelir.
+    const formattedRemaining = (6).toFixed(FEEDING_MEAL_QUANTITY_POLICY_V1.decimalPlaces);
+    // Kalan plan miktarı quantity-policy storage scale'inde ön-dolu gelir.
     const amount = await screen.findByRole<HTMLInputElement>('spinbutton');
-    expect(amount.value).toBe('6.00');
+    expect(amount.value).toBe(formattedRemaining);
 
-    // "6.00 kg" metni öğün kartında da geçer — kaydet butonu erişilebilir
+    // Biçimlenmiş kg metni öğün kartında da geçer — kaydet butonu erişilebilir
     // adıyla hedeflenir ki yanlışlıkla öğün seçimi toggle edilmesin.
-    const submit = await screen.findByRole('button', { name: /Record 6\.00 kg/ });
+    const submit = await screen.findByRole('button', {
+      name: `Record ${formattedRemaining} kg`,
+    });
     fireEvent.click(submit);
 
     await waitFor(() => expect(h.addToQueue).toHaveBeenCalledTimes(1));
     const [type, payload] = h.addToQueue.mock.calls[0] ?? [];
-    expect(type).toBe('recordMealFeeding');
+    expect(type).toBe(FEEDING_MEAL_MOBILE_COMMAND_V1.operationType);
     expect(payload).toMatchObject({
       mealId: 'meal-1',
       pourKg: 6,
       finalize: true,
-      feedingMethod: 'manual',
+      feedingMethod: FEEDING_METHOD_GRAPHQL_NAME_V1[FEEDING_METHOD.MANUAL],
     });
   });
 

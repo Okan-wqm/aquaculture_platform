@@ -23,6 +23,8 @@
  */
 import { BadRequestException, Injectable } from '@nestjs/common';
 
+import { round3 } from '../../common/utils/rounding.util';
+
 export interface RemovalQuantityInput {
   /** Tane girişi (mod a/b). */
   count?: number;
@@ -122,8 +124,4 @@ export class RemovalQuantityPolicyService {
       );
     }
   }
-}
-
-function round3(value: number): number {
-  return Math.round((value + Number.EPSILON) * 1000) / 1000;
 }

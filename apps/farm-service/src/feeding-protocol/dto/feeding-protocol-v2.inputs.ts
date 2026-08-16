@@ -10,6 +10,7 @@
  * @module FeedingProtocol/DTO
  */
 import { Field, Float, ID, InputType, Int } from '@nestjs/graphql';
+import { FEEDING_MAX_ABSOLUTE_MEAL_TIME_OFFSET_MINUTES } from '@aquaculture/feeding-contracts';
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -295,8 +296,8 @@ export class AssignmentOverridesInput {
   @Field(() => Int, { nullable: true })
   @IsOptional()
   @IsInt()
-  @Min(-720)
-  @Max(720)
+  @Min(-FEEDING_MAX_ABSOLUTE_MEAL_TIME_OFFSET_MINUTES)
+  @Max(FEEDING_MAX_ABSOLUTE_MEAL_TIME_OFFSET_MINUTES)
   mealTimeOffsetMinutes?: number;
 
   @Field(() => Int, { nullable: true })

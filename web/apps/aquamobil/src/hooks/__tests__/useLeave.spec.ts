@@ -14,6 +14,7 @@ import { webcrypto } from 'node:crypto';
 
 import { renderHook } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { MOBILE_COMMAND_ENVELOPE_CONTRACT_V1 } from '@aquaculture/shared-contracts';
 
 // --------------------------------------------------------------------------
 // Mocks
@@ -47,10 +48,7 @@ Object.defineProperty(globalThis, 'crypto', {
       // produce false dedup matches between distinct payloads — exactly the bug
       // the "different leave types" / "different date ranges" cases must catch.
       digest: (algorithm: AlgorithmIdentifier, data: BufferSource) =>
-        webcrypto.subtle.digest(
-          algorithm,
-          data as Parameters<typeof webcrypto.subtle.digest>[1],
-        ),
+        webcrypto.subtle.digest(algorithm, data as Parameters<typeof webcrypto.subtle.digest>[1]),
       encrypt: vi.fn((_algo: unknown, _key: unknown, data: ArrayBuffer) =>
         Promise.resolve(new Uint8Array(data).buffer),
       ),
@@ -273,7 +271,7 @@ describe('useLeave — offline regression coverage', () => {
       expect(typeof p.deviceId).toBe('string');
       expect(p.operationType).toBe('createLeaveRequest');
       expect(typeof p.payloadHash).toBe('string');
-      expect(p.schemaVersion).toBe('mobile-command-v1');
+      expect(p.schemaVersion).toBe(MOBILE_COMMAND_ENVELOPE_CONTRACT_V1.schemaVersion);
     });
   });
 

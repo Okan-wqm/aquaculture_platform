@@ -30,7 +30,7 @@ import { StockMovement } from '../entities/stock-movement.entity';
 import { Feed } from '../../feed/entities/feed.entity';
 import { Chemical } from '../../chemical/entities/chemical.entity';
 import { Consumable } from '../../consumable/entities/consumable.entity';
-import { FeedingForecastSnapshot } from '../../feeding-protocol/entities/feeding-forecast-snapshot.entity';
+import { findActiveFeedingForecastSnapshotsV1 } from '../../feeding-protocol/feeding-forecast-generation.reader';
 import {
   WarehouseSummaryResponse,
   WarehouseLowStockItem,
@@ -114,9 +114,7 @@ export class GetWarehouseSummaryHandler
     manager: EntityManager,
     tenantId: string,
   ): Promise<WarehouseFeedCoverage[]> {
-    const snapshots = await manager.find(FeedingForecastSnapshot, {
-      where: { tenantId },
-    });
+    const snapshots = await findActiveFeedingForecastSnapshotsV1(manager, tenantId);
     const worstByFeed = new Map<string, WarehouseFeedCoverage>();
     for (const snapshot of snapshots) {
       for (const feed of snapshot.perFeed) {

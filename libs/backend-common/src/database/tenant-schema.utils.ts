@@ -27,6 +27,15 @@ export interface TenantSchemaIdentity {
   tenantId: string;
 }
 
+export interface TenantSchemaMappingRow {
+  readonly schema_name: string;
+  readonly tenant_id: string;
+  readonly schema_exists: boolean;
+  readonly committed_proof: boolean;
+}
+
+export type TenantSchemaMappingKind = 'active' | 'retained';
+
 /**
  * Validate whether a string is a valid UUID v4 format.
  */
@@ -144,18 +153,21 @@ async function listVerifiedTenantSchemaIdentities(
   mappingFunction: TenantSchemaMappingFunction,
   mappingKind: 'active' | 'retained',
 ): Promise<TenantSchemaIdentity[]> {
-  const rows: Array<{
-    schema_name: string;
-    tenant_id: string;
-    schema_exists: boolean;
-    committed_proof: boolean;
-  }> = await dataSource.query(
+  const rows: TenantSchemaMappingRow[] = await dataSource.query(
     `SELECT schema_name, tenant_id::text AS tenant_id
             , schema_exists, committed_proof
        FROM ${mappingFunction}
       ORDER BY schema_name`,
   );
 
+  return verifyTenantSchemaMappingRows(rows, mappingKind);
+}
+
+/** Pure, shared fail-closed verifier for platform tenant mapping projections. */
+export function verifyTenantSchemaMappingRows(
+  rows: readonly TenantSchemaMappingRow[],
+  mappingKind: TenantSchemaMappingKind,
+): TenantSchemaIdentity[] {
   const schemas = new Set<string>();
   const tenants = new Set<string>();
   return rows.map((row) => {

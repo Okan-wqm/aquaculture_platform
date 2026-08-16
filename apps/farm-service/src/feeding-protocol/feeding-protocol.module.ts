@@ -19,17 +19,17 @@ import { Feed } from '../feed/entities/feed.entity';
 import { Species } from '../species/entities/species.entity';
 import { ProtocolValidationService } from './services/protocol-validation.service';
 import { ProtocolRateService } from './services/protocol-rate.service';
-import { ProtocolFeedForecastService } from './services/protocol-feed-forecast.service';
-import { FeedForecastResolver } from './resolvers/feed-forecast.resolver';
-import { ForecastRefreshListener } from './listeners/forecast-refresh.listener';
+import {
+  FeedingForecastProjectionCompiler,
+  ProtocolFeedForecastExecutor,
+} from './executors/protocol-feed-forecast.executor';
 import { MealPlanGeneratorService } from './services/meal-plan-generator.service';
 import { BiomassGrowthApplierService } from './services/biomass-growth-applier.service';
 import { DayPlanRecalcService } from './services/day-plan-recalc.service';
-import { MealExecutionService } from './services/meal-execution.service';
-import { DayPlanAdminService } from './services/day-plan-admin.service';
-import { FeedingCronV2Service } from './services/feeding-cron-v2.service';
+import { MealOperationExecutor } from './executors/meal-operation.executor';
+import { DayPlanOperationExecutor } from './executors/day-plan-operation.executor';
+import { ScheduledFeedingOperationExecutor } from './executors/scheduled-feeding-operation.executor';
 import { WaterTemperatureService } from '../water-quality/services/water-temperature.service';
-import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { BatchDomainService } from '../batch/services/batch-domain.service';
 import { BatchLifecyclePolicyService } from '../batch/services/batch-lifecycle-policy.service';
@@ -53,7 +53,11 @@ import {
   ListProtocolAssignmentsHandler,
 } from './query-handlers/feeding-protocol-v2.query-handlers';
 import { FeedingProtocolV2Resolver } from './resolvers/feeding-protocol-v2.resolver';
-import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
+import { MealFinalizationAuthority } from './services/meal-finalization.authority';
+import { ProtocolResolutionAuthority } from './services/protocol-resolution.authority';
+import { FeedingMutationTransactionAuthority } from './feeding-mutation-transaction.authority';
+import { SensorTemperatureRecalcAuthority } from './services/sensor-temperature-recalc.authority';
+import { FeedingWindowReadinessListener } from './listeners/feeding-window-readiness.listener';
 
 @Module({
   imports: [
@@ -78,18 +82,22 @@ import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
   providers: [
     ProtocolValidationService,
     ProtocolRateService,
+    ProtocolResolutionAuthority,
+    FeedingMutationTransactionAuthority,
     MealPlanGeneratorService,
     BiomassGrowthApplierService,
     DayPlanRecalcService,
-    MealExecutionService,
-    DayPlanAdminService,
-    FeedingCronV2Service,
-    ProtocolFeedForecastService,
-    ForecastRefreshListener,
+    SensorTemperatureRecalcAuthority,
+    MealFinalizationAuthority,
+    MealOperationExecutor,
+    DayPlanOperationExecutor,
+    ScheduledFeedingOperationExecutor,
+    FeedingWindowReadinessListener,
+    FeedingForecastProjectionCompiler,
+    ProtocolFeedForecastExecutor,
     // Sıcaklık SSoT — cron toplu okuması (stateless, @InjectDataSource).
     WaterTemperatureService,
     // Stateless yardımcılar (BatchModule 'stateless pure domain logic' emsali).
-    MobileCommandReceiptService,
     SiteAuthorizationService,
     BatchDomainService,
     BatchLifecyclePolicyService,
@@ -104,17 +112,21 @@ import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
     GetFeedingProtocolV2Handler,
     ListProtocolAssignmentsHandler,
     FeedingProtocolV2Resolver,
-    MealExecutionResolver,
-    FeedForecastResolver,
   ],
   exports: [
     ProtocolValidationService,
     ProtocolRateService,
+    ProtocolResolutionAuthority,
     MealPlanGeneratorService,
     BiomassGrowthApplierService,
     DayPlanRecalcService,
-    MealExecutionService,
-    ProtocolFeedForecastService,
+    SensorTemperatureRecalcAuthority,
+    MealFinalizationAuthority,
+    MealOperationExecutor,
+    DayPlanOperationExecutor,
+    ScheduledFeedingOperationExecutor,
+    FeedingForecastProjectionCompiler,
+    ProtocolFeedForecastExecutor,
   ],
 })
 export class FeedingProtocolModule {}

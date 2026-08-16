@@ -10,12 +10,18 @@ import { IsDateString, IsOptional, IsString, IsUUID, MaxLength } from 'class-val
  */
 @InputType({ isAbstract: true })
 export abstract class MobileCommandEnvelopeInput {
-  @Field({ nullable: true, description: 'Stable client command UUID generated before first submission' })
+  @Field({
+    nullable: true,
+    description: 'Stable client command UUID generated before first submission',
+  })
   @IsOptional()
   @IsUUID()
   clientCommandId?: string;
 
-  @Field({ nullable: true, description: 'ISO timestamp when the mobile client created the command' })
+  @Field({
+    nullable: true,
+    description: 'ISO timestamp when the mobile client created the command',
+  })
   @IsOptional()
   @IsDateString()
   clientCreatedAt?: string;
@@ -25,13 +31,19 @@ export abstract class MobileCommandEnvelopeInput {
   @IsUUID()
   deviceId?: string;
 
-  @Field({ nullable: true, description: 'Mobile operation type, e.g. recordMortality or transferStock' })
+  @Field({
+    nullable: true,
+    description: 'Mobile operation type, e.g. recordMortality or transferStock',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(80)
   operationType?: string;
 
-  @Field({ nullable: true, description: 'SHA-256 hash of the command payload before envelope fields are added' })
+  @Field({
+    nullable: true,
+    description: 'SHA-256 hash of the command payload before envelope fields are added',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(128)
@@ -51,4 +63,28 @@ export interface MobileCommandEnvelope {
   operationType?: string;
   payloadHash?: string;
   schemaVersion?: string;
+}
+
+/**
+ * Closed mobile mutation envelope: the durable command identity and payload
+ * digest are mandatory at both the GraphQL schema and TypeScript boundaries.
+ */
+export interface RequiredMobileCommandEnvelope extends MobileCommandEnvelope {
+  clientCommandId: string;
+  payloadHash: string;
+}
+
+@InputType({ isAbstract: true })
+export abstract class RequiredMobileCommandEnvelopeInput
+  extends MobileCommandEnvelopeInput
+  implements RequiredMobileCommandEnvelope
+{
+  @Field({ description: 'Stable client command UUID generated before first submission' })
+  @IsUUID()
+  override clientCommandId!: string;
+
+  @Field({ description: 'SHA-256 hash of the command payload before envelope fields are added' })
+  @IsString()
+  @MaxLength(128)
+  override payloadHash!: string;
 }

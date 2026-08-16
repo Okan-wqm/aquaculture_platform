@@ -75,6 +75,19 @@ export interface HarnessContext {
   };
 }
 
+/** Minimum capability needed by schema-scoped test helpers. */
+export interface SchemaHarnessContext {
+  readonly dataSource: DataSource;
+}
+
+/**
+ * A database owned by one test invocation. Unlike HarnessContext it has no
+ * container authority, so a nested helper cannot accidentally stop the suite.
+ */
+export interface EphemeralDatabaseContext extends SchemaHarnessContext {
+  readonly connectionOptions: HarnessContext['connectionOptions'];
+}
+
 export interface BootOptions {
   /** Override image (default: pinned TimescaleDB matching prod droplet). */
   readonly image?: string;
@@ -180,6 +193,120 @@ export async function shutdownHarness(ctx: HarnessContext | undefined): Promise<
   }
 }
 
+type LifecycleOutcome<T> =
+  | { readonly ok: true; readonly value: T }
+  | { readonly ok: false; readonly error: unknown };
+
+async function runCleanupActions(
+  label: string,
+  actions: readonly (() => Promise<void>)[],
+): Promise<void> {
+  const failures: unknown[] = [];
+  for (const action of actions) {
+    try {
+      await action();
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) {
+    throw new AggregateError(failures, `${label} cleanup failed in multiple phases`);
+  }
+}
+
+async function withFailClosedCleanup<T>(
+  label: string,
+  work: () => Promise<T>,
+  cleanup: () => Promise<void>,
+): Promise<T> {
+  let outcome: LifecycleOutcome<T>;
+  try {
+    outcome = { ok: true, value: await work() };
+  } catch (error) {
+    outcome = { ok: false, error };
+  }
+
+  let cleanupOutcome: LifecycleOutcome<void>;
+  try {
+    await cleanup();
+    cleanupOutcome = { ok: true, value: undefined };
+  } catch (error) {
+    cleanupOutcome = { ok: false, error };
+  }
+
+  if (!outcome.ok) {
+    if (!cleanupOutcome.ok) {
+      throw new AggregateError(
+        [outcome.error, cleanupOutcome.error],
+        `${label} failed and its isolated state could not be removed`,
+      );
+    }
+    throw outcome.error;
+  }
+  if (!cleanupOutcome.ok) throw cleanupOutcome.error;
+  return outcome.value;
+}
+
+/**
+ * Per-test database isolation for migrations that touch fixed schemas, enum
+ * types, extensions, roles, or session-global state. A shared container keeps
+ * startup cost bounded, while a fresh database makes every test's complete
+ * PostgreSQL namespace disposable. Teardown is fail-closed: callback and
+ * cleanup failures are both retained in an AggregateError.
+ *
+ * Compose with {@link withEphemeralSchema} when the migration also expects a
+ * tenant search_path:
+ *
+ * ```ts
+ * await withEphemeralDatabase(ctx, (_database, isolated) =>
+ *   withEphemeralSchema(isolated, (_schema, qr) => runMigration(qr)),
+ * );
+ * ```
+ */
+export async function withEphemeralDatabase<T>(
+  ctx: HarnessContext,
+  fn: (database: string, isolated: EphemeralDatabaseContext) => Promise<T>,
+): Promise<T> {
+  const database = `test_${randomBytes(8).toString('hex')}`;
+  const adminRunner = ctx.dataSource.createQueryRunner();
+  let databaseCreated = false;
+  let isolatedDataSource: DataSource | undefined;
+
+  return withFailClosedCleanup(
+    `ephemeral database ${database}`,
+    async () => {
+      await adminRunner.query(`CREATE DATABASE "${database}" TEMPLATE template0`);
+      databaseCreated = true;
+
+      const { DataSource } = await import('typeorm');
+      const connectionOptions = { ...ctx.connectionOptions, database };
+      isolatedDataSource = new DataSource({
+        type: 'postgres',
+        ...connectionOptions,
+        entities: [],
+        synchronize: false,
+        logging: false,
+        name: `migration-harness-db-${randomBytes(6).toString('hex')}`,
+      });
+      await isolatedDataSource.initialize();
+      return fn(database, { dataSource: isolatedDataSource, connectionOptions });
+    },
+    () =>
+      runCleanupActions(`ephemeral database ${database}`, [
+        async () => {
+          if (isolatedDataSource?.isInitialized) await isolatedDataSource.destroy();
+        },
+        async () => {
+          if (databaseCreated) {
+            await adminRunner.query(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`);
+          }
+        },
+        () => adminRunner.release(),
+      ]),
+  );
+}
+
 /**
  * Per-test schema isolation. Creates `test_<uuid16>`, pins search_path,
  * invokes `fn`, then ALWAYS drops the schema — even on test failure.
@@ -189,29 +316,29 @@ export async function shutdownHarness(ctx: HarnessContext | undefined): Promise<
  * get different schema names and don't collide.
  */
 export async function withEphemeralSchema<T>(
-  ctx: HarnessContext,
+  ctx: SchemaHarnessContext,
   fn: (schema: string, qr: QueryRunner) => Promise<T>,
 ): Promise<T> {
   const schema = `test_${randomBytes(8).toString('hex')}`;
   const qr = ctx.dataSource.createQueryRunner();
-  try {
-    await qr.query(`CREATE SCHEMA "${schema}"`);
-    // Pin search_path via parameterised set_config per v3 R1 pattern.
-    // is_local=false (session-scoped) because the QueryRunner here is
-    // in auto-commit mode — `true` (transaction-local) would be a no-op
-    // outside a BEGIN…COMMIT block. Production orchestrator code runs
-    // inside a per-migration transaction and uses `true`; see
-    // docs/patterns/sql-identifier-safety.md §"set_config vs SET LOCAL
-    // semantic equivalence" for the gotcha this avoids.
-    await qr.query(`SELECT set_config($1, $2, false)`, ['search_path', `${schema},public`]);
-    return await fn(schema, qr);
-  } finally {
-    try {
-      await qr.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
-    } catch {
-      // Best-effort — never mask the original test failure with a
-      // teardown error.
-    }
-    await qr.release();
-  }
+  return withFailClosedCleanup(
+    `ephemeral schema ${schema}`,
+    async () => {
+      await qr.query(`CREATE SCHEMA "${schema}"`);
+      // Pin search_path via parameterised set_config per v3 R1 pattern.
+      // is_local=false (session-scoped) because the QueryRunner here is
+      // in auto-commit mode — `true` (transaction-local) would be a no-op
+      // outside a BEGIN…COMMIT block. Production orchestrator code runs
+      // inside a per-migration transaction and uses `true`; see
+      // docs/patterns/sql-identifier-safety.md §"set_config vs SET LOCAL
+      // semantic equivalence" for the gotcha this avoids.
+      await qr.query(`SELECT set_config($1, $2, false)`, ['search_path', `${schema},public`]);
+      return fn(schema, qr);
+    },
+    () =>
+      runCleanupActions(`ephemeral schema ${schema}`, [
+        () => qr.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`).then(() => undefined),
+        () => qr.release(),
+      ]),
+  );
 }

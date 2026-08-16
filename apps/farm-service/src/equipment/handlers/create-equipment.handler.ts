@@ -122,7 +122,7 @@ export class CreateEquipmentHandler implements ICommandHandler<CreateEquipmentCo
           departmentRepository,
           input.parentEquipmentId,
           input.departmentId,
-          department.siteId,
+          department.siteId ?? undefined,
           tenantId,
         );
       }
@@ -218,7 +218,7 @@ export class CreateEquipmentHandler implements ICommandHandler<CreateEquipmentCo
           userId,
         }),
         equipmentId: persistedEquipment.id,
-        siteId: department.siteId,
+        siteId: department.siteId ?? undefined,
         systemId: systems[0]?.id,
         departmentId: persistedEquipment.departmentId,
         name: persistedEquipment.name,

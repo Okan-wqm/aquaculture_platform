@@ -12,9 +12,11 @@
  * drain lanes — the foreground provider and the SW replay (sw-replay.ts) —
  * execute the exact same contract, so they cannot drift apart.
  *
- * Zero imports beyond types by design: this file must bundle cleanly into the
- * SW sub-build (tsconfig.sw.json: ES2020 + WebWorker libs, no DOM, no React).
+ * Runtime imports are restricted to browser-safe immutable contract leaves so
+ * this file still bundles cleanly into the SW sub-build (no DOM or React).
  */
+
+import { FEEDING_MEAL_MOBILE_COMMAND_V1 } from '@aquaculture/feeding-contracts/feeding-record-vocabulary';
 
 import type { OperationPayload, OperationType } from '@/types';
 
@@ -59,22 +61,22 @@ export const OPERATION_MUTATIONS: Record<
       }
     }
   `,
-  // Drain penceresi: cutover ÖNCESİ kuyruğa alınmış kayıtlar eski
-  // execution'lara karşı replay olur; yeni kayıtlar recordMealFeeding kullanır.
-  recordFeeding: `
-    mutation RecordDailyFeeding($input: RecordDailyFeedingInput!) {
-      recordDailyFeeding(input: $input) {
+  // Faz 6 öğün cutover'ı (P-25 tipli yanıt; C-17: zarf enqueue'da damgalanır,
+  // backend zarfsız komutu fail-closed reddeder).
+  [FEEDING_MEAL_MOBILE_COMMAND_V1.operationType]: `
+    mutation RecordMealFeeding($input: RecordMealFeedingInput!) {
+      recordMealFeeding(input: $input) {
         id
-        actualFeedKg
         status
+        actualKg
+        varianceKg
+        variancePercent
       }
     }
   `,
-  // Faz 6 öğün cutover'ı (P-25 tipli yanıt; C-17: zarf enqueue'da damgalanır,
-  // backend zarfsız komutu fail-closed reddeder).
-  recordMealFeeding: `
-    mutation RecordMealFeeding($input: RecordMealFeedingInput!) {
-      recordMealFeeding(input: $input) {
+  finalizeMeal: `
+    mutation FinalizeMeal($input: FinalizeMealInput!) {
+      finalizeMeal(input: $input) {
         id
         status
         actualKg
@@ -297,6 +299,13 @@ export function buildOperationVariables(
   }
   if (type === 'deleteMessage') {
     return record;
+  }
+  if (type === 'finalizeMeal') {
+    const { mealId, clientCommandId } = record;
+    if (typeof mealId !== 'string' || typeof clientCommandId !== 'string') {
+      throw new TypeError('Queued finalizeMeal requires mealId and its stable command identity');
+    }
+    return { input: { mealId, operationRequestId: clientCommandId } };
   }
   return { input: payload };
 }

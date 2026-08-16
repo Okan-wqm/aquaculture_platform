@@ -25,20 +25,21 @@ import {
 } from 'typeorm';
 import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import { DecimalScalar } from '@aquaculture/backend-common/graphql';
-import {
-  ObjectType,
-  Field,
-  ID,
-  Float,
-  Int,
-  registerEnumType,
-} from '@nestjs/graphql';
+import { ObjectType, Field, ID, Float, Int, registerEnumType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 // Note: Batch, Feed, and Tank are referenced via string in decorator to avoid circular dependency
 // Type-only imports for TypeScript type checking
 import type { Batch } from '../../batch/entities/batch.entity';
 import type { Feed } from '../../feed/entities/feed.entity';
 import type { Equipment } from '../../equipment/entities/equipment.entity';
+import {
+  FEEDING_FISH_APPETITE,
+  FEEDING_METHOD,
+  type FeedingFishAppetite,
+  type FeedingMethodValue,
+  type FeedingRecordEnvironment,
+  type FeedingRecordFishBehavior,
+} from '@aquaculture/feeding-contracts';
 
 // ============================================================================
 // ENUMS
@@ -47,13 +48,8 @@ import type { Equipment } from '../../equipment/entities/equipment.entity';
 /**
  * Yemleme metodu
  */
-export enum FeedingMethod {
-  MANUAL = 'manual',               // Manuel (elle)
-  AUTOMATIC = 'automatic',         // Otomatik yemleme sistemi
-  DEMAND = 'demand',               // Talep bazlı (sensörlü)
-  BROADCAST = 'broadcast',         // Yayılarak
-  SPOT = 'spot',                   // Nokta besleme
-}
+export const FeedingMethod = FEEDING_METHOD;
+export type FeedingMethod = FeedingMethodValue;
 
 registerEnumType(FeedingMethod, {
   name: 'FeedingMethod',
@@ -63,13 +59,8 @@ registerEnumType(FeedingMethod, {
 /**
  * Balık iştahı
  */
-export enum FishAppetite {
-  EXCELLENT = 'excellent',         // Mükemmel (hızlı tüketim)
-  GOOD = 'good',                   // İyi
-  MODERATE = 'moderate',           // Orta
-  POOR = 'poor',                   // Zayıf
-  NONE = 'none',                   // Yemiyor
-}
+export const FishAppetite = FEEDING_FISH_APPETITE;
+export type FishAppetite = FeedingFishAppetite;
 
 registerEnumType(FishAppetite, {
   name: 'FishAppetite',
@@ -83,24 +74,12 @@ registerEnumType(FishAppetite, {
 /**
  * Çevresel koşullar (yemleme anında)
  */
-export interface FeedingEnvironment {
-  waterTemp?: number;              // °C
-  dissolvedOxygen?: number;        // mg/L
-  weather?: 'sunny' | 'cloudy' | 'rainy' | 'stormy';
-  windLevel?: 'calm' | 'light' | 'moderate' | 'strong';
-  visibility?: 'clear' | 'turbid' | 'very_turbid';
-}
+export type FeedingEnvironment = FeedingRecordEnvironment;
 
 /**
  * Balık davranışı gözlemi
  */
-export interface FishBehavior {
-  appetite: FishAppetite;
-  feedingIntensity: number;        // 1-10 arası
-  surfaceActivity?: 'normal' | 'high' | 'low' | 'none';
-  schoolingBehavior?: 'normal' | 'scattered' | 'tight';
-  abnormalBehavior?: string;
-}
+export type FishBehavior = FeedingRecordFishBehavior;
 
 // ============================================================================
 // ENTITY
@@ -154,7 +133,7 @@ export class FeedingRecord {
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
-  batchLocationId?: string;        // İlgili BatchLocation
+  batchLocationId?: string; // İlgili BatchLocation
 
   // -------------------------------------------------------------------------
   // YEMLEME BİLGİLERİ
@@ -178,11 +157,11 @@ export class FeedingRecord {
 
   @Field(() => Int)
   @Column({ type: 'int', default: 1 })
-  feedingSequence!: number;         // Günün kaçıncı öğünü (1, 2, 3...)
+  feedingSequence!: number; // Günün kaçıncı öğünü (1, 2, 3...)
 
   @Field(() => Int)
   @Column({ type: 'int', default: 1 })
-  totalMealsToday!: number;         // Bugün toplam kaç öğün
+  totalMealsToday!: number; // Bugün toplam kaç öğün
 
   // -------------------------------------------------------------------------
   // FEED İLİŞKİSİ
@@ -198,7 +177,7 @@ export class FeedingRecord {
 
   @Field({ nullable: true })
   @Column({ length: 100, nullable: true })
-  feedBatchNumber?: string;        // Yem parti numarası (traceability)
+  feedBatchNumber?: string; // Yem parti numarası (traceability)
 
   // -------------------------------------------------------------------------
   // MİKTARLAR
@@ -206,23 +185,41 @@ export class FeedingRecord {
 
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 10, scale: 3, transformer: new DecimalTransformer() })
-  plannedAmount!: number;           // Planlanan miktar (kg)
+  plannedAmount!: number; // Planlanan miktar (kg)
 
   @Field(() => Float)
   @Column({ type: 'decimal', precision: 10, scale: 3, transformer: new DecimalTransformer() })
-  actualAmount!: number;            // Gerçek verilen miktar (kg)
+  actualAmount!: number; // Gerçek verilen miktar (kg)
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 10, scale: 3, default: 0, transformer: new DecimalTransformer() })
-  variance!: number;                // Fark (actual - planned)
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 3,
+    default: 0,
+    transformer: new DecimalTransformer(),
+  })
+  variance!: number; // Fark (actual - planned)
 
   @Field(() => Float)
-  @Column({ type: 'decimal', precision: 5, scale: 2, default: 0, transformer: new DecimalTransformer() })
-  variancePercent!: number;         // Fark yüzdesi
+  @Column({
+    type: 'decimal',
+    precision: 5,
+    scale: 2,
+    default: 0,
+    transformer: new DecimalTransformer(),
+  })
+  variancePercent!: number; // Fark yüzdesi
 
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'decimal', precision: 10, scale: 3, nullable: true, transformer: new DecimalTransformer() })
-  wasteAmount?: number;            // Yenilmeyen/atık miktar (kg)
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 3,
+    nullable: true,
+    transformer: new DecimalTransformer(),
+  })
+  wasteAmount?: number; // Yenilmeyen/atık miktar (kg)
 
   // -------------------------------------------------------------------------
   // ÖĞÜN MOTORU v2 BAĞLARI (Faz 5 — soft ref'ler, FK yok [K-16])
@@ -276,7 +273,7 @@ export class FeedingRecord {
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
-  equipmentId?: string;            // Kullanılan ekipman (otomatik ise)
+  equipmentId?: string; // Kullanılan ekipman (otomatik ise)
 
   @Field(() => Int, { nullable: true })
   @Column({ type: 'int', nullable: true })
@@ -290,8 +287,14 @@ export class FeedingRecord {
     nullable: true,
     deprecationReason: 'Use feedCostDecimal (exact decimal string, ADR-0004).',
   })
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
-  feedCost?: number;               // Yem maliyeti (TL)
+  @Column({
+    type: 'decimal',
+    precision: 15,
+    scale: 2,
+    nullable: true,
+    transformer: new DecimalTransformer(),
+  })
+  feedCost?: number; // Yem maliyeti (TL)
 
   /** Same value as `feedCost`, on the wire as an exact decimal string (ADR-0004 /
    *  DATA-MEDIUM-009). A getter (not a column) so TypeORM ignores it. */
@@ -310,11 +313,11 @@ export class FeedingRecord {
 
   @Field()
   @Column('uuid')
-  fedBy!: string;                   // Yemlemeyi yapan kullanıcı
+  fedBy!: string; // Yemlemeyi yapan kullanıcı
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
-  verifiedBy?: string;             // Doğrulayan (varsa)
+  verifiedBy?: string; // Doğrulayan (varsa)
 
   @Field({ nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
@@ -330,7 +333,7 @@ export class FeedingRecord {
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })
-  skipReason?: string;             // Yemleme atlandıysa neden
+  skipReason?: string; // Yemleme atlandıysa neden
 
   // -------------------------------------------------------------------------
   // AUDIT FIELDS
@@ -383,9 +386,8 @@ export class FeedingRecord {
    * Balık iştahı iyi mi?
    */
   hasGoodAppetite(): boolean {
-    return [FishAppetite.EXCELLENT, FishAppetite.GOOD].includes(
-      this.fishBehavior?.appetite || FishAppetite.MODERATE,
-    );
+    const appetite = this.fishBehavior?.appetite ?? FishAppetite.MODERATE;
+    return appetite === FishAppetite.EXCELLENT || appetite === FishAppetite.GOOD;
   }
 
   /**

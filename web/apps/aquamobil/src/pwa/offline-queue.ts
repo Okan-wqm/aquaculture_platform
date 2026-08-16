@@ -1,11 +1,27 @@
 import { get, set, del, keys, entries, createStore } from 'idb-keyval';
+import {
+  canonicalWireJsonStringifyV1,
+  MOBILE_COMMAND_ENVELOPE_CONTRACT_V1,
+  mobileCommandPayloadSha256V1,
+} from '@aquaculture/shared-contracts';
+import { FEEDING_MEAL_MOBILE_COMMAND_V1 } from '@aquaculture/feeding-contracts/feeding-record-vocabulary';
 
-import type { QueuedOperation, OperationType, OperationPayload, AddToQueueResult } from '@/types';
+import type {
+  QueuedOperation,
+  OperationType,
+  OperationPayload,
+  AddToQueueResult,
+  MobileCommandEnvelope,
+} from '@/types';
 import { logger } from '@/utils/logger';
 import type { UserScopedCacheKey } from '@/utils/user-scoped-cache-key';
+import { OFFLINE_QUEUE_STORAGE_AUTHORITY_V1 } from './offline-queue-storage.authority';
 
 // Separate stores for queue and cache to avoid full-store scans (PERF-08)
-const queueStore = createStore('aquamobil-queue', 'queue');
+const queueStore = createStore(
+  OFFLINE_QUEUE_STORAGE_AUTHORITY_V1.databaseName,
+  OFFLINE_QUEUE_STORAGE_AUTHORITY_V1.objectStoreName,
+);
 const cacheStore = createStore('aquamobil-cache', 'cache');
 const keyStore = createStore('aquamobil-keys', 'keys');
 // MSG-MEDIUM-055: dedicated store for offline media BLOBS. The encrypted JSON
@@ -15,6 +31,8 @@ const keyStore = createStore('aquamobil-keys', 'keys');
 const blobStore = createStore('aquamobil-blobs', 'blobs');
 
 const QUEUE_PREFIX = 'pending_';
+const RETIRED_QUEUE_PREFIX = 'retired_v1_';
+const RETIREMENT_GENERATION_PREFIX = 'retirement_generation_v1_';
 const CACHE_PREFIX = 'cache_';
 const BLOB_PREFIX = 'pending_blob_';
 const DURABLE_QUEUE_KEY = 'queue-key-v1';
@@ -32,9 +50,7 @@ export const MAX_PENDING_BLOB_BYTES = 26_214_400;
 interface BackgroundSyncRegistration extends ServiceWorkerRegistration {
   readonly sync: { register(tag: string): Promise<void> };
 }
-function hasBackgroundSync(
-  reg: ServiceWorkerRegistration,
-): reg is BackgroundSyncRegistration {
+function hasBackgroundSync(reg: ServiceWorkerRegistration): reg is BackgroundSyncRegistration {
   return 'sync' in reg;
 }
 
@@ -76,30 +92,6 @@ async function getDeviceId(): Promise<string> {
   return deviceId;
 }
 
-// FARM-LOW-141: this MUST stay byte-identical to the web client's stableStringify
-// (web/modules/farm-module/src/utils/command-envelope.ts — the web's single copy)
-// — both feed one server-side at-most-once payloadHash dedup contract.
-function stableStringify(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map(stableStringify).join(',')}]`;
-  }
-  if (value && typeof value === 'object') {
-    const record = value as Record<string, unknown>;
-    return `{${Object.keys(record)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
-      .join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
-
-async function sha256Hex(value: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
-  return Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('');
-}
-
 /**
  * Content fingerprint of an operation payload, computed BEFORE the command
  * envelope is attached. The envelope adds a fresh `clientCommandId` + a
@@ -114,7 +106,7 @@ async function sha256Hex(value: string): Promise<string> {
  * any payload shape it did not enumerate (e.g. stock movements, transfers).
  */
 export async function computePayloadHash(payload: OperationPayload): Promise<string> {
-  return sha256Hex(stableStringify(payload));
+  return mobileCommandPayloadSha256V1(payload);
 }
 
 async function attachCommandEnvelope(
@@ -123,18 +115,23 @@ async function attachCommandEnvelope(
   clientCommandId: string,
   payloadHash: string,
 ): Promise<OperationPayload> {
-  return {
-    ...(payload as unknown as Record<string, unknown>),
+  const envelope: MobileCommandEnvelope = {
     clientCommandId,
     clientCreatedAt: new Date().toISOString(),
     deviceId: await getDeviceId(),
     operationType: type,
     payloadHash,
-    schemaVersion: 'mobile-command-v1',
-  } as OperationPayload;
+    schemaVersion:
+      type === FEEDING_MEAL_MOBILE_COMMAND_V1.operationType
+        ? FEEDING_MEAL_MOBILE_COMMAND_V1.schemaVersion
+        : MOBILE_COMMAND_ENVELOPE_CONTRACT_V1.schemaVersion,
+  };
+  return Object.assign({}, payload, envelope);
 }
 
-async function encryptPayload(payload: OperationPayload): Promise<{ iv: string; ciphertext: string }> {
+async function encryptPayload(
+  payload: OperationPayload,
+): Promise<{ iv: string; ciphertext: string }> {
   const key = await getSessionKey();
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const encoded = new TextEncoder().encode(JSON.stringify(payload));
@@ -187,6 +184,35 @@ interface StoredOperation extends Omit<QueuedOperation, 'payload'> {
   _payloadHash: string;
 }
 
+interface LegacyStoredOperationV0 extends Omit<StoredOperation, 'type'> {
+  readonly type: string;
+}
+
+interface RetiredQueuedOperationV1 {
+  readonly schemaVersion: 'retired-queued-operation/v1';
+  readonly disposition: 'quarantined';
+  readonly reason: 'legacy-daily-feeding-authority-retired';
+  readonly retiredAt: string;
+  readonly sourceKey: string;
+  readonly operation: LegacyStoredOperationV0;
+}
+
+interface RetiredQueueGenerationV1 {
+  readonly schemaVersion: 'retired-queue-generation/v1';
+  readonly tenantId: string;
+  readonly generation: number;
+  readonly migratedOperationCount: number;
+  readonly lastRetiredAt: string;
+}
+
+export const OFFLINE_QUEUE_CLEAR_AUTHORITIES_V1 = Object.freeze({
+  USER_PENDING_ONLY: 'user-request/pending-operations-only/v1',
+  AUTHENTICATED_LOGOUT: 'authenticated-logout/device-erasure/v1',
+} as const);
+
+export type OfflineQueueClearAuthorityV1 =
+  (typeof OFFLINE_QUEUE_CLEAR_AUTHORITIES_V1)[keyof typeof OFFLINE_QUEUE_CLEAR_AUTHORITIES_V1];
+
 // ============================================================================
 // Offline Queue Operations
 // ============================================================================
@@ -228,13 +254,170 @@ const QUEUE_VERSION_PREFIX = 'qver_';
  */
 export async function getQueueVersion(tenantId: string): Promise<number> {
   const value = await get<number>(`${QUEUE_VERSION_PREFIX}${tenantId}`, keyStore);
-  return typeof value === 'number' ? value : 0;
+  const retirement = await get<RetiredQueueGenerationV1>(
+    `${RETIREMENT_GENERATION_PREFIX}${tenantId}`,
+    queueStore,
+  );
+  const enqueueGeneration = typeof value === 'number' ? value : 0;
+  const retirementGeneration = retirement?.generation ?? 0;
+  return enqueueGeneration + retirementGeneration;
 }
 
 /** Increment the tenant's queue version. Called on every successful enqueue. */
 async function bumpQueueVersion(tenantId: string): Promise<void> {
-  const current = await getQueueVersion(tenantId);
-  await set(`${QUEUE_VERSION_PREFIX}${tenantId}`, current + 1, keyStore);
+  const key = `${QUEUE_VERSION_PREFIX}${tenantId}`;
+  const current = await get<number>(key, keyStore);
+  await set(key, (typeof current === 'number' ? current : 0) + 1, keyStore);
+}
+
+/**
+ * One-way, idempotent cutover for pre-v2 `recordFeeding` queue entries.
+ * Ciphertext and metadata move to the retired keyspace in the SAME IndexedDB
+ * object-store transaction that deletes the live key. A crash can therefore
+ * expose either the replayable pre-cutover row or the non-replayable evidence,
+ * never a lost or duplicated half-move.
+ */
+async function quarantineRetiredLegacyFeedingOperationsV1(): Promise<void> {
+  // Ensure idb-keyval has created the database/object store before opening the
+  // native transaction authority over that same store.
+  await keys(queueStore);
+  const database = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(
+      OFFLINE_QUEUE_STORAGE_AUTHORITY_V1.databaseName,
+      OFFLINE_QUEUE_STORAGE_AUTHORITY_V1.databaseVersion,
+    );
+    request.onerror = () => reject(request.error ?? new Error('Queue database open failed'));
+    request.onsuccess = () => resolve(request.result);
+  });
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction(
+        OFFLINE_QUEUE_STORAGE_AUTHORITY_V1.objectStoreName,
+        'readwrite',
+      );
+      const store = transaction.objectStore(OFFLINE_QUEUE_STORAGE_AUTHORITY_V1.objectStoreName);
+      const cursorRequest = store.openCursor();
+      const migrationCountByTenant = new Map<string, number>();
+      const retiredAt = new Date().toISOString();
+      let abortRequested = false;
+
+      const abort = (): void => {
+        if (abortRequested) return;
+        abortRequested = true;
+        transaction.abort();
+      };
+
+      const writeGenerationReceipts = (): void => {
+        for (const [tenantId, migratedCount] of migrationCountByTenant) {
+          const receiptKey = `${RETIREMENT_GENERATION_PREFIX}${tenantId}`;
+          const receiptRequest = store.get(receiptKey);
+          receiptRequest.onerror = abort;
+          receiptRequest.onsuccess = () => {
+            const previous = receiptRequest.result as RetiredQueueGenerationV1 | undefined;
+            if (
+              previous !== undefined &&
+              (previous.schemaVersion !== 'retired-queue-generation/v1' ||
+                previous.tenantId !== tenantId ||
+                !Number.isSafeInteger(previous.generation) ||
+                previous.generation < 1 ||
+                !Number.isSafeInteger(previous.migratedOperationCount) ||
+                previous.migratedOperationCount < 1)
+            ) {
+              abort();
+              return;
+            }
+            const receipt: RetiredQueueGenerationV1 = {
+              schemaVersion: 'retired-queue-generation/v1',
+              tenantId,
+              generation: (previous?.generation ?? 0) + 1,
+              migratedOperationCount: (previous?.migratedOperationCount ?? 0) + migratedCount,
+              lastRetiredAt: retiredAt,
+            };
+            store.put(receipt, receiptKey);
+          };
+        }
+      };
+
+      transaction.oncomplete = () => resolve();
+      transaction.onabort = () =>
+        reject(transaction.error ?? new Error('Queue retirement aborted'));
+      transaction.onerror = () => reject(transaction.error ?? new Error('Queue retirement failed'));
+      cursorRequest.onerror = () => transaction.abort();
+      cursorRequest.onsuccess = () => {
+        const cursor = cursorRequest.result;
+        if (!cursor) {
+          writeGenerationReceipts();
+          return;
+        }
+        const key = cursor.key;
+        const operation = cursor.value as LegacyStoredOperationV0;
+        if (
+          typeof key === 'string' &&
+          key.startsWith(QUEUE_PREFIX) &&
+          operation.type === 'recordFeeding'
+        ) {
+          const expectedSourceKey = `${QUEUE_PREFIX}${operation.tenantId}_${operation.id}`;
+          if (
+            typeof operation.tenantId !== 'string' ||
+            operation.tenantId.length === 0 ||
+            typeof operation.id !== 'string' ||
+            operation.id.length === 0 ||
+            key !== expectedSourceKey
+          ) {
+            abort();
+            return;
+          }
+          const retiredKey = `${RETIRED_QUEUE_PREFIX}${operation.tenantId}_${operation.id}`;
+          const existingRequest = store.get(retiredKey);
+          existingRequest.onerror = abort;
+          existingRequest.onsuccess = () => {
+            const existing = existingRequest.result as RetiredQueuedOperationV1 | undefined;
+            const evidence: RetiredQueuedOperationV1 = {
+              schemaVersion: 'retired-queued-operation/v1',
+              disposition: 'quarantined',
+              reason: 'legacy-daily-feeding-authority-retired',
+              retiredAt: existing?.retiredAt ?? retiredAt,
+              sourceKey: key,
+              operation,
+            };
+            if (existing === undefined) {
+              store.add(evidence, retiredKey);
+            } else {
+              try {
+                if (
+                  canonicalWireJsonStringifyV1(existing) !== canonicalWireJsonStringifyV1(evidence)
+                ) {
+                  abort();
+                  return;
+                }
+              } catch {
+                abort();
+                return;
+              }
+            }
+            cursor.delete();
+            migrationCountByTenant.set(
+              operation.tenantId,
+              (migrationCountByTenant.get(operation.tenantId) ?? 0) + 1,
+            );
+            cursor.continue();
+          };
+          return;
+        }
+        cursor.continue();
+      };
+    });
+  } finally {
+    database.close();
+  }
+}
+
+export async function getRetiredLegacyFeedingOperationCount(tenantId?: string): Promise<number> {
+  const prefix = tenantId ? `${RETIRED_QUEUE_PREFIX}${tenantId}_` : RETIRED_QUEUE_PREFIX;
+  return (await keys(queueStore)).filter(
+    (key): key is string => typeof key === 'string' && key.startsWith(prefix),
+  ).length;
 }
 
 /**
@@ -276,6 +459,7 @@ export async function queueOperation(
   hasValidAuth = false,
   clientCommandId?: string,
 ): Promise<AddToQueueResult> {
+  await quarantineRetiredLegacyFeedingOperationsV1();
   // SECURITY (C11): tenantId is mandatory -- reject if missing
   if (!tenantId) {
     throw new Error('queueOperation: tenantId is required for tenant-isolated queueing');
@@ -359,8 +543,11 @@ export async function queueOperation(
 
         // ADR-012: Register messaging-specific sync tag for priority processing.
         // Messaging operations are synced via 'sync-messages' before general ops.
-        const isMessagingOp = type === 'sendMessage' || type === 'editMessage' ||
-          type === 'deleteMessage' || type === 'markMessagesRead';
+        const isMessagingOp =
+          type === 'sendMessage' ||
+          type === 'editMessage' ||
+          type === 'deleteMessage' ||
+          type === 'markMessagesRead';
         if (isMessagingOp) {
           await registration.sync.register('sync-messages');
         }
@@ -397,19 +584,19 @@ async function decryptOperation(stored: StoredOperation): Promise<QueuedOperatio
  * @param tenantId - Optional tenant UUID. When provided, only that tenant's operations are returned.
  */
 export async function getPendingOperations(tenantId?: string): Promise<QueuedOperation[]> {
+  await quarantineRetiredLegacyFeedingOperationsV1();
   // Use dedicated queue store -- no need to filter by prefix across mixed entries (PERF-08)
   const allEntries = await entries<string, StoredOperation>(queueStore);
   // SECURITY (C11): Filter by tenant-scoped key prefix when tenantId is provided
-  const prefix = tenantId
-    ? `${QUEUE_PREFIX}${tenantId}_`
-    : QUEUE_PREFIX;
+  const prefix = tenantId ? `${QUEUE_PREFIX}${tenantId}_` : QUEUE_PREFIX;
   const decrypted = await Promise.all(
     allEntries
       .filter(([key]) => String(key).startsWith(prefix))
       .map(([, value]) => decryptOperation(value)),
   );
-  return (decrypted.filter(Boolean) as QueuedOperation[])
-    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  return (decrypted.filter(Boolean) as QueuedOperation[]).sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+  );
 }
 
 /**
@@ -420,18 +607,15 @@ export async function getPendingOperations(tenantId?: string): Promise<QueuedOpe
  * @param tenantId - Optional tenant UUID for tenant-scoped counting.
  */
 export async function getPendingCount(tenantId?: string): Promise<number> {
+  await quarantineRetiredLegacyFeedingOperationsV1();
   const allKeys = await keys(queueStore);
-  const prefix = tenantId
-    ? `${QUEUE_PREFIX}${tenantId}_`
-    : QUEUE_PREFIX;
+  const prefix = tenantId ? `${QUEUE_PREFIX}${tenantId}_` : QUEUE_PREFIX;
   // WHY the `k is string` guard, not `String(k)`: idb-keyval types keys as
   // IDBValidKey (string | number | Date | BufferSource | IDBValidKey[]), so
   // String(k) would stringify a non-string key to "[object Object]" and mis-count.
   // Our queue keys are ALWAYS the `${QUEUE_PREFIX}…` strings we wrote, so narrowing
   // to string is both correct and avoids the base-to-string hazard.
-  return allKeys.filter(
-    (k): k is string => typeof k === 'string' && k.startsWith(prefix),
-  ).length;
+  return allKeys.filter((k): k is string => typeof k === 'string' && k.startsWith(prefix)).length;
 }
 
 /**
@@ -443,7 +627,11 @@ export async function getPendingCount(tenantId?: string): Promise<number> {
  * @param tenantId - Tenant UUID that owns this operation
  * @param id - Operation UUID
  */
-export async function getOperation(tenantId: string, id: string): Promise<QueuedOperation | undefined> {
+export async function getOperation(
+  tenantId: string,
+  id: string,
+): Promise<QueuedOperation | undefined> {
+  await quarantineRetiredLegacyFeedingOperationsV1();
   const stored = await get<StoredOperation>(`${QUEUE_PREFIX}${tenantId}_${id}`, queueStore);
   if (!stored) return undefined;
   const op = await decryptOperation(stored);
@@ -459,7 +647,11 @@ export async function getOperation(tenantId: string, id: string): Promise<Queued
  * @param id - Operation UUID
  * @param updates - Partial fields to merge into the stored operation
  */
-export async function updateOperation(tenantId: string, id: string, updates: Partial<QueuedOperation>): Promise<void> {
+export async function updateOperation(
+  tenantId: string,
+  id: string,
+  updates: Partial<QueuedOperation>,
+): Promise<void> {
   const storeKey = `${QUEUE_PREFIX}${tenantId}_${id}`;
   const existingStored = await get<StoredOperation>(storeKey, queueStore);
   if (!existingStored) return;
@@ -469,11 +661,7 @@ export async function updateOperation(tenantId: string, id: string, updates: Par
   const { payload: newPayload, ...nonPayloadUpdates } = updates;
   const newEnc = newPayload ? await encryptPayload(newPayload) : existingStored._enc;
 
-  await set(
-    storeKey,
-    { ...existingStored, ...nonPayloadUpdates, _enc: newEnc },
-    queueStore,
-  );
+  await set(storeKey, { ...existingStored, ...nonPayloadUpdates, _enc: newEnc }, queueStore);
 }
 
 /**
@@ -489,32 +677,45 @@ export async function removeOperation(tenantId: string, id: string): Promise<voi
 }
 
 /**
- * Clear all queued operations, optionally scoped to a specific tenant.
+ * Clear queued operations under an explicit lifecycle authority.
  *
  * SECURITY (C11): When tenantId is provided, only that tenant's operations are
  * removed. The full-clear variant (no tenantId) is used on logout to wipe all
  * queued data from the device regardless of tenant.
  *
- * @param tenantId - Optional tenant UUID. If provided, only clears that tenant's queue.
+ * Retired cutover evidence is user-owned device data: a normal queue-clear
+ * preserves it, while an authenticated logout explicitly erases it together
+ * with its generation receipt and encryption key.
  */
-export async function clearAllOperations(tenantId?: string): Promise<void> {
+export async function clearAllOperations(
+  tenantId: string | undefined,
+  authority: OfflineQueueClearAuthorityV1,
+): Promise<void> {
   const allKeys = await keys(queueStore);
-  const prefix = tenantId
-    ? `${QUEUE_PREFIX}${tenantId}_`
-    : QUEUE_PREFIX;
+  const prefix = tenantId ? `${QUEUE_PREFIX}${tenantId}_` : QUEUE_PREFIX;
   // Queue keys are always the `${QUEUE_PREFIX}…` strings we wrote, so narrow to
   // string (avoids the base-to-string hazard on idb-keyval's IDBValidKey union).
   const queueKeys = allKeys.filter(
     (k): k is string => typeof k === 'string' && k.startsWith(prefix),
   );
   await Promise.all(queueKeys.map((k) => del(k, queueStore)));
+  if (authority === OFFLINE_QUEUE_CLEAR_AUTHORITIES_V1.AUTHENTICATED_LOGOUT) {
+    const retiredPrefix = tenantId ? `${RETIRED_QUEUE_PREFIX}${tenantId}_` : RETIRED_QUEUE_PREFIX;
+    const generationPrefix = tenantId
+      ? `${RETIREMENT_GENERATION_PREFIX}${tenantId}`
+      : RETIREMENT_GENERATION_PREFIX;
+    const retirementKeys = allKeys.filter(
+      (key): key is string =>
+        typeof key === 'string' &&
+        (key.startsWith(retiredPrefix) || key.startsWith(generationPrefix)),
+    );
+    await Promise.all(retirementKeys.map((key) => del(key, queueStore)));
+  }
   // FE-HIGH-051: tear down the matching queue-version token(s) so a wiped queue
   // also resets its re-arm counter — scoped clears drop just this tenant's
   // token, the full logout clear drops every tenant's token. The tokens live in
   // the durable KEY store, so they are scanned/deleted there, not in queueStore.
-  const versionPrefix = tenantId
-    ? `${QUEUE_VERSION_PREFIX}${tenantId}`
-    : QUEUE_VERSION_PREFIX;
+  const versionPrefix = tenantId ? `${QUEUE_VERSION_PREFIX}${tenantId}` : QUEUE_VERSION_PREFIX;
   const allKeyStoreKeys = await keys(keyStore);
   // Version tokens are always the `${QUEUE_VERSION_PREFIX}…` strings we wrote,
   // so narrow to string (avoids the base-to-string hazard on IDBValidKey).
@@ -527,7 +728,7 @@ export async function clearAllOperations(tenantId?: string): Promise<void> {
   // (scoped clear → this tenant's blobs; logout clear → every tenant's). Done
   // BEFORE the session key is torn down below so encrypted blobs are removable.
   await clearPendingBlobs(tenantId);
-  if (!tenantId) {
+  if (!tenantId && authority === OFFLINE_QUEUE_CLEAR_AUTHORITIES_V1.AUTHENTICATED_LOGOUT) {
     _sessionKey = null;
     await del(DURABLE_QUEUE_KEY, keyStore);
   }
@@ -563,7 +764,12 @@ interface EncryptedCacheEntry {
  * @param data - Data to cache (will be AES-GCM encrypted)
  * @param ttlMs - Time-to-live in milliseconds (default: 1 hour)
  */
-export async function cacheData<T>(tenantId: string, key: string, data: T, ttlMs: number = 1000 * 60 * 60): Promise<void> {
+export async function cacheData<T>(
+  tenantId: string,
+  key: string,
+  data: T,
+  ttlMs: number = 1000 * 60 * 60,
+): Promise<void> {
   if (!tenantId) {
     throw new Error('cacheData: tenantId is required for tenant-isolated caching');
   }
@@ -681,9 +887,7 @@ export async function getCachedUserData<T>(
  */
 export async function clearCache(tenantId?: string): Promise<void> {
   const allKeys = await keys(cacheStore);
-  const prefix = tenantId
-    ? `${CACHE_PREFIX}${tenantId}:`
-    : CACHE_PREFIX;
+  const prefix = tenantId ? `${CACHE_PREFIX}${tenantId}:` : CACHE_PREFIX;
   // Cache keys are always the `${CACHE_PREFIX}…` strings we wrote, so narrow to
   // string (avoids the base-to-string hazard on idb-keyval's IDBValidKey union).
   const cacheKeys = allKeys.filter(
@@ -807,14 +1011,11 @@ export async function clearPendingBlobs(tenantId?: string): Promise<void> {
 // Sync Logic
 // ============================================================================
 
-type GraphQLExecutor = (
-  type: OperationType,
-  payload: OperationPayload
-) => Promise<unknown>;
+type GraphQLExecutor = (type: OperationType, payload: OperationPayload) => Promise<unknown>;
 
 export async function syncOperation(
   operation: QueuedOperation,
-  executeGraphQL: GraphQLExecutor
+  executeGraphQL: GraphQLExecutor,
 ): Promise<boolean> {
   try {
     await updateOperation(operation.tenantId, operation.id, { status: 'syncing' });
@@ -822,9 +1023,10 @@ export async function syncOperation(
     await removeOperation(operation.tenantId, operation.id);
     return true;
   } catch (error) {
-    const errorMessage = error instanceof Error
-      ? error.message.slice(0, 200) // SEC-07: truncate error messages
-      : 'Unknown error';
+    const errorMessage =
+      error instanceof Error
+        ? error.message.slice(0, 200) // SEC-07: truncate error messages
+        : 'Unknown error';
     await updateOperation(operation.tenantId, operation.id, {
       status: 'failed',
       retryCount: operation.retryCount + 1,
@@ -921,16 +1123,21 @@ export async function syncAllOperations(
   // before processing. This prevents operations from being permanently stuck in 'syncing'.
   const allOps = await getPendingOperations(tenantId);
   const staleSync = allOps.filter((op) => op.status === 'syncing');
-  await Promise.all(staleSync.map((op) => updateOperation(op.tenantId, op.id, { status: 'pending' })));
+  await Promise.all(
+    staleSync.map((op) => updateOperation(op.tenantId, op.id, { status: 'pending' })),
+  );
 
   // BUG-17: Promote retryable 'failed' operations back to 'pending' so they
   // are included in this sync pass. Previously, failed items were skipped
   // permanently -- they never transitioned back to 'pending', leaving the user
   // with a dead queue that only manual deletion could resolve.
   const retryableFailed = allOps.filter(
-    (op) => op.status === 'failed' && op.retryCount < MAX_RETRY_COUNT && isRetryableError(op.lastError),
+    (op) =>
+      op.status === 'failed' && op.retryCount < MAX_RETRY_COUNT && isRetryableError(op.lastError),
   );
-  await Promise.all(retryableFailed.map((op) => updateOperation(op.tenantId, op.id, { status: 'pending' })));
+  await Promise.all(
+    retryableFailed.map((op) => updateOperation(op.tenantId, op.id, { status: 'pending' })),
+  );
 
   const pendingOps = await getPendingOperations(tenantId);
   // FARM-HIGH-214 priority drain: escape incidents are legally time-critical

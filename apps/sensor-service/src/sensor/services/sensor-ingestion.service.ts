@@ -39,14 +39,20 @@ import {
   DiscoverySource,
   SensorDataChannel,
 } from '../../database/entities/sensor-data-channel.entity';
-import { QualityCodes, type SensorMetricInput } from '../../database/entities/sensor-metric.entity';
+import type { SensorMetricInput } from '../../database/entities/sensor-metric.entity';
+import { QualityCodes } from '../../database/sensor-quality.authority';
 import { SensorReading, SensorReadings } from '../../database/entities/sensor-reading.entity';
 import { Sensor, SensorRole, SensorType } from '../../database/entities/sensor.entity';
 import { SensorMetricWriterService } from '../../ingestion/sensor-metric-writer.service';
 import { CalibrationService } from './calibration.service';
 import { DataQualityService } from './data-quality.service';
 import { ReadingMapperRegistry } from './reading-mapper.service';
-import { validateSensorId, validateTenantId, validateDataPath, MAX_DATA_PATH_DEPTH } from '../validation/input-sanitizer';
+import {
+  validateSensorId,
+  validateTenantId,
+  validateDataPath,
+  MAX_DATA_PATH_DEPTH,
+} from '../validation/input-sanitizer';
 import { withRetry, RetryableErrors, CircuitBreaker } from '../utils/retry.util';
 
 /**
@@ -341,10 +347,7 @@ export class SensorIngestionService {
     // Resolve the per-parameter channel map for each unique sensor ONCE. The
     // prefetchCalibrationConfigs()/applyCalibration() calls above warmed the
     // channel cache, so these resolve from cache — no extra DB round-trip.
-    const channelMapsBySensor = new Map<
-      string,
-      Map<SensorReadingParameter, SensorDataChannel>
-    >();
+    const channelMapsBySensor = new Map<string, Map<SensorReadingParameter, SensorDataChannel>>();
     for (const sensorId of sensorIds) {
       // Union of every parameter this sensor reports in the batch, so one
       // provisioning pass covers the whole chunk (SENSOR-HIGH-085 / B1).
@@ -557,7 +560,9 @@ export class SensorIngestionService {
       await this.sensorRepository.update({ id: sensorId }, { lastSeenAt: new Date() });
     } catch (error) {
       // Log but don't throw - this is a non-critical operation
-      this.logger.warn(`Failed to update lastSeenAt for sensor ${sensorId}: ${(error as Error).message}`);
+      this.logger.warn(
+        `Failed to update lastSeenAt for sensor ${sensorId}: ${(error as Error).message}`,
+      );
     }
   }
 
@@ -568,10 +573,7 @@ export class SensorIngestionService {
     if (sensorIds.length === 0) return;
 
     try {
-      await this.sensorRepository.update(
-        { id: In(sensorIds) },
-        { lastSeenAt: new Date() },
-      );
+      await this.sensorRepository.update({ id: In(sensorIds) }, { lastSeenAt: new Date() });
     } catch (error) {
       this.logger.warn(`Failed to bulk update lastSeenAt: ${(error as Error).message}`);
     }
@@ -636,7 +638,9 @@ export class SensorIngestionService {
       this.childSensorCache.set(cacheKey, children);
       return children;
     } catch (error) {
-      this.logger.error(`Failed to fetch child sensors for parent ${parentId}: ${(error as Error).message}`);
+      this.logger.error(
+        `Failed to fetch child sensors for parent ${parentId}: ${(error as Error).message}`,
+      );
       return [];
     }
   }

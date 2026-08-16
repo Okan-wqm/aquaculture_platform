@@ -1,5 +1,13 @@
 import { InputType, Field, Float, ID } from '@nestjs/graphql';
-import { IsUUID, IsArray, ValidateNested, IsNumber, Min, IsOptional, IsString } from 'class-validator';
+import {
+  IsUUID,
+  IsArray,
+  ValidateNested,
+  IsNumber,
+  Min,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 @InputType()
@@ -26,6 +34,11 @@ export class ReceiveDeliveryItemInput {
 
 @InputType()
 export class ReceiveDeliveryInput {
+  /** Stable client-generated identity reused for every retry of this receipt. */
+  @Field(() => ID)
+  @IsUUID()
+  receiptId!: string;
+
   @Field(() => ID)
   @IsUUID()
   purchaseOrderId!: string;

@@ -20,19 +20,37 @@ export interface MockDataSourceResult {
   mockManager: jest.Mocked<EntityManager>;
 }
 
+/**
+ * Deterministic transaction clock returned by the shared QueryRunner fixture.
+ * Test suites may override the query mock when the exact instant is material,
+ * but they must not each reimplement the database control-query protocol.
+ */
+export const TEST_DATABASE_MUTATION_INSTANT_ISO = '2026-08-08T12:30:00.000Z';
+
+export async function mockTenantTransactionControlQuery(sql: string): Promise<unknown[]> {
+  return sql.includes('transaction_timestamp()')
+    ? [{ mutationInstant: TEST_DATABASE_MUTATION_INSTANT_ISO }]
+    : [];
+}
+
 export function createMockDataSource(): MockDataSourceResult {
   const mockManager = {
     find: jest.fn().mockResolvedValue([]),
     findAndCount: jest.fn().mockResolvedValue([[], 0]),
     findOne: jest.fn().mockResolvedValue(null),
-    save: jest.fn().mockImplementation((_entityClassOrEntity: unknown, maybeData?: unknown) =>
-      Promise.resolve(maybeData ?? _entityClassOrEntity),
-    ),
-    create: jest.fn().mockImplementation((_entityClassOrData: unknown, maybeData?: unknown) =>
-      maybeData ?? _entityClassOrData,
-    ),
+    save: jest
+      .fn()
+      .mockImplementation((_entityClassOrEntity: unknown, maybeData?: unknown) =>
+        Promise.resolve(maybeData ?? _entityClassOrEntity),
+      ),
+    create: jest
+      .fn()
+      .mockImplementation(
+        (_entityClassOrData: unknown, maybeData?: unknown) => maybeData ?? _entityClassOrData,
+      ),
     update: jest.fn().mockResolvedValue({ affected: 1 }),
     delete: jest.fn().mockResolvedValue({ affected: 1 }),
+    query: jest.fn().mockResolvedValue([]),
     // Chainable no-op query builder — handlers use `.createQueryBuilder().update()
     // .set().where().execute()` for column-scoped writes (e.g. biomass-only updates
     // that must not clobber a sibling column). Returns a self-referencing chain so
@@ -74,7 +92,7 @@ export function createMockDataSource(): MockDataSourceResult {
     commitTransaction: jest.fn().mockResolvedValue(undefined),
     rollbackTransaction: jest.fn().mockResolvedValue(undefined),
     release: jest.fn().mockResolvedValue(undefined),
-    query: jest.fn().mockResolvedValue([]),
+    query: jest.fn().mockImplementation(mockTenantTransactionControlQuery),
     manager: mockManager,
   } as unknown as jest.Mocked<QueryRunner>;
 

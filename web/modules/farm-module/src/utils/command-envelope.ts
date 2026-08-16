@@ -10,43 +10,24 @@
  * (mobil kuyruğun stableStringify paritesi — anahtarlar özyinelemeli
  * sıralanır ki aynı yük her zaman aynı hash'i üretsin, P-29).
  */
+import {
+  canonicalWireJsonStringifyV1,
+  mobileCommandPayloadSha256V1,
+  type MobileCommandIdentityV1,
+} from '@aquaculture/shared-contracts';
 
-export interface CommandEnvelope {
+export { canonicalWireJsonStringifyV1 as stableStringify } from '@aquaculture/shared-contracts';
+
+export interface CommandEnvelope<OperationType extends string = string> {
   clientCommandId: string;
   clientCreatedAt: string;
-  operationType: string;
+  operationType: OperationType;
   payloadHash: string;
+  schemaVersion: MobileCommandIdentityV1<OperationType>['schemaVersion'];
 }
 
-/**
- * Deterministik, ÖZYİNELEMELİ anahtar-sıralı stringify — sunucunun at-most-once
- * payloadHash sözleşmesinin kanonik biçimi. Web'in TEK kopyası budur
- * (useBatches buradan import eder — FARM-LOW-235 tekilleştirmesi).
- *
- * FARM-LOW-141: AquaMobil'in kopyasıyla
- * (web/apps/aquamobil/src/pwa/offline-queue.ts) BYTE-BYTE aynı kalmak
- * ZORUNDADIR — iki istemci tek dedup sözleşmesini aynı biçimle hash'ler
- * (undefined-değerli anahtarlar da serileştirilir; filtreleme sapmaydı).
- */
-export function stableStringify(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map(stableStringify).join(',')}]`;
-  }
-  if (value && typeof value === 'object') {
-    const record = value as Record<string, unknown>;
-    return `{${Object.keys(record)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
-      .join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
-
-async function sha256Hex(text: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-  return Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('');
+export function hashCommandPayload(payload: unknown): string {
+  return mobileCommandPayloadSha256V1(payload);
 }
 
 /**
@@ -54,14 +35,15 @@ async function sha256Hex(text: string): Promise<string> {
  * gönderilmelidir (idempotent replay) — çağıran zarfı mutation süresince
  * saklar, her denemede yeniden ÜRETMEZ.
  */
-export async function buildCommandEnvelope(
-  operationType: string,
+export async function buildCommandEnvelope<OperationType extends string>(
+  identity: MobileCommandIdentityV1<OperationType>,
   payload: Record<string, unknown>,
-): Promise<CommandEnvelope> {
+): Promise<CommandEnvelope<OperationType>> {
   return {
     clientCommandId: crypto.randomUUID(),
     clientCreatedAt: new Date().toISOString(),
-    operationType,
-    payloadHash: await sha256Hex(stableStringify(payload)),
+    operationType: identity.operationType,
+    payloadHash: hashCommandPayload(payload),
+    schemaVersion: identity.schemaVersion,
   };
 }

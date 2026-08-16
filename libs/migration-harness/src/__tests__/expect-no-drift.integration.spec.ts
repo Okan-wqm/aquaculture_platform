@@ -1,5 +1,5 @@
 import { AllowTenantDelta, EncryptedAtRest } from '@aquaculture/backend-common/database';
-import { Check, Column, Entity, PrimaryColumn } from 'typeorm';
+import { Check, Column, Entity, JoinColumn, ManyToOne, PrimaryColumn } from 'typeorm';
 
 import {
   type HarnessContext,
@@ -77,6 +77,34 @@ class WidgetDeltaEntity {
 
   @Column({ type: 'text', nullable: false })
   name!: string;
+}
+
+@Entity({ name: 'fk_parent', schema: 'drifttest' })
+class ForeignKeyParentEntity {
+  @PrimaryColumn({ type: 'uuid' })
+  id!: string;
+}
+
+@Entity({ name: 'fk_child', schema: 'drifttest' })
+class ForeignKeyChildEntity {
+  @PrimaryColumn({ type: 'uuid' })
+  id!: string;
+
+  @Column({ name: 'parent_id', type: 'uuid' })
+  parentId!: string;
+
+  @ManyToOne(() => ForeignKeyParentEntity, { nullable: false })
+  @JoinColumn({ name: 'parent_id' })
+  parent!: ForeignKeyParentEntity;
+}
+
+@Entity({ name: 'fk_free_child', schema: 'drifttest' })
+class ForeignKeyFreeChildEntity {
+  @PrimaryColumn({ type: 'uuid' })
+  id!: string;
+
+  @Column({ name: 'parent_id', type: 'uuid' })
+  parentId!: string;
 }
 
 describe('expectNoDriftAgainst — 4-class drift detection', () => {
@@ -429,6 +457,91 @@ describe('expectNoDriftAgainst — 4-class drift detection', () => {
             (v) => v.includes('1 orphaned') && v.includes('check_constraint'),
           ),
         ).toBe(true);
+      } finally {
+        await qr.query(`DROP SCHEMA IF EXISTS drifttest CASCADE`);
+      }
+    });
+  });
+
+  it('detects Class K when an entity-declared foreign key is absent', async () => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_ephemeral, qr) => {
+      await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
+      try {
+        await qr.query(`CREATE TABLE drifttest.fk_parent (id uuid PRIMARY KEY)`);
+        await qr.query(
+          `CREATE TABLE drifttest.fk_child (
+             id uuid PRIMARY KEY,
+             parent_id uuid NOT NULL
+           )`,
+        );
+
+        const report = await expectNoDriftAgainst(
+          { qr, schema: 'drifttest' },
+          [ForeignKeyParentEntity, ForeignKeyChildEntity],
+        );
+
+        expect(report.byClass.foreign_key_presence).toBe(1);
+        expect(report.violations).toEqual(
+          expect.arrayContaining([
+            expect.stringContaining('1 missing in DB'),
+          ]),
+        );
+      } finally {
+        await qr.query(`DROP SCHEMA IF EXISTS drifttest CASCADE`);
+      }
+    });
+  });
+
+  it('reports Class K clean when entity and database foreign-key counts match', async () => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_ephemeral, qr) => {
+      await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
+      try {
+        await qr.query(`CREATE TABLE drifttest.fk_parent (id uuid PRIMARY KEY)`);
+        await qr.query(
+          `CREATE TABLE drifttest.fk_child (
+             id uuid PRIMARY KEY,
+             parent_id uuid NOT NULL REFERENCES drifttest.fk_parent(id)
+           )`,
+        );
+
+        const report = await expectNoDriftAgainst(
+          { qr, schema: 'drifttest' },
+          [ForeignKeyParentEntity, ForeignKeyChildEntity],
+        );
+
+        expect(report.byClass.foreign_key_presence).toBe(0);
+      } finally {
+        await qr.query(`DROP SCHEMA IF EXISTS drifttest CASCADE`);
+      }
+    });
+  });
+
+  it('detects Class K when the database carries an undeclared foreign key', async () => {
+    const harness = expectHarnessContext(ctx);
+    await withHarnessSchema(harness, async (_ephemeral, qr) => {
+      await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
+      try {
+        await qr.query(`CREATE TABLE drifttest.fk_parent (id uuid PRIMARY KEY)`);
+        await qr.query(
+          `CREATE TABLE drifttest.fk_free_child (
+             id uuid PRIMARY KEY,
+             parent_id uuid NOT NULL REFERENCES drifttest.fk_parent(id)
+           )`,
+        );
+
+        const report = await expectNoDriftAgainst(
+          { qr, schema: 'drifttest' },
+          [ForeignKeyParentEntity, ForeignKeyFreeChildEntity],
+        );
+
+        expect(report.byClass.foreign_key_presence).toBe(1);
+        expect(report.violations).toEqual(
+          expect.arrayContaining([
+            expect.stringContaining('1 orphaned'),
+          ]),
+        );
       } finally {
         await qr.query(`DROP SCHEMA IF EXISTS drifttest CASCADE`);
       }

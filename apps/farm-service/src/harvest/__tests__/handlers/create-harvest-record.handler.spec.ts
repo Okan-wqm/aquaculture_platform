@@ -15,6 +15,7 @@
  */
 import { BadRequestException, Logger } from '@nestjs/common';
 import { Role } from '@aquaculture/backend-common/decorators';
+import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
 import { getMetadataStorage } from 'class-validator';
@@ -30,6 +31,7 @@ import { CreateHarvestRecordCommand } from '../../commands/create-harvest-record
 import { CreateHarvestRecordInput } from '../../dto/create-harvest-record.input';
 import { HarvestRecord, QualityClass } from '../../entities/harvest-record.entity';
 import { CreateHarvestRecordHandler } from '../../handlers/create-harvest-record.handler';
+import { RecordingBatchAggregateMutationPort } from '../../../__tests__/support/durable-mutation-test-authority';
 
 const TENANT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
@@ -86,7 +88,14 @@ function makeHarness(opts: HarnessOpts = {}) {
     currentBiomassKg: 400,
     densityKgM3: 4,
     batchDetails: [
-      { batchId: 'batch-1', batchNumber: 'B-1', quantity: 1000, biomassKg: 400, avgWeightG: 400, percentageOfTank: 100 },
+      {
+        batchId: 'batch-1',
+        batchNumber: 'B-1',
+        quantity: 1000,
+        biomassKg: 400,
+        avgWeightG: 400,
+        percentageOfTank: 100,
+      },
     ],
   };
 
@@ -104,10 +113,9 @@ function makeHarness(opts: HarnessOpts = {}) {
   const managerSave = jest.fn((_entity: unknown, value: unknown) => Promise.resolve(value));
 
   // createMockDataSource models the fail-closed runInTenantTransaction
-  // boundary: queryRunner.query returns [] so the search_path/GUC readback
-  // assertion is skipped under the mock (no live connection). The factory's
-  // manager is reconfigured below with the entity-identity-aware findOne /
-  // create / save plus the createQueryBuilder generateCode() relies on.
+  // boundary and its canonical database clock. The factory's manager is
+  // reconfigured below with the entity-identity-aware findOne / create / save
+  // plus the createQueryBuilder generateCode() relies on.
   const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSource();
   (mockManager.findOne as jest.Mock).mockImplementation(managerFindOne);
   (mockManager.create as jest.Mock).mockImplementation(managerCreate);
@@ -128,23 +136,18 @@ function makeHarness(opts: HarnessOpts = {}) {
   } as never;
 
   const executeCommand = jest.fn((_command: CloseBatchCommand) =>
-    opts.closeBatchError
-      ? Promise.reject(opts.closeBatchError)
-      : Promise.resolve(undefined),
+    opts.closeBatchError ? Promise.reject(opts.closeBatchError) : Promise.resolve(undefined),
   );
   const commandBus = { execute: executeCommand } as never;
 
   const harvestEligibility = {
-    checkEligibility: jest
-      .fn()
-      .mockResolvedValue({ eligible: true, blockingEvents: [] }),
+    checkEligibility: jest.fn().mockResolvedValue({ eligible: true, blockingEvents: [] }),
   };
   const backdatePolicy = { validate: jest.fn() };
   const harvestPolicy = { evaluate: jest.fn().mockResolvedValue(undefined) };
-  const mobileCommandReceipts = {
-    begin: jest.fn().mockResolvedValue({ mode: 'execute' }),
-    complete: jest.fn().mockResolvedValue(undefined),
-  };
+  const mobileCommandReceipts = new MobileCommandReceiptService();
+  jest.spyOn(mobileCommandReceipts, 'begin').mockResolvedValue({ mode: 'legacy' });
+  jest.spyOn(mobileCommandReceipts, 'complete').mockResolvedValue(undefined);
   const farmStockProjection = {
     refreshContainers: jest.fn().mockResolvedValue(undefined),
   };
@@ -160,6 +163,7 @@ function makeHarness(opts: HarnessOpts = {}) {
   };
 
   const handler = new CreateHarvestRecordHandler(
+    new RecordingBatchAggregateMutationPort(mockManager),
     dataSource,
     outboxPublisher,
     // P-31 recalc — mocked (day-plan-recalc.service.spec kapsıyor).
@@ -179,10 +183,19 @@ function makeHarness(opts: HarnessOpts = {}) {
     // so site authz bypasses for these final-harvest-chain domain tests.
     new SiteAuthorizationService(),
     farmStockProjection as never,
-    mobileCommandReceipts as never,
+    mobileCommandReceipts,
   );
 
-  return { handler, batch, commit, rollback, enqueuedEvents, executeCommand, createdHarvestRecords, tankBatchService };
+  return {
+    handler,
+    batch,
+    commit,
+    rollback,
+    enqueuedEvents,
+    executeCommand,
+    createdHarvestRecords,
+    tankBatchService,
+  };
 }
 
 function makeCommand(overrides: Partial<Record<string, unknown>> = {}) {
@@ -229,9 +242,9 @@ describe('CreateHarvestRecordHandler — final-harvest chain', () => {
     // through applyBatchDelta so the per-batch SSoT decrements in lock-step.
     expect(tankBatchService.applyBatchDelta).toHaveBeenCalledTimes(1);
     const call = tankBatchService.applyBatchDelta.mock.calls[0];
-    const tenantIdArg = call[1];
-    const tankIdArg = call[2];
-    const delta = call[3];
+    const tenantIdArg = call[2];
+    const tankIdArg = call[3];
+    const delta = call[4];
     expect(tenantIdArg).toBe(TENANT_ID);
     expect(tankIdArg).toBe('tank-1');
     expect(delta.quantityDelta).toBe(-400);
@@ -271,9 +284,7 @@ describe('CreateHarvestRecordHandler — final-harvest chain', () => {
       closeBatchError: new Error('withdrawal period active'),
     });
 
-    await expect(
-      handler.execute(makeCommand({ quantityHarvested: 400 })),
-    ).resolves.toBeDefined();
+    await expect(handler.execute(makeCommand({ quantityHarvested: 400 }))).resolves.toBeDefined();
 
     expect(commit).toHaveBeenCalled();
     expect(rollback).not.toHaveBeenCalled();
@@ -297,9 +308,7 @@ describe('CreateHarvestRecordHandler — final-harvest chain', () => {
       }),
     });
 
-    await expect(
-      handler.execute(makeCommand({ quantityHarvested: 400 })),
-    ).resolves.toBeDefined();
+    await expect(handler.execute(makeCommand({ quantityHarvested: 400 }))).resolves.toBeDefined();
 
     expect(warnSpy).toHaveBeenCalledTimes(1);
     expect(errorSpy).not.toHaveBeenCalled();
@@ -320,9 +329,7 @@ describe('CreateHarvestRecordHandler — final-harvest chain', () => {
       closeBatchError: new BadRequestException('Batch batch-1 zaten kapatılmış'),
     });
 
-    await expect(
-      handler.execute(makeCommand({ quantityHarvested: 400 })),
-    ).resolves.toBeDefined();
+    await expect(handler.execute(makeCommand({ quantityHarvested: 400 }))).resolves.toBeDefined();
 
     expect(debugSpy).toHaveBeenCalledTimes(1);
     expect(errorSpy).not.toHaveBeenCalled();

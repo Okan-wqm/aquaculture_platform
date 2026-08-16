@@ -1,7 +1,7 @@
 /**
  * FeedingDailySummaryEventHandler (K-8c) — pinler: tenant fail-closed;
- * alıcılar cihaz-token dizininden; push deterministik deliveryId ile
- * makbuz-idempotent; replay'de in-app yazılmaz; push hatası in-app'i düşürmez.
+ * alıcılar cihaz-token dizininden; push ve in-app aynı deterministik
+ * deliveryId'yi kullanır; push hatası/replay in-app ensure yolunu düşürmez.
  */
 import type { FeedingDailySummaryEvent } from '@platform/event-contracts';
 
@@ -13,9 +13,7 @@ function mock<T>(impl: Partial<T>): T {
   return impl as T;
 }
 
-function summaryEvent(
-  overrides: Partial<FeedingDailySummaryEvent> = {},
-): FeedingDailySummaryEvent {
+function summaryEvent(overrides: Partial<FeedingDailySummaryEvent> = {}): FeedingDailySummaryEvent {
   return {
     eventType: 'FeedingDailySummary',
     tenantId: TENANT,
@@ -36,6 +34,7 @@ interface HarnessOpts {
   recipients?: Array<{ userId: string; token: string }>;
   pushResult?: { replayed: boolean };
   pushError?: Error;
+  inAppError?: Error;
 }
 
 function makeHandler(opts: HarnessOpts = {}) {
@@ -45,10 +44,12 @@ function makeHandler(opts: HarnessOpts = {}) {
   } else {
     dispatchCommandNotification.mockResolvedValue(opts.pushResult ?? { replayed: false });
   }
-  const createNotification = jest.fn().mockResolvedValue(undefined);
-  const getRawMany = jest.fn().mockResolvedValue(
-    opts.recipients ?? [{ userId: 'user-1', token: 'tok-1' }],
-  );
+  const ensureNotification = opts.inAppError
+    ? jest.fn().mockRejectedValue(opts.inAppError)
+    : jest.fn().mockResolvedValue(undefined);
+  const getRawMany = jest
+    .fn()
+    .mockResolvedValue(opts.recipients ?? [{ userId: 'user-1', token: 'tok-1' }]);
   const qb = {
     select: jest.fn().mockReturnThis(),
     addSelect: jest.fn().mockReturnThis(),
@@ -64,26 +65,26 @@ function makeHandler(opts: HarnessOpts = {}) {
     mock<ConstructorParameters<typeof FeedingDailySummaryEventHandler>[0]>({
       dispatchCommandNotification,
     } as Partial<ConstructorParameters<typeof FeedingDailySummaryEventHandler>[0]>),
-    { createNotification },
+    { ensureNotification },
     mock<ConstructorParameters<typeof FeedingDailySummaryEventHandler>[2]>({
       createQueryBuilder: deviceTokenRepository.createQueryBuilder,
     } as Partial<ConstructorParameters<typeof FeedingDailySummaryEventHandler>[2]>),
     { subscribeWildcard },
   );
 
-  return { handler, dispatchCommandNotification, createNotification, subscribeWildcard };
+  return { handler, dispatchCommandNotification, ensureNotification, subscribeWildcard };
 }
 
 describe('FeedingDailySummaryEventHandler', () => {
   it('geçersiz tenantId fail-closed atlanır (cihaz sorgusu bile yapılmaz)', async () => {
-    const { handler, dispatchCommandNotification, createNotification } = makeHandler();
+    const { handler, dispatchCommandNotification, ensureNotification } = makeHandler();
     await handler.handle(summaryEvent({ tenantId: 'not-a-uuid' }));
     expect(dispatchCommandNotification).not.toHaveBeenCalled();
-    expect(createNotification).not.toHaveBeenCalled();
+    expect(ensureNotification).not.toHaveBeenCalled();
   });
 
   it('kullanıcı başına push (deterministik deliveryId) + in-app yazar', async () => {
-    const { handler, dispatchCommandNotification, createNotification } = makeHandler({
+    const { handler, dispatchCommandNotification, ensureNotification } = makeHandler({
       recipients: [
         { userId: 'user-1', token: 'tok-1' },
         { userId: 'user-2', token: 'tok-2' },
@@ -100,32 +101,70 @@ describe('FeedingDailySummaryEventHandler', () => {
         pushData: { userId: 'user-1' },
       }),
     );
-    expect(createNotification).toHaveBeenCalledTimes(2);
-    const [, , title, body] = createNotification.mock.calls[0];
+    expect(ensureNotification).toHaveBeenCalledTimes(2);
+    expect(ensureNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: TENANT,
+        userId: 'user-1',
+        deliveryId: `feeding-summary:${TENANT}:2026-07-17:user-1`,
+      }),
+    );
+    const { title, body } = ensureNotification.mock.calls[0][0];
     expect(title).toContain('2026-07-17');
     expect(body).toContain('8/10');
     expect(body).toContain('az beslendi');
     expect(body).toContain('kaçırıldı');
   });
 
-  it('replay edilen makbuz için in-app satırı YENİDEN yazılmaz (idempotent yeniden teslim)', async () => {
-    const { handler, createNotification } = makeHandler({ pushResult: { replayed: true } });
+  it('replay edilen push makbuzunda durable in-app kimliğini yine ensure eder', async () => {
+    const { handler, ensureNotification } = makeHandler({ pushResult: { replayed: true } });
     await handler.handle(summaryEvent());
-    expect(createNotification).not.toHaveBeenCalled();
+    expect(ensureNotification).toHaveBeenCalledTimes(1);
   });
 
   it('push hatası in-app yazımını düşürmez (retry makinesi push tarafını devralır)', async () => {
-    const { handler, createNotification } = makeHandler({ pushError: new Error('FCM down') });
+    const { handler, ensureNotification } = makeHandler({ pushError: new Error('FCM down') });
     await handler.handle(summaryEvent());
-    expect(createNotification).toHaveBeenCalledTimes(1);
+    expect(ensureNotification).toHaveBeenCalledTimes(1);
+  });
+
+  it('push fail-then-retry boyunca iki kanal için aynı durable identity kullanır', async () => {
+    const { handler, dispatchCommandNotification, ensureNotification } = makeHandler();
+    dispatchCommandNotification.mockRejectedValueOnce(new Error('FCM down'));
+
+    await handler.handle(summaryEvent());
+    await handler.handle(summaryEvent());
+
+    const deliveryId = `feeding-summary:${TENANT}:2026-07-17:user-1`;
+    expect(dispatchCommandNotification).toHaveBeenCalledTimes(2);
+    expect(dispatchCommandNotification.mock.calls[0][0].deliveryId).toBe(deliveryId);
+    expect(dispatchCommandNotification.mock.calls[1][0].deliveryId).toBe(deliveryId);
+    expect(ensureNotification).toHaveBeenCalledTimes(2);
+    expect(ensureNotification.mock.calls[0][0].deliveryId).toBe(deliveryId);
+    expect(ensureNotification.mock.calls[1][0].deliveryId).toBe(deliveryId);
+  });
+
+  it('in-app teslim hatasını yutmaz; event-bus retry/DLQ otoritesine taşır', async () => {
+    const { handler, ensureNotification } = makeHandler({
+      inAppError: new Error('notification store down'),
+    });
+
+    await expect(handler.handle(summaryEvent())).rejects.toThrow(
+      'FeedingDailySummary in-app fan-out failed for 1/1 recipient',
+    );
+    expect(ensureNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deliveryId: `feeding-summary:${TENANT}:2026-07-17:user-1`,
+      }),
+    );
   });
 
   it('alıcısı olmayan tenant sessizce atlanır', async () => {
-    const { handler, dispatchCommandNotification, createNotification } = makeHandler({
+    const { handler, dispatchCommandNotification, ensureNotification } = makeHandler({
       recipients: [],
     });
     await handler.handle(summaryEvent());
     expect(dispatchCommandNotification).not.toHaveBeenCalled();
-    expect(createNotification).not.toHaveBeenCalled();
+    expect(ensureNotification).not.toHaveBeenCalled();
   });
 });

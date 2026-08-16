@@ -9,19 +9,33 @@ import { Role } from '@aquaculture/backend-common/decorators';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { TransferBatchHandler } from '../../handlers/transfer-batch.handler';
 import { RemovalQuantityPolicyService } from '../../services/removal-quantity-policy.service';
+import { TankBatchService } from '../../services/tank-batch.service';
 import { TransferBatchCommand } from '../../commands/transfer-batch.command';
 import { Batch, BatchStatus } from '../../entities/batch.entity';
 import { TankBatch } from '../../entities/tank-batch.entity';
 import { Equipment, EquipmentStatus } from '../../../equipment/entities/equipment.entity';
 import { FarmStockProjectionService } from '../../../farm-stock/farm-stock-projection.service';
+import { OutboxPublisher } from '@platform/outbox';
 import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
+import { RecordingBatchAggregateMutationPort } from '../../../__tests__/support/durable-mutation-test-authority';
+import { DayPlanRecalcService } from '../../../feeding-protocol/services/day-plan-recalc.service';
+import { TankCapacityService } from '../../../tank/services/tank-capacity.service';
+import { TankAllocation } from '../../entities/tank-allocation.entity';
+import { TankOperation } from '../../entities/tank-operation.entity';
+import { EquipmentType } from '../../../equipment/entities/equipment-type.entity';
+import { Tank } from '../../../tank/entities/tank.entity';
 
 // FARM-HIGH-052: transfer is stock-mutating, so every command must carry the
 // idempotency envelope or the handler rejects it as legacy.
 const TRANSFER_ENVELOPE = { clientCommandId: 'cmd-t', payloadHash: 'hash-t' };
 
+function mock<T>(implementation: Partial<T>): T {
+  return implementation as T;
+}
+
 describe('TransferBatchHandler', () => {
   let handler: TransferBatchHandler;
+  let batchMutations: RecordingBatchAggregateMutationPort;
   const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSource();
   const mockOutboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
   const mockTankCapacityService = {
@@ -52,27 +66,32 @@ describe('TransferBatchHandler', () => {
     // The shared mock EntityManager lacks query() wired — MobileCommandReceiptService
     // needs it for begin()/complete(). EntityManager.query exists on the type.
     mockManager.query = jest.fn().mockResolvedValue([{ id: 'receipt-t' }]);
+    batchMutations = new RecordingBatchAggregateMutationPort(mockManager);
     handler = new TransferBatchHandler(
-      mockDataSource as any,
-      createMockRepository() as any,
-      createMockRepository() as any,
-      createMockRepository() as any,
-      createMockRepository() as any,
-      createMockRepository() as any,
-      createMockRepository() as any,
-      createMockRepository() as any,
-      mockOutboxPublisher as any,
+      batchMutations,
+      mockDataSource,
+      createMockRepository<Batch>(),
+      createMockRepository<TankAllocation>(),
+      createMockRepository<TankOperation>(),
+      createMockRepository<TankBatch>(),
+      createMockRepository<Equipment>(),
+      createMockRepository<Tank>(),
+      createMockRepository<EquipmentType>(),
+      mock<OutboxPublisher>(mockOutboxPublisher),
       // P-31 recalc — mocked (day-plan-recalc.service.spec kapsıyor).
-      { recalcForUnit: jest.fn().mockResolvedValue(null) } as never,
+      mock<DayPlanRecalcService>({ recalcForUnit: jest.fn().mockResolvedValue(null) }),
       // D-3 miktar çözümü — GERÇEK stateless politika (üretim davranışı).
       new RemovalQuantityPolicyService(),
-      mockTankCapacityService as any,
+      mock<TankCapacityService>(mockTankCapacityService),
       // SEC-HIGH-051: the real fail-closed SSoT; commands below pass
       // MODULE_MANAGER so site authz bypasses for these domain-logic tests.
       new SiteAuthorizationService(),
-      // TankBatchService SSoT writer — mocked (covered by tank-batch.service.spec).
-      { applyBatchDelta: jest.fn().mockImplementation(() => Promise.resolve({ totalBiomassKg: 0, cleanerFishBiomassKg: 0 })) } as never,
-      ({ refreshContainers: jest.fn().mockResolvedValue(undefined) }) as Partial<FarmStockProjectionService> as FarmStockProjectionService,
+      // Use the production multi-unit lock + composition authority. This test
+      // must fail if the handler returns to payload-ordered per-leg mutation.
+      new TankBatchService(batchMutations),
+      mock<FarmStockProjectionService>({
+        refreshContainers: jest.fn().mockResolvedValue(undefined),
+      }),
       new MobileCommandReceiptService(),
     );
   });
@@ -105,7 +124,7 @@ describe('TransferBatchHandler', () => {
   });
 
   it('should transfer batch between tanks', async () => {
-    const batch = {
+    const batch = Object.assign(new Batch(), {
       id: 'batch-1',
       tenantId: TENANT,
       status: BatchStatus.GROWING,
@@ -114,9 +133,9 @@ describe('TransferBatchHandler', () => {
       isActive: true,
       isOperational: () => true,
       getCurrentAvgWeight: () => 50,
-    } as unknown as Batch;
+    });
 
-    const sourceTank = {
+    const sourceTank = Object.assign(new Equipment(), {
       id: 'tank-1',
       tenantId: TENANT,
       code: 'T-001',
@@ -126,8 +145,8 @@ describe('TransferBatchHandler', () => {
       currentBiomass: 25,
       currentCount: 500,
       hasCapacityFor: jest.fn().mockReturnValue(true),
-    } as unknown as Equipment;
-    const destTank = {
+    });
+    const destTank = Object.assign(new Equipment(), {
       id: 'tank-2',
       tenantId: TENANT,
       code: 'T-002',
@@ -138,8 +157,8 @@ describe('TransferBatchHandler', () => {
       currentCount: 0,
       hasCapacityFor: jest.fn().mockReturnValue(true),
       specifications: { maxDensity: 30 },
-    } as unknown as Equipment;
-    const sourceTankBatch = {
+    });
+    const sourceTankBatch = Object.assign(new TankBatch(), {
       id: 'source-tank-batch',
       tenantId: TENANT,
       tankId: 'tank-1',
@@ -154,7 +173,7 @@ describe('TransferBatchHandler', () => {
       cleanerFishBiomassKg: 0,
       cleanerFishQuantity: 0,
       isOverCapacity: false,
-    } as TankBatch;
+    });
     const destTankBatch = null;
 
     mockManager.findOne.mockImplementation((entity: unknown, options?: unknown) => {
@@ -167,7 +186,42 @@ describe('TransferBatchHandler', () => {
       if (entity === TankBatch && where?.tankId === 'tank-2') return Promise.resolve(destTankBatch);
       return Promise.resolve(null);
     });
-    mockManager.save.mockImplementation((_cls: any, data: any) => Promise.resolve(data));
+    mockManager.find.mockImplementation((entity: unknown) =>
+      Promise.resolve(entity === TankBatch ? [sourceTankBatch] : []),
+    );
+    mockManager.save.mockImplementation((_entity: unknown, data: unknown) =>
+      Promise.resolve(data),
+    );
+
+    mockTankCapacityService.calculate
+      .mockReturnValueOnce({
+        tankVolumeM3: 100,
+        maxBiomassKg: 10000,
+        maxDensityKgM3: 30,
+        currentBiomassKg: 20,
+        projectedBiomassKg: 20,
+        projectedDensityKgM3: 0.2,
+        utilizationPercent: 75,
+        isOverDensity: false,
+        isOverBiomass: false,
+        isStatusBlocked: false,
+        isOverCapacity: true,
+        primaryBlockReason: 'status',
+      })
+      .mockReturnValueOnce({
+        tankVolumeM3: 100,
+        maxBiomassKg: 10000,
+        maxDensityKgM3: 30,
+        currentBiomassKg: 5,
+        projectedBiomassKg: 5,
+        projectedDensityKgM3: 0.05,
+        utilizationPercent: 25,
+        isOverDensity: false,
+        isOverBiomass: false,
+        isStatusBlocked: false,
+        isOverCapacity: false,
+        primaryBlockReason: null,
+      });
 
     await handler.execute(
       new TransferBatchCommand(
@@ -185,6 +239,46 @@ describe('TransferBatchHandler', () => {
       ),
     );
 
+    expect(mockManager.find).toHaveBeenCalledWith(
+      TankBatch,
+      expect.objectContaining({
+        order: { tankId: 'ASC' },
+        lock: { mode: 'pessimistic_write' },
+      }),
+    );
+    expect(mockManager.query).toHaveBeenCalledWith(
+      'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+      [`tank-batch-mutation/v1:${TENANT}:tank-1`],
+    );
+    expect(mockManager.query).toHaveBeenCalledWith(
+      'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+      [`tank-batch-mutation/v1:${TENANT}:tank-2`],
+    );
+    expect(batchMutations.commitTankBatchTransition).toHaveBeenCalledTimes(2);
+    expect(batchMutations.commitTankBatchTransition).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      expect.objectContaining({
+        intent: 'stock_transfer',
+        aggregate: expect.objectContaining({
+          tankId: 'tank-1',
+          isOverCapacity: true,
+          capacityUsedPercent: 75,
+        }),
+      }),
+    );
+    expect(batchMutations.commitTankBatchTransition).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      expect.objectContaining({
+        intent: 'stock_transfer',
+        aggregate: expect.objectContaining({
+          tankId: 'tank-2',
+          isOverCapacity: false,
+          capacityUsedPercent: 25,
+        }),
+      }),
+    );
     expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
     expect(mockOutboxPublisher.enqueue).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -30,6 +30,23 @@ export interface FarmSignalIncidentSpec {
 }
 
 /**
+ * Canonical severity ordering. AlertSeverity is a string enum, so lexical
+ * comparison would place values in the wrong operational order.
+ */
+const SEVERITY_RANK: Readonly<Record<AlertSeverity, number>> = Object.freeze({
+  [AlertSeverity.INFO]: 0,
+  [AlertSeverity.LOW]: 1,
+  [AlertSeverity.WARNING]: 2,
+  [AlertSeverity.MEDIUM]: 3,
+  [AlertSeverity.HIGH]: 4,
+  [AlertSeverity.CRITICAL]: 5,
+});
+
+export function isSeverityEscalation(current: AlertSeverity, next: AlertSeverity): boolean {
+  return SEVERITY_RANK[next] > SEVERITY_RANK[current];
+}
+
+/**
  * FarmSignalIncidentService (FARM-LOW-144)
  *
  * The single owner of the "farm signal → AlertIncident" dedup + escalation
@@ -79,8 +96,39 @@ export class FarmSignalIncidentService {
     });
 
     if (existing) {
+      const previousSeverity = existing.severity;
+      const escalated = isSeverityEscalation(previousSeverity, spec.severity);
       existing.recordOccurrence(spec.triggeredAt);
-      await this.incidentRepository.save(existing);
+
+      if (escalated) {
+        existing.severity = spec.severity;
+        existing.description = spec.description;
+        existing.triggerData = spec.triggerData;
+        existing.addTimelineEvent({
+          type: TimelineEventType.ESCALATED,
+          description:
+            `Severity raised ${previousSeverity} → ${spec.severity}: ${spec.description}`,
+          data: { previousSeverity, severity: spec.severity },
+        });
+      }
+
+      const saved = await this.incidentRepository.save(existing);
+      if (escalated) {
+        this.logger.warn(
+          `Escalated ${spec.signalLabel} incident ${saved.id} for ${spec.ruleId}: ` +
+            `${previousSeverity} → ${spec.severity} (occurrences: ${saved.occurrenceCount})`,
+        );
+        this.escalationManager
+          .startEscalation(saved, spec.severity, spec.ruleId)
+          .catch((err: Error) => {
+            this.logger.error(
+              `Failed to re-start escalation for escalated ${spec.signalLabel} incident ` +
+                `${saved.id}: ${err.message}`,
+            );
+          });
+        return;
+      }
+
       this.logger.debug(
         `Updated existing ${spec.signalLabel} incident ${existing.id} for ${spec.ruleId} ` +
           `(occurrences: ${existing.occurrenceCount})`,

@@ -39,8 +39,11 @@ export class GetSiteFeedConsumptionHandler implements IQueryHandler<GetSiteFeedC
                 COUNT(*)::bigint AS "recordCount"
            FROM feeding_records fr
            JOIN tanks t ON t.id = fr."tankId" AND t."tenantId" = fr."tenantId"
-           JOIN departments d ON d.id = t."departmentId" AND d."siteId" = $2
-           JOIN feeds f ON f.id = fr."feedId"
+           JOIN departments d
+             ON d.id = t."departmentId"
+            AND d."tenantId" = t."tenantId"
+            AND d."siteId" = $2
+           JOIN feeds f ON f.id = fr."feedId" AND f."tenantId" = fr."tenantId"
           WHERE fr."tenantId" = $1
             AND fr."feedingDate"::date BETWEEN $3 AND $4
           GROUP BY f.name, f.brand

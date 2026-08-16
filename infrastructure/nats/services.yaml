@@ -223,6 +223,7 @@ services:
       - 'events.*.SensorDeleted'
       - 'events.*.SensorDeprovisioned'
       - 'events.*.SensorReading'
+      - 'events.*.FeedingWindowReadiness'
       - 'events.*.SensorRegistered'
       - 'events.*.SensorRegistrationCompleted'
       - 'events.*.SensorRegistrationStarted'

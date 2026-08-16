@@ -71,18 +71,18 @@ vi.mock('idb-keyval', () => {
 const FAKE_KEY = { type: 'secret', algorithm: 'AES-GCM' };
 
 const mockGenerateKey = vi.fn().mockResolvedValue(FAKE_KEY);
-const mockEncrypt = vi.fn().mockImplementation(
-  (_algo: unknown, _key: unknown, data: ArrayBuffer) => {
+const mockEncrypt = vi
+  .fn()
+  .mockImplementation((_algo: unknown, _key: unknown, data: ArrayBuffer) => {
     // Return data as-is (identity transform) — simulates encryption
     return Promise.resolve(new Uint8Array(data).buffer);
-  },
-);
-const mockDecrypt = vi.fn().mockImplementation(
-  (_algo: unknown, _key: unknown, data: ArrayBuffer) => {
+  });
+const mockDecrypt = vi
+  .fn()
+  .mockImplementation((_algo: unknown, _key: unknown, data: ArrayBuffer) => {
     // Return data as-is — simulates decryption
     return Promise.resolve(new Uint8Array(data).buffer);
-  },
-);
+  });
 
 Object.defineProperty(globalThis, 'crypto', {
   value: {
@@ -95,10 +95,7 @@ Object.defineProperty(globalThis, 'crypto', {
       // (clientCommandId+payloadHash) and offline dedup paths key off it — a fake
       // digest would silently mask hash-collision regressions in those tests.
       digest: (algorithm: AlgorithmIdentifier, data: BufferSource) =>
-        webcrypto.subtle.digest(
-          algorithm,
-          data as Parameters<typeof webcrypto.subtle.digest>[1],
-        ),
+        webcrypto.subtle.digest(algorithm, data as Parameters<typeof webcrypto.subtle.digest>[1]),
     },
     randomUUID: () => `uuid-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     getRandomValues: (arr: Uint8Array) => {
@@ -198,6 +195,7 @@ import {
   removePendingBlob,
   clearPendingBlobs,
   MAX_PENDING_BLOB_BYTES,
+  OFFLINE_QUEUE_CLEAR_AUTHORITIES_V1,
 } from '../offline-queue';
 
 /** SECURITY (C11): All queue operations are tenant-scoped. Tests use a fixed tenant UUID. */
@@ -438,12 +436,18 @@ describe('Offline Queue', () => {
 
     it('increments on every fresh enqueue', async () => {
       await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', {
-        batchId: 'b1', tankId: 't1', quantity: 1, reason: 'DISEASE' as const,
+        batchId: 'b1',
+        tankId: 't1',
+        quantity: 1,
+        reason: 'DISEASE' as const,
       });
       expect(await getQueueVersion(TEST_QUEUE_TENANT)).toBe(1);
 
       await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', {
-        batchId: 'b2', tankId: 't2', quantity: 2, reason: 'STRESS' as const,
+        batchId: 'b2',
+        tankId: 't2',
+        quantity: 2,
+        reason: 'STRESS' as const,
       });
       expect(await getQueueVersion(TEST_QUEUE_TENANT)).toBe(2);
     });
@@ -463,7 +467,10 @@ describe('Offline Queue', () => {
       // count goes 1 -> 0 -> 1, an unchanged observation, yet a genuinely new op
       // must sync. The version strictly increases, giving the re-arm signal.
       const first = await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', {
-        batchId: 'b1', tankId: 't1', quantity: 1, reason: 'DISEASE' as const,
+        batchId: 'b1',
+        tankId: 't1',
+        quantity: 1,
+        reason: 'DISEASE' as const,
       });
       const v1 = await getQueueVersion(TEST_QUEUE_TENANT);
       expect(await getPendingCount(TEST_QUEUE_TENANT)).toBe(1);
@@ -478,7 +485,10 @@ describe('Offline Queue', () => {
 
       // Enqueue a different op — count is back to 1 (same as before), but version moved.
       await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', {
-        batchId: 'b9', tankId: 't9', quantity: 9, reason: 'OXYGEN' as const,
+        batchId: 'b9',
+        tankId: 't9',
+        quantity: 9,
+        reason: 'OXYGEN' as const,
       });
       const v2 = await getQueueVersion(TEST_QUEUE_TENANT);
       expect(await getPendingCount(TEST_QUEUE_TENANT)).toBe(1);
@@ -487,15 +497,21 @@ describe('Offline Queue', () => {
 
     it('resets the version token to 0 on a tenant-scoped clear', async () => {
       await queueOperation('tenant-A', 'recordMortality', {
-        batchId: 'b1', tankId: 't1', quantity: 1, reason: 'DISEASE' as const,
+        batchId: 'b1',
+        tankId: 't1',
+        quantity: 1,
+        reason: 'DISEASE' as const,
       });
       await queueOperation('tenant-B', 'recordMortality', {
-        batchId: 'b2', tankId: 't2', quantity: 2, reason: 'STRESS' as const,
+        batchId: 'b2',
+        tankId: 't2',
+        quantity: 2,
+        reason: 'STRESS' as const,
       });
       expect(await getQueueVersion('tenant-A')).toBe(1);
       expect(await getQueueVersion('tenant-B')).toBe(1);
 
-      await clearAllOperations('tenant-A');
+      await clearAllOperations('tenant-A', OFFLINE_QUEUE_CLEAR_AUTHORITIES_V1.USER_PENDING_ONLY);
 
       // tenant-A's token is wiped; tenant-B's survives.
       expect(await getQueueVersion('tenant-A')).toBe(0);
@@ -504,13 +520,19 @@ describe('Offline Queue', () => {
 
     it('wipes all version tokens on a full (logout) clear', async () => {
       await queueOperation('tenant-A', 'recordMortality', {
-        batchId: 'b1', tankId: 't1', quantity: 1, reason: 'DISEASE' as const,
+        batchId: 'b1',
+        tankId: 't1',
+        quantity: 1,
+        reason: 'DISEASE' as const,
       });
       await queueOperation('tenant-B', 'recordMortality', {
-        batchId: 'b2', tankId: 't2', quantity: 2, reason: 'STRESS' as const,
+        batchId: 'b2',
+        tankId: 't2',
+        quantity: 2,
+        reason: 'STRESS' as const,
       });
 
-      await clearAllOperations();
+      await clearAllOperations(undefined, OFFLINE_QUEUE_CLEAR_AUTHORITIES_V1.AUTHENTICATED_LOGOUT);
 
       expect(await getQueueVersion('tenant-A')).toBe(0);
       expect(await getQueueVersion('tenant-B')).toBe(0);
@@ -590,7 +612,12 @@ describe('Offline Queue', () => {
 
   describe('getOperation (single)', () => {
     it('should store operation with correct tenant-scoped key', async () => {
-      const payload = { batchId: 'getop-b1', tankId: 'getop-t1', quantity: 5, reason: 'DISEASE' as const };
+      const payload = {
+        batchId: 'getop-b1',
+        tankId: 'getop-t1',
+        quantity: 5,
+        reason: 'DISEASE' as const,
+      };
       const id = await enqueueId(TEST_QUEUE_TENANT, 'recordMortality', payload);
 
       // Verify via direct idbStore access (bypasses mock get/entries)
@@ -739,9 +766,8 @@ describe('Offline Queue', () => {
     // isolation tests are deterministic without touching production code.
     beforeEach(() => {
       mockDecrypt.mockReset();
-      mockDecrypt.mockImplementation(
-        (_algo: unknown, _key: unknown, data: ArrayBuffer) =>
-          Promise.resolve(new Uint8Array(data).buffer),
+      mockDecrypt.mockImplementation((_algo: unknown, _key: unknown, data: ArrayBuffer) =>
+        Promise.resolve(new Uint8Array(data).buffer),
       );
     });
 
@@ -753,7 +779,7 @@ describe('Offline Queue', () => {
       expect(read).toEqual({ plannedWorkDays: 5 });
     });
 
-    it('does NOT serve user A\'s schedule to user B on the same tenant/device', async () => {
+    it("does NOT serve user A's schedule to user B on the same tenant/device", async () => {
       const keyA = userScopedCacheKey(USER_A, 'schedule', '2026-06-15');
       const keyB = userScopedCacheKey(USER_B, 'schedule', '2026-06-15');
       await cacheUserData(TENANT, keyA, { plannedWorkDays: 5 }, 60_000);
@@ -849,10 +875,10 @@ describe('Offline Queue', () => {
         estimatedCount: 250,
         cause: 'HOLE_IN_NET' as const,
       };
-      const feeding = { executionId: 'exec-1', actualKg: 12 };
+      const feeding = { mealId: 'meal-1', pourKg: 12, finalize: true };
       await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', mortality);
       await queueOperation(TEST_QUEUE_TENANT, 'recordEscapeIncident', escape);
-      await queueOperation(TEST_QUEUE_TENANT, 'recordFeeding', feeding);
+      await queueOperation(TEST_QUEUE_TENANT, 'recordMealFeeding', feeding);
 
       const callOrder: string[] = [];
       const mockExecutor = vi.fn().mockImplementation((type: string) => {
@@ -863,7 +889,7 @@ describe('Offline Queue', () => {
       const result = await syncAllOperations(TEST_QUEUE_TENANT, mockExecutor);
 
       expect(result.success).toBe(3);
-      expect(callOrder).toEqual(['recordEscapeIncident', 'recordMortality', 'recordFeeding']);
+      expect(callOrder).toEqual(['recordEscapeIncident', 'recordMortality', 'recordMealFeeding']);
     });
 
     it('should count failed operations', async () => {
@@ -936,7 +962,11 @@ describe('Offline Queue', () => {
       const id = await enqueueId(TEST_QUEUE_TENANT, 'recordMortality', payload);
 
       // Simulate a failed operation with retryCount < MAX_RETRY_COUNT
-      await updateOperation(TEST_QUEUE_TENANT, id, { retryCount: 2, status: 'failed', lastError: 'Network timeout' });
+      await updateOperation(TEST_QUEUE_TENANT, id, {
+        retryCount: 2,
+        status: 'failed',
+        lastError: 'Network timeout',
+      });
 
       const mockExecutor = vi.fn().mockResolvedValue({ success: true });
 
@@ -953,7 +983,11 @@ describe('Offline Queue', () => {
       const id = await enqueueId(TEST_QUEUE_TENANT, 'recordMortality', payload);
 
       // Simulate a permanent failure (validation error)
-      await updateOperation(TEST_QUEUE_TENANT, id, { retryCount: 1, status: 'failed', lastError: 'Validation failed: quantity must be positive' });
+      await updateOperation(TEST_QUEUE_TENANT, id, {
+        retryCount: 1,
+        status: 'failed',
+        lastError: 'Validation failed: quantity must be positive',
+      });
 
       const mockExecutor = vi.fn().mockResolvedValue({ success: true });
 
@@ -1007,7 +1041,7 @@ describe('Offline Queue', () => {
       await queueOperation('tenant-A', 'recordMortality', payload);
       await queueOperation('tenant-B', 'recordMortality', payload);
 
-      await clearAllOperations();
+      await clearAllOperations(undefined, OFFLINE_QUEUE_CLEAR_AUTHORITIES_V1.AUTHENTICATED_LOGOUT);
 
       expect(await getPendingCount()).toBe(0);
     });
@@ -1017,7 +1051,7 @@ describe('Offline Queue', () => {
       await queueOperation('tenant-A', 'recordMortality', payload);
       await queueOperation('tenant-B', 'recordMortality', payload);
 
-      await clearAllOperations('tenant-A');
+      await clearAllOperations('tenant-A', OFFLINE_QUEUE_CLEAR_AUTHORITIES_V1.USER_PENDING_ONLY);
 
       expect(await getPendingCount('tenant-A')).toBe(0);
       expect(await getPendingCount('tenant-B')).toBe(1);
@@ -1076,7 +1110,7 @@ describe('Offline Queue', () => {
     it('logout wipe (clearAllOperations with no tenant) clears blobs too', async () => {
       const idA = await putPendingBlob(TENANT_A, makeBlob('a'));
       const idB = await putPendingBlob(TENANT_B, makeBlob('b'));
-      await clearAllOperations();
+      await clearAllOperations(undefined, OFFLINE_QUEUE_CLEAR_AUTHORITIES_V1.AUTHENTICATED_LOGOUT);
       expect(await getPendingBlob(TENANT_A, idA)).toBeNull();
       expect(await getPendingBlob(TENANT_B, idB)).toBeNull();
     });

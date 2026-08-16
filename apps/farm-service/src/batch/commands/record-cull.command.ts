@@ -18,14 +18,14 @@ export { CullReason } from '../entities/tank-operation.enums';
 import { CullReason } from '../entities/tank-operation.enums';
 
 export interface RecordCullPayload {
-  tankId: string;                // Tank ID
-  quantity: number;              // Ayıklanan sayı
-  avgWeightG?: number;           // Ortalama ağırlık (gram)
+  tankId: string; // Tank ID
+  quantity?: number; // Ayıklanan sayı (yalnız-kg modunda türetilir)
+  avgWeightG?: number; // Ortalama ağırlık (gram)
   /** D-3 mod (b): tane+kg — verilen kg aynen düşer, kalan ortalama kayar. */
   biomassKg?: number;
-  reason: CullReason;            // Ayıklama nedeni
-  detail?: string;               // Detaylı açıklama
-  culledAt: Date;                // Ayıklama tarihi
+  reason: CullReason; // Ayıklama nedeni
+  detail?: string; // Detaylı açıklama
+  culledAt: Date; // Ayıklama tarihi
   notes?: string;
 }
 

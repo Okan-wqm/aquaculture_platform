@@ -11,6 +11,7 @@ import { createMockDataSource } from '@aquaculture/testing';
 import type { OutboxPublisher } from '@platform/outbox';
 import type { Repository } from 'typeorm';
 import { BatchLifecyclePolicyService } from '../../services/batch-lifecycle-policy.service';
+import { RecordingBatchAggregateMutationPort } from '../../../__tests__/support/durable-mutation-test-authority';
 
 describe('UpdateBatchStatusHandler', () => {
   let handler: UpdateBatchStatusHandler;
@@ -39,6 +40,7 @@ describe('UpdateBatchStatusHandler', () => {
     mockManager.getRepository = jest.fn().mockReturnValue(innerBatchRepo) as typeof mockManager.getRepository;
     mockOutboxPublisher.enqueue = jest.fn().mockResolvedValue(undefined);
     handler = new UpdateBatchStatusHandler(
+      new RecordingBatchAggregateMutationPort(mockManager),
       mockDataSource,
       mockOutboxPublisher as OutboxPublisher,
       lifecyclePolicy,

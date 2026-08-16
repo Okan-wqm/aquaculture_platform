@@ -19,7 +19,10 @@
  *
  * @module Harvest/Handlers
  */
-import { runInTenantTransaction } from '@aquaculture/backend-common/database';
+import {
+  readTenantMutationInstantV1,
+  runInTenantTransaction,
+} from '@aquaculture/backend-common/database';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import {
@@ -64,6 +67,7 @@ import {
   LotInfo,
 } from '../entities/harvest-record.entity';
 import { HarvestPolicyService } from '../services/harvest-policy.service';
+import { BatchAggregateMutationPort } from '../../batch/batch-aggregate-mutation.port';
 
 @Injectable()
 @CommandHandler(CreateHarvestRecordCommand)
@@ -74,6 +78,7 @@ export class CreateHarvestRecordHandler
   private readonly logger = new Logger(CreateHarvestRecordHandler.name);
 
   constructor(
+    private readonly batchMutations: BatchAggregateMutationPort,
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
     private readonly dayPlanRecalc: DayPlanRecalcService,
@@ -139,7 +144,7 @@ export class CreateHarvestRecordHandler
       this.dataSource,
       'farm',
       tenantId,
-      async (queryRunner) => {
+      async (queryRunner, mutationSession) => {
         const receipt = await this.mobileCommandReceipts.begin(queryRunner.manager, {
           tableName: 'farm_mobile_command_receipts',
           tenantId,
@@ -380,7 +385,10 @@ export class CreateHarvestRecordHandler
           batch.actualHarvestDate = new Date();
         }
 
-        await queryRunner.manager.save(Batch, batch);
+        await this.batchMutations.commitBatchTransition(mutationSession, {
+          intent: 'harvest_recorded',
+          aggregate: batch,
+        });
 
         // TankBatch: route the harvest decrement through the single SSoT writer
         // (TankBatchService.applyBatchDelta) so batchDetails[] — the per-batch
@@ -392,6 +400,7 @@ export class CreateHarvestRecordHandler
         if (tankBatch) {
           await this.tankBatchService.applyBatchDelta(
             queryRunner.manager,
+            mutationSession,
             tenantId,
             input.tankId,
             {
@@ -408,12 +417,11 @@ export class CreateHarvestRecordHandler
         // TankBatchService.applyBatchDelta (the SINGLE count writer) above — no
         // independent count write here (that drifted from tank_batches). biomass-ONLY
         // UPDATE so it can't clobber the derived currentCount.
-        await queryRunner.manager
-          .createQueryBuilder()
-          .update(Tank)
-          .set({ currentBiomass: Math.max(0, Number(tank.currentBiomass || 0) - biomassKg) })
-          .where('id = :id', { id: tank.id })
-          .execute();
+        await this.batchMutations.replaceTankBiomassProjection(mutationSession, {
+          tankId: tank.id,
+          currentBiomassKg: Math.max(0, Number(tank.currentBiomass || 0) - biomassKg),
+          lifecycle: 'preserve',
+        });
         await this.farmStockProjection.refreshContainers(queryRunner.manager, tenantId, [
           input.tankId,
         ]);
@@ -421,7 +429,14 @@ export class CreateHarvestRecordHandler
         // P-31: hasat sonrası bugünün beslenmemiş öğünleri aynı tx'te yeniden
         // fiyatlanır; tam hasatta recalc üniteyi boş görür → kalan öğünler iptal
         // + atama otomatik pause (unit_emptied).
-        await this.dayPlanRecalc.recalcForUnit(queryRunner.manager, tenantId, input.tankId, 'harvest');
+        await this.dayPlanRecalc.recalcForUnit(
+          queryRunner.manager,
+          mutationSession,
+          tenantId,
+          input.tankId,
+          'harvest',
+          { mutationInstant: await readTenantMutationInstantV1(mutationSession, 'farm') },
+        );
 
         // Post-operation state güncelle
         const updatedTankBatch = await queryRunner.manager.findOne(TankBatch, {

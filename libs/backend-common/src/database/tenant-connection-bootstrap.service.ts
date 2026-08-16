@@ -88,11 +88,10 @@ export function createTenantConnectionBootstrap(sourceSchema: string) {
       // cast. The cast lives once, in one util, with a narrow
       // PgPoolLike interface — no leakage of TypeORM driver
       // internals into the bootstrap.
-      const pool = getPgPoolFromDataSource(this.dataSource);
-      if (!pool) {
-        this.logger.error('Cannot patch connection pool — pg Pool not found on DataSource driver');
-        return;
-      }
+      const pool = getPgPoolFromDataSource(
+        this.dataSource,
+        `TenantConnectionBootstrap[${sourceSchema}]`,
+      );
 
       const originalConnect = pool.connect.bind(pool);
       const src = sourceSchema;

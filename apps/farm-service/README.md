@@ -96,22 +96,24 @@ the audited one-shot cutover into that configuration SSoT.
 
 ## Environment Variables
 
-| Variable                              | Description                                                                               | Required                               |
-| ------------------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------- |
-| `DATABASE_URL`                        | PostgreSQL connection string                                                              | Yes                                    |
-| `ENCRYPTION_KEY`                      | AES-256 encryption key (min 32 chars)                                                     | Yes                                    |
-| `CORS_ORIGINS`                        | Allowed CORS origins (comma-separated)                                                    | Production                             |
-| `JWT_PUBLIC_KEY`                      | RSA public key (RS256) — inline PEM. See also `JWT_PUBLIC_KEY_FILE` for path-based load.  | Yes                                    |
-| `FARM_ENVIRONMENT_MONITORING_ENABLED` | Canonical reader/writer rollout gate; missing defaults to `false`                         | No                                     |
-| `MET_NORWAY_APPLICATION_NAME`         | Company application identifier sent to MET Norway                                         | When monitoring is enabled             |
-| `MET_NORWAY_CONTACT`                  | Company operational email or HTTPS contact sent to MET Norway                             | When monitoring is enabled             |
-| `MET_NORWAY_FROST_CLIENT_ID`          | Company Frost public-data client ID                                                       | For Frost observations                 |
-| `SENTINEL_HUB_ENCRYPTION_KEY`         | Dedicated key for decrypting legacy tenant credential rows during cutover                 | During credential cutover              |
+| Variable                              | Description                                                                              | Required                   |
+| ------------------------------------- | ---------------------------------------------------------------------------------------- | -------------------------- |
+| `DATABASE_URL`                        | PostgreSQL connection string                                                             | Yes                        |
+| `ENCRYPTION_KEY`                      | AES-256 encryption key (min 32 chars)                                                    | Yes                        |
+| `CORS_ORIGINS`                        | Allowed CORS origins (comma-separated)                                                   | Production                 |
+| `JWT_PUBLIC_KEY`                      | RSA public key (RS256) — inline PEM. See also `JWT_PUBLIC_KEY_FILE` for path-based load. | Yes                        |
+| `FARM_ENVIRONMENT_MONITORING_ENABLED` | Canonical reader/writer rollout gate; missing defaults to `false`                        | No                         |
+| `MET_NORWAY_APPLICATION_NAME`         | Company application identifier sent to MET Norway                                        | When monitoring is enabled |
+| `MET_NORWAY_CONTACT`                  | Company operational email or HTTPS contact sent to MET Norway                            | When monitoring is enabled |
+| `MET_NORWAY_FROST_CLIENT_ID`          | Company Frost public-data client ID                                                      | For Frost observations     |
+| `SENTINEL_HUB_ENCRYPTION_KEY`         | Dedicated key for decrypting legacy tenant credential rows during cutover                | During credential cutover  |
+
 ## Event-Driven Architecture
 
 The service uses EventEmitter2 for domain events:
 
 ### Published Events
+
 - `batch.created` - New batch created
 - `mortality.recorded` - Mortality event recorded
 - `harvest.completed` - Harvest completed
@@ -120,7 +122,9 @@ The service uses EventEmitter2 for domain events:
 - `feeding.completed` - Feeding record completed
 
 ### Event Listeners
+
 Located in `src/events/listeners/`:
+
 - `BatchCreatedListener` - Initialize batch metrics
 - `MortalityRecordedListener` - Update batch counts, alert if threshold exceeded
 - `HarvestCompletedListener` - Update batch status, calculate yields
@@ -132,14 +136,14 @@ Located in `src/events/listeners/`:
 
 Cron jobs managed by `@nestjs/schedule`:
 
-| Job                       | Schedule        | Description                                                      |
-| ------------------------- | --------------- | ---------------------------------------------------------------- |
-| Daily Feeding Generation  | 0 4 \* \* \*    | Generate feeding schedules                                       |
-| Maintenance Check         | 0 6 \* \* \*    | Check upcoming maintenance                                       |
-| Stock Level Check         | 0 7 \* \* \*    | Check spare part stock levels                                    |
-| FCR Calculation           | 0 0 \* \* 0     | Weekly FCR calculations                                          |
+| Job                       | Schedule       | Description                                                      |
+| ------------------------- | -------------- | ---------------------------------------------------------------- |
+| Daily Feeding Generation  | 0 4 \* \* \*   | Generate feeding schedules                                       |
+| Maintenance Check         | 0 6 \* \* \*   | Check upcoming maintenance                                       |
+| Stock Level Check         | 0 7 \* \* \*   | Check spare part stock levels                                    |
+| FCR Calculation           | 0 0 \* \* 0    | Weekly FCR calculations                                          |
 | Environment Provider Sync | `*/15 * * * *` | Claim due site/provider leases and ingest canonical observations |
-| Environment Retention     | 0 3 \* \* \*    | Apply the 45-day canonical observation retention policy          |
+| Environment Retention     | 0 3 \* \* \*   | Apply the 45-day canonical observation retention policy          |
 
 Environmental jobs are fail-closed behind
 `FARM_ENVIRONMENT_MONITORING_ENABLED`. Deployment order, credential cutover,
@@ -315,7 +319,6 @@ try {
 #### 446bdb4 - Comprehensive farm-service improvements
 
 - Added 27 new DTO files with validation decorators
-- Implemented FeedingSchedulerService completely
 - Created EventListenersModule with 6 event listeners
 - Added transaction management to critical operations
 - Fixed SQL injection with parameterized queries

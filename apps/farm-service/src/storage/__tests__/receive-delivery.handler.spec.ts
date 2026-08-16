@@ -7,25 +7,30 @@
  * forecast), carried no idempotency key, and emitted no outbox event. These
  * tests pin the corrected contract:
  *   - every received item flows through recordMovement (IN) on the SAME
- *     transaction manager (roll-up + lot-mix + audit row live there);
- *   - the idempotency key is deterministic per (poItem, cumulative received);
- *   - StockMovementRecorded is enqueued to the transactional outbox inside
- *     the same transaction, and NOT re-enqueued on an idempotent replay;
+ *     opaque tenant mutation session (roll-up + lot-mix + audit row live there);
+ *   - the idempotency key is deterministic per stable (receiptId, poItem);
+ *   - PO + item progress is loaded and locked inside that same transaction;
+ *   - StockMovementRecorded remains owned by the canonical movement authority;
  *   - an idempotent replay also skips the PO-item progress mutation;
  *   - over-receive still rejects; PO status transitions unchanged;
  *   - SEC-HIGH-051 site-authorization context reaches the movement sink;
  *   - the handler no longer touches StorageInventory/StockMovement repos.
  */
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import type { DataSource, EntityManager, Repository } from 'typeorm';
+import type { Repository } from 'typeorm';
 import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
 import { Role } from '@aquaculture/backend-common/decorators';
 
-type TransactionIsolationLevel = Parameters<DataSource['transaction']>[0];
-
-import { ReceiveDeliveryHandler } from '../handlers/receive-delivery.handler';
+import {
+  purchaseOrderReceiptMovementKeyV1,
+  ReceiveDeliveryHandler,
+} from '../handlers/receive-delivery.handler';
 import { ReceiveDeliveryCommand } from '../commands/receive-delivery.command';
-import { PurchaseOrder, PurchaseOrderStatus, PurchaseOrderCategory } from '../entities/purchase-order.entity';
+import {
+  PurchaseOrder,
+  PurchaseOrderStatus,
+  PurchaseOrderCategory,
+} from '../entities/purchase-order.entity';
 import { PurchaseOrderItem } from '../entities/purchase-order-item.entity';
 import { StorageItemType } from '../entities/storage-inventory.entity';
 import { MovementType } from '../entities/stock-movement.entity';
@@ -35,15 +40,16 @@ const USER = '22222222-2222-4222-8222-222222222222';
 const LOCATION = '33333333-3333-4333-8333-333333333333';
 const PO_ID = '44444444-4444-4444-8444-444444444444';
 const ITEM_A = '55555555-5555-4555-8555-555555555555';
+const ITEM_B = '66666666-6666-4666-8666-666666666666';
+const RECEIPT = '77777777-7777-4777-8777-777777777777';
+const TRANSACTION_INSTANT = '2026-08-08T12:30:00.000Z';
 
 describe('ReceiveDeliveryHandler', () => {
   let handler: ReceiveDeliveryHandler;
-  let poRepository: jest.Mocked<Repository<PurchaseOrder>>;
   let innerPoRepo: jest.Mocked<Repository<PurchaseOrder>>;
   let innerItemRepo: jest.Mocked<Repository<PurchaseOrderItem>>;
   let stockMovementService: { recordMovement: jest.Mock };
-  let outboxPublisher: { enqueue: jest.Mock };
-  const { mockDataSource, mockManager } = createMockDataSource();
+  const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSource();
 
   const makeItem = (overrides: Partial<PurchaseOrderItem> = {}): PurchaseOrderItem =>
     Object.assign(new PurchaseOrderItem(), {
@@ -58,7 +64,10 @@ describe('ReceiveDeliveryHandler', () => {
       ...overrides,
     });
 
-  const makePo = (items: PurchaseOrderItem[], overrides: Partial<PurchaseOrder> = {}): PurchaseOrder =>
+  const makePo = (
+    items: PurchaseOrderItem[],
+    overrides: Partial<PurchaseOrder> = {},
+  ): PurchaseOrder =>
     Object.assign(new PurchaseOrder(), {
       id: PO_ID,
       tenantId: TENANT,
@@ -71,10 +80,15 @@ describe('ReceiveDeliveryHandler', () => {
     });
 
   const makeCommand = (
-    items: Array<{ itemId: string; quantityReceived: number; lotNumber?: string; expiryDate?: string }>,
+    items: Array<{
+      itemId: string;
+      quantityReceived: number;
+      lotNumber?: string;
+      expiryDate?: string;
+    }>,
   ): ReceiveDeliveryCommand =>
     new ReceiveDeliveryCommand(
-      { purchaseOrderId: PO_ID, storageLocationId: LOCATION, items },
+      { receiptId: RECEIPT, purchaseOrderId: PO_ID, storageLocationId: LOCATION, items },
       TENANT,
       USER,
       [Role.MODULE_MANAGER],
@@ -100,50 +114,47 @@ describe('ReceiveDeliveryHandler', () => {
     ...overrides,
   });
 
+  const loadPo = (po: PurchaseOrder | null): void => {
+    innerPoRepo.findOne.mockResolvedValue(po);
+    innerItemRepo.find.mockResolvedValue(po?.items ?? []);
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
-    poRepository = createMockRepository<PurchaseOrder>();
     innerPoRepo = createMockRepository<PurchaseOrder>();
     innerItemRepo = createMockRepository<PurchaseOrderItem>();
     innerPoRepo.create.mockImplementation((data: unknown) => data as PurchaseOrder);
     innerPoRepo.save.mockImplementation((data: unknown) => Promise.resolve(data as PurchaseOrder));
     innerItemRepo.create.mockImplementation((data: unknown) => data as PurchaseOrderItem);
-    innerItemRepo.save.mockImplementation((data: unknown) => Promise.resolve(data as PurchaseOrderItem));
+    innerItemRepo.save.mockImplementation((data: unknown) =>
+      Promise.resolve(data as PurchaseOrderItem),
+    );
 
     mockManager.getRepository.mockImplementation(((entity: unknown) =>
       entity === PurchaseOrderItem ? innerItemRepo : innerPoRepo) as never);
-
-    mockDataSource.transaction = jest.fn();
-    mockDataSource.transaction.mockImplementation(
-      (
-        isolationOrRun: TransactionIsolationLevel | ((m: EntityManager) => Promise<unknown>),
-        runInTransaction: (m: EntityManager) => Promise<unknown>,
-      ) => {
-        const run = typeof isolationOrRun === 'function' ? isolationOrRun : runInTransaction;
-        return run(mockManager);
-      },
+    mockQueryRunner.query.mockImplementation((sql: string) =>
+      Promise.resolve(
+        sql.includes('AS "mutationInstant"') ? [{ mutationInstant: TRANSACTION_INSTANT }] : [],
+      ),
     );
 
     stockMovementService = { recordMovement: jest.fn().mockResolvedValue(movementResult()) };
-    outboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
-
-    handler = new ReceiveDeliveryHandler(
-      poRepository as never,
-      mockDataSource as never,
-      stockMovementService as never,
-      outboxPublisher as never,
-    );
+    handler = new ReceiveDeliveryHandler(mockDataSource as never, stockMovementService as never);
   });
 
-  it('routes every received item through StockMovementService.recordMovement (IN) on the tx manager', async () => {
+  it('routes every received item through StockMovementService.recordMovement (IN) on the tx session', async () => {
     const po = makePo([makeItem()]);
-    poRepository.findOne.mockResolvedValue(po);
+    loadPo(po);
 
-    await handler.execute(makeCommand([{ itemId: ITEM_A, quantityReceived: 40, lotNumber: 'LOT-9', expiryDate: '2027-01-01' }]));
+    await handler.execute(
+      makeCommand([
+        { itemId: ITEM_A, quantityReceived: 40, lotNumber: 'LOT-9', expiryDate: '2027-01-01' },
+      ]),
+    );
 
     expect(stockMovementService.recordMovement).toHaveBeenCalledTimes(1);
-    const [passedManager, input, ctx] = stockMovementService.recordMovement.mock.calls[0];
-    expect(passedManager).toBe(mockManager);
+    const [passedSession, input, ctx] = stockMovementService.recordMovement.mock.calls[0];
+    expect(passedSession).not.toBe(mockManager);
     expect(input).toMatchObject({
       movementType: MovementType.IN,
       itemType: StorageItemType.FEED,
@@ -152,14 +163,14 @@ describe('ReceiveDeliveryHandler', () => {
       toLocationId: LOCATION,
       lotNumber: 'LOT-9',
       reference: 'PO: PO-0007',
-      idempotencyKey: 'po-receive-poi-1-40',
+      idempotencyKey: purchaseOrderReceiptMovementKeyV1(RECEIPT, 'poi-1'),
     });
     expect(input.expiryDate).toBeInstanceOf(Date);
     expect(ctx).toMatchObject({ tenantId: TENANT, userId: USER });
   });
 
   it('passes SEC-HIGH-051 site-authorization context to the movement sink', async () => {
-    poRepository.findOne.mockResolvedValue(makePo([makeItem()]));
+    loadPo(makePo([makeItem()]));
 
     await handler.execute(makeCommand([{ itemId: ITEM_A, quantityReceived: 10 }]));
 
@@ -171,98 +182,142 @@ describe('ReceiveDeliveryHandler', () => {
     });
   });
 
-  it('enqueues StockMovementRecorded to the outbox inside the same transaction', async () => {
-    poRepository.findOne.mockResolvedValue(makePo([makeItem()]));
-
-    await handler.execute(makeCommand([{ itemId: ITEM_A, quantityReceived: 40 }]));
-
-    expect(outboxPublisher.enqueue).toHaveBeenCalledTimes(1);
-    const [event, passedManager] = outboxPublisher.enqueue.mock.calls[0];
-    expect(event.eventType).toBe('StockMovementRecorded');
-    expect(event.movementId).toBe('mov-1');
-    expect(passedManager).toBe(mockManager);
-  });
-
-  it('derives the cumulative idempotency key across successive partial receipts', async () => {
+  it('derives one stable receipt-line identity independent of mutable PO progress', async () => {
     const item = makeItem({ quantityReceived: 40 });
-    poRepository.findOne.mockResolvedValue(makePo([item]));
+    loadPo(makePo([item]));
 
     await handler.execute(makeCommand([{ itemId: ITEM_A, quantityReceived: 25 }]));
 
     const [, input] = stockMovementService.recordMovement.mock.calls[0];
-    expect(input.idempotencyKey).toBe('po-receive-poi-1-65');
+    expect(input.idempotencyKey).toBe(purchaseOrderReceiptMovementKeyV1(RECEIPT, 'poi-1'));
   });
 
-  it('on idempotent replay: skips the outbox enqueue AND the PO-item progress mutation', async () => {
+  it('on idempotent replay skips the PO-item progress mutation', async () => {
     const item = makeItem();
-    poRepository.findOne.mockResolvedValue(makePo([item]));
+    loadPo(makePo([item]));
     stockMovementService.recordMovement.mockResolvedValue(movementResult({ idempotentHit: true }));
 
     await handler.execute(makeCommand([{ itemId: ITEM_A, quantityReceived: 40 }]));
 
-    expect(outboxPublisher.enqueue).not.toHaveBeenCalled();
     expect(innerItemRepo.save).not.toHaveBeenCalled();
     expect(item.quantityReceived).toBe(0);
   });
 
-  it('rejects over-receive with BadRequestException before any movement', async () => {
-    poRepository.findOne.mockResolvedValue(makePo([makeItem({ quantity: 100, quantityReceived: 90 })]));
+  it('rejects over-receive in the same transaction after ruling out exact replay', async () => {
+    loadPo(makePo([makeItem({ quantity: 100, quantityReceived: 90 })]));
 
     await expect(
       handler.execute(makeCommand([{ itemId: ITEM_A, quantityReceived: 20 }])),
     ).rejects.toBeInstanceOf(BadRequestException);
-    expect(stockMovementService.recordMovement).not.toHaveBeenCalled();
+    expect(stockMovementService.recordMovement).toHaveBeenCalledTimes(1);
+    expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalledTimes(1);
   });
 
   it('rejects a PO that is not in a receivable status', async () => {
-    poRepository.findOne.mockResolvedValue(makePo([makeItem()], { status: PurchaseOrderStatus.DRAFT }));
+    loadPo(makePo([makeItem()], { status: PurchaseOrderStatus.DRAFT }));
 
-    await expect(handler.execute(makeCommand([{ itemId: ITEM_A, quantityReceived: 1 }]))).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+    await expect(
+      handler.execute(makeCommand([{ itemId: ITEM_A, quantityReceived: 1 }])),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('rejects an unknown purchase order', async () => {
-    poRepository.findOne.mockResolvedValue(null);
+    loadPo(null);
 
-    await expect(handler.execute(makeCommand([{ itemId: ITEM_A, quantityReceived: 1 }]))).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(
+      handler.execute(makeCommand([{ itemId: ITEM_A, quantityReceived: 1 }])),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('propagates movement-sink failures so the whole receipt rolls back', async () => {
-    poRepository.findOne.mockResolvedValue(makePo([makeItem()]));
-    stockMovementService.recordMovement.mockRejectedValue(new NotFoundException('Storage location not found'));
-
-    await expect(handler.execute(makeCommand([{ itemId: ITEM_A, quantityReceived: 5 }]))).rejects.toBeInstanceOf(
-      NotFoundException,
+    loadPo(makePo([makeItem()]));
+    stockMovementService.recordMovement.mockRejectedValue(
+      new NotFoundException('Storage location not found'),
     );
-    expect(outboxPublisher.enqueue).not.toHaveBeenCalled();
+
+    await expect(
+      handler.execute(makeCommand([{ itemId: ITEM_A, quantityReceived: 5 }])),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('marks the PO RECEIVED with actualDeliveryDate when every item is fully received', async () => {
     const item = makeItem({ quantity: 100, quantityReceived: 60 });
-    poRepository.findOne.mockResolvedValue(makePo([item]));
+    loadPo(makePo([item]));
 
     const result = await handler.execute(makeCommand([{ itemId: ITEM_A, quantityReceived: 40 }]));
 
     expect(item.quantityReceived).toBe(100);
     expect(item.isFullyReceived).toBe(true);
     expect(result.status).toBe(PurchaseOrderStatus.RECEIVED);
-    expect(result.actualDeliveryDate).toBeInstanceOf(Date);
+    expect(result.actualDeliveryDate).toEqual(new Date(TRANSACTION_INSTANT));
   });
 
   it('marks the PO PARTIALLY_RECEIVED when some quantity remains outstanding', async () => {
     const item = makeItem({ quantity: 100, quantityReceived: 0 });
-    poRepository.findOne.mockResolvedValue(makePo([item]));
+    loadPo(makePo([item]));
 
     const result = await handler.execute(makeCommand([{ itemId: ITEM_A, quantityReceived: 40 }]));
 
     expect(result.status).toBe(PurchaseOrderStatus.PARTIALLY_RECEIVED);
   });
 
+  it('admits an exact receipt replay after the PO reached RECEIVED without rewriting progress', async () => {
+    const item = makeItem({ quantityReceived: 100, isFullyReceived: true });
+    const po = makePo([item], {
+      status: PurchaseOrderStatus.RECEIVED,
+      actualDeliveryDate: new Date('2026-08-01T10:00:00.000Z'),
+    });
+    loadPo(po);
+    stockMovementService.recordMovement.mockResolvedValue(movementResult({ idempotentHit: true }));
+
+    const result = await handler.execute(makeCommand([{ itemId: ITEM_A, quantityReceived: 100 }]));
+
+    expect(result).toBe(po);
+    expect(innerItemRepo.save).not.toHaveBeenCalled();
+    expect(innerPoRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('rejects a new receipt against an already completed PO and rolls its provisional movement back', async () => {
+    loadPo(
+      makePo([makeItem({ quantityReceived: 100, isFullyReceived: true })], {
+        status: PurchaseOrderStatus.RECEIVED,
+      }),
+    );
+
+    await expect(
+      handler.execute(makeCommand([{ itemId: ITEM_A, quantityReceived: 1 }])),
+    ).rejects.toThrow('accepts only exact receipt replay');
+    expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('locks PO state in-transaction and visits receipt items in canonical stock-lock order', async () => {
+    const itemA = makeItem({ id: 'poi-a', itemId: ITEM_A, itemName: 'A' });
+    const itemB = makeItem({ id: 'poi-b', itemId: ITEM_B, itemName: 'B' });
+    loadPo(makePo([itemB, itemA]));
+
+    await handler.execute(
+      makeCommand([
+        { itemId: ITEM_B, quantityReceived: 2 },
+        { itemId: ITEM_A, quantityReceived: 1 },
+      ]),
+    );
+
+    expect(innerPoRepo.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({ lock: { mode: 'pessimistic_write' } }),
+    );
+    expect(innerItemRepo.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        order: { itemId: 'ASC', id: 'ASC' },
+        lock: { mode: 'pessimistic_write' },
+      }),
+    );
+    expect(stockMovementService.recordMovement.mock.calls.map(([, input]) => input.itemId)).toEqual(
+      [ITEM_A, ITEM_B],
+    );
+  });
+
   it('never writes StorageInventory or StockMovement rows directly (movement sink owns them)', async () => {
-    poRepository.findOne.mockResolvedValue(makePo([makeItem()]));
+    loadPo(makePo([makeItem()]));
 
     await handler.execute(makeCommand([{ itemId: ITEM_A, quantityReceived: 40 }]));
 

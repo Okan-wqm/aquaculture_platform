@@ -15,6 +15,7 @@ const {
   PLATFORM_SERVICE_CATALOG,
   activeDropletServices,
   backendImageBuildTargets,
+  databaseLoginPrincipals,
   frontendImageBuildTargets,
   frontendPrebuildPlan,
   gatewaySubgraphs,
@@ -22,6 +23,7 @@ const {
   imageBuildTargets,
   infraImageBuildMatrix,
   infraImageBuildTargets,
+  metricsEndpointServices,
   readinessServices,
   readinessSlaSeconds,
   requiredRuntimeEnv,
@@ -142,6 +144,9 @@ function signalEmitterSources(key: string): readonly string[] {
   }
   if (key === 'db_migrate_complete') {
     return ['apps/db-migrate/src/main.ts'];
+  }
+  if (key === 'feeding_scheduler_ready') {
+    return ['apps/farm-feeding-scheduler/src/feeding-schedule-ingress.service.ts'];
   }
   throw new Error(`No emitter source mapping for boot signal ${key}`);
 }
@@ -309,7 +314,9 @@ function catalogDeployEnvArtifact(): Artifact {
   const prebuild = frontendPrebuildPlan();
   const nxFrontend = prebuild.nxProjects;
   const nonNxFrontend = prebuild.workspaceModules.map((entry) => entry.module);
-  const readySpecs = readinessServices().map((entry) => `${entry.serviceId}:${entry.port}`);
+  const readySpecs = readinessServices().map(
+    (entry) => `${entry.serviceId}:${entry.port}:${entry.path}`,
+  );
 
   return {
     path: 'infrastructure/deploy/service-catalog.deploy.vars',
@@ -319,6 +326,10 @@ ${shellAssignment('CATALOG_FRONTEND_IMAGE_SERVICES', frontendTargets)}
 ${shellAssignment('CATALOG_INFRA_IMAGE_SERVICES', [...infraImageBuildTargets()])}
 ${shellAssignment('CATALOG_APPLICATION_IMAGE_SERVICES', [...imageBuildTargets()])}
 ${shellAssignment('CATALOG_SERVICE_DB_ROLE_PREFIXES', [...serviceDbRolePrefixes()])}
+${shellAssignment(
+  'CATALOG_DATABASE_LOGIN_SECRET_ENVS',
+  databaseLoginPrincipals().map((principal) => principal.passwordEnv),
+)}
 ${shellAssignment('CATALOG_NX_FRONTEND_PROJECTS', nxFrontend)}
 ${shellAssignment('CATALOG_NON_NX_FRONTEND_PROJECTS', nonNxFrontend)}
 ${shellAssignment('CATALOG_READINESS_SERVICES', readySpecs)}
@@ -348,6 +359,7 @@ function catalogGeneratedArtifact(): Artifact {
         infraImageTargets: infraImageBuildTargets(),
         applicationImageServices: imageBuildTargets(),
         serviceDbRolePrefixes: serviceDbRolePrefixes(),
+        databaseLoginPrincipals: databaseLoginPrincipals(),
         nxFrontendProjects: nxFrontend,
         nonNxFrontendProjects: nonNxFrontend,
         // module → workspacePath pairs for the npm-workspace prebuild
@@ -365,7 +377,8 @@ function catalogGeneratedArtifact(): Artifact {
       packageBuildProjects: activeDropletServices()
         .filter(
           (entry) =>
-            entry.nxProject && ['node-service', 'frontend', 'one-shot'].includes(entry.buildKind),
+            entry.nxProject &&
+            ['node-service', 'node-worker', 'frontend', 'one-shot'].includes(entry.buildKind),
         )
         .map((entry) => entry.nxProject),
       requiredRuntimeEnv: requiredRuntimeEnv(),
@@ -399,16 +412,14 @@ function catalogGeneratedArtifact(): Artifact {
  * would reject.
  */
 function prometheusScrapeTargetsArtifact(): Artifact {
-  const targetGroups = activeDropletServices()
-    .filter((entry) => entry.metricsExposure === 'prom-endpoint')
-    .map((entry) => ({
-      targets: [`${entry.composeServiceName}:${entry.containerPort}`],
-      labels: {
-        app: entry.serviceId,
-        namespace: 'aquaculture',
-        criticality: entry.criticality,
-      },
-    }));
+  const targetGroups = metricsEndpointServices().map((entry) => ({
+    targets: [`${entry.composeServiceName}:${entry.containerPort}`],
+    labels: {
+      app: entry.serviceId,
+      namespace: 'aquaculture',
+      criticality: entry.criticality,
+    },
+  }));
   return {
     path: 'infrastructure/monitoring/droplet/file_sd/aqua-services.json',
     contents: `${prettyJson(targetGroups)}\n`,

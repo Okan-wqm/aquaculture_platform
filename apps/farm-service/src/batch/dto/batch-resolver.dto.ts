@@ -8,7 +8,20 @@
 import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common/mobile-command';
 import { ID, Float, Field, InputType, Int, ObjectType, registerEnumType } from '@nestjs/graphql';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min, ValidateNested } from 'class-validator';
+import {
+  IsDefined,
+  IsEnum,
+  IsInt,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  Min,
+  ValidateIf,
+  ValidateNested,
+} from 'class-validator';
 import { GraphQLJSON } from 'graphql-type-json';
 
 /**
@@ -73,7 +86,14 @@ export class RecordMortalityInput extends MobileCommandEnvelopeInput {
   @Field() @IsNotEmpty() @IsString() @MaxLength(128) payloadHash!: string;
   @Field(() => ID) @IsNotEmpty() @IsUUID() batchId!: string;
   @Field(() => ID) @IsNotEmpty() @IsUUID() tankId!: string;
-  @Field(() => Int) @IsNotEmpty() @IsInt() @Min(1) quantity!: number;
+  @Field(() => Int, { nullable: true })
+  @ValidateIf(
+    (input: RecordMortalityInput) => input.quantity !== undefined || input.biomassKg === undefined,
+  )
+  @IsDefined()
+  @IsInt()
+  @Min(1)
+  quantity?: number;
   @Field(() => MortalityReason) @IsNotEmpty() @IsEnum(MortalityReason) reason!: MortalityReason;
   @Field({ nullable: true }) @IsOptional() @IsString() detail?: string;
   @Field({ defaultValue: () => new Date() }) @IsOptional() observedAt!: Date;
@@ -92,7 +112,14 @@ export class RecordCullInput extends MobileCommandEnvelopeInput {
   @Field() @IsNotEmpty() @IsString() @MaxLength(128) payloadHash!: string;
   @Field(() => ID) @IsNotEmpty() @IsUUID() batchId!: string;
   @Field(() => ID) @IsNotEmpty() @IsUUID() tankId!: string;
-  @Field(() => Int) @IsNotEmpty() @IsInt() @Min(1) quantity!: number;
+  @Field(() => Int, { nullable: true })
+  @ValidateIf(
+    (input: RecordCullInput) => input.quantity !== undefined || input.biomassKg === undefined,
+  )
+  @IsDefined()
+  @IsInt()
+  @Min(1)
+  quantity?: number;
   @Field(() => CullReason) @IsNotEmpty() @IsEnum(CullReason) reason!: CullReason;
   @Field({ nullable: true }) @IsOptional() @IsString() detail?: string;
   @Field({ defaultValue: () => new Date() }) @IsOptional() culledAt!: Date;
@@ -112,7 +139,10 @@ export class AllocateToTankInput extends MobileCommandEnvelopeInput {
   @Field(() => ID) @IsNotEmpty() @IsUUID() tankId!: string;
   @Field(() => Int) @IsNotEmpty() @IsInt() @Min(1) quantity!: number;
   @Field(() => Float) @IsNotEmpty() @IsNumber() @Min(0) avgWeightG!: number;
-  @Field(() => AllocationType, { defaultValue: AllocationType.INITIAL_STOCKING }) @IsOptional() @IsEnum(AllocationType) allocationType!: AllocationType;
+  @Field(() => AllocationType, { defaultValue: AllocationType.INITIAL_STOCKING })
+  @IsOptional()
+  @IsEnum(AllocationType)
+  allocationType!: AllocationType;
   @Field({ nullable: true }) @IsOptional() allocatedAt?: Date;
   @Field({ nullable: true }) @IsOptional() @IsString() notes?: string;
 }
@@ -124,7 +154,14 @@ export class TransferBatchInput extends MobileCommandEnvelopeInput {
   @Field(() => ID) @IsNotEmpty() @IsUUID() batchId!: string;
   @Field(() => ID) @IsNotEmpty() @IsUUID() sourceTankId!: string;
   @Field(() => ID) @IsNotEmpty() @IsUUID() destinationTankId!: string;
-  @Field(() => Int) @IsNotEmpty() @IsInt() @Min(1) quantity!: number;
+  @Field(() => Int, { nullable: true })
+  @ValidateIf(
+    (input: TransferBatchInput) => input.quantity !== undefined || input.biomassKg === undefined,
+  )
+  @IsDefined()
+  @IsInt()
+  @Min(1)
+  quantity?: number;
   @Field(() => Float, { nullable: true }) @IsOptional() @IsNumber() @Min(0) avgWeightG?: number;
   /** D-3 mod (b): tane + kg birlikte — verilen kg AYNEN düşer, kalanın
    *  ortalaması kayar (büyük balık kaybı). Boşsa mod (a): kg güncel
@@ -133,7 +170,13 @@ export class TransferBatchInput extends MobileCommandEnvelopeInput {
   @Field({ nullable: true }) @IsOptional() transferredAt?: Date;
   @Field({ nullable: true }) @IsOptional() @IsString() transferReason?: string;
   @Field({ nullable: true }) @IsOptional() @IsString() notes?: string;
-  @Field(() => Boolean, { nullable: true, defaultValue: false, description: 'Kapasite kontrolünü atla' }) @IsOptional() skipCapacityCheck?: boolean;
+  @Field(() => Boolean, {
+    nullable: true,
+    defaultValue: false,
+    description: 'Kapasite kontrolünü atla',
+  })
+  @IsOptional()
+  skipCapacityCheck?: boolean;
 }
 
 @InputType()
@@ -153,7 +196,10 @@ export class RecordGradingInput extends MobileCommandEnvelopeInput {
   @Field(() => ID) @IsNotEmpty() @IsUUID() sourceTankId!: string;
   @Field({ nullable: true }) @IsOptional() gradedAt?: Date;
   @Field({ nullable: true }) @IsOptional() @IsString() notes?: string;
-  @Field(() => [GradingOutputInput]) @ValidateNested({ each: true }) @Type(() => GradingOutputInput) outputs!: GradingOutputInput[];
+  @Field(() => [GradingOutputInput])
+  @ValidateNested({ each: true })
+  @Type(() => GradingOutputInput)
+  outputs!: GradingOutputInput[];
 }
 
 @InputType()
@@ -238,17 +284,37 @@ export class BatchPerformanceResponse {
   @Field(() => Float) targetDailyGrowthG!: number;
   @Field(() => Float) growthVariancePercent!: number;
   @Field(() => Float) totalFeedConsumedKg!: number;
-  @Field(() => Float, { deprecationReason: 'Use totalFeedCostDecimal (exact decimal string, ADR-0004).' }) totalFeedCost!: number;
+  @Field(() => Float, {
+    deprecationReason: 'Use totalFeedCostDecimal (exact decimal string, ADR-0004).',
+  })
+  totalFeedCost!: number;
   @Field(() => Float) avgDailyFeedKg!: number;
-  @Field(() => Float, { deprecationReason: 'Use purchaseCostDecimal (exact decimal string, ADR-0004).' }) purchaseCost!: number;
-  @Field(() => Float, { deprecationReason: 'Use totalCostDecimal (exact decimal string, ADR-0004).' }) totalCost!: number;
-  @Field(() => Float, { deprecationReason: 'Use costPerKgDecimal (exact decimal string, ADR-0004).' }) costPerKg!: number;
-  @Field(() => Float, { deprecationReason: 'Use costPerFishDecimal (exact decimal string, ADR-0004).' }) costPerFish!: number;
+  @Field(() => Float, {
+    deprecationReason: 'Use purchaseCostDecimal (exact decimal string, ADR-0004).',
+  })
+  purchaseCost!: number;
+  @Field(() => Float, {
+    deprecationReason: 'Use totalCostDecimal (exact decimal string, ADR-0004).',
+  })
+  totalCost!: number;
+  @Field(() => Float, {
+    deprecationReason: 'Use costPerKgDecimal (exact decimal string, ADR-0004).',
+  })
+  costPerKg!: number;
+  @Field(() => Float, {
+    deprecationReason: 'Use costPerFishDecimal (exact decimal string, ADR-0004).',
+  })
+  costPerFish!: number;
   @Field({ nullable: true }) projectedHarvestDate?: Date;
   @Field(() => Float, { nullable: true }) projectedHarvestWeightG?: number;
   @Field(() => Int, { nullable: true }) daysToHarvest?: number;
   @Field(() => Int) performanceIndex!: number;
-  @Field(() => PerformanceStatusType) performanceStatus!: 'excellent' | 'good' | 'average' | 'below_average' | 'poor';
+  @Field(() => PerformanceStatusType) performanceStatus!:
+    | 'excellent'
+    | 'good'
+    | 'average'
+    | 'below_average'
+    | 'poor';
 }
 
 @ObjectType()

@@ -3,13 +3,9 @@
  */
 import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import { registerEnumType } from '@nestjs/graphql';
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  Index,
-} from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from 'typeorm';
+
+import { StorageItemType } from './storage-inventory.entity';
 
 export enum MovementType {
   IN = 'in',
@@ -32,7 +28,17 @@ registerEnumType(MovementType, {
 // Composite index for TraceLot queries: enables efficient lot traceability
 // without full table scan, required by EU 178/2002 Article 18 audits.
 @Index(['tenantId', 'lotNumber'])
-@Index('idx_stock_movements_tenant_idempotency', ['tenantId', 'idempotencyKey'], { unique: true, where: '"idempotency_key" IS NOT NULL' })
+@Index('idx_stock_movements_tenant_idempotency', ['tenantId', 'idempotencyKey'], {
+  unique: true,
+  where: '"idempotency_key" IS NOT NULL',
+})
+@Index('uq_stock_movement_tenant_identity', ['tenantId', 'id'], { unique: true })
+@Index('idx_stock_movement_allocation_family', ['tenantId', 'itemId', 'allocationFamilyKey'], {
+  where: '"allocation_family_key" IS NOT NULL',
+})
+@Index('idx_stock_movement_source_movement', ['tenantId', 'sourceMovementId'], {
+  where: '"source_movement_id" IS NOT NULL',
+})
 export class StockMovement {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -45,7 +51,7 @@ export class StockMovement {
   movementType!: MovementType;
 
   @Column({ type: 'varchar', length: 20, name: 'item_type' })
-  itemType!: string; // feed/chemical/consumable
+  itemType!: StorageItemType;
 
   @Column({ type: 'uuid', name: 'item_id' })
   itemId!: string;
@@ -97,6 +103,30 @@ export class StockMovement {
    */
   @Column({ type: 'date', nullable: true, name: 'expiry_date' })
   expiryDate?: Date;
+
+  /**
+   * Arrival instant of the exact inventory lot touched by this movement.
+   *
+   * A feeding deduction can drain and delete the projection row. A later
+   * correction must therefore rebuild the row from immutable movement facts,
+   * not from the correction clock. `expiryDate` alone is insufficient because
+   * FEFO's canonical tie-break is `(expiryDate, receivedDate, lotNumber)`.
+   * NULL is a truthful unknown for movements written before this authority.
+   */
+  @Column({ type: 'timestamptz', nullable: true, name: 'received_date' })
+  receivedDate?: Date;
+
+  /**
+   * Stable feeding subject whose immutable OUT/RETURN slices form one
+   * allocation ledger. Unlike the per-attempt idempotency key, this identity
+   * survives repeated upward/downward corrections.
+   */
+  @Column({ type: 'varchar', length: 64, nullable: true, name: 'allocation_family_key' })
+  allocationFamilyKey?: string;
+
+  /** Exact OUT slice restored by this RETURN movement. */
+  @Column({ type: 'uuid', nullable: true, name: 'source_movement_id' })
+  sourceMovementId?: string;
 
   /**
    * Client-generated idempotency key to prevent duplicate movements from

@@ -364,6 +364,42 @@ export interface ParentReadingRoutedEvent extends BaseEvent {
   errorCount: number;
 }
 
+export type FeedingWindowReadinessStatusV1 =
+  | 'ready'
+  | 'low_oxygen'
+  | 'no_reading'
+  | 'not_instrumented';
+
+export interface FeedingWindowReadinessVerdictV1 {
+  readonly unitId: string;
+  readonly unitCode: string;
+  readonly mealId: string;
+  readonly dayPlanId: string;
+  readonly scheduledAt: string;
+  readonly status: FeedingWindowReadinessStatusV1;
+  readonly minDissolvedOxygen: number;
+  readonly observedDissolvedOxygen?: number;
+  readonly observedAt?: string;
+  readonly lowOxygenReductionPercent?: number;
+}
+
+/**
+ * One batched, complete answer to one MealWindowUpcoming batch. Every meal
+ * carrying an oxygen floor receives exactly one verdict, including explicit
+ * `not_instrumented`; absence can never be mistaken for readiness.
+ */
+export interface FeedingWindowReadinessEvent extends BaseEvent {
+  readonly eventType: 'FeedingWindowReadiness';
+  readonly schemaVersion: 'feeding-window-readiness/v1';
+  readonly sourceWindowEventId: string;
+  readonly windowStart: string;
+  readonly windowEnd: string;
+  readonly evaluatedAt: string;
+  readonly batchIndex: number;
+  readonly batchCount: number;
+  readonly verdicts: readonly FeedingWindowReadinessVerdictV1[];
+}
+
 // ==================== SCADA Package Lifecycle Events ====================
 
 /**
@@ -410,6 +446,7 @@ export interface ScadaDeployFailedEvent extends BaseEvent {
  * Union type for all sensor events
  */
 export type SensorEvent =
+  | FeedingWindowReadinessEvent
   | SensorReadingEvent
   | SensorMetricIngestedEvent
   | SensorRegisteredEvent

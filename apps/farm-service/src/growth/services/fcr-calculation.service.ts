@@ -17,10 +17,13 @@
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between } from 'typeorm';
+import { Repository, Between, In } from 'typeorm';
 import { TenantContextError } from '@aquaculture/backend-common/database';
 import { FeedingRecord } from '../../feeding/entities/feeding-record.entity';
-import { FeedingProgram, FeedingProgramStatus } from '../../feeding/entities/feeding-program.entity';
+import {
+  FeedingProgram,
+  FeedingProgramStatus,
+} from '../../feeding/entities/feeding-program.entity';
 import { FeedingProgramTank } from '../../feeding/entities/feeding-program-tank.entity';
 import { BatchLocation } from '../../batch/entities/batch-location.entity';
 import { GrowthMeasurement, FCRAnalysis } from '../entities/growth-measurement.entity';
@@ -35,6 +38,52 @@ import {
   ProtocolSettings,
 } from '../../feeding-protocol/entities/feeding-protocol-v2.entity';
 import { AssignmentOverrides } from '../../feeding-protocol/entities/protocol-assignment.entity';
+
+/** Active v2 protocol input for the target-FCR resolution chain. */
+interface ProtocolFcrRow {
+  overrides: AssignmentOverrides | null;
+  bands: ProtocolBand[] | null;
+  settings: ProtocolSettings | null;
+  fcrMatrix: FcrMatrix | null;
+}
+
+interface LegacyProgramFcrRow {
+  batchId: string;
+  fcrTable: { temperatures: number[]; weights: number[]; fcrValues: number[][] } | null;
+}
+
+/**
+ * One bounded read model feeding the same target-FCR resolver used by the
+ * single-batch API. Explicit nulls distinguish an authoritative absence from a
+ * coordinate that was never prefetched.
+ */
+interface TargetFcrPrefetch {
+  batchById: Map<string, Batch>;
+  protocolRowByBatch: Map<string, ProtocolFcrRow | null>;
+  feedMatrixByFeedId: Map<string, FcrMatrix | undefined>;
+  legacyProgramByBatch: Map<string, LegacyProgramFcrRow['fcrTable']>;
+}
+
+function insufficientTrend(): FCRTrendAnalysis {
+  return {
+    trend: 'stable',
+    slope: 0,
+    correlation: 0,
+    forecast7Days: 0,
+    recommendations: ['Yeterli veri yok - daha fazla ölçüm gerekli'],
+  };
+}
+
+function toFcrMatrix(
+  matrix: { temperatures: number[]; weights: number[]; fcrMatrix?: number[][] } | null,
+): FcrMatrix | undefined {
+  if (!matrix?.fcrMatrix?.length) return undefined;
+  return {
+    temperatures: matrix.temperatures,
+    weights: matrix.weights,
+    fcrValues: matrix.fcrMatrix,
+  };
+}
 
 // ============================================================================
 // INTERFACES
@@ -67,9 +116,9 @@ export interface FCRCalculationResult {
  */
 export interface FCRTrendAnalysis {
   trend: 'improving' | 'stable' | 'declining';
-  slope: number;                     // Günlük değişim oranı
-  correlation: number;               // R-squared
-  forecast7Days: number;             // 7 günlük tahmin
+  slope: number; // Günlük değişim oranı
+  correlation: number; // R-squared
+  forecast7Days: number; // 7 günlük tahmin
   recommendations: string[];
 }
 
@@ -80,8 +129,8 @@ export interface FCRComparison {
   currentFCR: number;
   targetFCR: number;
   industryAvgFCR: number;
-  varianceFromTarget: number;        // %
-  varianceFromIndustry: number;      // %
+  varianceFromTarget: number; // %
+  varianceFromIndustry: number; // %
   performance: 'excellent' | 'good' | 'average' | 'below_average' | 'poor';
 }
 
@@ -94,10 +143,10 @@ export interface BatchFCRSummary {
   speciesName: string;
 
   // Miktar bilgileri
-  totalFeedGiven: number;            // kg
-  totalGrowth: number;               // kg
-  startBiomass: number;              // kg
-  currentBiomass: number;            // kg
+  totalFeedGiven: number; // kg
+  totalGrowth: number; // kg
+  startBiomass: number; // kg
+  currentBiomass: number; // kg
 
   // FCR metrikleri
   currentFCR: number;
@@ -125,14 +174,14 @@ export class FCRCalculationService {
 
   // Endüstri ortalama FCR değerleri (tür bazlı)
   private readonly industryAverageFCR: Record<string, number> = {
-    'atlantic_salmon': 1.2,
-    'rainbow_trout': 1.1,
-    'sea_bass': 1.8,
-    'sea_bream': 2.0,
-    'tilapia': 1.6,
-    'catfish': 1.5,
-    'shrimp': 1.8,
-    'default': 1.5,
+    atlantic_salmon: 1.2,
+    rainbow_trout: 1.1,
+    sea_bass: 1.8,
+    sea_bream: 2.0,
+    tilapia: 1.6,
+    catfish: 1.5,
+    shrimp: 1.8,
+    default: 1.5,
   };
 
   constructor(
@@ -167,13 +216,20 @@ export class FCRCalculationService {
     const warnings: string[] = [];
 
     // Periyottaki yemleme kayıtlarını al
-    const feedingRecords = await this.feedingRecordRepository.find({
-      where: {
-        tenantId,
-        batchId,
-        feedingDate: Between(startDate, endDate),
-      },
-    });
+    const feedingRecords = await this.feedingRecordRepository
+      .createQueryBuilder('fr')
+      .where('fr.tenantId = :tenantId', { tenantId })
+      .andWhere('fr.batchId = :batchId', { batchId })
+      .andWhere('fr.feedingDate BETWEEN :startDate AND :endDate', { startDate, endDate })
+      .andWhere(
+        `(fr.sourceExecutionId IS NULL OR EXISTS (
+          SELECT 1 FROM feeding_historical_record_attribution_v1 attribution
+           WHERE attribution."tenantId" = fr."tenantId"
+             AND attribution."feedingRecordId" = fr.id
+             AND attribution.status = 'QUALIFIED'
+        ))`,
+      )
+      .getMany();
 
     // Periyot başı ve sonu büyüme ölçümlerini al
     const measurements = await this.growthMeasurementRepository.find({
@@ -191,10 +247,7 @@ export class FCRCalculationService {
     }
 
     // Toplam verilen yem (kg)
-    const totalFeed = feedingRecords.reduce(
-      (sum, record) => sum + Number(record.actualAmount),
-      0
-    );
+    const totalFeed = feedingRecords.reduce((sum, record) => sum + Number(record.actualAmount), 0);
 
     // Büyüme hesabı (başlangıç vs son biomass)
     const startMeasurement = measurements[0];
@@ -224,13 +277,14 @@ export class FCRCalculationService {
     const trendAnalysis = await this.analyzeFCRTrend(batchId, tenantId);
 
     // Target FCR varsayılan
-    const effectiveTargetFCR = targetFCR || await this.getTargetFCR(batchId);
+    const effectiveTargetFCR = targetFCR || (await this.getTargetFCR(batchId));
 
     // Analiz oluştur
     // Edge case: when effectiveTargetFCR=0, fcrVariance calculation would divide by zero; return 0
-    const fcrVariance = effectiveTargetFCR === 0 || effectiveTargetFCR === null || effectiveTargetFCR === undefined
-      ? 0
-      : ((cumulativeResult.fcr - effectiveTargetFCR) / effectiveTargetFCR) * 100;
+    const fcrVariance =
+      effectiveTargetFCR === 0 || effectiveTargetFCR === null || effectiveTargetFCR === undefined
+        ? 0
+        : ((cumulativeResult.fcr - effectiveTargetFCR) / effectiveTargetFCR) * 100;
 
     const analysis: FCRAnalysis = {
       periodFeedGiven: totalFeed,
@@ -273,7 +327,7 @@ export class FCRCalculationService {
   async calculateCumulativeFCR(
     batchId: string,
     tenantId: string,
-    endDate?: Date
+    endDate?: Date,
   ): Promise<{ fcr: number; totalFeed: number; totalGrowth: number; removedBiomassKg: number }> {
     const batch = await this.batchRepository.findOne({
       where: { id: batchId, tenantId },
@@ -284,17 +338,24 @@ export class FCRCalculationService {
     }
 
     // Tüm yemleme kayıtlarını al
-    const feedQuery = this.feedingRecordRepository.createQueryBuilder('fr')
+    const feedQuery = this.feedingRecordRepository
+      .createQueryBuilder('fr')
       .where('fr.tenantId = :tenantId', { tenantId })
-      .andWhere('fr.batchId = :batchId', { batchId });
+      .andWhere('fr.batchId = :batchId', { batchId })
+      .andWhere(
+        `(fr.sourceExecutionId IS NULL OR EXISTS (
+          SELECT 1 FROM feeding_historical_record_attribution_v1 attribution
+           WHERE attribution."tenantId" = fr."tenantId"
+             AND attribution."feedingRecordId" = fr.id
+             AND attribution.status = 'QUALIFIED'
+        ))`,
+      );
 
     if (endDate) {
       feedQuery.andWhere('fr.feedingDate <= :endDate', { endDate });
     }
 
-    const feedResult = await feedQuery
-      .select('SUM(fr.actualAmount)', 'totalFeed')
-      .getRawOne();
+    const feedResult = await feedQuery.select('SUM(fr.actualAmount)', 'totalFeed').getRawOne();
 
     const totalFeed = Number(feedResult?.totalFeed || 0);
 
@@ -307,7 +368,8 @@ export class FCRCalculationService {
     // TRANSFER_IN together makes within-batch tank moves (same batchId out +
     // in) net to zero naturally. Tenant-filtered (op.tenantId) as defence in
     // depth on top of the tenant search_path routing (ADR-011).
-    const ledgerQuery = this.tankOperationRepository.createQueryBuilder('op')
+    const ledgerQuery = this.tankOperationRepository
+      .createQueryBuilder('op')
       .where('op.tenantId = :tenantId', { tenantId })
       .andWhere('op.batchId = :batchId', { batchId })
       .andWhere('op.isDeleted = false')
@@ -345,9 +407,7 @@ export class FCRCalculationService {
     // displayed biomass diverge, because that snapshot goes stale on every
     // removal while the derived value tracks the live count. When no count is
     // available yet, fall back to the start biomass.
-    const currentBiomass = batch.currentQuantity > 0
-      ? batch.getCurrentBiomass()
-      : startBiomass;
+    const currentBiomass = batch.currentQuantity > 0 ? batch.getCurrentBiomass() : startBiomass;
     // Realized growth includes the growth of biomass that exited the system.
     const totalGrowth = currentBiomass + removedBiomassKg - startBiomass;
 
@@ -360,31 +420,71 @@ export class FCRCalculationService {
    * FCR trend analizi yapar
    */
   async analyzeFCRTrend(batchId: string, tenantId: string): Promise<FCRTrendAnalysis> {
-    // Son 10 ölçümü al
-    const measurements = await this.growthMeasurementRepository.find({
-      where: { tenantId, batchId },
-      order: { measurementDate: 'DESC' },
-      take: 10,
-    });
+    const trends = await this.analyzeFCRTrendMany(tenantId, [batchId]);
+    return trends.get(batchId) ?? insufficientTrend();
+  }
 
-    if (measurements.length < 3) {
-      return {
-        trend: 'stable',
-        slope: 0,
-        correlation: 0,
-        forecast7Days: 0,
-        recommendations: ['Yeterli veri yok - daha fazla ölçüm gerekli'],
-      };
+  /**
+   * Bounded bulk trend projection. The window function owns the "latest ten"
+   * rule once for every batch; the single-batch API delegates here, so there is
+   * no second regression implementation to drift.
+   */
+  async analyzeFCRTrendMany(
+    tenantId: string,
+    batchIds: readonly string[],
+  ): Promise<Map<string, FCRTrendAnalysis>> {
+    const canonicalBatchIds = [...new Set(batchIds)].sort();
+    const requestedBatchIds = new Set(canonicalBatchIds);
+    const trends = new Map<string, FCRTrendAnalysis>();
+    if (canonicalBatchIds.length === 0) return trends;
+
+    const rows: Array<{ batchId: string; fcrAnalysis: FCRAnalysis | null }> =
+      await this.growthMeasurementRepository.manager.query(
+        `SELECT ranked."batchId", ranked."fcrAnalysis"
+           FROM (
+             SELECT gm."batchId",
+                    gm."fcrAnalysis",
+                    ROW_NUMBER() OVER (
+                      PARTITION BY gm."batchId" ORDER BY gm."measurementDate" DESC
+                    ) AS rn
+               FROM "growth_measurements" gm
+              WHERE gm."tenantId" = $1 AND gm."batchId" = ANY($2::uuid[])
+           ) ranked
+          WHERE ranked.rn <= 10
+          ORDER BY ranked."batchId", ranked.rn ASC`,
+        [tenantId, canonicalBatchIds],
+      );
+
+    const byBatch = new Map<string, Array<{ fcrAnalysis: FCRAnalysis | null }>>();
+    for (const row of rows) {
+      if (!requestedBatchIds.has(row.batchId)) {
+        throw new Error(`Bulk FCR trend projection returned foreign batch ${row.batchId}`);
+      }
+      const measurements = byBatch.get(row.batchId) ?? [];
+      measurements.push({ fcrAnalysis: row.fcrAnalysis });
+      byBatch.set(row.batchId, measurements);
     }
+    for (const batchId of canonicalBatchIds) {
+      trends.set(batchId, this.computeFcrTrend(byBatch.get(batchId) ?? []));
+    }
+    return trends;
+  }
 
-    // FCR değerlerini çıkar
-    const fcrValues = measurements
-      .filter(m => m.fcrAnalysis?.periodFCR)
-      .map((m, index) => ({
-        x: index,
-        y: m.fcrAnalysis!.periodFCR,
-      }))
-      .reverse(); // Kronolojik sıra
+  /** Rows are newest-first, exactly as ranked by the projection query. */
+  private computeFcrTrend(
+    measurements: Array<{ fcrAnalysis?: FCRAnalysis | null }>,
+  ): FCRTrendAnalysis {
+    if (measurements.length < 3) return insufficientTrend();
+
+    // The projection returns newest-first. Build the chronological value list
+    // first and assign regression coordinates afterwards; reversing objects
+    // that were already indexed would preserve the old x/y pairs and invert
+    // the business meaning of improving versus declining FCR.
+    const chronologicalFcrValues = measurements
+      .filter((m) => m.fcrAnalysis?.periodFCR)
+      .map((m) => m.fcrAnalysis!.periodFCR)
+      .reverse();
+    const fcrValues = chronologicalFcrValues.map((y, x) => ({ x, y }));
 
     if (fcrValues.length < 3) {
       return {
@@ -412,7 +512,7 @@ export class FCRCalculationService {
     // 7 günlük tahmin
     const lastFcrValue = fcrValues[fcrValues.length - 1];
     const lastFCR = lastFcrValue?.y ?? 0;
-    const forecast7Days = lastFCR + (slope * 7);
+    const forecast7Days = lastFCR + slope * 7;
 
     // Öneriler
     const recommendations = this.generateTrendRecommendations(trend, slope, lastFCR);
@@ -432,7 +532,7 @@ export class FCRCalculationService {
   async compareFCR(
     batchId: string,
     tenantId: string,
-    speciesType?: string
+    speciesType?: string,
   ): Promise<FCRComparison> {
     const batch = await this.batchRepository.findOne({
       where: { id: batchId, tenantId },
@@ -442,20 +542,22 @@ export class FCRCalculationService {
     const currentFCR = cumulativeResult.fcr;
 
     // Target FCR (batch'ten veya varsayılan)
-    const targetFCR = await this.getTargetFCR(batchId) || 1.5;
+    const targetFCR = (await this.getTargetFCR(batchId)) || 1.5;
 
     // Endüstri ortalaması
     const industryAvgFCR = this.industryAverageFCR[speciesType || 'default'] || 1.5;
 
     // Varyanslar
     // Edge case: when targetFCR=0, variance calculation would divide by zero; return 0
-    const varianceFromTarget = targetFCR === 0 || targetFCR === null || targetFCR === undefined
-      ? 0
-      : ((currentFCR - targetFCR) / targetFCR) * 100;
+    const varianceFromTarget =
+      targetFCR === 0 || targetFCR === null || targetFCR === undefined
+        ? 0
+        : ((currentFCR - targetFCR) / targetFCR) * 100;
     // Edge case: when industryAvgFCR=0, variance calculation would divide by zero; return 0
-    const varianceFromIndustry = industryAvgFCR === 0 || industryAvgFCR === null || industryAvgFCR === undefined
-      ? 0
-      : ((currentFCR - industryAvgFCR) / industryAvgFCR) * 100;
+    const varianceFromIndustry =
+      industryAvgFCR === 0 || industryAvgFCR === null || industryAvgFCR === undefined
+        ? 0
+        : ((currentFCR - industryAvgFCR) / industryAvgFCR) * 100;
 
     // Performans değerlendirmesi
     let performance: FCRComparison['performance'];
@@ -504,14 +606,13 @@ export class FCRCalculationService {
 
     // FCR değerlerini çıkar
     const fcrValues = measurements
-      .filter(m => m.fcrAnalysis?.periodFCR)
-      .map(m => m.fcrAnalysis!.periodFCR);
+      .filter((m) => m.fcrAnalysis?.periodFCR)
+      .map((m) => m.fcrAnalysis!.periodFCR);
 
     const bestFCR = fcrValues.length > 0 ? Math.min(...fcrValues) : 0;
     const worstFCR = fcrValues.length > 0 ? Math.max(...fcrValues) : 0;
-    const avgFCR = fcrValues.length > 0
-      ? fcrValues.reduce((a, b) => a + b, 0) / fcrValues.length
-      : 0;
+    const avgFCR =
+      fcrValues.length > 0 ? fcrValues.reduce((a, b) => a + b, 0) / fcrValues.length : 0;
 
     // Trend analizi
     const trendAnalysis = await this.analyzeFCRTrend(batchId, tenantId);
@@ -556,7 +657,7 @@ export class FCRCalculationService {
    */
   async detectFCRAnomalies(
     batchId: string,
-    tenantId: string
+    tenantId: string,
   ): Promise<{ hasAnomaly: boolean; anomalies: string[] }> {
     const anomalies: string[] = [];
 
@@ -566,22 +667,30 @@ export class FCRCalculationService {
 
     // Çok yüksek FCR
     if (cumulativeResult.fcr > 3) {
-      anomalies.push(`Kritik: FCR çok yüksek (${cumulativeResult.fcr.toFixed(2)}) - yemleme veya ölçüm hatası olabilir`);
+      anomalies.push(
+        `Kritik: FCR çok yüksek (${cumulativeResult.fcr.toFixed(2)}) - yemleme veya ölçüm hatası olabilir`,
+      );
     }
 
     // Çok düşük FCR (şüpheli)
     if (cumulativeResult.fcr < 0.7 && cumulativeResult.fcr > 0) {
-      anomalies.push(`Uyarı: FCR çok düşük (${cumulativeResult.fcr.toFixed(2)}) - veri doğruluğunu kontrol edin`);
+      anomalies.push(
+        `Uyarı: FCR çok düşük (${cumulativeResult.fcr.toFixed(2)}) - veri doğruluğunu kontrol edin`,
+      );
     }
 
     // Hedeften %30+ sapma
     if (Math.abs(comparison.varianceFromTarget) > 30) {
-      anomalies.push(`Önemli sapma: FCR hedeften %${comparison.varianceFromTarget.toFixed(1)} farklı`);
+      anomalies.push(
+        `Önemli sapma: FCR hedeften %${comparison.varianceFromTarget.toFixed(1)} farklı`,
+      );
     }
 
     // Hızlı kötüleşme
     if (trendAnalysis.trend === 'declining' && trendAnalysis.slope > 0.05) {
-      anomalies.push(`Uyarı: FCR hızla kötüleşiyor (günlük +${(trendAnalysis.slope * 100).toFixed(2)}%)`);
+      anomalies.push(
+        `Uyarı: FCR hızla kötüleşiyor (günlük +${(trendAnalysis.slope * 100).toFixed(2)}%)`,
+      );
     }
 
     return {
@@ -604,6 +713,171 @@ export class FCRCalculationService {
   }
 
   /**
+   * Bulk target projection over the exact same resolver as the single-batch
+   * surface. All chain inputs are prefetched in bounded set queries; the loop
+   * below performs no repository I/O.
+   */
+  async getTargetFCRForBatches(
+    tenantId: string,
+    batchIds: readonly string[],
+  ): Promise<Map<string, number>> {
+    const canonicalBatchIds = [...new Set(batchIds)].sort();
+    const targets = new Map<string, number>();
+    if (canonicalBatchIds.length === 0) return targets;
+
+    const prefetch = await this.prefetchTargetFcrContext(tenantId, canonicalBatchIds);
+    for (const batchId of canonicalBatchIds) {
+      targets.set(batchId, await this.getTargetFCR(batchId, prefetch));
+    }
+    return targets;
+  }
+
+  private async prefetchTargetFcrContext(
+    tenantId: string,
+    batchIds: readonly string[],
+  ): Promise<TargetFcrPrefetch> {
+    const batches = await this.batchRepository.find({
+      where: { tenantId, id: In([...batchIds]) },
+      relations: ['species'],
+    });
+    const batchById = new Map(batches.map((batch) => [batch.id, batch]));
+    if (batches.some((batch) => batch.tenantId !== tenantId || !batchIds.includes(batch.id))) {
+      throw new Error('Bulk target-FCR projection returned a foreign batch');
+    }
+    if (batchById.size !== batchIds.length) {
+      const missing = batchIds.filter((batchId) => !batchById.has(batchId));
+      throw new Error(`Bulk target-FCR projection is missing batches: ${missing.join(', ')}`);
+    }
+
+    const protocolRows: Array<ProtocolFcrRow & { batchId: string }> =
+      await this.batchRepository.manager.query(
+        `SELECT b.id::text AS "batchId",
+                target."overrides" AS overrides,
+                target."bands" AS bands,
+                target."settings" AS settings,
+                target."fcrMatrix" AS "fcrMatrix"
+           FROM unnest($2::uuid[]) AS b(id)
+           JOIN LATERAL (
+             SELECT assignment."overrides", protocol."bands", protocol."settings",
+                    protocol."fcrMatrix"
+               FROM "tank_batches" tank_batch
+               JOIN "feeding_protocol_assignments" assignment
+                 ON assignment."tenantId" = tank_batch."tenantId"
+                AND assignment."unitId" = tank_batch."tankId"
+                AND assignment.status = 'active'
+               JOIN "feeding_protocols_v2" protocol
+                 ON protocol.id = assignment."protocolId"
+                AND protocol."tenantId" = assignment."tenantId"
+                AND protocol.status = 'active'
+                AND protocol."isDeleted" = false
+              WHERE tank_batch."tenantId" = $1
+                AND (
+                  tank_batch."primaryBatchId" = b.id
+                  OR EXISTS (
+                    SELECT 1
+                      FROM jsonb_array_elements(
+                        COALESCE(tank_batch."batchDetails", '[]'::jsonb)
+                      ) detail(value)
+                     WHERE detail.value->>'batchId' = b.id::text
+                  )
+                )
+              ORDER BY tank_batch."totalBiomassKg" DESC, tank_batch."tankId" ASC
+              LIMIT 1
+           ) target ON true`,
+        [tenantId, batchIds],
+      );
+    const protocolRowByBatch = new Map<string, ProtocolFcrRow | null>(
+      batchIds.map((batchId) => [batchId, null]),
+    );
+    const projectedProtocolBatches = new Set<string>();
+    for (const row of protocolRows) {
+      if (!protocolRowByBatch.has(row.batchId)) {
+        throw new Error(`Bulk target-FCR protocol projection returned ${row.batchId}`);
+      }
+      if (projectedProtocolBatches.has(row.batchId)) {
+        throw new Error(`Bulk target-FCR protocol projection duplicated ${row.batchId}`);
+      }
+      projectedProtocolBatches.add(row.batchId);
+      protocolRowByBatch.set(row.batchId, row);
+    }
+
+    const feedIds = [
+      ...new Set(
+        protocolRows
+          .filter((row) => row.settings?.fcrSource === ProtocolFcrSource.FEED)
+          .flatMap((row) => (row.bands ?? []).map((band) => band.feedId))
+          .filter((feedId) => feedId.length > 0),
+      ),
+    ].sort();
+    const feedMatrixByFeedId = new Map<string, FcrMatrix | undefined>(
+      feedIds.map((feedId) => [feedId, undefined]),
+    );
+    if (feedIds.length > 0) {
+      const feedRows: Array<{
+        id: string;
+        matrix: { temperatures: number[]; weights: number[]; fcrMatrix?: number[][] } | null;
+      }> = await this.batchRepository.manager.query(
+        `SELECT id, "feedingMatrix2D" AS matrix
+           FROM "feeds"
+          WHERE "tenantId" = $1 AND id = ANY($2::uuid[])
+          ORDER BY id`,
+        [tenantId, feedIds],
+      );
+      const projectedFeeds = new Set<string>();
+      for (const row of feedRows) {
+        if (!feedMatrixByFeedId.has(row.id)) {
+          throw new Error(`Bulk target-FCR feed projection returned ${row.id}`);
+        }
+        if (projectedFeeds.has(row.id)) {
+          throw new Error(`Bulk target-FCR feed projection duplicated ${row.id}`);
+        }
+        projectedFeeds.add(row.id);
+        feedMatrixByFeedId.set(row.id, toFcrMatrix(row.matrix));
+      }
+    }
+
+    const legacyRows: LegacyProgramFcrRow[] = await this.batchRepository.manager.query(
+      `SELECT b.id::text AS "batchId", target."fcrTable" AS "fcrTable"
+         FROM unnest($2::uuid[]) AS b(id)
+         JOIN LATERAL (
+           SELECT program."fcrTable"
+             FROM "batch_locations" location
+             JOIN "feeding_program_tanks" link
+               ON link."tenantId" = location."tenantId"
+              AND link."equipmentId" = location."tankId"
+              AND link."isActive" = true
+             JOIN "feeding_programs" program
+               ON program.id = link."feedingProgramId"
+              AND program."tenantId" = link."tenantId"
+              AND program.status = 'ACTIVE'
+            WHERE location."tenantId" = $1
+              AND location."batchId" = b.id
+              AND location."isCurrentLocation" = true
+              AND location."tankId" IS NOT NULL
+            ORDER BY location."movedAt" DESC, location.id DESC
+            LIMIT 1
+         ) target ON true`,
+      [tenantId, batchIds],
+    );
+    const legacyProgramByBatch = new Map<string, LegacyProgramFcrRow['fcrTable']>(
+      batchIds.map((batchId) => [batchId, null]),
+    );
+    const projectedLegacyBatches = new Set<string>();
+    for (const row of legacyRows) {
+      if (!legacyProgramByBatch.has(row.batchId)) {
+        throw new Error(`Bulk target-FCR legacy projection returned ${row.batchId}`);
+      }
+      if (projectedLegacyBatches.has(row.batchId)) {
+        throw new Error(`Bulk target-FCR legacy projection duplicated ${row.batchId}`);
+      }
+      projectedLegacyBatches.add(row.batchId);
+      legacyProgramByBatch.set(row.batchId, row.fcrTable);
+    }
+
+    return { batchById, protocolRowByBatch, feedMatrixByFeedId, legacyProgramByBatch };
+  }
+
+  /**
    * Target FCR'ı getirir
    *
    * Öncelik sırası (P-14 zinciri — plan §3):
@@ -614,13 +888,14 @@ export class FCRCalculationService {
    * 5. Species commonName bazlı endüstri ortalaması
    * 6. Varsayılan 1.5
    */
-  private async getTargetFCR(batchId: string): Promise<number> {
+  private async getTargetFCR(batchId: string, prefetch?: TargetFcrPrefetch): Promise<number> {
     try {
-      // Batch'i species ilişkisiyle birlikte yükle
-      const batch = await this.batchRepository.findOne({
-        where: { id: batchId },
-        relations: ['species'],
-      });
+      const batch =
+        prefetch?.batchById.get(batchId) ??
+        (await this.batchRepository.findOne({
+          where: { id: batchId },
+          relations: ['species'],
+        }));
 
       if (!batch) {
         return 1.5;
@@ -633,25 +908,27 @@ export class FCRCalculationService {
 
       // 2. Ünitenin aktif v2 protokol ataması — motorun plan/snapshot hesabıyla
       // aynı SSoT (ProtocolRateService); legacy programdan ÖNCE gelir (P-14).
-      const fcrFromProtocolV2 = await this.getTargetFCRFromProtocolV2(batch);
+      const fcrFromProtocolV2 = await this.getTargetFCRFromProtocolV2(batch, prefetch);
       if (fcrFromProtocolV2 !== null) {
         return fcrFromProtocolV2;
       }
 
       // 3. Batch'in aktif LEGACY yemleme programındaki FCR tablosundan
       // interpolasyon — v1 motoruyla birlikte Faz 8'de silinir (P-14).
-      const fcrFromProgram = await this.getTargetFCRFromFeedingProgram(batch);
+      const fcrFromProgram = await this.getTargetFCRFromFeedingProgram(batch, prefetch);
       if (fcrFromProgram !== null) {
         return fcrFromProgram;
       }
 
       // 4. Species growthParameters.targetFCR
-      // species ilişkisi lazy olabilir, yoksa ayrıca sorgula
+      // Bulk projection loaded the relation authoritatively; a missing species
+      // there is an explicit absence, never permission to reintroduce N+1 I/O.
       let species = batch.species;
-      if (!species) {
-        species = await this.speciesRepository.findOne({
-          where: { id: batch.speciesId },
-        }) ?? undefined;
+      if (!species && !prefetch) {
+        species =
+          (await this.speciesRepository.findOne({
+            where: { id: batch.speciesId },
+          })) ?? undefined;
       }
 
       if (species?.growthParameters?.targetFCR && species.growthParameters.targetFCR > 0) {
@@ -671,6 +948,9 @@ export class FCRCalculationService {
       return 1.5;
     } catch (error) {
       if (error instanceof TenantContextError) {
+        throw error;
+      }
+      if (prefetch) {
         throw error;
       }
       this.logger.warn(
@@ -694,13 +974,19 @@ export class FCRCalculationService {
    * kaynaklarında interpolasyon ağırlık eksenine iner (ProtocolRateService
    * kuralı — uydurma default sıcaklık üretilmez, P-20).
    */
-  private async getTargetFCRFromProtocolV2(batch: Batch): Promise<number | null> {
-    const rows: Array<{
-      overrides: AssignmentOverrides | null;
-      bands: ProtocolBand[] | null;
-      settings: ProtocolSettings | null;
-      fcrMatrix: FcrMatrix | null;
-    }> = await this.batchRepository.manager.query(
+  private async getTargetFCRFromProtocolV2(
+    batch: Batch,
+    prefetch?: TargetFcrPrefetch,
+  ): Promise<number | null> {
+    if (prefetch?.protocolRowByBatch.has(batch.id)) {
+      return this.resolveProtocolFcrRow(
+        batch,
+        prefetch.protocolRowByBatch.get(batch.id) ?? null,
+        prefetch,
+      );
+    }
+
+    const rows: ProtocolFcrRow[] = await this.batchRepository.manager.query(
       `SELECT pa."overrides" AS overrides,
               p."bands" AS bands,
               p."settings" AS settings,
@@ -729,7 +1015,14 @@ export class FCRCalculationService {
       [batch.tenantId, batch.id],
     );
 
-    const row = rows[0];
+    return this.resolveProtocolFcrRow(batch, rows[0] ?? null, prefetch);
+  }
+
+  private async resolveProtocolFcrRow(
+    batch: Batch,
+    row: ProtocolFcrRow | null,
+    prefetch?: TargetFcrPrefetch,
+  ): Promise<number | null> {
     if (!row?.bands?.length || !row.settings) {
       return null;
     }
@@ -746,7 +1039,7 @@ export class FCRCalculationService {
 
     const feedFcrMatrix =
       row.settings.fcrSource === ProtocolFcrSource.FEED
-        ? await this.loadFeedFcrMatrix(batch.tenantId, resolved.band.feedId)
+        ? await this.loadFeedFcrMatrix(batch.tenantId, resolved.band.feedId, prefetch)
         : undefined;
 
     const { value } = this.protocolRateService.resolveExpectedFcr({
@@ -769,22 +1062,18 @@ export class FCRCalculationService {
   private async loadFeedFcrMatrix(
     tenantId: string,
     feedId: string,
+    prefetch?: TargetFcrPrefetch,
   ): Promise<FcrMatrix | undefined> {
+    if (prefetch?.feedMatrixByFeedId.has(feedId)) {
+      return prefetch.feedMatrixByFeedId.get(feedId);
+    }
     const rows: Array<{
       matrix: { temperatures: number[]; weights: number[]; fcrMatrix?: number[][] } | null;
     }> = await this.batchRepository.manager.query(
       `SELECT "feedingMatrix2D" AS matrix FROM "feeds" WHERE "tenantId" = $1 AND "id" = $2`,
       [tenantId, feedId],
     );
-    const matrix = rows[0]?.matrix;
-    if (!matrix?.fcrMatrix?.length) {
-      return undefined;
-    }
-    return {
-      temperatures: matrix.temperatures,
-      weights: matrix.weights,
-      fcrValues: matrix.fcrMatrix,
-    };
+    return toFcrMatrix(rows[0]?.matrix ?? null);
   }
 
   /**
@@ -793,8 +1082,15 @@ export class FCRCalculationService {
    * Zincir: Batch -> BatchLocation (aktif tank) -> FeedingProgramTank -> FeedingProgram -> fcrTable
    * FCR tablosu varsa, batch'in mevcut ortalama ağırlığına göre interpolasyon yapar.
    */
-  private async getTargetFCRFromFeedingProgram(batch: Batch): Promise<number | null> {
+  private async getTargetFCRFromFeedingProgram(
+    batch: Batch,
+    prefetch?: TargetFcrPrefetch,
+  ): Promise<number | null> {
     try {
+      if (prefetch?.legacyProgramByBatch.has(batch.id)) {
+        return this.fcrFromLegacyTable(prefetch.legacyProgramByBatch.get(batch.id) ?? null, batch);
+      }
+
       // Batch'in aktif lokasyonunu bul (hangi tank'ta)
       const activeLocation = await this.batchLocationRepository.findOne({
         where: {
@@ -824,29 +1120,11 @@ export class FCRCalculationService {
 
       const program = programTank.feedingProgram;
 
-      // Program aktif olmalı ve FCR tablosu olmalı
-      if (program.status !== FeedingProgramStatus.ACTIVE || !program.fcrTable) {
+      // Program aktif olmalı (toplu sorgu bu filtreyi SQL'de taşır).
+      if (program.status !== FeedingProgramStatus.ACTIVE) {
         return null;
       }
-
-      const fcrTable = program.fcrTable;
-      if (
-        !fcrTable.temperatures?.length ||
-        !fcrTable.weights?.length ||
-        !fcrTable.fcrValues?.length
-      ) {
-        return null;
-      }
-
-      // Batch'in mevcut ortalama ağırlığını al
-      const avgWeightG = batch.getCurrentAvgWeight();
-      if (avgWeightG <= 0) {
-        return null;
-      }
-
-      // FCR tablosundan ağırlık bazlı interpolasyon yap
-      // (Sıcaklık bilinmiyorsa tüm sıcaklıkların ortalamasını kullan)
-      return this.interpolateFCRFromTable(fcrTable, avgWeightG);
+      return this.fcrFromLegacyTable(program.fcrTable ?? null, batch);
     } catch (error) {
       if (error instanceof TenantContextError) {
         throw error;
@@ -856,6 +1134,23 @@ export class FCRCalculationService {
       );
       return null;
     }
+  }
+
+  /** Shared legacy table resolver used by both single and bulk paths. */
+  private fcrFromLegacyTable(
+    fcrTable: { temperatures: number[]; weights: number[]; fcrValues: number[][] } | null,
+    batch: Batch,
+  ): number | null {
+    if (
+      !fcrTable?.temperatures?.length ||
+      !fcrTable.weights?.length ||
+      !fcrTable.fcrValues?.length
+    ) {
+      return null;
+    }
+    const avgWeightG = batch.getCurrentAvgWeight();
+    if (avgWeightG <= 0) return null;
+    return this.interpolateFCRFromTable(fcrTable, avgWeightG);
   }
 
   /**
@@ -897,7 +1192,12 @@ export class FCRCalculationService {
       for (let i = 0; i < weights.length - 1; i++) {
         const currentWeight = weights[i];
         const nextWeight = weights[i + 1];
-        if (currentWeight !== undefined && nextWeight !== undefined && avgWeightG >= currentWeight && avgWeightG < nextWeight) {
+        if (
+          currentWeight !== undefined &&
+          nextWeight !== undefined &&
+          avgWeightG >= currentWeight &&
+          avgWeightG < nextWeight
+        ) {
           lowerIdx = i;
           upperIdx = i + 1;
           break;
@@ -971,7 +1271,10 @@ export class FCRCalculationService {
   /**
    * Lineer regresyon hesaplar
    */
-  private linearRegression(points: { x: number; y: number }[]): { slope: number; correlation: number } {
+  private linearRegression(points: { x: number; y: number }[]): {
+    slope: number;
+    correlation: number;
+  } {
     const n = points.length;
 
     // Edge case: when n=0, all divisions would fail; return safe defaults
@@ -987,9 +1290,10 @@ export class FCRCalculationService {
 
     // Edge case: when denominator (n * sumX2 - sumX * sumX) = 0, slope would be undefined; return 0
     const slopeDenominator = n * sumX2 - sumX * sumX;
-    const slope = slopeDenominator === 0 || slopeDenominator === null || slopeDenominator === undefined
-      ? 0
-      : (n * sumXY - sumX * sumY) / slopeDenominator;
+    const slope =
+      slopeDenominator === 0 || slopeDenominator === null || slopeDenominator === undefined
+        ? 0
+        : (n * sumXY - sumX * sumY) / slopeDenominator;
 
     // R-squared hesaplama
     // Edge case: meanY division by n is safe here since n > 0 was checked above
@@ -1003,7 +1307,7 @@ export class FCRCalculationService {
     }, 0);
 
     // Edge case: ssTotal=0 check is already in place
-    const correlation = ssTotal > 0 ? 1 - (ssResidual / ssTotal) : 0;
+    const correlation = ssTotal > 0 ? 1 - ssResidual / ssTotal : 0;
 
     return { slope: isNaN(slope) ? 0 : slope, correlation };
   }
@@ -1014,7 +1318,7 @@ export class FCRCalculationService {
   private generateTrendRecommendations(
     trend: 'improving' | 'stable' | 'declining',
     slope: number,
-    currentFCR: number
+    currentFCR: number,
   ): string[] {
     const recommendations: string[] = [];
 

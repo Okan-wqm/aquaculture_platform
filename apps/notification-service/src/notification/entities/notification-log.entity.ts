@@ -1,10 +1,4 @@
-import {
-  Entity,
-  Column,
-  PrimaryGeneratedColumn,
-  CreateDateColumn,
-  Index,
-} from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, Index } from 'typeorm';
 
 /**
  * Notification status enum
@@ -37,6 +31,10 @@ export enum NotificationChannel {
 @Entity('notification_logs', { schema: 'notification' })
 @Index(['tenantId', 'sentAt'])
 @Index(['channel', 'status'])
+@Index('uq_notification_logs_in_app_delivery', ['tenantId', 'recipient', 'deliveryId'], {
+  unique: true,
+  where: `"channel" = 'in_app' AND "delivery_id" IS NOT NULL`,
+})
 /**
  * Composite index for unread notification queries:
  *   WHERE tenant_id = ? AND recipient = ? AND channel = 'in_app'
@@ -63,11 +61,20 @@ export class NotificationLog {
   @Column({ name: 'content', type: 'text' })
   content!: string;
 
-  @Column({ name: 'status', type: 'enum', enum: NotificationStatus, default: NotificationStatus.PENDING })
+  @Column({
+    name: 'status',
+    type: 'enum',
+    enum: NotificationStatus,
+    default: NotificationStatus.PENDING,
+  })
   status!: NotificationStatus;
 
   @Column({ name: 'external_id', nullable: true })
   externalId?: string; // ID from email/SMS provider
+
+  /** Durable identity for idempotent channel delivery. */
+  @Column({ name: 'delivery_id', type: 'varchar', length: 255, nullable: true })
+  deliveryId?: string;
 
   @Column({ name: 'metadata', type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown>; // Alert context, user preferences, etc.

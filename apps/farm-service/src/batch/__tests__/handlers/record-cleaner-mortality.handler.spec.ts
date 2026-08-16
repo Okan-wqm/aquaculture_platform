@@ -33,6 +33,7 @@ import { Batch, BatchType } from '../../entities/batch.entity';
 import { TankBatch, CleanerFishDetail } from '../../entities/tank-batch.entity';
 import { TankOperation } from '../../entities/tank-operation.entity';
 import { MortalityRecord } from '../../entities/mortality-record.entity';
+import { RecordingBatchAggregateMutationPort } from '../../../__tests__/support/durable-mutation-test-authority';
 import { Equipment } from '../../../equipment/entities/equipment.entity';
 import { Species } from '../../../species/entities/species.entity';
 import { MortalityCullPolicyService } from '../../services/mortality-cull-policy.service';
@@ -120,11 +121,13 @@ function makeHarness(opts: HarnessOpts = {}): {
         };
 
   const species: Partial<Species> | null =
-    opts.species === null ? null : opts.species ?? {
-      id: 'species-lumpfish',
-      tenantId: TENANT,
-      commonName: 'Lumpfish',
-    };
+    opts.species === null
+      ? null
+      : (opts.species ?? {
+          id: 'species-lumpfish',
+          tenantId: TENANT,
+          commonName: 'Lumpfish',
+        });
 
   const batchRepository: Partial<Repository<Batch>> = {
     findOne: jest.fn().mockResolvedValue(cleanerBatch),
@@ -145,7 +148,7 @@ function makeHarness(opts: HarnessOpts = {}): {
     findOne: jest.fn().mockResolvedValue(species),
   };
 
-  const { mockDataSource, mockQueryRunner } = createMockDataSource();
+  const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSource();
   const commit = mockQueryRunner.commitTransaction as jest.Mock;
   const rollback = mockQueryRunner.rollbackTransaction as jest.Mock;
 
@@ -156,6 +159,7 @@ function makeHarness(opts: HarnessOpts = {}): {
   const outboxPublisher: Pick<OutboxPublisher, 'enqueue'> = { enqueue };
 
   const handler = new RecordCleanerMortalityHandler(
+    new RecordingBatchAggregateMutationPort(mockManager),
     batchRepository as Repository<Batch>,
     tankBatchRepository as Repository<TankBatch>,
     operationRepository as Repository<TankOperation>,
@@ -170,11 +174,13 @@ function makeHarness(opts: HarnessOpts = {}): {
   return { handler, enqueue, commit, rollback, cleanerBatch };
 }
 
-function makeCommand(overrides: Partial<{
-  quantity: number;
-  reason: string;
-  detail: string;
-}> = {}): RecordCleanerMortalityCommand {
+function makeCommand(
+  overrides: Partial<{
+    quantity: number;
+    reason: string;
+    detail: string;
+  }> = {},
+): RecordCleanerMortalityCommand {
   return new RecordCleanerMortalityCommand(
     TENANT,
     {
@@ -250,9 +256,7 @@ describe('RecordCleanerMortalityHandler — transactional outbox', () => {
   it('falls back to UNKNOWN when the reason label is not in the enum set', async () => {
     const { handler, enqueue } = makeHarness();
 
-    await handler.execute(
-      makeCommand({ reason: 'some-new-label-not-in-enum', quantity: 1 }),
-    );
+    await handler.execute(makeCommand({ reason: 'some-new-label-not-in-enum', quantity: 1 }));
 
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
     expect(event['reason']).toBe('UNKNOWN');
@@ -265,18 +269,14 @@ describe('RecordCleanerMortalityHandler — transactional outbox', () => {
       },
     });
 
-    await expect(handler.execute(makeCommand())).rejects.toThrow(
-      'outbox-enqueue-failed',
-    );
+    await expect(handler.execute(makeCommand())).rejects.toThrow('outbox-enqueue-failed');
     expect(rollback).toHaveBeenCalledTimes(1);
     expect(commit).not.toHaveBeenCalled();
   });
 
   it('NotFoundException on missing cleaner batch — no tx opened', async () => {
     const { handler, enqueue } = makeHarness({ cleanerBatch: null });
-    await expect(handler.execute(makeCommand())).rejects.toThrow(
-      NotFoundException,
-    );
+    await expect(handler.execute(makeCommand())).rejects.toThrow(NotFoundException);
     expect(enqueue).not.toHaveBeenCalled();
   });
 
@@ -284,9 +284,7 @@ describe('RecordCleanerMortalityHandler — transactional outbox', () => {
     const { handler, enqueue } = makeHarness({
       cleanerBatch: { batchType: BatchType.PRODUCTION },
     });
-    await expect(handler.execute(makeCommand())).rejects.toThrow(
-      BadRequestException,
-    );
+    await expect(handler.execute(makeCommand())).rejects.toThrow(BadRequestException);
     expect(enqueue).not.toHaveBeenCalled();
   });
 
@@ -298,25 +296,21 @@ describe('RecordCleanerMortalityHandler — transactional outbox', () => {
       },
     });
 
-    await expect(handler.execute(makeCommand())).rejects.toThrow(
-      ConflictException,
-    );
+    await expect(handler.execute(makeCommand())).rejects.toThrow(ConflictException);
     expect(enqueue).not.toHaveBeenCalled();
   });
 
   it('BadRequestException on quantity over-spend — no tx opened', async () => {
     const { handler, enqueue } = makeHarness();
-    await expect(
-      handler.execute(makeCommand({ quantity: 9999 })),
-    ).rejects.toThrow(BadRequestException);
+    await expect(handler.execute(makeCommand({ quantity: 9999 }))).rejects.toThrow(
+      BadRequestException,
+    );
     expect(enqueue).not.toHaveBeenCalled();
   });
 
   it('NotFoundException when TankBatch is missing — no tx opened', async () => {
     const { handler, enqueue } = makeHarness({ tankBatch: null });
-    await expect(handler.execute(makeCommand())).rejects.toThrow(
-      NotFoundException,
-    );
+    await expect(handler.execute(makeCommand())).rejects.toThrow(NotFoundException);
     expect(enqueue).not.toHaveBeenCalled();
   });
 });

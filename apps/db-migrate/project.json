@@ -3,6 +3,9 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "apps/db-migrate/src",
   "projectType": "application",
+  "implicitDependencies": [
+    "farm-service"
+  ],
   "tags": [
     "scope:backend",
     "type:tooling"

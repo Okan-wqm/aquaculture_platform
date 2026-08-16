@@ -33,19 +33,10 @@ import { Species } from '../species/entities/species.entity';
 // Site entity
 import { Site } from '../site/entities/site.entity';
 
-// Maintenance entities
-// NOTE: WorkOrder + MaintenanceSchedule were dropped from this module's
-// forFeature set when the dead `@OnEvent(MAINTENANCE_SCHEDULE_DUE)` work-order
-// creation branch was removed (dead-listeners HIGH) — CronJobsService owns that
-// path. SparePart remains: LowStockAlertListener still reads it.
-import { SparePart } from '../maintenance/entities/spare-part.entity';
-
-// Feed entity
-import { Feed } from '../feed/entities/feed.entity';
-
 // FarmStockModule exports the shared FarmStockProjectionService (the SSoT
 // refreshContainers) that FarmStockProjectionListener drives event-driven.
 import { FarmStockModule } from '../farm-stock/farm-stock.module';
+import { FeedingProtocolModule } from '../feeding-protocol/feeding-protocol.module';
 
 // ============================================================================
 // LISTENERS
@@ -57,7 +48,6 @@ import {
   HarvestCompletedListener,
   MaintenanceScheduleDueListener,
   LowStockAlertListener,
-  FeedingCompletedListener,
   FarmStockProjectionListener,
   SensorTemperatureProjectionListener,
 } from './listeners';
@@ -71,7 +61,6 @@ const EventListeners = [
   HarvestCompletedListener,
   MaintenanceScheduleDueListener,
   LowStockAlertListener,
-  FeedingCompletedListener,
   FarmStockProjectionListener,
   SensorTemperatureProjectionListener,
 ];
@@ -88,15 +77,10 @@ const EventListeners = [
       // Species and Site
       Species,
       Site,
-
-      // Maintenance related (SparePart only — LowStockAlertListener)
-      SparePart,
-
-      // Feed
-      Feed,
     ]),
     // Shared FarmStockProjectionService for the event-driven read-model listener.
     FarmStockModule,
+    FeedingProtocolModule,
   ],
   providers: [...EventListeners],
   exports: [...EventListeners],

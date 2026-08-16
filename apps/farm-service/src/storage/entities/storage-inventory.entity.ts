@@ -26,7 +26,16 @@ registerEnumType(StorageItemType, {
 });
 
 @Entity('storage_inventory')
-@Index(['tenantId', 'storageLocationId', 'itemType', 'itemId', 'lotNumber'], { unique: true })
+@Index(
+  'uq_storage_inventory_lotted_physical_key',
+  ['tenantId', 'storageLocationId', 'itemType', 'itemId', 'lotNumber'],
+  { unique: true, where: '"lot_number" IS NOT NULL' },
+)
+@Index(
+  'uq_storage_inventory_unlotted_physical_key',
+  ['tenantId', 'storageLocationId', 'itemType', 'itemId'],
+  { unique: true, where: '"lot_number" IS NULL' },
+)
 @Index(['itemType', 'itemId'])
 export class StorageInventory {
   @PrimaryGeneratedColumn('uuid')
@@ -46,7 +55,13 @@ export class StorageInventory {
   @Column({ type: 'uuid', name: 'item_id' })
   itemId!: string;
 
-  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0, transformer: new DecimalTransformer() })
+  @Column({
+    type: 'decimal',
+    precision: 15,
+    scale: 2,
+    default: 0,
+    transformer: new DecimalTransformer(),
+  })
   quantity!: number;
 
   @Column({ length: 20 })

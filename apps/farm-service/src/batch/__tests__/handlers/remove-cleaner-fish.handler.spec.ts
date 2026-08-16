@@ -24,6 +24,7 @@
  */
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { createMockDataSource } from '@aquaculture/testing';
+import { RecordingBatchAggregateMutationPort } from '../../../__tests__/support/durable-mutation-test-authority';
 import type { OutboxPublisher } from '@platform/outbox';
 import type { Repository } from 'typeorm';
 
@@ -140,7 +141,7 @@ function makeHarness(opts: HarnessOpts = {}): {
     findOne: jest.fn().mockResolvedValue(species),
   };
 
-  const { mockDataSource, mockQueryRunner } = createMockDataSource();
+  const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSource();
   const commit = mockQueryRunner.commitTransaction as jest.Mock;
   const rollback = mockQueryRunner.rollbackTransaction as jest.Mock;
 
@@ -151,6 +152,7 @@ function makeHarness(opts: HarnessOpts = {}): {
   const outboxPublisher: Pick<OutboxPublisher, 'enqueue'> = { enqueue };
 
   const handler = new RemoveCleanerFishHandler(
+    new RecordingBatchAggregateMutationPort(mockManager),
     batchRepository as Repository<Batch>,
     tankBatchRepository as Repository<TankBatch>,
     operationRepository as Repository<TankOperation>,
@@ -163,11 +165,13 @@ function makeHarness(opts: HarnessOpts = {}): {
   return { handler, enqueue, commit, rollback };
 }
 
-function makeCommand(overrides: Partial<{
-  quantity: number;
-  reason: CleanerFishRemovalReason;
-  notes: string;
-}> = {}): RemoveCleanerFishCommand {
+function makeCommand(
+  overrides: Partial<{
+    quantity: number;
+    reason: CleanerFishRemovalReason;
+    notes: string;
+  }> = {},
+): RemoveCleanerFishCommand {
   return new RemoveCleanerFishCommand(
     TENANT,
     {
@@ -211,9 +215,7 @@ describe('RemoveCleanerFishHandler — transactional outbox', () => {
   it('relocation reason rolls quantity forward on cleanerBatch AND reflects it in the event', async () => {
     const { handler, enqueue } = makeHarness();
 
-    await handler.execute(
-      makeCommand({ quantity: 10, reason: 'relocation' }),
-    );
+    await handler.execute(makeCommand({ quantity: 10, reason: 'relocation' }));
 
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
     // 100 (original) + 10 (returned via relocation) = 110
@@ -228,9 +230,7 @@ describe('RemoveCleanerFishHandler — transactional outbox', () => {
       },
     });
 
-    await expect(handler.execute(makeCommand())).rejects.toThrow(
-      'outbox-enqueue-failed',
-    );
+    await expect(handler.execute(makeCommand())).rejects.toThrow('outbox-enqueue-failed');
     expect(rollback).toHaveBeenCalledTimes(1);
     expect(commit).not.toHaveBeenCalled();
   });
@@ -238,9 +238,7 @@ describe('RemoveCleanerFishHandler — transactional outbox', () => {
   it('throws NotFoundException when cleaner batch is missing — no tx opened', async () => {
     const { handler, enqueue } = makeHarness({ cleanerBatch: null });
 
-    await expect(handler.execute(makeCommand())).rejects.toThrow(
-      NotFoundException,
-    );
+    await expect(handler.execute(makeCommand())).rejects.toThrow(NotFoundException);
     expect(enqueue).not.toHaveBeenCalled();
   });
 
@@ -249,18 +247,16 @@ describe('RemoveCleanerFishHandler — transactional outbox', () => {
       cleanerBatch: { batchType: BatchType.PRODUCTION },
     });
 
-    await expect(handler.execute(makeCommand())).rejects.toThrow(
-      BadRequestException,
-    );
+    await expect(handler.execute(makeCommand())).rejects.toThrow(BadRequestException);
     expect(enqueue).not.toHaveBeenCalled();
   });
 
   it('throws BadRequestException when requested quantity exceeds the in-tank stock — no tx opened', async () => {
     const { handler, enqueue } = makeHarness();
 
-    await expect(
-      handler.execute(makeCommand({ quantity: 9999 })),
-    ).rejects.toThrow(BadRequestException);
+    await expect(handler.execute(makeCommand({ quantity: 9999 }))).rejects.toThrow(
+      BadRequestException,
+    );
     expect(enqueue).not.toHaveBeenCalled();
   });
 });

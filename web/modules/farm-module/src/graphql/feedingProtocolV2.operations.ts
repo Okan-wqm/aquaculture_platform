@@ -201,6 +201,7 @@ const FEEDING_MEAL_FIELDS = `
   fedBy
   feedingMethod
   recalculatedAt
+  readiness
   notes
 `;
 
@@ -215,12 +216,14 @@ const FEEDING_DAY_PLAN_FIELDS = `
   unitCode
   planDate
   snapshot
+  resolution
   plannedTotalKg
   unplannedActualKg
   mealsPlanned
   status
   skipReason
   recalcLog
+  recalcCount
   createdAt
   updatedAt
 `;
@@ -239,6 +242,18 @@ export const FEEDING_DAY_PLANS_QUERY = `
 export const RECORD_MEAL_FEEDING_MUTATION = `
   mutation RecordMealFeeding($input: RecordMealFeedingInput!) {
     recordMealFeeding(input: $input) {
+      id
+      status
+      actualKg
+      varianceKg
+      variancePercent
+    }
+  }
+`;
+
+export const FINALIZE_MEAL_MUTATION = `
+  mutation FinalizeMeal($input: FinalizeMealInput!) {
+    finalizeMeal(input: $input) {
       id
       status
       actualKg
@@ -273,8 +288,8 @@ export const CORRECT_MEAL_POUR_MUTATION = `
 `;
 
 export const REGENERATE_DAY_PLAN_MUTATION = `
-  mutation RegenerateDayPlan($unitId: ID!) {
-    regenerateDayPlan(unitId: $unitId) {
+  mutation RegenerateDayPlan($unitId: ID!, $operationRequestId: ID!) {
+    regenerateDayPlan(unitId: $unitId, operationRequestId: $operationRequestId) {
       outcome
       dayPlanId
     }
@@ -282,8 +297,8 @@ export const REGENERATE_DAY_PLAN_MUTATION = `
 `;
 
 export const TRANSITION_UNIT_FEED_MUTATION = `
-  mutation TransitionUnitFeed($unitId: ID!, $toFeedId: ID!) {
-    transitionUnitFeed(unitId: $unitId, toFeedId: $toFeedId) {
+  mutation TransitionUnitFeed($unitId: ID!, $toFeedId: ID!, $operationRequestId: ID!) {
+    transitionUnitFeed(unitId: $unitId, toFeedId: $toFeedId, operationRequestId: $operationRequestId) {
       outcome
       dayPlanId
     }
@@ -295,9 +310,11 @@ export const TRANSITION_UNIT_FEED_MUTATION = `
 // ============================================================================
 
 export const PROTOCOL_FEED_FORECAST_QUERY = `
-  query ProtocolFeedForecast($siteId: ID, $horizonDays: Int, $refresh: Boolean) {
-    protocolFeedForecast(siteId: $siteId, horizonDays: $horizonDays, refresh: $refresh) {
+  query ProtocolFeedForecast($siteId: ID, $horizonDays: Int) {
+    protocolFeedForecast(siteId: $siteId, horizonDays: $horizonDays) {
       siteScopeKey
+      poolScope
+      stale
       horizonDays
       computedAt
       perFeed {
@@ -321,6 +338,7 @@ export const PROTOCOL_FEED_FORECAST_QUERY = `
         unitName
         unitCode
         currentFeedId
+        terminalFeedId
         transitions {
           fromFeedId
           toFeedId
@@ -333,10 +351,19 @@ export const PROTOCOL_FEED_FORECAST_QUERY = `
         feedId
         unitId
         days
+        atDay
       }
       mortalityAssumption {
-        applied
-        source
+        schemaVersion
+        coverage
+        unitCount
+        speciesRateUnitCount
+        conservativeDefaultUnitCount
+        units {
+          unitId
+          source
+          dailySurvivalRate
+        }
       }
     }
   }

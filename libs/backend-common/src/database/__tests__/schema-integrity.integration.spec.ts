@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 
-import { DataSource } from 'typeorm';
+import {
+  bootPostgresContainer,
+  shutdownHarness,
+  type HarnessContext,
+} from '@platform/migration-harness';
+import type { DataSource } from 'typeorm';
 
 import { hasDbMigrateDdlAuthority } from '../db-migrate-authority.util';
 import { queryRowsNormalized } from '../query-result-normalizer';
@@ -48,15 +53,12 @@ const DB_MIGRATE_FIXTURE_AUTHORITY = {
  * authority boundary explicitly and uses unique tenant schemas so concurrent
  * integration workers cannot share state.
  *
- * Run with:
- * DATABASE_HOST=127.0.0.1 DATABASE_PORT=32768 \
- * DATABASE_USER=aquaculture DATABASE_PASSWORD=aquaculture \
- * DATABASE_NAME=aquaculture \
- * npx jest --config libs/backend-common/jest.config.ts \
- *   --runInBand schema-integrity.integration.spec.ts
+ * Run with: npx nx test backend-common --runInBand
+ *   schema-integrity.integration.spec.ts
  */
 describe('Schema Integrity (Integration)', () => {
   let dataSource: DataSource;
+  let harness: HarnessContext | undefined;
   let schemaManager: SchemaManagerService;
 
   async function queryRows<T extends object>(
@@ -110,15 +112,11 @@ describe('Schema Integrity (Integration)', () => {
   }
 
   beforeAll(async () => {
-    dataSource = new DataSource({
-      type: 'postgres',
-      host: process.env['DATABASE_HOST'] ?? '127.0.0.1',
-      port: Number.parseInt(process.env['DATABASE_PORT'] ?? '32768', 10),
-      username: process.env['DATABASE_USER'] ?? 'aquaculture',
-      password: process.env['DATABASE_PASSWORD'] ?? 'aquaculture',
-      database: process.env['DATABASE_NAME'] ?? 'aquaculture',
+    harness = await bootPostgresContainer({
+      startTimeoutMs: 90_000,
+      labels: { 'aqua.test-authority': 'backend-common-schema-integrity' },
     });
-    await dataSource.initialize();
+    dataSource = harness.dataSource;
     schemaManager = new SchemaManagerService(dataSource);
 
     for (const schemaName of TENANT_SCHEMAS) {
@@ -132,17 +130,19 @@ describe('Schema Integrity (Integration)', () => {
         );
       `);
     }
-  }, 30_000);
+  }, 120_000);
 
   afterAll(async () => {
-    if (!dataSource?.isInitialized) {
-      return;
+    try {
+      if (dataSource?.isInitialized) {
+        for (const schemaName of TENANT_SCHEMAS) {
+          await executeDbMigrateFixtureDdl(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`);
+        }
+      }
+    } finally {
+      await shutdownHarness(harness);
     }
-    for (const schemaName of TENANT_SCHEMAS) {
-      await executeDbMigrateFixtureDdl(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`);
-    }
-    await dataSource.destroy();
-  }, 15_000);
+  }, 30_000);
 
   it('rejects runtime provisioning without creating any schema or table', async () => {
     expect(await schemaExists(UNPROVISIONED_SCHEMA)).toBe(false);

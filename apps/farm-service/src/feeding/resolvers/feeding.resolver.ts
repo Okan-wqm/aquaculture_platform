@@ -19,9 +19,18 @@ import {
   InputType,
   Field,
   ObjectType,
-  registerEnumType,
 } from '@nestjs/graphql';
-import { IsOptional, IsUUID, IsNumber, IsPositive, IsInt, Min, IsArray, IsDate, IsEnum, IsNotEmpty, IsString } from 'class-validator';
+import {
+  IsOptional,
+  IsUUID,
+  IsNumber,
+  IsPositive,
+  IsInt,
+  Min,
+  IsArray,
+  IsDate,
+  IsEnum,
+} from 'class-validator';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { UseGuards } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -29,16 +38,24 @@ import { DataSource } from 'typeorm';
 import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { DecimalScalar } from '@aquaculture/backend-common/graphql';
 import { Roles, Role, CurrentTenant, CurrentUser } from '@aquaculture/backend-common/decorators';
-import { StandardPaginationInput, StandardPaginatedResponse, fromCqrsPaginated, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import {
+  StandardPaginationInput,
+  StandardPaginatedResponse,
+  fromCqrsPaginated,
+  IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import { getTenantSchemaName } from '../../common/utils/schema-sanitizer';
 import GraphQLJSON from 'graphql-type-json';
+import { FEEDING_FISH_APPETITE, type FeedingFishAppetite } from '@aquaculture/feeding-contracts';
 
 // Entities
-import { FeedingRecord, FeedingMethod, FishAppetite, FeedingEnvironment, FishBehavior } from '../entities/feeding-record.entity';
+import { FeedingRecord, FeedingMethod } from '../entities/feeding-record.entity';
+import { CreateFeedingRecordInput, UpdateFeedingRecordInput } from '../dto';
 
 // Commands
 import { CreateFeedingRecordCommand } from '../commands/create-feeding-record.command';
+import type { FeedingRecordOperationResult } from '../../feeding-protocol/feeding-operation-command';
 import { UpdateFeedingRecordCommand } from '../commands/update-feeding-record.command';
 
 // Queries
@@ -47,8 +64,14 @@ import { GetDailyFeedingPlanQuery } from '../queries/get-daily-feeding-plan.quer
 import { GetFeedingSummaryQuery, FeedingSummaryResult } from '../queries/get-feeding-summary.query';
 
 // Services
-import { GrowthSimulatorService, GrowthSimulationResult } from '../services/growth-simulator.service';
-import { FeedConsumptionForecastService, FeedForecastSummary } from '../services/feed-consumption-forecast.service';
+import {
+  GrowthSimulatorService,
+  GrowthSimulationResult,
+} from '../services/growth-simulator.service';
+import {
+  FeedConsumptionForecastService,
+  FeedForecastSummary,
+} from '../services/feed-consumption-forecast.service';
 
 // ============================================================================
 // ENUM REGISTRATIONS
@@ -57,200 +80,6 @@ import { FeedConsumptionForecastService, FeedForecastSummary } from '../services
 // ============================================================================
 // INPUT TYPES
 // ============================================================================
-
-/**
- * Feeding environment conditions recorded during a feeding event.
- */
-@InputType()
-export class FeedingEnvironmentInput {
-  @Field(() => Float, { nullable: true })
-  @IsOptional()
-  @IsNumber()
-  waterTemp?: number;
-
-  @Field(() => Float, { nullable: true })
-  @IsOptional()
-  @IsNumber()
-  dissolvedOxygen?: number;
-
-  @Field({ nullable: true })
-  @IsOptional()
-  weather?: string;
-
-  @Field({ nullable: true })
-  @IsOptional()
-  windLevel?: string;
-
-  @Field({ nullable: true })
-  @IsOptional()
-  visibility?: string;
-}
-
-/**
- * Fish behavior observations during a feeding event.
- */
-@InputType()
-export class FishBehaviorInput {
-  @Field(() => FishAppetite)
-  @IsEnum(FishAppetite)
-  appetite!: FishAppetite;
-
-  @Field(() => Int)
-  @IsInt()
-  @Min(0)
-  feedingIntensity!: number;
-
-  @Field({ nullable: true })
-  @IsOptional()
-  surfaceActivity?: string;
-
-  @Field({ nullable: true })
-  @IsOptional()
-  schoolingBehavior?: string;
-
-  @Field({ nullable: true })
-  @IsOptional()
-  abnormalBehavior?: string;
-}
-
-/**
- * Input type for creating a new feeding record.
- * Every field carries at least one class-validator decorator so that the
- * global ValidationPipe (whitelist + forbidNonWhitelisted) accepts them.
- */
-@InputType()
-export class CreateFeedingRecordInput {
-  @Field(() => ID)
-  @IsUUID()
-  batchId!: string;
-
-  @Field(() => ID, { nullable: true })
-  @IsOptional()
-  @IsUUID()
-  tankId?: string;
-
-  @Field()
-  @IsDate()
-  feedingDate!: Date;
-
-  @Field()
-  @IsNotEmpty()
-  @IsString()
-  feedingTime!: string;
-
-  @Field(() => Int, { defaultValue: 1 })
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  feedingSequence!: number;
-
-  @Field(() => Int, { defaultValue: 1 })
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  totalMealsToday!: number;
-
-  @Field(() => ID)
-  @IsUUID()
-  feedId!: string;
-
-  @Field({ nullable: true })
-  @IsOptional()
-  feedBatchNumber?: string;
-
-  @Field(() => Float)
-  @IsNumber()
-  @Min(0)
-  plannedAmount!: number;
-
-  @Field(() => Float)
-  @IsNumber()
-  @Min(0)
-  actualAmount!: number;
-
-  @Field(() => Float, { nullable: true })
-  @IsOptional()
-  @IsNumber()
-  wasteAmount?: number;
-
-  @Field(() => FeedingEnvironmentInput, { nullable: true })
-  @IsOptional()
-  environment?: FeedingEnvironmentInput;
-
-  @Field(() => FishBehaviorInput, { nullable: true })
-  @IsOptional()
-  fishBehavior?: FishBehaviorInput;
-
-  @Field(() => FeedingMethod, { defaultValue: FeedingMethod.MANUAL })
-  @IsOptional()
-  @IsEnum(FeedingMethod)
-  feedingMethod!: FeedingMethod;
-
-  @Field(() => ID, { nullable: true })
-  @IsOptional()
-  @IsUUID()
-  equipmentId?: string;
-
-  @Field(() => Int, { nullable: true })
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  feedingDurationMinutes?: number;
-
-  @Field(() => Float, { nullable: true })
-  @IsOptional()
-  @IsNumber()
-  feedCost?: number;
-
-  @Field({ nullable: true })
-  @IsOptional()
-  currency?: string;
-
-  @Field(() => ID)
-  @IsUUID()
-  fedBy!: string;
-
-  @Field({ nullable: true })
-  @IsOptional()
-  notes?: string;
-
-  @Field({ nullable: true })
-  @IsOptional()
-  skipReason?: string;
-}
-
-/**
- * Input type for updating an existing feeding record.
- */
-@InputType()
-export class UpdateFeedingRecordInput {
-  @Field(() => Float, { nullable: true })
-  @IsOptional()
-  @IsNumber()
-  actualAmount?: number;
-
-  @Field(() => Float, { nullable: true })
-  @IsOptional()
-  @IsNumber()
-  wasteAmount?: number;
-
-  @Field(() => FeedingEnvironmentInput, { nullable: true })
-  @IsOptional()
-  environment?: FeedingEnvironmentInput;
-
-  @Field(() => FishBehaviorInput, { nullable: true })
-  @IsOptional()
-  fishBehavior?: FishBehaviorInput;
-
-  @Field({ nullable: true })
-  @IsOptional()
-  notes?: string;
-
-  @Field(() => ID, { nullable: true })
-  @IsOptional()
-  @IsUUID()
-  verifiedBy?: string;
-}
 
 /**
  * Filter input for feeding record queries.
@@ -287,9 +116,10 @@ export class FeedingRecordFilterInput {
   @IsEnum(FeedingMethod)
   feedingMethod?: FeedingMethod;
 
-  @Field({ nullable: true })
+  @Field(() => FEEDING_FISH_APPETITE, { nullable: true })
   @IsOptional()
-  appetite?: string;
+  @IsEnum(FEEDING_FISH_APPETITE)
+  appetite?: FeedingFishAppetite;
 
   @Field({ nullable: true })
   @IsOptional()
@@ -401,7 +231,6 @@ export class FeedingSummaryResponse {
   })
   totalCost!: number;
 
-
   /** Exact-decimal wire form of `totalCost` (ADR-0004 / DATA-MEDIUM-009). */
   @Field(() => DecimalScalar)
   totalCostDecimal!: number;
@@ -439,7 +268,6 @@ export class FeedTypeSummary {
 
 @ObjectType()
 export class FeedingRecordConnection extends StandardPaginatedResponse(FeedingRecord) {}
-
 
 // ============================================================================
 // GROWTH SIMULATION TYPES
@@ -615,7 +443,10 @@ export class FeedForecastInput {
   @Field(() => Int, { defaultValue: 30, description: 'Number of days to forecast' })
   forecastDays!: number;
 
-  @Field(() => Int, { nullable: true, description: 'Lead time before stockout to recommend reorder' })
+  @Field(() => Int, {
+    nullable: true,
+    description: 'Lead time before stockout to recommend reorder',
+  })
   leadTimeDays?: number;
 
   @Field(() => Int, { nullable: true, description: 'Safety stock days to maintain' })
@@ -802,7 +633,7 @@ export class FeedingResolver {
           fromDate: filter?.startDate,
           toDate: filter?.endDate,
           feedingMethod: filter?.feedingMethod ? [filter.feedingMethod] : undefined,
-          appetite: filter?.appetite ? [filter.appetite as FishAppetite] : undefined,
+          appetite: filter?.appetite ? [filter.appetite] : undefined,
           fedBy: filter?.fedBy,
           hasVariance: filter?.hasVariance,
         },
@@ -889,7 +720,9 @@ export class FeedingResolver {
    * Tank-based simulation is preferred for per-tank feed management
    */
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
-  @Query(() => GrowthSimulationResponse, { description: 'Simulate fish growth and feed requirements' })
+  @Query(() => GrowthSimulationResponse, {
+    description: 'Simulate fish growth and feed requirements',
+  })
   async growthSimulation(
     @CurrentTenant() tenantId: string,
     @Args('input') input: GrowthSimulationInput,
@@ -921,7 +754,9 @@ export class FeedingResolver {
    * Calculates stockout dates and reorder recommendations
    */
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
-  @Query(() => FeedForecastResponse, { description: 'Forecast feed consumption and stockout dates' })
+  @Query(() => FeedForecastResponse, {
+    description: 'Forecast feed consumption and stockout dates',
+  })
   async feedConsumptionForecast(
     @CurrentTenant() tenantId: string,
     @Args('input', { nullable: true }) input?: FeedForecastInput,
@@ -940,7 +775,7 @@ export class FeedingResolver {
       forecastDays: result.forecastDays,
       startDate: result.startDate,
       endDate: result.endDate,
-      byFeedType: result.byFeedType.map(f => ({
+      byFeedType: result.byFeedType.map((f) => ({
         feedId: f.feedId,
         feedCode: f.feedCode,
         feedName: f.feedName,
@@ -953,7 +788,7 @@ export class FeedingResolver {
         reorderQuantity: f.reorderQuantity,
         batches: f.batches,
       })),
-      alerts: result.alerts.map(a => ({
+      alerts: result.alerts.map((a) => ({
         feedId: a.feedId,
         feedCode: a.feedCode,
         type: a.type,
@@ -1002,12 +837,12 @@ export class FeedingResolver {
    * Returns tanks that have fish (totalQuantity > 0) for tank selection in UI
    */
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
-  @Query(() => [ActiveTankResponse], { description: 'Get all active tanks with fish for simulation' })
-  async activeTanks(
-    @CurrentTenant() tenantId: string,
-  ): Promise<ActiveTankResponse[]> {
+  @Query(() => [ActiveTankResponse], {
+    description: 'Get all active tanks with fish for simulation',
+  })
+  async activeTanks(@CurrentTenant() tenantId: string): Promise<ActiveTankResponse[]> {
     const tanks = await this.growthSimulator.getActiveTanks(tenantId);
-    return tanks.map(t => ({
+    return tanks.map((t) => ({
       tankId: t.tankId,
       tankName: t.tankName,
       tankCode: t.tankCode,
@@ -1032,7 +867,7 @@ export class FeedingResolver {
     @CurrentTenant() tenantId: string,
     @CurrentUser('sub') userId: string,
     @Args('input') input: CreateFeedingRecordInput,
-  ): Promise<FeedingRecord> {
+  ): Promise<FeedingRecordOperationResult> {
     return this.commandBus.execute(
       new CreateFeedingRecordCommand(
         tenantId,
@@ -1048,8 +883,8 @@ export class FeedingResolver {
           plannedAmount: input.plannedAmount,
           actualAmount: input.actualAmount,
           wasteAmount: input.wasteAmount,
-          environment: input.environment as FeedingEnvironment | undefined,
-          fishBehavior: input.fishBehavior as FishBehavior | undefined,
+          environment: input.environment,
+          fishBehavior: input.fishBehavior,
           feedingMethod: input.feedingMethod,
           equipmentId: input.equipmentId,
           feedingDurationMinutes: input.feedingDurationMinutes,
@@ -1060,6 +895,7 @@ export class FeedingResolver {
           skipReason: input.skipReason,
         },
         userId,
+        input.operationRequestId,
       ),
     );
   }
@@ -1074,7 +910,7 @@ export class FeedingResolver {
     @Args('id', { type: () => ID }) id: string,
     @CurrentUser('sub') userId: string,
     @Args('input') input: UpdateFeedingRecordInput,
-  ): Promise<FeedingRecord> {
+  ): Promise<FeedingRecordOperationResult> {
     return this.commandBus.execute(
       new UpdateFeedingRecordCommand(
         tenantId,
@@ -1082,11 +918,13 @@ export class FeedingResolver {
         {
           actualAmount: input.actualAmount,
           wasteAmount: input.wasteAmount,
-          environment: input.environment as FeedingEnvironment | undefined,
-          fishBehavior: input.fishBehavior as FishBehavior | undefined,
+          environment: input.environment,
+          fishBehavior: input.fishBehavior,
           notes: input.notes,
+          verifiedBy: input.verifiedBy,
         },
         userId,
+        input.operationRequestId,
       ),
     );
   }
@@ -1125,9 +963,10 @@ export class FeedingResolver {
   /**
    * Is variance acceptable (within ±10%)
    */
-  @ResolveField(() => Boolean, { description: 'Whether variance is within acceptable threshold (±10%)' })
+  @ResolveField(() => Boolean, {
+    description: 'Whether variance is within acceptable threshold (±10%)',
+  })
   isVarianceAcceptable(@Parent() record: FeedingRecord): boolean {
     return Math.abs(Number(record.variancePercent)) <= 10;
   }
 }
-

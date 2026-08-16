@@ -40,6 +40,7 @@ import type { Batch } from '../../../batch/entities/batch.entity';
 import type { FCRCalculationService } from '../../services/fcr-calculation.service';
 import type { BackdatePolicyService } from '../../../common/services/backdate-policy.service';
 import type { OutboxPublisher } from '@platform/outbox';
+import { RecordingBatchAggregateMutationPort } from '../../../__tests__/support/durable-mutation-test-authority';
 
 // Valid UUID v4 — runInTenantTransaction rejects non-UUID tenant IDs.
 const TENANT_UUID = '11111111-1111-4111-8111-111111111111';
@@ -172,6 +173,7 @@ function makeHarness(opts: HarnessOpts = {}) {
   const outboxPublisher = { enqueue } as unknown as OutboxPublisher;
 
   const handler = new RecordGrowthSampleHandler(
+    new RecordingBatchAggregateMutationPort(mockManager),
     dataSource as DataSource,
     measurementRepository as unknown as Repository<GrowthMeasurement>,
     batchRepository as unknown as Repository<Batch>,

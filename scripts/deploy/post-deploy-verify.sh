@@ -191,13 +191,15 @@ read -r -a ready_services <<< "${CATALOG_READINESS_SERVICES:?generated readiness
 ready_ok=()
 for spec in "${ready_services[@]}"; do
   svc="${spec%%:*}"
-  port="${spec##*:}"
+  readiness_address="${spec#*:}"
+  port="${readiness_address%%:*}"
+  readiness_path="${readiness_address#*:}"
   container_id="$(docker compose -f docker-compose.droplet.yml ps -q "${svc}" 2>/dev/null || true)"
   if [ -z "${container_id}" ]; then
     echo "::error::${svc} container not found during readiness sweep." >&2
     exit 1
   fi
-  docker exec "${container_id}" curl -sf "http://localhost:${port}/health/ready" >/dev/null
+  docker exec "${container_id}" curl -sf "http://localhost:${port}${readiness_path}" >/dev/null
   ready_ok+=("${svc}")
 done
 

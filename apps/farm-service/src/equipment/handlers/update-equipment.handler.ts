@@ -65,7 +65,11 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
 
     return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const equipmentRepository = tenantManagerRepo(queryRunner.manager, Equipment, tenantId);
-      const equipmentSystemRepository = tenantManagerRepo(queryRunner.manager, EquipmentSystem, tenantId);
+      const equipmentSystemRepository = tenantManagerRepo(
+        queryRunner.manager,
+        EquipmentSystem,
+        tenantId,
+      );
       const departmentRepository = tenantManagerRepo(queryRunner.manager, Department, tenantId);
       const systemRepository = tenantManagerRepo(queryRunner.manager, System, tenantId);
       const supplierRepository = tenantManagerRepo(queryRunner.manager, Supplier, tenantId);
@@ -113,7 +117,9 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
         if (!input.systemIds || input.systemIds.length === 0) {
           throw new BadRequestException('At least one system must be specified');
         }
-        const systems = await systemRepository.find({ where: { id: In(input.systemIds), tenantId } });
+        const systems = await systemRepository.find({
+          where: { id: In(input.systemIds), tenantId },
+        });
         if (systems.length !== input.systemIds.length) {
           const foundIds = systems.map((system) => system.id);
           const missingIds = input.systemIds.filter((id) => !foundIds.includes(id));
@@ -141,7 +147,9 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
       }
 
       if (Object.prototype.hasOwnProperty.call(input, 'supplierId') && input.supplierId) {
-        const supplier = await supplierRepository.findOne({ where: { id: input.supplierId, tenantId } });
+        const supplier = await supplierRepository.findOne({
+          where: { id: input.supplierId, tenantId },
+        });
         if (!supplier) {
           throw new NotFoundException(`Supplier with ID "${input.supplierId}" not found`);
         }
@@ -163,7 +171,7 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
             equipmentId,
             input.parentEquipmentId,
             departmentId,
-            department?.siteId,
+            department?.siteId ?? undefined,
             tenantId,
           );
         }
@@ -172,7 +180,9 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
       if (input.code) {
         const normalizedCode = input.code.toUpperCase();
         if (normalizedCode !== equipment.code) {
-          const duplicate = await equipmentRepository.findOne({ where: { code: normalizedCode, tenantId } });
+          const duplicate = await equipmentRepository.findOne({
+            where: { code: normalizedCode, tenantId },
+          });
           if (duplicate && duplicate.id !== equipmentId) {
             throw new ConflictException(`Equipment with code "${normalizedCode}" already exists`);
           }
@@ -206,7 +216,8 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
 
       if (newEquipmentSystems) {
         await equipmentSystemRepository.delete({ equipmentId });
-        persistedEquipment.equipmentSystems = await equipmentSystemRepository.saveMany(newEquipmentSystems);
+        persistedEquipment.equipmentSystems =
+          await equipmentSystemRepository.saveMany(newEquipmentSystems);
       }
 
       await this.auditLogService.logWithManager(queryRunner.manager, {
@@ -231,7 +242,7 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
           userId,
         }),
         equipmentId: persistedEquipment.id,
-        siteId: department?.siteId,
+        siteId: department?.siteId ?? undefined,
         name: persistedEquipment.name,
         status: persistedEquipment.status,
       };
@@ -245,30 +256,39 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
   }
 
   private isTankLike(category: EquipmentCategory): boolean {
-    return [
-      EquipmentCategory.TANK,
-      EquipmentCategory.POND,
-      EquipmentCategory.CAGE,
-    ].includes(category);
+    return [EquipmentCategory.TANK, EquipmentCategory.POND, EquipmentCategory.CAGE].includes(
+      category,
+    );
   }
 
   private async assertValidParentEquipment(
     equipmentRepository: ScopedEquipmentRepository,
-    departmentRepository: { findOne: (options: FindOneOptions<Department>) => Promise<Department | null> },
+    departmentRepository: {
+      findOne: (options: FindOneOptions<Department>) => Promise<Department | null>;
+    },
     equipmentId: string,
     parentEquipmentId: string,
     childDepartmentId?: string,
     childSiteId?: string,
     tenantId?: string,
   ): Promise<void> {
-    const parent = await equipmentRepository.findOne({ where: { id: parentEquipmentId, tenantId } });
+    const parent = await equipmentRepository.findOne({
+      where: { id: parentEquipmentId, tenantId },
+    });
     if (!parent) {
       throw new NotFoundException(`Parent equipment with ID "${parentEquipmentId}" not found`);
     }
     if (!parent.isActive || parent.isDeleted) {
-      throw new BadRequestException(`Parent equipment with ID "${parentEquipmentId}" is inactive or deleted`);
+      throw new BadRequestException(
+        `Parent equipment with ID "${parentEquipmentId}" is inactive or deleted`,
+      );
     }
-    if (parent.departmentId && childDepartmentId && parent.departmentId !== childDepartmentId && childSiteId) {
+    if (
+      parent.departmentId &&
+      childDepartmentId &&
+      parent.departmentId !== childDepartmentId &&
+      childSiteId
+    ) {
       const parentDepartment = await departmentRepository.findOne({
         where: { id: parent.departmentId, tenantId },
       });

@@ -13,6 +13,12 @@
  * @module FeedingProtocol/DTO
  */
 import { Field, Float, ID, Int, ObjectType } from '@nestjs/graphql';
+import type {
+  FeedingForecastAlertType,
+  FeedingForecastMortalityCoverageV1,
+  FeedingForecastMortalitySourceV1,
+  FeedingForecastPoolScope,
+} from '@aquaculture/feeding-contracts';
 
 @ObjectType('ProtocolFeedForecastPerFeed')
 export class FeedForecastPerFeedView {
@@ -48,29 +54,45 @@ export class FeedForecastPerUnitView {
   @Field() unitName!: string;
   @Field() unitCode!: string;
   @Field(() => ID, { nullable: true }) currentFeedId!: string | null;
+  @Field(() => ID, { nullable: true }) terminalFeedId!: string | null;
   @Field(() => [FeedForecastTransitionView]) transitions!: FeedForecastTransitionView[];
 }
 
 @ObjectType('ProtocolFeedForecastAlert')
 export class FeedForecastAlertView {
-  /** STOCKOUT_FORECAST | TRANSITION_COVERAGE_GAP | REORDER_NOW */
-  @Field() type!: string;
+  /** STOCKOUT_FORECAST | TRANSITION_COVERAGE_GAP | REORDER_NOW | SITE_TRANSFER_NEEDED */
+  @Field(() => String) type!: FeedingForecastAlertType;
   @Field(() => ID) feedId!: string;
   @Field(() => ID, { nullable: true }) unitId?: string;
   @Field(() => Int) days!: number;
+  @Field(() => Int) atDay!: number;
+}
+
+@ObjectType('ProtocolFeedForecastMortalityUnitProvenance')
+export class FeedForecastMortalityUnitProvenanceView {
+  @Field(() => ID) unitId!: string;
+  @Field(() => String) source!: FeedingForecastMortalitySourceV1;
+  @Field(() => Float) dailySurvivalRate!: number;
 }
 
 @ObjectType('ProtocolFeedForecastMortalityAssumption')
 export class FeedForecastMortalityAssumptionView {
-  @Field() applied!: boolean;
-  /** 'species_survival_rate' | 'none' */
-  @Field() source!: string;
+  @Field() schemaVersion!: string;
+  @Field(() => String) coverage!: FeedingForecastMortalityCoverageV1;
+  @Field(() => Int) unitCount!: number;
+  @Field(() => Int) speciesRateUnitCount!: number;
+  @Field(() => Int) conservativeDefaultUnitCount!: number;
+  @Field(() => [FeedForecastMortalityUnitProvenanceView])
+  units!: readonly FeedForecastMortalityUnitProvenanceView[];
 }
 
 @ObjectType('ProtocolFeedForecast')
 export class ProtocolFeedForecastView {
   /** Site UUID'si ya da belgeli tenant-geneli fallback için 'tenant' (D-9). */
   @Field() siteScopeKey!: string;
+  /** TENANT = purchase authority; SITE = informational transfer projection. */
+  @Field(() => String) poolScope!: FeedingForecastPoolScope;
+  @Field() stale!: boolean;
   @Field(() => Int) horizonDays!: number;
   /** Snapshot tazeliği — UI'da "şu an itibarıyla" damgası (D-6). */
   @Field() computedAt!: Date;
@@ -79,4 +101,14 @@ export class ProtocolFeedForecastView {
   @Field(() => [FeedForecastAlertView]) alerts!: FeedForecastAlertView[];
   @Field(() => FeedForecastMortalityAssumptionView)
   mortalityAssumption!: FeedForecastMortalityAssumptionView;
+}
+
+/** Stable projection of the idempotent refresh operation result. */
+@ObjectType('ProtocolFeedForecastRefreshResult')
+export class ProtocolFeedForecastRefreshResultView {
+  @Field(() => ID)
+  operationRequestId!: string;
+
+  @Field(() => Int)
+  refreshedScopeCount!: number;
 }

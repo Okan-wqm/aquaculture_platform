@@ -1,9 +1,9 @@
 /**
  * fcrSource=feed FCR çözümünün saf yardımcıları — cron üretimi (06:00),
  * K-9 admin aksiyonları VE tükenme tahmini (Faz 7) aynı toplu-okuma
- * girdisini buradan kurar. feeding-cron-v2 ile protocol-feed-forecast
+ * girdisini buradan kurar. Scheduled operation ile forecast projection
  * arasındaki döngüsel importu kırmak için servis dosyasından taşındı;
- * davranış birebir (feeding-cron-v2.chunk.spec.ts pinler).
+ * davranış birebir (scheduled-feeding-operation.chunk.spec.ts pinler).
  *
  * @module FeedingProtocol/Services
  */

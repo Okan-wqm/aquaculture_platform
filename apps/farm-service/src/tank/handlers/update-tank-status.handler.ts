@@ -17,12 +17,14 @@ import { UpdateTankStatusCommand } from '../commands/update-tank-status.command'
 import { Tank } from '../entities/tank.entity';
 
 import { assertTankStatusTransition } from './tank-status.policy';
+import { BatchAggregateMutationPort } from '../../batch/batch-aggregate-mutation.port';
 
 @CommandHandler(UpdateTankStatusCommand)
 export class UpdateTankStatusHandler implements ICommandHandler<UpdateTankStatusCommand, Tank> {
   private readonly logger = new Logger(UpdateTankStatusHandler.name);
 
   constructor(
+    private readonly batchMutations: BatchAggregateMutationPort,
     private readonly dataSource: DataSource,
     private readonly auditLogService: AuditLogService,
     private readonly outboxPublisher: OutboxPublisher,
@@ -34,66 +36,73 @@ export class UpdateTankStatusHandler implements ICommandHandler<UpdateTankStatus
 
     this.logger.log(`Updating tank status: ${input.id} to ${input.status} for tenant: ${tenantId}`);
 
-    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-      const tankRepository = tenantManagerRepo(queryRunner.manager, Tank, tenantId);
+    return runInTenantTransaction(
+      this.dataSource,
+      'farm',
+      tenantId,
+      async (queryRunner, mutationSession) => {
+        const tankRepository = tenantManagerRepo(queryRunner.manager, Tank, tenantId);
 
-      const tank = await tankRepository.findOne({
-        where: { id: input.id, tenantId },
-      });
+        const tank = await tankRepository.findOne({
+          where: { id: input.id, tenantId },
+        });
 
-      if (!tank) {
-        throw new NotFoundException(`Tank with id "${input.id}" not found`);
-      }
+        if (!tank) {
+          throw new NotFoundException(`Tank with id "${input.id}" not found`);
+        }
 
-      const oldStatus = tank.status;
+        const oldStatus = tank.status;
 
-      assertTankStatusTransition(tank, input.status);
+        assertTankStatusTransition(tank, input.status);
 
-      const changedAt = new Date();
-      tank.status = input.status;
-      tank.statusChangedAt = changedAt;
-      tank.statusReason = input.reason;
-      tank.updatedBy = userId;
+        const changedAt = new Date();
+        tank.status = input.status;
+        tank.statusChangedAt = changedAt;
+        tank.statusReason = input.reason;
+        tank.updatedBy = userId;
 
-      const saved = await tankRepository.save(tank);
-      await this.farmStockProjection.refreshContainers(queryRunner.manager, tenantId, [saved.id]);
+        const saved = await this.batchMutations.commitTankTransition(mutationSession, {
+          intent: 'tank_status_change',
+          aggregate: tank,
+        });
+        await this.farmStockProjection.refreshContainers(queryRunner.manager, tenantId, [saved.id]);
 
-      await this.auditLogService.logWithManager(queryRunner.manager, {
-        tenantId,
-        entityType: 'Tank',
-        entityId: saved.id,
-        action: AuditAction.UPDATE,
-        userId,
-        changes: {
-          before: { status: oldStatus },
-          after: { status: saved.status, reason: input.reason },
-          changedFields: ['status', 'statusChangedAt', 'statusReason'],
-        },
-        metadata: { source: 'SITES_SETUP_TANK' },
-        entityVersion: saved.version,
-        summary: `Updated tank ${saved.code} status from ${oldStatus} to ${saved.status}`,
-      });
-
-      const event: TankStatusChangedEvent = {
-        ...createBaseEvent<TankStatusChangedEvent>('TankStatusChanged', tenantId, {
-          aggregateId: saved.id,
-          aggregateType: 'Tank',
+        await this.auditLogService.logWithManager(queryRunner.manager, {
+          tenantId,
+          entityType: 'Tank',
+          entityId: saved.id,
+          action: AuditAction.UPDATE,
           userId,
-        }),
-        tankId: saved.id,
-        previousStatus: oldStatus,
-        newStatus: saved.status,
-        reason: input.reason,
-        changedAt: toEventIso(changedAt),
-      };
-      await this.outboxPublisher.enqueue(event, queryRunner.manager, {
-        aggregateId: saved.id,
-      });
+          changes: {
+            before: { status: oldStatus },
+            after: { status: saved.status, reason: input.reason },
+            changedFields: ['status', 'statusChangedAt', 'statusReason'],
+          },
+          metadata: { source: 'SITES_SETUP_TANK' },
+          entityVersion: saved.version,
+          summary: `Updated tank ${saved.code} status from ${oldStatus} to ${saved.status}`,
+        });
 
-      this.logger.log(`Tank status updated: ${saved.id} from ${oldStatus} to ${saved.status}`);
+        const event: TankStatusChangedEvent = {
+          ...createBaseEvent<TankStatusChangedEvent>('TankStatusChanged', tenantId, {
+            aggregateId: saved.id,
+            aggregateType: 'Tank',
+            userId,
+          }),
+          tankId: saved.id,
+          previousStatus: oldStatus,
+          newStatus: saved.status,
+          reason: input.reason,
+          changedAt: toEventIso(changedAt),
+        };
+        await this.outboxPublisher.enqueue(event, queryRunner.manager, {
+          aggregateId: saved.id,
+        });
 
-      return saved;
-    });
+        this.logger.log(`Tank status updated: ${saved.id} from ${oldStatus} to ${saved.status}`);
+
+        return saved;
+      },
+    );
   }
-
 }

@@ -3,17 +3,19 @@
  *
  * "Silerken yüzde yüz kullanılmadığına emin ol" direktifinin YAPISAL hali
  * (tier-3 make-it-detectable): Faz 8'de silinen her FE yüzeyinin simgeleri bu
- * listeye pinlenir ve repo'nun izlenen .ts/.tsx dosyalarında SIFIR referans
- * zorunludur — yorumlar dahil (bayat yorum yeni okuyucuyu silinmiş dosyaya
- * yönlendirir). tsc yalnız import'ları görür; bu kapı string tabanlı
- * referansları da (derin linkler, ham GraphQL, doküman yolları) yakalar.
+ * listeye pinlenir ve repo'nun teslim edilebilir çalışma-ağacı .ts/.tsx
+ * dosyalarında SIFIR referans zorunludur — yorumlar dahil (bayat yorum yeni
+ * okuyucuyu silinmiş dosyaya yönlendirir). İndeksteki silinmiş dosyalar
+ * teslim edilebilir kaynak değildir; henüz izlenmeyen yeni dosyalar ise kapıdan
+ * kaçamaz. tsc yalnız import'ları görür; bu kapı string tabanlı referansları da
+ * (derin linkler, ham GraphQL, doküman yolları) yakalar.
  *
  * Gelecek Faz 8 alt-PR'ları (BE motor silme, drop'lar, NATS FeedInventory*
  * temizliği) kendi emekli simgelerini BU listeye ekler — silme + pinleme
  * aynı commit'te gelir.
  */
 import { execFileSync } from 'child_process';
-import { readFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { join, resolve } from 'path';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
@@ -48,20 +50,36 @@ const RETIRED_PATTERNS: Array<{ symbol: string; pattern: RegExp }> = [
  */
 const EXEMPT_PATH_RE = /(^|\/)generated\//;
 
-function trackedSourceFiles(): string[] {
-  return execFileSync(
+function sourceFilesInWorktree(): string[] {
+  const candidates = execFileSync(
     'git',
-    ['ls-files', 'web/', 'apps/', 'libs/', 'platform/', 'e2e/', 'tests/'],
+    [
+      'ls-files',
+      '--cached',
+      '--others',
+      '--exclude-standard',
+      'web/',
+      'apps/',
+      'libs/',
+      'platform/',
+      'e2e/',
+      'tests/',
+    ],
     { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 },
   )
     .split('\n')
     .map((line) => line.trim())
+    .filter(Boolean);
+
+  return [...new Set(candidates)]
+    .sort()
     .filter((file) => /\.(ts|tsx)$/.test(file))
+    .filter((file) => existsSync(join(REPO_ROOT, file)))
     .filter((file) => file !== SPEC_PATH && !EXEMPT_PATH_RE.test(file));
 }
 
 describe('Feeding v1 emekli-simge grep-zero kapısı (Faz 8, C-18)', () => {
-  const files = trackedSourceFiles();
+  const files = sourceFilesInWorktree();
   const offendersBySymbol = new Map<string, string[]>();
 
   beforeAll(() => {

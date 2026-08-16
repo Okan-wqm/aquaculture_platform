@@ -24,6 +24,6 @@ A single business API model reduces authorization drift, tenant source drift, an
 
 ## Consequences
 
-- Farm GraphQL SDL is generated from code-first resolver metadata and committed at `apps/farm-service/schema.graphql`.
+- Farm GraphQL SDL is generated from code-first resolver metadata at `dist/graphql/subgraphs/farm.graphql`; no committed second schema authority is retained.
 - Frontend codegen and gateway composition must fail on schema drift.
 - REST paths that remain must be documented in `docs/api/openapi/farm-service.yaml`.

@@ -10,7 +10,7 @@ import {
   QualityCategory,
   QUALITY_GOOD_MIN,
   qualityCategoryOf,
-} from '../../database/entities/sensor-metric.entity';
+} from '../../database/sensor-quality.authority';
 import { SensorReadings } from '../../database/entities/sensor-reading.entity';
 
 /**
@@ -219,9 +219,7 @@ export class DataQualityService {
    */
   validate(readings: SensorReadings): { valid: boolean; errors: string[] } {
     const assessment = this.assess(readings);
-    const errors = assessment.issues
-      .filter((i) => i.severity === 'error')
-      .map((i) => i.message);
+    const errors = assessment.issues.filter((i) => i.severity === 'error').map((i) => i.message);
 
     return {
       valid: errors.length === 0,

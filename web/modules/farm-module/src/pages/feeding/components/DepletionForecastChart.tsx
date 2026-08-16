@@ -68,9 +68,16 @@ export function DepletionForecastChart({ forecast }: Props): React.ReactElement 
       <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
         <h3 className="font-semibold text-gray-900">{t('feedingV2.forecast.chartTitle')}</h3>
         <div className="flex items-center gap-2 text-xs text-gray-500">
-          {forecast.mortalityAssumption.applied ? (
+          {forecast.mortalityAssumption.coverage === 'COMPLETE' ? (
             <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700">
               {t('feedingV2.forecast.mortalityApplied')}
+            </span>
+          ) : forecast.mortalityAssumption.coverage === 'PARTIAL' ? (
+            <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-700">
+              {t('feedingV2.forecast.mortalityPartial', {
+                applied: forecast.mortalityAssumption.speciesRateUnitCount,
+                total: forecast.mortalityAssumption.unitCount,
+              })}
             </span>
           ) : (
             <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-600">

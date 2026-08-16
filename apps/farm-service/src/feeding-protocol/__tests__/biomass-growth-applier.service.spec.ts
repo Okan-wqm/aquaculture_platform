@@ -7,10 +7,18 @@
  * (v1 bug'ı) imkânsız (D-1); kilit sonrası üyelik değişimi ConflictException
  * (kanonik sıra korunur, K-1); Tank projeksiyonu kaçarsa YAPISAL metrik (P-13).
  */
-import { ConflictException } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
+import { readTenantMutationInstantV1 } from '@aquaculture/backend-common/database';
 
-import { BiomassGrowthApplierService } from '../services/biomass-growth-applier.service';
+import {
+  BiomassGrowthApplierService,
+  UnitGrowthLockConflictError,
+  type UnitGrowthMutationScopeV1,
+} from '../services/biomass-growth-applier.service';
+import {
+  RecordingBatchAggregateMutationPort,
+  runInFarmMutationTestTransaction,
+} from '../../__tests__/support/durable-mutation-test-authority';
 import { Batch } from '../../batch/entities/batch.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { Tank } from '../../tank/entities/tank.entity';
@@ -125,13 +133,33 @@ function makeHarness(opts: HarnessOpts = {}) {
     return entity;
   });
   const query = jest.fn();
-  query.mockImplementation(async () => queryResults.shift() ?? [{ biomass: 0, quantity: 0 }]);
+  query.mockImplementation(async (sql: string) => {
+    if (sql.includes('pg_advisory_xact_lock')) return [];
+    return queryResults.shift() ?? [{ biomass: 0, quantity: 0 }];
+  });
 
   const manager = mock<EntityManager>({ findOne, find, save, query });
   const metrics = mock<FarmDomainMetricsService>({ recordTankProjectionMiss: jest.fn() });
-  const service = new BiomassGrowthApplierService(metrics);
+  const service = new BiomassGrowthApplierService(
+    new RecordingBatchAggregateMutationPort(),
+    metrics,
+  );
+  const withScope = <T>(work: (scope: UnitGrowthMutationScopeV1) => Promise<T>) =>
+    runInFarmMutationTestTransaction(manager, TENANT, async (session) =>
+      service.withUnitGrowthMutation(
+        manager,
+        session,
+        TENANT,
+        UNIT,
+        await readTenantMutationInstantV1(session, 'farm'),
+        work,
+      ),
+    );
+  const applyGrowth = (growthKg: number, basedOnFcr: number) =>
+    withScope((scope) => scope.applyGrowth(growthKg, basedOnFcr));
   return {
     service,
+    applyGrowth,
     manager,
     metrics,
     saved,
@@ -144,13 +172,9 @@ function makeHarness(opts: HarnessOpts = {}) {
 describe('BiomassGrowthApplierService', () => {
   it('distributes growth across batchDetails proportional to biomass share and derives aggregates (D-2)', async () => {
     const harness = makeHarness({
-      shareSums: [
-        [{ biomass: 103, quantity: 1000 }],
-        [{ biomass: 51.5, quantity: 500 }],
-      ],
+      shareSums: [[{ biomass: 103, quantity: 1000 }], [{ biomass: 51.5, quantity: 500 }]],
     });
-    const locked = await harness.service.lockUnitForGrowth(harness.manager, TENANT, UNIT);
-    await harness.service.applyGrowth(harness.manager, TENANT, locked!, 3, 1.2);
+    await harness.applyGrowth(3, 1.2);
 
     const details = harness.lockedTankBatch.batchDetails!;
     // 100/150 ve 50/150 pay → +2kg / +1kg
@@ -173,15 +197,22 @@ describe('BiomassGrowthApplierService', () => {
         [{ biomass: 51, quantity: 500 }],
       ],
     });
-    const locked = await harness.service.lockUnitForGrowth(harness.manager, TENANT, UNIT);
-    await harness.service.applyGrowth(harness.manager, TENANT, locked!, 3, 1.15);
+    await harness.applyGrowth(3, 1.15);
 
     const batchA = harness.batchesById.get(BATCH_A)!;
     expect(batchA.weight.theoretical.totalBiomass).toBeCloseTo(162.5);
     expect(batchA.weight.theoretical.avgWeight).toBeCloseTo((162.5 * 1000) / 1600);
     expect(batchA.weight.theoretical.basedOnFCR).toBe(1.15);
+    expect(batchA.weight.theoretical.lastCalculatedAt.toISOString()).toBe(
+      '2026-08-08T12:30:00.000Z',
+    );
     // 999 bayat değeri EZİLDİ — tek-tank ezmesi değil toplamdan hesap.
     expect(batchA.weight.theoretical.totalBiomass).not.toBe(999);
+    const shareQuery = (harness.manager.query as jest.Mock).mock.calls.find(([sql]) =>
+      String(sql).includes('jsonb_array_elements'),
+    );
+    expect(shareQuery?.[0]).toContain("detail.value->>'batchId' = $2::uuid::text");
+    expect(shareQuery?.[0]).toContain('tb."primaryBatchId" = $2::uuid');
   });
 
   it('throws retryable ConflictException when batch membership changes during lock acquisition (K-1)', async () => {
@@ -200,9 +231,20 @@ describe('BiomassGrowthApplierService', () => {
         ],
       },
     });
-    await expect(
-      harness.service.lockUnitForGrowth(harness.manager, TENANT, UNIT),
-    ).rejects.toBeInstanceOf(ConflictException);
+    await expect(harness.applyGrowth(3, 1.2)).rejects.toBeInstanceOf(UnitGrowthLockConflictError);
+  });
+
+  it('acquires the shared unit identity fence before the TankBatch tuple lock', async () => {
+    const harness = makeHarness();
+    await harness.applyGrowth(0, 1.2);
+
+    const advisoryCall = (harness.manager.query as jest.Mock).mock.calls.find(([sql]) =>
+      String(sql).includes('pg_advisory_xact_lock'),
+    );
+    expect(advisoryCall).toEqual([
+      'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+      [`tank-batch-mutation/v1:${TENANT}:${UNIT}`],
+    ]);
   });
 
   it('records the structural P-13 metric when the Tank projection row is missing', async () => {
@@ -210,25 +252,30 @@ describe('BiomassGrowthApplierService', () => {
       tankFound: false,
       shareSums: [[{ biomass: 102, quantity: 1000 }], [{ biomass: 51, quantity: 500 }]],
     });
-    const locked = await harness.service.lockUnitForGrowth(harness.manager, TENANT, UNIT);
-    await harness.service.applyGrowth(harness.manager, TENANT, locked!, 3, 1.2);
+    await harness.applyGrowth(3, 1.2);
     expect(harness.metrics.recordTankProjectionMiss).toHaveBeenCalledWith({
       operation: 'growth_apply',
     });
   });
 
-  it('applies NEGATIVE growth proportionally (correctMealPour rollback — C-11) without going below zero', async () => {
+  it('applies NEGATIVE growth exactly and proportionally (correctMealPour rollback — C-11)', async () => {
     const harness = makeHarness({
       shareSums: [[{ biomass: 98, quantity: 1000 }], [{ biomass: 49, quantity: 500 }]],
     });
-    const locked = await harness.service.lockUnitForGrowth(harness.manager, TENANT, UNIT);
-    await harness.service.applyGrowth(harness.manager, TENANT, locked!, -3, 1.2);
+    const applied = await harness.applyGrowth(-3, 1.2);
 
     const details = harness.lockedTankBatch.batchDetails!;
     // 100/150 ve 50/150 pay → -2kg / -1kg
     expect(details[0]!.biomassKg).toBeCloseTo(98);
     expect(details[1]!.biomassKg).toBeCloseTo(49);
     expect(harness.lockedTankBatch.totalBiomassKg).toBeCloseTo(147);
+    expect(applied).toMatchObject({ requestedGrowthKg: -3, appliedGrowthKg: -3 });
+  });
+
+  it('fails closed when a reversal exceeds the exact unit biomass', async () => {
+    const harness = makeHarness();
+    await expect(harness.applyGrowth(-151, 1.2)).rejects.toThrow(/exceeds unit/);
+    expect(harness.lockedTankBatch.totalBiomassKg).toBe(150);
   });
 
   it('derives a single virtual detail from primary aggregates when batchDetails is empty', async () => {
@@ -236,10 +283,20 @@ describe('BiomassGrowthApplierService', () => {
       tankBatch: { batchDetails: [], totalQuantity: 1000, totalBiomassKg: 100, avgWeightG: 100 },
       shareSums: [[{ biomass: 103, quantity: 1000 }]],
     });
-    const locked = await harness.service.lockUnitForGrowth(harness.manager, TENANT, UNIT);
-    expect(locked!.details).toHaveLength(1);
-    expect(locked!.details[0]!.batchId).toBe(BATCH_A);
-    await harness.service.applyGrowth(harness.manager, TENANT, locked!, 3, 1.2);
+    await runInFarmMutationTestTransaction(harness.manager, TENANT, async (session) =>
+      harness.service.withUnitGrowthMutation(
+        harness.manager,
+        session,
+        TENANT,
+        UNIT,
+        await readTenantMutationInstantV1(session, 'farm'),
+        async (scope) => {
+          expect(scope.details).toHaveLength(1);
+          expect(scope.details[0]!.batchId).toBe(BATCH_A);
+          await scope.applyGrowth(3, 1.2);
+        },
+      ),
+    );
     expect(harness.lockedTankBatch.totalBiomassKg).toBeCloseTo(103);
   });
 });

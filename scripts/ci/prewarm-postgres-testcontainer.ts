@@ -43,6 +43,7 @@ interface NxGraphFile {
 }
 
 const IMAGE_OWNER_PROJECT = 'migration-harness';
+const CONTAINER_BOOTING_TARGETS = ['test', 'test:integration'] as const;
 
 function parseBaseArg(argv: readonly string[]): string {
   const idx = argv.indexOf('--base');
@@ -61,20 +62,23 @@ function run(cmd: string, args: readonly string[]): string {
 }
 
 function affectedTestProjects(base: string): Set<string> {
-  // --json explicitly: without it nx emits newline-separated names on a
-  // TTY but a single-line JSON array when piped — sniffing the shape
-  // would be fragile across nx versions.
-  const out = run('npx', [
-    'nx',
-    'show',
-    'projects',
-    '--affected',
-    '--base',
-    base,
-    '--with-target=test',
-    '--json',
-  ]);
-  return new Set(JSON.parse(out) as string[]);
+  const projects = new Set<string>();
+  for (const target of CONTAINER_BOOTING_TARGETS) {
+    // Nx's JSON graph is the authority; target names are intentionally not
+    // inferred from filesystem conventions or duplicated project catalogs.
+    const out = run('npx', [
+      'nx',
+      'show',
+      'projects',
+      '--affected',
+      '--base',
+      base,
+      `--with-target=${target}`,
+      '--json',
+    ]);
+    for (const project of JSON.parse(out) as string[]) projects.add(project);
+  }
+  return projects;
 }
 
 /** Reverse transitive closure: every project that depends on `root`. */

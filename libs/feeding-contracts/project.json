@@ -1,0 +1,29 @@
+{
+  "name": "feeding-contracts",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/feeding-contracts/src",
+  "projectType": "library",
+  "tags": ["scope:platform", "type:lib"],
+  "targets": {
+    "type-check": {
+      "executor": "nx:run-commands",
+      "outputs": [],
+      "options": {
+        "command": "npx tsc -p libs/feeding-contracts/tsconfig.lib.json --noEmit"
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "libs/feeding-contracts/jest.config.ts"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "options": {
+        "lintFilePatterns": ["libs/feeding-contracts/src/**/*.ts"]
+      }
+    }
+  }
+}

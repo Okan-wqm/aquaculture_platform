@@ -6,22 +6,12 @@
  * @module Feeding/Commands
  */
 import { ITenantCommand } from '@platform/cqrs';
-import { FeedingMethod, FeedingEnvironment, FishBehavior } from '../entities/feeding-record.entity';
+import type { UpdateFeedingRecordPayload } from '../../feeding-protocol/feeding-operation-command';
 
 /**
  * Yemleme kaydı güncelleme payload
  */
-export interface UpdateFeedingRecordPayload {
-  actualAmount?: number;
-  wasteAmount?: number;
-  environment?: FeedingEnvironment;
-  fishBehavior?: FishBehavior;
-  feedingMethod?: FeedingMethod;
-  feedingDurationMinutes?: number;
-  feedCost?: number;
-  notes?: string;
-  skipReason?: string;
-}
+export type { UpdateFeedingRecordPayload } from '../../feeding-protocol/feeding-operation-command';
 
 export class UpdateFeedingRecordCommand implements ITenantCommand {
   readonly commandName = 'UpdateFeedingRecordCommand';
@@ -31,5 +21,6 @@ export class UpdateFeedingRecordCommand implements ITenantCommand {
     public readonly feedingRecordId: string,
     public readonly payload: UpdateFeedingRecordPayload,
     public readonly userId: string,
+    public readonly operationRequestId: string,
   ) {}
 }

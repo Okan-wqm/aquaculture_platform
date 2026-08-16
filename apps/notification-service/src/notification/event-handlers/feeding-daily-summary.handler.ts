@@ -32,12 +32,12 @@ const MAX_SUMMARY_RECIPIENTS = 100;
  * serviste yoktur ve burada icat edilmez; rol-bazlı yönlendirme gerektiğinde
  * alert-engine eskalasyon politikaları kullanılır.
  *
- * İDEMPOTENCY: push, komut-makbuzlu dispatcher üzerinden deterministik
- * deliveryId (`feeding-summary:{tenant}:{planDate}:{user}`) ile gider — NATS
- * at-least-once yeniden teslimi çift push ÜRETEMEZ; in-app satırı yalnız makbuz
- * TAZE (replayed=false) iken yazılır. Push gönderimi hata verirse in-app yine
- * yazılır (özet kullanıcının zil kutusuna düşmek zorunda) ve push denemesini
- * dispatcher'ın retry makinesi devralır.
+ * İDEMPOTENCY: kullanıcı başına tek deterministik deliveryId
+ * (`feeding-summary:{tenant}:{planDate}:{user}`) hem push makbuzunun hem de
+ * in-app satırının kimliğidir. Push makbuzu ve notification_logs'un kısmi
+ * unique index'i birbirinden bağımsız olarak aynı kimliğe yakınsar; bu nedenle
+ * push hatasından sonraki retry ya da eşzamanlı tüketim ikinci in-app satırı
+ * üretemez.
  */
 @Injectable()
 export class FeedingDailySummaryEventHandler
@@ -48,7 +48,7 @@ export class FeedingDailySummaryEventHandler
   constructor(
     private readonly dispatcher: NotificationDispatcherService,
     @Inject(InAppNotificationService)
-    private readonly inAppService: Pick<InAppNotificationService, 'createNotification'>,
+    private readonly inAppService: Pick<InAppNotificationService, 'ensureNotification'>,
     @InjectRepository(DeviceToken)
     private readonly deviceTokenRepository: Repository<DeviceToken>,
     @Inject('EVENT_BUS')
@@ -95,16 +95,17 @@ export class FeedingDailySummaryEventHandler
       (event.underfedUnitCount > 0 ? `, ${event.underfedUnitCount} ünite az beslendi` : '') +
       (event.missedMealCount > 0 ? `, ${event.missedMealCount} öğün kaçırıldı` : '');
 
+    const deliveryFailures: string[] = [];
     for (const { userId, token } of recipients) {
-      let pushReplayed = false;
+      const deliveryId = `feeding-summary:${event.tenantId}:${event.planDate}:${userId}`;
       try {
-        const { replayed } = await this.dispatcher.dispatchCommandNotification({
+        await this.dispatcher.dispatchCommandNotification({
           tenantId: event.tenantId,
           channel: NotificationChannel.PUSH,
           recipient: token,
           recipientLogRef: `userId:${userId}`,
-          deliveryId: `feeding-summary:${event.tenantId}:${event.planDate}:${userId}`,
-          requestReference: `feeding-summary:${event.tenantId}:${event.planDate}:${userId}`,
+          deliveryId,
+          requestReference: deliveryId,
           source: 'notification-service.feeding-daily-summary-handler',
           subject: title,
           message: body,
@@ -112,7 +113,6 @@ export class FeedingDailySummaryEventHandler
           // oturum açıksa SW push'u düşürür.
           pushData: { userId },
         });
-        pushReplayed = replayed;
       } catch (error) {
         // Push denemesini dispatcher'ın retry makinesi devralır; in-app aşağıda
         // yine yazılır.
@@ -122,26 +122,39 @@ export class FeedingDailySummaryEventHandler
         );
       }
 
-      if (pushReplayed) continue; // Yeniden teslim — in-app satırı zaten yazıldı.
-
       try {
-        await this.inAppService.createNotification(event.tenantId, userId, title, body, {
-          type: 'FeedingDailySummary',
-          planDate: event.planDate,
-          unitsPlanned: event.unitsPlanned,
-          unitsCompleted: event.unitsCompleted,
-          unitsSkipped: event.unitsSkipped,
-          plannedTotalKg: event.plannedTotalKg,
-          actualTotalKg: event.actualTotalKg,
-          underfedUnitCount: event.underfedUnitCount,
-          missedMealCount: event.missedMealCount,
+        await this.inAppService.ensureNotification({
+          tenantId: event.tenantId,
+          userId,
+          title,
+          body,
+          deliveryId,
+          data: {
+            type: 'FeedingDailySummary',
+            planDate: event.planDate,
+            unitsPlanned: event.unitsPlanned,
+            unitsCompleted: event.unitsCompleted,
+            unitsSkipped: event.unitsSkipped,
+            plannedTotalKg: event.plannedTotalKg,
+            actualTotalKg: event.actualTotalKg,
+            underfedUnitCount: event.underfedUnitCount,
+            missedMealCount: event.missedMealCount,
+          },
         });
       } catch (error) {
         this.logger.error(
           `Daily summary in-app write failed for user ${userId.substring(0, 8)}...: ` +
             `${(error as Error).message}`,
         );
+        deliveryFailures.push(`${userId.substring(0, 8)}: ${(error as Error).message}`);
       }
+    }
+
+    if (deliveryFailures.length > 0) {
+      throw new Error(
+        `FeedingDailySummary in-app fan-out failed for ${deliveryFailures.length}/` +
+          `${recipients.length} recipient(s): ${deliveryFailures.join(' | ')}`,
+      );
     }
 
     this.logger.debug(

@@ -8,6 +8,19 @@ import {
 } from '../entities/notification-log.entity';
 
 /**
+ * A durable in-app delivery. The required deliveryId is the caller's stable
+ * identity for one logical notification across retries and concurrent handlers.
+ */
+export interface DurableInAppNotification {
+  readonly tenantId: string;
+  readonly userId: string;
+  readonly title: string;
+  readonly body: string;
+  readonly deliveryId: string;
+  readonly data?: Record<string, unknown>;
+}
+
+/**
  * In-App Notification Service
  * Manages in-app notifications stored in NotificationLog with channel='IN_APP'
  */
@@ -52,6 +65,41 @@ export class InAppNotificationService {
   }
 
   /**
+   * Ensure one durable in-app row exists for a logical delivery.
+   *
+   * The partial unique index on (tenantId, recipient, deliveryId) is the
+   * authority. INSERT ... ON CONFLICT DO NOTHING makes retries and concurrent
+   * consumers converge in one database statement without process-local state.
+   */
+  async ensureNotification(notification: DurableInAppNotification): Promise<void> {
+    await this.logRepository
+      .createQueryBuilder()
+      .insert()
+      .into(NotificationLog)
+      .values({
+        tenantId: notification.tenantId,
+        channel: NotificationChannel.IN_APP,
+        recipient: notification.userId,
+        subject: notification.title,
+        content: notification.body,
+        status: NotificationStatus.SENT,
+        sentAt: new Date(),
+        deliveryId: notification.deliveryId,
+        metadata: {
+          read: false,
+          data: notification.data ?? {},
+        },
+      })
+      .orIgnore()
+      .execute();
+
+    this.logger.debug(
+      `Durable in-app notification ensured for user ${notification.userId.substring(0, 8)}... ` +
+        `in tenant ${notification.tenantId.substring(0, 8)}...`,
+    );
+  }
+
+  /**
    * Get notifications for a specific user
    */
   async getMyNotifications(
@@ -68,9 +116,7 @@ export class InAppNotificationService {
       .orderBy('log.created_at', 'DESC');
 
     if (unreadOnly) {
-      queryBuilder.andWhere(
-        "(log.metadata->>'read' IS NULL OR log.metadata->>'read' = 'false')",
-      );
+      queryBuilder.andWhere("(log.metadata->>'read' IS NULL OR log.metadata->>'read' = 'false')");
     }
 
     if (limit && limit > 0) {
@@ -91,9 +137,7 @@ export class InAppNotificationService {
       .where('log.channel = :channel', { channel: NotificationChannel.IN_APP })
       .andWhere('log.recipient = :userId', { userId })
       .andWhere('log.tenant_id = :tenantId', { tenantId })
-      .andWhere(
-        "(log.metadata->>'read' IS NULL OR log.metadata->>'read' = 'false')",
-      )
+      .andWhere("(log.metadata->>'read' IS NULL OR log.metadata->>'read' = 'false')")
       .getCount();
   }
 
@@ -114,9 +158,7 @@ export class InAppNotificationService {
     });
 
     if (!notification) {
-      this.logger.warn(
-        `Notification ${id} not found for user ${userId.substring(0, 8)}...`,
-      );
+      this.logger.warn(`Notification ${id} not found for user ${userId.substring(0, 8)}...`);
       return false;
     }
 
@@ -144,9 +186,7 @@ export class InAppNotificationService {
       .where('channel = :channel', { channel: NotificationChannel.IN_APP })
       .andWhere('recipient = :userId', { userId })
       .andWhere('tenant_id = :tenantId', { tenantId })
-      .andWhere(
-        "(metadata->>'read' IS NULL OR metadata->>'read' = 'false')",
-      )
+      .andWhere("(metadata->>'read' IS NULL OR metadata->>'read' = 'false')")
       .execute();
 
     this.logger.debug(

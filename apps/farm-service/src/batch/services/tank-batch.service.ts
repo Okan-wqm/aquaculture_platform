@@ -16,17 +16,21 @@
  * here. `batchDetails[]` is ALWAYS persisted (the historical
  * `length > 1 ? details : undefined` discard is the drift this fixes).
  *
- * Concurrency: callers already hold a `pessimistic_write` lock on the TankBatch
- * row (consistent with transfer/mortality), so the read-modify-write below is
- * serialised per tank without needing SERIALIZABLE isolation.
+ * Concurrency: this service owns one canonical identity fence for every unit,
+ * including units without a TankBatch row, followed by ordered
+ * `pessimistic_write` tuple locks. Callers receive only a callback-scoped
+ * capability; they cannot select a payload-dependent lock order.
  */
 import { Injectable } from '@nestjs/common';
-import { EntityManager } from 'typeorm';
+import type { TenantMutationSession } from '@aquaculture/backend-common/database';
+import { EntityManager, In } from 'typeorm';
 
 import { Equipment } from '../../equipment/entities/equipment.entity';
 import { Tank } from '../../tank/entities/tank.entity';
 import { TankBatch, BatchDetail } from '../entities/tank-batch.entity';
 import { findTankOrEquipmentWithManager } from '../utils/tank-lookup.util';
+import { BatchAggregateMutationPort } from '../batch-aggregate-mutation.port';
+import type { TankBatchTransitionIntentV1 } from '../batch-aggregate-mutation.port';
 
 export interface TankBatchDelta {
   batchId: string;
@@ -39,6 +43,13 @@ export interface TankBatchDelta {
   avgWeightG?: number;
   /** Optional last-mortality timestamp (mortality path) — stamped onto the row when present. */
   lastMortalityAt?: Date;
+  /** Closed durable mutation intent; generic callers use stock_delta_applied. */
+  transitionIntent?: TankBatchTransitionIntentV1;
+}
+
+export interface TankCapacityProjectionV1 {
+  readonly isOverCapacity: boolean;
+  readonly utilizationPercent: number;
 }
 
 export interface TankMeta {
@@ -46,29 +57,182 @@ export interface TankMeta {
   name?: string;
   /** Tank volume (m³) for density; 0/undefined → density 0. */
   volumeM3?: number;
+  /** CapacityService-derived projection persisted in the same aggregate commit. */
+  capacity?: TankCapacityProjectionV1;
+}
+
+const TANK_BATCH_MUTATION_SET_BRAND: unique symbol = Symbol();
+
+export interface TankBatchMutationSnapshotV1 {
+  readonly tankId: string;
+  readonly primaryBatchId?: string;
+  readonly totalQuantity: number;
+  readonly totalBiomassKg: number;
+  readonly avgWeightG: number;
+  readonly densityKgM3: number;
+  readonly cleanerFishBiomassKg: number;
+  readonly batchDetails: readonly Readonly<BatchDetail>[];
+}
+
+/** Callback-scoped capability over one canonically locked unit set. */
+export interface TankBatchMutationSetV1 {
+  readonly [TANK_BATCH_MUTATION_SET_BRAND]: true;
+  readonly unitIds: readonly string[];
+  snapshot(unitId: string): TankBatchMutationSnapshotV1 | null;
+  applyBatchDelta(
+    unitId: string,
+    delta: TankBatchDelta,
+    tankMeta?: TankMeta,
+  ): Promise<TankBatch>;
+}
+
+function canonicalUnitIds(unitIds: readonly string[]): readonly string[] {
+  if (unitIds.length === 0) throw new Error('TankBatch mutation set cannot be empty');
+  if (unitIds.some((unitId) => unitId.length === 0 || unitId !== unitId.trim())) {
+    throw new Error('TankBatch mutation unitId must be a non-empty canonical identifier');
+  }
+  const canonical = [...unitIds].sort();
+  if (new Set(canonical).size !== canonical.length) {
+    throw new Error('TankBatch mutation set cannot contain duplicate units');
+  }
+  return Object.freeze(canonical);
+}
+
+function snapshotOf(tankBatch: TankBatch): TankBatchMutationSnapshotV1 {
+  return Object.freeze({
+    tankId: tankBatch.tankId,
+    primaryBatchId: tankBatch.primaryBatchId,
+    totalQuantity: Number(tankBatch.totalQuantity),
+    totalBiomassKg: Number(tankBatch.totalBiomassKg),
+    avgWeightG: Number(tankBatch.avgWeightG),
+    densityKgM3: Number(tankBatch.densityKgM3),
+    cleanerFishBiomassKg: Number(tankBatch.cleanerFishBiomassKg ?? 0),
+    batchDetails: Object.freeze(
+      (tankBatch.batchDetails ?? []).map((detail) => Object.freeze({ ...detail })),
+    ),
+  });
 }
 
 @Injectable()
 export class TankBatchService {
+  constructor(private readonly batchMutations: BatchAggregateMutationPort) {}
+
+  /**
+   * Acquires one exact multi-unit lock set in `tankId ASC` order.
+   *
+   * Every identity first receives the same transaction advisory lock in sorted
+   * order, regardless of whether its aggregate exists. Existing rows are then
+   * selected and tuple-locked in one ordered statement. One lock namespace thus
+   * serializes existing-row mutations and concurrent first stock without an
+   * existence-dependent ordering branch. The only mutation surface is the
+   * callback-scoped capability and it is invalid after callback return.
+   */
+  async withLockedTankBatchSet<T>(
+    manager: EntityManager,
+    mutationSession: TenantMutationSession,
+    tenantId: string,
+    unitIds: readonly string[],
+    work: (scope: TankBatchMutationSetV1) => Promise<T>,
+  ): Promise<T> {
+    const canonicalIds = canonicalUnitIds(unitIds);
+    for (const unitId of canonicalIds) {
+      await manager.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [
+        `tank-batch-mutation/v1:${tenantId}:${unitId}`,
+      ]);
+    }
+    const lockedRows = await manager.find(TankBatch, {
+      where: { tenantId, tankId: In([...canonicalIds]) },
+      order: { tankId: 'ASC' },
+      lock: { mode: 'pessimistic_write' },
+    });
+    const lockedIds = lockedRows.map((row) => row.tankId);
+    const canonicalLockedIds = [...lockedIds].sort();
+    if (lockedIds.some((unitId, index) => unitId !== canonicalLockedIds[index])) {
+      throw new Error('TankBatch lock query did not preserve canonical unit order');
+    }
+    const byUnitId = new Map<string, TankBatch>();
+    for (const row of lockedRows) {
+      if (
+        row.tenantId !== tenantId ||
+        !canonicalIds.includes(row.tankId) ||
+        byUnitId.has(row.tankId)
+      ) {
+        throw new Error('TankBatch lock query returned an invalid unit set');
+      }
+      byUnitId.set(row.tankId, row);
+    }
+    let active = true;
+    const assertActiveUnit = (unitId: string): void => {
+      if (!active) throw new Error('TankBatch mutation set cannot outlive its lock callback');
+      if (!canonicalIds.includes(unitId)) {
+        throw new Error(`TankBatch mutation set does not own unit ${unitId}`);
+      }
+    };
+    const scope = Object.freeze({
+      [TANK_BATCH_MUTATION_SET_BRAND]: true,
+      unitIds: canonicalIds,
+      snapshot: (unitId: string) => {
+        assertActiveUnit(unitId);
+        const aggregate = byUnitId.get(unitId);
+        return aggregate ? snapshotOf(aggregate) : null;
+      },
+      applyBatchDelta: async (unitId: string, delta: TankBatchDelta, tankMeta?: TankMeta) => {
+        assertActiveUnit(unitId);
+        const saved = await this.applyLockedBatchDelta(
+          manager,
+          mutationSession,
+          tenantId,
+          unitId,
+          byUnitId.get(unitId) ?? null,
+          delta,
+          tankMeta,
+        );
+        byUnitId.set(unitId, saved);
+        return saved;
+      },
+    } satisfies TankBatchMutationSetV1);
+    try {
+      return await work(scope);
+    } finally {
+      active = false;
+    }
+  }
+
   /**
    * Apply a signed per-batch delta to a tank's composition and persist it,
    * re-deriving every aggregate from `batchDetails[]`. Returns the saved row.
    *
-   * The caller MUST run this inside the tenant transaction (runInTenantTransaction)
-   * and SHOULD pre-lock the TankBatch row (pessimistic_write) — this method also
-   * locks defensively when it loads the row.
+   * The caller MUST run this inside the tenant transaction
+   * (runInTenantTransaction). Lock acquisition is entirely owned by
+   * `withLockedTankBatchSet`; callers must not pre-lock TankBatch rows.
    */
   async applyBatchDelta(
     manager: EntityManager,
+    mutationSession: TenantMutationSession,
     tenantId: string,
     tankId: string,
     delta: TankBatchDelta,
     tankMeta?: TankMeta,
   ): Promise<TankBatch> {
-    let tankBatch = await manager.findOne(TankBatch, {
-      where: { tenantId, tankId },
-      lock: { mode: 'pessimistic_write' },
-    });
+    return this.withLockedTankBatchSet(
+      manager,
+      mutationSession,
+      tenantId,
+      [tankId],
+      (scope) => scope.applyBatchDelta(tankId, delta, tankMeta),
+    );
+  }
+
+  private async applyLockedBatchDelta(
+    manager: EntityManager,
+    mutationSession: TenantMutationSession,
+    tenantId: string,
+    tankId: string,
+    lockedTankBatch: TankBatch | null,
+    delta: TankBatchDelta,
+    tankMeta?: TankMeta,
+  ): Promise<TankBatch> {
+    let tankBatch = lockedTankBatch;
 
     if (!tankBatch) {
       tankBatch = manager.create(TankBatch, {
@@ -146,7 +310,9 @@ export class TankBatchService {
         biomassKg: Math.max(0, delta.biomassDelta),
         avgWeightG:
           delta.avgWeightG ??
-          (delta.quantityDelta > 0 ? (Math.max(0, delta.biomassDelta) * 1000) / delta.quantityDelta : 0),
+          (delta.quantityDelta > 0
+            ? (Math.max(0, delta.biomassDelta) * 1000) / delta.quantityDelta
+            : 0),
         percentageOfTank: 0,
       });
     } else if (delta.quantityDelta < 0) {
@@ -166,7 +332,8 @@ export class TankBatchService {
     const volume = tankMeta?.volumeM3 ?? 0;
     tankBatch.densityKgM3 = volume ? tankBatch.totalBiomassKg / volume : 0;
     for (const d of details) {
-      d.percentageOfTank = tankBatch.totalQuantity > 0 ? (d.quantity / tankBatch.totalQuantity) * 100 : 0;
+      d.percentageOfTank =
+        tankBatch.totalQuantity > 0 ? (d.quantity / tankBatch.totalQuantity) * 100 : 0;
     }
 
     tankBatch.isMixedBatch = details.length > 1;
@@ -188,8 +355,21 @@ export class TankBatchService {
     if (delta.lastMortalityAt) {
       tankBatch.lastMortalityAt = delta.lastMortalityAt;
     }
+    if (tankMeta?.capacity) {
+      if (
+        !Number.isFinite(tankMeta.capacity.utilizationPercent) ||
+        tankMeta.capacity.utilizationPercent < 0
+      ) {
+        throw new Error('Tank capacity utilization must be a non-negative finite number');
+      }
+      tankBatch.isOverCapacity = tankMeta.capacity.isOverCapacity;
+      tankBatch.capacityUsedPercent = tankMeta.capacity.utilizationPercent;
+    }
 
-    const saved = await manager.save(TankBatch, tankBatch);
+    const saved = await this.batchMutations.commitTankBatchTransition(mutationSession, {
+      intent: delta.transitionIntent ?? 'stock_delta_applied',
+      aggregate: tankBatch,
+    });
 
     // SINGLE WRITER for the denormalized Tank/Equipment.currentCount column.
     // The web tenant panel reads equipmentList.currentCount while mobile reads
@@ -204,12 +384,10 @@ export class TankBatchService {
     const lookup = await findTankOrEquipmentWithManager(manager, tankId, tenantId);
     if (lookup) {
       if (lookup.isFromTanksTable && lookup.originalTank) {
-        await manager
-          .createQueryBuilder()
-          .update(Tank)
-          .set({ currentCount: tankBatch.totalQuantity })
-          .where('id = :id', { id: lookup.originalTank.id })
-          .execute();
+        await this.batchMutations.replaceTankCountProjection(mutationSession, {
+          tankId: lookup.originalTank.id,
+          currentCount: tankBatch.totalQuantity,
+        });
       } else {
         await manager
           .createQueryBuilder()

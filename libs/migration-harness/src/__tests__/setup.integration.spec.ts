@@ -11,6 +11,7 @@ import {
   bootPostgresContainer,
   shutdownHarness,
   type HarnessContext,
+  withEphemeralDatabase,
 } from '../index';
 
 import {
@@ -39,10 +40,7 @@ describe('migration-harness setup — integration', () => {
 
     const qr = harness.dataSource.createQueryRunner();
     try {
-      const row = await queryRequiredRow<{ db: string }>(
-        qr,
-        'SELECT current_database() AS db',
-      );
+      const row = await queryRequiredRow<{ db: string }>(qr, 'SELECT current_database() AS db');
       expect(row.db).toBe('harness');
     } finally {
       await qr.release();
@@ -61,10 +59,7 @@ describe('migration-harness setup — integration', () => {
       expect(exists).toHaveLength(1);
 
       // search_path is pinned to our schema.
-      const searchPath = await queryRequiredRow<{ search_path: string }>(
-        qr,
-        `SHOW search_path`,
-      );
+      const searchPath = await queryRequiredRow<{ search_path: string }>(qr, `SHOW search_path`);
       expect(searchPath.search_path).toContain(schema);
 
       // We can create + query a table within the ephemeral schema.
@@ -106,6 +101,70 @@ describe('migration-harness setup — integration', () => {
     // All follow the convention test_<16 hex>
     for (const s of schemas) {
       expect(s).toMatch(/^test_[0-9a-f]{16}$/);
+    }
+  });
+
+  it('isolates fixed schemas in a disposable database and restores the cluster', async () => {
+    const harness = expectHarnessContext(ctx);
+    let firstDatabase: string | undefined;
+    await withEphemeralDatabase(harness, async (database, isolated) => {
+      firstDatabase = database;
+      const qr = isolated.dataSource.createQueryRunner();
+      try {
+        await qr.query(`CREATE SCHEMA farm; CREATE TABLE farm.marker (id integer PRIMARY KEY)`);
+      } finally {
+        await qr.release();
+      }
+    });
+
+    await withEphemeralDatabase(harness, async (_database, isolated) => {
+      const qr = isolated.dataSource.createQueryRunner();
+      try {
+        const fixedState = await queryRequiredRow<{ farm_schema: string | null }>(
+          qr,
+          `SELECT to_regnamespace('farm')::text AS farm_schema`,
+        );
+        expect(fixedState.farm_schema).toBeNull();
+      } finally {
+        await qr.release();
+      }
+    });
+
+    const database = expectDefined(firstDatabase, 'ephemeral database name');
+    const qr = harness.dataSource.createQueryRunner();
+    try {
+      const rows = await queryRows<{ present: number }>(
+        qr,
+        `SELECT 1 AS present FROM pg_database WHERE datname = $1`,
+        [database],
+      );
+      expect(rows).toHaveLength(0);
+    } finally {
+      await qr.release();
+    }
+  });
+
+  it('removes an ephemeral database after the callback fails', async () => {
+    const harness = expectHarnessContext(ctx);
+    let failedDatabase: string | undefined;
+    await expect(
+      withEphemeralDatabase(harness, (database) => {
+        failedDatabase = database;
+        throw new Error('simulated database-scoped failure');
+      }),
+    ).rejects.toThrow('simulated database-scoped failure');
+
+    const database = expectDefined(failedDatabase, 'failed ephemeral database name');
+    const qr = harness.dataSource.createQueryRunner();
+    try {
+      const rows = await queryRows<{ present: number }>(
+        qr,
+        `SELECT 1 AS present FROM pg_database WHERE datname = $1`,
+        [database],
+      );
+      expect(rows).toHaveLength(0);
+    } finally {
+      await qr.release();
     }
   });
 

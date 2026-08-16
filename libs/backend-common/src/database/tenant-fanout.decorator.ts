@@ -34,9 +34,11 @@
  * Fan-out + allowlist semantics belong WITH the migration that introduces
  * them. A config file ~10 levels removed from the SQL it governs drifts;
  * a `@TenantFanOut` on the migration class co-locates the decision with
- * the code that makes it load-bearing. The orchestrator reads the
- * metadata via reflect-metadata, the same pattern used for
- * @ExpandContract + @EncryptedAtRest.
+ * the code that makes it load-bearing. Source-only scope is exposed as an
+ * exact frozen structural declaration on the class, so content-addressed
+ * historical authorities can bind it without executing a mutable decorator
+ * at module load. The older fan-out and tenant-delta profiles retain their
+ * reflect-metadata representation.
  *
  * # Runtime consumption
  *
@@ -50,15 +52,12 @@
  */
 import 'reflect-metadata';
 
-export const TENANT_FANOUT_META_KEY = Symbol.for(
-  '@aquaculture/backend-common:tenant-fanout',
-);
+export const TENANT_FANOUT_META_KEY = Symbol.for('@aquaculture/backend-common:tenant-fanout');
 export const ALLOW_TENANT_DELTA_META_KEY = Symbol.for(
   '@aquaculture/backend-common:allow-tenant-delta',
 );
-export const SOURCE_ONLY_MIGRATION_META_KEY = Symbol.for(
-  '@aquaculture/backend-common:source-only-migration',
-);
+export const MIGRATION_EXECUTION_SCOPE_V1_PROPERTY = 'migrationExecutionScope' as const;
+export const MIGRATION_EXECUTION_SCOPE_V1_SCHEMA = 'migration-execution-scope/v1' as const;
 
 type DecoratedClassTarget = Parameters<ClassDecorator>[0];
 
@@ -101,11 +100,7 @@ export function TenantFanOut(opts: TenantFanOutOptions): ClassDecorator {
     );
   }
   if (opts.concurrency !== undefined) {
-    if (
-      !Number.isFinite(opts.concurrency) ||
-      opts.concurrency < 1 ||
-      opts.concurrency > 32
-    ) {
+    if (!Number.isFinite(opts.concurrency) || opts.concurrency < 1 || opts.concurrency > 32) {
       throw new RangeError(
         `@TenantFanOut: concurrency must be an integer in [1, 32] (got ${opts.concurrency})`,
       );
@@ -125,9 +120,7 @@ export function TenantFanOut(opts: TenantFanOutOptions): ClassDecorator {
  *     "theatre" was happening in the old orchestrator)
  *   - clamps tenant-local concurrency to [1, 32]
  */
-export function getTenantFanOutMetadata(
-  ctor: DecoratedClassTarget,
-): TenantFanOutMetadata | null {
+export function getTenantFanOutMetadata(ctor: DecoratedClassTarget): TenantFanOutMetadata | null {
   const raw = Reflect.getMetadata(TENANT_FANOUT_META_KEY, ctor) as
     | (TenantFanOutOptions & { target?: DecoratedClassTarget })
     | undefined;
@@ -165,13 +158,9 @@ export interface AllowTenantDeltaMetadata extends AllowTenantDeltaOptions {
 /**
  * Class decorator on an @Entity class.
  */
-export function AllowTenantDelta(
-  opts: AllowTenantDeltaOptions,
-): ClassDecorator {
+export function AllowTenantDelta(opts: AllowTenantDeltaOptions): ClassDecorator {
   if (!Array.isArray(opts.columnPrefix) || opts.columnPrefix.length === 0) {
-    throw new TypeError(
-      `@AllowTenantDelta: columnPrefix must be a non-empty readonly string[]`,
-    );
+    throw new TypeError(`@AllowTenantDelta: columnPrefix must be a non-empty readonly string[]`);
   }
   for (const p of opts.columnPrefix) {
     if (typeof p !== 'string' || p.length === 0) {
@@ -181,11 +170,7 @@ export function AllowTenantDelta(
     }
   }
   return (target): void => {
-    Reflect.defineMetadata(
-      ALLOW_TENANT_DELTA_META_KEY,
-      { ...opts, target },
-      target,
-    );
+    Reflect.defineMetadata(ALLOW_TENANT_DELTA_META_KEY, { ...opts, target }, target);
   };
 }
 
@@ -194,9 +179,7 @@ export function AllowTenantDelta(
  * empty array when undecorated. Safe to call unconditionally from the
  * Class I drift check.
  */
-export function getAllowedTenantDeltaPrefixes(
-  ctor: DecoratedClassTarget,
-): readonly string[] {
+export function getAllowedTenantDeltaPrefixes(ctor: DecoratedClassTarget): readonly string[] {
   const raw = Reflect.getMetadata(ALLOW_TENANT_DELTA_META_KEY, ctor) as
     | AllowTenantDeltaMetadata
     | undefined;
@@ -206,10 +189,7 @@ export function getAllowedTenantDeltaPrefixes(
 /**
  * Convenience: does a tenant column name match any allowed prefix?
  */
-export function isTenantDeltaAllowed(
-  ctor: DecoratedClassTarget,
-  columnName: string,
-): boolean {
+export function isTenantDeltaAllowed(ctor: DecoratedClassTarget, columnName: string): boolean {
   const prefixes = getAllowedTenantDeltaPrefixes(ctor);
   if (prefixes.length === 0) return false;
   return prefixes.some((p) => columnName.startsWith(p));
@@ -224,33 +204,83 @@ export interface SourceOnlyMigrationOptions {
 }
 
 export interface SourceOnlyMigrationMetadata extends SourceOnlyMigrationOptions {
+  readonly schemaVersion: typeof MIGRATION_EXECUTION_SCOPE_V1_SCHEMA;
+  readonly scope: 'source-only';
   readonly target: DecoratedClassTarget;
 }
 
-export function SourceOnlyMigration(
-  opts: SourceOnlyMigrationOptions,
-): ClassDecorator {
-  if (typeof opts.reason !== 'string' || opts.reason.trim().length === 0) {
+export interface MigrationExecutionScopeV1 extends SourceOnlyMigrationOptions {
+  readonly schemaVersion: typeof MIGRATION_EXECUTION_SCOPE_V1_SCHEMA;
+  readonly scope: 'source-only';
+}
+
+function migrationExecutionScopeV1(reason: string): MigrationExecutionScopeV1 {
+  if (typeof reason !== 'string' || reason.trim().length === 0) {
+    throw new TypeError('@SourceOnlyMigration: reason must be a non-empty string');
+  }
+  return Object.freeze({
+    schemaVersion: MIGRATION_EXECUTION_SCOPE_V1_SCHEMA,
+    scope: 'source-only',
+    reason,
+  });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function decodeMigrationExecutionScopeV1(
+  target: DecoratedClassTarget,
+): SourceOnlyMigrationMetadata | null {
+  if (!Object.prototype.hasOwnProperty.call(target, MIGRATION_EXECUTION_SCOPE_V1_PROPERTY)) {
+    return null;
+  }
+  const binding = Object.getOwnPropertyDescriptor(target, MIGRATION_EXECUTION_SCOPE_V1_PROPERTY);
+  const declaration: unknown = binding?.value;
+  const keys = isRecord(declaration) ? Object.keys(declaration).sort() : [];
+  const exactKeys = ['reason', 'schemaVersion', 'scope'];
+  if (
+    !isRecord(declaration) ||
+    binding?.configurable !== false ||
+    binding.enumerable !== false ||
+    binding.writable !== false ||
+    !Object.isFrozen(declaration) ||
+    keys.length !== exactKeys.length ||
+    keys.some((key, index) => key !== exactKeys[index]) ||
+    declaration['schemaVersion'] !== MIGRATION_EXECUTION_SCOPE_V1_SCHEMA ||
+    declaration['scope'] !== 'source-only' ||
+    typeof declaration['reason'] !== 'string' ||
+    declaration['reason'].trim().length === 0
+  ) {
     throw new TypeError(
-      '@SourceOnlyMigration: reason must be a non-empty string',
+      `${target.name || '<anonymous migration>'}.${MIGRATION_EXECUTION_SCOPE_V1_PROPERTY} ` +
+        `must be an exact frozen ${MIGRATION_EXECUTION_SCOPE_V1_SCHEMA} declaration`,
     );
   }
+  return {
+    schemaVersion: MIGRATION_EXECUTION_SCOPE_V1_SCHEMA,
+    scope: 'source-only',
+    reason: declaration['reason'],
+    target,
+  };
+}
+
+export function SourceOnlyMigration(opts: SourceOnlyMigrationOptions): ClassDecorator {
+  const declaration = migrationExecutionScopeV1(opts.reason);
   return (target): void => {
-    Reflect.defineMetadata(
-      SOURCE_ONLY_MIGRATION_META_KEY,
-      { ...opts, target },
-      target,
-    );
+    Object.defineProperty(target, MIGRATION_EXECUTION_SCOPE_V1_PROPERTY, {
+      configurable: false,
+      enumerable: false,
+      value: declaration,
+      writable: false,
+    });
   };
 }
 
 export function getSourceOnlyMigrationMetadata(
   ctor: DecoratedClassTarget,
 ): SourceOnlyMigrationMetadata | null {
-  const raw = Reflect.getMetadata(SOURCE_ONLY_MIGRATION_META_KEY, ctor) as
-    | SourceOnlyMigrationMetadata
-    | undefined;
-  return raw ?? null;
+  return decodeMigrationExecutionScopeV1(ctor);
 }
 
 export function isSourceOnlyMigration(ctor: DecoratedClassTarget): boolean {

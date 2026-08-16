@@ -26,6 +26,9 @@ import {
 } from 'typeorm';
 import { ObjectType, Field, ID, Int, Float, registerEnumType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
+import { FEEDING_MEAL_QUANTITY_POLICY_V1 } from '@aquaculture/feeding-contracts';
+
+import { FeedingMethod } from '../../feeding/entities/feeding-record.entity';
 
 // ============================================================================
 // ENUMS
@@ -51,13 +54,24 @@ registerEnumType(FeedingMealStatus, {
 // JSONB VALUE OBJECTS
 // ============================================================================
 
+export interface MealReadinessV1 {
+  readonly schemaVersion: 'feeding-meal-readiness/v1';
+  readonly sourceWindowEventId: string;
+  readonly status: 'ready' | 'low_oxygen' | 'no_reading' | 'not_instrumented';
+  readonly minDissolvedOxygen: number;
+  readonly observedDissolvedOxygen?: number;
+  readonly observedAt?: string;
+  readonly lowOxygenReductionPercent?: number;
+  readonly evaluatedAt: string;
+}
+
 /** Tek döküm — kümülatif actualKg'nin denetlenebilir parçası. */
 export interface MealPour {
   pourIndex: number;
   kg: number;
   at: string; // ISO timestamp
   by: string; // userId
-  feedingMethod?: string;
+  feedingMethod?: FeedingMethod;
   // ── correctMealPour denetim izi (C-11) — düzeltme geçmişi kaybolmaz ──
   /** İLK kayıttaki kg (yalnız düzeltilmiş dökümlerde set). */
   originalKg?: number;
@@ -75,8 +89,8 @@ export interface MealPour {
 @Entity('feeding_meals')
 @Index(['dayPlanId', 'mealIndex'], { unique: true })
 @Index(['tenantId', 'dayPlanId'])
-@Index(['tenantId', 'scheduledAt'], {
-  where: `"status" = 'scheduled' AND "windowNotifiedAt" IS NULL`,
+@Index(['tenantId', 'scheduledAt', 'windowNotifiedAt'], {
+  where: `"status" = 'scheduled'`,
 })
 @Index(['tenantId', 'unitId', 'scheduledAt'])
 export class FeedingMeal {
@@ -116,7 +130,11 @@ export class FeedingMeal {
   percentOfDaily!: number;
 
   @Field(() => Float)
-  @Column({ type: 'numeric', precision: 12, scale: 3 })
+  @Column({
+    type: 'numeric',
+    precision: FEEDING_MEAL_QUANTITY_POLICY_V1.storagePrecision,
+    scale: FEEDING_MEAL_QUANTITY_POLICY_V1.storageScale,
+  })
   plannedKg!: number;
 
   @Field(() => FeedingMealStatus)
@@ -125,7 +143,12 @@ export class FeedingMeal {
 
   /** Kümülatif gerçekleşen kg (Σ pours[].kg). */
   @Field(() => Float)
-  @Column({ type: 'numeric', precision: 12, scale: 3, default: 0 })
+  @Column({
+    type: 'numeric',
+    precision: FEEDING_MEAL_QUANTITY_POLICY_V1.storagePrecision,
+    scale: FEEDING_MEAL_QUANTITY_POLICY_V1.storageScale,
+    default: 0,
+  })
   actualKg!: number;
 
   @Field(() => GraphQLJSON)
@@ -134,7 +157,12 @@ export class FeedingMeal {
 
   /** Finalize'da hesaplanır (D-8) — öncesinde null. */
   @Field(() => Float, { nullable: true })
-  @Column({ type: 'numeric', precision: 12, scale: 3, nullable: true })
+  @Column({
+    type: 'numeric',
+    precision: FEEDING_MEAL_QUANTITY_POLICY_V1.storagePrecision,
+    scale: FEEDING_MEAL_QUANTITY_POLICY_V1.storageScale,
+    nullable: true,
+  })
   varianceKg?: number;
 
   @Field(() => Float, { nullable: true })
@@ -155,17 +183,21 @@ export class FeedingMeal {
   fedBy?: string;
 
   /** P-24: kayıt yolundan düşürülmez — hem burada hem FeedingRecord'da persist. */
-  @Field({ nullable: true })
-  @Column({ length: 50, nullable: true })
-  feedingMethod?: string;
+  @Field(() => FeedingMethod, { nullable: true })
+  @Column({ type: 'enum', enum: FeedingMethod, nullable: true })
+  feedingMethod?: FeedingMethod;
 
   @Field({ nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
   recalculatedAt?: Date;
 
-  /** MealWindowUpcoming bildirimi idempotency damgası. */
+  /** Last MealWindowUpcoming emission; reproducible sweeps re-notify by catalog cadence. */
   @Column({ type: 'timestamptz', nullable: true })
   windowNotifiedAt?: Date;
+
+  @Field(() => GraphQLJSON, { nullable: true })
+  @Column({ type: 'jsonb', nullable: true })
+  readiness?: MealReadinessV1;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })

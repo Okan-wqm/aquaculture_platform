@@ -7,6 +7,7 @@ import { SCHEMA_REGISTRY } from '../../apps/db-migrate/src/schema-registry';
 import {
   PLATFORM_SERVICE_CATALOG,
   backendImageBuildTargets,
+  databaseLoginPrincipals,
   frontendImageBuildTargets,
   imageBuildTargets,
   infraImageBuildMatrix,
@@ -52,7 +53,13 @@ interface GeneratedServiceCatalog {
     infraImageMatrix: Array<{ image: string; dockerfile: string; context: string }>;
     applicationImageServices: string[];
     serviceDbRolePrefixes: string[];
-    readinessServices: Array<{ serviceId: string; port: number }>;
+    databaseLoginPrincipals: Array<{
+      serviceId: string;
+      role: string;
+      passwordEnv: string;
+      purpose: string;
+    }>;
+    readinessServices: Array<{ serviceId: string; port: number; path: string }>;
   };
 }
 
@@ -134,6 +141,20 @@ describe('platform service catalog parity', () => {
     }
   });
 
+  it('drives the critical feeding worker healthcheck from its readiness coordinate', () => {
+    const scheduler = readinessServices().find(
+      (entry) => entry.serviceId === 'farm-feeding-scheduler',
+    );
+    if (!scheduler) {
+      throw new Error('farm-feeding-scheduler has no catalog-owned readiness coordinate');
+    }
+    const compose = readFileSync('docker-compose.droplet.yml', 'utf8');
+    const block = /\n {2}farm-feeding-scheduler:\n[\s\S]*?(?=\n {2}[a-zA-Z0-9_-]+:\n|$)/.exec(
+      `\n${compose}`,
+    )?.[0];
+    expect(block).toContain(`http://localhost:${scheduler.port}${scheduler.path}`);
+  });
+
   it('keeps service criticality levels in sync', () => {
     const manifest = readYaml<CriticalityManifest>(
       'infrastructure/deploy/service-criticality.yaml',
@@ -178,6 +199,7 @@ describe('platform service catalog parity', () => {
     expect(generated.deploy.serviceDbRolePrefixes.sort()).toEqual(
       [...serviceDbRolePrefixes()].sort(),
     );
+    expect(generated.deploy.databaseLoginPrincipals).toEqual([...databaseLoginPrincipals()]);
     expect(generated.deploy.readinessServices).toEqual([...readinessServices()]);
   });
 
@@ -197,9 +219,14 @@ describe('platform service catalog parity', () => {
     expect(readShellStringList(deployEnv, 'CATALOG_SERVICE_DB_ROLE_PREFIXES')).toEqual(
       [...serviceDbRolePrefixes()].sort(),
     );
+    expect(readShellStringList(deployEnv, 'CATALOG_DATABASE_LOGIN_SECRET_ENVS')).toEqual(
+      databaseLoginPrincipals()
+        .map((principal) => principal.passwordEnv)
+        .sort(),
+    );
     expect(readShellStringList(deployEnv, 'CATALOG_READINESS_SERVICES')).toEqual(
       readinessServices()
-        .map((entry) => `${entry.serviceId}:${entry.port}`)
+        .map((entry) => `${entry.serviceId}:${entry.port}:${entry.path}`)
         .sort(),
     );
     expect(generatedTargets).toEqual([...imageBuildTargets()].sort());
@@ -303,7 +330,19 @@ describe('platform service catalog parity', () => {
 
     expect(script).toContain('service-catalog.deploy.vars');
     expect(script).toContain('CATALOG_APPLICATION_IMAGE_SERVICES');
-    expect(script).toContain('CATALOG_SERVICE_DB_ROLE_PREFIXES');
+    expect(script).toContain('CATALOG_DATABASE_LOGIN_SECRET_ENVS');
+    expect(script).toContain('CATALOG_READINESS_SERVICES');
+    expect(script).toContain('for spec in "${READINESS_SERVICE_SPECS[@]}"');
+    expect(script).toContain('IFS=: read -r svc port path');
+    for (const hardcodedReadinessCoordinate of [
+      '"gateway-api:3000"',
+      '"auth-service:3000"',
+      '"farm-service:3000"',
+      '"sensor-service:3000"',
+      '"messaging-service:3000"',
+    ]) {
+      expect(script).not.toContain(hardcodedReadinessCoordinate);
+    }
     expect(script).not.toContain('SERVICE_DB_ROLES="AUTH TENANT FARM');
     expect(script).not.toContain('service-catalog.deploy.env');
   });

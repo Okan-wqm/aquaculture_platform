@@ -22,6 +22,7 @@ import {
   getRlsExcludeTablesForService,
   SchemaDriftModule,
 } from '@aquaculture/backend-common/database';
+import { DeadLetterModule } from '@aquaculture/backend-common/events';
 import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import { ServiceMetricsModule } from '@aquaculture/backend-common/metrics';
@@ -187,6 +188,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
       inject: [ConfigService],
       useFactory: buildEventBusConfig,
     }),
+    DeadLetterModule.forRoot({ schema: 'notification', source: 'notification-service' }),
     NotificationOutboxModule,
     TenantErasureTargetModule.forService('notification-service'),
 

@@ -10,9 +10,8 @@
  *
  * # What this spec enforces
  *
- *   1. Every catalog entry with metricsExposure 'prom-endpoint' and
- *      buildKind 'node-service' registers a metrics module in its
- *      apps/<serviceId>/src/app.module.ts. Without registration the
+ *   1. Every catalog entry with the Prometheus endpoint capability registers
+ *      a metrics module in its apps/<serviceId>/src module graph. Without registration the
  *      service boots with NO Prometheus scrape surface — the exact blind
  *      spot OBS-HIGH-001 closed: 10 of 15 NestJS services (alert-engine,
  *      billing, hr, hydroponics, notification, config, event-store, ai,
@@ -30,7 +29,7 @@
  *      ServiceMetricsModule from '@aquaculture/backend-common/metrics'
  *      (whose controller is structurally @Public() + @Controller('metrics')).
  *
- *   3. Every node-service catalog entry declares metricsExposure
+ *   3. Every Prometheus-capable catalog entry declares metricsExposure
  *      'prom-endpoint' — a new backend service cannot silently opt out of
  *      observability. (validateServiceCatalog enforces the same rule at
  *      generator time; this assertion makes the failure visible at PR test
@@ -48,7 +47,7 @@
  *     `serviceMetrics.registerContributor(name, registry)` from the domain
  *     module's onModuleInit (reference: farm-service FarmMetricsModule).
  *
- *   - Node-service entry declares metricsExposure 'none' → that state is
+ *   - Prometheus-capable entry declares metricsExposure 'none' → that state is
  *     forbidden; fix the catalog entry (or the buildKind, if the service
  *     genuinely is not a Node HTTP service).
  *
@@ -67,15 +66,15 @@ import * as path from 'path';
 // platform-service-catalog-parity.spec.ts uses the same relative path.
 import {
   PLATFORM_SERVICE_CATALOG,
+  metricsEndpointServices,
+  supportsPrometheusEndpoint,
   validateServiceCatalog,
 } from '../../platform/libs/service-catalog/src';
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const APPS_DIR = path.join(REPO_ROOT, 'apps');
 
-const promEndpointNodeServices = PLATFORM_SERVICE_CATALOG.filter(
-  (entry) => entry.metricsExposure === 'prom-endpoint' && entry.buildKind === 'node-service',
-);
+const promEndpointServices = metricsEndpointServices();
 
 // Matches any registered metrics-flavored module token in app.module.ts —
 // canonical (ServiceMetricsModule), bespoke (AuthMetricsModule,
@@ -84,21 +83,6 @@ const promEndpointNodeServices = PLATFORM_SERVICE_CATALOG.filter(
 const METRICS_MODULE_TOKEN = /\b\w*(?:Metrics|Prometheus)\w*Module\b/;
 
 const SCRAPE_CONTROLLER_DECORATOR = /@Controller\(\s*['"]\/?metrics['"]\s*\)/;
-
-function appModulePath(serviceId: string): string {
-  return path.join(APPS_DIR, serviceId, 'src', 'app.module.ts');
-}
-
-function readAppModule(serviceId: string): string {
-  const p = appModulePath(serviceId);
-  if (!fs.existsSync(p)) {
-    throw new Error(
-      `AppModule not found for catalog node-service '${serviceId}' at ${p}. ` +
-        `Either the apps/ directory convention drifted or the catalog serviceId is wrong.`,
-    );
-  }
-  return fs.readFileSync(p, 'utf-8');
-}
 
 /** Recursively list production .ts sources of a service (tests excluded). */
 function listServiceSources(serviceId: string): string[] {
@@ -122,13 +106,14 @@ function listServiceSources(serviceId: string): string[] {
 }
 
 describe('Metrics endpoint adoption (OBS-HIGH-001)', () => {
-  it('catalog passes its own validation (node-service ⇒ prom-endpoint; scrape on containerPort)', () => {
+  it('catalog passes its own validation (capable Node runtime ⇒ prom-endpoint)', () => {
     expect(validateServiceCatalog()).toEqual([]);
   });
 
-  it('every node-service catalog entry exposes a Prometheus endpoint', () => {
+  it('every Prometheus-capable service kind exposes a Prometheus endpoint', () => {
     const optedOut = PLATFORM_SERVICE_CATALOG.filter(
-      (entry) => entry.buildKind === 'node-service' && entry.metricsExposure !== 'prom-endpoint',
+      (entry) =>
+        supportsPrometheusEndpoint(entry.buildKind) && entry.metricsExposure !== 'prom-endpoint',
     ).map((entry) => entry.serviceId);
     expect(optedOut).toEqual([]);
   });
@@ -138,15 +123,22 @@ describe('Metrics endpoint adoption (OBS-HIGH-001)', () => {
     // for membership; this spec only guards against the failure mode where
     // a refactor accidentally reclassifies backends out of node-service and
     // the per-service assertions below silently stop running.
-    expect(promEndpointNodeServices.length).toBeGreaterThanOrEqual(15);
+    expect(promEndpointServices.length).toBeGreaterThanOrEqual(16);
+    expect(promEndpointServices.map((entry) => entry.serviceId)).toContain(
+      'farm-feeding-scheduler',
+    );
   });
 
-  describe.each(promEndpointNodeServices.map((entry) => [entry.serviceId] as const))(
-    'prom-endpoint node-service %s',
+  describe.each(promEndpointServices.map((entry) => [entry.serviceId] as const))(
+    'prom-endpoint service %s',
     (serviceId) => {
-      it('registers a metrics module in app.module.ts', () => {
-        const moduleContent = readAppModule(serviceId);
-        expect(moduleContent).toMatch(METRICS_MODULE_TOKEN);
+      it('registers a metrics module in its production module graph', () => {
+        const moduleSources = listServiceSources(serviceId).filter((file) =>
+          file.endsWith('.module.ts'),
+        );
+        expect(
+          moduleSources.some((file) => METRICS_MODULE_TOKEN.test(fs.readFileSync(file, 'utf-8'))),
+        ).toBe(true);
       });
 
       it('has a reachable GET /metrics scrape surface (local controller or canonical module import)', () => {

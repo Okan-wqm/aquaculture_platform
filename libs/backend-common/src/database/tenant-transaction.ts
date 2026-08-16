@@ -8,8 +8,18 @@ import { RLS_BYPASS_GUC, RLS_TENANT_GUC } from './rls/apply-tenant-rls.helper';
 import { validateTenantSchemaName } from './schema-manager.service';
 import { TenantContextError } from './tenant-context-error';
 import { getTenantSchemaName, isValidUUID } from './tenant-schema.utils';
+import { mintTenantMutationSession, type TenantMutationSession } from './tenant-mutation-session';
+import { readDatabaseMutationInstantV1 } from './mutation-instant';
 
 const SOURCE_SCHEMA_RE = /^[a-z][a-z0-9_]*$/;
+
+export interface TenantTransactionOptions {
+  readonly isolationLevel?:
+    | 'READ UNCOMMITTED'
+    | 'READ COMMITTED'
+    | 'REPEATABLE READ'
+    | 'SERIALIZABLE';
+}
 
 /**
  * Tenant boundary observability (Farm Data SSOT plan §3-F / §8.7).
@@ -151,6 +161,52 @@ export interface TenantContextQueryExecutor {
   query(sql: string, parameters?: unknown[]): Promise<unknown>;
 }
 
+/**
+ * Bind and verify the transaction-local RLS controls without asserting a
+ * tenant-schema search path. Source-schema writers such as auth lifecycle
+ * commands need this narrower boundary while provisioning, before a tenant
+ * schema exists.
+ */
+export async function bindTenantRlsContext(
+  queryRunner: TenantContextQueryExecutor,
+  tenantId: string,
+  sourceSchema: string,
+): Promise<void> {
+  if (!SOURCE_SCHEMA_RE.test(sourceSchema)) {
+    throw new Error(`bindTenantRlsContext: invalid source schema "${sourceSchema}"`);
+  }
+  if (!isValidUUID(tenantId)) {
+    throw new Error(`bindTenantRlsContext: invalid tenantId "${tenantId}"`);
+  }
+
+  await queryRunner.query(`SELECT set_config($1, $2, true)`, [RLS_TENANT_GUC, tenantId]);
+  // A pooled connection may previously have served an audited system path;
+  // an inherited bypass would expose every row the policy should hide.
+  await queryRunner.query(`SELECT set_config($1, 'off', true)`, [RLS_BYPASS_GUC]);
+
+  const rows = await queryRunner.query(
+    `SELECT current_setting($1, true) AS tenant,
+            current_setting($2, true) AS bypass`,
+    [RLS_TENANT_GUC, RLS_BYPASS_GUC],
+  );
+  const row = (Array.isArray(rows) ? rows[0] : rows) as
+    | { tenant?: string | null; bypass?: string | null }
+    | undefined
+    | null;
+  if (!row) return;
+
+  const resolvedTenant = row.tenant ?? null;
+  const resolvedBypass = row.bypass ?? null;
+  if (resolvedTenant !== tenantId || (resolvedBypass ?? 'off') !== 'off') {
+    throw new TenantContextError({
+      state: 'RLS_MISMATCH',
+      expectedSchema: getTenantSchemaName(tenantId),
+      resolvedSchema: null,
+      sourceSchema,
+    });
+  }
+}
+
 export async function assertTenantTransactionContext(
   queryRunner: TenantContextQueryExecutor,
   sourceSchema: string,
@@ -228,18 +284,25 @@ export async function runInTenantTransaction<T>(
   dataSource: DataSource,
   sourceSchema: string,
   tenantId: string,
-  fn: (queryRunner: QueryRunner) => Promise<T>,
+  fn: (queryRunner: QueryRunner, mutationSession: TenantMutationSession) => Promise<T>,
+  options: TenantTransactionOptions = {},
 ): Promise<T> {
   return withTenantContext(tenantId, async () => {
     const startedAt = Date.now();
     const queryRunner = dataSource.createQueryRunner();
     await queryRunner.connect();
-    await queryRunner.startTransaction();
+    await queryRunner.startTransaction(options.isolationLevel);
 
     try {
       await pinTenantTransactionSearchPath(queryRunner, sourceSchema, tenantId);
       await assertTenantTransactionContext(queryRunner, sourceSchema, tenantId);
-      const result = await fn(queryRunner);
+      const mutationSession = mintTenantMutationSession(
+        queryRunner.manager,
+        sourceSchema,
+        tenantId,
+        () => readDatabaseMutationInstantV1(queryRunner),
+      );
+      const result = await fn(queryRunner, mutationSession);
       await queryRunner.commitTransaction();
       traceTenantBoundary({
         operation: 'tenant-transaction',

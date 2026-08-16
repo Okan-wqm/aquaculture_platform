@@ -12,27 +12,28 @@
  *  - DRAFT/ARCHIVED protokole atama yapılamaz (migration draft'ları operatör
  *    onayı olmadan plan üretemez — K-14 kapısının yapısal yarısı).
  *  - fcrOverrides yalnız protokol bandlarında GEÇEN feedId'lere yazılabilir.
- *  - Aynı ünitede ikinci aktif atama partial unique index'e çarpar; handler
- *    yine de mevcut aktifi ENDED'e çevirip değiştirme semantiği sunar
+ *  - Aynı ünitede ikinci canlı (active/paused) atama partial unique index'e
+ *    çarpar; handler mevcut canlı kimliği ENDED'e çevirip değiştirir
  *    (assignment history korunur — traceability C-4 bunu okur).
  *  - Atama/pause/end aynı transaction'da durable event üretir (P-12 deseni).
  *
  * @module FeedingProtocol/Handlers
  */
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { DataSource, EntityManager } from 'typeorm';
-import {
-  BadRequestException,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { EntityManager, Not } from 'typeorm';
+import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
 import { OutboxPublisher } from '@platform/outbox';
 import { createBaseEvent } from '@platform/event-contracts';
 import type {
   FeedingProtocolAssignedEvent,
   FeedingProtocolAssignmentPausedEvent,
 } from '@platform/event-contracts';
-import { tenantManagerRepo } from '@aquaculture/backend-common/database';
+import {
+  mutationInstantDateV1,
+  readTenantMutationInstantV1,
+  tenantManagerRepo,
+  type TenantMutationSession,
+} from '@aquaculture/backend-common/database';
 
 import {
   AssignProtocolToBatchUnitsCommand,
@@ -40,10 +41,7 @@ import {
   UnassignProtocolCommand,
   UpdateProtocolAssignmentCommand,
 } from '../commands/feeding-protocol-v2.commands';
-import {
-  FeedingProtocolStatus,
-  FeedingProtocolV2,
-} from '../entities/feeding-protocol-v2.entity';
+import { FeedingProtocolStatus, FeedingProtocolV2 } from '../entities/feeding-protocol-v2.entity';
 import {
   FeedingUnitType,
   ProtocolAssignment,
@@ -56,6 +54,8 @@ import {
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { Batch, BatchType } from '../../batch/entities/batch.entity';
 import { EquipmentCategory, EquipmentType } from '../../equipment/entities/equipment-type.entity';
+import { FeedingAggregateMutationPort } from '../feeding-aggregate-mutation.writer';
+import { FeedingMutationTransactionAuthority } from '../feeding-mutation-transaction.authority';
 
 // ============================================================================
 // PAYLAŞILAN ÜNİTE-ATAMA ÇEKİRDEĞİ — tekil ve batch-toplu yolun TEK gövdesi
@@ -113,13 +113,19 @@ async function resolveUnitType(
  */
 async function performUnitAssignment(
   manager: EntityManager,
+  mutationSession: TenantMutationSession,
+  feedingMutations: FeedingAggregateMutationPort,
   outboxPublisher: OutboxPublisher,
   logger: Logger,
   protocol: FeedingProtocolV2,
   args: UnitAssignmentArgs,
 ): Promise<ProtocolAssignment> {
   const { tenantId, userId } = args;
+  const mutationInstant = await readTenantMutationInstantV1(mutationSession, 'farm');
   const assignmentRepo = tenantManagerRepo(manager, ProtocolAssignment, tenantId);
+  await manager.query(`SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, [
+    `feeding-live-assignment:${tenantId}:${args.unitId}`,
+  ]);
 
   // Ünite çözümü — tek tank/equipment lookup SSoT'si.
   const lookup = await findTankOrEquipmentWithManager(manager, args.unitId, tenantId);
@@ -165,18 +171,25 @@ async function performUnitAssignment(
   }
 
   // fcrOverrides yalnız protokol bandlarındaki yemler için anlamlıdır.
-  assertOverrideFeedsExist(protocol, args.overrides?.fcrOverrides?.map((o) => o.feedId));
+  assertOverrideFeedsExist(
+    protocol,
+    args.overrides?.fcrOverrides?.map((o) => o.feedId),
+  );
 
-  // Değiştirme semantiği: mevcut aktif atama tarihçeye iner (ENDED).
-  const existingActive = await assignmentRepo.findOne({
-    where: { tenantId, unitId: args.unitId, status: ProtocolAssignmentStatus.ACTIVE },
+  // ACTIVE ve PAUSED aynı canlı kimliğin durumlarıdır. Yeni satırdan önce
+  // mevcut canlı atama tarihçeye iner; iki paused kimlik birikemez.
+  const existingLive = await assignmentRepo.findOne({
+    where: { tenantId, unitId: args.unitId, status: Not(ProtocolAssignmentStatus.ENDED) },
     lock: { mode: 'pessimistic_write' },
   });
-  if (existingActive) {
-    existingActive.status = ProtocolAssignmentStatus.ENDED;
-    existingActive.endedAt = new Date();
-    existingActive.updatedBy = userId;
-    await assignmentRepo.save(existingActive);
+  if (existingLive) {
+    existingLive.status = ProtocolAssignmentStatus.ENDED;
+    existingLive.endedAt = mutationInstantDateV1(mutationInstant);
+    existingLive.updatedBy = userId;
+    await feedingMutations.commitProtocolAssignmentTransition(mutationSession, {
+      intent: 'unassigned',
+      aggregate: existingLive,
+    });
   }
 
   const assignment = assignmentRepo.create({
@@ -188,13 +201,16 @@ async function performUnitAssignment(
     siteId,
     protocolId: args.protocolId,
     status: ProtocolAssignmentStatus.ACTIVE,
-    effectiveFrom: args.effectiveFrom ?? new Date(),
+    effectiveFrom: args.effectiveFrom ?? mutationInstantDateV1(mutationInstant),
     overrides: args.overrides ?? {},
     suspensions: [],
     createdBy: userId,
     updatedBy: userId,
   });
-  const saved = await assignmentRepo.save(assignment);
+  const saved = await feedingMutations.commitProtocolAssignmentTransition(mutationSession, {
+    intent: 'assigned',
+    aggregate: assignment,
+  });
 
   const event: FeedingProtocolAssignedEvent = {
     ...createBaseEvent<FeedingProtocolAssignedEvent>('FeedingProtocolAssigned', tenantId, {
@@ -209,14 +225,14 @@ async function performUnitAssignment(
     siteId,
     protocolId: saved.protocolId,
     protocolName: protocol.name,
-    replacedAssignmentId: existingActive?.id,
+    replacedAssignmentId: existingLive?.id,
     speciesMismatchReason: args.speciesMismatchReason,
   };
   await outboxPublisher.enqueue(event, manager);
 
   logger.log(
     `Protocol ${protocol.name} assigned to unit ${saved.unitCode} (${saved.id})` +
-      (existingActive ? ` replacing ${existingActive.id}` : ''),
+      (existingLive ? ` replacing ${existingLive.id}` : ''),
   );
   return saved;
 }
@@ -250,26 +266,40 @@ export class AssignProtocolToUnitHandler
   private readonly logger = new Logger(AssignProtocolToUnitHandler.name);
 
   constructor(
-    private readonly dataSource: DataSource,
+    private readonly transactions: FeedingMutationTransactionAuthority,
+    private readonly feedingMutations: FeedingAggregateMutationPort,
     private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: AssignProtocolToUnitCommand): Promise<ProtocolAssignment> {
     const { input, tenantId, userId } = command;
 
-    return this.dataSource.transaction(async (manager) => {
-      const protocol = await loadActiveProtocol(manager, tenantId, input.protocolId);
-      return performUnitAssignment(manager, this.outboxPublisher, this.logger, protocol, {
-        tenantId,
-        userId,
-        unitId: input.unitId,
-        protocolId: input.protocolId,
-        unitType: input.unitType,
-        effectiveFrom: input.effectiveFrom,
-        overrides: input.overrides,
-        speciesMismatchReason: input.speciesMismatchReason,
-      });
-    });
+    return this.transactions.execute(
+      AssignProtocolToUnitHandler.name,
+      tenantId,
+      async (queryRunner, mutationSession) => {
+        const manager = queryRunner.manager;
+        const protocol = await loadActiveProtocol(manager, tenantId, input.protocolId);
+        return performUnitAssignment(
+          manager,
+          mutationSession,
+          this.feedingMutations,
+          this.outboxPublisher,
+          this.logger,
+          protocol,
+          {
+            tenantId,
+            userId,
+            unitId: input.unitId,
+            protocolId: input.protocolId,
+            unitType: input.unitType,
+            effectiveFrom: input.effectiveFrom,
+            overrides: input.overrides,
+            speciesMismatchReason: input.speciesMismatchReason,
+          },
+        );
+      },
+    );
   }
 }
 
@@ -280,7 +310,8 @@ export class AssignProtocolToBatchUnitsHandler
   private readonly logger = new Logger(AssignProtocolToBatchUnitsHandler.name);
 
   constructor(
-    private readonly dataSource: DataSource,
+    private readonly transactions: FeedingMutationTransactionAuthority,
+    private readonly feedingMutations: FeedingAggregateMutationPort,
     private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
@@ -294,47 +325,60 @@ export class AssignProtocolToBatchUnitsHandler
   async execute(command: AssignProtocolToBatchUnitsCommand): Promise<ProtocolAssignment[]> {
     const { batchId, protocolId, tenantId, userId, speciesMismatchReason } = command;
 
-    return this.dataSource.transaction(async (manager) => {
-      const batch = await manager.findOne(Batch, { where: { id: batchId, tenantId } });
-      if (!batch) {
-        throw new NotFoundException(`Batch bulunamadı: ${batchId}`);
-      }
+    return this.transactions.execute(
+      AssignProtocolToBatchUnitsHandler.name,
+      tenantId,
+      async (queryRunner, mutationSession) => {
+        const manager = queryRunner.manager;
+        const batch = await manager.findOne(Batch, { where: { id: batchId, tenantId } });
+        if (!batch) {
+          throw new NotFoundException(`Batch bulunamadı: ${batchId}`);
+        }
 
-      const protocol = await loadActiveProtocol(manager, tenantId, protocolId);
+        const protocol = await loadActiveProtocol(manager, tenantId, protocolId);
 
-      const unitRows: Array<{ unitId: string }> = await manager.query(
-        `SELECT tb."tankId" AS "unitId"
+        const unitRows: Array<{ unitId: string }> = await manager.query(
+          `SELECT tb."tankId" AS "unitId"
            FROM "tank_batches" tb
           WHERE tb."tenantId" = $1
             AND (tb."primaryBatchId" = $2 OR EXISTS (
               SELECT 1 FROM jsonb_array_elements(COALESCE(tb."batchDetails", '[]'::jsonb)) detail
               WHERE detail->>'batchId' = $2))
           ORDER BY tb."tankId" ASC`,
-        [tenantId, batchId],
-      );
-      if (unitRows.length === 0) {
-        throw new BadRequestException(
-          `Batch hiçbir ünitede değil (${batchId}) — atanacak ünite yok`,
+          [tenantId, batchId],
         );
-      }
+        if (unitRows.length === 0) {
+          throw new BadRequestException(
+            `Batch hiçbir ünitede değil (${batchId}) — atanacak ünite yok`,
+          );
+        }
 
-      const assignments: ProtocolAssignment[] = [];
-      for (const { unitId } of unitRows) {
-        assignments.push(
-          await performUnitAssignment(manager, this.outboxPublisher, this.logger, protocol, {
-            tenantId,
-            userId,
-            unitId,
-            protocolId,
-            speciesMismatchReason,
-          }),
+        const assignments: ProtocolAssignment[] = [];
+        for (const { unitId } of unitRows) {
+          assignments.push(
+            await performUnitAssignment(
+              manager,
+              mutationSession,
+              this.feedingMutations,
+              this.outboxPublisher,
+              this.logger,
+              protocol,
+              {
+                tenantId,
+                userId,
+                unitId,
+                protocolId,
+                speciesMismatchReason,
+              },
+            ),
+          );
+        }
+        this.logger.log(
+          `Protocol ${protocol.name} assigned to ${assignments.length} unit(s) of batch ${batchId}`,
         );
-      }
-      this.logger.log(
-        `Protocol ${protocol.name} assigned to ${assignments.length} unit(s) of batch ${batchId}`,
-      );
-      return assignments;
-    });
+        return assignments;
+      },
+    );
   }
 }
 
@@ -345,95 +389,104 @@ export class UpdateProtocolAssignmentHandler
   private readonly logger = new Logger(UpdateProtocolAssignmentHandler.name);
 
   constructor(
-    private readonly dataSource: DataSource,
+    private readonly transactions: FeedingMutationTransactionAuthority,
+    private readonly feedingMutations: FeedingAggregateMutationPort,
     private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: UpdateProtocolAssignmentCommand): Promise<ProtocolAssignment> {
     const { input, tenantId, userId } = command;
 
-    return this.dataSource.transaction(async (manager) => {
-      const assignmentRepo = tenantManagerRepo(manager, ProtocolAssignment, tenantId);
-      const protocolRepo = tenantManagerRepo(manager, FeedingProtocolV2, tenantId);
+    return this.transactions.execute(
+      UpdateProtocolAssignmentHandler.name,
+      tenantId,
+      async (queryRunner, mutationSession) => {
+        const manager = queryRunner.manager;
+        const assignmentRepo = tenantManagerRepo(manager, ProtocolAssignment, tenantId);
+        const protocolRepo = tenantManagerRepo(manager, FeedingProtocolV2, tenantId);
 
-      const assignment = await assignmentRepo.findOne({
-        where: { id: input.assignmentId, tenantId },
-        lock: { mode: 'pessimistic_write' },
-      });
-      if (!assignment) {
-        throw new NotFoundException(`Atama bulunamadı: ${input.assignmentId}`);
-      }
-      if (assignment.status === ProtocolAssignmentStatus.ENDED) {
-        throw new BadRequestException('Sonlanmış atama güncellenemez — yeni atama oluşturun');
-      }
-
-      if (input.overrides?.fcrOverrides?.length) {
-        const protocol = await protocolRepo.findOne({
-          where: { id: assignment.protocolId, tenantId },
+        const assignment = await assignmentRepo.findOne({
+          where: { id: input.assignmentId, tenantId },
+          lock: { mode: 'pessimistic_write' },
         });
-        const bandFeedIds = new Set(protocol?.bands.map((band) => band.feedId) ?? []);
-        const unknown = input.overrides.fcrOverrides
-          .map((o) => o.feedId)
-          .filter((feedId) => !bandFeedIds.has(feedId));
-        if (unknown.length > 0) {
-          throw new BadRequestException(
-            `fcrOverrides yalnız protokol bandlarındaki yemler için tanımlanabilir; bilinmeyen: ${unknown.join(', ')}`,
-          );
+        if (!assignment) {
+          throw new NotFoundException(`Atama bulunamadı: ${input.assignmentId}`);
         }
-      }
-
-      for (const suspension of input.suspensions ?? []) {
-        if (suspension.to < suspension.from) {
-          throw new BadRequestException('Suspension penceresi: to >= from olmalı');
+        if (assignment.status === ProtocolAssignmentStatus.ENDED) {
+          throw new BadRequestException('Sonlanmış atama güncellenemez — yeni atama oluşturun');
         }
-        if (suspension.type === 'medication' && !suspension.medicatedFeedId) {
-          throw new BadRequestException('medication penceresi medicatedFeedId gerektirir');
+
+        if (input.overrides?.fcrOverrides?.length) {
+          const protocol = await protocolRepo.findOne({
+            where: { id: assignment.protocolId, tenantId },
+          });
+          const bandFeedIds = new Set(protocol?.bands.map((band) => band.feedId) ?? []);
+          const unknown = input.overrides.fcrOverrides
+            .map((o) => o.feedId)
+            .filter((feedId) => !bandFeedIds.has(feedId));
+          if (unknown.length > 0) {
+            throw new BadRequestException(
+              `fcrOverrides yalnız protokol bandlarındaki yemler için tanımlanabilir; bilinmeyen: ${unknown.join(', ')}`,
+            );
+          }
         }
-      }
 
-      const previousStatus = assignment.status;
-      if (input.overrides !== undefined) assignment.overrides = input.overrides;
-      if (input.suspensions !== undefined) {
-        assignment.suspensions = input.suspensions.map((s) => ({
-          from: s.from.toISOString().slice(0, 10),
-          to: s.to.toISOString().slice(0, 10),
-          type: s.type,
-          reason: s.reason,
-          medicatedFeedId: s.medicatedFeedId,
-        }));
-      }
-      if (input.status !== undefined) {
-        assignment.status =
-          input.status === 'active'
-            ? ProtocolAssignmentStatus.ACTIVE
-            : ProtocolAssignmentStatus.PAUSED;
-      }
-      assignment.updatedBy = userId;
-      const saved = await assignmentRepo.save(assignment);
+        for (const suspension of input.suspensions ?? []) {
+          if (suspension.to < suspension.from) {
+            throw new BadRequestException('Suspension penceresi: to >= from olmalı');
+          }
+          if (suspension.type === 'medication' && !suspension.medicatedFeedId) {
+            throw new BadRequestException('medication penceresi medicatedFeedId gerektirir');
+          }
+        }
 
-      if (
-        previousStatus === ProtocolAssignmentStatus.ACTIVE &&
-        saved.status === ProtocolAssignmentStatus.PAUSED
-      ) {
-        const paused: FeedingProtocolAssignmentPausedEvent = {
-          ...createBaseEvent<FeedingProtocolAssignmentPausedEvent>(
-            'FeedingProtocolAssignmentPaused',
-            tenantId,
-            { aggregateId: saved.id, aggregateType: 'ProtocolAssignment' },
-          ),
-          userId,
-          assignmentId: saved.id,
-          unitId: saved.unitId,
-          unitCode: saved.unitCode,
-          protocolId: saved.protocolId,
-          reason: 'operator_paused',
-        };
-        await this.outboxPublisher.enqueue(paused, manager);
-      }
+        const previousStatus = assignment.status;
+        if (input.overrides !== undefined) assignment.overrides = input.overrides;
+        if (input.suspensions !== undefined) {
+          assignment.suspensions = input.suspensions.map((s) => ({
+            from: s.from.toISOString().slice(0, 10),
+            to: s.to.toISOString().slice(0, 10),
+            type: s.type,
+            reason: s.reason,
+            medicatedFeedId: s.medicatedFeedId,
+          }));
+        }
+        if (input.status !== undefined) {
+          assignment.status =
+            input.status === 'active'
+              ? ProtocolAssignmentStatus.ACTIVE
+              : ProtocolAssignmentStatus.PAUSED;
+        }
+        assignment.updatedBy = userId;
+        const saved = await this.feedingMutations.commitProtocolAssignmentTransition(
+          mutationSession,
+          { intent: 'updated', aggregate: assignment },
+        );
 
-      this.logger.log(`Protocol assignment updated: ${saved.id} (status=${saved.status})`);
-      return saved;
-    });
+        if (
+          previousStatus === ProtocolAssignmentStatus.ACTIVE &&
+          saved.status === ProtocolAssignmentStatus.PAUSED
+        ) {
+          const paused: FeedingProtocolAssignmentPausedEvent = {
+            ...createBaseEvent<FeedingProtocolAssignmentPausedEvent>(
+              'FeedingProtocolAssignmentPaused',
+              tenantId,
+              { aggregateId: saved.id, aggregateType: 'ProtocolAssignment' },
+            ),
+            userId,
+            assignmentId: saved.id,
+            unitId: saved.unitId,
+            unitCode: saved.unitCode,
+            protocolId: saved.protocolId,
+            reason: 'operator_paused',
+          };
+          await this.outboxPublisher.enqueue(paused, manager);
+        }
+
+        this.logger.log(`Protocol assignment updated: ${saved.id} (status=${saved.status})`);
+        return saved;
+      },
+    );
   }
 }
 
@@ -443,26 +496,38 @@ export class UnassignProtocolHandler
 {
   private readonly logger = new Logger(UnassignProtocolHandler.name);
 
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly transactions: FeedingMutationTransactionAuthority,
+    private readonly feedingMutations: FeedingAggregateMutationPort,
+  ) {}
 
   async execute(command: UnassignProtocolCommand): Promise<ProtocolAssignment> {
     const { assignmentId, tenantId, userId } = command;
 
-    return this.dataSource.transaction(async (manager) => {
-      const assignmentRepo = tenantManagerRepo(manager, ProtocolAssignment, tenantId);
-      const assignment = await assignmentRepo.findOne({
-        where: { id: assignmentId, tenantId },
-        lock: { mode: 'pessimistic_write' },
-      });
-      if (!assignment) {
-        throw new NotFoundException(`Atama bulunamadı: ${assignmentId}`);
-      }
-      assignment.status = ProtocolAssignmentStatus.ENDED;
-      assignment.endedAt = new Date();
-      assignment.updatedBy = userId;
-      const saved = await assignmentRepo.save(assignment);
-      this.logger.log(`Protocol assignment ended: ${assignmentId}`);
-      return saved;
-    });
+    return this.transactions.execute(
+      UnassignProtocolHandler.name,
+      tenantId,
+      async (queryRunner, mutationSession) => {
+        const manager = queryRunner.manager;
+        const assignmentRepo = tenantManagerRepo(manager, ProtocolAssignment, tenantId);
+        const assignment = await assignmentRepo.findOne({
+          where: { id: assignmentId, tenantId },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (!assignment) {
+          throw new NotFoundException(`Atama bulunamadı: ${assignmentId}`);
+        }
+        assignment.status = ProtocolAssignmentStatus.ENDED;
+        const mutationInstant = await readTenantMutationInstantV1(mutationSession, 'farm');
+        assignment.endedAt = mutationInstantDateV1(mutationInstant);
+        assignment.updatedBy = userId;
+        const saved = await this.feedingMutations.commitProtocolAssignmentTransition(
+          mutationSession,
+          { intent: 'unassigned', aggregate: assignment },
+        );
+        this.logger.log(`Protocol assignment ended: ${assignmentId}`);
+        return saved;
+      },
+    );
   }
 }

@@ -1,6 +1,13 @@
 import { createHash, randomUUID } from 'crypto';
 
-import { Injectable, Logger, NotFoundException, BadRequestException, Inject, Optional } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+  Inject,
+  Optional,
+} from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import {
@@ -11,7 +18,10 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere, ILike, In } from 'typeorm';
-import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import {
+  createStandardPaginatedResult,
+  IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import {
@@ -30,9 +40,15 @@ import {
 } from '@platform/sensor-contracts/validators';
 
 import { AutomationService } from '../../automation/automation.service';
-import { AutomationProgram, ProgramStatus } from '../../automation/entities/automation-program.entity';
+import {
+  AutomationProgram,
+  ProgramStatus,
+} from '../../automation/entities/automation-program.entity';
 import { ProgramVariable } from '../../automation/entities/program-variable.entity';
-import { ArtifactService, canonicalJsonStringify } from '../../deploy-artifact/artifact.service';
+import {
+  ArtifactService,
+  deployArtifactCanonicalJsonV1,
+} from '../../deploy-artifact/artifact.service';
 import { DeploySigningService } from '../../deploy-artifact/deploy-signing.service';
 import { DeployArtifactType } from '../../deploy-artifact/entities/deploy-artifact.entity';
 import { EdgeDeviceService } from '../../edge-device/edge-device.service';
@@ -136,7 +152,10 @@ export class ScadaPackageService {
           ).toFixed(0)} KB > ${ScadaPackageService.MAX_SCRIPT_CODE_BYTES / 1024} KB)`,
         );
       }
-      if (mode !== undefined && (typeof mode !== 'string' || !ScadaPackageService.VALID_SCRIPT_MODES.has(mode))) {
+      if (
+        mode !== undefined &&
+        (typeof mode !== 'string' || !ScadaPackageService.VALID_SCRIPT_MODES.has(mode))
+      ) {
         throw new BadRequestException("Script `mode` must be 'server' or 'client'");
       }
     }
@@ -197,10 +216,13 @@ export class ScadaPackageService {
     const screens = Array.isArray(data.screens) ? data.screens : [];
     const hasWidgetPin = screens.some((screen) => {
       const widgets = (screen as { widgets?: unknown[] })?.widgets;
-      return Array.isArray(widgets) && widgets.some((w) => {
-        const pin = (w as { config?: Record<string, unknown> })?.config?.pin;
-        return typeof pin === 'string' && pin.length > 0;
-      });
+      return (
+        Array.isArray(widgets) &&
+        widgets.some((w) => {
+          const pin = (w as { config?: Record<string, unknown> })?.config?.pin;
+          return typeof pin === 'string' && pin.length > 0;
+        })
+      );
     });
 
     if (!controlPermissions?.pinHash && !hasWidgetPin) return pkg;
@@ -217,7 +239,9 @@ export class ScadaPackageService {
               return {
                 ...sc,
                 widgets: sc.widgets.map((w) => {
-                  const widget = w as Record<string, unknown> & { config?: Record<string, unknown> };
+                  const widget = w as Record<string, unknown> & {
+                    config?: Record<string, unknown>;
+                  };
                   const pin = widget.config?.pin;
                   if (typeof pin !== 'string' || pin.length === 0) return w;
                   const { pin: _stripped, ...restConfig } = widget.config!;
@@ -304,7 +328,10 @@ export class ScadaPackageService {
       pinHash: null,
       emergencyStop: null,
     }) as Record<string, unknown>;
-    const levels = (cp.securityLevels ??= { none: [], confirm: [], pin: [] }) as Record<string, unknown>;
+    const levels = (cp.securityLevels ??= { none: [], confirm: [], pin: [] }) as Record<
+      string,
+      unknown
+    >;
     const pinLevel: unknown[] = Array.isArray(levels.pin) ? levels.pin : (levels.pin = []);
 
     let plaintextPin: string | null = null;
@@ -525,7 +552,13 @@ export class ScadaPackageService {
   async backfillPackageDocsToV2(
     tenantId: string,
     options?: { dryRun?: boolean },
-  ): Promise<{ scanned: number; migrated: number; skipped: number; failed: number; dryRun: boolean }> {
+  ): Promise<{
+    scanned: number;
+    migrated: number;
+    skipped: number;
+    failed: number;
+    dryRun: boolean;
+  }> {
     const dryRun = options?.dryRun ?? false;
     // Enumerate candidate ids only. The authoritative read + write happens
     // under a row lock inside a per-row transaction (below), so a user edit
@@ -565,7 +598,9 @@ export class ScadaPackageService {
               return 'failed';
             }
           } catch (error) {
-            this.logger.warn(`Backfill left package ${pkg.id} unchanged: ${(error as Error).message}`);
+            this.logger.warn(
+              `Backfill left package ${pkg.id} unchanged: ${(error as Error).message}`,
+            );
             return 'failed';
           }
 
@@ -622,9 +657,7 @@ export class ScadaPackageService {
     let whereConditions: FindOptionsWhere<ScadaPackage> | FindOptionsWhere<ScadaPackage>[];
     if (filter?.searchTerm) {
       const escapedTerm = filter.searchTerm.replace(/%/g, '\\%').replace(/_/g, '\\_');
-      whereConditions = [
-        { ...where, name: ILike(`%${escapedTerm}%`) },
-      ];
+      whereConditions = [{ ...where, name: ILike(`%${escapedTerm}%`) }];
     } else {
       whereConditions = where;
     }
@@ -835,11 +868,19 @@ export class ScadaPackageService {
       this.logger.log(
         `undeploy_scada_package sent for package ${pkg.id} to device ${device.deviceCode} (command: ${commandId})`,
       );
-      return { deviceId: device.id, sent: true, message: `${device.deviceCode}: undeploy gönderildi` };
+      return {
+        deviceId: device.id,
+        sent: true,
+        message: `${device.deviceCode}: undeploy gönderildi`,
+      };
     } catch (error) {
       const msg = (error as Error).message;
       this.logger.error(`Failed to publish undeploy to device ${device.id}: ${msg}`);
-      return { deviceId: device.id, sent: false, message: `${device.deviceCode}: publish hatası — ${msg}` };
+      return {
+        deviceId: device.id,
+        sent: false,
+        message: `${device.deviceCode}: publish hatası — ${msg}`,
+      };
     }
   }
 
@@ -868,7 +909,9 @@ export class ScadaPackageService {
     if (unresolved.length === 0) return;
     const detail = `${unresolved.length}/${totalRefs} tag binding çözülemedi: ${JSON.stringify(unresolved)}`;
     if (this.isTagGateEnforced()) {
-      throw new BadRequestException(`${context}: ${detail} — deploy engellendi (SCADA_DEPLOY_TAG_GATE=enforce)`);
+      throw new BadRequestException(
+        `${context}: ${detail} — deploy engellendi (SCADA_DEPLOY_TAG_GATE=enforce)`,
+      );
     }
     this.logger.warn(`${context}: ${detail}`);
   }
@@ -1182,17 +1225,12 @@ export class ScadaPackageService {
           rolledBackTo: artifact.sourceEntityVersion,
         });
       } catch (logError) {
-        this.logger.error(
-          `Failed to create rollback deploy log: ${(logError as Error).message}`,
-        );
+        this.logger.error(`Failed to create rollback deploy log: ${(logError as Error).message}`);
       }
     }
 
     try {
-      await this.mqttClient.publish(
-        `tenants/${tenantId}/devices/${device.id}/commands`,
-        payload,
-      );
+      await this.mqttClient.publish(`tenants/${tenantId}/devices/${device.id}/commands`, payload);
       this.logger.log(
         `Rolled back device ${device.deviceCode} to SCADA artifact ${artifact.id} (v${version}, command: ${commandId})`,
       );
@@ -1220,7 +1258,9 @@ export class ScadaPackageService {
    */
   private async validateAutomationBindings(pkg: ScadaPackage): Promise<void> {
     const meta = pkg.packageData.meta as Record<string, unknown> | undefined;
-    const bindings: AutomationBinding[] | undefined = meta?.automationBindings as AutomationBinding[] | undefined;
+    const bindings: AutomationBinding[] | undefined = meta?.automationBindings as
+      | AutomationBinding[]
+      | undefined;
 
     if (!bindings || !Array.isArray(bindings) || bindings.length === 0) {
       return; // No automation bindings — nothing to validate
@@ -1382,10 +1422,13 @@ export class ScadaPackageService {
 
     // Determine which programs ride the bundle
     const meta = pkg.packageData.meta as Record<string, unknown> | undefined;
-    const bindings: AutomationBinding[] | undefined = meta?.automationBindings as AutomationBinding[] | undefined;
-    const programIds = programIdOverrides && programIdOverrides.length > 0
-      ? programIdOverrides
-      : [...new Set((bindings || []).map((b) => b.programId).filter(Boolean))];
+    const bindings: AutomationBinding[] | undefined = meta?.automationBindings as
+      | AutomationBinding[]
+      | undefined;
+    const programIds =
+      programIdOverrides && programIdOverrides.length > 0
+        ? programIdOverrides
+        : [...new Set((bindings || []).map((b) => b.programId).filter(Boolean))];
 
     // Bundle pipeline preconditions — fail loudly with the exact remedy.
     if (!this.edgeDeviceService) {
@@ -1486,17 +1529,11 @@ export class ScadaPackageService {
     const previous = await releaseBundleService.findLastConfirmed(tenantId, device.id);
     const manifest: ReleaseBundleManifest = { bundleId, artifacts: artifactRefs };
     const manifestSha256 = createHash('sha256')
-      .update(canonicalJsonStringify(manifest))
+      .update(deployArtifactCanonicalJsonV1(manifest))
       .digest('hex');
-    const signature = deploySigningService.signDeployArtifact(
-      'bundle',
-      tenantId,
-      manifestSha256,
-    );
+    const signature = deploySigningService.signDeployArtifact('bundle', tenantId, manifestSha256);
     if (!signature) {
-      throw new BadRequestException(
-        'Deploy signing became unavailable while building the bundle',
-      );
+      throw new BadRequestException('Deploy signing became unavailable while building the bundle');
     }
 
     await this.scadaPackageRepository.manager.transaction(async (manager) => {
@@ -1577,10 +1614,7 @@ export class ScadaPackageService {
 
     // Edge widget transform (CONTRACT-H-002) — same ordering as the
     // single-command path: after upcast, before the tag gate.
-    const { doc: edgeDoc } = this.transformForEdgeOrThrow(
-      `bundle package ${pkg.id}`,
-      packageDoc,
-    );
+    const { doc: edgeDoc } = this.transformForEdgeOrThrow(`bundle package ${pkg.id}`, packageDoc);
     if (!validateEdgeScadaPackageDoc(edgeDoc)) {
       throw new BadRequestException(
         `bundle package failed edge-deploy validation: ${formatValidationErrors(validateEdgeScadaPackageDoc)}`,
@@ -1593,7 +1627,11 @@ export class ScadaPackageService {
       if (tagNames.length > 0) {
         const refs = tagNames.map((name) => `${device.deviceCode}/${name}`);
         const resolution = await this.tagResolutionService.resolve(tenantId, refs);
-        this.handleUnresolvedBindings(`bundle package ${pkg.id}`, resolution.unresolved, refs.length);
+        this.handleUnresolvedBindings(
+          `bundle package ${pkg.id}`,
+          resolution.unresolved,
+          refs.length,
+        );
       }
     }
 

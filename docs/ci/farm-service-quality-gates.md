@@ -27,7 +27,7 @@
 
 ## Drift Checks
 
-- GraphQL SDL drift against `apps/farm-service/schema.graphql`.
+- GraphQL SDL generation/composition from the service-catalog artifact manifest.
 - OpenAPI route drift against `docs/api/openapi/farm-service.yaml`.
 - Event envelope and catalog drift for farm events.
 - Circular dependency and module boundary checks.

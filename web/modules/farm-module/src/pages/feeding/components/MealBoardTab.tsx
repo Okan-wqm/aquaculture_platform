@@ -13,10 +13,16 @@
 import React, { useMemo, useState } from 'react';
 import { Modal, useCanMutate, useI18n, type MessageKey } from '@aquaculture/shared-ui';
 import {
+  FEEDING_MEAL_MOBILE_COMMAND_V1,
+  FEEDING_MEAL_QUANTITY_POLICY_V1,
+  decodeFeedingMealQuantityKgV1,
+} from '@aquaculture/feeding-contracts';
+import {
   useFeedingDayPlans,
   useFeedingProtocolsV2,
   useProtocolAssignments,
   useRecordMealFeeding,
+  useFinalizeMeal,
   useSkipMeal,
   useCorrectMealPour,
   useRegenerateDayPlan,
@@ -52,6 +58,26 @@ const MEAL_STATUS_BADGE: Record<FeedingMealStatus, string> = {
   CANCELLED: 'bg-gray-100 text-gray-500',
 };
 
+const READINESS_BADGE: Record<
+  NonNullable<FeedingMealView['readiness']>['status'],
+  string
+> = {
+  ready: 'bg-green-50 text-green-700',
+  low_oxygen: 'bg-red-50 text-red-700',
+  no_reading: 'bg-amber-50 text-amber-800',
+  not_instrumented: 'bg-amber-50 text-amber-800',
+};
+
+const READINESS_LABEL: Record<
+  NonNullable<FeedingMealView['readiness']>['status'],
+  MessageKey
+> = {
+  ready: 'feedingV2.mealBoard.readiness.ready',
+  low_oxygen: 'feedingV2.mealBoard.readiness.lowOxygen',
+  no_reading: 'feedingV2.mealBoard.readiness.noReading',
+  not_instrumented: 'feedingV2.mealBoard.readiness.notInstrumented',
+};
+
 const PLAN_STATUS_KEY: Record<FeedingDayPlanStatus, MessageKey> = {
   PLANNED: 'feedingV2.mealBoard.planStatus.planned',
   IN_PROGRESS: 'feedingV2.mealBoard.planStatus.in_progress',
@@ -68,9 +94,9 @@ const FCR_SOURCE_KEY: Record<FcrResolvedSource, MessageKey> = {
 };
 
 /**
- * D-2 uyarı eşiği: batch'ler arası ağırlık-CV'si bunu aşarsa dominant-biomass
- * band varsayımı güvenilmez sayılır ve karışık-tank rozetinin yanında uyarı
- * çıkar (sunum eşiği — hesap BE snapshot'ından gelir).
+ * D-2 uyarı eşiği: batch'ler arası ağırlık-CV'si bunu aşarsa tank ortalaması
+ * içindeki heterojenlik operatöre karışık-tank rozetinin yanında gösterilir
+ * (sunum eşiği — hesap BE snapshot'ından gelir).
  */
 const HIGH_WEIGHT_CV_WARNING_PERCENT = 25;
 
@@ -88,8 +114,10 @@ function timeOf(iso: string): string {
 
 function actualTotalOf(plan: FeedingDayPlanView): number {
   const meals = plan.meals ?? [];
-  return meals.reduce((acc, meal) => acc + Number(meal.actualKg || 0), 0) +
-    Number(plan.unplannedActualKg || 0);
+  return (
+    meals.reduce((acc, meal) => acc + Number(meal.actualKg || 0), 0) +
+    Number(plan.unplannedActualKg || 0)
+  );
 }
 
 // ============================================================================
@@ -108,8 +136,9 @@ interface CorrectModalState {
 
 export function MealBoardTab(): React.ReactElement {
   const { t } = useI18n();
-  const canRecord = useCanMutate('recordMealFeeding');
+  const canRecord = useCanMutate(FEEDING_MEAL_MOBILE_COMMAND_V1.operationType);
   const canSkip = useCanMutate('skipMeal');
+  const canFinalize = useCanMutate('finalizeMeal');
   const canCorrect = useCanMutate('correctMealPour');
   const canRegenerate = useCanMutate('regenerateDayPlan');
 
@@ -123,6 +152,7 @@ export function MealBoardTab(): React.ReactElement {
 
   const recordMeal = useRecordMealFeeding();
   const skipMeal = useSkipMeal();
+  const finalizeMeal = useFinalizeMeal();
   const correctPour = useCorrectMealPour();
   const regenerate = useRegenerateDayPlan();
 
@@ -144,10 +174,7 @@ export function MealBoardTab(): React.ReactElement {
   }, [protocols]);
 
   // D-5 pano şeridi: aktif ataması olup bu tarih için planı olmayan üniteler.
-  const plannedUnitIds = useMemo(
-    () => new Set((plans ?? []).map((plan) => plan.unitId)),
-    [plans],
-  );
+  const plannedUnitIds = useMemo(() => new Set((plans ?? []).map((plan) => plan.unitId)), [plans]);
   const unplannedAssignments = useMemo(
     () =>
       (assignments?.items ?? []).filter(
@@ -159,9 +186,20 @@ export function MealBoardTab(): React.ReactElement {
 
   const submitPour = async (): Promise<void> => {
     if (!pourModal) return;
-    const kg = Number(pourKg);
-    if (!Number.isFinite(kg) || kg <= 0) return;
     setActionError(null);
+    let kg: number;
+    try {
+      kg = decodeFeedingMealQuantityKgV1(Number(pourKg), 'meal-board pourKg');
+    } catch {
+      setActionError(
+        t('feedingV2.mealBoard.quantityInvalid', {
+          minimumKg: FEEDING_MEAL_QUANTITY_POLICY_V1.minimumKg,
+          maximumKg: FEEDING_MEAL_QUANTITY_POLICY_V1.maximumKg,
+          stepKg: FEEDING_MEAL_QUANTITY_POLICY_V1.inputStepKg,
+        }),
+      );
+      return;
+    }
     try {
       await recordMeal.mutateAsync({ mealId: pourModal.meal.id, pourKg: kg, finalize });
       setPourModal(null);
@@ -184,11 +222,32 @@ export function MealBoardTab(): React.ReactElement {
     }
   };
 
+  const submitFinalize = async (meal: FeedingMealView): Promise<void> => {
+    if (!window.confirm(t('feedingV2.mealBoard.finalizeExistingConfirm'))) return;
+    setActionError(null);
+    try {
+      await finalizeMeal.mutateAsync(meal.id);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   const submitCorrection = async (): Promise<void> => {
     if (!correctModal) return;
-    const kg = Number(correctedKg);
-    if (!Number.isFinite(kg) || kg <= 0) return;
     setActionError(null);
+    let kg: number;
+    try {
+      kg = decodeFeedingMealQuantityKgV1(Number(correctedKg), 'meal-board correctedKg');
+    } catch {
+      setActionError(
+        t('feedingV2.mealBoard.quantityInvalid', {
+          minimumKg: FEEDING_MEAL_QUANTITY_POLICY_V1.minimumKg,
+          maximumKg: FEEDING_MEAL_QUANTITY_POLICY_V1.maximumKg,
+          stepKg: FEEDING_MEAL_QUANTITY_POLICY_V1.inputStepKg,
+        }),
+      );
+      return;
+    }
     try {
       await correctPour.mutateAsync({
         mealId: correctModal.meal.id,
@@ -296,6 +355,7 @@ export function MealBoardTab(): React.ReactElement {
           dayVariancePercent < -threshold;
         const lastRecalc = plan.recalcLog[plan.recalcLog.length - 1];
         const snapshot = plan.snapshot;
+        const resolution = plan.resolution;
 
         return (
           <div key={plan.id} className="rounded-lg border border-gray-200 bg-white shadow-sm">
@@ -347,7 +407,8 @@ export function MealBoardTab(): React.ReactElement {
                 </span>
                 {Number(plan.unplannedActualKg) > 0 && (
                   <span className="text-amber-700">
-                    {t('feedingV2.mealBoard.unplanned')}: {Number(plan.unplannedActualKg).toFixed(2)} kg
+                    {t('feedingV2.mealBoard.unplanned')}:{' '}
+                    {Number(plan.unplannedActualKg).toFixed(2)} kg
                   </span>
                 )}
                 {canRegenerate && (
@@ -373,22 +434,24 @@ export function MealBoardTab(): React.ReactElement {
                 {t('feedingV2.mealBoard.avgWeight')}: {snapshot.avgWeightG.toFixed(1)} g
               </span>
               <span>
-                {snapshot.feed.code} — {snapshot.feed.name}
+                {resolution.feed.code} — {resolution.feed.name}
               </span>
               <span>
-                {t('feedingV2.mealBoard.rate')}: {snapshot.effectiveRatePercent.toFixed(2)}%
+                {t('feedingV2.mealBoard.rate')}: {resolution.effectiveRatePercent.toFixed(2)}%
               </span>
               <span>
-                {t('feedingV2.mealBoard.expectedFcr')}: {snapshot.expectedFcr.toFixed(2)}{' '}
+                {t('feedingV2.mealBoard.expectedFcr')}: {resolution.expectedFcr.toFixed(2)}{' '}
                 <span className="rounded bg-gray-100 px-1">
-                  {t(FCR_SOURCE_KEY[snapshot.fcrResolvedSource])}
+                  {t(FCR_SOURCE_KEY[resolution.fcrResolvedSource])}
                 </span>
               </span>
-              {snapshot.usingDefaultTemperature ? (
-                <span className="text-amber-700">{t('feedingV2.mealBoard.defaultTempWarning')}</span>
+              {resolution.temperatureSource === 'none' ? (
+                <span className="text-amber-700">
+                  {t('feedingV2.mealBoard.defaultTempWarning')}
+                </span>
               ) : (
                 <span>
-                  {snapshot.waterTempC?.toFixed(1)}°C ({snapshot.temperatureSource})
+                  {resolution.waterTempC?.toFixed(1)}°C ({resolution.temperatureSource})
                 </span>
               )}
               {lastRecalc && (
@@ -437,10 +500,24 @@ export function MealBoardTab(): React.ReactElement {
                         >
                           {t(MEAL_STATUS_KEY[meal.status])}
                         </span>
+                        {meal.readiness && (
+                          <span
+                            className={`ml-2 rounded-full px-2 py-0.5 text-xs ${READINESS_BADGE[meal.readiness.status]}`}
+                            title={t('feedingV2.mealBoard.readiness.title', {
+                              floor: meal.readiness.minDissolvedOxygen,
+                              observed: meal.readiness.observedDissolvedOxygen ?? '—',
+                            })}
+                          >
+                            {t(READINESS_LABEL[meal.readiness.status])}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-2 text-xs text-gray-600">
                         {(meal.pours ?? []).map((pour) => (
-                          <span key={pour.pourIndex} className="mr-2 inline-flex items-center gap-1">
+                          <span
+                            key={pour.pourIndex}
+                            className="mr-2 inline-flex items-center gap-1"
+                          >
                             {pour.kg} kg
                             {canCorrect && meal.status !== 'CANCELLED' && (
                               <button
@@ -465,6 +542,16 @@ export function MealBoardTab(): React.ReactElement {
                             className="mr-2 rounded-md bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700"
                           >
                             {t('feedingV2.mealBoard.addPour')}
+                          </button>
+                        )}
+                        {meal.status === 'PARTIALLY_FED' && canFinalize && (
+                          <button
+                            type="button"
+                            disabled={finalizeMeal.isPending}
+                            onClick={() => void submitFinalize(meal)}
+                            className="mr-2 rounded-md border border-green-600 px-2 py-1 text-xs text-green-700 hover:bg-green-50 disabled:opacity-50"
+                          >
+                            {t('feedingV2.mealBoard.finalizeExisting')}
                           </button>
                         )}
                         {meal.status === 'SCHEDULED' && canSkip && (
@@ -497,8 +584,9 @@ export function MealBoardTab(): React.ReactElement {
               <span className="text-gray-600">{t('feedingV2.mealBoard.pourKg')}</span>
               <input
                 type="number"
-                min={0.001}
-                step={0.1}
+                min={FEEDING_MEAL_QUANTITY_POLICY_V1.minimumKg}
+                max={FEEDING_MEAL_QUANTITY_POLICY_V1.maximumKg}
+                step={FEEDING_MEAL_QUANTITY_POLICY_V1.inputStepKg}
                 value={pourKg}
                 onChange={(event) => setPourKg(event.target.value)}
                 className="mt-1 block w-full rounded-md border-gray-300 text-sm"
@@ -579,8 +667,9 @@ export function MealBoardTab(): React.ReactElement {
               <span className="text-gray-600">{t('feedingV2.mealBoard.correctedKg')}</span>
               <input
                 type="number"
-                min={0.001}
-                step={0.1}
+                min={FEEDING_MEAL_QUANTITY_POLICY_V1.minimumKg}
+                max={FEEDING_MEAL_QUANTITY_POLICY_V1.maximumKg}
+                step={FEEDING_MEAL_QUANTITY_POLICY_V1.inputStepKg}
                 value={correctedKg}
                 onChange={(event) => setCorrectedKg(event.target.value)}
                 className="mt-1 block w-full rounded-md border-gray-300 text-sm"

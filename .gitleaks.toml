@@ -26,6 +26,9 @@ description = "High-entropy LITERAL assignment to a suspicious env var"
 # secrets. Compose/Helm values and `.env.example` files use env references,
 # not literals, so they are path-allowlisted below.
 regex = '''(?i)(JWT_SECRET|INTERNAL_SERVICE_SECRET|ENCRYPTION_KEY|MFA_ENCRYPTION_KEY|STRIPE_SECRET_KEY|STRIPE_WEBHOOK_SECRET|SMTP_PASS|NATS_.*_PASS|SUPER_ADMIN_PASSWORD|REDIS_PASSWORD|POSTGRES_PASSWORD|ADMIN_SERVICE_DB_PASS|AUTH_SERVICE_DB_PASS|PASSWORD_PEPPER)\s*[=:]\s*['\"]?([A-Za-z0-9+\/=_\-]{12,})['\"]?'''
+# The rule has two capture groups: name and value. Gitleaks must report the
+# value, otherwise value-oriented allowlists below are structurally unreachable.
+secretGroup = 2
 tags = ["secret", "env"]
 [rules.allowlist]
 # Files where matches are false-positives by definition — compose/Helm/env

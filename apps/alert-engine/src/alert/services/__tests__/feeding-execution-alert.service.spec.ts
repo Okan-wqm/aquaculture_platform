@@ -4,8 +4,11 @@
  * UnfedUnitDetected CRITICAL (sessiz aç kalma); FeedTypeTransitioned
  * INFO/audit satırı üretir, incident ÜRETMEZ (belgeli karar).
  */
+import { createBaseEvent } from '@platform/event-contracts';
 import type {
   FeedTypeTransitionedEvent,
+  FeedingWindowReadinessEvent,
+  FeedingWindowReadinessVerdictV1,
   MealMissedEvent,
   MealUnderfedEvent,
   UnfedUnitDetectedEvent,
@@ -85,6 +88,35 @@ function transitionedEvent(
     automatic: true,
     ...overrides,
   } as FeedTypeTransitionedEvent;
+}
+
+function readinessEvent(): FeedingWindowReadinessEvent {
+  return {
+    ...createBaseEvent<FeedingWindowReadinessEvent>('FeedingWindowReadiness', TENANT),
+    timestamp: '2026-07-17T07:45:00.000Z',
+    schemaVersion: 'feeding-window-readiness/v1',
+    sourceWindowEventId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    windowStart: '2026-07-17T07:45:00.000Z',
+    windowEnd: '2026-07-17T08:45:00.000Z',
+    evaluatedAt: '2026-07-17T07:45:00.000Z',
+    batchIndex: 0,
+    batchCount: 1,
+    verdicts: [],
+  };
+}
+
+function readinessVerdict(
+  status: FeedingWindowReadinessVerdictV1['status'],
+): FeedingWindowReadinessVerdictV1 {
+  return {
+    unitId: 'unit-1',
+    unitCode: 'T1',
+    mealId: 'meal-1',
+    dayPlanId: 'dp-1',
+    scheduledAt: '2026-07-17T08:00:00.000Z',
+    status,
+    minDissolvedOxygen: 6,
+  };
 }
 
 describe('FeedingExecutionAlertService', () => {
@@ -182,6 +214,26 @@ describe('FeedingExecutionAlertService', () => {
         severity: AlertSeverity.INFO,
       }),
     );
+    expect(ensureIncident).not.toHaveBeenCalled();
+  });
+
+  it.each(['low_oxygen', 'no_reading', 'not_instrumented'] as const)(
+    'FeedingWindowReadiness %s → WARNING incident with one unit authority',
+    async (status) => {
+      await service.recordFeedingWindowReadiness(readinessEvent(), readinessVerdict(status));
+      expect(ensureIncident).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ruleId: 'system:feeding-window-oxygen:unit-1',
+          severity: AlertSeverity.WARNING,
+          signalLabel: 'feeding-window-oxygen',
+        }),
+      );
+    },
+  );
+
+  it('does not create an incident for an explicit ready verdict', async () => {
+    await service.recordFeedingWindowReadiness(readinessEvent(), readinessVerdict('ready'));
+    expect(create).not.toHaveBeenCalled();
     expect(ensureIncident).not.toHaveBeenCalled();
   });
 });

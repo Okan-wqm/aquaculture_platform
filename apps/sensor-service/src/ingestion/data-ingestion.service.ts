@@ -1,4 +1,11 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, Optional } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+  Inject,
+  Optional,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IEventBus } from '@platform/event-bus';
@@ -6,10 +13,15 @@ import { createBaseEvent } from '@platform/event-contracts';
 import { Repository } from 'typeorm';
 
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
-import { QualityCodes, SensorMetricInput } from '../database/entities/sensor-metric.entity';
+import { SensorMetricInput } from '../database/entities/sensor-metric.entity';
+import { QualityCodes } from '../database/sensor-quality.authority';
 import { Sensor, SensorStatus, SensorRegistrationStatus } from '../database/entities/sensor.entity';
 import { SensorServiceProfileService } from '../config/sensor-service-profile.service';
-import { ConnectionHandle, DataSubscription, SensorReadingData } from '../protocol/adapters/base-protocol.adapter';
+import {
+  ConnectionHandle,
+  DataSubscription,
+  SensorReadingData,
+} from '../protocol/adapters/base-protocol.adapter';
 import { MqttAdapter, MqttConfiguration } from '../protocol/adapters/iot/mqtt.adapter';
 import { SensorMetricWriterService } from './sensor-metric-writer.service';
 
@@ -37,7 +49,10 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
   private healthCheckInterval: NodeJS.Timeout | null = null;
 
   // Channel lookup cache: sensorId -> { channels, expiresAt }
-  private readonly channelCache = new Map<string, { channels: SensorDataChannel[]; expiresAt: number }>();
+  private readonly channelCache = new Map<
+    string,
+    { channels: SensorDataChannel[]; expiresAt: number }
+  >();
   private readonly CHANNEL_CACHE_TTL_MS = 60_000; // 60 seconds
 
   // lastSeenAt debounce: sensorId -> pending timestamp
@@ -90,11 +105,15 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
     // Start lastSeenAt flush timer (debounce per-message updates)
     this.lastSeenFlushTimer = setInterval(() => {
       this.flushLastSeenUpdates().catch((err) => {
-        this.logger.error(`Failed to flush lastSeenAt updates: ${err instanceof Error ? err.message : String(err)}`);
+        this.logger.error(
+          `Failed to flush lastSeenAt updates: ${err instanceof Error ? err.message : String(err)}`,
+        );
       });
     }, this.LAST_SEEN_FLUSH_INTERVAL_MS);
 
-    this.logger.log(`Data Ingestion Service initialized with ${this.activeConnections.size} active connections`);
+    this.logger.log(
+      `Data Ingestion Service initialized with ${this.activeConnections.size} active connections`,
+    );
   }
 
   async onModuleDestroy(): Promise<void> {
@@ -178,8 +197,12 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
       // Subscribe to data
       const subscription = await this.mqttAdapter.subscribeToData(
         handle,
-        (data) => { void this.handleSensorData(sensor, data); },
-        (error) => { void this.handleSensorError(sensor, error); },
+        (data) => {
+          void this.handleSensorData(sensor, data);
+        },
+        (error) => {
+          void this.handleSensorError(sensor, error);
+        },
       );
 
       // Store active connection
@@ -198,9 +221,7 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
 
       this.logger.log(`Successfully connected to sensor ${sensor.id}`);
     } catch (error) {
-      this.logger.error(
-        `Failed to connect to sensor ${sensor.id}: ${(error as Error).message}`,
-      );
+      this.logger.error(`Failed to connect to sensor ${sensor.id}: ${(error as Error).message}`);
 
       // Update sensor status to error
       await this.sensorRepository.update(sensor.id, {
@@ -232,9 +253,7 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
 
       this.logger.log(`Stopped data collection for sensor ${sensorId}`);
     } catch (error) {
-      this.logger.error(
-        `Error stopping sensor ${sensorId}: ${(error as Error).message}`,
-      );
+      this.logger.error(`Error stopping sensor ${sensorId}: ${(error as Error).message}`);
     }
   }
 
@@ -283,7 +302,8 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
         }
 
         // Convert to number
-        const numericRawValue = typeof rawValue === 'number' ? rawValue : parseFloat(String(rawValue));
+        const numericRawValue =
+          typeof rawValue === 'number' ? rawValue : parseFloat(String(rawValue));
         if (isNaN(numericRawValue)) {
           continue;
         }
@@ -338,7 +358,10 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
       if (this.eventBus && metrics.length > 0) {
         try {
           await this.eventBus.publish({
-            ...createBaseEvent('SensorReading', sensor.tenantId, { aggregateId: sensor.id, aggregateType: 'Sensor' }),
+            ...createBaseEvent('SensorReading', sensor.tenantId, {
+              aggregateId: sensor.id,
+              aggregateType: 'Sensor',
+            }),
             timestamp: sourceTimestamp.toISOString(),
             sensorId: sensor.id,
             readings: data.values,
@@ -401,7 +424,9 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
 
       this.logger.debug(`Flushed lastSeenAt for ${ids.length} sensors`);
     } catch (error) {
-      this.logger.error(`Failed to flush lastSeenAt: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.error(
+        `Failed to flush lastSeenAt: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -513,7 +538,9 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
             await this.startSensorDataCollection(freshSensor);
           }
         } catch (error) {
-          this.logger.error(`Health check reconnect failed for ${sensorId}: ${(error as Error).message}`);
+          this.logger.error(
+            `Health check reconnect failed for ${sensorId}: ${(error as Error).message}`,
+          );
         }
         continue;
       }
@@ -538,7 +565,12 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
   /**
    * Get status of all active connections
    */
-  getActiveConnections(): { sensorId: string; name: string; lastReadingAt?: Date; errorCount: number }[] {
+  getActiveConnections(): {
+    sensorId: string;
+    name: string;
+    lastReadingAt?: Date;
+    errorCount: number;
+  }[] {
     return Array.from(this.activeConnections.entries()).map(([sensorId, conn]) => ({
       sensorId,
       name: conn.sensor.name,

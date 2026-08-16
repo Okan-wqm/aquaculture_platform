@@ -60,23 +60,25 @@
  *
  * @module Events/Listeners
  */
-import { isValidUUID } from '@aquaculture/backend-common/database';
+import { isValidUUID, runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { withTenantContext } from '@aquaculture/backend-common/context';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
-import { toEventIso,
+import {
+  toEventIso,
   createBaseEvent,
   type BatchHarvestedEvent,
   type BatchProductionCompletedEvent,
   type HarvestRegulatoryRecordedEvent,
   type TankClearedEvent,
 } from '@platform/event-contracts';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 
 import { Batch, BatchStatus } from '../../batch/entities/batch.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
+import { BatchAggregateMutationPort } from '../../batch/batch-aggregate-mutation.port';
 
 /**
  * Harvest report structure (a subset of the original — fields that depend on
@@ -108,9 +110,7 @@ export interface HarvestReport {
 }
 
 @Injectable()
-export class HarvestCompletedListener
-  implements IEventHandler<BatchHarvestedEvent>, OnModuleInit
-{
+export class HarvestCompletedListener implements IEventHandler<BatchHarvestedEvent>, OnModuleInit {
   private readonly logger = new Logger(HarvestCompletedListener.name);
 
   /**
@@ -121,11 +121,14 @@ export class HarvestCompletedListener
   private static readonly DEDUP_TTL_SECONDS = 24 * 60 * 60; // 24h
 
   constructor(
+    private readonly batchMutations: BatchAggregateMutationPort,
+    @InjectDataSource() private readonly dataSource: DataSource,
     @InjectRepository(Batch)
     private readonly batchRepository: Repository<Batch>,
     @InjectRepository(TankBatch)
     private readonly tankBatchRepository: Repository<TankBatch>,
-    @Optional() @Inject('EVENT_BUS')
+    @Optional()
+    @Inject('EVENT_BUS')
     private readonly eventBus?: IEventBus,
     // RedisService is provided globally (RedisModule @Global). @Optional() keeps
     // the listener constructible in NATS-/Redis-less unit harnesses; without it
@@ -136,7 +139,8 @@ export class HarvestCompletedListener
     // type is NARROWED to the two methods the listener actually uses
     // (Tier-1 "depend on exactly what you need") — this also lets unit tests
     // pass a minimal double with no unsafe casts cast.
-    @Optional() @Inject(RedisService)
+    @Optional()
+    @Inject(RedisService)
     private readonly redisService?: Pick<RedisService, 'setNx' | 'del'>,
   ) {}
 
@@ -214,9 +218,7 @@ export class HarvestCompletedListener
         await this.publishFollowUps(event, isFinal, remainingQuantity, report);
       });
 
-      this.logger.log(
-        `[BatchHarvested] Successfully processed batch=${event.batchId}`,
-      );
+      this.logger.log(`[BatchHarvested] Successfully processed batch=${event.batchId}`);
     } catch (error) {
       // Release the idempotency claim so a legitimate redelivery (NATS
       // max_deliver) can retry the side effects rather than being permanently
@@ -253,9 +255,7 @@ export class HarvestCompletedListener
         HarvestCompletedListener.DEDUP_TTL_SECONDS,
       );
     } catch (error) {
-      this.logger.warn(
-        `Idempotency claim failed (treating as won): ${(error as Error).message}`,
-      );
+      this.logger.warn(`Idempotency claim failed (treating as won): ${(error as Error).message}`);
       return true;
     }
   }
@@ -268,9 +268,7 @@ export class HarvestCompletedListener
     try {
       await this.redisService.del(this.dedupKey(event));
     } catch (error) {
-      this.logger.warn(
-        `Idempotency claim release failed: ${(error as Error).message}`,
-      );
+      this.logger.warn(`Idempotency claim release failed: ${(error as Error).message}`);
     }
   }
 
@@ -279,44 +277,48 @@ export class HarvestCompletedListener
    * post-write `currentQuantity` (the contract carries no `remainingQuantity`,
    * so it is the source of truth derived from the aggregate).
    */
-  private async updateBatchStatus(
-    event: BatchHarvestedEvent,
-    isFinal: boolean,
-  ): Promise<number> {
-    const batch = await this.batchRepository.findOne({
-      where: { id: event.batchId, tenantId: event.tenantId },
-    });
+  private async updateBatchStatus(event: BatchHarvestedEvent, isFinal: boolean): Promise<number> {
+    return runInTenantTransaction(
+      this.dataSource,
+      'farm',
+      event.tenantId,
+      async (queryRunner, mutationSession) => {
+        const batch = await queryRunner.manager.findOne(Batch, {
+          where: { id: event.batchId, tenantId: event.tenantId },
+          lock: { mode: 'pessimistic_write' },
+        });
 
-    if (!batch) {
-      this.logger.warn(`Batch ${event.batchId} not found for status update`);
-      return 0;
-    }
+        if (!batch) {
+          this.logger.warn(`Batch ${event.batchId} not found for status update`);
+          return 0;
+        }
 
-    if (!isFinal) {
-      // Partial harvest — advance to HARVESTING if not already there. The
-      // producer already moves the batch to HARVESTED on a FINAL harvest, so
-      // this listener owns ONLY the partial → HARVESTING signal.
-      if (batch.status !== BatchStatus.HARVESTING) {
-        batch.status = BatchStatus.HARVESTING;
-        batch.statusChangedAt = new Date();
-        batch.statusReason = 'Partial harvest in progress';
-        batch.updatedBy = event.userId;
-        await this.batchRepository.save(batch);
-        this.logger.log(
-          `Batch ${event.batchId} status updated to HARVESTING`,
-        );
-      }
-    }
+        if (!isFinal) {
+          // Partial harvest — advance to HARVESTING if not already there. The
+          // producer already moves the batch to HARVESTED on a FINAL harvest, so
+          // this listener owns ONLY the partial → HARVESTING signal.
+          if (batch.status !== BatchStatus.HARVESTING) {
+            batch.status = BatchStatus.HARVESTING;
+            batch.statusChangedAt = new Date();
+            batch.statusReason = 'Partial harvest in progress';
+            batch.updatedBy = event.userId;
+            await this.batchMutations.commitBatchTransition(mutationSession, {
+              intent: 'harvest_recorded',
+              aggregate: batch,
+            });
+            this.logger.log(`Batch ${event.batchId} status updated to HARVESTING`);
+          }
+        }
 
-    return batch.currentQuantity ?? 0;
+        return batch.currentQuantity ?? 0;
+      },
+    );
   }
 
   /**
    * Generate a harvest report from the batch aggregate + the contract figures.
    */
-  private async generateHarvestReport(
-    event: BatchHarvestedEvent,
-  ): Promise<HarvestReport> {
+  private async generateHarvestReport(event: BatchHarvestedEvent): Promise<HarvestReport> {
     const batch = await this.batchRepository.findOne({
       where: { id: event.batchId, tenantId: event.tenantId },
     });
@@ -437,11 +439,11 @@ export class HarvestCompletedListener
           `Tank ${tankBatch.tankCode || tankBatch.tankId} cleared after final harvest`,
         );
         const tankCleared: TankClearedEvent = {
-          ...createBaseEvent<TankClearedEvent>(
-            'TankCleared',
-            event.tenantId,
-            { ...lineage, aggregateId: tankBatch.tankId, aggregateType: 'Tank' },
-          ),
+          ...createBaseEvent<TankClearedEvent>('TankCleared', event.tenantId, {
+            ...lineage,
+            aggregateId: tankBatch.tankId,
+            aggregateType: 'Tank',
+          }),
           tankId: tankBatch.tankId,
           tankCode: tankBatch.tankCode,
           previousBatchId: event.batchId,

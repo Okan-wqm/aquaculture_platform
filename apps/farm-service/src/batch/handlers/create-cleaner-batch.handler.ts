@@ -19,7 +19,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import { toEventIso,
+import {
+  toEventIso,
   createBaseEvent,
   type CleanerFishBatchCreatedEvent,
 } from '@platform/event-contracts';
@@ -28,11 +29,15 @@ import { Batch, BatchStatus, BatchInputType, BatchType } from '../entities/batch
 import { Species } from '../../species/entities/species.entity';
 import { CodeGeneratorService } from '../../database/services/code-generator.service';
 import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
+import { BatchAggregateMutationPort } from '../batch-aggregate-mutation.port';
 
 @Injectable()
 @CommandHandler(CreateCleanerBatchCommand)
-export class CreateCleanerBatchHandler implements ICommandHandler<CreateCleanerBatchCommand, Batch> {
+export class CreateCleanerBatchHandler
+  implements ICommandHandler<CreateCleanerBatchCommand, Batch>
+{
   constructor(
+    private readonly batchMutations: BatchAggregateMutationPort,
     @InjectRepository(Batch)
     private readonly batchRepository: Repository<Batch>,
     @InjectRepository(Species)
@@ -57,7 +62,7 @@ export class CreateCleanerBatchHandler implements ICommandHandler<CreateCleanerB
 
     if (!species.isCleanerFish) {
       throw new BadRequestException(
-        `Species ${species.commonName} cleaner fish değil. Cleaner fish batch'i oluşturmak için isCleanerFish=true olan bir tür seçmelisiniz.`
+        `Species ${species.commonName} cleaner fish değil. Cleaner fish batch'i oluşturmak için isCleanerFish=true olan bir tür seçmelisiniz.`,
       );
     }
 
@@ -168,30 +173,37 @@ export class CreateCleanerBatchHandler implements ICommandHandler<CreateCleanerB
     });
 
     // Atomic: save batch + enqueue event. Commit together or neither.
-    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-      const savedBatch = await queryRunner.manager.save(Batch, batch);
+    return runInTenantTransaction(
+      this.dataSource,
+      'farm',
+      tenantId,
+      async (queryRunner, mutationSession) => {
+        const savedBatch = await this.batchMutations.commitBatchTransition(mutationSession, {
+          intent: 'cleaner_fish_created',
+          aggregate: batch,
+        });
 
-      const event: CleanerFishBatchCreatedEvent = {
-        ...createBaseEvent<CleanerFishBatchCreatedEvent>(
-          'CleanerFishBatchCreated',
-          tenantId,
-          { aggregateId: savedBatch.id, aggregateType: 'Batch' },
-        ),
-        cleanerBatchId: savedBatch.id,
-        batchNumber: savedBatch.batchNumber,
-        speciesId: savedBatch.speciesId,
-        speciesName: species.commonName,
-        sourceType: payload.sourceType,
-        sourceLocation: payload.sourceLocation,
-        supplierId: payload.supplierId,
-        initialQuantity: savedBatch.initialQuantity,
-        initialAvgWeightG: payload.initialAvgWeightG,
-        initialBiomassKg: initialBiomass,
-        stockedAt: toEventIso(savedBatch.stockedAt),
-      };
-      await this.outboxPublisher.enqueue(event, queryRunner.manager);
+        const event: CleanerFishBatchCreatedEvent = {
+          ...createBaseEvent<CleanerFishBatchCreatedEvent>('CleanerFishBatchCreated', tenantId, {
+            aggregateId: savedBatch.id,
+            aggregateType: 'Batch',
+          }),
+          cleanerBatchId: savedBatch.id,
+          batchNumber: savedBatch.batchNumber,
+          speciesId: savedBatch.speciesId,
+          speciesName: species.commonName,
+          sourceType: payload.sourceType,
+          sourceLocation: payload.sourceLocation,
+          supplierId: payload.supplierId,
+          initialQuantity: savedBatch.initialQuantity,
+          initialAvgWeightG: payload.initialAvgWeightG,
+          initialBiomassKg: initialBiomass,
+          stockedAt: toEventIso(savedBatch.stockedAt),
+        };
+        await this.outboxPublisher.enqueue(event, queryRunner.manager);
 
-      return savedBatch;
-    });
+        return savedBatch;
+      },
+    );
   }
 }

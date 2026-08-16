@@ -12,7 +12,7 @@
  * built from the shared factories (no casts on added lines beyond single-`as`
  * partial widening of entity fixtures).
  */
-import { createMockRepository } from '@aquaculture/testing';
+import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { createBaseEvent } from '@platform/event-contracts';
 import type { IEventBus } from '@platform/event-bus';
@@ -22,6 +22,7 @@ import { Batch, BatchStatus } from '../../../batch/entities/batch.entity';
 import { TankBatch } from '../../../batch/entities/tank-batch.entity';
 import { HarvestCompletedListener } from '../harvest-completed.listener';
 import { makeMockEventBus } from './make-mock-event-bus';
+import { RecordingBatchAggregateMutationPort } from '../../../__tests__/support/durable-mutation-test-authority';
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111';
 const BATCH_ID = '22222222-2222-4222-8222-222222222222';
@@ -108,9 +109,7 @@ function makeBatch(overrides: Partial<Batch> = {}): Batch {
   return fixture as Batch;
 }
 
-function makeEvent(
-  overrides: Partial<BatchHarvestedEvent> = {},
-): BatchHarvestedEvent {
+function makeEvent(overrides: Partial<BatchHarvestedEvent> = {}): BatchHarvestedEvent {
   return {
     ...createBaseEvent<BatchHarvestedEvent>('BatchHarvested', TENANT_ID, {
       aggregateId: BATCH_ID,
@@ -140,18 +139,21 @@ function makeListener(opts: {
   redis?: RedisDouble;
 } {
   const batchRepo = createMockRepository<Batch>();
-  batchRepo.findOne.mockResolvedValue(
-    opts.batch === null ? null : opts.batch ?? makeBatch(),
-  );
+  const batch = opts.batch === null ? null : (opts.batch ?? makeBatch());
+  batchRepo.findOne.mockResolvedValue(batch);
+
+  const { mockDataSource, mockManager } = createMockDataSource();
+  mockManager.findOne.mockResolvedValue(batch);
+  mockManager.save.mockImplementation((_entity, aggregate) => batchRepo.save(aggregate as Batch));
 
   const tankBatchRepo = createMockRepository<TankBatch>();
-  tankBatchRepo.find.mockResolvedValue(
-    (opts.tankBatches ?? []) as TankBatch[],
-  );
+  tankBatchRepo.find.mockResolvedValue((opts.tankBatches ?? []) as TankBatch[]);
 
   // The listener's redis param is narrowed to Pick<RedisService,'setNx'|'del'>,
   // so the double slots in with NO cast.
   const listener = new HarvestCompletedListener(
+    new RecordingBatchAggregateMutationPort(mockManager),
+    mockDataSource,
     batchRepo,
     tankBatchRepo,
     opts.bus,
@@ -267,9 +269,7 @@ describe('HarvestCompletedListener (NATS contract migration)', () => {
     const bus = makeBus();
     const { listener } = makeListener({ bus, batch: null });
     // batch not found → generateHarvestReport throws; handle must still resolve.
-    await expect(
-      listener.handle(makeEvent({ isFinal: false })),
-    ).resolves.toBeUndefined();
+    await expect(listener.handle(makeEvent({ isFinal: false }))).resolves.toBeUndefined();
   });
 
   // ── Blocker 1 / 7: each follow-up carries a DISTINCT, fresh eventId ──────
@@ -374,9 +374,7 @@ describe('HarvestCompletedListener (NATS contract migration)', () => {
     // batch null → generateHarvestReport throws inside the try block.
     const { listener } = makeListener({ bus, batch: null, redis });
 
-    await expect(
-      listener.handle(makeEvent({ isFinal: false })),
-    ).resolves.toBeUndefined();
+    await expect(listener.handle(makeEvent({ isFinal: false }))).resolves.toBeUndefined();
 
     expect(redis.setNx).toHaveBeenCalledTimes(1);
     expect(redis.del).toHaveBeenCalledTimes(1);

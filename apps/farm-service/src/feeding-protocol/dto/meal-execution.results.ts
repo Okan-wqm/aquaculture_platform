@@ -7,7 +7,14 @@
 import { Field, Float, ID, ObjectType, registerEnumType } from '@nestjs/graphql';
 
 import { FeedingMealStatus } from '../entities/feeding-meal.entity';
-import { DayPlanAdminOutcome } from '../services/day-plan-admin.service';
+import type { DayPlanOperationResult, MealOperationResult } from '../feeding-operation-command';
+
+/** GraphQL wire enum for the closed day-plan outcome vocabulary. */
+export enum DayPlanAdminOutcome {
+  RECALCULATED = 'recalculated',
+  GENERATED = 'generated',
+  TRANSITIONED = 'transitioned',
+}
 
 registerEnumType(DayPlanAdminOutcome, {
   name: 'DayPlanAdminOutcome',
@@ -19,7 +26,7 @@ registerEnumType(DayPlanAdminOutcome, {
 @ObjectType('DayPlanAdminResult')
 export class DayPlanAdminResultView {
   @Field(() => DayPlanAdminOutcome)
-  outcome!: DayPlanAdminOutcome;
+  outcome!: DayPlanOperationResult['outcome'];
 
   @Field(() => ID, { nullable: true })
   dayPlanId?: string;
@@ -31,7 +38,7 @@ export class MealFeedingResultView {
   id!: string;
 
   @Field(() => FeedingMealStatus)
-  status!: FeedingMealStatus;
+  status!: MealOperationResult['status'];
 
   @Field(() => Float)
   actualKg!: number;

@@ -26,6 +26,7 @@ import {
   EFFECTIVE_UNIT_TEMPERATURES_QUERY,
   FEEDING_DAY_PLANS_QUERY,
   RECORD_MEAL_FEEDING_MUTATION,
+  FINALIZE_MEAL_MUTATION,
   SKIP_MEAL_MUTATION,
   CORRECT_MEAL_POUR_MUTATION,
   PROTOCOL_FEED_FORECAST_QUERY,
@@ -33,6 +34,13 @@ import {
   TRANSITION_UNIT_FEED_MUTATION,
 } from '../graphql/feedingProtocolV2.operations';
 import { buildCommandEnvelope } from '../utils/command-envelope';
+import type {
+  FeedingForecastAlertV1,
+  FeedingForecastMortalityProvenanceV1,
+  FeedingForecastPoolScope,
+  FeedingMethodGraphqlNameV1,
+} from '@aquaculture/feeding-contracts';
+import { FEEDING_MEAL_MOBILE_COMMAND_V1 } from '@aquaculture/feeding-contracts';
 
 // ============================================================================
 // TYPES — backend entity jsonb aynaları
@@ -49,6 +57,8 @@ export type ProtocolAssignmentStatus = 'ACTIVE' | 'PAUSED' | 'ENDED';
 export type FeedingUnitType = 'TANK' | 'POND' | 'CAGE';
 export type ProtocolFcrSource = 'band' | 'matrix' | 'feed';
 export type EffectiveTemperatureSource = 'sensor' | 'manual' | 'none';
+export type FeedingMethodGraphql = FeedingMethodGraphqlNameV1;
+export type FeedingMethodValue = 'manual' | 'automatic' | 'demand' | 'broadcast' | 'spot';
 
 export interface MealScheduleEntry {
   time: string; // HH:mm
@@ -410,18 +420,9 @@ export function useUnassignProtocolFromUnit() {
 
 // GraphQL enum alanları — tel üzerinde AD (bkz. dosya başındaki kasa kuralı).
 export type FeedingDayPlanStatus =
-  | 'PLANNED'
-  | 'IN_PROGRESS'
-  | 'COMPLETED'
-  | 'SKIPPED'
-  | 'CANCELLED';
+  'PLANNED' | 'IN_PROGRESS' | 'COMPLETED' | 'SKIPPED' | 'CANCELLED';
 export type FeedingMealStatus =
-  | 'SCHEDULED'
-  | 'FED'
-  | 'PARTIALLY_FED'
-  | 'SKIPPED'
-  | 'MISSED'
-  | 'CANCELLED';
+  'SCHEDULED' | 'FED' | 'PARTIALLY_FED' | 'SKIPPED' | 'MISSED' | 'CANCELLED';
 /** snapshot jsonb içinden okunur → TS enum DEĞERİ (lowercase). */
 export type FcrResolvedSource = 'override' | 'band' | 'matrix' | 'feed';
 
@@ -445,6 +446,21 @@ export interface DayPlanSnapshot {
   weightCvPercent?: number | null;
 }
 
+export interface DayPlanResolutionV1 {
+  schemaVersion: 'protocol-resolution/v1';
+  resolvedAt: string;
+  bandIndex: number;
+  feed: { id: string; code: string; name: string };
+  baseRatePercent: number;
+  tempMultiplier: number;
+  effectiveRatePercent: number;
+  expectedFcr: number;
+  fcrResolvedSource: FcrResolvedSource;
+  bandBasisWeightG: number;
+  waterTempC: number | null;
+  temperatureSource: EffectiveTemperatureSource;
+}
+
 export interface RecalcLogEntry {
   at: string;
   reason: string;
@@ -458,11 +474,22 @@ export interface MealPour {
   kg: number;
   at: string;
   by: string;
-  feedingMethod?: string;
+  feedingMethod?: FeedingMethodValue;
   originalKg?: number;
   correctedAt?: string;
   correctedBy?: string;
   corrections?: number;
+}
+
+export interface MealReadinessV1 {
+  schemaVersion: 'feeding-meal-readiness/v1';
+  sourceWindowEventId: string;
+  status: 'ready' | 'low_oxygen' | 'no_reading' | 'not_instrumented';
+  minDissolvedOxygen: number;
+  observedDissolvedOxygen?: number;
+  observedAt?: string;
+  lowOxygenReductionPercent?: number;
+  evaluatedAt: string;
 }
 
 export interface FeedingMealView {
@@ -482,8 +509,9 @@ export interface FeedingMealView {
   feedId: string;
   fedAt?: string;
   fedBy?: string;
-  feedingMethod?: string;
+  feedingMethod?: FeedingMethodGraphql;
   recalculatedAt?: string;
+  readiness?: MealReadinessV1;
   notes?: string;
 }
 
@@ -498,12 +526,14 @@ export interface FeedingDayPlanView {
   unitCode: string;
   planDate: string;
   snapshot: DayPlanSnapshot;
+  resolution: DayPlanResolutionV1;
   plannedTotalKg: number;
   unplannedActualKg: number;
   mealsPlanned: number;
   status: FeedingDayPlanStatus;
   skipReason?: string;
   recalcLog: RecalcLogEntry[];
+  recalcCount: number;
   createdAt: string;
   updatedAt: string;
   meals?: FeedingMealView[];
@@ -561,19 +591,14 @@ export function useRecordMealFeeding() {
       mealId: string;
       pourKg: number;
       finalize: boolean;
-      feedingMethod?: string;
+      feedingMethod?: FeedingMethodGraphql;
       notes?: string;
     }) => {
-      const envelope = await buildCommandEnvelope('recordMealFeeding', {
-        mealId: params.mealId,
-        pourKg: params.pourKg,
-        finalize: params.finalize,
-      });
-      const data = await graphqlClient.request<{ recordMealFeeding: MealFeedingResult }>(
-        RECORD_MEAL_FEEDING_MUTATION,
-        { input: { ...params, ...envelope } },
-      );
-      return data.recordMealFeeding;
+      const envelope = await buildCommandEnvelope(FEEDING_MEAL_MOBILE_COMMAND_V1, params);
+      const data = await graphqlClient.request<
+        Record<typeof FEEDING_MEAL_MOBILE_COMMAND_V1.operationType, MealFeedingResult>
+      >(RECORD_MEAL_FEEDING_MUTATION, { input: { ...params, ...envelope } });
+      return data[FEEDING_MEAL_MOBILE_COMMAND_V1.operationType];
     },
     onSuccess: () => invalidate(),
   });
@@ -585,9 +610,24 @@ export function useSkipMeal() {
     mutationFn: async (params: { mealId: string; reason: string }) => {
       const data = await graphqlClient.request<{ skipMeal: MealFeedingResult }>(
         SKIP_MEAL_MUTATION,
-        { input: params },
+        { input: { ...params, operationRequestId: crypto.randomUUID() } },
       );
       return data.skipMeal;
+    },
+    onSuccess: () => invalidate(),
+  });
+}
+
+/** Finalizes a partial meal without adding a synthetic pour. */
+export function useFinalizeMeal() {
+  const invalidate = useDayPlanInvalidation();
+  return useMutation({
+    mutationFn: async (mealId: string) => {
+      const data = await graphqlClient.request<{ finalizeMeal: MealFeedingResult }>(
+        FINALIZE_MEAL_MUTATION,
+        { input: { mealId, operationRequestId: crypto.randomUUID() } },
+      );
+      return data.finalizeMeal;
     },
     onSuccess: () => invalidate(),
   });
@@ -599,7 +639,7 @@ export function useCorrectMealPour() {
     mutationFn: async (params: { mealId: string; pourIndex: number; correctedKg: number }) => {
       const data = await graphqlClient.request<{ correctMealPour: MealFeedingResult }>(
         CORRECT_MEAL_POUR_MUTATION,
-        { input: params },
+        { input: { ...params, operationRequestId: crypto.randomUUID() } },
       );
       return data.correctMealPour;
     },
@@ -613,7 +653,7 @@ export function useRegenerateDayPlan() {
     mutationFn: async (unitId: string) => {
       const data = await graphqlClient.request<{ regenerateDayPlan: DayPlanAdminResult }>(
         REGENERATE_DAY_PLAN_MUTATION,
-        { unitId },
+        { unitId, operationRequestId: crypto.randomUUID() },
       );
       return data.regenerateDayPlan;
     },
@@ -627,7 +667,7 @@ export function useTransitionUnitFeed() {
     mutationFn: async (params: { unitId: string; toFeedId: string }) => {
       const data = await graphqlClient.request<{ transitionUnitFeed: DayPlanAdminResult }>(
         TRANSITION_UNIT_FEED_MUTATION,
-        params,
+        { ...params, operationRequestId: crypto.randomUUID() },
       );
       return data.transitionUnitFeed;
     },
@@ -668,25 +708,25 @@ export interface ForecastPerUnitView {
   unitName: string;
   unitCode: string;
   currentFeedId: string | null;
+  terminalFeedId: string | null;
   transitions: ForecastTransitionView[];
 }
 
-export interface ForecastAlertView {
-  type: 'STOCKOUT_FORECAST' | 'TRANSITION_COVERAGE_GAP' | 'REORDER_NOW';
-  feedId: string;
+export type ForecastAlertView = Omit<FeedingForecastAlertV1, 'unitId'> & {
   unitId?: string | null;
-  days: number;
-}
+};
 
 export interface ProtocolFeedForecastView {
   siteScopeKey: string;
+  poolScope: FeedingForecastPoolScope;
+  stale: boolean;
   horizonDays: number;
   /** Snapshot tazeliği — "şu an itibarıyla" damgası (D-6). */
   computedAt: string;
   perFeed: ForecastPerFeedView[];
   perUnit: ForecastPerUnitView[];
   alerts: ForecastAlertView[];
-  mortalityAssumption: { applied: boolean; source: 'species_survival_rate' | 'none' };
+  mortalityAssumption: FeedingForecastMortalityProvenanceV1;
 }
 
 /**

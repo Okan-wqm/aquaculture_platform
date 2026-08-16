@@ -1,7 +1,10 @@
 import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 
-import { MobileCommandEnvelope } from './mobile-command-envelope.input';
+import {
+  MobileCommandEnvelope,
+  RequiredMobileCommandEnvelope,
+} from './mobile-command-envelope.input';
 
 export type MobileCommandReceiptTable =
   | 'farm_mobile_command_receipts'
@@ -31,6 +34,12 @@ export interface CompleteMobileCommandReceiptOptions {
   responseType: string;
   responseId?: string | null;
   responsePayload?: unknown;
+}
+
+export interface PurgeMobileCommandReceiptsOptions {
+  tableName: MobileCommandReceiptTable;
+  tenantId: string;
+  retentionDays: number;
 }
 
 const RECEIPT_TABLES: ReadonlySet<string> = new Set([
@@ -143,6 +152,33 @@ export class MobileCommandReceiptService {
     );
   }
 
+  /**
+   * The receipt authority owns lifecycle deletion as well as begin/complete;
+   * callers can select neither an arbitrary table nor an arbitrary predicate.
+   */
+  async purgeBeforeRetention(
+    manager: EntityManager,
+    options: PurgeMobileCommandReceiptsOptions,
+  ): Promise<number> {
+    const tableName = this.assertReceiptTable(options.tableName);
+    if (options.tenantId.trim().length === 0 || options.tenantId !== options.tenantId.trim()) {
+      throw new Error('tenantId must be a non-empty canonical identifier');
+    }
+    if (!Number.isSafeInteger(options.retentionDays) || options.retentionDays < 1) {
+      throw new Error('retentionDays must be a positive safe integer');
+    }
+    const rows: Array<{ count: number }> = await manager.query(
+      `WITH deleted AS (
+         DELETE FROM ${tableName}
+          WHERE "tenantId" = $1
+            AND "createdAt" < (now() - ($2 * INTERVAL '1 day'))
+         RETURNING 1
+       ) SELECT COUNT(*)::int AS count FROM deleted`,
+      [options.tenantId, options.retentionDays],
+    );
+    return Number(rows[0]?.count ?? 0);
+  }
+
   private assertReceiptTable(tableName: MobileCommandReceiptTable): MobileCommandReceiptTable {
     if (!RECEIPT_TABLES.has(tableName)) {
       throw new Error(`Unsupported mobile command receipt table: ${tableName}`);
@@ -151,7 +187,13 @@ export class MobileCommandReceiptService {
   }
 }
 
-export function mobileCommandEnvelopeFromInput(input: MobileCommandEnvelope): MobileCommandEnvelope {
+export function mobileCommandEnvelopeFromInput(
+  input: RequiredMobileCommandEnvelope,
+): RequiredMobileCommandEnvelope;
+export function mobileCommandEnvelopeFromInput(input: MobileCommandEnvelope): MobileCommandEnvelope;
+export function mobileCommandEnvelopeFromInput(
+  input: MobileCommandEnvelope,
+): MobileCommandEnvelope {
   return {
     clientCommandId: input.clientCommandId,
     clientCreatedAt: input.clientCreatedAt,

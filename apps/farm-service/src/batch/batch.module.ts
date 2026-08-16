@@ -69,6 +69,10 @@ import { TankBatchModule } from './tank-batch.module';
 import { MortalityCullPolicyService } from './services/mortality-cull-policy.service';
 import { RemovalQuantityPolicyService } from './services/removal-quantity-policy.service';
 import { SGRCalculatorService } from './services/sgr-calculator.service';
+import {
+  BATCH_AGGREGATE_MUTATION_PORT_PROVIDER,
+  BatchAggregateMutationPort,
+} from './batch-aggregate-mutation.port';
 
 // Cross-cutting: backdate policy for mortality observations
 // (MORTALITY_BACKDATE_LIMIT_DAYS, default 14).
@@ -117,11 +121,7 @@ import { SGRCalculatorService } from './services/sgr-calculator.service';
     // imports only TypeOrmModule.forFeature + BackdatePolicyModule, never BatchModule.
     GrowthModule,
   ],
-  controllers: [
-    BatchController,
-    TankOperationsController,
-    GetBatchOverviewResponder,
-  ],
+  controllers: [BatchController, TankOperationsController, GetBatchOverviewResponder],
   providers: [
     BatchService,
     TankCountReconcileService,
@@ -137,14 +137,15 @@ import { SGRCalculatorService } from './services/sgr-calculator.service';
     BiomassCalculatorService,
     StockReconstructionService,
     BatchCostCalculatorService,
-    BatchDocumentDataLoader,  // REQUEST-scoped: one instance per GraphQL request
-    BatchLocationDataLoader,  // REQUEST-scoped: eliminates N+1 for batch.locations
-    BatchFeedAssignmentDataLoader,  // REQUEST-scoped: eliminates N+1 for batch.feedAssignments
+    BatchDocumentDataLoader, // REQUEST-scoped: one instance per GraphQL request
+    BatchLocationDataLoader, // REQUEST-scoped: eliminates N+1 for batch.locations
+    BatchFeedAssignmentDataLoader, // REQUEST-scoped: eliminates N+1 for batch.feedAssignments
     MobileCommandReceiptService,
     // SEC-HIGH-051 / SEC-HIGH-052: object-level site authz SSoT (injected by the
     // stock handlers) + the mobile-feature guard (composed on the resolver).
     SiteAuthorizationService,
     MobileFeatureGuard,
+    BATCH_AGGREGATE_MUTATION_PORT_PROVIDER,
     ...BatchCommandHandlers,
     ...BatchQueryHandlers,
     ...BatchResolvers,
@@ -162,6 +163,7 @@ import { SGRCalculatorService } from './services/sgr-calculator.service';
     BiomassCalculatorService,
     StockReconstructionService,
     BatchCostCalculatorService,
+    BatchAggregateMutationPort,
   ],
 })
 export class BatchModule {}

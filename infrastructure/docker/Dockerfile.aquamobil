@@ -39,6 +39,9 @@ COPY libs/farm-shared /monorepo/libs/farm-shared
 # /monorepo/libs/shared-contracts/src" (the aquamobil PWA imports
 # MESSAGING_MEDIA_MIME_ALLOWLIST from it). See ORPHAN-MEDIUM-130.
 COPY libs/shared-contracts /monorepo/libs/shared-contracts
+# Feeding mobile identities and measured-quantity policy are browser-safe
+# domain contracts imported through the standalone Vite path alias.
+COPY libs/feeding-contracts /monorepo/libs/feeding-contracts
 
 # Patch konsta package.json to add root "." export (needed for Vite/Rollup)
 RUN node -e " \

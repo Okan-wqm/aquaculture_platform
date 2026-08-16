@@ -61,9 +61,15 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 
 import { PROTECTED_TABLES } from '@aquaculture/backend-common/constants';
-import { bootstrapSignalSchemas, platformFunctions } from '@platform/service-catalog';
+import {
+  bootstrapSignalSchemas,
+  databaseLoginPrincipals,
+  platformFunctions,
+} from '@platform/service-catalog';
 import { DataSource } from 'typeorm';
 import type { PostgresConnectionOptions } from 'typeorm/driver/postgres/PostgresConnectionOptions';
+
+import { parseLeastPrivilegeRoleAuthority } from './least-privilege-role-authority';
 
 /**
  * Strict SQL identifier validator — used for every value that becomes a
@@ -80,23 +86,11 @@ const SAFE_IDENT_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
  * The list MUST stay aligned with apps/db-migrate/src/schema-registry.ts
  * + libs/backend-common/src/constants/protected-tables.ts.
  */
-const SERVICE_ROLES: ReadonlyArray<{ readonly role: string; readonly passEnv: string }> = [
-  { role: 'auth_service',          passEnv: 'AUTH_SERVICE_DB_PASS' },
-  { role: 'farm_service',          passEnv: 'FARM_SERVICE_DB_PASS' },
-  { role: 'sensor_service',        passEnv: 'SENSOR_SERVICE_DB_PASS' },
-  { role: 'billing_service',       passEnv: 'BILLING_SERVICE_DB_PASS' },
-  { role: 'hr_service',            passEnv: 'HR_SERVICE_DB_PASS' },
-  { role: 'alert_service',         passEnv: 'ALERT_SERVICE_DB_PASS' },
-  { role: 'admin_service',         passEnv: 'ADMIN_SERVICE_DB_PASS' },
-  { role: 'gateway_service',       passEnv: 'GATEWAY_SERVICE_DB_PASS' },
-  { role: 'notification_service',  passEnv: 'NOTIFICATION_SERVICE_DB_PASS' },
-  { role: 'hydroponics_service',   passEnv: 'HYDROPONICS_SERVICE_DB_PASS' },
-  { role: 'ai_service',            passEnv: 'AI_SERVICE_DB_PASS' },
-  { role: 'messaging_service',     passEnv: 'MESSAGING_SERVICE_DB_PASS' },
-  { role: 'observability_service', passEnv: 'OBSERVABILITY_SERVICE_DB_PASS' },
-  { role: 'event_store_service',   passEnv: 'EVENT_STORE_SERVICE_DB_PASS' },
-  { role: 'config_service',        passEnv: 'CONFIG_SERVICE_DB_PASS' },
-] as const;
+const SERVICE_ROLES: ReadonlyArray<{ readonly role: string; readonly passEnv: string }> =
+  databaseLoginPrincipals().map((principal) => ({
+    role: principal.role,
+    passEnv: principal.passwordEnv,
+  }));
 
 /**
  * Schemas counted in the bootstrap-signal post-condition — DERIVED from the
@@ -118,8 +112,8 @@ const PLATFORM_FUNCTIONS: ReadonlyArray<string> = platformFunctions();
  * post-condition only counts tables named here, so behind-DBs still carrying
  * the table pass unchanged.
  */
-const SHARED_SCHEMA_TABLES: ReadonlyArray<string> = PROTECTED_TABLES.filter(
-  (table) => table.startsWith('shared.'),
+const SHARED_SCHEMA_TABLES: ReadonlyArray<string> = PROTECTED_TABLES.filter((table) =>
+  table.startsWith('shared.'),
 ).map((table) => table.slice('shared.'.length));
 
 /** Advisory lock key for the platform-bootstrap atom. */
@@ -199,7 +193,10 @@ function substitutePlaceholders(sql: string, vars: Record<string, string>): stri
  * via its `generate_credential` block (l.421–424); fail-fast guarantees
  * the contract holds.
  */
-function buildRolesSql(log: PlatformBootstrapOptions['log']): { sql: string; rolesCreated: number } {
+function buildRolesSql(log: PlatformBootstrapOptions['log']): {
+  sql: string;
+  rolesCreated: number;
+} {
   const blocks: string[] = [];
   const missingEnv: string[] = [];
   for (const { role, passEnv } of SERVICE_ROLES) {
@@ -314,6 +311,20 @@ export async function runPlatformBootstrap(
   // Load every static SQL stage with placeholders already substituted.
   const staticStages = loadOrderedStages(sqlDir, vars);
   const stageNames = staticStages.map((s) => s.stage);
+  const leastPrivilegeStage = staticStages.find((stage) => stage.stage.startsWith('008-'));
+  if (!leastPrivilegeStage) {
+    throw new Error('[platform-bootstrap] Stage 008 SQL file missing from sqlDir.');
+  }
+  const leastPrivilegeRoles = parseLeastPrivilegeRoleAuthority(
+    leastPrivilegeStage.sql,
+    join(sqlDir, leastPrivilegeStage.stage),
+  );
+  log({
+    level: 'info',
+    message: 'Stage 008 role authority compiled',
+    context: 'PlatformBootstrap',
+    roleCount: leastPrivilegeRoles.length,
+  });
 
   // Synthesise stage 002 (roles) at runtime.
   const rolesStage = buildRolesSql(log);
@@ -390,7 +401,12 @@ export async function runPlatformBootstrap(
       stagesApplied.push(stage001.stage);
 
       // Stage 002 — roles (synthesised).
-      log({ level: 'info', message: 'Stage 002: roles', context: 'PlatformBootstrap', roleCount: rolesStage.rolesCreated });
+      log({
+        level: 'info',
+        message: 'Stage 002: roles',
+        context: 'PlatformBootstrap',
+        roleCount: rolesStage.rolesCreated,
+      });
       await queryRunner.query(rolesStage.sql);
       stagesApplied.push('002-roles.synthesised');
 
@@ -404,7 +420,7 @@ export async function runPlatformBootstrap(
       // Verify the artifacts the bootstrap claims to have installed.
       const schemaCheck: Array<{ count: string }> = await queryRunner.query(
         `SELECT COUNT(*)::text AS count FROM pg_namespace WHERE nspname = ANY($1)`,
-        [PLATFORM_SCHEMAS as string[]],
+        [[...PLATFORM_SCHEMAS]],
       );
       const schemaCount = Number.parseInt(schemaCheck[0]?.count ?? '0', 10);
       if (schemaCount !== PLATFORM_SCHEMAS.length) {
@@ -420,7 +436,7 @@ export async function runPlatformBootstrap(
            JOIN pg_namespace n ON p.pronamespace = n.oid
           WHERE n.nspname = 'public'
             AND p.proname = ANY($1)`,
-        [PLATFORM_FUNCTIONS as string[]],
+        [[...PLATFORM_FUNCTIONS]],
       );
       const functionCount = Number.parseInt(fnCheck[0]?.count ?? '0', 10);
       if (functionCount !== PLATFORM_FUNCTIONS.length) {
@@ -434,7 +450,7 @@ export async function runPlatformBootstrap(
         `SELECT COUNT(*)::text AS count
            FROM pg_tables
           WHERE schemaname = 'shared' AND tablename = ANY($1)`,
-        [SHARED_SCHEMA_TABLES as string[]],
+        [[...SHARED_SCHEMA_TABLES]],
       );
       const sharedTableCount = Number.parseInt(sharedTableCheck[0]?.count ?? '0', 10);
       if (sharedTableCount !== SHARED_SCHEMA_TABLES.length) {

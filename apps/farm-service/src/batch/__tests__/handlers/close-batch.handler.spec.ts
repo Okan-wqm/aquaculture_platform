@@ -21,6 +21,7 @@ import { Batch, BatchStatus } from '../../entities/batch.entity';
 import { BatchLifecyclePolicyService } from '../../services/batch-lifecycle-policy.service';
 import type { BatchHarvestEligibilityService } from '../../../fish-health/services/batch-harvest-eligibility.service';
 import type { FCRCalculationService } from '../../../growth/services/fcr-calculation.service';
+import { RecordingBatchAggregateMutationPort } from '../../../__tests__/support/durable-mutation-test-authority';
 
 describe('CloseBatchHandler', () => {
   let handler: CloseBatchHandler;
@@ -75,6 +76,7 @@ describe('CloseBatchHandler', () => {
     });
     mockOutboxPublisher.enqueue = jest.fn().mockResolvedValue(undefined);
     handler = new CloseBatchHandler(
+      new RecordingBatchAggregateMutationPort(mockManager),
       mockDataSource,
       mockOutboxPublisher as OutboxPublisher,
       mockHarvestEligibility as BatchHarvestEligibilityService,

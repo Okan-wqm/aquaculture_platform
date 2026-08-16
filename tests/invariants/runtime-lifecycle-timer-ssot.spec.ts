@@ -26,7 +26,6 @@ describe('runtime lifecycle timer SSoT', () => {
     for (const path of [
       'libs/backend-common/src/guards/jwks.service.ts',
       'libs/backend-common/src/rate-limit/in-memory-rate-limit.store.ts',
-      'apps/farm-service/src/scheduler/feeding-scheduler.service.ts',
       'apps/farm-service/src/scheduler/cron-jobs.service.ts',
       'apps/farm-service/src/regulatory/maskinporten.service.ts',
     ]) {

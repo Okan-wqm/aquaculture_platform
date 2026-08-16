@@ -13,6 +13,7 @@ import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { UpdateBatchWeightFromSampleCommand } from '../commands/update-batch-weight-from-sample.command';
 import { GrowthMeasurement } from '../entities/growth-measurement.entity';
 import { Batch } from '../../batch/entities/batch.entity';
+import { BatchAggregateMutationPort } from '../../batch/batch-aggregate-mutation.port';
 
 // Growth statistics are computed at a 95% confidence interval, so applying a
 // sample stamps the batch weight provenance with a 95% confidence level.
@@ -20,8 +21,11 @@ const WEIGHT_SAMPLE_CONFIDENCE_PERCENT = 95;
 
 @Injectable()
 @CommandHandler(UpdateBatchWeightFromSampleCommand)
-export class UpdateBatchWeightFromSampleHandler implements ICommandHandler<UpdateBatchWeightFromSampleCommand, Batch> {
+export class UpdateBatchWeightFromSampleHandler
+  implements ICommandHandler<UpdateBatchWeightFromSampleCommand, Batch>
+{
   constructor(
+    private readonly batchMutations: BatchAggregateMutationPort,
     private readonly dataSource: DataSource,
     @InjectRepository(GrowthMeasurement)
     private readonly measurementRepository: Repository<GrowthMeasurement>,
@@ -51,32 +55,40 @@ export class UpdateBatchWeightFromSampleHandler implements ICommandHandler<Updat
     // the isProcessed flip commits atomically with the weight update.
     // runInTenantTransaction pins search_path to tenant_<uuid> for the whole tx
     // (pool-checkout routing alone is not sufficient for transactional writes).
-    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-      const lockedBatch = await queryRunner.manager.findOne(Batch, {
-        where: { id: batchId, tenantId },
-        lock: { mode: 'pessimistic_write' },
-      });
+    return runInTenantTransaction(
+      this.dataSource,
+      'farm',
+      tenantId,
+      async (queryRunner, mutationSession) => {
+        const lockedBatch = await queryRunner.manager.findOne(Batch, {
+          where: { id: batchId, tenantId },
+          lock: { mode: 'pessimistic_write' },
+        });
 
-      if (!lockedBatch) {
-        throw new NotFoundException(`Batch ${batchId} bulunamadı`);
-      }
+        if (!lockedBatch) {
+          throw new NotFoundException(`Batch ${batchId} bulunamadı`);
+        }
 
-      if (lockedBatch.weight?.actual) {
-        lockedBatch.weight.actual.avgWeight = measurement.averageWeight;
-        // Provenance snapshot; current biomass derives on read from the live
-        // count × avgWeight, not from this stored figure.
-        lockedBatch.weight.actual.totalBiomass = measurement.estimatedBiomass;
-        lockedBatch.weight.actual.lastMeasuredAt = measurement.measurementDate;
-        lockedBatch.weight.actual.sampleSize = measurement.sampleSize;
-        lockedBatch.weight.actual.confidencePercent = WEIGHT_SAMPLE_CONFIDENCE_PERCENT;
-      }
+        if (lockedBatch.weight?.actual) {
+          lockedBatch.weight.actual.avgWeight = measurement.averageWeight;
+          // Provenance snapshot; current biomass derives on read from the live
+          // count × avgWeight, not from this stored figure.
+          lockedBatch.weight.actual.totalBiomass = measurement.estimatedBiomass;
+          lockedBatch.weight.actual.lastMeasuredAt = measurement.measurementDate;
+          lockedBatch.weight.actual.sampleSize = measurement.sampleSize;
+          lockedBatch.weight.actual.confidencePercent = WEIGHT_SAMPLE_CONFIDENCE_PERCENT;
+        }
 
-      await queryRunner.manager.save(Batch, lockedBatch);
+        await this.batchMutations.commitBatchTransition(mutationSession, {
+          intent: 'growth_applied',
+          aggregate: lockedBatch,
+        });
 
-      measurement.isProcessed = true;
-      await queryRunner.manager.save(GrowthMeasurement, measurement);
+        measurement.isProcessed = true;
+        await queryRunner.manager.save(GrowthMeasurement, measurement);
 
-      return lockedBatch;
-    });
+        return lockedBatch;
+      },
+    );
   }
 }

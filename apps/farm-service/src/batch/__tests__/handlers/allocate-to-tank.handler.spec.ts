@@ -14,6 +14,7 @@ import { AllocateToTankCommand, AllocationType } from '../../commands/allocate-t
 import { Batch, BatchStatus } from '../../entities/batch.entity';
 import { EquipmentStatus } from '../../../equipment/entities/equipment.entity';
 import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
+import { RecordingBatchAggregateMutationPort } from '../../../__tests__/support/durable-mutation-test-authority';
 
 describe('AllocateToTankHandler', () => {
   let handler: AllocateToTankHandler;
@@ -63,6 +64,7 @@ describe('AllocateToTankHandler', () => {
         Promise.resolve({ ...(data ?? {}), id: data?.id ?? 'saved-allocation' })) as never,
     );
     handler = new AllocateToTankHandler(
+      new RecordingBatchAggregateMutationPort(mockManager),
       createMockRepository() as any,
       createMockRepository() as any,
       createMockRepository() as any,
@@ -76,25 +78,27 @@ describe('AllocateToTankHandler', () => {
       new SiteAuthorizationService(),
       // SSoT tank-composition writer; returns the derived TankBatch row so the
       // canonical-container update + capacity-flag write + audit can proceed.
-      ({
+      {
         applyBatchDelta: jest.fn().mockResolvedValue({
           id: 'tankbatch-1',
           totalQuantity: 10,
           totalBiomassKg: 100,
           batchDetails: [],
         }),
-      }) as Partial<TankBatchService> as TankBatchService,
+      } as Partial<TankBatchService> as TankBatchService,
       // Working no-op DI deps (the throwing direct-handler defaults are
       // test-only and would abort begin()/refreshContainers() before assertions).
-      ({ refreshContainers: jest.fn().mockResolvedValue(undefined) }) as Partial<FarmStockProjectionService> as FarmStockProjectionService,
-      ({
+      {
+        refreshContainers: jest.fn().mockResolvedValue(undefined),
+      } as Partial<FarmStockProjectionService> as FarmStockProjectionService,
+      {
         begin: jest.fn().mockResolvedValue({ mode: 'execute' }),
         complete: jest.fn().mockResolvedValue(undefined),
-      }) as Partial<MobileCommandReceiptService> as MobileCommandReceiptService,
+      } as Partial<MobileCommandReceiptService> as MobileCommandReceiptService,
     );
   });
 
-  const TENANT = 'tenant-1';
+  const TENANT = '11111111-1111-4111-8111-111111111111';
   const USER = 'user-1';
 
   it('should throw NotFoundException when batch not found', async () => {
@@ -150,7 +154,6 @@ describe('AllocateToTankHandler', () => {
       .mockResolvedValueOnce(null);
     mockManager.save.mockImplementation(((entityOrClass: any, data?: any) =>
       saveEntity(entityOrClass, data)) as never);
-    mockQueryRunner.query.mockResolvedValue([{ total_quantity: 0, total_biomass: 0 }]);
 
     await handler.execute(
       new AllocateToTankCommand(
@@ -233,7 +236,6 @@ describe('AllocateToTankHandler', () => {
     mockManager.save.mockImplementation(((entityOrClass: any, data?: any) =>
       saveEntity(entityOrClass, data, 'tank-batch-1')) as never);
     mockManager.create.mockImplementation((_cls: any, data: any) => data);
-    mockQueryRunner.query.mockResolvedValue([{ total_quantity: 0, total_biomass: 0 }]);
 
     // Service permitted the allocation under admin override but flagged
     // it. The handler is expected to emit a CAPACITY_BLOCKED row with

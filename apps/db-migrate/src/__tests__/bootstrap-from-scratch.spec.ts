@@ -72,7 +72,8 @@ import { join, resolve } from 'path';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GenericContainer, type StartedTestContainer, Wait } from 'testcontainers';
-import { DataSource, type MigrationInterface } from 'typeorm';
+import { DataSource, type MigrationInterface, type QueryRunner } from 'typeorm';
+import { databaseLoginPrincipals } from '@platform/service-catalog';
 
 // ADR-031 Platform Bootstrap Atom — runs the schema/role/extension/function/
 // shared-table DDL contract that init-scripts USED to own pre-cutover. The
@@ -150,23 +151,9 @@ const DATABASE_NAME = 'aquaculture';
 const DATABASE_USER = 'aquaculture';
 const DATABASE_PASSWORD = 'aquaculture-test';
 const DB_MIGRATE_DDL_AUTHORITY_ENV = 'DB_MIGRATE_DDL_AUTHORITY';
-const SERVICE_ROLE_PASSWORD_ENVS = [
-  'AUTH_SERVICE_DB_PASS',
-  'FARM_SERVICE_DB_PASS',
-  'SENSOR_SERVICE_DB_PASS',
-  'BILLING_SERVICE_DB_PASS',
-  'HR_SERVICE_DB_PASS',
-  'ALERT_SERVICE_DB_PASS',
-  'ADMIN_SERVICE_DB_PASS',
-  'GATEWAY_SERVICE_DB_PASS',
-  'NOTIFICATION_SERVICE_DB_PASS',
-  'HYDROPONICS_SERVICE_DB_PASS',
-  'AI_SERVICE_DB_PASS',
-  'MESSAGING_SERVICE_DB_PASS',
-  'OBSERVABILITY_SERVICE_DB_PASS',
-  'EVENT_STORE_SERVICE_DB_PASS',
-  'CONFIG_SERVICE_DB_PASS',
-] as const;
+const SERVICE_ROLE_PASSWORD_ENVS = databaseLoginPrincipals().map(
+  (principal) => principal.passwordEnv,
+);
 
 // Repo root, derived from this file's location:
 //   apps/db-migrate/src/__tests__/bootstrap-from-scratch.spec.ts -> ../../../..
@@ -981,6 +968,65 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
           `Verify infrastructure/docker/init-scripts/00-init-schemas.sh has a CREATE SCHEMA ` +
           `entry for each. Required total: ${REQUIRED_SCHEMAS.length}.`,
       );
+    }
+  });
+
+  it('config schema keeps the stage-008 NOLOGIN authority after the full service migration chain', async () => {
+    const schemaRows = await probeDs().query<
+      Array<{
+        schema_owner: string;
+        owner_can_login: boolean;
+        runtime_inherits_owner: boolean;
+      }>
+    >(
+      `SELECT owner_role.rolname AS schema_owner,
+              owner_role.rolcanlogin AS owner_can_login,
+              pg_has_role(runtime_role.oid, owner_role.oid, 'MEMBER') AS runtime_inherits_owner
+         FROM pg_catalog.pg_namespace namespace
+         JOIN pg_catalog.pg_roles owner_role ON owner_role.oid = namespace.nspowner
+         JOIN pg_catalog.pg_roles runtime_role ON runtime_role.rolname = 'config_service'
+        WHERE namespace.nspname = 'config'`,
+    );
+    expect(schemaRows).toEqual([
+      {
+        schema_owner: 'config_schema_owner',
+        owner_can_login: false,
+        runtime_inherits_owner: false,
+      },
+    ]);
+
+    const tableRows = await probeDs().query<Array<{ table_name: string; owner_name: string }>>(
+      `SELECT relation.relname AS table_name, owner_role.rolname AS owner_name
+         FROM pg_catalog.pg_class relation
+         JOIN pg_catalog.pg_namespace namespace ON namespace.oid = relation.relnamespace
+         JOIN pg_catalog.pg_roles owner_role ON owner_role.oid = relation.relowner
+        WHERE namespace.nspname = 'config'
+          AND relation.relkind IN ('r', 'p')
+          AND relation.relname IN ('configurations', 'configuration_history')
+        ORDER BY relation.relname`,
+    );
+    expect(tableRows).toEqual([
+      { table_name: 'configuration_history', owner_name: 'config_service' },
+      { table_name: 'configurations', owner_name: 'config_service' },
+    ]);
+
+    const migrationModule = requireModule(
+      join(
+        REPO_ROOT,
+        'apps/config-service/src/database/migrations/1807400000000-RestoreConfigSchemaOwnerBoundary.ts',
+      ),
+    ) as {
+      RestoreConfigSchemaOwnerBoundary1807400000000: new () => {
+        postCondition(queryRunner: QueryRunner): Promise<boolean>;
+      };
+    };
+    const queryRunner = probeDs().createQueryRunner();
+    await queryRunner.connect();
+    try {
+      const migration = new migrationModule.RestoreConfigSchemaOwnerBoundary1807400000000();
+      await expect(migration.postCondition(queryRunner)).resolves.toBe(true);
+    } finally {
+      await queryRunner.release();
     }
   });
 

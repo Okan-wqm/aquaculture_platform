@@ -21,6 +21,7 @@ import { TankBatch } from '../../entities/tank-batch.entity';
 import { RecordCullHandler } from '../../handlers/record-cull.handler';
 import { MortalityCullPolicyService } from '../../services/mortality-cull-policy.service';
 import { RemovalQuantityPolicyService } from '../../services/removal-quantity-policy.service';
+import { RecordingBatchAggregateMutationPort } from '../../../__tests__/support/durable-mutation-test-authority';
 
 const ENVELOPE = { clientCommandId: 'cmd-1', payloadHash: 'hash-1' };
 
@@ -47,6 +48,7 @@ describe('RecordCullHandler', () => {
     // receipt (INSERT returns an id) so a record proceeds.
     mockManager.query = jest.fn().mockResolvedValue([{ id: 'receipt-1' }]);
     handler = new RecordCullHandler(
+      new RecordingBatchAggregateMutationPort(mockManager),
       mockDataSource,
       createMockRepository(),
       createMockRepository(),

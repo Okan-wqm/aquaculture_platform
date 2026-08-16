@@ -10,13 +10,13 @@
  * cache'e yazılır ve çevrimdışı açılışta dürüst bir bantla gösterilir.
  * Enum alanları tel üzerinde AD taşır ('SCHEDULED', 'FED', ...).
  */
-import { useQuery } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import { List, ListInput, BlockTitle } from 'konsta/react';
 import {
   ArrowLeft,
   Package,
   CheckCircle,
+  Check,
   AlertCircle,
   Hand,
   Settings,
@@ -25,73 +25,41 @@ import {
 } from 'lucide-react';
 import { useState, useEffect, ChangeEvent, type JSX } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import {
+  FEEDING_MEAL_MOBILE_COMMAND_V1,
+  FEEDING_MEAL_QUANTITY_POLICY_V1,
+  FEEDING_METHOD,
+  FEEDING_METHOD_GRAPHQL_NAME_V1,
+  decodeFeedingMealQuantityKgV1,
+} from '@aquaculture/feeding-contracts/feeding-record-vocabulary';
 
-import { GET_FEEDING_DAY_PLANS } from '@/graphql/operations';
-import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+import { useTodaysDayPlans, type DayPlanMeal, type MealStatus } from '@/hooks/useTodaysDayPlans';
 import { useI18n } from '@/i18n';
-import { cacheData, getCachedData } from '@/pwa/offline-queue';
-import { graphqlRequest } from '@/services/authenticated-fetch';
-import { logger } from '@/utils/logger';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 // ============================================================================
 // TYPES — feedingDayPlans tipli sorgusunun aynası (P-25)
 // ============================================================================
 
-type MealStatus = 'SCHEDULED' | 'FED' | 'PARTIALLY_FED' | 'SKIPPED' | 'MISSED' | 'CANCELLED';
+const FEEDING_METHODS = [
+  {
+    value: FEEDING_METHOD_GRAPHQL_NAME_V1[FEEDING_METHOD.MANUAL],
+    labelKey: 'feeding.method.manual',
+    Icon: Hand,
+  },
+  {
+    value: FEEDING_METHOD_GRAPHQL_NAME_V1[FEEDING_METHOD.AUTOMATIC],
+    labelKey: 'feeding.method.automatic',
+    Icon: Settings,
+  },
+  {
+    value: FEEDING_METHOD_GRAPHQL_NAME_V1[FEEDING_METHOD.DEMAND],
+    labelKey: 'feeding.method.demand',
+    Icon: Radio,
+  },
+] as const;
 
-interface DayPlanMeal {
-  id: string;
-  mealIndex: number;
-  scheduledAt: string;
-  percentOfDaily: number;
-  plannedKg: number;
-  status: MealStatus;
-  actualKg: number;
-  varianceKg: number | null;
-  variancePercent: number | null;
-  feedId: string;
-  fedAt?: string | null;
-  feedingMethod?: string | null;
-  notes?: string | null;
-}
-
-interface FeedingDayPlanSlice {
-  id: string;
-  unitId: string;
-  unitName: string;
-  unitCode: string;
-  planDate: string;
-  status: string;
-  plannedTotalKg: number;
-  unplannedActualKg: number;
-  mealsPlanned: number;
-  avgWeightG: number;
-  fishCount: number;
-  biomassKg: number;
-  waterTempC: number | null;
-  temperatureSource: string;
-  usingDefaultTemperature: boolean;
-  feedId: string;
-  feedCode: string;
-  feedName: string;
-  effectiveRatePercent: number;
-  expectedFcr: number;
-  meals: DayPlanMeal[];
-}
-
-type FeedingMethodOption = 'manual' | 'automatic' | 'demand';
-
-const FEEDING_METHODS: {
-  value: FeedingMethodOption;
-  labelKey: 'feeding.method.manual' | 'feeding.method.automatic' | 'feeding.method.demand';
-  Icon: typeof Hand;
-}[] = [
-  { value: 'manual', labelKey: 'feeding.method.manual', Icon: Hand },
-  { value: 'automatic', labelKey: 'feeding.method.automatic', Icon: Settings },
-  { value: 'demand', labelKey: 'feeding.method.demand', Icon: Radio },
-];
+type FeedingMethodOption = (typeof FEEDING_METHODS)[number]['value'];
 
 const MEAL_BADGE: Record<MealStatus, string> = {
   SCHEDULED: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
@@ -110,70 +78,6 @@ function isMealOpen(meal: DayPlanMeal): boolean {
 function timeOf(iso: string): string {
   const date = new Date(iso);
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-}
-
-// ============================================================================
-// HOOK: useTodaysDayPlans — FE-MEDIUM-054 offline-cache davranışı korunur
-// ============================================================================
-
-const DAY_PLANS_CACHE_PREFIX = 'feedingDayPlans_';
-// Kısa TTL: bariz bayat bir plan işçiyi yanıltmaktansa süresi dolsun (cache
-// kolaylıktır, otorite değildir — recordMealFeeding sunucuda doğrulanır).
-const DAY_PLANS_CACHE_TTL_MS = 1000 * 60 * 60 * 12; // 12h
-
-function useTodaysDayPlans(): {
-  plans: FeedingDayPlanSlice[];
-  isLoading: boolean;
-  isOfflineCached: boolean;
-} {
-  const { accessToken, tenantId, isAuthenticated } = useAuth();
-
-  const today = new Date();
-  const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-  const cacheKey = `${DAY_PLANS_CACHE_PREFIX}${dateStr}`;
-
-  const [cachedSeed, setCachedSeed] = useState<FeedingDayPlanSlice[] | undefined>(undefined);
-  useEffect(() => {
-    let cancelled = false;
-    if (!tenantId) return;
-    getCachedData<FeedingDayPlanSlice[]>(tenantId, cacheKey)
-      .then((cached) => {
-        if (!cancelled && cached) {
-          setCachedSeed(cached);
-        }
-      })
-      .catch((error: unknown) => {
-        logger.error('[RecordFeedingPage] failed to load cached day-plan seed', error);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [tenantId, cacheKey]);
-
-  const { data, isLoading, isSuccess } = useQuery<FeedingDayPlanSlice[]>({
-    queryKey: createTenantQueryKey(tenantId, 'feedingDayPlans', tenantId, dateStr),
-    queryFn: async () => {
-      if (!accessToken || !tenantId) {
-        throw new Error('Not authenticated');
-      }
-      const result = await graphqlRequest<{ feedingDayPlans: FeedingDayPlanSlice[] }>(
-        GET_FEEDING_DAY_PLANS,
-        { planDate: dateStr },
-      );
-      const plans = result.feedingDayPlans ?? [];
-      await cacheData(tenantId, cacheKey, plans, DAY_PLANS_CACHE_TTL_MS);
-      return plans;
-    },
-    enabled: isAuthenticated && !!accessToken && !!tenantId,
-    staleTime: 1000 * 60 * 5,
-    gcTime: 1000 * 60 * 60,
-    refetchOnWindowFocus: true,
-  });
-
-  const plans = isSuccess ? (data ?? []) : (cachedSeed ?? []);
-  const isOfflineCached = !isSuccess && (cachedSeed?.length ?? 0) > 0;
-
-  return { plans, isLoading, isOfflineCached };
 }
 
 // ============================================================================
@@ -196,7 +100,9 @@ export function RecordFeedingPage(): JSX.Element {
   const [selectedMealId, setSelectedMealId] = useState<string>('');
   const [pourKg, setPourKg] = useState<string>('');
   const [finalize, setFinalize] = useState(true);
-  const [feedingMethod, setFeedingMethod] = useState<FeedingMethodOption>('manual');
+  const [feedingMethod, setFeedingMethod] = useState<FeedingMethodOption>(
+    FEEDING_METHOD_GRAPHQL_NAME_V1[FEEDING_METHOD.MANUAL],
+  );
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
@@ -217,7 +123,9 @@ export function RecordFeedingPage(): JSX.Element {
     setSelectedMealId(nextId);
     if (nextId) {
       const remaining = Math.max(0, meal.plannedKg - meal.actualKg);
-      setPourKg(remaining > 0 ? remaining.toFixed(2) : '');
+      setPourKg(
+        remaining > 0 ? remaining.toFixed(FEEDING_MEAL_QUANTITY_POLICY_V1.decimalPlaces) : '',
+      );
       setFinalize(true);
     } else {
       setPourKg('');
@@ -225,31 +133,79 @@ export function RecordFeedingPage(): JSX.Element {
     setErrors({});
   };
 
-  const parsedPour = parseFloat(pourKg) || 0;
+  const parsedPour = Number(pourKg);
+  const pourQuantityIsAdmissible = (() => {
+    if (!pourKg.trim()) return false;
+    try {
+      decodeFeedingMealQuantityKgV1(parsedPour, 'mobile meal pourKg');
+      return true;
+    } catch {
+      return false;
+    }
+  })();
   const mealsDone = meals.filter((m) => m.status === 'FED' || m.status === 'SKIPPED').length;
   const mealsTotal = meals.filter((m) => m.status !== 'CANCELLED').length;
 
-  const validate = (): boolean => {
+  const validate = (): number | undefined => {
     const next: FormErrors = {};
-    if (!pourKg || parsedPour <= 0) next.amount = t('feeding.errors.amountRequired');
-    if (parsedPour > 10000) next.amount = t('feeding.errors.amountMax');
+    let admittedQuantity: number | undefined;
+    if (
+      !pourKg.trim() ||
+      !Number.isFinite(parsedPour) ||
+      parsedPour < FEEDING_MEAL_QUANTITY_POLICY_V1.minimumKg
+    ) {
+      next.amount = t('feeding.errors.amountRequired', {
+        minimumKg: FEEDING_MEAL_QUANTITY_POLICY_V1.minimumKg,
+      });
+    } else if (parsedPour > FEEDING_MEAL_QUANTITY_POLICY_V1.maximumKg) {
+      next.amount = t('feeding.errors.amountMax', {
+        maximumKg: FEEDING_MEAL_QUANTITY_POLICY_V1.maximumKg,
+      });
+    } else {
+      try {
+        admittedQuantity = decodeFeedingMealQuantityKgV1(parsedPour, 'mobile meal pourKg');
+      } catch {
+        next.amount = t('feeding.errors.amountPrecision', {
+          stepKg: FEEDING_MEAL_QUANTITY_POLICY_V1.inputStepKg,
+        });
+      }
+    }
     setErrors(next);
-    return Object.keys(next).length === 0;
+    return admittedQuantity;
   };
 
   const handleSubmit = async (): Promise<void> => {
-    if (!selectedMeal || !validate()) return;
+    if (!selectedMeal) return;
+    const admittedQuantity = validate();
+    if (admittedQuantity === undefined) return;
 
     setIsSubmitting(true);
     setErrors({});
     try {
-      await addToQueue('recordMealFeeding', {
+      await addToQueue(FEEDING_MEAL_MOBILE_COMMAND_V1.operationType, {
         mealId: selectedMeal.id,
-        pourKg: parsedPour,
+        pourKg: admittedQuantity,
         finalize,
         feedingMethod,
         notes: notes.trim() || undefined,
       });
+      setShowSuccess(true);
+      setTimeout(() => navigate('/'), 1500);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t('feeding.errors.generic');
+      setErrors({ general: message });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleFinalizeOnly = async (): Promise<void> => {
+    if (!selectedMeal || selectedMeal.status !== 'PARTIALLY_FED') return;
+
+    setIsSubmitting(true);
+    setErrors({});
+    try {
+      await addToQueue('finalizeMeal', { mealId: selectedMeal.id });
       setShowSuccess(true);
       setTimeout(() => navigate('/'), 1500);
     } catch (error) {
@@ -382,7 +338,10 @@ export function RecordFeedingPage(): JSX.Element {
             <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3">
               <p className="text-xs text-blue-600 font-medium">{t('feeding.plannedTotal')}</p>
               <p className="text-lg font-bold text-blue-900 dark:text-blue-200">
-                {Number(selectedPlan.plannedTotalKg).toFixed(2)} kg
+                {Number(selectedPlan.plannedTotalKg).toFixed(
+                  FEEDING_MEAL_QUANTITY_POLICY_V1.decimalPlaces,
+                )}{' '}
+                kg
               </p>
               <p className="text-xs text-blue-500">
                 {t('feeding.rate')} {Number(selectedPlan.effectiveRatePercent).toFixed(2)}% ·{' '}
@@ -460,10 +419,15 @@ export function RecordFeedingPage(): JSX.Element {
                     </span>
                   </div>
                   <div className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-                    {Number(meal.plannedKg).toFixed(2)} kg
+                    {Number(meal.plannedKg).toFixed(FEEDING_MEAL_QUANTITY_POLICY_V1.decimalPlaces)}{' '}
+                    kg
                     {meal.actualKg > 0 && (
                       <span className="ml-2 text-blue-600 dark:text-blue-400">
-                        → {Number(meal.actualKg).toFixed(2)} kg
+                        →{' '}
+                        {Number(meal.actualKg).toFixed(
+                          FEEDING_MEAL_QUANTITY_POLICY_V1.decimalPlaces,
+                        )}{' '}
+                        kg
                       </span>
                     )}
                   </div>
@@ -485,9 +449,9 @@ export function RecordFeedingPage(): JSX.Element {
               <input
                 type="number"
                 inputMode="decimal"
-                step="0.01"
-                min="0"
-                max="10000"
+                step={FEEDING_MEAL_QUANTITY_POLICY_V1.inputStepKg}
+                min={FEEDING_MEAL_QUANTITY_POLICY_V1.minimumKg}
+                max={FEEDING_MEAL_QUANTITY_POLICY_V1.maximumKg}
                 value={pourKg}
                 onChange={(e) => {
                   setPourKg(e.target.value);
@@ -498,7 +462,9 @@ export function RecordFeedingPage(): JSX.Element {
               <p className="text-center text-xs text-gray-400 mt-1 font-medium">kg</p>
               <p className="text-center text-xs text-gray-500 mt-1">
                 {t('feeding.pour.remaining', {
-                  kg: Math.max(0, selectedMeal.plannedKg - selectedMeal.actualKg).toFixed(2),
+                  kg: Math.max(0, selectedMeal.plannedKg - selectedMeal.actualKg).toFixed(
+                    FEEDING_MEAL_QUANTITY_POLICY_V1.decimalPlaces,
+                  ),
                 })}
               </p>
               {errors.amount && (
@@ -577,7 +543,7 @@ export function RecordFeedingPage(): JSX.Element {
               onClick={() => {
                 void handleSubmit();
               }}
-              disabled={parsedPour <= 0 || isSubmitting}
+              disabled={!pourQuantityIsAdmissible || isSubmitting}
               className="w-full py-4 bg-gradient-to-r from-green-600 to-green-500 text-white font-bold rounded-2xl shadow-lg shadow-green-500/25 disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2"
             >
               {isSubmitting ? (
@@ -588,12 +554,24 @@ export function RecordFeedingPage(): JSX.Element {
               ) : (
                 <>
                   <Package size={20} />
-                  {parsedPour > 0
-                    ? t('feeding.recordKg', { kg: parsedPour.toFixed(2) })
+                  {pourQuantityIsAdmissible
+                    ? t('feeding.recordKg', {
+                        kg: parsedPour.toFixed(FEEDING_MEAL_QUANTITY_POLICY_V1.decimalPlaces),
+                      })
                     : t('feeding.record')}
                 </>
               )}
             </button>
+            {selectedMeal.status === 'PARTIALLY_FED' && (
+              <button
+                onClick={() => void handleFinalizeOnly()}
+                disabled={isSubmitting}
+                className="w-full mt-3 py-4 bg-white dark:bg-gray-900 text-green-700 dark:text-green-400 font-bold rounded-2xl border-2 border-green-500 disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2"
+              >
+                <Check size={20} />
+                {t('feeding.finalizeOnly')}
+              </button>
+            )}
             {!isOnline && (
               <p className="text-center text-amber-500 text-sm mt-3 font-medium">
                 {t('feeding.offlineWillSync')}

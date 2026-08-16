@@ -9,6 +9,7 @@ import {
   ReceiveDeliveryInput,
 } from '../../../hooks/usePurchaseOrders';
 import { useStorageLocationList } from '../../../hooks/useStorageLocations';
+import { useStableClientReference } from '../../../hooks/useStableClientReference';
 
 interface Props {
   isOpen: boolean;
@@ -23,6 +24,7 @@ export const ReceiveDeliveryModal: React.FC<Props> = ({ isOpen, onClose, purchas
   >({});
 
   const receiveDelivery = useReceiveDelivery();
+  const receiptIdentity = useStableClientReference();
   const { toast } = useToast();
   const { data: locations } = useStorageLocationList();
 
@@ -59,6 +61,7 @@ export const ReceiveDeliveryModal: React.FC<Props> = ({ isOpen, onClose, purchas
     if (itemsToReceive.length === 0) return;
 
     const input: ReceiveDeliveryInput = {
+      receiptId: receiptIdentity.get(),
       purchaseOrderId: purchaseOrder.id,
       storageLocationId,
       items: itemsToReceive,
@@ -66,6 +69,7 @@ export const ReceiveDeliveryModal: React.FC<Props> = ({ isOpen, onClose, purchas
 
     try {
       await receiveDelivery.mutateAsync(input);
+      receiptIdentity.reset();
       toast({
         title: 'Success',
         description: 'Delivery received successfully.',

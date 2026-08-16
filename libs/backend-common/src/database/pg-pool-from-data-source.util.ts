@@ -112,22 +112,15 @@ interface DriverWithPool {
 /**
  * Extract the underlying pg.Pool from a TypeORM DataSource.
  *
- * Returns null if the driver doesn't expose a `master` property
- * (e.g. non-pg drivers, in-memory test doubles). Callers MUST
- * handle the null case — the bootstrap services emit a
- * boot-blocking error log when null is returned because the
- * connection-pool patch is load-bearing for tenant isolation.
- *
- * # Why returns null instead of throwing
- *
- * The bootstraps catch the missing-pool case at boot and refuse
- * to start the service rather than crashing during the first
- * request. Returning null lets each caller log its own service-
- * specific error message and degrade in its own way.
+ * Tenant routing and RLS propagation are boot invariants, so a missing pool
+ * can never be represented as a nullable capability. This adapter is the
+ * single fail-closed boundary used by every bootstrap and owns the actionable
+ * remediation text as well as the private TypeORM driver-shape bridge.
  */
 export function getPgPoolFromDataSource(
   dataSource: DataSource,
-): PgPoolLike | null {
+  context: string,
+): PgPoolLike {
   // The cast is the SINGLE place in the codebase where TypeORM's
   // private driver shape is bridged to the typed surface. Every
   // other callsite in the codebase imports getPgPoolFromDataSource
@@ -136,7 +129,13 @@ export function getPgPoolFromDataSource(
   const driver = dataSource.driver as unknown as DriverWithPool;
   const pool = driver.master;
   if (!pool || typeof pool.connect !== 'function') {
-    return null;
+    throw new Error(
+      `${context}: pg Pool not found on DataSource driver. ` +
+        'Tenant search_path/RLS connection initialization is inactive, so this service ' +
+        'cannot start safely. REMEDIATION: configure TypeOrmModule with an initialized ' +
+        'PostgreSQL DataSource, or use RlsModule.forBypassOnly only for a service that ' +
+        'does not own a database pool.',
+    );
   }
   return pool;
 }

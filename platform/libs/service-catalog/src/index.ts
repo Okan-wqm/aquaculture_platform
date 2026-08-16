@@ -15,31 +15,49 @@ export type ServiceClassification =
   | 'frontend'
   | 'one-shot';
 export type CriticalityLevel = 'critical' | 'required' | 'warning' | 'ignored';
-export type PrivilegeMode = 'migration-authority' | 'dml-only' | 'tenant-provisioner' | 'none';
+export type PrivilegeMode =
+  | 'migration-authority'
+  | 'dml-only'
+  | 'function-only'
+  | 'tenant-provisioner'
+  | 'none';
 export type MigrationHeadPolicy = 'non-empty-glob' | 'placeholder-ok' | 'not-applicable';
 export type ServiceVisibility = 'public' | 'internal' | 'infrastructure';
 export type GatewayParticipation = 'apollo-subgraph' | 'gateway' | 'none';
 export type DeployProfile = 'droplet' | 'staging' | 'rust-sidecar';
 export type BuildKind =
   | 'node-service'
+  | 'node-worker'
   | 'frontend'
   | 'rust-sidecar'
   | 'docker-only'
   | 'one-shot'
   | 'infra';
+export const PROMETHEUS_ENDPOINT_BUILD_KINDS = Object.freeze([
+  'node-service',
+  'node-worker',
+] as const);
+export type PrometheusEndpointBuildKind = (typeof PROMETHEUS_ENDPOINT_BUILD_KINDS)[number];
+
+export function supportsPrometheusEndpoint(
+  buildKind: BuildKind,
+): buildKind is PrometheusEndpointBuildKind {
+  return (PROMETHEUS_ENDPOINT_BUILD_KINDS as readonly BuildKind[]).includes(buildKind);
+}
 export type ReadinessContract = 'docker-healthcheck' | 'one-shot-success' | 'none';
 export type EventStoreTenantScopePolicy = 'tenant-bound' | 'all-tenants' | 'none';
+export const FARM_FEEDING_SCHEDULER_DATABASE_ROLE = 'farm_feeding_scheduler' as const;
 /**
  * Prometheus scrape surface of a service (OBS-HIGH-001).
  *
  *   - 'prom-endpoint' — the service serves GET /metrics in Prometheus
  *     exposition format on its single HTTP listener (containerPort,
  *     shared with /health). Derived
- *     default for every node-service: validateServiceCatalog REJECTS a
- *     node-service with 'none', so a new backend service cannot silently
- *     opt out of observability. tests/invariants/metrics-endpoint-
- *     adoption.spec.ts asserts the app.module.ts actually registers a
- *     metrics module for each 'prom-endpoint' entry.
+ *     default for every Node HTTP runtime (service or worker):
+ *     validateServiceCatalog REJECTS a capable runtime with 'none', so a
+ *     new backend cannot silently opt out of observability.
+ *     tests/invariants/metrics-endpoint-adoption.spec.ts asserts the runtime
+ *     module graph actually registers a metrics module for every endpoint.
  *   - 'none' — no scrape surface (frontends, infra containers, one-shot
  *     jobs, the Rust sidecar).
  */
@@ -80,6 +98,13 @@ export interface GatewaySubgraphCatalogEntry {
 export interface InfraImageBuildContract {
   dockerfile: string;
   context: string;
+}
+
+export interface DatabaseLoginPrincipal {
+  readonly serviceId: string;
+  readonly role: string;
+  readonly passwordEnv: string;
+  readonly purpose: 'service_runtime';
 }
 
 export interface ServiceCatalogEntry {
@@ -246,11 +271,11 @@ function buildEntry(input: CatalogEntryInput): ServiceCatalogEntry {
       : input.classification === 'subgraph'
         ? 'apollo-subgraph'
         : 'none');
-  // OBS-HIGH-001: every NestJS backend exposes a Prometheus scrape surface
+  // OBS-HIGH-001: every NestJS HTTP runtime exposes a Prometheus scrape surface
   // by default — observability adoption is the zero-effort path, opt-out is
-  // structurally rejected for node-services by validateServiceCatalog.
+  // structurally rejected for every capable build kind by validation.
   const metricsExposure =
-    input.metricsExposure ?? (buildKind === 'node-service' ? 'prom-endpoint' : 'none');
+    input.metricsExposure ?? (supportsPrometheusEndpoint(buildKind) ? 'prom-endpoint' : 'none');
 
   return {
     ...input,
@@ -484,6 +509,23 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
       'FARM_SERVICE_URL',
       'http://localhost:3002/graphql',
     ),
+  }),
+  buildEntry({
+    serviceId: 'farm-feeding-scheduler',
+    nxProject: 'farm-feeding-scheduler',
+    imageTarget: 'farm-feeding-scheduler',
+    buildKind: 'node-worker',
+    dbRoles: { runtime: FARM_FEEDING_SCHEDULER_DATABASE_ROLE },
+    privilegeMode: 'function-only',
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    criticality: 'critical',
+    classification: 'internal-service',
+    healthEndpoint: '/health/ready',
+    readinessContract: 'docker-healthcheck',
+    startupBudgetSeconds: 60,
+    requiredSignals: ['feeding_scheduler_ready'],
+    requiredEnv: ['FARM_FEEDING_SCHEDULER_DB_PASS'],
   }),
   buildEntry({
     serviceId: 'sensor-service',
@@ -1052,6 +1094,11 @@ export function activeDropletComposeServices(): readonly string[] {
   return activeDropletServices().map((entry) => entry.composeServiceName);
 }
 
+/** Catalog-owned capability view consumed by scrape generation and adoption gates. */
+export function metricsEndpointServices(): readonly ServiceCatalogEntry[] {
+  return activeDropletServices().filter((entry) => entry.metricsExposure === 'prom-endpoint');
+}
+
 export function imageBuildTargets(): readonly string[] {
   return activeDropletServices()
     .filter((entry) => entry.buildKind !== 'infra')
@@ -1061,7 +1108,7 @@ export function imageBuildTargets(): readonly string[] {
 
 export function backendImageBuildTargets(): readonly string[] {
   return activeDropletServices()
-    .filter((entry) => ['node-service', 'one-shot'].includes(entry.buildKind))
+    .filter((entry) => ['node-service', 'node-worker', 'one-shot'].includes(entry.buildKind))
     .map((entry) => entry.imageTarget)
     .filter((target): target is string => typeof target === 'string');
 }
@@ -1152,6 +1199,32 @@ export function serviceDbRolePrefixes(): readonly string[] {
 }
 
 /**
+ * Every database LOGIN principal and its secret, derived from service
+ * runtime roles. A bounded worker is a first-class service entry, never an
+ * auxiliary credential smuggled into another process.
+ */
+export function databaseLoginPrincipals(
+  catalog: readonly ServiceCatalogEntry[] = PLATFORM_SERVICE_CATALOG,
+): readonly DatabaseLoginPrincipal[] {
+  return catalog
+    .filter((entry) => entry.deploymentStatus === 'active' && entry.deployTarget === 'droplet')
+    .flatMap((entry): DatabaseLoginPrincipal[] => {
+      const runtime = entry.dbRoles?.runtime;
+      return runtime
+        ? [
+            {
+              serviceId: entry.serviceId,
+              role: runtime,
+              passwordEnv: `${runtime.toUpperCase()}_DB_PASS`,
+              purpose: 'service_runtime' as const,
+            },
+          ]
+        : [];
+    })
+    .sort((left, right) => left.role.localeCompare(right.role));
+}
+
+/**
  * Migration glob patterns for every TENANT-AWARE service, derived from the
  * catalog's own `migrationGlobs`. This is the SSoT for "which migration files
  * fan out into tenant_<uuid> clones" — the set the unguarded-DROP-TYPE gate
@@ -1168,20 +1241,30 @@ export function tenantAwareMigrationGlobs(): readonly string[] {
   ).flatMap((entry) => entry.migrationGlobs ?? []);
 }
 
-export function readinessServices(): readonly { serviceId: string; port: number }[] {
+export function readinessServices(): readonly {
+  serviceId: string;
+  port: number;
+  path: string;
+}[] {
   return activeDropletServices()
     .filter(
       (entry) =>
         entry.readinessContract === 'docker-healthcheck' &&
         ['gateway', 'subgraph', 'internal-service'].includes(entry.classification) &&
-        entry.buildKind === 'node-service',
+        ['node-service', 'node-worker'].includes(entry.buildKind),
     )
-    .map((entry) => ({ serviceId: entry.composeServiceName, port: entry.containerPort }));
+    .map((entry) => ({
+      serviceId: entry.composeServiceName,
+      port: entry.containerPort,
+      path: entry.healthEndpoint ?? '/health/ready',
+    }));
 }
 
 export function packageBuildProjects(): readonly string[] {
   return activeDropletServices()
-    .filter((entry) => ['node-service', 'frontend', 'one-shot'].includes(entry.buildKind))
+    .filter((entry) =>
+      ['node-service', 'node-worker', 'frontend', 'one-shot'].includes(entry.buildKind),
+    )
     .map((entry) => entry.nxProject)
     .filter((project): project is string => typeof project === 'string');
 }
@@ -1326,6 +1409,7 @@ export function validateServiceCatalog(
   const errors: CatalogValidationError[] = [];
   const seenServiceIds = new Set<string>();
   const seenComposeNames = new Set<string>();
+  const seenDatabaseLoginRoles = new Set<string>();
 
   for (const entry of catalog) {
     if (seenServiceIds.has(entry.serviceId)) {
@@ -1337,6 +1421,20 @@ export function validateServiceCatalog(
       errors.push({ serviceId: entry.serviceId, message: 'duplicate composeServiceName' });
     }
     seenComposeNames.add(entry.composeServiceName);
+
+    const runtimeRole = entry.dbRoles?.runtime;
+    if (runtimeRole) {
+      if (!/^[a-z][a-z0-9_]{1,62}$/.test(runtimeRole)) {
+        errors.push({ serviceId: entry.serviceId, message: `invalid runtime role ${runtimeRole}` });
+      }
+      if (seenDatabaseLoginRoles.has(runtimeRole)) {
+        errors.push({
+          serviceId: entry.serviceId,
+          message: `duplicate database login role ${runtimeRole}`,
+        });
+      }
+      seenDatabaseLoginRoles.add(runtimeRole);
+    }
 
     if (entry.dbSchema && entry.dbSchema !== entry.schema) {
       errors.push({ serviceId: entry.serviceId, message: 'schema and dbSchema must match' });
@@ -1363,6 +1461,12 @@ export function validateServiceCatalog(
       errors.push({
         serviceId: entry.serviceId,
         message: 'dml-only service must declare dbRoles.runtime',
+      });
+    }
+    if (entry.privilegeMode === 'function-only' && !entry.dbRoles?.runtime) {
+      errors.push({
+        serviceId: entry.serviceId,
+        message: 'function-only service must declare dbRoles.runtime',
       });
     }
     if (entry.dbSchema && !entry.dbRoles?.owner) {
@@ -1436,10 +1540,11 @@ export function validateServiceCatalog(
     // A NestJS backend without a Prometheus scrape surface is an
     // observability blind spot — rejected at the catalog level so the
     // wrong state cannot be expressed.
-    if (entry.buildKind === 'node-service' && entry.metricsExposure !== 'prom-endpoint') {
+    if (supportsPrometheusEndpoint(entry.buildKind) && entry.metricsExposure !== 'prom-endpoint') {
       errors.push({
         serviceId: entry.serviceId,
-        message: 'node service must expose a Prometheus endpoint (metricsExposure prom-endpoint)',
+        message:
+          'Prometheus-capable Node runtime must expose a Prometheus endpoint (metricsExposure prom-endpoint)',
       });
     }
     // The scrape port is the single Node HTTP listener (`containerPort`),

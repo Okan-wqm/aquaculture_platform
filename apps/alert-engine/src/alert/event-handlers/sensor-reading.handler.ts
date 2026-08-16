@@ -1,7 +1,11 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
-import { PARAMETER_BY_READING_FIELD, type SensorReadingEvent } from '@platform/event-contracts';
+import {
+  PARAMETER_BY_READING_FIELD,
+  requiresDurableDelivery,
+  type SensorReadingEvent,
+} from '@platform/event-contracts';
 import { getTenantSchemaName, isValidUUID } from '@aquaculture/backend-common/database';
 import { requestContextStorage, RequestContext } from '@aquaculture/backend-common/logging';
 import { AlertEvaluationService } from '../services/alert-evaluation.service';
@@ -128,6 +132,9 @@ export class SensorReadingEventHandler
         `Error processing sensor reading: ${(error as Error).message}`,
         (error as Error).stack,
       );
+      if (requiresDurableDelivery(event.eventType)) {
+        throw error;
+      }
     }
   }
 }

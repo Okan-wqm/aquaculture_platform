@@ -28,9 +28,9 @@ function requiredArg(name: string): string {
 }
 
 function projectKinds(group: ProjectGroup): readonly BuildKind[] {
-  if (group === 'backend') return ['node-service', 'one-shot', 'rust-sidecar'];
+  if (group === 'backend') return ['node-service', 'node-worker', 'one-shot', 'rust-sidecar'];
   if (group === 'frontend') return ['frontend'];
-  return ['node-service', 'one-shot', 'rust-sidecar', 'frontend'];
+  return ['node-service', 'node-worker', 'one-shot', 'rust-sidecar', 'frontend'];
 }
 
 function projectsFor(group: ProjectGroup): string[] {

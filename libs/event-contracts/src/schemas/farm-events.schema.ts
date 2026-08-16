@@ -1,4 +1,5 @@
 import type { JSONSchemaType } from 'ajv';
+import { FEEDING_METHOD, type FeedingMethodValue } from '@aquaculture/feeding-contracts';
 import { MORTALITY_REASONS, CULL_REASONS } from '../farm-events';
 import {
   BASE_EVENT_PROPERTIES,
@@ -157,6 +158,7 @@ interface WireMortalityRecorded extends WireBaseEvent {
   siteId?: string;
   tankId?: string;
   quantity: number;
+  countDerived?: boolean;
   reason: (typeof MORTALITY_REASONS)[number];
   mortalityDate: string;
   newTotalMortality: number;
@@ -170,6 +172,7 @@ interface WireCullRecorded extends WireBaseEvent {
   siteId?: string;
   tankId?: string;
   quantity: number;
+  countDerived?: boolean;
   reason: (typeof CULL_REASONS)[number];
   detail?: string;
   culledAt: string;
@@ -185,6 +188,7 @@ interface WireBatchTransferred extends WireBaseEvent {
   sourceTankId: string;
   destinationTankId: string;
   quantity: number;
+  countDerived?: boolean;
   biomassKg: number;
   transferDate: string;
   reason?: string;
@@ -299,7 +303,7 @@ interface WireMealFed extends WireBaseEvent {
   pourKg: number;
   actualKg: number;
   fedAt: string;
-  feedingMethod?: string;
+  feedingMethod?: FeedingMethodValue;
 }
 
 interface WireMealSkipped extends WireBaseEvent {
@@ -864,6 +868,7 @@ export const mortalityRecordedSchema: JSONSchemaType<WireMortalityRecorded> = {
     siteId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
     tankId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
     quantity: NON_NEGATIVE_INT,
+    countDerived: { type: 'boolean', nullable: true },
     reason: {
       type: 'string',
       enum: [...MORTALITY_REASONS],
@@ -893,6 +898,7 @@ export const cullRecordedSchema: JSONSchemaType<WireCullRecorded> = {
     siteId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
     tankId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
     quantity: NON_NEGATIVE_INT,
+    countDerived: { type: 'boolean', nullable: true },
     reason: {
       type: 'string',
       enum: [...CULL_REASONS],
@@ -924,6 +930,7 @@ export const batchTransferredSchema: JSONSchemaType<WireBatchTransferred> = {
     sourceTankId: UUID_SCHEMA,
     destinationTankId: UUID_SCHEMA,
     quantity: NON_NEGATIVE_INT,
+    countDerived: { type: 'boolean', nullable: true },
     biomassKg: NON_NEGATIVE_NUMBER,
     transferDate: ISO_DATE_STRING,
     reason: { ...FREE_TEXT, nullable: true },
@@ -1058,27 +1065,28 @@ export const feedingProtocolAssignedSchema: JSONSchemaType<WireFeedingProtocolAs
   ],
 };
 
-export const feedingProtocolAssignmentPausedSchema: JSONSchemaType<WireFeedingProtocolAssignmentPaused> = {
-  ...EVENT_OBJECT_OPTS,
-  properties: {
-    ...BASE_EVENT_PROPERTIES,
-    eventType: { type: 'string', const: 'FeedingProtocolAssignmentPaused' },
-    userId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
-    assignmentId: UUID_SCHEMA,
-    unitId: UUID_SCHEMA,
-    unitCode: SHORT_CODE,
-    protocolId: UUID_SCHEMA,
-    reason: { type: 'string', enum: ['protocol_archived', 'operator_paused', 'unit_emptied'] },
-  },
-  required: [
-    ...BASE_EVENT_REQUIRED,
-    'assignmentId',
-    'unitId',
-    'unitCode',
-    'protocolId',
-    'reason',
-  ],
-};
+export const feedingProtocolAssignmentPausedSchema: JSONSchemaType<WireFeedingProtocolAssignmentPaused> =
+  {
+    ...EVENT_OBJECT_OPTS,
+    properties: {
+      ...BASE_EVENT_PROPERTIES,
+      eventType: { type: 'string', const: 'FeedingProtocolAssignmentPaused' },
+      userId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
+      assignmentId: UUID_SCHEMA,
+      unitId: UUID_SCHEMA,
+      unitCode: SHORT_CODE,
+      protocolId: UUID_SCHEMA,
+      reason: { type: 'string', enum: ['protocol_archived', 'operator_paused', 'unit_emptied'] },
+    },
+    required: [
+      ...BASE_EVENT_REQUIRED,
+      'assignmentId',
+      'unitId',
+      'unitCode',
+      'protocolId',
+      'reason',
+    ],
+  };
 
 // ── Meal engine schemas (Faz 5 — hepsi farm→NATS trust boundary, C-13) ─────
 
@@ -1152,7 +1160,11 @@ export const mealFedSchema: JSONSchemaType<WireMealFed> = {
     pourKg: NON_NEGATIVE_NUMBER,
     actualKg: NON_NEGATIVE_NUMBER,
     fedAt: ISO_DATE_STRING,
-    feedingMethod: { ...SHORT_CODE, nullable: true },
+    feedingMethod: {
+      type: 'string',
+      enum: [...Object.values(FEEDING_METHOD)],
+      nullable: true,
+    },
   },
   required: [
     ...BASE_EVENT_REQUIRED,
@@ -1270,14 +1282,7 @@ export const mealMissedSchema: JSONSchemaType<WireMealMissed> = {
     dayPlanId: UUID_SCHEMA,
     scheduledAt: ISO_DATE_STRING,
   },
-  required: [
-    ...BASE_EVENT_REQUIRED,
-    'unitId',
-    'unitCode',
-    'mealId',
-    'dayPlanId',
-    'scheduledAt',
-  ],
+  required: [...BASE_EVENT_REQUIRED, 'unitId', 'unitCode', 'mealId', 'dayPlanId', 'scheduledAt'],
 };
 
 export const feedTypeTransitionedSchema: JSONSchemaType<WireFeedTypeTransitioned> = {
@@ -1412,30 +1417,23 @@ export const mortalityAlertRaisedSchema: JSONSchemaType<WireMortalityAlertRaised
   ],
 };
 
-export const harvestRegulatoryRecordedSchema: JSONSchemaType<WireHarvestRegulatoryRecorded> =
-  {
-    ...EVENT_OBJECT_OPTS,
-    properties: {
-      ...BASE_EVENT_PROPERTIES,
-      eventType: { type: 'string', const: 'HarvestRegulatoryRecorded' },
-      batchId: UUID_SCHEMA,
-      harvestedQuantity: NON_NEGATIVE_INT,
-      totalWeight: { ...NON_NEGATIVE_NUMBER, nullable: true },
-      averageWeight: { ...NON_NEGATIVE_NUMBER, nullable: true },
-      harvestedAt: ISO_DATE_STRING,
-      // harvestedBy is the operator's user id (BaseEvent.userId on the trigger) —
-      // a short opaque identifier, not a UUID in every auth backend, so SHORT_CODE.
-      harvestedBy: { ...SHORT_CODE, nullable: true },
-      isFinal: { type: 'boolean' },
-    },
-    required: [
-      ...BASE_EVENT_REQUIRED,
-      'batchId',
-      'harvestedQuantity',
-      'harvestedAt',
-      'isFinal',
-    ],
-  };
+export const harvestRegulatoryRecordedSchema: JSONSchemaType<WireHarvestRegulatoryRecorded> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...BASE_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'HarvestRegulatoryRecorded' },
+    batchId: UUID_SCHEMA,
+    harvestedQuantity: NON_NEGATIVE_INT,
+    totalWeight: { ...NON_NEGATIVE_NUMBER, nullable: true },
+    averageWeight: { ...NON_NEGATIVE_NUMBER, nullable: true },
+    harvestedAt: ISO_DATE_STRING,
+    // harvestedBy is the operator's user id (BaseEvent.userId on the trigger) —
+    // a short opaque identifier, not a UUID in every auth backend, so SHORT_CODE.
+    harvestedBy: { ...SHORT_CODE, nullable: true },
+    isFinal: { type: 'boolean' },
+  },
+  required: [...BASE_EVENT_REQUIRED, 'batchId', 'harvestedQuantity', 'harvestedAt', 'isFinal'],
+};
 
 export const tankClearedSchema: JSONSchemaType<WireTankCleared> = {
   ...EVENT_OBJECT_OPTS,
@@ -1450,41 +1448,40 @@ export const tankClearedSchema: JSONSchemaType<WireTankCleared> = {
   required: [...BASE_EVENT_REQUIRED, 'tankId', 'previousBatchId', 'clearedAt'],
 };
 
-export const batchProductionCompletedSchema: JSONSchemaType<WireBatchProductionCompleted> =
-  {
-    ...EVENT_OBJECT_OPTS,
-    properties: {
-      ...BASE_EVENT_PROPERTIES,
-      eventType: { type: 'string', const: 'BatchProductionCompleted' },
-      batchId: UUID_SCHEMA,
-      initialQuantity: NON_NEGATIVE_INT,
-      harvestedQuantity: NON_NEGATIVE_INT,
-      harvestedBiomassKg: NON_NEGATIVE_NUMBER,
-      avgWeightG: NON_NEGATIVE_NUMBER,
-      survivalRate: NON_NEGATIVE_NUMBER,
-      mortalityRate: NON_NEGATIVE_NUMBER,
-      daysInProduction: NON_NEGATIVE_INT,
-      fcr: NON_NEGATIVE_NUMBER,
-      sgr: NON_NEGATIVE_NUMBER,
-      totalFeedConsumedKg: NON_NEGATIVE_NUMBER,
-      completedAt: ISO_DATE_STRING,
-    },
-    required: [
-      ...BASE_EVENT_REQUIRED,
-      'batchId',
-      'initialQuantity',
-      'harvestedQuantity',
-      'harvestedBiomassKg',
-      'avgWeightG',
-      'survivalRate',
-      'mortalityRate',
-      'daysInProduction',
-      'fcr',
-      'sgr',
-      'totalFeedConsumedKg',
-      'completedAt',
-    ],
-  };
+export const batchProductionCompletedSchema: JSONSchemaType<WireBatchProductionCompleted> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...BASE_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'BatchProductionCompleted' },
+    batchId: UUID_SCHEMA,
+    initialQuantity: NON_NEGATIVE_INT,
+    harvestedQuantity: NON_NEGATIVE_INT,
+    harvestedBiomassKg: NON_NEGATIVE_NUMBER,
+    avgWeightG: NON_NEGATIVE_NUMBER,
+    survivalRate: NON_NEGATIVE_NUMBER,
+    mortalityRate: NON_NEGATIVE_NUMBER,
+    daysInProduction: NON_NEGATIVE_INT,
+    fcr: NON_NEGATIVE_NUMBER,
+    sgr: NON_NEGATIVE_NUMBER,
+    totalFeedConsumedKg: NON_NEGATIVE_NUMBER,
+    completedAt: ISO_DATE_STRING,
+  },
+  required: [
+    ...BASE_EVENT_REQUIRED,
+    'batchId',
+    'initialQuantity',
+    'harvestedQuantity',
+    'harvestedBiomassKg',
+    'avgWeightG',
+    'survivalRate',
+    'mortalityRate',
+    'daysInProduction',
+    'fcr',
+    'sgr',
+    'totalFeedConsumedKg',
+    'completedAt',
+  ],
+};
 
 export const siteCreatedSchema: JSONSchemaType<WireSiteCreated> = {
   ...EVENT_OBJECT_OPTS,

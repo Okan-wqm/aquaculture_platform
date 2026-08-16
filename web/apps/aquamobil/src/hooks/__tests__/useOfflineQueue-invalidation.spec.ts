@@ -14,7 +14,8 @@ import { getSyncedOperationInvalidationKeys } from '@/utils/offline-sync-invalid
 describe('offline queue synced operation invalidation', () => {
   it('invalidates tenant-scoped farm visibility keys for feeding, mortality, transfer, harvest, and water-quality syncs', () => {
     const operationTypes: OperationType[] = [
-      'recordFeeding',
+      'recordMealFeeding',
+      'finalizeMeal',
       'recordMortality',
       'recordTransfer',
       'createHarvestRecord',
@@ -22,9 +23,10 @@ describe('offline queue synced operation invalidation', () => {
     ];
 
     expect(getSyncedOperationInvalidationKeys('tenant-1', operationTypes)).toEqual([
-      ['tenant', 'tenant-1', 'tanks'],
       ['tenant', 'tenant-1', 'feedingDayPlans'],
       ['tenant', 'tenant-1', 'dailyOpsCounts'],
+      ['tenant', 'tenant-1', 'tanks'],
+      ['tenant', 'tenant-1', 'warehouseSummary'],
       ['tenant', 'tenant-1', 'stockEventsSummary'],
       ['tenant', 'tenant-1', 'ai'],
       ['tenant', 'tenant-1', 'equipment-params'],
@@ -33,21 +35,26 @@ describe('offline queue synced operation invalidation', () => {
   });
 
   it('deduplicates shared invalidation keys across synced operation types', () => {
-    expect(getSyncedOperationInvalidationKeys('tenant-1', ['recordFeeding', 'recordMortality'])).toEqual([
-      ['tenant', 'tenant-1', 'tanks'],
+    expect(
+      getSyncedOperationInvalidationKeys('tenant-1', ['recordMealFeeding', 'recordMortality']),
+    ).toEqual([
       ['tenant', 'tenant-1', 'feedingDayPlans'],
       ['tenant', 'tenant-1', 'dailyOpsCounts'],
+      ['tenant', 'tenant-1', 'tanks'],
+      ['tenant', 'tenant-1', 'warehouseSummary'],
       ['tenant', 'tenant-1', 'stockEventsSummary'],
       ['tenant', 'tenant-1', 'ai'],
     ]);
   });
 
   it('invalidates task, storage, and messaging read models through the same tenant-scoped map', () => {
-    expect(getSyncedOperationInvalidationKeys('tenant-1', [
-      'completeTask',
-      'recordStockMovement',
-      'sendMessage',
-    ])).toEqual([
+    expect(
+      getSyncedOperationInvalidationKeys('tenant-1', [
+        'completeTask',
+        'recordStockMovement',
+        'sendMessage',
+      ]),
+    ).toEqual([
       ['tenant', 'tenant-1', 'myTasks'],
       ['tenant', 'tenant-1', 'taskStats'],
       ['tenant', 'tenant-1', 'dailyOpsCounts'],

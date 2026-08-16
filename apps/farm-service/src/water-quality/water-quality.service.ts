@@ -18,7 +18,7 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager } from 'typeorm';
-import { Role } from '@aquaculture/backend-common/decorators';
+import { Role, roleHasPermission } from '@aquaculture/backend-common/decorators';
 import { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { OutboxPublisher } from '@platform/outbox';
@@ -32,8 +32,9 @@ import {
   WaterQualityStatus,
   MeasurementSource,
   ParameterStatus,
+  type WaterQualitySummary,
 } from './entities/water-quality-measurement.entity';
-import { resolveTankSiteId } from '../batch/utils/tank-lookup.util';
+import { resolveTankSiteId, resolveUnitSiteIds } from '../batch/utils/tank-lookup.util';
 import { Tank } from '../tank/entities/tank.entity';
 import { WaterQualityEvaluationService } from './services/water-quality-evaluation.service';
 import { WaterQualityValidationService } from './services/water-quality-validation.service';
@@ -42,7 +43,13 @@ import {
   WATER_TEMPERATURE_MAX_C,
   WATER_TEMPERATURE_MIN_C,
 } from './services/water-temperature.service';
-import { runInTenantTransaction } from '@aquaculture/backend-common/database';
+import {
+  mutationInstantDateV1,
+  readTenantMutationInstantV1,
+  runInTenantRead,
+  runInTenantTransaction,
+  type TenantMutationSession,
+} from '@aquaculture/backend-common/database';
 import { DayPlanRecalcService } from '../feeding-protocol/services/day-plan-recalc.service';
 
 // ============================================================================
@@ -108,6 +115,16 @@ export interface WaterQualityFilters {
 
 export type WaterQualityListResult = IStandardPaginatedResult<WaterQualityMeasurement>;
 
+interface WaterTemperatureRecalcCandidate {
+  readonly unitId?: string;
+  readonly temperature: unknown;
+}
+
+interface WaterTemperatureRecalcTarget {
+  readonly unitId: string;
+  readonly temperature: number;
+}
+
 // ============================================================================
 // SERVICE
 // ============================================================================
@@ -131,6 +148,35 @@ export class WaterQualityService {
     // yeniden fiyatlar — ayrı yazma yolu AÇILMAZ, mevcut komutlar tetikler.
     private readonly dayPlanRecalc: DayPlanRecalcService,
   ) {}
+
+  /**
+   * Object-level site authorization for unit-list reads.
+   *
+   * Managers own cross-site scope. Every lower role must be assigned to every
+   * requested unit's resolved site; an unknown unit/site is a denial rather
+   * than an empty-temperature answer. The whole request is rejected if any
+   * unit is outside scope so filtering cannot misrepresent authorization as
+   * missing telemetry.
+   */
+  async assertUnitsSiteAuthorized(
+    tenantId: string,
+    unitIds: readonly string[],
+    caller: WaterQualityCaller,
+  ): Promise<void> {
+    const uniqueUnitIds = [...new Set(unitIds)].sort();
+    if (uniqueUnitIds.length === 0) return;
+    if (caller.roles.some((role) => roleHasPermission(role, Role.MODULE_MANAGER))) return;
+
+    const siteByUnit = await runInTenantRead(
+      this.dataSource,
+      'farm',
+      tenantId,
+      (queryRunner) => resolveUnitSiteIds(queryRunner.manager, uniqueUnitIds, tenantId),
+    );
+    for (const unitId of uniqueUnitIds) {
+      this.siteAuth.assertSiteAssignment({ caller, siteId: siteByUnit.get(unitId) ?? null });
+    }
+  }
 
   /**
    * Record a single MANUAL water-temperature observation for a tank.
@@ -164,7 +210,6 @@ export class WaterQualityService {
       tenantId,
       tankId,
       equipmentId: tankId,
-      measuredAt: new Date(),
       source: MeasurementSource.MANUAL,
       parameters: { temperature: celsius },
       temperature: celsius,
@@ -172,12 +217,24 @@ export class WaterQualityService {
     });
     // Kayıt + gün içi recalc TEK transaction'da (P-31): yeni sıcaklık
     // çarpanı kalan öğünlere hemen yansır, yarını beklemez.
-    await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-      await queryRunner.manager.save(measurement);
-      await this.dayPlanRecalc.recalcForUnit(queryRunner.manager, tenantId, tankId, 'temperature', {
-        newTemperatureC: celsius,
-      });
-    });
+    await runInTenantTransaction(
+      this.dataSource,
+      'farm',
+      tenantId,
+      async (queryRunner, mutationSession) => {
+        const mutationInstant = await readTenantMutationInstantV1(mutationSession, 'farm');
+        measurement.measuredAt = mutationInstantDateV1(mutationInstant);
+        await queryRunner.manager.save(measurement);
+        await this.dayPlanRecalc.recalcForUnit(
+          queryRunner.manager,
+          mutationSession,
+          tenantId,
+          tankId,
+          'temperature',
+          { mutationInstant, newTemperatureC: celsius },
+        );
+      },
+    );
     return true;
   }
 
@@ -204,6 +261,113 @@ export class WaterQualityService {
       return resolveTankSiteId(manager, input.tankId, tenantId);
     }
     return null;
+  }
+
+  /**
+   * One temperature-to-feeding boundary for every water-quality write shape.
+   *
+   * Batch input can contain several parameters for one equipment. Repricing the
+   * same unit twice would make the result depend on array order and would also
+   * acquire the aggregate locks more than once. Compile one deterministic,
+   * unit-sorted target set instead. Two different temperatures for the same
+   * unit at the same batch timestamp are ambiguous and therefore rejected.
+   */
+  private compileTemperatureTargets(
+    candidates: readonly WaterTemperatureRecalcCandidate[],
+  ): readonly WaterTemperatureRecalcTarget[] {
+    const targets = new Map<string, number>();
+    for (const candidate of candidates) {
+      if (!candidate.unitId || typeof candidate.temperature !== 'number') continue;
+
+      const existing = targets.get(candidate.unitId);
+      if (existing !== undefined && existing !== candidate.temperature) {
+        throw new BadRequestException(
+          `Batch contains conflicting temperatures for feeding unit ${candidate.unitId}`,
+        );
+      }
+      targets.set(candidate.unitId, candidate.temperature);
+    }
+    return [...targets]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([unitId, temperature]) => ({ unitId, temperature }));
+  }
+
+  private async recalcTemperatureTargets(
+    manager: EntityManager,
+    mutationSession: TenantMutationSession,
+    tenantId: string,
+    targets: readonly WaterTemperatureRecalcTarget[],
+  ): Promise<void> {
+    if (targets.length === 0) return;
+
+    const mutationInstant = await readTenantMutationInstantV1(mutationSession, 'farm');
+    for (const { unitId, temperature } of targets) {
+      await this.dayPlanRecalc.recalcForUnit(
+        manager,
+        mutationSession,
+        tenantId,
+        unitId,
+        'temperature',
+        { mutationInstant, newTemperatureC: temperature },
+      );
+    }
+  }
+
+  /** Measurement events share the same transactional outbox authority. */
+  private async enqueueMeasurementEvents(
+    manager: EntityManager,
+    tenantId: string,
+    measurement: WaterQualityMeasurement,
+  ): Promise<void> {
+    const createdEvent: WaterQualityMeasurementCreatedEvent = {
+      ...createBaseEvent<WaterQualityMeasurementCreatedEvent>(
+        'WaterQualityMeasurementCreated',
+        tenantId,
+      ),
+      measurementId: measurement.id,
+      equipmentId: measurement.equipmentId ?? null,
+      tankId: measurement.tankId ?? null,
+      source: measurement.source,
+      overallStatus: measurement.overallStatus,
+      hasAlarm: measurement.hasAlarm,
+      measuredBy: measurement.measuredBy ?? null,
+      measuredAt: measurement.measuredAt.toISOString(),
+      parameterCount: Object.keys(measurement.parameters || {}).length,
+    };
+    await this.outboxPublisher.enqueue(createdEvent, manager);
+
+    if (!measurement.hasAlarm || !measurement.summary?.evaluations) return;
+    const criticalParams = measurement.summary.evaluations
+      .filter(
+        (evaluation) =>
+          evaluation.status === ParameterStatus.CRITICAL_LOW ||
+          evaluation.status === ParameterStatus.CRITICAL_HIGH,
+      )
+      .map((evaluation) => ({
+        code: evaluation.parameter,
+        name: evaluation.parameter,
+        value: evaluation.value,
+        threshold:
+          evaluation.status === ParameterStatus.CRITICAL_LOW
+            ? (evaluation.criticalMin ?? 0)
+            : (evaluation.criticalMax ?? 0),
+        direction: (evaluation.status === ParameterStatus.CRITICAL_LOW ? 'below' : 'above') as
+          | 'above'
+          | 'below',
+        unit: evaluation.unit,
+      }));
+    if (criticalParams.length === 0) return;
+
+    const criticalEvent: WaterQualityCriticalEvent = {
+      ...createBaseEvent<WaterQualityCriticalEvent>('WaterQualityCritical', tenantId),
+      measurementId: measurement.id,
+      equipmentId: measurement.equipmentId ?? null,
+      tankId: measurement.tankId ?? null,
+      criticalParametersJson: JSON.stringify(criticalParams),
+      criticalParameterCount: criticalParams.length,
+      measuredAt: measurement.measuredAt.toISOString(),
+    };
+    await this.outboxPublisher.enqueue(criticalEvent, manager);
   }
 
   // -------------------------------------------------------------------------
@@ -263,135 +427,73 @@ export class WaterQualityService {
     const summary = await this.evaluationService.evaluate(tenantId, mergedParameters);
 
     // ── Transaction: measurement save + outbox event(s) ───────────────
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    let saved: WaterQualityMeasurement;
-    try {
-      // SEC-HIGH-051: object-level site authorization. Resolve the measurement's
-      // site inside the transaction and assert the caller is assigned to it
-      // BEFORE persisting. MODULE_MANAGER+ bypasses; an unresolved site (e.g. a
-      // pond-only measurement, or a site-less department) for a MODULE_USER is
-      // DENIED — never an implicit allow.
-      const measurementSiteId = await this.resolveMeasurementSiteId(
-        queryRunner.manager,
-        { siteId: input.siteId, tankId: input.tankId },
-        tenantId,
-      );
-      this.siteAuth.assertSiteAssignment({ caller, siteId: measurementSiteId });
-
-      const measurement = queryRunner.manager.create(WaterQualityMeasurement, {
-        tenantId,
-        tankId: input.tankId,
-        pondId: input.pondId,
-        siteId: input.siteId,
-        batchId: input.batchId,
-        equipmentId: input.equipmentId,
-        measuredAt: input.measuredAt,
-        source: input.source,
-        measuredBy: input.measuredBy,
-        parameters: mergedParameters,
-        notes: input.notes,
-        weatherConditions: input.weatherConditions,
-        idempotencyKey: input.idempotencyKey,
-        // Phase 7.4: cross-service correlation pointer to the
-        // sensor_readings row in sensor-service that produced this
-        // measurement. Null for manual entries.
-        relatedSensorReadingId: input.relatedSensorReadingId,
-        overallStatus: WaterQualityStatus.UNKNOWN,
-        hasAlarm: false,
-      });
-
-      // Config-driven evaluation is the SOLE evaluator. When strict validation
-      // passed, configs exist by construction, so summary.evaluations is
-      // populated. The measurement retains UNKNOWN status only when configs
-      // legitimately yield no numeric evaluations (e.g. enum/boolean-only sets).
-      if (summary.evaluations.length > 0) {
-        measurement.overallStatus = summary.overallStatus;
-        measurement.summary = summary;
-        measurement.hasAlarm = summary.criticalCount > 0;
-      }
-
-      saved = await queryRunner.manager.save(WaterQualityMeasurement, measurement);
-
-      // LIFE-SAFETY: Enqueue WaterQualityMeasurementCreatedEvent into the
-      // transactional outbox BEFORE commit. Guaranteed delivery via outbox worker.
-      const createdEvent: WaterQualityMeasurementCreatedEvent = {
-        ...createBaseEvent<WaterQualityMeasurementCreatedEvent>(
-          'WaterQualityMeasurementCreated',
-          tenantId,
-        ),
-        measurementId: saved.id,
-        equipmentId: saved.equipmentId ?? null,
-        tankId: saved.tankId ?? null,
-        source: saved.source,
-        overallStatus: saved.overallStatus,
-        hasAlarm: saved.hasAlarm,
-        measuredBy: saved.measuredBy ?? null,
-        measuredAt: saved.measuredAt.toISOString(),
-        parameterCount: Object.keys(saved.parameters || {}).length,
-      };
-      await this.outboxPublisher.enqueue(createdEvent, queryRunner.manager);
-
-      // LIFE-SAFETY: Critical alert event for alert-service — if parameters are
-      // in critical range, fish mortality risk is imminent. This event MUST be
-      // delivered reliably via outbox, not fire-and-forget.
-      if (saved.hasAlarm && saved.summary?.evaluations) {
-        const criticalParams = saved.summary.evaluations
-          .filter(
-            (e) =>
-              e.status === ParameterStatus.CRITICAL_LOW ||
-              e.status === ParameterStatus.CRITICAL_HIGH,
-          )
-          .map((e) => ({
-            code: e.parameter,
-            name: e.parameter,
-            value: e.value,
-            threshold:
-              e.status === ParameterStatus.CRITICAL_LOW
-                ? (e.criticalMin ?? 0)
-                : (e.criticalMax ?? 0),
-            direction: (e.status === ParameterStatus.CRITICAL_LOW ? 'below' : 'above') as
-              | 'above'
-              | 'below',
-            unit: e.unit,
-          }));
-
-        if (criticalParams.length > 0) {
-          // ARCH-C01: Serialize criticalParameters to JSON string — flat-object contract
-          const criticalEvent: WaterQualityCriticalEvent = {
-            ...createBaseEvent<WaterQualityCriticalEvent>('WaterQualityCritical', tenantId),
-            measurementId: saved.id,
-            equipmentId: saved.equipmentId ?? null,
-            tankId: saved.tankId ?? null,
-            criticalParametersJson: JSON.stringify(criticalParams),
-            criticalParameterCount: criticalParams.length,
-            measuredAt: saved.measuredAt.toISOString(),
-          };
-          await this.outboxPublisher.enqueue(criticalEvent, queryRunner.manager);
-        }
-      }
-
-      // P-31: ölçüm sıcaklık taşıyorsa ünitenin bugünkü beslenmemiş öğünleri
-      // aynı transaction'da yeni çarpanla yeniden fiyatlanır.
-      if (saved.tankId && typeof saved.temperature === 'number') {
-        await this.dayPlanRecalc.recalcForUnit(
+    const saved = await runInTenantTransaction(
+      this.dataSource,
+      'farm',
+      tenantId,
+      async (queryRunner, mutationSession) => {
+        // SEC-HIGH-051: object-level site authorization. Resolve the measurement's
+        // site inside the transaction and assert the caller is assigned to it
+        // BEFORE persisting. MODULE_MANAGER+ bypasses; an unresolved site (e.g. a
+        // pond-only measurement, or a site-less department) for a MODULE_USER is
+        // DENIED — never an implicit allow.
+        const measurementSiteId = await this.resolveMeasurementSiteId(
           queryRunner.manager,
+          { siteId: input.siteId, tankId: input.tankId },
           tenantId,
-          saved.tankId,
-          'temperature',
-          { newTemperatureC: Number(saved.temperature) },
         );
-      }
+        this.siteAuth.assertSiteAssignment({ caller, siteId: measurementSiteId });
 
-      await queryRunner.commitTransaction();
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+        const measurement = queryRunner.manager.create(WaterQualityMeasurement, {
+          tenantId,
+          tankId: input.tankId,
+          pondId: input.pondId,
+          siteId: input.siteId,
+          batchId: input.batchId,
+          equipmentId: input.equipmentId,
+          measuredAt: input.measuredAt,
+          source: input.source,
+          measuredBy: input.measuredBy,
+          parameters: mergedParameters,
+          notes: input.notes,
+          weatherConditions: input.weatherConditions,
+          idempotencyKey: input.idempotencyKey,
+          // Phase 7.4: cross-service correlation pointer to the
+          // sensor_readings row in sensor-service that produced this
+          // measurement. Null for manual entries.
+          relatedSensorReadingId: input.relatedSensorReadingId,
+          overallStatus: WaterQualityStatus.UNKNOWN,
+          hasAlarm: false,
+        });
+
+        // Config-driven evaluation is the SOLE evaluator. When strict validation
+        // passed, configs exist by construction, so summary.evaluations is
+        // populated. The measurement retains UNKNOWN status only when configs
+        // legitimately yield no numeric evaluations (e.g. enum/boolean-only sets).
+        if (summary.evaluations.length > 0) {
+          measurement.overallStatus = summary.overallStatus;
+          measurement.summary = summary;
+          measurement.hasAlarm = summary.criticalCount > 0;
+        }
+
+        const saved = await queryRunner.manager.save(WaterQualityMeasurement, measurement);
+
+        await this.enqueueMeasurementEvents(queryRunner.manager, tenantId, saved);
+        await this.recalcTemperatureTargets(
+          queryRunner.manager,
+          mutationSession,
+          tenantId,
+          this.compileTemperatureTargets([
+            {
+              unitId: saved.tankId ?? saved.equipmentId,
+              temperature: saved.temperature ?? saved.parameters?.temperature,
+            },
+          ]),
+        );
+
+        return saved;
+      },
+    );
 
     this.logger.log(
       `Created water quality measurement ${saved.id} with status ${saved.overallStatus}`,
@@ -435,9 +537,15 @@ export class WaterQualityService {
         });
       }
     }
+    const temperatureTargets = this.compileTemperatureTargets(
+      input.measurements.map((measurement) => ({
+        unitId: measurement.equipmentId,
+        temperature: measurement.dynamicParameters['temperature'],
+      })),
+    );
 
     // 2. Pre-evaluate thresholds (no DB writes, safe outside transaction)
-    const evaluations = [];
+    const evaluations: WaterQualitySummary[] = [];
     for (const item of input.measurements) {
       const summary = await this.evaluationService.evaluate(
         tenantId,
@@ -446,121 +554,70 @@ export class WaterQualityService {
       evaluations.push(summary);
     }
 
-    // 3. Transaction: bulk INSERT measurements + enqueue outbox events
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
+    // 3. One tenant mutation session owns bulk INSERT, outbox and every
+    // temperature-driven feeding aggregate mutation.
+    const saved = await runInTenantTransaction(
+      this.dataSource,
+      'farm',
+      tenantId,
+      async (queryRunner, mutationSession) => {
+        const entities: WaterQualityMeasurement[] = [];
+        for (let i = 0; i < input.measurements.length; i++) {
+          const item = input.measurements[i]!;
+          const summary = evaluations[i]!;
 
-    let saved: WaterQualityMeasurement[];
-    try {
-      const entities: WaterQualityMeasurement[] = [];
-      for (let i = 0; i < input.measurements.length; i++) {
-        const item = input.measurements[i]!;
-        const summary = evaluations[i]!;
-
-        // SEC-HIGH-051: object-level site authorization PER measurement. A batch
-        // is keyed by equipmentId (a tank/equipment id) → Department.siteId.
-        // MODULE_MANAGER+ bypasses; an unresolved site for a MODULE_USER DENIES
-        // the whole batch (the transaction rolls back) — never an implicit allow.
-        const itemSiteId = await this.resolveMeasurementSiteId(
-          queryRunner.manager,
-          { tankId: item.equipmentId },
-          tenantId,
-        );
-        this.siteAuth.assertSiteAssignment({ caller, siteId: itemSiteId });
-
-        const measurement = queryRunner.manager.create(WaterQualityMeasurement, {
-          tenantId,
-          equipmentId: item.equipmentId,
-          measuredAt: input.measuredAt,
-          source: input.source,
-          measuredBy: userId,
-          parameters: item.dynamicParameters as WaterQualityMeasurement['parameters'],
-          notes: item.notes,
-          idempotencyKey: item.idempotencyKey,
-          overallStatus: WaterQualityStatus.UNKNOWN,
-          hasAlarm: false,
-        });
-
-        // Config-driven evaluation is the SOLE evaluator (the entity's
-        // hardcoded evaluateParameters() was removed). Batch items are
-        // validate()-gated above, so configs exist; UNKNOWN remains only when
-        // the config set yields no numeric evaluations.
-        if (summary.evaluations.length > 0) {
-          measurement.overallStatus = summary.overallStatus;
-          measurement.summary = summary;
-          measurement.hasAlarm = summary.criticalCount > 0;
-        }
-
-        entities.push(measurement);
-      }
-
-      saved = await queryRunner.manager.save(WaterQualityMeasurement, entities);
-
-      // Enqueue outbox events for each measurement (inside the same transaction)
-      for (const measurement of saved) {
-        const createdEvent: WaterQualityMeasurementCreatedEvent = {
-          ...createBaseEvent<WaterQualityMeasurementCreatedEvent>(
-            'WaterQualityMeasurementCreated',
+          // SEC-HIGH-051: object-level site authorization PER measurement. A batch
+          // is keyed by equipmentId (a tank/equipment id) → Department.siteId.
+          // MODULE_MANAGER+ bypasses; an unresolved site for a MODULE_USER DENIES
+          // the whole batch (the transaction rolls back) — never an implicit allow.
+          const itemSiteId = await this.resolveMeasurementSiteId(
+            queryRunner.manager,
+            { tankId: item.equipmentId },
             tenantId,
-          ),
-          measurementId: measurement.id,
-          equipmentId: measurement.equipmentId ?? null,
-          tankId: measurement.tankId ?? null,
-          source: measurement.source,
-          overallStatus: measurement.overallStatus,
-          hasAlarm: measurement.hasAlarm,
-          measuredBy: measurement.measuredBy ?? null,
-          measuredAt: measurement.measuredAt.toISOString(),
-          parameterCount: Object.keys(measurement.parameters || {}).length,
-        };
-        await this.outboxPublisher.enqueue(createdEvent, queryRunner.manager);
+          );
+          this.siteAuth.assertSiteAssignment({ caller, siteId: itemSiteId });
 
-        // LIFE-SAFETY: Critical alert event for alert-service
-        if (measurement.hasAlarm && measurement.summary?.evaluations) {
-          const criticalParams = measurement.summary.evaluations
-            .filter(
-              (e) =>
-                e.status === ParameterStatus.CRITICAL_LOW ||
-                e.status === ParameterStatus.CRITICAL_HIGH,
-            )
-            .map((e) => ({
-              code: e.parameter,
-              name: e.parameter,
-              value: e.value,
-              threshold:
-                e.status === ParameterStatus.CRITICAL_LOW
-                  ? (e.criticalMin ?? 0)
-                  : (e.criticalMax ?? 0),
-              direction: (e.status === ParameterStatus.CRITICAL_LOW ? 'below' : 'above') as
-                | 'above'
-                | 'below',
-              unit: e.unit,
-            }));
+          const measurement = queryRunner.manager.create(WaterQualityMeasurement, {
+            tenantId,
+            equipmentId: item.equipmentId,
+            measuredAt: input.measuredAt,
+            source: input.source,
+            measuredBy: userId,
+            parameters: item.dynamicParameters as WaterQualityMeasurement['parameters'],
+            notes: item.notes,
+            idempotencyKey: item.idempotencyKey,
+            overallStatus: WaterQualityStatus.UNKNOWN,
+            hasAlarm: false,
+          });
 
-          if (criticalParams.length > 0) {
-            // ARCH-C01: Serialize criticalParameters to JSON string — flat-object contract
-            const criticalEvent: WaterQualityCriticalEvent = {
-              ...createBaseEvent<WaterQualityCriticalEvent>('WaterQualityCritical', tenantId),
-              measurementId: measurement.id,
-              equipmentId: measurement.equipmentId ?? null,
-              tankId: measurement.tankId ?? null,
-              criticalParametersJson: JSON.stringify(criticalParams),
-              criticalParameterCount: criticalParams.length,
-              measuredAt: measurement.measuredAt.toISOString(),
-            };
-            await this.outboxPublisher.enqueue(criticalEvent, queryRunner.manager);
+          // Config-driven evaluation is the SOLE evaluator (the entity's
+          // hardcoded evaluateParameters() was removed). Batch items are
+          // validate()-gated above, so configs exist; UNKNOWN remains only when
+          // the config set yields no numeric evaluations.
+          if (summary.evaluations.length > 0) {
+            measurement.overallStatus = summary.overallStatus;
+            measurement.summary = summary;
+            measurement.hasAlarm = summary.criticalCount > 0;
           }
-        }
-      }
 
-      await queryRunner.commitTransaction();
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+          entities.push(measurement);
+        }
+
+        const persisted = await queryRunner.manager.save(WaterQualityMeasurement, entities);
+
+        // Enqueue outbox events for each measurement (inside the same transaction)
+        for (const measurement of persisted) {
+          await this.enqueueMeasurementEvents(queryRunner.manager, tenantId, measurement);
+        }
+        await this.recalcTemperatureTargets(
+          queryRunner.manager,
+          mutationSession,
+          tenantId,
+          temperatureTargets,
+        );
+        return persisted;
+      },
+    );
 
     this.logger.log(`Created batch of ${saved.length} WQ measurements for tenant ${tenantId}`);
     return saved;

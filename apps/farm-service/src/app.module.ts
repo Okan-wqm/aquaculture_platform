@@ -61,8 +61,11 @@ import {
   createServiceTypeOrmConfig,
   isSchemaDdlOwnedByDbMigrate,
   TenantSchemaCacheModule,
+  WatchdogRunner,
 } from '@aquaculture/backend-common/database';
+import { DeadLetterModule } from '@aquaculture/backend-common/events';
 import { createTenantSchemaMiddleware } from '@aquaculture/backend-common/middleware';
+import { DataSource } from 'typeorm';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('farm');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('farm');
 /**
@@ -92,8 +95,8 @@ import { HealthModule } from './health/health.module';
 import { SpeciesModule } from './species/species.module';
 import { TankModule } from './tank/tank.module';
 import { BatchModule } from './batch/batch.module';
-import { FeedingModule } from './feeding/feeding.module';
-import { FeedingProtocolModule } from './feeding-protocol/feeding-protocol.module';
+import { FeedingOperationIngressModule } from './feeding-protocol/feeding-operation-ingress.module';
+import { FeedingScheduleDispatchConsumerModule } from './feeding-protocol/schedule-dispatch/feeding-schedule-dispatch-consumer.module';
 import { GrowthModule } from './growth/growth.module';
 import { WaterQualityModule } from './water-quality/water-quality.module';
 import { FishHealthModule } from './fish-health/fish-health.module';
@@ -342,6 +345,8 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
       useFactory: buildEventBusConfig,
     }),
 
+    DeadLetterModule.forRoot({ schema: 'farm', source: 'farm-service' }),
+
     // Database module (audit, code generation, migration runner)
     DatabaseModule,
 
@@ -426,8 +431,8 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
     SpeciesModule,
     TankModule,
     BatchModule,
-    FeedingModule,
-    FeedingProtocolModule,
+    FeedingOperationIngressModule,
+    FeedingScheduleDispatchConsumerModule,
     GrowthModule,
     WaterQualityModule,
     FishHealthModule,
@@ -564,6 +569,13 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
     TenantConnectionBootstrap,
     // Auto-sync tenant schemas with source schema (creates missing tables/columns)
     TenantSchemaSyncService,
+    // Keep runner construction injectable so cron behavior can be tested and
+    // replaced without opening a second database authority.
+    {
+      provide: WatchdogRunner,
+      useFactory: (dataSource: DataSource): WatchdogRunner => new WatchdogRunner(dataSource),
+      inject: [DataSource],
+    },
     WatchdogCronService,
   ],
 })

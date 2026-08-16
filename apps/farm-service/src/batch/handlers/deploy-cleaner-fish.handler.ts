@@ -11,7 +11,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import { toEventIso,
+import {
+  toEventIso,
   createBaseEvent,
   type CleanerFishDeployedEvent,
 } from '@platform/event-contracts';
@@ -22,11 +23,13 @@ import { TankOperation, OperationType } from '../entities/tank-operation.entity'
 import { Equipment } from '../../equipment/entities/equipment.entity';
 import { Species } from '../../species/entities/species.entity';
 import { TankCapacityService } from '../../tank/services/tank-capacity.service';
+import { BatchAggregateMutationPort } from '../batch-aggregate-mutation.port';
 
 @Injectable()
 @CommandHandler(DeployCleanerFishCommand)
 export class DeployCleanerFishHandler implements ICommandHandler<DeployCleanerFishCommand, Batch> {
   constructor(
+    private readonly batchMutations: BatchAggregateMutationPort,
     @InjectRepository(Batch)
     private readonly batchRepository: Repository<Batch>,
     @InjectRepository(TankBatch)
@@ -56,14 +59,14 @@ export class DeployCleanerFishHandler implements ICommandHandler<DeployCleanerFi
 
     if (cleanerBatch.batchType !== BatchType.CLEANER_FISH) {
       throw new BadRequestException(
-        `Batch ${cleanerBatch.batchNumber} bir cleaner fish batch'i değil`
+        `Batch ${cleanerBatch.batchNumber} bir cleaner fish batch'i değil`,
       );
     }
 
     // Miktar kontrolü
     if (payload.quantity > cleanerBatch.currentQuantity) {
       throw new BadRequestException(
-        `Deploy miktarı (${payload.quantity}) mevcut miktardan (${cleanerBatch.currentQuantity}) fazla olamaz`
+        `Deploy miktarı (${payload.quantity}) mevcut miktardan (${cleanerBatch.currentQuantity}) fazla olamaz`,
       );
     }
 
@@ -144,9 +147,7 @@ export class DeployCleanerFishHandler implements ICommandHandler<DeployCleanerFi
 
     // Cleaner fish detaylarını güncelle
     const existingDetails = tankBatch.cleanerFishDetails || [];
-    const existingDetailIndex = existingDetails.findIndex(
-      (d) => d.batchId === cleanerBatch.id
-    );
+    const existingDetailIndex = existingDetails.findIndex((d) => d.batchId === cleanerBatch.id);
 
     const newDetail: CleanerFishDetail = {
       batchId: cleanerBatch.id,
@@ -154,12 +155,12 @@ export class DeployCleanerFishHandler implements ICommandHandler<DeployCleanerFi
       speciesId: cleanerBatch.speciesId,
       speciesName,
       quantity: payload.quantity,
-      initialQuantity: payload.quantity,  // İlk deploy miktarını kaydet
+      initialQuantity: payload.quantity, // İlk deploy miktarını kaydet
       avgWeightG,
       biomassKg,
       sourceType: cleanerBatch.sourceType as 'farmed' | 'wild_caught',
       deployedAt: payload.deployedAt,
-      totalMortality: 0,                   // Başlangıçta mortality 0
+      totalMortality: 0, // Başlangıçta mortality 0
       mortalityRate: 0,
     };
 
@@ -172,7 +173,8 @@ export class DeployCleanerFishHandler implements ICommandHandler<DeployCleanerFi
       existingDetail.initialQuantity = (existingDetail.initialQuantity || 0) + payload.quantity;
       // Mortality rate yeniden hesapla (eğer mortality varsa)
       if (existingDetail.totalMortality && existingDetail.initialQuantity > 0) {
-        existingDetail.mortalityRate = (existingDetail.totalMortality / existingDetail.initialQuantity) * 100;
+        existingDetail.mortalityRate =
+          (existingDetail.totalMortality / existingDetail.initialQuantity) * 100;
       }
     } else {
       // Yeni kayıt ekle
@@ -186,7 +188,8 @@ export class DeployCleanerFishHandler implements ICommandHandler<DeployCleanerFi
     // Tank yoğunluğunu güncelle
     const tankVolume = targetTank.volume || 0;
     if (tankVolume > 0) {
-      const totalBiomass = Number(tankBatch.totalBiomassKg || 0) + Number(tankBatch.cleanerFishBiomassKg);
+      const totalBiomass =
+        Number(tankBatch.totalBiomassKg || 0) + Number(tankBatch.cleanerFishBiomassKg);
       tankBatch.densityKgM3 = totalBiomass / Number(tankVolume);
     }
 
@@ -226,32 +229,43 @@ export class DeployCleanerFishHandler implements ICommandHandler<DeployCleanerFi
     // writes landing, and the domain never commits without its event
     // enqueued. OutboxWorker publishes to NATS asynchronously with
     // retry + dead-letter.
-    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-      await queryRunner.manager.save(TankBatch, tankBatch);
-      await queryRunner.manager.save(Batch, cleanerBatch);
-      await queryRunner.manager.save(TankOperation, operation);
+    return runInTenantTransaction(
+      this.dataSource,
+      'farm',
+      tenantId,
+      async (queryRunner, mutationSession) => {
+        await this.batchMutations.commitTankBatchTransition(mutationSession, {
+          intent: 'cleaner_fish_deployed',
+          aggregate: tankBatch,
+        });
+        await this.batchMutations.commitBatchTransition(mutationSession, {
+          intent: 'cleaner_fish_deployed',
+          aggregate: cleanerBatch,
+        });
+        await queryRunner.manager.save(TankOperation, operation);
 
-      const event: CleanerFishDeployedEvent = {
-        ...createBaseEvent<CleanerFishDeployedEvent>('CleanerFishDeployed', tenantId, {
-          aggregateId: cleanerBatch.id,
-          aggregateType: 'Batch',
-        }),
-        cleanerBatchId: cleanerBatch.id,
-        targetTankId: payload.targetTankId,
-        speciesName,
-        quantity: payload.quantity,
-        avgWeightG,
-        biomassKg,
-        deployedAt: toEventIso(payload.deployedAt),
-        newTankCleanerFishQuantity: tankBatch.cleanerFishQuantity ?? 0,
-        newTankCleanerFishBiomassKg: Number(tankBatch.cleanerFishBiomassKg ?? 0),
-        newTankDensityKgM3: Number(tankBatch.densityKgM3 ?? 0),
-        newCleanerBatchCurrentQuantity: cleanerBatch.currentQuantity,
-        isOverCapacity: capacity.isOverCapacity,
-      };
-      await this.outboxPublisher.enqueue(event, queryRunner.manager);
+        const event: CleanerFishDeployedEvent = {
+          ...createBaseEvent<CleanerFishDeployedEvent>('CleanerFishDeployed', tenantId, {
+            aggregateId: cleanerBatch.id,
+            aggregateType: 'Batch',
+          }),
+          cleanerBatchId: cleanerBatch.id,
+          targetTankId: payload.targetTankId,
+          speciesName,
+          quantity: payload.quantity,
+          avgWeightG,
+          biomassKg,
+          deployedAt: toEventIso(payload.deployedAt),
+          newTankCleanerFishQuantity: tankBatch.cleanerFishQuantity ?? 0,
+          newTankCleanerFishBiomassKg: Number(tankBatch.cleanerFishBiomassKg ?? 0),
+          newTankDensityKgM3: Number(tankBatch.densityKgM3 ?? 0),
+          newCleanerBatchCurrentQuantity: cleanerBatch.currentQuantity,
+          isOverCapacity: capacity.isOverCapacity,
+        };
+        await this.outboxPublisher.enqueue(event, queryRunner.manager);
 
-      return cleanerBatch;
-    });
+        return cleanerBatch;
+      },
+    );
   }
 }

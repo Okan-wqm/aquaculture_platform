@@ -260,12 +260,14 @@ export class WaterQualityResolver {
   async getEffectiveUnitTemperatures(
     @Args('unitIds', { type: () => [ID] }) unitIds: string[],
     @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { sub: string; roles: Role[]; assignedSiteIds?: string[] },
   ): Promise<EffectiveUnitTemperature[]> {
     if (unitIds.length > MAX_EFFECTIVE_TEMPERATURE_UNITS) {
       throw new BadRequestException(
         `En fazla ${MAX_EFFECTIVE_TEMPERATURE_UNITS} ünite sorgulanabilir (istenen: ${unitIds.length})`,
       );
     }
+    await this.waterQualityService.assertUnitsSiteAuthorized(tenantId, unitIds, user);
     const map = await this.waterTemperatureService.getEffectiveTemperaturesForUnits(
       tenantId,
       unitIds,

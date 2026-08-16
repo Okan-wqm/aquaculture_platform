@@ -11,8 +11,8 @@ import {
   materializeMeals,
   repriceRemaining,
   suspensionFor,
-  zonedWallTimeToUtc,
 } from '../services/meal-schedule.util';
+import { compileFeedingTimezone, feedingWallTimeToInstant } from '@aquaculture/feeding-contracts';
 import type { MealSchedule, ProtocolBand } from '../entities/feeding-protocol-v2.entity';
 
 const DEFAULT_SCHEDULE: MealSchedule = {
@@ -65,23 +65,37 @@ describe('effectiveMealSchedule', () => {
   });
 });
 
-describe('zonedWallTimeToUtc (D-4)', () => {
+describe('feedingWallTimeToInstant (D-4)', () => {
   it('materializes Istanbul wall time as the correct UTC instant', () => {
     // Europe/Istanbul sabit UTC+3 — 08:00 duvar saati = 05:00Z.
-    const instant = zonedWallTimeToUtc('2026-07-20', '08:00', 'Europe/Istanbul');
+    const instant = feedingWallTimeToInstant(
+      '2026-07-20',
+      '08:00',
+      compileFeedingTimezone('Europe/Istanbul'),
+    );
     expect(instant.toISOString()).toBe('2026-07-20T05:00:00.000Z');
   });
 
   it('does not skip meals across the DST spring-forward gap (shifts forward)', () => {
     // Europe/Oslo 2026-03-29: 02:00→03:00 ileri atlar; 02:30 duvar saati YOK.
-    // Geçiş-öncesi offset (+1) ile ileri kaydırılmış gerçek an döner: 03:30 CEST.
-    const instant = zonedWallTimeToUtc('2026-03-29', '02:30', 'Europe/Oslo');
-    expect(instant.toISOString()).toBe('2026-03-29T01:30:00.000Z');
+    // Canonical next_valid_instant politikası geçişten sonraki ilk gerçek anı
+    // seçer: 03:00 CEST. Aynı policy scheduler catalog ve job compiler'da da
+    // kullanılır; uygulama katmanı ikinci bir DST kuralı tanımlamaz.
+    const instant = feedingWallTimeToInstant(
+      '2026-03-29',
+      '02:30',
+      compileFeedingTimezone('Europe/Oslo'),
+    );
+    expect(instant.toISOString()).toBe('2026-03-29T01:00:00.000Z');
   });
 
   it('picks the FIRST occurrence on the DST fall-back night (no double meal)', () => {
     // Europe/Oslo 2026-10-25: 03:00→02:00 geri alınır; 02:30 iki kez yaşanır.
-    const instant = zonedWallTimeToUtc('2026-10-25', '02:30', 'Europe/Oslo');
+    const instant = feedingWallTimeToInstant(
+      '2026-10-25',
+      '02:30',
+      compileFeedingTimezone('Europe/Oslo'),
+    );
     expect(instant.toISOString()).toBe('2026-10-25T00:30:00.000Z'); // CEST (+2) oluşu
   });
 });
@@ -97,7 +111,7 @@ describe('materializeMeals', () => {
         ],
       },
       '2026-07-20',
-      'Europe/Istanbul',
+      compileFeedingTimezone('Europe/Istanbul'),
       60,
     );
     expect(meals[0]!.scheduledAt.toISOString()).toBe('2026-07-20T06:00:00.000Z'); // 09:00 TRT

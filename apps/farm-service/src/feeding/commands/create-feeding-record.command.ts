@@ -6,43 +6,12 @@
  * @module Feeding/Commands
  */
 import { ITenantCommand } from '@platform/cqrs';
-import { FeedingMethod, FeedingEnvironment, FishBehavior } from '../entities/feeding-record.entity';
+import type { ManualFeedingRecordPayload } from '../../feeding-protocol/feeding-operation-command';
 
 /**
  * Yemleme kaydı oluşturma payload
  */
-export interface CreateFeedingRecordPayload {
-  batchId: string;
-  tankId?: string;
-  pondId?: string;
-  batchLocationId?: string;
-
-  feedingDate: Date;
-  feedingTime: string;
-  feedingSequence?: number;
-  totalMealsToday?: number;
-
-  feedId: string;
-  feedBatchNumber?: string;
-
-  plannedAmount: number;
-  actualAmount: number;
-  wasteAmount?: number;
-
-  environment?: FeedingEnvironment;
-  fishBehavior?: FishBehavior;
-
-  feedingMethod?: FeedingMethod;
-  equipmentId?: string;
-  feedingDurationMinutes?: number;
-
-  feedCost?: number;
-  currency?: string;
-
-  fedBy: string;
-  notes?: string;
-  skipReason?: string;
-}
+export type CreateFeedingRecordPayload = ManualFeedingRecordPayload;
 
 export class CreateFeedingRecordCommand implements ITenantCommand {
   readonly commandName = 'CreateFeedingRecordCommand';
@@ -51,5 +20,6 @@ export class CreateFeedingRecordCommand implements ITenantCommand {
     public readonly tenantId: string,
     public readonly payload: CreateFeedingRecordPayload,
     public readonly userId: string,
+    public readonly operationRequestId: string,
   ) {}
 }

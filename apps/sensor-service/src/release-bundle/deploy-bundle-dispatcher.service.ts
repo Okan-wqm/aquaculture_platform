@@ -18,7 +18,7 @@ import {
   validateDeployBundleParams,
 } from '@platform/sensor-contracts/validators';
 
-import { canonicalJsonStringify } from '../deploy-artifact/artifact.service';
+import { deployArtifactCanonicalJsonV1 } from '../deploy-artifact/artifact.service';
 import { DeployArtifact } from '../deploy-artifact/entities/deploy-artifact.entity';
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 
@@ -143,12 +143,12 @@ export class DeployBundleDispatcherService
         );
         return;
       }
-      contents[ref.sha256] = canonicalJsonStringify(artifact.content);
+      contents[ref.sha256] = deployArtifactCanonicalJsonV1(artifact.content);
     }
 
     const params = {
       bundleId: bundle.id,
-      manifest: canonicalJsonStringify(bundle.manifest),
+      manifest: deployArtifactCanonicalJsonV1(bundle.manifest),
       manifestSha256: bundle.manifestSha256,
       signature: bundle.signature,
       contents,

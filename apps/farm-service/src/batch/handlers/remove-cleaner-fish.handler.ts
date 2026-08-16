@@ -12,7 +12,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
-import { toEventIso,
+import {
+  toEventIso,
   createBaseEvent,
   type CleanerFishRemovedEvent,
 } from '@platform/event-contracts';
@@ -22,11 +23,13 @@ import { TankBatch } from '../entities/tank-batch.entity';
 import { TankOperation, OperationType } from '../entities/tank-operation.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';
 import { Species } from '../../species/entities/species.entity';
+import { BatchAggregateMutationPort } from '../batch-aggregate-mutation.port';
 
 @Injectable()
 @CommandHandler(RemoveCleanerFishCommand)
 export class RemoveCleanerFishHandler implements ICommandHandler<RemoveCleanerFishCommand, Batch> {
   constructor(
+    private readonly batchMutations: BatchAggregateMutationPort,
     @InjectRepository(Batch)
     private readonly batchRepository: Repository<Batch>,
     @InjectRepository(TankBatch)
@@ -55,7 +58,7 @@ export class RemoveCleanerFishHandler implements ICommandHandler<RemoveCleanerFi
 
     if (cleanerBatch.batchType !== BatchType.CLEANER_FISH) {
       throw new BadRequestException(
-        `Batch ${cleanerBatch.batchNumber} bir cleaner fish batch'i değil`
+        `Batch ${cleanerBatch.batchNumber} bir cleaner fish batch'i değil`,
       );
     }
 
@@ -79,14 +82,10 @@ export class RemoveCleanerFishHandler implements ICommandHandler<RemoveCleanerFi
 
     // Bu batch'in tank'ta olup olmadığını kontrol et
     const existingDetails = tankBatch.cleanerFishDetails || [];
-    const detailIndex = existingDetails.findIndex(
-      (d) => d.batchId === cleanerBatch.id
-    );
+    const detailIndex = existingDetails.findIndex((d) => d.batchId === cleanerBatch.id);
 
     if (detailIndex < 0) {
-      throw new BadRequestException(
-        `Batch ${cleanerBatch.batchNumber} bu tankta bulunmuyor`
-      );
+      throw new BadRequestException(`Batch ${cleanerBatch.batchNumber} bu tankta bulunmuyor`);
     }
 
     const existingDetail = existingDetails[detailIndex]!;
@@ -94,7 +93,7 @@ export class RemoveCleanerFishHandler implements ICommandHandler<RemoveCleanerFi
     // Miktar kontrolü
     if (payload.quantity > existingDetail.quantity) {
       throw new BadRequestException(
-        `Çıkarma miktarı (${payload.quantity}) mevcut miktardan (${existingDetail.quantity}) fazla olamaz`
+        `Çıkarma miktarı (${payload.quantity}) mevcut miktardan (${existingDetail.quantity}) fazla olamaz`,
       );
     }
 
@@ -127,13 +126,20 @@ export class RemoveCleanerFishHandler implements ICommandHandler<RemoveCleanerFi
     }
 
     tankBatch.cleanerFishDetails = existingDetails;
-    tankBatch.cleanerFishQuantity = Math.max(0, (tankBatch.cleanerFishQuantity || 0) - payload.quantity);
-    tankBatch.cleanerFishBiomassKg = Math.max(0, Number(tankBatch.cleanerFishBiomassKg || 0) - biomassKg);
+    tankBatch.cleanerFishQuantity = Math.max(
+      0,
+      (tankBatch.cleanerFishQuantity || 0) - payload.quantity,
+    );
+    tankBatch.cleanerFishBiomassKg = Math.max(
+      0,
+      Number(tankBatch.cleanerFishBiomassKg || 0) - biomassKg,
+    );
 
     // Tank yoğunluğunu güncelle
     const tankVolume = tank.volume || 0;
     if (tankVolume > 0) {
-      const totalBiomass = Number(tankBatch.totalBiomassKg || 0) + Number(tankBatch.cleanerFishBiomassKg);
+      const totalBiomass =
+        Number(tankBatch.totalBiomassKg || 0) + Number(tankBatch.cleanerFishBiomassKg);
       tankBatch.densityKgM3 = totalBiomass / Number(tankVolume);
     }
 
@@ -178,32 +184,43 @@ export class RemoveCleanerFishHandler implements ICommandHandler<RemoveCleanerFi
     // never fires without the domain write landing, and the domain
     // write never commits without its event enqueued. OutboxWorker
     // publishes to NATS asynchronously with retry + dead-letter.
-    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-      await queryRunner.manager.save(TankBatch, tankBatch);
-      await queryRunner.manager.save(Batch, cleanerBatch);
-      await queryRunner.manager.save(TankOperation, operation);
+    return runInTenantTransaction(
+      this.dataSource,
+      'farm',
+      tenantId,
+      async (queryRunner, mutationSession) => {
+        await this.batchMutations.commitTankBatchTransition(mutationSession, {
+          intent: 'cleaner_fish_removed',
+          aggregate: tankBatch,
+        });
+        await this.batchMutations.commitBatchTransition(mutationSession, {
+          intent: 'cleaner_fish_removed',
+          aggregate: cleanerBatch,
+        });
+        await queryRunner.manager.save(TankOperation, operation);
 
-      const event: CleanerFishRemovedEvent = {
-        ...createBaseEvent<CleanerFishRemovedEvent>('CleanerFishRemoved', tenantId, {
-          aggregateId: cleanerBatch.id,
-          aggregateType: 'Batch',
-        }),
-        cleanerBatchId: cleanerBatch.id,
-        tankId: payload.tankId,
-        speciesName,
-        quantity: payload.quantity,
-        avgWeightG,
-        biomassKg,
-        reason: payload.reason,
-        detail: payload.notes,
-        removedAt: toEventIso(payload.removedAt),
-        newTankCleanerFishQuantity: tankBatch.cleanerFishQuantity ?? 0,
-        newTankCleanerFishBiomassKg: Number(tankBatch.cleanerFishBiomassKg ?? 0),
-        newCleanerBatchCurrentQuantity: cleanerBatch.currentQuantity,
-      };
-      await this.outboxPublisher.enqueue(event, queryRunner.manager);
+        const event: CleanerFishRemovedEvent = {
+          ...createBaseEvent<CleanerFishRemovedEvent>('CleanerFishRemoved', tenantId, {
+            aggregateId: cleanerBatch.id,
+            aggregateType: 'Batch',
+          }),
+          cleanerBatchId: cleanerBatch.id,
+          tankId: payload.tankId,
+          speciesName,
+          quantity: payload.quantity,
+          avgWeightG,
+          biomassKg,
+          reason: payload.reason,
+          detail: payload.notes,
+          removedAt: toEventIso(payload.removedAt),
+          newTankCleanerFishQuantity: tankBatch.cleanerFishQuantity ?? 0,
+          newTankCleanerFishBiomassKg: Number(tankBatch.cleanerFishBiomassKg ?? 0),
+          newCleanerBatchCurrentQuantity: cleanerBatch.currentQuantity,
+        };
+        await this.outboxPublisher.enqueue(event, queryRunner.manager);
 
-      return cleanerBatch;
-    });
+        return cleanerBatch;
+      },
+    );
   }
 }

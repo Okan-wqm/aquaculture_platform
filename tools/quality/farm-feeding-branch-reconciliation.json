@@ -1,0 +1,2603 @@
+{
+  "schemaVersion": "farm-feeding-branch-reconciliation/v3",
+  "source": {
+    "ref": "refs/remotes/origin/claude/farm-feeding-protocol-f92y38",
+    "forkParent": "bdaf00bf633151927740304985551a012e5e2e5c",
+    "synchronizationBase": "8cd8c4ca2b5329535080644657870dd59d8616a3",
+    "tip": "d19d4aabf5dc618e4f6211be8b58166e4f126444",
+    "commitCount": 49,
+    "historySha256": "ce3a38524a35161c820f5bc30696d88a58189a732592dd69c4ea5e3ff36afea5"
+  },
+  "candidateGraph": {
+    "baseline": "9d8b7929fa1f0ee5fa5efa378cbb26d6eb1b2194",
+    "mainRef": "refs/remotes/origin/main",
+    "mainSnapshot": "a1c014c55bc7dfcc04295be89bc8e1d2ddbcf36c",
+    "mainAdvanceSha256": "dac74b3940a8c42c9085e3c23272549c5afb593e15e9ec6c18bd5ef4fd9f9ce8",
+    "headPolicy": "BASELINE_OR_MAIN_SNAPSHOT_MERGED"
+  },
+  "mergePolicy": {
+    "commit": "c11347a126e79aa58ff2cdf46ca418207d3fb0e4",
+    "requiredParentCount": 2,
+    "secondParentAuthority": "source.synchronizationBase",
+    "evidenceAuthority": "commit-conflict-list",
+    "feedingScopePrefixes": [
+      "apps/farm-service/",
+      "apps/farm-feeding-scheduler/",
+      "libs/feeding-contracts/"
+    ]
+  },
+  "exclusionBoundaries": [
+    {
+      "id": "FINDING_LEDGER_HISTORY",
+      "allowedCommits": [
+        "1c383b928074af1eb2d3978db69b67f6f073fe06",
+        "e842e286d65646117106f46f11824534be41cae9"
+      ],
+      "rationale": "Finding-state history is owned by the independent append-only registry and cannot be replayed by the feeding runtime publication."
+    }
+  ],
+  "evidenceCatalog": [
+    {
+      "id": "E:008A246CB43AB181",
+      "path": "apps/farm-service/src/water-quality/__tests__/water-quality.service.spec.ts",
+      "kind": "TEST",
+      "sha256": "97c33d7bcf483e026629ae07453f60dae4962dcd5083765b2ee82cdc321b94c8"
+    },
+    {
+      "id": "E:05B2A5E4CB3763CE",
+      "path": "libs/backend-common/src/middleware/tenant-context.middleware.ts",
+      "kind": "AUTHORITY",
+      "sha256": "437b8bdb54d6f383572ab67dfe2acc1a3f5dfcb12f2f0f3efe64675e8de1e263"
+    },
+    {
+      "id": "E:081E360A9307806E",
+      "path": "tests/invariants/test-target-ci-reachability.spec.ts",
+      "kind": "TEST",
+      "sha256": "0d83cce298f6f737bba8547bace150dd6eb4f881db37b62a4f3c476888ffbb36"
+    },
+    {
+      "id": "E:0B813CCEA9853117",
+      "path": "apps/farm-service/src/__tests__/support/feeding-sql-schema-tenant.compiler.ts",
+      "kind": "AUTHORITY",
+      "sha256": "1fae847793e03651d046a05ae096dd47a9f6ee0b755252c5f50266cf00962291"
+    },
+    {
+      "id": "E:101FCFC6D76940B9",
+      "path": "scripts/ci/affected-target-policy.json",
+      "kind": "AUTHORITY",
+      "sha256": "c6c7d2215842c4264e95dde0ad33d6606767485f838af92531805e8deafb8eea"
+    },
+    {
+      "id": "E:10B5FC801F502221",
+      "path": "web/apps/aquamobil/package.json",
+      "kind": "AUTHORITY",
+      "sha256": "7b7d33d89c4958e96f7269abe46e00fbba7d193afd3864f966c5cf722549f6e8"
+    },
+    {
+      "id": "E:110B641C75A7324B",
+      "path": "libs/backend-common/src/logging/structured-logger.service.ts",
+      "kind": "AUTHORITY",
+      "sha256": "2146ac883c910faabc9146bbb455705254df2d9e33d4828336059e847471ee7a"
+    },
+    {
+      "id": "E:1516DE785F3EFC4F",
+      "path": "apps/alert-engine/src/alert/services/farm-signal-incident.service.ts",
+      "kind": "AUTHORITY",
+      "sha256": "24c1b11265cc72f72f893c79e8c7ba3cb50b3c3994847fb52c78bee5d690023a"
+    },
+    {
+      "id": "E:1854B60DB10C66A2",
+      "path": ".github/workflows/db-migration-check.yml",
+      "kind": "AUTHORITY",
+      "sha256": "ec6366802c84c78999274f3d697df01cdbfacd45718f31f7af5276f26755a507"
+    },
+    {
+      "id": "E:194669CC7F0AD860",
+      "path": "apps/farm-service/src/water-quality/__tests__/unit-site-authorization.spec.ts",
+      "kind": "TEST",
+      "sha256": "ab75b6e1f325ce2688028c530b5b5e8d86bbce011160c74f0431e43c7a78d646"
+    },
+    {
+      "id": "E:19FE12CADDFEFF9C",
+      "path": "apps/farm-service/src/feeding-protocol/feeding-operation-transaction-retry.authority.ts",
+      "kind": "AUTHORITY",
+      "sha256": "65d0d6604dcfdf657ccccca2af0b4693f62642ea5cadfcf6b1e85ab290df77dd"
+    },
+    {
+      "id": "E:1BFA3C4A65FC874D",
+      "path": "apps/farm-service/src/feeding-protocol/__tests__/scheduled-feeding-operation.fcr-sweep.spec.ts",
+      "kind": "TEST",
+      "sha256": "8f256cfdadbfe1233c936ef1b16f5282d4798b1fa7c1f9c7bd767663c57b80a5"
+    },
+    {
+      "id": "E:1FD5B1A85D724A1B",
+      "path": "apps/farm-service/src/database/migrations/1808900000000-CreateFeedingHistoricalProvenanceAuthority.ts",
+      "kind": "AUTHORITY",
+      "sha256": "f7ac06b9d2841c3dfc7a676ab78f95e59ea6fc0936dd5c50e54c1fd7db8cf480"
+    },
+    {
+      "id": "E:1FFB3178B3FFFAE7",
+      "path": "apps/notification-service/src/notification/event-handlers/feeding-daily-summary.handler.ts",
+      "kind": "AUTHORITY",
+      "sha256": "b640afacee18b64327f3d7b11300b94d5b1dbb6625e7ecdff52855e7970ad0b0"
+    },
+    {
+      "id": "E:2061679842DF1E16",
+      "path": "platform/libs/event-bus/src/nats/__tests__/message-disposition.spec.ts",
+      "kind": "TEST",
+      "sha256": "8390a32facd057d8aa66f3e30ef72c6145b8a8118b4f886dd39a411132f36521"
+    },
+    {
+      "id": "E:21F373AA043BDB4E",
+      "path": "apps/config-service/src/database/migrations/1807400000000-RestoreConfigSchemaOwnerBoundary.ts",
+      "kind": "AUTHORITY",
+      "sha256": "6bd2deaabf5f8d3fa698d6619932fed534eac17d2aa98ead7a72f12ee9db9c44"
+    },
+    {
+      "id": "E:234456C24E4AA8CC",
+      "path": "apps/auth-service/src/modules/tenant/services/__tests__/tenant-suspend-revocation.spec.ts",
+      "kind": "TEST",
+      "sha256": "abe93c28f2d18b0c3a6d00721808d15ac85ab3c3760943598a103bff20795229"
+    },
+    {
+      "id": "E:27717733CC654B04",
+      "path": "apps/farm-service/src/storage/handlers/approve-inventory-count.handler.ts",
+      "kind": "AUTHORITY",
+      "sha256": "ba9953666bd84a77a1267267b114d74cc7949351f0bc2e78e2cba32060664af6"
+    },
+    {
+      "id": "E:27ABEA7073B2B514",
+      "path": "tests/invariants/aquamobil-day-plan-query-ssot.spec.ts",
+      "kind": "TEST",
+      "sha256": "7b5222faf1697f3f51e5c3edb74bbee73332bd6cc5cfe2b43c9cb2405a06245f"
+    },
+    {
+      "id": "E:2899165C0D686151",
+      "path": "apps/farm-service/src/harvest/__tests__/handlers/create-harvest-record.handler.spec.ts",
+      "kind": "TEST",
+      "sha256": "5d4654e26433e77c3778dc3f794862ed998e351c54835efdbf25263fb01f3562"
+    },
+    {
+      "id": "E:2A61E7C8651B2BA4",
+      "path": "apps/farm-service/src/feeding-protocol/__tests__/biomass-growth-applier.service.spec.ts",
+      "kind": "TEST",
+      "sha256": "7a3fb8d37d189d48317eec3928fca77fa7fe169e6fe8107d4fbb9ee317dec7fd"
+    },
+    {
+      "id": "E:2C18FD52E19624F4",
+      "path": "tests/invariants/library-test-ownership.spec.ts",
+      "kind": "TEST",
+      "sha256": "4e207683544e24d20e8a155a8362c02148cae3485dfea39380a098c9a2287eba"
+    },
+    {
+      "id": "E:2E495B9EA56BEC1A",
+      "path": "apps/sensor-service/src/feeding-window/__tests__/feeding-window-readiness.service.spec.ts",
+      "kind": "TEST",
+      "sha256": "4f068a98d2a54ff9a679a8c3ca1ba6696f1f8d288e93bc2988ac328481cc85d3"
+    },
+    {
+      "id": "E:2FC337153BD0A297",
+      "path": "apps/farm-service/src/water-quality/water-quality.service.ts",
+      "kind": "AUTHORITY",
+      "sha256": "47bdb5a4c5439cd99e1192eb6e07968ee38d1f6d3624cf8b65f62225765fb39f"
+    },
+    {
+      "id": "E:3432972345BDCA4B",
+      "path": "apps/farm-service/src/feeding-protocol/listeners/feeding-window-readiness.listener.ts",
+      "kind": "AUTHORITY",
+      "sha256": "7b808e8fdf122df02a5e2edf89b563734a3a6816a6421d509f6bd388b8102073"
+    },
+    {
+      "id": "E:3C81633B8237C000",
+      "path": "platform/libs/event-bus/project.json",
+      "kind": "AUTHORITY",
+      "sha256": "f8d4fb2c93a4d22c16f5f020d406e9dda5e820bea51e94471220ebf95ffbc5d7"
+    },
+    {
+      "id": "E:3CAE0FE3FBD41E67",
+      "path": "apps/farm-service/src/feeding-protocol/__tests__/scheduled-feeding-operation.chunk.spec.ts",
+      "kind": "TEST",
+      "sha256": "d4948c79aa4f21af8ce8d3526c97858a3b6e8afe6843d038be80b4a3b64a3bd6"
+    },
+    {
+      "id": "E:3E86509E4CC13A22",
+      "path": "apps/farm-service/src/database/migrations/1809600000000-CompileForecastPoolAuthority.ts",
+      "kind": "AUTHORITY",
+      "sha256": "441563a872ca046473015101106fc7c53d44e84553090152d98c7a869b6f55f0"
+    },
+    {
+      "id": "E:3ECC57DA9A062BAC",
+      "path": "tests/invariants/feeding-legacy-cutover-gate.spec.ts",
+      "kind": "TEST",
+      "sha256": "c6d5b34e5d5687393f833bd7ed6e5e791275c1d92dfd17e7292a6a84079cfcd9"
+    },
+    {
+      "id": "E:41CB75AD40374E11",
+      "path": "apps/farm-service/src/feeding-protocol/__tests__/feeding-forecast-projection.compiler.spec.ts",
+      "kind": "TEST",
+      "sha256": "524e52922126c11109bff428d5ed9b7b4f90ca641c6b2690ed9afba917724acf"
+    },
+    {
+      "id": "E:4385C732BA436562",
+      "path": "apps/farm-feeding-scheduler/src/feeding-operation-target-compiler.service.ts",
+      "kind": "AUTHORITY",
+      "sha256": "2b919ea2a3871aba0fee025efed610da6e63d6c4be9a3997c3920a60035742e6"
+    },
+    {
+      "id": "E:4442E7424AFB7DB9",
+      "path": "apps/db-migrate/src/least-privilege-role-authority.ts",
+      "kind": "AUTHORITY",
+      "sha256": "103a4c04b63ff6cf58e6b46e60a4dc9d7151742899d581fba0ebf62c7a4e66e0"
+    },
+    {
+      "id": "E:464B068C38CA3962",
+      "path": "apps/farm-service/src/feeding-protocol/__tests__/raw-sql-entity-backed.spec.ts",
+      "kind": "TEST",
+      "sha256": "9ef967508222d7f9136371b83d7b7df6b056baf4677c9b5278ebbe49e1247926"
+    },
+    {
+      "id": "E:468757A9D2A08FE1",
+      "path": "apps/sensor-service/src/feeding-window/feeding-window-readiness.service.ts",
+      "kind": "AUTHORITY",
+      "sha256": "0b059c4a65a4de754e3b065d14d73187367329f40f6acb381eec3acb98aa469f"
+    },
+    {
+      "id": "E:47F60C24E5747B2D",
+      "path": "apps/farm-service/src/batch/services/tank-batch.service.ts",
+      "kind": "AUTHORITY",
+      "sha256": "5fe78c2a3fcca2b60d4fae65046f9619964cd6c1b86158ac9a9d4f5208096695"
+    },
+    {
+      "id": "E:4ADDD106EFFCFBD5",
+      "path": "apps/farm-service/src/__tests__/integration/stock-mutation-authority.postgres.spec.ts",
+      "kind": "TEST",
+      "sha256": "6050262b9fd807bb94757e3207aebf526634219e8184ec523b277b58cac98c38"
+    },
+    {
+      "id": "E:4BA06BFD94C9DED6",
+      "path": "libs/backend-common/src/logging/__tests__/structured-logger.spec.ts",
+      "kind": "TEST",
+      "sha256": "be7157ef337f57f9e49292695607218b7573b78b78296c02fa691e1aadc64db4"
+    },
+    {
+      "id": "E:4C7EE6F31CDF2CBF",
+      "path": "apps/farm-service/src/common/utils/rounding.util.ts",
+      "kind": "AUTHORITY",
+      "sha256": "2d65fd0f08c657862f9022924819d62aac6485899bd519fd40fd60df72eab553"
+    },
+    {
+      "id": "E:4D8326CD3864F784",
+      "path": "apps/farm-service/src/storage/entities/storage-inventory.entity.ts",
+      "kind": "AUTHORITY",
+      "sha256": "65b07962238abfd07fca2e89fa7ab337f2e2577a57f310bac3d67f4dd58193ad"
+    },
+    {
+      "id": "E:52F10DB2FAC05CA7",
+      "path": "apps/farm-service/src/feeding-protocol/executors/scheduled-feeding-operation.executor.ts",
+      "kind": "AUTHORITY",
+      "sha256": "566d27c63b8e81973b062fb5079825c5909ce7a592067daa68562ae21052451e"
+    },
+    {
+      "id": "E:56BC2AFEF64152F2",
+      "path": "platform/libs/outbox/project.json",
+      "kind": "AUTHORITY",
+      "sha256": "6411ff8eb7bc79d36b8fe819018adf478865c78a02b9d15f8a1ba10641074d8a"
+    },
+    {
+      "id": "E:56E9689C34D5C943",
+      "path": "apps/farm-service/src/feeding-protocol/services/sensor-temperature-recalc.authority.ts",
+      "kind": "AUTHORITY",
+      "sha256": "34dbac01810897adfe4ead8baf6bdb688be088f04f3b804bdb65d71dc6e3b6d9"
+    },
+    {
+      "id": "E:58E4DE19E9212BCF",
+      "path": "tools/gates/finding-registry-store.spec.ts",
+      "kind": "GOVERNANCE",
+      "sha256": "7e62276f90132a59f6ad3a275742281423bed4e3112ccb4f242750f12142c723"
+    },
+    {
+      "id": "E:59CBCF806A06B6F1",
+      "path": "apps/farm-service/src/batch/__tests__/handlers/transfer-batch.handler.spec.ts",
+      "kind": "TEST",
+      "sha256": "6f2fca8dd9ff0210cb41d2f34a57331a080578c5fdc6eda27058fb748436e88e"
+    },
+    {
+      "id": "E:5CC1F7B20C8D06E0",
+      "path": "libs/event-contracts/src/tenant-commands.ts",
+      "kind": "AUTHORITY",
+      "sha256": "c7f439e03bee160eb18194638d0abde09632db8c0bb67ba4a335185f01265591"
+    },
+    {
+      "id": "E:5D004BCB0D4C2441",
+      "path": "apps/db-migrate/src/__tests__/feeding-operation-authority.integration.spec.ts",
+      "kind": "TEST",
+      "sha256": "d4166145ac5671ac39e871e1b4550d44e4baa272b91e192ad30e8f2f41fdcaa2"
+    },
+    {
+      "id": "E:60AE7791FE454DFC",
+      "path": "apps/db-migrate/src/sql/platform-bootstrap/008-least-privilege-hardening.sql",
+      "kind": "AUTHORITY",
+      "sha256": "45e9752794ac853c6e53faa0d8c8dd35c167e48e21685e68133a500d6050fbe3"
+    },
+    {
+      "id": "E:6283523737B93E46",
+      "path": "apps/farm-service/src/feeding-protocol/__tests__/feeding-operation-transaction-retry.authority.spec.ts",
+      "kind": "TEST",
+      "sha256": "d7ddcfbed54c0229b2658f454d4675e425df68c3dd74ad9ef109a6ed20737f0d"
+    },
+    {
+      "id": "E:641794CD3F618C9D",
+      "path": "libs/backend-common/project.json",
+      "kind": "AUTHORITY",
+      "sha256": "cdf1055e1a0ee9029bde6048d62ec3eb4e976a5ffd8b45e831271cabefaf195f"
+    },
+    {
+      "id": "E:65B61C406A6CFAF0",
+      "path": "apps/farm-service/src/feeding-protocol/__tests__/feeding-window-readiness.listener.spec.ts",
+      "kind": "TEST",
+      "sha256": "fa5ff998aa7d45e63634737d27887560e2ba13ae31df3e64681ae2e4c806317d"
+    },
+    {
+      "id": "E:65EE283656471510",
+      "path": "apps/db-migrate/src/__tests__/least-privilege-role-authority.spec.ts",
+      "kind": "TEST",
+      "sha256": "2c745d8878e381d9ec45b35788435628af69c3134af6bfb89d1db653e563267c"
+    },
+    {
+      "id": "E:665B36E84371E05A",
+      "path": "apps/farm-service/src/feeding/__tests__/handlers/create-feeding-record.handler.spec.ts",
+      "kind": "TEST",
+      "sha256": "9fa7530416df1cd22ab351136cac43cf14e4496c0f26658d9536f899ce17f7c5"
+    },
+    {
+      "id": "E:678E6AFB923F6FE2",
+      "path": "apps/notification-service/src/notification/services/in-app.service.delivery.integration.spec.ts",
+      "kind": "TEST",
+      "sha256": "2f6463ae4fcd61567fe8c5ad5497babad979a7699594cb7e3fd470d5b7d5aff7"
+    },
+    {
+      "id": "E:6DFC83E06397E47A",
+      "path": "libs/feeding-contracts/src/feeding-forecast-projection.ts",
+      "kind": "AUTHORITY",
+      "sha256": "86a5d220501f48bc418261094f2aa8a71313ca042a3abe0b34734ca8a1a2c7a2"
+    },
+    {
+      "id": "E:722D8D2FFAF6E6F9",
+      "path": "libs/backend-common/src/mobile-command/mobile-command-receipt.service.ts",
+      "kind": "AUTHORITY",
+      "sha256": "599dafcab33878ee868e4a8461d00ee70dfe2f69e2a0c617fa5f5ce88e6858f6"
+    },
+    {
+      "id": "E:771ACF9E2529BE0F",
+      "path": "apps/farm-service/src/storage/__tests__/stock-allocation-authority.spec.ts",
+      "kind": "TEST",
+      "sha256": "20f67a7361d0c3d28721e16af43f4f470cf68903bee8ccce34c8d2a38822a138"
+    },
+    {
+      "id": "E:77F4FAC71D888339",
+      "path": "apps/farm-service/src/feeding-protocol/__tests__/day-plan-recalc.service.spec.ts",
+      "kind": "TEST",
+      "sha256": "d4a7ea408ad2d2e6d687a9a1cd76fbfa4d10b5296f929e9b2718dd9ce50297b7"
+    },
+    {
+      "id": "E:7819F53A5A3005DF",
+      "path": "apps/farm-service/src/__tests__/e2e/helpers/stocked-tenant-fixture.ts",
+      "kind": "AUTHORITY",
+      "sha256": "db4e652e68cedbc8ea823318f4f7467b393d96af32aa56c45f94a206ca46c7c2"
+    },
+    {
+      "id": "E:79076A1987D8ABC7",
+      "path": "apps/farm-service/src/feeding-protocol/executors/meal-operation.executor.ts",
+      "kind": "AUTHORITY",
+      "sha256": "66248bf1b93d27e72c09837bd6ba37fee8c8c8cb163936e99419aded7db9f5b7"
+    },
+    {
+      "id": "E:7CC65A00B5A331A3",
+      "path": "apps/farm-service/src/events/listeners/__tests__/sensor-temperature-projection.listener.spec.ts",
+      "kind": "TEST",
+      "sha256": "2df3b8572a44440727eb379e96e7e169902eda726c6ea6c450aa6b9444983c8a"
+    },
+    {
+      "id": "E:8018B37D268EBB09",
+      "path": "web/modules/sensor-module/src/types/scada-package.types.ts",
+      "kind": "AUTHORITY",
+      "sha256": "994ce526c5bc6756e679a3576d84826a99f0ce474071322abbbe81ee913c0a5d"
+    },
+    {
+      "id": "E:83FF5E536B8E9165",
+      "path": "tools/scripts/emit-subgraph-sdl.ts",
+      "kind": "AUTHORITY",
+      "sha256": "6c32faf5fc39d7718711e8f1ab7b158c7972ccad69f92b329b7d6d92899be138"
+    },
+    {
+      "id": "E:88D066796D186CAC",
+      "path": "apps/farm-service/src/feeding/services/feeding-ledger.service.ts",
+      "kind": "AUTHORITY",
+      "sha256": "012ed6d24b6b7d3a9bcefbfae07912f12f22847afdd6f286f0abd27e9a7b7b58"
+    },
+    {
+      "id": "E:8988D45359FDC2AA",
+      "path": "apps/farm-service/src/batch/batch-aggregate-mutation.port.ts",
+      "kind": "AUTHORITY",
+      "sha256": "1af88b0ac91b102b7e52aa9d6f3d4471d710f6ae4d95a700ddccfee954f4a3fc"
+    },
+    {
+      "id": "E:8C00AEA0451194B6",
+      "path": "apps/farm-service/src/feeding-protocol/__tests__/sensor-temperature-recalc.authority.spec.ts",
+      "kind": "TEST",
+      "sha256": "1e0ff40a5766d4b042261f29c8c48153d81507412110c34e1756c26daab051d7"
+    },
+    {
+      "id": "E:8E5B0B2CDFE1CCD7",
+      "path": "tests/invariants/feeding-event-delivery-semantics.spec.ts",
+      "kind": "TEST",
+      "sha256": "688441d6ed629bbe7369f699db7dfb36e0e5ea667d354f4a176c7f2b774fe349"
+    },
+    {
+      "id": "E:8F52C1851B39E78B",
+      "path": "libs/backend-common/src/database/pg-pool-from-data-source.util.ts",
+      "kind": "AUTHORITY",
+      "sha256": "25e627eaa05bd156faabfb412e88341e891afd962bbca5aa9ea5dd15228bda76"
+    },
+    {
+      "id": "E:93B2DCFA6C8344D1",
+      "path": "platform/libs/event-bus/src/nats/event-stream-capacity.catalog.ts",
+      "kind": "AUTHORITY",
+      "sha256": "af1e539446eac1b1bf3bca3cd2177c3e556705fc82892cd38446120d29180599"
+    },
+    {
+      "id": "E:9BB5D088CC655429",
+      "path": "tests/invariants/subgraph-sdl-emitter-determinism.spec.ts",
+      "kind": "TEST",
+      "sha256": "ac25e911c8c0f186f07a21dd2dfbc85bde16d1a483db956978f481ba4932e54e"
+    },
+    {
+      "id": "E:9BFBA2BDEF8A0F36",
+      "path": "tests/invariants/rounding-ssot.spec.ts",
+      "kind": "TEST",
+      "sha256": "c87e0ec8015e2545b978f9704fd256d1dbfaa3b9c9a21db062dbf66a61a620a5"
+    },
+    {
+      "id": "E:9C6EA1DAFF0324EB",
+      "path": "libs/migration-harness/src/__tests__/expect-no-drift.integration.spec.ts",
+      "kind": "TEST",
+      "sha256": "5e207ae164ae8c5c3ee29381d695b41de7e911c84c4d25495fc0317cf2b794bc"
+    },
+    {
+      "id": "E:9FC1BD6EFBC83BC1",
+      "path": "apps/farm-service/src/database/migrations/1809400000000-EnforceSingleLiveProtocolAssignment.ts",
+      "kind": "AUTHORITY",
+      "sha256": "749f7dc818c34f989ae8cbb4150a240e2a35ec6a46242dffacd13770c775a3de"
+    },
+    {
+      "id": "E:A37EEE4F70D67E38",
+      "path": "tests/invariants/farm-durable-mutation-port.spec.ts",
+      "kind": "TEST",
+      "sha256": "ee9b719ad7b20828ad90b7c29e37f9e38cce8fe5af0d057c9aeb407002301d1d"
+    },
+    {
+      "id": "E:A3EAE88496055D01",
+      "path": "tests/invariants/farm-stocked-tenant-fixture-ssot.spec.ts",
+      "kind": "TEST",
+      "sha256": "9d2a39ae74f3ea1ef5ce3f0680c42b782195b79d9b95790b1035ac51f9c81173"
+    },
+    {
+      "id": "E:A8DFC5C19304645F",
+      "path": "apps/farm-service/src/feeding-protocol/__tests__/meal-plan-generator.service.spec.ts",
+      "kind": "TEST",
+      "sha256": "a8b65b32e271464d27d6f5a861aa595174997e1cfebd29e033190f00bbb3f50f"
+    },
+    {
+      "id": "E:A90D5694A2F82DC5",
+      "path": "apps/farm-service/src/database/migrations/1809000000000-CompleteFeedInventoryLedgerBackfillBySourceRow.ts",
+      "kind": "AUTHORITY",
+      "sha256": "12b26bf1638513678f9d613a5f2ad0caf8bdfa4f32becdb8564d748604185858"
+    },
+    {
+      "id": "E:AB0272A793D8EEB8",
+      "path": "tools/gates/finding-registry.ts",
+      "kind": "GOVERNANCE",
+      "sha256": "f2894e418a563e192f98bd20f80c829ea95d32effe5255b275b2ff00d6bb0d08"
+    },
+    {
+      "id": "E:AD4BF266E50B5D22",
+      "path": "apps/farm-service/src/storage/__tests__/stock-mutation-boundary.spec.ts",
+      "kind": "TEST",
+      "sha256": "bb3d7d87ccfc3463d3a8f9ddbead16973509033b34f794b7928039dd3e0e43a7"
+    },
+    {
+      "id": "E:AE1F46E1B119B5BF",
+      "path": "apps/farm-service/src/feeding-protocol/stocked-unit-feeding-readiness.authority.ts",
+      "kind": "AUTHORITY",
+      "sha256": "9d9cffa6266d95e95a61b916c041332d6c31f1538ba00eabb87312886ed0ea0a"
+    },
+    {
+      "id": "E:B4CA995FF2267731",
+      "path": "tests/invariants/feeding-event-stream-capacity.spec.ts",
+      "kind": "TEST",
+      "sha256": "7b58a989829bfef0aae8a7f0d54e550a577c210f7a6834f574a86d569cd0d626"
+    },
+    {
+      "id": "E:B5686295E8786912",
+      "path": "libs/backend-common/src/middleware/__tests__/tenant-context-subdomain.spec.ts",
+      "kind": "TEST",
+      "sha256": "123370924db11f8ca2479cd883d9ce1c08cc07d370b172e7ceda51a5f2c4b3c9"
+    },
+    {
+      "id": "E:B587FB4E65C3A704",
+      "path": "platform/libs/event-bus/src/nats/message-disposition.ts",
+      "kind": "AUTHORITY",
+      "sha256": "672304c0cdda3d198e76b51f480e9bfe4e04f5c6a8e01ddc5d06e8ca5ef84c86"
+    },
+    {
+      "id": "E:B833E193DBB3C9A7",
+      "path": "apps/farm-service/src/storage/services/stock-movement.service.ts",
+      "kind": "AUTHORITY",
+      "sha256": "fa4ae9f8b29a7dfcdbe8cc733bd64d547b27af9b696f60049061443509a1d5d5"
+    },
+    {
+      "id": "E:B90EBC9AD5A698FA",
+      "path": "apps/farm-service/src/feeding-protocol/entities/feeding-day-plan.entity.ts",
+      "kind": "AUTHORITY",
+      "sha256": "e7b3bd4cf21fd6ffa97ece7e8d08a1b81bf37f491b7f6e18e3cca9d6d22e68c5"
+    },
+    {
+      "id": "E:B9CA0C7464D8425F",
+      "path": ".github/workflows/ci-affected.yml",
+      "kind": "AUTHORITY",
+      "sha256": "fa86750ccb67f46567f46dbc5e05b98631e0b1496c6ccf06c347b5f4b085e7ba"
+    },
+    {
+      "id": "E:BB6FADE0D4BA99E2",
+      "path": "apps/farm-service/src/site/entities/site.entity.ts",
+      "kind": "AUTHORITY",
+      "sha256": "4a6b59de54f5dacf1528fbddeca7fdc72ed7a2c0bf1e7b3d3f2e55ad22ce2648"
+    },
+    {
+      "id": "E:BE1B9C2519AD81A2",
+      "path": "libs/feeding-contracts/src/feeding-timezone.ts",
+      "kind": "AUTHORITY",
+      "sha256": "daa3c86adc7b406f21e8a8bab9d7d013b84342e088b1b1fc3864320d9a5bf79a"
+    },
+    {
+      "id": "E:BF437B3D4110C806",
+      "path": "apps/farm-service/src/feeding/retirement/feeding-legacy-mutation-retirement.authority.ts",
+      "kind": "AUTHORITY",
+      "sha256": "a757e65b7ee83a0ff247b5f98d1b6b83abe8410ecf262047573d2174cc73e895"
+    },
+    {
+      "id": "E:BFC16BF46242BD71",
+      "path": "apps/farm-service/src/database/migrations/1810000000000-CreateFeedingRecordWriteProvenanceAuthority.ts",
+      "kind": "AUTHORITY",
+      "sha256": "5603dd82c03a49e53cca64ca56115c01896f7764b1b817c62db70ef2e6803b19"
+    },
+    {
+      "id": "E:C788327F51B4FB39",
+      "path": "libs/storage/project.json",
+      "kind": "AUTHORITY",
+      "sha256": "29cf6868e8478b98e799e29f15f5c035aab7eec95da8646d01b334ceffe3e83b"
+    },
+    {
+      "id": "E:C79569ED2F8D249D",
+      "path": "apps/farm-service/src/feeding-protocol/__tests__/scheduled-feeding-operation.sweep.spec.ts",
+      "kind": "TEST",
+      "sha256": "12911f3447a5a690cd5ce4b681d8d80b451b03277cd8d3b0edb9b2d38a7e4453"
+    },
+    {
+      "id": "E:C7CE8125F4906B7F",
+      "path": "apps/farm-service/src/feeding-protocol/services/biomass-growth-applier.service.ts",
+      "kind": "AUTHORITY",
+      "sha256": "0e89e889785b8d492c311e3667aba560793fc65da35b392b99566aeb64c5d96e"
+    },
+    {
+      "id": "E:C8660E2E2A6970AA",
+      "path": "apps/config-service/src/database/migrations/__tests__/1807400000000-RestoreConfigSchemaOwnerBoundary.spec.ts",
+      "kind": "TEST",
+      "sha256": "6750559cbe34096e8c49ec3ca8d242f14506b3840eca2df3a16c910624f527f0"
+    },
+    {
+      "id": "E:C8E286EC0545112A",
+      "path": "apps/farm-service/src/feeding-protocol/__tests__/meal-operation.executor.spec.ts",
+      "kind": "TEST",
+      "sha256": "d6c5fc2242ea1e5d0a5d3d12080c8bfb20b77e37aede0f084bffe73311a3f755"
+    },
+    {
+      "id": "E:CA5E92F527E37210",
+      "path": "e2e/tests/integration/schema-invariants.spec.ts",
+      "kind": "TEST",
+      "sha256": "894c6a2a1bcd0afe898fca629e3ce500b053308722ab570ac6a37a91808d8f33"
+    },
+    {
+      "id": "E:CFF6894204A238B2",
+      "path": "apps/farm-service/src/database/migrations/1809200000000-BoundDayPlanRecalculationAudit.ts",
+      "kind": "AUTHORITY",
+      "sha256": "8590048cfc69a0fba36ff430b5a532eddca9c3cd02635d2b4bf31188120b8e58"
+    },
+    {
+      "id": "E:D0F1D1004AFFC155",
+      "path": "libs/backend-common/src/database/schema-drift/foreign-key-presence.ts",
+      "kind": "AUTHORITY",
+      "sha256": "5c695c5539e6b8e9d40e6e832e4aaa3534d7978d2ef3268a07c3363319591d70"
+    },
+    {
+      "id": "E:D1053C2DD96F4150",
+      "path": "apps/farm-service/src/__tests__/integration/storage-inventory-physical-key.postgres.spec.ts",
+      "kind": "TEST",
+      "sha256": "c9aa8dfdb636ba14641dd97ea2fd50bce164e977d22e8082933cf5bb77085b91"
+    },
+    {
+      "id": "E:D1DB0760CE56110C",
+      "path": "apps/farm-service/src/__tests__/e2e/feeding-record-tenant-isolation.postgres.spec.ts",
+      "kind": "TEST",
+      "sha256": "7a4122946100182da486b6467398446898539b9ae462fec0380ef98b618dfb2b"
+    },
+    {
+      "id": "E:D1E4A359C1D25082",
+      "path": "apps/db-migrate/src/__tests__/feeding-growth-and-ledger-authorities.integration.spec.ts",
+      "kind": "TEST",
+      "sha256": "61dea8796862d37fbef0ba1acf7c6d982ff29f5b0242185e24a832a84a94f134"
+    },
+    {
+      "id": "E:D4AC7E4706C36B9B",
+      "path": "apps/farm-service/src/feeding-protocol/__tests__/feeding-forecast-generation.reader.spec.ts",
+      "kind": "TEST",
+      "sha256": "327a463f3a24fefe6f754d3c7f572d458ba4650a7e446822b7bd5adda7084c74"
+    },
+    {
+      "id": "E:DA608DE4D812CBC1",
+      "path": "apps/farm-service/src/feeding-protocol/feeding-forecast-generation.reader.ts",
+      "kind": "AUTHORITY",
+      "sha256": "22297ee817b82ade9248fa5420de0000bee51f1e7475e88e554dc9d7e3b17955"
+    },
+    {
+      "id": "E:DB375526AFE14A3C",
+      "path": "apps/db-migrate/src/__tests__/bootstrap-from-scratch.spec.ts",
+      "kind": "TEST",
+      "sha256": "ec9dc9a034c55c3aad8bb3c9ae2b8b6ded7e2da7f31e155e69e60cf39fcbf69f"
+    },
+    {
+      "id": "E:DD82E44ED853F5CB",
+      "path": "libs/backend-common/src/database/__tests__/tenant-connection-bootstrap.service.spec.ts",
+      "kind": "TEST",
+      "sha256": "52d05441951972e1eb62a6226c4d68b13d2147431f913b9abd0cb79ddade6341"
+    },
+    {
+      "id": "E:E14B540632EF476F",
+      "path": "apps/farm-service/src/feeding-protocol/services/meal-plan-generator.service.ts",
+      "kind": "AUTHORITY",
+      "sha256": "b56fd5cd29f46cd1967a459efd1324e721cb156d8fba3a1acc3360b8f93d1245"
+    },
+    {
+      "id": "E:E5A32B0F2D91EF3B",
+      "path": "web/apps/aquamobil/src/hooks/useTodaysDayPlans.ts",
+      "kind": "AUTHORITY",
+      "sha256": "0c1fec7879432d238db41a54228d25817cd3f839938a9e2ef192a53c223ab237"
+    },
+    {
+      "id": "E:E64716C36514F172",
+      "path": "apps/farm-service/src/events/listeners/sensor-temperature-projection.listener.ts",
+      "kind": "AUTHORITY",
+      "sha256": "44f1aba9d01e489844c48722659dbcefb2480c2f87c72d2d905a835cf7590270"
+    },
+    {
+      "id": "E:E68111BF33E25238",
+      "path": "web/modules/sensor-module/src/store/scada/__tests__/scadaPackageRoundtrip.test.ts",
+      "kind": "TEST",
+      "sha256": "f9fa4c42b2fbe9a0301c62aabf6139b0dc55b8c61792d759511a350fe768df27"
+    },
+    {
+      "id": "E:E7DD403FC2EA206F",
+      "path": "apps/farm-service/src/database/migrations/1809500000000-AlignFeedingMealMethodAuthority.ts",
+      "kind": "AUTHORITY",
+      "sha256": "82076c0561b3ee521af1af29ffb4e013564681ae0dd95eca26be439fd814075b"
+    },
+    {
+      "id": "E:E87CB873329DF8B2",
+      "path": "apps/alert-engine/src/alert/services/__tests__/farm-signal-incident.service.spec.ts",
+      "kind": "TEST",
+      "sha256": "9bf2a2a6abc719aecdeb0b764f727cac4c0e05454108f11e56169b170185b173"
+    },
+    {
+      "id": "E:E89525091B300585",
+      "path": "apps/farm-service/src/database/migrations/1809700000000-EnforceStorageInventoryPhysicalKey.ts",
+      "kind": "AUTHORITY",
+      "sha256": "67c07eebb8e062efdafd4488cfe14f4f8571568f009a9d652f0cc0965a6faca3"
+    },
+    {
+      "id": "E:E8D11DFD5BFC189E",
+      "path": "tests/invariants/feeding-timezone-ssot.spec.ts",
+      "kind": "TEST",
+      "sha256": "fb9d48acde71cb2b9b5ceeb5963c773f5cee07f3b01bd842640ade97c516acba"
+    },
+    {
+      "id": "E:E93460B25116E102",
+      "path": "apps/farm-service/src/feeding-protocol/entities/protocol-assignment.entity.ts",
+      "kind": "AUTHORITY",
+      "sha256": "576935abe08cd089e61889e417cb1064a513438422d7a06bac316cfe1fc5ce08"
+    },
+    {
+      "id": "E:EA08D738107ADBAB",
+      "path": "apps/farm-service/src/feeding/query-handlers/get-daily-feeding-plan.handler.ts",
+      "kind": "AUTHORITY",
+      "sha256": "9c5be7af0f9a9f4682388b07e01d7b2c494c6a1438f44d6278669ce1307be52b"
+    },
+    {
+      "id": "E:EFC6134318CFCAA9",
+      "path": "apps/farm-service/src/batch/__tests__/services/tank-batch.service.spec.ts",
+      "kind": "TEST",
+      "sha256": "88d0107bfb0e0710a677ed454cb857d15122374ee55031b92d9ad878b2c8e3a1"
+    },
+    {
+      "id": "E:F0A242FBFE6691E0",
+      "path": "apps/farm-service/src/feeding-protocol/__tests__/stocked-unit-feeding-readiness.authority.spec.ts",
+      "kind": "TEST",
+      "sha256": "00d23c0399b49534b5d540d76593babfdb794d272502cf04cca4c118644cb0a8"
+    },
+    {
+      "id": "E:F3EE72E8F8217D2B",
+      "path": "apps/farm-service/src/feeding/__tests__/handlers/update-feeding-record-operation.executor.spec.ts",
+      "kind": "TEST",
+      "sha256": "3a97ecd43c1fb1668d88b37577cf59de3c2c348105a0a77676b592f4c8bd775c"
+    },
+    {
+      "id": "E:F40AC94AAC00BF36",
+      "path": ".gitleaks.toml",
+      "kind": "AUTHORITY",
+      "sha256": "e4371d4c02d95258c877305f7cf350a7d4c70abb3c5b8a3221cba393616105d8"
+    },
+    {
+      "id": "E:F40E61FFFB198FCF",
+      "path": "apps/farm-service/src/storage/handlers/transfer-stock.handler.ts",
+      "kind": "AUTHORITY",
+      "sha256": "7cc800b89ee878c01b6bd6610d805cc6bd97064ffa6d6fe6ad76b9e89b58426a"
+    },
+    {
+      "id": "E:F6667B8485CBF5AC",
+      "path": "libs/feeding-contracts/src/feeding-historical-provenance.catalog.ts",
+      "kind": "AUTHORITY",
+      "sha256": "fae59ae8d2e8f2b25a51cbb193a36d5031ca24948b92ba71a2fa7ac41a1381d5"
+    },
+    {
+      "id": "E:F89A9E6E2418A990",
+      "path": "apps/farm-service/src/feeding-protocol/services/day-plan-recalc.service.ts",
+      "kind": "AUTHORITY",
+      "sha256": "4ec982f2349c91adabaa6bda34b9d7fad8e9737f1dfb159755d453a3ef464c46"
+    },
+    {
+      "id": "E:F8F2E24096CBD3BC",
+      "path": "apps/farm-service/src/storage/__tests__/stock-movement.service.spec.ts",
+      "kind": "TEST",
+      "sha256": "31513986b2c8d733bfdce8f32d66cbcf1b5e39480a3677238e3d44548fb7a246"
+    },
+    {
+      "id": "E:FF04825B1D65AA4C",
+      "path": "tests/invariants/gitleaks-allowlist-reachable.spec.ts",
+      "kind": "TEST",
+      "sha256": "5b933a4b9543b93666096af2a2950abc78193bb38ce9da8844ba87acd6e8b783"
+    }
+  ],
+  "commits": [
+    {
+      "sha": "998cd76ad76beeecf668323741c479228d73438e",
+      "kind": "CHANGE",
+      "intent": "Site-scoped FEFO, historical attribution, and one live unit assignment",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-CRITICAL-242",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-CRITICAL-242"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:4ADDD106EFFCFBD5", "E:B833E193DBB3C9A7"]
+          },
+          "rationale": "The canonical stock authority uses TypeORM property predicates and typed location membership; the real-PostgreSQL site-scoped multi-lot test executes against snake_case storage columns and would reproduce the former 42703 failure."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-HIGH-243",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-HIGH-243"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:1FD5B1A85D724A1B", "E:D1E4A359C1D25082", "E:F6667B8485CBF5AC"]
+          },
+          "rationale": "The signed provenance catalog and 180890 migration resolve historical feeding attribution from occupancy-time BatchLocation evidence, quarantine missing or overlapping ownership, and expose append-only projections proven by the isolated real-PostgreSQL migration vector."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-LOW-279",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-LOW-279"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:0B813CCEA9853117", "E:464B068C38CA3962"]
+          },
+          "rationale": "The TypeScript-AST SQL compiler discovers every governed raw query and QueryBuilder call, compiles INSERT/UPDATE and predicate references from TypeORM decorator metadata, and its executable fixtures reject unknown physical columns without a regex allowlist."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-292",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-292"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:0B813CCEA9853117", "E:464B068C38CA3962", "E:D1DB0760CE56110C"]
+          },
+          "rationale": "The same compiler proves each discovered relation tenant-bound through explicit predicates, equality propagation, a verified tenant-schema coordinate, or forced RLS; the real-PostgreSQL mixed-tenant operation test proves records, stock, finance and outbox writes remain physically isolated."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-LOW-283",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-LOW-283"
+            }
+          ],
+          "disposition": "SUPERSEDED",
+          "proof": {
+            "profile": "REPLACEMENT_TEST",
+            "evidence": ["E:83FF5E536B8E9165", "E:9BB5D088CC655429"]
+          },
+          "rationale": "The source runtime-composition decision is replaced by deterministic build-time SDL emission; the compiler registry is order-independent and fails before deployment."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-261",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-261"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:9FC1BD6EFBC83BC1", "E:D1E4A359C1D25082", "E:E93460B25116E102"]
+          },
+          "rationale": "The one-live-assignment entity contract and real-PostgreSQL 180940 migration vector reconcile duplicate active/paused history and reject a second live row."
+        }
+      ]
+    },
+    {
+      "sha": "6753f8363c462d12dc8cc9af8cfb86762de40bb1",
+      "kind": "CHANGE",
+      "intent": "Cumulative daily growth reconciliation",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-LOW-295",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-LOW-295"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:4C7EE6F31CDF2CBF", "E:9BFBA2BDEF8A0F36"]
+          },
+          "rationale": "The shared rounding authority owns feeding precision and the invariant test rejects duplicate local round3 implementations."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-250",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-250"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:79076A1987D8ABC7", "E:C8E286EC0545112A"]
+          },
+          "rationale": "MealOperationExecutor commits the FED aggregate before invoking recalculation, and its direct operation test makes recalculation read the persisted final meal projection so an order regression fails deterministically."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-288",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-288"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:19FE12CADDFEFF9C", "E:6283523737B93E46"]
+          },
+          "rationale": "The closed transaction-retry authority restarts the complete operation only for serialization, deadlock, or typed membership-drift conflicts, and its direct test proves bounded retry and fail-closed classification."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-289",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-289"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": [
+              "E:1FD5B1A85D724A1B",
+              "E:52F10DB2FAC05CA7",
+              "E:C79569ED2F8D249D",
+              "E:D1E4A359C1D25082"
+            ]
+          },
+          "rationale": "The bounded sweep fails before journal advancement when a daily rollup has no growth-lock scope, while 180890 installs and the real-PostgreSQL vector pins the exact pending index predicate to daily in-progress/completed plans, excluding planned, skipped and cancelled states."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-CRITICAL-244",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-CRITICAL-244"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:1FD5B1A85D724A1B", "E:D1E4A359C1D25082", "E:F6667B8485CBF5AC"]
+          },
+          "rationale": "The signed append-only growth-policy catalog and 180890 migration qualify only exact legacy rollup stamps, quarantine unstamped or ambiguous history instead of guessing from current protocol state, and prove replay-safe projections in real PostgreSQL."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-276",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-276"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:52F10DB2FAC05CA7", "E:C79569ED2F8D249D"]
+          },
+          "rationale": "The morning executor claims bounded work and encloses daily meal closure plus rollup in one monotonically sorted multi-unit lock scope; the concurrency test interleaves both paths and pins the canonical order."
+        }
+      ]
+    },
+    {
+      "sha": "46cb9d3dc423a1b58bb647c689e496cb5595cc3b",
+      "kind": "CHANGE",
+      "intent": "Multi-lot FEFO deduction and ledger-bound correction",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-CRITICAL-245",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-CRITICAL-245"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:4ADDD106EFFCFBD5", "E:771ACF9E2529BE0F", "E:B833E193DBB3C9A7"]
+          },
+          "rationale": "The closed stock authority locks the complete canonical FEFO pool and compiles exact slices; unit and real-PostgreSQL tests consume 0.3 kg plus 149.7 kg across two lots atomically."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-HIGH-248.ATOMIC-CORRECTION",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-HIGH-248"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:88D066796D186CAC", "E:B833E193DBB3C9A7", "E:F3EE72E8F8217D2B"]
+          },
+          "rationale": "The current operation executor proves the record, plan, stock, growth and aggregate correction are one governed transaction."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-253",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-253"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:4ADDD106EFFCFBD5", "E:B833E193DBB3C9A7", "E:F8F2E24096CBD3BC"]
+          },
+          "rationale": "The immutable movement family is now the correction authority: a RETURN recreates an exhausted inventory projection from the source movement's exact location, lot, expiry and receipt provenance, with unit and real-PostgreSQL proofs for the missing-row case."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-254",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-254"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:4ADDD106EFFCFBD5", "E:B833E193DBB3C9A7", "E:F8F2E24096CBD3BC"]
+          },
+          "rationale": "Every OUT slice carries a stable allocation-family key and every RETURN links its exact source movement; the authority rebuilds the outstanding vector from immutable history and restores multi-lot provenance in LIFO order without over-restoring repeated corrections."
+        }
+      ]
+    },
+    {
+      "sha": "242f98bd8abe6324b3a2b9e3fb148a84819a7401",
+      "kind": "CHANGE",
+      "intent": "Exhausted feed remains governed and inventory count uses the canonical sink",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-267",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-267"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:27717733CC654B04", "E:AD4BF266E50B5D22", "E:B833E193DBB3C9A7"]
+          },
+          "rationale": "Inventory-count approval delegates every non-zero variance to the canonical ADJUSTMENT operation with immutable item identity, while the structural boundary test rejects direct projection or movement repository ownership."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-CRITICAL-237",
+              "source": "docs/reviews/farm-expert/2026-07-15-enterprise-closure-orphans.md#FARM-CRITICAL-237"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:4ADDD106EFFCFBD5", "E:B833E193DBB3C9A7"]
+          },
+          "rationale": "Feed tracking is classified from the immutable movement ledger after bootstrap; the real-PostgreSQL test depletes the last projection row and proves the next deduction fails closed as insufficient stock."
+        }
+      ]
+    },
+    {
+      "sha": "f9394da6830b08c2e313dba0679ab940e80e41b2",
+      "kind": "CHANGE",
+      "intent": "Single live feed-band and FCR resolution path",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-HIGH-247",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-HIGH-247"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:77F4FAC71D888339", "E:F89A9E6E2418A990"]
+          },
+          "rationale": "DayPlanRecalcService owns the live transition projection and atomically refreshes assignment band, day-plan snapshot/resolution and every remaining meal feed; its direct test proves the operator and ledger projections converge on the same feed."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-LOW-262",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-LOW-262"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:A8DFC5C19304645F", "E:E14B540632EF476F"]
+          },
+          "rationale": "The generator consumes the explicit auto-transition policy and pinned band coordinate from one resolution path; its regression test proves next-day generation preserves the operator-selected band when automation is disabled."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-LOW-263",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-LOW-263"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:A8DFC5C19304645F", "E:E14B540632EF476F"]
+          },
+          "rationale": "The generator and its domain documentation now name the governed count-weighted tank average as the sole band basis, and the executable test rejects a dominant-biomass interpretation with a mixed-batch fixture."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-251",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-251"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:77F4FAC71D888339", "E:F89A9E6E2418A990"]
+          },
+          "rationale": "The live recalculation authority identifies bands by their pinned index rather than feedId and reprices every remaining meal from the selected rate; the direct same-feed multi-band test proves the intended band cannot collapse into its sibling."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-252",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-252"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:77F4FAC71D888339", "E:F89A9E6E2418A990"]
+          },
+          "rationale": "The same transition atomically replaces the day-plan snapshot and immutable resolution expectedFcr before later growth reads it; the direct test proves a same-feed band change updates rate, FCR and remaining meals together."
+        }
+      ]
+    },
+    {
+      "sha": "d689ca1d598eb5c84114bbce7611fffa62792ce2",
+      "kind": "CHANGE",
+      "intent": "Live tanks cannot be emptied by an aggregate clamp chain",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-275",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-275"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:47F60C24E5747B2D", "E:59CBCF806A06B6F1"]
+          },
+          "rationale": "Transfer delegates both legs to the shared TankBatch mutation authority, which acquires advisory and row locks for the sorted tank-id set before either leg mutates; the handler test pins order independently of payload direction."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-HIGH-246",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-HIGH-246"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:47F60C24E5747B2D", "E:EFC6134318CFCAA9"]
+          },
+          "rationale": "The tank-composition authority rejects overdraft and missing-batch removal instead of clamping, while its direct test proves exact-to-zero remains valid."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-LOW-278",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-LOW-278"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:79076A1987D8ABC7", "E:C8E286EC0545112A"]
+          },
+          "rationale": "MealOperationExecutor acquires the canonical day-plan then meal lock sequence and performs site authorization before any durable mutation; its direct test rejects an unauthorized caller and proves the ledger, growth, aggregate and outbox sinks remain untouched."
+        }
+      ]
+    },
+    {
+      "sha": "5650e1b9969c5f6f849609fe2c8f1c11bf36dfb0",
+      "kind": "CHANGE",
+      "intent": "Tenant-local feeding calendar and one timezone authority",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-LOW-264",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-LOW-264"
+            }
+          ],
+          "disposition": "SUPERSEDED",
+          "proof": {
+            "profile": "REPLACEMENT_TEST",
+            "evidence": ["E:BE1B9C2519AD81A2", "E:E8D11DFD5BFC189E"]
+          },
+          "rationale": "The branded IANA compiler and explicit clock replace global cron-day assumptions; the invariant test pins site-local date construction across every feeding callsite."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-LOW-270",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-LOW-270"
+            }
+          ],
+          "disposition": "SUPERSEDED",
+          "proof": {
+            "profile": "REPLACEMENT_TEST",
+            "evidence": ["E:BE1B9C2519AD81A2", "E:E8D11DFD5BFC189E"]
+          },
+          "rationale": "The same time authority replaces UTC toISOString day truncation for fasting and medication windows, with exact-callsite AST enforcement."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-255",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-255"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:4385C732BA436562", "E:5D004BCB0D4C2441"]
+          },
+          "rationale": "The scheduler compiles a content-addressed tenant/site target cut from the committed catalog rather than assignment rows, so assignment multiplicity cannot duplicate targets and tenants with no live assignment remain discoverable; the real-PostgreSQL control-plane test proves the exact set and digest."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-256",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-256"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:52F10DB2FAC05CA7", "E:C79569ED2F8D249D"]
+          },
+          "rationale": "Summary projection runs only for the grace-closed previous site-local day, excludes cancelled plans from planned quantity, and derives missed counts from terminal meal status; the tenant-qualified executor test pins all three semantics."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-273",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-273"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:008A246CB43AB181", "E:2FC337153BD0A297"]
+          },
+          "rationale": "Batch water-quality creation compiles one temperature target per unit, rejects conflicting duplicates before mutation, and invokes the same recalculation authority in canonical unit order inside the write transaction; the service test proves both success and fail-closed paths."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-290",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-290"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:52F10DB2FAC05CA7", "E:C79569ED2F8D249D"]
+          },
+          "rationale": "The morning sweep applies its cutoff, deterministic order and hard limit in the database and claims rows with FOR UPDATE SKIP LOCKED before loading work; the executor test inspects the exact bounded claim query and concurrency boundary."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-LOW-291",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-LOW-291"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:1BFA3C4A65FC874D", "E:3CAE0FE3FBD41E67", "E:52F10DB2FAC05CA7"]
+          },
+          "rationale": "The FCR sweep consumes one bounded batch/target/trend projection and a deduplicated feed-matrix bulk read, then evaluates all batches in memory; executor and helper tests prove threshold behavior and eliminate per-batch target/trend queries."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-294",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-294"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": [
+              "E:56E9689C34D5C943",
+              "E:7CC65A00B5A331A3",
+              "E:8C00AEA0451194B6",
+              "E:E64716C36514F172"
+            ]
+          },
+          "rationale": "The sensor projection listener delegates to a bounded recalculation authority that compiles entity-metadata targets, rejects duplicate or excessive fan-out, and reprices units in canonical order under one mutation session; listener and authority tests prove the complete chain."
+        }
+      ]
+    },
+    {
+      "sha": "1c383b928074af1eb2d3978db69b67f6f073fe06",
+      "kind": "CHANGE",
+      "intent": "Historical finding-comment alignment",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "SOURCE-COMMIT:1c383b928074af1eb2d3978db69b67f6f073fe06",
+              "source": "SOURCE-COMMIT:1c383b928074af1eb2d3978db69b67f6f073fe06"
+            }
+          ],
+          "disposition": "EXCLUDED",
+          "proof": {
+            "profile": "BOUNDARY_EXCLUSION",
+            "boundary": "FINDING_LEDGER_HISTORY",
+            "evidence": ["E:58E4DE19E9212BCF", "E:AB0272A793D8EEB8"]
+          },
+          "rationale": "Finding-registry history is a separately governed append-only authority and is not replayed by the feeding runtime reconciliation."
+        }
+      ]
+    },
+    {
+      "sha": "c11347a126e79aa58ff2cdf46ca418207d3fb0e4",
+      "kind": "MERGE_SYNC",
+      "intent": "Synchronize the pinned main parent without publishing a feeding-domain delta",
+      "conflictPaths": [
+        "docs/plans/2026-06-18-enterprise-grade-debt-closure/manifest.json",
+        "docs/reviews/_registry/findings.jsonl",
+        "tools/quality/format-scope.json"
+      ]
+    },
+    {
+      "sha": "4053923f7b5b7f3ede41a0ab4793959c639981f5",
+      "kind": "CHANGE",
+      "intent": "Tenant-wide forecast coverage without fossil scope",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-HIGH-249",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-HIGH-249"
+            }
+          ],
+          "disposition": "SUPERSEDED",
+          "proof": {
+            "profile": "REPLACEMENT_TEST",
+            "evidence": ["E:41CB75AD40374E11", "E:6DFC83E06397E47A"]
+          },
+          "rationale": "The compiled projection assigns every physical inventory pool to one canonical forecast scope, and its compiler test rejects duplicate physical-stock membership."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-LOW-265",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-LOW-265"
+            }
+          ],
+          "disposition": "SUPERSEDED",
+          "proof": {
+            "profile": "REPLACEMENT_TEST",
+            "evidence": ["E:41CB75AD40374E11", "E:6DFC83E06397E47A"]
+          },
+          "rationale": "The projection contract separates current-feed coordinates from future simulation bands, and compiler tests pin the current feed at the forecast cut rather than the terminal horizon."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-LOW-266",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-LOW-266"
+            }
+          ],
+          "disposition": "SUPERSEDED",
+          "proof": {
+            "profile": "REPLACEMENT_TEST",
+            "evidence": ["E:3E86509E4CC13A22", "E:D1E4A359C1D25082"]
+          },
+          "rationale": "Immutable BUILDING-to-ACTIVE generations replace in-place exact-set deletion: the active-pointer CAS makes a shrinking tenant scope visible atomically, while the real-PostgreSQL vector proves retired fossil generations cascade-delete without touching the active exact set."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-LOW-296",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-LOW-296"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:3E86509E4CC13A22", "E:D1E4A359C1D25082"]
+          },
+          "rationale": "The database-owned retention function locks the tenant active pointer and deletes only cutoff-eligible RETIRED generations; the real-PostgreSQL vector proves exact cascade counts, active-generation survival, quarantine preservation, and idempotent replay after tenant/site scope contraction."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-293",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-293"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:D4AC7E4706C36B9B", "E:DA608DE4D812CBC1"]
+          },
+          "rationale": "The forecast stock reader scopes every row by tenant and active lifecycle state and validates stored provenance; its query contract test proves soft-deleted and cross-tenant stock cannot enter a forecast."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-LOW-272",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-LOW-272"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:6DFC83E06397E47A", "E:D4AC7E4706C36B9B"]
+          },
+          "rationale": "The versioned forecast projection contract compiles exact unit-addressable mortality provenance and rejects summary/unit-set divergence; the reader test proves persisted snapshots must satisfy that contract."
+        }
+      ]
+    },
+    {
+      "sha": "0761701ac5187c261eea7e58d45b155412fd487d",
+      "kind": "CHANGE",
+      "intent": "Platform-wide event delivery disposition",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-259",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-259"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:1516DE785F3EFC4F", "E:E87CB873329DF8B2"]
+          },
+          "rationale": "The incident service owns monotonic severity escalation and its behavior test proves repeated signals cannot downgrade an active incident."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-260",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-260"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:2061679842DF1E16", "E:8E5B0B2CDFE1CCD7", "E:B587FB4E65C3A704"]
+          },
+          "rationale": "The message-disposition authority ACKs terminal failures only after a durable dead-letter write and otherwise NAKs; unit and adoption invariants prove both settlement behavior and governed consumer use."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-271.READINESS-CONSUMER",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-271"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": [
+              "E:2E495B9EA56BEC1A",
+              "E:3432972345BDCA4B",
+              "E:468757A9D2A08FE1",
+              "E:65B61C406A6CFAF0"
+            ]
+          },
+          "rationale": "Sensor owns bounded readiness evaluation and farm owns the idempotent projection consumer; both sides have executable contract tests for the same versioned readiness envelope."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-LOW-282",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-LOW-282"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:1FFB3178B3FFFAE7", "E:678E6AFB923F6FE2"]
+          },
+          "rationale": "The content-addressed current-tree authority and executable test jointly prove this source claim."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-LOW-287",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-LOW-287"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:93B2DCFA6C8344D1", "E:B4CA995FF2267731"]
+          },
+          "rationale": "The typed event-stream capacity catalog owns publisher and infrastructure limits; the invariant proves governed feeding streams and NATS configuration consume the same entries."
+        }
+      ]
+    },
+    {
+      "sha": "cb67d78d5e13e07ae283c6288f9129f7e2d8614a",
+      "kind": "CHANGE",
+      "intent": "Closed feeding ingress and structural legacy cutover",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-LOW-280",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-LOW-280"
+            }
+          ],
+          "disposition": "SUPERSEDED",
+          "proof": {
+            "profile": "REPLACEMENT_TEST",
+            "evidence": ["E:3ECC57DA9A062BAC", "E:BF437B3D4110C806"]
+          },
+          "rationale": "The structural retirement authority inventories forbidden legacy entry points and the invariant test rejects executable legacy mutations without relying on bounded string prefixes."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-LOW-285",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-LOW-285"
+            }
+          ],
+          "disposition": "SUPERSEDED",
+          "proof": {
+            "profile": "REPLACEMENT_TEST",
+            "evidence": ["E:3ECC57DA9A062BAC", "E:BF437B3D4110C806"]
+          },
+          "rationale": "The same structural retirement authority removes weeklyFeedForecast from the active mutation surface, and the cutover gate rejects its reintroduction."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-257",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-257"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:D1E4A359C1D25082", "E:E7DD403FC2EA206F"]
+          },
+          "rationale": "Migration 180950 compiles feeding methods to the database enum authority, and its real-PostgreSQL vector accepts every governed method while rejecting invalid values."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-269",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-269"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:79076A1987D8ABC7", "E:C8E286EC0545112A"]
+          },
+          "rationale": "The meal operation authority finalizes a partial meal without fabricating a zero-quantity pour; its executor suite proves ledger and final-state semantics."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-284",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-284"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:AE1F46E1B119B5BF", "E:F0A242FBFE6691E0"]
+          },
+          "rationale": "The stocked-unit readiness authority derives unfed signals from current occupancy rather than plan presence; its suite covers stocked, unstocked, duplicate, and bounded publication cases."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-286",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-286"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:CFF6894204A238B2", "E:D1E4A359C1D25082"]
+          },
+          "rationale": "Migration 180920 compacts recalculation history to the bounded catalog policy, adds a monotonic total count and database check, and its real-PostgreSQL test proves both compaction and rejection above the bound."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-LOW-281",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-LOW-281"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:27ABEA7073B2B514", "E:E5A32B0F2D91EF3B"]
+          },
+          "rationale": "AquaMobil now has one day-plan query/cache hook and the invariant rejects any second query or cache authority."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-274",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-274"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:194669CC7F0AD860", "E:2FC337153BD0A297"]
+          },
+          "rationale": "Effective-temperature reads authorize the complete requested unit/site set in one fail-closed boundary; the test rejects mixed-site and unauthorized-unit batches."
+        }
+      ]
+    },
+    {
+      "sha": "afa010e044e12283f02913a33394096c91dac037",
+      "kind": "CHANGE",
+      "intent": "Retire dead v1 feeding artifacts",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-LOW-298",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-LOW-298"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:3ECC57DA9A062BAC", "E:BF437B3D4110C806"]
+          },
+          "rationale": "The legacy retirement authority removes the unconsumed v1 forecast path and the structural cutover invariant rejects its reintroduction."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-297",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-297"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:3ECC57DA9A062BAC", "E:BF437B3D4110C806"]
+          },
+          "rationale": "The legacy retirement authority makes the dead v1 cron and its false rollback promise structurally unreachable, and the cutover invariant scans the complete executable surface."
+        }
+      ]
+    },
+    {
+      "sha": "bfbbce0d7627b3cd893cb4ea0ba54b7a098332e6",
+      "kind": "CHANGE",
+      "intent": "Enum-bound stock movement for meal corrections",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-HIGH-300",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-HIGH-300"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:79076A1987D8ABC7", "E:B833E193DBB3C9A7", "E:C8E286EC0545112A"]
+          },
+          "rationale": "The content-addressed current-tree authority and executable test jointly prove this source claim."
+        }
+      ]
+    },
+    {
+      "sha": "0d35b25b9070a637d6b0aadd77fa75280126469c",
+      "kind": "CHANGE",
+      "intent": "Runnable real-PostgreSQL feeding integration lane",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-301",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-301"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:081E360A9307806E", "E:B9CA0C7464D8425F"]
+          },
+          "rationale": "The affected CI workflow schedules the governed farm PostgreSQL integration target and the reachability invariant fails if target, policy, or workflow wiring drifts."
+        }
+      ]
+    },
+    {
+      "sha": "8436f6386b898aa6c8386f29160fd653c22d34fc",
+      "kind": "CHANGE",
+      "intent": "CI reaches feeding integration and detects unreachable test targets",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-302",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-302"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:081E360A9307806E", "E:101FCFC6D76940B9"]
+          },
+          "rationale": "The affected-target policy centrally declares spec type-check reachability and the invariant proves the CI workflow consumes that authority; the full 32-project gate also executes cleanly."
+        }
+      ]
+    },
+    {
+      "sha": "f7f9e57b85547f5d23eece0590dbd75f7ba62a3c",
+      "kind": "CHANGE",
+      "intent": "Real PostgreSQL storage allocation coverage and enum convergence",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-CRITICAL-245",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-CRITICAL-245"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:4ADDD106EFFCFBD5", "E:771ACF9E2529BE0F", "E:B833E193DBB3C9A7"]
+          },
+          "rationale": "The real-PostgreSQL fixture now drives the canonical multi-lot operation itself and proves aggregate-sufficient allocation, row-grain movements, projection balance and outbox effects."
+        }
+      ]
+    },
+    {
+      "sha": "ca014293aade65b60db95b931fa229d896204796",
+      "kind": "CHANGE",
+      "intent": "Explicit Site timezone column metadata",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-CRITICAL-305",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-CRITICAL-305"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:BB6FADE0D4BA99E2", "E:DB375526AFE14A3C"]
+          },
+          "rationale": "The content-addressed current-tree authority and executable test jointly prove this source claim."
+        }
+      ]
+    },
+    {
+      "sha": "8d6a191d288f699db13b22e9a05bfbc21c35e940",
+      "kind": "CHANGE",
+      "intent": "Complete stocked-location fixtures for real database execution",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-CRITICAL-245",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-CRITICAL-245"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:4ADDD106EFFCFBD5", "E:771ACF9E2529BE0F", "E:B833E193DBB3C9A7"]
+          },
+          "rationale": "Stocked-location setup is consumed by the same canonical allocation authority; exact unit and real-engine proofs demonstrate the fixture reaches multi-lot FEFO rather than a single-row facade."
+        }
+      ]
+    },
+    {
+      "sha": "d5890475964672c7d7bb122bdc0002b2715fc7e6",
+      "kind": "CHANGE",
+      "intent": "Explicit growth mode GraphQL typing and generated client contracts",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-CRITICAL-306.GRAPHQL-TYPE",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-CRITICAL-306"
+            }
+          ],
+          "disposition": "SUPERSEDED",
+          "proof": {
+            "profile": "REPLACEMENT_TEST",
+            "evidence": ["E:83FF5E536B8E9165", "E:9BB5D088CC655429", "E:B90EBC9AD5A698FA"]
+          },
+          "rationale": "Schema typing is preserved and SDL is now emitted by the deterministic resolver registry pipeline."
+        }
+      ]
+    },
+    {
+      "sha": "df9a8dfbfb104089e187d01ee38ec2219cbc70cf",
+      "kind": "CHANGE",
+      "intent": "Database migration schema invariants execute in CI",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-303.SCHEMA-CI",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-303"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:081E360A9307806E", "E:1854B60DB10C66A2", "E:DB375526AFE14A3C"]
+          },
+          "rationale": "The database workflow owns schema-invariant reachability; the CI invariant proves the wiring and the real-PostgreSQL bootstrap suite proves the complete production migration graph executes from zero."
+        }
+      ]
+    },
+    {
+      "sha": "e9bcee447dd81b428d0b5f3ee42a6ba6004b7086",
+      "kind": "CHANGE",
+      "intent": "Tests exercise the real TankBatch mutation boundary",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-256",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-256"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:52F10DB2FAC05CA7", "E:C79569ED2F8D249D"]
+          },
+          "rationale": "Summary projection runs only for the grace-closed previous site-local day, excludes cancelled plans from planned quantity, and derives missed counts from terminal meal status; the tenant-qualified executor test pins all three semantics."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-301",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-301"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:081E360A9307806E", "E:B9CA0C7464D8425F"]
+          },
+          "rationale": "The affected CI workflow schedules the governed farm PostgreSQL integration target and the reachability invariant fails if target, policy, or workflow wiring drifts."
+        }
+      ]
+    },
+    {
+      "sha": "1f33609cb07ee01793bdacfe751d0e17a586c38e",
+      "kind": "CHANGE",
+      "intent": "Day-plan persistence executes against governed schema state",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-CRITICAL-306.DAY-PLAN-SQL",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-CRITICAL-306"
+            }
+          ],
+          "disposition": "SUPERSEDED",
+          "proof": {
+            "profile": "REPLACEMENT_TEST",
+            "evidence": ["E:5D004BCB0D4C2441", "E:E14B540632EF476F"]
+          },
+          "rationale": "Persistence is now enclosed by the operation transaction authority and real PostgreSQL control-plane suite."
+        }
+      ]
+    },
+    {
+      "sha": "e04804ca28a33745d84d0776f66b05acd7e07300",
+      "kind": "CHANGE",
+      "intent": "Aquamobil tests remain directly selectable",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-304",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-304"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:081E360A9307806E", "E:10B5FC801F502221"]
+          },
+          "rationale": "The AquaMobil package owns its Vitest target and CI invokes it through the governed reachability graph; the full suite executes the target rather than a direct-file bypass."
+        }
+      ]
+    },
+    {
+      "sha": "33f95089dceba6a581cfb58f499e3f293f7371c2",
+      "kind": "CHANGE",
+      "intent": "FEFO expiry fixtures follow the allocator clock",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-CRITICAL-245",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-CRITICAL-245"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:4ADDD106EFFCFBD5", "E:771ACF9E2529BE0F", "E:B833E193DBB3C9A7"]
+          },
+          "rationale": "Expiry ordering and aggregate sufficiency now converge in one allocation compiler and locked mutation authority, with direct unit and real-PostgreSQL multi-lot proofs."
+        }
+      ]
+    },
+    {
+      "sha": "bbb64666b4fb7bce08bcba773888bac2ad89d3f1",
+      "kind": "CHANGE",
+      "intent": "One shared stocked-tenant fixture definition",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "SOURCE-COMMIT:bbb64666b4fb7bce08bcba773888bac2ad89d3f1",
+              "source": "SOURCE-COMMIT:bbb64666b4fb7bce08bcba773888bac2ad89d3f1"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:7819F53A5A3005DF", "E:A3EAE88496055D01"]
+          },
+          "rationale": "One stocked-tenant fixture owns CreateBatch and AllocateToTank setup for every governed PostgreSQL suite; the invariant rejects local command-sequence duplicates."
+        }
+      ]
+    },
+    {
+      "sha": "319baab0c54a4e1fda98e6c0c8e7db7919c03ebd",
+      "kind": "CHANGE",
+      "intent": "Fixtures execute real entity lifecycle behavior",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-301",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-301"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:081E360A9307806E", "E:B9CA0C7464D8425F"]
+          },
+          "rationale": "The affected CI workflow schedules the governed farm PostgreSQL integration target and the reachability invariant fails if target, policy, or workflow wiring drifts."
+        }
+      ]
+    },
+    {
+      "sha": "714ef831c4d22a8ef0f98ef6ec5ae9b389dd7ddd",
+      "kind": "CHANGE",
+      "intent": "Cumulative daily rollup is executable",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-CRITICAL-238",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-CRITICAL-238"
+            }
+          ],
+          "disposition": "SUPERSEDED",
+          "proof": {
+            "profile": "REPLACEMENT_TEST",
+            "evidence": ["E:A90D5694A2F82DC5", "E:D1E4A359C1D25082"]
+          },
+          "rationale": "Migration 180900 replaces balance-level guessing with source-row-grain ledger provenance, and its real-PostgreSQL vector proves complete backfill plus deterministic replay."
+        }
+      ]
+    },
+    {
+      "sha": "28b72f17ce7c295a56409cf2d445f7757c1c791b",
+      "kind": "CHANGE",
+      "intent": "Canonical storage inventory key and serialized rollup",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-CRITICAL-240",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-CRITICAL-240"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": [
+              "E:4ADDD106EFFCFBD5",
+              "E:4D8326CD3864F784",
+              "E:B833E193DBB3C9A7",
+              "E:D1053C2DD96F4150",
+              "E:E89525091B300585"
+            ]
+          },
+          "rationale": "The entity and 180970 migration compile separate exact lotted and NULL-lot physical keys; canonical IsNull predicates plus row and aggregate locks are proven by real-PostgreSQL reconciliation, refusal and concurrent 23505 tests."
+        }
+      ]
+    },
+    {
+      "sha": "cc5e5f83f41953e39ca59bba3d7336a4ee2cbaa8",
+      "kind": "CHANGE",
+      "intent": "Feed ledger writes and reconciliation operate at row grain",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-CRITICAL-238",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-CRITICAL-238"
+            }
+          ],
+          "disposition": "SUPERSEDED",
+          "proof": {
+            "profile": "REPLACEMENT_TEST",
+            "evidence": ["E:A90D5694A2F82DC5", "E:D1E4A359C1D25082"]
+          },
+          "rationale": "The source row-grain fix is preserved by the 180900 migration authority and its real-PostgreSQL test, which reconciles dual-current records without overwriting provenance."
+        }
+      ]
+    },
+    {
+      "sha": "9d7378140b800a3cd4023bc52872ad5030aaa325",
+      "kind": "CHANGE",
+      "intent": "Transfer fails closed and the stock sink owns the selected lot",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-HIGH-239",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-HIGH-239"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": [
+              "E:27717733CC654B04",
+              "E:4ADDD106EFFCFBD5",
+              "E:AD4BF266E50B5D22",
+              "E:B833E193DBB3C9A7",
+              "E:F40E61FFFB198FCF"
+            ]
+          },
+          "rationale": "Transfer and count handlers are thin adapters over the canonical mutation sink; the boundary invariant rejects direct repositories and the real-PostgreSQL transfer proof preserves the exact NULL-lot key without consuming lotted stock."
+        }
+      ]
+    },
+    {
+      "sha": "3f9f5e32ab93fffa4d91fee1179743c27ec2ba5d",
+      "kind": "CHANGE",
+      "intent": "Ambiguous execution backfill rollback fails closed",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-CRITICAL-241",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-CRITICAL-241"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:BFC16BF46242BD71", "E:D1E4A359C1D25082"]
+          },
+          "rationale": "The immutable write-provenance authority distinguishes AMBIGUOUS, BACKFILL, LIVE_DRAIN, and RUNTIME_OPERATION origins, and its real-PostgreSQL rollback proof rejects unknown, live-only, mixed-origin, changed-row, and digest-mismatch sets before exact backfill-only deletion with hash-chained idempotent evidence."
+        }
+      ]
+    },
+    {
+      "sha": "9e4693d57d436204ffac6e8a42b00095e676c02a",
+      "kind": "CHANGE",
+      "intent": "One typed batch-share parameter for growth application",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-CRITICAL-244",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-CRITICAL-244"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:1FD5B1A85D724A1B", "E:D1E4A359C1D25082", "E:F6667B8485CBF5AC"]
+          },
+          "rationale": "The signed append-only growth-policy catalog and 180890 migration qualify only exact legacy rollup stamps, quarantine unstamped or ambiguous history instead of guessing from current protocol state, and prove replay-safe projections in real PostgreSQL."
+        }
+      ]
+    },
+    {
+      "sha": "45869e92e9438733e64e91d0d02295d961a44510",
+      "kind": "CHANGE",
+      "intent": "Unit-growth lock ordering cannot be composed incorrectly",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-HIGH-248.LOCK-AUTHORITY",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-HIGH-248"
+            }
+          ],
+          "disposition": "SUPERSEDED",
+          "proof": {
+            "profile": "REPLACEMENT_TEST",
+            "evidence": ["E:8988D45359FDC2AA", "E:A37EEE4F70D67E38"]
+          },
+          "rationale": "The opaque tenant mutation session and durable-mutation invariant prevent updateFeedingRecord from composing stock, plan and growth writes outside one governed transaction."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-288",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-288"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:19FE12CADDFEFF9C", "E:6283523737B93E46"]
+          },
+          "rationale": "The operation-level retry authority owns lock-conflict recovery and the direct test proves bounded complete-transaction restart instead of leaking a raw conflict to the caller."
+        }
+      ]
+    },
+    {
+      "sha": "e0afd94d97553a8beb86c86b6a5ebae587e86a0b",
+      "kind": "CHANGE",
+      "intent": "Growth-applier doubles implement the governed lock query",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-HIGH-248.ATOMIC-CORRECTION",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-HIGH-248"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": [
+              "E:2A61E7C8651B2BA4",
+              "E:665B36E84371E05A",
+              "E:C7CE8125F4906B7F",
+              "E:F3EE72E8F8217D2B"
+            ]
+          },
+          "rationale": "The content-addressed current-tree authority and executable test jointly prove this source claim."
+        }
+      ]
+    },
+    {
+      "sha": "6e4673a779720ef623e7813dd96c2098ac973d53",
+      "kind": "CHANGE",
+      "intent": "Farm decimal rounding is executable SSOT",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-LOW-295",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-LOW-295"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:4C7EE6F31CDF2CBF", "E:9BFBA2BDEF8A0F36"]
+          },
+          "rationale": "The content-addressed current-tree authority and executable test jointly prove this source claim."
+        }
+      ]
+    },
+    {
+      "sha": "d0a7862d42f329bb2a6480c994f43dbb2ae9783f",
+      "kind": "CHANGE",
+      "intent": "Meal closure has one bounded mutation authority",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-276",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-276"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:52F10DB2FAC05CA7", "E:C79569ED2F8D249D"]
+          },
+          "rationale": "The morning executor claims bounded work and encloses daily meal closure plus rollup in one monotonically sorted multi-unit lock scope; the concurrency test interleaves both paths and pins the canonical order."
+        }
+      ]
+    },
+    {
+      "sha": "4fe126a00e14c605d15016fec4a9dfa5278d8ac9",
+      "kind": "CHANGE",
+      "intent": "Feed return restores the consumed lot identity",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-254",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-254"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:4ADDD106EFFCFBD5", "E:B833E193DBB3C9A7", "E:F8F2E24096CBD3BC"]
+          },
+          "rationale": "Every OUT slice carries a stable allocation-family key and every RETURN links its exact source movement; the authority rebuilds the outstanding vector from immutable history and restores multi-lot provenance in LIFO order without over-restoring repeated corrections."
+        }
+      ]
+    },
+    {
+      "sha": "7f8f4182f9469d99e7225d1813f350474dd83741",
+      "kind": "CHANGE",
+      "intent": "Integration assertions match the actual database privilege boundary",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-303.SCHEMA-CI",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-303"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:081E360A9307806E", "E:1854B60DB10C66A2", "E:DB375526AFE14A3C"]
+          },
+          "rationale": "The database workflow owns schema-invariant reachability; the CI invariant proves the wiring and the real-PostgreSQL bootstrap suite proves the complete production migration graph executes from zero."
+        }
+      ]
+    },
+    {
+      "sha": "97c77d74039f81fe627a698fc2e2f4243aa6650c",
+      "kind": "CHANGE",
+      "intent": "Secret allowlist diagnostics identify the governed value",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-303.GITLEAKS-ALLOWLIST",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-303"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:F40AC94AAC00BF36", "E:FF04825B1D65AA4C"]
+          },
+          "rationale": "The committed gitleaks authority is invoked from CI and the invariant rejects unreachable or shadow allowlist configuration."
+        }
+      ]
+    },
+    {
+      "sha": "75dac78720edf51d3b5eca6843c17080976b3e26",
+      "kind": "CHANGE",
+      "intent": "Feeding PostgreSQL tests use real engine collaborators",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-288",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-288"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:19FE12CADDFEFF9C", "E:6283523737B93E46"]
+          },
+          "rationale": "The current closed retry policy and focused executable test replace the source's ad hoc collaborator path and prove only governed transaction failures are retried."
+        }
+      ]
+    },
+    {
+      "sha": "7d93f3bf186cde696e4971f49596afda5bf19fe0",
+      "kind": "CHANGE",
+      "intent": "Manual feed transition preserves its explicit band pin",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-251",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-251"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:77F4FAC71D888339", "E:F89A9E6E2418A990"]
+          },
+          "rationale": "The live recalculation authority identifies bands by their pinned index rather than feedId and reprices every remaining meal from the selected rate; the direct same-feed multi-band test proves the intended band cannot collapse into its sibling."
+        }
+      ]
+    },
+    {
+      "sha": "8e469707477cfcd33ef674a91e68e83f7d483066",
+      "kind": "CHANGE",
+      "intent": "Meal-window sweep is reproducibly emitted",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-271.REEMISSION",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-271"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:3CAE0FE3FBD41E67", "E:52F10DB2FAC05CA7"]
+          },
+          "rationale": "The scheduled-operation authority derives a governed renotification cutoff and republishes eligible meal windows; the chunk test proves bounded, repeat-safe re-emission."
+        }
+      ]
+    },
+    {
+      "sha": "abc843c3da512ff911226224b0c511fb10614f8e",
+      "kind": "CHANGE",
+      "intent": "FCR target resolution remains bulked end-to-end",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-LOW-291",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-LOW-291"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:1BFA3C4A65FC874D", "E:3CAE0FE3FBD41E67", "E:52F10DB2FAC05CA7"]
+          },
+          "rationale": "The FCR sweep consumes one bounded batch/target/trend projection and a deduplicated feed-matrix bulk read, then evaluates all batches in memory; executor and helper tests prove threshold behavior and eliminate per-batch target/trend queries."
+        }
+      ]
+    },
+    {
+      "sha": "290d47b39893ff64ba6e68145b64ac7d2d12cbc8",
+      "kind": "CHANGE",
+      "intent": "A stocked tenant cannot become silently unfed",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-284",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#FARM-MEDIUM-284"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:AE1F46E1B119B5BF", "E:F0A242FBFE6691E0"]
+          },
+          "rationale": "The stocked-unit readiness authority derives unfed signals from current occupancy rather than plan presence; its suite covers stocked, unstocked, duplicate, and bounded publication cases."
+        }
+      ]
+    },
+    {
+      "sha": "22fd58426196e8a0cdeade11aacbfffa63f3a358",
+      "kind": "CHANGE",
+      "intent": "Config-service runtime role cannot own its schema",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "SEC-HIGH-055",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#SEC-HIGH-055"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": [
+              "E:21F373AA043BDB4E",
+              "E:4442E7424AFB7DB9",
+              "E:60AE7791FE454DFC",
+              "E:65EE283656471510",
+              "E:C8660E2E2A6970AA",
+              "E:CA5E92F527E37210",
+              "E:DB375526AFE14A3C"
+            ]
+          },
+          "rationale": "Stage 008 remains the single schema/owner/runtime role-map authority and is compiled fail-closed by every consumer; the forward config migration restores its NOLOGIN schema owner without transferring the two RLS-managed table owners, while unit, derived B.4/B.4b, and fresh-bootstrap assertions prove the separation and reject inherited owner authority."
+        }
+      ]
+    },
+    {
+      "sha": "e842e286d65646117106f46f11824534be41cae9",
+      "kind": "CHANGE",
+      "intent": "Finding closure derives from merged repository history",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "PROC-HIGH-015",
+              "source": "docs/reviews/claude/2026-07-27-feeding-v2-post-merge-audit.md#PROC-HIGH-015"
+            }
+          ],
+          "disposition": "EXCLUDED",
+          "proof": {
+            "profile": "BOUNDARY_EXCLUSION",
+            "boundary": "FINDING_LEDGER_HISTORY",
+            "evidence": ["E:58E4DE19E9212BCF", "E:AB0272A793D8EEB8"]
+          },
+          "rationale": "Finding-registry history is independently governed and excluded from the feeding runtime publication."
+        }
+      ]
+    },
+    {
+      "sha": "bbaec823969063295a43067a4d28450bc1b93873",
+      "kind": "CHANGE",
+      "intent": "Orphan test surfaces remain CI-reachable",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "PLAT-CRITICAL-905",
+              "source": "docs/reviews/claude/2026-07-29-orphan-jest-config-surface.md#PLAT-CRITICAL-905"
+            }
+          ],
+          "disposition": "SUPERSEDED",
+          "proof": {
+            "profile": "REPLACEMENT_TEST",
+            "evidence": [
+              "E:2C18FD52E19624F4",
+              "E:3C81633B8237C000",
+              "E:56BC2AFEF64152F2",
+              "E:641794CD3F618C9D",
+              "E:C788327F51B4FB39"
+            ]
+          },
+          "rationale": "The exact-set library ownership invariant and four Nx project authorities replace the source commit’s narrower reachability scan."
+        },
+        {
+          "claims": [
+            {
+              "id": "SEC-HIGH-058",
+              "source": "docs/reviews/claude/2026-07-29-orphan-jest-config-surface.md#SEC-HIGH-058"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:8F52C1851B39E78B", "E:DD82E44ED853F5CB"]
+          },
+          "rationale": "The shared pool authority refuses to synthesize fallback credentials from incomplete TypeORM state and the tenant bootstrap test proves connection setup fails closed."
+        },
+        {
+          "claims": [
+            {
+              "id": "SEC-HIGH-059",
+              "source": "docs/reviews/claude/2026-07-29-orphan-jest-config-surface.md#SEC-HIGH-059"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:05B2A5E4CB3763CE", "E:B5686295E8786912"]
+          },
+          "rationale": "The production domain allowlist and its fail-closed unset-variable regression test preserve the source security claim."
+        },
+        {
+          "claims": [
+            {
+              "id": "PLAT-MEDIUM-906",
+              "source": "docs/reviews/claude/2026-07-29-orphan-jest-config-surface.md#PLAT-MEDIUM-906"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:110B641C75A7324B", "E:4BA06BFD94C9DED6"]
+          },
+          "rationale": "The structured logger extracts a primary Error stack and the executable logger suite pins that diagnostic contract."
+        },
+        {
+          "claims": [
+            {
+              "id": "DATA-MEDIUM-011",
+              "source": "docs/reviews/claude/2026-07-29-orphan-jest-config-surface.md#DATA-MEDIUM-011"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:9C6EA1DAFF0324EB", "E:D0F1D1004AFFC155"]
+          },
+          "rationale": "The shared foreign-key presence kernel is consumed by runtime drift validation and the migration harness; the real-PostgreSQL Class K integration vector proves both surfaces classify the same constraint state."
+        }
+      ]
+    },
+    {
+      "sha": "d19d4aabf5dc618e4f6211be8b58166e4f126444",
+      "kind": "CHANGE",
+      "intent": "Feeding enum comparison and SDL resolver constructor typing",
+      "claimSets": [
+        {
+          "claims": [
+            {
+              "id": "SENSOR-MEDIUM-058",
+              "source": "docs/reviews/claude/2026-07-29-as-never-typed-doubles.md#SENSOR-MEDIUM-058"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:8018B37D268EBB09", "E:E68111BF33E25238"]
+          },
+          "rationale": "The content-addressed current-tree authority and executable test jointly prove this source claim."
+        },
+        {
+          "claims": [
+            {
+              "id": "SEC-MEDIUM-060",
+              "source": "docs/reviews/claude/2026-07-29-as-never-typed-doubles.md#SEC-MEDIUM-060"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:234456C24E4AA8CC", "E:5CC1F7B20C8D06E0"]
+          },
+          "rationale": "The content-addressed current-tree authority and executable test jointly prove this source claim."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-MEDIUM-307",
+              "source": "docs/reviews/claude/2026-07-29-as-never-typed-doubles.md#FARM-MEDIUM-307"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:2899165C0D686151", "E:722D8D2FFAF6E6F9"]
+          },
+          "rationale": "The content-addressed current-tree authority and executable test jointly prove this source claim."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-LOW-308.ENUM-STATUS",
+              "source": "docs/reviews/claude/2026-07-29-as-never-typed-doubles.md#FARM-LOW-308"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:3ECC57DA9A062BAC", "E:EA08D738107ADBAB"]
+          },
+          "rationale": "The content-addressed current-tree authority and executable test jointly prove this source claim."
+        },
+        {
+          "claims": [
+            {
+              "id": "FARM-LOW-308.RESOLVER-CONSTRUCTOR",
+              "source": "docs/reviews/claude/2026-07-29-as-never-typed-doubles.md#FARM-LOW-308"
+            }
+          ],
+          "disposition": "INTEGRATED",
+          "proof": {
+            "profile": "IMPLEMENTATION_TEST",
+            "evidence": ["E:83FF5E536B8E9165", "E:9BB5D088CC655429"]
+          },
+          "rationale": "The content-addressed current-tree authority and executable test jointly prove this source claim."
+        }
+      ]
+    }
+  ]
+}

@@ -26,6 +26,9 @@ const clearCache = vi.fn((): Promise<void> => Promise.resolve());
 vi.mock('@/pwa/offline-queue', () => ({
   clearAllOperations: (): Promise<void> => clearAllOperations(),
   clearCache: (): Promise<void> => clearCache(),
+  OFFLINE_QUEUE_CLEAR_AUTHORITIES_V1: {
+    AUTHENTICATED_LOGOUT: 'authenticated-logout/device-erasure/v1',
+  },
 }));
 
 const runPushTeardown = vi.fn((): Promise<void> => Promise.resolve());
@@ -113,7 +116,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   captured = null;
   // restoreSession's mount fetch + the logout mutation fetch + caches.delete.
-  vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ json: () => Promise.resolve({ data: null }) })));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => Promise.resolve({ json: () => Promise.resolve({ data: null }) })),
+  );
   vi.stubGlobal('caches', { delete: vi.fn(() => Promise.resolve(true)) });
   // No service worker in the test environment — exercises the no-SW branch.
   vi.stubGlobal('navigator', { ...globalThis.navigator });
@@ -138,15 +144,21 @@ describe('useAuth.logout — shared-device wipe (MT-CRITICAL-050 / MT-MEDIUM-050
     await login();
 
     // Seed a tenant-A query as if it had been fetched during the session.
-    client.setQueryData(['tenant', TEST_USER.tenantId, 'mySchedule', TEST_USER.id], { secret: 'A' });
-    expect(client.getQueryData(['tenant', TEST_USER.tenantId, 'mySchedule', TEST_USER.id])).toEqual({ secret: 'A' });
+    client.setQueryData(['tenant', TEST_USER.tenantId, 'mySchedule', TEST_USER.id], {
+      secret: 'A',
+    });
+    expect(client.getQueryData(['tenant', TEST_USER.tenantId, 'mySchedule', TEST_USER.id])).toEqual(
+      { secret: 'A' },
+    );
 
     await act(async () => {
       await ctx().logout();
     });
 
     // MT-CRITICAL-050: the tenant-scoped query data must be gone, not merely stale.
-    expect(client.getQueryData(['tenant', TEST_USER.tenantId, 'mySchedule', TEST_USER.id])).toBeUndefined();
+    expect(
+      client.getQueryData(['tenant', TEST_USER.tenantId, 'mySchedule', TEST_USER.id]),
+    ).toBeUndefined();
     expect(ctx().isAuthenticated).toBe(false);
     expect(ctx().user).toBeNull();
   });
@@ -178,9 +190,11 @@ describe('useAuth.logout — shared-device wipe (MT-CRITICAL-050 / MT-MEDIUM-050
 
     let rejected: unknown = null;
     await act(async () => {
-      await ctx().logout().catch((e: unknown) => {
-        rejected = e;
-      });
+      await ctx()
+        .logout()
+        .catch((e: unknown) => {
+          rejected = e;
+        });
     });
 
     expect(rejected).toBeInstanceOf(Error);

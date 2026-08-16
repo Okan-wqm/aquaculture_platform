@@ -13,7 +13,11 @@
  *   - a transition INTO the operational state (ActivateTenant) revokes nothing;
  *   - a Redis blacklist failure is non-fatal (the durable kill is in-tx).
  */
-import { TenantStatus } from '@platform/event-contracts';
+import {
+  type ActivateTenantCommand,
+  type SuspendTenantLifecycleCommand,
+  TenantStatus,
+} from '@platform/event-contracts';
 
 import { TenantProvisioningCommandService } from '../tenant-provisioning-command.service';
 
@@ -33,7 +37,10 @@ function createManager(options: {
 }): MockManager {
   const manager: MockManager = {
     query: jest.fn((sql: string) => {
-      if (sql.includes('FROM auth.tenant_command_receipts') && sql.trimStart().startsWith('SELECT')) {
+      if (
+        sql.includes('FROM auth.tenant_command_receipts') &&
+        sql.trimStart().startsWith('SELECT')
+      ) {
         return Promise.resolve([]); // no prior receipt — live execution
       }
       if (sql.includes('SELECT id FROM "auth"."users"')) {
@@ -58,8 +65,8 @@ function createService(manager: MockManager): {
     isTokenValid: jest.fn().mockResolvedValue(true),
   };
   const dataSource = {
-    transaction: jest.fn(
-      (_isolation: string, cb: (m: MockManager) => Promise<unknown>) => cb(manager),
+    transaction: jest.fn((_isolation: string, cb: (m: MockManager) => Promise<unknown>) =>
+      cb(manager),
     ),
   };
   const service = new TenantProvisioningCommandService(
@@ -73,12 +80,18 @@ function createService(manager: MockManager): {
   return { service, outbox, revocation };
 }
 
-const suspendCommand = {
+const suspendCommand: SuspendTenantLifecycleCommand = {
   operationId: '44444444-4444-4444-8444-444444444444',
   tenantId: TENANT_ID,
-  actor: { id: 'platform-admin', type: 'SUPER_ADMIN' },
+  actor: { id: 'platform-admin', type: 'user' },
   reason: 'payment overdue',
-} as never;
+};
+
+const activateCommand: ActivateTenantCommand = {
+  operationId: '55555555-5555-4555-8555-555555555555',
+  tenantId: TENANT_ID,
+  actor: { id: 'platform-admin', type: 'user' },
+};
 
 describe('TenantProvisioningCommandService — suspend session termination (RBAC-HIGH-007)', () => {
   beforeEach(() => {
@@ -150,7 +163,9 @@ describe('TenantProvisioningCommandService — suspend session termination (RBAC
 
     expect(result.status).toBe(TenantStatus.SUSPENDED);
     expect(
-      manager.query.mock.calls.some(([sql]) => String(sql).includes('UPDATE "auth"."refresh_tokens"')),
+      manager.query.mock.calls.some(([sql]) =>
+        String(sql).includes('UPDATE "auth"."refresh_tokens"'),
+      ),
     ).toBe(false);
     expect(revocation.revokeUserTokens).not.toHaveBeenCalled();
   });
@@ -166,7 +181,9 @@ describe('TenantProvisioningCommandService — suspend session termination (RBAC
 
     expect(result.status).toBe(TenantStatus.SUSPENDED);
     expect(
-      manager.query.mock.calls.some(([sql]) => String(sql).includes('SELECT id FROM "auth"."users"')),
+      manager.query.mock.calls.some(([sql]) =>
+        String(sql).includes('SELECT id FROM "auth"."users"'),
+      ),
     ).toBe(false);
     expect(revocation.revokeUserTokens).not.toHaveBeenCalled();
   });
@@ -178,15 +195,13 @@ describe('TenantProvisioningCommandService — suspend session termination (RBAC
     });
     const { service, revocation } = createService(manager);
 
-    const result = await service.activateTenant({
-      operationId: '55555555-5555-4555-8555-555555555555',
-      tenantId: TENANT_ID,
-      actor: { id: 'platform-admin', type: 'SUPER_ADMIN' },
-    } as never);
+    const result = await service.activateTenant(activateCommand);
 
     expect(result.status).toBe(TenantStatus.ACTIVE);
     expect(
-      manager.query.mock.calls.some(([sql]) => String(sql).includes('UPDATE "auth"."refresh_tokens"')),
+      manager.query.mock.calls.some(([sql]) =>
+        String(sql).includes('UPDATE "auth"."refresh_tokens"'),
+      ),
     ).toBe(false);
     expect(revocation.revokeUserTokens).not.toHaveBeenCalled();
   });

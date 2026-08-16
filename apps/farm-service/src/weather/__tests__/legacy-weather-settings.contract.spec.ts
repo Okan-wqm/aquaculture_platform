@@ -29,13 +29,10 @@ function collectRuntimeTypeScript(directory: string): string[] {
 describe('frozen legacy weather settings contract', () => {
   it('keeps persistence metadata without exposing a GraphQL type', () => {
     const entity = readFarmSource('weather/entities/weather-settings.entity.ts');
-    const schema = readFileSync(join(REPO_ROOT, 'apps/farm-service/schema.graphql'), 'utf8');
 
     expect(entity).toContain("@Entity('weather_settings')");
     expect(entity).not.toContain("from '@nestjs/graphql'");
     expect(entity).not.toMatch(/@(ObjectType|Field|InputType|ArgsType)\b/);
-    expect(schema).not.toMatch(/\b(type|input)\s+WeatherSettings\b/);
-    expect(schema).not.toMatch(/\b(weatherSettings|updateWeatherSettings|syncWeatherData)\b/);
   });
 
   it('has no runtime reader, writer, resolver, or retired provider service', () => {

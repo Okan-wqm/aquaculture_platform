@@ -19,12 +19,7 @@ import {
   JoinColumn,
   VersionColumn,
 } from 'typeorm';
-import {
-  ObjectType,
-  Field,
-  ID,
-  registerEnumType,
-} from '@nestjs/graphql';
+import { ObjectType, Field, ID, registerEnumType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 // Note: Site is referenced via string in decorator to avoid circular dependency
 // Type-only import for TypeScript type checking
@@ -38,18 +33,18 @@ import type { Site } from '../../site/entities/site.entity';
  * Departman türü
  */
 export enum DepartmentType {
-  PRODUCTION = 'production',           // Üretim Departmanı
-  MAINTENANCE = 'maintenance',         // Bakım Departmanı
+  PRODUCTION = 'production', // Üretim Departmanı
+  MAINTENANCE = 'maintenance', // Bakım Departmanı
   QUALITY_CONTROL = 'quality_control', // Kalite Kontrol
-  FEED = 'feed',                       // Yem Departmanı
-  ADMINISTRATION = 'administration',   // İdari İşler
-  HATCHERY = 'hatchery',               // Kuluçkahane
-  NURSERY = 'nursery',                 // Fidanlık/Yavru yetiştirme
-  GROW_OUT = 'grow_out',               // Büyütme
-  BROODSTOCK = 'broodstock',           // Anaç stok
-  QUARANTINE = 'quarantine',           // Karantina
-  PROCESSING = 'processing',           // İşleme
-  LABORATORY = 'laboratory',           // Laboratuvar
+  FEED = 'feed', // Yem Departmanı
+  ADMINISTRATION = 'administration', // İdari İşler
+  HATCHERY = 'hatchery', // Kuluçkahane
+  NURSERY = 'nursery', // Fidanlık/Yavru yetiştirme
+  GROW_OUT = 'grow_out', // Büyütme
+  BROODSTOCK = 'broodstock', // Anaç stok
+  QUARANTINE = 'quarantine', // Karantina
+  PROCESSING = 'processing', // İşleme
+  LABORATORY = 'laboratory', // Laboratuvar
   OTHER = 'other',
 }
 
@@ -94,14 +89,14 @@ export class Department {
   // SITE İLİŞKİSİ (nullable - orphaned departments when site is deleted)
   // -------------------------------------------------------------------------
 
-  @Field({ nullable: true })
+  @Field(() => ID, { nullable: true })
   @Column('uuid', { nullable: true })
   @Index()
-  siteId?: string;
+  siteId!: string | null;
 
   @ManyToOne('Site', { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'siteId' })
-  site?: Site;
+  site?: Site | null;
 
   // -------------------------------------------------------------------------
   // TEMEL BİLGİLER
@@ -113,7 +108,7 @@ export class Department {
 
   @Field()
   @Column({ length: 20 })
-  code!: string;                        // Kısa kod: "PROD", "MAINT"
+  code!: string; // Kısa kod: "PROD", "MAINT"
 
   @Field(() => DepartmentType)
   @Column({
@@ -141,11 +136,11 @@ export class Department {
 
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
-  managerUserId?: string;              // Users tablosundan
+  managerUserId?: string; // Users tablosundan
 
   @Field({ nullable: true })
   @Column({ length: 255, nullable: true })
-  managerName?: string;                // Denormalized for quick access
+  managerName?: string; // Denormalized for quick access
 
   // -------------------------------------------------------------------------
   // DURUM

@@ -6,7 +6,7 @@ import { ConflictException, Logger, NotFoundException } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { DepartmentUpdatedEvent, createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
-import { DataSource, Not } from 'typeorm';
+import { DataSource, IsNull, Not } from 'typeorm';
 
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
@@ -47,7 +47,12 @@ export class UpdateDepartmentHandler
 
       if (input.name && input.name !== department.name) {
         const existingByName = await departmentRepository.findOne({
-          where: { siteId: department.siteId, name: input.name, id: Not(departmentId), tenantId },
+          where: {
+            siteId: department.siteId === null ? IsNull() : department.siteId,
+            name: input.name,
+            id: Not(departmentId),
+            tenantId,
+          },
         });
         if (existingByName) {
           throw new ConflictException(

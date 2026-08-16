@@ -69,6 +69,7 @@ Every path below has a Nx project.json + tsconfig.json + package.json. Columns d
 | `platform/libs/cqrs` | platform/libs/<name>/ | every CQRS handler in apps/ |
 | `platform/libs/event-bus` | platform/libs/<name>/ | every event-emitting service in apps/ |
 | `platform/libs/outbox` | platform/libs/<name>/ | services using the transactional outbox pattern |
+| `platform/libs/pagination-contracts` | platform/libs/<name>/ | admin-api-service list producers, admin-panel HTTP consumers, farm-service resolvers, farm-module hooks — the versioned paginated-result shape both tiers must agree on |
 | `platform/libs/service-catalog` | platform/libs/<name>/ | service-catalog artifact generator, deploy SSOT gates, gateway subgraph registry |
 | `web/shared-ui` | web/shared-ui/ | every web module (admin-panel, farm-module, etc.) |
 

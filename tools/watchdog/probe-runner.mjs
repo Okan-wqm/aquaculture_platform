@@ -12,6 +12,8 @@
  * CRITICAL finding (callers may ingest a runtime signal / dispatch a cycle).
  */
 import { execFileSync } from 'node:child_process';
+
+import { classifyTenantReality, parseTenantRealityRows } from './tenant-reality.mjs';
 import { writeFileSync } from 'node:fs';
 
 const args = Object.fromEntries(
@@ -33,6 +35,7 @@ async function probe(id, target_auditor, fn) {
       ok: r.ok,
       critical: !r.ok && !!r.critical,
       detail: r.detail,
+      counts: r.counts ?? {},
       ms: Date.now() - started,
     });
   } catch (e) {
@@ -42,6 +45,7 @@ async function probe(id, target_auditor, fn) {
       ok: false,
       critical: false,
       detail: `probe-error: ${String(e).slice(0, 160)}`,
+      counts: {},
       ms: Date.now() - started,
     });
   }
@@ -115,13 +119,57 @@ await probe('aria_state_freshness', 'job-queue-auditor', async () => {
   return { ok: ageH < 48, critical: ageH >= 72, detail: `last-commit-age=${ageH.toFixed(1)}h` };
 });
 
+// P5 — declared tenant status vs physical reality. The provisioning saga
+// verifies only its own bookkeeping (admin.tenant_schemas ×
+// platform.tenant_schema_jobs) and never looks at the schema those rows claim
+// to describe, so the two ledgers can agree with each other while the schema
+// holding every per-tenant table does not exist. That state renders as a
+// healthy tenant in the panel — it was found by hand on 2026-08-06
+// (ORPHAN-HIGH-570), not by any alarm, because provisioning had no metric at
+// all. This probe asks Postgres instead of the ledger.
+await probe('tenant_reality_parity', 'multi-tenant-saas-expert', async () => {
+  // Schema naming SSoT: getTenantSchemaName()
+  // (libs/backend-common/src/database/tenant-schema.utils.ts:76) — 'tenant_'
+  // plus the first 16 hex characters of the UUID, NOT the whole UUID. The
+  // join re-derives it in SQL so one round trip answers for every tenant.
+  // A schema that exists but holds no table is counted as missing: an empty
+  // shell cannot store tenant data either, and it is the shape a
+  // half-completed provisioning run leaves behind.
+  const sql = `SELECT t.status,
+                      (s.schema_name IS NOT NULL) AS schema_exists,
+                      COALESCE((SELECT count(*) FROM information_schema.tables it
+                                 WHERE it.table_schema = s.schema_name), 0) AS table_count
+                 FROM auth.tenants t
+                 LEFT JOIN information_schema.schemata s
+                        ON s.schema_name = 'tenant_' || left(replace(t.id::text, '-', ''), 16)`;
+  // execFileSync with an argv array: no shell, so nothing here is parsed as a
+  // command line. The statement is a constant — no interpolation reaches SQL.
+  const raw = execFileSync(
+    'docker',
+    ['exec', 'aqua-postgres', 'psql', '-U', 'aquaculture', '-d', 'aquaculture', '-tAc', sql],
+    { encoding: 'utf8', timeout: 20000 },
+  );
+  return classifyTenantReality(parseTenantRealityRows(raw));
+});
+
 const criticals = results.filter((r) => r.critical);
 if (args.textfile) {
-  const lines = ['# TYPE probe_ok gauge', '# TYPE probe_duration_ms gauge'];
+  const lines = [
+    '# TYPE probe_ok gauge',
+    '# TYPE probe_duration_ms gauge',
+    '# TYPE probe_finding_count gauge',
+  ];
   for (const r of results) {
     const l = `probe_id="${r.id}",target_auditor="${r.target_auditor}"`;
     lines.push(`probe_ok{${l}} ${r.ok ? 1 : 0}`);
     lines.push(`probe_duration_ms{${l}} ${r.ms}`);
+    // Counts of NON-conforming rows only, classified — never totals and never
+    // a per-subject label. The textfile is scraped by anything that can reach
+    // node_exporter, so it stays identity-free by construction; a healthy
+    // total would still disclose the customer count to every such reader.
+    for (const [findingClass, count] of Object.entries(r.counts ?? {})) {
+      lines.push(`probe_finding_count{${l},class="${findingClass}"} ${count}`);
+    }
   }
   writeFileSync(args.textfile, lines.join('\n') + '\n');
 }

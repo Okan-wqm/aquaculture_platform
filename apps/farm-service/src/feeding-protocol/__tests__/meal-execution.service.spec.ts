@@ -214,8 +214,6 @@ function makeHarness(opts: HarnessOpts = {}) {
   const recordFeed = jest.fn();
   recordFeed.mockImplementation(async () => mock({ id: 'rec-1' }));
   const feedingLedger = mock<FeedingLedgerService>({ recordFeed });
-  const feedHasStoragePresence = jest.fn();
-  feedHasStoragePresence.mockResolvedValue(true);
   const resolveFeedDeductionLocation = jest.fn();
   resolveFeedDeductionLocation.mockImplementation(async () => ({
     storageLocationId: 'loc-1',
@@ -231,7 +229,6 @@ function makeHarness(opts: HarnessOpts = {}) {
     warnings: [],
   }));
   const stockMovementService = mock<StockMovementService>({
-    feedHasStoragePresence,
     resolveFeedDeductionLocation,
     recordMovement,
   });

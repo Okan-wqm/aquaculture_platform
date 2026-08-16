@@ -192,6 +192,8 @@ def open_adjudication(
     record: dict[str, Any],
     base_dir: str | Path | None = None,
     panel_size: int = DEFAULT_PANEL_SIZE,
+    reopen_of: str | None = None,
+    attempt: int = 1,
 ) -> dict[str, Any]:
     """Mint one adjudication envelope per distinct panel target.
 
@@ -253,6 +255,11 @@ def open_adjudication(
         "escalation_request_id": escalation_request_id,
         "panel": list(panel),
         "request_ids": request_ids,
+        # X4 (ORPHAN-699) — bounded re-open lineage: a re-opened panel is a
+        # NEW row citing its dead predecessor; attempt counts panels, and
+        # the sweep's budget reads it instead of re-counting rows.
+        "reopen_of": reopen_of,
+        "attempt": attempt,
         "quorum_required": DEFAULT_QUORUM,
         "adjudicability_reason": adjudicability.reason,
         "opened_at": utc_now(),
@@ -474,6 +481,58 @@ def adjudicate_human_required(
     return verdict
 
 
+# X4 (ORPHAN-699) — re-open budget: mirrors DEFAULT_MAX_REQUEUES on the
+# claim side. Panels, like claims, get a bounded number of second chances;
+# unbounded re-open is the spawn-forever failure the original mint-once
+# comment guarded against, so the bound is the load-bearing part.
+MAX_PANEL_REOPENS = 2
+
+# The derived-request states that mean "this envelope can never produce an
+# opinion": nothing claimed it before the anchor window closed, or it went
+# stale with no result. A LIVE envelope (pending/claimed/running/judged)
+# anywhere in the panel means the panel might still fold — no re-open.
+_TERMINALLY_DEAD_STATES = frozenset({"ANCHOR_STALE", "STALE", "EXPIRED"})
+
+
+def _panel_rows_for(root: Path, escalation_request_id: str) -> list[dict[str, Any]]:
+    return [
+        row
+        for row in load_declared_jsonl(
+            _adjudications_path(root), expected_surface="human_required_adjudications",
+        )
+        if str(row.get("escalation_request_id")) == escalation_request_id
+    ]
+
+
+def _panel_is_terminally_dead(
+    root: Path, *, escalation_request_id: str, verdict_reason: str,
+) -> bool:
+    """True only when the LATEST panel's every envelope is beyond recovery.
+
+    Gated on the fold reason being panel_incomplete: a panel that folded
+    for independence or split-vote reasons has live opinions and re-opening
+    it would discard judge work, not recover from queue death.
+    """
+    if not verdict_reason.startswith("panel_incomplete:"):
+        return False
+    from .agent_invocations import derive_request_state
+
+    rows = _panel_rows_for(root, escalation_request_id)
+    if not rows:
+        return False
+    request_ids = [str(r) for r in (rows[-1].get("request_ids") or [])]
+    if not request_ids:
+        return False
+    for request_id in request_ids:
+        try:
+            state = derive_request_state(request_id=request_id, base_dir=root)
+        except Exception:
+            return False
+        if state not in _TERMINALLY_DEAD_STATES:
+            return False
+    return True
+
+
 def sweep_human_required_adjudications(
     *, base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
@@ -507,6 +566,8 @@ def sweep_human_required_adjudications(
     opened: list[str] = []
     folded: list[str] = []
     resolved: list[str] = []
+    reopened: list[str] = []
+    reopen_exhausted: list[str] = []
     skipped: list[dict[str, str]] = []
 
     try:
@@ -539,6 +600,38 @@ def sweep_human_required_adjudications(
                 folded.append(request_id)
                 if verdict.clears_escalation:
                     resolved.append(request_id)
+                elif _panel_is_terminally_dead(
+                    root, escalation_request_id=request_id, verdict_reason=verdict.reason,
+                ):
+                    # X4 (ORPHAN-699) — the mint-once defect: a panel whose
+                    # envelopes ANCHOR_STALE'd unclaimed used to fold to
+                    # still_escalated forever, with open_adjudication
+                    # permanently unreachable for that escalation. Bounded
+                    # re-open: a NEW panel row citing the dead one, at most
+                    # MAX_PANEL_REOPENS re-opens (mirrors the claim-requeue
+                    # budget); exhaustion folds with a disclosed terminal
+                    # reason — at that point a human genuinely must act.
+                    prior_rows = _panel_rows_for(root, request_id)
+                    attempt = len(prior_rows) + 1
+                    if attempt - 1 <= MAX_PANEL_REOPENS:
+                        latest = prior_rows[-1]
+                        open_adjudication(
+                            escalation_request_id=request_id, record=record,
+                            base_dir=root,
+                            reopen_of=str(latest.get("ledger_hash") or ""),
+                            attempt=attempt,
+                        )
+                        reopened.append(request_id)
+                    else:
+                        append_tools_governance(
+                            root, "human_required_adjudication_reopen_exhausted",
+                            {
+                                "escalation_request_id": request_id,
+                                "attempts": len(prior_rows),
+                                "budget": MAX_PANEL_REOPENS,
+                            },
+                        )
+                        reopen_exhausted.append(request_id)
             else:
                 open_adjudication(escalation_request_id=request_id, record=record, base_dir=root)
                 opened.append(request_id)
@@ -550,6 +643,8 @@ def sweep_human_required_adjudications(
         "opened": opened,
         "folded": folded,
         "resolved": resolved,
+        "reopened": reopened,
+        "reopen_exhausted": reopen_exhausted,
         "skipped": skipped,
         "escalations_seen": len(escalations),
     }

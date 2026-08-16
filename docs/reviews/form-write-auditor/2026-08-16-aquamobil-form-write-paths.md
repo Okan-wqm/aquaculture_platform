@@ -750,7 +750,7 @@ be filed into the wrong ISO reporting week
 **State:** OPEN
 **Raised as:** `PRODUCT-FORM-MEDIUM-010` by `form-write-auditor` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** NOT VERIFIED — no verifier returned a verdict for this id
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -795,6 +795,43 @@ re-derive it — and add an invariant test asserting no aquamobil page calls
 **Expected closer:**
 
 contract-parity-enforcer \+ farm domain WRITER
+
+**Verifier note:**
+
+Every citation holds verbatim. web/apps/aquamobil/src/pages/lice/LiceCountPage.tsx:97 is
+`countDate: new Date().toISOString().slice(0, 10)` inside buildPayload — a UTC calendar day, never
+the operator's local day. apps/farm-service/src/fish-health/services/lice-count.service.ts:38-39 is
+and :66-67 persists reportingYear/reportingWeek from it; the upsert lookup at :59-61 is
+`where: { tenantId, tankId, countDate }` exactly as filed. WelfareScorePage.tsx:122
+(`assessedAt: new Date().toISOString().slice(0, 10)`) and RecordHarvestPage.tsx:101
+(`harvestDate: new Date().toISOString().split('T')[0]`) repeat the idiom. I hunted for a guard the
+claimer missed and found none: apps/farm-service/src/fish-health/dto/field-capture.inputs.ts:52 and
+:213 accept countDate/assessedAt as bare `@IsDateString()` with no timezone parameter and no server
+re-derivation, so the client value is taken verbatim; no stripping or normalization layer exists.
+The downstream consumers are real regulatory keys —
+apps/farm-service/src/regulatory/assembly/assemblers/lakselus.assembler.ts:335-336 aggregates on
+`"reportingYear" = $3 AND "reportingWeek" = $4`, and harvestDate feeds period ranges in
+slakt.assembler.ts:305 and biomass.assembler.ts:323-339
+(`hr."harvestDate"::date BETWEEN $3 AND $4`), so a UTC-shifted day can also push a harvest into the
+wrong monthly report, not just the wrong ISO week. The proposed fix is feasible because the server
+already owns the timezone: apps/farm-service/src/site/entities/site.entity.ts:235 declares
+`@Column({ length: 50, default: 'UTC' }) timezone!: string`. Two refinements that sharpen rather
+than refute: (a) the report's 'splits one corrected row into two' framing understates the worse
+direction — because the key is (tenantId, tankId, countDate), a re-count taken just after local
+midnight resolves to the PREVIOUS UTC day and silently OVERWRITES the prior day's count via the
+on
+site.timezone means a default-configured site sees no site-vs-stored divergence, which is why this
+stays MEDIUM rather than higher. Severity confirmed as filed: the trigger window is narrow (a
+submission within the UTC-offset band around local midnight) and desktop correction paths exist, but
+the defect is real, reachable, and lands in regulatory period keys.
+
+```text
+const countDate = input.countDate.slice(0, 10); const { isoYear, isoWeek } = isoWeekOf(new Date(${countDate}T00:00:00Z));
+```
+
+```text
+Object.assign(existing, values)` path at lice-count.service.ts:78-80; (b) the `default: 'UTC'
+```
 
 ### LOW
 
@@ -898,7 +935,7 @@ and `acknowledgedAt` is stamped at replay time rather than at the operator's tap
 **State:** OPEN
 **Raised as:** `PRODUCT-FORM-LOW-012` by `form-write-auditor` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** NOT VERIFIED — no verifier returned a verdict for this id
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -938,6 +975,40 @@ drain happened to run.
 **Expected closer:**
 
 mobile-app-auditor WRITER; alert-engine domain review for the timestamp
+
+**Verifier note:**
+
+Both halves confirmed at the cited lines. web/apps/aquamobil/src/hooks/useAlerts.ts:44 declares
+`acknowledge: (alertId: string, note?: string) => Promise<void>` and :100-104 forwards
+`await addToQueue('acknowledgeAlert', { alertId, note })`, so the note is genuinely plumbed. The
+replay document at web/apps/aquamobil/src/pwa/operation-registry.ts:227-235 sends the whole
+`$input: AcknowledgeAlertInput!`, and
+apps/alert-engine/src/alert/dto/create-alert-rule.dto.ts:163-167 is exactly
+on
+AcknowledgeAlertInput, persisted at apps/alert-engine/src/alert/services/alert-rule.service.ts:279
+`alert.acknowledgementNote = note;`. I enumerated every caller rather than trusting the report: a
+repo-wide grep for `acknowledge(` across web/apps/aquamobil/src returns only AlertsPage.tsx:109
+(`void acknowledge(ackParam)`, the notification deep-link path) and AlertsPage.tsx:122
+(`await acknowledge(alertId)`, the button handler) — both noteless — plus
+`hooks/**tests**/useAlerts.spec.tsx:139`, the only site passing a note. I also checked
+components/CriticalAlertBanner.tsx, which the ripple set names: it consumes only
+`criticalUnacknowledged`/`refetch` from useAlerts and its 'Acknowledge' control navigates to
+/alerts, so it is not a third call site. So the note has no capture UI anywhere in production. The
+timestamp half holds too: alert-rule.service.ts:277 is `alert.acknowledgedAt = new Date();` with no
+event-time input on the DTO (only alertId, note and the inherited envelope), and a grep for
+clientCreatedAt across apps/alert-engine/src hits only a docstring in
+`dto/**tests**/acknowledge-alert-envelope-parity.spec.ts:12` — nothing reads it, so a queued ack is
+stamped at drain time. LOW is the correct severity and I looked specifically for a reason to raise
+it: the response-time metric `timeToAcknowledge` at
+apps/alert-engine/src/database/entities/alert-incident.entity.ts:401-402 lives on the separate
+alert_incidents table, and escalation/acknowledgment-tracker.service.ts:547 stamps its own record,
+so the mobile-written alert_history.acknowledgedAt has no downstream SLA consumer. Unlike
+PRODUCT-FORM-HIGH-002 the drift is audit-cosmetic, not payroll-affecting, and the ack is idempotent
+and normally drains within ~1s.
+
+```text
+@Field({ nullable: true }) @IsString() @IsOptional() @MaxLength(500) note?: string;
+```
 
 ## Inventory — what exists / what is missing
 

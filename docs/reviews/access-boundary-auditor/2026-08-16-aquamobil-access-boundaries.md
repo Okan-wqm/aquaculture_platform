@@ -2,7 +2,7 @@
 
 **Agent:** `access-boundary-auditor` · **Mode:** CATCHER (read-only) · **Lane:** mobile
 **Cycle:** `2026-08-16-farm-mobile-agent-audit` · **Verdict:** BLOCK
-**Findings surviving verification:** 12 (CRITICAL 0 · HIGH 1 · MEDIUM 9 · LOW 2)
+**Findings surviving verification:** 12 (CRITICAL 0 · HIGH 1 · MEDIUM 8 · LOW 3)
 
 > Produced by a 27-agent audit workflow, then verified by a second 25-agent pass.
 > **Every** claim — CRITICAL through LOW — was handed to an independent verifier
@@ -815,51 +815,6 @@ affordance drift (MobileFeatureGuard denies guarded mutations server-side once t
 re-minted at `<=15m`), which is why MEDIUM rather than HIGH is right \- but it is real: a revoked
 user keeps seeing CTAs and can enqueue offline writes that will 403 on replay.
 
-### PRODUCT-ACCESS-MEDIUM-011
-
-**Title:** `checkMobileEnabled` still fails open on a missing or null field — residual of
-prior-cycle HIGH-001 Path 1
-
-**Severity:** MEDIUM
-**Layer:** 1
-**State:** OPEN
-**Raised as:** `PRODUCT-ACCESS-MEDIUM-003` by `access-boundary-auditor` in cycle
-`2026-08-16-farm-mobile-agent-audit`
-**Verification:** NOT VERIFIED — no verifier returned a verdict for this id
-
-**Evidence:**
-
-- web/apps/aquamobil/src/hooks/useAuth.tsx:163 \-
-  `return result.data?.getMyMobileSettings?.isMobileEnabled ?? true;` — a malformed body, a null
-  payload or a GraphQL error envelope with no data yields ALLOW
-- web/apps/aquamobil/src/hooks/useAuth.tsx:167 \- the `catch` correctly returns `false`, so only the
-  parse path is inconsistent
-- docs/product-audits/access-boundary-auditor/2026-04-13-full-platform-e2e.md:38 \- prior cycle
-  raised exactly this `?? true` fallback; the catch branch was fixed, the coalesce was not
-
-**Rule violated:**
-
-CLAUDE.md Security — fail-closed; CLAUDE.md Architectural Approach (no defensive/permissive `??`
-bridging a missing upstream field)
-
-**Proposed fix direction:**
-
-Remove the ambiguity at the contract, not the callsite: make `isMobileEnabled` non-nullable in the
-generated result type and route the response through the existing `readGraphQLResponse` validation
-so an absent field is a parse failure that lands in the fail-closed catch. The literal `true`
-default should not be expressible in this function.
-
-**Affected surface (ripple set):**
-
-- `web/apps/aquamobil/src/hooks/useAuth.tsx`
-- `web/apps/aquamobil/src/utils/graphql-response.ts`
-- `web/apps/aquamobil/src/generated/graphql.ts`
-- `apps/auth-service/src/modules/tenant/entities/mobile-user-settings.entity.ts`
-
-**Expected closer:**
-
-frontend-expert WRITER mode
-
 ### LOW
 
 ### PRODUCT-ACCESS-LOW-005
@@ -931,6 +886,80 @@ invariant. However the claimed consequence has ZERO live instances: every file t
 leave.resolver per-method) also wires MobileFeatureGuard on the class/method, so no metadata is
 currently inert. This is a latent tier-3 architectural gap (missing invariant), not a reachable
 bypass — HIGH is inflated.
+
+### PRODUCT-ACCESS-MEDIUM-011
+
+**Title:** `checkMobileEnabled` still fails open on a missing or null field — residual of
+prior-cycle HIGH-001 Path 1
+
+**Severity:** LOW (filed as MEDIUM, downgraded by adversarial verification)
+**Layer:** 1
+**State:** OPEN
+**Raised as:** `PRODUCT-ACCESS-MEDIUM-003` by `access-boundary-auditor` in cycle
+`2026-08-16-farm-mobile-agent-audit`
+**Verification:** CONFIRMED by an independent refute-by-default verifier
+
+**Evidence:**
+
+- web/apps/aquamobil/src/hooks/useAuth.tsx:163 \-
+  `return result.data?.getMyMobileSettings?.isMobileEnabled ?? true;` — a malformed body, a null
+  payload or a GraphQL error envelope with no data yields ALLOW
+- web/apps/aquamobil/src/hooks/useAuth.tsx:167 \- the `catch` correctly returns `false`, so only the
+  parse path is inconsistent
+- docs/product-audits/access-boundary-auditor/2026-04-13-full-platform-e2e.md:38 \- prior cycle
+  raised exactly this `?? true` fallback; the catch branch was fixed, the coalesce was not
+
+**Rule violated:**
+
+CLAUDE.md Security — fail-closed; CLAUDE.md Architectural Approach (no defensive/permissive `??`
+bridging a missing upstream field)
+
+**Proposed fix direction:**
+
+Remove the ambiguity at the contract, not the callsite: make `isMobileEnabled` non-nullable in the
+generated result type and route the response through the existing `readGraphQLResponse` validation
+so an absent field is a parse failure that lands in the fail-closed catch. The literal `true`
+default should not be expressible in this function.
+
+**Affected surface (ripple set):**
+
+- `web/apps/aquamobil/src/hooks/useAuth.tsx`
+- `web/apps/aquamobil/src/utils/graphql-response.ts`
+- `web/apps/aquamobil/src/generated/graphql.ts`
+- `apps/auth-service/src/modules/tenant/entities/mobile-user-settings.entity.ts`
+
+**Expected closer:**
+
+frontend-expert WRITER mode
+
+**Verifier note:**
+
+Core claim holds at the cited lines. web/apps/aquamobil/src/hooks/useAuth.tsx:163 is verbatim
+`return result.data?.getMyMobileSettings?.isMobileEnabled ?? true;`, and useAuth.tsx:164-168 is the
+`catch { return false; }` block carrying a 'SECURITY: Fail-closed' comment — so the parse path and
+the error path really do disagree.
+docs/product-audits/access-boundary-auditor/2026-04-13-full-platform-e2e.md:38 does raise exactly
+this `?? true` (then at :91) alongside the catch (then at :93); the catch was fixed, the coalesce
+was not, so the repeat-defect framing is accurate. The path is live: checkMobileEnabled gates login
+(useAuth.tsx:357), restoreSession (useAuth.tsx:284) and loginWithToken (useAuth.tsx:391), and its
+result drives isMobileDisabled, the only gate ProtectedRoute consults at App.tsx:175.
+
+Two corrections that shrink it. (1) One of the three cited triggers is wrong: parseGraphQL
+(useAuth.tsx:142-144) is `await response.json()`, which THROWS on a malformed/empty/HTML body and
+lands in the fail-closed catch. Only a well-formed JSON envelope with no data (a GraphQL error
+envelope, or getMyMobileSettings: null) reaches `?? true`. (2) Severity is inflated to MEDIUM
+because two independent fail-closed layers the finding does not mention already contain the
+consequence. Client side: MobilePermissionsProvider re-fetches the same getMyMobileSettings query on
+its own and is fail-closed — DEFAULT_SETTINGS/FALLBACK_SETTINGS both set isMobileEnabled:false
+(useMobilePermissions.ts:72, :97), and canAccess returns false whenever !settings.isMobileEnabled
+(useMobilePermissions.ts:300), so every FeatureRoute (App.tsx:196) denies a mobile-disabled user
+regardless of what checkMobileEnabled returned. Server side:
+apps/auth-service/src/modules/authentication/services/token.service.ts:562
+`if (!settings.isMobileEnabled)` withholds the mobileFeatures claim entirely, so MobileFeatureGuard
+denies every guarded mutation. Residual exposure is the app shell plus the already-ungated /alerts,
+/notifications, /messages and /tank/:tankId routes, all still role-gated server-side — and this is a
+client-side gate the account holder could bypass by editing the bundle anyway. Real fail-open-shaped
+hygiene/consistency defect and a genuine repeat, but LOW, not MEDIUM.
 
 ### PRODUCT-ACCESS-LOW-012
 

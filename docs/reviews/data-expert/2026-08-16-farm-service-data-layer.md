@@ -2,7 +2,7 @@
 
 **Agent:** `data-expert` · **Mode:** CATCHER (read-only) · **Lane:** farm
 **Cycle:** `2026-08-16-farm-mobile-agent-audit` · **Verdict:** CONDITIONAL
-**Findings surviving verification:** 6 (CRITICAL 0 · HIGH 0 · MEDIUM 2 · LOW 4) · 4 refuted
+**Findings surviving verification:** 6 (CRITICAL 0 · HIGH 0 · MEDIUM 1 · LOW 5) · 4 refuted
 
 > Produced by a 27-agent audit workflow, then verified by a second 25-agent pass.
 > **Every** claim — CRITICAL through LOW — was handed to an independent verifier
@@ -60,59 +60,6 @@ the three feed-lot traceability events.
 ## Findings (by severity)
 
 ### MEDIUM
-
-### DATA-MEDIUM-015
-
-**Title:** farm.inbox_messages and farm.event_dlq are provisioned tables with zero producers and
-zero consumers — durable consumer idempotency and DLQ are MISSING
-
-**Severity:** MEDIUM
-**Layer:** 2
-**State:** OPEN
-**Raised as:** `DATA-MEDIUM-005` by `data-expert` in cycle `2026-08-16-farm-mobile-agent-audit`
-**Verification:** NOT VERIFIED — no verifier returned a verdict for this id
-
-**Evidence:**
-
-- apps/farm-service/src/database/migrations/1800700000000-CreateCanonicalOutboxInbox.ts:82 — CREATE
-  TABLE farm.inbox_messages with unique index (consumerName, tenantId, eventId) at :96
-- apps/farm-service/src/database/migrations/1800700000000-CreateCanonicalOutboxInbox.ts:106 — CREATE
-  TABLE farm.event_dlq with failedAt/tenant indexes at :120-:125
-- libs/backend-common/src/database/schema-manager.service.ts:380 — both listed in farm
-  infrastructureTables so strictOwnership will not drop them
-- apps/farm-service/src/events/listeners/harvest-completed.listener.ts:250 — inbound idempotency
-  uses a volatile Redis setNx claim with a 24h TTL instead of the inbox ledger, and degrades to
-  'claim won' when Redis is unavailable (:246)
-
-**Rule violated:**
-
-layer-2 Outbox/inbox pattern \+ data-expert consumer fail-closed invariant (idempotency on eventId
-under at-least-once delivery)
-
-**Proposed fix direction:**
-
-Either wire the inbox: give `farm.inbox_messages` an OutboxEntityBase-style entity and route the two
-listeners' claim/release through it inside the same transaction as their side effects, which makes
-idempotency survive a Redis restart and removes the fail-open branch. Or delete both tables in a
-migration and remove them from MODULE_SCHEMAS so the registry stops asserting a capability that does
-not exist. Leaving them provisioned-but-dead makes every future reviewer assume durable dedupe and a
-DLQ are present.
-
-**Affected surface (ripple set):**
-
-```text
-apps/farm-service/src/database/migrations/1800700000000-CreateCanonicalOutboxInbox.ts
-```
-
-- `libs/backend-common/src/database/schema-manager.service.ts`
-- `apps/farm-service/src/events/listeners/harvest-completed.listener.ts`
-- `apps/farm-service/src/events/listeners/mortality-recorded.listener.ts`
-- `platform/libs/outbox/src/index.ts`
-
-**Expected closer:**
-
-platform-kernel-expert (inbox is a platform primitive) with data-expert as CATCHER on the farm
-wiring
 
 ### DATA-MEDIUM-017
 
@@ -191,6 +138,93 @@ the next callsite that omits one gets silent string concatenation. MEDIUM stands
 grounds, not on a current wire break.
 
 ### LOW
+
+### DATA-MEDIUM-015
+
+**Title:** farm.inbox_messages and farm.event_dlq are provisioned tables with zero producers and
+zero consumers — durable consumer idempotency and DLQ are MISSING
+
+**Severity:** LOW (filed as MEDIUM, downgraded by adversarial verification)
+**Layer:** 2
+**State:** OPEN
+**Raised as:** `DATA-MEDIUM-005` by `data-expert` in cycle `2026-08-16-farm-mobile-agent-audit`
+**Verification:** CONFIRMED by an independent refute-by-default verifier
+
+**Evidence:**
+
+- apps/farm-service/src/database/migrations/1800700000000-CreateCanonicalOutboxInbox.ts:82 — CREATE
+  TABLE farm.inbox_messages with unique index (consumerName, tenantId, eventId) at :96
+- apps/farm-service/src/database/migrations/1800700000000-CreateCanonicalOutboxInbox.ts:106 — CREATE
+  TABLE farm.event_dlq with failedAt/tenant indexes at :120-:125
+- libs/backend-common/src/database/schema-manager.service.ts:380 — both listed in farm
+  infrastructureTables so strictOwnership will not drop them
+- apps/farm-service/src/events/listeners/harvest-completed.listener.ts:250 — inbound idempotency
+  uses a volatile Redis setNx claim with a 24h TTL instead of the inbox ledger, and degrades to
+  'claim won' when Redis is unavailable (:246)
+
+**Rule violated:**
+
+layer-2 Outbox/inbox pattern \+ data-expert consumer fail-closed invariant (idempotency on eventId
+under at-least-once delivery)
+
+**Proposed fix direction:**
+
+Either wire the inbox: give `farm.inbox_messages` an OutboxEntityBase-style entity and route the two
+listeners' claim/release through it inside the same transaction as their side effects, which makes
+idempotency survive a Redis restart and removes the fail-open branch. Or delete both tables in a
+migration and remove them from MODULE_SCHEMAS so the registry stops asserting a capability that does
+not exist. Leaving them provisioned-but-dead makes every future reviewer assume durable dedupe and a
+DLQ are present.
+
+**Affected surface (ripple set):**
+
+```text
+apps/farm-service/src/database/migrations/1800700000000-CreateCanonicalOutboxInbox.ts
+```
+
+- `libs/backend-common/src/database/schema-manager.service.ts`
+- `apps/farm-service/src/events/listeners/harvest-completed.listener.ts`
+- `apps/farm-service/src/events/listeners/mortality-recorded.listener.ts`
+- `platform/libs/outbox/src/index.ts`
+
+**Expected closer:**
+
+platform-kernel-expert (inbox is a platform primitive) with data-expert as CATCHER on the farm
+wiring
+
+**Verifier note:**
+
+Every cited line reads as described.
+apps/farm-service/src/database/migrations/1800700000000-CreateCanonicalOutboxInbox.ts:82-103 creates
+farm.inbox_messages with the unique index idx_inbox_messages_dedupe on
+(consumerName,tenantId,eventId) at :96-98; :106-126 creates farm.event_dlq with
+idx_event_dlq_failed_at/:120 and idx_event_dlq_tenant/:124.
+libs/backend-common/src/database/schema-manager.service.ts:380 lists 'inbox_messages' and :381
+'event_dlq' in farm's infrastructureTables under strictOwnership:true (:359), so
+SourceSchemaBootstrapService will not drop them. harvest-completed.listener.ts:245-261 is the Redis
+setNx claim with DEDUP_TTL_SECONDS = 24h (:121) that returns true (claim won) both when redisService
+is absent (:246-248) and when setNx throws (:255-260); mortality-recorded.listener.ts:223-231 is
+identical. The zero-code fact holds: a repo-wide grep for inbox_messages/InboxMessage and
+event_dlq/EventDlq returns only this migration, the schema-manager registry entries, docs, and
+tests/invariants/sites-setup-remediation-plan-contract.spec.ts:169-170 (which merely asserts the
+registry strings) — no entity, repository, or query exists, and platform/libs/outbox/src has no
+inbox module at all. So the finding is real and not refuted. Severity is inflated to MEDIUM for
+three reasons. (1) Zero runtime and zero data impact: both tables are empty and unreferenced —
+nothing reads, writes, or is misrouted by them; the residual harm is reviewer confusion, the same
+class this report already downgraded DATA-MEDIUM-016 to LOW for. (2) The 'DLQ is MISSING' half is
+overstated: producer-side dead-lettering does exist —
+platform/libs/outbox/src/outbox-entity.base.ts:108-114 isDeadLettered, constants.ts:19
+OUTBOX_MAX_RETRIES, outbox-worker.service.ts:445-467 dead-letter path, and an
+outbox_dead_letter_count gauge at outbox-metrics.service.ts:42/:177-179. Only the consumer-side DLQ
+table is dead. (3) The 'should route through the inbox instead of Redis' half restates an
+already-reviewed design decision, not an oversight: docs/reviews/_registry/findings.jsonl:444
+(FARM-HIGH-012, RESOLVED, commit 8b1e06187) records 'Redis setNx inbound idempotency on BOTH
+listeners' as the consensus fix from a farm/data-expert/architectural-arbiter panel, and the
+listener docstrings (harvest-completed.listener.ts:52-59, :238-244) document the claim-and-release
+semantics and the degrade-gracefully branch deliberately. What genuinely survives is dead schema
+surface plus one stale doc — docs/runbooks/farm-outbox-inbox-migration.md:19 asserts 'Consumers
+write inbox before side effects and ack duplicate deliveries without side effects', a capability no
+code implements. Housekeeping/doc-drift: LOW.
 
 ### DATA-MEDIUM-016
 

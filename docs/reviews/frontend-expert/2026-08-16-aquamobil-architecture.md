@@ -801,7 +801,7 @@ its script-src with an inline script the config claims does not exist
 FE-MEDIUM-011` by `frontend-expert` in cycle `2026-08-16-farm-mobile-agent-audit
 ```
 
-**Verification:** NOT VERIFIED — no verifier returned a verdict for this id
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -841,6 +841,42 @@ invisible.
 
 frontend-expert WRITER mode with security-reviewer sign-off on the final policy string
 
+**Verifier note:**
+
+Every cited line holds and the root cause is worse than filed.
+infrastructure/docker/nginx/snippets/security-headers.conf:11 literally reads 'D14-SC-02:
+unsafe-inline removed from script-src; Vite production builds emit no inline scripts' and :22 is
+\- no base-uri, no form-action, no frame-ancestors, no report-uri/report-to.
+web/apps/aquamobil/index.html:8-15 is a hand-authored classic (non-module) inline `<script>` for
+dark-mode flash prevention; I checked Vite's build-html transform in
+node_modules/vite/dist/node/chunks/config.js:23984-24010 (vite 7.3.5) \- only the `isModule`
+branches set shouldRemove/extract, so a classic inline script is copied verbatim into
+dist/index.html and is blocked by `script-src 'self'` (no hash, no nonce, no meta CSP in the file).
+The header really reaches that document: Dockerfile.aquamobil COPYs the snippet to
+/etc/nginx/snippets/, aquamobil.conf:45 includes it at server level and :118-122 re-includes it
+inside `location = /index.html`, and droplet.conf:486-498 `location /mobile/` sets its own
+add_header (CORS+HSTS) without proxy_hide_header, so the upstream CSP passes through.
+droplet.conf:389 is `location = /api/csp-report` proxying to gateway-api
+(apps/gateway-api/src/csp-report/csp-report.controller.ts:63 @Post('csp-report')), and no CSP
+anywhere in the repo carries report-uri/report-to. useDarkMode.ts:152 `applyTheme(_snapshot.isDark)`
+at module scope is indeed the backstop (applyTheme at :72-87 also updates the theme-color meta), so
+impact is a per-load flash of the wrong theme plus a CSP console violation, not a functional break.
+Two things the claim missed that strengthen it: (1) infrastructure/security/csp.policy.json is the
+platform CSP SSoT and already mandates `object-src 'none'; base-uri 'self'; form-action 'self'` \-
+rendered into droplet.conf:195, nginx.prod.conf, nginx/nginx.conf and web/shell/index.html by
+scripts/security/render-csp.mjs \- but the aquamobil snippet is NOT one of its `outputs`, so this is
+hand-maintained drift from the repo's own SSoT and the real fix is adding the snippet as a render
+target, not editing the conf by hand; (2) the existing gate
+tests/invariants/mobile-csp-headers.spec.ts:51-53 asserts only that a Content-Security-Policy
+add_header exists, never its directive set, so nothing catches the omission. Neither inflated nor
+deflated: no exploitable path is demonstrated (script-src 'self' already blocks injected script),
+impact is a cosmetic theme flash plus missing defense-in-depth directives and a false SSoT comment.
+MEDIUM.
+
+```text
+add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' wss:; font-src 'self'; manifest-src 'self';" always;
+```
+
 ### LOW
 
 ### FE-LOW-075
@@ -852,7 +888,7 @@ surface
 **Layer:** 1
 **State:** OPEN
 **Raised as:** `FE-LOW-012` by `frontend-expert` in cycle `2026-08-16-farm-mobile-agent-audit`
-**Verification:** NOT VERIFIED — no verifier returned a verdict for this id
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -894,6 +930,40 @@ intended delta so the copies cannot drift further unnoticed. Fix the favicon MIM
 **Expected closer:**
 
 frontend-expert WRITER mode
+
+**Verifier note:**
+
+All four sub-claims verified. (1) web/apps/aquamobil/src/pwa/offline-queue.ts:43-44 is
+and a repo-wide grep (all extensions, node_modules excluded) returns exactly one hit \- the
+declaration itself; no consumer, and the user's first signal is the hard
+at
+offline-queue.ts:287. (2) useSwNavigation.ts:19-23 declares NavigateToChannelMessage, :52 accepts it
+in the type guard, :66 JSDoc says '@see messaging-sw.ts handleNotificationClick \- posts
+NAVIGATE_TO_CHANNEL', and :78-87 handles it \- but messaging-sw.ts:219-222 posts
+`{ type: 'NAVIGATE_TO_NOTIFICATION_REF', notificationRef }`, and a repo-wide grep for NAVIGATE_TO
+across all files shows the only producers are messaging-sw.ts (NOTIFICATION_REF) and
+public/firebase-messaging-sw.js:323,357 (ALERTS / NOTIFICATION_REF). No worker posts
+NAVIGATE_TO_CHANNEL; remaining hits are archived docs from the 2026-04 cycles when the mismatch ran
+the other way. (3) web/apps/aquamobil/src/utils/tenant-query-keys.ts:4-5 (claim cites :5,7 \- a
+two-line offset, content exact) says 'Mirrors web/shared-ui/src/utils/tenant-query-keys.ts verbatim'
+and 'aquamobil is a standalone React Native bundle'; both false \- it is a Vite PWA, and
+web/shared-ui/src/utils/tenant-query-keys.ts:106 returns
+`['tenant', tenantId, ...segments, sessionEpochSegment()]` while :132-137 exports
+createTenantInvalidationKey, neither of which exists in the 45-line mirror (grep for
+sessionEpoch/createTenantInvalidationKey returns nothing). Note web/apps/aquamobil/CLAUDE.md already
+documents this exact drift including that the header comment is wrong, so that sub-item is
+known-but-unfixed rather than new. (4) index.html:17 is
+`<link rel="icon" type="image/svg+xml" href="/icons/icon-192x192.png" />` \- SVG MIME on a PNG,
+verbatim. Nothing here is a functional or security defect: dead export, dead switch branch, false
+doc comments, cosmetic MIME mismatch. LOW as filed.
+
+```text
+/** Threshold at which the UI should warn the user the queue is nearly full. */ export const QUEUE_WARNING_THRESHOLD = 180;
+```
+
+```text
+throw new Error('Offline queue is full (200 items). Please sync before adding more.')
+```
 
 ## Inventory — what exists / what is missing
 

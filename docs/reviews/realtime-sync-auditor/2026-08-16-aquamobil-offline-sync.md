@@ -527,7 +527,7 @@ already-acknowledged alarm
 **State:** OPEN
 **Raised as:** `PRODUCT-SYNC-MEDIUM-003` by `realtime-sync-auditor` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** NOT VERIFIED — no verifier returned a verdict for this id
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -574,6 +574,37 @@ second copy can drift; the overlay disappears automatically when the op drains.
 **Expected closer:**
 
 mobile-app-auditor WRITER mode
+
+**Verifier note:**
+
+Every cited line holds. web/apps/aquamobil/src/hooks/useAlerts.ts:86 writes the durable encrypted
+snapshot ONLY inside the success branch of the queryFn
+(`await cacheData(tenantId, offlineCacheKey, rows, ALERTS_CACHE_TTL_MS)`, TTL 12h); :91-92 is the
+catch-branch `getCachedData` fallback that returns those stale rows; :104
+is
+the ONLY state the ack mutates, and a repo-wide grep for cacheData/getCachedData
+(useLeave/useLatestReadings/useTanks/useWarehouseSummary/useAlerts only) confirms nothing else ever
+rewrites the alerts snapshot — so the ack never reaches IndexedDB. main.tsx:32-51 has no
+persistQueryClient/PersistQueryClientProvider, so the React Query cache really is memory-only.
+MobileLayout.tsx:128 renders `<CriticalAlertBanner` `/>` above every screen, and
+CriticalAlertBanner.tsx:20/43 derives visibility purely from useAlerts().criticalUnacknowledged with
+no overlay of pending queue ops. Two corrections that do NOT rescue the code. (1) The report's
+stated trigger — 'a cold offline reopen' — is actually UNREACHABLE: useAuth.tsx:244-316 restores the
+session only via a live `fetch('/graphql')` refresh mutation, and messaging-sw.ts:257-274 forces
+GraphQL POSTs straight to the network with no caching (returns Response.error() offline), so a cold
+offline start lands on the login screen with tenantId null and the alerts query disabled
+(useAlerts.ts:72). (2) A stricter trigger exists that makes the defect MORE reachable than filed,
+not less: main.tsx:45 sets `networkMode: 'offlineFirst'`, so the 30s `refetchInterval`
+(useAlerts.ts:50/73) still fires while offline; the queryFn then resolves SUCCESSFULLY from the
+stale pre-ack snapshot and overwrites the optimistic flip, resurrecting the CRITICAL banner within
+~30s of an offline ack with no restart at all. Harm is bounded to false over-alerting plus a
+redundant queued ack (server-side idempotent) and it self-heals on reconnect via
+invalidateSyncedOperationQueries, so MEDIUM — matching the report's own calibration of
+status-fidelity defects — is correct.
+
+```text
+await addToQueue('acknowledgeAlert', { alertId, note })`; :107-120 `queryClient.setQueriesData
+```
 
 ### LOW
 
@@ -895,7 +926,7 @@ is provider-lifetime state that is never reset across sessions
 **State:** OPEN
 **Raised as:** `PRODUCT-SYNC-LOW-004` by `realtime-sync-auditor` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** NOT VERIFIED — no verifier returned a verdict for this id
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -934,6 +965,28 @@ drain verdicts forward.
 **Expected closer:**
 
 mobile-app-auditor WRITER mode
+
+**Verifier note:**
+
+Half real, half refuted; net LOW. REAL half: useOfflineQueue.tsx:244-246 calls
+`applyOptimisticKpiBump(queryClient, tenantId, type, payload)` on every fresh enqueue;
+offline-optimistic.ts is 88 lines total and contains only the additive `setQueriesData` bumps at
+:72-76 and :80-86 with no inverse/revert export; removeFromQueueHandler
+(useOfflineQueue.tsx:456-462) does exactly `removeOperation(tenantId, id)` \+ `refreshQueue()` — no
+KPI revert, no invalidation — and it is reachable from the Trash2 button at
+SyncStatusPage.tsx:178-184. Since useDailyOpsStats.ts:72-83 keys the aggregate on
+createTenantQueryKey(tenantId,'dailyOpsCounts',tenantId) (the same prefix the bump targets) with
+staleTime 5min, a discarded record stays counted on the Daily Ops cards. REFUTED half: the claim
+that syncResults 'is never cleared on logout or tenant change' because 'OfflineProvider is mounted
+once above the router (main.tsx:110)' is wrong on both counts — main.tsx:107-115 nests
+OfflineProvider (line 110) INSIDE BrowserRouter and INSIDE `<IdentityBoundary>` (line 109), and
+IdentityBoundary.tsx:21-22 keys the subtree on `${tenantId}:${user.id}` (sentinel 'anonymous' when
+logged out), so React unmounts and remounts OfflineProvider on every logout/login/tenant switch and
+the `useState<Map<string,SyncStatus>>` at useOfflineQueue.tsx:157 is re-initialised to an empty Map.
+The map cannot carry drain verdicts across sessions or grow unbounded across them; within one
+session it holds one small string entry per drained op with unique UUID keys — no correctness
+effect. Remaining defect is an offline-only KPI over-count that self-heals on the next successful
+aggregate fetch once online, so LOW stands.
 
 ## Inventory — what exists / what is missing
 

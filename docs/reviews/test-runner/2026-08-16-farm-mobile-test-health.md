@@ -31,16 +31,17 @@ tools/quality/{service-coverage-baselines.json,coverage-report-inventory.json,co
 Read e2e/playwright{,.aquamobil,.water-chemistry}.config.ts and e2e/tests/mobile/. Read
 tests/invariants/{farm-service-tenant-isolation,farm-read-boundary-ssot,coverage-evidence-contract}.spec.ts,
 eslint.config.mjs, jest.preset.js, nx.json, root package.json, and prior review
-docs/reviews/test-runner/2026-04-10-full-repo-audit.md. NO test was executed: `npx jest --listTests`
-failed with "npx canceled due to missing packages" — node_modules is not installed in this sandbox.
+docs/reviews/test-runner/2026-04-10-full-repo-audit.md. NO test was
+executed: `npx jest --listTests` failed with "npx canceled due to missing packages"
+— `node_modules` is not installed in this sandbox.
 
 ## Executive summary
 
-No test run was possible (node_modules absent); this is static analysis only, stated up front.
+No test run was possible (`node_modules` absent); this is static analysis only, stated up front.
 
-Two suites that the repo believes are gating do not execute at all. AquaMobil declares no `test`
-target (package.json has dev/build/lint/typecheck only, no project.json), so all 66 vitest specs —
-including offline-queue, sw-replay, useAuth-logout-wipe, IdentityBoundary — never run in any
+Two suites that the repo believes are gating do not execute at all. AquaMobil declares
+no `test` target (package.json has dev/build/lint/typecheck only, no project.json), so all 66 vitest
+specs — including offline-queue, sw-replay, useAuth-logout-wipe, IdentityBoundary — never run in any
 workflow, and aquamobil is absent from coverage-report-inventory.json. Compounding it,
 ci-affected.yml's "SW build-artifact invariant" step targets `test:invariant`, which no project in
 the workspace declares; the step is permanently a no-op while its own comment asserts aquamobil is
@@ -78,17 +79,17 @@ TEST-CRITICAL-001` by `test-runner` in cycle `2026-08-16-farm-mobile-agent-audit
 
 **Evidence:**
 
-- web/apps/aquamobil/package.json:9-13 — scripts are build/lint/typecheck only; there is no `test`
-  script and no project.json, so Nx infers no `test` target
-- tools/quality/lint-target-inventory.json:45-48 — aquamobil IS a real Nx project
-  (`@aquaculture/aquamobil`, root web/apps/aquamobil) with a lint target, confirming the absence is
-  test-specific
+- web/apps/aquamobil/package.json:9-13 — scripts are build/lint/typecheck only; there is
+  no `test` script and no project.json, so Nx infers no `test` target
+- tools/quality/lint-target-inventory.json:45-48 — aquamobil IS a real Nx
+  project (`@aquaculture/aquamobil`, root web/apps/aquamobil) with a lint target, confirming the
+  absence is test-specific
 - tools/quality/coverage-report-inventory.json:4-35 — 35 coverage producers listed;
   web/apps/aquamobil is absent, so coverage-evidence.js never expects a report from it
 - `web/apps/aquamobil/src/pwa/**tests**/sw-replay.spec.ts:1-14` — 29 assertions pinning zero-client
   cookie refresh, tenant-scoped drain and blob-lane skip; dead in CI
-- web/apps/aquamobil/vitest.config.ts:38-45 — a fully configured jsdom vitest project (include:
-  `src/**/*.{spec,test}.{ts,tsx}`) with no runner that invokes it
+- web/apps/aquamobil/vitest.config.ts:38-45 — a fully configured jsdom vitest project
+  (include: `src/**/*.{spec,test}.{ts,tsx}`) with no runner that invokes it
 
 **Rule violated:**
 
@@ -104,9 +105,9 @@ Make execution structural, not conventional: give aquamobil a project.json decla
 web/apps/aquamobil/coverage/lcov.info to coverage-report-inventory.json so coverage-evidence.js
 fails closed when the producer is missing. Then invert coverage-evidence-contract.spec.ts to run
 BOTH directions — today it only checks inventory→declared-target; add
-project-with-spec-files→must-appear-in-inventory so any future workspace project carrying
-`*.spec.ts` without a test target fails the invariant suite. That is the Tier-1 fix; without it this
-recurs on the next standalone app.
+project-with-spec-files→must-appear-in-inventory so any future workspace project
+carrying `*.spec.ts` without a test target fails the invariant suite. That is the Tier-1 fix;
+without it this recurs on the next standalone app.
 
 **Affected surface (ripple set):**
 
@@ -126,19 +127,19 @@ Confirmed factually. web/apps/aquamobil/package.json declares
 dev/build/build:quick/preview/lint/typecheck/postinstall — no `test` script; there is no
 web/apps/aquamobil/project.json; nx.json registers only the @nx/eslint plugin (no @nx/vite /
 @nx/vitest inference), so aquamobil's targets come solely from package.json script inference —
-corroborated by tools/quality/lint-target-inventory.json showing its lint target with executor
-`nx:run-script`. 66 spec/test files exist under web/apps/aquamobil/src and vitest.config.ts includes
-`src/**/*.{spec,test}.{ts,tsx}`, but no workflow, and neither `npm test` (nx affected -t test) nor
-ci-full's `npm run test:all` (nx run-many -t test --all) can reach a target that does not exist.
-web/apps/aquamobil is absent from tools/quality/coverage-report-inventory.json's 35 producers.
-sw-replay.spec.ts has exactly 29 `expect(` calls as claimed. Severity corrected `CRITICAL->HIGH`:
-this is a missing pre-merge gate, not a live production defect, and partial compensating controls
-exist — .github/workflows/e2e-tests.yml runs the 7-spec AquaMobil Playwright suite
-(playwright.aquamobil.config.ts) against the deployed container, graphql-codegen-validate.yml gates
-the generated client, and `build` runs `typecheck` (tsc on both tsconfig.json and tsconfig.sw.json).
-Those run post-deploy on main rather than on the PR, so the gap is real but bounded. Minor
-imprecision: the claim says scripts are 'build/lint/typecheck only' — dev, build:quick, preview and
-postinstall also exist.
+corroborated by tools/quality/lint-target-inventory.json showing its lint target with
+executor `nx:run-script`. 66 spec/test files exist under web/apps/aquamobil/src and vitest.config.ts
+includes `src/**/*.{spec,test}.{ts,tsx}`, but no workflow, and neither `npm test` (nx affected -t
+test) nor ci-full's `npm run test:all` (nx run-many -t test --all) can reach a target that does not
+exist. web/apps/aquamobil is absent from tools/quality/coverage-report-inventory.json's 35
+producers. sw-replay.spec.ts has exactly 29 `expect(` calls as claimed. Severity
+corrected `CRITICAL->HIGH`: this is a missing pre-merge gate, not a live production defect, and
+partial compensating controls exist — .github/workflows/e2e-tests.yml runs the 7-spec AquaMobil
+Playwright suite (playwright.aquamobil.config.ts) against the deployed container,
+graphql-codegen-validate.yml gates the generated client, and `build` runs `typecheck` (tsc on both
+tsconfig.json and tsconfig.sw.json). Those run post-deploy on main rather than on the PR, so the gap
+is real but bounded. Minor imprecision: the claim says scripts are 'build/lint/typecheck only' —
+dev, build:quick, preview and postinstall also exist.
 
 ### TEST-HIGH-002
 
@@ -200,15 +201,17 @@ infra-expert WRITER mode; test-runner CATCHER re-verify
 
 **Verifier note:**
 
-Confirmed. .github/workflows/ci-affected.yml:451 runs
-`affected-target-policy.sh --target test:invariant`, and the workflow comment at :445 asserts 'it
-only fires when aquamobil (the sole project declaring that target) is affected'. A repo-wide grep
-for the literal `test:invariant` matches only ci-affected.yml and e2e/package.json — and the e2e
-match is `test:invariants` (plural), on a project whose package.json sets
-`"nx": {"includedScripts": []}`, so Nx infers no target from it. aquamobil declares no
-`test:invariant` script and has no project.json. scripts/ci/affected-target-policy.sh:124-127
-verified verbatim:
-— and the early-exit at :86-102 also exits 0. The step is therefore unconditionally green. The guard
+Confirmed. .github/workflows/ci-affected.yml:451
+runs `affected-target-policy.sh --target test:invariant`, and the workflow comment at :445 asserts
+'it only fires when aquamobil (the sole project declaring that target) is affected'. A repo-wide
+grep for the literal `test:invariant` matches only ci-affected.yml and e2e/package.json — and the
+e2e match is `test:invariants` (plural), on a project whose package.json
+sets `"nx": {"includedScripts": []}`, so Nx infers no target from it. aquamobil declares
+no `test:invariant` script and has no project.json. scripts/ci/affected-target-policy.sh:124-127
+verified
+verbatim:
+—
+and the early-exit at :86-102 also exits 0. The step is therefore unconditionally green. The guard
 it claims to run, `web/apps/aquamobil/src/pwa/**tests**/sw-build-artifact.invariant.spec.ts` (real
 vite build asserting dist/messaging-sw.js retains sync/notificationclick/LOGOUT handlers), is
 confirmed present, and e2e/tests/mobile/offline-sync-roundtrip.spec.ts:15-21 does name
@@ -285,7 +288,8 @@ farm-expert WRITER mode per bounded context; test-runner CATCHER re-verify again
 
 Confirmed, and if anything understated. tools/quality/service-coverage-baselines.json:20-25 matches
 exactly: farm-service branches 32.86 / functions 20.39 / lines 33.92 / statements 33.84, wired as
-the sole coverageThreshold via apps/farm-service/jest.config.ts:26
+the sole coverageThreshold via
+apps/farm-service/jest.config.ts:26
 (`coverageThreshold: { global: coverageBaselines['farm-service'] }`). Independent recount: 250
 exported handler classes under apps/farm-service/src, of which exactly 80 appear in no `*.spec.ts` —
 matching the claim's number. The named finance handlers (GetFinanceSummaryHandler,
@@ -293,15 +297,12 @@ GetFinanceLedgerHandler, GetFinanceBatchTotalsHandler, UpdateFinanceEntryHandler
 DeleteFinanceEntryHandler, UpdateFinanceSettingsHandler), the water-quality set
 (ListCriticalWaterQualityHandler, GetTankWaterQualityStatisticsHandler) and TransferStockHandler all
 verified untested. apps/farm-service/src/storage/handlers/transfer-stock.handler.ts is 209 lines and
-does exactly what is claimed: idempotency-key replay lookup (:48-53), dual
-in-transaction inventory read (:96-107). Resolver figure is off by one in the claimer's
-favour-of-caution: 51 @Resolver classes, 45 (not 46) untested, and 39 (not 45) of those untested
-ones carry @UseGuards. Severity HIGH sustained — the arithmetic imprecision does not change the
-finding.
-
-```text
-siteAuth.assertSiteAssignment` on both legs (:83-84), and a `lock: { mode: 'pessimistic_write' }
-```
+does exactly what is claimed: idempotency-key replay lookup (:48-53),
+dual `siteAuth.assertSiteAssignment` on both legs (:83-84), and
+a `lock: { mode: 'pessimistic_write' }` in-transaction inventory read (:96-107). Resolver figure is
+off by one in the claimer's favour-of-caution: 51 @Resolver classes, 45 (not 46) untested, and 39
+(not 45) of those untested ones carry @UseGuards. Severity HIGH sustained — the arithmetic
+imprecision does not change the finding.
 
 ### TEST-HIGH-005
 
@@ -339,10 +340,10 @@ Cover the arithmetic and the schedule separately. Feed dosing, FCR and growth si
 pure-ish computations over injected inputs — those get table-driven specs against known
 biomass/temperature vectors, which is where mutation testing (see TEST-MEDIUM-007) pays for itself.
 The cron services need collaborator-level specs asserting the OutboxRepository.save payload and the
-tenant-scoped read boundary, matching the pattern already used well in
-`batch/**tests**/handlers/transfer-batch.handler.spec.ts:189-199`. Do not add a coverage-only smoke
-test — a covered-but-unasserted feeding calculator is exactly the failure mode the mutation gate
-exists to catch.
+tenant-scoped read boundary, matching the pattern already used well
+in `batch/**tests**/handlers/transfer-batch.handler.spec.ts:189-199`. Do not add a coverage-only
+smoke test — a covered-but-unasserted feeding calculator is exactly the failure mode the mutation
+gate exists to catch.
 
 **Affected surface (ripple set):**
 
@@ -387,12 +388,13 @@ CLAUDE.md-mandated tenant-schema-routing spec and 8 postgres tenant-isolation sp
 - apps/farm-service/project.json:49-55 — `test:integration` target exists
   (jest.integration.config.ts, runInBand); a repo-wide grep for `test:integration` matches only two
   project.json files and e2e/package.json — no workflow, no script
-- apps/farm-service/jest.integration.config.ts:5-11 — that config is the ONLY matcher for
-  `src/**tests**/e2e/**/*.architecture.spec.ts`, `*.postgres.spec.ts` and race-conditions.spec.ts
-- apps/farm-service/jest.config.ts:15 — the unit suite explicitly ignores
-  `<rootDir>/src/**tests**/e2e/`, so the fast lane cannot pick them up either
-- CLAUDE.md:6 — "Enforced by
-  `apps/farm-service/src/**tests**/e2e/tenant-schema-routing.architecture.spec.ts` \+
+- apps/farm-service/jest.integration.config.ts:5-11 — that config is the ONLY matcher
+  for `src/**tests**/e2e/**/*.architecture.spec.ts`, `*.postgres.spec.ts` and
+  race-conditions.spec.ts
+- apps/farm-service/jest.config.ts:15 — the unit suite explicitly
+  ignores `<rootDir>/src/**tests**/e2e/`, so the fast lane cannot pick them up either
+- CLAUDE.md:6 — "Enforced
+  by `apps/farm-service/src/**tests**/e2e/tenant-schema-routing.architecture.spec.ts` \+
   e2e/tests/integration/schema-invariants.spec.ts"; apps/farm-service/CLAUDE.md Enforcement section
   repeats "CI: the specs above run every PR"
 - — a pure
@@ -411,12 +413,12 @@ apps/farm-service/CLAUDE.md Enforcement; agent Domain Rule 7 (Multi-Tenant Test 
 **Proposed fix direction:**
 
 Split by dependency, not by directory. tenant-schema-routing.architecture.spec.ts and
-graphql-loader-tenant-source.architecture.spec.ts need no DB — move them into the default `test`
-target so they gate every PR through the existing ci-full run. Wire the genuinely DB-backed
-`.postgres.spec.ts` set into a testcontainers-backed CI job with its own timeout-minutes. Then add
-an invariant asserting that every Nx target named in an agent-facing SSoT (CLAUDE.md, nested
-CLAUDE.md) is referenced by at least one workflow file, so a documented enforcement claim cannot
-outlive its runner.
+graphql-loader-tenant-source.architecture.spec.ts need no DB — move them into the
+default `test` target so they gate every PR through the existing ci-full run. Wire the genuinely
+DB-backed `.postgres.spec.ts` set into a testcontainers-backed CI job with its own timeout-minutes.
+Then add an invariant asserting that every Nx target named in an agent-facing SSoT (CLAUDE.md,
+nested CLAUDE.md) is referenced by at least one workflow file, so a documented enforcement claim
+cannot outlive its runner.
 
 **Affected surface (ripple set):**
 
@@ -437,13 +439,13 @@ The factual core holds but the stated impact is substantially overstated. Verifi
 apps/farm-service/project.json:49-56 defines `test:integration` (jest.integration.config.ts,
 runInBand:true); a repo-wide grep for `test:integration` matches only
 apps/farm-service/project.json, apps/auth-service/project.json and e2e/package.json — zero
-workflows, zero npm scripts. jest.integration.config.ts:5-11 is indeed the only matcher for
-`src/**tests**/e2e/**/*.architecture.spec.ts`, `*.postgres.spec.ts` and race-conditions.spec.ts, and
-jest.config.ts:15 ignores `<rootDir>/src/**tests**/e2e/`. However, the headline claim that the
+workflows, zero npm scripts. jest.integration.config.ts:5-11 is indeed the only matcher
+for `src/**tests**/e2e/**/*.architecture.spec.ts`, `*.postgres.spec.ts` and race-conditions.spec.ts,
+and jest.config.ts:15 ignores `<rootDir>/src/**tests**/e2e/`. However, the headline claim that the
 CLAUDE.md-mandated schema-routing invariant 'never runs' is REFUTED by a control the claimer missed:
 tests/invariants/entity-schema-declaration.spec.ts enforces the identical ADR-011 rule repo-wide and
 in BOTH directions ('every @Entity() respects the per-tenant OMIT / cross-tenant DECLARE rule', with
-farm-service in TENANT_SCOPED_SERVICE_DIRS), and it lives in the `invariants` Nx project
+farm-service in `TENANT_SCOPED_SERVICE_DIRS`), and it lives in the `invariants` Nx project
 (tests/invariants/project.json declares a `test` target) which ci-affected.yml explicitly runs — the
 comment at ci-affected.yml:417-420 names that project by hand.
 e2e/tests/integration/schema-invariants.spec.ts assertions B.1/B.2 add a second layer and are
@@ -468,8 +470,10 @@ owner, deadline or finding ID
 
 **Evidence:**
 
-- scripts/ci/affected-target-policy.json:64 —
-  under targets.test.knownUnstableProjects
+- scripts/ci/affected-target-policy.json:64
+  —
+  under
+  targets.test.knownUnstableProjects
 
   ```text
   "farm-service": "CI run 26116890061: existing unit-test debt, unrelated to deploy/migration recovery."
@@ -477,12 +481,12 @@ owner, deadline or finding ID
 
 - scripts/ci/write-affected-target-report.mjs:58-61 — a quarantined project is pushed to
   quarantinedProjects and never reaches strictProjects, so it is not executed at all
-- scripts/ci/affected-target-policy.json — the same file lists both `hr-module` and
-  `@aquaculture/hr-module` as separate test-quarantine entries, evidence the list is hand-maintained
-  and already drifting
+- scripts/ci/affected-target-policy.json — the same file lists
+  both `hr-module` and `@aquaculture/hr-module` as separate test-quarantine entries, evidence the
+  list is hand-maintained and already drifting
 - scripts/ci/affected-target-policy.json:29 — farm-service is separately quarantined for lint, so
   neither PR-lane gate covers it
-- .github/workflows/ci-full.yml:19,211-212 — mitigation: ci-full triggers on pull_request to main
+- .github/workflows/ci-full.yml:19,211-212 — mitigation: ci-full triggers on `pull_request` to main
   and runs `npm run test:all -- --coverage`, so farm-service unit tests are not fully dark; the
   quarantine removes the fast-feedback lane only
 
@@ -496,8 +500,8 @@ CLAUDE.md Architectural Approach — "deferred" / "out of scope" FORBIDDEN witho
 Give every quarantine entry the three fields CLAUDE.md already requires: owner, deadline, finding ID
 — enforced by schema validation in write-affected-target-report.mjs so an entry without them fails
 the run rather than silently skipping a project. Add expiry semantics (a past deadline turns the
-entry into a hard failure), and de-duplicate the project-name keys against the Nx graph so
-`hr-module` vs `@aquaculture/hr-module` cannot both linger. A quarantine list with no clock is
+entry into a hard failure), and de-duplicate the project-name keys against the Nx graph
+so `hr-module` vs `@aquaculture/hr-module` cannot both linger. A quarantine list with no clock is
 indistinguishable from deleted coverage.
 
 **Affected surface (ripple set):**
@@ -515,19 +519,20 @@ infra-expert WRITER mode; context-manager to register the per-project debt findi
 
 Confirmed on every point. scripts/ci/affected-target-policy.json targets.test.knownUnstableProjects
 spans lines 55-73 and contains exactly 19 entries, with farm-service at :64 carrying the bare string
-'CI run 26116890061: existing unit-test debt...' — no owner, no deadline, no finding ID; both
-`hr-module` (:73) and `@aquaculture/hr-module` (:55) are present, confirming hand-maintained drift;
-farm-service is separately lint-quarantined at :29.
+'CI run 26116890061: existing unit-test debt...' — no owner, no deadline, no finding ID;
+both `hr-module` (:73) and `@aquaculture/hr-module` (:55) are present, confirming hand-maintained
+drift; farm-service is separately lint-quarantined at :29.
 scripts/ci/write-affected-target-report.mjs:55-61 is exactly as described — a project matched in
 knownUnstable is pushed to quarantinedProjects and never appended to strictProjects, and only a
 ::warning is emitted, so ci-affected.yml:412 never executes it. I checked for a gate that would
-refute this: tests/invariants/lint-quarantine-ssot.spec.ts enforces reasons, a MAX_EXCLUSIONS
-ceiling and Nx-existence only for the FULL-lane lint list (scripts/ci/lint-all-exclusions.json) and
-only reads targets.lint.knownUnstableProjects; tests/invariants/admin-route-contract-ci.spec.ts:54
-asserts emptiness only for targets['test:contract']. Nothing constrains the 19-entry test quarantine
-— no expiry, no ID, no size cap. The ci-full mitigation is genuine (ci-full.yml:19
-pull_request→main, :211-212 `npm run test:all -- --coverage`, and test:all is
-`nx run-many --target=test --all`), but the claim already discloses it, and the process violation
+refute this: tests/invariants/lint-quarantine-ssot.spec.ts enforces reasons,
+a `MAX_EXCLUSIONS` ceiling and Nx-existence only for the FULL-lane lint list
+(scripts/ci/lint-all-exclusions.json) and only reads targets.lint.knownUnstableProjects;
+tests/invariants/admin-route-contract-ci.spec.ts:54 asserts emptiness only for
+targets['test:contract']. Nothing constrains the 19-entry test quarantine — no expiry, no ID, no
+size cap. The ci-full mitigation is genuine
+(ci-full.yml:19 `pull_request→main`, :211-212 `npm run test:all -- --coverage`, and test:all
+is `nx run-many --target=test --all`), but the claim already discloses it, and the process violation
 plus a drifting, clock-less list stands. MEDIUM as filed.
 
 ### TEST-MEDIUM-009
@@ -564,12 +569,12 @@ cross-tenant-negative and missing-context coverage); CLAUDE.md Layer Rules 6 (ge
 
 **Proposed fix direction:**
 
-Extend the invariant's file set to `*.service.ts`, `*.resolver.ts`, `*.responder.ts` and
-`*.dataloader.ts`, and add a positive-form rule: raw `manager.getRepository` /
-`dataSource.getRepository` outside tenantManagerRepo is a violation, which is far more robust than
-pattern-matching where-clauses. Pair it with a Scope.REQUEST assertion for the 6 dataloaders — a
-singleton DataLoader over tenant-scoped rows is the one failure mode neither the static scan nor the
-current specs can observe.
+Extend the invariant's file set
+to `*.service.ts`, `*.resolver.ts`, `*.responder.ts` and `*.dataloader.ts`, and add a positive-form
+rule: raw `manager.getRepository` / `dataSource.getRepository` outside tenantManagerRepo is a
+violation, which is far more robust than pattern-matching where-clauses. Pair it with a
+Scope.REQUEST assertion for the 6 dataloaders — a singleton DataLoader over tenant-scoped rows is
+the one failure mode neither the static scan nor the current specs can observe.
 
 **Affected surface (ripple set):**
 
@@ -586,21 +591,21 @@ multi-tenant-saas-expert WRITER mode; test-runner CATCHER re-verify
 
 Verified line by line. tests/invariants/farm-service-tenant-isolation.spec.ts walkHandlerFiles
 (53-67) admits only files ending `.handler.ts` (filter at :61, one line off the cited :60) and skips
-**tests**; isRepoCall at :108-115 matches only findOne/findOneBy/findBy/find on
-`*Repository/*Repo/queryRunner.manager/dataSource.manager` — grep for 'createQueryBuilder' in that
-file returns zero hits, so builder chains are invisible. Counts reproduce: 117 repository `find*`
-calls in non-test `*.service.ts`, 99 createQueryBuilder sites in `*.handler.ts` and 40 in
-`*.service.ts` (139), 51 resolvers, 7 responders, 6 dataloaders, none scanned.
-libs/backend-common/src/database/tenant-scoped-repository.ts:420-425 does inject
-`alias.tenantId = :tenantId` and disables predicate resetters, exactly as cited. Two mitigations
-partly blunt the proposed fix — tests/invariants/no-direct-getrepository-call.spec.ts already
-implements the repo-wide 'raw getRepository is a violation' rule the claim proposes as new, and
-farm's per-tenant tables route via search_path — but the detection gap is real and not merely
-hypothetical: apps/farm-service/src/growth/services/fcr-calculation.service.ts injects a plain
-`Repository<Batch>` (:144) and does `findOne({ where: { id: batchId } })` (:620) with no tenantId,
-precisely the shape the handler invariant exists to catch, sitting in a file the scanner never
-opens. Not escalated above MEDIUM because Batch (@Entity('batches_v2'), no `schema:`) is per-tenant
-and search_path isolates it at runtime, so this is a missing detector, not a live leak.
+**tests**; isRepoCall at :108-115 matches only findOne/findOneBy/findBy/find
+on `*Repository/*Repo/queryRunner.manager/dataSource.manager` — grep for 'createQueryBuilder' in
+that file returns zero hits, so builder chains are invisible. Counts reproduce: 117
+repository `find*` calls in non-test `*.service.ts`, 99 createQueryBuilder sites
+in `*.handler.ts` and 40 in `*.service.ts` (139), 51 resolvers, 7 responders, 6 dataloaders, none
+scanned. libs/backend-common/src/database/tenant-scoped-repository.ts:420-425 does
+inject `alias.tenantId = :tenantId` and disables predicate resetters, exactly as cited. Two
+mitigations partly blunt the proposed fix — tests/invariants/no-direct-getrepository-call.spec.ts
+already implements the repo-wide 'raw getRepository is a violation' rule the claim proposes as new,
+and farm's per-tenant tables route via `search_path` — but the detection gap is real and not merely
+hypothetical: apps/farm-service/src/growth/services/fcr-calculation.service.ts injects a
+plain `Repository<Batch>` (:144) and does `findOne({ where: { id: batchId } })` (:620) with no
+tenantId, precisely the shape the handler invariant exists to catch, sitting in a file the scanner
+never opens. Not escalated above MEDIUM because Batch (`@Entity('batches_v2`'), no `schema:`) is
+per-tenant and `search_path` isolates it at runtime, so this is a missing detector, not a live leak.
 
 ### LOW
 
@@ -655,9 +660,9 @@ test-runner WRITER mode; build-validator to confirm the tsc pass stays green
 **Verifier note:**
 
 Facts hold. apps/farm-service/tsconfig.spec.json:23-29 still carries an exclude block whose comment
-claims the specs "import deleted migration classes"; I listed
-`apps/farm-service/src/database/migrations/**tests**/` (10 specs) and grepped their imports — every
-migration class they import (1800400000000-CreateFarmStockReadModel,
+claims the specs "import deleted migration classes"; I
+listed `apps/farm-service/src/database/migrations/**tests**/` (10 specs) and grepped their imports —
+every migration class they import (1800400000000-CreateFarmStockReadModel,
 1800500000000-AssertFarmStockBatchSnapshotMetadata, 1801300000000, 1801700000000, 1801800000000,
 1806900000000, 1807000000000, 1807100000000, 1807200000000, 1807900000000, 1808000000000) exists on
 disk, so the stated premise is false. jest.config.ts:12-24 deliberately does NOT ignore that
@@ -670,8 +675,9 @@ compilerOptions, not `exclude`, so those specs are still type-checked under the 
 (tsconfig.base.json strict \+ noUncheckedIndexedAccess) whenever the farm-service jest target runs,
 which ci-full's `npm run test:all` does on every PR to main. Real but narrow: a stale,
 factually-wrong exclusion in one project's spec tsconfig with zero current type errors behind it,
-plus one genuinely dark file (`src/**tests**/e2e/code-sequences-schema-alignment.postgres.spec.ts`,
-also jest-ignored by the \.postgres\.spec\.ts$ pattern). LOW, not MEDIUM.
+plus one genuinely dark
+file (`src/**tests**/e2e/code-sequences-schema-alignment.postgres.spec.ts`, also jest-ignored by the
+\.postgres\.spec\.ts$ pattern). LOW, not MEDIUM.
 
 ### TEST-MEDIUM-007
 
@@ -686,35 +692,31 @@ be shown to be honest
 
 **Evidence:**
 
-- Repo-wide search for `stryker` in package.json and `.github/workflows/*.yml` returns nothing; no
-  `stryker.conf*` file exists
+- Repo-wide search for `stryker` in package.json and `.github/workflows/*.yml` returns nothing;
+  no `stryker.conf*` file exists
 - package.json devDependencies contain no eslint-plugin-jest, eslint-plugin-vitest,
   eslint-plugin-testing-library or eslint-plugin-playwright
-- eslint.config.mjs:598-606 — the TEST_FILE_GLOBS override turns OFF no-explicit-any and
+- eslint.config.mjs:598-606 — the `TEST_FILE_GLOBS` override turns OFF no-explicit-any and
   unbound-method for specs and adds no jest ruleset, so an assertion-free test lints clean
-  closing a test titled "should verify all handlers use pessimistic lock pattern"; nothing detects
-  it
-
-  ```text
-  apps/farm-service/src/**tests**/e2e/race-conditions.spec.ts:473` — `expect(true).toBe(true)
-  ```
-
+- `apps/farm-service/src/**tests**/e2e/race-conditions.spec.ts:473`
+  — `expect(true).toBe(true)` closing a test titled "should verify all handlers use pessimistic lock
+  pattern"; nothing detects it
 - tools/quality/service-coverage-baselines.json:20-25 — the farm-service floor is enforced as a
   number with no honesty metric behind it
 
 **Rule violated:**
 
 Agent Domain Rule 3 (jest/expect-expect MUST be enabled) and Domain Rule 4 (mutation testing
-mandatory on CQRS handlers, guards, billing math, tenant predicates; track mutation_score /
-line_coverage)
+mandatory on CQRS handlers, guards, billing math, tenant predicates;
+track `mutation_score` / `line_coverage`)
 
 **Proposed fix direction:**
 
-Add eslint-plugin-jest with expect-expect at error inside the existing TEST_FILE_GLOBS block —
+Add eslint-plugin-jest with expect-expect at error inside the existing `TEST_FILE_GLOBS` block —
 cheap, immediate, and it retires the assertion-free class permanently. Then introduce Stryker as a
 scheduled nightly job (never a per-PR gate) with coverageAnalysis: 'perTest', scoped initially to
 the site-authorization handlers, the finance aggregation handlers and the feeding calculators, and
-publish the mutation_score/line_coverage ratio alongside the coverage baseline so the 20.39% floor
+publish the `mutation_score/line_coverage` ratio alongside the coverage baseline so the 20.39% floor
 in TEST-HIGH-004 gains a quality dimension rather than just a quantity one.
 
 **Affected surface (ripple set):**
@@ -734,16 +736,16 @@ test-runner WRITER mode for the lint rule; infra-expert for the nightly job
 Every factual leg checks out. Repo-wide grep for stryker across package.json and .github/workflows/
 returns nothing (only a docs/research path string inside tools/quality/format-scope.json);
 package.json has no eslint-plugin-jest / -vitest / -testing-library / -playwright; eslint.config.mjs
-override 14 (the TEST_FILE_GLOBS block at ~596-608) turns off no-explicit-any, unbound-method and
+override 14 (the `TEST_FILE_GLOBS` block at ~596-608) turns off no-explicit-any, unbound-method and
 no-console and adds no jest ruleset; grep for 'expect-expect' across the tree finds no rule, gate or
-invariant anywhere; and `apps/farm-service/src/**tests**/e2e/race-conditions.spec.ts:473` really is
-`expect(true).toBe(true)` closing the test titled 'should verify all handlers use pessimistic lock
-pattern'. tools/quality/service-coverage-baselines.json:20-25 does pin farm-service at functions
-20\.39 with no quality metric. Downgraded because this is the absence of two optional test-quality
-tools rather than a defect in shipped behaviour: the demonstrated harm is a single placeholder
-assertion in a spec that only runs in the integration/e2e lane, and mutation testing is proposed by
-the claim itself as a nightly non-gating job. Real and worth fixing (the eslint-plugin-jest half is
-trivial), but narrowly evidenced — LOW.
+invariant anywhere; and `apps/farm-service/src/**tests**/e2e/race-conditions.spec.ts:473` really
+is `expect(true).toBe(true)` closing the test titled 'should verify all handlers use pessimistic
+lock pattern'. tools/quality/service-coverage-baselines.json:20-25 does pin farm-service at
+functions 20.39 with no quality metric. Downgraded because this is the absence of two optional
+test-quality tools rather than a defect in shipped behaviour: the demonstrated harm is a single
+placeholder assertion in a spec that only runs in the integration/e2e lane, and mutation testing is
+proposed by the claim itself as a nightly non-gating job. Real and worth fixing (the
+eslint-plugin-jest half is trivial), but narrowly evidenced — LOW.
 
 ### TEST-MEDIUM-010
 
@@ -763,7 +765,7 @@ produces no debuggable artifact and gates nothing pre-merge
 - e2e/playwright.config.ts:23 and e2e/playwright.water-chemistry.config.ts:9 — retries set, trace
   absent in both; grep for `trace` across all three configs returns nothing
 - .github/workflows/e2e-tests.yml:11-15 — triggers are `workflow_run` on "Deploy to DigitalOcean"
-  completion plus workflow_dispatch, so the mobile suite is a post-production smoke, not a merge
+  completion plus `workflow_dispatch`, so the mobile suite is a post-production smoke, not a merge
   gate
 - .github/workflows/e2e-tests.yml:160,168-171 — playwright-report and test-results are uploaded, so
   the HTML report survives, but with trace off it carries no DOM snapshot or network log
@@ -799,16 +801,16 @@ infra-expert WRITER mode; frontend-expert to confirm the pre-merge harness
 
 Half true, half refuted — real but smaller than filed.
 
-WHAT HOLDS: I read all three configs in full. e2e/playwright.aquamobil.config.ts:30-35 has a `use`
-block with only `...devices['Pixel 7']`, `baseURL` and `serviceWorkers` — no trace/screenshot/video.
-e2e/playwright.config.ts:29-34 (`use` = baseURL \+ extraHTTPHeaders) and
-e2e/playwright.water-chemistry.config.ts:14-16 (`use` = baseURL only) likewise. grep for `trace`
-across `e2e/*.ts` returns nothing, and neither e2e/package.json scripts (test:mobile,
-test:water-chemistry, test:security) nor the workflow invocations pass --trace, so Playwright's
-`trace: 'off'` default is in force everywhere. This matters most for the water-chemistry lane, which
-DOES run pre-merge (.github/workflows/ci-affected.yml:525-570) and uploads e2e/playwright-report/**
-\+ e2e/test-results/** on failure (:578-587) — those artifacts would carry traces if the key were
-set. A one-line config gap with a real debugging cost.
+WHAT HOLDS: I read all three configs in full. e2e/playwright.aquamobil.config.ts:30-35 has
+a `use` block with only `...devices['Pixel 7']`, `baseURL` and `serviceWorkers` — no
+trace/screenshot/video. e2e/playwright.config.ts:29-34 (`use` = baseURL \+ extraHTTPHeaders) and
+e2e/playwright.water-chemistry.config.ts:14-16 (`use` = baseURL only) likewise. grep
+for `trace` across `e2e/*.ts` returns nothing, and neither e2e/package.json scripts (test:mobile,
+test:water-chemistry, test:security) nor the workflow invocations pass --trace, so
+Playwright's `trace: 'off'` default is in force everywhere. This matters most for the
+water-chemistry lane, which DOES run pre-merge (.github/workflows/ci-affected.yml:525-570) and
+uploads `e2e/playwright-report/**` \+ `e2e/test-results/**` on failure (:578-587) — those artifacts
+would carry traces if the key were set. A one-line config gap with a real debugging cost.
 
 WHAT IS REFUTED: the second, more consequential half — 'the E2E lane runs only after deploy... gates
 nothing pre-merge' plus the fix direction 'promote the aquamobil lane to pre-merge with the existing
@@ -823,9 +825,9 @@ was chosen because the full stack is already up there. The proposed fix is factu
 harness it names. 'Gates nothing pre-merge' is also overbroad: ci-affected.yml:525 runs a pre-merge
 Playwright browser smoke.
 
-Also confirmed as stated: e2e-tests.yml:12-15 triggers are workflow_run on 'Deploy to DigitalOcean'
-\+ workflow_dispatch, :146 runs `npm run test:mobile`, and reports are uploaded at :164-175. Grep
-confirms only e2e-tests.yml and ci-affected.yml reference Playwright at all.
+Also confirmed as stated: e2e-tests.yml:12-15 triggers are `workflow_run` on 'Deploy to
+DigitalOcean' \+ `workflow_dispatch`, :146 runs `npm run test:mobile`, and reports are uploaded at
+:164-175. Grep confirms only e2e-tests.yml and ci-affected.yml reference Playwright at all.
 
 Net: keep the trace gap as LOW (debuggability-only, config one-liner, reports already uploaded so
 failures are not invisible); the MEDIUM rating rested on the gating argument, which does not
@@ -844,8 +846,8 @@ survive.
 **Evidence:**
 
 - `apps/farm-service/src/**tests**/e2e/race-conditions.spec.ts:461-474` — test titled "should verify
-  all handlers use pessimistic lock pattern" whose body is a comment block closed by
-  `expect(true).toBe(true)`; the file is in the dead test:integration lane (TEST-HIGH-003) so it
+  all handlers use pessimistic lock pattern" whose body is a comment block closed
+  by `expect(true).toBe(true)`; the file is in the dead test:integration lane (TEST-HIGH-003) so it
   neither passes nor fails today
 - jest.preset.js:1-24 — no restoreMocks / clearMocks / resetMocks and no maxWorkers;
   apps/farm-service/jest.config.ts sets none either
@@ -882,29 +884,29 @@ Verified; LOW is the right severity.
 
 Assertion-free test: `apps/farm-service/src/**tests**/e2e/race-conditions.spec.ts:461-474` is
 exactly as described — `it('should verify all handlers use pessimistic lock pattern', () => {` whose
-body is a 6-item comment block closed by `expect(true).toBe(true);` at :473.
-`grep -rn "expect(true).toBe(true)" apps/farm-service/src` returns this one hit only, so the
+body is a 6-item comment block closed by `expect(true).toBe(true);` at
+:473. `grep -rn "expect(true).toBe(true)" apps/farm-service/src` returns this one hit only, so the
 'exactly ONE' count holds.
 
-Dead lane confirmed independently: apps/farm-service/jest.config.ts:15 ignores
-`<rootDir>/src/**tests**/e2e/`, so the unit suite skips it. The only config matching it is
+Dead lane confirmed independently: apps/farm-service/jest.config.ts:15
+ignores `<rootDir>/src/**tests**/e2e/`, so the unit suite skips it. The only config matching it is
 apps/farm-service/jest.integration.config.ts:10
 ('`<rootDir>/src/**tests**/e2e/race-conditions.spec.ts`'), driven by the test:integration target at
-apps/farm-service/project.json:47-55 — and package.json:28 test:all is
-`nx run-many --target=test --all` (target `test` only), which is what
+apps/farm-service/project.json:47-55 — and package.json:28 test:all
+is `nx run-many --target=test --all` (target `test` only), which is what
 .github/workflows/ci-full.yml:210 runs. No workflow invokes test:integration. So the placeholder
 neither passes nor fails today, which is exactly why this is LOW and not higher.
 
 restoreMocks: jest.preset.js is 25 lines and sets
 testMatch/transform/resolver/moduleFileExtensions/coverageReporters/collectCoverageFrom only — no
-restoreMocks, clearMocks, resetMocks or maxWorkers. I also read the upstream it spreads,
-node_modules/@nx/jest/preset/jest-preset.js, which sets none of them either, so nothing supplies
-them behind the scenes. apps/farm-service/jest.config.ts sets none and has no setup file. The repo
-already treats this as the correct default elsewhere: apps/auth-service/jest.config.ts:16-22 sets
-restoreMocks:true \+ clearMocks:true with resetMocks:false and a comment explaining the split — a
-direct precedent farm-service does not follow. maxWorkers is likewise set in
-apps/farm-service/jest.e2e.config.ts:11 and jest.integration.config.ts:17 but not in the unit
-config.
+restoreMocks, clearMocks, resetMocks or maxWorkers. I also read the upstream it
+spreads, `node_modules/@nx/jest/preset/jest-preset.js`, which sets none of them either, so nothing
+supplies them behind the scenes. apps/farm-service/jest.config.ts sets none and has no setup file.
+The repo already treats this as the correct default elsewhere:
+apps/auth-service/jest.config.ts:16-22 sets restoreMocks:true \+ clearMocks:true with
+resetMocks:false and a comment explaining the split — a direct precedent farm-service does not
+follow. maxWorkers is likewise set in apps/farm-service/jest.e2e.config.ts:11 and
+jest.integration.config.ts:17 but not in the unit config.
 
 One inaccuracy in the claim's rationale, not enough to refute: 'spy state cannot accumulate across
 the 308-file farm-service suite' overstates it — Jest gives each test file its own module registry,
@@ -916,7 +918,7 @@ still real.
 | Status          | Area                                                                      | Note                                                                                                                                                                                                                                                                                                                                 |
 | --------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **MISSING**     | Mutation testing \+ test lint rules                                       | No Stryker configuration, dependency or workflow anywhere in the repo, and no eslint-plugin-jest/vitest/testing-library/playwright. The spec-file ESLint override disables no-explicit-any and adds no jest ruleset, so assertion-free tests and 168 `as any` uses in farm-service specs lint clean.                                 |
-| **MISSING**     | farm-service / GraphQL resolvers                                          | 46 of 51 resolver classes have no spec, and 45 of the 51 carry @UseGuards — the authorization decorator wiring is therefore almost entirely unasserted. Only 3 __resolveReference sites exist (all in farm.resolver.ts) and their cross-tenant behaviour is exercised indirectly via get-farm.handler.spec.ts.                       |
+| **MISSING**     | farm-service / GraphQL resolvers                                          | 46 of 51 resolver classes have no spec, and 45 of the 51 carry @UseGuards — the authorization decorator wiring is therefore almost entirely unasserted. Only 3 `__resolveReference` sites exist (all in farm.resolver.ts) and their cross-tenant behaviour is exercised indirectly via get-farm.handler.spec.ts.                     |
 | **MISSING**     | farm-service / ai-insights                                                | Six source files (ai-insights.service.ts, mcp-client.service.ts, mcp-sdk.port.ts, resolver, module, types) with zero spec files. The MCP client is an outbound third-party boundary with no test at all.                                                                                                                             |
 | **MISSING**     | farm-service / dead or orphan code                                        | cache/farm-cache.service.ts is a 0-byte file imported by nothing. filters/global-exception.filter.ts (5.6 KB) has no spec. mobile-command/ holds only an entity, but it IS read through MobileCommandReceiptService in daily-feeding-execution.service.ts, so it is not orphaned.                                                    |
 | **MISSING**     | farm-service / finance                                                    | Weakest context: 11 of 13 handler classes untested, including every finance query handler (summary, ledger, batch-totals, categories, settings) and all mutation handlers except create/archive. Money aggregation runs with no assertion behind it.                                                                                 |

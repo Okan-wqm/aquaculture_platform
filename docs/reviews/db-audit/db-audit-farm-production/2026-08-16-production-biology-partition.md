@@ -18,8 +18,8 @@
 
 ## Scope
 
-Read the full entity set of the farm-production-biology partition in
-/home/user/aquaculture_platform/apps/farm-service/src: batch/ (batch.entity.ts,
+Read the full entity set of the farm-production-biology partition
+in `/home/user/aquaculture_platform/apps/farm-service/src`: batch/ (batch.entity.ts,
 tank-batch.entity.ts, tank-allocation.entity.ts, tank-operation.entity.ts,
 mortality-record.entity.ts, batch-location.entity.ts, batch-document/feed-assignment entities,
 services/tank-batch.service.ts, services/batch.service.ts,
@@ -27,12 +27,13 @@ handlers/{create-batch,allocate-to-tank,record-mortality,record-cull,transfer-ba
 controllers/batch.controller.ts, dataloaders/batch-location.dataloader.ts,
 query-handlers/get-batch-traceability.handler.ts), tank/ (tank.entity.ts,
 services/tank-capacity.service.ts, resolvers/tank.resolver.ts), growth/
-(growth-measurement.entity.ts, resolvers/growth.resolver.ts, `handlers/*`,
-services/fcr-calculation.service.ts), fish-health/ (health-event, lice-count, welfare-assessment,
-escape-incident, treatment-application, farm-incident-media entities; `services/*`;
-resolvers/field-capture.resolver.ts), water-quality/ (water-quality-measurement, parameter-config,
-param-equipment, sensor-temperature-{latest,daily} entities; water-quality.service.ts), harvest/
-(harvest-record.entity.ts, dto/{create,update}-harvest-record.input.ts,
+(growth-measurement.entity.ts,
+resolvers/growth.resolver.ts, `handlers/*`, services/fcr-calculation.service.ts), fish-health/
+(health-event, lice-count, welfare-assessment, escape-incident, treatment-application,
+farm-incident-media entities; `services/*`; resolvers/field-capture.resolver.ts), water-quality/
+(water-quality-measurement, parameter-config, param-equipment, sensor-temperature-{latest,daily}
+entities; water-quality.service.ts), harvest/ (harvest-record.entity.ts,
+dto/{create,update}-harvest-record.input.ts,
 handlers/{create,update,list}-harvest-record.handler.ts, resolvers/harvest.resolver.ts),
 species/species.entity.ts, plus equipment/dataloaders/feed-selection.dataloader.ts,
 farm-stock/farm-stock-projection.service.ts,
@@ -50,22 +51,24 @@ pwa/operation-registry.ts). No files were modified.
 ## Executive summary
 
 The partition's schema placement is clean — every one of the ~24 production-biology entities
-correctly omits `schema:` (ADR-011), and the batch-count SSoT (`tank_batches.batchDetails` via
-`TankBatchService.applyBatchDelta`) is genuinely single-writer. The defects are provenance gaps:
-four durable surfaces have readers but no writer. `batch_locations` is read by the
-batch-traceability report, the `Batch.locations` GraphQL field and the target-FCR lookup chain, yet
-no code in farm-service ever inserts a row — the shipped BatchTraceabilityTab renders "No tank
-residencies recorded." permanently. `batches_v2.sgr` has four backend readers plus a web chart, is
-never written, and both the feed-consumption forecast and the growth-forecast chart silently
-substitute a hardcoded 1.5 %/day. `escape_incidents.varslingReportId` is never set, so the rømming
-assembler's `varslingReportId IS NULL` filter re-reports the same escape forever.
-`farm_incident_media` rows (regulatory incident photos uploaded from aquamobil) have no read path at
-all. Secondary:
-silently drops six declared input fields; a dead duplicate `tank_batches` writer survives in
-`BatchService` carrying the retired `batchDetails` discard.
+correctly omits `schema:` (ADR-011), and the batch-count
+SSoT (`tank_batches.batchDetails` via `TankBatchService.applyBatchDelta`) is genuinely
+single-writer. The defects are provenance gaps: four durable surfaces have readers but no
+writer. GraphQL
+field and the target-FCR lookup chain, yet no code in farm-service ever inserts a row — the shipped
+BatchTraceabilityTab renders "No tank residencies recorded." permanently. `batches_v2.sgr` has four
+backend readers plus a web chart, is never written, and both the feed-consumption forecast and the
+growth-forecast chart silently substitute a hardcoded 1.5
+%/day. `escape_incidents.varslingReportId` is never set, so the rømming
+assembler's `varslingReportId IS NULL` filter re-reports the same escape
+forever. `farm_incident_media` rows (regulatory incident photos uploaded from aquamobil) have no
+read path at all. Secondary: `tank_batches.isOverCapacity` is never recomputed on
+removals; `updateHarvestRecord` silently drops six declared input fields; a dead
+duplicate `tank_batches` writer survives in `BatchService` carrying the
+retired `batchDetails` discard.
 
 ```text
-tank_batches.isOverCapacity` is never recomputed on removals; `updateHarvestRecord
+batch_locations` is read by the batch-traceability report, the `Batch.locations
 ```
 
 ## Findings (by severity)
@@ -80,25 +83,23 @@ Batch.locations, target-FCR chain) depend on it
 **Severity:** MEDIUM (filed as HIGH, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
-**Raised as:** `DB-FARMPROD-HIGH-001` by `db-audit-farm-production` in cycle
-`2026-08-16-farm-mobile-agent-audit`
+**Raised as:** `DB-FARMPROD-HIGH-001` by `db-audit-farm-production` in
+cycle `2026-08-16-farm-mobile-agent-audit`
 **Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
-- apps/farm-service/src/batch/entities/batch-location.entity.ts:80 — `@Entity('batch_locations')`;
-  no create/save call for this entity exists anywhere in apps/farm-service (grepped `BatchLocation`,
-  `batch_locations`, `initialLocations`, `isCurrentLocation` repo-wide)
-- apps/farm-service/src/batch/query-handlers/get-batch-traceability.handler.ts:130 —
-  rows ARE the residency intervals"
-
-  ```text
-  const locations = await manager.find(BatchLocation, {` ; file header line 5: "`batch_locations
-  ```
-
-- apps/farm-service/src/growth/services/fcr-calculation.service.ts:799 —
-  ;
-  line 807 returns null so `getTargetFCRFromFeedingProgram` never resolves a program FCR
+- apps/farm-service/src/batch/entities/batch-location.entity.ts:80
+  — `@Entity('batch_locations')`; no create/save call for this entity exists anywhere in
+  apps/farm-service
+  (grepped `BatchLocation`, `batch_locations`, `initialLocations`, `isCurrentLocation` repo-wide)
+- apps/farm-service/src/batch/query-handlers/get-batch-traceability.handler.ts:130
+  — `const locations = await manager.find(BatchLocation, {` ; file header line
+  5: "`batch_locations` rows ARE the residency intervals"
+- apps/farm-service/src/growth/services/fcr-calculation.service.ts:799
+  —
+  ; line
+  807 returns null so `getTargetFCRFromFeedingProgram` never resolves a program FCR
 
   ```text
   const activeLocation = await this.batchLocationRepository.findOne({ ... isCurrentLocation: true })
@@ -106,8 +107,8 @@ Batch.locations, target-FCR chain) depend on it
 
 - apps/farm-service/src/batch/handlers/create-batch.handler.ts:373 — the `initialLocations` loop
   writes `TankAllocation` \+ `TankBatch` only, never a `BatchLocation` row
-- web/modules/farm-module/src/pages/production/tabs/BatchTraceabilityTab.tsx:160 —
-  `No tank residencies recorded.` is the permanent render state
+- web/modules/farm-module/src/pages/production/tabs/BatchTraceabilityTab.tsx:160
+  — `No tank residencies recorded.` is the permanent render state
 
 **Rule violated:**
 
@@ -141,7 +142,7 @@ so a reader-without-writer fails CI.
 
 **Expected closer:**
 
-farm-expert WRITER mode (primary owner of apps/farm-service/**), with database-reviewer on the
+farm-expert WRITER mode (primary owner of `apps/farm-service/**`), with database-reviewer on the
 backfill migration
 
 **Verifier note:**
@@ -167,29 +168,30 @@ both forecast paths silently substitute a hardcoded 1.5 %/day
 **Severity:** MEDIUM (filed as HIGH, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
-**Raised as:** `DB-FARMPROD-HIGH-002` by `db-audit-farm-production` in cycle
-`2026-08-16-farm-mobile-agent-audit`
+**Raised as:** `DB-FARMPROD-HIGH-002` by `db-audit-farm-production` in
+cycle `2026-08-16-farm-mobile-agent-audit`
 **Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
-- apps/farm-service/src/batch/entities/batch.entity.ts:232 — `sgr?: number;` (`@Column`
-  decimal(5,4)); no assignment to `batch.sgr` exists in apps/farm-service (grepped `batch.sgr`,
-  `sgr =`, `sgr:`)
-- apps/farm-service/src/feeding/services/feed-consumption-forecast.service.ts:133 —
+- apps/farm-service/src/batch/entities/batch.entity.ts:232
+  — `sgr?: number;` (`@Column` decimal(5,4)); no assignment to `batch.sgr` exists in
+  apps/farm-service (grepped `batch.sgr`, `sgr =`, `sgr:`)
+- apps/farm-service/src/feeding/services/feed-consumption-forecast.service.ts:133
+  —
 
   ```text
   const sgr = (tankBatch.primaryBatchId && batchSgrMap.get(tankBatch.primaryBatchId)) || 1.5;
   ```
 
-- web/modules/farm-module/src/pages/feeding/components/GrowthForecastChart.tsx:62 —
-  `const batchSGR = selectedBatch?.sgr ?? 1.5;` feeding `growthSimulation` and the projected harvest
-  date
+- web/modules/farm-module/src/pages/feeding/components/GrowthForecastChart.tsx:62
+  — `const batchSGR = selectedBatch?.sgr ?? 1.5;` feeding `growthSimulation` and the projected
+  harvest date
 - web/modules/farm-module/src/pages/feeding/components/FCRAnalysis.tsx:69 — `sgr: batch.sgr ?? 0,` →
   the SGR bar chart renders zero for every batch
 - apps/farm-service/src/growth/handlers/record-growth-sample.handler.ts:180 — the real SGR IS
-  computed (`specificGrowthRate: sgr`) but is only stored inside
-  `growth_measurements.growthComparison` jsonb, never propagated to the batch column
+  computed (`specificGrowthRate: sgr`) but is only stored
+  inside `growth_measurements.growthComparison` jsonb, never propagated to the batch column
 
 **Rule violated:**
 
@@ -198,11 +200,11 @@ fallbacks masking an upstream gap (`?? 1.5` hides an unwritten column)
 
 **Proposed fix direction:**
 
-Pick one physical owner for batch SGR and delete the other surface. Preferred Tier-1: drop the
-`batches_v2.sgr` column and expose `Batch.sgr` as a resolved field over the latest verified
-`growth_measurements.growthComparison.specificGrowthRate`, so the value cannot exist un-derived. If
-a stored snapshot is wanted for query performance, make
-`RecordGrowthSampleHandler`/`UpdateBatchWeightFromSampleHandler` the sole writer in the same
+Pick one physical owner for batch SGR and delete the other surface. Preferred Tier-1: drop
+the `batches_v2.sgr` column and expose `Batch.sgr` as a resolved field over the latest
+verified `growth_measurements.growthComparison.specificGrowthRate`, so the value cannot exist
+un-derived. If a stored snapshot is wanted for query performance,
+make `RecordGrowthSampleHandler`/`UpdateBatchWeightFromSampleHandler` the sole writer in the same
 transaction as the measurement. Either way remove the `?? 1.5` / `?? 0` fallbacks so an absent SGR
 surfaces as absent instead of as a plausible number.
 
@@ -227,13 +229,14 @@ farm-expert WRITER mode; cross-check with db-audit-farm-operations for the feed-
 
 **Verifier note:**
 
-Facts verified. batches_v2.sgr is declared at batch.entity.ts:232 (decimal(5,4)) and never assigned
-anywhere in apps/farm-service — every hit is a read (feed-consumption-forecast.service.ts:113/133,
+Facts verified. `batches_v2.sgr` is declared at batch.entity.ts:232 (decimal(5,4)) and never
+assigned anywhere in apps/farm-service — every hit is a read
+(feed-consumption-forecast.service.ts:113/133,
 growth-simulator.service.ts:406-413 `let sgr = 1.5 // Default`, equipment.resolver.ts:381,
 harvest-completed.listener.ts:356 `batch.sgr || 0`, close-batch.handler.ts:186) and
-record-growth-sample.handler.ts:180 stores the computed SGR only inside
-growth_measurements.growthComparison. Web fallbacks confirmed at GrowthForecastChart.tsx:62 and
-FCRAnalysis.tsx:69. Severity inflated: the claimer missed that Batch.calculateSGR()
+record-growth-sample.handler.ts:180 stores the computed SGR only
+inside `growth_measurements.growthComparison`. Web fallbacks confirmed at GrowthForecastChart.tsx:62
+and FCRAnalysis.tsx:69. Severity inflated: the claimer missed that Batch.calculateSGR()
 (batch.entity.ts:477) computes SGR on the fly and get-batch-performance.handler.ts:103 uses it, so
 the primary performance query is correct. Impact is degraded forecasts (hardcoded 1.5%/day) and a
 zeroed SGR bar chart — misleading output, not corruption or failure. MEDIUM.
@@ -246,24 +249,24 @@ re-selects the same already-reported escape indefinitely
 **Severity:** MEDIUM (filed as HIGH, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
-**Raised as:** `DB-FARMPROD-HIGH-003` by `db-audit-farm-production` in cycle
-`2026-08-16-farm-mobile-agent-audit`
+**Raised as:** `DB-FARMPROD-HIGH-003` by `db-audit-farm-production` in
+cycle `2026-08-16-farm-mobile-agent-audit`
 **Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
-- apps/farm-service/src/fish-health/entities/escape-incident.entity.ts:118 —
-  `varslingReportId?: string;` documented as "Set once the varsling report for this incident is
+- apps/farm-service/src/fish-health/entities/escape-incident.entity.ts:118
+  — `varslingReportId?: string;` documented as "Set once the varsling report for this incident is
   submitted"
-- apps/farm-service/src/regulatory/assembly/assemblers/escape.assembler.ts:187 —
-  `AND ei."varslingReportId" IS NULL` (line 88 comment: "escape_incidents (latest open, unreported
-  incident)")
-- apps/farm-service/src/fish-health/services/escape-incident.service.ts:151 — `close()` sets only
-  `recoveredCount`, `recoveryOngoing`, `status`; no `varslingReportId` assignment exists anywhere
-  (repo-wide grep returns only the entity, the assembler filter, the migration DDL and generated
-  types)
-- apps/farm-service/src/database/migrations/1803000000000-CreateEscapeIncidents.ts:53 —
-  `"varslingReportId" uuid,` column created with no backfill or later writer
+- apps/farm-service/src/regulatory/assembly/assemblers/escape.assembler.ts:187
+  — `AND ei."varslingReportId" IS NULL` (line 88 comment: "`escape_incidents` (latest open,
+  unreported incident)")
+- apps/farm-service/src/fish-health/services/escape-incident.service.ts:151 — `close()` sets
+  only `recoveredCount`, `recoveryOngoing`, `status`; no `varslingReportId` assignment exists
+  anywhere (repo-wide grep returns only the entity, the assembler filter, the migration DDL and
+  generated types)
+- apps/farm-service/src/database/migrations/1803000000000-CreateEscapeIncidents.ts:53
+  — `"varslingReportId" uuid,` column created with no backfill or later writer
 
 **Rule violated:**
 
@@ -295,17 +298,14 @@ farm-expert WRITER mode (regulatory \+ fish-health seam)
 Write-absence verified: submitEscapeReport (regulatory-varsling.service.ts:101-137) only builds and
 enqueues EscapeReportedEvent, and close() (escape-incident.service.ts:143-160) sets
 recoveredCount/recoveryOngoing/status only; no assignment to varslingReportId exists repo-wide.
-However the claimed impact is overstated — the assembler query (escape.assembler.ts:186-188) filters
-,
-so a reported incident drops out as soon as it is closed, and any newer incident outranks it. It is
-not selected 'indefinitely', and the assembler only prefills an operator-driven draft (fail-closed
-MANUAL_REQUIRED otherwise), it does not auto-file. Residual real defect: an older unreported
-incident is masked while a newer already-filed open incident exists, and re-assembly re-prefills an
-already-filed incident. Narrow correctness gap, MEDIUM.
-
-```text
-ei.status = 'open' AND ei."varslingReportId" IS NULL` and orders `detectedAt DESC, createdAt DESC
-```
+However the claimed impact is overstated — the assembler query (escape.assembler.ts:186-188)
+filters `ei.status = 'open' AND ei."varslingReportId" IS NULL` and
+orders `detectedAt DESC, createdAt DESC`, so a reported incident drops out as soon as it is closed,
+and any newer incident outranks it. It is not selected 'indefinitely', and the assembler only
+prefills an operator-driven draft (fail-closed `MANUAL_REQUIRED` otherwise), it does not auto-file.
+Residual real defect: an older unreported incident is masked while a newer already-filed open
+incident exists, and re-assembly re-prefills an already-filed incident. Narrow correctness gap,
+MEDIUM.
 
 ### DB-FARMPROD-MEDIUM-004
 
@@ -315,28 +315,28 @@ persisted but have no read path on any surface
 **Severity:** MEDIUM (filed as HIGH, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
-**Raised as:** `DB-FARMPROD-HIGH-004` by `db-audit-farm-production` in cycle
-`2026-08-16-farm-mobile-agent-audit`
+**Raised as:** `DB-FARMPROD-HIGH-004` by `db-audit-farm-production` in
+cycle `2026-08-16-farm-mobile-agent-audit`
 **Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
-- apps/farm-service/src/fish-health/services/incident-media.service.ts:128 —
-  is the
+- apps/farm-service/src/fish-health/services/incident-media.service.ts:128
+  — is the
   only touch of the table
 
   ```text
   await repo.save(repo.create({ tenantId, incidentType, referenceId, storageKey, ... }))
   ```
 
-- apps/farm-service/src/fish-health/entities/escape-incident.entity.ts:51-135 — `EscapeIncident`
-  declares no media relation/field; same for lice-count.entity.ts:28-114 and
+- apps/farm-service/src/fish-health/entities/escape-incident.entity.ts:51-135
+  — `EscapeIncident` declares no media relation/field; same for lice-count.entity.ts:28-114 and
   welfare-assessment.entity.ts
 - apps/farm-service/schema.graphql:7191 — `requestIncidentMediaUpload(...)` is the only
   incident-media entry in the schema; no query, no presigned-GET, no `media` field on any incident
   type
-- web/apps/aquamobil/src/components/PhotoCaptureField.tsx:64 —
-  `const { uploadPhoto, isUploading } = useIncidentMediaUpload();` operators capture photos on the
+- web/apps/aquamobil/src/components/PhotoCaptureField.tsx:64
+  — `const { uploadPhoto, isUploading } = useIncidentMediaUpload();` operators capture photos on the
   escape/lice/welfare pages
 - apps/farm-service/src/regulatory/assembly/assemblers/escape.assembler.ts:181 — the varsling
   assembler selects from `escape_incidents` only; media is not part of any report payload
@@ -349,10 +349,10 @@ the read side exists
 **Proposed fix direction:**
 
 Complete the contract in one direction or remove the capture affordance. Preferred: expose media as
-a resolved field on each incident ObjectType backed by a polymorphic DataLoader over
-`(incidentType, referenceId)`, minting tenant-verified presigned GET URLs through the same MinIO
-service that mints the PUT, and surface it on the report-review and incident-detail screens. Also
-fix the correction path: `LiceCountService.record` re-invokes `attach()` on upsert
+a resolved field on each incident ObjectType backed by a polymorphic DataLoader
+over `(incidentType, referenceId)`, minting tenant-verified presigned GET URLs through the same
+MinIO service that mints the PUT, and surface it on the report-review and incident-detail screens.
+Also fix the correction path: `LiceCountService.record` re-invokes `attach()` on upsert
 (lice-count.service.ts:81) so corrected counts accumulate duplicate media rows.
 
 **Affected surface (ripple set):**
@@ -373,10 +373,10 @@ farm-expert WRITER mode \+ frontend-expert for the render surface
 
 Verified write-only. FarmIncidentMedia appears only in farm-incident-media.entity.ts,
 fish-health.module.ts:85, and incident-media.service.ts (presign at :68, single repo.save at :128);
-no findOne/find/query against it and no raw SELECT on farm_incident_media anywhere in apps/, web/ or
-libs/. schema.graphql exposes only requestIncidentMediaUpload (:7191) and
+no findOne/find/query against it and no raw SELECT on `farm_incident_media` anywhere in apps/, web/
+or libs/. schema.graphql exposes only requestIncidentMediaUpload (:7191) and
 IncidentMediaUploadResponse (:4849) — no query, no presigned GET, no media field on
-EscapeIncident/LiceCount/WelfareAssessment. escape.assembler.ts selects escape_incidents only, so
+EscapeIncident/LiceCount/WelfareAssessment. escape.assembler.ts selects `escape_incidents` only, so
 media is not in the varsling payload. Severity inflated: nothing is lost or corrupted — the MinIO
 objects and the DB rows persist with tenant-prefixed keys, MIME and size validated, and a read path
 can be added later against existing data. This is an unshipped read side for an operator-facing
@@ -390,36 +390,30 @@ contains the retired `batchDetails` discard that the count-SSoT service was crea
 **Severity:** MEDIUM
 **Layer:** 2
 **State:** OPEN
-**Raised as:** `DB-FARMPROD-MEDIUM-005` by `db-audit-farm-production` in cycle
-`2026-08-16-farm-mobile-agent-audit`
+**Raised as:** `DB-FARMPROD-MEDIUM-005` by `db-audit-farm-production` in
+cycle `2026-08-16-farm-mobile-agent-audit`
 **Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
-- apps/farm-service/src/batch/services/batch.service.ts:567 —
-  `tankBatch.batchDetails = batchDetails.length > 1 ? batchDetails : undefined;` (identical at :644
-  in `updateTankBatchWithManager`)
-- apps/farm-service/src/batch/services/tank-batch.service.ts:16 — the SSoT writer's docblock states
-  " discard
-  is the drift this fixes)"
-
-  ```text
-  batchDetails[]` is ALWAYS persisted (the historical `length > 1 ? details : undefined
-  ```
-
+- apps/farm-service/src/batch/services/batch.service.ts:567
+  — `tankBatch.batchDetails = batchDetails.length > 1 ? batchDetails : undefined;` (identical at
+  :644 in `updateTankBatchWithManager`)
+- apps/farm-service/src/batch/services/tank-batch.service.ts:16 — the SSoT writer's docblock
+  states "`batchDetails[]` is ALWAYS persisted (the
+  historical `length > 1 ? details : undefined` discard is the drift this fixes)"
 - apps/farm-service/src/batch/services/batch.service.ts:301,466,467,743 — live call sites of the
   duplicate writer inside `allocateBatchToTank` / `transferBatch` / `recordOperation`
-- apps/farm-service/src/batch/controllers/batch.controller.ts:420,437 — the only controller uses of
-  , so the
+- apps/farm-service/src/batch/controllers/batch.controller.ts:420,437 — the only controller uses
+  of , so the
   duplicate writer is unreachable in production
 
   ```text
   BatchService` are the two read methods; every mutation routes through `CommandBus
   ```
 
-- —
-  `batchService.allocateBatchToTank({` : the postgres tenant-isolation e2e suite exercises the dead
-  path, not the live handler path
+  — `batchService.allocateBatchToTank({` : the postgres tenant-isolation e2e suite exercises the
+  dead path, not the live handler path
 
   ```text
   apps/farm-service/src/**tests**/e2e/batch-allocation-tenant-isolation.postgres.spec.ts:339
@@ -432,11 +426,19 @@ through the shared tank-batch delta service"; layer-2-defect-catalog Duplication
 
 **Proposed fix direction:**
 
-Delete the mutating half of `BatchService` (`createBatch`, `allocateBatchToTank`, `transferBatch`,
-`recordOperation`, `updateTankBatch`, `updateTankBatchWithManager`) and repoint the three postgres
-e2e specs at the CQRS handlers they are meant to certify, so tenant-isolation assurance covers the
-code production actually runs. Tier-3 backstop: extend the existing `farm-tank-count-ssot` invariant
-to assert `tank_batches` is written from exactly one module file.
+Delete the mutating half
+of
+`BatchService`
+(`createBatch`,
+) and
+repoint the three postgres e2e specs at the CQRS handlers they are meant to certify, so
+tenant-isolation assurance covers the code production actually runs. Tier-3 backstop: extend the
+existing `farm-tank-count-ssot` invariant to assert `tank_batches` is written from exactly one
+module file.
+
+```text
+allocateBatchToTank`, `transferBatch`, `recordOperation`, `updateTankBatch`, `updateTankBatchWithManager
+```
 
 **Affected surface (ripple set):**
 
@@ -465,28 +467,26 @@ farm-expert WRITER mode, with test-runner re-pointing the e2e suites
 
 **Verifier note:**
 
-Confirmed at source. apps/farm-service/src/batch/services/batch.service.ts:567 and :644 both carry
-`tankBatch.batchDetails = batchDetails.length > 1 ? batchDetails : undefined;` — exactly the discard
-that tank-batch.service.ts:16-17 documents as "the drift this fixes" (its applyBatchDelta at :174
-does `tankBatch.batchDetails = details;` unconditionally). BatchService still owns six mutating
+Confirmed at source. apps/farm-service/src/batch/services/batch.service.ts:567 and :644 both
+carry `tankBatch.batchDetails = batchDetails.length > 1 ? batchDetails : undefined;` — exactly the
+discard that tank-batch.service.ts:16-17 documents as "the drift this fixes" (its applyBatchDelta at
+:174 does `tankBatch.batchDetails = details;` unconditionally). BatchService still owns six mutating
 methods (createBatch:105, allocateBatchToTank:258, transferBatch:324, updateTankBatch:508,
-updateTankBatchWithManager:582, recordOperation:663). A whole-service grep for `BatchService`
-(excluding TankBatchService) returns only batch.controller.ts:50/218/472 and
+updateTankBatchWithManager:582, recordOperation:663). A whole-service grep
+for `BatchService` (excluding TankBatchService) returns only batch.controller.ts:50/218/472 and
 batch.module.ts:64/126/155 — and the controller's only three uses are reads
 (getBatchAllocations:420, getBatchOperations:437, getTankBatchStatus:638), so the mutating half is
-genuinely unreachable in production. Meanwhile
-instantiates
-(:339) and `transferBatch` (:160), so the tenant-isolation certification covers dead code rather
-than the CQRS handlers production runs. Minor evidence slip only: the controller has three read call
-sites, not two. MEDIUM is correctly calibrated — no production data is wrong today; the defect is
-duplicated-writer drift plus misdirected isolation assurance.
+genuinely unreachable in production.
+Meanwhile
+instantiates `new BatchService(...)` at :108 and
+drives `createBatch` (:317), `allocateBatchToTank` (:339) and `transferBatch` (:160), so the
+tenant-isolation certification covers dead code rather than the CQRS handlers production runs. Minor
+evidence slip only: the controller has three read call sites, not two. MEDIUM is correctly
+calibrated — no production data is wrong today; the defect is duplicated-writer drift plus
+misdirected isolation assurance.
 
 ```text
 apps/farm-service/src/**tests**/e2e/batch-allocation-tenant-isolation.postgres.spec.ts
-```
-
-```text
-new BatchService(...)` at :108 and drives `createBatch` (:317), `allocateBatchToTank
 ```
 
 ### DB-FARMPROD-MEDIUM-006
@@ -497,8 +497,8 @@ removals, so an over-capacity alarm persists after mortality, cull or harvest em
 **Severity:** MEDIUM
 **Layer:** 2
 **State:** OPEN
-**Raised as:** `DB-FARMPROD-MEDIUM-006` by `db-audit-farm-production` in cycle
-`2026-08-16-farm-mobile-agent-audit`
+**Raised as:** `DB-FARMPROD-MEDIUM-006` by `db-audit-farm-production` in
+cycle `2026-08-16-farm-mobile-agent-audit`
 **Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
@@ -511,14 +511,16 @@ removals, so an over-capacity alarm persists after mortality, cull or harvest em
   totalQuantity`, `totalBiomassKg`, `avgWeightG`, `densityKgM3`, `currentBiomassKg
   ```
 
-- apps/farm-service/src/batch/handlers/record-mortality.handler.ts:306 —
-  `await this.tankBatchService.applyBatchDelta(...)` is the only tank_batches write on the mortality
-  path; no capacity recompute follows (same shape in record-cull.handler.ts:252)
-- apps/farm-service/src/batch/handlers/allocate-to-tank.handler.ts:259 —
-  `savedTankBatch.isOverCapacity = capacity.isOverCapacity;` shows the flags are refreshed only on
+- apps/farm-service/src/batch/handlers/record-mortality.handler.ts:306
+  — `await this.tankBatchService.applyBatchDelta(...)` is the only `tank_batches` write on the
+  mortality path; no capacity recompute follows (same shape in record-cull.handler.ts:252)
+- apps/farm-service/src/batch/handlers/allocate-to-tank.handler.ts:259
+  — `savedTankBatch.isOverCapacity = capacity.isOverCapacity;` shows the flags are refreshed only on
   inflow paths (also create-batch.handler.ts:433-434, transfer-batch.handler.ts:372/400)
-- web/apps/aquamobil/src/pages/HomePage.tsx:125 —
-  drives the mobile dashboard warning count
+- web/apps/aquamobil/src/pages/HomePage.tsx:125
+  —
+  drives
+  the mobile dashboard warning count
 
   ```text
   const overCapacityCount = activeTanks.filter((t) => t.batchMetrics?.isOverCapacity).length;
@@ -535,12 +537,12 @@ read-compute-write of derived state)
 
 **Proposed fix direction:**
 
-Derive the two capacity fields inside `TankBatchService.applyBatchDelta` from the just-computed
-`totalBiomassKg`/`densityKgM3` plus the tank's `maxBiomass`/`maxDensity`, so every stock change —
-inflow or outflow — refreshes them from one formula and the inflow handlers stop setting them
-independently. That removes the asymmetry structurally rather than adding a recompute call to each
-removal handler. The admin-override audit-log path (tank-capacity.service.ts:249) stays untouched
-and keeps its trail.
+Derive the two capacity fields inside `TankBatchService.applyBatchDelta` from the
+just-computed `totalBiomassKg`/`densityKgM3` plus the tank's `maxBiomass`/`maxDensity`, so every
+stock change — inflow or outflow — refreshes them from one formula and the inflow handlers stop
+setting them independently. That removes the asymmetry structurally rather than adding a recompute
+call to each removal handler. The admin-override audit-log path (tank-capacity.service.ts:249) stays
+untouched and keeps its trail.
 
 **Affected surface (ripple set):**
 
@@ -568,49 +570,42 @@ no capacity recompute follows; the harvest paths (create-harvest-record.handler.
 delete-harvest-record.handler.ts:115) likewise. Inflow paths do refresh them:
 allocate-to-tank.handler.ts:259-260, create-batch.handler.ts:433-434,
 transfer-batch.handler.ts:372-373/400-401. Downstream consumers read the stored column verbatim —
-farm-stock-projection.service.ts:55-56 (`tb."capacityUsedPercent"`,
-`COALESCE(tb."isOverCapacity", false)`), equipment.resolver.ts:463-464 and tank.resolver.ts:408-409
-— and web/apps/aquamobil/src/pages/HomePage.tsx:125 counts `t.batchMetrics?.isOverCapacity` for the
-dashboard warning. tank-capacity.service.ts only calculates on demand for enforcement (:220-241);
-nothing clears the persisted flag on outflow, so a tank emptied by mortality/cull/harvest keeps a
-true flag until the next inflow. Not inflated: the flag drives an operator warning, not a block
-(enforcement recomputes fresh), so this is stale-derived-state alarm noise, i.e. MEDIUM.
+farm-stock-projection.service.ts:55-56
+(`tb."capacityUsedPercent"`, `COALESCE(tb."isOverCapacity", false)`), equipment.resolver.ts:463-464
+and tank.resolver.ts:408-409 — and web/apps/aquamobil/src/pages/HomePage.tsx:125
+counts `t.batchMetrics?.isOverCapacity` for the dashboard warning. tank-capacity.service.ts only
+calculates on demand for enforcement (:220-241); nothing clears the persisted flag on outflow, so a
+tank emptied by mortality/cull/harvest keeps a true flag until the next inflow. Not inflated: the
+flag drives an operator warning, not a block (enforcement recomputes fresh), so this is
+stale-derived-state alarm noise, i.e. MEDIUM.
 
 ### DB-FARMPROD-MEDIUM-007
 
-**Title:**
-regulatory gate) and silently discards them; the drop is enabled by a banned `as unknown as` cast
-
-```text
-updateHarvestRecord` accepts six declared input fields (including the `qualityApproved
-```
+**Title:** `updateHarvestRecord` accepts six declared input fields (including
+the `qualityApproved` regulatory gate) and silently discards them; the drop is enabled by a
+banned `as unknown as` cast
 
 **Severity:** MEDIUM
 **Layer:** 1
 **State:** OPEN
-**Raised as:** `DB-FARMPROD-MEDIUM-007` by `db-audit-farm-production` in cycle
-`2026-08-16-farm-mobile-agent-audit`
+**Raised as:** `DB-FARMPROD-MEDIUM-007` by `db-audit-farm-production` in
+cycle `2026-08-16-farm-mobile-agent-audit`
 **Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
-- apps/farm-service/src/harvest/dto/update-harvest-record.input.ts:132-145 — `qualityApproved`,
-  :106,
-  `lotNumber`:112, `pricePerKg`:82)
-
-  ```text
-  qualityApprovedBy`, `qualityApprovedAt` are declared `@Field`s (also `buyerName
-  ```
-
-- apps/farm-service/src/harvest/handlers/update-harvest-record.handler.ts:34-48 — `UPDATABLE_FIELDS`
-  omits all six; only `qualityClass` gets an extra explicit branch at :94
+- apps/farm-service/src/harvest/dto/update-harvest-record.input.ts:132-145
+  — `qualityApproved`, `qualityApprovedBy`, `qualityApprovedAt` are
+  declared `@Field`s (also `buyerName`:106, `lotNumber`:112, `pricePerKg`:82)
+- apps/farm-service/src/harvest/handlers/update-harvest-record.handler.ts:34-48
+  — `UPDATABLE_FIELDS` omits all six; only `qualityClass` gets an extra explicit branch at :94
 - apps/farm-service/src/harvest/resolvers/harvest.resolver.ts:390-402 — the resolver builds the
   command payload field-by-field and never threads those six
-- apps/farm-service/src/harvest/handlers/update-harvest-record.handler.ts:88 —
-  `(harvestRecord as unknown as Record<string, unknown>)[field] = incoming;` — FORBIDDEN cast per
+- apps/farm-service/src/harvest/handlers/update-harvest-record.handler.ts:88
+  — `(harvestRecord as unknown as Record<string, unknown>)[field] = incoming;` — FORBIDDEN cast per
   CLAUDE.md, and precisely what lets the DTO and the persisted set diverge without a compile error
-- apps/farm-service/src/harvest/handlers/list-harvests.handler.ts:118 —
-  `if (filter.qualityApproved !== undefined)` filters on a column no code path ever sets to true
+- apps/farm-service/src/harvest/handlers/list-harvests.handler.ts:118
+  — `if (filter.qualityApproved !== undefined)` filters on a column no code path ever sets to true
 
 **Rule violated:**
 
@@ -619,13 +614,13 @@ with no durable counterpart); layer-2-defect-catalog Architecture/contract drift
 
 **Proposed fix direction:**
 
-Replace the string-keyed copy loop with an explicit typed mapping from `UpdateHarvestRecordData`
-onto the entity so the compiler rejects any DTO field that has no persistence target — that makes
-the class of bug impossible rather than detectable. Then decide per field: thread
-`pricePerKg`/`buyerName`/`lotNumber` through the command, and model quality approval as its own
-guarded transition (`approveHarvestQuality`) that writes `qualityApproved`/`approvedBy`/`approvedAt`
-together, since the entity's `approveQuality()` method already encodes the invariant and has no
-caller.
+Replace the string-keyed copy loop with an explicit typed mapping
+from `UpdateHarvestRecordData` onto the entity so the compiler rejects any DTO field that has no
+persistence target — that makes the class of bug impossible rather than detectable. Then decide per
+field: thread `pricePerKg`/`buyerName`/`lotNumber` through the command, and model quality approval
+as its own guarded transition (`approveHarvestQuality`) that
+writes `qualityApproved`/`approvedBy`/`approvedAt` together, since the
+entity's `approveQuality()` method already encodes the invariant and has no caller.
 
 **Affected surface (ripple set):**
 
@@ -642,7 +637,7 @@ farm-expert WRITER mode
 
 **Verifier note:**
 
-Confirmed line by line. update-harvest-record.handler.ts:34-47 lists UPDATABLE_FIELDS = status,
+Confirmed line by line. update-harvest-record.handler.ts:34-47 lists `UPDATABLE_FIELDS` = status,
 quantityHarvested, totalBiomass, averageWeight, method, productForm, totalRevenue, harvestCost,
 currency, mortalityDuringHarvest, rejectedQuantity, rejectionReason, notes — omitting pricePerKg
 (input :82), buyerName (:106), lotNumber (:112), qualityApproved (:135), qualityApprovedBy (:140),
@@ -671,20 +666,21 @@ permanently empty
 **Severity:** MEDIUM
 **Layer:** 2
 **State:** OPEN
-**Raised as:** `DB-FARMPROD-MEDIUM-008` by `db-audit-farm-production` in cycle
-`2026-08-16-farm-mobile-agent-audit`
+**Raised as:** `DB-FARMPROD-MEDIUM-008` by `db-audit-farm-production` in
+cycle `2026-08-16-farm-mobile-agent-audit`
 **Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
-- apps/farm-service/src/database/migrations/1802000000000-AddBatchProtocolId.ts:6 — "Adds
-  `batches_v2.protocolId` — the feeding protocol a batch is created with"; DDL at :33, index at :37
+- apps/farm-service/src/database/migrations/1802000000000-AddBatchProtocolId.ts:6 —
+  "Adds `batches_v2.protocolId` — the feeding protocol a batch is created with"; DDL at :33, index
+  at :37
 - apps/farm-service/src/batch/entities/batch.entity.ts:123 — `protocolId?: string;` exposed as a
-  GraphQL `ID`; no assignment exists in any batch DTO, command, resolver or handler (grepped
-  `protocolId` across apps/farm-service/src/batch)
-- apps/farm-service/src/equipment/dataloaders/feed-selection.dataloader.ts:196-198 —
-  (comment at
-  :194: "a protocol takes precedence over batch_feed_assignments (it IS the feed driver)") always
+  GraphQL `ID`; no assignment exists in any batch DTO, command, resolver or handler
+  (grepped `protocolId` across apps/farm-service/src/batch)
+- apps/farm-service/src/equipment/dataloaders/feed-selection.dataloader.ts:196-198
+  — (comment at
+  :194: "a protocol takes precedence over `batch_feed_assignments` (it IS the feed driver)") always
   returns zero rows
 
   ```text
@@ -706,11 +702,11 @@ to db-audit-farm-operations
 **Proposed fix direction:**
 
 Resolve the seam in one direction: if unit-level `feeding_protocol_assignments` is the declared
-owner of protocol provenance (as the traceability handler already assumes), drop
-`batches_v2.protocolId` and the dead protocol branch in the feed-selection DataLoader in the same
-change, with a `BREAKING CHANGE:` footer for the removed GraphQL field. If a batch-level protocol is
-still wanted, add it to the create/update-batch DTO \+ command so the column has an owner. Do not
-leave a column whose only consumers are guaranteed-empty queries.
+owner of protocol provenance (as the traceability handler already assumes),
+drop `batches_v2.protocolId` and the dead protocol branch in the feed-selection DataLoader in the
+same change, with a `BREAKING CHANGE:` footer for the removed GraphQL field. If a batch-level
+protocol is still wanted, add it to the create/update-batch DTO \+ command so the column has an
+owner. Do not leave a column whose only consumers are guaranteed-empty queries.
 
 **Affected surface (ripple set):**
 
@@ -731,18 +727,18 @@ Confirmed, and the reader set is larger than filed. Migration 1802000000000-AddB
 adds the column (:33) and index (:37-38) with the docblock at :6 as quoted. batch.entity.ts:113-123
 exposes `protocolId?: string` as a GraphQL ID. No writer exists: greps for `protocolId` across
 apps/farm-service/src find no assignment on any batch DTO, command, resolver or handler — the batch
-DTOs/commands/create-batch handler contain no protocol field at all, and schema.graphql has
-`protocolId: ID` only as an output at :806 plus the unrelated assignProtocolToBatchUnits mutation
-(:7131), which is implemented in feeding-protocol-v2.resolver.ts:162 against
-feeding_protocol_assignments, not batches_v2. Confirmed guaranteed-empty readers:
+DTOs/commands/create-batch handler contain no protocol field at all, and schema.graphql
+has `protocolId: ID` only as an output at :806 plus the unrelated assignProtocolToBatchUnits
+mutation (:7131), which is implemented in feeding-protocol-v2.resolver.ts:162
+against `feeding_protocol_assignments`, not `batches_v2`. Confirmed guaranteed-empty readers:
 feed-selection.dataloader.ts:196-198 (`WHERE ... "protocolId" IS NOT NULL`, under the :194 comment
-"a protocol takes precedence over batch_feed_assignments"), and — not cited by the claim —
+"a protocol takes precedence over `batch_feed_assignments`"), and — not cited by the claim —
 feed-selector.service.ts:358-363 and daily-feeding-execution.service.ts:1360-1367 read the same
-always-null column. Migration 1806300000000:103-109 and :119-123 derive the v1→v2 cutover from
-`b."protocolId" IS NOT NULL`, i.e. from nothing. Severity stays MEDIUM rather than higher because
-every reader has a documented non-protocol fallback, so behavior is degraded-to-default rather than
-wrong; but it is a genuine DEAD column with four live consumers, not a design decision the code
-documents as intentional.
+always-null column. Migration 1806300000000:103-109 and :119-123 derive the v1→v2 cutover
+from `b."protocolId" IS NOT NULL`, i.e. from nothing. Severity stays MEDIUM rather than higher
+because every reader has a documented non-protocol fallback, so behavior is degraded-to-default
+rather than wrong; but it is a genuine DEAD column with four live consumers, not a design decision
+the code documents as intentional.
 
 ### DB-FARMPROD-MEDIUM-009
 
@@ -753,34 +749,40 @@ unclosable
 **Severity:** MEDIUM
 **Layer:** 2
 **State:** OPEN
-**Raised as:** `DB-FARMPROD-MEDIUM-009` by `db-audit-farm-production` in cycle
-`2026-08-16-farm-mobile-agent-audit`
+**Raised as:** `DB-FARMPROD-MEDIUM-009` by `db-audit-farm-production` in
+cycle `2026-08-16-farm-mobile-agent-audit`
 **Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
-- apps/farm-service/src/fish-health/resolvers/field-capture.resolver.ts:137 —
+- apps/farm-service/src/fish-health/resolvers/field-capture.resolver.ts:137
+  —
 
   ```text
   async recordTreatmentApplication(...)` and :185 — `async closeEscapeIncident(...)
   ```
 
-- apps/farm-service/src/regulatory/assembly/assemblers/lakselus.assembler.ts:121 —
-  feeding the
+- apps/farm-service/src/regulatory/assembly/assemblers/lakselus.assembler.ts:121
+  — feeding the
   report's `behandlinger` (header line 15)
 
   ```text
   treatments: await this.queryTreatments(qr, tenantId, siteId, fromDate, toDate),
   ```
 
-- web/shared-ui/src/generated/graphql-types.ts:9717,9434 — `recordTreatmentApplication` /
-  `closeEscapeIncident` exist only in generated types; no page, hook or operation document in
-  web/modules/farm-module or web/apps/aquamobil references either (aquamobil ships recordLiceCount,
-  recordWelfareAssessment, recordEscapeIncident only —
+- web/shared-ui/src/generated/graphql-types.ts:9717,9434
+  — `recordTreatmentApplication` / `closeEscapeIncident` exist only in generated types; no page,
+  hook or operation document in web/modules/farm-module or web/apps/aquamobil references either
+  (aquamobil ships recordLiceCount, recordWelfareAssessment, recordEscapeIncident only —
   web/apps/aquamobil/src/pwa/operation-registry.ts:199-218)
-- apps/farm-service/src/fish-health/resolvers/field-capture.resolver.ts:59-113 — the `liceCounts` /
-  `welfareAssessments` / `treatmentApplications` / `escapeIncidents` list queries likewise have no
-  frontend consumer, so recorded field data is never listable or correctable from a UI
+- apps/farm-service/src/fish-health/resolvers/field-capture.resolver.ts:59-113 —
+  the list queries
+  likewise have no frontend consumer, so recorded field data is never listable or correctable from a
+  UI
+
+  ```text
+  liceCounts` / `welfareAssessments` / `treatmentApplications` / `escapeIncidents
+  ```
 
 **Rule violated:**
 
@@ -812,8 +814,8 @@ farm-expert TEACHER → frontend-expert WRITER mode for the aquamobil \+ farm-mo
 
 **Verifier note:**
 
-Verified. apps/farm-service/src/fish-health/resolvers/field-capture.resolver.ts:137 is
-`async recordTreatmentApplication(` and :185 is `async closeEscapeIncident(` — both line numbers
+Verified. apps/farm-service/src/fish-health/resolvers/field-capture.resolver.ts:137
+is `async recordTreatmentApplication(` and :185 is `async closeEscapeIncident(` — both line numbers
 match exactly. A repo-wide grep for both mutation names over `*.ts/*.tsx/*.graphql/*.gql` returns
 exactly four files: the resolver, apps/farm-service/schema.graphql:7180,7194,
 apps/farm-service/src/common/authz/permission-matrix.ts:41,159 and
@@ -823,11 +825,11 @@ web/apps/aquamobil/src/pwa/operation-registry.ts:199-222 ships only recordLiceCo
 recordWelfareAssessment and recordEscapeIncident, as claimed. The four list queries
 (field-capture.resolver.ts:60 liceCounts, :76 treatmentApplications, :91 welfareAssessments, :107
 escapeIncidents) likewise have zero frontend consumers — grep over web/ excluding generated returns
-nothing. lakselus.assembler.ts:121 is
-inside the report
-assembly, so the behandlinger section reads a table that has no capture surface and can only be
-empty. Every evidence bullet holds. MEDIUM is the right band: no data corruption or tenant leak, but
-a shipped, permission-matrixed, schema-exposed regulatory write path with no client, and escape
+nothing. lakselus.assembler.ts:121
+is inside the
+report assembly, so the behandlinger section reads a table that has no capture surface and can only
+be empty. Every evidence bullet holds. MEDIUM is the right band: no data corruption or tenant leak,
+but a shipped, permission-matrixed, schema-exposed regulatory write path with no client, and escape
 incidents that can never leave their open status.
 
 ```text
@@ -843,29 +845,38 @@ treatments: await this.queryTreatments(qr, tenantId, siteId, fromDate, toDate),
 **Severity:** LOW
 **Layer:** 1
 **State:** OPEN
-**Raised as:** `DB-FARMPROD-LOW-010` by `db-audit-farm-production` in cycle
-`2026-08-16-farm-mobile-agent-audit`
+**Raised as:** `DB-FARMPROD-LOW-010` by `db-audit-farm-production` in
+cycle `2026-08-16-farm-mobile-agent-audit`
 **Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
-- apps/farm-service/src/harvest/entities/harvest-record.entity.ts:427,474,494,502,580 —
-  jsonb/array
-  columns; also `minWeight`:415, `maxWeight`:419, `qualityApproved`:478, `approvedBy`:568,
-  `approvedAt`:572
+- apps/farm-service/src/harvest/entities/harvest-record.entity.ts:427,474,494,502,580
+  — jsonb/array
+  columns;
+  also :572
 
   ```text
   sizeDistribution`, `qualityControl`, `yieldCalculation`, `shipment`, `attachments
   ```
 
+  ```text
+  minWeight`:415, `maxWeight`:419, `qualityApproved`:478, `approvedBy`:568, `approvedAt
+  ```
+
 - apps/farm-service/src/harvest/handlers/create-harvest-record.handler.ts:305-344 — the only insert
   sets `operation`, `lotInfo`, `customerDeliveries` and the scalar quantities; none of the ten
   columns above
-- apps/farm-service/src/harvest/entities/harvest-record.entity.ts:605 `approveQuality(...)`, :615
-  `prepareForShipment(...)`, :646 `calculateYield(...)` — repo-wide grep finds no caller for any of
-  the three
-- apps/farm-service/src/harvest/handlers/list-harvests.handler.ts:118 — a filter is offered on
-  `qualityApproved`, a column permanently `false`
+- apps/farm-service/src/harvest/entities/harvest-record.entity.ts:605
+  — repo-wide grep
+  finds no caller for any of the three
+
+  ```text
+  approveQuality(...)`, :615 `prepareForShipment(...)`, :646 `calculateYield(...)
+  ```
+
+- apps/farm-service/src/harvest/handlers/list-harvests.handler.ts:118 — a filter is offered
+  on `qualityApproved`, a column permanently `false`
 
 **Rule violated:**
 
@@ -899,7 +910,7 @@ prepareForShipment:615, calculateYield:646. create-harvest-record.handler.ts:305
 HarvestRecord with only
 tenantId/recordCode/lotNumber/batchId/tankId/harvestPlanId/status/harvestDate/operation/method/quantityHarvested/totalBiomass/averageWeight/productForm/qualityClass/lotInfo/supervisorId/notes/totalRevenue/currency,
 plus customerDeliveries — none of the ten columns. I additionally checked the update path the
-claimer did not cite: update-harvest-record.handler.ts's UPDATABLE_FIELDS whitelist covers only
+claimer did not cite: update-harvest-record.handler.ts's `UPDATABLE_FIELDS` whitelist covers only
 status, quantityHarvested, totalBiomass, averageWeight, method, productForm, totalRevenue,
 harvestCost, currency, mortalityDuringHarvest, rejectedQuantity, rejectionReason, notes (+
 qualityClass), so it is not a hidden writer either — even though
@@ -921,8 +932,8 @@ declared and GraphQL-exposed but never written
 **Severity:** LOW
 **Layer:** 1
 **State:** OPEN
-**Raised as:** `DB-FARMPROD-LOW-011` by `db-audit-farm-production` in cycle
-`2026-08-16-farm-mobile-agent-audit`
+**Raised as:** `DB-FARMPROD-LOW-011` by `db-audit-farm-production` in
+cycle `2026-08-16-farm-mobile-agent-audit`
 **Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
@@ -935,12 +946,12 @@ declared and GraphQL-exposed but never written
   alertRuleId?: string;`, :309 `alertIncidentId?: string;`, :317 `sensorInfo?: SensorInfo;
   ```
 
-- apps/farm-service/src/water-quality/water-quality.service.ts:301-303 — the create path persists
-  `relatedSensorReadingId` and `hasAlarm` only; no assignment to the three columns exists anywhere
-  in apps/farm-service
-- apps/farm-service/src/water-quality/water-quality.service.ts:340 —
-  `if (saved.hasAlarm && saved.summary?.evaluations)` is the alarm fan-out, and it never writes back
-  the resulting rule/incident id
+- apps/farm-service/src/water-quality/water-quality.service.ts:301-303 — the create path
+  persists `relatedSensorReadingId` and `hasAlarm` only; no assignment to the three columns exists
+  anywhere in apps/farm-service
+- apps/farm-service/src/water-quality/water-quality.service.ts:340
+  — `if (saved.hasAlarm && saved.summary?.evaluations)` is the alarm fan-out, and it never writes
+  back the resulting rule/incident id
 
 **Rule violated:**
 
@@ -949,9 +960,10 @@ Lane-D column class `DEAD`; layer-2-defect-catalog Hygiene
 **Proposed fix direction:**
 
 Either close the alert correlation loop — have the alert fan-out stamp the originating rule/incident
-id back onto the measurement in the same transaction, matching the `relatedSensorReadingId`
-correlation pattern already documented on the entity — or drop the three columns and their GraphQL
-fields. `sensorInfo` is superseded by `relatedSensorReadingId` and should go.
+id back onto the measurement in the same transaction, matching
+the `relatedSensorReadingId` correlation pattern already documented on the entity — or drop the
+three columns and their GraphQL fields. `sensorInfo` is superseded by `relatedSensorReadingId` and
+should go.
 
 **Affected surface (ripple set):**
 
@@ -969,20 +981,25 @@ farm-expert WRITER mode; alert-engine-expert consulted on the correlation contra
 
 **Verifier note:**
 
-Verified. water-quality-measurement.entity.ts:305 `alertRuleId?: string;`, :309
-`alertIncidentId?: string;`, :317 `sensorInfo?: SensorInfo;` — exact line matches, and all three
-carry @Field so they are GraphQL-exposed. water-quality.service.ts:301-303 persists
-relatedSensorReadingId and hasAlarm: false, and the post-evaluation block only sets
-overallStatus/summary/hasAlarm. water-quality.service.ts:340 is exactly
-`if (saved.hasAlarm && saved.summary?.evaluations) {`, the alarm fan-out, and it enqueues the outbox
-event without stamping any rule/incident id back. A grep for the three names across
+Verified.
+water-quality-measurement.entity.ts:305
+— exact
+line matches, and all three carry @Field so they are GraphQL-exposed.
+water-quality.service.ts:301-303 persists relatedSensorReadingId and hasAlarm: false, and the
+post-evaluation block only sets overallStatus/summary/hasAlarm. water-quality.service.ts:340 is
+exactly `if (saved.hasAlarm && saved.summary?.evaluations) {`, the alarm fan-out, and it enqueues
+the outbox event without stamping any rule/incident id back. A grep for the three names across
 apps/farm-service/src finds no assignment anywhere — the only other hits are the Baseline migration
-DDL, archived migrations, and the unrelated health_events.alertIncidentId (which IS settable via
+DDL, archived migrations, and the unrelated `health_events.alertIncidentId` (which IS settable via
 create/update-health-event.input.ts, matching the report's own inventory note). One nuance the
 claimer's fix direction gets wrong: the rule/incident ids are minted in alert-engine, so 'stamp them
 back in the same transaction' is not actually available to farm-service; that affects the remedy,
 not the defect. Three declared, indexed, GraphQL-exposed columns with no writer is a real hygiene
 defect at LOW.
+
+```text
+alertRuleId?: string;`, :309 `alertIncidentId?: string;`, :317 `sensorInfo?: SensorInfo;
+```
 
 ### DB-FARMPROD-LOW-012
 
@@ -992,18 +1009,20 @@ the gap in a comment with no owner, deadline or finding ID
 **Severity:** LOW
 **Layer:** 3
 **State:** OPEN
-**Raised as:** `DB-FARMPROD-LOW-012` by `db-audit-farm-production` in cycle
-`2026-08-16-farm-mobile-agent-audit`
+**Raised as:** `DB-FARMPROD-LOW-012` by `db-audit-farm-production` in
+cycle `2026-08-16-farm-mobile-agent-audit`
 **Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
 - web/modules/farm-module/src/pages/production/tabs/BatchTanksTab.tsx:4 — "Renders the batch's
-  current tank allocations" while :7-11 admits "the list itself reads from `batch.currentQuantity`
-  ... would need a `batch.tankAllocations` field on the Batch GraphQL type ... the detailed
-  allocation list lands as part of PR-2/PR-3"
-- web/modules/farm-module/src/pages/production/tabs/BatchTanksTab.tsx:31 —
-  — a batch-global count presented as per-tank availability
+  current tank allocations" while :7-11 admits "the list itself reads
+  from `batch.currentQuantity` ... would need a `batch.tankAllocations` field on the Batch GraphQL
+  type ... the detailed allocation list lands as part of PR-2/PR-3"
+- web/modules/farm-module/src/pages/production/tabs/BatchTanksTab.tsx:31
+  —
+  —
+  a batch-global count presented as per-tank availability
 
   ```text
   function estimateAvailableForAllocation(batch: Batch) { return Math.max(0, batch.currentQuantity); }
@@ -1041,24 +1060,27 @@ farm-expert WRITER mode (backend field) \+ frontend-expert (tab render)
 **Verifier note:**
 
 Verified, with one sub-bullet overstated. BatchTanksTab.tsx:4 reads 'Renders the batch's current
-tank allocations \+ the action button' and :7-11 admits 'The list itself reads from
-`batch.currentQuantity` ... (would need a `batch.tankAllocations` field on the Batch GraphQL type)
-... the detailed allocation list lands as part of PR-2/PR-3' — verbatim match. :31 is
-— exact. The tab's own subtitle promises 'Bu partinin tanklara dağılımı' but renders only three
+tank allocations \+ the action button' and :7-11 admits 'The list itself reads
+from `batch.currentQuantity` ... (would need a `batch.tankAllocations` field on the Batch GraphQL
+type) ... the detailed allocation list lands as part of PR-2/PR-3' — verbatim match. :31
+is
+—
+exact. The tab's own subtitle promises 'Bu partinin tanklara dağılımı' but renders only three
 batch-global tiles (İlk Stok Adet / Mevcut Adet / Mevcut Biyokütle), so the promised per-tank list
 genuinely does not exist. batch.controller.ts:414-421 is the REST-only `@Get(':id/allocations')` and
-a grep over web/ finds no client calling it; batch.resolver.ts:608 is
-`@ResolveField(() => [BatchLocation], { name: 'locations' })` and I independently confirmed no code
-anywhere in apps/farm-service saves a BatchLocation row (only reads: fcr-calculation.service.ts:147,
-get-batch-traceability.handler.ts:130, the DataLoader), so that relation is permanently empty. I
-also checked the deferral target: docs/plans/2026-04-24-deferred-items/scope-c-frontend.md:129-130
-defines PR-2 as updateBatch and PR-3 as feed-assignment edit/delete — neither covers the allocation
-list, so the comment defers to plan phases that do not contain the work, which is exactly the
-untracked-deferral the claim alleges. Overstated: 'a batch-global count presented as per-tank
-availability' — the value is passed as the prop `availableBatchQuantity` into
-AllocateBatchToTankModal, a batch-level name, is never rendered as per-tank availability, and
-TankCapacityService rejects over-allocation server-side; and 'no durable read path' is imprecise
-since tank_allocations is written and readable over REST. Real but cosmetic/narrow — LOW stands.
+a grep over web/ finds no client calling it; batch.resolver.ts:608
+is `@ResolveField(() => [BatchLocation], { name: 'locations' })` and I independently confirmed no
+code anywhere in apps/farm-service saves a BatchLocation row (only reads:
+fcr-calculation.service.ts:147, get-batch-traceability.handler.ts:130, the DataLoader), so that
+relation is permanently empty. I also checked the deferral target:
+docs/plans/2026-04-24-deferred-items/scope-c-frontend.md:129-130 defines PR-2 as updateBatch and
+PR-3 as feed-assignment edit/delete — neither covers the allocation list, so the comment defers to
+plan phases that do not contain the work, which is exactly the untracked-deferral the claim alleges.
+Overstated: 'a batch-global count presented as per-tank availability' — the value is passed as the
+prop `availableBatchQuantity` into AllocateBatchToTankModal, a batch-level name, is never rendered
+as per-tank availability, and TankCapacityService rejects over-allocation server-side; and 'no
+durable read path' is imprecise since `tank_allocations` is written and readable over REST. Real but
+cosmetic/narrow — LOW stands.
 
 ```text
 function estimateAvailableForAllocation(batch: Batch): number { return Math.max(0, batch.currentQuantity); }
@@ -1066,32 +1088,32 @@ function estimateAvailableForAllocation(batch: Batch): number { return Math.max(
 
 ## Inventory — what exists / what is missing
 
-| Status          | Area                                                             | Note                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| --------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **MISSING**     | batch_locations (BatchLocation) — residency history              | Table, entity, indexes, DataLoader, traceability aggregation and a shipped web tab all exist; nothing writes a row. The batch traceability report renders zero residencies and the target-FCR-from-feeding-program chain always short-circuits. See DB-FARMPROD-HIGH-001.                                                                                                                                                                            |
-| **PARTIAL**     | Type-system discipline in the partition                          | The partition is almost free of banned casts; the one violation found is the string-keyed field-copy loop in the harvest update handler, which is also the mechanism enabling the silent field drop reported as MEDIUM-007.                                                                                                                                                                                                                          |
-| **PARTIAL**     | batches_v2 (Batch) — write→read→UI roundtrip                     | Core lifecycle columns (counts, weight/fcr/growthMetrics jsonb, status, dates, supplier, cost) have full CQRS writers, GraphQL reads and farm-module/aquamobil surfaces. Three columns are declared and exposed but never written: `sgr`, `protocolId`, and the derived-only display getters. `cullCount`, `retentionRate`, `harvestedQuantity`, `totalFeedConsumed`/`totalFeedCost` are correctly written.                                          |
-| **PARTIAL**     | escape_incidents (EscapeIncident)                                | Recording is robust (mobile-command receipt dedup, outbox event, tenant transaction). Two gaps: `varslingReportId` is never written so the assembler re-selects reported incidents forever (HIGH-003), and `closeEscapeIncident` has no UI caller so incidents cannot be closed.                                                                                                                                                                     |
-| **PARTIAL**     | farm_incident_media (FarmIncidentMedia)                          | Write-only. Presigned upload, MIME/size/tenant-prefix re-validation on finalize, and rows written in the incident's transaction — but no query, no `media` field on any incident type, no presigned GET. Uploaded regulatory photo evidence is unreachable after capture. See DB-FARMPROD-HIGH-004.                                                                                                                                                  |
-| **PARTIAL**     | harvest_records (HarvestRecord)                                  | Create/list/get/statistics/delete are complete with lot-number sequencing under lock, TankOperation ledger entry, batch decrement and outbox events; aquamobil RecordHarvestPage writes. Ten columns have no writer (LOW-010) and `updateHarvestRecord` silently drops six declared inputs (MEDIUM-007).                                                                                                                                             |
-| **PARTIAL**     | lice_counts (LiceCount)                                          | Write path is complete and correct (aquamobil LiceCountPage → offline queue → upsert keyed on tenant/tank/date, ISO week derived at write time, tenant-scoped repo). Read path is BE-ONLY: the lakselus assembler consumes it, but the `liceCounts` GraphQL query has no frontend consumer, so recorded counts cannot be listed or reviewed in any UI.                                                                                               |
-| **PARTIAL**     | tank_allocations (TankAllocation) — allocation ledger            | Written by create-batch, allocate-to-tank and transfer-batch handlers as an audit ledger. Read exposure is REST-only (`GET /api/batches/:id/allocations`); no GraphQL field and no web or mobile consumer calls that endpoint, so the ledger is effectively BE-ONLY.                                                                                                                                                                                 |
-| **PARTIAL**     | treatment_applications (TreatmentApplication)                    | Backend is complete — write-time validation against official Mattilsynet method/virkestoff values, list query, and consumption by the lakselus assembler's `behandlinger` section. No frontend anywhere calls `recordTreatmentApplication`, so the table can only ever be empty in practice.                                                                                                                                                         |
-| **PARTIAL**     | welfare_assessments (WelfareAssessment)                          | Same shape as lice_counts: aquamobil WelfareScorePage writes, the welfare assembler reads, the `welfareAssessments` query has no frontend consumer.                                                                                                                                                                                                                                                                                                  |
-| **IMPLEMENTED** | ADR-011 schema placement across the partition                    | All ~24 production-biology entities (batch, tank, growth, fish-health, water-quality, harvest, species) correctly OMIT `schema:` so search_path routes them into `tenant_<uuid>`. No WRONG-SCHEMA-PLACEMENT and no `public` table found in this partition; the only `schema:'farm'` declarations in farm-service are the outbox, farm_audit_logs and tenant_erasure_audit, which are the legitimate cross-tenant set.                                |
-| **IMPLEMENTED** | Tenant isolation across the partition's write paths              | Every write path traced in this partition uses `runInTenantTransaction` / `runInTenantRead` / `tenantManagerRepo`; no bare `getRepository()` was found in batch, tank, growth, fish-health, water-quality, harvest or species. No cross-tenant leak observed in this pass.                                                                                                                                                                           |
-| **IMPLEMENTED** | batch_documents \+ batch_feed_assignments                        | Both written on the create-batch / assign-feeds paths and read through request-scoped tenant DataLoaders exposed as `Batch.documents` and `Batch.feedAssignments`, rendered by farm-module production components.                                                                                                                                                                                                                                    |
-| **IMPLEMENTED** | growth_measurements (GrowthMeasurement)                          | Complete: recordGrowthSample / verifyMeasurement / updateBatchWeightFromSample mutations, statistics \+ growthComparison \+ fcrAnalysis jsonb computed at write time, five GraphQL queries, and a farm-module GrowthTab with hooks and operation documents. The only gap is that the computed SGR never reaches `batches_v2.sgr` (HIGH-002).                                                                                                         |
-| **IMPLEMENTED** | harvest_plans (HarvestPlan)                                      | Service-backed CRUD including `attachments`, seven read handlers (by code, by batch, upcoming, overdue, stats), a resolver, and a farm-module HarvestPlansPage.                                                                                                                                                                                                                                                                                      |
-| **IMPLEMENTED** | health_events (HealthEvent)                                      | Create/update mutations, filter/stats/critical/overdue-follow-up query handlers, and a farm-module HealthEventsPage. `alertIncidentId` is settable through the DTO here, unlike its water-quality namesake.                                                                                                                                                                                                                                          |
-| **IMPLEMENTED** | mortality_records (MortalityRecord)                              | Full roundtrip: written on the record-mortality path with cause/severity/water-quality snapshot, read via GraphQL and the mortality-by-cause query, surfaced in farm-module production and aquamobil RecordMortalityPage.                                                                                                                                                                                                                            |
-| **IMPLEMENTED** | sensor_temperature_latest \+ sensor_temperature_daily            | Legitimately BE-ONLY per the aggregation-fed-column rule: the projection job exists and is verified. `SensorTemperatureProjectionListener` folds sensor-service SensorReading events into both tables with newest-wins / watermark idempotency; consumed by the feeding-rate calc and the settefisk regulatory period temperature.                                                                                                                   |
-| **IMPLEMENTED** | species (Species)                                                | Setup-table roundtrip with a federation key, official regulatory `officialCode` mapping seeded from an in-repo SSoT, cleaner-fish flags, and jsonb growth/optimal/market/breeding blocks consumed by batch creation and the growth analysis target SGR.                                                                                                                                                                                              |
-| **IMPLEMENTED** | tank_batches (TankBatch) — batch-count SSoT                      | `batchDetails[]` is a genuine single-owner SSoT: `TankBatchService.applyBatchDelta` derives totalQuantity/biomass/avgWeight/density from it, is the only writer of the denormalized `Tank`/`Equipment.currentCount`, and rejects per-tank overdraft instead of clamping. The retired `currentQuantity` count mirror is gone. Gap: the capacity flags are not refreshed on removals (MEDIUM-006), and a dead second writer still exists (MEDIUM-005). |
-| **IMPLEMENTED** | tank_operations (TankOperation) — stock-movement ledger          | Written by mortality, cull, transfer and harvest handlers with pre-operation state snapshots; read by the batch-history assembler and the FCR net-exited-biomass calculation, and surfaced through the batch history UI.                                                                                                                                                                                                                             |
-| **IMPLEMENTED** | tanks (Tank) \+ tank capacity                                    | Full CRUD via CQRS, volume auto-derived in lifecycle hooks, `currentCount` written by the single TankBatchService writer, `currentBiomass` on its own growth-tracking path. The admin-override over-capacity flow retains its audit-log entry, so it is the legitimate shape, not a defect.                                                                                                                                                          |
-| **IMPLEMENTED** | water_quality_measurements (WaterQualityMeasurement)             | Full roundtrip: aquamobil WaterQualityRecordPage \+ farm-module water-chemistry RecordTab write; seven query handlers (get/list/latest/critical/chart/stats, by tank and by system) read; farm-module useWaterQuality hooks render. Idempotency key and sensor-reading correlation are wired. Three columns are dead (LOW-011).                                                                                                                      |
-| **IMPLEMENTED** | water_quality_parameter_configs \+ water_quality_param_equipment | Complete CQRS surface (create/update/delete/reorder/bulk-from-template/bulk-map), tenant-onboarding seeder, and dedicated farm-module UI (ParameterConfigManager, EquipmentMappingPanel) with hooks.                                                                                                                                                                                                                                                 |
+| Status          | Area                                                                 | Note                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| --------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **MISSING**     | `batch_locations` (BatchLocation) — residency history                | Table, entity, indexes, DataLoader, traceability aggregation and a shipped web tab all exist; nothing writes a row. The batch traceability report renders zero residencies and the target-FCR-from-feeding-program chain always short-circuits. See DB-FARMPROD-HIGH-001.                                                                                                                                                                            |
+| **PARTIAL**     | Type-system discipline in the partition                              | The partition is almost free of banned casts; the one violation found is the string-keyed field-copy loop in the harvest update handler, which is also the mechanism enabling the silent field drop reported as MEDIUM-007.                                                                                                                                                                                                                          |
+| **PARTIAL**     | `batches_v2` (Batch) — write→read→UI roundtrip                       | Core lifecycle columns (counts, weight/fcr/growthMetrics jsonb, status, dates, supplier, cost) have full CQRS writers, GraphQL reads and farm-module/aquamobil surfaces. Three columns are declared and exposed but never written: `sgr`, `protocolId`, and the derived-only display getters. `cullCount`, `retentionRate`, `harvestedQuantity`, `totalFeedConsumed`/`totalFeedCost` are correctly written.                                          |
+| **PARTIAL**     | `escape_incidents` (EscapeIncident)                                  | Recording is robust (mobile-command receipt dedup, outbox event, tenant transaction). Two gaps: `varslingReportId` is never written so the assembler re-selects reported incidents forever (HIGH-003), and `closeEscapeIncident` has no UI caller so incidents cannot be closed.                                                                                                                                                                     |
+| **PARTIAL**     | `farm_incident_media` (FarmIncidentMedia)                            | Write-only. Presigned upload, MIME/size/tenant-prefix re-validation on finalize, and rows written in the incident's transaction — but no query, no `media` field on any incident type, no presigned GET. Uploaded regulatory photo evidence is unreachable after capture. See DB-FARMPROD-HIGH-004.                                                                                                                                                  |
+| **PARTIAL**     | `harvest_records` (HarvestRecord)                                    | Create/list/get/statistics/delete are complete with lot-number sequencing under lock, TankOperation ledger entry, batch decrement and outbox events; aquamobil RecordHarvestPage writes. Ten columns have no writer (LOW-010) and `updateHarvestRecord` silently drops six declared inputs (MEDIUM-007).                                                                                                                                             |
+| **PARTIAL**     | `lice_counts` (LiceCount)                                            | Write path is complete and correct (aquamobil LiceCountPage → offline queue → upsert keyed on tenant/tank/date, ISO week derived at write time, tenant-scoped repo). Read path is BE-ONLY: the lakselus assembler consumes it, but the `liceCounts` GraphQL query has no frontend consumer, so recorded counts cannot be listed or reviewed in any UI.                                                                                               |
+| **PARTIAL**     | `tank_allocations` (TankAllocation) — allocation ledger              | Written by create-batch, allocate-to-tank and transfer-batch handlers as an audit ledger. Read exposure is REST-only (`GET /api/batches/:id/allocations`); no GraphQL field and no web or mobile consumer calls that endpoint, so the ledger is effectively BE-ONLY.                                                                                                                                                                                 |
+| **PARTIAL**     | `treatment_applications` (TreatmentApplication)                      | Backend is complete — write-time validation against official Mattilsynet method/virkestoff values, list query, and consumption by the lakselus assembler's `behandlinger` section. No frontend anywhere calls `recordTreatmentApplication`, so the table can only ever be empty in practice.                                                                                                                                                         |
+| **PARTIAL**     | `welfare_assessments` (WelfareAssessment)                            | Same shape as `lice_counts`: aquamobil WelfareScorePage writes, the welfare assembler reads, the `welfareAssessments` query has no frontend consumer.                                                                                                                                                                                                                                                                                                |
+| **IMPLEMENTED** | ADR-011 schema placement across the partition                        | All ~24 production-biology entities (batch, tank, growth, fish-health, water-quality, harvest, species) correctly OMIT `schema:` so `search_path` routes them into `tenant_<uuid>`. No WRONG-SCHEMA-PLACEMENT and no `public` table found in this partition; the only `schema:'farm'` declarations in farm-service are the outbox, `farm_audit_logs` and `tenant_erasure_audit`, which are the legitimate cross-tenant set.                          |
+| **IMPLEMENTED** | Tenant isolation across the partition's write paths                  | Every write path traced in this partition uses `runInTenantTransaction` / `runInTenantRead` / `tenantManagerRepo`; no bare `getRepository()` was found in batch, tank, growth, fish-health, water-quality, harvest or species. No cross-tenant leak observed in this pass.                                                                                                                                                                           |
+| **IMPLEMENTED** | `batch_documents` \+ `batch_feed_assignments`                        | Both written on the create-batch / assign-feeds paths and read through request-scoped tenant DataLoaders exposed as `Batch.documents` and `Batch.feedAssignments`, rendered by farm-module production components.                                                                                                                                                                                                                                    |
+| **IMPLEMENTED** | `growth_measurements` (GrowthMeasurement)                            | Complete: recordGrowthSample / verifyMeasurement / updateBatchWeightFromSample mutations, statistics \+ growthComparison \+ fcrAnalysis jsonb computed at write time, five GraphQL queries, and a farm-module GrowthTab with hooks and operation documents. The only gap is that the computed SGR never reaches `batches_v2.sgr` (HIGH-002).                                                                                                         |
+| **IMPLEMENTED** | `harvest_plans` (HarvestPlan)                                        | Service-backed CRUD including `attachments`, seven read handlers (by code, by batch, upcoming, overdue, stats), a resolver, and a farm-module HarvestPlansPage.                                                                                                                                                                                                                                                                                      |
+| **IMPLEMENTED** | `health_events` (HealthEvent)                                        | Create/update mutations, filter/stats/critical/overdue-follow-up query handlers, and a farm-module HealthEventsPage. `alertIncidentId` is settable through the DTO here, unlike its water-quality namesake.                                                                                                                                                                                                                                          |
+| **IMPLEMENTED** | `mortality_records` (MortalityRecord)                                | Full roundtrip: written on the record-mortality path with cause/severity/water-quality snapshot, read via GraphQL and the mortality-by-cause query, surfaced in farm-module production and aquamobil RecordMortalityPage.                                                                                                                                                                                                                            |
+| **IMPLEMENTED** | `sensor_temperature_latest` \+ `sensor_temperature_daily`            | Legitimately BE-ONLY per the aggregation-fed-column rule: the projection job exists and is verified. `SensorTemperatureProjectionListener` folds sensor-service SensorReading events into both tables with newest-wins / watermark idempotency; consumed by the feeding-rate calc and the settefisk regulatory period temperature.                                                                                                                   |
+| **IMPLEMENTED** | species (Species)                                                    | Setup-table roundtrip with a federation key, official regulatory `officialCode` mapping seeded from an in-repo SSoT, cleaner-fish flags, and jsonb growth/optimal/market/breeding blocks consumed by batch creation and the growth analysis target SGR.                                                                                                                                                                                              |
+| **IMPLEMENTED** | `tank_batches` (TankBatch) — batch-count SSoT                        | `batchDetails[]` is a genuine single-owner SSoT: `TankBatchService.applyBatchDelta` derives totalQuantity/biomass/avgWeight/density from it, is the only writer of the denormalized `Tank`/`Equipment.currentCount`, and rejects per-tank overdraft instead of clamping. The retired `currentQuantity` count mirror is gone. Gap: the capacity flags are not refreshed on removals (MEDIUM-006), and a dead second writer still exists (MEDIUM-005). |
+| **IMPLEMENTED** | `tank_operations` (TankOperation) — stock-movement ledger            | Written by mortality, cull, transfer and harvest handlers with pre-operation state snapshots; read by the batch-history assembler and the FCR net-exited-biomass calculation, and surfaced through the batch history UI.                                                                                                                                                                                                                             |
+| **IMPLEMENTED** | tanks (Tank) \+ tank capacity                                        | Full CRUD via CQRS, volume auto-derived in lifecycle hooks, `currentCount` written by the single TankBatchService writer, `currentBiomass` on its own growth-tracking path. The admin-override over-capacity flow retains its audit-log entry, so it is the legitimate shape, not a defect.                                                                                                                                                          |
+| **IMPLEMENTED** | `water_quality_measurements` (WaterQualityMeasurement)               | Full roundtrip: aquamobil WaterQualityRecordPage \+ farm-module water-chemistry RecordTab write; seven query handlers (get/list/latest/critical/chart/stats, by tank and by system) read; farm-module useWaterQuality hooks render. Idempotency key and sensor-reading correlation are wired. Three columns are dead (LOW-011).                                                                                                                      |
+| **IMPLEMENTED** | `water_quality_parameter_configs` \+ `water_quality_param_equipment` | Complete CQRS surface (create/update/delete/reorder/bulk-from-template/bulk-map), tenant-onboarding seeder, and dedicated farm-module UI (ParameterConfigManager, EquipmentMappingPanel) with hooks.                                                                                                                                                                                                                                                 |
 
 ## Verdict
 

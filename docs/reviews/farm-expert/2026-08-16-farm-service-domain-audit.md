@@ -45,23 +45,20 @@ web/modules/farm-module/src/Module.tsx, TransferModal.tsx, query-key scan.
 
 The core production-biology write paths (batch lifecycle, mortality/cull, transfer, harvest,
 feeding, growth) are in strong shape: pessimistic locks, `runInTenantTransaction`, transactional
-outbox, `createBaseEvent`, single-writer `TankBatchService.applyBatchDelta`, and a
-`TankCapacityService` that checks status+maxBiomass+maxDensity. Sentinel Hub is correctly retired to
-server-side CDSE with AES-256-GCM secrets, generation-scoped token cache and in-flight dedup.
+outbox, `createBaseEvent`, single-writer `TankBatchService.applyBatchDelta`, and
+a `TankCapacityService` that checks status+maxBiomass+maxDensity. Sentinel Hub is correctly retired
+to server-side CDSE with AES-256-GCM secrets, generation-scoped token cache and in-flight dedup.
 Storage PO maker-checker and lot traceability are sound.
 
 The gaps are at the edges. `ai-insights` fabricates its per-batch growth prediction and per-tank
-feeding advice from hardcoded constants (`biomassKg: 500`, `feedKg: 5.0`, `currentQuantity: 10000`)
-while labelling them as real AI output, and never passes `tenantId` into the MCP call — a latent
-overfeeding/IDOR pair one env flag away. `skipCapacityCheck` is exposed to `MODULE_USER` on
-directly,
+feeding advice from hardcoded
+constants (`biomassKg: 500`, `feedKg: 5.0`, `currentQuantity: 10000`) while labelling them as real
+AI output, and never passes `tenantId` into the MCP call — a latent overfeeding/IDOR pair one env
+flag away. `skipCapacityCheck` is exposed to `MODULE_USER` on `transferBatch` with no role gate and
+no audit log. Harvest paths write `batch.status` directly,
 bypassing `BatchLifecyclePolicyService`. ~34 write mutations across water-quality, task, maintenance
-and fish-health skip the CommandBus entirely; maintenance emits no domain events at all.
-`AllocateToTankHandler` is the last stock mutation outside the fail-closed tenant boundary.
-
-```text
-transferBatch` with no role gate and no audit log. Harvest paths write `batch.status
-```
+and fish-health skip the CommandBus entirely; maintenance emits no domain events at
+all. `AllocateToTankHandler` is the last stock mutation outside the fail-closed tenant boundary.
 
 ## Findings (by severity)
 
@@ -85,14 +82,17 @@ FARM-CRITICAL-001` by `farm-expert` in cycle `2026-08-16-farm-mobile-agent-audit
 
 **Evidence:**
 
-- apps/farm-service/src/ai-insights/services/ai-insights.service.ts:156 —
-  — the `batchId` argument is never used as an input, only echoed into the result at :180
+- apps/farm-service/src/ai-insights/services/ai-insights.service.ts:156
+  —
+  —
+  the `batchId` argument is never used as an input, only echoed into the result at :180
 
   ```text
   }>('calculate_growth_metrics', { mode: 'projection', currentWeightG: 100, currentQuantity: 10000, sgr: 2.0, projectionDays: 30, mortalityRatePercent: 0.1 })
   ```
 
-- apps/farm-service/src/ai-insights/services/ai-insights.service.ts:280 —
+- apps/farm-service/src/ai-insights/services/ai-insights.service.ts:280
+  —
   — derived
   from those constants
 
@@ -105,14 +105,14 @@ FARM-CRITICAL-001` by `farm-expert` in cycle `2026-08-16-farm-mobile-agent-audit
   ```
 
 - apps/farm-service/src/ai-insights/ai-insights.resolver.ts:93 — exposed as `feedingAdvice` with
-  description 'AI-driven feeding recommendation for a specific tank'; :59 `batchGrowthPrediction`
-  'AI growth prediction for a batch'
-- apps/farm-service/src/ai-insights/services/mcp-client.service.ts:81 —
-  `this.mcpEnabled = ... 'MCP_ENABLED', 'false') === 'true'` is the only thing suppressing this
+  description 'AI-driven feeding recommendation for a specific tank';
+  :59 `batchGrowthPrediction` 'AI growth prediction for a batch'
+- apps/farm-service/src/ai-insights/services/mcp-client.service.ts:81
+  — `this.mcpEnabled = ... 'MCP_ENABLED', 'false') === 'true'` is the only thing suppressing this
   today
-- docs/plans/_archive/2026-Q1/2026-03-27-aquamobil-pwa-bugfix-plan.md:293 — the tracked remediation
-  for the 'AI insights unavailable' complaint is literally 'Set MCP_ENABLED=true in the farm-service
-  environment'
+- `docs/plans/_archive/2026-Q1/2026-03-27-aquamobil-pwa-bugfix-plan.md:293` — the tracked
+  remediation for the 'AI insights unavailable' complaint is literally 'Set `MCP_ENABLED=true` in
+  the farm-service environment'
 
 **Rule violated:**
 
@@ -123,15 +123,20 @@ constant.
 
 **Proposed fix direction:**
 
-Make it impossible: the MCP insight methods must not compile without the real aggregate. Change
-`McpClientService.callTool` to accept a typed, per-tool argument contract whose required fields are
-the resolved domain values (`biomassKg`, `tankVolumeM3`, `avgWeightG`, `currentQuantity`, effective
-temperature) sourced from `BatchDomainService.getCurrentBiomass()` / `TankBatch` /
-`WaterTemperatureService`, so a literal cannot be substituted. Where a required input is genuinely
-unresolvable (no sample, no temperature), the method must return `null` with an explicit provenance
-reason rather than a synthesised answer — the same `source: 'none'` posture
-`effectiveUnitTemperatures` already uses. Gate the MCP_ENABLED flip on this landing so
-AISAFETY-HIGH-010 cannot be 'closed' by activating the fabricated path.
+Make it impossible: the MCP insight methods must not compile without the real aggregate.
+Change `McpClientService.callTool` to accept a typed, per-tool argument contract whose required
+fields are the resolved domain
+values (`biomassKg`, `tankVolumeM3`, `avgWeightG`, `currentQuantity`, effective temperature) sourced
+from , so a
+literal cannot be substituted. Where a required input is genuinely unresolvable (no sample, no
+temperature), the method must return `null` with an explicit provenance reason rather than a
+synthesised answer — the same `source: 'none'` posture `effectiveUnitTemperatures` already uses.
+Gate the `MCP_ENABLED` flip on this landing so AISAFETY-HIGH-010 cannot be 'closed' by activating
+the fabricated path.
+
+```text
+BatchDomainService.getCurrentBiomass()` / `TankBatch` / `WaterTemperatureService
+```
 
 **Affected surface (ripple set):**
 
@@ -149,7 +154,7 @@ AISAFETY-HIGH-010 cannot be 'closed' by activating the fabricated path.
 **Expected closer:**
 
 implementation-planner (multi-file); CATCHER review by a different agent instance. Coordinate with
-the owner of AISAFETY-HIGH-010 before MCP_ENABLED is set true.
+the owner of AISAFETY-HIGH-010 before `MCP_ENABLED` is set true.
 
 **Verifier note:**
 
@@ -158,18 +163,18 @@ Code facts verified exactly at the cited lines: getBatchGrowthPrediction
 and never use batchId/tankId as inputs — they are only echoed into the result (:180, :305).
 recommendedAmount (:306) is derived from feedKg: 5.0 / biomassKg: 500, not from the unit's real
 biomass. Resolver descriptions at :59/:93 do present these as per-batch/per-tank AI output. Severity
-is inflated, however: the whole path is dormant. MCP_ENABLED appears in NO deployment YAML or env
+is inflated, however: the whole path is dormant. `MCP_ENABLED` appears in NO deployment YAML or env
 file (grep over `*.yml` returns nothing; test/e2e-env.ts:12 forces false), so
 mcp-client.service.ts:200 returns null before any tool call, and every one of these queries resolves
 to null in production today. The dormancy is already an OPEN tracked finding
 (docs/reviews/ultracode/2026-07-05-ai-messaging-e2e.md:23, AISAFETY-HIGH-010). CRITICAL implies live
 fabricated feed rations reaching operators; that is not reachable in any deployed config. It is a
-genuine latent HIGH — the tracked remediation literally instructs flipping MCP_ENABLED=true, which
+genuine latent HIGH — the tracked remediation literally instructs flipping `MCP_ENABLED=true`, which
 would activate it — but not a live CRITICAL.
 
 ### FARM-HIGH-302
 
-**Title:** `skipCapacityCheck` on transferBatch is reachable by MODULE_USER with no role gate and
+**Title:** `skipCapacityCheck` on transferBatch is reachable by `MODULE_USER` with no role gate and
 produces no audit-log row
 
 **Severity:** HIGH
@@ -180,23 +185,26 @@ produces no audit-log row
 
 **Evidence:**
 
-- apps/farm-service/src/batch/dto/batch-resolver.dto.ts:136 —
+- apps/farm-service/src/batch/dto/batch-resolver.dto.ts:136
+  —
   on `TransferBatchInput`
 
   ```text
   @Field(() => Boolean, { nullable: true, defaultValue: false, description: 'Kapasite kontrolünü atla' }) @IsOptional() skipCapacityCheck?: boolean;
   ```
 
-- apps/farm-service/src/batch/resolvers/batch.resolver.ts:463 —
-  ; the input
+- apps/farm-service/src/batch/resolvers/batch.resolver.ts:463
+  — ; the input
   is spread straight into the payload at :482-489 with no inspection of the flag
 
   ```text
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)` on `transferBatch
   ```
 
-- apps/farm-service/src/batch/handlers/transfer-batch.handler.ts:228 —
-  — the whole welfare gate is skipped, and the handler injects no `AuditLogService`
+- apps/farm-service/src/batch/handlers/transfer-batch.handler.ts:228
+  —
+  —
+  the whole welfare gate is skipped, and the handler injects no `AuditLogService`
 
   ```text
   if (!payload.skipCapacityCheck) { ... this.tankCapacityService.enforce({ mode: 'hard', ... }) }
@@ -216,23 +224,21 @@ the missing role floor.
 
 Route the override through the existing sanctioned shape instead of a raw boolean escape hatch:
 replace object
-and switch the handler from `if (!skip)` to
-— that path
-already role-checks SUPER_ADMIN/TENANT_ADMIN and warns. Then write an
-inside the same transaction, mirroring the `MORTALITY_RECORDED` pattern in
-record-mortality.handler.ts:382. A boolean with no reason field cannot carry an audit trail, so the
-type change is the load-bearing part.
+and switch the handler
+from
+—
+that path already role-checks `SUPER_ADMIN/TENANT_ADMIN` and warns. Then write
+an `AuditAction.CAPACITY_OVERRIDE` row
+via `auditLogService.logWithManager(queryRunner.manager, ...)` inside the same transaction,
+mirroring the `MORTALITY_RECORDED` pattern in record-mortality.handler.ts:382. A boolean with no
+reason field cannot carry an audit trail, so the type change is the load-bearing part.
 
 ```text
 skipCapacityCheck: boolean` with a required `capacityOverride: { reason: string }
 ```
 
 ```text
-tankCapacityService.enforce({ mode: 'admin-override', callerRoles, callerUserId })
-```
-
-```text
-AuditAction.CAPACITY_OVERRIDE` row via `auditLogService.logWithManager(queryRunner.manager, ...)
+if (!skip)` to `tankCapacityService.enforce({ mode: 'admin-override', callerRoles, callerUserId })
 ```
 
 **Affected surface (ripple set):**
@@ -254,9 +260,9 @@ data-expert (contract delta) per handoff-protocol.
 **Verifier note:**
 
 Every element verified. batch-resolver.dto.ts:136 declares skipCapacityCheck on TransferBatchInput
-with only @IsOptional — no role or reason constraint. batch.resolver.ts:463 gates transferBatch at
-@Roles(TENANT_ADMIN, MODULE_MANAGER, MODULE_USER) and :472-489 spreads the input straight into the
-command payload without inspecting the flag. transfer-batch.handler.ts:228 wraps the entire
+with only @IsOptional — no role or reason constraint. batch.resolver.ts:463 gates transferBatch
+at `@Roles(TENANT_ADMIN`, `MODULE_MANAGER`, `MODULE_USER`) and :472-489 spreads the input straight
+into the command payload without inspecting the flag. transfer-batch.handler.ts:228 wraps the entire
 tankCapacityService.enforce({mode:'hard'}) welfare gate in if (!payload.skipCapacityCheck) — I
 confirmed by grep that this is the ONLY conditional enforce callsite in farm-service
 (allocate-to-tank:198, create-batch:413, deploy-cleaner-fish:105 are all unconditional), so the skip
@@ -264,7 +270,7 @@ is a complete bypass with no compensating check. The handler injects no audit se
 AuditedOperation across apps/farm-service/src/batch/ returns zero hits, so no @AuditedOperation
 interceptor covers it either; the TankOperation row written at :245+ records performedBy and notes
 but never the override flag or a reason. schema.graphql:9898 confirms it is on the published
-supergraph. A field-level MODULE_USER can silently bypass a LIFE-SAFETY density gate with no
+supergraph. A field-level `MODULE_USER` can silently bypass a LIFE-SAFETY density gate with no
 attributable trail. HIGH stands.
 
 ### FARM-HIGH-305
@@ -280,19 +286,20 @@ outside the fail-closed tenant transaction boundary
 
 **Evidence:**
 
-- apps/farm-service/src/batch/handlers/allocate-to-tank.handler.ts:114 —
-  with no `pinTenantTransactionSearchPath` / `assertTenantTransactionContext` call anywhere in the
-  file
+- apps/farm-service/src/batch/handlers/allocate-to-tank.handler.ts:114
+  —
+  with
+  no `pinTenantTransactionSearchPath` / `assertTenantTransactionContext` call anywhere in the file
 
   ```text
   const queryRunner = this.dataSource.createQueryRunner(); await queryRunner.connect(); await queryRunner.startTransaction('SERIALIZABLE');
   ```
 
-- libs/backend-common/src/database/tenant-transaction.ts:301 — `runInTenantTransaction` pins
-  search_path AND asserts `current_schema()` \+ the `app.current_tenant` RLS GUC before the callback
-  runs
-- tests/invariants/farm-batch-policy-transaction-ssot.spec.ts:104 —
-  `expect(source).not.toMatch(/this\.dataSource\.createQueryRunner\(/)` is asserted only for
+- libs/backend-common/src/database/tenant-transaction.ts:301
+  — `runInTenantTransaction` pins `search_path` AND asserts `current_schema()` \+
+  the `app.current_tenant` RLS GUC before the callback runs
+- tests/invariants/farm-batch-policy-transaction-ssot.spec.ts:104
+  — `expect(source).not.toMatch(/this\.dataSource\.createQueryRunner\(/)` is asserted only for
   update-status/close/delete, and :141 for mortality/cull; allocate-to-tank appears at :18 only in
   the weaker `rawBatchFindOneHandlers` list
 - libs/backend-common/src/database/tenant-connection-bootstrap.service.ts:38 — the docstring records
@@ -301,21 +308,17 @@ outside the fail-closed tenant transaction boundary
 **Rule violated:**
 
 layer-2-patterns Tenant isolation \+ CLAUDE.md `@Entity()` schema discipline (per-tenant tables
-route via search_path). Sibling stock mutations (mortality, cull, transfer, harvest, close) are all
-already migrated; this is the remaining hole in the SSoT.
+route via `search_path`). Sibling stock mutations (mortality, cull, transfer, harvest, close) are
+all already migrated; this is the remaining hole in the SSoT.
 
 **Proposed fix direction:**
 
 Migrate the handler onto `runInTenantTransaction(this.dataSource, 'farm', tenantId, ...)`. The
 SERIALIZABLE isolation level currently used is the only reason the raw runner was kept — express it
-as a parameter on the boundary helper (the helper already parameterises isolation for
-`runInTenantRead`) rather than as a reason to stay outside the boundary. Then extend the invariant's
-, which closes
-the class instead of this instance.
-
-```text
-not.toMatch(createQueryRunner)` assertion to cover every file under `batch/handlers/
-```
+as a parameter on the boundary helper (the helper already parameterises isolation
+for `runInTenantRead`) rather than as a reason to stay outside the boundary. Then extend the
+invariant's `not.toMatch(createQueryRunner)` assertion to cover every file
+under `batch/handlers/`, which closes the class instead of this instance.
 
 **Affected surface (ripple set):**
 
@@ -340,15 +343,15 @@ startTransaction('SERIALIZABLE') with no pinTenantTransactionSearchPath /
 assertTenantTransactionContext anywhere in the file. Every sibling is migrated: transfer-batch:102,
 record-mortality:111, record-cull:87, close-batch:58, update-batch-status:41, update-batch:44, and
 harvest/create-harvest-record:138 all call runInTenantTransaction(this.dataSource, 'farm', tenantId,
-...), which at tenant-transaction.ts:298-300 pins search_path and then asserts current_schema() plus
-the app.current_tenant RLS GUC before the callback runs — fail-closed. The pool-checkout patch in
-tenant-connection-bootstrap.service.ts only re-asserts search_path from AsyncLocalStorage; its own
-docstring records the 2026-04-07 farm-service split-brain that this fail-open routing did not
-prevent, so it is not an equivalent guard. Initial stocking is a real write path, so a lost ALS
-frame lands rows in the shared 'farm' source schema instead of `tenant_<uuid>`. One inaccuracy:
-transfer-batch.handler.ts also sits in the weaker rawBatchFindOneHandlers list (spec line 21), so
-that list is not allocate-exclusive — but transfer is nonetheless already on runInTenantTransaction,
-so the conclusion holds. HIGH stands.
+...), which at tenant-transaction.ts:298-300 pins `search_path` and then
+asserts `current_schema(`) plus the `app.current_tenant` RLS GUC before the callback runs —
+fail-closed. The pool-checkout patch in tenant-connection-bootstrap.service.ts only
+re-asserts `search_path` from AsyncLocalStorage; its own docstring records the 2026-04-07
+farm-service split-brain that this fail-open routing did not prevent, so it is not an equivalent
+guard. Initial stocking is a real write path, so a lost ALS frame lands rows in the shared 'farm'
+source schema instead of `tenant_<uuid>`. One inaccuracy: transfer-batch.handler.ts also sits in the
+weaker rawBatchFindOneHandlers list (spec line 21), so that list is not allocate-exclusive — but
+transfer is nonetheless already on runInTenantTransaction, so the conclusion holds. HIGH stands.
 
 ### MEDIUM
 
@@ -365,21 +368,21 @@ and every tenant shares one static JWT
 
 **Evidence:**
 
-- apps/farm-service/src/ai-insights/services/ai-insights.service.ts:77 —
-  `const cacheKey = ${CACHE_PREFIX}:risk:tank:${tenantId}:${tankId}` is the ONLY use of tenantId
-- apps/farm-service/src/ai-insights/services/ai-insights.service.ts:88 —
-  —
+- apps/farm-service/src/ai-insights/services/ai-insights.service.ts:77
+  — `const cacheKey = ${CACHE_PREFIX}:risk:tank:${tenantId}:${tankId}` is the ONLY use of tenantId
+- apps/farm-service/src/ai-insights/services/ai-insights.service.ts:88
+  — —
   user-supplied tankId, no tenant predicate
 
   ```text
   this.mcpClient.callTool(..., 'assess_risk', { scope: 'tank', entityId: tankId, ... })
   ```
 
-- apps/farm-service/src/ai-insights/services/mcp-client.service.ts:200 —
-  `async callTool<T>(name: string, params: Record<string, unknown>)` never injects tenant identity
-- apps/farm-service/src/ai-insights/services/mcp-client.service.ts:120 —
-  `MCP_JWT_TOKEN: this.configService.get<string>('MCP_JWT_TOKEN', '')` — one process-wide long-lived
-  JWT from env spawns the server for all tenants (also at :157)
+- apps/farm-service/src/ai-insights/services/mcp-client.service.ts:200
+  — `async callTool<T>(name: string, params: Record<string, unknown>)` never injects tenant identity
+- apps/farm-service/src/ai-insights/services/mcp-client.service.ts:120
+  — `MCP_JWT_TOKEN: this.configService.get<string>('MCP_JWT_TOKEN', '')` — one process-wide
+  long-lived JWT from env spawns the server for all tenants (also at :157)
 
 **Rule violated:**
 
@@ -390,11 +393,11 @@ fetch-by-id (IDOR)' and 'Secret handling — long-lived secret from process.env'
 
 **Proposed fix direction:**
 
-Thread the caller's tenant context into the MCP boundary as a required argument: make `callTool`
-take a `{ tenantId, ...params }` envelope whose type makes tenantId non-optional, and have the MCP
-server resolve identity from a per-request short-lived token minted for that tenant rather than a
-shared `MCP_JWT_TOKEN`. Independently, validate `tankId` / `batchId` ownership against the
-tenant-scoped repository before the tool call, so an unowned id fails closed at the farm-service
+Thread the caller's tenant context into the MCP boundary as a required argument:
+make `callTool` take a `{ tenantId, ...params }` envelope whose type makes tenantId non-optional,
+and have the MCP server resolve identity from a per-request short-lived token minted for that tenant
+rather than a shared `MCP_JWT_TOKEN`. Independently, validate `tankId` / `batchId` ownership against
+the tenant-scoped repository before the tool call, so an unowned id fails closed at the farm-service
 edge regardless of what the MCP server does.
 
 **Affected surface (ripple set):**
@@ -415,14 +418,14 @@ isolation); farm-expert CATCHER on the domain-side ownership check.
 Verified: ai-insights.service.ts:77 is the only tenantId use (cache key); :88-97 passes
 user-supplied tankId as entityId with no ownership predicate and no prior tank-belongs-to-tenant
 read; mcp-client.service.ts:200 callTool injects no tenant identity; :120 and :157 both pass a
-single process-wide MCP_JWT_TOKEN from env. I also read
+single process-wide `MCP_JWT_TOKEN` from env. I also read
 mcp/farm-management/src/auth/session-context.ts and config.ts:84 — the MCP server decodes that token
 WITHOUT verifying it and derives tenantId from it, so the failure mode is actually worse than the
-claimed IDOR: every tenant's query would resolve against the static token's tenant. But the same
-MCP_ENABLED gate refutes production impact — callTool returns null before any network/tool call,
-MCP_ENABLED is set nowhere outside tests, and MCP_JWT_TOKEN defaults to '' with no deployment
-setting it. The IDOR framing is also imprecise (no per-object authorization is even attempted
-because no real data is fetched). Latent design defect in dead code: MEDIUM, not HIGH.
+claimed IDOR: every tenant's query would resolve against the static token's tenant. But the
+same `MCP_ENABLED` gate refutes production impact — callTool returns null before any network/tool
+call, `MCP_ENABLED` is set nowhere outside tests, and `MCP_JWT_TOKEN` defaults to '' with no
+deployment setting it. The IDOR framing is also imprecise (no per-object authorization is even
+attempted because no real data is fetched). Latent design defect in dead code: MEDIUM, not HIGH.
 
 ### FARM-MEDIUM-303
 
@@ -437,25 +440,27 @@ because no real data is fetched). Latent design defect in dead code: MEDIUM, not
 
 **Evidence:**
 
-- apps/farm-service/src/batch/handlers/create-harvest-record.handler.ts:376 —
-  — the constructor (:76-108) injects no `BatchLifecyclePolicyService`
+- apps/farm-service/src/batch/handlers/create-harvest-record.handler.ts:376
+  —
+  —
+  the constructor (:76-108) injects no `BatchLifecyclePolicyService`
 
   ```text
   const isFinalHarvest = batch.currentQuantity <= 0; if (isFinalHarvest) { batch.status = BatchStatus.HARVESTED; ... }
   ```
 
-- apps/farm-service/src/events/listeners/harvest-completed.listener.ts:300 —
-  `batch.status = BatchStatus.HARVESTING;` on a partial harvest, again with no policy assertion
-- apps/farm-service/src/batch/services/batch-lifecycle-policy.service.ts:10 —
-  —
+- apps/farm-service/src/events/listeners/harvest-completed.listener.ts:300
+  — `batch.status = BatchStatus.HARVESTING;` on a partial harvest, again with no policy assertion
+- apps/farm-service/src/batch/services/batch-lifecycle-policy.service.ts:10
+  — —
   neither HARVESTING nor HARVESTED is a legal successor of ACTIVE (nor of QUARANTINE, :9)
 
   ```text
   [BatchStatus.ACTIVE]: [BatchStatus.GROWING, BatchStatus.TRANSFERRED, BatchStatus.FAILED]
   ```
 
-- apps/farm-service/src/batch/handlers/update-batch-status.handler.ts:54 — the sanctioned path does
-  `this.lifecyclePolicy.assertCanTransitionStatus(batch, newStatus)`
+- apps/farm-service/src/batch/handlers/update-batch-status.handler.ts:54 — the sanctioned path
+  does `this.lifecyclePolicy.assertCanTransitionStatus(batch, newStatus)`
 
 **Rule violated:**
 
@@ -466,16 +471,12 @@ layer-2-patterns DDD aggregate root: 'external code may only invoke intent-metho
 **Proposed fix direction:**
 
 Make it impossible rather than adding a second assertion callsite: remove the public setter path by
-moving every status write behind an intent method on the aggregate (`batch.markHarvesting()` /
-, and add
-HARVESTING/HARVESTED as legal successors of the states a real harvest can start from (or force
-harvest to advance PRE_HARVEST first). Extend
-`tests/invariants/farm-batch-policy-transaction-ssot.spec.ts` to assert that no file outside the
-aggregate assigns `batch.status =`, which converts the whole class into a build-time failure.
-
-```text
-batch.markHarvested(closedAt)`) that internally consults `BatchLifecyclePolicyService
-```
+moving every status write behind an intent method on the
+aggregate (`batch.markHarvesting()` / `batch.markHarvested(closedAt)`) that internally
+consults `BatchLifecyclePolicyService`, and add HARVESTING/HARVESTED as legal successors of the
+states a real harvest can start from (or force harvest to advance `PRE_HARVEST` first).
+Extend `tests/invariants/farm-batch-policy-transaction-ssot.spec.ts` to assert that no file outside
+the aggregate assigns `batch.status =`, which converts the whole class into a build-time failure.
 
 **Affected surface (ripple set):**
 
@@ -503,8 +504,8 @@ BatchLifecyclePolicyService, and harvest-completed.listener.ts:300 sets HARVESTI
 assertion. Severity is inflated, though: no illegal or corrupt state is actually reachable. The end
 states are semantically correct (full harvest `->` HARVESTED, partial `->` HARVESTING) and are
 explicitly accepted downstream by the same policy service at batch-lifecycle-policy.service.ts:21,
-where BatchCloseReason.HARVEST_COMPLETED whitelists previous statuses HARVESTED and HARVESTING — so
-the batch remains closable and nothing downstream breaks. The real defect is that the
+where `BatchCloseReason.HARVEST_COMPLETED` whitelists previous statuses HARVESTED and HARVESTING —
+so the batch remains closable and nothing downstream breaks. The real defect is that the
 statusTransitions table (:9-17) omits the harvest edges its own domain performs, making the manual
 updateBatchStatus path and the harvest path disagree. That is an enforceability/consistency gap (the
 policy is not the single gate), not a reachable illegal-state bug: MEDIUM.
@@ -522,24 +523,22 @@ maintenance, fish-health): resolver `->` service `->` repository
 
 **Evidence:**
 
-- apps/farm-service/src/water-quality/water-quality.resolver.ts:299 —
-  `return this.waterQualityService.create(...)` (also :325 recordManualTemperature, :343
-  createBatch, :360 update, :377 delete) while every query on the same resolver goes through
-  `this.queryBus.execute`
-- apps/farm-service/src/maintenance/resolvers/work-order.resolver.ts:275 —
-  `return this.workOrderService.create(tenantId, input, user.sub)` — 10 mutations on this resolver,
-  plus 8 on maintenance-schedule.resolver.ts and 4 on spare-part.resolver.ts, none using a command
-- apps/farm-service/src/task/resolvers/task.resolver.ts:170 —
-  `return this.taskService.create(tenantId, input, user.sub)` — 7 mutations
-- apps/farm-service/src/fish-health/resolvers/health-event.resolver.ts:218 —
-  directory at all (field-capture.resolver.ts:130-190 is the same shape)
-
-  ```text
-  return this.healthEventService.create(tenantId, input, user.sub)`; fish-health has no `commands/
-  ```
-
-- tests/invariants/farm-rest-cqrs-ssot.spec.ts:5 — the CQRS invariant's scope is a single file,
-  `apps/farm-service/src/batch/controllers/batch.controller.ts`, so no GraphQL resolver is covered
+- apps/farm-service/src/water-quality/water-quality.resolver.ts:299
+  — `return this.waterQualityService.create(...)` (also :325 recordManualTemperature, :343
+  createBatch, :360 update, :377 delete) while every query on the same resolver goes
+  through `this.queryBus.execute`
+- apps/farm-service/src/maintenance/resolvers/work-order.resolver.ts:275
+  — `return this.workOrderService.create(tenantId, input, user.sub)` — 10 mutations on this
+  resolver, plus 8 on maintenance-schedule.resolver.ts and 4 on spare-part.resolver.ts, none using a
+  command
+- apps/farm-service/src/task/resolvers/task.resolver.ts:170
+  — `return this.taskService.create(tenantId, input, user.sub)` — 7 mutations
+- apps/farm-service/src/fish-health/resolvers/health-event.resolver.ts:218
+  — `return this.healthEventService.create(tenantId, input, user.sub)`; fish-health has
+  no `commands/` directory at all (field-capture.resolver.ts:130-190 is the same shape)
+- tests/invariants/farm-rest-cqrs-ssot.spec.ts:5 — the CQRS invariant's scope is a single
+  file, `apps/farm-service/src/batch/controllers/batch.controller.ts`, so no GraphQL resolver is
+  covered
 
 **Rule violated:**
 
@@ -549,12 +548,12 @@ finding.'
 
 **Proposed fix direction:**
 
-Two moves, in order. (1) Widen the detection so the drift cannot grow: generalise
-`farm-rest-cqrs-ssot.spec.ts` from one hardcoded controller path into a scan of every
-`*.resolver.ts` under apps/farm-service/src, asserting each `@Mutation` body dispatches through
-`commandBus.execute`, with a FROZEN shrink-only allowlist seeded from today's four contexts — the
-same ratchet shape already used by farm-read-boundary-ssot.spec.ts. (2) Burn the allowlist down
-context by context, starting with water-quality and fish-health because those writes carry
+Two moves, in order. (1) Widen the detection so the drift cannot grow:
+generalise `farm-rest-cqrs-ssot.spec.ts` from one hardcoded controller path into a scan of
+every `*.resolver.ts` under apps/farm-service/src, asserting each `@Mutation` body dispatches
+through `commandBus.execute`, with a FROZEN shrink-only allowlist seeded from today's four contexts
+— the same ratchet shape already used by farm-read-boundary-ssot.spec.ts. (2) Burn the allowlist
+down context by context, starting with water-quality and fish-health because those writes carry
 compliance weight (WQ critical alerts, medicine withdrawal periods). The existing services become
 the handler bodies; the command classes are the missing layer.
 
@@ -585,8 +584,8 @@ health-event 8/0, field-capture 6/0 — 51 mutations, zero CommandBus usage, aga
 :343 createBatch, :360 update, :377 delete; work-order.resolver.ts:275; task.resolver.ts:170;
 health-event.resolver.ts:218). fish-health does have handlers/ and queries/ but they are all
 read-side (10 list/get handlers) — no commands/, confirmed.
-tests/invariants/farm-rest-cqrs-ssot.spec.ts:5 is scoped to the single BATCH_CONTROLLER constant, so
-no resolver is covered. Severity is inflated to HIGH on a rule citation alone: no correctness,
+tests/invariants/farm-rest-cqrs-ssot.spec.ts:5 is scoped to the single `BATCH_CONTROLLER` constant,
+so no resolver is covered. Severity is inflated to HIGH on a rule citation alone: no correctness,
 isolation, or security consequence is demonstrated. The bypassing services still carry tenant
 scoping and object-level site authorization (e.g. water-quality.resolver.ts:305-306 threads
 sub/roles/assignedSiteIds for the SEC-HIGH-051 check). This is broad architectural-consistency debt
@@ -606,11 +605,11 @@ spare-part stock movements are invisible downstream
 **Evidence:**
 
 - apps/farm-service/src/maintenance/services/work-order.service.ts:309 — opens a transaction for the
-  write with no `outboxPublisher.enqueue`; a repo-wide grep for
-  `OutboxPublisher|createBaseEvent|eventBus` across apps/farm-service/src/maintenance returns zero
-  matches
-- apps/farm-service/src/maintenance/resolvers/spare-part.resolver.ts:325 —
-  `return this.sparePartService.recordStockMovement(tenantId, input, user.sub)` — an inventory
+  write with no `outboxPublisher.enqueue`; a repo-wide grep
+  for `OutboxPublisher|createBaseEvent|eventBus` across apps/farm-service/src/maintenance returns
+  zero matches
+- apps/farm-service/src/maintenance/resolvers/spare-part.resolver.ts:325
+  — `return this.sparePartService.recordStockMovement(tenantId, input, user.sub)` — an inventory
   mutation with no event, unlike storage/handlers/record-stock-movement.handler.ts which enqueues
   one
 - apps/farm-service/src/maintenance/resolvers/work-order.resolver.ts:322 — `approve` (a
@@ -628,8 +627,9 @@ read-model projection blind to it.
 **Proposed fix direction:**
 
 Fold this into the FARM-HIGH-004 CQRS migration rather than bolting events onto the services: once
-maintenance writes are command handlers, the handler is the natural place for
-`outboxPublisher.enqueue(event, queryRunner.manager)`. Define the contracts first
+maintenance writes are command handlers, the handler is the natural place
+for `outboxPublisher.enqueue(event, queryRunner.manager)`. Define the contracts
+first
 () in
 libs/event-contracts/src/farm-events.ts with data-expert, since the notification-service fan-out is
 the consumer that makes them worth emitting. Prioritise `SparePartStockMoved` — it is the only stock
@@ -658,19 +658,21 @@ data-expert, notify alert-engine-expert \+ messaging-expert); farm-expert CATCHE
 
 **Verifier note:**
 
-Verified and, if anything, understated.
-returns ZERO non-test matches across services/, resolvers/, handlers/. work-order.service.ts:309
-`complete()` opens a raw transaction with no enqueue; spare-part.resolver.ts:325 returns
-`this.sparePartService.recordStockMovement(...)` with no event, in direct contrast to
-storage/handlers/record-stock-movement.handler.ts:130-150 which builds a
-`StockMovementRecordedEvent` via `createBaseEvent` and calls
-`outboxPublisher.enqueue(movementEvent, manager)` inside the caller's transaction;
+Verified and, if anything,
+understated.
+returns
+ZERO non-test matches across services/, resolvers/, handlers/.
+work-order.service.ts:309 `complete()` opens a raw transaction with no enqueue;
+spare-part.resolver.ts:325 returns `this.sparePartService.recordStockMovement(...)` with no event,
+in direct contrast to storage/handlers/record-stock-movement.handler.ts:130-150 which builds
+a `StockMovementRecordedEvent` via `createBaseEvent` and
+calls `outboxPublisher.enqueue(movementEvent, manager)` inside the caller's transaction;
 work-order.resolver.ts:316-323 `approveWorkOrder` emits nothing. Nothing named
 WorkOrder/SparePart/Maintenance exists in libs/event-contracts/src at all. The one detail the claim
 gets wrong is in its favour: the `eventEmitter.emit('maintenance.overdue', ...)` at
 cron-jobs.service.ts:352 does NOT leave the service — maintenance-schedule-due.listener.ts:80
-re-emits `notification.send` / `alert.maintenanceOverdue`, and there is no
-`@OnEvent('notification.send')` anywhere in farm-service and no wildcard/outbox bridge in
+re-emits `notification.send` / `alert.maintenanceOverdue`, and there is
+no `@OnEvent('notification.send')` anywhere in farm-service and no wildcard/outbox bridge in
 backend-common or platform/libs, so overdue-maintenance notifications terminate in-process. So
 maintenance state changes reach no consumer at all. MEDIUM holds.
 
@@ -691,15 +693,15 @@ inside CloseBatchHandler, which runs in a separate post-commit transaction
 
 **Evidence:**
 
-- apps/farm-service/src/events/listeners/harvest-completed.listener.ts:355 —
-  `fcr: batch.fcr?.actual || 0` inside `generateHarvestReport`, fed into
-  `BatchProductionCompletedEvent.fcr` at :469
-- apps/farm-service/src/batch/handlers/close-batch.handler.ts:207 — `batch.fcr.actual = finalFCR;`
-  is the ONLY writer of the authoritative value, computed at :172 from
-  `this.fcrCalculation.calculateCumulativeFCR(...)`
-- apps/farm-service/src/harvest/handlers/create-harvest-record.handler.ts:493 — the auto-close
-  `commandBus.execute(new CloseBatchCommand(...))` runs AFTER the harvest transaction commits, and
-  the BatchHarvested outbox row (:460) is already released to NATS at that point
+- apps/farm-service/src/events/listeners/harvest-completed.listener.ts:355
+  — `fcr: batch.fcr?.actual || 0` inside `generateHarvestReport`, fed
+  into `BatchProductionCompletedEvent.fcr` at :469
+- apps/farm-service/src/batch/handlers/close-batch.handler.ts:207
+  — `batch.fcr.actual = finalFCR;` is the ONLY writer of the authoritative value, computed at :172
+  from `this.fcrCalculation.calculateCumulativeFCR(...)`
+- apps/farm-service/src/harvest/handlers/create-harvest-record.handler.ts:493 — the
+  auto-close `commandBus.execute(new CloseBatchCommand(...))` runs AFTER the harvest transaction
+  commits, and the BatchHarvested outbox row (:460) is already released to NATS at that point
 - apps/farm-service/src/batch/handlers/close-batch.handler.ts:166 — the code comment records that
   reading `batch.fcr.actual` before the close 'returned whatever the shadow updateBatchMetrics path
   last persisted (often 0 / stale)'
@@ -713,12 +715,12 @@ it exists.
 
 **Proposed fix direction:**
 
-Move the terminal-production signal to where the authoritative metrics are frozen:
-`BatchProductionCompleted` should be enqueued by `CloseBatchHandler` inside the same transaction
-that writes `fcr.actual`, alongside `BatchClosed`, rather than derived by the harvest listener from
-a possibly-unwritten field. That removes the race by construction. If the listener must keep
-emitting it, it has to consume `BatchClosed` (which already carries `finalFCR`, `mortalityRate`,
-`daysInProduction`) instead of `BatchHarvested`.
+Move the terminal-production signal to where the authoritative metrics are
+frozen: `BatchProductionCompleted` should be enqueued by `CloseBatchHandler` inside the same
+transaction that writes `fcr.actual`, alongside `BatchClosed`, rather than derived by the harvest
+listener from a possibly-unwritten field. That removes the race by construction. If the listener
+must keep emitting it, it has to consume `BatchClosed` (which already
+carries `finalFCR`, `mortalityRate`, `daysInProduction`) instead of `BatchHarvested`.
 
 **Affected surface (ripple set):**
 
@@ -737,26 +739,23 @@ data-expert (producer relocation on a contract event) \+ farm-expert CATCHER.
 
 **Verifier note:**
 
-Confirmed on every cited line. harvest-completed.listener.ts:355 reads `fcr: batch.fcr?.actual || 0`
-from a plain at
-:469. `grep 'fcr.actual ='` over apps/farm-service/src returns exactly ONE non-test writer:
-close-batch.handler.ts:207, fed by `calculateCumulativeFCR` at :172, and the :160-167 comment
-explicitly records that the pre-close value 'returned whatever the shadow updateBatchMetrics path
-last persisted (often 0 / stale)'. create-harvest-record.handler.ts:460 enqueues BatchHarvested
-inside the tx and :493 dispatches `CloseBatchCommand` only AFTER commit (the code comment at
-:477-487 says so deliberately, to avoid self-deadlock on the pessimistic_write lock). The race is
-live rather than theoretical: outbox-worker.service.ts:150-155 publishes via LISTEN/NOTIFY within
-~5ms of commit, while CloseBatchHandler still has to take its row lock and run the cumulative-FCR
-aggregate; a plain SELECT is not blocked by that lock, so the listener can and does read the
-pre-close value, and if the close is skipped (BatchWithdrawalBlockedError compliance gate) it is
-permanently wrong. Impact is real but bounded to a metric: the event is consumed only by
+Confirmed on every cited line. harvest-completed.listener.ts:355
+reads `fcr: batch.fcr?.actual || 0` from a plain `batchRepository.findOne` (:320) and feeds it
+to `BatchProductionCompletedEvent.fcr` at :469. `grep 'fcr.actual ='` over apps/farm-service/src
+returns exactly ONE non-test writer: close-batch.handler.ts:207, fed by `calculateCumulativeFCR` at
+:172, and the :160-167 comment explicitly records that the pre-close value 'returned whatever the
+shadow updateBatchMetrics path last persisted (often 0 / stale)'.
+create-harvest-record.handler.ts:460 enqueues BatchHarvested inside the tx and :493
+dispatches `CloseBatchCommand` only AFTER commit (the code comment at :477-487 says so deliberately,
+to avoid self-deadlock on the `pessimistic_write` lock). The race is live rather than theoretical:
+outbox-worker.service.ts:150-155 publishes via LISTEN/NOTIFY within ~5ms of commit, while
+CloseBatchHandler still has to take its row lock and run the cumulative-FCR aggregate; a plain
+SELECT is not blocked by that lock, so the listener can and does read the pre-close value, and if
+the close is skipped (BatchWithdrawalBlockedError compliance gate) it is permanently wrong. Impact
+is real but bounded to a metric: the event is consumed only by
 gateway-api/src/websocket/farm-nats-bridge.service.ts:462 → `broadcastBatchProductionCompleted` to
 the tenant room, i.e. a possibly-0 FCR on a dashboard, while the persisted batch row and BatchClosed
 stay correct. MEDIUM is the right level.
-
-```text
-batchRepository.findOne` (:320) and feeds it to `BatchProductionCompletedEvent.fcr
-```
 
 ### LOW
 
@@ -773,35 +772,37 @@ on a raw QueryRunner outside the tenant boundary
 
 **Evidence:**
 
-- apps/farm-service/src/water-quality/water-quality.service.ts:266 —
-  then saves `WaterQualityMeasurement` and enqueues `WaterQualityCriticalEvent` at :372
+- apps/farm-service/src/water-quality/water-quality.service.ts:266
+  —
+  then
+  saves `WaterQualityMeasurement` and enqueues `WaterQualityCriticalEvent` at :372
 
   ```text
   const queryRunner = this.dataSource.createQueryRunner(); await queryRunner.connect(); await queryRunner.startTransaction();
   ```
 
-- apps/farm-service/src/water-quality/water-quality.service.ts:450 — same raw pattern in
-  `createBatch`
+- apps/farm-service/src/water-quality/water-quality.service.ts:450 — same raw pattern
+  in `createBatch`
 - apps/farm-service/src/water-quality/water-quality.service.ts:175 — `recordManualTemperature` in
   the SAME class DOES use `runInTenantTransaction(this.dataSource, 'farm', tenantId, ...)`, so the
   correct form is already present and understood
-- tests/invariants/farm-read-boundary-ssot.spec.ts:60 — the boundary ratchet matches only
-  `*.handler.ts` and `*.resolver.ts`, so a `*.service.ts` write path is invisible to it
+- tests/invariants/farm-read-boundary-ssot.spec.ts:60 — the boundary ratchet matches
+  only `*.handler.ts` and `*.resolver.ts`, so a `*.service.ts` write path is invisible to it
 
 **Rule violated:**
 
 layer-2-patterns Tenant isolation; the fail-closed boundary contract in
 libs/backend-common/src/database/tenant-transaction.ts:288. An un-provisioned tenant schema silently
-falls through to the source `farm` schema, which is exactly the SCHEMA_MISMATCH case the assertion
+falls through to the source `farm` schema, which is exactly the `SCHEMA_MISMATCH` case the assertion
 exists to turn into a hard error.
 
 **Proposed fix direction:**
 
 Move both methods onto `runInTenantTransaction`, matching `recordManualTemperature` two methods
 above. Then close the detection gap: widen `farm-read-boundary-ssot.spec.ts` (or add a write-side
-sibling) to include `*.service.ts` files that call `createQueryRunner()` or
-`this.repository.save/remove`, with a shrink-only allowlist — otherwise the whole service layer
-stays a blind spot for this class.
+sibling) to include `*.service.ts` files that
+call `createQueryRunner()` or `this.repository.save/remove`, with a shrink-only allowlist —
+otherwise the whole service layer stays a blind spot for this class.
 
 **Affected surface (ripple set):**
 
@@ -815,29 +816,28 @@ farm-expert-scoped fix via implementation-planner; data-expert secondary on the 
 
 **Verifier note:**
 
-Cited lines are accurate: water-quality.service.ts:266 and :450 do open a raw
-`this.dataSource.createQueryRunner()` \+ `startTransaction()`, while :175
-(;
-grep confirms only those two raw sites in the file.
-tests/invariants/farm-read-boundary-ssot.spec.ts:60-63 does only collect `*.handler.ts` files, so a
-service write path is invisible to it. HOWEVER the claimed harm mechanism is refuted by two guards
-the claimer missed. (1) apps/farm-service/src/app.module.ts:69,566 registers
-`createTenantConnectionBootstrap('farm')`, which monkey-patches `pool.connect` so EVERY checkout
-(which is exactly what `queryRunner.connect()` does) re-asserts `search_path` to
-`"tenant_<uuid>", farm, public` from AsyncLocalStorage — so the raw runner is still tenant-routed;
-`RlsConnectionBootstrap` similarly sets `app.current_tenant` per checkout. (2) If context were
-missing, the write would NOT 'silently fall through to the source farm schema':
-`water_quality_measurements` is in MODULE_SCHEMAS farm `tables` (schema-manager.service.ts:474) and
-is neither in `referenceDataTables` nor `infrastructureTables` (lines 376-405), so
-`guard_source_write` / `block_source_writes` (source-schema-write-guard-reconciler.ts:1-33, ERRCODE
-P0999) aborts the INSERT — fail-closed at the DB, loudly. Additionally the only callers are
+Cited lines are accurate: water-quality.service.ts:266 and :450 do open a
+raw `this.dataSource.createQueryRunner()` \+ `startTransaction()`, while
+:175
+(`recordManualTemperature`)
+uses `runInTenantTransaction(this.dataSource, 'farm', tenantId, ...)`; grep confirms only those two
+raw sites in the file. tests/invariants/farm-read-boundary-ssot.spec.ts:60-63 does only
+collect `*.handler.ts` files, so a service write path is invisible to it. HOWEVER the claimed harm
+mechanism is refuted by two guards the claimer missed. (1)
+apps/farm-service/src/app.module.ts:69,566
+registers `createTenantConnectionBootstrap('farm')`, which monkey-patches `pool.connect` so EVERY
+checkout (which is exactly what `queryRunner.connect()` does)
+re-asserts `search_path` to `"tenant_<uuid>", farm, public` from AsyncLocalStorage — so the raw
+runner is still tenant-routed; `RlsConnectionBootstrap` similarly sets `app.current_tenant` per
+checkout. (2) If context were missing, the write would NOT 'silently fall through to the source farm
+schema': `water_quality_measurements` is
+in `MODULE_SCHEMAS` farm `tables` (schema-manager.service.ts:474) and is neither
+in `referenceDataTables` nor `infrastructureTables` (lines 376-405),
+so `guard_source_write` / `block_source_writes` (source-schema-write-guard-reconciler.ts:1-33,
+ERRCODE P0999) aborts the INSERT — fail-closed at the DB, loudly. Additionally the only callers are
 water-quality.resolver.ts:299 and :343, i.e. always inside an HTTP request context. What actually
 remains is defence-in-depth/consistency debt (no transaction-local pin, no typed TenantContextError,
 and a genuine ratchet blind spot for `*.service.ts`), not a tenant-isolation defect: LOW.
-
-```text
-recordManualTemperature`) uses `runInTenantTransaction(this.dataSource, 'farm', tenantId, ...)
-```
 
 ### FARM-MEDIUM-308
 
@@ -852,14 +852,15 @@ while the harvest record itself books revenue from tenant finance settings
 
 **Evidence:**
 
-- apps/farm-service/src/events/listeners/harvest-completed.listener.ts:333 —
-  `const estimatedPricePerKg = 50; // TODO: source from config-service` then
-  `const estimatedRevenue = harvestedBiomass * estimatedPricePerKg;` at :334, surfaced as
-  `report.economics.estimatedRevenue` (:362) and logged with `costPerKg` at :371
+- apps/farm-service/src/events/listeners/harvest-completed.listener.ts:333
+  —
+  `const estimatedPricePerKg = 50; // TODO: source from config-service`
+  then `const estimatedRevenue = harvestedBiomass * estimatedPricePerKg;` at :334, surfaced
+  as `report.economics.estimatedRevenue` (:362) and logged with `costPerKg` at :371
 - apps/farm-service/src/harvest/handlers/create-harvest-record.handler.ts:133 — the authoritative
-  write path already does
-  and books
-  `totalRevenue: input.pricePerKg ? biomassKg * input.pricePerKg : undefined` at :326
+  write path already
+  does and
+  books `totalRevenue: input.pricePerKg ? biomassKg * input.pricePerKg : undefined` at :326
 
   ```text
   const defaultCurrency = await this.financeSettings.getDefaultCurrency(tenantId);
@@ -877,11 +878,16 @@ module away.
 
 **Proposed fix direction:**
 
-Delete the fabricated figure rather than sourcing a better constant. `HarvestRecord.totalRevenue` \+
-`currency` are already persisted by the write path for exactly this batch; the listener should read
-them (or drop `estimatedRevenue` from `HarvestReport` entirely, since
-`BatchProductionCompletedEvent` at :455-473 does not carry it). Removing the field is the
-highest-tier fix — it makes the wrong number unrepresentable instead of merely better-sourced.
+Delete the fabricated figure rather than sourcing a better
+constant. `HarvestRecord.totalRevenue` \+ `currency` are already persisted by the write path for
+exactly this batch; the listener should read them (or
+drop at
+:455-473 does not carry it). Removing the field is the highest-tier fix — it makes the wrong number
+unrepresentable instead of merely better-sourced.
+
+```text
+estimatedRevenue` from `HarvestReport` entirely, since `BatchProductionCompletedEvent
+```
 
 **Affected surface (ripple set):**
 
@@ -895,25 +901,24 @@ farm-expert-scoped fix via implementation-planner.
 
 **Verifier note:**
 
-The literal evidence checks out: harvest-completed.listener.ts:333 is
-`const estimatedPricePerKg = 50; // TODO: source from config-service`, :334 multiplies it into
-`estimatedRevenue`, and :359-363 puts it in `report.economics.estimatedRevenue`;
-create-harvest-record.handler.ts:133 does resolve
-`this.financeSettings.getDefaultCurrency(tenantId)` and :326 books
+The literal evidence checks out: harvest-completed.listener.ts:333
+is `const estimatedPricePerKg = 50; // TODO: source from config-service`, :334 multiplies it
+into `estimatedRevenue`, and :359-363 puts it
+in `report.economics.estimatedRevenue`; create-harvest-record.handler.ts:133 does
+resolve `this.financeSettings.getDefaultCurrency(tenantId)` and :326
+books
 . But the
-severity is inflated: the fabricated figure is dead. A repo-wide grep shows
-(:211) feeds only `publishFollowUps` (:214), and `BatchProductionCompletedEvent` (:455-473) carries
-no revenue field; the log line at :368-373 prints FCR/survival/days/costPerKg, and `costPerKg` is
-derived from `batch.totalFeedCost + batch.purchaseCost`, not from the 50 constant. So no wrong money
-number is ever persisted, published, logged, or shown. What is left is an untracked TODO plus dead
+severity is inflated: the fabricated figure is dead. A repo-wide grep
+shows `report.economics.estimatedRevenue` is written at :362 and read NOWHERE
+— `generateHarvestReport` (:211) feeds only `publishFollowUps` (:214),
+and `BatchProductionCompletedEvent` (:455-473) carries no revenue field; the log line at :368-373
+prints FCR/survival/days/costPerKg, and `costPerKg` is derived
+from `batch.totalFeedCost + batch.purchaseCost`, not from the 50 constant. So no wrong money number
+is ever persisted, published, logged, or shown. What is left is an untracked TODO plus dead
 computation — real, but cosmetic: LOW.
 
 ```text
 totalRevenue: input.pricePerKg ? biomassKg * input.pricePerKg : undefined` with `currency
-```
-
-```text
-report.economics.estimatedRevenue` is written at :362 and read NOWHERE — `generateHarvestReport
 ```
 
 ### FARM-LOW-311
@@ -931,13 +936,13 @@ competing with the policy service the invariant declares as SSoT
 
 - apps/farm-service/src/batch/entities/batch.entity.ts:491 — `canTransitionTo(newStatus)` declares
   its own literal `transitions: Record<BatchStatus, BatchStatus[]>` map at :492-503
-- apps/farm-service/src/batch/services/batch-lifecycle-policy.service.ts:8 —
-  `private readonly statusTransitions` holds the identical map
+- apps/farm-service/src/batch/services/batch-lifecycle-policy.service.ts:8
+  — `private readonly statusTransitions` holds the identical map
 - apps/farm-service/src/batch/services/batch-domain.service.ts:141 — the domain service correctly
   delegates: `return this.lifecyclePolicy.canTransitionStatus(batch.status, newStatus);`
-- tests/invariants/farm-batch-policy-transaction-ssot.spec.ts:78 —
-  `expect(updateStatusSource).not.toMatch(/\.canTransitionTo\(/)` — the invariant already treats the
-  entity method as the wrong path, but does not delete it
+- tests/invariants/farm-batch-policy-transaction-ssot.spec.ts:78
+  — `expect(updateStatusSource).not.toMatch(/\.canTransitionTo\(/)` — the invariant already treats
+  the entity method as the wrong path, but does not delete it
 
 **Rule violated:**
 
@@ -947,12 +952,13 @@ entities' (a TypeORM `@Entity()` carrying the lifecycle rulebook).
 
 **Proposed fix direction:**
 
-Delete `Batch.canTransitionTo` and re-point its remaining callers
+Delete `Batch.canTransitionTo` and re-point its remaining
+callers
 (,
-) at
-`BatchLifecyclePolicyService`. One table, one owner — a second copy that no production path reads is
-pure drift surface. Note this is a precondition for FARM-HIGH-003's aggregate intent-methods, which
-must not resurrect a third copy.
+)
+at `BatchLifecyclePolicyService`. One table, one owner — a second copy that no production path reads
+is pure drift surface. Note this is a precondition for FARM-HIGH-003's aggregate intent-methods,
+which must not resurrect a third copy.
 
 ```text
 apps/farm-service/src/batch/**tests**/integration/batch-lifecycle.integration.spec.ts:126-134
@@ -984,29 +990,27 @@ Bundle with FARM-HIGH-003 in the same implementation package.
 
 **Verifier note:**
 
-Every cited line holds. apps/farm-service/src/batch/entities/batch.entity.ts:491 declares
-at :492-503; apps/farm-service/src/batch/services/batch-lifecycle-policy.service.ts:8 holds a
-byte-for-byte identical `statusTransitions` map at :8-18;
-apps/farm-service/src/batch/services/batch-domain.service.ts:141 delegates
-(`return this.lifecyclePolicy.canTransitionStatus(batch.status, newStatus);`);
-tests/invariants/farm-batch-policy-transaction-ssot.spec.ts:78 does assert
-`expect(updateStatusSource).not.toMatch(/\.canTransitionTo\(/)` — the invariant bans the entity path
-in the handler but nothing deletes the method. A repo-wide grep for `.canTransitionTo(` finds NO
-production caller of the Batch method (the only production hit,
+Every cited line holds. apps/farm-service/src/batch/entities/batch.entity.ts:491
+declares `canTransitionTo(newStatus)` with its own
+literal `transitions: Record<BatchStatus, BatchStatus[]>` at :492-503;
+apps/farm-service/src/batch/services/batch-lifecycle-policy.service.ts:8 holds a byte-for-byte
+identical `statusTransitions` map at :8-18;
+apps/farm-service/src/batch/services/batch-domain.service.ts:141
+delegates
+(`return this.lifecyclePolicy.canTransitionStatus(batch.status, newStatus);`); tests/invariants/farm-batch-policy-transaction-ssot.spec.ts:78
+does assert `expect(updateStatusSource).not.toMatch(/\.canTransitionTo\(/)` — the invariant bans the
+entity path in the handler but nothing deletes the method. A repo-wide grep
+for `.canTransitionTo(` finds NO production caller of the Batch method (the only production hit,
 apps/farm-service/src/tank/handlers/tank-status.policy.ts:26, is the unrelated Tank entity); the
 remaining callers are exactly the two test files named in the finding, including the
-prototype-splice at update-batch-status.handler.spec.ts:57
-(`canTransitionTo: Batch.prototype.canTransitionTo`), which is the one place the dead copy still
-gates assertions. The stale docstring at
+prototype-splice at
+update-batch-status.handler.spec.ts:57 (`canTransitionTo: Batch.prototype.canTransitionTo`), which
+is the one place the dead copy still gates assertions. The stale docstring at
 apps/farm-service/src/batch/commands/update-batch-status.command.ts:5 ('Status geçişleri batch
 entity'deki canTransitionTo metoduyla valide edilir') is also real and now points at the wrong
 owner. The two maps are currently in sync, so there is no live behavioral bug — pure drift surface
 plus a misleading docstring and a test that validates the non-authoritative copy. LOW is the right
 calibration; not higher.
-
-```text
-canTransitionTo(newStatus)` with its own literal `transitions: Record<BatchStatus, BatchStatus[]>
-```
 
 ## Refuted by adversarial verification
 
@@ -1015,7 +1019,7 @@ claim is not re-raised next cycle.
 
 ### ~~FARM-MEDIUM-005~~
 
-**Title:** Scheduler cron jobs set a session-scoped, string-interpolated search_path on pooled
+**Title:** Scheduler cron jobs set a session-scoped, string-interpolated `search_path` on pooled
 connections instead of the transaction-local canonical form
 
 **Raised as:** MEDIUM · **Result:** REFUTED
@@ -1028,41 +1032,41 @@ itself, so the interpolated token can only ever be `tenant_<16` `hex>`. A valida
 call would be a no-op; this is structurally safe, not merely 'catalog-derived, capped at MEDIUM'.
 (2) Pool-contamination leg: the quote at tenant-connection-bootstrap.service.ts:44 is from the
 docblock explaining WHY the bootstrap patch exists — it describes the 2026-04-07 incident that the
-patch cured, not a live hazard. farm-service registers `createTenantConnectionBootstrap('farm')`
-(apps/farm-service/src/app.module.ts:69 and providers at :566), which monkey-patches pool.connect so
-EVERY checkout re-asserts search_path — tenant branch at
-tenant-connection-bootstrap.service.ts:124-138, non-request default
-`SET search_path TO "farm", public` at :145-153 (and the promise-style twin at :158-190). A
-connection released with a tenant search_path is repaired before the next consumer ever sees it; the
-file's own words are 'every connection checked out of the pool MUST have its search_path re-asserted
-before the caller receives it, regardless of context'. On top of that, 6 of the 8 raw sites already
-`RESET search_path` in finally (:380, :459, :534, :622, :683, :935). (3) The proposed fix is not
-applicable to all sites: forEachTenantSchema opens a transaction per tenant
-(for-each-tenant-schema.ts:203 `startTransaction`, search_path via set_config(..., true) at :208),
-and refreshAnalyticsViews (cron-jobs.service.ts:861-866) runs
-`REFRESH MATERIALIZED VIEW CONCURRENTLY`, which PostgreSQL forbids inside a transaction block — so
-that loop cannot be routed through the helper as filed. What genuinely remains is a style/fairness
-duplication (8 hand-rolled serial loops next to the sanctioned helper at :253), which is the
-already-tracked cron-fairness item FARM-MEDIUM-061 cited in the helper's own docblock, not a
-search_path safety defect.
+patch cured, not a live hazard. farm-service
+registers `createTenantConnectionBootstrap('farm')` (apps/farm-service/src/app.module.ts:69 and
+providers at :566), which monkey-patches pool.connect so EVERY checkout re-asserts `search_path` —
+tenant branch at tenant-connection-bootstrap.service.ts:124-138, non-request
+default `SET search_path TO "farm", public` at :145-153 (and the promise-style twin at :158-190). A
+connection released with a tenant `search_path` is repaired before the next consumer ever sees it;
+the file's own words are 'every connection checked out of the pool MUST have
+its `search_path` re-asserted before the caller receives it, regardless of context'. On top of that,
+6 of the 8 raw sites already `RESET search_path` in finally (:380, :459, :534, :622, :683, :935).
+(3) The proposed fix is not applicable to all sites: forEachTenantSchema opens a transaction per
+tenant (for-each-tenant-schema.ts:203 `startTransaction`, `search_path` via `set_config(`..., true)
+at :208), and refreshAnalyticsViews (cron-jobs.service.ts:861-866)
+runs `REFRESH MATERIALIZED VIEW CONCURRENTLY`, which PostgreSQL forbids inside a transaction block —
+so that loop cannot be routed through the helper as filed. What genuinely remains is a
+style/fairness duplication (8 hand-rolled serial loops next to the sanctioned helper at :253), which
+is the already-tracked cron-fairness item FARM-MEDIUM-061 cited in the helper's own docblock, not
+a `search_path` safety defect.
 
 ## Inventory — what exists / what is missing
 
 | Status          | Area                                                                           | Note                                                                                                                                                                                                                                                                                                                                      |
 | --------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **PARTIAL**     | AI insights (MCP)                                                              | Wiring, caching and circuit breaker are real, but two of the five insights fabricate their inputs from constants and none pass tenantId into the tool call. Disabled by default (MCP_ENABLED=false), so it currently returns null in production — a latent, not live, defect.                                                             |
+| **PARTIAL**     | AI insights (MCP)                                                              | Wiring, caching and circuit breaker are real, but two of the five insights fabricate their inputs from constants and none pass tenantId into the tool call. Disabled by default (`MCP_ENABLED=false`), so it currently returns null in production — a latent, not live, defect.                                                           |
 | **PARTIAL**     | Batch stocking / allocate-to-tank                                              | Fully implemented with SERIALIZABLE isolation, capacity enforcement and idempotency receipts, but it is the only stock mutation still on a raw QueryRunner outside the fail-closed tenant boundary.                                                                                                                                       |
 | **PARTIAL**     | Fish health (events, lice, welfare, treatment, escape)                         | Rich entity/service/query-handler coverage and a working harvest-eligibility gate, but there is no `commands/` directory at all — 14 mutations go `resolver->service`. Only escape incidents emit a domain event; lice counts, welfare assessments and treatment start/end emit none.                                                     |
 | **PARTIAL**     | Harvest (record, plan, statistics)                                             | Strong: withdrawal-period gate, plan-mandatory policy above thresholds, locked lot-number sequence, isFinal on the contract, auto-close chain. Gap: status writes skip the lifecycle policy (FARM-HIGH-003). Statistics correctly aggregate ALL non-cancelled harvest rows, and qualityClass is enum-validated with qualityGrade derived. |
 | **PARTIAL**     | Maintenance (work orders, schedules, spare parts)                              | Complete CRUD \+ approval workflow behind GraphQL, but 22 mutations bypass the CommandBus and the entire bounded context emits zero domain events, including spare-part stock movements.                                                                                                                                                  |
-| **PARTIAL**     | Scheduler cron jobs                                                            | Per-tenant fan-out with advisory locks is in place, but `updateTemperatureReadings` is a registered hourly @Cron that early-returns unconditionally, and several loops set a session-scoped interpolated search_path.                                                                                                                     |
+| **PARTIAL**     | Scheduler cron jobs                                                            | Per-tenant fan-out with advisory locks is in place, but `updateTemperatureReadings` is a registered hourly @Cron that early-returns unconditionally, and several loops set a session-scoped interpolated `search_path`.                                                                                                                   |
 | **PARTIAL**     | Task / recurring / auto-rules                                                  | Outbox events are emitted correctly from TaskService, but the 7 resolver mutations bypass the CommandBus and auto-rule-trigger publishes directly to the event bus rather than the outbox (at-most-once).                                                                                                                                 |
 | **PARTIAL**     | Water quality — measurement write path                                         | Outbox-backed critical alerts and site authorization are correct, but all five mutations skip the CommandBus (FARM-HIGH-004) and create/createBatch run outside the tenant boundary (FARM-MEDIUM-001).                                                                                                                                    |
 | **IMPLEMENTED** | Batch lifecycle (create / status / close)                                      | Full CQRS with pessimistic locks, `runInTenantTransaction`, outbox events. Close freezes finalFCR/mortalityRate/daysInProduction in-transaction and gates on medicine-withdrawal eligibility. Transition table is duplicated on the entity (FARM-LOW-001).                                                                                |
 | **IMPLEMENTED** | Batch transfer / grading                                                       | Transfer validates source quantity and destination capacity on both maxBiomass and maxDensity via TankCapacityService; grading composes TransferBatchCommand per output so it inherits the same gates. `skipCapacityCheck` bypass is unaudited (FARM-HIGH-002).                                                                           |
 | **IMPLEMENTED** | Biomass formula SSoT                                                           | `(quantity × avgWeightG)/1000` derive-on-read from the live count in both the aggregate and the calculator service; no competing formula found in resolvers or handlers.                                                                                                                                                                  |
 | **IMPLEMENTED** | Consumable / supplier / chemical / species / site / department / farm / worker | Uniform CQRS shape — resolver dispatches CreateX/UpdateX/DeleteX commands through the bus, with restore paths and role gates. No layering violations found in these contexts.                                                                                                                                                             |
-| **IMPLEMENTED** | FCR calculation                                                                | Single authority `calculateCumulativeFCR` corrects realized growth with the TankOperation ledger (mortality/cull/harvest/transfer net), and target FCR resolves through the v2 protocol chain honouring per-batch tank_batches proportions.                                                                                               |
+| **IMPLEMENTED** | FCR calculation                                                                | Single authority `calculateCumulativeFCR` corrects realized growth with the TankOperation ledger (mortality/cull/harvest/transfer net), and target FCR resolves through the v2 protocol chain honouring per-batch `tank_batches` proportions.                                                                                             |
 | **IMPLEMENTED** | Feeding (record \+ ledger \+ storage deduction)                                | Single write path `FeedingLedgerService.recordFeed`; feed inventory decrement, batch aggregate and outbox event are atomic, with backdate policy and an assertFeedable gate that blocks feed against an emptied batch.                                                                                                                    |
 | **IMPLEMENTED** | Feeding-protocol v2 (day plans, meals, recalc)                                 | Day-plan recalculation is invoked in-transaction from mortality, harvest, transfer and temperature writes, so remaining meals re-price against the new biomass same-day.                                                                                                                                                                  |
 | **IMPLEMENTED** | Finance (categories, entries, settings, derived costs)                         | Full command/query handler set, tenant default currency as SSoT consumed by the harvest revenue path, decimal mapper for exact wire values.                                                                                                                                                                                               |

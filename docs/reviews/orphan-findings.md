@@ -40,6 +40,84 @@
 **Validation:** `npm run invariants:fast` — 224 suites / 2396 tests green, `monitoring-alert-delivery` and `deploy-ssot-contract` included. The gate that caught this (`routes every severity that a rule actually uses`) already existed; it was doing its job.
 **Owner:** observability-expert. **Deadline:** closed by this PR's merge.
 
+    "contexts": ["sens-enterprise-summary", "merge-gate", "aria-merge-authority", "build-status"],
+    "checks": [
+      {
+        "context": "aria-merge-authority",
+        "app_id": 15368
+      },
+      {
+        "context": "build-status",
+        "app_id": 15368
+      },
+      {
+        "context": "merge-gate",
+        "app_id": 15368
+      },
+      {
+        "context": "sens-enterprise-summary",
+        "app_id": 15368
+      }
+    ]
+    "expected": "GitHub main branch protection exists, admin enforcement is enabled, strict mode is true, required status check contexts match, and every context is bound to the exact required_status_checks.checks app_id."
+
+## ORPHAN-MEDIUM-696 — required status checks were pinned by NAME only, so the manifest could not notice a relaxed binding — RESOLVED (this PR)
+
+**Discovered:** 2026-08-16 (slicing the rescued codex DR-bootstrap pile; the pile carried this hardening as a second, separable capability alongside INFRA-HIGH-073).
+**Evidence:** `.github/manifests/main-required-status-checks.json` declared only `required_status_checks.contexts` (four names). `tools/gates/required-status-checks.ts` `checkLiveContract` then folded the live response's `contexts` and `checks[].context` into ONE sorted set and compared names — `sortedUnique([...contexts, ...checks.map(c => c.context)])` — so the `app_id` GitHub returns on every `checks[]` entry was parsed and discarded. Live protection today binds all four contexts to `app_id 15368` (verified: `gh api repos/:owner/:repo/branches/main/protection`), but nothing in the repo asserted it: if that binding were relaxed to "any app", both the static and the live gate would still report ok.
+**Root cause:** the manifest modelled a required check as a string. A check is a (context, producer) pair — a context satisfied by a different app is a different check, and name-only matching cannot express that.
+**Remediation (this PR):** the manifest gains `required_status_checks.checks[]`, one `{context, app_id}` per context, and the gate parses `app_id` on both sides, asserts the manifest binds every context exactly once with a positive integer, and compares live contexts without collapsing them into the checks set. The manifest now states what the live protection already enforces, so a future relaxation fails the gate instead of passing unnoticed.
+**Validation:** `gates:required-status-checks` static contract ok; `gates:required-status-checks:live` ok against the real branch protection.
+**Owner:** infra-expert. **Deadline:** closed by this PR's merge.
+
+    checks: RequiredStatusCheck[];
+
+interface RequiredStatusCheck {
+context: string;
+app_id: number;
+}
+
+app_id: number;
+checks: requireRecordArray(
+raw.required_status_checks.checks,
+'required_status_checks.checks',
+).map((check, index) => ({
+context: requireString(check.context, `required_status_checks.checks[${index}].context`),
+app_id: requireNumber(check.app_id, `required_status_checks.checks[${index}].app_id`),
+})),
+const manifestChecks = [...manifest.required_status_checks.checks].sort(
+(left, right) => left.context.localeCompare(right.context) || left.app_id - right.app_id,
+);
+if (
+JSON.stringify(manifestChecks.map((check) => check.context)) !==
+JSON.stringify(manifestContexts)
+) {
+errors.push('required_status_checks.checks must bind every context exactly once');
+}
+if (manifestChecks.some((check) => !Number.isInteger(check.app_id) || check.app_id <= 0)) {
+errors.push('required_status_checks.checks app_id values must be positive integers');
+}
+app_id: requireNumber(check.app_id, `${field}.checks[${index}].app_id`),
+const liveContexts = [...response.required_status_checks.contexts].sort((left, right) =>
+left.localeCompare(right),
+);
+if (JSON.stringify(liveContexts) !== JSON.stringify(expectedContexts)) {
+errors.push(
+`GitHub raw required status contexts=${JSON.stringify(liveContexts)}, manifest contexts=${JSON.stringify(expectedContexts)}`,
+);
+}
+const expectedChecks = [...manifest.required_status_checks.checks].sort(
+(left, right) => left.context.localeCompare(right.context) || left.app_id - right.app_id,
+);
+const liveChecks = [...response.required_status_checks.checks].sort(
+(left, right) => left.context.localeCompare(right.context) || left.app_id - right.app_id,
+);
+if (JSON.stringify(liveChecks) !== JSON.stringify(expectedChecks)) {
+errors.push(
+`GitHub required status check app bindings=${JSON.stringify(liveChecks)}, manifest checks=${JSON.stringify(expectedChecks)}`,
+);
+}
+
 ## ORPHAN-HIGH-415 — source-schema write-guard reconciler aborts EVERY prod deploy on declarative-partitioned guarded tables (messaging.messages / message_receipts) — RESOLVED (this PR)
 
 **Discovered:** 2026-07-14 (operator flagged that post-merge main `CI - Affected` deploy-production keeps failing; `aqua-db-migrate` aborts BEFORE service containers start).

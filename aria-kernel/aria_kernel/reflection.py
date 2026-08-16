@@ -91,6 +91,7 @@ def run_reflection(
     top_pressures = pressure_payload.get("pressures", [])[:3] if isinstance(pressure_payload.get("pressures"), list) else []
     committed = _committed_findings_and_debts(root, repo_root_override=repo_root)
     human_required = _human_required_summary(root)
+    phase_digest_summary = _phase_digest_summary(root)
     gate_activity = _gate_activity_summary(root)
     reflection = {
         # Plan ARIA-V7 §3 Phase 7.7 — schema_version v2 → v3
@@ -123,6 +124,7 @@ def run_reflection(
         "committed_findings": committed["findings"],
         "committed_debts": committed["debts"],
         "human_required": human_required,
+        "phase_digest_summary": phase_digest_summary,
         "gate_activity": gate_activity,
         # Plan ARIA-V5 §3f v2 — convergence + review + pedagogy sub-
         # objects. Direct CLI path (no orchestrator kwargs) emits
@@ -822,6 +824,74 @@ def _compute_dataflow_health(root: Path) -> dict[str, Any]:
     }
 
 
+def _phase_digest_summary(tools_root: Path) -> dict[str, Any]:
+    """X3 (ORPHAN-700) — the latest sealed cycle's phase digests.
+
+    First reader of the metrics row's ``phase_digests`` (schema v2). The
+    absence of a digest for a phase is REPORTED as absence — that is the
+    zero-vs-absent distinction this train exists for.
+    """
+    path = tools_root / "observability" / "cycle-metrics.jsonl"
+    if not path.exists():
+        return {}
+    try:
+        rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not rows:
+        return {}
+    latest = rows[-1]
+    return {
+        "cycle_id": latest.get("cycle_id"),
+        "digests": latest.get("phase_digests") or {},
+    }
+
+
+def _render_experiment_night_section(reflection: dict[str, Any]) -> list[str]:
+    """X3 — the bench's night, visible. Silent when no digest exists yet
+    (pre-X3 rows), loud about 'ran empty' when the digest says zero."""
+    summary = reflection.get("phase_digest_summary") or {}
+    digests = summary.get("digests") or {}
+    night = digests.get("experiment_night")
+    if night is None:
+        return []
+    lines = ["", "## Experiment Night", ""]
+    planned = night.get("planned_problem", 0)
+    if not planned and not night.get("planned_regression", 0):
+        lines.append(
+            "- ran EMPTY: zero admissible experiments "
+            f"(unresolvable bindings: {night.get('unresolvable_bindings', 0)}) — "
+            "a finding-bound, red-contract experiment is what admits a candidate"
+        )
+    else:
+        lines.append(f"- problem runs planned: {planned}")
+        lines.append(f"- regression re-runs planned: {night.get('planned_regression', 0)}")
+        lines.append(f"- reproduced: {night.get('reproduced', 0)} | refuted: {night.get('refuted', 0)}")
+        lines.append(f"- regressions detected: {night.get('regressions', 0)} | still fixed: {night.get('still_fixed', 0)}")
+        skipped = night.get("skipped_problem", 0) + night.get("skipped_regression", 0)
+        if skipped:
+            lines.append(f"- skipped over budget: {skipped}")
+    if night.get("errors", 0):
+        lines.append(f"- errors: {night.get('errors')}")
+    return lines
+
+
+def _render_watchdog_section(reflection: dict[str, Any]) -> list[str]:
+    """X3 — the watchdog's sweep, visible (silent pre-X3)."""
+    summary = reflection.get("phase_digest_summary") or {}
+    digests = summary.get("digests") or {}
+    sweep = digests.get("watchdog_sweep")
+    if sweep is None:
+        return []
+    return [
+        "",
+        "## Watchdog Sweep",
+        "",
+        f"- detectors ran: {sweep.get('detectors_ran', 0)}",
+        f"- findings emitted: {sweep.get('findings_emitted', 0)} (deduped: {sweep.get('deduped', 0)})",
+    ]
+
+
 def _render_dataflow_health_section(reflection: dict[str, Any]) -> list[str]:
     """SIGNAL STARVED lines for the daily report — only when something is.
 
@@ -1338,6 +1408,8 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
             f"- {item.get('pressure_id')}: {item.get('score')} - {item.get('reason')}"
             for item in reflection.get("top_pressures", [])
         ],
+        *_render_experiment_night_section(reflection),
+        *_render_watchdog_section(reflection),
         "",
         "## Tool Health",
         "",

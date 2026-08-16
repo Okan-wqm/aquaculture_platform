@@ -1814,15 +1814,57 @@ def _phase_artifact_integrity(context: PhaseContext) -> dict[str, Any]:
     return verify_artifacts(base_dir=context.base_dir)
 
 
+def _phase_digest_of(payload: Any, fields: tuple[str, ...]) -> dict[str, Any] | None:
+    """X3 (ORPHAN-700) — compact, count-shaped digest of a phase payload.
+
+    None when the phase produced no dict payload (it never ran or was
+    precondition-skipped); a dict — zeros allowed — when it RAN. That
+    None/zero distinction is the whole point: it is what lets the report
+    say "ran empty" instead of guessing.
+    """
+    if not isinstance(payload, dict):
+        return None
+    digest: dict[str, Any] = {}
+    for field in fields:
+        value = payload.get(field)
+        if isinstance(value, list):
+            digest[field] = len(value)
+        elif isinstance(value, (int, float)):
+            digest[field] = value
+        elif value is not None:
+            digest[field] = str(value)[:80]
+        else:
+            digest[field] = 0
+    return digest
+
+
 def _phase_metrics(context: PhaseContext) -> dict[str, Any]:
     tools_result = context.result("tools") or {}
     run_summary = tools_result.get("run_summary") or []
     decisions = tools_result.get("decisions") or []
+    # X3 (ORPHAN-700) — the two payloads that used to evaporate at the
+    # projection boundary now ride the metrics row the publish carries.
+    phase_digests: dict[str, dict[str, Any]] = {}
+    night = _phase_digest_of(
+        context.result("experiment_night"),
+        ("planned_problem", "planned_regression", "reproduced", "refuted",
+         "regressions", "still_fixed", "skipped_problem", "skipped_regression",
+         "unresolvable_bindings", "errors"),
+    )
+    if night is not None:
+        phase_digests["experiment_night"] = night
+    watchdog = _phase_digest_of(
+        context.result("watchdog_sweep"),
+        ("findings_emitted", "deduped", "detectors_ran", "signals"),
+    )
+    if watchdog is not None:
+        phase_digests["watchdog_sweep"] = watchdog
     return record_cycle_metrics(
         cycle_id=context.cycle_id,
         phase_durations_ms={"cycle": int((time.monotonic() - context.started_monotonic) * 1000)},
         artifact_count=len(run_summary) + 4,
         status="ok" if _runtime_status(context) == "ok" else "failed",
+        phase_digests=phase_digests or None,
         cost_units=sum(
             float((decision.get("envelope") or {}).get("cost_units") or 0)
             for decision in decisions if isinstance(decision, dict)

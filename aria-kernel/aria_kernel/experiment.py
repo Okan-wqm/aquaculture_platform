@@ -179,20 +179,17 @@ def register_experiment(
     (``finding.record_finding_reproduction`` / ``_fix_verification``)
     accepts only observations whose experiment declares this binding, so
     an arbitrary matched run can never be stapled to an arbitrary
-    finding after the fact. The format is validated here; EXISTENCE is
-    validated by the bridge, which owns the finding store.
+    finding after the fact. The ref is OPAQUE DATA here — the bench is
+    record-only and must not import the promotion surface (its own
+    domain-blindness invariant pins that), so binding validity is owned
+    entirely by the bridge and the night planner DISCLOSES refs that
+    resolve to no finding instead of silently skipping them.
     """
     _assert_identifier("experiment_id", experiment_id)
     if not isinstance(hypothesis, str) or not hypothesis.strip():
         raise GovernanceError("experiment_hypothesis_required")
-    if finding_ref is not None:
-        from .finding import FINDING_ID_RE
-
-        if not isinstance(finding_ref, str) or not FINDING_ID_RE.match(finding_ref):
-            raise GovernanceError(
-                f"experiment_finding_ref_invalid: {finding_ref!r} must "
-                f"match {FINDING_ID_RE.pattern}"
-            )
+    if finding_ref is not None and (not isinstance(finding_ref, str) or not finding_ref.strip()):
+        raise GovernanceError("experiment_finding_ref_must_be_nonempty_string")
     recipe = get_recipe(recipe_ref, base_dir=base_dir)
     contract = _validated_observation_contract(observation_contract)
     row = {

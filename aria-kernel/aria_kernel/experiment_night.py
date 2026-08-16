@@ -110,14 +110,22 @@ def plan_night_experiments(
         latest_experiments[str(row.get("experiment_id"))] = row
 
     problem_candidates: list[dict[str, Any]] = []
+    unresolvable_bindings: list[dict[str, Any]] = []
     for experiment in latest_experiments.values():
         finding_ref = experiment.get("finding_ref")
         if not finding_ref:
             continue
-        if not _expects_red(dict(experiment.get("observation_contract") or {})):
-            continue
         doc = docs.get(str(finding_ref))
         if doc is None:
+            # The bench stores finding_ref as opaque data (record-only
+            # invariant); a ref no finding answers is DISCLOSED here, not
+            # silently skipped — a typo must be visible, not a quiet no-op.
+            unresolvable_bindings.append({
+                "experiment_id": experiment.get("experiment_id"),
+                "finding_ref": finding_ref,
+            })
+            continue
+        if not _expects_red(dict(experiment.get("observation_contract") or {})):
             continue
         if doc.get("status") not in ("OPEN", "IN_PROGRESS"):
             continue
@@ -148,6 +156,7 @@ def plan_night_experiments(
         "regression": regression_candidates[:MAX_REGRESSION_RERUNS_PER_NIGHT],
         "skipped_problem": max(0, len(problem_candidates) - MAX_PROBLEM_RUNS_PER_NIGHT),
         "skipped_regression": max(0, len(regression_candidates) - MAX_REGRESSION_RERUNS_PER_NIGHT),
+        "unresolvable_bindings": unresolvable_bindings,
     }
 
 

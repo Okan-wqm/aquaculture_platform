@@ -171,6 +171,22 @@ class NightPlannerTests(NightBase):
         plan = plan_night_experiments(self.repo, base_dir=self.tools)
         self.assertEqual(plan["problem"], [])
 
+    def test_planner_discloses_unresolvable_finding_refs(self) -> None:
+        register_experiment(
+            experiment_id="exp-typo",
+            hypothesis="a ref no finding answers",
+            recipe_ref="recipe-night",
+            observation_contract={"comparator": "status_equals", "expected": "failed"},
+            finding_ref="F-999",
+            base_dir=self.tools,
+        )
+        plan = plan_night_experiments(self.repo, base_dir=self.tools)
+        self.assertEqual(plan["problem"], [])
+        self.assertEqual(
+            plan["unresolvable_bindings"],
+            [{"experiment_id": "exp-typo", "finding_ref": "F-999"}],
+        )
+
     def test_planner_ignores_unbound_experiments(self) -> None:
         register_experiment(
             experiment_id="exp-unbound",

@@ -21,6 +21,15 @@
 
 ---
 
+## ORPHAN-HIGH-694 — the tenant-reality watchdog's two new alerts routed to nowhere: `severity: high` matches no Alertmanager route — RESOLVED (this PR)
+
+**Discovered:** 2026-08-16 (reconciling PR #1114 onto main during the codex-takeover consolidation; `invariants-fast` and `deploy-ssot-gates` both went red on the same assertion).
+**Evidence:** `infrastructure/monitoring/droplet/rules/60-dataflow-integrity.yml` labelled `TenantProvisioningNeverCompleted` and `TenantRealityProbeStale` with `severity: high`. `infrastructure/monitoring/droplet/alertmanager.yml` routes exactly three severity matchers — `severity = none` (to the `null` receiver), `severity = critical`, `severity = warning` — so `routedSeverities()` in `tests/invariants/monitoring-alert-delivery.spec.ts:102-118` yields `{critical, warning}` and both rules landed in the drop-everything default. Every other rule in the same file already uses `critical` or `warning` (`OutboxRelayNotRunning`, `CronJobNeverRan`, `TenantActiveWithoutPhysicalSchema`, `RuntimeSupervisorStale`, `TenantProvisioningRunsFailing`, `TenantProvisioningRunStuck`); `high` existed nowhere else in the platform's alert vocabulary.
+**Root cause:** severity was written as free prose rather than chosen from the routed vocabulary. The failure mode is silent by construction: the rule loads, the probe reports, the dashboard shows an armed watchdog, and the page never fires.
+**Remediation (this PR):** severities taken from the file's own precedent rather than invented. `TenantProvisioningNeverCompleted` -> `warning`, matching `TenantProvisioningRunStuck`; it is the precursor state and its own description says it becomes the CRITICAL above once the tenant flips to ACTIVE. `TenantRealityProbeStale` -> `critical`, matching `RuntimeSupervisorStale`; a probe that stopped reporting publishes no counts, which reads exactly like every tenant being consistent, so it silently disables the CRITICAL above it and carries that weight. Runbook headings follow the labels so the page an operator opens states the severity the alert carries.
+**Validation:** `npm run invariants:fast` — 224 suites / 2396 tests green, `monitoring-alert-delivery` and `deploy-ssot-contract` included. The gate that caught this (`routes every severity that a rule actually uses`) already existed; it was doing its job.
+**Owner:** observability-expert. **Deadline:** closed by this PR's merge.
+
 ## ORPHAN-HIGH-415 — source-schema write-guard reconciler aborts EVERY prod deploy on declarative-partitioned guarded tables (messaging.messages / message_receipts) — RESOLVED (this PR)
 
 **Discovered:** 2026-07-14 (operator flagged that post-merge main `CI - Affected` deploy-production keeps failing; `aqua-db-migrate` aborts BEFORE service containers start).

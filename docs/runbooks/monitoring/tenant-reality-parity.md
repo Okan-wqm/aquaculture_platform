@@ -59,14 +59,14 @@ on production is a data-shaping act with migration-ledger and RLS consequences.
 Establish _why_ it is missing first; a hand-made schema that the migration
 ledger does not know about is a worse state than an absent one.
 
-## TenantProvisioningNeverCompleted (high)
+## TenantProvisioningNeverCompleted (warning)
 
 A tenant has been `PENDING` with no schema for over 30 minutes. Provisioning
 started and stopped partway. Same triage as above, steps 2–4. Escalate at once
 if anything is about to flip the tenant to `ACTIVE` — that transition converts
 this alert into the CRITICAL above without changing anything physical.
 
-## TenantRealityProbeStale (high)
+## TenantRealityProbeStale (critical)
 
 No `probe_ok{probe_id="tenant_reality_parity"}` series. The two count-based
 alerts above go quiet when the probe stops, and quiet is indistinguishable from

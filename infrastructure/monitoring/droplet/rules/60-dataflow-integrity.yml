@@ -175,7 +175,7 @@ groups:
           max by (class) (probe_finding_count{probe_id="tenant_reality_parity",class="unprovisioned_pending"}) > 0
         for: 30m
         labels:
-          severity: high
+          severity: warning
           target_auditor: multi-tenant-saas-expert
         annotations:
           summary: '{{ $value }} tenant(s) have been pending with no schema for over 30 minutes'
@@ -193,7 +193,7 @@ groups:
           and on() (time() - max(timestamp(probe_ok{probe_id="tenant_reality_parity"})) > 10800)
         for: 30m
         labels:
-          severity: high
+          severity: critical
           target_auditor: multi-tenant-saas-expert
         annotations:
           summary: 'The tenant reality parity probe has stopped reporting'

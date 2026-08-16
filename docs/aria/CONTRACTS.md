@@ -716,6 +716,16 @@ SPEC §5.1). Anything else = L1 violation, claim rejected at the gate.
 
 ## 6 — Finding & Recommendation Schema
 
+> **E21-c (ORPHAN-693) — event-sourced lifecycle.** `finding-events.jsonl` speaks a
+> CLOSED vocabulary: `finding_emitted`, `finding_reproduced`, `finding_fix_verified`,
+> `finding_status_changed`; replay REFUSES unknown types. `certainty` shrank to its
+> producers — `CONFIRMED` is EARNED only by `finding_reproduced` (a matched red run of
+> a finding-bound experiment recipe); `OBSERVED` is the mint default. `RESOLVED` via
+> `finding_fix_verified` requires the SAME recipe re-running green with unforgeable
+> run provenance; hand transitions follow `STATUS_TRANSITIONS` (RESOLVED/WITHDRAWN
+> terminal). A future certainty grade re-enters the vocabulary only in the same PR
+> that adds its producer.
+
 ```json
 {
   "$schema": "aria/finding/v1",
@@ -726,7 +736,7 @@ SPEC §5.1). Anything else = L1 violation, claim rejected at the gate.
     "absence_in_scope" | "currency_gap" | "duplication" | "contradiction" | "test_disagreement" |
     "regression",
   "claim_summary": "FarmStatus enum drifts: DB has 4 values, frontend has 3",
-  "certainty": "CONFIRMED" | "OBSERVED" | "SUSPECTED" | "UNCERTAIN" | "UNKNOWN",
+  "certainty": "CONFIRMED" | "OBSERVED",
   "evidence_chain_id": "chain_xy12...",
   "originating_skill": "spine-drift-detector@1.2.0",
   "scope": {

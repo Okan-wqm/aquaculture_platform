@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `f9296138db064087741b54f57aa163ca77b339ab2fb86ef1768661ee9fcb20fb`
+Registry tip: `0c1d4bff7723ce5bbb3bd280d5ef9553dac5c47d043ae93e42e0be531d1ae399`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -87,6 +87,12 @@ CRITICAL rows are RESOLVED and leave the active table. The independent notary
 (`INFRA-CRITICAL-044`) remain blocked by external operator evidence;
 production deployment remains locked.
 
+Updated 2026-08-16 (codex worktree rescue, slice 1): `FARM-CRITICAL-237` is
+RESOLVED by `550a72311` (#1244) — the `feedHasStoragePresence` fail-open branch
+is deleted, so a missing storage projection row is a real shortage rather than
+an authority-mode switch. Its truth-table row is removed with the finding; the
+other three single-ledger CRITICALs stay `real-open`.
+
 Updated 2026-07-17 (farm/feed cutover adversarial review): five concrete
 single-ledger blockers were registered IN-PROGRESS, bringing the registry to
 1,028 entries. Four are active CRITICALs: depleted feed can fail open without a
@@ -154,7 +160,6 @@ Allowed truth buckets:
 | `RBAC-CRITICAL-003`     | OPEN           | 1.2          | auth-security-expert       | already-fixed-needs-close |
 | `INFRA-CRITICAL-040`    | IN-PROGRESS    | —            | infra-expert               | blocked                   |
 | `INFRA-CRITICAL-044`    | OPEN           | —            | infra-expert               | blocked                   |
-| `FARM-CRITICAL-237`     | IN-PROGRESS    | 4.1          | farm-expert                | real-open                 |
 | `FARM-CRITICAL-238`     | IN-PROGRESS    | 4.1          | data-expert                | real-open                 |
 | `FARM-CRITICAL-240`     | IN-PROGRESS    | 4.1          | data-expert                | real-open                 |
 | `FARM-CRITICAL-241`     | IN-PROGRESS    | 4.1          | data-expert                | real-open                 |

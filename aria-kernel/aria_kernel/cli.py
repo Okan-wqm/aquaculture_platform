@@ -1729,6 +1729,50 @@ def build_parser() -> argparse.ArgumentParser:
     opprov_record.add_argument("--note", default="")
     opprov_list = add_subparser(opprov_sub, "list")
 
+    # E21-c (ORPHAN-693) — the Deney Masası's operator surface: declare a
+    # finding-bound experiment, run it, and promote its observations into
+    # finding events (reproduction / fix-verification / status change).
+    # `experiment run` is run_experiment's FIRST production caller — the
+    # E21-a residue "no scheduled/CLI caller" closes here; the nightly
+    # phase (E21-d) joins as the second.
+    exp_parser = add_subparser(sub,
+        "experiment",
+        help="E21 Deney Masası — register/run experiments and fold results into findings.",
+    )
+    exp_sub = exp_parser.add_subparsers(dest="experiment_command", required=True)
+    exp_register = add_subparser(exp_sub, "register")
+    exp_register.add_argument("--experiment-id", required=True)
+    exp_register.add_argument("--hypothesis", required=True)
+    exp_register.add_argument("--recipe-ref", required=True)
+    exp_register.add_argument("--contract-json", required=True,
+                              help='Observation contract, e.g. {"comparator":"status_equals","expected":"failed"}')
+    exp_register.add_argument("--finding-ref", default=None,
+                              help="Bind to a finding (F-xxx) so reproduce/verify-fix can promote it.")
+    exp_register.add_argument("--cycle-id", default=None)
+    exp_run = add_subparser(exp_sub, "run")
+    add_workspace_args(exp_run)
+    exp_run.add_argument("--experiment-id", required=True)
+    exp_run.add_argument("--change-id", required=True)
+    exp_run.add_argument("--commit-sha", required=True)
+    exp_run.add_argument("--runner-identity", required=True)
+    exp_run.add_argument("--cycle-id", default=None)
+    exp_reproduce = add_subparser(exp_sub, "reproduce")
+    add_workspace_args(exp_reproduce)
+    exp_reproduce.add_argument("--finding-id", required=True)
+    exp_reproduce.add_argument("--validation-run-id", required=True)
+    exp_verify = add_subparser(exp_sub, "verify-fix")
+    add_workspace_args(exp_verify)
+    exp_verify.add_argument("--finding-id", required=True)
+    exp_verify.add_argument("--validation-run-id", required=True)
+    exp_status = add_subparser(exp_sub, "finding-status")
+    add_workspace_args(exp_status)
+    exp_status.add_argument("--finding-id", required=True)
+    exp_status.add_argument("--to-status", required=True)
+    exp_status.add_argument("--reason", required=True)
+    exp_status.add_argument("--actor", required=True)
+    exp_bindings = add_subparser(exp_sub, "regression-bindings")
+    add_workspace_args(exp_bindings)
+
     co_parser = add_subparser(sub,
         "critical-observation",
         help="Plan 016 Faz E3 — critical observation persistence + escalation surface.",
@@ -4065,6 +4109,75 @@ def _main(argv: list[str] | None = None) -> int:
             return 0
         if args.operator_provenance_command == "list":
             print(json.dumps(list_operator_approvals(base_dir=args.tools_dir), indent=2, sort_keys=True))
+            return 0
+
+    if args.command == "experiment":
+        from aria_kernel.experiment import register_experiment, run_experiment
+        from aria_kernel.finding import (
+            list_fix_verified_bindings,
+            record_finding_fix_verification,
+            record_finding_reproduction,
+            record_finding_status_change,
+        )
+
+        if args.experiment_command == "register":
+            row = register_experiment(
+                experiment_id=args.experiment_id,
+                hypothesis=args.hypothesis,
+                recipe_ref=args.recipe_ref,
+                observation_contract=json.loads(args.contract_json),
+                finding_ref=args.finding_ref,
+                cycle_id=args.cycle_id,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.experiment_command == "run":
+            row = run_experiment(
+                experiment_id=args.experiment_id,
+                workspace_root=Path(args.workspace_root).resolve(),
+                change_id=args.change_id,
+                commit_sha=args.commit_sha,
+                runner_identity=args.runner_identity,
+                cycle_id=args.cycle_id,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.experiment_command == "reproduce":
+            row = record_finding_reproduction(
+                Path(args.workspace_root).resolve(),
+                finding_id=args.finding_id,
+                validation_run_id=args.validation_run_id,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.experiment_command == "verify-fix":
+            row = record_finding_fix_verification(
+                Path(args.workspace_root).resolve(),
+                finding_id=args.finding_id,
+                validation_run_id=args.validation_run_id,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.experiment_command == "finding-status":
+            row = record_finding_status_change(
+                Path(args.workspace_root).resolve(),
+                finding_id=args.finding_id,
+                to_status=args.to_status,
+                reason=args.reason,
+                actor=args.actor,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.experiment_command == "regression-bindings":
+            print(json.dumps(
+                list_fix_verified_bindings(Path(args.workspace_root).resolve()),
+                indent=2, sort_keys=True,
+            ))
             return 0
 
     if args.command == "research":

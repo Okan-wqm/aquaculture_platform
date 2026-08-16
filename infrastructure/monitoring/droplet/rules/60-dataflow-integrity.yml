@@ -150,6 +150,56 @@ groups:
           summary: '{{ $labels.cron_job }} has been failing for at least an hour'
           description: 'Every recent attempt ended in failure. A job that swallows its own errors looks healthy in its domain metrics; this is the surface that does not.'
           runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/cron-heartbeat.md'
+  # W-B — tenant provisioning had zero metrics and zero alarms, and the
+  # saga verifies only its own two ledgers, never the schema they describe.
+  # These read the parity probe (tools/watchdog/probe-runner.mjs), which asks
+  # Postgres directly. Deliberately identity-free: the probe exports counts
+  # per finding class and never a tenant id, so the scrape surface cannot be
+  # mined for the customer list.
+  - name: aquaculture.tenant.reality
+    rules:
+      - alert: TenantActiveWithoutPhysicalSchema
+        expr: |
+          max by (class) (probe_finding_count{probe_id="tenant_reality_parity",class="active_without_usable_schema"}) > 0
+        for: 0m
+        labels:
+          severity: critical
+          target_auditor: multi-tenant-saas-expert
+        annotations:
+          summary: '{{ $value }} tenant(s) are served as ACTIVE with no usable tenant schema'
+          description: 'A tenant declared ACTIVE has no tenant_<id16> schema, or one holding no tables, so every per-tenant write it makes has nowhere to land. There is no `for:` delay on purpose - this state is stable, silent and already customer-visible by the time it is measured; waiting adds nothing but exposure.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/tenant-reality-parity.md'
+
+      - alert: TenantProvisioningNeverCompleted
+        expr: |
+          max by (class) (probe_finding_count{probe_id="tenant_reality_parity",class="unprovisioned_pending"}) > 0
+        for: 30m
+        labels:
+          severity: warning
+          target_auditor: multi-tenant-saas-expert
+        annotations:
+          summary: '{{ $value }} tenant(s) have been pending with no schema for over 30 minutes'
+          description: 'Provisioning started and never finished. Half an hour is far past a healthy run, and a tenant left here becomes the CRITICAL above the moment anything flips its status to ACTIVE.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/tenant-reality-parity.md'
+
+      # Fires only once the series has been seen at least once in the last
+      # 24h and has then gone quiet. `absent()` alone would fire from the
+      # moment this file is first loaded and never clear, and a
+      # permanently-firing alert is a muted one - the safety net would be the
+      # first thing switched off.
+      - alert: TenantRealityProbeStale
+        expr: |
+          max_over_time(probe_ok{probe_id="tenant_reality_parity"}[24h])
+          and on() (time() - max(timestamp(probe_ok{probe_id="tenant_reality_parity"})) > 10800)
+        for: 30m
+        labels:
+          severity: critical
+          target_auditor: multi-tenant-saas-expert
+        annotations:
+          summary: 'The tenant reality parity probe has stopped reporting'
+          description: 'No probe_ok series for tenant_reality_parity. The two alerts above are count-based, so a probe that stopped publishes no counts - which reads exactly like every tenant being consistent.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/tenant-reality-parity.md'
+
   # 5a — the T0 supervisor. These read the textfile it writes every two
   # minutes; the supervisor itself needs watching, because a supervisor that
   # stopped is indistinguishable from a healthy host by definition.

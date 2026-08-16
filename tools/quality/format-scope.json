@@ -34972,6 +34972,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/runbooks/monitoring/tenant-reality-parity.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/runbooks/monitoring/watchdog.md",
       "prettier_managed": true
     },
@@ -44546,6 +44552,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/aria-poc/experiment-recipes.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/aria-poc/README.md",
       "prettier_managed": true
     },
@@ -45663,6 +45675,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/watchdog/README.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/watchdog/tenant-reality.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/watchdog/tenant-reality.spec.mjs",
       "prettier_managed": true
     },
     {

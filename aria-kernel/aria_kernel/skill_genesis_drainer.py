@@ -44,7 +44,7 @@ from pathlib import Path
 from typing import Any, Callable, Literal, Protocol, TypedDict
 
 from .convergent_skill_authoring import run_convergent_authoring
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_jsonl
 from .strict_jsonl_reader import read_strict_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
@@ -376,7 +376,7 @@ def _persist_status(
         "status": status,
         "reason": reason,
     }
-    return append_jsonl(path, row)
+    return append_declared_jsonl(path, row, expected_surface="skill_genesis_request_status")
 
 
 def _latest_status(

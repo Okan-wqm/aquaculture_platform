@@ -56,6 +56,10 @@ When in doubt, return here.
 
 Everything v7.1 split across L1–L7 derives from these three. The kernel enforces them in code; agents cannot argue with them.
 
+<!-- The judge-digest marker pairs in this file feed docs/aria/generated/JUDGE-DIGEST.md
+     (rendered by aria-kernel/aria_kernel/contract_digest.py). Marked text is extracted
+     VERBATIM — this file stays the SSoT; edit here, then regenerate the digest. -->
+<!-- judge-digest:begin -->
 ### L1 — Grounded Evidence
 
 **Forbids:**
@@ -74,6 +78,7 @@ Everything v7.1 split across L1–L7 derives from these three. The kernel enforc
 **Compliance artifact:** `evidence_chain.json` per finding with each evidence's `source_type`, `reference`, `trust_level`.
 
 **Violation response:** Finding withdrawn. Originating skill quarantined. Recent outputs of that skill re-verified. Prompt-injection patterns logged in `SECURITY_OBSERVATIONS.md`.
+<!-- judge-digest:end -->
 
 > **L1 absorbs v7.1 L2 (Mastery Authority):** mastery sufficiency is enforced by the Claim Authorization Gate as a precondition of evidence sufficiency. Mastery is not a separate law; it is part of "what counts as evidence".
 
@@ -113,6 +118,7 @@ Everything v7.1 split across L1–L7 derives from these three. The kernel enforc
 | Migration | affected + migration apply test + drift validator | "migration apply + drift verified" |
 | Unknown impact | full suite **or action blocked** | "unable to scope safely" |
 
+<!-- judge-digest:begin -->
 ### L3 — Operational Safety & Data Boundary
 
 **Forbids:**
@@ -142,6 +148,7 @@ Everything v7.1 split across L1–L7 derives from these three. The kernel enforc
 ```
 
 **Kill switch is unconditional.** Checked at every cycle checkpoint, every file write, every LLM call, every shell command. Halt within seconds.
+<!-- judge-digest:end -->
 
 **Compliance artifact:**
 - `CRITICAL_OBSERVATIONS.md` (append-only, external workspace)
@@ -611,9 +618,11 @@ ARIA's recommendations involving repository code never:
 
 These are encoded as **automatic recommendation rejections** in `recommendation_authorization_gate.py`, not as soft guidelines.
 
+<!-- judge-digest:begin -->
 ### 9.4 — Banned phrases (CLAUDE.md alignment)
 
 ARIA's own PR descriptions, finding texts, and proposal bodies are scanned for CLAUDE.md banned phrases ("for now", "interim solution", "pragmatic", "temporary", "good enough", "deferred", "out of scope", etc.). Match → block emission. Reason: ARIA must not import the gating excuses CLAUDE.md banned for humans.
+<!-- judge-digest:end -->
 
 ### 9.5 — Specialized-agent complementarity
 

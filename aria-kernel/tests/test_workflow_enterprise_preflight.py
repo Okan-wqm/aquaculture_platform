@@ -122,7 +122,10 @@ class WorkflowEnterprisePreflightTests(unittest.TestCase):
                 workspace_root=workspace,
                 allowed_write_roots=["aria-tools/reports/daily/2026-06-02.md"],
                 path_allowlist=["aria-tools/reports/daily/2026-06-02.md"],
-                network_policy=["github_artifact"],
+                # FAZ 6a — the lane restores aria/state before the anchor, so
+                # the contract (and therefore this fixture) declares the git
+                # reach alongside artifact upload.
+                network_policy=["github_artifact", "github_git"],
                 network_enforcement_evidence="checkout/setup actions and GitHub artifact upload",
                 token_provenance="github_actions_artifact_token",
                 audit_reason="unit test",
@@ -688,13 +691,20 @@ class StepOrderingAndAbortGateContract(unittest.TestCase):
             cycle_wall_clock_cap_seconds,
         )
 
+        # 45 → 150 (ORPHAN-HIGH-640): the drain loop's whole window including
+        # the last child's 1800s worst case plus a 30-minute publish reserve
+        # must fit; the first live drain night was reaped mid-child at 45.
         self.assertEqual(
             cycle_wall_clock_cap_seconds(self._EXECUTOR),
-            (45 - WALL_CLOCK_RESERVE_MINUTES) * 60,
+            (150 - WALL_CLOCK_RESERVE_MINUTES) * 60,
         )
+        # 50 → 360 (operator decision 2026-08-13): the night's window is the
+        # 360-minute platform ceiling. Smoke runs 1-3 proved 50 was the
+        # binding constraint; the ORPHAN-661/662 deadline pair keeps any
+        # value safe (the night seals + publishes at the wall).
         self.assertEqual(
             cycle_wall_clock_cap_seconds(self._CYCLE),
-            (50 - WALL_CLOCK_RESERVE_MINUTES) * 60,
+            (360 - WALL_CLOCK_RESERVE_MINUTES) * 60,
         )
         # An unknown lane must be None ("no self-imposed ceiling"), never 0,
         # which would refuse every dispatch.

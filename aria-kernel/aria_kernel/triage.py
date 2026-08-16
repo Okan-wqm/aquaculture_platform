@@ -7,6 +7,7 @@ from typing import Any
 
 from .fitness import latest_agent_fitness
 from .agent_network import latest_agent_network_hash
+from .batch_containment import guard_item, with_item_failures
 from .ledger import (
     append_declared_jsonl,
     append_jsonl as _append_jsonl,
@@ -105,6 +106,7 @@ def triage_policy_apply(
     fitness = {row.get("agent_name"): row for row in latest_agent_fitness(base_dir=root)}
     index_hash = latest_agent_network_hash(base_dir=root)
     decisions: list[dict[str, Any]] = []
+    item_failures: list[dict[str, Any]] = []
     for pressure in effective_workspace_pressures(paths):
         pressure_id = str(pressure.get("event_id") or pressure.get("pressure_id") or "")
         if not pressure_id or pressure.get("effective_state") not in {"active", "faded", "sleeping"}:
@@ -114,14 +116,30 @@ def triage_policy_apply(
         if target_agent and fitness.get(target_agent, {}).get("tier") == "QUARANTINED":
             tier = "blocked"
             reasons.append("agent_quarantined")
-            append_tools_governance(root, "agent_dispatch_quarantined", {"cycle_id": cycle_id, "pressure_event_id": pressure_id, "target_agent": target_agent})
+            guard_item(
+                item_failures,
+                item_kind="triage_governance",
+                item_id=pressure_id,
+                work=lambda pressure_id=pressure_id, target_agent=target_agent: append_tools_governance(
+                    root, "agent_dispatch_quarantined",
+                    {"cycle_id": cycle_id, "pressure_event_id": pressure_id, "target_agent": target_agent},
+                ),
+            )
         elif target_agent and fitness.get(target_agent, {}).get("tier") == "CALIBRATE" and tier == "auto_fix_safe":
             tier = "needs_review"
             reasons.append("agent_calibrating")
         elif target_agent and _is_fitness_stale(fitness.get(target_agent, {})) and tier == "auto_fix_safe":
             tier = "needs_review"
             reasons.append("agent_fitness_stale")
-            append_tools_governance(root, "agent_fitness_stale_downgrade", {"cycle_id": cycle_id, "pressure_event_id": pressure_id, "target_agent": target_agent})
+            guard_item(
+                item_failures,
+                item_kind="triage_governance",
+                item_id=pressure_id,
+                work=lambda pressure_id=pressure_id, target_agent=target_agent: append_tools_governance(
+                    root, "agent_fitness_stale_downgrade",
+                    {"cycle_id": cycle_id, "pressure_event_id": pressure_id, "target_agent": target_agent},
+                ),
+            )
         # Plan 022 §H-6 — apply the agent's max_triage_tier ceiling AFTER
         # all path-class + fitness-status downgrades. If fitness imposes
         # a stricter ceiling than the current tier, demote.
@@ -147,11 +165,39 @@ def triage_policy_apply(
         }
         if _decision_key(row) in existing:
             continue
-        stored = append_jsonl(root / "triage" / "decisions.jsonl", row)
-        update_tools_index(root)
-        append_tools_governance(root, "pressure_triaged", {"cycle_id": cycle_id, "pressure_event_id": pressure_id, "tier": tier, "target_agent": target_agent})
+        # Triage is what routes a pressure to an agent. Losing the batch to one
+        # bad decision leaves every pressure after it unrouted for the cycle,
+        # while the decisions already appended stay on disk unreported.
+        ok, stored = guard_item(
+            item_failures,
+            item_kind="pressure",
+            item_id=pressure_id,
+            work=lambda row=row, tier=tier, target_agent=target_agent, pressure_id=pressure_id: _store_triage_decision(
+                root, row, cycle_id=cycle_id, pressure_id=pressure_id, tier=tier, target_agent=target_agent,
+            ),
+        )
+        if not ok or stored is None:
+            continue
         decisions.append(stored)
-    return {"schema_version": 1, "cycle_id": cycle_id, "triaged_count": len(decisions), "decisions": decisions}
+    return with_item_failures(
+        {"schema_version": 1, "cycle_id": cycle_id, "triaged_count": len(decisions), "decisions": decisions},
+        item_failures,
+    )
+
+
+def _store_triage_decision(
+    root: Path,
+    row: dict[str, Any],
+    *,
+    cycle_id: str,
+    pressure_id: str,
+    tier: str,
+    target_agent: str | None,
+) -> dict[str, Any]:
+    stored = append_jsonl(root / "triage" / "decisions.jsonl", row)
+    update_tools_index(root)
+    append_tools_governance(root, "pressure_triaged", {"cycle_id": cycle_id, "pressure_event_id": pressure_id, "tier": tier, "target_agent": target_agent})
+    return stored
 
 
 def classify_pressure(pressure: dict[str, Any]) -> tuple[str, list[str]]:

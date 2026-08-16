@@ -75,6 +75,50 @@ class JudgeFanoutTests(unittest.TestCase):
         result = dispatch_judges_for_sample(sample={"items": []}, base_dir=self.tools)
         self.assertEqual(result["minted_count"], 0)
 
+    def test_a_repo_root_makes_both_judges_carry_the_cited_lines(self) -> None:
+        # E17-b — this lane mints TWO judges over one finding and the
+        # adversarial judge re-reads the same files by design, so it is where
+        # the un-packed envelope cost the most. Without repo_root the mint
+        # cannot read the cited file and the packing never fires in
+        # production; the assertion below is what proves the wiring exists.
+        from aria_kernel.agent_invocations import list_agent_invocation_requests
+
+        repo = Path(self._tmp.name)
+        target = repo / "src" / "f1.py"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("def suspicious():\n    return 1\n", encoding="utf-8")
+
+        dispatch_judges_for_sample(
+            sample={"cycle_id": "c1", "items": [_item(1)]},
+            base_dir=self.tools,
+            repo_root=repo,
+        )
+
+        rows = list_agent_invocation_requests(base_dir=self.tools)
+        self.assertEqual(len(rows), 2)
+        for row in rows:
+            quoted, repeat = row["evidence_excerpts"]
+            self.assertEqual(quoted["path"], "src/f1.py")
+            self.assertIn("def suspicious():", quoted["content"])
+            # This lane cites the finding path AND its evidence list, which
+            # here are the same ref. The repeat is recorded, not dropped, so
+            # the excerpt set stays aligned with evidence_refs entry-for-entry.
+            self.assertEqual(repeat["skipped"], "duplicate_ref")
+
+    def test_without_a_repo_root_the_mint_still_succeeds(self) -> None:
+        # Degradation is loss of excerpts, never loss of the dispatch: a
+        # caller that has no workspace still gets its two judges.
+        from aria_kernel.agent_invocations import list_agent_invocation_requests
+
+        dispatch_judges_for_sample(
+            sample={"cycle_id": "c1", "items": [_item(1)]}, base_dir=self.tools,
+        )
+
+        rows = list_agent_invocation_requests(base_dir=self.tools)
+        self.assertEqual(len(rows), 2)
+        for row in rows:
+            self.assertNotIn("evidence_excerpts", row)
+
 
 if __name__ == "__main__":
     unittest.main()

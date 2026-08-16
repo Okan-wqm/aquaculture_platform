@@ -30,7 +30,7 @@ groups:
           sum by (app) (increase(outbox_publish_failures_total{namespace="aquaculture"}[30m])) > 5
         for: 15m
         labels:
-          severity: high
+          severity: warning
           target_auditor: job-queue-auditor
         annotations:
           summary: "{{ $labels.app }} outbox publish failures accumulating"
@@ -42,7 +42,7 @@ groups:
           increase(messaging_dlq_growth_total{namespace="aquaculture"}[30m]) > 0
         for: 10m
         labels:
-          severity: high
+          severity: warning
           target_auditor: job-queue-auditor
         annotations:
           summary: "messaging-service DLQ grew in the last 30 minutes"
@@ -54,7 +54,7 @@ groups:
           sum by (app) (increase(http_requests_total{namespace="aquaculture",app="notification-service",status=~"5.."}[15m])) > 10
         for: 10m
         labels:
-          severity: high
+          severity: warning
           target_auditor: realtime-sync-auditor
         annotations:
           summary: "notification-service 5xx burst"
@@ -79,12 +79,16 @@ groups:
           description: 'farm_tenant_isolation_violations{severity="CRITICAL",type="{{ $labels.type }}"}={{ $value }}. One tenant can potentially read another tenant''s rows. There is no `for:` delay on purpose - a cross-tenant leak is not something to observe for ten minutes first.'
           runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/tenant-isolation-watchdog.md'
 
+      # `critical`, not `warning`: this is the deadman of a safety mechanism.
+      # A stopped scanner reports no violations, which is byte-identical to
+      # "isolation is holding" — waiting for the 12-hour digest to say the
+      # cross-tenant guard has been off is the wrong trade.
       - alert: TenantIsolationWatchdogStale
         expr: |
           time() - max(farm_tenant_isolation_scan_last_run_timestamp_seconds) > 2700
         for: 15m
         labels:
-          severity: high
+          severity: critical
           target_auditor: tenant-isolation-auditor
         annotations:
           summary: 'Tenant isolation watchdog has not completed a scan in 45 minutes'
@@ -96,12 +100,24 @@ groups:
           max(farm_tenant_isolation_scan_errors) > 0
         for: 30m
         labels:
-          severity: medium
+          severity: warning
           target_auditor: tenant-isolation-auditor
         annotations:
           summary: 'Tenant isolation scan is running half-blind ({{ $value }} scanner(s) failing)'
           description: 'Individual scanners failed inside an otherwise completed scan, so the all-clear covers less ground than it appears to.'
           runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/tenant-isolation-watchdog.md'
+
+      - alert: OutboxRelayNotRunning
+        expr: |
+          time() - max by (service) (outbox_relay_last_cycle_timestamp_seconds) > 300
+        for: 5m
+        labels:
+          severity: critical
+          target_auditor: job-queue-auditor
+        annotations:
+          summary: '{{ $labels.service }} outbox relay has not completed a cycle in 5 minutes'
+          description: 'The relay polls every 5 seconds, so sixty missed cycles means the dispatcher is gone. This is the gap the queue gauges cannot show: when the relay stops, outbox_pending stops being written and holds its last value, so a dead dispatcher with an empty queue reads as perfectly healthy.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/dataflow-integrity.md'
 
   # W-C — scheduled jobs that stop running. Ninety @Cron methods exist and
   # five had a last-run surface, so "the job is fine" and "the job has not
@@ -112,26 +128,26 @@ groups:
     rules:
       - alert: CronJobNeverRan
         expr: |
-          max by (job) (cron_job_last_success_timestamp_seconds) == 0
+          max by (cron_job) (cron_job_last_success_timestamp_seconds) == 0
         for: 1h
         labels:
-          severity: high
+          severity: warning
           target_auditor: job-queue-auditor
         annotations:
-          summary: '{{ $labels.job }} has never completed successfully since process start'
+          summary: '{{ $labels.cron_job }} has never completed successfully since process start'
           description: 'The job declared itself but no run has succeeded in an hour. A scheduler that failed to register produces exactly this shape - and, without the declared zero, would produce no series at all.'
           runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/cron-heartbeat.md'
 
       - alert: CronJobFailingEveryRun
         expr: |
-          (max by (job) (cron_job_last_failure_timestamp_seconds) > max by (job) (cron_job_last_success_timestamp_seconds))
-          and (time() - max by (job) (cron_job_last_success_timestamp_seconds) > 3600)
+          (max by (cron_job) (cron_job_last_failure_timestamp_seconds) > max by (cron_job) (cron_job_last_success_timestamp_seconds))
+          and (time() - max by (cron_job) (cron_job_last_success_timestamp_seconds) > 3600)
         for: 30m
         labels:
-          severity: high
+          severity: warning
           target_auditor: job-queue-auditor
         annotations:
-          summary: '{{ $labels.job }} has been failing for at least an hour'
+          summary: '{{ $labels.cron_job }} has been failing for at least an hour'
           description: 'Every recent attempt ended in failure. A job that swallows its own errors looks healthy in its domain metrics; this is the surface that does not.'
           runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/cron-heartbeat.md'
   # W-B — tenant provisioning had zero metrics and zero alarms, and the
@@ -189,12 +205,15 @@ groups:
   # stopped is indistinguishable from a healthy host by definition.
   - name: aquaculture.runtime.supervisor
     rules:
+      # `critical` for the same reason as TenantIsolationWatchdogStale: the
+      # supervisor is the only thing that notices a container Docker gave up
+      # on, so its silence is indistinguishable from a healthy host.
       - alert: RuntimeSupervisorStale
         expr: |
           time() - max(aqua_supervisor_last_run_timestamp_seconds) > 900
         for: 5m
         labels:
-          severity: high
+          severity: critical
           target_auditor: infra-expert
         annotations:
           summary: 'Runtime supervisor has not run in 15 minutes'
@@ -212,3 +231,33 @@ groups:
           summary: 'Runtime supervisor found a CRITICAL condition it could not fix'
           description: 'Either a supervised container will not start, its restart cap is exhausted, or the root filesystem is past the threshold that began the 2026-08-03 outage. The supervisor deliberately does not delete anything to free space.'
           runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/runtime-supervisor.md'
+
+  # Tenant provisioning. The saga failed on its first step for months and the
+  # only surface was a `lastError` column nobody queried; these read the
+  # counters admin-api now exports so onboarding being dead is an alarm rather
+  # than a discovery.
+  - name: aquaculture.tenant.provisioning
+    rules:
+      - alert: TenantProvisioningRunsFailing
+        expr: |
+          increase(tenant_provisioning_runs_total{state="FAILED"}[30m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          target_auditor: multi-tenant-saas-expert
+        annotations:
+          summary: 'Tenant provisioning is failing — no new tenant can be onboarded'
+          description: 'A provisioning run reached FAILED in the last 30 minutes. Join tenant_provisioning_step_failures_total by (step) for the step that refused, then read admin.tenant_provisioning_steps.lastError for that step.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/tenant-provisioning.md'
+
+      - alert: TenantProvisioningRunStuck
+        expr: |
+          max(tenant_provisioning_oldest_active_run_age_seconds) > 3600
+        for: 15m
+        labels:
+          severity: warning
+          target_auditor: multi-tenant-saas-expert
+        annotations:
+          summary: 'A tenant provisioning run has been unfinished for over an hour'
+          description: 'A run is neither SUCCEEDED nor FAILED an hour after it was created. Production held two such runs for months with attempts=3 and no lease, which no metric counted and no alert could express.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/tenant-provisioning.md'

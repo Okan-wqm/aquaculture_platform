@@ -152,14 +152,20 @@ class CiExecutorFusedConsumerTests(unittest.TestCase):
             "ci_executor.main() still spawns the pre-§B.3 envelope-list "
             "subprocess — fused-return migration incomplete",
         )
-        # Fused-read marker present.
+        # Fused-read markers. These pinned the hand-copied `claim.get(...)`
+        # lines as source text — and that hand copy is exactly what broke the
+        # prompt binding a second time (ORPHAN-CRITICAL-601), so its absence
+        # is now the correct state. The properties they cared about survive:
+        # the envelope reads from the fused response (via the kernel's
+        # fuse_prompt_envelope, which carries expected_output_path) and the
+        # §B.5 anchor is still propagated in main.
         self.assertIn(
-            'claim.get("expected_output_path")', src,
-            "ci_executor.main() must read expected_output_path from the "
-            "fused claim response",
+            "_fuse_prompt_envelope(claim)", src,
+            "ci_executor.main() must build the envelope from the fused "
+            "claim response via the kernel projection",
         )
         self.assertIn(
-            'claim.get("claim_ledger_hash")', src,
+            '"claim_ledger_hash"', src,
             "ci_executor.main() must propagate the §B.5 ledger-hash "
             "anchor from the fused claim response",
         )

@@ -26,6 +26,16 @@ SOURCE_WEIGHTS = {
     # investigating promptly, below tool_quarantine (a confirmed in-repo
     # violation) but above evidence_gone.
     "runtime_signal": 85,
+    # A repeated advisory that nothing escalated — below shadow_raw_delta on
+    # weight because the advisory channel is by definition lower-signal, but
+    # present at all because nine identical rows producing zero escalation is
+    # this repository's recurring defect class.
+    "uncertainty_repeat": 55,
+    # ORPHAN-HIGH-626 — a red check on a PR ARIA itself pushed. Weighted at
+    # the top of the table: it is confirmed (CI ran the code), it is OURS
+    # (nobody else will fix it), and every cycle it stays red is a cycle the
+    # merge gate silently blocks work that was already paid for.
+    "own_pr_ci": 90,
 }
 
 # ─── operator-approved weight overrides (Plan tranquil-sniffing-pancake F4.1) ──
@@ -121,6 +131,13 @@ DRIFT_CLASS_BY_SOURCE = {
     "belief_revalidation": "belief_decay",
     "shadow_raw_delta": "adapter_shadow",
     "migration_surface_repeat": "schema_drift",
+    # The escalated-advisory source: repetition of what was already recorded,
+    # so it biases with the process-health class rather than any code class.
+    "uncertainty_repeat": "process_health",
+    # Own red CI is a process-health signal about ARIA's own delivery loop,
+    # not a new code-drift class — reusing the class keeps
+    # genesis_policy_default.json untouched (parity test pins the two tables).
+    "own_pr_ci": "process_health",
 }
 
 PRESSURE_STATES = {"active", "faded", "sleeping", "archived", "closed", "satisfied"}
@@ -177,6 +194,28 @@ def run_pressure(
     # cycle's targeting — the first loop where ARIA's own precision
     # measurement changes ARIA's behaviour.
     _weights = effective_source_weights(root)
+    # ORPHAN-HIGH-627 — Beta-Binomial calibration over the operator-feedback
+    # ledger: each source's hand-set weight is scaled by the ratio of its
+    # labelled-precision posterior to the prior, clamped. Zero labels →
+    # multiplier exactly 1.0 (the table above stays authoritative until
+    # evidence exists), and an operator override is never second-guessed.
+    # Deterministic and recomputable from the ledger — the only kind of
+    # "smart" this kernel admits. Failure costs calibration, never pressure.
+    _calibration_detail: dict[str, Any] = {}
+    try:
+        from .calibrated_intelligence import calibrate_source_weights
+        from .feedback_store import load_feedback
+
+        _calibration_detail = calibrate_source_weights(
+            _weights,
+            load_feedback(base_dir=root),
+            operator_overridden=frozenset(load_weight_overrides(root)),
+        )
+        _weights = {
+            source: detail["weight"] for source, detail in _calibration_detail.items()
+        }
+    except (OSError, ValueError, KeyError, TypeError):
+        _calibration_detail = {}
     discovery_dir = root / "discovery" / cycle_id
     fingerprint = _read_json(discovery_dir / "REPO_FINGERPRINT.json")
     completion = _read_json(discovery_dir / "COMPLETION_PROOF.json")
@@ -279,6 +318,38 @@ def run_pressure(
     # ARIA's repo-evidence machinery at the referenced area; the recommended
     # action makes the unverified status explicit so a lead is never mistaken
     # for a confirmed finding.
+    # ORPHAN-HIGH-626 — own-PR CI reds, from the bridge the pr_ci_scan phase
+    # writes. A PR that went green wrote a `cleared` row, so its pressure
+    # retires the same way the red minted it.
+    from .own_pr_ci import load_open_own_pr_reds
+    for red in load_open_own_pr_reds(base_dir=root):
+        red_jobs = _array_of_strings(red.get("red_jobs"))
+        pressures.append(
+            _pressure(
+                weights=_weights,
+                cycle_id=cycle_id,
+                source="own_pr_ci",
+                pressure_type="UNKNOWN",
+                severity="high",
+                reason=(
+                    f"ARIA's own PR #{red.get('pr_number')} "
+                    f"({red.get('head_ref')}) is RED in CI: "
+                    f"{', '.join(red_jobs) or 'failed checks'}"
+                ),
+                # The truthful pointer: the PR head the checks ran against.
+                # Free-form by design (pressure evidence is a lead, not the
+                # agent-envelope's admissible-evidence contract).
+                evidence=[f"pr-{red.get('pr_number')}:{red.get('head_sha') or 'HEAD'}"],
+                occurrence_count=1,
+                candidate_tools=[],
+                recommended_action=(
+                    "read the failing check's log, fix forward on the same "
+                    "branch, and let the merge gate re-evaluate — a red own-PR "
+                    "is paid-for work the gate is silently blocking"
+                ),
+                discriminator=f"pr-{red.get('pr_number')}",
+            ),
+        )
     from .runtime_signal_bridge import load_open_runtime_signals
     for signal in load_open_runtime_signals(base_dir=root):
         severity = signal.get("severity") if signal.get("severity") in ("low", "medium", "high", "critical") else "high"
@@ -341,6 +412,7 @@ def run_pressure(
                 ),
             )
 
+    pressures.extend(_uncertainty_repeat_pressures(root, weights=_weights, cycle_id=cycle_id))
     _apply_drift_class_weights(pressures, drift_class_weights)
     _filter_candidate_tools(root, pressures)
     pressures.sort(key=lambda item: (-float(item["score"]), str(item["pressure_id"])))
@@ -349,6 +421,11 @@ def run_pressure(
         "generated_at": utc_now(),
         "cycle_id": cycle_id,
         "pressures": pressures,
+        # ORPHAN-HIGH-627 — the evidence-scaled weights this run actually
+        # scored with, per source: base, multiplier, tp/fp, posterior. Every
+        # number recomputable from the feedback ledger; the report renders it
+        # so the operator sees WHY a source's standing moved.
+        "calibrated_weights": _calibration_detail,
         "summary": {
             "unknown": sum(1 for item in pressures if item["type"] == "UNKNOWN"),
             "repetition": sum(1 for item in pressures if item["type"] == "REPETITION"),
@@ -392,6 +469,69 @@ def _apply_drift_class_weights(
         pressure["score"] = round(min(100.0, float(pressure["score"]) * multiplier), 3)
 
 
+# A repeated advisory is not advice, it is an unread alarm. The uncertainty
+# ledger is the kernel's "worth noting, not blocking" channel, and it held
+# NINE identical pressure_candidate_tools_unreachable rows while the failure
+# they described re-scheduled unrunnable work every cycle — zero escalation,
+# because nothing ever read the ledger back (the same
+# mechanism-without-a-caller class as the claim reaper and the registry
+# compiler). This threshold is the reader: the same (kind, subject) recorded
+# UNCERTAINTY_REPEAT_THRESHOLD times or more becomes an operator-facing
+# pressure, and it self-extinguishes through ordinary decay once the
+# underlying cause stops producing rows.
+UNCERTAINTY_REPEAT_THRESHOLD = 3
+
+# The identifying field per row, tried in order. Kept short deliberately:
+# a row with none of these still groups by kind alone, which errs toward
+# escalating, not toward silence.
+_UNCERTAINTY_SUBJECT_FIELDS: tuple[str, ...] = ("pressure_id", "tool_id", "belief_id")
+
+
+def _uncertainty_repeat_pressures(
+    root: Path,
+    *,
+    weights: dict[str, Any],
+    cycle_id: str,
+) -> list[dict[str, Any]]:
+    rows = load_jsonl(root / "memory" / "uncertainties.jsonl")
+    groups: dict[tuple[str, str], int] = {}
+    for row in rows:
+        kind = str(row.get("kind") or "")
+        if not kind:
+            continue
+        subject = next(
+            (str(row[f]) for f in _UNCERTAINTY_SUBJECT_FIELDS if row.get(f)), "",
+        )
+        groups[(kind, subject)] = groups.get((kind, subject), 0) + 1
+    escalations: list[dict[str, Any]] = []
+    for (kind, subject), count in sorted(groups.items()):
+        if count < UNCERTAINTY_REPEAT_THRESHOLD:
+            continue
+        subject_note = f" for {subject}" if subject else ""
+        escalations.append(
+            _pressure(
+                weights=weights,
+                cycle_id=cycle_id,
+                source="uncertainty_repeat",
+                discriminator=f"{kind}-{subject}" if subject else kind,
+                pressure_type="REPETITION",
+                severity="medium",
+                reason=(
+                    f"uncertainty '{kind}'{subject_note} recorded {count} times "
+                    "with no escalation — an advisory nobody reads is not advice"
+                ),
+                evidence=["aria-tools/memory/uncertainties.jsonl"],
+                occurrence_count=count,
+                candidate_tools=[],
+                recommended_action=(
+                    f"read the repeated '{kind}' rows{subject_note} and fix the "
+                    "producer or the condition; the pressure decays when the rows stop"
+                ),
+            ),
+        )
+    return escalations
+
+
 def _filter_candidate_tools(root: Path, pressures: list[dict[str, Any]]) -> None:
     known_tool_ids = {str(tool.get("tool_id")) for tool in list_tools(base_dir=root)}
     for pressure in pressures:
@@ -406,6 +546,19 @@ def _filter_candidate_tools(root: Path, pressures: list[dict[str, Any]]) -> None
         pressure["candidate_tools"] = filtered
         missing = sorted(set(original) - set(filtered))
         if missing and not filtered:
+            # A stripped tool binding is a BLOCK, not an aside. This branch
+            # used to record only the advisory row below, so a pressure whose
+            # every candidate tool had vanished from the registry stayed
+            # fully schedulable: it scored, won a next_cycle_plan slot, was
+            # enqueued, and could never run — nine identical advisory rows
+            # and zero escalation, every cycle, self-sustaining. `blocked_by`
+            # is minted empty on every pressure precisely so states like
+            # this one have somewhere structural to live; the queue writer
+            # refuses items that carry it (see reflection.py), which makes
+            # the unrunnable state unschedulable rather than merely logged.
+            pressure["blocked_by"] = [
+                f"candidate_tool_unregistered:{tool_id}" for tool_id in missing
+            ]
             append_jsonl(
                 root / "memory" / "uncertainties.jsonl",
                 {
@@ -674,13 +827,17 @@ def _pressure(
     belief_id: str | None = None,
     tool_id: str | None = None,
     weights: dict[str, int] | None = None,
+    discriminator: str | None = None,
 ) -> dict[str, Any]:
     recency_decay = 1.0
     base_weight = (weights or SOURCE_WEIGHTS)[source]
     count = max(1, occurrence_count)
     raw_score = base_weight * recency_decay * (1 + math.log10(count))
     score = round(min(100.0, raw_score), 3)
-    pressure_id_parts = [source, belief_id or tool_id or pressure_type.lower()]
+    # `discriminator` exists for sources that fan out by subject (one
+    # uncertainty kind per pressure) without polluting belief_id/tool_id,
+    # whose fields carry semantics downstream.
+    pressure_id_parts = [source, discriminator or belief_id or tool_id or pressure_type.lower()]
     return {
         "schema_version": 1,
         "pressure_id": "pressure:" + ":".join(_slug(part) for part in pressure_id_parts if part),

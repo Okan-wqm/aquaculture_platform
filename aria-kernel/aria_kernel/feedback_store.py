@@ -38,6 +38,24 @@ def raw_findings_path(base_dir: str | Path | None = None) -> Path:
     return ensure_tools_dir(base_dir) / "raw-findings.jsonl"
 
 
+def promotions_path(base_dir: str | Path | None = None) -> Path:
+    """D3 — fingerprint → committed-finding memory (finding_promotion writes)."""
+    return ensure_tools_dir(base_dir) / "promotions.jsonl"
+
+
+def _promoted_fingerprints(base_dir: str | Path | None) -> set[str]:
+    # D3 (K4 symmetry) — the TRUE-positive analog of confirmed-FP
+    # suppression: a fingerprint with a committed finding is settled and
+    # must never be re-judged; before this, the same real finding was
+    # re-sampled and re-judged every single cycle forever.
+    path = promotions_path(base_dir)
+    return {
+        str(row.get("finding_fingerprint"))
+        for row in (load_jsonl(path) if path.exists() else [])
+        if row.get("finding_fingerprint")
+    }
+
+
 def record_raw_findings_for_run(
     run: dict[str, Any],
     findings: list[Any] | None = None,
@@ -98,6 +116,13 @@ def record_findings_for_run(run: dict[str, Any], base_dir: str | Path | None = N
             continue
         fingerprint = finding_fingerprint(run["tool_id"], finding)
         suppressed = _confirmed_false_positive_fingerprints(base_dir).get(fingerprint)
+        # E15-a — mint-time service dimension, derived from the paths the
+        # finding itself cites (operator direction: findings organised by
+        # microservice, so per-service audits and service-specific agents
+        # have an axis to stand on).
+        from .service_dimension import finding_dimension_paths, service_dimension
+
+        dimension = service_dimension(finding_dimension_paths(finding))
         append_jsonl(
             findings_path(base_dir),
             {
@@ -109,9 +134,29 @@ def record_findings_for_run(run: dict[str, Any], base_dir: str | Path | None = N
                 "status": "suppressed_false_positive" if suppressed else "open",
                 "finding_fingerprint": fingerprint,
                 "suppressed_by_feedback": suppressed,
+                "service": dimension["service"],
+                "services": dimension["services"],
                 "finding": finding,
             },
         )
+        # Every LIVE finding also lands in the calibration seeding ledger,
+        # which is the pool the operator labels from. `record_seeding_finding`
+        # existed with zero production callers, so the pool was permanently
+        # empty and the bootstrap's own operator workflow began at a ledger
+        # nothing ever filled. Suppressed FPs are excluded — the operator
+        # already spoke about those.
+        if not suppressed:
+            try:
+                from .calibration_bootstrap import record_seeding_finding
+                record_seeding_finding(
+                    tool_id=str(run["tool_id"]),
+                    finding={**finding, "finding_fingerprint": fingerprint, "run_id": run["run_id"]},
+                    base_dir=base_dir,
+                )
+            except GovernanceError:
+                # Seeding refusal (e.g. duplicate fingerprint) must not cost
+                # the finding record itself.
+                pass
 
 
 def mark_findings_need_revalidation(tool_id: str, base_dir: str | Path | None = None) -> int:
@@ -133,6 +178,7 @@ def list_findings(
     *,
     tool_id: str | None = None,
     status: str | None = None,
+    service: str | None = None,
     base_dir: str | Path | None = None,
 ) -> list[dict[str, Any]]:
     rows = load_jsonl(findings_path(base_dir))
@@ -140,6 +186,15 @@ def list_findings(
         rows = [row for row in rows if row.get("tool_id") == tool_id]
     if status is not None:
         rows = [row for row in rows if row.get("status") == status]
+    if service is not None:
+        # E15-a — legacy rows carry no mint-time dimension; derive at
+        # read time from the same collector the mint uses, so old and
+        # new rows can never disagree about their own service. The
+        # shared row reader (E15-c) keeps this filter and the
+        # service-auditor targeting trigger on one derivation.
+        from .service_dimension import services_for_finding_row
+
+        rows = [row for row in rows if service in services_for_finding_row(row)]
     return rows
 
 
@@ -326,7 +381,25 @@ def generate_ai_consensus(
     min_confidence: float = CONSENSUS_MIN_CONFIDENCE,
     workspace_root: str | Path | None = None,
     base_dir: str | Path | None = None,
+    judge_weights: dict[str, float] | None = None,
+    conformal_floor: float | None = None,
 ) -> dict[str, Any]:
+    """Kalibre Zekâ Z2a/Z2c — both knobs default OFF, preserving the
+    legacy gate bit for bit:
+
+    * ``judge_weights`` (judge_id -> Beta-posterior precision mean, from
+      ``calibrated_intelligence.judge_weights_from_calibration``): the
+      unanimity requirement becomes a WEIGHTED vote — the winning verdict
+      must carry a strict majority of total weight AND every dissenter's
+      weight share stays under the margin; with two equal judges a single
+      dissenter still escalates, exactly like unanimity, so behaviour only
+      shifts when the fleet grows or posteriors genuinely separate.
+    * ``conformal_floor`` (from ``conformal_threshold`` over past CORRECT
+      consensus confidences): a passing consensus whose confidence falls
+      below the floor abstains to a human (``conformal_abstain``) with the
+      distribution-free guarantee that at most ~alpha of genuinely-correct
+      consensuses are escalated.
+    """
     if min_confidence < 0 or min_confidence > 1:
         raise GovernanceError("min_confidence must be between 0 and 1")
     ai_rows = [
@@ -360,12 +433,50 @@ def generate_ai_consensus(
             uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "single_judge"))
             continue
         verdicts = {str(row.get("verdict") or "") for row in rows}
-        avg_confidence = sum(float(row.get("confidence") or 0.0) for row in rows) / len(rows)
-        if len(verdicts) != 1:
-            uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "judge_disagreement"))
+        # Kalibre Zekâ Z2b — a judge whose bridge stored confidence=None used
+        # to be coerced to 0.0, silently dragging the mean under the 0.80
+        # gate: a unanimous, correct pair could escalate as "low_confidence"
+        # because one row lacked a number. Absent confidence now stays out of
+        # the mean; a group with NO numeric confidence at all escalates under
+        # its own name instead of masquerading as low confidence.
+        confidences = [
+            float(row["confidence"]) for row in rows
+            if isinstance(row.get("confidence"), (int, float))
+        ]
+        if judge_weights is None:
+            if len(verdicts) != 1:
+                uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "judge_disagreement"))
+                continue
+        else:
+            # Z2a — weighted vote. Weight-by-verdict; unknown judges weigh
+            # at the neutral prior mean so a new judge neither dominates
+            # nor vanishes. Strict-majority + margin: the winner needs
+            # > 0.5 + margin of total weight, which with two equal judges
+            # degenerates to unanimity — the legacy guarantee survives.
+            _prior_mean = 0.8
+            _margin = 0.10
+            by_verdict: dict[str, float] = {}
+            for judge_id, row in by_judge.items():
+                weight = float(judge_weights.get(judge_id, _prior_mean))
+                by_verdict[str(row.get("verdict") or "")] = by_verdict.get(str(row.get("verdict") or ""), 0.0) + weight
+            total_weight = sum(by_verdict.values()) or 1.0
+            winner, winner_weight = max(by_verdict.items(), key=lambda kv: kv[1])
+            if winner_weight / total_weight <= 0.5 + _margin:
+                uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "judge_disagreement"))
+                continue
+            verdicts = {winner}
+        if not confidences:
+            uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "missing_confidence"))
             continue
+        avg_confidence = sum(confidences) / len(confidences)
         if avg_confidence < min_confidence:
             uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "low_confidence"))
+            continue
+        # Z2c — conformal abstention: below the calibrated floor, a
+        # passing consensus still routes to a human. The floor is None on
+        # a short window, so this gate never fires before evidence exists.
+        if conformal_floor is not None and avg_confidence < conformal_floor:
+            uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "conformal_abstain"))
             continue
         # Plan 024 §C — evidence-gated arbiter. When a workspace is supplied, the
         # union of judge evidence is only published as consensus if it actually
@@ -397,16 +508,34 @@ def generate_ai_consensus(
             ),
         )
     if uncertainties:
-        append_jsonl(
-            ensure_tools_dir(base_dir) / "feedback-consensus-uncertainties.jsonl",
-            {
-                "schema_version": 1,
-                "recorded_at": utc_now(),
-                "tool_id": tool_id,
-                "cycle_id": cycle_id,
-                "uncertainties": uncertainties,
-            },
-        )
+        # D2 (Kapalı Döngü) — re-emission dedup. With the ledger-derived
+        # pending set (cycle_id=None), a permanently stuck group
+        # (single_judge, low_confidence, …) would re-enter this list EVERY
+        # cycle and append an identical uncertainty forever — unbounded
+        # ledger growth for zero information. The escalation_id is already
+        # stable per distinct failure; skip the ones the ledger has seen.
+        uncertainties_path = ensure_tools_dir(base_dir) / "feedback-consensus-uncertainties.jsonl"
+        seen_escalations: set[str] = set()
+        for logged in load_jsonl(uncertainties_path) if uncertainties_path.exists() else []:
+            for item in logged.get("uncertainties") or []:
+                escalation = item.get("escalation_id")
+                if escalation:
+                    seen_escalations.add(str(escalation))
+        fresh_uncertainties = [
+            item for item in uncertainties
+            if str(item.get("escalation_id") or "") not in seen_escalations
+        ]
+        if fresh_uncertainties:
+            append_jsonl(
+                uncertainties_path,
+                {
+                    "schema_version": 1,
+                    "recorded_at": utc_now(),
+                    "tool_id": tool_id,
+                    "cycle_id": cycle_id,
+                    "uncertainties": fresh_uncertainties,
+                },
+            )
     return {
         "schema_version": 1,
         "tool_id": tool_id,
@@ -491,6 +620,16 @@ def _sampleable_raw_findings(
         for row in load_feedback(tool_id=tool_id, base_dir=base_dir)
     }
     confirmed_false_positive_fingerprints = _confirmed_false_positive_fingerprints(base_dir)
+    # `_confirmed_false_positive_fingerprints` is a dict (fingerprint →
+    # suppressing row); only its keys matter for the settled test.
+    settled_fingerprints = set(confirmed_false_positive_fingerprints) | _promoted_fingerprints(base_dir)
+    # D4 — a rule whose measured FP rate earned quarantine stops consuming
+    # judge capacity entirely; its repair work item already exists
+    # (rule_health.commit_rule_defect_findings). Function-level import
+    # breaks the module cycle (rule_health reads this module's ledgers).
+    from .rule_health import quarantined_rules
+
+    quarantined = quarantined_rules(base_dir)
     candidates = []
     for row in load_jsonl(raw_findings_path(base_dir)):
         if row.get("tool_id") != tool_id:
@@ -507,7 +646,9 @@ def _sampleable_raw_findings(
         if not finding_id or not run_id or (run_id, finding_id) in existing_feedback:
             continue
         fingerprint = str(row.get("finding_fingerprint") or finding_fingerprint(tool_id, finding))
-        if fingerprint in confirmed_false_positive_fingerprints:
+        if fingerprint in settled_fingerprints:
+            continue
+        if (tool_id, str(finding.get("rule") or "").strip()) in quarantined:
             continue
         candidates.append(_sample_item_from_finding(tool_id, run_id, row.get("cycle_id"), finding_id, finding, fingerprint))
     if candidates:
@@ -525,7 +666,9 @@ def _sampleable_raw_findings(
             if not finding_id or (run_id, finding_id) in existing_feedback:
                 continue
             fingerprint = finding_fingerprint(tool_id, finding)
-            if fingerprint in confirmed_false_positive_fingerprints:
+            if fingerprint in settled_fingerprints:
+                continue
+            if (tool_id, str(finding.get("rule") or "").strip()) in quarantined:
                 continue
             candidates.append(_sample_item_from_finding(tool_id, run_id, run.get("cycle_id"), finding_id, finding, fingerprint))
     return _cap_candidates_by_rule(candidates, limit=50)
@@ -850,14 +993,47 @@ def _consensus_uncertainty(
     }
 
 
+# ORPHAN-668 — filename→declared-surface routing for every ledger this
+# store (and its callers: proactive_priority, judge_calibration) writes.
+# Raw-findings established the pattern; the verdict/calibration ledgers
+# joined the state manifest so their rows survive the nightly publish,
+# and a declared surface REFUSES the legacy chained append — routing here
+# keeps every callsite on the single store-level write primitive. The
+# seeding corpus files (operator-feedback-seeding/*/raw-findings.jsonl)
+# do NOT flow through this store — calibration_bootstrap declares its own
+# surface — so the "raw-findings.jsonl" name below can stay unambiguous.
+_DECLARED_SURFACE_BY_FILENAME: dict[str, str] = {
+    "raw-findings.jsonl": "raw_findings",
+    "operator-feedback.jsonl": "operator_feedback",
+    "judgment-samples.jsonl": "judgment_samples",
+    "feedback-consensus-uncertainties.jsonl": "feedback_consensus_uncertainties",
+    "priorities.jsonl": "proactive_priorities",
+    "judge-calibration.jsonl": "calibration_judge",
+    # ORPHAN-670 — the tool-finding and promotion ledgers joined the
+    # declared roster (they died at job teardown before).
+    "findings.jsonl": "findings",
+    "promotions.jsonl": "promotions",
+}
+
+
 def append_jsonl(path: Path, payload: dict[str, Any]) -> None:
-    if path.name == "raw-findings.jsonl":
-        append_declared_jsonl(path, payload, expected_surface="raw_findings")
+    surface = _DECLARED_SURFACE_BY_FILENAME.get(path.name)
+    if surface is not None:
+        append_declared_jsonl(path, payload, expected_surface=surface)
         return
     append_chained_jsonl(path, payload)
 
 
 def rewrite_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
+    # ORPHAN-670 — a declared surface refuses the legacy chained rewrite
+    # just like the legacy append; route through the same filename map so
+    # the status-update path (finding open→resolved) keeps one primitive.
+    surface = _DECLARED_SURFACE_BY_FILENAME.get(path.name)
+    if surface is not None:
+        from .ledger import rewrite_declared_jsonl
+
+        rewrite_declared_jsonl(path, rows, expected_surface=surface)
+        return
     rewrite_chained_jsonl(path, rows)
 
 

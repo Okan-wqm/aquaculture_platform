@@ -224,6 +224,31 @@ def resolve_human_required(
                 base_dir=root,
             )
             record["operator_verdict"] = verdict
+        elif ctx.get("kind") == "belief_escalation" and ctx.get("belief_id"):
+            # M4+M8/E8 — the belief-verdict bridge. `affected_belief_ids`
+            # existed on the feedback row and `_feedback_adjustment` read
+            # it, but no producer ever passed it: verdicts could not move
+            # belief confidence. The GENERAL producer (bind beliefs to
+            # findings by evidence overlap) is comprehension-program work —
+            # mechanical file-matching would smuggle back the drift the
+            # field avoids. But HERE the affected belief is exact by
+            # construction: the operator is adjudicating this belief's own
+            # standing contradiction. run_id names the escalation record
+            # and finding_id names its own kind — real identities, not
+            # pointers to findings that do not exist.
+            belief_id = str(ctx["belief_id"])
+            record_operator_feedback(
+                tool_id=str(ctx.get("source_tool_id") or "unknown"),
+                run_id=request_id,
+                finding_id=f"belief-escalation:{belief_id}",
+                verdict=verdict,
+                severity="medium",
+                note=f"operator adjudication of belief escalation {request_id}",
+                affected_belief_ids=[belief_id],
+                source_type="human",
+                base_dir=root,
+            )
+            record["operator_verdict"] = verdict
 
     path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     append_tools_governance(
@@ -281,6 +306,19 @@ def sweep_lease_lifecycle_for_human_required(
                 f"lease lifecycle exhausted requeues for request {rid!r} "
                 f"(requeue_count={requeue_count}); operator follow-up required."
             ),
+            # E3/F12 — `lease_lifecycle` has always been an ADMITTED
+            # adjudication kind, but this producer wrote no context, so
+            # the classifier answered `no_context_to_classify` and every
+            # lease exhaustion parked on the operator forever. Live proof:
+            # 7 of the 9 records in the human-required box were exactly
+            # this shape. A capacity fault is machine-adjudicable.
+            context={
+                "kind": "lease_lifecycle",
+                "request_id": rid,
+                "role": request.get("role"),
+                "target_agent": request.get("target_agent"),
+                "requeue_count": requeue_count,
+            },
             base_dir=root,
             now=now,
         )
@@ -300,6 +338,14 @@ CONSENSUS_UNCERTAINTY_SEVERITY = {
     # Plan 024 §C — a judge citing evidence that does not resolve in the repo is
     # a fabrication signal; the cheap tier must not be rubber-stamped on it.
     "evidence_not_repo_verified": "HIGH",
+    # Kalibre Zekâ Z2b — a judge group with no numeric confidence at all is
+    # a bridge/schema fault, not a quality verdict; it escalates under its
+    # own name (a reason absent from this map is silently dropped as
+    # benign_not_escalated — that is why this entry MUST exist).
+    "missing_confidence": "MEDIUM",
+    # Z2c — a passing consensus below the calibrated conformal floor is a
+    # statistically-guaranteed "too uncertain to auto-accept" signal.
+    "conformal_abstain": "HIGH",
 }
 
 
@@ -327,6 +373,16 @@ def sweep_consensus_uncertainties_for_human_required(
     created: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     seen_escalations: set[str] = set()
+    # E14 — arbitration first, the operator as the fallback. A split verdict
+    # now mints a `consensus_arbitration` envelope (judge_fanout), and that
+    # arbiter is one of the three agents this escalation's adjudication panel
+    # would dispatch anyway: escalating while arbitration is still in flight
+    # asks the same agent the same question twice. Once arbitration reaches a
+    # terminal state and the group is still unsettled, the escalation is raised
+    # on the next sweep — nothing is dropped, only ordered.
+    from .judge_fanout import pending_arbitration_group_ids
+
+    arbitration_pending = pending_arbitration_group_ids(base_dir=root)
     # Plan 026R §A.3 — route the JSONL read through the strict reader instead
     # of a bare silent-skip; a corrupt row emits a ledger-corruption diagnostic
     # rather than vanishing. Tolerant mode so one bad row cannot block
@@ -347,6 +403,14 @@ def sweep_consensus_uncertainties_for_human_required(
             if escalation_id in seen_escalations:
                 continue
             seen_escalations.add(escalation_id)
+            group_id = str(unc.get("judgment_group_id") or "")
+            if group_id and group_id in arbitration_pending:
+                skipped.append({
+                    "request_id": escalation_id,
+                    "judgment_group_id": group_id,
+                    "reason": "arbitration_in_flight",
+                })
+                continue
             if _human_required_path(root, escalation_id).exists():
                 skipped.append({"request_id": escalation_id, "reason": "already_recorded"})
                 continue

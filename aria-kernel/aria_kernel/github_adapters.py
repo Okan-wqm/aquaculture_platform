@@ -147,6 +147,13 @@ class RecordingGitHubAdapter:
         self._record("get_unresolved_conversation_count", number=number)
         return {"count": 0}
 
+    def get_open_issues(self, *, labels: list[str]) -> dict[str, Any]:
+        self._record("get_open_issues", labels=list(labels))
+        # Minimal-shape stub that fails CLOSED, matching this adapter's other
+        # stubs: a recording profile never fetched the issue list, so it cannot
+        # claim there is no incident.
+        return {"readable": False, "reason": "recording_adapter_no_fetch", "issues": []}
+
     def get_pr_diff(self, number: int) -> str | None:
         self._record("get_pr_diff", number=number)
         # Empty diff → evaluate_auto_merge fails closed (Plan 023 v3
@@ -236,3 +243,115 @@ def select_github_adapter(
         f"unknown profile for github_adapter selection: {profile!r}; "
         f"known: {sorted(_REAL_ADAPTER_PROFILES | _RECORDING_ADAPTER_PROFILES)}"
     )
+
+
+# --- Own-PR CI checks reader (Plan "Own-PR CI Feedback", ORPHAN-HIGH-626) ---
+#
+# WHY a separate selector: the real-vs-recording split above exists for
+# WRITE safety — `standard` must not merge, comment, or push. Reading the
+# check conclusions of ARIA's OWN pull requests is observation, and the
+# standard nightly is exactly the profile that needs it: without it, ARIA
+# pushes a branch, CI goes red, and nothing ARIA runs ever learns.
+# `observe`/`frozen` stay on the recording side — those profiles promise no
+# network at all.
+
+_CHECKS_READER_REAL_PROFILES: frozenset[str] = frozenset(
+    {"strict", "autonomous", "standard"}
+)
+
+
+class RealChecksReader:
+    """Read-only: list own PRs + snapshot one PR's checks. No write verbs."""
+
+    def __init__(self, cwd: str | Path = ".") -> None:
+        self._cwd = Path(cwd)
+
+    def readable(self) -> tuple[bool, str]:
+        import shutil as _shutil
+
+        if _shutil.which("gh") is None:
+            return (False, "gh_cli_absent")
+        if not (os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")):
+            return (False, "gh_token_absent")
+        return (True, "ok")
+
+    def list_own_prs(self) -> list[dict[str, Any]]:
+        import json as _json
+        import subprocess as _subprocess
+
+        completed = _subprocess.run(
+            ["gh", "pr", "list", "--state", "open", "--limit", "100",
+             "--json", "number,headRefName"],
+            cwd=self._cwd, capture_output=True, text=True, check=False,
+        )
+        if completed.returncode != 0:
+            return []
+        try:
+            rows = _json.loads(completed.stdout or "[]")
+        except _json.JSONDecodeError:
+            return []
+        return [row for row in rows if isinstance(row, dict)]
+
+    def pr_snapshot(self, pr_number: int) -> dict[str, Any] | None:
+        from .ci import _gh_pr_snapshot
+        from .tool_registry import GovernanceError as _GovernanceError
+
+        try:
+            return _gh_pr_snapshot(pr_number=pr_number, workspace_root=self._cwd)
+        except (_GovernanceError, OSError, ValueError):
+            return None
+
+    def pr_merge_state(self, pr_number: int) -> dict[str, Any] | None:
+        """E2/F1 — merged-or-not for one PR, from GitHub truth.
+
+        The implementation reconciler asks this about plans resting in
+        IMPLEMENTATION_RECORDED: the operator (never ARIA) merges the PR
+        on GitHub, and this read is how that external fact reaches the
+        plan ledger as `implementation_merged`.
+        """
+        import json as _json
+        import subprocess as _subprocess
+
+        completed = _subprocess.run(
+            ["gh", "pr", "view", str(pr_number),
+             "--json", "state,mergedAt,mergeCommit,number"],
+            cwd=self._cwd, capture_output=True, text=True, check=False,
+        )
+        if completed.returncode != 0:
+            return None
+        try:
+            row = _json.loads(completed.stdout or "{}")
+        except _json.JSONDecodeError:
+            return None
+        return row if isinstance(row, dict) else None
+
+
+class RecordingChecksReader:
+    """The observing profiles' reader: never touches the network, says so."""
+
+    def __init__(self, profile: str) -> None:
+        self._profile = profile
+
+    def readable(self) -> tuple[bool, str]:
+        return (False, f"profile_{self._profile}_records_only")
+
+    def list_own_prs(self) -> list[dict[str, Any]]:
+        return []
+
+    def pr_snapshot(self, pr_number: int) -> dict[str, Any] | None:
+        return None
+
+    def pr_merge_state(self, pr_number: int) -> dict[str, Any] | None:
+        return None
+
+
+def select_checks_reader(
+    *,
+    profile: str,
+    cwd: str | Path = ".",
+) -> Any:
+    if _aria_dry_run_active():
+        return RecordingChecksReader(profile=f"{profile}_dry_run")
+    if profile in _CHECKS_READER_REAL_PROFILES:
+        return RealChecksReader(cwd=cwd)
+    return RecordingChecksReader(profile=profile)

@@ -2,6 +2,127 @@
 
 Program plan: [`PLAN.md`](./PLAN.md). Newest entries first.
 
+## 2026-08-07 — the alarm nobody heard, and the bind that was spelled as a migration
+
+Two findings closed, and in both the finding's own recorded fix shape was wrong.
+Correcting them is most of what the day produced.
+
+**`ORPHAN-MEDIUM-562` — the watchdog reports a stalled memory and freezes
+nothing.** PLAN Wave 2 asks for `MERGE_FROZEN` on a watchdog anomaly; the
+watchdog shipped the notification half only, and its own body says so. The
+freeze now lives in `merge_authority.merge_pr_if_ready` and reads the incident
+from the watchdog's own manifest, failing closed on an unreadable answer.
+
+The finding proposed refusing in the `aria-merge-authority` workflow "because it
+is already a required check". Measured, that is exactly why it cannot be: it is
+required on main and runs on every `pull_request`, so refusing there blocks
+every human pull request including the one repairing the stall. A second
+deadlock was avoided the same way — a circuit-breaker kind would stop the cycle
+at preflight, but the watchdog fires when the `aria/state` tip stalls and the
+cycle is what advances it. The breaker is for failures the cycle recovers from
+by _not_ acting; this is one it recovers from by acting.
+
+**`ORPHAN-HIGH-556` — the restore bind is spelled as a migration.** Measured on
+the real restore path, every night: a full tools-tree backup, a rewrite of every
+covered ledger, and nine migration-ceremony rows — to re-establish a binding.
+
+The finding said the rewrite permit expiring 2026-12-31 would kill every restore
+on 2027-01-01. Driven directly, it does not: the allowance is consulted **zero**
+times, because the declared-surface check that would consult it needs
+`repo_identity.json` — the one file a restored tree lacks. A bound-tree control
+row proves the probe can see. So the permit is decoration, and the real hazard
+is larger than the recorded one: ARIA rewrote every covered ledger of its
+hash-chained memory inside the one window where its own guard was blind.
+
+Root cause: `repo_identity.json` mixes three scopes, and the single host-scoped
+field — an absolute path — made the whole file unpublishable. The tree could not
+state its own contract version, so it read 0. `tools_contract.json` is now a
+declared surface carrying the publishable half, written by one function rather
+than five copies, and `tools_binding.bind_tools_root` binds first and migrates
+only a bound tree that is behind. On the nightly path: one file, one governance
+row.
+
+Two things fell out. A store published for another repository is now refused
+instead of silently rebound — before the split there was nothing to compare
+against. And `_guard_tools_lock` carried a hardcoded roster of operations
+allowed to write while holding their own lock; the new bind was the next
+operation anyone added, took the lock correctly, and could not write its own row.
+That is `ORPHAN-HIGH-569`'s shape in a lock guard, and re-entrancy is now a
+property of holding the lock.
+
+**Method.** Fifteen mutations across the two findings, each applied, run, and
+reverted, with the baseline confirmed green on both sides. Twice the mutation
+was of an _absence_ assertion — that no breaker kind exists, that the required
+check does not read the incident — and both were driven with the forbidden thing
+actually in place, because an absence-assertion passes for free otherwise. One
+regression was found by a test rather than by review: binding after migrating
+left `migrate_tools_v2_to_v3` without the identity it refuses to run without.
+
+## 2026-08-06 — the defect class the programme kept meeting, named twice
+
+Two shapes were closed this day, and they are worth recording together because
+each was first met as a single bug and only became tractable once it was asked
+mechanically.
+
+**"Correct, tested, exported — and called by nobody."** `ORPHAN-CRITICAL-498`,
+`ORPHAN-HIGH-569`, `ORPHAN-MEDIUM-571` and `ORPHAN-MEDIUM-572` are one defect
+wearing four names, and every instance was found by a human noticing. Measured:
+of 85 public control-verb callables in `aria_kernel`, **18 were referenced by no
+production module at all**. The worst was `verify_no_secret_in_envelope`, whose
+own docstring calls it a hard-fail check on the agent-response envelope —
+exported, tested, absent from `HARD_FAIL_CHECKS`, called by nothing, while its
+sibling scanning diffs _was_ wired. `ORPHAN-HIGH-573` makes it a test failure
+(#1110).
+
+**"Committing inside an unguarded loop."** `ORPHAN-HIGH-575` was found by reading
+a traceback: one `TypeError` on the repository's most ordinary commit shape —
+code plus its own review document — escaped the loop over every pending dispatch
+and disabled impact-graph computation for a whole cycle. Fixing the `TypeError`
+removed the instance. Asking mechanically removed the assumption: **12 of the 16
+cycle learning hooks, across 7 modules**, commit as they iterate, so item _k_
+raising leaves items 1.._k_-1 on disk, skips _k_+1.._n_, and collapses the report
+to one wholesale failure. `ORPHAN-HIGH-578` closes it (#1121).
+
+**What the two have in common is the lesson.** A green suite is no evidence
+against either, because the tests call the thing directly — that is precisely how
+it stays green while governing nothing. Both cures are the same mechanism reused
+rather than reinvented: enumerate what should hold, derive the roster instead of
+listing it, require a declared waiver with an expiry compared **to the clock**,
+and give the gate a positive control so "found nothing" can be told apart from
+"cannot see". Both gates were caught being wrong in exactly that way before they
+shipped — one counted an `import` as a use; the other stayed green when its scan
+was blinded.
+
+**Honest limits, recorded so a green gate is not read as more than it is.**
+`control_reachability` asks whether a control is _called_, not whether its
+refusal branch is _reachable_ — `ORPHAN-HIGH-577` is the live counter-example and
+stays OPEN pending an operator policy decision, because a check that cannot
+refuse is false assurance and both honest fixes need intent this session does not
+have. `batch_containment` makes containment the zero-effort default, not a
+structural impossibility, and its gate covers the 16 cycle learning hooks only;
+the same shape elsewhere in the kernel is unmeasured.
+
+**Also measured, correcting two of my own earlier claims.** ARIA does not
+autonomously merge today: the nightly runs `--profile standard`, which selects
+`NoOpAutoMergeRunner`; real merging needs `strict` or `autonomous`, which the
+scheduled lane never uses. And `evaluate_v9_implementation_merge`'s hardcoded
+`eligible=False` is not a defect but a deliberately demoted fail-closed surface,
+with `auto_merge.merge_if_green` as the only real executor.
+
+**Neither of those measurements says anything about `ORPHAN-MEDIUM-562`, and an
+earlier version of this entry claimed they did.** 562 is not about whether ARIA
+merges autonomously; it is that the external watchdog **notifies but cannot
+freeze** — it files an incident issue and fails its own run, while PLAN Wave 2
+specifies a `MERGE_FROZEN` breaker. The finding already records the correct
+shape, so this is tracked work with a known fix rather than a decision waiting on
+the operator: the freeze must be an alarm the MERGE side READS, not a write the
+watchdog performs, because freezing writes the breaker ledger, that requires
+importing the kernel, and every failure the watchdog exists to catch is a failure
+of that kernel — a watchman that dies of the illness it watches for is not a
+watchman. `aria-merge-authority` is already a required check and can refuse while
+a watchdog incident issue is open, which keeps the dependency pointing the safe
+way. Until it lands, a stalled ARIA memory is visible but not enforcing.
+
 ## 2026-08-04 — Wave 1 PR 2.6b: the lane cutover (written, not yet exercised)
 
 Merged as `249a5e940` (#1073). Both scheduled lanes now restore from and publish

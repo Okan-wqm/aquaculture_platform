@@ -6,10 +6,10 @@ name: Security - Trivy
 on:
   # Only run on main branch pushes (not every PR)
   push:
-    branches: [ main ]
+    branches: [main]
   # Weekly instead of daily (saves runner minutes)
   schedule:
-    - cron: '0 3 * * 0'  # Sunday at 3 AM
+    - cron: '0 3 * * 0' # Sunday at 3 AM
   workflow_dispatch:
 
 jobs:
@@ -18,11 +18,11 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
-      security-events: write  # Required for SARIF upload
+      security-events: write # Required for SARIF upload
     steps:
       - name: Checkout repository
         # SEC-CI-002: pinned to SHA
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # SEC-CI-008: fs scan is informational (exit-code 0) — it covers dev dependencies
       # in package-lock.json/Cargo.lock that are NOT present in production Docker images.
@@ -42,7 +42,7 @@ jobs:
 
       - name: Upload SARIF results
         # SEC-CI-002: pinned to SHA
-        uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
         with:
           sarif_file: trivy-fs.sarif
         if: always()
@@ -52,6 +52,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # This job uploads SARIF, so it needs the same grant its sibling
+    # trivy-fs-scan declares. Without it the scan still runs and still finds
+    # CVEs, and the upload is rejected with "Resource not accessible by
+    # integration" — the findings never reach the Security tab and the scan
+    # measures nothing.
+    permissions:
+      contents: read
+      security-events: write
     env:
       # OCI distribution-spec requires lowercase image references
       # (https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pulling-manifests).
@@ -62,7 +70,7 @@ jobs:
     steps:
       - name: Checkout repository
         # SEC-CI-002: pinned to SHA
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Pull pre-built image from GHCR
         run: |
@@ -84,7 +92,7 @@ jobs:
 
       - name: Upload image scan SARIF results
         # SEC-CI-002: pinned to SHA
-        uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
         with:
           sarif_file: trivy-image.sarif
         if: always()

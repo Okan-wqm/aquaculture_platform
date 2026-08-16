@@ -1,7 +1,7 @@
 {
   "tool_id": "test-gap-adapter",
   "kind": "adapter",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "status": "SHADOW",
   "declared_scope": [
     "apps/**/*.{ts,tsx}",
@@ -14,7 +14,9 @@
     "required": ["observations", "findings", "read_paths", "evidence_sources"]
   },
   "fixture_set": "tools/aria-adapters/fixtures/test-gap-adapter",
-  "health_thresholds": {"max_cost_units": 5500},
+  "health_thresholds": {
+    "max_cost_units": 5500
+  },
   "default_input": {
     "roots": ["apps", "libs", "platform/libs", "web"],
     "includeWriteBoundaryFindings": false
@@ -29,7 +31,18 @@
     "web/**/*.ts",
     "web/**/*.tsx"
   ],
-  "forbidden_read_globs": [".claude/**", ".git/**", "agent-workspace/**", ".aria-poc/**", "aria-tools/**", "node_modules/**", "dist/**", "coverage/**", "build/**", "tmp/**"],
+  "forbidden_read_globs": [
+    ".claude/**",
+    ".git/**",
+    "agent-workspace/**",
+    ".aria-poc/**",
+    "aria-tools/**",
+    "node_modules/**",
+    "dist/**",
+    "coverage/**",
+    "build/**",
+    "tmp/**"
+  ],
   "claim_types": ["test_gap"],
   "owner": "platform",
   "runner": {
@@ -43,7 +56,10 @@
     ],
     "cwd": ".",
     "timeout_ms": 180000,
-    "stdin_json": true
+    "stdin_json": true,
+    "node_max_old_space_mb": 3072
   },
+  "freshness_window_hours": 168,
+  "parse_window_signature": "sha256:ddf30a8910c1c38fe624009d58cc057efa8d6af46dd25e0fa7d652dd43d28507",
   "schema_version": 1
 }

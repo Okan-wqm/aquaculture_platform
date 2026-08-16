@@ -7,7 +7,8 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_jsonl
+from .batch_containment import guard_item, with_item_failures
 from .pressure import effective_workspace_pressures
 from .tool_registry import append_tools_governance, update_tools_index
 from .workspace import WorkspacePaths
@@ -31,6 +32,7 @@ def semantic_dedup_compute(
     pressures = [row for row in effective_workspace_pressures(paths) if row.get("effective_state") in {"active", "faded", "sleeping"}]
     existing = {_cluster_identity(row) for row in load_jsonl(root / "problem_clusters.jsonl")}
     clusters: list[dict[str, Any]] = []
+    item_failures: list[dict[str, Any]] = []
     used: set[str] = set()
     for pressure in pressures:
         primary = _pressure_id(pressure)
@@ -53,20 +55,38 @@ def semantic_dedup_compute(
         identity = _cluster_identity(row)
         if identity in existing:
             continue
-        stored = append_jsonl(root / "problem_clusters.jsonl", row)
-        update_tools_index(root)
-        append_tools_governance(
-            root,
-            "semantic_cluster_merged",
-            {
-                "cycle_id": cycle_id,
-                "primary_pressure": stored["primary_pressure"],
-                "member_pressures": stored["member_pressures"],
-                "cluster_size": len(stored["member_pressures"]),
-            },
+        # `used` has already absorbed this cluster's members, so a raise here
+        # burns those pressures for the cycle: they are neither clustered nor
+        # available to a later cluster. Containment keeps that damage to one.
+        ok, stored = guard_item(
+            item_failures,
+            item_kind="pressure_cluster",
+            item_id=primary,
+            work=lambda row=row: _store_cluster(root, row, cycle_id=cycle_id),
         )
+        if not ok or stored is None:
+            continue
         clusters.append(stored)
-    return {"schema_version": 1, "cycle_id": cycle_id, "merged_count": len(clusters), "clusters": clusters}
+    return with_item_failures(
+        {"schema_version": 1, "cycle_id": cycle_id, "merged_count": len(clusters), "clusters": clusters},
+        item_failures,
+    )
+
+
+def _store_cluster(root: Path, row: dict[str, Any], *, cycle_id: str) -> dict[str, Any]:
+    stored = append_declared_jsonl(root / "problem_clusters.jsonl", row, expected_surface="problem_clusters")
+    update_tools_index(root)
+    append_tools_governance(
+        root,
+        "semantic_cluster_merged",
+        {
+            "cycle_id": cycle_id,
+            "primary_pressure": stored["primary_pressure"],
+            "member_pressures": stored["member_pressures"],
+            "cluster_size": len(stored["member_pressures"]),
+        },
+    )
+    return stored
 
 
 def _cluster_row(cycle_id: str, members: list[dict[str, Any]]) -> dict[str, Any]:

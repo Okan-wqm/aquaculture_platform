@@ -316,8 +316,28 @@ def run_fixture_case(
         status = "budget_exceeded"
         timed_out = True
 
+    # C3/E13 — a fixture's OWN workspace tree is legitimate evidence scope.
+    # The semantic_regression lane demands curated mini-workspaces under
+    # fixtures/<tool>/workspaces/, but the scope check judged their evidence
+    # against the tool's PRODUCTION read globs — so the lane was not merely
+    # empty, it was unfillable: every curated case died on
+    # evidence_scope_violation. The widening is runner-local and case-scoped
+    # (a copy, never the registry tool), so production scans are untouched
+    # and a fixture still cannot cite paths outside its own tree.
+    evidence_tool = tool
+    try:
+        rel_fixture = fixture_dir.resolve().relative_to(Path(workspace_root).resolve())
+        evidence_tool = {
+            **tool,
+            "allowed_read_globs": [
+                *list(tool.get("allowed_read_globs") or []),
+                f"{rel_fixture.as_posix()}/workspaces/**",
+            ],
+        }
+    except ValueError:
+        pass  # fixture_dir outside the workspace: keep production scope
     evidence_validation = (
-        validate_tool_output_evidence(tool, output, workspace_root) if output is not None else {"valid": False}
+        validate_tool_output_evidence(evidence_tool, output, workspace_root) if output is not None else {"valid": False}
     )
     if status == "ok" and evidence_validation.get("valid") is False:
         status = "evidence_error"

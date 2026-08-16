@@ -1,0 +1,13 @@
+{
+  "name": "real-repo-baseline",
+  "lane": "real_repo_baseline",
+  "input": {
+    "backendRoots": ["apps"],
+    "frontendRoots": ["web"]
+  },
+  "expected": {
+    "status": "ok",
+    "required_observations": ["fe_dto_parity_pair"],
+    "max_findings": 100
+  }
+}

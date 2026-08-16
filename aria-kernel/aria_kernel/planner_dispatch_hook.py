@@ -153,6 +153,27 @@ def _serialise_claim_metadata_for_env(
         "evidence_refs": claim.get("evidence_refs") or [],
         "impact_graph_refs": claim.get("impact_graph_refs") or [],
         "validation_commands": claim.get("validation_commands") or [],
+        # Same reason as the fused claim response in agent_invocations: the
+        # prompt hash was computed over a render that INCLUDED the Twin slice,
+        # so a serialiser that drops it hands the executor a prompt it can
+        # never hash back to the recorded value. Two serialisers, one
+        # contract — they must carry the same fields.
+        "repository_map": claim.get("repository_map"),
+        # FAZ 4 + Z8 — the renderer reads all three, so a serialiser that
+        # drops any of them hands the executor a prompt it can never hash
+        # back to the recorded value (the exact defect class the
+        # repository_map comment above documents). prompt_render_version
+        # selects the tagged v2 body; dropping it re-renders every fresh
+        # row as v1 and fails the binding on the single-claim path.
+        "established_knowledge": claim.get("established_knowledge"),
+        "recent_intent": claim.get("recent_intent"),
+        # E17-b — the quoted evidence bytes. Same contract as the three
+        # sections above: the renderer reads the field, so a serialiser that
+        # drops it hands the executor a prompt whose excerpt section vanished
+        # and whose hash can never match the minted one.
+        "evidence_excerpts": claim.get("evidence_excerpts"),
+        "prompt_render_version": claim.get("prompt_render_version"),
+        "cycle_id": claim.get("cycle_id"),
         "plan_revision_hash": claim.get("plan_revision_hash"),
         "context_hash": claim.get("context_hash"),
         "prompt_hash": claim.get("prompt_hash"),
@@ -184,14 +205,26 @@ def _redact_lease_in_message(message: str, lease_token: str | None) -> str:
 
 
 def _default_ci_executor_path(base_dir: Path) -> Path:
-    """Resolve the ci_executor.py path from base_dir.
+    """Resolve the ci_executor.py path — from the CODE tree, not the store.
 
-    base_dir is the aria-tools directory inside the repo; the repo
-    root is its parent; ci_executor.py lives at
-    <repo>/tools/aria-poc/ci_executor.py. Operators can override via
-    the explicit ``ci_executor_path`` argument when running outside a
-    standard checkout.
+    `base_dir.parent` was correct while the ledgers lived at
+    `<repo>/aria-tools`. After the durable-store cutover ARIA_TOOLS_DIR is
+    `<repo>/.aria-state-store/tools`, so the old arithmetic resolved
+    `<repo>/.aria-state-store/tools/aria-poc/ci_executor.py` — a path
+    inside the STATE branch worktree, which contains no code. Every
+    in-cycle dispatch therefore spawned a nonexistent file (exit 2), the
+    plan state never moved, and the claim it had already taken was held
+    for the whole lease window. Nothing overrode the default: this
+    function's result was the only path any caller used.
+
+    The executor lives in the repository that contains THIS module, so
+    resolve from the package location and fall back to the legacy
+    arithmetic only if that tree does not carry it (installed-package
+    layouts).
     """
+    from_code_tree = Path(__file__).resolve().parents[2] / "tools" / "aria-poc" / "ci_executor.py"
+    if from_code_tree.is_file():
+        return from_code_tree
     return base_dir.parent / "tools" / "aria-poc" / "ci_executor.py"
 
 
@@ -314,7 +347,11 @@ def dispatch_one_pending_planner_request(
     # defensive double-claim reject in agent_invocations was noisy.
     if ci_executor_path is None:
         ci_executor_path = _default_ci_executor_path(root)
-    repo_root = root.parent
+    # PYTHONPATH and cwd must name the CODE tree for the same reason the
+    # executor path does: under the durable store `root.parent` is
+    # `<repo>/.aria-state-store`, which has no `aria-kernel` package and
+    # no repository to work in. Derive both from the resolved executor.
+    repo_root = ci_executor_path.resolve().parents[2]
     argv: list[str] = [
         "python3",
         str(ci_executor_path),

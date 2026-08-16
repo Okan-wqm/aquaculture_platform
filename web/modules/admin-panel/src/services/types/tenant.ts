@@ -247,6 +247,12 @@ export interface CreateTenantAcceptedResponse {
   statusUrl: string;
   retryAfterMs: number;
   availableActions: Array<'retryProvisioning'>;
+  /**
+   * Per-step detail mirroring CreateTenantAcceptedResponse.steps in
+   * apps/admin-api-service/src/tenant/dto/tenant.dto.ts. Always an array — it is
+   * the only place the operator can read WHICH step failed and WHY.
+   */
+  steps: TenantProvisioningStep[];
 }
 
 export interface UpdateTenantDto {

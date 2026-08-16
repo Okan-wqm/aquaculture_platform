@@ -76,6 +76,13 @@ class FakeGitHubAdapter:
         self.fail_merge = fail_merge
         self.merge_calls = []
 
+    def get_open_issues(self, *, labels):
+        # ORPHAN-MEDIUM-562 — merge_pr_if_ready asks the watchdog alarm before
+        # merging and fails closed on an unreadable answer, so a fake that
+        # cannot answer would refuse every merge in this file.
+        _ = labels
+        return {"readable": True, "issues": []}
+
     def get_pr(self, number):
         self.pr_payload["number"] = number
         return dict(self.pr_payload)
@@ -155,6 +162,7 @@ class AutoMergeTests(unittest.TestCase):
             change_id=change_id,
             cmd="nx affected --target=test",
             exit_code=0,
+            duration_ms=1_500,
             log_path=str(log_path),
             commit_sha=head_sha,
             runner_identity="ci-executor:test-auto",

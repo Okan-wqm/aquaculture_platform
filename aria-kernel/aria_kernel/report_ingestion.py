@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .feedback import add_feedback, build_feedback_event, slug
+from .batch_containment import guard_item, with_item_failures
 from .ledger import append_declared_jsonl
 from .phase2_utils import atomic_write_json, utc_now_iso
 from .tool_registry import GovernanceError, ensure_tools_dir
@@ -97,30 +98,31 @@ def report_ingestion_scan(
         candidates = candidates[:backfill_limit]
 
     ingested: list[dict[str, Any]] = []
+    item_failures: list[dict[str, Any]] = []
     skipped = 0
     for row in candidates:
-        known.add(_finding_key(row))
         if str(row.get("status") or row.get("state") or "").upper() != "OPEN":
+            known.add(_finding_key(row))
             skipped += 1
             continue
-        event = _feedback_event_from_finding(paths, row, cycle_id=cycle_id)
-        add_feedback(paths, event)
-        finding_event = {"finding_key": _finding_key(row), "feedback_event_id": event["event_id"], "owner_agent": _owner_agent(row), "severity": _severity(row), "source_refs": _refs(row)}
-        ingested.append(finding_event)
-        _record_ingestion_event(tools_base, {"cycle_id": cycle_id, **finding_event})
-        record_workspace_governance(
-            paths,
-            "agent_report_ingested",
-            {
-                "cycle_id": cycle_id,
-                "finding_key": _finding_key(row),
-                "feedback_event_id": event["event_id"],
-                "owner_agent": _owner_agent(row),
-                "severity": _severity(row),
-            },
+        ok, finding_event = guard_item(
+            item_failures,
+            item_kind="finding",
+            item_id=str(_finding_key(row)),
+            work=lambda row=row: _ingest_one_finding(
+                paths, row, cycle_id=cycle_id, tools_base=tools_base,
+            ),
         )
+        if not ok or finding_event is None:
+            # Deliberately NOT added to `known`. Containment must not consume
+            # the item: the dedup cache is now written on every run, so marking
+            # a finding seen after failing to ingest it would drop that finding
+            # permanently. Left unknown, the next cycle offers it again.
+            continue
+        known.add(_finding_key(row))
+        ingested.append(finding_event)
     _write_cache(cache_path, sorted(known))
-    return {
+    return with_item_failures({
         "schema_version": 1,
         "cycle_id": cycle_id,
         "status": "ok",
@@ -129,7 +131,33 @@ def report_ingestion_scan(
         "malformed_count": len(malformed),
         "cache_path": cache_path.as_posix(),
         "ingested": ingested,
-    }
+    }, item_failures)
+
+
+def _ingest_one_finding(
+    paths: WorkspacePaths,
+    row: dict[str, Any],
+    *,
+    cycle_id: str,
+    tools_base: Path | None,
+) -> dict[str, Any]:
+    """Turn one registry finding into feedback, an ingestion row, and governance."""
+    event = _feedback_event_from_finding(paths, row, cycle_id=cycle_id)
+    add_feedback(paths, event)
+    finding_event = {"finding_key": _finding_key(row), "feedback_event_id": event["event_id"], "owner_agent": _owner_agent(row), "severity": _severity(row), "source_refs": _refs(row)}
+    _record_ingestion_event(tools_base, {"cycle_id": cycle_id, **finding_event})
+    record_workspace_governance(
+        paths,
+        "agent_report_ingested",
+        {
+            "cycle_id": cycle_id,
+            "finding_key": _finding_key(row),
+            "feedback_event_id": event["event_id"],
+            "owner_agent": _owner_agent(row),
+            "severity": _severity(row),
+        },
+    )
+    return finding_event
 
 
 def _read_registry(

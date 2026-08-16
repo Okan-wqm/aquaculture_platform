@@ -1,24 +1,24 @@
-"""Tests for the Plan 016 Faz F1+F2 adapter portfolio MVP + parse-window signature."""
+"""Tests for the Plan 016 Faz F1 adapter portfolio MVP + the E13-C11
+manifest-owned freshness metadata (parse_window_signature +
+freshness_window_hours derived by validate_tool_definition, not patched
+onto the registry at runtime)."""
 from __future__ import annotations
 
-import json
 import tempfile
 import unittest
 from pathlib import Path
 
+from aria_kernel import adapter_portfolio
 from aria_kernel.adapter_portfolio import (
-    DEFAULT_FRESHNESS_WINDOW_HOURS,
     PLAN_016_MVP_TOOL_IDS,
-    backfill_window_metadata,
     list_mvp_status,
-    parse_window_signature,
     register_mvp_adapters,
 )
 from aria_kernel.tool_registry import (
-    GovernanceError,
+    DEFAULT_FRESHNESS_WINDOW_HOURS,
     ensure_tools_dir,
     load_registry,
-    register_tool,
+    parse_window_signature,
 )
 
 
@@ -67,13 +67,15 @@ class RegisterMVPTests(unittest.TestCase):
         result = register_mvp_adapters(base_dir=self.tools)
         self.assertEqual(len(result["registered"]), 4)
         self.assertEqual(result["skipped_existing"], [])
-        # Each registered tool carries the F2 fields.
+        # Each registered tool carries the freshness fields — derived by
+        # validate_tool_definition (E13-C11), NOT set by adapter_portfolio.
         registry = load_registry(self.tools)
         ids = {t["tool_id"] for t in registry["tools"]}
         for expected in ("banned-phrase-adapter", "cqrs-adapter", "outbox-adapter", "dual-alias-adapter"):
             self.assertIn(expected, ids)
             tool = next(t for t in registry["tools"] if t["tool_id"] == expected)
             self.assertTrue(tool["parse_window_signature"].startswith("sha256:"))
+            self.assertEqual(tool["parse_window_signature"], parse_window_signature(tool))
             self.assertEqual(tool["freshness_window_hours"], DEFAULT_FRESHNESS_WINDOW_HOURS)
             self.assertEqual(tool["status"], "SHADOW")
 
@@ -85,65 +87,24 @@ class RegisterMVPTests(unittest.TestCase):
         self.assertEqual(set(second["skipped_existing"]), set(first["registered"]))
 
 
-class BackfillWindowMetadataTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.tools = _seed_tools()
-        self.repo = self.tools.parent
+class RuntimePatchLayerRemovedTests(unittest.TestCase):
+    """E13-C11 deliberate-break pins: the runtime metadata patcher is gone.
 
-    def tearDown(self) -> None:
-        import shutil
-        shutil.rmtree(self.repo, ignore_errors=True)
+    backfill_window_metadata patched parse_window_signature +
+    freshness_window_hours onto registry rows AFTER write, and every
+    manifest recompile (registry_compiler / cycle.py register_tool sync)
+    deleted them again — a Potemkin metadata layer with zero readers.
+    Ownership moved to the manifests + validate_tool_definition; these
+    pins break loudly if a post-hoc patcher or a second producer of the
+    derived fields is reintroduced in this module.
+    """
 
-    def _seed_legacy_adapter(self, tool_id: str) -> None:
-        register_tool(
-            {
-                "tool_id": tool_id,
-                "kind": "adapter",
-                "version": "0.1.0",
-                "status": "SHADOW",
-                "schema_version": 2,
-                "owner": "platform",
-                "claim_types": ["legacy"],
-                "declared_scope": ["apps/**/*.ts"],
-                "allowed_read_globs": ["apps/**/*.ts"],
-                "forbidden_read_globs": [".git/**"],
-                "fixture_set": "tools/aria-poc/fixtures/legacy",
-                "health_thresholds": {
-                    "precision_min": 0.85,
-                    "non_critical_false_positives_30d": 3,
-                    "critical_false_positives": 0,
-                    "crash_rate_last_10": 0.2,
-                },
-                "output_schema": {"type": "object", "required": ["observations", "read_paths"]},
-                "runner": {
-                    "type": "subprocess",
-                    "argv": ["python3", "shadow_runner.py", tool_id],
-                    "cwd": "tools/aria-poc",
-                    "stdin_json": True,
-                    "timeout_ms": 15000,
-                },
-            },
-            base_dir=self.tools,
-        )
+    def test_backfill_window_metadata_is_deleted(self) -> None:
+        self.assertFalse(hasattr(adapter_portfolio, "backfill_window_metadata"))
 
-    def test_backfill_adds_window_fields_to_legacy_adapter(self) -> None:
-        self._seed_legacy_adapter("legacy-test-adapter")
-        result = backfill_window_metadata(base_dir=self.tools)
-        self.assertIn("legacy-test-adapter", result["updated"])
-        registry = load_registry(self.tools)
-        tool = next(t for t in registry["tools"] if t["tool_id"] == "legacy-test-adapter")
-        self.assertTrue(tool["parse_window_signature"].startswith("sha256:"))
-        self.assertEqual(tool["freshness_window_hours"], DEFAULT_FRESHNESS_WINDOW_HOURS)
-
-    def test_backfill_idempotent_when_metadata_already_current(self) -> None:
-        self._seed_legacy_adapter("idem-test-adapter")
-        backfill_window_metadata(base_dir=self.tools)
-        result = backfill_window_metadata(base_dir=self.tools)
-        self.assertIn("idem-test-adapter", result["untouched"])
-
-    def test_invalid_freshness_rejected(self) -> None:
-        with self.assertRaisesRegex(GovernanceError, "freshness_hours must be positive"):
-            backfill_window_metadata(base_dir=self.tools, freshness_hours=0)
+    def test_freshness_ssot_no_longer_lives_in_adapter_portfolio(self) -> None:
+        self.assertFalse(hasattr(adapter_portfolio, "DEFAULT_FRESHNESS_WINDOW_HOURS"))
+        self.assertFalse(hasattr(adapter_portfolio, "parse_window_signature"))
 
 
 class StatusTests(unittest.TestCase):

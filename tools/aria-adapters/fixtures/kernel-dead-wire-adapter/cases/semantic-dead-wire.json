@@ -1,0 +1,32 @@
+{
+  "name": "semantic-dead-wire",
+  "lane": "semantic_regression",
+  "input": {
+    "roots": [
+      "tools/aria-adapters/fixtures/kernel-dead-wire-adapter/workspaces/semantic-deadwire/aria-kernel/aria_kernel"
+    ],
+    "policyDir": "tools/aria-adapters/fixtures/kernel-dead-wire-adapter/workspaces/semantic-deadwire/aria-kernel/aria_kernel/data",
+    "cliPath": "tools/aria-adapters/fixtures/kernel-dead-wire-adapter/workspaces/semantic-deadwire/aria-kernel/aria_kernel/cli.py"
+  },
+  "expected": {
+    "status": "ok",
+    "required_findings": ["policy_key_never_read", "cli_verb_never_routed"],
+    "findings_count": 3
+  },
+  "curation": {
+    "curator": "claude/E9-b (self-audit adapter, session 2026-08-14)",
+    "gold_set": {
+      "true_positive_count": 3,
+      "known_false_positive_count": 6,
+      "false_positive_classes": [
+        "doc_key_underscore",
+        "doc_key_comment",
+        "glob_key_is_policy_data",
+        "key_read_via_get",
+        "key_read_via_nested_subscript",
+        "cli_verb_routed"
+      ]
+    },
+    "notes": "The sixth trap is the load-bearing one: tests/test_fixture_policy.py names BOTH true positives and nothing else does. A rule that counts a test as evidence of a read certifies dead configuration, which is precisely how an unread tunable stays green. Both must still be flagged."
+  }
+}

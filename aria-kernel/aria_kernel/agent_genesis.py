@@ -72,9 +72,82 @@ def load_jsonl(path: Path) -> list[dict[str, Any]]:
     return _load_jsonl(path)
 
 
+def _gap_key_batch_count(capability_gap_key: str, base_dir: str | Path | None) -> int:
+    """How many recorded gap batches carried this capability key — the
+    honest `valid_cycles` count the CANDIDATE gate reads (derived from
+    the ledger, never asserted)."""
+    from .capability_gap import latest_capability_gaps  # noqa: F401  (module anchor)
+    from .ledger import load_jsonl as load_chained_jsonl
+
+    path = ensure_tools_dir(base_dir) / "capability-gaps" / "gaps.jsonl"
+    count = 0
+    for batch in load_chained_jsonl(path) if path.exists() else []:
+        for gap in batch.get("gaps") or []:
+            if isinstance(gap, dict) and str(gap.get("capability_gap_key") or "") == capability_gap_key:
+                count += 1
+                break
+    return count
+
+
+def record_draft_lifecycle_chain(
+    *,
+    entity_id: str,
+    gap: dict[str, Any],
+    capability_resolution: dict[str, Any],
+    operator_approval_ref: str,
+    draft_ref: str,
+    base_dir: str | Path | None = None,
+) -> list[dict[str, Any]]:
+    """C4-c (ORPHAN-676) — the genesis ledger finally records how an
+    agent came to exist.
+
+    Emits the legal prefix chain (PRESSURE → CANDIDATE_PROPOSED →
+    HUMAN_REQUIRED → REQUEST → DRAFT) with evidence drawn from the REAL
+    artifacts of the draft flow: the gap row (source types + a
+    ledger-derived batch count), the capability-resolver decision, and
+    the operator-approval ref minted by `operator-provenance record`
+    (C4-a). Idempotent per state: already-recorded progress is skipped,
+    so a re-run continues instead of colliding. SANDBOX-family states
+    stay out of reach here by design — their proof chain is C4-d.
+    """
+    from .genesis_lifecycle import current_lifecycle_state, record_transition
+
+    capability_gap_key = str(gap.get("capability_gap_key") or "")
+    steps: list[tuple[str, dict[str, Any]]] = [
+        ("PRESSURE", {"gap_id": gap.get("gap_id"), "primary_source": gap.get("primary_source")}),
+        (
+            "CANDIDATE_PROPOSED",
+            {
+                "source_types": list(gap.get("source_types") or []),
+                "valid_cycles": _gap_key_batch_count(capability_gap_key, base_dir),
+                "capability_gap_key": capability_gap_key,
+            },
+        ),
+        ("HUMAN_REQUIRED", {"capability_resolution": dict(capability_resolution)}),
+        ("REQUEST", {"operator_feedback_ref": operator_approval_ref}),
+        ("DRAFT", {"draft_ref": draft_ref}),
+    ]
+    order = [state for state, _ in steps]
+    current = current_lifecycle_state(entity_id=entity_id, base_dir=base_dir)
+    start_index = order.index(current) + 1 if current in order else 0
+    recorded: list[dict[str, Any]] = []
+    for state, evidence in steps[start_index:]:
+        recorded.append(
+            record_transition(
+                entity_id=entity_id,
+                entity_kind="agent",
+                to_state=state,  # type: ignore[arg-type]
+                evidence=evidence,
+                base_dir=base_dir,
+            )
+        )
+    return recorded
+
+
 def draft_agent_from_gap(
     *,
     gap_id: str,
+    operator_approval_ref: str | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     enforce_profile_for_write("agent_genesis", base_dir=base_dir)
@@ -136,7 +209,22 @@ def draft_agent_from_gap(
         "target_path": intent.target_path,
         "blocked_by": ["awaiting_drafter_body_synthesis"],
     }
-    return append_jsonl(root / "agent-genesis" / "drafts.jsonl", row)
+    appended = append_jsonl(root / "agent-genesis" / "drafts.jsonl", row)
+    # C4-c (ORPHAN-676) — with an operator-approval ref (C4-a mint) in
+    # hand, the draft flow records its own lifecycle chain; without one
+    # the chain honestly stops before REQUEST and nothing is written
+    # (partial provenance is worse than none — a later re-run with the
+    # ref continues idempotently from wherever the ledger stands).
+    if operator_approval_ref and str(operator_approval_ref).strip():
+        appended["lifecycle"] = record_draft_lifecycle_chain(
+            entity_id=name,
+            gap=gap,
+            capability_resolution=capability_resolution,
+            operator_approval_ref=str(operator_approval_ref).strip(),
+            draft_ref=str(appended.get("ledger_hash") or f"draft-{name}"),
+            base_dir=base_dir,
+        )
+    return appended
 
 
 def _fixture_result_has_real_execution_provenance(result: dict[str, Any]) -> bool:
@@ -219,6 +307,62 @@ def _fixture_result_provenance_matches_ledger(
         if row.get("evidence_hash") != result.get("evidence_hash"):
             return False, "ledger evidence_hash does not match claimed"
     return True, None
+
+
+def assemble_fixture_results_from_suite(
+    *,
+    execution_run_id: str,
+    base_dir: str | Path | None = None,
+) -> list[dict[str, Any]]:
+    """C4-b (ORPHAN-675) — derive sandbox fixture_results from the ledger.
+
+    ``evaluate_genesis_sandbox`` demands ≥3 provenance-carrying results
+    whose claims the ledger join re-verifies — but no code path ever
+    ASSEMBLED that list; it was an operator-authored JSON file, which is
+    both toil and a place for hand-typed drift. The suite row the
+    fixture runner already writes carries everything the join checks;
+    this assembler is the mechanical bridge, so the sandbox's evidence
+    is derived from the ledger it will be verified against (İ1: one
+    source, no parallel authoring path).
+    """
+    from .fixture_runner import fixture_runs_path
+    from .ledger import load_jsonl as load_chained_jsonl
+
+    run_id = str(execution_run_id or "").strip()
+    if not run_id:
+        raise GovernanceError("assemble_requires_execution_run_id")
+    row = None
+    for candidate in load_chained_jsonl(fixture_runs_path(base_dir)):
+        if candidate.get("row_type") not in ("fixture_run_suite", None):
+            continue
+        if str(candidate.get("execution_run_id") or "") == run_id:
+            row = candidate
+    if row is None:
+        raise GovernanceError(
+            f"assemble_unknown_execution_run_id: {run_id!r} has no suite "
+            "row in fixture-runs.jsonl"
+        )
+    executed_at = str(row.get("at") or row.get("recorded_at") or "")
+    results: list[dict[str, Any]] = []
+    for case in row.get("cases") or []:
+        if not isinstance(case, dict):
+            continue
+        results.append(
+            {
+                "name": str(case.get("name") or ""),
+                "status": "pass" if case.get("passed") else "fail",
+                "provenance": {
+                    "executed_at": executed_at,
+                    "execution_run_id": run_id,
+                },
+                "tool_id": row.get("tool_id"),
+                "fixture_set_hash": row.get("fixture_set_hash"),
+                "cycle_id": row.get("cycle_id"),
+                "actual_status": row.get("actual_status"),
+                "evidence_hash": row.get("evidence_hash"),
+            }
+        )
+    return results
 
 
 def evaluate_genesis_sandbox(
@@ -578,6 +722,14 @@ def materialize_agent_draft(
         target.resolve().relative_to(worktree.resolve())
     except ValueError as exc:
         raise GovernanceError("target_path_escapes_worktree") from exc
+    # E16 (ORPHAN-673) — model-tier write protection at the ONE kernel
+    # path that writes agent files. The authoring model is the drafter's
+    # resolved runtime model (ARIA-V3 I-V3-00a locks aria-drafter as the
+    # sole body author); the stamp is kernel-injected, never
+    # drafter-supplied. Below the floor → refuse to author; weaker than
+    # the existing file's author → refuse to overwrite (duel included —
+    # that path escalates to HUMAN_REQUIRED, never through here).
+    body = _enforce_model_tier_and_stamp(body, target=target, worktree=worktree)
     file_sha256_pre = _file_sha256(target)
     touched = [target_path]
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -629,6 +781,36 @@ def materialize_agent_draft(
     }
     return append_jsonl(ensure_tools_dir(base_dir) / "agent-genesis" / "materializations.jsonl", row)
 
+
+
+def _authoring_model(worktree: Path) -> str:
+    """The model that authored the draft body — the drafter's resolved
+    runtime model from the agent-frontmatter SSoT (readable, not
+    claimable: the drafter cannot assert a tier its frontmatter does
+    not carry)."""
+    from .agent_runtime_profile import read_agent_runtime_profile
+
+    return read_agent_runtime_profile("aria-drafter", repo_root=worktree).model
+
+
+def _enforce_model_tier_and_stamp(body: str, *, target: Path, worktree: Path) -> str:
+    from .agent_runtime_profile import (
+        assert_model_may_author_agents,
+        assert_model_may_modify_agent,
+        parse_authored_by_model,
+        stamp_authored_by_model,
+    )
+
+    authoring = _authoring_model(worktree)
+    assert_model_may_author_agents(authoring)
+    if target.exists():
+        existing_author = parse_authored_by_model(
+            target.read_text(encoding="utf-8")
+        )
+        assert_model_may_modify_agent(
+            active_model=authoring, target_authored_by=existing_author
+        )
+    return stamp_authored_by_model(body, authoring)
 
 
 def _git_head(path: Path) -> str:

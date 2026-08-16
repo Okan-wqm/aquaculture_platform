@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from copy import deepcopy
@@ -58,6 +59,28 @@ DEFAULT_HEALTH_THRESHOLDS = {
     "critical_false_positives": 0,
     "crash_rate_last_10": 0.2,
 }
+
+# E13-C11 — freshness metadata is manifest-owned, validator-defaulted.
+# WHY here and not adapter_portfolio: pre-E13-C11 these fields were patched
+# onto registry rows at RUNTIME (adapter_portfolio.backfill_window_metadata)
+# and silently deleted by every manifest recompile (registry_compiler) and
+# per-cycle manifest re-registration (cycle.py -> register_tool) — a
+# Potemkin metadata layer with zero readers. validate_tool_definition is the
+# single write gate every registry row passes through, so owning the default
+# and the derived signature HERE makes the fields survive every recompile by
+# construction (Tier 1: the deleting path is the producing path).
+DEFAULT_FRESHNESS_WINDOW_HOURS = 168  # Plan 016 §Recursive impact and freshness gates (7 days).
+
+# The declaration fields that define a tool's parse window; the tuple
+# parse_window_signature hashes over AND the trigger set for signature
+# recomputation in update_tool.
+PARSE_WINDOW_FIELDS: tuple[str, ...] = (
+    "declared_scope",
+    "claim_types",
+    "default_input",
+    "allowed_read_globs",
+    "forbidden_read_globs",
+)
 
 
 class GovernanceError(ValueError):
@@ -164,6 +187,51 @@ def registry_path(base_dir: str | os.PathLike[str] | None = None) -> Path:
     return tools_dir(base_dir) / "registry.json"
 
 
+TOOLS_CONTRACT_FILENAME = "tools_contract.json"
+
+# ORPHAN-HIGH-556 — the fields of ``repo_identity.json`` that describe the
+# TREE and the REPOSITORY rather than the HOST.
+#
+# ``repo_identity.json`` mixes three scopes: the contract version (a property
+# of the tree), the canonical identity (a property of the repository, and
+# environment-independent by ARIA-V2 §3.2), and ``bound_repo_root`` (an
+# ABSOLUTE PATH on the machine that wrote it). The last one is why the file
+# cannot be published to the shared ``aria/state`` branch — and one
+# unpublishable field was making the whole file unpublishable, so a restored
+# tree arrived unable to state its own contract version, ``tools_contract_version``
+# read 0, and every nightly bind re-migrated a healthy v3 tree from nothing.
+#
+# Splitting the publishable subset into its own declared surface is what lets
+# a restored tree say what it already is. ONE definition of the subset, called
+# from every place that writes the identity, because five copies of "which
+# fields may travel" is five chances for one of them to leak a host path.
+PUBLISHABLE_IDENTITY_FIELDS: tuple[str, ...] = (
+    "aria_tools_contract_version",
+    "schema_version",
+    "bound_canonical_identity",
+)
+
+
+def sync_tools_contract(root: Path) -> dict[str, Any]:
+    """Mirror the publishable half of ``repo_identity.json`` beside it."""
+    identity = _read_identity(root)
+    contract = {
+        field: identity[field]
+        for field in PUBLISHABLE_IDENTITY_FIELDS
+        if identity.get(field) is not None
+    }
+    _atomic_write_json(root / TOOLS_CONTRACT_FILENAME, contract)
+    return contract
+
+
+def _read_identity(root: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads((root / "repo_identity.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
 def ensure_tools_dir(base_dir: str | os.PathLike[str] | None = None) -> Path:
     root = tools_dir(base_dir)
     root.mkdir(parents=True, exist_ok=True)
@@ -180,6 +248,7 @@ def ensure_tools_dir(base_dir: str | os.PathLike[str] | None = None) -> Path:
         }
         _prepare_tools_dirs(root)
         _atomic_write_json(identity_file, identity)
+        sync_tools_contract(root)
         if not registry_path(root).exists():
             _atomic_write_json(registry_path(root), {"schema_version": SCHEMA_VERSION, "tools": []})
         append_tools_governance(
@@ -258,6 +327,7 @@ def ensure_tools_binding(
         identity["aria_tools_contract_version"] = SCHEMA_VERSION
         identity["schema_version"] = SCHEMA_VERSION
         _atomic_write_json(identity_file, identity)
+        sync_tools_contract(root)
         append_tools_governance(
             root,
             "tools_root_bound",
@@ -290,6 +360,7 @@ def ensure_tools_binding(
             identity["aria_tools_contract_version"] = SCHEMA_VERSION
             identity["schema_version"] = SCHEMA_VERSION
             _atomic_write_json(identity_file, identity)
+            sync_tools_contract(root)
             append_tools_governance(
                 root,
                 "tools_root_canonical_identity_backfilled",
@@ -332,12 +403,30 @@ def ensure_tools_binding(
 
 
 def tools_contract_version(base_dir: str | os.PathLike[str] | None = None) -> int:
-    identity_file = tools_dir(base_dir) / "repo_identity.json"
-    if not identity_file.exists():
-        return 0
-    try:
-        identity = json.loads(identity_file.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    """The contract version of the TREE, whether or not this host is bound.
+
+    ORPHAN-HIGH-556 — the published contract is consulted FIRST. Reading only
+    ``repo_identity.json`` meant a restored ``aria/state`` tree, which
+    deliberately does not carry that host-local file, reported version 0 — so
+    a healthy v3 tree looked to ``migrate_tools_bootstrap`` like a v0 tree
+    needing a full migration, every single night. The identity file remains
+    the fallback so a tree written before the split still answers.
+    """
+    root = tools_dir(base_dir)
+    contract_file = root / TOOLS_CONTRACT_FILENAME
+    if contract_file.exists():
+        try:
+            contract = json.loads(contract_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            contract = {}
+        if isinstance(contract, dict) and (
+            contract.get("aria_tools_contract_version") or contract.get("schema_version")
+        ):
+            return int(
+                contract.get("aria_tools_contract_version") or contract.get("schema_version")
+            )
+    identity = _read_identity(root)
+    if not identity:
         return 0
     return int(identity.get("aria_tools_contract_version") or identity.get("schema_version") or 1)
 
@@ -490,7 +579,15 @@ def _guard_tools_lock(root: Path) -> None:
     age = (datetime.now(timezone.utc) - started.astimezone(timezone.utc)).total_seconds()
     pid = int(payload.get("pid") or 0)
     operation = str(payload.get("operation") or "")
-    if pid == os.getpid() and operation in {"tools_migration", "tools_rollback"}:
+    # RE-ENTRANCY IS A PROPERTY OF HOLDING THE LOCK, not of appearing on a
+    # list. This used to also require `operation in {"tools_migration",
+    # "tools_rollback"}` — a hardcoded roster of the operations allowed to
+    # write while holding their own lock, which silently refused the next
+    # operation anyone added. `tools_binding` (ORPHAN-HIGH-556) was that next
+    # operation: it took the lock correctly and then could not write its own
+    # governance row. The pid check is the whole of the safety question; the
+    # operation name added no protection and one more thing to remember.
+    if pid == os.getpid():
         return
     if age >= 120 and (pid <= 0 or not _pid_exists(pid)):
         try:
@@ -540,6 +637,50 @@ def save_registry(
     )
 
 
+def parse_window_signature(declaration: dict[str, Any]) -> str:
+    """Stable SHA-256 hash of the parser-declaration tuple.
+
+    The signature changes ONLY when the parser's declared scope, claim
+    types, or input roots change — not when the underlying repo content
+    changes. This is what the kernel uses to decide whether a recorded
+    SHADOW run still matches the current adapter declaration.
+
+    Moved here from adapter_portfolio (E13-C11) because the validator is
+    now the single producer/verifier of the derived field; adapter_portfolio
+    importing it back from here would be the only alternative and would
+    invert the dependency direction it already has on this module.
+
+    Returns: "sha256:<hex>" of a canonical JSON over (declared_scope,
+    claim_types, default_input.roots, allowed_read_globs,
+    forbidden_read_globs).
+    """
+    fields = {
+        "declared_scope": sorted(declaration.get("declared_scope", []) or []),
+        "claim_types": sorted(declaration.get("claim_types", []) or []),
+        "default_input_roots": sorted(
+            (declaration.get("default_input") or {}).get("roots", []) or []
+        ),
+        "allowed_read_globs": sorted(declaration.get("allowed_read_globs", []) or []),
+        "forbidden_read_globs": sorted(declaration.get("forbidden_read_globs", []) or []),
+    }
+    canonical = json.dumps(fields, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def effective_freshness_window_hours(tool: dict[str, Any]) -> float:
+    """Freshness window for a tool row, defaulting for legacy rows.
+
+    Rows written through validate_tool_definition always carry the field;
+    rows persisted before E13-C11 may not. This is the single defaulting
+    point shared by readers (readiness) so the read-side default can never
+    drift from the write-side DEFAULT_FRESHNESS_WINDOW_HOURS constant.
+    """
+    raw = tool.get("freshness_window_hours")
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool) and raw > 0:
+        return float(raw)
+    return float(DEFAULT_FRESHNESS_WINDOW_HOURS)
+
+
 def validate_tool_definition(tool: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(tool, dict):
         raise GovernanceError("tool definition must be a JSON object")
@@ -575,6 +716,34 @@ def validate_tool_definition(tool: dict[str, Any]) -> dict[str, Any]:
         raise GovernanceError("claim_types must be a non-empty array")
     if "default_input" in candidate and not isinstance(candidate["default_input"], dict):
         raise GovernanceError("default_input must be a JSON object when provided")
+
+    # E13-C11 — freshness metadata (see DEFAULT_FRESHNESS_WINDOW_HOURS
+    # comment for the full WHY). Optional in the manifest; defaulted when
+    # absent (same pattern as health_thresholds), type-checked when present.
+    freshness = candidate.get("freshness_window_hours")
+    if freshness is None:
+        candidate["freshness_window_hours"] = DEFAULT_FRESHNESS_WINDOW_HOURS
+    elif isinstance(freshness, bool) or not isinstance(freshness, (int, float)) or freshness <= 0:
+        raise GovernanceError(
+            f"freshness_window_hours must be a positive number, got {freshness!r}"
+        )
+    # parse_window_signature is DERIVED from the declaration; when a
+    # manifest carries it, it MUST match the recomputation — a mismatch
+    # means the declaration changed without acknowledging that recorded
+    # SHADOW evidence no longer covers the new parse window. Silent
+    # correction would recreate the decorative-field defect this closes.
+    declared_sig = candidate.get("parse_window_signature")
+    computed_sig = parse_window_signature(candidate)
+    if declared_sig is None:
+        candidate["parse_window_signature"] = computed_sig
+    elif not isinstance(declared_sig, str) or not declared_sig.strip():
+        raise GovernanceError("parse_window_signature must be a non-empty string")
+    elif declared_sig != computed_sig:
+        raise GovernanceError(
+            f"parse_window_signature_mismatch: tool_id={candidate.get('tool_id')!r} "
+            f"declares {declared_sig!r} but the declaration-derived signature is "
+            f"{computed_sig!r}; recompute it after changing any of {PARSE_WINDOW_FIELDS}"
+        )
 
     thresholds = dict(DEFAULT_HEALTH_THRESHOLDS)
     thresholds.update(candidate["health_thresholds"])
@@ -614,6 +783,12 @@ def validate_runner_definition(runner: Any) -> dict[str, Any]:
     timeout_ms = candidate.get("timeout_ms")
     if not isinstance(timeout_ms, int) or timeout_ms <= 0:
         raise GovernanceError("runner.timeout_ms must be a positive integer")
+    # Optional memory budget for node runners; the tool_runner defaults to
+    # 2048 MB when absent. Declared here so a wide-scope adapter can raise
+    # its ceiling in the manifest instead of inheriting the host's accident.
+    node_heap = candidate.get("node_max_old_space_mb")
+    if node_heap is not None and (not isinstance(node_heap, int) or node_heap <= 0):
+        raise GovernanceError("runner.node_max_old_space_mb must be a positive integer")
     if not isinstance(candidate.get("stdin_json"), bool):
         raise GovernanceError("runner.stdin_json must be a boolean")
     return candidate
@@ -923,6 +1098,17 @@ def update_tool(
 
     # Merge + re-validate.
     pre = get_tool(tool_id, base_dir)
+    # E13-C11 — parse_window_signature is DERIVED from the parse-window
+    # declaration. When an operator-approved update changes any declaration
+    # field without explicitly supplying a matching signature, recompute it
+    # here (mirroring the updated_at refresh) instead of letting the stored
+    # stale hash trip the validator's mismatch gate. An explicitly supplied
+    # signature is still verified strictly by validate_tool_definition.
+    if set(PARSE_WINDOW_FIELDS) & set(updates) and "parse_window_signature" not in updates:
+        merged_declaration = dict(pre)
+        merged_declaration.update(updates)
+        updates = dict(updates)
+        updates["parse_window_signature"] = parse_window_signature(merged_declaration)
     merged_for_validation = dict(pre)
     merged_for_validation.update(updates)
     validate_tool_definition(merged_for_validation)

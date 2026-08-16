@@ -43,7 +43,7 @@ jobs:
     timeout-minutes: 12
     steps:
       # SEC-CI-002: pinned to full SHA (infra-expert invariant)
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -98,6 +98,15 @@ jobs:
           ./node_modules/.bin/ts-node --project tools/gates/tsconfig.json \
             tools/gates/banned-construct.ts \
             --mode=range "${{ steps.range.outputs.base }}" "${{ steps.range.outputs.head }}"
+
+      # tools/ lives outside every Nx project, so `affected` and `run-many`
+      # both skip it and these specs ran nowhere. That is not acceptable for
+      # code with production intervention authority: the T0 supervisor
+      # restarts containers on the droplet, and the watchdog probe decides
+      # who gets paged.
+      - name: Run tools test suites (supervisor + watchdog)
+        if: always()
+        run: npm run tools:test
 
       - name: Run dependency-policy gate
         if: always()
@@ -192,7 +201,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 

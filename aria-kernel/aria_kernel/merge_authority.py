@@ -25,6 +25,7 @@ from .rollback_bundle import verify_rollback_bundle
 from .runtime_profile import enforce_profile_for_action
 from .runner_attestation import verify_runner_attestation
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
+from .watchdog_freeze import assert_merge_not_watchdog_frozen
 
 
 def merge_pr_if_ready(
@@ -47,6 +48,13 @@ def merge_pr_if_ready(
     immediately before invoking ``adapter.merge_pr``.
     """
     profile = enforce_profile_for_action("pr_merge", base_dir=base_dir)
+    # ORPHAN-MEDIUM-562 — the external watchdog reports a stalled ARIA memory
+    # and cannot freeze anything itself, because freezing needs the kernel it
+    # is watching. The alarm is read HERE, at the single real-merge authority:
+    # it stops ARIA merging on state nobody can attest to, while leaving the
+    # cycle free to publish the state that closes the incident and leaving
+    # human pull requests alone.
+    assert_merge_not_watchdog_frozen(adapter=adapter)
     if not readiness_claim_id or not readiness_claim_id.strip():
         raise GovernanceError("merge_authority_requires_readiness_claim_id")
     live_pr = adapter.get_pr(pr_number)

@@ -141,7 +141,7 @@ jobs:
       sha_short: ${{ steps.vars.outputs.sha_short }}
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: true # needed to push the deployed/staging-<sha> tag later
@@ -181,7 +181,7 @@ jobs:
     timeout-minutes: 30
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -266,7 +266,7 @@ jobs:
     timeout-minutes: 30
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -399,7 +399,7 @@ jobs:
           - messaging-service
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -414,7 +414,7 @@ jobs:
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       # SEC-CI-002: pinned to SHA
-      - uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -422,7 +422,7 @@ jobs:
 
       - name: Build and push ${{ matrix.service }}
         # SEC-CI-002: pinned to SHA
-        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: ${{ matrix.service == 'db-migrate' && 'infrastructure/docker/Dockerfile.db-migrate' || 'infrastructure/docker/Dockerfile.backend.simple' }}
@@ -481,7 +481,7 @@ jobs:
             module_path: web/apps/aquamobil
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -496,7 +496,7 @@ jobs:
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       # SEC-CI-002: pinned to SHA
-      - uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -504,7 +504,7 @@ jobs:
 
       - name: Build and push ${{ matrix.module }}
         # SEC-CI-002: pinned to SHA
-        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: ${{ matrix.dockerfile }}
@@ -530,7 +530,7 @@ jobs:
             context: infrastructure/mosquitto
             dockerfile: infrastructure/mosquitto/Dockerfile
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
@@ -541,7 +541,7 @@ jobs:
         run: echo "${GHCR_PASSWORD}" | docker login "${{ env.REGISTRY }}" -u "${GHCR_USERNAME}" --password-stdin
 
       - name: Build and push ${{ matrix.image }}
-        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
@@ -566,7 +566,7 @@ jobs:
     environment: staging # GitHub Environment protection (reviewers, secrets)
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           persist-credentials: true # for tag push at the end

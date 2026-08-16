@@ -101,19 +101,23 @@ def validate_transition(
         if repeated_cycles < min_cycles and len(source_types) < 2:
             reasons.append(f"candidate_requires_{min_cycles}_valid_cycles_or_2_source_types")
     if to_state == "HUMAN_REQUIRED":
-        coverage = evidence.get("existing_capability_coverage")
-        threshold = float(policy.get("existing_capability_coverage_threshold") or 0.8)
-        score: float | None = None
-        verdict = None
-        if isinstance(coverage, dict):
-            verdict = coverage.get("verdict")
-            raw_score = coverage.get("coverage_score") or coverage.get("score")
-            try:
-                score = float(raw_score)
-            except (TypeError, ValueError):
-                score = None
-        if verdict not in {"positive", "covered", "pass"} or score is None or score < threshold:
-            reasons.append("human_required_requires_positive_existing_capability_coverage")
+        # C4-c (ORPHAN-676) — the gate reads what the REAL producer
+        # writes. The original shape (verdict∈{positive,covered,pass} +
+        # coverage_score≥threshold) had NO producer anywhere:
+        # capability_resolver — the only coverage authority — writes
+        # decision∈{reuse,extend,request}. An unproducible predicate is
+        # a locked door with no key; this arm now demands the resolver's
+        # actual decision row: reuse blocks genesis (duplicate), extend/
+        # request admit the human adjudication step.
+        resolution = evidence.get("capability_resolution")
+        decision = (
+            resolution.get("decision") if isinstance(resolution, dict) else None
+        )
+        if decision not in {"extend", "request"}:
+            reasons.append(
+                "human_required_requires_capability_resolution_decision"
+                f":{decision!r}"
+            )
     if to_state == "REQUEST":
         if not str(evidence.get("operator_feedback_ref") or "").strip():
             reasons.append("request_requires_signed_operator_feedback")
@@ -127,8 +131,19 @@ def validate_transition(
         validators = {str(item) for item in evidence.get("validators") or [] if str(item).strip()}
         if len(reviewers | validators) < 2:
             reasons.append("active_requires_2_reviewers_or_validators")
-        if evidence.get("eval_window_passed") is not True:
-            reasons.append("active_requires_eval_window_passed")
+        # Z3d (ORPHAN 630 class) — the gate no longer reads the caller's
+        # `eval_window_passed` bool: any caller could promote by asserting
+        # the very thing the gate existed to measure. It reads the
+        # KERNEL-COMPUTED proof `record_transition` injects from
+        # genesis_superiority.compute_eval_window_superiority; a hand-built
+        # evidence dict without that computation cannot validate.
+        proof = evidence.get("resolved_eval_window_superiority")
+        if not isinstance(proof, dict) or proof.get("passed") is not True:
+            reasons.append("active_requires_kernel_computed_eval_superiority")
+        elif not isinstance(proof.get("window"), dict) or not isinstance(
+            proof.get("duel"), dict
+        ):
+            reasons.append("active_superiority_proof_missing_components")
 
     return GenesisLifecycleVerdict(valid=not reasons, reasons=tuple(reasons))
 
@@ -284,6 +299,7 @@ def record_transition(
     to_state: GenesisState,
     evidence: dict[str, Any],
     base_dir: str | Path | None = None,
+    repo_root: str | Path | None = None,
     operator_approval_ref: str | None = None,
 ) -> dict[str, Any]:
     if not entity_id.strip():
@@ -291,6 +307,22 @@ def record_transition(
     if to_state not in GENESIS_LIFECYCLE_STATES:
         raise GovernanceError(f"genesis_lifecycle_unknown_state:{to_state!r}")
     from_state = current_lifecycle_state(entity_id=entity_id, base_dir=base_dir)
+    if to_state == "ACTIVE":
+        # Z3d — compute the superiority proof BEFORE validation and OVERWRITE
+        # whatever the caller put under this key: the promotion gate reads
+        # only what the kernel measured (verify_shadow_eval_proof pattern).
+        from .genesis_superiority import compute_eval_window_superiority
+
+        # C8/E11 — thread repo_root so the operator's superiority_policy
+        # override (genesis_policy.superiority_policy) is actually read;
+        # without it the policy block was dead configuration and every
+        # promotion ran on hardcoded defaults.
+        evidence = {
+            **evidence,
+            "resolved_eval_window_superiority": compute_eval_window_superiority(
+                entity_id=entity_id, base_dir=base_dir, repo_root=repo_root
+            ),
+        }
     verdict = validate_transition(from_state=from_state, to_state=to_state, evidence=evidence)
     if not verdict.valid:
         raise GovernanceError("genesis_lifecycle_transition_rejected:" + ";".join(verdict.reasons))

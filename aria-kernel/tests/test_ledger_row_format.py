@@ -131,12 +131,20 @@ class MigrationContentIdempotenceTests(unittest.TestCase):
         self.tools = self.tmp / "aria-tools"
 
     def _bind(self) -> None:
-        from aria_kernel.migration import migrate_tools_bootstrap
+        """The step the restore action runs, under the name it deserves.
 
-        migrate_tools_bootstrap(
+        This was `migrate_tools_bootstrap` — and this helper is called `_bind`,
+        inside a test called `test_a_restore_bind_...`, which is how plainly the
+        two operations had been conflated. ORPHAN-HIGH-556 separated them, and
+        the assertion below now holds for a stronger reason than it used to: the
+        bind does not rewrite the ledger at all, rather than rewriting it
+        byte-identically.
+        """
+        from aria_kernel.tools_binding import bind_tools_root
+
+        bind_tools_root(
             tools_dir=self.tools,
             workspace_root=self.repo,
-            acknowledge=True,
             reason="ORPHAN-HIGH-552 restore-bind loop",
         )
 

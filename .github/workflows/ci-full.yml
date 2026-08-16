@@ -44,12 +44,12 @@ jobs:
     # tail gates stopped running while the job still looked configured. It failed
     # closed (build-status treats cancelled as not-success) but printed
     # "Lint/Typecheck failed", which sends the reader hunting a lint error that
-    # does not exist. Consistent with this file's own budgets: test 30, build 30,
-    # deploy-ssot-gates 20.
+    # does not exist. Consistent with this file's own budgets: test 45/35
+    # (CI-TIMEOUT-BUDGET), build 30, deploy-ssot-gates 20.
     timeout-minutes: 25
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -108,7 +108,40 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 45 job / 35 step, not a bare 30 (CI-TIMEOUT-BUDGET). A timeout is a hang
+    # detector, not a performance budget: it must fire on a process that stopped
+    # making progress and never on a slow runner. Measured over 14 completed runs
+    # of this job — job wall clock median 23m29s, max 29m03s; the `Run all tests`
+    # step itself max 25m54s; everything outside that step (service-container
+    # pull, checkout, npm ci, Rust toolchain, coverage verify + upload) max 4m18s.
+    # p90 sat at 86% of the old 30m budget and one run was killed at 30m23s, so
+    # the detector had started sampling runner load instead of hangs.
+    #
+    # The failure mode is worse than the delay. A job killed by its own budget
+    # reports `cancelled`, and build-status rendered that as "Tests failed" — a
+    # DURATION problem reached the reader as a TEST problem and sent them hunting
+    # a red test that does not exist. It failed closed, so nothing merged on it;
+    # it failed MISLABELLED, which costs a round trip. (build-status no longer
+    # names a cause it cannot know; see that job.)
+    #
+    # Two levels with distinct jobs. The step budget (35) bounds the only thing
+    # that can hang here — 32 projects of Jest/Vitest/cargo against the postgres
+    # and redis service containers. The job budget (45) is the outer backstop for
+    # what the step budget cannot see. The gap is load-bearing and deliberately
+    # generous: worst observed prologue 4m18s + the full 35m step = 39m18s, still
+    # 5m42s under the job budget, so the STEP budget always fires first and the
+    # failure names itself instead of arriving as an anonymous cancellation.
+    #
+    # Each number clears its OWN measured maximum by the smallest satisfying
+    # margin: 35 >= 25m54s x 1.35, 45 >= 29m03s x 1.5 rounded to the next
+    # 5-minute mark. Deriving the step budget from the job's maximum (which an
+    # earlier draft did) inflates it to 40 and collapses the gap to 42 seconds —
+    # the step budget becomes decorative and the cancellation misreport returns.
+    # The distribution, both budgets and the relations between them are asserted
+    # in tests/invariants/ci-timeout-budget-ssot.spec.ts. Re-measure THERE when
+    # the suite grows: raising a budget without fresh evidence is the defect that
+    # spec exists to stop.
+    timeout-minutes: 45
     # The coverage control plane is repository-owned and needs no external
     # identity. Keep the job at the minimum permission needed by checkout.
     permissions:
@@ -140,7 +173,7 @@ jobs:
 
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -177,6 +210,10 @@ jobs:
 
       - name: Run all tests
         run: npm run test:all -- --coverage
+        # Hang detector for the fan-out itself; rationale in the job header.
+        # Strictly below the job budget by more than the worst observed prologue,
+        # so an overrun fails AS THIS STEP rather than as a cancelled job.
+        timeout-minutes: 35
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/aquaculture_test
           REDIS_URL: redis://localhost:6379
@@ -203,7 +240,7 @@ jobs:
     timeout-minutes: 30
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -251,7 +288,7 @@ jobs:
     timeout-minutes: 10
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -335,7 +372,7 @@ jobs:
     timeout-minutes: 20
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -379,7 +416,7 @@ jobs:
     timeout-minutes: 15
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Node.js
         # SEC-CI-002: pinned to SHA
@@ -415,7 +452,7 @@ jobs:
     timeout-minutes: 10
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Node.js
         # SEC-CI-002: pinned to SHA
@@ -441,36 +478,48 @@ jobs:
       - security-scan
       - license-check
     runs-on: ubuntu-latest
+    # This job runs one loop over seven strings. It had no budget at all, so it
+    # inherited GitHub's 360-minute default — and because build-status is a
+    # REQUIRED context, a wedged aggregate would hold every PR behind it for six
+    # hours. Same class as the test budget above, one severity worse.
+    timeout-minutes: 5
     if: always()
     steps:
+      # Reports the result it has instead of naming a cause it cannot know. The
+      # old chain translated every non-success into a verdict about that job's
+      # subject — `cancelled` became "Tests failed", which sent readers hunting a
+      # red test that did not exist. It cannot know: `cancelled` is EITHER a
+      # budget overrun OR a run superseded by `concurrency.cancel-in-progress`
+      # (see the concurrency block at the top of this file), and `failure` now
+      # includes a step that blew its own timeout-minutes.
+      #
+      # The loop also fixes a second defect: the chain exited at the first
+      # non-success, so a lint failure hid a simultaneous test failure and the
+      # next push discovered it one round trip later. This reports all of them.
       - name: Check build status
         run: |
-          if [ "${{ needs.lint-and-typecheck.result }}" != "success" ]; then
-            echo "Lint/Typecheck failed"
-            exit 1
-          fi
-          if [ "${{ needs.test.result }}" != "success" ]; then
-            echo "Tests failed"
-            exit 1
-          fi
-          if [ "${{ needs.build.result }}" != "success" ]; then
-            echo "Build failed"
-            exit 1
-          fi
-          if [ "${{ needs.generate-sri-hashes.result }}" != "success" ]; then
-            echo "SRI hash generation failed"
-            exit 1
-          fi
-          if [ "${{ needs.deploy-ssot-gates.result }}" != "success" ]; then
-            echo "Deploy SSOT gates failed"
-            exit 1
-          fi
-          if [ "${{ needs.security-scan.result }}" != "success" ]; then
-            echo "Security scan failed"
-            exit 1
-          fi
-          if [ "${{ needs.license-check.result }}" != "success" ]; then
-            echo "License check failed"
+          set -euo pipefail
+          failed=0
+          for entry in \
+            "lint-and-typecheck:${{ needs.lint-and-typecheck.result }}" \
+            "test:${{ needs.test.result }}" \
+            "build:${{ needs.build.result }}" \
+            "generate-sri-hashes:${{ needs.generate-sri-hashes.result }}" \
+            "deploy-ssot-gates:${{ needs.deploy-ssot-gates.result }}" \
+            "security-scan:${{ needs.security-scan.result }}" \
+            "license-check:${{ needs.license-check.result }}"; do
+            name="${entry%%:*}"
+            result="${entry##*:}"
+            if [ "${result}" != "success" ]; then
+              echo "::error::${name} result=${result}"
+              failed=1
+            fi
+          done
+          if [ "${failed}" -ne 0 ]; then
+            echo 'A required job did not succeed. This reports the result, not a cause:'
+            echo '  cancelled = the job hit its own budget, OR the run was superseded — not a verdict on its subject'
+            echo '  failure   = the job failed, which includes a step that exceeded its own timeout-minutes'
+            echo 'Open the named job and read its log.'
             exit 1
           fi
           echo "All critical checks passed"

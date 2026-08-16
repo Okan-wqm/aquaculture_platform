@@ -1,0 +1,50 @@
+{
+  "tool_id": "fe-dto-parity-adapter",
+  "kind": "adapter",
+  "version": "1.0.0",
+  "status": "SHADOW",
+  "declared_scope": ["apps/**/dto/**/*.ts", "web/**/*.{ts,tsx}"],
+  "output_schema": {
+    "type": "object",
+    "required": ["observations", "findings", "read_paths", "evidence_sources"]
+  },
+  "fixture_set": "tools/aria-adapters/fixtures/fe-dto-parity-adapter",
+  "health_thresholds": {
+    "max_cost_units": 6000
+  },
+  "default_input": {
+    "backendRoots": ["apps"],
+    "frontendRoots": ["web"]
+  },
+  "allowed_read_globs": ["apps/**/*.ts", "web/**/*.ts", "web/**/*.tsx"],
+  "forbidden_read_globs": [
+    ".claude/**",
+    ".git/**",
+    "agent-workspace/**",
+    ".aria-poc/**",
+    "aria-tools/**",
+    "node_modules/**",
+    "dist/**",
+    "coverage/**",
+    "build/**",
+    "tmp/**"
+  ],
+  "claim_types": ["contract_parity"],
+  "owner": "platform",
+  "runner": {
+    "type": "subprocess",
+    "argv": [
+      "npx",
+      "ts-node",
+      "--project",
+      "tools/gates/tsconfig.json",
+      "tools/aria-adapters/fe-dto-parity-adapter.ts"
+    ],
+    "cwd": ".",
+    "timeout_ms": 240000,
+    "stdin_json": true
+  },
+  "freshness_window_hours": 168,
+  "parse_window_signature": "sha256:96197733542447a341a65a4b142fc15a302cd870f93b499424f82f74af16abc4",
+  "schema_version": 1
+}

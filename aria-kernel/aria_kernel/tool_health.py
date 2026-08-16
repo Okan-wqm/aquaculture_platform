@@ -36,6 +36,11 @@ RUN_STATUSES = (
     "budget_exceeded",
     "tool_unhealthy",
     "integrity_failed",
+    # An environment fault: the workspace could not run the tool at all.
+    # Deliberately NOT in the quarantine trigger — it is the harness's
+    # failure, and repetition escalates through the uncertainty ledger
+    # instead (uncertainty_repeat).
+    "environment_unavailable",
 )
 REQUIRED_RUN_FIELDS = (
     "run_id",
@@ -340,6 +345,9 @@ def immediate_quarantine_reason(tool: dict[str, Any], run: dict[str, Any]) -> st
         return "crash corrupted ledger state"
     if run["status"] == "tool_unhealthy":
         return "tool runner unhealthy"
+    # environment_unavailable is intentionally absent from this trigger:
+    # quarantine prices the TOOL, and a workspace that cannot run any tool
+    # is not evidence about one.
     if run["status"] == "integrity_failed":
         return "runtime artifact integrity failed"
     if has_critical_false_positive(run):
@@ -542,6 +550,11 @@ def append_jsonl(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
         return append_declared_jsonl(path, payload, expected_surface="health")
     if path.name == "cycles.jsonl":
         return append_declared_jsonl(path, payload, expected_surface="cycles")
+    # ORPHAN-670 — per-run tool calibration joined the declared roster so
+    # it survives the nightly publish; a declared surface refuses the
+    # legacy chained append, so the store-level wrapper routes it.
+    if path.name == "calibration.jsonl":
+        return append_declared_jsonl(path, payload, expected_surface="tool_calibration")
     return append_chained_jsonl(path, payload)
 
 

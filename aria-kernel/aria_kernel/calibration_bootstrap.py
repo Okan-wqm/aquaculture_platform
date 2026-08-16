@@ -41,7 +41,7 @@ import sys
 from pathlib import Path
 from typing import Any, TypedDict
 
-from .ledger import append_jsonl
+from .ledger import append_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -117,7 +117,7 @@ def record_seeding_finding(
         "finding": finding,
         "labeled": False,
     }
-    return append_jsonl(seeding_path(base_dir, tool_id), row)
+    return append_declared_jsonl(seeding_path(base_dir, tool_id), row, expected_surface="operator_feedback_seeding")
 
 
 def label_finding(
@@ -157,7 +157,7 @@ def label_finding(
         "note": note,
     }
     labels_path = seeding_path(base_dir, tool_id).with_name("labels.jsonl")
-    return append_jsonl(labels_path, label_row)
+    return append_declared_jsonl(labels_path, label_row, expected_surface="operator_feedback_seeding")
 
 
 def finalize_corpus(
@@ -187,17 +187,32 @@ def finalize_corpus(
     corpus = corpus_path(base_dir)
     migrated = 0
     for label_row in label_rows:
+        # The corpus row is written in the ONE vocabulary every ground-truth
+        # reader speaks. The previous shape carried `label`/`labeled_at` and
+        # nothing else — judge_calibration skipped it (source_type not in
+        # GROUND_TRUTH_SOURCES), goldset counted it as neither TP nor FP
+        # (no `verdict`), FP-suppression never matched it. Every label an
+        # operator ever finalized was invisible to every consumer. The
+        # original spelling survives as `legacy_label` (append-only history
+        # discipline, same as the result-status normalization).
+        label_value = str(label_row.get("label") or "").lower()
+        verdict = "true_positive" if label_value in ("tp", "true_positive") else "false_positive"
         fixture = {
             "schema_version": 1,
-            "labeled_at": label_row.get("labeled_at"),
+            "recorded_at": label_row.get("labeled_at"),
+            "source_type": "human",
+            "verdict": verdict,
             "tool_id": tool_id,
+            "run_id": label_row.get("run_id") or f"bootstrap:{tool_id}",
+            "finding_id": label_row.get("finding_id") or label_row.get("finding_fingerprint"),
             "finding_fingerprint": label_row.get("finding_fingerprint"),
-            "label": label_row.get("label"),
-            "severity": label_row.get("severity"),
-            "evidence": label_row.get("evidence", ""),
+            "severity": str(label_row.get("severity") or "medium").lower(),
             "note": label_row.get("note", ""),
+            "evidence_refs": [label_row["evidence"]] if label_row.get("evidence") else [],
+            "legacy_label": label_value,
+            "labeled_at": label_row.get("labeled_at"),
         }
-        append_jsonl(corpus, fixture)
+        append_declared_jsonl(corpus, fixture, expected_surface="operator_feedback")
         migrated += 1
     return {
         "tool_id": tool_id,
@@ -205,6 +220,57 @@ def finalize_corpus(
         "fixtures_appended": migrated,
         "corpus_path": str(corpus),
         "status": "ok",
+    }
+
+
+def list_seeding_backlog(
+    *,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """E20 (ORPHAN-672) — the UNLABELED half of the labeling economy.
+
+    ``list_corpus_status`` reports what the operator already labeled;
+    nothing reported what still WAITS. The seeding ledger grew on every
+    live finding with no reader and no queue size anywhere, so the
+    calibration bottleneck was invisible. Per tool: rows seeded, rows
+    labeled (by fingerprint), and the unlabeled remainder.
+    """
+    from .strict_jsonl_reader import read_strict_jsonl
+    from .tool_registry import tools_dir
+
+    # Read-only listing: resolve the tools root WITHOUT ensure_tools_dir —
+    # a reader must neither create state nor demand a bound identity.
+    root = tools_dir(base_dir) / "operator-feedback-seeding"
+    tools: dict[str, dict[str, int]] = {}
+    if not root.is_dir():
+        return {"seeding_root": str(root), "tools": {}, "total_unlabeled": 0}
+    for tool_dir in sorted(p for p in root.iterdir() if p.is_dir()):
+        raw = tool_dir / "raw-findings.jsonl"
+        labels = tool_dir / "labels.jsonl"
+        seeded_fps = {
+            str(
+                (row.get("finding") or {}).get("finding_fingerprint")
+                or row.get("finding_fingerprint")
+                or ""
+            )
+            for row in (read_strict_jsonl(raw, on_corruption="tolerant") if raw.exists() else [])
+        }
+        seeded_fps.discard("")
+        labeled_fps = {
+            str(row.get("finding_fingerprint") or "")
+            for row in (read_strict_jsonl(labels, on_corruption="tolerant") if labels.exists() else [])
+        }
+        labeled_fps.discard("")
+        unlabeled = len(seeded_fps - labeled_fps)
+        tools[tool_dir.name] = {
+            "seeded": len(seeded_fps),
+            "labeled": len(labeled_fps & seeded_fps),
+            "unlabeled": unlabeled,
+        }
+    return {
+        "seeding_root": str(root),
+        "tools": tools,
+        "total_unlabeled": sum(t["unlabeled"] for t in tools.values()),
     }
 
 
@@ -237,7 +303,11 @@ def list_corpus_status(
             "latest_label_age_days": None,
         })
         bucket["fixture_count"] += 1
-        label = str(row.get("label") or "").lower()
+        # Canonical vocabulary first (verdict), legacy spellings as fallback —
+        # the corpus now writes verdict/source_type and preserves the old
+        # label as legacy_label; a status reader that only spoke the old
+        # tongue reported tp_count=0 for every canonical row.
+        label = str(row.get("verdict") or row.get("label") or row.get("legacy_label") or "").lower()
         if label in ("tp", "true_positive"):
             bucket["tp_count"] += 1
         elif label in ("fp", "false_positive"):

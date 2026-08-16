@@ -1,7 +1,25 @@
+"""Lane-A validation command runner.
+
+E21-a — this module no longer writes the ``validation_runs`` surface.
+
+``_run_one`` used to append its own row shape to
+``validation/validation-runs.jsonl``, in parallel with
+``validation_runs_ledger.record_validation_run``. One declared surface,
+two writers, two schemas: the merge gate read ``change_id`` (absent from
+Lane-A rows) and the observability dashboard read ``status`` (absent from
+Lane-B rows), so each reader was blind to half the surface. Lane A now
+records THROUGH the ledger, which is the single writer, and this module
+REFUSES the runs path outright so the second writer cannot come back.
+
+That fold is why ``run_validation_commands`` demands ``change_id``,
+``commit_sha`` and ``runner_identity``: a validation run that cannot say
+which change and which commit it validated is not evidence, which is
+exactly why the merge gate ignored Lane A's rows.
+"""
 from __future__ import annotations
 
-import hashlib
 import os
+import secrets
 import shlex
 import subprocess
 import time
@@ -13,6 +31,11 @@ from .ledger import (
     load_declared_jsonl,
 )
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+from .validation_runs_ledger import (
+    VALIDATION_RUNS_FILENAME,
+    record_validation_run,
+    validation_run_log_dir,
+)
 
 
 ALLOWED_COMMANDS = (
@@ -26,9 +49,15 @@ ALLOWED_COMMANDS = (
 
 _VALIDATION_SURFACE_BY_FILENAME: dict[str, str] = {
     "validation-plans.jsonl": "validation_plans",
-    "validation-runs.jsonl": "validation_runs",
     "validation-comparisons.jsonl": "validation_comparisons",
     "validation-gates.jsonl": "validation_gates",
+}
+
+# E21-a — the surfaces this module must NOT touch, and the module that
+# owns each. Kept as data rather than a comment so the refusal below and
+# the invariant test read the same list.
+_LEDGER_OWNED_SURFACE_FILENAMES: dict[str, str] = {
+    VALIDATION_RUNS_FILENAME: "aria_kernel.validation_runs_ledger",
 }
 
 
@@ -36,6 +65,14 @@ def _validation_surface_name(path: str | Path) -> str | None:
     concrete = Path(path)
     if concrete.parent.name != "validation":
         return None
+    owner = _LEDGER_OWNED_SURFACE_FILENAMES.get(concrete.name)
+    if owner is not None:
+        raise GovernanceError(
+            f"validation_surface_owned_elsewhere:{concrete.name}: this "
+            f"surface has exactly one writer, {owner}; route the write "
+            f"through record_validation_run() instead of re-opening a "
+            f"second schema on it"
+        )
     return _VALIDATION_SURFACE_BY_FILENAME.get(concrete.name)
 
 
@@ -57,12 +94,25 @@ def run_validation_commands(
     *,
     commands: list[str],
     workspace_root: str | Path,
+    change_id: str,
+    commit_sha: str,
+    runner_identity: str,
+    change_author_identity: str | None = None,
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
     validation_plan_id: str | None = None,
     timeout_ms: int = 120_000,
     require_clean_worktree: bool = True,
 ) -> dict[str, Any]:
+    """Execute allowlisted commands and record each through the ledger.
+
+    ``change_id``, ``commit_sha`` and ``runner_identity`` are REQUIRED and
+    resolved, not merely non-empty: the change must exist in the change
+    ledger and the commit must exist in the workspace repository. A
+    caller that cannot supply real provenance gets a named
+    ``GovernanceError`` — never a placeholder row, because a placeholder
+    row is evidence the merge gate would then honour.
+    """
     if not commands or not all(isinstance(command, str) and command.strip() for command in commands):
         raise GovernanceError("validation commands must contain at least one non-empty command")
     if timeout_ms <= 0:
@@ -70,6 +120,8 @@ def run_validation_commands(
     root = Path(workspace_root).resolve()
     if not root.exists() or not root.is_dir():
         raise GovernanceError(f"workspace root does not exist: {workspace_root}")
+    _assert_change_id_resolves(change_id, base_dir=base_dir)
+    _assert_commit_sha_resolves(root, commit_sha)
     if require_clean_worktree and _dirty_worktree(root):
         raise GovernanceError("validation requires a clean git worktree")
 
@@ -82,20 +134,68 @@ def run_validation_commands(
                 base_dir=base_dir,
                 cycle_id=cycle_id,
                 validation_plan_id=validation_plan_id,
+                change_id=change_id,
+                commit_sha=commit_sha,
+                runner_identity=runner_identity,
+                change_author_identity=change_author_identity,
                 ordinal=index,
                 timeout_ms=timeout_ms,
             ),
         )
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "recorded_at": utc_now(),
         "cycle_id": cycle_id,
         "validation_plan_id": validation_plan_id,
+        "change_id": change_id,
+        "commit_sha": commit_sha,
         "status": "ok" if all(run["status"] == "ok" for run in runs) else "failed",
         "command_count": len(runs),
         "run_refs": [run["ledger_hash"] for run in runs],
+        "validation_run_ids": [run["validation_run_id"] for run in runs],
     }
     return append_jsonl(ensure_tools_dir(base_dir) / "validation" / "validation-plans.jsonl", payload)
+
+
+def _assert_change_id_resolves(
+    change_id: str, *, base_dir: str | Path | None,
+) -> None:
+    """Refuse to record evidence against a change that does not exist.
+
+    The merge gate joins runs to changes on ``change_id``; a run whose
+    change_id names nothing is a row that can never be read, and a row
+    that can never be read is indistinguishable from a fabricated one.
+    """
+    if not isinstance(change_id, str) or not change_id.strip():
+        raise GovernanceError("validation_change_id_required")
+    from .change_ledger import get_change_chain
+
+    chain = get_change_chain(change_id=change_id, base_dir=base_dir)
+    if chain.get("planned") is None and chain.get("committed") is None:
+        raise GovernanceError(
+            f"validation_change_id_unknown: {change_id!r} has neither a "
+            f"change_planned nor a change_committed row; emit the change "
+            f"chain before recording validation evidence against it"
+        )
+
+
+def _assert_commit_sha_resolves(root: Path, commit_sha: str) -> None:
+    """Refuse a commit_sha the workspace repository cannot resolve."""
+    if not isinstance(commit_sha, str) or not commit_sha.strip():
+        raise GovernanceError("validation_commit_sha_required")
+    completed = subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", f"{commit_sha}^{{commit}}"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise GovernanceError(
+            f"validation_commit_sha_unresolvable: {commit_sha!r} does not "
+            f"resolve to a commit in {root.as_posix()}; a validation run "
+            f"must name the commit it actually ran against"
+        )
 
 
 def compare_validation_groups(
@@ -162,10 +262,6 @@ def evaluate_validation_gate(
     return append_jsonl(ensure_tools_dir(base_dir) / "validation" / "validation-gates.jsonl", row)
 
 
-def list_validation_runs(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
-    return load_jsonl(ensure_tools_dir(base_dir) / "validation" / "validation-runs.jsonl")
-
-
 def list_validation_plans(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
     return load_jsonl(ensure_tools_dir(base_dir) / "validation" / "validation-plans.jsonl")
 
@@ -209,12 +305,16 @@ def _run_one(
     base_dir: str | Path | None,
     cycle_id: str | None,
     validation_plan_id: str | None,
+    change_id: str,
+    commit_sha: str,
+    runner_identity: str,
+    change_author_identity: str | None,
     ordinal: int,
     timeout_ms: int,
 ) -> dict[str, Any]:
     argv, env_updates = _parse_allowed_command(command)
+    started_at = utc_now()
     started = time.monotonic()
-    status = "ok"
     stdout = ""
     stderr = ""
     exit_code: int | None = None
@@ -233,30 +333,85 @@ def _run_one(
         stdout = completed.stdout or ""
         stderr = completed.stderr or ""
         exit_code = completed.returncode
-        if completed.returncode != 0:
-            status = "failed"
     except subprocess.TimeoutExpired as exc:
         timed_out = True
-        status = "timeout"
         stdout = _decode_timeout_stream(exc.stdout)
         stderr = _decode_timeout_stream(exc.stderr)
     duration_ms = int(round((time.monotonic() - started) * 1000))
-    row = {
-        "schema_version": 1,
-        "recorded_at": utc_now(),
-        "cycle_id": cycle_id,
-        "validation_plan_id": validation_plan_id,
-        "ordinal": ordinal,
-        "command": command,
-        "argv": argv,
-        "status": status,
-        "exit_code": exit_code,
-        "timed_out": timed_out,
-        "duration_ms": duration_ms,
-        "stdout_hash": _sha256(stdout.encode("utf-8")),
-        "stderr_hash": _sha256(stderr.encode("utf-8")),
-    }
-    return append_jsonl(ensure_tools_dir(base_dir) / "validation" / "validation-runs.jsonl", row)
+    log_path = _write_run_log(
+        base_dir=base_dir,
+        cycle_id=cycle_id,
+        validation_plan_id=validation_plan_id,
+        ordinal=ordinal,
+        command=command,
+        argv=argv,
+        stdout=stdout,
+        stderr=stderr,
+    )
+    # E21-a — ONE writer for the validation_runs surface. The argv that
+    # actually executed lives in the hash-bound log rather than as a
+    # second ledger column, so ``cmd`` and the executed vector cannot
+    # drift apart without breaking log_hash verification.
+    return record_validation_run(
+        change_id=change_id,
+        cmd=command,
+        exit_code=exit_code,
+        duration_ms=duration_ms,
+        timed_out=timed_out,
+        log_path=log_path,
+        commit_sha=commit_sha,
+        runner_identity=runner_identity,
+        change_author_identity=change_author_identity,
+        started_at=started_at,
+        completed_at=utc_now(),
+        base_dir=base_dir,
+    )
+
+
+def _write_run_log(
+    *,
+    base_dir: str | Path | None,
+    cycle_id: str | None,
+    validation_plan_id: str | None,
+    ordinal: int,
+    command: str,
+    argv: list[str],
+    stdout: str,
+    stderr: str,
+) -> Path:
+    """Persist the run's output on the declared log artifact surface.
+
+    ``verify_validation_run`` re-hashes this file at gate time, so the
+    log is the content-addressed anchor of the run — not a convenience
+    dump. The random suffix keeps two runs of the same command in the
+    same plan from overwriting each other's evidence.
+    """
+    slug = _log_slug(validation_plan_id or cycle_id or "run")
+    path = validation_run_log_dir(base_dir) / (
+        f"{slug}-{ordinal:03d}-{secrets.token_hex(6)}.log"
+    )
+    path.write_text(
+        "\n".join(
+            [
+                f"command: {command}",
+                f"argv: {argv!r}",
+                "--- stdout ---",
+                stdout,
+                "--- stderr ---",
+                stderr,
+                "",
+            ],
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _log_slug(value: str) -> str:
+    cleaned = "".join(
+        char if char.isalnum() or char in "-_" else "-" for char in value
+    ).strip("-")
+    return cleaned[:48] or "run"
 
 
 def _parse_allowed_command(command: str) -> tuple[list[str], dict[str, str]]:
@@ -336,7 +491,3 @@ def _decode_timeout_stream(value: str | bytes | None) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace")
     return value
-
-
-def _sha256(payload: bytes) -> str:
-    return "sha256:" + hashlib.sha256(payload).hexdigest()

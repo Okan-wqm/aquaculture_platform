@@ -64,6 +64,16 @@ on:
         required: false
         default: '1'
         type: string
+      unquarantine_tool_ids:
+        description: 'Comma-separated tool ids to unquarantine before the cycle (audited; requires approval ref)'
+        required: false
+        default: ''
+        type: string
+      unquarantine_approval_ref:
+        description: 'Operator approval reference for the unquarantine (recorded in governance)'
+        required: false
+        default: ''
+        type: string
       mock:
         description: 'Run in mock mode (no real Claude Code CLI invocation)'
         required: false
@@ -89,6 +99,11 @@ permissions:
   # actions:read remains for the run/job introspection the cycle reports on.
   # It is no longer used to fetch state: that moved to the branch.
   actions: read
+  # ORPHAN-HIGH-626 — the pr_ci_scan phase reads the check verdicts of
+  # ARIA's OWN open PRs (aria/*, automation/*) so a red check becomes this
+  # cycle's pressure instead of a silently blocked PR. Read-only pair.
+  checks: read
+  pull-requests: read
 
 jobs:
   cycle:
@@ -97,15 +112,20 @@ jobs:
     # ~2.5 min/cycle ≈ 80-90 min (run 28577469404 was cancelled mid-burn-in by
     # the previous flat 50-minute limit, producing ZERO ladder evidence because
     # the acceptance verdict is all-or-nothing). Schedule/cycle runs keep 50.
-    # The 150/120 floor is enforced by the workflow contract
-    # (burn_in_timeout_floor_minutes in workflow_contract_registry.py).
-    timeout-minutes: ${{ github.event.inputs.mode == 'burn-in-observe' && 150 || 50 }}
+    # Operator decision (2026-08-13): the night's window is UNBOUNDED — in
+    # GitHub terms that is the 360-minute platform ceiling, stated
+    # explicitly rather than left implicit by omitting the field. Smoke
+    # runs 1-3 proved the 50-minute cap was the binding constraint (the
+    # cycle needs adapters + queue drain + spawns); the deadline defence
+    # pair (ORPHAN-661 spawn clamp + ORPHAN-662 night-close) keeps ANY
+    # value safe: the night seals and publishes whatever the wall is.
+    timeout-minutes: 360
     env:
       # Kernel-workflow parity: no .pyc litter in the checkout — the
       # burn-in pre-clean guard treats any untracked path as dirty.
       PYTHONDONTWRITEBYTECODE: '1'
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
           persist-credentials: false
@@ -343,9 +363,71 @@ jobs:
         if: steps.lease_check.outputs.blocked != 'true' && steps.preflight.outputs.effective_mock == 'false'
         uses: ./.github/actions/ensure-sandbox-backend
 
+      # The adapter manifests declare `npx ts-node …` runners, and the tool
+      # runner refuses to execute them when the workspace has no repo-local
+      # ts-node — correctly: silently resolving a global one would run
+      # unpinned code. This lane never provisioned what the manifests
+      # declare, so the first cycle after the registry sync ran six adapters
+      # into six `tool_unhealthy` rows (missing node_modules/ts-node). The
+      # runner is self-hosted and the checkout persists, so the guard makes
+      # this a no-op on every run after the first.
+      # Operator-gated unquarantine, BEFORE the cycle so the same run's
+      # tools phase can exercise the lifted tools and the same publish step
+      # carries the audited transition. The kernel verb refuses without an
+      # approval ref; empty inputs make this a no-op, so the scheduled
+      # nightly never touches it. Added because six adapters were quarantined
+      # by an environment fault (missing node deps priced as tool guilt) and
+      # unquarantine_tool was API-only — no operator-reachable caller.
+      - name: Operator unquarantine (dispatch-gated)
+        if: steps.lease_check.outputs.blocked != 'true' && github.event.inputs.unquarantine_tool_ids != ''
+        env:
+          TOOL_IDS: ${{ github.event.inputs.unquarantine_tool_ids }}
+          APPROVAL_REF: ${{ github.event.inputs.unquarantine_approval_ref }}
+          ARIA_TOOLS: ${{ env.ARIA_TOOLS_DIR }}
+        run: |
+          set -euo pipefail
+          [ -n "${APPROVAL_REF}" ] || { echo '::error::unquarantine requires an approval ref'; exit 1; }
+          if ! printf '%s' "${TOOL_IDS}" | grep -Eq '^[a-z0-9-]+(,[a-z0-9-]+)*$'; then
+            echo '::error::tool ids must be comma-separated slugs'; exit 1
+          fi
+          IFS=',' read -ra IDS <<< "${TOOL_IDS}"
+          for id in "${IDS[@]}"; do
+            PYTHONPATH=aria-kernel python3 -m aria_kernel tool unquarantine \
+              --tool-id "${id}" \
+              --reason "operator dispatch: environment-fault quarantine lifted" \
+              --operator-approval-ref "${APPROVAL_REF}" \
+              --root-cause-note "quarantined by missing workspace node deps (ORPHAN-HIGH-607); the tool never executed" \
+              --fixture-update-ref "n/a: no fixture change; environment fault" \
+              --tools-dir "${ARIA_TOOLS}"
+          done
+
+      # A2 — one definition, both lanes (RC-9): the inline copy that used to
+      # sit here is now .github/actions/ensure-node-deps, shared with the
+      # executor lane whose missing provisioning tripped FAZ 5's pre-claim
+      # gate (`env_deps_missing`, run 31456376668).
+      - name: Provision the node dependencies the adapter manifests declare
+        if: steps.lease_check.outputs.blocked != 'true'
+        uses: ./.github/actions/ensure-node-deps
+
+      # FAZ 5a — the merge gate's attestation producer, at lane start so the
+      # row describes the host that will run the merge. Refusals (no sandbox,
+      # no managed auth, API key present) are reported, not fatal here: the
+      # merge-time verify is the enforcement point and now fails with the
+      # refusal's named cause instead of a bare "attestation required".
+      - name: Probe and record runner attestation
+        if: steps.lease_check.outputs.blocked != 'true' && steps.preflight.outputs.effective_mock == 'false'
+        uses: ./.github/actions/probe-runner-attestation
+        with:
+          tools-dir: ${{ env.ARIA_TOOLS_DIR }}
+
       - name: Run nightly standard-profile cycle
         if: steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle'
         env:
+          # ORPHAN-HIGH-626 — the pr_ci_scan phase's gh reads (own-PR list +
+          # check verdicts) authenticate with the job token; without it the
+          # checks reader reports gh_token_absent and the scan is a visible
+          # no-op instead of a silent one.
+          GH_TOKEN: ${{ github.token }}
           CLAUDE_CLI_MOCK: ${{ steps.preflight.outputs.effective_mock }}
           CLAUDE_CLI_MOCK_SOURCE: ${{ steps.preflight.outputs.mock_source }}
           ARIA_CLAUDE_REQUIRE_USAGE: '1'
@@ -360,6 +442,21 @@ jobs:
             echo "::error::invalid max_cycles: ${MAX_CYCLES}" >&2
             exit 1
           fi
+          # Smoke-run 31645296013 — a spawn that cannot finish before the
+          # job dies must not start. Export the ABSOLUTE deadline this job
+          # runs under (its own timeout-minutes, minus 5 minutes for the
+          # post-steps: handoff snapshot, state verify, publish) so
+          # claude_runtime clamps every spawn's timeout to the remaining
+          # wall-clock instead of letting the last spawn be cut mid-flight
+          # and the whole night quarantine.
+          # 10-minute margin: ~5m of setup steps already spent before this
+          # step (the epoch is computed here, not at job start) + ~5m for
+          # the close-out steps after it. Single mode-independent value —
+          # the job cap is the 360-minute platform ceiling for every mode
+          # (operator decision 2026-08-13).
+          JOB_TIMEOUT_MINUTES=360
+          export ARIA_JOB_DEADLINE_EPOCH=$(( $(date +%s) + JOB_TIMEOUT_MINUTES * 60 - 600 ))
+          echo "spawn deadline: $(date -u -d @${ARIA_JOB_DEADLINE_EPOCH} +%H:%M:%SZ) (job cap ${JOB_TIMEOUT_MINUTES}m - 10m margin)"
           PYTHONPATH=aria-kernel python3 -m aria_kernel autonomy run \
             --workspace-root "$GITHUB_WORKSPACE" \
             --tools-dir "$ARIA_TOOLS_DIR" \

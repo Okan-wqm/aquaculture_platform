@@ -1,7 +1,8 @@
+import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import assert from 'node:assert/strict';
+
 import { analyzeEventContracts } from './event-contracts-adapter';
 
 const workspace = mkdtempSync(join(tmpdir(), 'aria-event-contracts-adapter-'));
@@ -191,4 +192,4 @@ assert.equal(
   true,
 );
 
-console.log('event-contracts-adapter tests passed');
+process.stdout.write('event-contracts-adapter tests passed\n');

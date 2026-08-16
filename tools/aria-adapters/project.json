@@ -1,0 +1,19 @@
+{
+  "name": "aria-adapters",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "tools/aria-adapters",
+  "projectType": "library",
+  "tags": ["scope:tools", "type:aria"],
+  "targets": {
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "parallel": false,
+        "commands": [
+          "node --max-old-space-size=4096 node_modules/eslint/bin/eslint.js tools/aria-adapters --ext .ts --max-warnings=0"
+        ]
+      }
+    }
+  }
+}

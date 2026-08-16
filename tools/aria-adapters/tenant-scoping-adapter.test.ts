@@ -1,7 +1,8 @@
+import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import assert from 'node:assert/strict';
+
 import { analyzeTenantScoping } from './tenant-scoping-adapter';
 
 const workspace = mkdtempSync(join(tmpdir(), 'aria-tenant-scoping-adapter-'));
@@ -118,4 +119,4 @@ assert.equal(output.findings.some((finding) => finding.path.endsWith('safe-tenan
 assert.equal(output.findings.some((finding) => finding.path.endsWith('array-find.service.ts')), false);
 assert.equal(output.findings.some((finding) => finding.rule === 'tenant_guard_missing'), false);
 
-console.log('tenant-scoping-adapter tests passed');
+process.stdout.write('tenant-scoping-adapter tests passed\n');

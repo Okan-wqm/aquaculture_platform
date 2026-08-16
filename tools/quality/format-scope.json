@@ -42873,6 +42873,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/aquamobil-input-mirror-parity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/aria-acceptance-lane-contract.spec.ts",
       "prettier_managed": true
     },
@@ -46098,7 +46104,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "7e466c7bd3d1e34786fb8e3bb0c9d33c8cb67909dca568b1c6c02f9ffca90229",
+      "content_sha256": "9056aae9b62b3db3e0b9b6a8ed5a7f5f75c36100c6b3a882473278480e487fa0",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/apps/aquamobil/src/generated/graphql.ts",
@@ -46141,6 +46147,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/graphql/sensor-operations.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/graphql/water-quality.operations.ts",
       "prettier_managed": true
     },
     {

@@ -29,6 +29,11 @@ const GRAPHQL_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'g
  * - completeTask/startTask/setChecklistItem → hooks/useTaskActions.ts
  * - sendMessage/editMessage/deleteMessage/markMessagesRead → messaging hooks
  * - acknowledgeAlert → alert hooks (MobileAcknowledgeAlert online yolu)
+ * - createWaterQualityMeasurement → graphql/water-quality.operations.ts, sayfanın
+ *   online submit yolu. Doküman oraya, sayfanın içinden taşındı: codegen'in pluck
+ *   kümesi yalnızca `src/graphql/**` okuyor, dolayısıyla input tipi ancak orada
+ *   üretilebiliyor. El yazımı ayna sürdüğü sürece sunucudan silinen bir alan
+ *   derleme hatası değil, çalışma-zamanı reddi üretiyordu.
  */
 const DUAL_PATH_ROOT_FIELDS = new Set([
   'submitLeaveRequest',
@@ -40,6 +45,7 @@ const DUAL_PATH_ROOT_FIELDS = new Set([
   'deleteMessage',
   'markMessagesRead',
   'acknowledgeAlert',
+  'createWaterQualityMeasurement',
 ]);
 
 /** Registry dokümanının kök mutation alanı (ilk `{` sonrası ilk alan adı). */

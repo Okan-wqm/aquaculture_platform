@@ -2,13 +2,14 @@
 
 **Agent:** `mobile-app-auditor` · **Mode:** CATCHER (read-only) · **Lane:** mobile
 **Cycle:** `2026-08-16-farm-mobile-agent-audit` · **Verdict:** BLOCK
-**Findings surviving verification:** 10 (CRITICAL 1 · HIGH 2 · MEDIUM 5 · LOW 2)
+**Findings surviving verification:** 9 (CRITICAL 1 · HIGH 2 · MEDIUM 4 · LOW 2) · 1 refuted
 
-> Produced by a 27-agent audit workflow. Every CRITICAL/HIGH claim was handed to an
-> independent verifier instructed to **refute** it by reopening each cited line;
-> claims that could not be defended were dropped into the Refuted section below.
-> MEDIUM/LOW claims did not enter the verify stage and carry the raising agent's
-> confidence only.
+> Produced by a 27-agent audit workflow, then verified by a second 25-agent pass.
+> **Every** claim — CRITICAL through LOW — was handed to an independent verifier
+> instructed to **refute** it by reopening each cited line, with "refuted" as the
+> default when the evidence did not clearly hold. Claims that could not be defended
+> were dropped into the Refuted section below; claims that proved smaller or larger
+> than filed carry a corrected severity.
 >
 > **Finding IDs** use the `PRODUCT-MOBILE-*` prefix this agent's contract in
 > `.claude/shared/output-format.md` assigns it. That prefix is **rejected** by the
@@ -19,22 +20,38 @@
 
 Read the AquaMobil PWA end-to-end: `web/apps/aquamobil/CLAUDE.md`, `src/main.tsx`, `src/App.tsx`,
 `src/layouts/MobileLayout.tsx`,
-`src/components/{IdentityBoundary,QueuedStatusBadge,PhotoCaptureField,CriticalAlertBanner}.tsx`, the
+, the
 whole offline stack
 (`src/pwa/{offline-queue.ts,operation-registry.ts,sw-replay.ts,messaging-sw.ts}`),
 auth/network/permission stack
-(`src/hooks/{useAuth.tsx,useOfflineQueue.tsx,useNetworkStatus.ts,useMobilePermissions.ts,useTaskActions.ts,useTanks.ts,useAlerts.ts,useDailyOpsStats.ts,useFarmRealtimeSync.ts,useIncidentMediaUpload.ts,useSendMessage.ts}`),
+(),
 `src/services/authenticated-fetch.ts`,
-`src/utils/{tenant-query-keys,offline-sync-invalidation,offline-optimistic,network-error,user-scoped-cache-key}.ts`,
+,
 `src/types/index.ts`, and the field-worker pages (`_shared/RecordEntityPage.tsx`, water-quality,
 feeding, cull, escape, lice, attendance, storage/StockMovementPage, sync/SyncStatusPage, alerts,
 reports, account, HomePage). Cross-checked the backend contracts in
 `apps/farm-service/schema.graphql`,
 `apps/farm-service/src/water-quality/dto/create-water-quality.input.ts`,
 `apps/farm-service/src/feeding-protocol/dto/meal-execution.inputs.ts`,
-`apps/farm-service/src/mobile-command/entities/farm-mobile-command-receipt.entity.ts`,
+,
 `apps/hr-service/src/attendance/dto/clock-in-out.input.ts`, plus `codegen.ts`,
 `tests/invariants/dead-contract-fe-operations.spec.ts` and `e2e/tests/mobile/**`.
+
+```text
+src/components/{IdentityBoundary,QueuedStatusBadge,PhotoCaptureField,CriticalAlertBanner}.tsx
+```
+
+```text
+src/hooks/{useAuth.tsx,useOfflineQueue.tsx,useNetworkStatus.ts,useMobilePermissions.ts,useTaskActions.ts,useTanks.ts,useAlerts.ts,useDailyOpsStats.ts,useFarmRealtimeSync.ts,useIncidentMediaUpload.ts,useSendMessage.ts}
+```
+
+```text
+src/utils/{tenant-query-keys,offline-sync-invalidation,offline-optimistic,network-error,user-scoped-cache-key}.ts
+```
+
+```text
+apps/farm-service/src/mobile-command/entities/farm-mobile-command-receipt.entity.ts
+```
 
 ## Executive summary
 
@@ -205,7 +222,7 @@ mobile-app-auditor WRITER mode, with tenant-isolation-auditor review on the pres
 **Verifier note:**
 
 Evidence verified line-for-line. hooks/useAuth.tsx:427 `logout` `->` :471
-`await clearAllUserData(currentUserId, currentTenantId)` `->` :194 `clearAllOperations()` called
+called
 with NO tenantId. pwa/offline-queue.ts:500-533: with no tenantId the prefix is the bare QUEUE_PREFIX
 (every tenant), clearPendingBlobs(undefined) drops all blobs, and the `if (!tenantId)` branch nulls
 `_sessionKey` and deletes DURABLE_QUEUE_KEY, so residual ciphertext is unrecoverable.
@@ -219,6 +236,10 @@ mitigating context is that the wipe is a deliberate shared-device security measu
 (BUG-03/SEC-02/FE-CRITICAL-002) and that queues normally drain within ~1s online; that argues for
 warn-and-drain rather than for the finding being wrong. Unsynced field records destroyed silently,
 including by a lifecycle event the operator never triggered — HIGH holds.
+
+```text
+await clearAllUserData(currentUserId, currentTenantId)` `->` :194 `clearAllOperations()
+```
 
 ### PRODUCT-MOBILE-HIGH-004
 
@@ -287,12 +308,12 @@ the offline-cache reconciliation.
 
 Verified. hooks/useAlerts.ts:98-121: `acknowledge` awaits only
 `addToQueue('acknowledgeAlert', { alertId, note })`, discards the returned op id, then
-`queryClient.setQueriesData` flips `acknowledged: true` locally; the hook returns `Promise<void>`,
+,
 so no consumer can read sync status. AlertsPage.tsx:71-75 renders the green "Acknowledged ·
 `<time>`" solely from that flip, and grep shows AlertsPage carries no isOnline/queued/pending
 indicator at all. CriticalAlertBanner.tsx:42-45 returns null once `criticalUnacknowledged` empties,
 i.e. the life-safety banner clears on the local flip. useAlerts.ts:72
-`refetchInterval: ALERTS_REFETCH_INTERVAL_MS` plus the queryFn's `cacheData(...)` /
+/
 `getCachedData(...)` fallback means the server (or stale-cache) value overwrites the optimistic
 flip, so a not-yet-drained ack can flap back. offline-queue.ts:952-963 confirms ops at
 MAX_RETRY_COUNT or with non-retryable errors are counted failed and skipped forever. Decisive
@@ -302,6 +323,14 @@ LeaveRequestPage, TaskDetailPage, RecordEntityPage, RecordTransferPage) and the 
 life-safety write — is the surface that skips it. Impact is bounded by the 30s reconciliation when
 online, but the offline/flaky-network false-safe state on a critical-alarm banner supports HIGH.
 
+```text
+queryClient.setQueriesData` flips `acknowledged: true` locally; the hook returns `Promise<void>
+```
+
+```text
+refetchInterval: ALERTS_REFETCH_INTERVAL_MS` plus the queryFn's `cacheData(...)
+```
+
 ### MEDIUM
 
 ### PRODUCT-MOBILE-MEDIUM-003
@@ -309,7 +338,7 @@ online, but the offline/flaky-network false-safe state on a critical-alarm banne
 **Title:** The entire offline-replay GraphQL contract sits outside the codegen/schema gate, so
 reconnect-only mutations can drift undetected
 
-**Severity:** MEDIUM (raised as HIGH, downgraded by adversarial verification)
+**Severity:** MEDIUM (filed as HIGH, downgraded by adversarial verification)
 **Layer:** 3
 **State:** OPEN
 **Raised as:** `PRODUCT-MOBILE-HIGH-003` by `mobile-app-auditor` in cycle
@@ -340,13 +369,21 @@ directory.
 **Proposed fix direction:**
 
 Extend the codegen document set to every operation the mobile client can put on the wire
-(`web/apps/aquamobil/src/**/*.{ts,tsx}`) and make `operation-registry.ts` hold `TypedDocumentNode`
+(
 constants printed at build time rather than free-text strings — the SW sub-build can consume a
 pre-printed generated module, which removes the React-free constraint that justified the strings.
-Add the `npm run codegen && git diff --exit-code` CI gate for `web/apps/aquamobil/src/generated/` so
+Add the so
 a schema change that breaks a replay mutation fails the PR instead of silently failing 200 queued
 field records at 3am on reconnect. Type `buildOperationVariables`' return against the generated
 Variables types so the shaping cannot drift from the document.
+
+```text
+web/apps/aquamobil/src/**/*.{ts,tsx}`) and make `operation-registry.ts` hold `TypedDocumentNode
+```
+
+```text
+npm run codegen && git diff --exit-code` CI gate for `web/apps/aquamobil/src/generated/
+```
 
 **Affected surface (ripple set):**
 
@@ -370,7 +407,7 @@ Facts are right, severity is inflated. codegen.ts:47 is verbatim
 `const aquamobilDocuments = ['web/apps/aquamobil/src/graphql/**/*.ts'];` and it is the only
 `documents` set for the aquamobil output (codegen.ts:79);
 infrastructure/apollo-router/codegen-schema.generated.json likewise globs only
-`web/apps/*/src/graphql/**/*.ts`. operation-registry.ts:31-34 is indeed a `Record<..., string>` of
+of
 plain template strings, import-free by design for the SW sub-build. useIncidentMediaUpload.ts:23-27
 says in-file that codegen does not pluck it. tests/invariants/dead-contract-fe-operations.spec.ts
 checks reachability only, and the aquamobil-local `pwa/**tests**/queued-mutation-ssot.spec.ts` only
@@ -383,6 +420,10 @@ missing-gate/defect-class finding with no independent production impact of its o
 instance is CRITICAL-001, which is already reported separately; counting the gap again at HIGH
 double-counts the same harm.
 
+```text
+web/apps/*/src/graphql/**/*.ts`. operation-registry.ts:31-34 is indeed a `Record<..., string>
+```
+
 ### PRODUCT-MOBILE-MEDIUM-005
 
 **Title:** Logout Cache Storage wipe is hand-enumerated and has drifted: it deletes a cache that
@@ -393,7 +434,7 @@ does not exist and leaves tenant media in a 30-day image cache
 **State:** OPEN
 **Raised as:** `PRODUCT-MOBILE-MEDIUM-005` by `mobile-app-auditor` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -436,61 +477,29 @@ covered by the logout purge.
 tenant-isolation-auditor WRITER mode (shared-device residue is its domain) with mobile-app-auditor
 CATCHER.
 
-### PRODUCT-MOBILE-MEDIUM-006
+**Verifier note:**
 
-**Title:** Regulatory incident records filed offline permanently lose their evidence photos —
-capture is hard-disabled without connectivity
-
-**Severity:** MEDIUM
-**Layer:** 2
-**State:** OPEN
-**Raised as:** `PRODUCT-MOBILE-MEDIUM-006` by `mobile-app-auditor` in cycle
-`2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
-
-**Evidence:**
-
-- web/apps/aquamobil/src/components/PhotoCaptureField.tsx:98 \-
-  `const captureDisabled = !isOnline || isUploading || atCapacity;`
-- web/apps/aquamobil/src/hooks/useIncidentMediaUpload.ts:20-23 \- "Capture-offline-upload-on-sync (a
-  binary blob lane replayed by the SW, like messaging's uploadAndSendMessage) is NOT built here"
-- web/apps/aquamobil/src/pwa/offline-queue.ts:741-754 \- `putPendingBlob` already implements an
-  encrypted, tenant-partitioned binary store
-- web/apps/aquamobil/src/hooks/useOfflineQueue.tsx:87-144 \- `replayUploadAndSendMessage` already
-  implements presign `->` PUT `->` reference replay, but only for messaging
-- web/apps/aquamobil/src/pages/escape/EscapeIncidentPage.tsx:136 \- the escape record submits
-  `mediaKeys` only when photos were captured, i.e. never on the offline path
-
-**Rule violated:**
-
-Domain rule: "Flag any create/edit flow that works on desktop code paths but loses required fields,
-files, or derived values in the mobile UI path." Escape/lice/welfare are the flows a field worker
-files precisely when they are at the pen, offline.
-
-**Proposed fix direction:**
-
-Generalise the existing binary offline lane instead of leaving a second, weaker one: add an
-`uploadAndAttachIncidentMedia` operation type that persists the captured blob via `putPendingBlob`
-and, on drain, runs `requestIncidentMediaUpload` `->` PUT `->` patch the record's `mediaKeys`,
-mirroring `replayUploadAndSendMessage` exactly so the two lanes cannot diverge. The incident record
-and its blobs must share one command identity so a partial replay is idempotent. Until that lands,
-the field must not silently drop evidence — it should refuse to finalise an offline incident
-submission that had photos staged, rather than submitting without them.
-
-**Affected surface (ripple set):**
-
-- `web/apps/aquamobil/src/components/PhotoCaptureField.tsx`
-- `web/apps/aquamobil/src/hooks/useIncidentMediaUpload.ts`
-- `web/apps/aquamobil/src/hooks/useOfflineQueue.tsx`
-- `web/apps/aquamobil/src/pwa/operation-registry.ts`
-- `web/apps/aquamobil/src/pwa/offline-queue.ts`
-- `web/apps/aquamobil/src/types/index.ts`
-- `web/apps/aquamobil/src/utils/offline-sync-invalidation.ts`
-- `apps/farm-service/src/fish-health/dto/field-capture.inputs.ts`
-
-**Expected closer:**
-
-mobile-app-auditor WRITER mode with farm-domain expert review on the incident media patch mutation.
+Verified every bullet. web/apps/aquamobil/src/hooks/useAuth.tsx:213 does call
+`caches.delete('api-cache')`, and a repo-wide grep over web/apps/aquamobil (ts/tsx/js/json,
+including vite.config.ts which is injectManifest with NO runtimeCaching) finds the string ONLY at
+useAuth.tsx:213-214 — no code path ever creates that cache, so the delete is dead. The four caches
+that DO exist are declared in web/apps/aquamobil/src/pwa/messaging-sw.ts: 'navigation-cache' (:103),
+'static-cache' (:123), 'image-cache' (:137, StaleWhileRevalidate, 100 entries, 30 days) and
+'messaging-media-v1' (:298). The LOGOUT purge at messaging-sw.ts:346-353 (`clearMessagingCaches`)
+filters `caches.keys()` to `k.startsWith('messaging-')`, so image-cache is never purged. The
+ordering claim also holds: `precacheAndRoute` (:63) and the first `registerRoute` (:100) install
+workbox's own fetch listener at module-evaluation time, BEFORE
+`self.addEventListener('fetch', handleFetchEvent)` at :329; the first listener to call respondWith
+wins, so the image route claims any GET whose pathname ends .png/.jpg/.jpeg/.gif/.webp. Messaging
+attachment storageKeys are `messaging/{tenantId}/{channel}/{yyyy}/{mm}/{file}.jpg`
+(apps/messaging-service/src/message/resolvers/message-attachment.resolver.spec.ts:34,
+media.service.ts), so a presigned attachment GET matches the image route and lands in the unpurged
+image-cache, NOT the purgeable messaging-media-v1 the comment at :245-250 asserts. The existing test
+does not catch this: `web/apps/aquamobil/src/hooks/**tests**/useAuth-logout-wipe.spec.tsx:117` stubs
+`caches` as `{ delete: vi.fn() }`, so it asserts a call against a cache that does not exist. GraphQL
+POST pass-through is unaffected (workbox routes default to method GET). MEDIUM is correctly
+calibrated — this is at-rest tenant-media residue on a shared device, not an active cross-user read,
+since the next user's app never requests the prior tenant's presigned URLs.
 
 ### PRODUCT-MOBILE-MEDIUM-007
 
@@ -502,7 +511,7 @@ missing at submit time
 **State:** OPEN
 **Raised as:** `PRODUCT-MOBILE-MEDIUM-007` by `mobile-app-auditor` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -527,11 +536,15 @@ early-return is a Tier-4 "hope it never happens" control on an irreversible fiel
 **Proposed fix direction:**
 
 Make the precondition unrepresentable rather than re-checked: have the scaffold hold a narrowed
-`SelectedBatchContext` (tank \+ non-null batchId) as its state, so `buildPayload` is only callable
+is only callable
 with a proven context and the Confirm button is structurally disabled — not silently ignored — when
 that context evaporates. If the context is lost between review and submit, surface an explicit "tank
 data was refreshed — reselect the tank" banner and return the operator to the entry step with their
 values intact.
+
+```text
+SelectedBatchContext` (tank \+ non-null batchId) as its state, so `buildPayload
+```
 
 **Affected surface (ripple set):**
 
@@ -548,6 +561,30 @@ values intact.
 
 button-action-auditor WRITER mode.
 
+**Verifier note:**
+
+Confirmed at web/apps/aquamobil/src/pages/_shared/RecordEntityPage.tsx:218 —
+`if (!validate() || !metrics?.batchId) return;` sits at the top of handleSubmit, before
+`setIsSubmitting(true)` (:220) and before any error is set (:221), so both branches are silent. The
+confirm-step render (:270-325) is worse than the claim states: the Confirm button's only `disabled`
+condition is `isSubmitting` (:296), and the confirm screen renders ONLY `errors.general` (:291) — so
+even the `!validate()` branch, which DOES populate `errors.tank` ('Selected tank has no active
+batch', RecordCullPage.tsx:62), produces no visible feedback on that screen. `metrics` is
+is
+genuinely nullable (`batchId: string | null`, web/apps/aquamobil/src/types/index.ts:56).
+useTanks.ts:184 does set `refetchOnWindowFocus: true`, so the tank set is re-resolved on every
+foreground, including while the operator sits on the confirm screen. RecordCullPage.tsx:59-68 checks
+`!metrics` but not `metrics.batchId`, exactly as claimed. One partial mitigation the claim omits:
+every page gates entry with `canReview={... && !!metrics?.batchId ...}` (RecordCullPage.tsx:105,
+RecordMortalityPage.tsx:113, RecordHarvestPage.tsx:125), so the dead path is only reachable when
+batch context evaporates BETWEEN review and submit — a narrow but real window that a focus refetch
+makes reachable. MEDIUM stands: a dead Confirm button with zero feedback on an irreversible
+regulatory field action.
+
+```text
+selectedTank?.batchMetrics` derived from useTanks() (:209-210) and `BatchMetrics.batchId
+```
+
 ### PRODUCT-MOBILE-MEDIUM-008
 
 **Title:** The reconnect drain has no resume/foreground re-arm, so a drain that aborts before
@@ -558,7 +595,7 @@ touching operations leaves the queue stalled with no automatic retry
 **State:** OPEN
 **Raised as:** `PRODUCT-MOBILE-MEDIUM-008` by `mobile-app-auditor` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -606,6 +643,27 @@ retry `pending` ops too, not just `failed` ones.
 
 mobile-app-auditor WRITER mode.
 
+**Verifier note:**
+
+All five bullets check out. web/apps/aquamobil/src/hooks/useOfflineQueue.tsx:477-493: the auto-sync
+effect arms on `lastArmedVersionRef.current !== queueVersion` and only resets the sentinel to -1
+when `isOnline` goes false, so once armed for version V nothing re-arms while continuously online.
+:502-518: the 30s interval early-returns unless some op has
+`status === 'failed' && retryCount < MAX_RETRY_COUNT`; ops left `pending` never qualify. :418-421: a
+throw from `navigator.locks.request(QUEUE_DRAIN_LOCK, runDrain)` / `syncAllOperations` (which itself
+throws on a missing tenantId at offline-queue.ts:916-918, and can throw from `getPendingOperations`
+decryption/IDB failure at :922 before any op is touched) is caught into `setSyncError` and returns,
+leaving every op at `pending`. main.css:33-36 confirms `html { overscroll-behavior-y: contain }`,
+and useNetworkStatus.ts:38-88 has only `online`/`offline` listeners plus a timer probe — the only
+`visibilitychange` listener in the whole app is ChatRoomPage.tsx:174, unrelated to the queue. I also
+found evidence the claim UNDERSTATES: `syncError` is exposed on the context
+(useOfflineQueue.tsx:527) but is not rendered anywhere — SyncStatusPage.tsx:42 and
+AccountPage.tsx:407 both destructure the queue without it — so an aborted drain is invisible as well
+as un-retried. Holding at MEDIUM rather than raising, because three recovery paths exist that the
+fix direction should preserve: any new enqueue bumps queueVersion and re-arms, a real offline→online
+probe flip resets the sentinel, and manual `syncNow()` buttons exist on SyncStatusPage.tsx:108,
+AccountPage.tsx:447 and QueuedStatusBadge.tsx:34.
+
 ### LOW
 
 ### PRODUCT-MOBILE-LOW-009
@@ -618,7 +676,7 @@ of 24 operation types show raw identifiers to field workers
 **State:** OPEN
 **Raised as:** `PRODUCT-MOBILE-LOW-009` by `mobile-app-auditor` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -657,6 +715,31 @@ same change.
 
 frontend-expert WRITER mode.
 
+**Verifier note:**
+
+Holds on every cited line. web/apps/aquamobil/src/hooks/useOfflineQueue.tsx:45-53 does carry the
+comment "Adding the member forces exhaustive handling at every consumer — a missed branch is a
+compile error" above `export type SyncStatus = 'pending'|'syncing'|'synced'|'failed'|'unknown'`, and
+that claim is untrue: web/apps/aquamobil/src/components/QueuedStatusBadge.tsx:38-91 renders icon,
+title and subtitle purely via `status === 'synced' && …` / 'pending' / 'syncing' / 'failed'
+short-circuit expressions with no switch and no exhaustiveness check, so `status === 'unknown'`
+renders an empty icon slot, an empty `<h2>` and an empty `<p>`. The 'unknown' branch is reachable in
+practice, not dead: getSyncStatus (useOfflineQueue.tsx:428-445) returns 'unknown' whenever an id is
+in neither the in-memory `syncResults` map nor `pendingOperations`, and the SW closed-app replay
+lane can drain an op without ever populating the foreground `syncResults` state (setSyncResults is
+only written inside the foreground syncNow, lines 353 and 381), so a badge mounted over an
+SW-drained op falls to 'unknown'. Second half also holds: SyncStatusPage.tsx:16 declares
+`const OPERATION_LABELS: Record<string, {label;icon}>` under a comment calling it "the SINGLE source
+of truth", and it contains exactly 17 keys; types/index.ts:349 enumerates 24 OperationType members;
+the 7 missing are exactly recordMealFeeding, setChecklistItem, recordLiceCount,
+recordWelfareAssessment, recordEscapeIncident, acknowledgeAlert, uploadAndSendMessage.
+SyncStatusPage.tsx:124 falls back to `OPERATION_LABELS[op.type] || { label: op.type, icon: '📝' }`,
+so those 7 render the raw camelCase identifier. No lint rule or spec guards either map (grep for
+OPERATION_LABELS across web/ and tests/ returns only its declaration and its one use), and the
+in-repo `satisfies Record<OperationType, …>` precedent the finding cites is real
+(offline-sync-invalidation.ts:52). Impact is display-only — no data loss, no wrong write — so LOW is
+the correct severity, not higher.
+
 ### PRODUCT-MOBILE-LOW-010
 
 **Title:** Optimistic KPI bumps applied at enqueue are never reverted when the queued operation
@@ -667,7 +750,7 @@ permanently fails
 **State:** OPEN
 **Raised as:** `PRODUCT-MOBILE-LOW-010` by `mobile-app-auditor` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -704,6 +787,61 @@ widening the trigger costs nothing structurally.
 **Expected closer:**
 
 data-readback-auditor WRITER mode.
+
+**Verifier note:**
+
+Holds on every cited line. offline-optimistic.ts:64-88 is `applyOptimisticKpiBump`, which
+unconditionally increments the cached `dailyOpsCounts` counter and
+`stockEventsSummary.thisWeekEventsCount` via queryClient.setQueriesData; no revert/decrement
+function exists anywhere in that file. useOfflineQueue.tsx:244-246 fires it on
+`if (result.status === 'queued')` at enqueue. useOfflineQueue.tsx:399-402 builds
+and
+passes only that to invalidateSyncedOperationQueries, so an op that stayed in the queue as 'failed'
+never triggers the reconciliation the bump's own comment ("the post-sync invalidation reconciles
+with server truth") promises. The terminal state is genuinely terminal: offline-queue.ts:839-842 and
+:956-963 keep an op at retryCount `>=` MAX_RETRY_COUNT (5) in the queue as 'failed' indefinitely,
+skipped on every subsequent drain, and removeFromQueue does not revert the bump either.
+useDailyOpsStats.ts:81 does carry `staleTime: 1000 * 60 * 5` (gcTime 30m). Two facts bound the blast
+radius and keep this at LOW rather than higher: the QueryClient in main.tsx:32-50 does not disable
+refetchOnWindowFocus/refetchOnReconnect and there is no cache persister, so the inflated counter
+self-corrects on the next stale refetch (app focus, remount, or reconnect once past the 5-minute
+window) and never survives a reload. So it is a real, transient, operator-visible over-count on a
+KPI card, exactly as filed — LOW.
+
+```text
+syncedOperationTypes = preSyncOps.filter((op) => !remainingIds.has(op.id)).map(op => op.type)
+```
+
+## Refuted by adversarial verification
+
+These did **not** survive independent re-checking. They are recorded so the same
+claim is not re-raised next cycle.
+
+### ~~PRODUCT-MOBILE-MEDIUM-006~~
+
+**Title:** Regulatory incident records filed offline permanently lose their evidence photos —
+capture is hard-disabled without connectivity
+
+**Raised as:** MEDIUM · **Result:** REFUTED
+
+The cited lines are accurate but the harm they are claimed to prove does not exist.
+web/apps/aquamobil/src/components/PhotoCaptureField.tsx:98 does set
+`captureDisabled = !isOnline || isUploading || atCapacity`, but :202-206 of the same file renders an
+explicit amber banner whenever offline: 'Connect to add photos — the record still submits without
+them.', and the button icon swaps to `<ImageOff/>`. Nothing is 'silently' dropped and no captured
+evidence is lost — offline capture never starts, so there is no staged blob to lose. The field is
+titled 'Photos (Optional)' (PhotoCaptureField.tsx:139) and the backend agrees:
+apps/farm-service/src/fish-health/dto/field-capture.inputs.ts:90,255,320 all declare
+`mediaKeys?: string[]` as optional, so the cited domain rule ('loses REQUIRED fields, files, or
+derived values in the mobile UI path') does not apply. The claim's own evidence bullet quotes the
+code documenting the boundary deliberately (useIncidentMediaUpload.ts:19-22: 'Scope: only the
+upload-at-capture path… is NOT built here — it is the remaining enhancement'), which makes this a
+restatement of a documented, user-disclosed scope decision, i.e. a feature request, not a defect.
+The proposed interim fix is also incoherent against the code: it asks the app to 'refuse to finalise
+an offline incident submission that had photos staged', but PhotoCaptureField.tsx:98 makes staging
+offline impossible, so there is never such a state. EscapeIncidentPage.tsx:136
+(`mediaKeys: mediaKeys.length > 0 ? mediaKeys : undefined`) is simply the correct encoding of an
+optional field.
 
 ## Inventory — what exists / what is missing
 

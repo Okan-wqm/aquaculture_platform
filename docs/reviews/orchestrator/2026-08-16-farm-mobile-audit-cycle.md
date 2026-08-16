@@ -2,8 +2,13 @@
 
 **Cycle:** `2026-08-16-farm-mobile-agent-audit` · **Lane:** A (kod incelemesi) \+ B (ürün denetimi)
 \+ D (veritabanı E2E)
-**Kapsam:** `apps/farm-service` (1.604 TS dosyası, 40+ bounded context) ve `web/apps/aquamobil` (241
+**Kapsam:** (241
 TS/TSX dosyası, offline-first PWA)
+
+```text
+apps/farm-service` (1.604 TS dosyası, 40+ bounded context) ve `web/apps/aquamobil
+```
+
 **Verdict:** BLOCK
 
 ## Nasıl koşturuldu
@@ -16,32 +21,40 @@ subagent token, 1.623 araç çağrısı, ~113 dakika. Ajan hatası: 0.
 |                                                |                                           |
 | ---------------------------------------------- | ----------------------------------------- |
 | Ham bulgu                                      | 131                                       |
-| Doğrulamayı geçen                              | 122                                       |
-| Çürütülen (CRITICAL/HIGH iddia, kanıt tutmadı) | 9                                         |
+| Doğrulamayı geçen                              | 118                                       |
+| Çürütülen (CRITICAL/HIGH iddia, kanıt tutmadı) | 13                                        |
 | Sentez aşamasında bulunan yeni bulgu           | 18                                        |
-| Severity dağılımı (doğrulama sonrası)          | CRITICAL 2 · HIGH 17 · MEDIUM 83 · LOW 20 |
+| Severity dağılımı (doğrulama sonrası)          | CRITICAL 2 · HIGH 18 · MEDIUM 65 · LOW 33 |
+| Severity düşürülen                             | 48                                        |
+| Severity YÜKSELTİLEN                           | 1                                         |
 
-> **Doğrulama okuması.** Sadece CRITICAL/HIGH iddialar çürütme aşamasına girdi. 9 iddia orada düştü,
-> 4 iddia CRITICAL'den HIGH'a indirildi. MEDIUM/LOW bulgular yalnızca onları çıkaran ajanın güvenini
-> taşır. Bu döngüde hiçbir test koşturulmadı — `GAP-MEDIUM-009` (aşağıda `CTX-MEDIUM-009`) tam
-> olarak bunu işaretliyor.
+> **Doğrulama okuması.** Her CRITICAL/HIGH ve her MEDIUM/LOW iddia, aynı çürütme protokolünden ayrı
+> ayrı geçti: bağımsız bir doğrulayıcı her kanıt satırını yeniden açtı ve iddiayı çürütmeye çalıştı;
+> kanıt net durmuyorsa varsayılan "çürütüldü".
+>
+> Toplam 13 iddia düştü. 48 iddia gerçek ama filenden küçük çıktı ve indirildi: CRITICAL→HIGH 4,
+> CRITICAL→MEDIUM 2, HIGH→LOW 1, HIGH→MEDIUM 27, MEDIUM→LOW 14.
+>
+> 1 iddia ise filenden BÜYÜK çıktı ve yükseltildi: LOW→HIGH 1.
+>
+> Bu döngüde hiçbir test koşturulmadı — `CTX-MEDIUM-009` tam olarak bunu işaretliyor.
 
 ## Uzman raporları
 
 | Ajan                       | Lane   | Verdict     | Bulgu             | Rapor                                                                                                                                              |
 | -------------------------- | ------ | ----------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `farm-expert`              | farm   | BLOCK       | 12                | [`2026-08-16-farm-service-domain-audit.md`](../../../docs/reviews/farm-expert/2026-08-16-farm-service-domain-audit.md)                             |
+| `farm-expert`              | farm   | BLOCK       | 11 (+1 çürütüldü) | [`2026-08-16-farm-service-domain-audit.md`](../../../docs/reviews/farm-expert/2026-08-16-farm-service-domain-audit.md)                             |
 | `db-audit-farm-production` | farm   | BLOCK       | 12                | [`2026-08-16-production-biology-partition.md`](../../../docs/reviews/db-audit/db-audit-farm-production/2026-08-16-production-biology-partition.md) |
 | `db-audit-farm-operations` | farm   | BLOCK       | 11 (+1 çürütüldü) | [`2026-08-16-operations-partition.md`](../../../docs/reviews/db-audit/db-audit-farm-operations/2026-08-16-operations-partition.md)                 |
 | `data-expert`              | farm   | CONDITIONAL | 6 (+4 çürütüldü)  | [`2026-08-16-farm-service-data-layer.md`](../../../docs/reviews/data-expert/2026-08-16-farm-service-data-layer.md)                                 |
-| `tenant-isolation-auditor` | farm   | CONDITIONAL | 6 (+1 çürütüldü)  | [`2026-08-16-farm-mobile-tenant-isolation.md`](../../../docs/reviews/tenant-isolation-auditor/2026-08-16-farm-mobile-tenant-isolation.md)          |
+| `tenant-isolation-auditor` | farm   | CONDITIONAL | 5 (+2 çürütüldü)  | [`2026-08-16-farm-mobile-tenant-isolation.md`](../../../docs/reviews/tenant-isolation-auditor/2026-08-16-farm-mobile-tenant-isolation.md)          |
 | `test-runner`              | farm   | BLOCK       | 11                | [`2026-08-16-farm-mobile-test-health.md`](../../../docs/reviews/test-runner/2026-08-16-farm-mobile-test-health.md)                                 |
-| `mobile-app-auditor`       | mobile | BLOCK       | 10                | [`2026-08-16-aquamobil-e2e-audit.md`](../../../docs/reviews/mobile-app-auditor/2026-08-16-aquamobil-e2e-audit.md)                                  |
+| `mobile-app-auditor`       | mobile | BLOCK       | 9 (+1 çürütüldü)  | [`2026-08-16-aquamobil-e2e-audit.md`](../../../docs/reviews/mobile-app-auditor/2026-08-16-aquamobil-e2e-audit.md)                                  |
 | `frontend-expert`          | mobile | CONDITIONAL | 12                | [`2026-08-16-aquamobil-architecture.md`](../../../docs/reviews/frontend-expert/2026-08-16-aquamobil-architecture.md)                               |
 | `form-write-auditor`       | mobile | BLOCK       | 12                | [`2026-08-16-aquamobil-form-write-paths.md`](../../../docs/reviews/form-write-auditor/2026-08-16-aquamobil-form-write-paths.md)                    |
 | `realtime-sync-auditor`    | mobile | BLOCK       | 11                | [`2026-08-16-aquamobil-offline-sync.md`](../../../docs/reviews/realtime-sync-auditor/2026-08-16-aquamobil-offline-sync.md)                         |
 | `access-boundary-auditor`  | mobile | BLOCK       | 12                | [`2026-08-16-aquamobil-access-boundaries.md`](../../../docs/reviews/access-boundary-auditor/2026-08-16-aquamobil-access-boundaries.md)             |
-| `contract-parity-enforcer` | cross  | CONDITIONAL | 7 (+3 çürütüldü)  | [`2026-08-16-farm-mobile-contract-parity.md`](../../../docs/reviews/contract-parity-enforcer/2026-08-16-farm-mobile-contract-parity.md)            |
+| `contract-parity-enforcer` | cross  | CONDITIONAL | 6 (+4 çürütüldü)  | [`2026-08-16-farm-mobile-contract-parity.md`](../../../docs/reviews/contract-parity-enforcer/2026-08-16-farm-mobile-contract-parity.md)            |
 
 ## Doğrulanmış CRITICAL / HIGH bulgular
 
@@ -68,6 +81,7 @@ Bunların hepsi bağımsız bir doğrulayıcı tarafından yeniden okundu ve sav
 | `PRODUCT-SYNC-HIGH-001`       | HIGH ⬇   | Logout — including the automatic fail-closed logout — destroys the entire unsynced offline queue with no warning, export or recovery                                            | `realtime-sync-auditor`    |
 | `PRODUCT-SYNC-HIGH-002`       | HIGH     | Exponential backoff is dead code; retries are a fixed 30s loop capped at 5, after which a queued record is permanently undeliverable and can only be deleted                    | `realtime-sync-auditor`    |
 | `PRODUCT-ACCESS-HIGH-003`     | HIGH     | Feeding entitlement enforcement was lost in the v2 meal cutover — the live mobile write path `recordMealFeeding`/`skipMeal` carries no `@RequiresMobileFeature`                 | `access-boundary-auditor`  |
+| `PARITY-LOW-010`              | HIGH ⬇   | Mobile-shaped response DTOs expose domain enums as GraphQL `String!`, and the client silently narrows them back to closed TS unions with no runtime validation                  | `contract-parity-enforcer` |
 
 ⬇ = CRITICAL olarak açıldı, doğrulayıcı HIGH'a indirdi.
 
@@ -83,7 +97,7 @@ aşamasından **geçmedi** — uzman bulgularından daha az sertifikalıdır.
 | `FARM-LOW-314`     | LOW      | PRODUCT-TENANT-HIGH-001'in blast radius listesi MinIO-orphan cron'unu hatalı kapsıyor                                                                                                   | farm sentezi        |
 | `MOB-CRITICAL-018` | CRITICAL | Presigned yükleme/indirme URL'leri iç ağa özel `minio:9000` host'una üretiliyor — üretimde tüm medya hattı (kanıt fotoğrafı, mesaj eki, sesli mesaj) tarayıcıdan erişilemez             | mobil sentezi       |
 | `MOB-CRITICAL-019` | CRITICAL | Mevcut GraphQL kapısı değişken (input) şeklini yapısal olarak göremez: mobil yazma yolunun input tipleri el yazımı aynalar, bu yüzden CRITICAL-001 sınıfı sapma bir kez daha kaçınılmaz | mobil sentezi       |
-| `MOB-MEDIUM-020`   | MEDIUM   | Presigned PUT imzası Content-Type'a bağlanmıyor: MIME allow-list yalnız presign isteğinde uygulanıyor, imzalı URL'e herhangi bir içerik türü yüklenebiliyor                             | mobil sentezi       |
+| `MOB-LOW-020`      | LOW      | Presigned PUT imzası Content-Type'a bağlanmıyor: MIME allow-list yalnız presign isteğinde uygulanıyor, imzalı URL'e herhangi bir içerik türü yüklenebiliyor                             | mobil sentezi       |
 | `CTX-CRITICAL-001` | CRITICAL | The GraphQL INPUT/variable axis was audited by nobody — it is exactly where the one CRITICAL defect lives, and 14 more hand-written input types sit on the same ungated path            | completeness critic |
 | `CTX-HIGH-002`     | HIGH     | Seven NATS request-reply responders — including a write path — got zero audit attention from both the access-boundary and tenant-isolation agents                                       | completeness critic |
 | `CTX-HIGH-003`     | HIGH     | farm-expert declared nine setup contexts clean with a blanket unverified claim; ten `restore*` mutations in exactly those contexts bypass the CommandBus and emit no domain event       | completeness critic |
@@ -92,7 +106,7 @@ aşamasından **geçmedi** — uzman bulgularından daha az sertifikalıdır.
 | `CTX-MEDIUM-006`   | MEDIUM   | Performance was examined by no agent: 112 @ResolveField against 6 DataLoaders, no query-budget gate, no load test                                                                       | completeness critic |
 | `CTX-MEDIUM-007`   | MEDIUM   | Four of the five backends aquamobil actually calls were never read, yet three agents made behavioral claims about them                                                                  | completeness critic |
 | `CTX-MEDIUM-008`   | MEDIUM   | Nine aquamobil pages (~2,980 lines) were never opened, including the WebAuthn enrollment half of the accessType bypass the access agent reported                                        | completeness critic |
-| `CTX-MEDIUM-009`   | MEDIUM   | Every claim about what CI executes, what is green, and what is stale is a static file read — nothing in this audit was run                                                              | completeness critic |
+| `CTX-LOW-009`      | LOW      | Every claim about what CI executes, what is green, and what is stale is a static file read — nothing in this audit was run                                                              | completeness critic |
 | `CTX-MEDIUM-010`   | MEDIUM   | farm-service infrastructure and cross-cutting directories got no inventory row from any agent                                                                                           | completeness critic |
 | `CTX-MEDIUM-011`   | MEDIUM   | Billing coupling was never examined and does not exist: farm-service has no subscription or plan-tier gate on any write path                                                            | completeness critic |
 | `CTX-LOW-012`      | LOW      | Three agents each filed the same water-quality defect as a top finding, inflating the apparent finding count and splitting ownership of one root cause                                  | completeness critic |
@@ -103,6 +117,7 @@ aşamasından **geçmedi** — uzman bulgularından daha az sertifikalıdır.
 input'unda
 
 **Severity:** HIGH · **State:** OPEN · **Kaynak:** farm sentezi (açılış ID `SYNTH-HIGH-001`)
+**Verification:** NOT VERIFIED
 
 **Evidence:**
 
@@ -134,6 +149,94 @@ derlenemesin.
 - `grading yolu TransferBatchCommand'ı besliyor — aynı gate'i miras alır`
 - `apps/farm-service/schema.graphql (SDL snapshot yenilenmeli)`
 
+### FARM-MEDIUM-313
+
+**Title:** Uydurulmuş AI yüzeyi üretimde kayıtlı ve MODULE_USER'a açık; tek bariyer bir env
+değişkeni
+
+**Severity:** MEDIUM · **State:** OPEN · **Kaynak:** farm sentezi (açılış ID `SYNTH-MEDIUM-002`)
+**Verification:** NOT VERIFIED
+
+**Evidence:**
+
+- apps/farm-service/src/app.module.ts:461 \- `AiInsightsModule` imports listesinde kayıtlı
+- apps/farm-service/src/ai-insights/ai-insights.resolver.ts:41,58,92 \- her Query
+  `@Roles(TENANT_ADMIN, MODULE_MANAGER, MODULE_USER)`
+- apps/farm-service/src/ai-insights/services/mcp-client.service.ts:81 \-
+  — kod
+  düzeyinde başka guard yok
+
+  ```text
+  this.mcpEnabled = this.configService.get<string>('MCP_ENABLED', 'false') === 'true'
+  ```
+
+- apps/farm-service/src/ai-insights/services/ai-insights.service.ts:279-287 \-
+  girdi
+  değil
+
+  ```text
+  predict_feeding_impact` sabit `feedKg: 5.0, biomassKg: 500, tankVolumeM3: 50` ile; `tankId
+  ```
+
+**Rule violated:**
+
+CLAUDE.md Architectural Approach tier 1 — 'Make it impossible'
+
+**Proposed fix direction:**
+
+Uydurma girdi sabitlerini savunma katmanına değil tip sistemine taşı: MCP tool çağrılarının girdi
+tipi yalnızca repository'den türetilebilen branded bir aggregate snapshot (ör.
+cache anahtarı değil tool payload'unun zorunlu alanı olsun. Düzeltme inmeden modülün AppModule kaydı
+snapshot yolunun varlığına bağlansın.
+
+```text
+BatchGrowthSnapshot`, `TankFeedingSnapshot`) kabul etsin; literal nesne derlenmesin. `tenantId
+```
+
+**Affected surface (ripple set):**
+
+- `apps/farm-service/src/ai-insights/services/mcp-client.service.ts`
+- `apps/farm-service/src/ai-insights/ai-insights.resolver.ts (5 query)`
+
+  ```text
+  apps/farm-service/schema.graphql — TankRiskAssessment/BatchGrowthPrediction/FeedingAdvice
+  ```
+
+- `ai-insights dizininde sıfır spec var — düzeltmeyle birlikte spec zorunlu`
+
+### FARM-LOW-314
+
+**Title:** PRODUCT-TENANT-HIGH-001'in blast radius listesi MinIO-orphan cron'unu hatalı kapsıyor
+
+**Severity:** LOW · **State:** OPEN · **Kaynak:** farm sentezi (açılış ID `SYNTH-LOW-003`)
+**Verification:** NOT VERIFIED
+
+**Evidence:**
+
+- apps/farm-service/src/scheduler/cron-jobs.service.ts:945 \-
+  `await withTenantContext(tenantId, async () => {` — minioOrphanCleanup doğru şekilde tenant
+  bağlamı içinde
+- apps/farm-service/src/scheduler/cron-jobs.service.ts:908-917 \- gerekçe yorumu: 'Driving it
+  per-tenant inside withTenantContext makes the live-set scope and the bucket-delete scope
+  structurally identical'
+- apps/farm-service/src/scheduler/cron-jobs.service.ts:316-328 \- overdue-maintenance döngüsünde
+  withTenantContext yok (bulgu bu cron'lar için geçerli)
+
+**Rule violated:**
+
+Review Finding Traceability — bulgu kapsamı kanıtla birebir örtüşmeli
+
+**Proposed fix direction:**
+
+PRODUCT-TENANT-HIGH-001'in etkilenen-iş listesinden minioOrphanCleanup çıkarılsın; bu cron diğer
+cron'lar için hedeflenen `forEachTenantSchema` helper'ının referans uygulaması olarak kullanılsın —
+doğru desen zaten repoda mevcut, helper'a çıkarmak tier-2 make-automatic düzeltmesini ucuzlatır.
+
+**Affected surface (ripple set):**
+
+- `apps/farm-service/src/scheduler/feeding-scheduler.service.ts`
+- `libs/backend-common forEachTenantSchema helper`
+
 ### MOB-CRITICAL-018
 
 **Title:** Presigned yükleme/indirme URL'leri iç ağa özel `minio:9000` host'una üretiliyor —
@@ -141,6 +244,7 @@ derlenemesin.
 
 **Severity:** CRITICAL · **State:** OPEN · **Kaynak:** mobil sentezi (açılış ID
 `PRODUCT-MOBILE-SYNTH-CRITICAL-001`)
+**Verification:** NOT VERIFIED
 
 **Evidence:**
 
@@ -174,7 +278,6 @@ CLAUDE.md Architectural Approach — root-cause only; 'Make it impossible' (Tier
 **Proposed fix direction:**
 
 Storage config'ine ayrı bir `*public*` endpoint ekle (imzalama için kullanılan tek SSoT):
-`StorageConfig` içinde `publicEndpoint`/`publicUseSSL` zorunlu alan olsun ve `MinioClientService`
 presign işlemlerini bu endpoint'e bağlı ikinci bir client (ya da imza sonrası host yeniden yazımı
 yerine doğrudan doğru endPoint) ile üretsin — Tier 1: iç host'a imzalanmış bir URL üretmek
 tip/konfig düzeyinde imkânsız hale gelsin. Alternatif ve tercih edilebilir dağıtım biçimi: minio'yu
@@ -184,6 +287,10 @@ durumda da üretim profilinde iç ağ adı (`minio`, `localhost`) tespit edilirs
 fail-closed olsun (mevcut schema-drift validator ile aynı idiom). CSP snippet'i ayrı bir origin
 seçilirse `connect-src`/`img-src`'a o origin'i eklemeli — ama bu, endpoint düzeltmesinin ardından
 gelen ikincil adımdır, tek başına yeterli değildir.
+
+```text
+StorageConfig` içinde `publicEndpoint`/`publicUseSSL` zorunlu alan olsun ve `MinioClientService
+```
 
 **Affected surface (ripple set):**
 
@@ -214,6 +321,7 @@ yolunun input tipleri el yazımı aynalar, bu yüzden CRITICAL-001 sınıfı sap
 
 **Severity:** CRITICAL · **State:** OPEN · **Kaynak:** mobil sentezi (açılış ID
 `PRODUCT-MOBILE-SYNTH-CRITICAL-002`)
+**Verification:** NOT VERIFIED
 
 **Evidence:**
 
@@ -239,7 +347,6 @@ Event/Contract Rules — istemci payload'ı sunucu sözleşmesine birebir uymal�
 **Proposed fix direction:**
 
 İki adımlı Tier-1 kapanış: (a) codegen `documents` globunu
-`web/apps/aquamobil/src/{graphql,pwa,pages,hooks}/**/*.{ts,tsx}` olacak şekilde genişletip `Types`
 (input) çıktısını da üret; (b) `types/index.ts` içindeki input aynalarını sil ve `QueuedPayload`
 birleşimini üretilen input tiplerinden türet
 (`import type { CreateWaterQualityInput } from '@/generated/graphql'`). Böylece sunucudan bir alan
@@ -247,6 +354,10 @@ kalktığında derleyici hatası çıkar — doküman metni doğrulaması yerine
 Tier-3 emniyet: `OperationType` → üretilen input tipi eşlemesini
 `satisfies Record<OperationType, …>` ile bağla, aynı SYNC_INVALIDATION_SEGMENTS idiomu — kuyruğa
 yeni bir op tipi eklendiğinde üretilmiş input tipi olmadan build kırılsın.
+
+```text
+web/apps/aquamobil/src/{graphql,pwa,pages,hooks}/**/*.{ts,tsx}` olacak şekilde genişletip `Types
+```
 
 **Affected surface (ripple set):**
 
@@ -264,6 +375,81 @@ yeni bir op tipi eklendiğinde üretilmiş input tipi olmadan build kırılsın.
 
 - `no-bare-graphql-query-string lint muafiyetinin dayandığı yazılı önerme`
 
+### MOB-LOW-020
+
+**Title:** Presigned PUT imzası Content-Type'a bağlanmıyor: MIME allow-list yalnız presign isteğinde
+uygulanıyor, imzalı URL'e herhangi bir içerik türü yüklenebiliyor
+
+**Severity:** LOW · **State:** OPEN · **Kaynak:** mobil sentezi (açılış ID
+`PRODUCT-MOBILE-SYNTH-MEDIUM-003`)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
+
+**Evidence:**
+
+- libs/storage/src/minio-client.service.ts:282-292 \-
+  ardından `presignedPutObject(this.bucket, path, expirySeconds)` — `reqParams` HİÇ kullanılmıyor
+  (ölü değişken)
+
+  ```text
+  const reqParams: Record<string, string> = {}; if (contentType) { reqParams['Content-Type'] = contentType; }
+  ```
+
+- apps/farm-service/src/fish-health/services/incident-media.service.ts:49-51 \-
+  — sınırlama dürüstçe belgelenmiş ama Tier 4'te bırakılmış
+
+  ```text
+  the shared getPresignedUploadUrl does not enforce Content-Type, so this is the request-time gate
+  ```
+
+- apps/farm-service/src/fish-health/services/incident-media.service.ts:70-73 \- `contentType`
+  parametresi geçiliyor, çağrılan taraf yok sayıyor
+
+**Rule violated:**
+
+CLAUDE.md Security — girdi doğrulama trust boundary'de yapılmalı; Architectural Approach Tier 1
+(yanlış davranış yapısal olarak imkânsız olmalı) — mevcut çözüm Tier 4 (yorumla belgelenmiş)
+
+**Proposed fix direction:**
+
+`getPresignedUploadUrl`, `contentType` verildiğinde imzayı o başlığa bağlayan bir presign üretmeli
+(MinIO/S3 için `presignedPutObject` yerine Content-Type'ı imzalanmış policy'ye dahil eden POST
+policy ya da imzalı başlık listesi). Parametreyi sessizce yutmak yerine, ya bağla ya da imza yolunu
+tipte ayır: `contentType` opsiyonel bir string değil, imzaya girdiği garanti edilen zorunlu bir
+argüman olsun — sessiz yok sayma derleme zamanında imkânsız hale gelsin. Ölü `reqParams` bloğu
+kaldırılmalı (yanlış güven veriyor).
+
+**Affected surface (ripple set):**
+
+- `apps/farm-service incident/lice/welfare kanıt medyası`
+- `messaging-service medya + sesli mesaj presign hattı`
+- `libs/storage kullanan admin-api rapor artefaktları`
+- `orphan-cleanup.service.ts'in beklediği nesne türü varsayımları`
+- `SYNTH-CRITICAL-001 ile birlikte ele alınmalı (aynı dosya, aynı imzalama yolu)`
+
+**Verifier note:**
+
+Mechanism confirmed but severity inflated. libs/storage/src/minio-client.service.ts:283-292 does
+build reqParams['Content-Type'] and never pass it to presignedPutObject — real dead code, and the
+SDK port type at libs/storage/src/minio-client.types.ts:47-51 has no reqParams slot (binding
+Content-Type on a presigned PUT is impossible with this API; it needs presignedPostPolicy). The
+security conclusion, however, does not hold: the claimer read incident-media.service.ts:50-70 and
+missed the finalize gate at :109-126 in the same file, where every key is re-validated against the
+tenant prefix (:109), object existence (:113-116), the object's REAL Content-Type via statObject
+against the same allowlist (:117-121, isAllowedIncidentMediaMime(stats.contentType)), and the size
+bound (:122-126). So the allowlist is not 'advisory' — request-time is advisory, finalize is the
+enforcing gate. Grep of apps/farm-service/src shows getPresignedUrl is never called for incident
+media, so an object uploaded with a disallowed type is orphaned: no farm_incident_media row is
+written and it is never served back to a browser. This is also a documented design decision, stated
+in three places: incident-media.service.ts:5-14 ('The presigned PUT cannot bind Content-Type, so the
+request-time check is advisory and the finalize check is the real gate'), :48-52, and
+constants/incident-media.constants.ts:9-11. What genuinely remains is a false contract in a shared
+lib, not a bypass: the JSDoc at minio-client.service.ts:272-275 claims 'the presigned URL will
+include a Content-Type condition so that browsers must upload with the matching content type', which
+is untrue and contradicts farm-service's own comments; **tests**/incident-media.service.spec.ts:96
+asserts the no-op argument is passed, locking the illusion in. A future second caller trusting that
+JSDoc could skip its own finalize check. Real but narrow — LOW, not MEDIUM. Fix is to delete the
+dead param \+ wrong JSDoc, or move to presignedPostPolicy.
+
 ### CTX-CRITICAL-001
 
 **Title:** The GraphQL INPUT/variable axis was audited by nobody — it is exactly where the one
@@ -271,6 +457,7 @@ CRITICAL defect lives, and 14 more hand-written input types sit on the same unga
 
 **Severity:** CRITICAL · **State:** OPEN · **Kaynak:** completeness critic (açılış ID
 `GAP-CRITICAL-001`)
+**Verification:** NOT VERIFIED
 
 **Evidence:**
 
@@ -325,6 +512,7 @@ Every other queued OperationType payload (mortality, cull, harvest, transfer, st
 from both the access-boundary and tenant-isolation agents
 
 **Severity:** HIGH · **State:** OPEN · **Kaynak:** completeness critic (açılış ID `GAP-HIGH-002`)
+**Verification:** NOT VERIFIED
 
 **Evidence:**
 
@@ -357,10 +545,14 @@ CLAUDE.md Security / Tenant-ID sourcing: 'JWT claims are the trust anchor'; Laye
 
 access-boundary-auditor scoped itself to GraphQL resolvers \+ FeatureRoute; tenant-isolation-auditor
 scoped itself to request path, crons and NATS `*consumers*` (subscribe side) — the request-reply
-`*responder*` side fell in the seam. Tier 1: give responders a typed `NatsActorContext` that can
+that can
 only be constructed from a verified caller assertion, so a bare payload tenantId cannot compile.
 Tier 3: extend resolver-scanner to walk `*.responder.ts` and require every @MessagePattern to appear
 in a responder authorization matrix.
+
+```text
+*responder*` side fell in the seam. Tier 1: give responders a typed `NatsActorContext
+```
 
 **Affected surface (ripple set):**
 
@@ -382,6 +574,7 @@ test-runner listed farm-service coverage by context and never mentioned responde
 `restore*` mutations in exactly those contexts bypass the CommandBus and emit no domain event
 
 **Severity:** HIGH · **State:** OPEN · **Kaynak:** completeness critic (açılış ID `GAP-HIGH-003`)
+**Verification:** NOT VERIFIED
 
 **Evidence:**
 
@@ -439,6 +632,7 @@ The same nine contexts are where test-runner found every create/update/delete ha
 cannot see the audit's own CRITICAL defect
 
 **Severity:** HIGH · **State:** OPEN · **Kaynak:** completeness critic (açılış ID `GAP-HIGH-004`)
+**Verification:** NOT VERIFIED
 
 **Evidence:**
 
@@ -485,6 +679,7 @@ test:integration lane — data-expert reported the mechanism as present without 
 unexecuted
 
 **Severity:** HIGH · **State:** OPEN · **Kaynak:** completeness critic (açılış ID `GAP-HIGH-005`)
+**Verification:** NOT VERIFIED
 
 **Evidence:**
 
@@ -523,6 +718,440 @@ The same dead lane hides 8 postgres tenant-isolation specs and the CLAUDE.md-man
 ```text
 An erroneous erasure under an active legal hold is legally irreversible and currently has no executing regression guard
 ```
+
+### CTX-MEDIUM-006
+
+**Title:** Performance was examined by no agent: 112 @ResolveField against 6 DataLoaders, no
+query-budget gate, no load test
+
+**Severity:** MEDIUM · **State:** OPEN · **Kaynak:** completeness critic (açılış ID
+`GAP-MEDIUM-006`)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
+
+**Evidence:**
+
+- apps/farm-service/src — 112 `@ResolveField` declarations in non-test source
+- apps/farm-service/src/{batch,equipment}/dataloaders/ — only 6 loader files exist (batch-species,
+  tank-batch, feed-selection, batch-feed-assignment, batch-location, batch-document)
+- apps/farm-service/src/batch/dataloaders/batch-location.dataloader.ts — a loader for
+  `batch_locations`, which db-audit-farm-production proved has ZERO writers, so a loader exists for
+  a permanently empty table while ~106 resolve-fields have none
+- apps/farm-service/src/common/cache/cacheable.interceptor.ts — the only latency control examined,
+  and only for its tenant-key defect (PRODUCT-TENANT-MEDIUM-004), never for hit rate or invalidation
+  correctness
+
+**Rule violated:**
+
+CLAUDE.md Architectural hierarchy tier 3
+
+**Proposed fix direction:**
+
+No agent in the roster owned latency/throughput. Add a performance lane, or at minimum a Tier-3
+invariant asserting every @ResolveField that crosses a table boundary resolves through a
+request-scoped DataLoader.
+
+**Affected surface (ripple set):**
+
+```text
+aquamobil is a field app on cellular links; a per-row resolve-field fanout on the tank list is a user-visible failure mode no agent could have reported
+```
+
+```text
+The farm_mutation_duration_seconds histogram exists but no agent read its distribution or set an SLO
+```
+
+**Verifier note:**
+
+Counts confirmed: 112 `@ResolveField` across 22 files in apps/farm-service/src, and exactly 6
+dataloader files
+(batch/dataloaders/{batch-document,batch-feed-assignment,batch-location}.dataloader.ts \+
+equipment/dataloaders/{batch-species,feed-selection,tank-batch}.dataloader.ts). Grepping all 13
+cycle reports for N+1/latency/query-budget finds no agent that owned performance — the only
+dataloader mentions are tenant-scoping (tenant-isolation-auditor:327) and spec coverage
+(test-runner:621), and no k6/artillery/load-test harness exists in the repo. The gap is real and it
+has teeth: apps/farm-service/src/system/system.resolver.ts:248,271,291,315 fire one queryBus.execute
+per parent for site/department/parentSystem/childSystems, and
+apps/farm-service/src/tank/resolvers/tank.resolver.ts:360-363 does a per-tank
+`tankBatchRepository.findOne` — genuine unbatched N+1 over list queries. Two caveats that cap this
+at MEDIUM rather than higher: the '112 vs 6' ratio is misleading, since the large majority of those
+ResolveFields are pure in-memory computations on the already-loaded parent
+(growth.resolver.ts:593-655, harvest-plan.resolver.ts:385-444, batch.resolver.ts:578-601) with zero
+DB access, and the relational ones on Batch already route through DataLoaders
+(batch.resolver.ts:603-636, comment 'FARM-MEDIUM-005 ... eliminates N+1'); and
+apps/gateway-api/src/app.module.ts:350-385 does enforce a graphql-query-complexity cap, which is not
+a query budget but is a partial DoS control the claim does not acknowledge.
+
+### CTX-MEDIUM-007
+
+**Title:** Four of the five backends aquamobil actually calls were never read, yet three agents made
+behavioral claims about them
+
+**Severity:** MEDIUM · **State:** OPEN · **Kaynak:** completeness critic (açılış ID
+`GAP-MEDIUM-007`)
+**Verification:** REFUTED
+
+**Evidence:**
+
+- web/apps/aquamobil/src/hooks/useMySchedule.ts:53 —
+  `mySchedule(weekStartDate: $weekStartDate, limit: 1)` resolves in hr-service; no agent read
+  apps/hr-service
+- apps/alert-engine/src/alert/services/{farm-signal-incident,water-quality-critical-alert,low-stock-alert,fcr-alert}.service.ts
+  — a live consumer side for farm events that no agent opened; alert-engine appears in zero
+  inventories
+- form-write-auditor PRODUCT-FORM-HIGH-002 asserts 'hr-service stamps new Date() at replay time' — I
+  verified this at apps/hr-service/src/attendance/handlers/clock-in.handler.ts:93
+  `const nowUtc = new Date();`, so the claim holds, but it was made from mobile-side reading alone
+- access-boundary-auditor PRODUCT-ACCESS-LOW-001 notes messaging authorization 'lives in
+  messaging-service channel ACLs (out of this audit's read set)' — an explicitly acknowledged hole
+  left open
+
+**Rule violated:**
+
+CLAUDE.md Working Style: 'Report faithfully ... unverified, say so with the evidence'
+
+**Proposed fix direction:**
+
+Scope the next cycle by consumer graph, not by directory: every backend a target frontend calls is
+in-scope. The highest-value missing link is alert-engine — db-audit-farm-operations proved the
+low-stock chain is dead (minStock has no editor) while
+apps/alert-engine/src/alert/services/low-stock-alert.service.ts sits waiting for an event that can
+never fire; no agent joined those two halves.
+
+**Affected surface (ripple set):**
+
+```text
+farm-expert found the maintenance context emits zero domain events and data-expert found 9 event contracts with no producer — whether alert-engine has live handlers starved by those gaps is unknown
+```
+
+```text
+hr-service backs three mobile surfaces (attendance, leave, schedule) with real payroll consequences
+```
+
+**Verifier note:**
+
+Inverted. Four of the five backends were read, with file:line citations, and I confirmed the cited
+lines exist. access-boundary-auditor's scope paragraph (report lines 35-36) names
+apps/hr-service/src/{attendance/attendance.resolver.ts,leave/leave.resolver.ts,app.module.ts} and
+apps/alert-engine/src/alert/resolvers/alert.resolver.ts; its findings cite
+attendance.resolver.ts:386 (`clockIn` mutation — real, at line 388), leave.resolver.ts:425
+( — real, at
+line 157). form-write-auditor's scope (line 31-32) traces into apps/hr-service (clock-in-out.input
+\+ clock-in.handler \+ create-leave-request \+ calculate-leave-days) and apps/alert-engine
+(AcknowledgeAlertInput \+ alert-rule.service). realtime-sync-auditor cites hr-service
+leave/handlers/submit-leave-request.handler.ts:54, leave-state-machine.ts:46,
+create-leave-request.handler.ts:101. frontend-expert cites
+apps/messaging-service/src/shared/messaging-s3-client.factory.ts:21 and
+message/services/media.service.ts:112. Only notification-service is thinly covered (appears in
+ripple sets, no line citations) — one backend, not four. The premise 'only farm-service read in
+expert scope paragraphs' is contradicted by the scope paragraphs themselves.
+
+```text
+createLeaveRequest` — real, at line 427) and alert.resolver.ts:156 (`acknowledgeAlert
+```
+
+### CTX-MEDIUM-008
+
+**Title:** Nine aquamobil pages (~2,980 lines) were never opened, including the WebAuthn enrollment
+half of the accessType bypass the access agent reported
+
+**Severity:** MEDIUM · **State:** OPEN · **Kaynak:** completeness critic (açılış ID
+`GAP-MEDIUM-008`)
+**Verification:** REFUTED
+
+**Evidence:**
+
+- web/apps/aquamobil/src/pages/account/AccountPage.tsx — 777 lines, the largest unopened page; :25
+  `import { useWebAuthn, storeBiometricEmail } from '@/hooks/useWebAuthn'` and :280
+  `storeBiometricEmail(user.email)` — this is where a biometric credential is ENROLLED
+- web/apps/aquamobil/src/hooks/useWebAuthn.ts:685 — `localStorage.setItem('webauthn_email', email);`
+  — unscoped by tenant and user (logout does clear it, verified at useAuth.tsx:181, so the wipe
+  claim holds)
+- access-boundary-auditor PRODUCT-ACCESS-CRITICAL-002 audited `loginWithToken` (the consume half)
+  and concluded accessType is unchecked — but never asked whether a PANEL_ONLY account can enroll
+  the credential in the first place
+- Never opened: HomePage.tsx (386), operations/OperationsHubPage.tsx (281),
+  operations/StaffHubPage.tsx (237), operations/StockEventsHubPage.tsx (299),
+  schedule/MySchedulePage.tsx (236), notifications/NotificationsPage.tsx (179),
+  tank/TankDetailPage.tsx (276), NotFoundPage.tsx
+- web/apps/aquamobil/src/pages/schedule/MySchedulePage.tsx:23 —
+  `return new Date().toISOString().split('T')[0] === dateStr;` — the same UTC-vs-local-day class as
+  PRODUCT-FORM-MEDIUM-010, on a shift-schedule screen, found by nobody
+
+**Rule violated:**
+
+Audit scope completeness
+
+**Proposed fix direction:**
+
+Read-set completeness was never asserted by any agent. Require each frontend agent to emit the
+enumerated set of route components it opened and diff it against the router's route table; an
+unopened route is a MISSING inventory row, not an absence of finding.
+
+**Affected surface (ripple set):**
+
+```text
+TankDetailPage is the destination of the tankView entitlement that access-boundary-auditor declared a dead control — the page that would consume it was never read
+```
+
+```text
+StaffHubPage and StockEventsHubPage render cross-worker and HARVEST data on a tenant-wide read (PRODUCT-ACCESS-HIGH-005) that was reported from the resolver side only
+```
+
+**Verifier note:**
+
+The nine pages are enumerated in the cycle report at line 843 (HomePage, 4 operations hubs,
+schedule, notifications, tank detail, account). Most were opened with line-precise citations:
+AccountPage.tsx (777 lines, 26% of the claimed 2,980) is cited by frontend-expert at :744-757 and
+:659-670, realtime-sync-auditor at :81/:83 (:747, :764) and mobile-app-auditor at
+:165/:167/:214/:216 (:746-747, :764, :407); HomePage.tsx by db-audit-farm-production at :125,
+frontend-expert at :370-371, access-boundary-auditor at :221; MySchedulePage.tsx by frontend-expert
+at :616 (:53,95 UTC/locale bug — so the 'unreported' UTC-day bug was in fact reported);
+TankDetailPage.tsx in db-audit-farm-production's scope and access-boundary-auditor's route analysis;
+DailyOpsHubPage in realtime-sync-auditor's ripple set and `pages/operations/*` in
+access-boundary-auditor's scope. The headline hook fails outright: the WebAuthn enrollment logic is
+not in AccountPage — AccountPage.tsx:25,263-274 only calls the hook — and the hook
+web/apps/aquamobil/src/hooks/useWebAuthn.ts (701 lines, holding REGISTRATION_CHALLENGE_MUTATION:45,
+REGISTER_CREDENTIAL_MUTATION:57 and registerCredential:397-459 alongside VERIFY_LOGIN_MUTATION:77)
+is explicitly cited at :82 in the access agent's own accessType finding. Residue is at most
+StaffHubPage/OperationsHubPage/StockEventsHubPage/NotificationsPage, ~940 lines of hub/list pages,
+not 2,980.
+
+### CTX-LOW-009
+
+**Title:** Every claim about what CI executes, what is green, and what is stale is a static file
+read — nothing in this audit was run
+
+**Severity:** LOW · **State:** OPEN · **Kaynak:** completeness critic (açılış ID `GAP-MEDIUM-009`)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
+
+**Evidence:**
+
+- `ls -d node_modules` at repo root → 'No such file or directory' — no install, no jest, no vite, no
+  graphql compose was possible for any of the twelve agents
+- test-runner states this honestly up front ('No test run was possible ... this is static analysis
+  only'); the other eleven do not
+- contract-parity-enforcer: 'its drift baseline is currently ZERO' and 'Codegen is NOT stale' — both
+  derived from reading a baseline file and counting 67 operations against 67 generated types, not
+  from executing validate-graphql-operations.mjs or codegen
+- contract-parity-enforcer inventory: 'the aquamobil codegen output is complete (67 operations in
+  src/graphql, 67 generated result types)' — a count-equality argument that cannot detect a shape
+  change inside a matched pair
+- data-expert: 'the migration manifest matches the 76 files on disk' — verifiable statically and
+  probably sound, but stated with the same confidence as the executable claims
+
+**Rule violated:**
+
+CLAUDE.md Working Style: 'Verification is judgment ... prefer a tool that proves the answer over a
+claim that asserts it'
+
+**Proposed fix direction:**
+
+Two evidence tiers were conflated. Require every agent to tag each claim as READ (static) or RUN
+(executed) and to downgrade any RUN-shaped claim it could not execute. The duplicated
+contract-parity-enforcer entry in this cycle's report (submitted twice, verbatim) also suggests the
+roster ran with an unnoticed duplicate slot instead of a twelfth distinct lane.
+
+**Affected surface (ripple set):**
+
+```text
+'Codegen is NOT stale' is the specific reassurance that makes GAP-CRITICAL-001 look covered when it is not
+```
+
+```text
+A green CI claim that was never executed is the most expensive kind of audit output
+```
+
+**Verifier note:**
+
+Factually accurate but much narrower than MEDIUM. test-runner's own report states it at lines 33-34
+and 38 ('NO test was executed: `npx jest --listTests` failed ... node_modules is not installed in
+this sandbox'; 'static analysis only, stated up front'), and the cycle report already records it at
+line 854. So the audit disclosed the limitation rather than hiding it, and the substance of the CI
+findings — which workflow invokes which target, whether aquamobil declares a `test` target, whether
+`test:invariant` resolves to any project — is exactly the kind of claim a static read of
+.github/workflows and project.json settles correctly. I found only one genuine green-without-running
+assertion: data-expert:392 calls e2e/tests/integration/schema-invariants.spec.ts 'green and
+CI-wired', and only the CI-wired half is statically verifiable (it is —
+.github/workflows/db-migration-check.yml:96,105). contract-parity-enforcer's 'codegen is NOT stale'
+(line 46, 606) rests on a 67-operations-vs-67-result-types count, weak but not baseless. Worth
+noting against the claimer's framing: node_modules IS present in the repo now (1,382 packages, with
+jest/nx/vitest/tsc in node_modules/.bin), so the 'could not run' condition was environment-specific,
+not structural.
+
+### CTX-MEDIUM-010
+
+**Title:** farm-service infrastructure and cross-cutting directories got no inventory row from any
+agent
+
+**Severity:** MEDIUM · **State:** OPEN · **Kaynak:** completeness critic (açılış ID
+`GAP-MEDIUM-010`)
+**Verification:** REFUTED
+
+**Evidence:**
+
+- apps/farm-service/src/health/tenant-schema-readiness.service.ts — the cold-start gate that decides
+  whether a tenant schema is serviceable; no inventory row anywhere
+- apps/farm-service/src/infrastructure/watchdog-cron.service.ts — a cron watchdog, directly relevant
+  to tenant-isolation-auditor's PRODUCT-TENANT-HIGH-001 (crons silently no-op); never opened, so
+  whether the watchdog would catch the silent no-op is unknown
+- apps/farm-service/src/filters/global-exception.filter.ts — the global error boundary; test-runner
+  noted only 'no spec', no agent audited whether it leaks internals or masks domain errors
+- apps/farm-service/src/common/jsonb/jsonb-patch.service.ts — the mutation path for every jsonb
+  column in the service (growthMetrics, fcr, statistics), audited by nobody despite ~15 jsonb
+  columns in db-audit findings
+- apps/farm-service/src/mobile-dashboard/ — 8 files backing three mobile hub pages; touched only
+  glancingly by access-boundary-auditor's site-scoping finding, never inventoried as a bounded
+  context
+
+**Rule violated:**
+
+CLAUDE.md Layer Rules; audit scope completeness
+
+**Proposed fix direction:**
+
+The roster partitioned farm-service by `*domain*` context and left the `*technical*` contexts
+unowned. Add an explicit residual-sweep step: enumerate top-level src/ directories, subtract every
+directory named in an inventory row, and require a row for the remainder.
+
+**Affected surface (ripple set):**
+
+```text
+watchdog-cron is the one component that could have downgraded PRODUCT-TENANT-HIGH-001 from 'silent' to 'detected'
+```
+
+```text
+jsonb-patch is the shared write primitive under several columns the db agents declared correctly written
+```
+
+**Verifier note:**
+
+The named directories are not uncovered. filters/global-exception.filter.ts and
+cache/farm-cache.service.ts have an explicit inventory row — test-runner report line 757
+('cache/farm-cache.service.ts is a 0-byte file imported by nothing.
+filters/global-exception.filter.ts (5.6 KB) has no spec'), and I confirmed farm-cache.service.ts is
+literally 0 lines. common/ carries filed findings across four agents: tenant-isolation-auditor cites
+common/cache/cacheable.interceptor.ts:116-131 and cache-evict.interceptor.ts:111-126, the cycle
+report cites common/authz/permission-matrix.guard.ts:64, resolver-scanner.ts:2,
+common/services/restore.service.ts:5, common/metrics/farm-metrics.interceptor.ts:2 and
+farm-domain-metrics.service.ts:12, access-boundary-auditor lists common/authz/permission-matrix.ts,
+tenant-isolation-auditor lists common/file-cleanup/farm-orphan-cleanup.service.ts. events/ is
+covered by data-expert (harvest-completed.listener.ts:250, mortality-recorded.listener.ts),
+farm-expert (:300, :333, :355) and tenant-isolation-auditor
+(farm-stock-projection.listener.ts:113-120). The real residue is two files, not six directories:
+infrastructure/watchdog-cron.service.ts (109 lines) and types/uuid.d.ts (14 lines) — and the
+watchdog is a platform-wide WatchdogRunner.runFullScan wrapped in CronHeartbeatService.track (lines
+37,45), not the per-tenant cron class the claim implies it would have illuminated. That residue is
+already its own separate row in the cycle report at line 847.
+
+### CTX-MEDIUM-011
+
+**Title:** Billing coupling was never examined and does not exist: farm-service has no subscription
+or plan-tier gate on any write path
+
+**Severity:** MEDIUM · **State:** OPEN · **Kaynak:** completeness critic (açılış ID
+`GAP-MEDIUM-011`)
+**Verification:** REFUTED
+
+**Evidence:**
+
+- apps/farm-service/src — grep for `planTier|subscriptionStatus|SubscriptionGuard|entitlement` in
+  non-test, non-migration source returns only SEC-HIGH-052 MobileFeatureGuard comments (per-user
+  mobile feature flags), never a subscription or plan check
+- apps/farm-service/src/app.module.ts:518-560 — the global guard chain is ServiceIdentity → Tenant →
+  Roles → Throttler → PermissionMatrix; no billing/entitlement guard
+- No agent lists billing in any inventory row; the word appears in farm-service source only in
+  compliance/tenant-export, an archived migration, and listener comments
+
+**Rule violated:**
+
+CLAUDE.md Tenant row placement (D14): 'billing is the SSoT for subscription state'
+
+**Proposed fix direction:**
+
+An absent coupling is an audit result, not an absence of scope. Decide explicitly whether a lapsed
+or suspended subscription should degrade farm write access, and if so make it a guard (tier 2)
+rather than an unstated assumption; if not, record the decision so the next audit does not re-open
+it.
+
+**Affected surface (ripple set):**
+
+```text
+A tenant whose billing lapses retains full production-write capability indefinitely
+```
+
+```text
+billing-service is one of the 15 runtime services and appears in no inventory row across all twelve reports
+```
+
+**Verifier note:**
+
+The load-bearing half — 'does not exist: farm-service has no subscription or plan-tier gate on any
+write path' — is false. apps/farm-service/src/tank/handlers/create-tank.handler.ts:65-71 reads
+`resolvePlanLimits(tenantPlanFromLevel(planLevel)).maxPonds` and calls
+`assertWithinQuota('ponds', currentPonds, maxPonds)`, and
+apps/farm-service/src/site/handlers/create-site.handler.ts:58-64 does the same for maxFarms — both
+marked SSOT-C-13, both counted INSIDE runInTenantTransaction so concurrent creates cannot both slip
+past, both sourced from the canonical PLAN_CATALOG in @platform/event-contracts that billing itself
+projects from (apps/billing-service/src/billing/plan-limits.util.ts:1-27). The gate is live, not
+dead code: planLevel is a JWT claim
+(libs/backend-common/src/decorators/current-user.decorator.ts:68) threaded resolver→command→handler
+at tank.resolver.ts:267,271 and site.resolver.ts:57,60. A separate mobile entitlement layer also
+exists (libs/backend-common/src/guards/mobile-feature.guard.ts, fail-closed on a missing claim,
+applied via @RequiresMobileFeature in 6 farm-service resolvers). Billing coupling was indeed not
+audited this cycle, but the surface the claim asserts is missing is implemented and correct, so
+there is no defect to file.
+
+### CTX-LOW-012
+
+**Title:** Three agents each filed the same water-quality defect as a top finding, inflating the
+apparent finding count and splitting ownership of one root cause
+
+**Severity:** LOW · **State:** OPEN · **Kaynak:** completeness critic (açılış ID `GAP-LOW-012`)
+**Verification:** REFUTED
+
+**Evidence:**
+
+- mobile-app-auditor PRODUCT-MOBILE-CRITICAL-001 :: WaterQualityRecordPage.tsx:212
+- form-write-auditor PRODUCT-FORM-CRITICAL-001 :: WaterQualityRecordPage.tsx:212 — same line
+- frontend-expert FE-HIGH-003 and mobile-app-auditor PRODUCT-MOBILE-HIGH-003 :: both cite
+  codegen.ts:47 with the same argument
+- access-boundary-auditor / tenant-isolation-auditor / realtime-sync-auditor / frontend-expert all
+  separately report the logout-destroys-queue behaviour (useAuth.tsx:194-196) under four different
+  IDs and two different severities (CRITICAL vs HIGH vs MEDIUM)
+
+**Rule violated:**
+
+Review Finding Traceability (MANDATORY) — one finding ID per defect
+
+**Proposed fix direction:**
+
+Deduplicate by evidence anchor (file:line) before the report is assembled, and assign one owner per
+anchor. The current shape means a fix commit cannot write a single honest `Closes:` line, and
+severity is decided by whichever agent shouted loudest rather than by consequence.
+
+**Affected surface (ripple set):**
+
+```text
+The audit reads as ~100 findings; the distinct defect count is materially lower, which distorts triage
+```
+
+```text
+Duplicate reporting consumed roster capacity that left observability, performance and billing unowned
+```
+
+**Verifier note:**
+
+Two agents, not three. The third instance is asserted, not shown: grepping
+contract-parity-enforcer/2026-08-16-farm-mobile-contract-parity.md for `parameters` returns nothing,
+its only water mention is line 599 (an inventory row about un-typed GraphQL documents), and its
+finding list is PARITY-MEDIUM-001/005/006/007/008/009, PARITY-LOW-010 plus three struck HIGHs — no
+water-quality defect at any severity. The cycle report contradicts the claim directly at line 842:
+'contract-parity audited result types only; no agent examined input/variable conformance, which is
+exactly where the CRITICAL water-quality defect lives.' On the remaining duplicate pair, the
+orchestrator had already deduped before this claim was raised — line 255 tags
+PRODUCT-MOBILE-CRITICAL-001 / PRODUCT-FORM-CRITICAL-001 'aynı kök neden', line 1000 notes 'iki ajan
+bağımsız buldu'. Two independently-scoped lanes converging on one defect and being merged upstream
+is the protocol working, not a finding.
 
 ## Farm-service sentezi
 
@@ -748,8 +1377,12 @@ ekseni hiçbir gate ve hiçbir ajan tarafından incelenmedi. Aynı desende 14 gi
 
 İkincisi: yetki denetimi GraphQL ile sınırlı kaldı. 7 NATS `@MessagePattern` responder'ı — biri
 YAZMA yolu (`request.farm.createTask`) — hiçbir envanterde yok. `PermissionMatrixGuard` graphql dışı
-bağlamda `true` döner, `resolver-scanner` yalnızca `*.resolver.ts` yürür; `tenantId` ve `createdBy`
+bağlamda
 doğrudan NATS payload'undan gelir.
+
+```text
+true` döner, `resolver-scanner` yalnızca `*.resolver.ts` yürür; `tenantId` ve `createdBy
+```
 
 Üçüncüsü: kesişen kaygıların çoğu hiç açılmadı — gözlemlenebilirlik, performans, faturalama
 bağlantısı, alert-engine tüketici tarafı ve aquamobil'in hr/messaging/notification arka uçları.
@@ -766,7 +1399,7 @@ CommandBus'ı atlar ve hiç domain event yayınlamaz.
 | `CTX-MEDIUM-006`   | MEDIUM   | Performance was examined by no agent: 112 @ResolveField against 6 DataLoaders, no query-budget gate, no load test                                                                    |
 | `CTX-MEDIUM-007`   | MEDIUM   | Four of the five backends aquamobil actually calls were never read, yet three agents made behavioral claims about them                                                               |
 | `CTX-MEDIUM-008`   | MEDIUM   | Nine aquamobil pages (~2,980 lines) were never opened, including the WebAuthn enrollment half of the accessType bypass the access agent reported                                     |
-| `CTX-MEDIUM-009`   | MEDIUM   | Every claim about what CI executes, what is green, and what is stale is a static file read — nothing in this audit was run                                                           |
+| `CTX-LOW-009`      | LOW      | Every claim about what CI executes, what is green, and what is stale is a static file read — nothing in this audit was run                                                           |
 | `CTX-MEDIUM-010`   | MEDIUM   | farm-service infrastructure and cross-cutting directories got no inventory row from any agent                                                                                        |
 | `CTX-MEDIUM-011`   | MEDIUM   | Billing coupling was never examined and does not exist: farm-service has no subscription or plan-tier gate on any write path                                                         |
 | `CTX-LOW-012`      | LOW      | Three agents each filed the same water-quality defect as a top finding, inflating the apparent finding count and splitting ownership of one root cause                               |
@@ -910,17 +1543,21 @@ PARTIAL satırları uzman raporlarının kendi envanter tablolarında.
 CRITICAL/HIGH olarak açıldı, bağımsız doğrulayıcı kanıtı tutmadığını gösterdi. Bir sonraki döngüde
 aynı iddia tekrar açılmasın diye kayıt altında.
 
-| Açılış ID                     | Sev  | İddia                                                                                                                                                                                                                          | Ajan                       |
-| ----------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------- |
-| ~~`DB-FARMOPS-HIGH-001`~~     | HIGH | feeds.minStock / chemicals.minStock have no product write path — the entire low-stock \+ reorder alert chain is unreachable                                                                                                    | `db-audit-farm-operations` |
-| ~~`DATA-HIGH-001`~~           | HIGH | The CLAUDE.md-named schema-routing invariant is stale and currently red — its allowlist omits two entities its own regex flags                                                                                                 | `data-expert`              |
-| ~~`DATA-HIGH-002`~~           | HIGH | Raw operator PII (name/email/phone) in three immutable regulatory events, no crypto-shred key, and GDPR erasure never sweeps farm.outbox_events                                                                                | `data-expert`              |
-| ~~`DATA-HIGH-003`~~           | HIGH | Both farm NATS listeners swallow handler errors, so the bus ACKs and the mortality alert \+ harvest traceability follow-ups are lost permanently                                                                               | `data-expert`              |
-| ~~`DATA-HIGH-004`~~           | HIGH | Direct eventBus.publish inside a write transaction with a swallow-catch, in the exact file shape the farm outbox invariant does not scan                                                                                       | `data-expert`              |
-| ~~`PRODUCT-TENANT-HIGH-002`~~ | HIGH | NATS consumers derive tenant from the event body; the subject envelope is structurally unavailable to handlers and TenantValidatingConsumer has zero adoption repo-wide                                                        | `tenant-isolation-auditor` |
-| ~~`PARITY-HIGH-002`~~         | HIGH | aquamobil is exempted from no-bare-graphql-query-string on a factually false premise; ~68 call sites pin hand-written result types and 55 of 122 documents sit outside the codegen glob                                        | `contract-parity-enforcer` |
-| ~~`PARITY-HIGH-003`~~         | HIGH | farm realtime WebSocket event vocabulary is a 41-vs-30 hand-mirrored contract typed as bare `string`, with no parity gate and a spec that asserts unknown events are a silent no-op                                            | `contract-parity-enforcer` |
-| ~~`PARITY-HIGH-004`~~         | HIGH | Task.checklistItems / Task.notes ship as untyped JSON scalars; the client's required `id`/`isCompleted` are optional server-side and are normalised only on WRITE, so a legacy item sends setChecklistItem an undefined itemId | `contract-parity-enforcer` |
+| Açılış ID                       | Sev    | İddia                                                                                                                                                                                                                          | Ajan                       |
+| ------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------- |
+| ~~`FARM-MEDIUM-005`~~           | MEDIUM | Scheduler cron jobs set a session-scoped, string-interpolated search_path on pooled connections instead of the transaction-local canonical form                                                                                | `farm-expert`              |
+| ~~`DB-FARMOPS-HIGH-001`~~       | HIGH   | feeds.minStock / chemicals.minStock have no product write path — the entire low-stock \+ reorder alert chain is unreachable                                                                                                    | `db-audit-farm-operations` |
+| ~~`DATA-HIGH-001`~~             | HIGH   | The CLAUDE.md-named schema-routing invariant is stale and currently red — its allowlist omits two entities its own regex flags                                                                                                 | `data-expert`              |
+| ~~`DATA-HIGH-002`~~             | HIGH   | Raw operator PII (name/email/phone) in three immutable regulatory events, no crypto-shred key, and GDPR erasure never sweeps farm.outbox_events                                                                                | `data-expert`              |
+| ~~`DATA-HIGH-003`~~             | HIGH   | Both farm NATS listeners swallow handler errors, so the bus ACKs and the mortality alert \+ harvest traceability follow-ups are lost permanently                                                                               | `data-expert`              |
+| ~~`DATA-HIGH-004`~~             | HIGH   | Direct eventBus.publish inside a write transaction with a swallow-catch, in the exact file shape the farm outbox invariant does not scan                                                                                       | `data-expert`              |
+| ~~`PRODUCT-TENANT-HIGH-002`~~   | HIGH   | NATS consumers derive tenant from the event body; the subject envelope is structurally unavailable to handlers and TenantValidatingConsumer has zero adoption repo-wide                                                        | `tenant-isolation-auditor` |
+| ~~`PRODUCT-TENANT-MEDIUM-004`~~ | MEDIUM | farm-service @Cacheable / @CacheEvict derive the Redis key's tenant segment from the raw x-tenant-id header instead of the JWT/guard-validated tenant                                                                          | `tenant-isolation-auditor` |
+| ~~`PRODUCT-MOBILE-MEDIUM-006`~~ | MEDIUM | Regulatory incident records filed offline permanently lose their evidence photos — capture is hard-disabled without connectivity                                                                                               | `mobile-app-auditor`       |
+| ~~`PARITY-HIGH-002`~~           | HIGH   | aquamobil is exempted from no-bare-graphql-query-string on a factually false premise; ~68 call sites pin hand-written result types and 55 of 122 documents sit outside the codegen glob                                        | `contract-parity-enforcer` |
+| ~~`PARITY-HIGH-003`~~           | HIGH   | farm realtime WebSocket event vocabulary is a 41-vs-30 hand-mirrored contract typed as bare `string`, with no parity gate and a spec that asserts unknown events are a silent no-op                                            | `contract-parity-enforcer` |
+| ~~`PARITY-HIGH-004`~~           | HIGH   | Task.checklistItems / Task.notes ship as untyped JSON scalars; the client's required `id`/`isCompleted` are optional server-side and are normalised only on WRITE, so a legacy item sends setChecklistItem an undefined itemId | `contract-parity-enforcer` |
+| ~~`PARITY-MEDIUM-008`~~         | MEDIUM | A codegen output was deleted and a client field-selection reduced, each justified by a tracked finding ID (S1-ORPHAN, S1-ORPHAN-LEAVE-TYPE) that exists nowhere in the repo                                                    | `contract-parity-enforcer` |
 
 ## Süreç bulgusu — bulgu kayıt defteri prefix draması
 

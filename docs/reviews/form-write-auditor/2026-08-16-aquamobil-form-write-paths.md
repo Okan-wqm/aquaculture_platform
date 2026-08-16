@@ -4,11 +4,12 @@
 **Cycle:** `2026-08-16-farm-mobile-agent-audit` · **Verdict:** BLOCK
 **Findings surviving verification:** 12 (CRITICAL 1 · HIGH 3 · MEDIUM 6 · LOW 2)
 
-> Produced by a 27-agent audit workflow. Every CRITICAL/HIGH claim was handed to an
-> independent verifier instructed to **refute** it by reopening each cited line;
-> claims that could not be defended were dropped into the Refuted section below.
-> MEDIUM/LOW claims did not enter the verify stage and carry the raising agent's
-> confidence only.
+> Produced by a 27-agent audit workflow, then verified by a second 25-agent pass.
+> **Every** claim — CRITICAL through LOW — was handed to an independent verifier
+> instructed to **refute** it by reopening each cited line, with "refuted" as the
+> default when the evidence did not clearly hold. Claims that could not be defended
+> were dropped into the Refuted section below; claims that proved smaller or larger
+> than filed carry a corrected severity.
 >
 > **Finding IDs** use the `PRODUCT-FORM-*` prefix this agent's contract in
 > `.claude/shared/output-format.md` assigns it. That prefix is **rejected** by the
@@ -354,7 +355,7 @@ calculation and is never invoked on create. A multi-day absence can be charged 0
 **Title:** `createHarvestRecord` accepts ten input fields no write path consumes; submitted
 `method`/`productForm` are silently overwritten with hardcoded literals
 
-**Severity:** MEDIUM (raised as HIGH, downgraded by adversarial verification)
+**Severity:** MEDIUM (filed as HIGH, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
 **Raised as:** `PRODUCT-FORM-HIGH-003` by `form-write-auditor` in cycle
@@ -393,13 +394,25 @@ consumer is either wired or removed, never left as decoration.
 Close the gap at the type level so it cannot reopen: make `CreateHarvestRecordCommand`'s input type
 derive from the DTO (or make the DTO implement the command interface) so any GraphQL field without a
 command counterpart is a compile error. Then either thread the genuinely meaningful fields
-(`method`, `productForm`, `harvestCost`, `mortalityDuringHarvest`, `rejectedQuantity`,
+(,
 `rejectionReason`, `pondId`) through to `HarvestRecord`, or delete them from the create DTO with a
-`BREAKING CHANGE:` footer — do not leave a validated-but-ignored surface. `lotNumber`,
-`totalRevenue` and `currency` are server-derived (generateCode, `pricePerKg*biomass`,
+,
+,
 finance_settings) and must be removed from the create input outright so attribution/traceability
 cannot be spoofed, mirroring the `harvestedBy` removal already documented at
 create-harvest-record.input.ts:141-149.
+
+```text
+method`, `productForm`, `harvestCost`, `mortalityDuringHarvest`, `rejectedQuantity
+```
+
+```text
+BREAKING CHANGE:` footer — do not leave a validated-but-ignored surface. `lotNumber
+```
+
+```text
+totalRevenue` and `currency` are server-derived (generateCode, `pricePerKg*biomass
+```
 
 **Affected surface (ripple set):**
 
@@ -437,7 +450,7 @@ this is an over-wide API surface with no live user-data corruption, not a HIGH w
 **Title:** Task lifecycle actions swallow server REJECTIONS into a fake offline "queued" success
 that then dies permanently in the queue
 
-**Severity:** MEDIUM (raised as HIGH, downgraded by adversarial verification)
+**Severity:** MEDIUM (filed as HIGH, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
 **Raised as:** `PRODUCT-FORM-HIGH-006` by `form-write-auditor` in cycle
@@ -513,7 +526,7 @@ completely silent no-op — the Confirm button does nothing and shows nothing
 **State:** OPEN
 **Raised as:** `PRODUCT-FORM-MEDIUM-007` by `form-write-auditor` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -557,6 +570,23 @@ time, so reaching Confirm with an invalid form is not a state the type system pe
 
 mobile-app-auditor WRITER
 
+**Verifier note:**
+
+Confirmed at web/apps/aquamobil/src/pages/_shared/RecordEntityPage.tsx:218
+(`if (!validate() || !metrics?.batchId) return;` — returns before any state is set) and :291 (the
+confirm branch renders only `{errors.general && <ErrorBanner .../>}`). The keys validate() actually
+writes are `tank`/`quantity` (RecordCullPage.tsx:59-68, EscapeIncidentPage.tsx:101-114), and neither
+has a confirm-screen renderer, so the Confirm button is a dead no-op with zero feedback. I checked
+the entry step separately: `canReview` on all six pages already includes `!!metrics?.batchId`
+(RecordCullPage.tsx:105, RecordHarvestPage.tsx:125, RecordMortalityPage.tsx:113,
+WelfareScorePage.tsx:148), so the entry-step Review button is visibly disabled rather than silently
+dead — the defect is confirm-step-only, as filed. Reachability is real rather than theoretical:
+useTanks.ts:182-184 sets `staleTime: 60_000` and `refetchOnWindowFocus: true`, so a background
+refetch while the operator sits on the confirm screen can drop `batchMetrics` (batch closed by
+someone else) or lower `metrics.pieces` below the entered quantity (cull `maxQuantity`), flipping
+validate() to false with no visible reason. MEDIUM is right — a real defect an operator eventually
+hits, but it needs concurrent state change to trigger.
+
 ### PRODUCT-FORM-MEDIUM-008
 
 **Title:** `idempotencyKey` is minted per submit ATTEMPT, defeating both the server at-most-once
@@ -567,7 +597,7 @@ guard and the queue's payload-hash dedup for water quality, stock movement and s
 **State:** OPEN
 **Raised as:** `PRODUCT-FORM-MEDIUM-008` by `form-write-auditor` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -609,6 +639,27 @@ offline-queue.ts:196-206 must stop asserting a guarantee the code does not provi
 
 mobile-app-auditor WRITER
 
+**Verifier note:**
+
+All five citations hold. `idempotencyKey: crypto.randomUUID()` is inside handleSubmit at
+WaterQualityRecordPage.tsx:211, StockMovementPage.tsx:360 and StockTransferPage.tsx:267 (the latter
+even documents it as 'Generate once for this submit attempt'). offline-queue.ts:116-118
+`computePayloadHash` hashes the raw payload — which for these three op types CONTAINS the random key
+— and :295-305 compares `op._payloadHash` within DEDUP_WINDOW_MS, so two submissions of the
+identical form can never match; the contract comment at :196-206 explicitly claims dedup 'is correct
+for EVERY operation type by construction — including stock movements and transfers', which these
+three falsify. The server side of the claim also checks out: farm.water_quality_measurements carries
+a partial UNIQUE (tenantId, idempotencyKey) index
+(entities/water-quality-measurement.entity.ts:186), and stock-movement.service.ts:174-179 plus
+transfer-stock.handler.ts:48-53 do an idempotent-hit lookup on the same key — so a per-attempt key
+is exactly what disarms them. Scope note that does not refute but sharpens it: the same three
+payloads also carry a fresh wall-clock (`measuredAt: new Date().toISOString()`), and the
+RecordEntityPage payloads carry `culledAt`/`detectedAt` built per submit, so the payload-hash dedup
+window is defeated more broadly than the finding states — the at-most-once half is what is uniquely
+broken by the random key. Exposure is the retry-after-error path (first request lands, client shows
+an error, operator taps submit again → new key → duplicate row); within one attempt the same `input`
+object is reused for the queue fallback, so that path is safe. MEDIUM.
+
 ### PRODUCT-FORM-MEDIUM-009
 
 **Title:** Escape incident: `recoveryOngoing` hardcoded false and `causeDetails` never collected,
@@ -620,7 +671,7 @@ allows it
 **State:** OPEN
 **Raised as:** `PRODUCT-FORM-MEDIUM-009` by `form-write-auditor` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -665,6 +716,30 @@ incident.
 
 mobile-app-auditor WRITER; workflow-state-auditor review
 
+**Verifier note:**
+
+The two data-capture halves are confirmed. EscapeIncidentPage.tsx:134 hardcodes
+`recoveryOngoing: false` with no control on the page, and buildPayload (:116-138) never sets
+`causeDetails` even though 'OTHER' is a selectable cause (ESCAPE_CAUSES, :42-43) and the web type
+declares the field (types/index.ts:202-203). Server-side both are first-class:
+field-capture.inputs.ts:298-307 validates `causeDetails`/`recoveryOngoing`, and
+escape-incident.service.ts:86-91 persists them onto the row. Impact is slightly worse than the
+finding argues: regulatory/assembly/assemblers/escape.assembler.ts:98 tags `/recoveryOngoing` as
+as a
+record-sourced fact, and :178 selects `ei."recoveryOngoing"` straight from the mobile-written row.
+Mitigation keeping this at MEDIUM rather than HIGH: the desktop EscapeReportTab.tsx:194 lets the
+filer override at varsling time. Partial refutation of the THIRD sub-claim only: the shell does
+hard-block a batchless pen (RecordEntityPage.tsx:218 plus `canReview={... !!metrics?.batchId ...}`),
+but 'the backend allows it' is only half true — RecordEscapeIncidentInput makes tankId/batchId
+optional yet `speciesId` is REQUIRED (field-capture.inputs.ts:~296), and mobile's only source of
+speciesId is `metrics.speciesId`. So the proposed 'parameterise the shell with batch-required' fix
+does not work as written; a batchless escape needs a species source first. The finding as a whole
+stands on the two missing fields.
+
+```text
+fromRecords(...)`, i.e. the varsling draft presents the never-asked hardcoded `false
+```
+
 ### PRODUCT-FORM-MEDIUM-010
 
 **Title:** Regulatory date keys are built from the UTC calendar day, so a night-shift lice count can
@@ -675,7 +750,7 @@ be filed into the wrong ISO reporting week
 **State:** OPEN
 **Raised as:** `PRODUCT-FORM-MEDIUM-010` by `form-write-auditor` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** NOT VERIFIED — no verifier returned a verdict for this id
 
 **Evidence:**
 
@@ -733,7 +808,7 @@ contract-parity-enforcer \+ farm domain WRITER
 **State:** OPEN
 **Raised as:** `PRODUCT-FORM-LOW-011` by `form-write-auditor` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -759,13 +834,17 @@ but is never actually validated.
 
 **Proposed fix direction:**
 
-Give `expiryDate` the same decorator triad its sibling has (`@Type(() => Date) @IsDate()`, plus a
+Give , plus a
 forward-looking `@MinDate`-style guard appropriate to a shelf-life field) so a malformed or past
 expiry on a FEED/HEALTHCARE lot is rejected at the boundary rather than persisted into the
 traceability record. Then make the class detectable rather than relying on review: add an invariant
 spec that walks every `@InputType()` in the repo and fails when a `@Field()` property has no
 class-validator constraint beyond `@IsOptional()` — this is the only way the next decorator-less
 field is caught at build time.
+
+```text
+expiryDate` the same decorator triad its sibling has (`@Type(() => Date) @IsDate()
+```
 
 **Affected surface (ripple set):**
 
@@ -778,6 +857,37 @@ field is caught at build time.
 
 contract-parity-enforcer WRITER
 
+**Verifier note:**
+
+Holds.
+/home/user/aquaculture_platform/apps/farm-service/src/storage/dto/record-stock-movement.input.ts:45-47
+is exactly `@Field({ nullable: true }) @IsOptional() expiryDate?: Date;` — @IsOptional() is the only
+class-validator metadata, while the sibling at :90-99 carries
+. Handler
+at handlers/record-stock-movement.handler.ts:61 forwards `expiryDate: input.expiryDate` into
+RecordMovementInput, which reaches stock-movement.service.ts:279/697/711 and lands in
+`@Column({ type: 'date', nullable: true })` on both stock-movement.entity.ts:98-99 and
+storage-inventory.entity.ts:58-59. The global pipe at
+libs/backend-common/src/bootstrap/create-service-app.ts:458-461 is
+`whitelist: true, forbidNonWhitelisted: true, transform: true` as quoted. I looked for a guard the
+claimer missed and found none that closes it: the field is `expiryDate: DateTime` in
+apps/farm-service/schema.graphql:9108, and
+node_modules/@nestjs/graphql/dist/scalars/iso-date.scalar.js parseValue is a bare
+`return new Date(value)` with no validity check, so a malformed string yields an Invalid Date object
+that passes straight through the pipe (no @IsDate to reject it) into the date column. LOW is the
+right severity, not higher: the only production writer is StockMovementPage.tsx:679-684, an
+`<input type="date">` whose value is always a well-formed yyyy-mm-dd (:362
+`...(expiryDate ? { expiryDate } : {})`), and a malformed value from any other caller fails loudly
+at the driver rather than silently corrupting the traceability row. Two secondary framings in the
+evidence are wrong but do not sink the claim: @IsOptional() does register property metadata, so the
+field is not actually a whitelist-stripping hazard (the report's own Rule-violated text concedes
+this), and @Type(() `=>` Date) is redundant here because the DateTime scalar already hands the pipe
+a Date instance — the real missing decorator is @IsDate().
+
+```text
+@IsOptional() @Type(() => Date) @IsDate() @MaxDate(() => new Date()) movementDate?: Date;
+```
+
 ### PRODUCT-FORM-LOW-012
 
 **Title:** Alert acknowledgement: the note field is plumbed end to end but no mobile UI collects it,
@@ -788,7 +898,7 @@ and `acknowledgedAt` is stamped at replay time rather than at the operator's tap
 **State:** OPEN
 **Raised as:** `PRODUCT-FORM-LOW-012` by `form-write-auditor` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** NOT VERIFIED — no verifier returned a verdict for this id
 
 **Evidence:**
 

@@ -2,13 +2,14 @@
 
 **Agent:** `db-audit-farm-operations` · **Mode:** CATCHER (read-only) · **Lane:** farm
 **Cycle:** `2026-08-16-farm-mobile-agent-audit` · **Verdict:** BLOCK
-**Findings surviving verification:** 11 (CRITICAL 0 · HIGH 1 · MEDIUM 10 · LOW 0) · 1 refuted
+**Findings surviving verification:** 11 (CRITICAL 0 · HIGH 1 · MEDIUM 6 · LOW 4) · 1 refuted
 
-> Produced by a 27-agent audit workflow. Every CRITICAL/HIGH claim was handed to an
-> independent verifier instructed to **refute** it by reopening each cited line;
-> claims that could not be defended were dropped into the Refuted section below.
-> MEDIUM/LOW claims did not enter the verify stage and carry the raising agent's
-> confidence only.
+> Produced by a 27-agent audit workflow, then verified by a second 25-agent pass.
+> **Every** claim — CRITICAL through LOW — was handed to an independent verifier
+> instructed to **refute** it by reopening each cited line, with "refuted" as the
+> default when the evidence did not clearly hold. Claims that could not be defended
+> were dropped into the Refuted section below; claims that proved smaller or larger
+> than filed carry a corrected severity.
 >
 > **Finding IDs** use the `DB-FARMOPS-*` prefix this agent's contract in
 > `.claude/shared/output-format.md` assigns it. That prefix is **rejected** by the
@@ -138,7 +139,7 @@ purpose is reconciliation leaves the numbers operators actually read unreconcile
 **Title:** Item-master create writes the stock roll-up column with no ledger row; the sink later
 overwrites it silently
 
-**Severity:** MEDIUM (raised as HIGH, downgraded by adversarial verification)
+**Severity:** MEDIUM (filed as HIGH, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
 **Raised as:** `DB-FARMOPS-HIGH-002` by `db-audit-farm-operations` in cycle
@@ -212,7 +213,7 @@ opening balance: MEDIUM.
 **Title:** maxFishWeightG is accepted by the API and submitted by the +Add Feed form but never
 persisted on create
 
-**Severity:** MEDIUM (raised as HIGH, downgraded by adversarial verification)
+**Severity:** MEDIUM (filed as HIGH, downgraded by adversarial verification)
 **Layer:** 1
 **State:** OPEN
 **Raised as:** `DB-FARMOPS-HIGH-004` by `db-audit-farm-operations` in cycle
@@ -277,7 +278,7 @@ field, not a behavioural or safety defect. MEDIUM.
 **Title:** Spare-part stock is mutated with no persisted movement ledger — the audit row is built in
 memory and discarded
 
-**Severity:** MEDIUM (raised as HIGH, downgraded by adversarial verification)
+**Severity:** MEDIUM (filed as HIGH, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
 **Raised as:** `DB-FARMOPS-HIGH-005` by `db-audit-farm-operations` in cycle
@@ -343,61 +344,6 @@ negative stock, and spare parts carry none of the lot-traceability regulation (E
 makes the feed/chemical ledger load-bearing. The "shadowing the real storage entity" framing is also
 overstated — it is a separate interface in a separate module with no import collision. MEDIUM.
 
-### DB-FARMOPS-MEDIUM-006
-
-**Title:** feed_inventory is a fully orphaned base table still registered as a TypeORM entity and
-cloned into every tenant schema
-
-**Severity:** MEDIUM
-**Layer:** 3
-**State:** OPEN
-**Raised as:** `DB-FARMOPS-MEDIUM-006` by `db-audit-farm-operations` in cycle
-`2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
-
-**Evidence:**
-
-- apps/farm-service/src/storage/services/stock-movement.service.ts:33 \- 'Phase 2 (stock SSoT)
-  completed the read re-point: the legacy `feed_inventory` writers and the GetFeedInventory read
-  path are GONE ... The frozen `feed_inventory` table is dropped in the retirement phase.'
-- apps/farm-service/src/feeding/feeding.module.ts:89 \- `FeedInventory,` still registered in
-  TypeOrmModule.forFeature, so the drift validator keeps requiring the table in every tenant schema
-- apps/farm-service/src/database/migrations/1800000000000-Baseline.ts:370 \- the table and its
-  `feed_inventory_status_enum` are created by the baseline and no tracked migration drops them
-  (manifest.ts lists 77 migrations, none named for the drop)
-- apps/farm-service/src/feeding/entities/feed-inventory.entity.ts:83 \- the class still carries
-  `@ObjectType()` plus ~25 `@Field` decorators and two `registerEnumType` calls for a type no
-  resolver returns
-- apps/farm-service/src/database/services/farm-seed.service.ts:902 \- 'o tablo artik donduruldu
-  (okuyucu/yazici kalmadi, Faz 8'de drop)' — the seed already moved off it
-
-**Rule violated:**
-
-db-audit-methodology table-level verdict ORPHAN-TABLE; domain invariant 'Feed-stock single ledger'
-(one physical owner per stock quantity)
-
-**Proposed fix direction:**
-
-Complete the retirement in the same release rather than leaving a frozen dual-ledger shape: drop the
-entity registration and the GraphQL decorations first (so nothing can re-acquire a reference), then
-land the DROP TABLE \+ DROP TYPE migration with the pre-migration pg_dump artifact the
-destructive-migration rule requires. Leaving it registered means every new tenant provisioned from
-now on materialises a table that can never be written or read, and the schema-drift validator will
-defend it forever.
-
-**Affected surface (ripple set):**
-
-- `apps/farm-service/src/feeding/entities/feed-inventory.entity.ts`
-- `apps/farm-service/src/feeding/feeding.module.ts`
-- `apps/farm-service/src/database/migrations/`
-- `apps/farm-service/src/database/migrations/manifest.ts`
-- `libs/backend-common/src/database/schema-manager.service.ts`
-
-**Expected closer:**
-
-database-reviewer (DB-state owner) with farm-expert; destructive migration needs the
-pre-migration-restore-test gate
-
 ### DB-FARMOPS-MEDIUM-007
 
 **Title:** storage_inventory.received_date has no DB default (contrary to its own doc comment) and
@@ -408,7 +354,7 @@ two write paths leave it NULL, breaking FEFO determinism and as-of scoping
 **State:** OPEN
 **Raised as:** `DB-FARMOPS-MEDIUM-007` by `db-audit-farm-operations` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -459,6 +405,24 @@ row-construction site.
 
 database-reviewer for the migration; farm-expert for the handler consolidation
 
+**Verifier note:**
+
+Fully confirmed, every cited line reads as claimed. Baseline.ts:165 creates
+`"received_date" TIMESTAMP WITH TIME ZONE` with no DEFAULT and no NOT NULL, and a grep of
+received_date/receivedDate across apps/farm-service found no later ALTER — the only other migration
+touching it is 1806100000000-BackfillFeedInventoryToStorageLedger.ts:126 which COALESCEs to now()
+for its own inserted rows. storage-inventory.entity.ts:61-73 does claim 'Defaults to NOW() at the
+database level', which is false against that DDL. transfer-stock.handler.ts:147-156 builds the
+destination row with
+tenantId/locationId/itemType/itemId/quantity/unit/lotNumber/expiryDate/createdBy/updatedBy and no
+receivedDate; approve-inventory-count.handler.ts:129-138 does the same. Only
+StockMovementService.increaseInventory (stock-movement.service.ts:715) stamps it. Consequence is
+real: stock-movement.service.ts:428 and :648 use
+`(inv.receivedDate IS NULL OR inv.receivedDate <= :asOf)`, so NULL rows always pass the as-of gate —
+a backdated feeding can deduct from a lot transferred in after the feeding date — and :445/:650
+order receivedDate NULLS LAST, so those rows lose the FEFO tiebreak. Transfers and count approvals
+are routine operations, so this is hit in normal use. MEDIUM stands.
+
 ### DB-FARMOPS-MEDIUM-008
 
 **Title:** Un-lotted storage_inventory rows are not uniquely addressable — nullable lot_number in
@@ -469,7 +433,7 @@ the unique index plus an undefined find predicate
 **State:** OPEN
 **Raised as:** `DB-FARMOPS-MEDIUM-008` by `db-audit-farm-operations` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -523,17 +487,205 @@ clause.
 
 database-reviewer for the index change; farm-expert for the predicate
 
+**Verifier note:**
+
+Confirmed, including the mechanism the claim depends on. Baseline.ts:169 creates the unique index on
+(tenant_id, storage_location_id, item_type, item_id, lot_number) and storage-inventory.entity.ts:55
+declares lot_number nullable, so NULL != NULL leaves un-lotted duplicates unconstrained.
+stock-movement.service.ts:684-690, transfer-stock.handler.ts:105 and :138, and
+approve-inventory-count.handler.ts:110 all use `lotNumber: X ?? undefined`. I verified the TypeORM
+behavior rather than assuming it: node_modules/typeorm 0.3.31, SelectQueryBuilder.js:2496-2504 — an
+undefined where value takes `invalidWhereValuesBehavior.undefined`, default 'ignore', and
+`continue`s (drops the predicate); a grep shows the repo never sets invalidWhereValuesBehavior, so
+the default applies. lotNumber is optional on every input DTO (record-stock-movement.input.ts:43,
+transfer-stock.input.ts:33, receive-delivery.input.ts:19) and recordMovement passes
+`input.lotNumber` straight through (stock-movement.service.ts:254-257), so the un-lotted branch is
+reachable. Effect is worse than 'not uniquely addressable': an un-lotted inbound movement matches an
+arbitrary EXISTING row for that item+location — possibly a lotted one — adds quantity to it and, at
+line 697, overwrites its expiryDate, i.e. untracked stock silently gets attributed to a real lot
+number. The test fixture point holds too (stock-movement.service.spec.ts:119/232 always set
+lotNumber: 'LOT-A'). I kept MEDIUM rather than raising it because triggering the traceability
+corruption requires mixed lotted/un-lotted stock of the same item at the same location.
+
+### DB-FARMOPS-MEDIUM-012
+
+**Title:** Farm demo seed uses an ON CONFLICT target that no longer matches the live unique index,
+aborting tenant seeding behind a swallowed catch
+
+**Severity:** MEDIUM
+**Layer:** 1
+**State:** OPEN
+**Raised as:** `DB-FARMOPS-MEDIUM-012` by `db-audit-farm-operations` in cycle
+`2026-08-16-farm-mobile-agent-audit`
+**Verification:** CONFIRMED by an independent refute-by-default verifier
+
+**Evidence:**
+
+- apps/farm-service/src/database/services/farm-seed.service.ts:965 \-
+  `ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING`
+- apps/farm-service/src/database/migrations/1800600000000-ExtendFarmStockReadModelFanout.ts:466 \-
+  the single-column index is dropped and replaced:
+  (same replacement at 1800400000000-CreateFarmStockReadModel.ts:213)
+
+  ```text
+  DROP INDEX IF EXISTS "IDX_93018beb62439a265dcb715936"; ... CREATE UNIQUE INDEX ... idx_stock_movements_tenant_idempotency ON stock_movements ("tenant_id", "idempotency_key")
+  ```
+
+- apps/farm-service/src/storage/entities/stock-movement.entity.ts:35 \- the entity declares the
+  composite form:
+
+  ```text
+  @Index('idx_stock_movements_tenant_idempotency', ['tenantId','idempotencyKey'], { unique: true, where: ... })
+  ```
+
+- apps/farm-service/src/database/migrations/1806100000000-BackfillFeedInventoryToStorageLedger.ts:118
+  \- the migration written for the same table correctly uses
+  `ON CONFLICT (tenant_id, idempotency_key)`, confirming the seed is the outlier
+- apps/farm-service/src/database/services/farm-seed.service.ts:110 \-
+  `this.logger.error('Error during farm seed:', error)` swallows the resulting failure, so
+  dev/staging tenants silently lose every seed step after feeds
+
+**Rule violated:**
+
+layer-2-defect-catalog Correctness ('enum/string mismatch — a literal that no longer matches its
+source') \+ 'empty / swallowing catch'
+
+**Proposed fix direction:**
+
+Correct the conflict target to the composite index, then remove the class: the seed hand-writes raw
+SQL against tables that migrations reshape independently. Drive seed inserts through the same entity
+metadata the migrations are generated from (or at minimum assert the seed's conflict targets against
+the entity index metadata in a unit test) so an index reshape breaks CI instead of dev onboarding.
+The swallowing catch should re-throw in non-production so a broken seed is loud.
+
+**Affected surface (ripple set):**
+
+- `apps/farm-service/src/database/services/farm-seed.service.ts`
+- `apps/farm-service/src/storage/entities/stock-movement.entity.ts`
+- `apps/farm-service/src/database/**tests**/`
+
+**Expected closer:**
+
+farm-expert WRITER mode
+
+**Verifier note:**
+
+Confirmed, and empirically proven. farm-seed.service.ts:964 uses
+`ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING`, but the single-column
+unique index is gone: Baseline.ts:180 created `IDX_93018beb62439a265dcb715936` on (idempotency_key),
+and both 1800400000000-CreateFarmStockReadModel.ts:212-218 and
+1800600000000-ExtendFarmStockReadModelFanout.ts:465-470 DROP it (both the hash name and
+IDX_stock_movements_idempotency_key) and CREATE UNIQUE INDEX idx_stock_movements_tenant_idempotency
+ON stock_movements (tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL — matching
+stock-movement.entity.ts:35. Both migrations are registered in database/migrations/manifest.ts, so
+they execute. I started a throwaway Postgres 16 and reproduced it exactly: with only the composite
+partial unique index present, the seed's INSERT fails with
+(42P10) —
+the inference list is a strict subset of the index key columns, so no arbiter is found.
+1806100000000-BackfillFeedInventoryToStorageLedger.ts:118 uses the correct composite target,
+confirming the seed is the outlier. Two corrections that do not change the verdict: (1) the
+consequence is worse-shaped than described — seedFarmData wraps every step in one transaction and
+the catch at line 258-260 rolls the WHOLE thing back and rethrows, so tenant, site, department,
+tanks, species and feeds are all lost, not just 'steps after feeds' (no partial/corrupt state, but
+no demo data at all); (2) it is not fully silent — line 260 and line 110 both log at ERROR level
+with the error object, though the process still boots green. Reachability is narrower than implied:
+docker-compose.yml:324, docker-compose.dev.yml:286, docker-compose.watch.yml:156 and
+test/e2e-env.ts:27 all set FARM_SEED_ENABLED=false, so this only fires on a bare
+`npm run dev:backend` / `nx serve farm-service` host run — which is the documented local dev
+workflow. Dev-only, proven-broken SQL: MEDIUM stands.
+
+```text
+ERROR: there is no unique or exclusion constraint matching the ON CONFLICT specification
+```
+
+### LOW
+
+### DB-FARMOPS-MEDIUM-006
+
+**Title:** feed_inventory is a fully orphaned base table still registered as a TypeORM entity and
+cloned into every tenant schema
+
+**Severity:** LOW (filed as MEDIUM, downgraded by adversarial verification)
+**Layer:** 3
+**State:** OPEN
+**Raised as:** `DB-FARMOPS-MEDIUM-006` by `db-audit-farm-operations` in cycle
+`2026-08-16-farm-mobile-agent-audit`
+**Verification:** CONFIRMED by an independent refute-by-default verifier
+
+**Evidence:**
+
+- apps/farm-service/src/storage/services/stock-movement.service.ts:33 \- 'Phase 2 (stock SSoT)
+  completed the read re-point: the legacy `feed_inventory` writers and the GetFeedInventory read
+  path are GONE ... The frozen `feed_inventory` table is dropped in the retirement phase.'
+- apps/farm-service/src/feeding/feeding.module.ts:89 \- `FeedInventory,` still registered in
+  TypeOrmModule.forFeature, so the drift validator keeps requiring the table in every tenant schema
+- apps/farm-service/src/database/migrations/1800000000000-Baseline.ts:370 \- the table and its
+  `feed_inventory_status_enum` are created by the baseline and no tracked migration drops them
+  (manifest.ts lists 77 migrations, none named for the drop)
+- apps/farm-service/src/feeding/entities/feed-inventory.entity.ts:83 \- the class still carries
+  `@ObjectType()` plus ~25 `@Field` decorators and two `registerEnumType` calls for a type no
+  resolver returns
+- apps/farm-service/src/database/services/farm-seed.service.ts:902 \- 'o tablo artik donduruldu
+  (okuyucu/yazici kalmadi, Faz 8'de drop)' — the seed already moved off it
+
+**Rule violated:**
+
+db-audit-methodology table-level verdict ORPHAN-TABLE; domain invariant 'Feed-stock single ledger'
+(one physical owner per stock quantity)
+
+**Proposed fix direction:**
+
+Complete the retirement in the same release rather than leaving a frozen dual-ledger shape: drop the
+entity registration and the GraphQL decorations first (so nothing can re-acquire a reference), then
+land the DROP TABLE \+ DROP TYPE migration with the pre-migration pg_dump artifact the
+destructive-migration rule requires. Leaving it registered means every new tenant provisioned from
+now on materialises a table that can never be written or read, and the schema-drift validator will
+defend it forever.
+
+**Affected surface (ripple set):**
+
+- `apps/farm-service/src/feeding/entities/feed-inventory.entity.ts`
+- `apps/farm-service/src/feeding/feeding.module.ts`
+- `apps/farm-service/src/database/migrations/`
+- `apps/farm-service/src/database/migrations/manifest.ts`
+- `libs/backend-common/src/database/schema-manager.service.ts`
+
+**Expected closer:**
+
+database-reviewer (DB-state owner) with farm-expert; destructive migration needs the
+pre-migration-restore-test gate
+
+**Verifier note:**
+
+Evidence checks out but the impact is smaller than MEDIUM. Confirmed:
+apps/farm-service/src/feeding/feeding.module.ts:28/89 still imports and registers `FeedInventory` in
+TypeOrmModule.forFeature;
+apps/farm-service/src/database/migrations/1800000000000-Baseline.ts:370-371 creates
+`farm.feed_inventory_status_enum` \+ `farm.feed_inventory` and a grep of all non-archived migrations
+found no DROP TABLE for it; libs/backend-common/src/database/schema-manager.service.ts:451 lists
+`feed_inventory` in the farm per-tenant `tables` array, so it is indeed cloned into every tenant
+schema; apps/farm-service/src/feeding/entities/feed-inventory.entity.ts:83-89 still carries
+@ObjectType/@Field plus two registerEnumType calls; farm-seed.service.ts:902-907 confirms the seed
+moved to the storage ledger. A repo-wide grep found zero readers/writers (only the entity file, the
+module registration, the barrel export at entities/index.ts:8, the backfill migration, and
+comments), so it is a genuine orphan. What lowers severity: there is no dual-ledger correctness risk
+left (no writers at all — the 'Feed-stock single ledger' invariant is not actually violated), no
+GraphQL enum-name collision (`InventoryStatus`/`InventoryMovementType` are registered only here),
+and keeping the frozen table one release past the read re-point is standard blue-green rollback
+practice, explicitly documented at stock-movement.service.ts:33-36 and farm-seed.service.ts:903 as
+Phase-8 work. Net effect is dead DDL \+ dead code — cleanup debt nobody hits at runtime. LOW.
+
 ### DB-FARMOPS-MEDIUM-009
 
 **Title:** Legacy feeding-program write surface stays open post-cutover; the 'single producer v2'
 invariant is enforced only on cron jobs
 
-**Severity:** MEDIUM
+**Severity:** LOW (filed as MEDIUM, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
 **Raised as:** `DB-FARMOPS-MEDIUM-009` by `db-audit-farm-operations` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -576,17 +728,37 @@ behaviour detectable at build time.
 
 farm-expert WRITER mode
 
+**Verifier note:**
+
+Facts hold, severity is inflated. legacy-engine-gate.ts:24 is as quoted, and grep for
+`legacyFeedingEngineEnabled` confirms call sites only in feeding-cron.service.ts:317,649 and
+scheduler/feeding-scheduler.service.ts:775,838,912,984,1060;
+tests/invariants/feeding-legacy-cutover-gate.spec.ts pins exactly those seven jobs and nothing on
+the write surface. 1806500000000-FeedingCutoverActivateAssignments.ts:81-90 does force every
+non-deleted draft/active/paused program to 'completed'. feeding-program.resolver.ts:573
+createFeedingProgram, :783 activateFeedingProgram and :1009 generateDailyPlan carry only
+@Roles(TENANT_ADMIN, MODULE_MANAGER) — no gate check. feeding-ledger.service.ts:1-8 confirms all
+three producers (v2 meal engine, manual handler, legacy execution) write the same feeding_records
+ledger. So the gap is real and is not a documented decision: the gate's own doc block enumerates the
+deliberately-ungated drain-window items (applyDailyGrowthRollup, cleanupOldExecutions,
+recordDailyFeeding, weeklyFeedForecast) and these mutations are not among them. What shrinks it: a
+grep of web/ found no caller for createFeedingProgram, activateFeedingProgram or generateDailyPlan
+outside web/shared-ui/src/generated/graphql-types.ts, so there is no UI path; the scheduled legacy
+producers stay gated, so resurrection requires a tenant admin deliberately driving three raw GraphQL
+mutations, and the double-count then still needs an operator to record the same physical feeding
+twice. Narrowly scoped defense-in-depth gap → LOW.
+
 ### DB-FARMOPS-MEDIUM-010
 
 **Title:** feeds.procurementLeadTimeDays has no write path anywhere — the forecast 'warning'
 coverage band collapses to a hardcoded default for every tenant
 
-**Severity:** MEDIUM
+**Severity:** LOW (filed as MEDIUM, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
 **Raised as:** `DB-FARMOPS-MEDIUM-010` by `db-audit-farm-operations` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -639,17 +811,39 @@ DB-FARMOPS-HIGH-001 (every detector-predicate column needs a writer) catches the
 
 farm-expert WRITER mode
 
+**Verifier note:**
+
+Every cited fact holds.
+/home/user/aquaculture_platform/apps/farm-service/src/feed/entities/feed.entity.ts:242-243 declares
+`@Column({type:'int', nullable:true}) procurementLeadTimeDays?: number` added by
+1806700000000-FeedingForecastFoundation.ts:55. A repo-wide grep for
+procurementLeadTimeDays/procurement_lead_time_days returns NO writer:
+apps/farm-service/src/feed/dto/create-feed.input.ts and update-feed.input.ts contain zero hits
+(`grep -rn 'leadTime' apps/farm-service/src/feed/` returns nothing), the seed service never sets it,
+and no raw SQL UPDATE touches it. So protocol-feed-forecast.service.ts:275 always takes
+DEFAULT_PROCUREMENT_LEAD_TIME_DAYS = 7 (line 63) and the `leadTimeSource: 'feed'` branch at line 325
+is exercised only by unit tests (feed-forecast.slice.spec.ts:30,
+protocol-feed-forecast.service.spec.ts:112). get-warehouse-summary.handler.ts:128 reads the snapshot
+copy, so the entire 'warning' band — and
+alert-engine/src/alert/services/feed-coverage-alert.service.ts:40 WARNING severity — is a fixed 7
+days for every tenant. Downgraded to LOW rather than MEDIUM: nothing computes a wrong value (the
+7-day default is the documented policy at feed.entity.ts:237-241 and is applied uniformly), and the
+field is not even rendered — web/modules/farm-module only types it (useProtocolFeeding.ts:655) and
+selects it (feedingProtocolV2.operations.ts:316); no component displays it, so no operator sees a
+knob that lies. Real defect class (durable column \+ dead branch with no writer), but the impact is
+dead-column/dead-branch debt, not an operator-facing failure.
+
 ### DB-FARMOPS-MEDIUM-011
 
 **Title:** purchase_orders carries a free-text supplier name with no supplierId FK, and PO spend has
 no finance representation at all
 
-**Severity:** MEDIUM
+**Severity:** LOW (filed as MEDIUM, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
 **Raised as:** `DB-FARMOPS-MEDIUM-011` by `db-audit-farm-operations` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -708,71 +902,34 @@ deliberately consumption-basis and chemical/consumable purchases are out of the 
 
 farm-expert WRITER mode with database-reviewer on the FK migration
 
-### DB-FARMOPS-MEDIUM-012
+**Verifier note:**
 
-**Title:** Farm demo seed uses an ON CONFLICT target that no longer matches the live unique index,
-aborting tenant seeding behind a swallowed catch
+Facts confirmed, framing inflated. purchase-order.entity.ts:60 is
+and the entity
+has no supplierId column; `grep -rn supplierId apps/farm-service/src/storage/` returns zero hits,
+and create-purchase-order.handler.ts:72 writes only `supplierName: input.supplierName` (plus
+supplierContact). A full suppliers master does exist (supplier/entities/supplier.entity.ts, with
+supplier-site approval in set-supplier-approved-sites.handler.ts, audited \+ outbox-evented) and is
+unreachable from a PO. derived-cost-sources.ts declares exactly six sources (FEED, FINGERLINGS,
+MAINTENANCE, HEALTH_TREATMENT, HARVEST_REVENUE, HARVEST_COST) at lines 78/95/112/134/151/168 —
+purchase_orders.total_amount (entity line ~78) is indeed absent. Downgraded to LOW: (a) the
+'DUPLICATE-STRUCTURE / supplier identity modelled twice' label does not hold — a denormalised name
+string is not a second identity model, and no code string-matches supplierName against suppliers
+today, so nothing currently computes a wrong result; (b) the finance half is largely a design
+question the file header already answers in principle (derived-cost-sources.ts:1-33 states money is
+derived at query time from the domain rows where it occurs, i.e. consumption-basis), and the fix
+direction the claim itself proposes for it is 'decide and document' — Tier-4 work, not a defect.
+What remains real is modelling debt: the approved-supplier control has no procurement enforcement
+point and supplier spend is not queryable.
 
-**Severity:** MEDIUM
-**Layer:** 1
-**State:** OPEN
-**Raised as:** `DB-FARMOPS-MEDIUM-012` by `db-audit-farm-operations` in cycle
-`2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
-
-**Evidence:**
-
-- apps/farm-service/src/database/services/farm-seed.service.ts:965 \-
-  `ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING`
-- apps/farm-service/src/database/migrations/1800600000000-ExtendFarmStockReadModelFanout.ts:466 \-
-  the single-column index is dropped and replaced:
-  (same replacement at 1800400000000-CreateFarmStockReadModel.ts:213)
-
-  ```text
-  DROP INDEX IF EXISTS "IDX_93018beb62439a265dcb715936"; ... CREATE UNIQUE INDEX ... idx_stock_movements_tenant_idempotency ON stock_movements ("tenant_id", "idempotency_key")
-  ```
-
-- apps/farm-service/src/storage/entities/stock-movement.entity.ts:35 \- the entity declares the
-  composite form:
-
-  ```text
-  @Index('idx_stock_movements_tenant_idempotency', ['tenantId','idempotencyKey'], { unique: true, where: ... })
-  ```
-
-- apps/farm-service/src/database/migrations/1806100000000-BackfillFeedInventoryToStorageLedger.ts:118
-  \- the migration written for the same table correctly uses
-  `ON CONFLICT (tenant_id, idempotency_key)`, confirming the seed is the outlier
-- apps/farm-service/src/database/services/farm-seed.service.ts:110 \-
-  `this.logger.error('Error during farm seed:', error)` swallows the resulting failure, so
-  dev/staging tenants silently lose every seed step after feeds
-
-**Rule violated:**
-
-layer-2-defect-catalog Correctness ('enum/string mismatch — a literal that no longer matches its
-source') \+ 'empty / swallowing catch'
-
-**Proposed fix direction:**
-
-Correct the conflict target to the composite index, then remove the class: the seed hand-writes raw
-SQL against tables that migrations reshape independently. Drive seed inserts through the same entity
-metadata the migrations are generated from (or at minimum assert the seed's conflict targets against
-the entity index metadata in a unit test) so an index reshape breaks CI instead of dev onboarding.
-The swallowing catch should re-throw in non-production so a broken seed is loud.
-
-**Affected surface (ripple set):**
-
-- `apps/farm-service/src/database/services/farm-seed.service.ts`
-- `apps/farm-service/src/storage/entities/stock-movement.entity.ts`
-- `apps/farm-service/src/database/**tests**/`
-
-**Expected closer:**
-
-farm-expert WRITER mode
+```text
+@Column({type:'varchar', length:255, name:'supplier_name'}) supplierName!: string
+```
 
 ## Refuted by adversarial verification
 
-These were raised as CRITICAL/HIGH and did **not** survive independent re-checking.
-They are recorded so the same claim is not re-raised next cycle.
+These did **not** survive independent re-checking. They are recorded so the same
+claim is not re-raised next cycle.
 
 ### ~~DB-FARMOPS-HIGH-001~~
 

@@ -4,11 +4,12 @@
 **Cycle:** `2026-08-16-farm-mobile-agent-audit` · **Verdict:** CONDITIONAL
 **Findings surviving verification:** 12 (CRITICAL 0 · HIGH 1 · MEDIUM 10 · LOW 1)
 
-> Produced by a 27-agent audit workflow. Every CRITICAL/HIGH claim was handed to an
-> independent verifier instructed to **refute** it by reopening each cited line;
-> claims that could not be defended were dropped into the Refuted section below.
-> MEDIUM/LOW claims did not enter the verify stage and carry the raising agent's
-> confidence only.
+> Produced by a 27-agent audit workflow, then verified by a second 25-agent pass.
+> **Every** claim — CRITICAL through LOW — was handed to an independent verifier
+> instructed to **refute** it by reopening each cited line, with "refuted" as the
+> default when the evidence did not clearly hold. Claims that could not be defended
+> were dropped into the Refuted section below; claims that proved smaller or larger
+> than filed carry a corrected severity.
 >
 > **Finding IDs** are allocated above the `FE` high-water mark in
 > `docs/reviews/_registry/findings.jsonl` (FE was at 63 at cycle time), so
@@ -133,7 +134,7 @@ production. HIGH stands.
 **Title:** Logout unconditionally destroys the entire offline queue; the confirmation dialog never
 mentions unsynced records
 
-**Severity:** MEDIUM (raised as HIGH, downgraded by adversarial verification)
+**Severity:** MEDIUM (filed as HIGH, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
 **Raised as:** `FE-HIGH-001` by `frontend-expert` in cycle `2026-08-16-farm-mobile-agent-audit`
@@ -202,7 +203,7 @@ sync-first prompt, not a silent drop of queued work. MEDIUM.
 **Title:** Offline-replay mutation documents sit outside the codegen document glob \- the most
 data-critical GraphQL in the app has zero schema validation
 
-**Severity:** MEDIUM (raised as HIGH, downgraded by adversarial verification)
+**Severity:** MEDIUM (filed as HIGH, downgraded by adversarial verification)
 **Layer:** 3
 **State:** OPEN
 **Raised as:** `FE-HIGH-003` by `frontend-expert` in cycle `2026-08-16-farm-mobile-agent-audit`
@@ -273,7 +274,7 @@ a missing build-time gate (risk of future drift), not a live production defect. 
 **Title:** Logout Cache-Storage wipe targets a cache name no worker creates; image-cache survives on
 shared field devices
 
-**Severity:** MEDIUM (raised as HIGH, downgraded by adversarial verification)
+**Severity:** MEDIUM (filed as HIGH, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
 **Raised as:** `FE-HIGH-004` by `frontend-expert` in cycle `2026-08-16-farm-mobile-agent-audit`
@@ -336,7 +337,7 @@ should be replaced with a caches.keys() sweep, but this is MEDIUM, not HIGH.
 **Title:** i18n infrastructure reaches 1 of ~40 pages while the default detected locale is Turkish
 and `<html` `lang>` is hardcoded 'en'
 
-**Severity:** MEDIUM (raised as HIGH, downgraded by adversarial verification)
+**Severity:** MEDIUM (filed as HIGH, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
 **Raised as:** `FE-HIGH-005` by `frontend-expert` in cycle `2026-08-16-farm-mobile-agent-audit`
@@ -402,8 +403,13 @@ URLs are unroutable
 **Severity:** MEDIUM
 **Layer:** 2
 **State:** OPEN
-**Raised as:** `FE-MEDIUM-006` by `frontend-expert` in cycle `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Raised as:**
+
+```text
+FE-MEDIUM-006` by `frontend-expert` in cycle `2026-08-16-farm-mobile-agent-audit
+```
+
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -444,6 +450,32 @@ dist/manifest.webmanifest carries the /mobile/-prefixed icon URLs and the shortc
 
 frontend-expert WRITER mode
 
+**Verifier note:**
+
+Confirmed, and I resolved the ambiguity the claim left open. vite.config.ts:26-53 declares
+theme_color '#0073e6' with PNG icons at /mobile/icons/icon-{192x192,512x512}.png and no shortcuts;
+public/manifest.webmanifest:9,15,21 declares theme_color '#0ea5e9' with SVG icons at
+/icons/icon-192x192.svg (root-absolute, no /mobile/ prefix) and is the only place the 'Record
+Mortality' / 'Record Harvest' shortcuts (lines 28-43) exist.
+infrastructure/nginx/droplet.conf:486-490 is
+and
+the catch-all `location /` (501+) proxies to the shell with `error_page 404 = /index.html`, so a
+bare /icons/... request returns the shell's HTML, not an icon. public/icons/placeholder.txt still
+documents 8 required sizes; only icon-192x192.png and icon-512x512.png exist. On the collision I
+went further than the claim: vite 7.3.5 copies publicDir in prepareOutDir
+(node_modules/vite/dist/node/chunks/config.js:33410-33412, a renderStart-phase hook) BEFORE the
+bundle is written, and vite-plugin-pwa emits manifest.webmanifest unconditionally in generateBundle
+(node_modules/vite-plugin-pwa/dist/index.js:240-251). So the outcome is deterministic, not a race:
+the generated manifest always overwrites the public one, the two app shortcuts silently never ship,
+and public/manifest.webmanifest stays a maintained file with zero effect on the artifact. That is
+squarely 'a developer would eventually hit this' \- MEDIUM stands. The 'unroutable icon URLs' half
+is latent rather than live (that copy is overwritten before any browser sees it), which is why this
+is not higher.
+
+```text
+location /mobile/ { rewrite ^/mobile/(.*) /$1 break; proxy_pass http://$backend_mobile:80; }
+```
+
 ### FE-MEDIUM-070
 
 **Title:** Self-contradictory service-worker update strategy: unconditional top-level skipWaiting
@@ -452,8 +484,13 @@ makes the confirm() update prompt unreachable
 **Severity:** MEDIUM
 **Layer:** 1
 **State:** OPEN
-**Raised as:** `FE-MEDIUM-007` by `frontend-expert` in cycle `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Raised as:**
+
+```text
+FE-MEDIUM-007` by `frontend-expert` in cycle `2026-08-16-farm-mobile-agent-audit
+```
+
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -493,6 +530,24 @@ artifact.
 
 frontend-expert WRITER mode
 
+**Verifier note:**
+
+Confirmed, and the mechanism is more absolute than the claim argues. Cited lines are exact:
+vite.config.ts:20-22 carries the PERF-10 comment and registerType: 'autoUpdate'; main.tsx:57-66
+passes onNeedRefresh() { if (confirm('New version available. Reload to update?')) { void
+updateSW(true); } }; messaging-sw.ts:53-54 is `void self.skipWaiting(); clientsClaim();` at module
+top level; messaging-sw.ts:67 is cleanupOutdatedCaches(). The decisive evidence is the register
+client the claim did not open \- node_modules/vite-plugin-pwa/dist/client/build/register.js: when
+`auto === true` (registerType 'autoUpdate') registerSW wires only the 'activated' and 'installed'
+Workbox listeners; onNeedRefresh is referenced ONLY in the `else` (prompt) branch and is therefore
+never registered at all. The confirm() prompt is dead regardless of skipWaiting. The escape hatch is
+dead too: updateServiceWorker() is `await registerPromise; if (!auto) sendSkipWaitingMessage()`, so
+`void updateSW(true)` is a no-op under autoUpdate. Impact the claim understates: because
+onNeedReload is also not supplied, the auto branch calls window.location.reload() on any update
+activation, so a deploy silently reloads the page out from under a field worker mid-form. Real
+behavioural defect, not merely dead code, but it fires only on deploy activation and the app has an
+offline queue \- MEDIUM, not HIGH.
+
 ### FE-MEDIUM-071
 
 **Title:** WCAG 2.1 AA: primary data-entry fields have no programmatic label and no visible focus
@@ -501,8 +556,13 @@ indicator
 **Severity:** MEDIUM
 **Layer:** 2
 **State:** OPEN
-**Raised as:** `FE-MEDIUM-008` by `frontend-expert` in cycle `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Raised as:**
+
+```text
+FE-MEDIUM-008` by `frontend-expert` in cycle `2026-08-16-farm-mobile-agent-audit
+```
+
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -550,6 +610,36 @@ control-has-associated-label to the aquamobil lint config once the primitive lan
 
 frontend-expert WRITER mode
 
+**Verifier note:**
+
+Confirmed at the cited lines. StockMovementPage.tsx:582-590 \- the step-3 quantity `<input`
+`type="number">` carries only ref/type/inputMode/placeholder="0"/value/onChange/className: no id, no
+aria-label, no aria-labelledby, and the 'Enter quantity' `<h2>` at line 577 is not programmatically
+associated, so the accessible name falls back to the placeholder '0'. StockMovementPage.tsx:661 and
+:676 are `<label` className="block `...">` with no htmlFor, followed by sibling `<input>` at 664-670
+and 679-683 with no id. main.css:168-172 is the global
+exactly as quoted. RecordFeedingPage.tsx:496 is `border-none focus:outline-none focus:ring-0` on the
+meal-amount input (485-496), which also has no id/aria-label; the !important box-shadow overrides
+Tailwind's focus:ring-0, leaving only the ~10%-alpha halo since border-none means the border-color
+rule paints nothing. Grep counts hold: 39 `<input>/<select>/<textarea>` tags vs 4 htmlFor across 3
+files (LoginPage:190,210; NewChatPage:374; RecordFeedingPage:520) \- though 12 of the 39 are in spec
+files. Two corrections that do not overturn the finding: (1) the main.css bullet is half-stated \-
+the same rule's `border-color:#0073e6 !important` yields ~4.6:1 against white and ~3.9:1 against
+dark-mode gray-900, which does satisfy 1.4.11 for bordered inputs, so the focus-indicator failure is
+scoped to border-none/transparent-border controls like RecordFeedingPage:496, as the claim's own
+last bullet concedes. (2) The proposed fix's lint suggestion is partly already in place \-
+jsx-a11y/label-has-associated-control is live at ERROR for this tree (verified with
+`eslint --print-config`; aquamobil is not in PROJECT_LINT_OVERRIDES so the '**/*.tsx' recommended
+block applies). It misses StockMovementPage:661/676 because those labels contain a dynamic
+`{needsLot && <span>*</span>}` expression, which makes the rule's mayContainChildComponent check
+bail out; a probe file with static label text errors immediately. The gate exists and is being
+evaded, which strengthens the finding. Missing programmatic labels on the primary stock-movement and
+feeding data-entry path is a genuine WCAG 2.1 level-A failure \- MEDIUM.
+
+```text
+input:focus, textarea:focus, select:focus { outline: none; border-color:#0073e6 !important; box-shadow: 0 0 0 3px rgba(0,115,230,0.1) !important; }
+```
+
 ### FE-MEDIUM-072
 
 **Title:** No route-change focus management or route announcement; Suspense fallback is silent \-
@@ -558,8 +648,13 @@ shared-ui already ships the primitives aquamobil cannot import
 **Severity:** MEDIUM
 **Layer:** 2
 **State:** OPEN
-**Raised as:** `FE-MEDIUM-009` by `frontend-expert` in cycle `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Raised as:**
+
+```text
+FE-MEDIUM-009` by `frontend-expert` in cycle `2026-08-16-farm-mobile-agent-audit
+```
+
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -598,6 +693,27 @@ discipline the tenant-query-keys copy should have had.
 
 frontend-expert WRITER mode
 
+**Verifier note:**
+
+Every cited line checks out. web/apps/aquamobil/src/App.tsx:149-155 PageLoader is exactly
+— no role="status", no aria-live, no text. App() at App.tsx:203+ calls useSwNavigation() then
+renders `<Routes>` with no location-driven focus or announcement (a repo-wide grep for
+RouteAnnouncer/tabIndex={-1}/skip-link in web/apps/aquamobil returns nothing).
+web/apps/aquamobil/src/layouts/MobileLayout.tsx:159 renders
+`<div className="flex-1 overflow-auto">{children}</div>` — no `<main>` and no focus target; the only
+`<main>` tags in the app are the 4 operations hub pages (DailyOpsHubPage:197, OperationsHubPage:182,
+StaffHubPage:139, StockEventsHubPage:232), so most routes have no landmark at all.
+web/shared-ui/src/components/index.ts:151-153 does export { VisuallyHidden, FocusTrap,
+RouteAnnouncer } from './a11y' and the directory exists. The one nuance: tsconfig.json:21 declares a
+@aquaculture/shared-ui path mapping, so 'cannot import' is not literally true at type level — but
+vite.config.ts:83-94 aliases only farm-shared and shared-contracts, so a runtime import would not
+resolve in the standalone Docker build, and no src file imports it. That nuance does not change the
+defect. Real WCAG 2.4.3/4.1.3 gap on the single shell for every authenticated page; MEDIUM as filed.
+
+```text
+<div className="flex items-center justify-center min-h-[50vh]"><div className="animate-spin …"/></div>
+```
+
 ### FE-MEDIUM-073
 
 **Title:** Dates, times and numbers formatted with hardcoded en-US / en-GB locales and no explicit
@@ -606,8 +722,13 @@ timeZone
 **Severity:** MEDIUM
 **Layer:** 2
 **State:** OPEN
-**Raised as:** `FE-MEDIUM-010` by `frontend-expert` in cycle `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Raised as:**
+
+```text
+FE-MEDIUM-010` by `frontend-expert` in cycle `2026-08-16-farm-mobile-agent-audit
+```
+
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -651,6 +772,21 @@ west of UTC never reads a shifted record date.
 
 frontend-expert WRITER mode; hr-expert reviews the attendance/schedule date semantics
 
+**Verifier note:**
+
+All cited call sites verified verbatim: TaskDetailPage.tsx:289 toLocaleDateString('en-US',
+{day,month,year}) and :379 toLocaleString('en-US'); MySchedulePage.tsx:53 and :95
+toLocaleDateString('en-GB', …); AttendancePage.tsx:26 toLocaleTimeString([], {hour,minute}) and :298
+toLocaleDateString([], {weekday,month,day}) with no timeZone; messaging-helpers.ts:53/68/94 hardcode
+'en-US' inside the shared helpers; DataFreshness.tsx:36 and :59 hardcode 'en-US'.
+web/shared-ui/src/utils/index.ts exports the Intl-based `formatNumber/formatCurrency/format*` SSoT,
+which aquamobil cannot reach (no vite alias). The impact is stronger than a style nit:
+src/i18n/I18nProvider.tsx:35-52 defaults the app locale to 'tr' (detectLocale returns 'tr' as
+fallback and MESSAGES fallback is tr), so Turkish-default users read English month names next to
+Turkish UI strings, and the timeZone-less date rendering on attendance/schedule records can shift a
+record's day for an operator west of UTC. MEDIUM is correct — real, user-visible, and it regresses
+on every new call site absent a lint gate.
+
 ### FE-MEDIUM-074
 
 **Title:** AquaMobil CSP omits base-uri/form-action/report-to, and the app's own index.html violates
@@ -659,8 +795,13 @@ its script-src with an inline script the config claims does not exist
 **Severity:** MEDIUM
 **Layer:** 2
 **State:** OPEN
-**Raised as:** `FE-MEDIUM-011` by `frontend-expert` in cycle `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Raised as:**
+
+```text
+FE-MEDIUM-011` by `frontend-expert` in cycle `2026-08-16-farm-mobile-agent-audit
+```
+
+**Verification:** NOT VERIFIED — no verifier returned a verdict for this id
 
 **Evidence:**
 
@@ -711,7 +852,7 @@ surface
 **Layer:** 1
 **State:** OPEN
 **Raised as:** `FE-LOW-012` by `frontend-expert` in cycle `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** NOT VERIFIED — no verifier returned a verdict for this id
 
 **Evidence:**
 

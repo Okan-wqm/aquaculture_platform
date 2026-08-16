@@ -2,13 +2,14 @@
 
 **Agent:** `realtime-sync-auditor` · **Mode:** CATCHER (read-only) · **Lane:** mobile
 **Cycle:** `2026-08-16-farm-mobile-agent-audit` · **Verdict:** BLOCK
-**Findings surviving verification:** 11 (CRITICAL 0 · HIGH 2 · MEDIUM 5 · LOW 4)
+**Findings surviving verification:** 11 (CRITICAL 0 · HIGH 2 · MEDIUM 4 · LOW 5)
 
-> Produced by a 27-agent audit workflow. Every CRITICAL/HIGH claim was handed to an
-> independent verifier instructed to **refute** it by reopening each cited line;
-> claims that could not be defended were dropped into the Refuted section below.
-> MEDIUM/LOW claims did not enter the verify stage and carry the raising agent's
-> confidence only.
+> Produced by a 27-agent audit workflow, then verified by a second 25-agent pass.
+> **Every** claim — CRITICAL through LOW — was handed to an independent verifier
+> instructed to **refute** it by reopening each cited line, with "refuted" as the
+> default when the evidence did not clearly hold. Claims that could not be defended
+> were dropped into the Refuted section below; claims that proved smaller or larger
+> than filed carry a corrected severity.
 >
 > **Finding IDs** use the `PRODUCT-SYNC-*` prefix this agent's contract in
 > `.claude/shared/output-format.md` assigns it. That prefix is **rejected** by the
@@ -18,20 +19,48 @@
 ## Scope
 
 Read the full AquaMobil offline/sync stack:
-`web/apps/aquamobil/src/pwa/{offline-queue.ts,sw-replay.ts,operation-registry.ts,messaging-sw.ts}`,
-`hooks/{useOfflineQueue.tsx,useAuth.tsx,useAlerts.ts,useNotifications.ts,useLatestReadings.ts,useDailyOpsStats.ts,useFarmRealtimeSync.ts,useEditMessage.ts}`,
+,
+,
 `services/authenticated-fetch.ts`,
-`utils/{last-sync.ts,offline-sync-invalidation.ts,offline-optimistic.ts,tenant-query-keys.ts}`,
+,
 `components/QueuedStatusBadge.tsx`, `layouts/MobileLayout.tsx`, and the write/sync surfaces
-`pages/{sync/SyncStatusPage,account/AccountPage,_shared/RecordEntityPage,storage/StockMovementPage,storage/StockTransferPage,water-quality/WaterQualityRecordPage}.tsx`,
+,
 plus `graphql/operations.ts`. On the backend I traced the authoritative sources:
-`libs/backend-common/src/mobile-command/{mobile-command-receipt.service.ts,mobile-command-envelope.input.ts}`,
+,
 farm-service `mobile-command/entities`, `feeding-protocol/services/meal-execution.service.ts`,
-`water-quality/{water-quality.resolver.ts,dto,service}`, `storage/{dto,services,handlers}`,
+,
 `mobile-dashboard/{resolver,handlers/get-todays-daily-ops-counts.handler.ts}`, and hr-service
-`leave/{leave.resolver.ts,handlers/*,leave-state-machine.ts}` \+ `attendance/handlers/*`. Repo-wide
+. Repo-wide
 greps confirmed which handlers actually consume the command envelope and that `calculateRetryDelay`
 has no caller.
+
+```text
+web/apps/aquamobil/src/pwa/{offline-queue.ts,sw-replay.ts,operation-registry.ts,messaging-sw.ts}
+```
+
+```text
+hooks/{useOfflineQueue.tsx,useAuth.tsx,useAlerts.ts,useNotifications.ts,useLatestReadings.ts,useDailyOpsStats.ts,useFarmRealtimeSync.ts,useEditMessage.ts}
+```
+
+```text
+utils/{last-sync.ts,offline-sync-invalidation.ts,offline-optimistic.ts,tenant-query-keys.ts}
+```
+
+```text
+pages/{sync/SyncStatusPage,account/AccountPage,_shared/RecordEntityPage,storage/StockMovementPage,storage/StockTransferPage,water-quality/WaterQualityRecordPage}.tsx
+```
+
+```text
+libs/backend-common/src/mobile-command/{mobile-command-receipt.service.ts,mobile-command-envelope.input.ts}
+```
+
+```text
+water-quality/{water-quality.resolver.ts,dto,service}`, `storage/{dto,services,handlers}
+```
+
+```text
+leave/{leave.resolver.ts,handlers/*,leave-state-machine.ts}` \+ `attendance/handlers/*
+```
 
 ## Executive summary
 
@@ -61,7 +90,7 @@ on step 2, producing a permanent "Sync Failed" for a write that landed.
 **Title:** Logout — including the automatic fail-closed logout — destroys the entire unsynced
 offline queue with no warning, export or recovery
 
-**Severity:** HIGH (raised as CRITICAL, downgraded by adversarial verification)
+**Severity:** HIGH (filed as CRITICAL, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
 **Raised as:** `PRODUCT-SYNC-CRITICAL-001` by `realtime-sync-auditor` in cycle
@@ -177,13 +206,17 @@ the code does not implement.
 **Proposed fix direction:**
 
 Make the retry schedule the queue's own property rather than a caller's timer. Tier-1: store
-`nextAttemptAt` on the operation and have `syncAllOperations` skip any op whose `nextAttemptAt` is
+is
 in the future — then `calculateRetryDelay` becomes structurally load-bearing and a fixed-interval
 caller cannot burn the budget. Tier-2: a ~2-minute brownout must not be terminal: replace the hard
 attempt cap with an age/曝-based escalation (keep retrying with capped backoff, and escalate the op
 to an operator-visible 'needs attention' state rather than an undeletable-except-by-discard dead
 end). Tier-3: add a spec asserting the drain honours `nextAttemptAt` and that the Sync Status copy
 is generated from the actual schedule constants, so the UI text cannot drift from behaviour again.
+
+```text
+nextAttemptAt` on the operation and have `syncAllOperations` skip any op whose `nextAttemptAt
+```
 
 **Affected surface (ripple set):**
 
@@ -205,7 +238,7 @@ for the identifier returns only that definition plus three hits in
 apps/gateway-api/src/proxy/service-proxy.service.ts, which is an unrelated PRIVATE method on a
 different class — no caller and no test reference in web/, so it is genuinely dead code.
 useOfflineQueue.tsx:515 is the only retry scheduler: a flat `setInterval(..., 30_000)` armed
-whenever `pendingOperations.some(op => op.status === 'failed' && op.retryCount < MAX_RETRY_COUNT)`,
+whenever ,
 with no per-operation nextRetryAt / elapsed check (grep for nextRetryAt|retryDelay in aquamobil
 returns nothing). offline-queue.ts:930 promotes retryable failed ops back to 'pending' filtered only
 on `retryCount < MAX_RETRY_COUNT && isRetryableError(...)` — no time gate — and syncOperation (line
@@ -220,6 +253,10 @@ so roughly 2.5 minutes of backend unavailability (5xx or unreachable API with na
 permanently kills a queued field write, whose only remaining user action is deletion and manual
 re-entry.
 
+```text
+pendingOperations.some(op => op.status === 'failed' && op.retryCount < MAX_RETRY_COUNT)
+```
+
 ### MEDIUM
 
 ### PRODUCT-SYNC-MEDIUM-003
@@ -227,7 +264,7 @@ re-entry.
 **Title:** createLeaveRequest → submitLeaveRequest replay chain has no at-most-once coverage on step
 2, so a lost response yields a permanent "Sync Failed" for a leave request that IS submitted
 
-**Severity:** MEDIUM (raised as HIGH, downgraded by adversarial verification)
+**Severity:** MEDIUM (filed as HIGH, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
 **Raised as:** `PRODUCT-SYNC-HIGH-002` by `realtime-sync-auditor` in cycle
@@ -289,7 +326,7 @@ hr domain expert WRITER mode (server side) coordinated with mobile-app-auditor W
 **Verifier note:**
 
 The mechanism is real and each cited line checks out. operation-registry.ts:322 returns
-`{ query: OPERATION_MUTATIONS.submitLeaveRequest, variables: { id: createdId } }` with no envelope;
+with no envelope;
 useOfflineQueue.tsx:307-317 issues the follow-up as a second bare authenticatedFetch whose non-ok
 status or GraphQL error throws out of the whole executor, failing the entire operation;
 apps/hr-service/src/leave/leave.resolver.ts:475 shows submitLeaveRequest takes only `id` and goes
@@ -307,13 +344,17 @@ create-leave-request.handler.ts). Nothing is lost or corrupted; the harm is a mi
 'Sync Failed' row the user must delete, and it requires the narrow window where step 2 commits
 server-side but its response is lost in flight. That is a status-fidelity defect, MEDIUM.
 
+```text
+{ query: OPERATION_MUTATIONS.submitLeaveRequest, variables: { id: createdId } }
+```
+
 ### PRODUCT-SYNC-MEDIUM-004
 
 **Title:** A queued write whose target row changed server-side has no reconciliation path, and the
 retry classifier is an English-only substring match blind to farm-service's actual (Turkish) error
 vocabulary
 
-**Severity:** MEDIUM (raised as HIGH, downgraded by adversarial verification)
+**Severity:** MEDIUM (filed as HIGH, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
 **Raised as:** `PRODUCT-SYNC-HIGH-003` by `realtime-sync-auditor` in cycle
@@ -398,58 +439,6 @@ defect — no reconciliation/edit path for a queued write whose target row moved
 terminal-dead-queue hole already reported as PRODUCT-SYNC-HIGH-001, so it does not independently
 support HIGH. MEDIUM.
 
-### PRODUCT-SYNC-MEDIUM-005
-
-**Title:** The offline-queue READ path silently degrades to an unscoped all-tenant scan when
-tenantId is null, contradicting the module's own "tenantId is REQUIRED" isolation contract
-
-**Severity:** MEDIUM
-**Layer:** 2
-**State:** OPEN
-**Raised as:** `PRODUCT-SYNC-MEDIUM-001` by `realtime-sync-auditor` in cycle
-`2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
-
-**Evidence:**
-
-- web/apps/aquamobil/src/hooks/useOfflineQueue.tsx:181 \- `getPendingCount(tenantId ?? undefined)` /
-  :182 `getPendingOperations(tenantId ?? undefined)` — null tenant becomes "no filter", not "empty"
-- web/apps/aquamobil/src/pwa/offline-queue.ts:403 \-
-  `const prefix = tenantId ? \${QUEUE_PREFIX}${tenantId}_\ : QUEUE_PREFIX;` — the bare prefix
-  matches every tenant's `pending_<tenant>_<id>` key
-- web/apps/aquamobil/src/pwa/offline-queue.ts:424 \- `getPendingCount` repeats the same fallback
-- web/apps/aquamobil/src/pwa/offline-queue.ts:280 \- the WRITE path by contrast throws:
-  `queueOperation: tenantId is required for tenant-isolated queueing`
-- web/apps/aquamobil/src/layouts/MobileLayout.tsx:119 \-
-  `if (tabId === 'account') return pendingCount + unreadCount;` — the unscoped count is rendered
-
-**Rule violated:**
-
-realtime-sync domain rule: flag any live/polling surface whose scope omits tenant identity.
-CLAUDE.md Security (tenant-ID sourcing) and the module's own SECURITY (C11) contract, which the
-write path enforces but the read path does not.
-
-**Proposed fix direction:**
-
-Tier-1: make `tenantId` a non-optional parameter on `getPendingOperations`/`getPendingCount` (the
-unscoped variant is only ever legitimate for the logout wipe, which should be a separately named
-`wipeAllTenants()` on the clear path). The provider then cannot compile a null-tenant read and must
-render an explicitly empty queue while no tenant is resolved. This closes the contract hole at the
-type level rather than relying on the logout wipe to keep the store coincidentally single-tenant.
-
-**Affected surface (ripple set):**
-
-- `web/apps/aquamobil/src/pwa/offline-queue.ts`
-- `web/apps/aquamobil/src/hooks/useOfflineQueue.tsx`
-- `web/apps/aquamobil/src/pwa/sw-replay.ts`
-- `web/apps/aquamobil/src/pages/sync/SyncStatusPage.tsx`
-- `web/apps/aquamobil/src/layouts/MobileLayout.tsx`
-- `web/apps/aquamobil/src/pwa/**tests**/offline-queue.spec.ts`
-
-**Expected closer:**
-
-tenant-isolation-auditor for scope review, then mobile-app-auditor WRITER mode
-
 ### PRODUCT-SYNC-MEDIUM-006
 
 **Title:** Daily Ops hub freezes "today" at mount and never sends the clientDate the backend added
@@ -461,7 +450,7 @@ over at midnight
 **State:** OPEN
 **Raised as:** `PRODUCT-SYNC-MEDIUM-002` by `realtime-sync-auditor` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -508,6 +497,25 @@ mobile-dashboard aggregate query key contains the day segment.
 
 chart-widget-auditor for the widget-agreement contract, then mobile-app-auditor WRITER mode
 
+**Verifier note:**
+
+Confirmed line by line. useDailyOpsStats.ts:41-44 computes todayStr in a useMemo with an empty dep
+array; :72-78 calls graphqlRequest(GET_TODAYS_DAILY_OPS_COUNTS) with NO second argument, so
+$clientDate is always null; :73 keys the aggregate as
+createTenantQueryKey(tenantId,'dailyOpsCounts',tenantId) with no day segment.
+graphql/operations.ts:463-466 does declare query GetTodaysDailyOpsCounts($clientDate: String) with
+the FARM-MEDIUM-056 comment, and mobile-dashboard.resolver.ts:21-24 accepts the nullable arg — a
+repo-wide grep shows AquaMobil is the only consumer of todaysDailyOpsCounts and it never passes
+clientDate. get-todays-daily-ops-counts.handler.ts:38 then always resolves the day from
+FARM_DASHBOARD_TIME_ZONE ?? 'UTC'. The real, permanent defect: mortality/WQ/feeding counts come from
+the server-timezone day while the feeding fallback (:96-101, from feedingDayPlans keyed on the
+device-local todayStr) uses the device day, so on a UTC+3 site between 00:00 and 03:00 local the two
+disagree. One overstatement: todayStr is frozen per MOUNT of the hook (used only in
+DailyOpsHubPage.tsx:128 and OperationsHubPage.tsx:136), not 'for the whole app session' — navigating
+away and back recomputes it, and the aggregate re-resolves 'today' server-side on each fetch
+(staleTime 5min). That trims the midnight-rollover half of the claim but not the clientDate half.
+MEDIUM stands.
+
 ### PRODUCT-SYNC-MEDIUM-007
 
 **Title:** Offline alarm acknowledgement is optimistic only in memory; the encrypted IndexedDB alarm
@@ -519,7 +527,7 @@ already-acknowledged alarm
 **State:** OPEN
 **Raised as:** `PRODUCT-SYNC-MEDIUM-003` by `realtime-sync-auditor` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** NOT VERIFIED — no verifier returned a verdict for this id
 
 **Evidence:**
 
@@ -569,6 +577,75 @@ mobile-app-auditor WRITER mode
 
 ### LOW
 
+### PRODUCT-SYNC-MEDIUM-005
+
+**Title:** The offline-queue READ path silently degrades to an unscoped all-tenant scan when
+tenantId is null, contradicting the module's own "tenantId is REQUIRED" isolation contract
+
+**Severity:** LOW (filed as MEDIUM, downgraded by adversarial verification)
+**Layer:** 2
+**State:** OPEN
+**Raised as:** `PRODUCT-SYNC-MEDIUM-001` by `realtime-sync-auditor` in cycle
+`2026-08-16-farm-mobile-agent-audit`
+**Verification:** CONFIRMED by an independent refute-by-default verifier
+
+**Evidence:**
+
+- web/apps/aquamobil/src/hooks/useOfflineQueue.tsx:181 \- `getPendingCount(tenantId ?? undefined)` /
+  :182 `getPendingOperations(tenantId ?? undefined)` — null tenant becomes "no filter", not "empty"
+- web/apps/aquamobil/src/pwa/offline-queue.ts:403 \-
+  `const prefix = tenantId ? \${QUEUE_PREFIX}${tenantId}_\ : QUEUE_PREFIX;` — the bare prefix
+  matches every tenant's `pending_<tenant>_<id>` key
+- web/apps/aquamobil/src/pwa/offline-queue.ts:424 \- `getPendingCount` repeats the same fallback
+- web/apps/aquamobil/src/pwa/offline-queue.ts:280 \- the WRITE path by contrast throws:
+  `queueOperation: tenantId is required for tenant-isolated queueing`
+- web/apps/aquamobil/src/layouts/MobileLayout.tsx:119 \-
+  `if (tabId === 'account') return pendingCount + unreadCount;` — the unscoped count is rendered
+
+**Rule violated:**
+
+realtime-sync domain rule: flag any live/polling surface whose scope omits tenant identity.
+CLAUDE.md Security (tenant-ID sourcing) and the module's own SECURITY (C11) contract, which the
+write path enforces but the read path does not.
+
+**Proposed fix direction:**
+
+Tier-1: make `tenantId` a non-optional parameter on `getPendingOperations`/`getPendingCount` (the
+unscoped variant is only ever legitimate for the logout wipe, which should be a separately named
+`wipeAllTenants()` on the clear path). The provider then cannot compile a null-tenant read and must
+render an explicitly empty queue while no tenant is resolved. This closes the contract hole at the
+type level rather than relying on the logout wipe to keep the store coincidentally single-tenant.
+
+**Affected surface (ripple set):**
+
+- `web/apps/aquamobil/src/pwa/offline-queue.ts`
+- `web/apps/aquamobil/src/hooks/useOfflineQueue.tsx`
+- `web/apps/aquamobil/src/pwa/sw-replay.ts`
+- `web/apps/aquamobil/src/pages/sync/SyncStatusPage.tsx`
+- `web/apps/aquamobil/src/layouts/MobileLayout.tsx`
+- `web/apps/aquamobil/src/pwa/**tests**/offline-queue.spec.ts`
+
+**Expected closer:**
+
+tenant-isolation-auditor for scope review, then mobile-app-auditor WRITER mode
+
+**Verifier note:**
+
+Facts hold exactly. offline-queue.ts:403-405 and :424-426 both fall back to the bare QUEUE_PREFIX
+when tenantId is undefined (matching every tenant's `pending_<tenant>_<id>` key), while the write
+path at :280-282 throws 'queueOperation: tenantId is required for tenant-isolated queueing'.
+useOfflineQueue.tsx:181-182 is the ONLY production caller of the optional-tenant form and passes
+`tenantId ?? undefined`, and OfflineProvider is mounted app-wide in main.tsx:110 (outside
+ProtectedRoute), so the unscoped read is genuinely reachable on every cold start before auth
+restores. MobileLayout.tsx:119 does render pendingCount into the account badge. So the contract
+asymmetry is real and the fix direction is sound. Severity is inflated to MEDIUM, though: the
+payload key is a device-session AES key, not per-tenant, but there is no reachable state in which
+two tenants' operations coexist in the store — useAuth.tsx:194-196 (clearAllUserData) awaits
+clearAllOperations() on logout and a wipe failure REJECTS logout (asserted by
+`hooks/**tests**/useAuth-logout-wipe.spec.tsx`), and IdentityBoundary remounts the subtree on
+identity change. The demonstrable effect is a brief pre-auth unscoped read of the SAME user's own
+ops, i.e. a defense-in-depth/type-contract hole with no shown cross-tenant exposure. LOW.
+
 ### PRODUCT-SYNC-LOW-008
 
 **Title:** SyncStatus gained an 'unknown' member with a claim of forced exhaustive handling, but the
@@ -579,7 +656,7 @@ badge uses non-exhaustive && chains and renders a completely blank confirmation 
 **State:** OPEN
 **Raised as:** `PRODUCT-SYNC-LOW-001` by `realtime-sync-auditor` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -621,6 +698,32 @@ unavailable — check Sync Status") rather than an empty div.
 
 mobile-app-auditor WRITER mode
 
+**Verifier note:**
+
+Every cited line holds. web/apps/aquamobil/src/hooks/useOfflineQueue.tsx:51-53 carries the comment
+"Adding the member forces exhaustive handling at every consumer — a missed branch is a compile
+error" and defines SyncStatus with 5 members including 'unknown'; line 440 is
+`if (!operation) return 'unknown';`. web/apps/aquamobil/src/components/QueuedStatusBadge.tsx (107
+lines total) renders icon (lines 39-58), title (lines 71-74) and subtitle (lines 87-90) as
+branch, no switch, no `satisfies Record<SyncStatus,…>`, so the 'unknown' case renders an empty flex
+column, and the file's own JSDoc (lines 18-22) also lists only 4 states. The badge is the ONLY
+consumer of getSyncStatus (grep across src: only QueuedStatusBadge.tsx:25 plus test mocks), so the
+claimed compile-time guarantee is enforced nowhere.
+web/apps/aquamobil/src/pages/_shared/RecordEntityPage.tsx:250-257 does render
+`<QueuedStatusBadge operationId={queuedOperationId} />` as the entire post-submit screen (the only
+alternative branch is `wasDuplicate` → AlreadyRecordedNotice). Nothing I found refutes it: no
+exhaustiveness test exists (`hooks/**tests**/useOfflineQueue.spec.tsx:117-121` only asserts
+getSyncStatus returns 'unknown', it does not test the badge). Severity stays LOW rather than higher
+because the blank-render path is hard to actually reach from RecordEntityPage — addToQueue
+(useOfflineQueue.tsx:240-246) awaits refreshQueue() before returning the id, so the op is in
+pendingOperations ('pending') when the badge mounts, and a real drain writes 'synced' into
+syncResults (lines 380-390). The concrete, non-theoretical part of the defect is the false Tier-1
+claim in the comment and the missing branch, which is LOW-grade.
+
+```text
+status === '…' && …` chains covering only synced/pending/syncing/failed — there is no `unknown
+```
+
 ### PRODUCT-SYNC-LOW-009
 
 **Title:** Sync Status operation labels claim to be the SSoT for "every OperationType" but are typed
@@ -631,7 +734,7 @@ mobile-app-auditor WRITER mode
 **State:** OPEN
 **Raised as:** `PRODUCT-SYNC-LOW-002` by `realtime-sync-auditor` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -666,9 +769,13 @@ to the enum it claims to cover.
 **Proposed fix direction:**
 
 Tier-1: type the map `satisfies Record<OperationType, OperationLabel>` exactly as
-`SYNC_INVALIDATION_SEGMENTS` already does in `utils/offline-sync-invalidation.ts` — adding a
+— adding a
 queueable type without a label then becomes a compile error, and the two maps share the same
 enforcement pattern.
+
+```text
+SYNC_INVALIDATION_SEGMENTS` already does in `utils/offline-sync-invalidation.ts
+```
 
 **Affected surface (ripple set):**
 
@@ -680,6 +787,30 @@ enforcement pattern.
 
 mobile-app-auditor WRITER mode
 
+**Verifier note:**
+
+Confirmed line by line. web/apps/aquamobil/src/pages/sync/SyncStatusPage.tsx:11-15 states "Every
+OperationType must have a friendly label … This map is the SINGLE source of truth for operation
+display names across the sync UI", and line 16 declares
+,
+with no `satisfies Record<OperationType, …>`, so omissions cannot fail the build. Line 124 is
+`const config = OPERATION_LABELS[op.type] || { label: op.type, icon: '📝' };`, falling back to the
+raw camelCase type. Counting: OperationType (web/apps/aquamobil/src/types/index.ts:349) has 24
+members; the label map has 17; the 7 missing are exactly the ones named — recordMealFeeding,
+setChecklistItem, recordLiceCount, recordWelfareAssessment, recordEscapeIncident, acknowledgeAlert,
+uploadAndSendMessage. All 7 are genuinely queueable (operation-registry.ts lines 75, 153, 199, 208,
+216, 227; uploadAndSendMessage is the binary lane handled in useOfflineQueue.executeGraphQL and
+listed in SW_REPLAY_SKIP_TYPES at operation-registry.ts:275). offline-queue.ts:936-943 does
+implement the escape-incident priority drain partition, so the least-legible row is the most urgent
+one. The comparison pattern also checks out: utils/offline-sync-invalidation.ts:52 closes with
+`} satisfies Record<OperationType, readonly (readonly unknown[])[]>;` and its comment at line 9
+explains the exhaustiveness intent, so the proposed Tier-1 fix is an existing in-repo pattern.
+Impact is a raw camelCase label on one operator-facing list — real but cosmetic, so LOW is correct.
+
+```text
+const OPERATION_LABELS: Record<string, { label: string; icon: string }> = {` — keyed by `string
+```
+
 ### PRODUCT-SYNC-LOW-010
 
 **Title:** The closed-app service-worker drain never updates the last-sync clock or notifies
@@ -690,7 +821,7 @@ clients, so "Last synced" understates freshness after a successful background dr
 **State:** OPEN
 **Raised as:** `PRODUCT-SYNC-LOW-003` by `realtime-sync-auditor` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -727,6 +858,33 @@ must be kept DOM-free like the operation registry.
 
 mobile-app-auditor WRITER mode
 
+**Verifier note:**
+
+Confirmed. web/apps/aquamobil/src/pwa/sw-replay.ts:222-226: the closed-app lane calls
+and
+then only `logger.info('[sw-replay] closed-app drain finished', result);` — no recordLastSyncAt(),
+no client postMessage (notifyClients at lines 190-196 runs only BEFORE the drain, and in lane 2 it
+returned false because there are no window clients). The stamp is written in exactly one place:
+useOfflineQueue.tsx:404-409 `if (result.success > 0) { recordLastSyncAt(); }` inside the foreground
+syncNow (grep for recordLastSyncAt across src returns only useOfflineQueue.tsx:34/408 plus
+utils/last-sync.ts and a test). SyncStatusPage.tsx:62 renders
+`<DataFreshness timestamp={getLastSyncAt()} />`, and AccountPage.tsx:417/440/450 formats the same
+stamp. On reopen after a closed-app drain the foreground finds an empty queue, so result.success ===
+0 and the stamp is never caught up — the UI understates freshness. The lane is reachable:
+messaging-sw.ts:176 wires handleBackgroundSyncEvent into the sync event registered at line 327. Two
+comments in the code overclaim and are contradicted by this: useOfflineQueue.tsx:404 ("the drain
+convergence point owns the global last-synced clock — every successful drain … updates it") and
+SyncStatusPage.tsx:58 ("every drain (auto or manual) updates the stamp"), which strengthens rather
+than refutes the claim. One caveat on the fix direction, not the defect: last-sync.ts uses
+localStorage, which does not exist in a ServiceWorkerGlobalScope, so moving the write into
+syncAllOperations needs an SW-safe store (the existing try/catch would swallow the SW failure and
+silently keep the bug). Impact is a stale display timestamp only — queue state itself stays
+authoritative — so LOW is correct.
+
+```text
+syncAllOperations(auth.tenantId, createSwExecutor(auth), { skipTypes: SW_REPLAY_SKIP_TYPES })
+```
+
 ### PRODUCT-SYNC-LOW-011
 
 **Title:** Optimistic KPI bumps are never reverted when an op is discarded, and the drain-result map
@@ -737,7 +895,7 @@ is provider-lifetime state that is never reset across sessions
 **State:** OPEN
 **Raised as:** `PRODUCT-SYNC-LOW-004` by `realtime-sync-auditor` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** NOT VERIFIED — no verifier returned a verdict for this id
 
 **Evidence:**
 

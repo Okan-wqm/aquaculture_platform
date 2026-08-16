@@ -2,13 +2,14 @@
 
 **Agent:** `data-expert` · **Mode:** CATCHER (read-only) · **Lane:** farm
 **Cycle:** `2026-08-16-farm-mobile-agent-audit` · **Verdict:** CONDITIONAL
-**Findings surviving verification:** 6 (CRITICAL 0 · HIGH 0 · MEDIUM 4 · LOW 2) · 4 refuted
+**Findings surviving verification:** 6 (CRITICAL 0 · HIGH 0 · MEDIUM 2 · LOW 4) · 4 refuted
 
-> Produced by a 27-agent audit workflow. Every CRITICAL/HIGH claim was handed to an
-> independent verifier instructed to **refute** it by reopening each cited line;
-> claims that could not be defended were dropped into the Refuted section below.
-> MEDIUM/LOW claims did not enter the verify stage and carry the raising agent's
-> confidence only.
+> Produced by a 27-agent audit workflow, then verified by a second 25-agent pass.
+> **Every** claim — CRITICAL through LOW — was handed to an independent verifier
+> instructed to **refute** it by reopening each cited line, with "refuted" as the
+> default when the evidence did not clearly hold. Claims that could not be defended
+> were dropped into the Refuted section below; claims that proved smaller or larger
+> than filed carry a corrected severity.
 >
 > **Finding IDs** are allocated above the `DATA` high-water mark in
 > `docs/reviews/_registry/findings.jsonl` (DATA was at 10 at cycle time), so
@@ -69,7 +70,7 @@ zero consumers — durable consumer idempotency and DLQ are MISSING
 **Layer:** 2
 **State:** OPEN
 **Raised as:** `DATA-MEDIUM-005` by `data-expert` in cycle `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** NOT VERIFIED — no verifier returned a verdict for this id
 
 **Evidence:**
 
@@ -113,16 +114,94 @@ apps/farm-service/src/database/migrations/1800700000000-CreateCanonicalOutboxInb
 platform-kernel-expert (inbox is a platform primitive) with data-expert as CATCHER on the farm
 wiring
 
+### DATA-MEDIUM-017
+
+**Title:** Meal-engine numeric columns skip DecimalTransformer while 51 sibling farm entities use
+it, so the entity types lie about the runtime shape
+
+**Severity:** MEDIUM
+**Layer:** 1
+**State:** OPEN
+**Raised as:** `DATA-MEDIUM-007` by `data-expert` in cycle `2026-08-16-farm-mobile-agent-audit`
+**Verification:** CONFIRMED by an independent refute-by-default verifier
+
+**Evidence:**
+
+- apps/farm-service/src/feeding-protocol/entities/feeding-meal.entity.ts:115 — @Column({ type:
+  'numeric', precision: 6, scale: 2 }) percentOfDaily!: number (also :119 plannedKg, :128 actualKg,
+  :137 varianceKg, :141 variancePercent) with no transformer
+- apps/farm-service/src/feeding-protocol/entities/feeding-day-plan.entity.ts:168 — plannedTotalKg!:
+  number and :173 unplannedActualKg!: number, same pattern
+- apps/farm-service/src/feeding-protocol/services/meal-execution.service.ts:204 — meal.actualKg =
+  round3(Number(meal.actualKg || 0) \+ params.pourKg); compensating Number() coercions repeated at
+  :230, :266, :268-269, :309
+- apps/farm-service/src/feeding-protocol/services/feeding-cron-v2.service.ts:704 — raw row typed
+  `plannedTotalKg: string | number` (also :435, :705-706), an explicit admission that the DB returns
+  strings
+- apps/farm-service/src/finance/entities/finance-expense-entry.entity.ts:87 — the correct in-repo
+  pattern: type 'decimal' \+ transformer: new DecimalTransformer()
+
+**Rule violated:**
+
+layer-1-typeorm column-type discipline \+ data-expert NUMERIC/DECIMAL invariant (pg returns numeric
+as string; missing transformer = silent arithmetic corruption)
+
+**Proposed fix direction:**
+
+Apply `DecimalTransformer` to the seven meal-engine numeric columns so the entity type and the
+runtime type agree at the persistence boundary, then delete the scattered `Number(...)` coercions at
+the call sites — those are the compensating shim the transformer exists to make unnecessary. This
+matters beyond style because MealFedEvent.actualKg / MealUnderfedEvent.plannedKg are declared
+`number` in the contract and validated by JSON Schema `{ type: 'number' }`, so any un-coerced path
+emits a payload the gateway bridge fail-closes and drops.
+
+**Affected surface (ripple set):**
+
+- `apps/farm-service/src/feeding-protocol/entities/feeding-meal.entity.ts`
+- `apps/farm-service/src/feeding-protocol/entities/feeding-day-plan.entity.ts`
+- `apps/farm-service/src/feeding-protocol/services/meal-execution.service.ts`
+- `apps/farm-service/src/feeding-protocol/services/feeding-cron-v2.service.ts`
+- `apps/farm-service/src/feeding-protocol/services/day-plan-recalc.service.ts`
+
+**Expected closer:**
+
+data-expert WRITER mode (entity-only change, no migration needed — the DB type is already numeric)
+
+**Verifier note:**
+
+Confirmed at the cited lines.
+apps/farm-service/src/feeding-protocol/entities/feeding-meal.entity.ts:114-141 declares
+percentOfDaily/plannedKg/actualKg/varianceKg/variancePercent as @Column({type:'numeric'}) typed !:
+number with no transformer; feeding-day-plan.entity.ts:167-173 same for
+plannedTotalKg/unplannedActualKg. There is no global mitigation: grep for setTypeParser across the
+repo returns nothing, so node-postgres returns numeric as string, and 53 other farm-service files
+import DecimalTransformer (libs/backend-common/src/database/decimal-transformer.ts:16 — from()
+parses the pg string back to number), so these seven columns are the outliers. The compensating
+coercions are real and pervasive: meal-execution.service.ts:204, :228, :266-269, :309, :413,
+:429-431; feeding-cron-v2.service.ts:435 and :704-706 type raw rows 'string | number';
+day-plan-recalc.service.ts:210, :220 wrap Number(meal.plannedKg); meal-schedule.util.ts:195 wraps
+Number(meal.percentOfDaily). One sub-claim is overstated and I could not reproduce it: the
+proposed-fix text says un-coerced paths emit a payload the gateway bridge drops, but every live
+event path already coerces — MealFed.actualKg at meal-execution.service.ts:253 is always the freshly
+reassigned round3(Number(...)) value, MealUnderfed.plannedKg at :309 is Number(meal.plannedKg), and
+the cron MealUnderfed at feeding-cron-v2.service.ts:745-748 uses round3(Number(...)). So there is no
+live corruption today; the defect is a latent type-system lie across seven columns kept safe only by
+scattered Number() shims that the repo's own architectural rules class as compensating workarounds —
+the next callsite that omits one gets silent string concatenation. MEDIUM stands, but on fragility
+grounds, not on a current wire break.
+
+### LOW
+
 ### DATA-MEDIUM-016
 
 **Title:** Nine farm event contracts have zero producers, including the three feed-lot traceability
 events whose docstrings claim an always-fire guarantee
 
-**Severity:** MEDIUM
+**Severity:** LOW (filed as MEDIUM, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
 **Raised as:** `DATA-MEDIUM-006` by `data-expert` in cycle `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -170,69 +249,41 @@ member of the FarmEvent union has at least one producer or an explicit `// retir
 farm-expert owns the feed-inventory product decision; data-expert WRITER mode for the contract
 retirement \+ invariant
 
-### DATA-MEDIUM-017
+**Verifier note:**
 
-**Title:** Meal-engine numeric columns skip DecimalTransformer while 51 sibling farm entities use
-it, so the entity types lie about the runtime shape
-
-**Severity:** MEDIUM
-**Layer:** 1
-**State:** OPEN
-**Raised as:** `DATA-MEDIUM-007` by `data-expert` in cycle `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
-
-**Evidence:**
-
-- apps/farm-service/src/feeding-protocol/entities/feeding-meal.entity.ts:115 — @Column({ type:
-  'numeric', precision: 6, scale: 2 }) percentOfDaily!: number (also :119 plannedKg, :128 actualKg,
-  :137 varianceKg, :141 variancePercent) with no transformer
-- apps/farm-service/src/feeding-protocol/entities/feeding-day-plan.entity.ts:168 — plannedTotalKg!:
-  number and :173 unplannedActualKg!: number, same pattern
-- apps/farm-service/src/feeding-protocol/services/meal-execution.service.ts:204 — meal.actualKg =
-  round3(Number(meal.actualKg || 0) \+ params.pourKg); compensating Number() coercions repeated at
-  :230, :266, :268-269, :309
-- apps/farm-service/src/feeding-protocol/services/feeding-cron-v2.service.ts:704 — raw row typed
-  `plannedTotalKg: string | number` (also :435, :705-706), an explicit admission that the DB returns
-  strings
-- apps/farm-service/src/finance/entities/finance-expense-entry.entity.ts:87 — the correct in-repo
-  pattern: type 'decimal' \+ transformer: new DecimalTransformer()
-
-**Rule violated:**
-
-layer-1-typeorm column-type discipline \+ data-expert NUMERIC/DECIMAL invariant (pg returns numeric
-as string; missing transformer = silent arithmetic corruption)
-
-**Proposed fix direction:**
-
-Apply `DecimalTransformer` to the seven meal-engine numeric columns so the entity type and the
-runtime type agree at the persistence boundary, then delete the scattered `Number(...)` coercions at
-the call sites — those are the compensating shim the transformer exists to make unnecessary. This
-matters beyond style because MealFedEvent.actualKg / MealUnderfedEvent.plannedKg are declared
-`number` in the contract and validated by JSON Schema `{ type: 'number' }`, so any un-coerced path
-emits a payload the gateway bridge fail-closes and drops.
-
-**Affected surface (ripple set):**
-
-- `apps/farm-service/src/feeding-protocol/entities/feeding-meal.entity.ts`
-- `apps/farm-service/src/feeding-protocol/entities/feeding-day-plan.entity.ts`
-- `apps/farm-service/src/feeding-protocol/services/meal-execution.service.ts`
-- `apps/farm-service/src/feeding-protocol/services/feeding-cron-v2.service.ts`
-- `apps/farm-service/src/feeding-protocol/services/day-plan-recalc.service.ts`
-
-**Expected closer:**
-
-data-expert WRITER mode (entity-only change, no migration needed — the DB type is already numeric)
+Zero-producer fact holds: I grepped every .ts (and repo-wide for the string literals) for
+FeedInventoryReceived/Consumed/Adjusted, FarmCreated/FarmUpdated/PondCreated, TankDensityAlert,
+LegacyFarmDataMigrated/LegacyFarmTableConverted — the only hits are the interface declarations in
+libs/event-contracts/src/farm-events.ts (:201, :1176, :1142, :50, :62, :75, :530, :1218, :1268),
+their FarmEvent union entries (:1638-1659), and unit tests. 'migrate-legacy-farm' appears only in
+the docstring at :1205, no CLI exists. But the finding's severity rests on a premise the code
+refutes: it claims the food-safety lot ledger 'does not exist'. It does —
+libs/event-contracts/src/storage-events.ts:28-63 StockMovementRecorded carries movementType
+(in/out/waste/adjustment/return), quantity, lotNumber documented as 'Required by EU 178/2002 Article
+18, BAP certification, and HACCP', and it is emitted at
+apps/farm-service/src/storage/handlers/receive-delivery.handler.ts:176 and
+record-stock-movement.handler.ts:137.
+apps/farm-service/src/database/migrations/1806100000000-BackfillFeedInventoryToStorageLedger.ts:5-8
+states the stock SSoT migration makes the storage ledger 'the single feed stock truth' and imports
+legacy feed_inventory balances as IN stock_movements 'carrying lot \+ expiry'. The command-layer
+AdjustmentType/ConsumptionReason enums those docstrings say they mirror do not exist anywhere in
+farm-service (grep -l returns nothing), i.e. the trio are superseded predecessors exactly like
+FeedInventoryLow `->` LowStockDetected. The 'dead bridge branch' bullet is also weak:
+apps/gateway-api/src/websocket/farm.gateway.ts:255-258 documents both being bridged deliberately
+'during the stock SSoT migration window'. What survives is dead contract surface plus stale
+docstrings asserting a guarantee whose real implementation lives under different event names —
+housekeeping/retirement work, not a product gap. LOW.
 
 ### DATA-MEDIUM-018
 
 **Title:** JSON Schema validator coverage stops at the gateway bridge subset; cross-service farm
 events including the PII-bearing varsling trio are unvalidated at the NATS trust boundary
 
-**Severity:** MEDIUM
+**Severity:** LOW (filed as MEDIUM, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
 **Raised as:** `DATA-MEDIUM-008` by `data-expert` in cycle `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -275,7 +326,29 @@ drift detection, so extending coverage also buys drift protection for those type
 
 data-expert WRITER mode authors the schemas; test-runner enforces coverage
 
-### LOW
+**Verifier note:**
+
+Counts and coverage check out. libs/event-contracts/src/schemas/farm-events.schema.ts:1868
+FarmEventType lists exactly 50 members and FARM_EVENT_SCHEMAS at :1933 is typed
+`Record<FarmEventType`, `object>`, i.e. the same 50; libs/event-contracts/src/farm-events.ts:1637
+union has 75 members (counted). Grepping the schema file for `CleanerFish*`, BatchGraded,
+BatchMetadataUpdated, HarvestRecordUpdated/Cancelled, FeedingRecordUpdated, GrowthSampleRecorded,
+EscapeIncidentRecorded, WelfareEventReported, EscapeReported, DiseaseOutbreakReported returns zero
+hits, while all of those interfaces exist in farm-events.ts (CleanerFishBatchCreated :236,
+Transferred :265, MortalityRecorded :302, Deployed :339, Removed :378, BatchGraded :445,
+GrowthSampleRecorded :484, BatchMetadataUpdated :1032, HarvestRecordCancelled :1060,
+HarvestRecordUpdated :1085, FeedingRecordUpdated :1111). validateFarmEvent has exactly one non-test
+caller, apps/gateway-api/src/websocket/farm-nats-bridge.service.ts:304 — the outbox publisher does
+not validate. The varsling trio is genuinely cross-service (produced at
+apps/farm-service/src/regulatory/services/regulatory-varsling.service.ts:63-156, consumed at
+apps/notification-service/src/notification/event-handlers/regulatory-report.handler.ts:52-56) and
+the free text is uncapped (regulatory-varsling-inputs.dto.ts:181 description, :186 immediateActions,
+:263 clinicalSigns — no MaxLength anywhere in that file). But severity is inflated: the NATS
+publisher identity is the mTLS cert CN (ADR-015), so only farm-service can publish these subjects;
+the payload originates from a resolver behind ValidationPipe \+ class-validator; and the consumer
+already fails closed on a bad tenantId (regulatory-report.handler.ts:67-73). This is a
+defense-in-depth/drift-detection gap in a control the repo applies elsewhere, not a reachable
+malformed-event path. LOW.
 
 ### DATA-LOW-019
 
@@ -286,7 +359,7 @@ synchronize:false guarantees never will
 **Layer:** 1
 **State:** OPEN
 **Raised as:** `DATA-LOW-009` by `data-expert` in cycle `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -317,6 +390,23 @@ moves.
 
 data-expert WRITER mode
 
+**Verifier note:**
+
+The three cited lines are accurate: apps/farm-service/src/outbox/farm-outbox.entity.ts:18 is
+@Entity({schema:'farm', name:'outbox_events', synchronize:false}) and :19-21 declares
+@Index('idx_outbox_events_poll_entity', ['createdAt'], {where: '"publishedAt" IS NULL AND
+"isDeadLettered" = false'}), while
+apps/farm-service/src/database/migrations/1800700000000-CreateCanonicalOutboxInbox.ts:59-63 creates
+the identical predicate as 'idx_outbox_events_poll'. The name idx_outbox_events_poll_entity exists
+in exactly one place repo-wide (the decorator). However the finding's stated rule is wrong:
+libs/backend-common/src/database/schema-drift-validator.service.ts:69-72 explicitly lists 'Index
+presence / shape' under '# What it does NOT check' ('too noisy; TypeORM generates index names
+inconsistently across versions'), and the watchdog schema-drift-detector.ts has no index handling
+either — so there is no 'permanent false signal' and no drift alarm. Combined with synchronize:false
+(TypeORM emits no DDL for this entity), the mismatch has zero runtime and zero query-plan effect:
+the physical partial index with the same predicate exists. Residual impact is reader confusion over
+a decorator name that matches nothing in pg_catalog. LOW, as filed, and at the bottom of that band.
+
 ### DATA-LOW-020
 
 **Title:** Migration lock/statement-timeout envelope is applied inconsistently and no gate rule
@@ -326,7 +416,7 @@ enforces it
 **Layer:** 1
 **State:** OPEN
 **Raised as:** `DATA-LOW-010` by `data-expert` in cycle `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -362,10 +452,39 @@ migration is forbidden.
 
 infra-expert owns the gate wiring; data-expert authors the rule shape
 
+**Verifier note:**
+
+All three evidence bullets verified. (1)
+apps/farm-service/src/database/migrations/1802000000000-AddBatchProtocolId.ts does carry the
+envelope 4 times — SET LOCAL lock_timeout='2s' \+ statement_timeout='30s' in both up() and down().
+(2) tools/gates/migration-sql-lint.ts:350 is exactly `const RULES: readonly Rule[] = [`; the
+registry defines R1-R12 (R7 absent, 11 rules total) and a grep for lock_timeout|statement_timeout
+across the entire gate file returns ZERO hits — no rule requires the envelope. (3)
+tools/gates/migration-sql-lint.ts:767 is the
+`git diff ${baseRef}..${headRef} --name-only --diff-filter=A` line in rangeMigrationFiles(), with
+the grandfather rationale documented in the comment block above it, so the envelope is never
+retro-checked. Counts confirmed: 46 of 77 farm migration .ts files contain lock_timeout (claim said
+76 — off by one, immaterial; '45 other files' is exact). I searched for mitigations the claimer may
+have missed and none neutralize this: libs/backend-common/src/database/base-migration.ts:650 exports
+withDdlSafety(), which does apply SET LOCAL lock_timeout (transactional) or session-scoped SET \+
+RESET (non-transactional), but it is opt-in and nothing obliges a migration to call it;
+libs/backend-common/src/database/migration-runner/ sets no connection-level
+lock_timeout/statement_timeout (the 'timeout' at migration-runner.service.ts:180 is the per-schema
+pg_try_advisory_lock acquisition timeout, a different mechanism);
+apps/farm-service/src/database/data-source.ts sets none either. The gap is not confined to trivial
+migrations — at least 17 envelope-less farm migrations perform real DDL (e.g.
+1800300000000-AlignEquipmentTypesRuntimeContract.ts,
+1804900000000-AddWelfareLiceCheckConstraints.ts,
+1806800000000-WidenRelatedSensorReadingIdToFederationId.ts). Severity stays LOW rather than MEDIUM:
+this is an unused Tier-3 'make it detectable' opportunity, not an active defect — the failure mode
+(new migration omits envelope, ALTER TABLE blocks on ACCESS EXCLUSIVE behind a long-running query
+and queues readers) requires author omission plus a busy table, and already-applied migrations are
+correctly grandfathered since amending them is forbidden under the force-push ban.
+
 ## Refuted by adversarial verification
 
-These were raised as CRITICAL/HIGH and did **not** survive independent re-checking.
-They are recorded so the same claim is not re-raised next cycle.
+These did **not** survive independent re-checking. They are recorded so the same
+claim is not re-raised next cycle.
 
 ### ~~DATA-HIGH-001~~
 
@@ -440,7 +559,7 @@ the HIGH grading and the 'accidental swallow / violates the bus's own rule' fram
 This is a deliberate, documented, and unit-TESTED design decision, not an oversight:
 mortality-recorded.listener.ts:145-149 states 'Errors are logged and swallowed so NATS does not
 redeliver a poison message indefinitely', and
-`apps/farm-service/src/events/listeners/**tests**/mortality-recorded.listener.spec.ts:228` is an
+is an
 explicit test named 'swallows downstream errors so NATS does not redeliver a poison message'
 asserting handle() resolves. Changing it is a design reversal requiring a test rewrite, not a bug
 fix. (2) The cited bus comment (nats-event-bus.ts:1238) is a rule about the BUS layer, and the bus
@@ -453,6 +572,10 @@ on the error path. Real residual: on a transient failure the MortalityAlertRaise
 HarvestRegulatoryRecorded follow-up is dropped after one attempt, and the releaseEvent() comment at
 mortality-recorded.listener.ts:200 is misleading — it only helps the crash-before-ack path, never
 the caught-error path. That is a MEDIUM reliability/comment-accuracy defect.
+
+```text
+apps/farm-service/src/events/listeners/**tests**/mortality-recorded.listener.spec.ts:228
+```
 
 ### ~~DATA-HIGH-004~~
 

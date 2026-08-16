@@ -4,11 +4,12 @@
 **Cycle:** `2026-08-16-farm-mobile-agent-audit` · **Verdict:** BLOCK
 **Findings surviving verification:** 12 (CRITICAL 0 · HIGH 1 · MEDIUM 9 · LOW 2)
 
-> Produced by a 27-agent audit workflow. Every CRITICAL/HIGH claim was handed to an
-> independent verifier instructed to **refute** it by reopening each cited line;
-> claims that could not be defended were dropped into the Refuted section below.
-> MEDIUM/LOW claims did not enter the verify stage and carry the raising agent's
-> confidence only.
+> Produced by a 27-agent audit workflow, then verified by a second 25-agent pass.
+> **Every** claim — CRITICAL through LOW — was handed to an independent verifier
+> instructed to **refute** it by reopening each cited line, with "refuted" as the
+> default when the evidence did not clearly hold. Claims that could not be defended
+> were dropped into the Refuted section below; claims that proved smaller or larger
+> than filed carry a corrected severity.
 >
 > **Finding IDs** use the `PRODUCT-ACCESS-*` prefix this agent's contract in
 > `.claude/shared/output-format.md` assigns it. That prefix is **rejected** by the
@@ -20,26 +21,61 @@
 Read the aquamobil access surface end-to-end: `web/apps/aquamobil/src/App.tsx` (route table \+
 ProtectedRoute \+ FeatureRoute), `components/MultiFeatureRoute.tsx`,
 `components/IdentityBoundary.tsx`, `components/cards/TankCard.tsx`,
-`components/hub/QuickActionGrid.tsx`, `hooks/useAuth.tsx`, `hooks/useMobilePermissions.ts`,
-`hooks/useWebAuthn.ts`, `hooks/useTanks.ts`, `hooks/useLeave.ts`, `utils/feature-access.ts`,
-`services/authenticated-fetch.ts`, `pwa/operation-registry.ts`, `pwa/sw-replay.ts`,
+,
+,
+,
 `graphql/operations.ts`, `layouts/MobileLayout.tsx`, `pages/operations/*`,
-`pages/storage/StorageHubPage.tsx`. Backend counterparts: `apps/farm-service/src/app.module.ts`
 (global guard chain), `common/authz/permission-matrix.ts`, `mobile-dashboard/{resolver,handlers}`,
 `farm-stock/farm-stock.resolver.ts`, `batch/resolvers/batch.resolver.ts`,
 `feeding-protocol/resolvers/meal-execution.resolver.ts`,
-`feeding/resolvers/feeding-program.resolver.ts`, `fish-health/resolvers/field-capture.resolver.ts`,
-`regulatory/regulatory-report-draft.resolver.ts`, `water-quality/water-quality.resolver.ts`,
+,
+,
 `storage/storage.resolver.ts`, `task/resolvers/task.resolver.ts`,
 `harvest/resolvers/harvest.resolver.ts`;
-`apps/hr-service/src/{attendance/attendance.resolver.ts,leave/leave.resolver.ts,app.module.ts}`;
+;
 `apps/alert-engine/src/alert/resolvers/alert.resolver.ts`;
-`apps/auth-service/src/modules/tenant/{resolvers/mobile-settings.resolver.ts,services/mobile-settings.service.ts,services/user-lifecycle.service.ts,services/tenant-user-management.service.ts,entities/mobile-user-settings.entity.ts,dto/mobile-settings.dto.ts}`,
+,
 `modules/authentication/services/token.service.ts`;
 `libs/backend-common/src/guards/{roles.guard.ts,mobile-feature.guard.ts}`;
-`web/modules/tenant-admin/src/components/settings/MobileSettings.tsx` \+ `hooks/useTenantData.ts`.
+.
 Prior cycle report `docs/product-audits/access-boundary-auditor/2026-04-13-full-platform-e2e.md` was
 read for repeat-defect escalation.
+
+```text
+components/hub/QuickActionGrid.tsx`, `hooks/useAuth.tsx`, `hooks/useMobilePermissions.ts
+```
+
+```text
+hooks/useWebAuthn.ts`, `hooks/useTanks.ts`, `hooks/useLeave.ts`, `utils/feature-access.ts
+```
+
+```text
+services/authenticated-fetch.ts`, `pwa/operation-registry.ts`, `pwa/sw-replay.ts
+```
+
+```text
+pages/storage/StorageHubPage.tsx`. Backend counterparts: `apps/farm-service/src/app.module.ts
+```
+
+```text
+feeding/resolvers/feeding-program.resolver.ts`, `fish-health/resolvers/field-capture.resolver.ts
+```
+
+```text
+regulatory/regulatory-report-draft.resolver.ts`, `water-quality/water-quality.resolver.ts
+```
+
+```text
+apps/hr-service/src/{attendance/attendance.resolver.ts,leave/leave.resolver.ts,app.module.ts}
+```
+
+```text
+apps/auth-service/src/modules/tenant/{resolvers/mobile-settings.resolver.ts,services/mobile-settings.service.ts,services/user-lifecycle.service.ts,services/tenant-user-management.service.ts,entities/mobile-user-settings.entity.ts,dto/mobile-settings.dto.ts}
+```
+
+```text
+web/modules/tenant-admin/src/components/settings/MobileSettings.tsx` \+ `hooks/useTenantData.ts
+```
 
 ## Executive summary
 
@@ -47,7 +83,6 @@ The mobile access model has two enforcement layers that are individually sound b
 together. Role gating is strong: farm-service runs a global RolesGuard plus a fail-closed
 PermissionMatrixGuard, and the aquamobil client mirrors the server @Roles matrix through the
 `feature-access` SSoT (harvest/reports MODULE_MANAGER floors match). The per-user mobile
-`*entitlement*` layer is where the boundary breaks. `MobileSettingsService.getByUserId`
 write-provisions an all-16-features-true, `isMobileEnabled: true` row for any user lacking one — and
 it is called on every access-token mint, so a PANEL_ONLY account (explicitly denied mobile, never
 provisioned) silently receives a full mobile entitlement claim at first login. `accessType` itself
@@ -57,6 +92,10 @@ invariant, so the live feeding write path (`recordMealFeeding`), all regulatory 
 attendance, leave-create and reports are entitlement-gated in the UI only. The tenant-admin editor
 exposes 6 of 16 flags. Mobile reads (`farmStockInventory`, `stockEventsSummary`) are tenant-wide
 while writes are site-scoped.
+
+```text
+*entitlement*` layer is where the boundary breaks. `MobileSettingsService.getByUserId
+```
 
 ## Findings (by severity)
 
@@ -141,7 +180,7 @@ defect the repo already tracked at HIGH (SEC-HIGH-052).
 **Title:** Mobile entitlement row is auto-provisioned all-features-true on the token-mint read path,
 silently granting mobile access to accounts explicitly denied it
 
-**Severity:** MEDIUM (raised as CRITICAL, downgraded by adversarial verification)
+**Severity:** MEDIUM (filed as CRITICAL, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
 **Raised as:** `PRODUCT-ACCESS-CRITICAL-001` by `access-boundary-auditor` in cycle
@@ -188,10 +227,14 @@ CLAUDE.md Security — fail-closed authorization; ADR-008 guard defense-in-depth
 Make the absence of a grant structurally unrepresentable as an allow. Split the read path from the
 provisioning path: `getByUserId` must return a deny-all projection when no row exists and never
 write; provisioning becomes an explicit admin/lifecycle command keyed on `accessType`.
-`DEFAULT_MOBILE_FEATURES` must be the `*seed` for an explicitly provisioned mobile `user*`, not the
+, not the
 fallback for an unprovisioned one — introduce a separate all-false `DENIED_MOBILE_FEATURES` constant
 that the token minter uses. Add a CI invariant asserting that no code path can emit a non-empty
 `mobileFeatures` claim for a user whose `accessType` excludes mobile.
+
+```text
+DEFAULT_MOBILE_FEATURES` must be the `*seed` for an explicitly provisioned mobile `user*
+```
 
 **Affected surface (ripple set):**
 
@@ -213,7 +256,7 @@ auth-security-expert WRITER mode
 **Verifier note:**
 
 Mechanics verified: mobile-settings.service.ts:19-31 is a read that INSERTs (`repo.save`) a row with
-`{...DEFAULT_MOBILE_FEATURES}` (all 16 true, entity :99-116) and `isMobileEnabled: true`, and
+, and
 token.service.ts:561 calls it on every access-token mint (getUserMobileFeatures).
 user-lifecycle.service.ts:252 does skip provisioning for PANEL_ONLY. BUT the severity is inflated:
 (a) accounts EXPLICITLY denied are honored — tenant-user-management.service.ts:263-267 sets
@@ -229,12 +272,16 @@ itself blocks PANEL_ONLY on the password-login path (useAuth.tsx:279) and
 useMobilePermissions.ts:262. Real defect (a read path should not mint an entitlement), but it is a
 defense-in-depth/design gap, not a CRITICAL fail-open.
 
+```text
+{...DEFAULT_MOBILE_FEATURES}` (all 16 true, entity :99-116) and `isMobileEnabled: true
+```
+
 ### PRODUCT-ACCESS-MEDIUM-002
 
 **Title:** `accessType` (PANEL_ONLY / MOBILE_ONLY) is enforced at zero server layers; the biometric
 login path does not even fetch the claim — repeat of 2026-04-13 HIGH-001 Path 2
 
-**Severity:** MEDIUM (raised as CRITICAL, downgraded by adversarial verification)
+**Severity:** MEDIUM (filed as CRITICAL, downgraded by adversarial verification)
 **Layer:** 3
 **State:** OPEN
 **Raised as:** `PRODUCT-ACCESS-CRITICAL-002` by `access-boundary-auditor` in cycle
@@ -320,7 +367,7 @@ PANEL_ONLY.
 **Title:** Regulatory field capture, attendance and leave-create entitlements are UI-only — five
 mobile feature flags have no server guard anywhere
 
-**Severity:** MEDIUM (raised as HIGH, downgraded by adversarial verification)
+**Severity:** MEDIUM (filed as HIGH, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
 **Raised as:** `PRODUCT-ACCESS-HIGH-002` by `access-boundary-auditor` in cycle
@@ -413,7 +460,7 @@ liceCount/welfare/escape/attendance/reports.
 **Title:** Tenant-admin mobile permission editor exposes 6 of 16 entitlements and its local defaults
 silently revoke two features on first save
 
-**Severity:** MEDIUM (raised as HIGH, downgraded by adversarial verification)
+**Severity:** MEDIUM (filed as HIGH, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
 **Raised as:** `PRODUCT-ACCESS-HIGH-004` by `access-boundary-auditor` in cycle
@@ -480,7 +527,7 @@ liceCount, welfare, escape, reports) have no admin affordance despite server sup
 **Title:** Mobile read surfaces are tenant-wide while the matching writes are site-scoped — tank
 inventory, stock events (incl. HARVEST) and daily-ops counts ignore `assignedSiteIds`
 
-**Severity:** MEDIUM (raised as HIGH, downgraded by adversarial verification)
+**Severity:** MEDIUM (filed as HIGH, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
 **Raised as:** `PRODUCT-ACCESS-HIGH-005` by `access-boundary-auditor` in cycle
@@ -560,7 +607,7 @@ authenticated MODULE_USER is moderate, not HIGH.
 **Title:** Mobile feature flags also gate the desktop path for the same mutation — the mobile
 permission editor silently governs web capability
 
-**Severity:** MEDIUM (raised as HIGH, downgraded by adversarial verification)
+**Severity:** MEDIUM (filed as HIGH, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
 **Raised as:** `PRODUCT-ACCESS-HIGH-006` by `access-boundary-auditor` in cycle
@@ -633,7 +680,7 @@ gate and no server guard
 **State:** OPEN
 **Raised as:** `PRODUCT-ACCESS-MEDIUM-001` by `access-boundary-auditor` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -677,6 +724,28 @@ does nothing is worse than no control.
 
 frontend-expert WRITER mode
 
+**Verifier note:**
+
+Every cited line holds. web/modules/tenant-admin/src/components/settings/MobileSettings.tsx:23
+renders `{ key: 'tankView', label: 'Tank View' }` as one of only four admin columns, and :115
+persists it on save, so the flag round-trips to auth.mobile_user_settings and into the JWT
+`mobileFeatures` claim (token.service.ts getUserMobileFeatures projects every truthy key).
+web/apps/aquamobil/src/hooks/useMobilePermissions.ts:9 declares 'tankView' in the MobileFeature
+union and :79/:104 in the two all-false default maps. A repo-wide grep for tankView finds it ONLY in
+the union, the default maps, the tenant-admin editor/types, the auth DTO/entity/migrations and
+aquamobil tests \- there is no canAccess('tankView')/canReach('tankView') callsite in any non-test
+file. web/apps/aquamobil/src/App.tsx:237 is
+`<Route path="/tank/:tankId" element={<TankDetailPage2 />} />` with no FeatureRoute wrapper;
+MobileLayout.tsx's tab filter (:98-103) never lists tankView in any tab's `features`; TankCard.tsx
+gates only mortality/cull/harvest/transfer. Server side,
+apps/farm-service/src/farm-stock/farm-stock.resolver.ts:11 carries
+`@Roles(TENANT_ADMIN, MODULE_MANAGER, MODULE_USER)` only, and a repo-wide grep of
+@RequiresMobileFeature(...) across apps/ yields exactly
+cull/feeding/harvest/leave/mortality/storage/tasks/transfer/waterQuality \- no 'tankView' decorator
+exists anywhere. So the toggle is inert at route, CTA, tab and resolver layers. MEDIUM is correct,
+not inflated: it is a misleading admin control (an admin who revokes Tank View changes nothing)
+rather than a privilege escalation \- the underlying data stays role-gated and tenant-scoped.
+
 ### PRODUCT-ACCESS-MEDIUM-010
 
 **Title:** Entitlement revocation is invisible to the client for up to 8 hours — permissions are not
@@ -687,7 +756,7 @@ re-fetched on token refresh
 **State:** OPEN
 **Raised as:** `PRODUCT-ACCESS-MEDIUM-002` by `access-boundary-auditor` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -725,6 +794,27 @@ token cannot exercise' structurally impossible while online.
 
 frontend-expert WRITER mode
 
+**Verifier note:**
+
+Cited lines are exact: useMobilePermissions.ts:296 is
+`}, [isAuthenticated, authLoading, user?.id, tenantId]);` with an in-code BUG-16 comment stating
+fetchSettings is read via a ref specifically so the effect does NOT re-run on token refresh; :193
+writes the IndexedDB cache with `expiresAt: Date.now() + 8*60*60*1000`; :317 exposes
+`refreshPermissions: fetchSettings`, and HomePage.tsx:218-221 wires it to a button rendered ONLY
+inside `{permissionsDegraded && ...}` \- so in the normal (non-degraded) case there is no
+user-reachable refresh path at all, which is worse than the finding states. token.service.ts:79-81
+carries the cited contract comment ('a disabled feature stays effective until the next token
+refresh'). I checked for compensating triggers: no visibilitychange, focus or setInterval refetch
+exists in useMobilePermissions.ts or useAuth.tsx, so within a mounted PWA session the entitlement
+snapshot is never re-derived. Two precision corrections that do not change the verdict: (a) the
+client never reads the `mobileFeatures` claim (grep finds zero references in aquamobil), so the
+mechanism is 'the separate getMyMobileSettings snapshot is never re-fetched', not 'a refreshed claim
+is ignored'; (b) 'up to 8 hours' understates it \- on a warm session the stale window is the session
+lifetime, unbounded; the 8h TTL only bounds the offline last-known-good. Impact is bounded to
+affordance drift (MobileFeatureGuard denies guarded mutations server-side once the claim is
+re-minted at `<=15m`), which is why MEDIUM rather than HIGH is right \- but it is real: a revoked
+user keeps seeing CTAs and can enqueue offline writes that will 403 on replay.
+
 ### PRODUCT-ACCESS-MEDIUM-011
 
 **Title:** `checkMobileEnabled` still fails open on a missing or null field — residual of
@@ -735,7 +825,7 @@ prior-cycle HIGH-001 Path 1
 **State:** OPEN
 **Raised as:** `PRODUCT-ACCESS-MEDIUM-003` by `access-boundary-auditor` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** NOT VERIFIED — no verifier returned a verdict for this id
 
 **Evidence:**
 
@@ -777,7 +867,7 @@ frontend-expert WRITER mode
 **Title:** `MobileFeatureGuard` is opt-in per resolver with no invariant, so
 `@RequiresMobileFeature` is silently inert wherever the guard was not wired
 
-**Severity:** LOW (raised as HIGH, downgraded by adversarial verification)
+**Severity:** LOW (filed as HIGH, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
 **Raised as:** `PRODUCT-ACCESS-HIGH-003` by `access-boundary-auditor` in cycle
@@ -852,7 +942,7 @@ be revoked per user from any product surface
 **State:** OPEN
 **Raised as:** `PRODUCT-ACCESS-LOW-001` by `access-boundary-auditor` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -893,6 +983,30 @@ decision.
 **Expected closer:**
 
 mobile-app-auditor handoff, then frontend-expert WRITER mode
+
+**Verifier note:**
+
+All four evidence lines are exact. web/apps/aquamobil/src/App.tsx:317
+`<Route path="/alerts" element={<AlertsPage />} />`, :316 `/notifications`, and :276-282 the seven
+`/messages*` routes \- none wrapped in FeatureRoute or MultiFeatureRoute (I read the surrounding
+block; the wrapped routes at :299-311 show the contrast). MobileLayout.tsx confirms it at the nav
+layer too: the 'messages' tab entry carries no `features` array, so the filter at :98-100
+(`if (!tab.features) return true;`) always shows it.
+apps/alert-engine/src/alert/resolvers/alert.resolver.ts:155-156 is
+with no
+MobileFeatureGuard/@RequiresMobileFeature on the method or the class (:34-35 AlertResolver declares
+no @UseGuards). web/apps/aquamobil/src/pwa/operation-registry.ts:227 registers `acknowledgeAlert` as
+an offline-queued mobile command. useMobilePermissions.ts:9 union has no
+alerts/notifications/messaging key. So the factual claim \- these mobile surfaces have no per-user
+entitlement key and cannot be revoked feature-wise \- is true, and it is not a decision the code
+documents anywhere (no comment or ADR marks these as deliberately always-available). LOW is the
+right ceiling and I would not raise it: the access rule is not absent, only coarser (three-role gate
+on ack, channel ACLs in messaging-service), an admin can still revoke via role change or
+isMobileEnabled, and the gap is a vocabulary/coverage omission rather than a reachable bypass.
+
+```text
+@Mutation(... 'acknowledgeAlert')` \+ `@Roles(TENANT_ADMIN, MODULE_MANAGER, MODULE_USER)
+```
 
 ## Inventory — what exists / what is missing
 

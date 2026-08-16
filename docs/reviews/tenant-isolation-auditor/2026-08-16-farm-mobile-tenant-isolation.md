@@ -2,13 +2,14 @@
 
 **Agent:** `tenant-isolation-auditor` · **Mode:** CATCHER (read-only) · **Lane:** farm
 **Cycle:** `2026-08-16-farm-mobile-agent-audit` · **Verdict:** CONDITIONAL
-**Findings surviving verification:** 6 (CRITICAL 0 · HIGH 0 · MEDIUM 5 · LOW 1) · 1 refuted
+**Findings surviving verification:** 5 (CRITICAL 0 · HIGH 0 · MEDIUM 2 · LOW 3) · 2 refuted
 
-> Produced by a 27-agent audit workflow. Every CRITICAL/HIGH claim was handed to an
-> independent verifier instructed to **refute** it by reopening each cited line;
-> claims that could not be defended were dropped into the Refuted section below.
-> MEDIUM/LOW claims did not enter the verify stage and carry the raising agent's
-> confidence only.
+> Produced by a 27-agent audit workflow, then verified by a second 25-agent pass.
+> **Every** claim — CRITICAL through LOW — was handed to an independent verifier
+> instructed to **refute** it by reopening each cited line, with "refuted" as the
+> default when the evidence did not clearly hold. Claims that could not be defended
+> were dropped into the Refuted section below; claims that proved smaller or larger
+> than filed carry a corrected severity.
 >
 > **Finding IDs** use the `PRODUCT-TENANT-*` prefix this agent's contract in
 > `.claude/shared/output-format.md` assigns it. That prefix is **rejected** by the
@@ -68,7 +69,7 @@ keys Redis off the raw x-tenant-id header.
 **Title:** Every per-tenant cron in farm-service runs outside tenant context — RLS GUC stays empty
 and the tenant_isolation_policy denies all rows, so the crons silently no-op
 
-**Severity:** MEDIUM (raised as HIGH, downgraded by adversarial verification)
+**Severity:** MEDIUM (filed as HIGH, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
 **Raised as:** `PRODUCT-TENANT-HIGH-001` by `tenant-isolation-auditor` in cycle
@@ -169,7 +170,7 @@ maintenance/work orders, low stock, work-order generation, the minioOrphanCleanu
 **Title:** AquaMobil offline queue is partitioned by tenant but NOT by authenticated identity — a
 replay drains the previous user's queued writes under the next user's credentials
 
-**Severity:** MEDIUM (raised as HIGH, downgraded by adversarial verification)
+**Severity:** MEDIUM (filed as HIGH, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
 **Raised as:** `PRODUCT-TENANT-HIGH-003` by `tenant-isolation-auditor` in cycle
@@ -250,75 +251,19 @@ ClockInInput/ClockOutInput at web/apps/aquamobil/src/types/index.ts:274-287, who
 optional so the server falls back to the JWT subject → wrong person clocked in). No cross-tenant
 data flow and no disclosure of A's data to B in the sync path. Real but MEDIUM, not HIGH.
 
-### PRODUCT-TENANT-MEDIUM-004
-
-**Title:** farm-service @Cacheable / @CacheEvict derive the Redis key's tenant segment from the raw
-x-tenant-id header instead of the JWT/guard-validated tenant
-
-**Severity:** MEDIUM
-**Layer:** 1
-**State:** OPEN
-**Raised as:** `PRODUCT-TENANT-MEDIUM-004` by `tenant-isolation-auditor` in cycle
-`2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
-
-**Evidence:**
-
-- apps/farm-service/src/common/cache/cacheable.interceptor.ts:116-131 — `extractTenantId` reads ONLY
-  `ctx.req.headers['x-tenant-id']`; `buildKey` (:102-113) emits
-  `farm:cache:${prefix}:t:${tenantId}:${argsHash}`
-- apps/farm-service/src/common/cache/cache-evict.interceptor.ts:111-126 — identical header-only
-  derivation drives `deletePattern('farm:cache:${prefix}:t:${tenantId}:*')`
-- libs/backend-common/src/decorators/tenant.decorator.ts:11-14 — "Headers (X-Tenant-Id), query
-  parameters, and request body are NEVER consulted. Those sources are attacker-controlled…" — the
-  cached resolvers themselves take `@CurrentTenant() tenantId` (finance.resolver.ts:156-158,
-  :174-176), so the DATA tenant and the CACHE-KEY tenant come from two different sources
-- apps/farm-service/src/app.module.ts:539-551 — the module explicitly acknowledges the
-  direct-subgraph exposure risk ("gateway rate limits are not an authority boundary when a
-  deployment accidentally exposes farm-service"), which is exactly the topology where the header
-  contract stops holding
-- tests/invariants/tenant-context-ssot.spec.ts:82-90 — the codified precedence invariant covers
-  request-context.middleware.ts only; nothing asserts the cache interceptors' tenant source
-
-**Rule violated:**
-
-CLAUDE.md Security §Tenant-ID sourcing (JWT is the trust anchor; x-tenant-id only on explicitly
-reviewed pre-auth / cross-tenant-admin / edge paths); layer-2-patterns.md §Tenant isolation trust
-anchor
-
-**Proposed fix direction:**
-
-Route both interceptors through the single tenant-resolution SSoT (`req.user.tenantId` → guard-set
-`req.tenantId`), the same function @CurrentTenant uses, so the cached VALUE and the cache KEY are
-provably the same tenant. Better: derive the tenant segment from the AsyncLocalStorage request
-context that already feeds search_path and the RLS GUC, making "key tenant ≠ query tenant"
-unrepresentable (Tier 1). Extend tenant-context-ssot.spec.ts to assert that no file under
-`apps/*/src` reads `headers['x-tenant-id']` for a cache/partition key.
-
-**Affected surface (ripple set):**
-
-- `apps/farm-service/src/common/cache/cacheable.interceptor.ts`
-- `apps/farm-service/src/common/cache/cache-evict.interceptor.ts`
-- `apps/farm-service/src/common/cache/cacheable.module.ts`
-- `apps/farm-service/src/finance/resolvers/finance.resolver.ts`
-- `apps/farm-service/src/batch/resolvers/batch.resolver.ts`
-- `tests/invariants/tenant-context-ssot.spec.ts`
-
-**Expected closer:**
-
-multi-tenant-saas-expert WRITER mode
+### LOW
 
 ### PRODUCT-TENANT-MEDIUM-005
 
 **Title:** The farm-service tenant-isolation invariant claims absolute discipline but only scans
 `*.handler.ts` — service-layer id-only lookups are structurally undetected
 
-**Severity:** MEDIUM
+**Severity:** LOW (filed as MEDIUM, downgraded by adversarial verification)
 **Layer:** 3
 **State:** OPEN
 **Raised as:** `PRODUCT-TENANT-MEDIUM-005` by `tenant-isolation-auditor` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -346,10 +291,14 @@ stated contract; apps/farm-service/CLAUDE.md §Domain invariants names this spec
 Widen the walker to every non-spec .ts under apps/farm-service/src (services, resolvers,
 dataloaders, listeners), not just `*.handler.ts` — the leak class is file-name-independent. Then
 make the residual sites impossible rather than merely detected: convert the remaining raw
-`Repository<T>` injections in these services to `TenantScopedRepository`/`tenantManagerRepo`, which
+, which
 injects tenantId on every method, so a forgotten filter cannot be written. Any genuinely
 global-catalogue read must go through the sanctioned `runInSourceRead` boundary
 (tenant-transaction.ts:436) so cross-tenant reads stay auditable in one place.
+
+```text
+Repository<T>` injections in these services to `TenantScopedRepository`/`tenantManagerRepo
+```
 
 **Affected surface (ripple set):**
 
@@ -364,17 +313,37 @@ global-catalogue read must go through the sanctioned `runInSourceRead` boundary
 test-runner WRITER mode for the invariant widening; farm domain expert for the repository
 conversions
 
+**Verifier note:**
+
+The scanner-scope half is true: tests/invariants/farm-service-tenant-isolation.spec.ts:60 walks only
+'`*.handler.ts`', so services/resolvers/dataloaders are never scanned, while the header prose at
+:19-24 calls the discipline absolute (:5-8 does scope it to handlers, so the overreach is partial).
+But every cited leak site collapses. sentinel-credential-cutover.service.ts:445-455 is flatly wrong:
+the repository is tenantManagerRepo(queryRunner.manager, SentinelHubSettings,
+canonicalIdentity.tenantId) which is a TenantScopedRepository injecting tenantId on every call
+(libs/backend-common/src/database/tenant-scoped-repository.ts:545-556), plus an explicit tenant
+assertion at :451-453. feeding-scheduler.service.ts:1755-1787 (markFeedingCompleted) has zero
+callers anywhere in the repo (grep across all non-node_modules .ts returns only the definition) \-
+dead code, no request path. feeding-scheduler.service.ts:699-701 looks up a feed id taken from
+batch.feedingSummary.currentFeedId where the batch was already tenant-filtered at :657-660 \- the id
+is not caller-supplied. On top of that both tables are per-tenant (@Entity('feeding_records')
+feeding-record.entity.ts:110 and @Entity('feeds') feed.entity.ts:162 omit schema:), so per-request
+queries run under search_path '`tenant_<uuid>`', farm, public
+(tenant-connection-bootstrap.service.ts:110-135) and cannot see another tenant's rows \- the spec's
+own rationale at :12-17 (isolation is ORM-filter-only) is stale. Real as a guard-coverage/dead-code
+gap, not the tenant-leak class filed.
+
 ### PRODUCT-TENANT-MEDIUM-006
 
 **Title:** AquaMobil's tenant query-key mirror omits the session-epoch segment its own header claims
 to copy verbatim — cache generation is not reset on principal re-entry
 
-**Severity:** MEDIUM
+**Severity:** LOW (filed as MEDIUM, downgraded by adversarial verification)
 **Layer:** 1
 **State:** OPEN
 **Raised as:** `PRODUCT-TENANT-MEDIUM-006` by `tenant-isolation-auditor` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -417,7 +386,23 @@ worse than no claim.
 
 frontend-expert WRITER mode with mobile-app-auditor review
 
-### LOW
+**Verifier note:**
+
+The factual drift is confirmed: web/apps/aquamobil/src/utils/tenant-query-keys.ts:4 claims it
+mirrors shared-ui verbatim while :44 returns [root, tenantId, ...segments] with no epoch, and
+web/shared-ui/src/utils/tenant-query-keys.ts:106 appends sessionEpochSegment()
+(session-epoch.ts:24-49). So the header comment is false and there is no drift guard. The impact
+filed is inflated. aquamobil has no impersonation or tenant-switch path (grep for
+switchTenant/impersonat/actAs in web/apps/aquamobil/src returns nothing outside unrelated test
+helpers) and no sessionEpoch usage, so the `A->B->A` re-entry case the epoch exists for cannot occur
+there. There is no query-cache persister (no persistQueryClient/persister anywhere in aquamobil src;
+the QueryClient is created in main.tsx), so cache is in-memory and dies with the tab \- which also
+defeats the cited useAuth.tsx:265-268 path, since that block is inside the mount-time restoreSession
+where the cache is empty by construction. Every mid-session session-end funnels through logout()
+(useAuth.tsx:541, 571), which does removeQueries on the tenant key space plus queryClient.clear()
+(:489-496). Residual is a false SSoT header comment and a hand-copied primitive with no parity test
+\- already recorded as an open gap in web/apps/aquamobil/CLAUDE.md. Cosmetic/documentation scope,
+hence LOW not MEDIUM.
 
 ### PRODUCT-TENANT-LOW-007
 
@@ -429,7 +414,7 @@ exist in the active migration manifest, once per tenant schema
 **State:** OPEN
 **Raised as:** `PRODUCT-TENANT-LOW-007` by `tenant-isolation-auditor` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -477,10 +462,26 @@ dead scheduled job cannot masquerade as a healthy one.
 
 farm domain expert WRITER mode
 
+**Verifier note:**
+
+Verified as filed. apps/farm-service/src/scheduler/cron-jobs.service.ts:841 lists
+'farm.mv_daily_batch_feeding' and 'farm.mv_daily_tank_water_quality', and :855-878 runs REFRESH
+MATERIALIZED VIEW CONCURRENTLY on those source-schema-qualified names inside the per-tenant loop
+after SET search_path TO tenant schema, farm, public \- so the qualification defeats the routing and
+the same object is targeted once per tenant. The CREATE statements exist only under
+.archive/2026-05-18T09-42-08-277Z/ (1787400000000:113 and 1787500000000:88); the active manifest
+(apps/farm-service/src/database/migrations/manifest.ts, FARM_MIGRATIONS from Baseline1800000000000)
+contains no matview migration and grep for MATERIALIZED across the active migrations directory
+returns zero hits including the Baseline, so a database built from the current chain never has these
+objects. The failure is swallowed at :866-873 as logger.warn, making a permanent no-op look like a
+legacy-tenant gap, and nothing reads the views (only comments at feeding-ledger.service.ts:117 and
+cron-jobs.service.ts:825). No tenant-isolation harm \- dead scheduled work plus nightly log noise,
+so LOW is the correct severity.
+
 ## Refuted by adversarial verification
 
-These were raised as CRITICAL/HIGH and did **not** survive independent re-checking.
-They are recorded so the same claim is not re-raised next cycle.
+These did **not** survive independent re-checking. They are recorded so the same
+claim is not re-raised next cycle.
 
 ### ~~PRODUCT-TENANT-HIGH-002~~
 
@@ -508,6 +509,35 @@ through runInTenantTransaction, which pins search_path and the RLS GUC to that t
 residual is hygiene — TenantValidatingConsumer has no runtime adopters (grep confirms only the file
 \+ libs/backend-common/src/nats/index.ts:11), i.e. a dead abstraction worth deleting or wiring, not
 a HIGH isolation gap.
+
+### ~~PRODUCT-TENANT-MEDIUM-004~~
+
+**Title:** farm-service @Cacheable / @CacheEvict derive the Redis key's tenant segment from the raw
+x-tenant-id header instead of the JWT/guard-validated tenant
+
+**Raised as:** MEDIUM · **Result:** REFUTED
+
+Cited lines read as claimed (cacheable.interceptor.ts:116-131, cache-evict.interceptor.ts:111-126
+use only headers['x-tenant-id']), but the claimed divergence is unreachable and the header is not
+attacker-controlled there. (1) apps/farm-service/src/app.module.ts:587-597 mounts
+StripInternalHeadersMiddleware first on '`*`';
+libs/backend-common/src/middleware/strip-internal-headers.middleware.ts:76-89,111-129 deletes
+x-tenant-id (and x-user-payload) on any request without a valid v2 service-identity signature, so a
+forged header never reaches the interceptor and both interceptors fail closed
+(cacheable.interceptor.ts:63-72; cache-evict.interceptor.ts:91-98 skips eviction rather than
+wiping). (2) On the signed gateway path the header is HMAC-bound: service-identity.util.ts:203-219
+puts tenantId in the signed canonical string and the strip middleware verifies it with
+expectedTenantId = the wire header (:147-161), so tampering invalidates the signature and the header
+is stripped. (3) libs/backend-common/src/middleware/verified-user-assertion.middleware.ts:53-66
+rejects with 400 unless assertion.effectiveTenantId equals verifiedIdentity.tenantId (the
+x-tenant-id header) and then sets req.user.tenantId to that same effectiveTenantId, which is
+precisely what @CurrentTenant returns (decorators/tenant.decorator.ts:42-51) and what the gateway
+minted (federation/authenticated-data-source.ts:214-216, 276). Cache-key tenant == query tenant is
+therefore enforced by an HMAC plus an explicit equality check. The app.module.ts:539-551
+direct-subgraph comment does not help the claim: verified-user-assertion.middleware.ts:29-37 with
+:261-267 rejects any non-probe production request that lacks a gateway service identity. The only
+residual is a silently skipped cache when no signed header exists (a caching/perf gap in dev, logged
+as a warn) \- no tenant-isolation defect.
 
 ## Inventory — what exists / what is missing
 

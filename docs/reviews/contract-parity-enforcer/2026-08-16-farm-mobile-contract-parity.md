@@ -2,13 +2,14 @@
 
 **Agent:** `contract-parity-enforcer` · **Mode:** CATCHER (read-only) · **Lane:** cross
 **Cycle:** `2026-08-16-farm-mobile-agent-audit` · **Verdict:** CONDITIONAL
-**Findings surviving verification:** 7 (CRITICAL 0 · HIGH 0 · MEDIUM 6 · LOW 1) · 3 refuted
+**Findings surviving verification:** 6 (CRITICAL 0 · HIGH 1 · MEDIUM 5 · LOW 0) · 4 refuted
 
-> Produced by a 27-agent audit workflow. Every CRITICAL/HIGH claim was handed to an
-> independent verifier instructed to **refute** it by reopening each cited line;
-> claims that could not be defended were dropped into the Refuted section below.
-> MEDIUM/LOW claims did not enter the verify stage and carry the raising agent's
-> confidence only.
+> Produced by a 27-agent audit workflow, then verified by a second 25-agent pass.
+> **Every** claim — CRITICAL through LOW — was handed to an independent verifier
+> instructed to **refute** it by reopening each cited line, with "refuted" as the
+> default when the evidence did not clearly hold. Claims that could not be defended
+> were dropped into the Refuted section below; claims that proved smaller or larger
+> than filed carry a corrected severity.
 >
 > **Finding IDs** use the `PARITY-*` prefix this agent's contract in
 > `.claude/shared/output-format.md` assigns it. That prefix is **rejected** by the
@@ -58,6 +59,114 @@ required client fields are optional server-side and normalised only on write.
 
 ## Findings (by severity)
 
+### HIGH
+
+### PARITY-LOW-010
+
+**Title:** Mobile-shaped response DTOs expose domain enums as GraphQL `String!`, and the client
+silently narrows them back to closed TS unions with no runtime validation
+
+**Severity:** HIGH (filed as LOW, raised by adversarial verification)
+**Layer:** 2
+**State:** OPEN
+**Raised as:** `PARITY-LOW-010` by `contract-parity-enforcer` in cycle
+`2026-08-16-farm-mobile-agent-audit`
+**Verification:** CONFIRMED by an independent refute-by-default verifier
+
+**Evidence:**
+
+- /home/user/aquaculture_platform/apps/farm-service/src/storage/dto/warehouse-summary.response.ts:30-32
+  — `@Field() itemType!: string`; :61-62 `@Field() movementType!: string`; :93-95
+  `@Field() coverageStatus!: string`
+- /home/user/aquaculture_platform/web/apps/aquamobil/src/types/index.ts:691 —
+  ; :707
+  `movementType: StockMovementType`
+
+  ```text
+  coverageStatus: 'critical' | 'warning' | 'ok'`; :698 `itemType: StorageItemType
+  ```
+
+- /home/user/aquaculture_platform/web/apps/aquamobil/src/types/index.ts:664 —
+  `StockEvent.type: 'CULL' | 'HARVEST' | 'TRANSFER' | 'MORTALITY'` against the generated
+  `type: string` (generated/graphql.ts:817)
+- /home/user/aquaculture_platform/web/apps/aquamobil/src/pages/storage/StorageHubPage.tsx:215-216 —
+  filters on `c.coverageStatus !== 'ok'`, a comparison the schema cannot guarantee is exhaustive
+
+**Rule violated:**
+
+layer-2-defect-catalog 'Enum / string mismatch'; CLAUDE.md 'Missing field → add the @Column \+ DTO
+field' (fix the contract, not the consumer)
+
+**Proposed fix direction:**
+
+Declare these three as registerEnumType GraphQL enums on the response DTO so the SDL carries the
+vocabulary and codegen emits the union; the client then imports it rather than re-asserting one.
+Same treatment for the stockEventsSummary `type` field. This also removes the need for any future
+entry in the enum-parity registry for these fields.
+
+**Affected surface (ripple set):**
+
+```text
+/home/user/aquaculture_platform/apps/farm-service/src/storage/dto/warehouse-summary.response.ts
+```
+
+```text
+/home/user/aquaculture_platform/apps/farm-service/src/storage/storage.resolver.ts
+```
+
+- `/home/user/aquaculture_platform/web/apps/aquamobil/src/types/index.ts`
+
+  ```text
+  /home/user/aquaculture_platform/web/apps/aquamobil/src/pages/storage/StorageHubPage.tsx
+  ```
+
+**Expected closer:**
+
+farm-service domain expert WRITER mode
+
+**Verifier note:**
+
+Real, and materially UNDER-severity — this is a live client crash, not a missing-validation nit.
+Line numbers are slightly off but the substance holds: warehouse-summary.response.ts:32
+`itemType!: string`, :54 `movementType!: string`, :95 `coverageStatus!: string` (claim said 61-62
+and 93-95); apps/farm-service/schema.graphql:2277-2284 confirms `movementType: String!` on the wire.
+The FE narrows them at web/apps/aquamobil/src/types/index.ts:698 `itemType: StorageItemType`, :707
+, and :664
+StockEvent.type, with StockMovementType = 'IN'|'OUT'|'WASTE' and StorageItemType =
+'FEED'|'CHEMICAL'|'CONSUMABLE'|'HEALTHCARE' at :579-580. What the claimer stopped short of: the wire
+values do NOT match the narrowed unions today. stock-movement.entity.ts:14-21 defines MovementType
+with LOWERCASE values (IN='in', OUT='out', TRANSFER='transfer', WASTE='waste',
+ADJUSTMENT='adjustment', RETURN='return'), stored in a plain varchar column (:43-44) and written as
+MovementType.OUT/.IN/.TRANSFER/.ADJUSTMENT by feeding-ledger.service.ts:253,
+meal-execution.service.ts:562,595, transfer-stock.handler.ts:167,
+approve-inventory-count.handler.ts:83, receive-delivery.handler.ts:107.
+get-warehouse-summary.handler.ts:305-322 reads them with getMany() and passes
+`movementType: m.movementType` straight through; because the DTO field is String (not the registered
+MovementType enum) GraphQL performs NO `value->key` mapping, so the client receives
+'in'/'out'/'transfer'. StorageHubPage.tsx:74-98 keys MOVEMENT_TYPE_CONFIG on UPPERCASE
+'IN'/'OUT'/'WASTE' and :158-159 does
+with no
+fallback — undefined lookup, TypeError during render, for EVERY recent movement. StorageHubPage is a
+live lazy route (App.tsx:84-85, 262, 423), so the warehouse hub's activity feed blows up as soon as
+any stock movement exists. Same lowercase mismatch on itemType (handler:212,241,270 emit
+'feed'/'chemical'/'consumable' against a 'FEED'|... union) — type lie only, since LowStockRow never
+reads it. The other two cited fields are the benign ones: coverageStatus is computed as literal
+'critical'/'warning'/'ok' in the handler (:118-124) so it genuinely matches, and stockEventsSummary
+type is deliberately uppercased by get-stock-events-summary.handler.ts:72-85 with only a
+`default: operationType.toUpperCase()` escape that could leak an out-of-union value into a
+non-crashing `type === 'TRANSFER'` count. The one FE test touching this field
+(`pwa/**tests**/offline-queue.spec.ts:386`) mocks 'OUT' uppercase, which is exactly why the mismatch
+shipped. Filed as LOW; the movementType half is a shipped runtime crash of the same casing class the
+repo already logged as FARM-CRITICAL-165, so HIGH.
+
+```text
+movementType: StockMovementType`, :691 `coverageStatus: 'critical'|'warning'|'ok'
+```
+
+```text
+const config = MOVEMENT_TYPE_CONFIG[movement.movementType]; const Icon = config.icon;
+```
+
 ### MEDIUM
 
 ### PARITY-MEDIUM-001
@@ -65,7 +174,7 @@ required client fields are optional server-side and normalised only on write.
 **Title:** Both GraphQL contract CI gates are path-filtered by filename suffix and miss ~30
 farm-service files that define @ObjectType schema surface (incl. the offline-feeding reply type)
 
-**Severity:** MEDIUM (raised as HIGH, downgraded by adversarial verification)
+**Severity:** MEDIUM (filed as HIGH, downgraded by adversarial verification)
 **Layer:** 3
 **State:** OPEN
 **Raised as:** `PARITY-HIGH-001` by `contract-parity-enforcer` in cycle
@@ -167,7 +276,7 @@ disagree with the schema on nullability (`meals`)
 **State:** OPEN
 **Raised as:** `PARITY-MEDIUM-005` by `contract-parity-enforcer` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -215,6 +324,31 @@ propagates into the consumers as a type obligation instead of a `?? []` that hid
 
 frontend-expert WRITER mode
 
+**Verifier note:**
+
+Holds. web/apps/aquamobil/src/generated/graphql.ts:660 types FeedingDayPlansQuery.meals as
+`Array<{...}> | null` and status as the `FeedingDayPlanStatus` union (graphql.ts:109-114);
+apps/farm-service/src/feeding-protocol/entities/feeding-day-plan.entity.ts:216-217 is
+`@Field(() => [FeedingMeal], { nullable: true })`. RecordFeedingPage.tsx:60-82 does re-declare
+, and
+useDailyOpsStats.ts:17 is a second independent mirror of the same query. Both bypass the generated
+type by calling the explicit-result overload of graphqlRequest (RecordFeedingPage.tsx:159,
+useDailyOpsStats.ts:49) even though GET_FEEDING_DAY_PLANS is a real TypedDocumentNode
+(operations.ts:91) — the exact overload whose own docblock (authenticated-fetch.ts:290-302) reserves
+it for hand-authored view types or documents not in the codegen pluck set. No invariant covers this
+(farm-graphql-enum-parity.spec.ts excludes aquamobil), so a selection-set change would leave both
+mirrors silently stale. Two corrections to the claim, which is why I would not raise it: (a) the
+`?? []` at RecordFeedingPage.tsx:210 is `selectedPlan?.meals ?? []` and is required because
+`Array.find` can return undefined, not because the mirror lies about nullability — only
+useDailyOpsStats.ts:93 is the guard the claim describes; (b) there is no live runtime defect,
+because meal-execution.resolver.ts:107 does `plan.meals = mealsByPlan.get(plan.id) ?? []` on every
+plan, so meals is never actually null, and the local MealStatus union matches FeedingMealStatus
+value-for-value. Real DRY/type-erosion defect a maintainer will hit; MEDIUM is the right size.
+
+```text
+FeedingDayPlanSlice` with `meals: DayPlanMeal[]` (non-null) and `status: string
+```
+
 ### PARITY-MEDIUM-006
 
 **Title:** apps/farm-service/schema.graphql is a committed 12k-line SDL snapshot with no freshness
@@ -225,7 +359,7 @@ gate, yet two invariant specs and the MCP client assert against it
 **State:** OPEN
 **Raised as:** `PARITY-MEDIUM-006` by `contract-parity-enforcer` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -277,6 +411,31 @@ and repoint those specs at dist/graphql/subgraphs/farm.graphql so there is only 
 
 contract-parity-enforcer-owned; infra-expert WRITER mode for the workflow edit
 
+**Verifier note:**
+
+Holds. tools/scripts/emit-subgraph-sdl.ts:106-109 writes apps/farm-service/schema.graphql only as a
+side effect of an SDL emit run (`if (existsSync(committedSnapshotPath)) writeFileSync(...)`), and
+scripts/apollo-router/build-supergraph.mjs:54-69 does spawn that emitter per subgraph, so CI
+regenerates the snapshot. But I grepped every `git diff/git status` assertion across
+.github/workflows: graphql-codegen-validate.yml:102/120/133 covers only
+infrastructure/apollo-router/codegen-schema.generated.json, web/apps/aquamobil/src/generated and
+web/shared-ui/src/generated; ci-affected.yml:758 covers only the three registry artifacts. Nothing
+asserts the farm snapshot, so a stale copy never fails RED. Meanwhile two specs treat it as schema
+authority —
+makes NEGATIVE assertions (`expect(schema).not.toMatch(/WeatherSettings/)`) that a stale snapshot
+would pass falsely, and tests/invariants/farm-environment-deployment-contract.spec.ts:601-615 makes
+a positive `expect(schema).toContain('activeSites: [SiteResponse!]!')`.
+docs/architecture/ADR-farm-api-contract-posture.md:27 does declare the snapshot the committed SDL of
+record. codegen.ts:16 also names it as the fallback schema source when the composed supergraph is
+absent. scripts/v11-upgrade/check-codegen.sh references these snapshots but is an unwired one-off
+migration script (its SCHEMA_FILES list describes a codegen.ts `schema` array that no longer
+exists), so it is not a gate. Genuine Tier-3 detection hole; the one-line fix the claim proposes is
+correct since compose already regenerates the file.
+
+```text
+apps/farm-service/src/weather/**tests**/legacy-weather-settings.contract.spec.ts:32-39
+```
+
 ### PARITY-MEDIUM-007
 
 **Title:** codegen maps the JSON scalar to `Record<string, unknown>`, which cannot express the
@@ -288,7 +447,7 @@ path
 **State:** OPEN
 **Raised as:** `PARITY-MEDIUM-007` by `contract-parity-enforcer` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -329,59 +488,29 @@ values is worse than no mapping, because it type-checks.
 
 contract-parity-enforcer-owned; frontend-expert WRITER mode for downstream narrowing
 
-### PARITY-MEDIUM-008
+**Verifier note:**
 
-**Title:** A codegen output was deleted and a client field-selection reduced, each justified by a
-tracked finding ID (S1-ORPHAN, S1-ORPHAN-LEAVE-TYPE) that exists nowhere in the repo
+Holds. codegen.ts:62-65 and :92-96 both set
+`scalars: { DateTime: 'string', JSON: 'Record<string, unknown>' }`. generated/graphql.ts:724 emits
+(and :729
+the same for GetTodaysTasksQuery), while apps/farm-service/src/task/entities/task.entity.ts:220-226
+declares
+over `jsonb default []` — arrays. I confirmed with tsc --strict that an array is NOT assignable to
+`Record<string, unknown>` (TS2322, 'Index signature for type string is missing'), so the generated
+type is structurally wrong for the values the resolver serves and offers no `.map`. That is why
+useMyTasks.ts:67 pins `graphqlRequest<{ myTasks: Task[] }>` by hand against the hand-written Task in
+types/index.ts:490-492, dropping the operation off the generated contract. Real type-system erosion
+with a concrete consequence (the generated type is unusable for these fields); MEDIUM is right. It
+is partly downstream of the JSON-scalar decision filed as PARITY-HIGH-004, but the mapping choice
+itself is a separate, independently fixable defect.
 
-**Severity:** MEDIUM
-**Layer:** 3
-**State:** OPEN
-**Raised as:** `PARITY-MEDIUM-008` by `contract-parity-enforcer` in cycle
-`2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+```text
+checklistItems: Record<string, unknown> | null, notes: Record<string, unknown> | null
+```
 
-**Evidence:**
-
-- /home/user/aquaculture_platform/codegen.ts:35-46 — the shell/module operations output is removed
-  because of hr-module schema drift, 'tracked separately (orphan finding S1-ORPHAN)'
-- /home/user/aquaculture_platform/web/apps/aquamobil/src/graphql/operations.ts:214-220 — the
-  LeaveBalance leaveType selection was dropped, '(Enrichment gap tracked as orphan finding
-  S1-ORPHAN-LEAVE-TYPE.)'
-- repo-wide grep for 'S1-ORPHAN' returns exactly those two comment lines — no entry in
-  docs/reviews/orphan-findings.md, docs/reviews/_registry/findings.jsonl, or any review report
-- /home/user/aquaculture_platform/web/modules/farm-module/src — 342 GraphQL operations across 45
-  files and zero generated artifacts, which is the surface that deletion leaves uncovered
-
-**Rule violated:**
-
-CLAUDE.md 'Review Finding Traceability (MANDATORY)' and Architectural Approach ('deferred / out of
-scope — FORBIDDEN without an explicit owner \+ deadline \+ tracked finding ID')
-
-**Proposed fix direction:**
-
-Register both IDs in docs/reviews/_registry/findings.jsonl with owner \+ deadline, or fix the
-hr-module fragments and restore the shell/module operations output. Until one of the two happens,
-the comments assert a governance control that does not exist, and 342 farm-module operations have no
-result-type contract at all. Add the registry-ID existence check to
-tests/invariants/finding-registry-integrity.spec.ts scope so a phantom ID in source cannot recur
-(Tier-3).
-
-**Affected surface (ripple set):**
-
-- `/home/user/aquaculture_platform/codegen.ts`
-- `/home/user/aquaculture_platform/web/apps/aquamobil/src/graphql/operations.ts`
-- `/home/user/aquaculture_platform/docs/reviews/_registry/findings.jsonl`
-
-  ```text
-  /home/user/aquaculture_platform/tests/invariants/finding-registry-integrity.spec.ts
-  ```
-
-- `/home/user/aquaculture_platform/web/modules/hr-module/src`
-
-**Expected closer:**
-
-context-manager registers the findings; frontend-expert WRITER mode fixes the hr-module fragments
+```text
+@Field(() => GraphQLJSON) checklistItems!: TaskChecklistItem[]` and `notes!: TaskNote[]
+```
 
 ### PARITY-MEDIUM-009
 
@@ -393,7 +522,7 @@ and the enum-parity invariant excludes aquamobil on a stated premise that only h
 **State:** OPEN
 **Raised as:** `PARITY-MEDIUM-009` by `contract-parity-enforcer` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -441,75 +570,39 @@ entry in the enum-parity registry.
 
 frontend-expert WRITER mode
 
-### LOW
+**Verifier note:**
 
-### PARITY-LOW-010
-
-**Title:** Mobile-shaped response DTOs expose domain enums as GraphQL `String!`, and the client
-silently narrows them back to closed TS unions with no runtime validation
-
-**Severity:** LOW
-**Layer:** 2
-**State:** OPEN
-**Raised as:** `PARITY-LOW-010` by `contract-parity-enforcer` in cycle
-`2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
-
-**Evidence:**
-
-- /home/user/aquaculture_platform/apps/farm-service/src/storage/dto/warehouse-summary.response.ts:30-32
-  — `@Field() itemType!: string`; :61-62 `@Field() movementType!: string`; :93-95
-  `@Field() coverageStatus!: string`
-- /home/user/aquaculture_platform/web/apps/aquamobil/src/types/index.ts:691 —
-  ; :707
-  `movementType: StockMovementType`
-
-  ```text
-  coverageStatus: 'critical' | 'warning' | 'ok'`; :698 `itemType: StorageItemType
-  ```
-
-- /home/user/aquaculture_platform/web/apps/aquamobil/src/types/index.ts:664 —
-  `StockEvent.type: 'CULL' | 'HARVEST' | 'TRANSFER' | 'MORTALITY'` against the generated
-  `type: string` (generated/graphql.ts:817)
-- /home/user/aquaculture_platform/web/apps/aquamobil/src/pages/storage/StorageHubPage.tsx:215-216 —
-  filters on `c.coverageStatus !== 'ok'`, a comparison the schema cannot guarantee is exhaustive
-
-**Rule violated:**
-
-layer-2-defect-catalog 'Enum / string mismatch'; CLAUDE.md 'Missing field → add the @Column \+ DTO
-field' (fix the contract, not the consumer)
-
-**Proposed fix direction:**
-
-Declare these three as registerEnumType GraphQL enums on the response DTO so the SDL carries the
-vocabulary and codegen emits the union; the client then imports it rather than re-asserting one.
-Same treatment for the stockEventsSummary `type` field. This also removes the need for any future
-entry in the enum-parity registry for these fields.
-
-**Affected surface (ripple set):**
+Every cited line checks out. web/apps/aquamobil/src/types/index.ts:459-461 hand-declares
+TaskCategory/TaskPriority/TaskStatus; web/apps/aquamobil/src/generated/graphql.ts:324-336
+(TaskCategory), :353-357 (TaskPriority), :359-365 (TaskStatus) already emit the identical value sets
+from the composed supergraph, and codegen.ts declares web/apps/aquamobil/src/generated/graphql.ts as
+the aquamobil client-contract SSoT. web/apps/aquamobil/src/pages/feeding/RecordFeedingPage.tsx:42
+declares a second hand-written
+that exactly
+duplicates generated FeedingMealStatus (graphql.ts:118-124), consumed by MEAL_BADGE at :96.
+tests/invariants/farm-graphql-enum-parity.spec.ts:5-6 does justify its scope with 'it is not yet
+codegen-backed like aquamobil' and :38-39 pins BE/FE to apps/farm-service/src/regulatory and
+web/modules/farm-module/src only; :10-14 records FARM-CRITICAL-165. I looked for a guard the claimer
+missed and found none: no invariant under tests/invariants covers web/apps/aquamobil/src/types
+(shared-contracts-no-enum-drift.spec.ts only bans enums in libs/shared-contracts). The drift is also
+genuinely undetectable at compile time — useMyTasks.ts:69 calls `graphqlRequest<{` myTasks: Task[]
+`}>(GET_MY_TASKS`), an explicit generic that overrides the TypedDocumentNode result type, so the
+generated and hand-written unions never meet the type checker. types/index.ts:11-12 already
+re-exports Role from '../generated/graphql', proving the proposed fix is the file's own established
+pattern. Today's impact is latent, not live: values match and the consumers degrade softly
+(PRIORITY_BADGE is guarded by `badge &&` at DailyOpsHubPage.tsx:94; MEAL_BADGE feeds clsx which
+tolerates undefined). But drift would silently break filter logic (useMyTasks.ts:34-43 compares
+t.status against 'COMPLETED'/'CANCELLED'/'OVERDUE'; RecordFeedingPage isMealOpen compares
+'SCHEDULED'/'PARTIALLY_FED'). MEDIUM as filed is right.
 
 ```text
-/home/user/aquaculture_platform/apps/farm-service/src/storage/dto/warehouse-summary.response.ts
+type MealStatus = 'SCHEDULED'|'FED'|'PARTIALLY_FED'|'SKIPPED'|'MISSED'|'CANCELLED'
 ```
-
-```text
-/home/user/aquaculture_platform/apps/farm-service/src/storage/storage.resolver.ts
-```
-
-- `/home/user/aquaculture_platform/web/apps/aquamobil/src/types/index.ts`
-
-  ```text
-  /home/user/aquaculture_platform/web/apps/aquamobil/src/pages/storage/StorageHubPage.tsx
-  ```
-
-**Expected closer:**
-
-farm-service domain expert WRITER mode
 
 ## Refuted by adversarial verification
 
-These were raised as CRITICAL/HIGH and did **not** survive independent re-checking.
-They are recorded so the same claim is not re-raised next cycle.
+These did **not** survive independent re-checking. They are recorded so the same
+claim is not re-raised next cycle.
 
 ### ~~PARITY-HIGH-002~~
 
@@ -584,6 +677,35 @@ GraphQLJSON, and web/apps/aquamobil/src/types/index.ts:463-468 declares id/isCom
 genuine typed-contract weakness (client gets no generated field types, hence the shape-guessing at
 TaskDetailPage.tsx:233-239). That is a LOW/MEDIUM design smell, not a HIGH production defect; HIGH
 is inflated.
+
+### ~~PARITY-MEDIUM-008~~
+
+**Title:** A codegen output was deleted and a client field-selection reduced, each justified by a
+tracked finding ID (S1-ORPHAN, S1-ORPHAN-LEAVE-TYPE) that exists nowhere in the repo
+
+**Raised as:** MEDIUM · **Result:** REFUTED
+
+Refuted on its own central evidence bullet. The claim states the two IDs have 'no entry in
+docs/reviews/orphan-findings.md'. They do — the claimer grepped only for the literal string
+'S1-ORPHAN' and missed the canonical entries. docs/reviews/orphan-findings.md:4446 is
+'ORPHAN-MEDIUM-111 — hr-module GraphQL fragments drift from the live schema (codegen-blocking)',
+which names the exact drift codegen.ts:35-46 cites (Payroll.earnings/deductions,
+PerformanceGoal.keyResults/milestones without subfields), records that the removed
+shared-ui/graphql-operations.ts block was dead and never emitted, gives the architectural fix
+direction, and closes 'Status: OPEN (2026-06-14; owner: frontend-expert → hr-module; tracked
+follow-up)'. docs/reviews/orphan-findings.md:4465 is 'ORPHAN-LOW-107 — AquaMobil leave-balance rows
+show a generic Leave label', which is precisely the operations.ts:214-220 gap, with 'Status: OPEN
+(2026-06-14; owner: frontend-expert; tracked follow-up)'. So the governance control the claim says
+'does not exist' does exist, with an owner and a fix direction, in the file the repo designates for
+orphan findings (orphan-findings.md header: 'Purpose: problems spotted... NOT part of the current
+plan. Append-only'; many neighbouring entries record 'Registry: orphan-findings.md only' as the
+normal state, so absence from findings.jsonl is not a violation). The claim's framing that '342
+farm-module operations have no result-type contract at all' as a consequence of the deletion is also
+wrong: ORPHAN-MEDIUM-111 documents that the shell/module operations output NEVER produced a
+committed file, so the deletion removed a dead block and changed nothing. What actually remains is a
+cosmetic label mismatch — the two source comments use a shorthand ('S1-ORPHAN',
+'S1-ORPHAN-LEAVE-TYPE') instead of the canonical ORPHAN-MEDIUM-111 / ORPHAN-LOW-107 IDs — which is a
+comment-hygiene nit, not a MEDIUM traceability failure.
 
 ## Inventory — what exists / what is missing
 

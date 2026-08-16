@@ -4,11 +4,12 @@
 **Cycle:** `2026-08-16-farm-mobile-agent-audit` · **Verdict:** BLOCK
 **Findings surviving verification:** 12 (CRITICAL 0 · HIGH 0 · MEDIUM 9 · LOW 3)
 
-> Produced by a 27-agent audit workflow. Every CRITICAL/HIGH claim was handed to an
-> independent verifier instructed to **refute** it by reopening each cited line;
-> claims that could not be defended were dropped into the Refuted section below.
-> MEDIUM/LOW claims did not enter the verify stage and carry the raising agent's
-> confidence only.
+> Produced by a 27-agent audit workflow, then verified by a second 25-agent pass.
+> **Every** claim — CRITICAL through LOW — was handed to an independent verifier
+> instructed to **refute** it by reopening each cited line, with "refuted" as the
+> default when the evidence did not clearly hold. Claims that could not be defended
+> were dropped into the Refuted section below; claims that proved smaller or larger
+> than filed carry a corrected severity.
 >
 > **Finding IDs** use the `DB-FARMPROD-*` prefix this agent's contract in
 > `.claude/shared/output-format.md` assigns it. That prefix is **rejected** by the
@@ -59,9 +60,13 @@ never written, and both the feed-consumption forecast and the growth-forecast ch
 substitute a hardcoded 1.5 %/day. `escape_incidents.varslingReportId` is never set, so the rømming
 assembler's `varslingReportId IS NULL` filter re-reports the same escape forever.
 `farm_incident_media` rows (regulatory incident photos uploaded from aquamobil) have no read path at
-all. Secondary: `tank_batches.isOverCapacity` is never recomputed on removals; `updateHarvestRecord`
+all. Secondary:
 silently drops six declared input fields; a dead duplicate `tank_batches` writer survives in
 `BatchService` carrying the retired `batchDetails` discard.
+
+```text
+tank_batches.isOverCapacity` is never recomputed on removals; `updateHarvestRecord
+```
 
 ## Findings (by severity)
 
@@ -72,7 +77,7 @@ silently drops six declared input fields; a dead duplicate `tank_batches` writer
 **Title:** `batch_locations` has zero writers while three read paths (batch traceability report,
 Batch.locations, target-FCR chain) depend on it
 
-**Severity:** MEDIUM (raised as HIGH, downgraded by adversarial verification)
+**Severity:** MEDIUM (filed as HIGH, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
 **Raised as:** `DB-FARMPROD-HIGH-001` by `db-audit-farm-production` in cycle
@@ -159,7 +164,7 @@ empty Batch.locations), which is MEDIUM, not HIGH.
 **Title:** `batches_v2.sgr` is never written but is read by four backend consumers and a web chart;
 both forecast paths silently substitute a hardcoded 1.5 %/day
 
-**Severity:** MEDIUM (raised as HIGH, downgraded by adversarial verification)
+**Severity:** MEDIUM (filed as HIGH, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
 **Raised as:** `DB-FARMPROD-HIGH-002` by `db-audit-farm-production` in cycle
@@ -238,7 +243,7 @@ zeroed SGR bar chart — misleading output, not corruption or failure. MEDIUM.
 **Title:** `escape_incidents.varslingReportId` is never written, so the rømming-varsling assembler
 re-selects the same already-reported escape indefinitely
 
-**Severity:** MEDIUM (raised as HIGH, downgraded by adversarial verification)
+**Severity:** MEDIUM (filed as HIGH, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
 **Raised as:** `DB-FARMPROD-HIGH-003` by `db-audit-farm-production` in cycle
@@ -291,19 +296,23 @@ Write-absence verified: submitEscapeReport (regulatory-varsling.service.ts:101-1
 enqueues EscapeReportedEvent, and close() (escape-incident.service.ts:143-160) sets
 recoveredCount/recoveryOngoing/status only; no assignment to varslingReportId exists repo-wide.
 However the claimed impact is overstated — the assembler query (escape.assembler.ts:186-188) filters
-`ei.status = 'open' AND ei."varslingReportId" IS NULL` and orders `detectedAt DESC, createdAt DESC`,
+,
 so a reported incident drops out as soon as it is closed, and any newer incident outranks it. It is
 not selected 'indefinitely', and the assembler only prefills an operator-driven draft (fail-closed
 MANUAL_REQUIRED otherwise), it does not auto-file. Residual real defect: an older unreported
 incident is masked while a newer already-filed open incident exists, and re-assembly re-prefills an
 already-filed incident. Narrow correctness gap, MEDIUM.
 
+```text
+ei.status = 'open' AND ei."varslingReportId" IS NULL` and orders `detectedAt DESC, createdAt DESC
+```
+
 ### DB-FARMPROD-MEDIUM-004
 
 **Title:** `farm_incident_media` is write-only: incident photos uploaded from aquamobil are
 persisted but have no read path on any surface
 
-**Severity:** MEDIUM (raised as HIGH, downgraded by adversarial verification)
+**Severity:** MEDIUM (filed as HIGH, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
 **Raised as:** `DB-FARMPROD-HIGH-004` by `db-audit-farm-production` in cycle
@@ -383,7 +392,7 @@ contains the retired `batchDetails` discard that the count-SSoT service was crea
 **State:** OPEN
 **Raised as:** `DB-FARMPROD-MEDIUM-005` by `db-audit-farm-production` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -454,6 +463,32 @@ to assert `tank_batches` is written from exactly one module file.
 
 farm-expert WRITER mode, with test-runner re-pointing the e2e suites
 
+**Verifier note:**
+
+Confirmed at source. apps/farm-service/src/batch/services/batch.service.ts:567 and :644 both carry
+`tankBatch.batchDetails = batchDetails.length > 1 ? batchDetails : undefined;` — exactly the discard
+that tank-batch.service.ts:16-17 documents as "the drift this fixes" (its applyBatchDelta at :174
+does `tankBatch.batchDetails = details;` unconditionally). BatchService still owns six mutating
+methods (createBatch:105, allocateBatchToTank:258, transferBatch:324, updateTankBatch:508,
+updateTankBatchWithManager:582, recordOperation:663). A whole-service grep for `BatchService`
+(excluding TankBatchService) returns only batch.controller.ts:50/218/472 and
+batch.module.ts:64/126/155 — and the controller's only three uses are reads
+(getBatchAllocations:420, getBatchOperations:437, getTankBatchStatus:638), so the mutating half is
+genuinely unreachable in production. Meanwhile
+instantiates
+(:339) and `transferBatch` (:160), so the tenant-isolation certification covers dead code rather
+than the CQRS handlers production runs. Minor evidence slip only: the controller has three read call
+sites, not two. MEDIUM is correctly calibrated — no production data is wrong today; the defect is
+duplicated-writer drift plus misdirected isolation assurance.
+
+```text
+apps/farm-service/src/**tests**/e2e/batch-allocation-tenant-isolation.postgres.spec.ts
+```
+
+```text
+new BatchService(...)` at :108 and drives `createBatch` (:317), `allocateBatchToTank
+```
+
 ### DB-FARMPROD-MEDIUM-006
 
 **Title:** `tank_batches.isOverCapacity` / `capacityUsedPercent` are never recomputed on stock
@@ -464,7 +499,7 @@ removals, so an over-capacity alarm persists after mortality, cull or harvest em
 **State:** OPEN
 **Raised as:** `DB-FARMPROD-MEDIUM-006` by `db-audit-farm-production` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -521,17 +556,41 @@ and keeps its trail.
 
 farm-expert WRITER mode
 
+**Verifier note:**
+
+Confirmed. A grep of `isOverCapacity|capacityUsedPercent` across apps/farm-service/src shows the
+only occurrence in tank-batch.service.ts is `isOverCapacity: false` at :84 (new-row initializer);
+the derivation block at :161-186 recomputes
+totalQuantity/totalBiomassKg/avgWeightG/densityKgM3/currentBiomassKg and never touches either
+capacity field. The removal handlers confirm the asymmetry: record-mortality.handler.ts:306 and
+record-cull.handler.ts:252 call applyBatchDelta and then only update Tank/Equipment.currentBiomass —
+no capacity recompute follows; the harvest paths (create-harvest-record.handler.ts:393,
+delete-harvest-record.handler.ts:115) likewise. Inflow paths do refresh them:
+allocate-to-tank.handler.ts:259-260, create-batch.handler.ts:433-434,
+transfer-batch.handler.ts:372-373/400-401. Downstream consumers read the stored column verbatim —
+farm-stock-projection.service.ts:55-56 (`tb."capacityUsedPercent"`,
+`COALESCE(tb."isOverCapacity", false)`), equipment.resolver.ts:463-464 and tank.resolver.ts:408-409
+— and web/apps/aquamobil/src/pages/HomePage.tsx:125 counts `t.batchMetrics?.isOverCapacity` for the
+dashboard warning. tank-capacity.service.ts only calculates on demand for enforcement (:220-241);
+nothing clears the persisted flag on outflow, so a tank emptied by mortality/cull/harvest keeps a
+true flag until the next inflow. Not inflated: the flag drives an operator warning, not a block
+(enforcement recomputes fresh), so this is stale-derived-state alarm noise, i.e. MEDIUM.
+
 ### DB-FARMPROD-MEDIUM-007
 
-**Title:** `updateHarvestRecord` accepts six declared input fields (including the `qualityApproved`
+**Title:**
 regulatory gate) and silently discards them; the drop is enabled by a banned `as unknown as` cast
+
+```text
+updateHarvestRecord` accepts six declared input fields (including the `qualityApproved
+```
 
 **Severity:** MEDIUM
 **Layer:** 1
 **State:** OPEN
 **Raised as:** `DB-FARMPROD-MEDIUM-007` by `db-audit-farm-production` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -581,6 +640,28 @@ caller.
 
 farm-expert WRITER mode
 
+**Verifier note:**
+
+Confirmed line by line. update-harvest-record.handler.ts:34-47 lists UPDATABLE_FIELDS = status,
+quantityHarvested, totalBiomass, averageWeight, method, productForm, totalRevenue, harvestCost,
+currency, mortalityDuringHarvest, rejectedQuantity, rejectionReason, notes — omitting pricePerKg
+(input :82), buyerName (:106), lotNumber (:112), qualityApproved (:135), qualityApprovedBy (:140),
+qualityApprovedAt (:145), all declared `@Field`s on UpdateHarvestRecordInput. qualityClass gets the
+only extra branch at :94. The command interface UpdateHarvestRecordData carries none of the six, and
+harvest.resolver.ts:389-404 builds the payload field-by-field without them, so they are dropped at
+the resolver boundary — silently, since the mutation returns success. The banned cast is real:
+update-harvest-record.handler.ts:88
+`(harvestRecord as unknown as Record<string, unknown>)[field] = incoming;`, a direct CLAUDE.md
+Code-Quality violation and precisely what removes the compile-time link between DTO and entity.
+list-harvests.handler.ts:118-119 filters on `harvest.qualityApproved`, and the only assignment to
+that column anywhere is HarvestRecord.approveQuality() at harvest-record.entity.ts:605-606, which
+has zero callers — so the column is permanently false and the filter permanently empty. Extra detail
+the claim missed: pricePerKg and buyerName have no column on HarvestRecord at all (only lotNumber
+exists, :324), so the proposed "thread them through" fix needs a migration too. Not raised to HIGH:
+no shipped frontend calls updateHarvestRecord with these fields (only generated types in
+web/shared-ui reference them), so today the blast radius is API-contract drift plus a dead
+regulatory gate, not corrupted records.
+
 ### DB-FARMPROD-MEDIUM-008
 
 **Title:** `batches_v2.protocolId` was added by migration for the batch→feeding-protocol link but
@@ -592,7 +673,7 @@ permanently empty
 **State:** OPEN
 **Raised as:** `DB-FARMPROD-MEDIUM-008` by `db-audit-farm-production` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -644,6 +725,25 @@ leave a column whose only consumers are guaranteed-empty queries.
 farm-expert WRITER mode; requires arbitration with db-audit-farm-operations on the protocol→rate
 ownership seam
 
+**Verifier note:**
+
+Confirmed, and the reader set is larger than filed. Migration 1802000000000-AddBatchProtocolId.ts
+adds the column (:33) and index (:37-38) with the docblock at :6 as quoted. batch.entity.ts:113-123
+exposes `protocolId?: string` as a GraphQL ID. No writer exists: greps for `protocolId` across
+apps/farm-service/src find no assignment on any batch DTO, command, resolver or handler — the batch
+DTOs/commands/create-batch handler contain no protocol field at all, and schema.graphql has
+`protocolId: ID` only as an output at :806 plus the unrelated assignProtocolToBatchUnits mutation
+(:7131), which is implemented in feeding-protocol-v2.resolver.ts:162 against
+feeding_protocol_assignments, not batches_v2. Confirmed guaranteed-empty readers:
+feed-selection.dataloader.ts:196-198 (`WHERE ... "protocolId" IS NOT NULL`, under the :194 comment
+"a protocol takes precedence over batch_feed_assignments"), and — not cited by the claim —
+feed-selector.service.ts:358-363 and daily-feeding-execution.service.ts:1360-1367 read the same
+always-null column. Migration 1806300000000:103-109 and :119-123 derive the v1→v2 cutover from
+`b."protocolId" IS NOT NULL`, i.e. from nothing. Severity stays MEDIUM rather than higher because
+every reader has a documented non-protocol fallback, so behavior is degraded-to-default rather than
+wrong; but it is a genuine DEAD column with four live consumers, not a design decision the code
+documents as intentional.
+
 ### DB-FARMPROD-MEDIUM-009
 
 **Title:** `recordTreatmentApplication` and `closeEscapeIncident` mutations have no caller on any
@@ -655,7 +755,7 @@ unclosable
 **State:** OPEN
 **Raised as:** `DB-FARMPROD-MEDIUM-009` by `db-audit-farm-production` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -710,6 +810,30 @@ mutation shipped with no client operation fails CI.
 
 farm-expert TEACHER → frontend-expert WRITER mode for the aquamobil \+ farm-module surfaces
 
+**Verifier note:**
+
+Verified. apps/farm-service/src/fish-health/resolvers/field-capture.resolver.ts:137 is
+`async recordTreatmentApplication(` and :185 is `async closeEscapeIncident(` — both line numbers
+match exactly. A repo-wide grep for both mutation names over `*.ts/*.tsx/*.graphql/*.gql` returns
+exactly four files: the resolver, apps/farm-service/schema.graphql:7180,7194,
+apps/farm-service/src/common/authz/permission-matrix.ts:41,159 and
+web/shared-ui/src/generated/graphql-types.ts. No page, hook or operation document in
+web/modules/farm-module or web/apps/aquamobil references either.
+web/apps/aquamobil/src/pwa/operation-registry.ts:199-222 ships only recordLiceCount,
+recordWelfareAssessment and recordEscapeIncident, as claimed. The four list queries
+(field-capture.resolver.ts:60 liceCounts, :76 treatmentApplications, :91 welfareAssessments, :107
+escapeIncidents) likewise have zero frontend consumers — grep over web/ excluding generated returns
+nothing. lakselus.assembler.ts:121 is
+inside the report
+assembly, so the behandlinger section reads a table that has no capture surface and can only be
+empty. Every evidence bullet holds. MEDIUM is the right band: no data corruption or tenant leak, but
+a shipped, permission-matrixed, schema-exposed regulatory write path with no client, and escape
+incidents that can never leave their open status.
+
+```text
+treatments: await this.queryTreatments(qr, tenantId, siteId, fromDate, toDate),
+```
+
 ### LOW
 
 ### DB-FARMPROD-LOW-010
@@ -721,7 +845,7 @@ farm-expert TEACHER → frontend-expert WRITER mode for the aquamobil \+ farm-mo
 **State:** OPEN
 **Raised as:** `DB-FARMPROD-LOW-010` by `db-audit-farm-production` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -766,6 +890,29 @@ future readers to trust them.
 
 farm-expert WRITER mode
 
+**Verifier note:**
+
+Verified line-for-line. harvest-record.entity.ts line numbers all match the claim: minWeight:415,
+maxWeight:419, sizeDistribution:427, qualityControl:474, qualityApproved:478, yieldCalculation:494,
+shipment:502, approvedBy:568, approvedAt:572, attachments:580; methods approveQuality:605,
+prepareForShipment:615, calculateYield:646. create-harvest-record.handler.ts:305-344 creates the
+HarvestRecord with only
+tenantId/recordCode/lotNumber/batchId/tankId/harvestPlanId/status/harvestDate/operation/method/quantityHarvested/totalBiomass/averageWeight/productForm/qualityClass/lotInfo/supervisorId/notes/totalRevenue/currency,
+plus customerDeliveries — none of the ten columns. I additionally checked the update path the
+claimer did not cite: update-harvest-record.handler.ts's UPDATABLE_FIELDS whitelist covers only
+status, quantityHarvested, totalBiomass, averageWeight, method, productForm, totalRevenue,
+harvestCost, currency, mortalityDuringHarvest, rejectedQuantity, rejectionReason, notes (+
+qualityClass), so it is not a hidden writer either — even though
+update-harvest-record.input.ts:135-145 declares qualityApproved/qualityApprovedBy/qualityApprovedAt.
+Neither create- nor update-harvest-record.input.ts declares sizeDistribution, qualityControl,
+yieldCalculation, shipment, attachments, minWeight or maxWeight. Repo-wide grep for
+approveQuality/prepareForShipment/calculateYield finds only the entity definitions (the sole
+markDelivered hits elsewhere are alert-engine's unrelated notification-dispatcher).
+list-harvests.handler.ts:118-119 does filter on the permanently-false qualityApproved column. Real
+dead-column/dead-method hygiene defect; LOW is correct since nothing reads the jsonb columns and
+produces a wrong answer — the only user-visible effect is a filter that always returns the empty
+set.
+
 ### DB-FARMPROD-LOW-011
 
 **Title:** `water_quality_measurements.alertRuleId`, `.alertIncidentId` and `.sensorInfo` are
@@ -776,7 +923,7 @@ declared and GraphQL-exposed but never written
 **State:** OPEN
 **Raised as:** `DB-FARMPROD-LOW-011` by `db-audit-farm-production` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -820,6 +967,23 @@ apps/farm-service/src/water-quality/entities/water-quality-measurement.entity.ts
 
 farm-expert WRITER mode; alert-engine-expert consulted on the correlation contract
 
+**Verifier note:**
+
+Verified. water-quality-measurement.entity.ts:305 `alertRuleId?: string;`, :309
+`alertIncidentId?: string;`, :317 `sensorInfo?: SensorInfo;` — exact line matches, and all three
+carry @Field so they are GraphQL-exposed. water-quality.service.ts:301-303 persists
+relatedSensorReadingId and hasAlarm: false, and the post-evaluation block only sets
+overallStatus/summary/hasAlarm. water-quality.service.ts:340 is exactly
+`if (saved.hasAlarm && saved.summary?.evaluations) {`, the alarm fan-out, and it enqueues the outbox
+event without stamping any rule/incident id back. A grep for the three names across
+apps/farm-service/src finds no assignment anywhere — the only other hits are the Baseline migration
+DDL, archived migrations, and the unrelated health_events.alertIncidentId (which IS settable via
+create/update-health-event.input.ts, matching the report's own inventory note). One nuance the
+claimer's fix direction gets wrong: the rule/incident ids are minted in alert-engine, so 'stamp them
+back in the same transaction' is not actually available to farm-service; that affects the remedy,
+not the defect. Three declared, indexed, GraphQL-exposed columns with no writer is a real hygiene
+defect at LOW.
+
 ### DB-FARMPROD-LOW-012
 
 **Title:** `BatchTanksTab` promises a per-tank allocation list with no durable read path, and defers
@@ -830,7 +994,7 @@ the gap in a comment with no owner, deadline or finding ID
 **State:** OPEN
 **Raised as:** `DB-FARMPROD-LOW-012` by `db-audit-farm-production` in cycle
 `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -873,6 +1037,32 @@ the deferral comment into a tracked finding with owner and deadline, or delete i
 **Expected closer:**
 
 farm-expert WRITER mode (backend field) \+ frontend-expert (tab render)
+
+**Verifier note:**
+
+Verified, with one sub-bullet overstated. BatchTanksTab.tsx:4 reads 'Renders the batch's current
+tank allocations \+ the action button' and :7-11 admits 'The list itself reads from
+`batch.currentQuantity` ... (would need a `batch.tankAllocations` field on the Batch GraphQL type)
+... the detailed allocation list lands as part of PR-2/PR-3' — verbatim match. :31 is
+— exact. The tab's own subtitle promises 'Bu partinin tanklara dağılımı' but renders only three
+batch-global tiles (İlk Stok Adet / Mevcut Adet / Mevcut Biyokütle), so the promised per-tank list
+genuinely does not exist. batch.controller.ts:414-421 is the REST-only `@Get(':id/allocations')` and
+a grep over web/ finds no client calling it; batch.resolver.ts:608 is
+`@ResolveField(() => [BatchLocation], { name: 'locations' })` and I independently confirmed no code
+anywhere in apps/farm-service saves a BatchLocation row (only reads: fcr-calculation.service.ts:147,
+get-batch-traceability.handler.ts:130, the DataLoader), so that relation is permanently empty. I
+also checked the deferral target: docs/plans/2026-04-24-deferred-items/scope-c-frontend.md:129-130
+defines PR-2 as updateBatch and PR-3 as feed-assignment edit/delete — neither covers the allocation
+list, so the comment defers to plan phases that do not contain the work, which is exactly the
+untracked-deferral the claim alleges. Overstated: 'a batch-global count presented as per-tank
+availability' — the value is passed as the prop `availableBatchQuantity` into
+AllocateBatchToTankModal, a batch-level name, is never rendered as per-tank availability, and
+TankCapacityService rejects over-allocation server-side; and 'no durable read path' is imprecise
+since tank_allocations is written and readable over REST. Real but cosmetic/narrow — LOW stands.
+
+```text
+function estimateAvailableForAllocation(batch: Batch): number { return Math.max(0, batch.currentQuantity); }
+```
 
 ## Inventory — what exists / what is missing
 

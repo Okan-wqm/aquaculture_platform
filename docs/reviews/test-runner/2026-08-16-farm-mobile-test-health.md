@@ -2,13 +2,14 @@
 
 **Agent:** `test-runner` · **Mode:** CATCHER (read-only) · **Lane:** farm
 **Cycle:** `2026-08-16-farm-mobile-agent-audit` · **Verdict:** BLOCK
-**Findings surviving verification:** 11 (CRITICAL 0 · HIGH 4 · MEDIUM 6 · LOW 1)
+**Findings surviving verification:** 11 (CRITICAL 0 · HIGH 4 · MEDIUM 3 · LOW 4)
 
-> Produced by a 27-agent audit workflow. Every CRITICAL/HIGH claim was handed to an
-> independent verifier instructed to **refute** it by reopening each cited line;
-> claims that could not be defended were dropped into the Refuted section below.
-> MEDIUM/LOW claims did not enter the verify stage and carry the raising agent's
-> confidence only.
+> Produced by a 27-agent audit workflow, then verified by a second 25-agent pass.
+> **Every** claim — CRITICAL through LOW — was handed to an independent verifier
+> instructed to **refute** it by reopening each cited line, with "refuted" as the
+> default when the evidence did not clearly hold. Claims that could not be defended
+> were dropped into the Refuted section below; claims that proved smaller or larger
+> than filed carry a corrected severity.
 >
 > **Finding IDs** use the `TEST-*` prefix this agent's contract in
 > `.claude/shared/output-format.md` assigns it. That prefix is **rejected** by the
@@ -64,10 +65,15 @@ functions.
 **Title:** AquaMobil PWA has 66 spec files and no CI execution path — the offline-first suite never
 runs
 
-**Severity:** HIGH (raised as CRITICAL, downgraded by adversarial verification)
+**Severity:** HIGH (filed as CRITICAL, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
-**Raised as:** `TEST-CRITICAL-001` by `test-runner` in cycle `2026-08-16-farm-mobile-agent-audit`
+**Raised as:**
+
+```text
+TEST-CRITICAL-001` by `test-runner` in cycle `2026-08-16-farm-mobile-agent-audit
+```
+
 **Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
@@ -139,10 +145,15 @@ postinstall also exist.
 **Title:** ci-affected.yml `test:invariant` gate resolves to zero projects — permanently green no-op
 whose comment claims the opposite
 
-**Severity:** HIGH (raised as CRITICAL, downgraded by adversarial verification)
+**Severity:** HIGH (filed as CRITICAL, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
-**Raised as:** `TEST-CRITICAL-002` by `test-runner` in cycle `2026-08-16-farm-mobile-agent-audit`
+**Raised as:**
+
+```text
+TEST-CRITICAL-002` by `test-runner` in cycle `2026-08-16-farm-mobile-agent-audit
+```
+
 **Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
@@ -197,7 +208,6 @@ match is `test:invariants` (plural), on a project whose package.json sets
 `"nx": {"includedScripts": []}`, so Nx infers no target from it. aquamobil declares no
 `test:invariant` script and has no project.json. scripts/ci/affected-target-policy.sh:124-127
 verified verbatim:
-`if [[ ! -s "$STRICT_PROJECT_LIST" ]]; then echo "No strict $TARGET projects remain..."; exit 0; fi`
 — and the early-exit at :86-102 also exits 0. The step is therefore unconditionally green. The guard
 it claims to run, `web/apps/aquamobil/src/pwa/**tests**/sw-build-artifact.invariant.spec.ts` (real
 vite build asserting dist/messaging-sw.js retains sync/notificationclick/LOGOUT handlers), is
@@ -207,6 +217,10 @@ browser-undrivable closed-app replay lane. Severity corrected `CRITICAL->HIGH`: 
 CI step with a comment asserting coverage is genuine false assurance, but it is the same root cause
 as TEST-CRITICAL-001 (aquamobil has no test targets at all) and produces no direct production
 failure.
+
+```text
+if [[ ! -s "$STRICT_PROJECT_LIST" ]]; then echo "No strict $TARGET projects remain..."; exit 0; fi
+```
 
 ### TEST-HIGH-004
 
@@ -280,11 +294,14 @@ DeleteFinanceEntryHandler, UpdateFinanceSettingsHandler), the water-quality set
 (ListCriticalWaterQualityHandler, GetTankWaterQualityStatisticsHandler) and TransferStockHandler all
 verified untested. apps/farm-service/src/storage/handlers/transfer-stock.handler.ts is 209 lines and
 does exactly what is claimed: idempotency-key replay lookup (:48-53), dual
-`siteAuth.assertSiteAssignment` on both legs (:83-84), and a `lock: { mode: 'pessimistic_write' }`
 in-transaction inventory read (:96-107). Resolver figure is off by one in the claimer's
 favour-of-caution: 51 @Resolver classes, 45 (not 46) untested, and 39 (not 45) of those untested
 ones carry @UseGuards. Severity HIGH sustained — the arithmetic imprecision does not change the
 finding.
+
+```text
+siteAuth.assertSiteAssignment` on both legs (:83-84), and a `lock: { mode: 'pessimistic_write' }
+```
 
 ### TEST-HIGH-005
 
@@ -359,7 +376,7 @@ specs, none of which reference the feeding services either. HIGH sustained.
 **Title:** farm-service `test:integration` target is invoked by zero workflows — the
 CLAUDE.md-mandated tenant-schema-routing spec and 8 postgres tenant-isolation specs never run
 
-**Severity:** MEDIUM (raised as HIGH, downgraded by adversarial verification)
+**Severity:** MEDIUM (filed as HIGH, downgraded by adversarial verification)
 **Layer:** 3
 **State:** OPEN
 **Raised as:** `TEST-HIGH-003` by `test-runner` in cycle `2026-08-16-farm-mobile-agent-audit`
@@ -438,110 +455,6 @@ tsconfig.spec.json for systemic domain-model drift (84 type errors), so they are
 silently-regressing coverage. MEDIUM: dead test target and stale live-DB specs, with the
 load-bearing invariant already gated.
 
-### TEST-MEDIUM-006
-
-**Title:** tsconfig.spec.json excludes the migration specs on a factually false premise, so they run
-under jest but escape the strict tsc gate
-
-**Severity:** MEDIUM
-**Layer:** 1
-**State:** OPEN
-**Raised as:** `TEST-MEDIUM-006` by `test-runner` in cycle `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
-
-**Evidence:**
-
-- apps/farm-service/tsconfig.spec.json:23-27 — exclude block with the comment "These specs import
-  deleted migration classes by design and are kept only as archaeological context"
-- `apps/farm-service/src/database/migrations/**tests**/` — all 10 specs exist and every migration
-  class they import is present on disk (verified 11/11 present:
-  1800400000000-CreateFarmStockReadModel … 1808000000000-AddSatelliteCoverageProvenance)
-- apps/farm-service/jest.config.ts:12-22 — the unit config deliberately does NOT ignore that
-  directory, with a note that excluding it is "exactly why the unguarded ALTER TYPE that took
-  production down on 2026-06-17 shipped untested (ORPHAN-MEDIUM-132)"
-- package.json — `gates:type-check-spec` runs a second full tsc pass over spec sources; the exclude
-  block removes these 10 files from it
-
-**Rule violated:**
-
-CLAUDE.md Code Quality Standards (no compat shims / stale escapes) and agent Domain Rule 1
-(tsconfig.spec.json must extend base correctly); the two configs make contradictory claims about the
-same directory
-
-**Proposed fix direction:**
-
-Delete the exclude entry — its stated justification is no longer true, so it is now an unreviewed
-hole in the type gate. Add an invariant asserting that every path excluded from a tsconfig.spec.json
-either does not exist or carries a live finding ID, so a stale exclusion cannot silently outlive its
-reason. Also re-check `src/**tests**/e2e/code-sequences-schema-alignment.postgres.spec.ts`, the
-other entry in the same block.
-
-**Affected surface (ripple set):**
-
-- `apps/farm-service/tsconfig.spec.json`
-- `tools/gates/type-check-spec.ts`
-- `tests/invariants/ (new tsconfig-exclusion-liveness invariant)`
-
-**Expected closer:**
-
-test-runner WRITER mode; build-validator to confirm the tsc pass stays green
-
-### TEST-MEDIUM-007
-
-**Title:** No mutation testing and no jest/expect-expect rule anywhere — the coverage floor cannot
-be shown to be honest
-
-**Severity:** MEDIUM
-**Layer:** 2
-**State:** OPEN
-**Raised as:** `TEST-MEDIUM-007` by `test-runner` in cycle `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
-
-**Evidence:**
-
-- Repo-wide search for `stryker` in package.json and `.github/workflows/*.yml` returns nothing; no
-  `stryker.conf*` file exists
-- package.json devDependencies contain no eslint-plugin-jest, eslint-plugin-vitest,
-  eslint-plugin-testing-library or eslint-plugin-playwright
-- eslint.config.mjs:598-606 — the TEST_FILE_GLOBS override turns OFF no-explicit-any and
-  unbound-method for specs and adds no jest ruleset, so an assertion-free test lints clean
-  closing a test titled "should verify all handlers use pessimistic lock pattern"; nothing detects
-  it
-
-  ```text
-  apps/farm-service/src/**tests**/e2e/race-conditions.spec.ts:473` — `expect(true).toBe(true)
-  ```
-
-- tools/quality/service-coverage-baselines.json:20-25 — the farm-service floor is enforced as a
-  number with no honesty metric behind it
-
-**Rule violated:**
-
-Agent Domain Rule 3 (jest/expect-expect MUST be enabled) and Domain Rule 4 (mutation testing
-mandatory on CQRS handlers, guards, billing math, tenant predicates; track mutation_score /
-line_coverage)
-
-**Proposed fix direction:**
-
-Add eslint-plugin-jest with expect-expect at error inside the existing TEST_FILE_GLOBS block —
-cheap, immediate, and it retires the assertion-free class permanently. Then introduce Stryker as a
-scheduled nightly job (never a per-PR gate) with coverageAnalysis: 'perTest', scoped initially to
-the site-authorization handlers, the finance aggregation handlers and the feeding calculators, and
-publish the mutation_score/line_coverage ratio alongside the coverage baseline so the 20.39% floor
-in TEST-HIGH-004 gains a quality dimension rather than just a quantity one.
-
-**Affected surface (ripple set):**
-
-- `package.json (devDependencies)`
-- `eslint.config.mjs:598-606`
-- `tools/lint-gates/lint-gates.spec.ts (baseline parity)`
-- `.github/workflows/ (new nightly mutation job)`
-- `tools/quality/service-coverage-baselines.json`
-
-**Expected closer:**
-
-test-runner WRITER mode for the lint rule; infra-expert for the nightly job
-
 ### TEST-MEDIUM-008
 
 **Title:** 19 projects including farm-service are quarantined out of the affected test lane with no
@@ -551,7 +464,7 @@ owner, deadline or finding ID
 **Layer:** 3
 **State:** OPEN
 **Raised as:** `TEST-MEDIUM-008` by `test-runner` in cycle `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -598,6 +511,25 @@ indistinguishable from deleted coverage.
 
 infra-expert WRITER mode; context-manager to register the per-project debt findings
 
+**Verifier note:**
+
+Confirmed on every point. scripts/ci/affected-target-policy.json targets.test.knownUnstableProjects
+spans lines 55-73 and contains exactly 19 entries, with farm-service at :64 carrying the bare string
+'CI run 26116890061: existing unit-test debt...' — no owner, no deadline, no finding ID; both
+`hr-module` (:73) and `@aquaculture/hr-module` (:55) are present, confirming hand-maintained drift;
+farm-service is separately lint-quarantined at :29.
+scripts/ci/write-affected-target-report.mjs:55-61 is exactly as described — a project matched in
+knownUnstable is pushed to quarantinedProjects and never appended to strictProjects, and only a
+::warning is emitted, so ci-affected.yml:412 never executes it. I checked for a gate that would
+refute this: tests/invariants/lint-quarantine-ssot.spec.ts enforces reasons, a MAX_EXCLUSIONS
+ceiling and Nx-existence only for the FULL-lane lint list (scripts/ci/lint-all-exclusions.json) and
+only reads targets.lint.knownUnstableProjects; tests/invariants/admin-route-contract-ci.spec.ts:54
+asserts emptiness only for targets['test:contract']. Nothing constrains the 19-entry test quarantine
+— no expiry, no ID, no size cap. The ci-full mitigation is genuine (ci-full.yml:19
+pull_request→main, :211-212 `npm run test:all -- --coverage`, and test:all is
+`nx run-many --target=test --all`), but the claim already discloses it, and the process violation
+plus a drifting, clock-less list stands. MEDIUM as filed.
+
 ### TEST-MEDIUM-009
 
 **Title:** The farm tenant-isolation invariant scans only `*.handler.ts` findOne/find — services,
@@ -607,7 +539,7 @@ resolvers and dataloaders are outside its reach
 **Layer:** 2
 **State:** OPEN
 **Raised as:** `TEST-MEDIUM-009` by `test-runner` in cycle `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -650,16 +582,179 @@ current specs can observe.
 
 multi-tenant-saas-expert WRITER mode; test-runner CATCHER re-verify
 
+**Verifier note:**
+
+Verified line by line. tests/invariants/farm-service-tenant-isolation.spec.ts walkHandlerFiles
+(53-67) admits only files ending `.handler.ts` (filter at :61, one line off the cited :60) and skips
+**tests**; isRepoCall at :108-115 matches only findOne/findOneBy/findBy/find on
+`*Repository/*Repo/queryRunner.manager/dataSource.manager` — grep for 'createQueryBuilder' in that
+file returns zero hits, so builder chains are invisible. Counts reproduce: 117 repository `find*`
+calls in non-test `*.service.ts`, 99 createQueryBuilder sites in `*.handler.ts` and 40 in
+`*.service.ts` (139), 51 resolvers, 7 responders, 6 dataloaders, none scanned.
+libs/backend-common/src/database/tenant-scoped-repository.ts:420-425 does inject
+`alias.tenantId = :tenantId` and disables predicate resetters, exactly as cited. Two mitigations
+partly blunt the proposed fix — tests/invariants/no-direct-getrepository-call.spec.ts already
+implements the repo-wide 'raw getRepository is a violation' rule the claim proposes as new, and
+farm's per-tenant tables route via search_path — but the detection gap is real and not merely
+hypothetical: apps/farm-service/src/growth/services/fcr-calculation.service.ts injects a plain
+`Repository<Batch>` (:144) and does `findOne({ where: { id: batchId } })` (:620) with no tenantId,
+precisely the shape the handler invariant exists to catch, sitting in a file the scanner never
+opens. Not escalated above MEDIUM because Batch (@Entity('batches_v2'), no `schema:`) is per-tenant
+and search_path isolates it at runtime, so this is a missing detector, not a live leak.
+
+### LOW
+
+### TEST-MEDIUM-006
+
+**Title:** tsconfig.spec.json excludes the migration specs on a factually false premise, so they run
+under jest but escape the strict tsc gate
+
+**Severity:** LOW (filed as MEDIUM, downgraded by adversarial verification)
+**Layer:** 1
+**State:** OPEN
+**Raised as:** `TEST-MEDIUM-006` by `test-runner` in cycle `2026-08-16-farm-mobile-agent-audit`
+**Verification:** CONFIRMED by an independent refute-by-default verifier
+
+**Evidence:**
+
+- apps/farm-service/tsconfig.spec.json:23-27 — exclude block with the comment "These specs import
+  deleted migration classes by design and are kept only as archaeological context"
+- `apps/farm-service/src/database/migrations/**tests**/` — all 10 specs exist and every migration
+  class they import is present on disk (verified 11/11 present:
+  1800400000000-CreateFarmStockReadModel … 1808000000000-AddSatelliteCoverageProvenance)
+- apps/farm-service/jest.config.ts:12-22 — the unit config deliberately does NOT ignore that
+  directory, with a note that excluding it is "exactly why the unguarded ALTER TYPE that took
+  production down on 2026-06-17 shipped untested (ORPHAN-MEDIUM-132)"
+- package.json — `gates:type-check-spec` runs a second full tsc pass over spec sources; the exclude
+  block removes these 10 files from it
+
+**Rule violated:**
+
+CLAUDE.md Code Quality Standards (no compat shims / stale escapes) and agent Domain Rule 1
+(tsconfig.spec.json must extend base correctly); the two configs make contradictory claims about the
+same directory
+
+**Proposed fix direction:**
+
+Delete the exclude entry — its stated justification is no longer true, so it is now an unreviewed
+hole in the type gate. Add an invariant asserting that every path excluded from a tsconfig.spec.json
+either does not exist or carries a live finding ID, so a stale exclusion cannot silently outlive its
+reason. Also re-check `src/**tests**/e2e/code-sequences-schema-alignment.postgres.spec.ts`, the
+other entry in the same block.
+
+**Affected surface (ripple set):**
+
+- `apps/farm-service/tsconfig.spec.json`
+- `tools/gates/type-check-spec.ts`
+- `tests/invariants/ (new tsconfig-exclusion-liveness invariant)`
+
+**Expected closer:**
+
+test-runner WRITER mode; build-validator to confirm the tsc pass stays green
+
+**Verifier note:**
+
+Facts hold. apps/farm-service/tsconfig.spec.json:23-29 still carries an exclude block whose comment
+claims the specs "import deleted migration classes"; I listed
+`apps/farm-service/src/database/migrations/**tests**/` (10 specs) and grepped their imports — every
+migration class they import (1800400000000-CreateFarmStockReadModel,
+1800500000000-AssertFarmStockBatchSnapshotMetadata, 1801300000000, 1801700000000, 1801800000000,
+1806900000000, 1807000000000, 1807100000000, 1807200000000, 1807900000000, 1808000000000) exists on
+disk, so the stated premise is false. jest.config.ts:12-24 deliberately does NOT ignore that
+directory (explicit ORPHAN-MEDIUM-132 note), and package.json:157 gates:type-check-spec runs tsc -p
+tsconfig.spec.json, so the exclude does remove them from the strict gate (baseline apps/farm-service
+= 0 errors). Two mitigations the claimer missed cut the impact down: (1) I actually ran tsc over
+just those 10 specs with the exclude lifted (temp project, same compilerOptions) — 0 errors, so the
+hole hides nothing today and lifting it would not move the baseline; (2) ts-jest reads only
+compilerOptions, not `exclude`, so those specs are still type-checked under the same strict settings
+(tsconfig.base.json strict \+ noUncheckedIndexedAccess) whenever the farm-service jest target runs,
+which ci-full's `npm run test:all` does on every PR to main. Real but narrow: a stale,
+factually-wrong exclusion in one project's spec tsconfig with zero current type errors behind it,
+plus one genuinely dark file (`src/**tests**/e2e/code-sequences-schema-alignment.postgres.spec.ts`,
+also jest-ignored by the \.postgres\.spec\.ts$ pattern). LOW, not MEDIUM.
+
+### TEST-MEDIUM-007
+
+**Title:** No mutation testing and no jest/expect-expect rule anywhere — the coverage floor cannot
+be shown to be honest
+
+**Severity:** LOW (filed as MEDIUM, downgraded by adversarial verification)
+**Layer:** 2
+**State:** OPEN
+**Raised as:** `TEST-MEDIUM-007` by `test-runner` in cycle `2026-08-16-farm-mobile-agent-audit`
+**Verification:** CONFIRMED by an independent refute-by-default verifier
+
+**Evidence:**
+
+- Repo-wide search for `stryker` in package.json and `.github/workflows/*.yml` returns nothing; no
+  `stryker.conf*` file exists
+- package.json devDependencies contain no eslint-plugin-jest, eslint-plugin-vitest,
+  eslint-plugin-testing-library or eslint-plugin-playwright
+- eslint.config.mjs:598-606 — the TEST_FILE_GLOBS override turns OFF no-explicit-any and
+  unbound-method for specs and adds no jest ruleset, so an assertion-free test lints clean
+  closing a test titled "should verify all handlers use pessimistic lock pattern"; nothing detects
+  it
+
+  ```text
+  apps/farm-service/src/**tests**/e2e/race-conditions.spec.ts:473` — `expect(true).toBe(true)
+  ```
+
+- tools/quality/service-coverage-baselines.json:20-25 — the farm-service floor is enforced as a
+  number with no honesty metric behind it
+
+**Rule violated:**
+
+Agent Domain Rule 3 (jest/expect-expect MUST be enabled) and Domain Rule 4 (mutation testing
+mandatory on CQRS handlers, guards, billing math, tenant predicates; track mutation_score /
+line_coverage)
+
+**Proposed fix direction:**
+
+Add eslint-plugin-jest with expect-expect at error inside the existing TEST_FILE_GLOBS block —
+cheap, immediate, and it retires the assertion-free class permanently. Then introduce Stryker as a
+scheduled nightly job (never a per-PR gate) with coverageAnalysis: 'perTest', scoped initially to
+the site-authorization handlers, the finance aggregation handlers and the feeding calculators, and
+publish the mutation_score/line_coverage ratio alongside the coverage baseline so the 20.39% floor
+in TEST-HIGH-004 gains a quality dimension rather than just a quantity one.
+
+**Affected surface (ripple set):**
+
+- `package.json (devDependencies)`
+- `eslint.config.mjs:598-606`
+- `tools/lint-gates/lint-gates.spec.ts (baseline parity)`
+- `.github/workflows/ (new nightly mutation job)`
+- `tools/quality/service-coverage-baselines.json`
+
+**Expected closer:**
+
+test-runner WRITER mode for the lint rule; infra-expert for the nightly job
+
+**Verifier note:**
+
+Every factual leg checks out. Repo-wide grep for stryker across package.json and .github/workflows/
+returns nothing (only a docs/research path string inside tools/quality/format-scope.json);
+package.json has no eslint-plugin-jest / -vitest / -testing-library / -playwright; eslint.config.mjs
+override 14 (the TEST_FILE_GLOBS block at ~596-608) turns off no-explicit-any, unbound-method and
+no-console and adds no jest ruleset; grep for 'expect-expect' across the tree finds no rule, gate or
+invariant anywhere; and `apps/farm-service/src/**tests**/e2e/race-conditions.spec.ts:473` really is
+`expect(true).toBe(true)` closing the test titled 'should verify all handlers use pessimistic lock
+pattern'. tools/quality/service-coverage-baselines.json:20-25 does pin farm-service at functions
+20\.39 with no quality metric. Downgraded because this is the absence of two optional test-quality
+tools rather than a defect in shipped behaviour: the demonstrated harm is a single placeholder
+assertion in a spec that only runs in the integration/e2e lane, and mutation testing is proposed by
+the claim itself as a nightly non-gating job. Real and worth fixing (the eslint-plugin-jest half is
+trivial), but narrowly evidenced — LOW.
+
 ### TEST-MEDIUM-010
 
 **Title:** No Playwright config sets `trace`, and the E2E lane runs only after deploy — a failure
 produces no debuggable artifact and gates nothing pre-merge
 
-**Severity:** MEDIUM
+**Severity:** LOW (filed as MEDIUM, downgraded by adversarial verification)
 **Layer:** 2
 **State:** OPEN
 **Raised as:** `TEST-MEDIUM-010` by `test-runner` in cycle `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -700,7 +795,41 @@ the post-deploy run as an additional production smoke.
 
 infra-expert WRITER mode; frontend-expert to confirm the pre-merge harness
 
-### LOW
+**Verifier note:**
+
+Half true, half refuted — real but smaller than filed.
+
+WHAT HOLDS: I read all three configs in full. e2e/playwright.aquamobil.config.ts:30-35 has a `use`
+block with only `...devices['Pixel 7']`, `baseURL` and `serviceWorkers` — no trace/screenshot/video.
+e2e/playwright.config.ts:29-34 (`use` = baseURL \+ extraHTTPHeaders) and
+e2e/playwright.water-chemistry.config.ts:14-16 (`use` = baseURL only) likewise. grep for `trace`
+across `e2e/*.ts` returns nothing, and neither e2e/package.json scripts (test:mobile,
+test:water-chemistry, test:security) nor the workflow invocations pass --trace, so Playwright's
+`trace: 'off'` default is in force everywhere. This matters most for the water-chemistry lane, which
+DOES run pre-merge (.github/workflows/ci-affected.yml:525-570) and uploads e2e/playwright-report/**
+\+ e2e/test-results/** on failure (:578-587) — those artifacts would carry traces if the key were
+set. A one-line config gap with a real debugging cost.
+
+WHAT IS REFUTED: the second, more consequential half — 'the E2E lane runs only after deploy... gates
+nothing pre-merge' plus the fix direction 'promote the aquamobil lane to pre-merge with the existing
+served-instance harness'. The claimer missed
+docs/reviews/mobile-app-auditor/2026-07-12-aquamobil-e2e-audit.md:170-192 (MOB-MEDIUM-016 /
+MOB-HIGH-013), where exactly this was evaluated and deliberately rejected with recorded rationale:
+the water-chemistry job serves STATIC frontend builds only
+(e2e/scripts/serve-water-chemistry-shell.mjs — the page is a client-side calculation engine), while
+the mobile lane needs the full platform (Postgres, NATS, Redis, MinIO, gateway \+
+auth/farm/alert/messaging/ai) that no CI job provides for browser tests; post-deploy on the droplet
+was chosen because the full stack is already up there. The proposed fix is factually wrong about the
+harness it names. 'Gates nothing pre-merge' is also overbroad: ci-affected.yml:525 runs a pre-merge
+Playwright browser smoke.
+
+Also confirmed as stated: e2e-tests.yml:12-15 triggers are workflow_run on 'Deploy to DigitalOcean'
+\+ workflow_dispatch, :146 runs `npm run test:mobile`, and reports are uploaded at :164-175. Grep
+confirms only e2e-tests.yml and ci-affected.yml reference Playwright at all.
+
+Net: keep the trace gap as LOW (debuggability-only, config one-liner, reports already uploaded so
+failures are not invisible); the MEDIUM rating rested on the gating argument, which does not
+survive.
 
 ### TEST-LOW-011
 
@@ -710,7 +839,7 @@ infra-expert WRITER mode; frontend-expert to confirm the pre-merge harness
 **Layer:** 1
 **State:** OPEN
 **Raised as:** `TEST-LOW-011` by `test-runner` in cycle `2026-08-16-farm-mobile-agent-audit`
-**Verification:** not adversarially verified (only CRITICAL/HIGH claims entered the verify stage)
+**Verification:** CONFIRMED by an independent refute-by-default verifier
 
 **Evidence:**
 
@@ -746,6 +875,41 @@ to 50% of the runner.
 **Expected closer:**
 
 test-runner WRITER mode
+
+**Verifier note:**
+
+Verified; LOW is the right severity.
+
+Assertion-free test: `apps/farm-service/src/**tests**/e2e/race-conditions.spec.ts:461-474` is
+exactly as described — `it('should verify all handlers use pessimistic lock pattern', () => {` whose
+body is a 6-item comment block closed by `expect(true).toBe(true);` at :473.
+`grep -rn "expect(true).toBe(true)" apps/farm-service/src` returns this one hit only, so the
+'exactly ONE' count holds.
+
+Dead lane confirmed independently: apps/farm-service/jest.config.ts:15 ignores
+`<rootDir>/src/**tests**/e2e/`, so the unit suite skips it. The only config matching it is
+apps/farm-service/jest.integration.config.ts:10
+('`<rootDir>/src/**tests**/e2e/race-conditions.spec.ts`'), driven by the test:integration target at
+apps/farm-service/project.json:47-55 — and package.json:28 test:all is
+`nx run-many --target=test --all` (target `test` only), which is what
+.github/workflows/ci-full.yml:210 runs. No workflow invokes test:integration. So the placeholder
+neither passes nor fails today, which is exactly why this is LOW and not higher.
+
+restoreMocks: jest.preset.js is 25 lines and sets
+testMatch/transform/resolver/moduleFileExtensions/coverageReporters/collectCoverageFrom only — no
+restoreMocks, clearMocks, resetMocks or maxWorkers. I also read the upstream it spreads,
+node_modules/@nx/jest/preset/jest-preset.js, which sets none of them either, so nothing supplies
+them behind the scenes. apps/farm-service/jest.config.ts sets none and has no setup file. The repo
+already treats this as the correct default elsewhere: apps/auth-service/jest.config.ts:16-22 sets
+restoreMocks:true \+ clearMocks:true with resetMocks:false and a comment explaining the split — a
+direct precedent farm-service does not follow. maxWorkers is likewise set in
+apps/farm-service/jest.e2e.config.ts:11 and jest.integration.config.ts:17 but not in the unit
+config.
+
+One inaccuracy in the claim's rationale, not enough to refute: 'spy state cannot accumulate across
+the 308-file farm-service suite' overstates it — Jest gives each test file its own module registry,
+so spy leakage is within-file, not cross-file. The hygiene gap and the auth-service precedent are
+still real.
 
 ## Inventory — what exists / what is missing
 

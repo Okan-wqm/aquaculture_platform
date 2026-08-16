@@ -1,7 +1,8 @@
+import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import assert from 'node:assert/strict';
+
 import { analyzeTypeOrmEntities } from './typeorm-entity-schema-adapter';
 
 const workspace = mkdtempSync(join(tmpdir(), 'aria-typeorm-adapter-'));
@@ -175,8 +176,6 @@ writeFileSync(
         { schema: 'farm', name: 'missing_schema_entities', columns: [] },
       ],
     },
-    null,
-    2,
   ),
   'utf8',
 );
@@ -329,4 +328,4 @@ assert.deepEqual(
   ['typeorm_entity_schema_required'],
 );
 
-console.log('typeorm-entity-schema-adapter tests passed');
+process.stdout.write('typeorm-entity-schema-adapter tests passed\n');

@@ -11,6 +11,7 @@
 //     is imported statically in module source, which welds it into the
 //     initial chunk; the fix is a dynamic `import()` at the use site.
 import { dirname, join, relative } from 'node:path';
+
 import {
   collectFiles,
   filterFilesBySnapshot,
@@ -194,8 +195,12 @@ function readStdin(): Promise<string> {
   return new Promise((resolvePromise, reject) => {
     let input = '';
     process.stdin.setEncoding('utf8');
-    process.stdin.on('data', (chunk) => {
-      input += chunk;
+    // setEncoding('utf8') makes every chunk a string at runtime, but the
+    // stream's declared chunk type stays `string | Buffer` — concatenating the
+    // union is what the type checker rejects. Narrow at the boundary rather
+    // than widening `input` (kernel-dead-wire-adapter is the converged shape).
+    process.stdin.on('data', (chunk: string | Buffer) => {
+      input += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
     });
     process.stdin.on('end', () => resolvePromise(input));
     process.stdin.on('error', reject);

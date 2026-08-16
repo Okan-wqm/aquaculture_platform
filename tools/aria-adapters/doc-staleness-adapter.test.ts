@@ -1,7 +1,8 @@
+import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import assert from 'node:assert/strict';
+
 import { analyzeDocStaleness } from './doc-staleness-adapter';
 
 const workspace = mkdtempSync(join(tmpdir(), 'aria-doc-staleness-'));
@@ -25,7 +26,7 @@ writeFileSync(
 
 const output = analyzeDocStaleness({}, workspace);
 
-assert.equal(output.findings.length, 1, JSON.stringify(output.findings, null, 2));
+assert.equal(output.findings.length, 1, JSON.stringify(output.findings));
 const [finding] = output.findings;
 assert.equal(finding.rule, 'doc_references_missing_path');
 assert.equal(finding.path, 'docs/runbooks/ops.md');
@@ -33,4 +34,4 @@ assert.equal(finding.line, 4);
 assert.ok(finding.message.includes('deleted.service.ts'));
 assert.equal(output.observations[0].details?.missingRefs, 1);
 
-console.log('doc-staleness-adapter tests passed');
+process.stdout.write('doc-staleness-adapter tests passed\n');

@@ -44378,6 +44378,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/aria-adapters/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/aria-adapters/security-boundary-adapter.test.ts",
       "prettier_managed": true
     },

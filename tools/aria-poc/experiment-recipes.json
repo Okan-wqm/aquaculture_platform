@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "description": "E21-b — THIS repository's experiment recipes, as data. The kernel's bench (aria_kernel.experiment) knows no language and no product noun; every domain-shaped value the bench will ever execute lives in this file. Adding a recipe is an edit here, never a kernel change. tools/aria-poc/invariants/test_experiment_recipes_manifest.py proves each command below is executable by aria_kernel.validation.parse_allowed_command, so a recipe this lane would refuse cannot reach a nightly.",
+  "recipes": [
+    {
+      "recipe_id": "recipe-nx-test-backend-common",
+      "command": "npx nx run-many --target=test --projects=backend-common --skip-nx-cache --output-style=stream",
+      "timeout_ms": 900000,
+      "deterministic": true,
+      "description": "The backend-common Jest suite. It contains ORPHAN-HIGH-691's two regression specs (database-logging-resolution.spec.ts and source-schema-scanner-coverage.spec.ts, both added by commit b222dab17), so this recipe is a solution-experiment against a finding that actually landed rather than a synthetic green. Written as run-many because aria_kernel.validation admits `npx nx affected` and `npx nx run-many` only; `npx nx test <project>` is refused by the lane. --skip-nx-cache is mandatory: a cached replay records a green exit code without executing a single test, so an experiment that may be answered from the cache measures the cache and not the tree. --output-style=stream is mandatory for its sibling reason: measured on this repository, nx's default non-TTY renderer wrote 63 KB of a 161 KB run into the captured stream and cut it mid-escape-sequence, losing the Jest summary and 80 of the 124 suite results — so the hash-bound log, which is what verify_validation_run re-checks and what any log_contains comparator would read, was evidence of a run nobody could reconstruct. Streamed, the log carries all 124 suites, `Tests: 1369 passed` and both ORPHAN-691 specs."
+    },
+    {
+      "recipe_id": "recipe-cargo-check-alarm-core",
+      "command": "cargo check -p alarm-core",
+      "timeout_ms": 600000,
+      "deterministic": true,
+      "description": "The Rust lane's first real recipe. alarm-core is the crate sens-api-gateway/Cargo.toml consumes by path (alarm-core = { path = \"../crates/alarm-core\" }) — the drift-zero alarm decision core shared by the Rust edge agent and the TypeScript SCADA runtime. It is chosen over the edge agent's own package (suderra-agent) because alarm-core declares zero normal dependencies, so `cargo check -p alarm-core` compiles one crate and nothing else; checking suderra-agent would compile tokio-full, reqwest, rustls and rumqttc and grow target/ by gigabytes on a host that has hit 100% disk."
+    }
+  ],
+  "experiments": [
+    {
+      "experiment_id": "exp-orphan-691-regression-suite-green",
+      "hypothesis": "ORPHAN-HIGH-691's regression specs still pass on this tree, so the source-schema-scanner coverage fix and the DATABASE_LOGGING resolution are still enforced by tests rather than by memory.",
+      "recipe_ref": "recipe-nx-test-backend-common",
+      "observation_contract": {
+        "comparator": "exit_code_equals",
+        "expected": 0
+      }
+    },
+    {
+      "experiment_id": "exp-rust-lane-executes-a-recipe",
+      "hypothesis": "The same bench that runs a TypeScript recipe runs a Rust one with no kernel change — the domain lives in this manifest, so the alarm decision core type-checks through the identical validation-run path.",
+      "recipe_ref": "recipe-cargo-check-alarm-core",
+      "observation_contract": {
+        "comparator": "exit_code_equals",
+        "expected": 0
+      }
+    }
+  ]
+}

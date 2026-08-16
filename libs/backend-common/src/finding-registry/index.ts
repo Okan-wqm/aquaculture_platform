@@ -1,7 +1,20 @@
-export { FindingEntity } from './finding.entity';
-export { FindingRegistryService } from './finding-registry.service';
+export {
+  FINDING_EVENT_APPEND_LOCK_NAMESPACE,
+  FINDING_EVENT_TYPES,
+  FINDING_EVENT_ZERO_HASH,
+  FindingEventReplayError,
+  canonicalJson,
+  computeFindingEventHash,
+  replayFindingEvents,
+  replayFindingProjection,
+} from './finding-event';
 export type {
-  FindingStub,
-  VerifyResult,
-} from './finding-registry.service';
-export { FindingRegistryModule } from './finding-registry.module';
+  FindingCreatedPayload,
+  FindingEvent,
+  FindingEventPayloadMap,
+  FindingEventType,
+  FindingProjection,
+  FindingReplayResult,
+  FindingSeverity,
+  FindingState,
+} from './finding-event';

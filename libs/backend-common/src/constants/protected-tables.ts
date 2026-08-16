@@ -129,8 +129,9 @@ export const PROTECTED_TABLES = [
   'admin.audit_logs',
   'admin.impersonation_sessions',
 
-  // ── Findings registry (review trail) ──
-  'event_store.findings',
+  // ── Findings registry (immutable event ledger + cutover proof) ──
+  'event_store.finding_events',
+  'event_store.finding_ledger_parity_runs',
 ] as const;
 
 /**

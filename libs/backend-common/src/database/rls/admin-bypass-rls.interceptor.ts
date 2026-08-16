@@ -1,13 +1,9 @@
-import {
-  CallHandler,
-  ExecutionContext,
-  Injectable,
-  NestInterceptor,
-  Logger,
-} from '@nestjs/common';
+import { CallHandler, ExecutionContext, Injectable, NestInterceptor, Logger } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Observable, from } from 'rxjs';
+
 import { IS_PUBLIC_KEY } from '../../decorators/roles.decorator';
+
 import { BypassRlsService } from './bypass-rls.service';
 
 /**
@@ -89,10 +85,7 @@ export class AdminBypassRlsInterceptor implements NestInterceptor {
     private readonly reflector: Reflector,
   ) {}
 
-  intercept(
-    context: ExecutionContext,
-    next: CallHandler,
-  ): Observable<unknown> {
+  intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     // Build a stable, grep-friendly audit label. We use the contextType
     // ('http' | 'graphql' | 'rpc') so non-HTTP transports get a sane label
     // too — admin-api is HTTP-only today but the interceptor should not
@@ -129,7 +122,7 @@ export class AdminBypassRlsInterceptor implements NestInterceptor {
         return await new Promise<unknown>((resolve, reject) => {
           next.handle().subscribe({
             next: (value) => resolve(value),
-            error: (err) => reject(err),
+            error: (err: unknown) => reject(err instanceof Error ? err : new Error(String(err))),
           });
         });
       }),
@@ -141,10 +134,7 @@ export class AdminBypassRlsInterceptor implements NestInterceptor {
    * GraphQL, `<service>:<pattern>` for RPC. Falls back to a generic label
    * for unknown context types so the interceptor remains future-proof.
    */
-  private buildAuditLabel(
-    context: ExecutionContext,
-    contextType: string,
-  ): string {
+  private buildAuditLabel(context: ExecutionContext, contextType: string): string {
     if (contextType === 'http') {
       const req = context.switchToHttp().getRequest<{
         method?: string;

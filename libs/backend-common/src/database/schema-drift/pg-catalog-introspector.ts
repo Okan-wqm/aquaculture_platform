@@ -48,6 +48,8 @@
  */
 import type { QueryRunner } from 'typeorm';
 
+import { executeQueryRowsNormalized } from '../query-result-normalizer';
+
 /** One column within a table. */
 export interface IntrospectedColumn {
   readonly name: string;
@@ -208,10 +210,7 @@ export interface SchemaSnapshot {
  * @param qr       Active TypeORM QueryRunner against the DB under test.
  * @param schema   Exact schema name (e.g. 'hr'). No wildcards.
  */
-export async function introspectSchema(
-  qr: QueryRunner,
-  schema: string,
-): Promise<SchemaSnapshot> {
+export async function introspectSchema(qr: QueryRunner, schema: string): Promise<SchemaSnapshot> {
   const [
     tables,
     enums,
@@ -252,7 +251,8 @@ async function introspectTables(
   qr: QueryRunner,
   schema: string,
 ): Promise<readonly IntrospectedTable[]> {
-  const tableRows: Array<{ table_name: string }> = await qr.query(
+  const tableRows = await executeQueryRowsNormalized<{ table_name: string }>(
+    qr,
     `SELECT table_name
        FROM information_schema.tables
       WHERE table_schema = $1 AND table_type = 'BASE TABLE'
@@ -262,7 +262,7 @@ async function introspectTables(
 
   if (tableRows.length === 0) return [];
 
-  const colRows: Array<{
+  const colRows = await executeQueryRowsNormalized<{
     table_name: string;
     column_name: string;
     data_type: string;
@@ -270,7 +270,8 @@ async function introspectTables(
     character_maximum_length: number | null;
     ordinal_position: number;
     column_default: string | null;
-  }> = await qr.query(
+  }>(
+    qr,
     `SELECT table_name, column_name, data_type, is_nullable,
             character_maximum_length, ordinal_position, column_default
        FROM information_schema.columns
@@ -305,11 +306,12 @@ async function introspectEnums(
   qr: QueryRunner,
   schema: string,
 ): Promise<readonly IntrospectedEnum[]> {
-  const rows: Array<{
+  const rows = await executeQueryRowsNormalized<{
     type_name: string;
     label: string;
     sort_order: number;
-  }> = await qr.query(
+  }>(
+    qr,
     `SELECT t.typname AS type_name,
             e.enumlabel AS label,
             e.enumsortorder AS sort_order
@@ -338,11 +340,12 @@ async function introspectCheckConstraints(
   qr: QueryRunner,
   schema: string,
 ): Promise<readonly IntrospectedCheckConstraint[]> {
-  const rows: Array<{
+  const rows = await executeQueryRowsNormalized<{
     conname: string;
     table_name: string;
     definition: string;
-  }> = await qr.query(
+  }>(
+    qr,
     `SELECT c.conname,
             cls.relname AS table_name,
             pg_get_constraintdef(c.oid) AS definition
@@ -371,13 +374,14 @@ async function introspectPartialIndexes(
   qr: QueryRunner,
   schema: string,
 ): Promise<readonly IntrospectedPartialIndex[]> {
-  const rows: Array<{
+  const rows = await executeQueryRowsNormalized<{
     table_name: string;
     index_name: string;
     predicate: string;
     columns: string[] | null;
     definition: string;
-  }> = await qr.query(
+  }>(
+    qr,
     `SELECT cls.relname AS table_name,
             idx_cls.relname AS index_name,
             pg_get_expr(i.indpred, i.indrelid) AS predicate,
@@ -414,11 +418,12 @@ async function introspectExcludeConstraints(
   qr: QueryRunner,
   schema: string,
 ): Promise<readonly IntrospectedExcludeConstraint[]> {
-  const rows: Array<{
+  const rows = await executeQueryRowsNormalized<{
     conname: string;
     table_name: string;
     definition: string;
-  }> = await qr.query(
+  }>(
+    qr,
     `SELECT c.conname,
             cls.relname AS table_name,
             pg_get_constraintdef(c.oid) AS definition
@@ -448,7 +453,7 @@ async function introspectForeignKeyActions(
   qr: QueryRunner,
   schema: string,
 ): Promise<readonly IntrospectedForeignKeyAction[]> {
-  const rows: Array<{
+  const rows = await executeQueryRowsNormalized<{
     conname: string;
     table_name: string;
     columns: string[] | null;
@@ -458,7 +463,8 @@ async function introspectForeignKeyActions(
     on_update: string;
     deferrable: boolean;
     initially_deferred: boolean;
-  }> = await qr.query(
+  }>(
+    qr,
     `SELECT c.conname,
             cls.relname AS table_name,
             (SELECT array_agg(a.attname ORDER BY pos)
@@ -509,13 +515,14 @@ async function introspectGeneratedColumns(
   qr: QueryRunner,
   schema: string,
 ): Promise<readonly IntrospectedGeneratedColumn[]> {
-  const rows: Array<{
+  const rows = await executeQueryRowsNormalized<{
     table_name: string;
     column_name: string;
     attgenerated: string;
     attidentity: string;
     expression: string | null;
-  }> = await qr.query(
+  }>(
+    qr,
     `SELECT cls.relname AS table_name,
             a.attname AS column_name,
             a.attgenerated::text AS attgenerated,
@@ -538,12 +545,7 @@ async function introspectGeneratedColumns(
     // attgenerated takes precedence — a stored-generated column
     // cannot also be identity. When attgenerated is empty, fall
     // back to attidentity ('a' | 'd').
-    const kind: 's' | 'a' | 'd' =
-      r.attgenerated === 's'
-        ? 's'
-        : r.attidentity === 'a'
-          ? 'a'
-          : 'd';
+    const kind: 's' | 'a' | 'd' = r.attgenerated === 's' ? 's' : r.attidentity === 'a' ? 'a' : 'd';
     return {
       schema,
       tableName: r.table_name,
@@ -568,9 +570,12 @@ async function introspectHypertables(
   // namespace whose parent relation lives in the user's schema. Count
   // distinct parents.
   try {
-    const rows: Array<{ table_name: string; chunk_count: string }> =
-      await qr.query(
-        `SELECT parent_cls.relname AS table_name,
+    const rows = await executeQueryRowsNormalized<{
+      table_name: string;
+      chunk_count: string;
+    }>(
+      qr,
+      `SELECT parent_cls.relname AS table_name,
                 COUNT(*)::text AS chunk_count
            FROM pg_inherits i
            JOIN pg_class parent_cls ON parent_cls.oid = i.inhparent
@@ -583,8 +588,8 @@ async function introspectHypertables(
             AND child_ns.nspname = '_timescaledb_internal'
           GROUP BY parent_cls.relname
           ORDER BY parent_cls.relname`,
-        [schema],
-      );
+      [schema],
+    );
     return rows.map((r) => ({
       schema,
       tableName: r.table_name,
@@ -604,14 +609,15 @@ async function introspectRlsPolicies(
   qr: QueryRunner,
   schema: string,
 ): Promise<readonly IntrospectedRlsPolicy[]> {
-  const rows: Array<{
+  const rows = await executeQueryRowsNormalized<{
     table_name: string;
     policy_name: string;
     permissive: string;
     command: string;
     using_expr: string | null;
     with_check_expr: string | null;
-  }> = await qr.query(
+  }>(
+    qr,
     `SELECT cls.relname AS table_name,
             p.polname AS policy_name,
             p.polpermissive::text AS permissive,
@@ -629,8 +635,7 @@ async function introspectRlsPolicies(
     schema,
     tableName: r.table_name,
     policyName: r.policy_name,
-    permissive:
-      r.permissive === 't' || r.permissive === 'true' || r.permissive === '1',
+    permissive: r.permissive === 't' || r.permissive === 'true' || r.permissive === '1',
     command: r.command,
     usingExpr: r.using_expr,
     withCheckExpr: r.with_check_expr,

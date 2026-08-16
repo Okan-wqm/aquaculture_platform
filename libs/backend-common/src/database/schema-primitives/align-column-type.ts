@@ -42,11 +42,10 @@
  */
 import type { QueryRunner } from 'typeorm';
 
-import {
-  dropDependentPartialIndexes,
-  withDdlSafety,
-} from '../base-migration';
+import type { ClassConstructor } from '../../types/class-constructor';
+import { dropDependentPartialIndexes, withDdlSafety } from '../base-migration';
 import { getEncryptedAtRestMetadata } from '../encrypted-at-rest.decorator';
+import { executeQueryRowsNormalized } from '../query-result-normalizer';
 import { sql, type SqlFragment } from '../sql-fragments';
 
 export interface AlignColumnTypeSpec {
@@ -74,7 +73,7 @@ export interface AlignColumnTypeOptions {
   readonly schema: string;
   readonly table: string;
   readonly columns: readonly AlignColumnTypeSpec[];
-  readonly entity?: Function;
+  readonly entity?: ClassConstructor;
   readonly lockTimeoutMs?: number;
 }
 
@@ -145,11 +144,12 @@ export async function alignColumnType(
     },
     async () => {
       // Fetch current column types.
-      const currentRows: Array<{
+      const currentRows = await executeQueryRowsNormalized<{
         column_name: string;
         data_type: string;
         udt_name: string;
-      }> = await qr.query(
+      }>(
+        qr,
         `SELECT column_name, data_type, udt_name FROM information_schema.columns
           WHERE table_schema = $1 AND table_name = $2
             AND column_name = ANY($3::text[])`,
@@ -230,11 +230,7 @@ export async function alignColumnType(
  *     'character varying' ↔ 'varchar' prefix — conservative, may
  *     false-positive "skip" on edge cases. Refine as needed.
  */
-function typesMatch(
-  dataType: string,
-  udtName: string,
-  desired: string,
-): boolean {
+function typesMatch(dataType: string, udtName: string, desired: string): boolean {
   const desiredLower = desired.toLowerCase().trim();
   const dataTypeLower = dataType.toLowerCase();
   const udtLower = udtName.toLowerCase();

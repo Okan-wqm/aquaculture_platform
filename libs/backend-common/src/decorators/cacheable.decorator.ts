@@ -24,6 +24,7 @@
  */
 
 import { Logger } from '@nestjs/common';
+
 import { RedisService } from '../redis/redis.service';
 
 /**
@@ -42,11 +43,44 @@ interface CacheableService {
   cacheService?: RedisCacheService;
 }
 
+type CacheMethod = (this: CacheableService, ...args: unknown[]) => unknown;
+
+type CacheMethodDecorator = (
+  target: object,
+  propertyKey: string | symbol,
+  descriptor: PropertyDescriptor,
+) => PropertyDescriptor;
+
 /**
  * Get Redis service from a cacheable service instance
  */
 function getRedisService(instance: CacheableService): RedisCacheService | undefined {
   return instance.redisService || instance.redis || instance.cacheService;
+}
+
+function getCacheMethod(descriptor: PropertyDescriptor, decoratorName: string): CacheMethod {
+  const candidate: unknown = descriptor.value;
+  if (typeof candidate !== 'function') {
+    throw new TypeError(`${decoratorName} can only decorate methods`);
+  }
+  return candidate as CacheMethod;
+}
+
+function toError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+function cacheKeyScalar(value: unknown): string | undefined {
+  switch (typeof value) {
+    case 'string':
+      return value;
+    case 'number':
+    case 'bigint':
+    case 'boolean':
+      return String(value);
+    default:
+      return undefined;
+  }
 }
 
 export interface CacheableOptions {
@@ -87,9 +121,14 @@ const TENANT_EXEMPT_PREFIXES = ['system:', 'global:'];
  * Keys should contain 'tenant:' to indicate proper tenant scoping.
  * Keys starting with "system:" or "global:" are exempt.
  */
-function validateTenantKeyPattern(cacheKey: string, keyPattern: string, className: string, methodName: string): void {
+function validateTenantKeyPattern(
+  cacheKey: string,
+  keyPattern: string,
+  className: string,
+  methodName: string,
+): void {
   // Skip validation for exempt prefixes
-  if (TENANT_EXEMPT_PREFIXES.some(prefix => cacheKey.startsWith(prefix))) {
+  if (TENANT_EXEMPT_PREFIXES.some((prefix) => cacheKey.startsWith(prefix))) {
     return;
   }
 
@@ -100,8 +139,8 @@ function validateTenantKeyPattern(cacheKey: string, keyPattern: string, classNam
       warnedTenantKeys.add(warnKey);
       logger.warn(
         `Cache key "${cacheKey}" in ${className}.${methodName} is missing tenant namespace. ` +
-        `Multi-tenant cache keys should include "tenant:{tenantId}:" prefix to prevent cross-tenant data leakage. ` +
-        `If this is intentionally global, prefix with "system:" or "global:".`,
+          `Multi-tenant cache keys should include "tenant:{tenantId}:" prefix to prevent cross-tenant data leakage. ` +
+          `If this is intentionally global, prefix with "system:" or "global:".`,
       );
     }
   }
@@ -114,31 +153,36 @@ function validateTenantKeyPattern(cacheKey: string, keyPattern: string, classNam
  * Also supports object property access: "prefix:{0.tenantId}:{0.batchId}"
  */
 function interpolateKey(pattern: string, args: unknown[]): string {
-  return pattern.replace(/\{(\d+)(?:\.(\w+))?\}/g, (_, index, prop) => {
-    const argIndex = parseInt(index, 10);
-    const arg = args[argIndex];
+  return pattern.replace(
+    /\{(\d+)(?:\.(\w+))?\}/g,
+    (_match: string, index: string, prop: string | undefined): string => {
+      const argIndex = Number.parseInt(index, 10);
+      const arg = args[argIndex];
 
-    if (arg === undefined || arg === null) {
-      return 'null';
-    }
+      if (arg === undefined || arg === null) {
+        return 'null';
+      }
 
-    if (prop && typeof arg === 'object') {
-      const value = (arg as Record<string, unknown>)[prop];
-      return value !== undefined && value !== null ? String(value) : 'null';
-    }
+      if (prop && typeof arg === 'object') {
+        const value = (arg as Record<string, unknown>)[prop];
+        return cacheKeyScalar(value) ?? 'null';
+      }
 
-    // For objects without property access, use JSON hash or id
-    if (typeof arg === 'object') {
-      const obj = arg as Record<string, unknown>;
-      // Try common ID fields first
-      if (obj['id']) return String(obj['id']);
-      if (obj['tenantId']) return String(obj['tenantId']);
-      // Fallback to JSON hash (first 16 chars)
-      return JSON.stringify(arg).substring(0, 16);
-    }
+      // For objects without property access, use JSON hash or id
+      if (typeof arg === 'object') {
+        const obj = arg as Record<string, unknown>;
+        // Try common ID fields first
+        const id = cacheKeyScalar(obj['id']);
+        if (id !== undefined) return id;
+        const tenantId = cacheKeyScalar(obj['tenantId']);
+        if (tenantId !== undefined) return tenantId;
+        // Fallback to JSON hash (first 16 chars)
+        return (JSON.stringify(arg) ?? 'null').substring(0, 16);
+      }
 
-    return String(arg);
-  });
+      return cacheKeyScalar(arg) ?? 'null';
+    },
+  );
 }
 
 /**
@@ -150,18 +194,22 @@ function interpolateKey(pattern: string, args: unknown[]): string {
  */
 export function Cacheable(
   keyPattern: string,
-  ttlSeconds: number = 3600,
+  ttlSeconds = 3600,
   options: CacheableOptions = {},
-) {
+): CacheMethodDecorator {
   return function (
     target: object,
-    propertyKey: string,
+    propertyKey: string | symbol,
     descriptor: PropertyDescriptor,
-  ) {
-    const originalMethod = descriptor.value;
+  ): PropertyDescriptor {
+    const originalMethod = getCacheMethod(descriptor, '@Cacheable');
     const className = target.constructor.name;
+    const methodName = String(propertyKey);
 
-    descriptor.value = async function (this: CacheableService, ...args: unknown[]) {
+    descriptor.value = async function (
+      this: CacheableService,
+      ...args: unknown[]
+    ): Promise<unknown> {
       // Get RedisService from the class instance
       const redisService = getRedisService(this);
 
@@ -172,10 +220,10 @@ export function Cacheable(
           warnedClasses.add(className);
           logger.warn(
             `No RedisService found in ${className}. @Cacheable will execute without caching. ` +
-            `Ensure the service injects RedisService as 'redisService', 'redis', or 'cacheService'.`,
+              `Ensure the service injects RedisService as 'redisService', 'redis', or 'cacheService'.`,
           );
         }
-        return originalMethod.apply(this, args);
+        return await originalMethod.apply(this, args);
       }
 
       // Generate cache key
@@ -184,11 +232,11 @@ export function Cacheable(
         : interpolateKey(keyPattern, args);
 
       // Runtime validation: warn if cache key doesn't include tenant namespace
-      validateTenantKeyPattern(cacheKey, keyPattern, className, propertyKey);
+      validateTenantKeyPattern(cacheKey, keyPattern, className, methodName);
 
       try {
         // Try to get from cache
-        const cached = await redisService.getJson(cacheKey);
+        const cached = await redisService.getJson<unknown>(cacheKey);
 
         if (cached !== null) {
           if (options.debug) {
@@ -201,11 +249,11 @@ export function Cacheable(
           logger.debug(`Cache MISS: ${cacheKey}`);
         }
       } catch (err) {
-        logger.warn(`Cache read error for ${cacheKey}: ${(err as Error).message}`);
+        logger.warn(`Cache read error for ${cacheKey}: ${toError(err).message}`);
       }
 
       // Execute original method
-      const result = await originalMethod.apply(this, args);
+      const result: unknown = await originalMethod.apply(this, args);
 
       // Cache the result if it shouldn't be skipped
       const shouldSkip = options.skipCache ? options.skipCache(result) : false;
@@ -218,7 +266,7 @@ export function Cacheable(
             logger.debug(`Cached: ${cacheKey} (TTL: ${ttlSeconds}s)`);
           }
         } catch (err) {
-          logger.warn(`Cache write error for ${cacheKey}: ${(err as Error).message}`);
+          logger.warn(`Cache write error for ${cacheKey}: ${toError(err).message}`);
         }
       }
 
@@ -241,18 +289,20 @@ export function Cacheable(
  * }
  * ```
  */
-export function CacheInvalidate(keyPattern: string) {
+export function CacheInvalidate(keyPattern: string): CacheMethodDecorator {
   return function (
-    target: object,
-    propertyKey: string,
+    _target: object,
+    _propertyKey: string | symbol,
     descriptor: PropertyDescriptor,
-  ) {
-    const originalMethod = descriptor.value;
-    const className = target.constructor.name;
+  ): PropertyDescriptor {
+    const originalMethod = getCacheMethod(descriptor, '@CacheInvalidate');
 
-    descriptor.value = async function (this: CacheableService, ...args: unknown[]) {
+    descriptor.value = async function (
+      this: CacheableService,
+      ...args: unknown[]
+    ): Promise<unknown> {
       // Execute original method first
-      const result = await originalMethod.apply(this, args);
+      const result: unknown = await originalMethod.apply(this, args);
 
       // Get RedisService from the class instance
       const redisService = getRedisService(this);
@@ -263,7 +313,7 @@ export function CacheInvalidate(keyPattern: string) {
           await redisService.del(cacheKey);
           logger.debug(`Cache invalidated: ${cacheKey}`);
         } catch (err) {
-          logger.warn(`Cache invalidation error for ${cacheKey}: ${(err as Error).message}`);
+          logger.warn(`Cache invalidation error for ${cacheKey}: ${toError(err).message}`);
         }
       }
 
@@ -286,17 +336,20 @@ export function CacheInvalidate(keyPattern: string) {
  * }
  * ```
  */
-export function CacheInvalidatePattern(keyPattern: string) {
+export function CacheInvalidatePattern(keyPattern: string): CacheMethodDecorator {
   return function (
-    target: object,
-    propertyKey: string,
+    _target: object,
+    _propertyKey: string | symbol,
     descriptor: PropertyDescriptor,
-  ) {
-    const originalMethod = descriptor.value;
+  ): PropertyDescriptor {
+    const originalMethod = getCacheMethod(descriptor, '@CacheInvalidatePattern');
 
-    descriptor.value = async function (this: CacheableService, ...args: unknown[]) {
+    descriptor.value = async function (
+      this: CacheableService,
+      ...args: unknown[]
+    ): Promise<unknown> {
       // Execute original method first
-      const result = await originalMethod.apply(this, args);
+      const result: unknown = await originalMethod.apply(this, args);
 
       // Get RedisService from the class instance
       const redisService = getRedisService(this);
@@ -307,7 +360,7 @@ export function CacheInvalidatePattern(keyPattern: string) {
           const count = await redisService.deletePattern(pattern);
           logger.debug(`Cache pattern invalidated: ${pattern} (${count} keys)`);
         } catch (err) {
-          logger.warn(`Cache pattern invalidation error: ${(err as Error).message}`);
+          logger.warn(`Cache pattern invalidation error: ${toError(err).message}`);
         }
       }
 

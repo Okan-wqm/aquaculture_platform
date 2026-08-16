@@ -1,8 +1,9 @@
 import { ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { TenantPermissionGuard } from '../tenant-permission.guard';
+
 import { REQUIRED_TENANT_PERMISSIONS_KEY } from '../../decorators/require-permission.decorator';
 import { IS_PUBLIC_KEY, Role } from '../../decorators/roles.decorator';
+import { TenantPermissionGuard } from '../tenant-permission.guard';
 
 describe('TenantPermissionGuard', () => {
   let guard: TenantPermissionGuard;
@@ -30,7 +31,11 @@ describe('TenantPermissionGuard', () => {
   describe('when no decorator is present (opt-in)', () => {
     it('should allow access when no required permissions are set', () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(undefined);
-      const context = createMockContext({ sub: 'user1', role: Role.MODULE_USER, roles: [Role.MODULE_USER] });
+      const context = createMockContext({
+        sub: 'user1',
+        role: Role.MODULE_USER,
+        roles: [Role.MODULE_USER],
+      });
       expect(guard.canActivate(context)).toBe(true);
     });
 
@@ -39,7 +44,11 @@ describe('TenantPermissionGuard', () => {
         if (key === REQUIRED_TENANT_PERMISSIONS_KEY) return [];
         return undefined;
       });
-      const context = createMockContext({ sub: 'user1', role: Role.MODULE_USER, roles: [Role.MODULE_USER] });
+      const context = createMockContext({
+        sub: 'user1',
+        role: Role.MODULE_USER,
+        roles: [Role.MODULE_USER],
+      });
       expect(guard.canActivate(context)).toBe(true);
     });
   });
@@ -195,7 +204,8 @@ describe('TenantPermissionGuard', () => {
   describe('multiple required permissions (AND logic)', () => {
     it('should require ALL permissions (not any)', () => {
       jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
-        if (key === REQUIRED_TENANT_PERMISSIONS_KEY) return ['tanks:view', 'tanks:create', 'tanks:delete'];
+        if (key === REQUIRED_TENANT_PERMISSIONS_KEY)
+          return ['tanks:view', 'tanks:create', 'tanks:delete'];
         return undefined;
       });
       const context = createMockContext({

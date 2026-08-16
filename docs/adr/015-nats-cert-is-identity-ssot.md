@@ -80,12 +80,17 @@ Specifically:
    Asserts services.yaml ↔ nats.conf ↔ cert CN list. Any drift fails
    the build before it reaches production.
 
-4. **Dual-mode client factory for dev compatibility.** TLS-enabled (+
-   cert) → cert-only mode: CONNECT frame omits user/pass. TLS-disabled
-   (local dev, no mTLS) → user/password fallback still works against a
-   NATS server with authorization users[] that have passwords. Dev
-   doesn't use the generated production nats.conf — dev mounts a
-   different config.
+4. **Dual-mode client factory for dev compatibility.** The NATS transport
+   owns this factory at
+   `platform/libs/event-bus/src/nats/nats-connection.factory.ts`; direct
+   clients consume the narrow `@platform/event-bus/nats-connection` port.
+   TLS-enabled (+ cert) → cert-only mode: CONNECT frame omits user/pass.
+   TLS-disabled (local dev, no mTLS) → user/password fallback still works
+   against a NATS server with authorization users[] that have passwords.
+   Dev doesn't use the generated production nats.conf — dev mounts a
+   different config. Keeping the factory below `backend-common` preserves a
+   one-way platform dependency graph instead of making the transport adapter
+   depend on its application consumers.
 
 ## Rationale
 
@@ -192,7 +197,7 @@ catches drift. Tracked as BACKLOG-NATS-002.
 | P2 | 9f6d057f | `generate-nats-conf.py` (Python, PyYAML) |
 | P3 | 9f6d057f | `nats.conf` regenerated (0 passwords, literal user names, sentinel markers) |
 | P4 | 6147cf4e | Client factory dual-mode (authMode return field) |
-| P5 | 6147cf4e | event-bus library → shared factory |
+| P5 | 6147cf4e | event-bus library → shared factory (later internalized by the transport owner) |
 | P6 | ff316d4d | docker-compose cleanup (40 lines removed) |
 | P7 | ff316d4d | helm cleanup (values + secrets + helpers + callers) |
 | P8 | ff316d4d | Deploy workflow cleanup (~100 lines removed) |
@@ -205,7 +210,7 @@ catches drift. Tracked as BACKLOG-NATS-002.
 - `infrastructure/nats/services.schema.json` — validator
 - `scripts/nats/generate-nats-conf.py` — generator
 - `infrastructure/docker/nats/nats.conf` — generated
-- `libs/backend-common/src/nats/nats-connection.factory.ts` — dual-mode client factory
+- `platform/libs/event-bus/src/nats/nats-connection.factory.ts` — dual-mode client factory
 - `platform/libs/event-bus/src/nats/nats-event-bus.ts` — shared factory consumer
 - `e2e/tests/integration/nats-invariants.spec.ts` — CI invariant test
 - `docs/adr/014-nats-mtls-only-auth.md` — predecessor (legacy shared user removal)

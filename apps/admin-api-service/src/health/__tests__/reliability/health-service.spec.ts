@@ -2,7 +2,6 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
 
 import { GracefulShutdownService } from '../../../lifecycle/graceful-shutdown.service';
-import { EmailSenderService } from '../../../settings/services/email-sender.service';
 import { HealthService } from '../../health.service';
 
 describe('HealthService', () => {
@@ -10,10 +9,6 @@ describe('HealthService', () => {
 
   const mockDataSource = {
     query: jest.fn(),
-  };
-
-  const mockEmailSenderService = {
-    getCircuitStatus: jest.fn(),
   };
 
   const mockShutdownService = {
@@ -27,7 +22,6 @@ describe('HealthService', () => {
       providers: [
         HealthService,
         { provide: getDataSourceToken(), useValue: mockDataSource },
-        { provide: EmailSenderService, useValue: mockEmailSenderService },
         { provide: GracefulShutdownService, useValue: mockShutdownService },
       ],
     }).compile();
@@ -64,11 +58,7 @@ describe('HealthService', () => {
     it('should return false when shutdown service is not injected', async () => {
       // Recreate without GracefulShutdownService (it's @Optional)
       const module: TestingModule = await Test.createTestingModule({
-        providers: [
-          HealthService,
-          { provide: getDataSourceToken(), useValue: mockDataSource },
-          { provide: EmailSenderService, useValue: mockEmailSenderService },
-        ],
+        providers: [HealthService, { provide: getDataSourceToken(), useValue: mockDataSource }],
       }).compile();
 
       const serviceWithoutShutdown = module.get<HealthService>(HealthService);
@@ -103,43 +93,9 @@ describe('HealthService', () => {
     });
   });
 
-  describe('getSmtpStatus', () => {
-    it('should return circuit breaker status from email service', () => {
-      mockEmailSenderService.getCircuitStatus.mockReturnValue({
-        state: 'closed',
-        consecutiveFailures: 0,
-        lastFailureTime: 0,
-      });
-
-      const status = service.getSmtpStatus();
-
-      expect(status.state).toBe('closed');
-      expect(status.consecutiveFailures).toBe(0);
-    });
-
-    it('should reflect open circuit state', () => {
-      mockEmailSenderService.getCircuitStatus.mockReturnValue({
-        state: 'open',
-        consecutiveFailures: 5,
-        lastFailureTime: Date.now(),
-      });
-
-      const status = service.getSmtpStatus();
-
-      expect(status.state).toBe('open');
-      expect(status.consecutiveFailures).toBe(5);
-    });
-  });
-
   describe('getMetrics', () => {
-    it('should return process metrics with SMTP status', async () => {
-      mockEmailSenderService.getCircuitStatus.mockReturnValue({
-        state: 'closed',
-        consecutiveFailures: 0,
-        lastFailureTime: 0,
-      });
-
-      const metrics = await service.getMetrics();
+    it('should return process metrics without owning downstream health', () => {
+      const metrics = service.getMetrics();
 
       expect(metrics.uptime).toBeGreaterThan(0);
       expect(metrics.memory).toBeDefined();
@@ -147,7 +103,6 @@ describe('HealthService', () => {
       expect(metrics.memory.heapTotal).toBeGreaterThan(0);
       expect(metrics.memory.rss).toBeGreaterThan(0);
       expect(metrics.memory.external).toBeDefined();
-      expect(metrics.smtp.state).toBe('closed');
       expect(metrics.timestamp).toBeDefined();
     });
   });

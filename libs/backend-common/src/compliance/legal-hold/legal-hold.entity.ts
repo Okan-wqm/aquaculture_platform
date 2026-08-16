@@ -1,10 +1,5 @@
-import {
-  Column,
-  CreateDateColumn,
-  Entity,
-  Index,
-  PrimaryGeneratedColumn,
-} from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
+
 import type { HoldScope } from './legal-hold.types';
 
 /**
@@ -39,11 +34,10 @@ import type { HoldScope } from './legal-hold.types';
 @Entity('legal_holds', { schema: 'compliance' })
 @Index('IDX_legal_hold_active', ['tenantId', 'scope', 'resourceId', 'releasedAt'])
 @Index('IDX_legal_hold_legal_matter', ['legalMatterId'])
-@Index(
-  'UQ_legal_hold_active_per_resource',
-  ['tenantId', 'scope', 'resourceId'],
-  { unique: true, where: '"releasedAt" IS NULL' },
-)
+@Index('UQ_legal_hold_active_per_resource', ['tenantId', 'scope', 'resourceId'], {
+  unique: true,
+  where: '"releasedAt" IS NULL',
+})
 export class LegalHoldEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

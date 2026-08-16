@@ -124,7 +124,11 @@ function luhnCheck(digits: string): boolean {
   let alternate = false;
 
   for (let i = digits.length - 1; i >= 0; i--) {
-    let n = parseInt(digits[i]!, 10);
+    const digit = digits[i];
+    if (digit === undefined) {
+      return false;
+    }
+    let n = Number.parseInt(digit, 10);
     if (alternate) {
       n *= 2;
       if (n > 9) n -= 9;
@@ -203,14 +207,12 @@ export class OutputPiiScannerService {
     // appear in logs.
     this.logger.warn(
       `SECURITY: PII detected in AI output for tenant ${tenantId}. ` +
-      `Types: ${JSON.stringify(scanResult.countByType)}`,
+        `Types: ${JSON.stringify(scanResult.countByType)}`,
     );
 
     // ── Redact by replacing matched ranges ──
     // Sort detections by startIndex descending so replacements don't shift indices
-    const sorted = [...scanResult.detections].sort(
-      (a, b) => b.startIndex - a.startIndex,
-    );
+    const sorted = [...scanResult.detections].sort((a, b) => b.startIndex - a.startIndex);
 
     let redactedText = text;
     for (const detection of sorted) {

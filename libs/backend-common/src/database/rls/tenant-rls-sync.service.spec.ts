@@ -1,4 +1,6 @@
+import { defined } from '@aquaculture/testing';
 import type { DataSource, QueryRunner } from 'typeorm';
+
 import { TenantRlsSyncService } from './tenant-rls-sync.service';
 
 /**
@@ -63,12 +65,12 @@ function makeMockDataSource(opts: {
   // helper queries `information_schema.columns` first and the schema is
   // a parameter. We sniff the parameter from the first query call.
   const ds: DataSource = {
-    query: async (sql: string): Promise<unknown> => {
+    query: (sql: string): Promise<unknown> => {
       // listTenantSchemas() pattern
       if (sql.includes('information_schema.schemata')) {
-        return opts.schemas.map((s) => ({ schema_name: s }));
+        return Promise.resolve(opts.schemas.map((s) => ({ schema_name: s })));
       }
-      throw new Error(`mock DataSource: unexpected query "${sql.slice(0, 80)}"`);
+      return Promise.reject(new Error(`mock DataSource: unexpected query "${sql.slice(0, 80)}"`));
     },
     createQueryRunner: () => {
       createdRunners++;
@@ -77,11 +79,12 @@ function makeMockDataSource(opts: {
       let replyIdx = 0;
 
       const runner: QueryRunner = {
-        connect: async (): Promise<void> => {
+        connect: (): Promise<void> => {
           // Defer the schema decision until the first query, because
           // the QueryRunner doesn't know which schema it's for.
+          return Promise.resolve();
         },
-        query: async (sql: string, params?: unknown[]): Promise<unknown> => {
+        query: (sql: string, params?: unknown[]): Promise<unknown> => {
           calls.push({ sql, params });
           // Identify the schema from the first information_schema query
           // parameter. After that, all replies come from the per-schema
@@ -93,24 +96,24 @@ function makeMockDataSource(opts: {
             // helper interleaves connect() with query() and we want to
             // hit the helper's catch block.
             if (opts.failOnSchemaConnect === currentSchema) {
-              throw new Error('simulated connect failure');
+              return Promise.reject(new Error('simulated connect failure'));
             }
           }
-          const replies =
-            currentSchema && opts.perSchemaReplies?.[currentSchema];
+          const replies = currentSchema && opts.perSchemaReplies?.[currentSchema];
           if (replies && replyIdx < replies.length) {
             const r = replies[replyIdx++];
-            return r;
+            return Promise.resolve(r);
           }
           // Default reply for unscripted calls (mostly DDL) — undefined
           // means "no rows", which the helper accepts for ALTER/CREATE.
-          return undefined;
+          return Promise.resolve(undefined);
         },
-        release: async (): Promise<void> => {
+        release: (): Promise<void> => {
           releasedRunners++;
           if (currentSchema !== undefined) {
             releasedRunnerSchemas.push(currentSchema);
           }
+          return Promise.resolve();
         },
       } as unknown as QueryRunner;
       return runner;
@@ -171,20 +174,23 @@ describe('TenantRlsSyncService', () => {
     });
 
     it('iterates discovered tenant schemas, one QueryRunner per schema', async () => {
-      const schemas = [
-        'tenant_4b529829ea7948da',
-        'tenant_5c640940fb805aeb',
-      ];
+      const schemas = ['tenant_4b529829ea7948da', 'tenant_5c640940fb805aeb'];
       // Each schema's discovery query returns one BaseEntity-shaped table
       // → 4 DDLs run per table → 4 helper replies per schema
       const perSchemaReplies: Record<string, unknown[]> = {
-        [schemas[0]!]: [
+        [defined(schemas[0], 'Expected first tenant schema')]: [
           [{ table_name: 'batches', column_name: 'tenant_id' }],
-          undefined, undefined, undefined, undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
         ],
-        [schemas[1]!]: [
+        [defined(schemas[1], 'Expected second tenant schema')]: [
           [{ table_name: 'batches', column_name: 'tenant_id' }],
-          undefined, undefined, undefined, undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
         ],
       };
       const mock = makeMockDataSource({ schemas, perSchemaReplies });
@@ -207,19 +213,25 @@ describe('TenantRlsSyncService', () => {
         'tenant_6d751a51fc916bfc',
       ];
       const perSchemaReplies: Record<string, unknown[]> = {
-        [schemas[0]!]: [
+        [defined(schemas[0], 'Expected first tenant schema')]: [
           [{ table_name: 'batches', column_name: 'tenant_id' }],
-          undefined, undefined, undefined, undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
         ],
-        [schemas[2]!]: [
+        [defined(schemas[2], 'Expected third tenant schema')]: [
           [{ table_name: 'batches', column_name: 'tenant_id' }],
-          undefined, undefined, undefined, undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
         ],
       };
       const mock = makeMockDataSource({
         schemas,
         perSchemaReplies,
-        failOnSchemaConnect: schemas[1],
+        failOnSchemaConnect: defined(schemas[1], 'Expected failing tenant schema'),
       });
       const service = new TenantRlsSyncService(mock.ds, {
         serviceName: 'farm',

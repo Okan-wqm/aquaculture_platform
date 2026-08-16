@@ -1,4 +1,5 @@
 import { readFileSync } from 'fs';
+
 import { Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { JwtVerifyOptions } from '@nestjs/jwt';
@@ -89,9 +90,7 @@ export function enforceAccessTokenType(
         message: 'Token identifier (jti) required',
       });
     }
-    logger.warn(
-      `Token without jti for user ${payload.sub} — only permitted outside production.`,
-    );
+    logger.warn(`Token without jti for user ${payload.sub} — only permitted outside production.`);
   }
 }
 
@@ -134,8 +133,8 @@ function resolvePublicKey(configService: ConfigService): {
 
   throw new Error(
     'CRITICAL SECURITY ERROR: JWT_PUBLIC_KEY or JWT_PUBLIC_KEY_PATH must be configured. ' +
-    'All services require the RSA public key to verify JWT tokens signed by auth-service. ' +
-    'Application startup aborted.',
+      'All services require the RSA public key to verify JWT tokens signed by auth-service. ' +
+      'Application startup aborted.',
   );
 }
 

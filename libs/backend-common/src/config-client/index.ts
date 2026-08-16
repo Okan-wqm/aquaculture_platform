@@ -11,6 +11,7 @@ export {
   CONFIG_NATS_CLIENT,
   CONFIG_RUNTIME_CONSUMER_SERVICE,
   type BillingStripeSettings,
+  type ConfigRuntimeLookupV1,
 } from './config-runtime.client';
 export { ConfigClientModule } from './config-client.module';
 export { MarineProviderCredentialClientModule } from './marine-provider-credential-client.module';

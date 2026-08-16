@@ -1,3 +1,5 @@
+import { defined } from '@aquaculture/testing';
+
 import {
   InMemoryMigrationEventSink,
   LoggerMigrationEventSink,
@@ -6,9 +8,7 @@ import {
   type MigrationSinkEvent,
 } from '../migration-event-sink';
 
-function makeEvent(
-  overrides: Partial<MigrationSinkEvent> = {},
-): MigrationSinkEvent {
+function makeEvent(overrides: Partial<MigrationSinkEvent> = {}): MigrationSinkEvent {
   return {
     serviceName: 'hr',
     migrationName: 'HealHrNullabilityDrift1787000000000',
@@ -34,9 +34,10 @@ describe('InMemoryMigrationEventSink', () => {
     sink.emit(makeEvent({ eventType: 'start' }));
     sink.emit(makeEvent({ eventType: 'applied', durationMs: 42 }));
     expect(sink.events).toHaveLength(2);
-    expect(sink.events[0]!.eventType).toBe('start');
-    expect(sink.events[1]!.eventType).toBe('applied');
-    expect(sink.events[1]!.durationMs).toBe(42);
+    expect(defined(sink.events[0], 'Expected first migration event').eventType).toBe('start');
+    const applied = defined(sink.events[1], 'Expected applied migration event');
+    expect(applied.eventType).toBe('applied');
+    expect(applied.durationMs).toBe(42);
   });
 
   it('clear() resets the buffer', () => {
@@ -56,8 +57,9 @@ describe('LoggerMigrationEventSink', () => {
     });
     sink.emit(makeEvent({ eventType: 'applied', durationMs: 123 }));
     expect(calls).toHaveLength(1);
-    expect(calls[0]![0]).toContain('hr applied HealHr');
-    expect(calls[0]![1]).toMatchObject({
+    const call = defined(calls[0], 'Expected logger call');
+    expect(call[0]).toContain('hr applied HealHr');
+    expect(call[1]).toMatchObject({
       serviceName: 'hr',
       eventType: 'applied',
       durationMs: 123,
@@ -125,7 +127,7 @@ describe('MigrationEventSink interface typing', () => {
     const sinks: MigrationEventSink[] = [
       new NoopMigrationEventSink(),
       new InMemoryMigrationEventSink(),
-      new LoggerMigrationEventSink(() => {}),
+      new LoggerMigrationEventSink((): void => undefined),
     ];
     for (const s of sinks) {
       expect(typeof s.emit).toBe('function');

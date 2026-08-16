@@ -1,35 +1,16 @@
+import { ConfigurationKeyId } from '@aquaculture/configuration-contracts';
+import { Field, ID, Int, ObjectType, registerEnumType } from '@nestjs/graphql';
 import {
-  Entity,
   Column,
-  PrimaryGeneratedColumn,
   CreateDateColumn,
+  Entity,
+  Index,
+  PrimaryGeneratedColumn,
+  Unique,
   UpdateDateColumn,
   VersionColumn,
-  Index,
-  Unique,
 } from 'typeorm';
-import { ObjectType, Field, ID, Int, registerEnumType } from '@nestjs/graphql';
-import GraphQLJSON from 'graphql-type-json';
 
-/**
- * Configuration value types
- */
-export enum ConfigValueType {
-  STRING = 'string',
-  NUMBER = 'number',
-  BOOLEAN = 'boolean',
-  JSON = 'json',
-  SECRET = 'secret',
-}
-
-registerEnumType(ConfigValueType, {
-  name: 'ConfigValueType',
-  description: 'Type of configuration value',
-});
-
-/**
- * Configuration environments
- */
 export enum ConfigEnvironment {
   DEVELOPMENT = 'development',
   STAGING = 'staging',
@@ -39,215 +20,108 @@ export enum ConfigEnvironment {
 
 registerEnumType(ConfigEnvironment, {
   name: 'ConfigEnvironment',
-  description: 'Environment for configuration',
+  description: 'Environment partition for a configuration snapshot',
 });
 
 /**
- * Configuration Entity
- * Stores centralized configuration for all services
- * Supports multi-tenancy, versioning
- * Encryption for secrets is delegated to EncryptionService
+ * Mutable configuration state. All semantic metadata lives in the signed
+ * configuration catalog; rows persist only a catalog ID and operator state.
  */
 @ObjectType()
 @Entity('configurations', { schema: 'config' })
-@Unique(['tenantId', 'service', 'key', 'environment'])
-@Index(['tenantId', 'service'])
-@Index(['service', 'key'])
+@Unique('UQ_configurations_scope_catalog_environment', ['tenantId', 'catalogId', 'environment'])
+@Index(['tenantId', 'environment'])
+@Index(['catalogId'])
 @Index(['isActive'])
 export class Configuration {
   @PrimaryGeneratedColumn('uuid')
   @Field(() => ID)
   id!: string;
 
-  /** SYSTEM_TENANT_ID ('00000000-0000-0000-0000-000000000000') for system-wide configs */
   @Column({ type: 'uuid', name: 'tenant_id' })
   @Index()
   @Field()
   tenantId!: string;
 
-  @Column({ length: 100 })
-  @Index()
-  @Field()
-  service!: string; // 'auth-service', 'farm-service', etc.
+  @Column({ type: 'varchar', length: 64, name: 'catalog_id' })
+  @Field(() => ConfigurationKeyId)
+  catalogId!: ConfigurationKeyId;
 
-  @Column({ length: 255 })
-  @Field()
-  key!: string; // 'max_login_attempts', 'session_timeout'
-
+  /** Canonical string or encrypted ciphertext, interpreted only by catalog type. */
   @Column('text')
-  @Field()
-  value!: string; // Encrypted if isSecret=true (handled by EncryptionService)
+  value!: string;
 
-  @Column({
-    type: 'enum',
-    enum: ConfigValueType,
-    default: ConfigValueType.STRING,
-    name: 'value_type',
-  })
-  @Field(() => ConfigValueType)
-  valueType!: ConfigValueType;
-
-  @Column({
-    type: 'enum',
-    enum: ConfigEnvironment,
-    default: ConfigEnvironment.ALL,
-  })
+  @Column({ type: 'enum', enum: ConfigEnvironment, default: ConfigEnvironment.ALL })
   @Field(() => ConfigEnvironment)
   environment!: ConfigEnvironment;
 
-  @Column({ length: 500, nullable: true })
-  @Field({ nullable: true })
-  description?: string;
-
-  @Column({ default: false, name: 'is_secret' })
-  @Field()
-  isSecret!: boolean; // If true, value is encrypted (by EncryptionService)
-
   @Column({ default: true, name: 'is_active' })
-  @Field()
   isActive!: boolean;
 
-  // WHY the explicit `() => Type` thunks on the four soft-delete fields:
-  // their TS types are `T | null` unions, and NestJS GraphQL's
-  // design:type reflection cannot resolve a union — schema build dies at
-  // RUNTIME with "Undefined type error ... deletedAt of the Configuration
-  // class" (production boot-loop, 2026-06-11; shipped by the #375 train
-  // and invisible to CI because no job builds this subgraph's schema —
-  // INFRA-HIGH-009 tracks the schema-build smoke gate).
-  @Column({ type: 'timestamp', nullable: true, name: 'deleted_at' })
-  @Field(() => Date, { nullable: true })
+  @Column({ type: 'timestamptz', nullable: true, name: 'deleted_at' })
   deletedAt?: Date | null;
 
   @Column({ type: 'varchar', nullable: true, length: 100, name: 'deleted_by' })
-  @Field(() => String, { nullable: true })
   deletedBy?: string | null;
 
   @Column({ type: 'varchar', nullable: true, length: 255, name: 'delete_reason' })
-  @Field(() => String, { nullable: true })
   deleteReason?: string | null;
 
-  @Column({ type: 'timestamp', nullable: true, name: 'retention_until' })
-  @Field(() => Date, { nullable: true })
+  @Column({ type: 'timestamptz', nullable: true, name: 'retention_until' })
   retentionUntil?: Date | null;
 
   @Column({ default: false, name: 'suppress_fallback' })
-  @Field()
   suppressFallback!: boolean;
 
-  @Column({ nullable: true, length: 255, name: 'default_value' })
-  @Field({ nullable: true })
-  defaultValue?: string;
-
-  @Column('jsonb', { name: 'validation_rules', nullable: true })
-  @Field(() => GraphQLJSON, { nullable: true })
-  validationRules?: Record<string, unknown>; // { min: 1, max: 100 } for numbers
-
-  @Column({ nullable: true, length: 50 })
-  @Field({ nullable: true })
-  category?: string; // 'security', 'performance', 'features'
-
-  @Column('text', { array: true, nullable: true })
-  @Field(() => [String], { nullable: true })
-  tags?: string[];
-
-  @CreateDateColumn({ name: 'created_at' })
-  @Field()
+  @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: 'updated_at' })
-  @Field()
+  @UpdateDateColumn({ type: 'timestamptz', name: 'updated_at' })
   updatedAt!: Date;
 
-  @Column({ nullable: true, length: 100, name: 'created_by' })
-  @Field({ nullable: true })
+  @Column({ type: 'varchar', nullable: true, length: 100, name: 'created_by' })
   createdBy?: string;
 
-  @Column({ nullable: true, length: 100, name: 'updated_by' })
-  @Field({ nullable: true })
+  @Column({ type: 'varchar', nullable: true, length: 100, name: 'updated_by' })
   updatedBy?: string;
 
   @VersionColumn()
   @Field(() => Int)
   version!: number;
-
-  /**
-   * Get typed value.
-   * For SECRET type, returns raw value as string — decryption is handled by the service layer.
-   */
-  getTypedValue<T = unknown>(): T {
-    const rawValue = this.value;
-
-    switch (this.valueType) {
-      case ConfigValueType.NUMBER: {
-        const num = Number(rawValue);
-        if (rawValue.trim() === '' || !Number.isFinite(num)) {
-          return NaN as T;
-        }
-        return num as T;
-      }
-      case ConfigValueType.BOOLEAN:
-        return (rawValue === 'true' || rawValue === '1') as T;
-      case ConfigValueType.JSON:
-        return JSON.parse(rawValue) as T;
-      case ConfigValueType.SECRET:
-        return rawValue as T;
-      default:
-        return rawValue as T;
-    }
-  }
-
-  isSecretValue(): boolean {
-    return this.valueType === ConfigValueType.SECRET || this.isSecret === true;
-  }
 }
 
-/**
- * Configuration History Entity
- * Tracks all changes for audit purposes
- */
+/** Immutable audit history written in the same transaction as each operation. */
 @Entity('configuration_history', { schema: 'config' })
 @Index(['configurationId', 'changedAt'])
 @Index(['tenantId', 'changedAt'])
-@ObjectType()
 export class ConfigurationHistory {
   @PrimaryGeneratedColumn('uuid')
-  @Field(() => ID)
   id!: string;
 
   @Column({ type: 'uuid', name: 'configuration_id' })
-  @Index()
-  @Field()
   configurationId!: string;
 
+  @Column({ type: 'uuid', name: 'operation_id' })
+  operationId!: string;
+
   @Column({ type: 'uuid', name: 'tenant_id' })
-  @Field()
   tenantId!: string;
 
-  @Column({ length: 100 })
-  @Field()
-  service!: string;
-
-  @Column({ length: 255 })
-  @Field()
-  key!: string;
+  @Column({ type: 'varchar', length: 64, name: 'catalog_id' })
+  catalogId!: ConfigurationKeyId;
 
   @Column('text', { name: 'previous_value' })
-  @Field()
   previousValue!: string;
 
   @Column('text', { name: 'new_value' })
-  @Field()
   newValue!: string;
 
   @Column({ length: 100, name: 'changed_by' })
-  @Field()
   changedBy!: string;
 
-  @Column({ name: 'changed_at' })
-  @Field()
+  @Column({ type: 'timestamptz', name: 'changed_at' })
   changedAt!: Date;
 
   @Column({ length: 255, nullable: true, name: 'change_reason' })
-  @Field({ nullable: true })
   changeReason?: string;
 }

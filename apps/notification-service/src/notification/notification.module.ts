@@ -1,4 +1,5 @@
 import { AiSafetyCoreModule } from '@aquaculture/backend-common/ai-safety';
+import { ConfigClientModule } from '@aquaculture/backend-common/config-client';
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -10,6 +11,7 @@ import { AuthEventHandler } from './event-handlers/auth-event.handler';
 import { BillingEventHandler } from './event-handlers/billing-event.handler';
 import { DeviceTokenRevocationHandler } from './event-handlers/device-token-revocation.handler';
 import { FeedingDailySummaryEventHandler } from './event-handlers/feeding-daily-summary.handler';
+import { ConfigurationChangedHandler } from './event-handlers/configuration-changed.handler';
 import { HarvestRegulatoryRecordedEventHandler } from './event-handlers/harvest-regulatory.handler';
 import { MessagingEventHandler } from './event-handlers/messaging-event.handler';
 import { NotificationCommandHandler } from './event-handlers/notification-command.handler';
@@ -24,6 +26,7 @@ import { NotificationRetentionService } from './services/notification-retention.
 import { PushService } from './services/push.service';
 import { RetrySchedulerService } from './services/retry-scheduler.service';
 import { SmsService } from './services/sms.service';
+import { SmtpConfigurationProvider } from './services/smtp-configuration.provider';
 
 /**
  * Notification Module
@@ -42,10 +45,12 @@ import { SmsService } from './services/sms.service';
     // SSRF validator (+ unused-here input filter / PII scanner) now sourced
     // from the shared core module per AUDIT-HIGH-007 / ADR-028.
     AiSafetyCoreModule,
+    ConfigClientModule.forRoot({ consumerService: 'notification-service' }),
   ],
   providers: [
     // Services
     EmailService,
+    SmtpConfigurationProvider,
     SmsService,
     PushService,
     NotificationDispatcherService,
@@ -67,10 +72,18 @@ import { SmsService } from './services/sms.service';
     HarvestRegulatoryRecordedEventHandler,
     FeedingDailySummaryEventHandler,
     DeviceTokenRevocationHandler,
+    ConfigurationChangedHandler,
 
     // Resolvers
     NotificationResolver,
   ],
-  exports: [NotificationDispatcherService, EmailService, SmsService, PushService, InAppNotificationService, DeadLetterQueueService],
+  exports: [
+    NotificationDispatcherService,
+    EmailService,
+    SmsService,
+    PushService,
+    InAppNotificationService,
+    DeadLetterQueueService,
+  ],
 })
 export class NotificationModule {}

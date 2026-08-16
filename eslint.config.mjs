@@ -135,7 +135,7 @@ const RESTRICTED_SYNTAX_MAIN = [
   {
     selector: "CallExpression[callee.property.name='getOrThrow'][arguments.0.value='JWT_SECRET']",
     message:
-      'JWT_SECRET reads are banned (WS2.C / ADR-016 Phase B). See the .get(\'JWT_SECRET\') message above for the migration path: PlatformJwtModule for consumers, JWT_PRIVATE_KEY for the issuer. The 2026-04-14 hydroponics-service deploy outage was a configService.getOrThrow<string>(\'JWT_SECRET\') call that crashed at boot when JWT_SECRET stopped being provisioned — this rule exists to prevent that recurrence.',
+      "JWT_SECRET reads are banned (WS2.C / ADR-016 Phase B). See the .get('JWT_SECRET') message above for the migration path: PlatformJwtModule for consumers, JWT_PRIVATE_KEY for the issuer. The 2026-04-14 hydroponics-service deploy outage was a configService.getOrThrow<string>('JWT_SECRET') call that crashed at boot when JWT_SECRET stopped being provisioned — this rule exists to prevent that recurrence.",
   },
   {
     selector:
@@ -243,6 +243,7 @@ const perProjectBlocks = PROJECT_LINT_OVERRIDES.flatMap((p) => {
 const NON_PROVENANCE_TS_PROJECTS = [
   'e2e',
   'libs/aquaculture-engines',
+  'libs/backend-common',
   'libs/farm-shared',
   'libs/migration-harness',
   'libs/sensor-automation-types',
@@ -645,24 +646,11 @@ export default [
     },
   },
 
-  // ── PR-B (PLAT-HIGH-003): the @nats-io/* v3 packages ship exports-only ESM whose
-  //    types do not resolve under the type-aware lint's project context for
-  //    libs/backend-common, so every @nats-io value (Msg, NatsConnection, Payload,
-  //    Subscription) degrades to `any` and trips the no-unsafe-* family — the same
-  //    ORPHAN-MEDIUM-093 root cause as the event-bus override above. The service
-  //    tsconfigs DO resolve @nats-io (type-check + build pass), so these are false
-  //    positives. The Server base's abstract `on` is also Function-typed by the Nest
-  //    framework (EventsMap = Record<string, Function>). Scoped to the two v3
-  //    transport files; removable once the parserOptions.project ordering fix
-  //    (ORPHAN-MEDIUM-093) lands. ──
+  // ── PR-C: the sensor-ingest equivalence e2e migrated to @nats-io v3 and hits the
+  //    ORPHAN-MEDIUM-093 @nats-io-resolves-to-any false positive. The platform-owned
+  //    backend-common transport is fully typed and therefore needs no relaxation. ──
   {
-    files: [
-      'libs/backend-common/src/nats/nats-v3-server.strategy.ts',
-      'libs/backend-common/src/nats/nats-v3-client.proxy.ts',
-      // PR-C: the sensor-ingest equivalence e2e migrated to @nats-io v3 and hits the
-      // same ORPHAN-MEDIUM-093 @nats-io-resolves-to-any false positive.
-      'e2e/tests/sensor-ingest-equivalence.e2e.spec.ts',
-    ],
+    files: ['e2e/tests/sensor-ingest-equivalence.e2e.spec.ts'],
     rules: {
       '@typescript-eslint/no-unsafe-argument': 'off',
       '@typescript-eslint/no-unsafe-assignment': 'off',

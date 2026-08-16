@@ -19,7 +19,8 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"],
-      "@aquaculture/shared-ui": ["../../shared-ui/src"]
+      "@aquaculture/shared-ui": ["../../shared-ui/src"],
+      "@aquaculture/configuration-contracts": ["../../../libs/configuration-contracts/src/index.ts"]
     }
   },
   "include": ["src"],

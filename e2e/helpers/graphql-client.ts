@@ -102,11 +102,7 @@ export class GraphQLTestClient {
 
   constructor(request?: unknown);
   constructor(baseUrl: string, token: string, tenantId?: string);
-  constructor(
-    baseUrlOrRequest?: unknown,
-    token?: string,
-    tenantId?: string,
-  ) {
+  constructor(baseUrlOrRequest?: unknown, token?: string, tenantId?: string) {
     if (baseUrlOrRequest === undefined) {
       // Zero-arg: Jest/Vitest mode — use default gateway URL
       this.baseUrl = DEFAULT_GATEWAY_URL;
@@ -161,7 +157,9 @@ export class GraphQLTestClient {
     options?: GraphQLRequestOptions,
   ): Promise<T & GraphQLHttpResponse<T>> {
     if (this.playwrightRequest) {
-      return this.playwrightRawQuery<T>(query, variables, options) as Promise<T & GraphQLHttpResponse<T>>;
+      return this.playwrightRawQuery<T>(query, variables, options) as Promise<
+        T & GraphQLHttpResponse<T>
+      >;
     }
     const response = await this.rawRequest(query, variables, options);
     const body = (await response.json()) as GraphQLResponse<T>;
@@ -206,9 +204,7 @@ export class GraphQLTestClient {
    * Compatibility surface for farm module E2E specs; unlike queryRaw it fails
    * fast on GraphQL errors so CRUD flows cannot accidentally continue.
    */
-  async executeSuccess<T = Record<string, unknown>>(
-    options: GraphQLExecuteOptions,
-  ): Promise<T> {
+  async executeSuccess<T = Record<string, unknown>>(options: GraphQLExecuteOptions): Promise<T> {
     return this.query<T>(options.query, options.variables, options);
   }
 
@@ -225,10 +221,7 @@ export class GraphQLTestClient {
    * Send an arbitrary JSON body to the GraphQL HTTP endpoint.
    * Used by gateway security specs for batching and malformed-body checks.
    */
-  async rawPost(
-    body: string,
-    options?: GraphQLRequestOptions,
-  ): Promise<RawHttpResponse> {
+  async rawPost(body: string, options?: GraphQLRequestOptions): Promise<RawHttpResponse> {
     if (this.playwrightRequest) {
       return this.playwrightRawPost(body, options);
     }
@@ -308,11 +301,12 @@ export class GraphQLTestClient {
   }
 
   static forFarmService(): GraphQLTestClient {
-    const baseUrl = process.env['FARM_SERVICE_GRAPHQL_URL']
-      ?? process.env['FARM_SERVICE_URL']
-      ?? process.env['GATEWAY_URL']
-      ?? process.env['BASE_URL']
-      ?? 'http://localhost:3000';
+    const baseUrl =
+      process.env['FARM_SERVICE_GRAPHQL_URL'] ??
+      process.env['FARM_SERVICE_URL'] ??
+      process.env['GATEWAY_URL'] ??
+      process.env['BASE_URL'] ??
+      'http://localhost:3000';
     return new GraphQLTestClient(baseUrl.replace(/\/graphql$/, ''), '');
   }
 
@@ -475,16 +469,24 @@ function headersToRecord(headers: Headers): Record<string, string> {
   return record;
 }
 
+function graphQLErrors<T>(
+  response: GraphQLResponse<T> | GraphQLHttpResponse<T>,
+): readonly GraphQLError[] {
+  return ('body' in response ? response.body.errors : response.errors) ?? [];
+}
+
+export function hasAnyGraphQLError<T>(
+  response: GraphQLResponse<T> | GraphQLHttpResponse<T>,
+): boolean {
+  return graphQLErrors(response).length > 0;
+}
+
 export function hasGraphQLError<T>(
   response: GraphQLResponse<T> | GraphQLHttpResponse<T>,
   pattern: string | RegExp,
 ): boolean {
-  const errors = 'body' in response ? response.body.errors : response.errors;
-  if (!errors) return false;
-  return errors.some((error) =>
-    typeof pattern === 'string'
-      ? error.message.includes(pattern)
-      : pattern.test(error.message),
+  return graphQLErrors(response).some((error) =>
+    typeof pattern === 'string' ? error.message.includes(pattern) : pattern.test(error.message),
   );
 }
 

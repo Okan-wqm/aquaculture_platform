@@ -5,18 +5,17 @@
  */
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
-// The CLI lives under tools/gates/ with its own tsconfig; import the
-// main() function directly via relative path. ts-jest transpiles it
-// inline (isolatedModules) so the stricter tsconfig there does not
-// gate this spec.
-// eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
-const { main: snapshotDiffMain } = require('../../../../../../tools/gates/schema-snapshot-diff') as {
-  main: (argv: readonly string[]) => Promise<number>;
-};
+import { join, resolve } from 'node:path';
 
 import type { SchemaSnapshot } from '../pg-catalog-introspector';
+
+interface SchemaSnapshotDiffModule {
+  readonly main: (argv: readonly string[]) => Promise<number>;
+}
+
+const { main: snapshotDiffMain } = jest.requireActual<SchemaSnapshotDiffModule>(
+  resolve(__dirname, '../../../../../../tools/gates/schema-snapshot-diff'),
+);
 
 function makeSnapshot(overrides: Partial<SchemaSnapshot> = {}): SchemaSnapshot {
   return {
@@ -52,16 +51,16 @@ describe('schema-snapshot-diff CLI', () => {
     stderrChunks = [];
     stdoutSpy = jest
       .spyOn(process.stdout, 'write')
-      .mockImplementation(((chunk: string | Uint8Array) => {
+      .mockImplementation((chunk: string | Uint8Array) => {
         stdoutChunks.push(chunk.toString());
         return true;
-      }) as never);
+      });
     stderrSpy = jest
       .spyOn(process.stderr, 'write')
-      .mockImplementation(((chunk: string | Uint8Array) => {
+      .mockImplementation((chunk: string | Uint8Array) => {
         stderrChunks.push(chunk.toString());
         return true;
-      }) as never);
+      });
   });
 
   afterEach(() => {

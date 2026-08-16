@@ -5,24 +5,18 @@ import {
   CallHandler,
   InternalServerErrorException,
   Logger,
-  Optional,
-  Inject,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { Observable, from, throwError } from 'rxjs';
 import { switchMap, catchError } from 'rxjs/operators';
 
-import { createBaseEvent } from '@platform/event-contracts';
-
+import { getRequestFromArgumentsHost } from '../context/execution-context-request';
 import { AUDIT_LOG_KEY, AuditLogOptions } from '../decorators/audit-log.decorator';
-import { AuditLogService } from './audit-log.service';
+
 import { AuditSeverity } from './audit-log.entity';
-import {
-  hashIpForGdpr,
-  readIpHashingPolicyFromEnv,
-  shouldHashIp,
-} from './ip-hash.util';
+import { AuditLogService } from './audit-log.service';
+import { hashIpForGdpr, readIpHashingPolicyFromEnv, shouldHashIp } from './ip-hash.util';
 
 /**
  * Keys that must never appear in audit log metadata.
@@ -59,9 +53,6 @@ const MAX_SANITIZE_DEPTH = 3;
  * - Reads AUDIT_LOG_KEY metadata from the handler via Reflector.
  * - Extracts user info (userId, email, tenantId) from req.user.
  * - Extracts IP and User-Agent from the request.
- * - Publishes to NATS `events.audit.*` topic if NatsEventBus is
- *   available (event-bus emit stays fire-and-forget — it is a
- *   downstream observability signal, not a primary audit channel).
  * - Stores in database via AuditLogService.recordAwait — failures
  *   propagate as InternalServerErrorException so the consumer sees
  *   the audit-write failure rather than silently dropping evidence.
@@ -88,9 +79,6 @@ export class AuditLogInterceptor implements NestInterceptor {
   constructor(
     private readonly reflector: Reflector,
     private readonly auditLogService: AuditLogService,
-    @Optional()
-    @Inject('EVENT_BUS')
-    private readonly eventBus?: { publish: (event: unknown) => Promise<void>; isConnected: () => boolean } | null,
   ) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
@@ -115,23 +103,15 @@ export class AuditLogInterceptor implements NestInterceptor {
       // response stream completed before the audit row hit the DB,
       // and on crash between the two the row was lost.
       switchMap((result: unknown) =>
-        from(
-          this.recordAuditLog(auditOptions, requestContext, args, result),
-        ).pipe(switchMap(() => [result])),
+        from(this.recordAuditLog(auditOptions, requestContext, args, result)).pipe(
+          switchMap(() => [result]),
+        ),
       ),
       // ── Failure path ──
       // Handler threw. We still write a FAILED audit row, then
       // re-throw the original handler error.
       catchError((handlerError: Error) =>
-        from(
-          this.recordAuditLog(
-            auditOptions,
-            requestContext,
-            args,
-            null,
-            handlerError,
-          ),
-        ).pipe(
+        from(this.recordAuditLog(auditOptions, requestContext, args, null, handlerError)).pipe(
           switchMap(() => throwError(() => handlerError)),
           // If audit write ALSO fails, throw an InternalServerError
           // wrapping both so the operator sees both the original
@@ -197,13 +177,12 @@ export class AuditLogInterceptor implements NestInterceptor {
    * operation aborts for compliance — same posture as the canonical
    * AuditedOperationInterceptor.
    *
-   * The NATS event-bus emission stays fire-and-forget because the
-   * event bus is a downstream observability signal, not a primary
-   * audit channel — losing a NATS event must not abort the
-   * operation. If event-bus delivery is critical for a particular
-   * consumer, that consumer should subscribe to the audit-row table
-   * via outbox / CDC, not depend on the volatile `events.audit.*`
-   * stream.
+   * The committed audit row is the sole write authority. A second,
+   * post-commit NATS write used to duplicate that authority with an
+   * at-most-once projection that could silently disappear. Consumers
+   * that need an event projection must derive it from the committed
+   * row through a transactional outbox or CDC pipeline owned by the
+   * service; this interceptor never creates an unjournalled side effect.
    *
    * @throws Error — propagates DB write failure to the caller; the
    *   intercept() switchMap chain wraps it into
@@ -233,7 +212,7 @@ export class AuditLogInterceptor implements NestInterceptor {
       metadata['error'] = error.message;
     }
 
-    // 1. Persist to database — AWAITED. A rejection bubbles up to
+    // Persist to database — AWAITED. A rejection bubbles up to
     //    the intercept() chain which surfaces it as a 5xx.
     //    AUDITTRAIL-LOW-002: route IP through the canonical
     //    region-gated hashing helper. Region comes from the JWT
@@ -260,45 +239,6 @@ export class AuditLogInterceptor implements NestInterceptor {
       severity: error ? AuditSeverity.ERROR : AuditSeverity.INFO,
       correlationId: requestCtx.correlationId,
     });
-
-    // 2. Publish to NATS (fire-and-forget — observability signal,
-    //    not a primary audit channel; loss must not abort the op).
-    this.publishToEventBus(options, requestCtx, resourceId, metadata, error);
-  }
-
-  /**
-   * Publish audit event to NATS event bus if available.
-   * Completely fire-and-forget.
-   */
-  private publishToEventBus(
-    options: AuditLogOptions,
-    requestCtx: RequestContext,
-    resourceId: string | null,
-    metadata: Record<string, unknown>,
-    error?: Error,
-  ): void {
-    if (!this.eventBus || typeof this.eventBus.isConnected !== 'function' || !this.eventBus.isConnected()) {
-      return;
-    }
-
-    const event = {
-      ...createBaseEvent(`audit.${options.action.toLowerCase()}`, requestCtx.tenantId ?? '', { userId: requestCtx.userId ?? undefined }),
-      metadata: {
-        action: options.action,
-        resource: options.resource,
-        resourceId,
-        userEmail: requestCtx.userEmail,
-        ip: requestCtx.ip,
-        severity: error ? 'error' : 'info',
-        ...metadata,
-      },
-    };
-
-    this.eventBus.publish(event).catch((err: Error) => {
-      this.logger.debug(
-        `Failed to publish audit event to NATS: ${err.message}`,
-      );
-    });
   }
 
   /**
@@ -306,15 +246,7 @@ export class AuditLogInterceptor implements NestInterceptor {
    * Supports both HTTP and GraphQL contexts.
    */
   private extractRequestContext(context: ExecutionContext): RequestContext {
-    const contextType = context.getType<string>();
-    let request: RequestLike;
-
-    if (contextType === 'graphql') {
-      const gqlCtx = GqlExecutionContext.create(context);
-      request = gqlCtx.getContext().req as RequestLike;
-    } else {
-      request = context.switchToHttp().getRequest<RequestLike>();
-    }
+    const request = getRequestFromArgumentsHost<RequestLike>(context);
 
     const user = request?.user;
     const headers = request?.headers ?? {};
@@ -414,10 +346,7 @@ export class AuditLogInterceptor implements NestInterceptor {
    * Sanitize an object by removing sensitive keys and truncating deep nesting.
    * Prevents passwords, tokens, and other secrets from appearing in audit logs.
    */
-  private sanitizeObject(
-    obj: Record<string, unknown>,
-    depth = 0,
-  ): Record<string, unknown> {
+  private sanitizeObject(obj: Record<string, unknown>, depth = 0): Record<string, unknown> {
     if (depth >= MAX_SANITIZE_DEPTH) {
       return { _truncated: true };
     }
@@ -434,10 +363,7 @@ export class AuditLogInterceptor implements NestInterceptor {
       if (value === null || value === undefined) {
         result[key] = value;
       } else if (typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date)) {
-        result[key] = this.sanitizeObject(
-          value as Record<string, unknown>,
-          depth + 1,
-        );
+        result[key] = this.sanitizeObject(value as Record<string, unknown>, depth + 1);
       } else if (Array.isArray(value)) {
         // Limit arrays to first 10 items
         result[key] = value.slice(0, 10);

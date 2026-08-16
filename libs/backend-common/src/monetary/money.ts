@@ -1,4 +1,5 @@
 import Decimal from 'decimal.js';
+
 import { getCurrencyScale } from './currency-scale';
 
 // IMPORTANT: Configure Decimal.js for financial-grade precision.
@@ -83,9 +84,7 @@ export class Money {
    */
   static fromMinorUnits(minorUnits: number, currency: string): Money {
     if (!Number.isInteger(minorUnits)) {
-      throw new Error(
-        `minorUnits must be an integer, received ${minorUnits}`,
-      );
+      throw new Error(`minorUnits must be an integer, received ${minorUnits}`);
     }
     const upperCurrency = currency.toUpperCase();
     const scale = getCurrencyScale(upperCurrency);
@@ -355,8 +354,8 @@ export class Money {
     if (this._currency !== other._currency) {
       throw new Error(
         `Currency mismatch in ${operation}: ` +
-        `cannot combine ${this._currency} with ${other._currency}. ` +
-        `Convert currencies explicitly before arithmetic.`,
+          `cannot combine ${this._currency} with ${other._currency}. ` +
+          `Convert currencies explicitly before arithmetic.`,
       );
     }
   }

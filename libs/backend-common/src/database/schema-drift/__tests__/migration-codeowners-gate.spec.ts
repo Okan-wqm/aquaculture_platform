@@ -8,14 +8,15 @@
  * fails this test in CI before landing.
  */
 
-// `export {}` keeps strict-tsc treating this file as a MODULE so its
-// top-level declarations stay file-scoped (PROC-MEDIUM-010 invariant).
-export {};
+import { resolve } from 'node:path';
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
-const { main: codeownersMain } = require('../../../../../../tools/gates/migration-codeowners-coverage') as {
-  main: (argv: readonly string[]) => number;
-};
+interface MigrationCodeownersModule {
+  readonly main: (argv: readonly string[]) => number;
+}
+
+const { main: codeownersMain } = jest.requireActual<MigrationCodeownersModule>(
+  resolve(__dirname, '../../../../../../tools/gates/migration-codeowners-coverage'),
+);
 
 describe('migration-codeowners-coverage gate', () => {
   let stdoutSpy: jest.SpyInstance;
@@ -25,10 +26,10 @@ describe('migration-codeowners-coverage gate', () => {
     stdoutChunks = [];
     stdoutSpy = jest
       .spyOn(process.stdout, 'write')
-      .mockImplementation(((chunk: string | Uint8Array) => {
+      .mockImplementation((chunk: string | Uint8Array) => {
         stdoutChunks.push(chunk.toString());
         return true;
-      }) as never);
+      });
   });
 
   afterEach(() => {

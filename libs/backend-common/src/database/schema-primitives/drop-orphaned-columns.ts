@@ -29,8 +29,10 @@
  */
 import type { EntityMetadata, QueryRunner } from 'typeorm';
 
+import { ClassConstructor, isClassConstructor } from '../../types/class-constructor';
 import { withDdlSafety } from '../base-migration';
 import { getEncryptedAtRestMetadata } from '../encrypted-at-rest.decorator';
+import { executeQueryRowsNormalized } from '../query-result-normalizer';
 import { sql } from '../sql-fragments';
 
 export interface DropOrphanedColumnsOptions {
@@ -57,7 +59,7 @@ export interface DropOrphanedColumnsOptions {
    * === entityMetadata.target but callers passing anonymized metadata
    * may supply it explicitly.
    */
-  readonly entity?: Function;
+  readonly entity?: ClassConstructor;
   readonly lockTimeoutMs?: number;
 }
 
@@ -84,9 +86,7 @@ export async function dropOrphanedColumns(
 
   // Refuse if any allowlisted name is actually declared by the entity
   // (would be a Class D drop-by-mistake).
-  const entityDbNames = new Set(
-    opts.entityMetadata.columns.map((c) => c.databaseName),
-  );
+  const entityDbNames = new Set(opts.entityMetadata.columns.map((c) => c.databaseName));
   const notOrphans = opts.allowlist.filter((n) => entityDbNames.has(n));
   if (notOrphans.length > 0) {
     throw new Error(
@@ -99,9 +99,7 @@ export async function dropOrphanedColumns(
   // @EncryptedAtRest refusal.
   const entityCtor =
     opts.entity ??
-    (typeof opts.entityMetadata.target === 'function'
-      ? (opts.entityMetadata.target as Function)
-      : undefined);
+    (isClassConstructor(opts.entityMetadata.target) ? opts.entityMetadata.target : undefined);
   if (entityCtor !== undefined) {
     const encrypted = getEncryptedAtRestMetadata(entityCtor);
     if (encrypted.size > 0) {
@@ -132,11 +130,12 @@ export async function dropOrphanedColumns(
     },
     async () => {
       // Verify each allowlisted name exists in the DB before DROP.
-      const existingRows: Array<{ column_name: string }> = await qr.query(
+      const existingRows = await executeQueryRowsNormalized<{ column_name: string }>(
+        qr,
         `SELECT column_name FROM information_schema.columns
           WHERE table_schema = $1 AND table_name = $2
             AND column_name = ANY($3::text[])`,
-        [opts.schema, opts.table, opts.allowlist as readonly string[]],
+        [opts.schema, opts.table, opts.allowlist],
       );
       const existing = new Set(existingRows.map((r) => r.column_name));
 

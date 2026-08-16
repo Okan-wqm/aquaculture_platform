@@ -3,50 +3,47 @@
  * in-memory runDriftBypass path — no real DB connection, no pg driver.
  */
 
-// `export {}` keeps strict-tsc treating this file as a MODULE so its
-// top-level declarations stay file-scoped (PROC-MEDIUM-010 invariant).
-export {};
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const {
-  parseTtl,
-  parseDriftBypassArgs,
-  resolveActor,
-  runDriftBypass,
-} = require('../../../../../../tools/aqua-ctl/aqua-ctl') as {
-  parseTtl: (s: string) => number;
-  resolveActor: (env: NodeJS.ProcessEnv) => string;
-  parseDriftBypassArgs: (
+import { resolve } from 'node:path';
+
+import { defined } from '@aquaculture/testing';
+
+interface DriftBypassArgs {
+  readonly service: string;
+  readonly reason: string;
+  readonly ttlMs: number;
+  readonly environment: string;
+  readonly actor: string;
+  readonly dryRun: boolean;
+}
+
+interface DriftBypassWrite {
+  readonly service: string;
+  readonly reason: string;
+  readonly expiresAt: Date;
+  readonly actor: string;
+  readonly environment: string;
+}
+
+interface AquaCtlModule {
+  readonly parseTtl: (value: string) => number;
+  readonly resolveActor: (environment: NodeJS.ProcessEnv) => string;
+  readonly parseDriftBypassArgs: (
     argv: readonly string[],
-    env?: NodeJS.ProcessEnv,
-  ) => {
-    service: string;
-    reason: string;
-    ttlMs: number;
-    environment: string;
-    actor: string;
-    dryRun: boolean;
-  };
-  runDriftBypass: (
-    args: {
-      service: string;
-      reason: string;
-      ttlMs: number;
-      environment: string;
-      actor: string;
-      dryRun: boolean;
-    },
+    environment?: NodeJS.ProcessEnv,
+  ) => DriftBypassArgs;
+  readonly runDriftBypass: (
+    args: DriftBypassArgs,
     writer: {
-      write: (a: {
-        service: string;
-        reason: string;
-        expiresAt: Date;
-        actor: string;
-        environment: string;
-      }) => Promise<{ id: string }>;
+      write: (args: DriftBypassWrite) => Promise<{ id: string }>;
     },
     now?: Date,
   ) => Promise<{ id: string; dryRun: boolean }>;
-};
+}
+
+const { parseTtl, parseDriftBypassArgs, resolveActor, runDriftBypass } =
+  jest.requireActual<AquaCtlModule>(
+    resolve(__dirname, '../../../../../../tools/aqua-ctl/aqua-ctl'),
+  );
 
 describe('parseTtl', () => {
   it.each([
@@ -76,9 +73,7 @@ describe('parseTtl', () => {
 
 describe('resolveActor', () => {
   it('prefers GITHUB_USER over SUDO_USER over USER', () => {
-    expect(
-      resolveActor({ GITHUB_USER: 'okan', SUDO_USER: 'root2', USER: 'u' }),
-    ).toBe('okan');
+    expect(resolveActor({ GITHUB_USER: 'okan', SUDO_USER: 'root2', USER: 'u' })).toBe('okan');
     expect(resolveActor({ SUDO_USER: 'sudo', USER: 'u' })).toBe('sudo');
     expect(resolveActor({ USER: 'u' })).toBe('u');
   });
@@ -111,39 +106,33 @@ describe('parseDriftBypassArgs', () => {
   });
 
   it('requires --service', () => {
-    expect(() =>
-      parseDriftBypassArgs(['--reason', 'r', '--ttl', '1h'], baseEnv),
-    ).toThrow(/--service is required/);
+    expect(() => parseDriftBypassArgs(['--reason', 'r', '--ttl', '1h'], baseEnv)).toThrow(
+      /--service is required/,
+    );
   });
 
   it('rejects unsafe --service identifiers', () => {
     expect(() =>
-      parseDriftBypassArgs(
-        ['--service', 'hr; DROP--', '--reason', 'r', '--ttl', '1h'],
-        baseEnv,
-      ),
+      parseDriftBypassArgs(['--service', 'hr; DROP--', '--reason', 'r', '--ttl', '1h'], baseEnv),
     ).toThrow(/must match/);
   });
 
   it('requires --reason', () => {
-    expect(() =>
-      parseDriftBypassArgs(['--service', 'hr', '--ttl', '1h'], baseEnv),
-    ).toThrow(/--reason is required/);
+    expect(() => parseDriftBypassArgs(['--service', 'hr', '--ttl', '1h'], baseEnv)).toThrow(
+      /--reason is required/,
+    );
   });
 
   it('rejects empty --reason', () => {
     expect(() =>
-      parseDriftBypassArgs(
-        ['--service', 'hr', '--reason', '   ', '--ttl', '1h'],
-        baseEnv,
-      ),
+      parseDriftBypassArgs(['--service', 'hr', '--reason', '   ', '--ttl', '1h'], baseEnv),
     ).toThrow(/--reason is required/);
   });
 
   it('requires --ttl', () => {
-    expect(() =>
-      parseDriftBypassArgs(['--service', 'hr', '--reason', 'r'], baseEnv),
-    ).toThrow(/--ttl is required/);
+    expect(() => parseDriftBypassArgs(['--service', 'hr', '--reason', 'r'], baseEnv)).toThrow(
+      /--ttl is required/,
+    );
   });
 
   it('honors --dry-run flag', () => {
@@ -156,26 +145,17 @@ describe('parseDriftBypassArgs', () => {
 
   it('honors --environment override', () => {
     const args = parseDriftBypassArgs(
-      [
-        '--service',
-        'hr',
-        '--reason',
-        'r',
-        '--ttl',
-        '1h',
-        '--environment',
-        'production',
-      ],
+      ['--service', 'hr', '--reason', 'r', '--ttl', '1h', '--environment', 'production'],
       baseEnv,
     );
     expect(args.environment).toBe('production');
   });
 
   it('defaults environment from AQUA_ENV', () => {
-    const args = parseDriftBypassArgs(
-      ['--service', 'hr', '--reason', 'r', '--ttl', '1h'],
-      { ...baseEnv, AQUA_ENV: 'staging' },
-    );
+    const args = parseDriftBypassArgs(['--service', 'hr', '--reason', 'r', '--ttl', '1h'], {
+      ...baseEnv,
+      AQUA_ENV: 'staging',
+    });
     expect(args.environment).toBe('staging');
   });
 });
@@ -183,7 +163,9 @@ describe('parseDriftBypassArgs', () => {
 describe('runDriftBypass', () => {
   it('writes via the supplied writer + returns its id', async () => {
     const fakeWriter = {
-      write: jest.fn(async () => ({ id: 'row-abc' })),
+      write: jest.fn<Promise<{ id: string }>, [DriftBypassWrite]>(() =>
+        Promise.resolve({ id: 'row-abc' }),
+      ),
     };
     const result = await runDriftBypass(
       {
@@ -199,26 +181,16 @@ describe('runDriftBypass', () => {
     );
     expect(result).toEqual({ id: 'row-abc', dryRun: false });
     expect(fakeWriter.write).toHaveBeenCalledTimes(1);
-    const calls = fakeWriter.write.mock.calls as unknown as Array<
-      readonly [
-        {
-          service: string;
-          reason: string;
-          expiresAt: Date;
-          actor: string;
-          environment: string;
-        },
-      ]
-    >;
-    const call = calls[0]?.[0];
-    expect(call).toBeDefined();
-    expect(call!.service).toBe('hr');
-    expect(call!.expiresAt.toISOString()).toBe('2026-04-21T13:00:00.000Z');
+    const call = defined(fakeWriter.write.mock.calls[0]?.[0]);
+    expect(call.service).toBe('hr');
+    expect(call.expiresAt.toISOString()).toBe('2026-04-21T13:00:00.000Z');
   });
 
   it('--dry-run skips the writer entirely', async () => {
     const fakeWriter = {
-      write: jest.fn(async () => ({ id: 'never' })),
+      write: jest.fn<Promise<{ id: string }>, [DriftBypassWrite]>(() =>
+        Promise.resolve({ id: 'never' }),
+      ),
     };
     const result = await runDriftBypass(
       {

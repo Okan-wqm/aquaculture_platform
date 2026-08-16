@@ -31,8 +31,10 @@
  */
 import type { QueryRunner } from 'typeorm';
 
+import type { ClassConstructor } from '../../types/class-constructor';
 import { withDdlSafety } from '../base-migration';
 import { getEncryptedAtRestMetadata } from '../encrypted-at-rest.decorator';
+import { executeQueryRowsNormalized } from '../query-result-normalizer';
 import { sql, type SqlFragment } from '../sql-fragments';
 
 export interface AddMissingColumnSpec {
@@ -76,7 +78,7 @@ export interface AddMissingColumnsOptions {
    * Callers migrating encrypted columns MUST do so via the separate
    * key-rotation runbook, never via this primitive.
    */
-  readonly entity?: Function;
+  readonly entity?: ClassConstructor;
   /** Passed through to withDdlSafety. Defaults to 30_000. */
   readonly lockTimeoutMs?: number;
 }
@@ -153,7 +155,8 @@ export async function addMissingColumns(
     },
     async () => {
       // Introspect the DB to see which columns exist today.
-      const existingRows: Array<{ column_name: string }> = await qr.query(
+      const existingRows = await executeQueryRowsNormalized<{ column_name: string }>(
+        qr,
         `SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2`,
         [opts.schema, opts.table],
       );

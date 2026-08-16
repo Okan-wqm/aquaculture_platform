@@ -5,5 +5,6 @@
  */
 
 export { withTenantContext } from './with-tenant-context';
+export { getRequestFromArgumentsHost } from './execution-context-request';
 export { TenantExecutionContextInterceptor } from './tenant-execution-context.interceptor';
 export { TenantExecutionContextModule } from './tenant-execution-context.module';

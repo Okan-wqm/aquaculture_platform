@@ -1,5 +1,9 @@
 import { createHash } from 'node:crypto';
 
+import {
+  CONFIGURATION_CATALOG_DIGEST,
+  ConfigurationKeyId,
+} from '@aquaculture/configuration-contracts';
 import { AuditLogService, AuditSeverity } from '@aquaculture/backend-common/audit';
 import { TenantErasureTombstoneError } from '@aquaculture/backend-common/compliance';
 import { isValidUUID } from '@aquaculture/backend-common/database';
@@ -11,7 +15,6 @@ import {
   type ServiceIdentityKeyringEntry,
 } from '@aquaculture/backend-common/utils';
 import { Controller, Logger } from '@nestjs/common';
-import { CommandBus } from '@nestjs/cqrs';
 import { ConfigService } from '@nestjs/config';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import {
@@ -32,8 +35,11 @@ import {
 } from '@platform/event-contracts';
 
 import { serviceIdentityAudiencesForService } from '../../../../../platform/libs/service-catalog/src/index';
-import { UpsertConfigurationCommand } from '../commands/upsert-configuration.command';
-import { ConfigEnvironment, type Configuration } from '../entities/configuration.entity';
+import { ApplyConfigurationBatchInputV1 } from '../dto/configuration-snapshot.dto';
+import { ConfigEnvironment } from '../entities/configuration.entity';
+import { ConfigurationChangeIntentV1 } from '../generated/configuration-graphql.generated';
+import { ConfigurationBatchAuthorityService } from '../services/configuration-batch-authority.service';
+import { ConfigurationSnapshotService } from '../services/configuration-snapshot.service';
 import { ConfigurationService } from '../services/configuration.service';
 
 const NONCE_TTL_SECONDS = 5 * 60;
@@ -42,7 +48,6 @@ const ALLOWED_RESOURCES = new Set(MARINE_PROVIDER_CREDENTIAL_ALLOWLIST['farm-ser
 
 interface EffectiveCredential {
   value: string;
-  isSecret: boolean;
   sourceTenantId: string;
   configVersion: number;
 }
@@ -51,6 +56,7 @@ interface AuthorizedCredentialRequest {
   outcome: 'AUTHORIZED';
   request: MarineProviderCredentialRequest;
   caller: string;
+  nonce: string;
 }
 
 type CredentialAuthorizationResult =
@@ -79,7 +85,8 @@ export class MarineProviderCredentialsNatsHandler {
 
   constructor(
     private readonly configurationService: ConfigurationService,
-    private readonly commandBus: CommandBus,
+    private readonly batchAuthority: ConfigurationBatchAuthorityService,
+    private readonly snapshotService: ConfigurationSnapshotService,
     private readonly auditLogService: AuditLogService,
     private readonly configService: ConfigService,
     private readonly redisService: RedisService,
@@ -109,7 +116,7 @@ export class MarineProviderCredentialsNatsHandler {
     if (authorization.outcome === 'DENIED') {
       return this.emptyResolve();
     }
-    const { request, caller } = authorization;
+    const { request, caller, nonce } = authorization;
 
     const read = await this.readEffective(request);
     if (read.outcome === 'UNAVAILABLE') {
@@ -120,8 +127,7 @@ export class MarineProviderCredentialsNatsHandler {
       const audited = await this.auditSecretDisclosure(request, caller, false, null);
       return audited ? this.emptyResolve() : this.unavailableResolve();
     }
-    const valid =
-      effective.isSecret && parseMarineProviderCdseCredentialBundle(effective.value) !== null;
+    const valid = parseMarineProviderCdseCredentialBundle(effective.value) !== null;
     if (!valid) {
       await this.audit('marine.provider-credential.denied', request, caller, {
         reason: 'invalid-secret-bundle',
@@ -154,7 +160,7 @@ export class MarineProviderCredentialsNatsHandler {
     if (authorization.outcome !== 'AUTHORIZED') {
       return this.emptyMutation();
     }
-    const { request, caller } = authorization;
+    const { request, caller, nonce } = authorization;
     if (!request.bundleJson) {
       return this.emptyMutation();
     }
@@ -173,23 +179,40 @@ export class MarineProviderCredentialsNatsHandler {
     }
 
     try {
-      const saved = await this.commandBus.execute<UpsertConfigurationCommand, Configuration>(
-        new UpsertConfigurationCommand(
-          request.tenantId,
-          request.service,
-          request.key,
-          request.bundleJson,
-          ConfigEnvironment.ALL,
-          request.actorId,
-          true,
-          'Marine provider credential bundle upsert',
-        ),
+      const current = await this.snapshotService.getSnapshot(
+        request.tenantId,
+        ConfigEnvironment.ALL,
       );
+      const input: ApplyConfigurationBatchInputV1 = {
+        operationId: this.operationIdForNonce(caller, nonce),
+        targetTenantId: request.tenantId,
+        environment: ConfigEnvironment.ALL,
+        catalogDigest: CONFIGURATION_CATALOG_DIGEST,
+        expectedSnapshotToken: current.snapshotToken,
+        reason: 'Marine provider credential bundle upsert',
+        changes: [
+          {
+            keyId: ConfigurationKeyId.MARINE_CDSE_CREDENTIALS,
+            intent: ConfigurationChangeIntentV1.SET,
+            value: request.bundleJson,
+          },
+        ],
+      };
+      const receipt = await this.batchAuthority.apply(
+        input,
+        request.tenantId,
+        request.actorId,
+        false,
+      );
+      const version = receipt.changes[0]?.version;
+      if (version === undefined || version === null) {
+        throw new Error('Marine provider credential receipt did not carry a version');
+      }
       return {
         outcome: MarineProviderCredentialMutationOutcome.APPLIED,
         success: true,
-        sourceTenantId: saved.tenantId,
-        configVersion: saved.version,
+        sourceTenantId: request.tenantId,
+        configVersion: version,
       };
     } catch (error) {
       if (error instanceof TenantErasureTombstoneError) {
@@ -262,7 +285,12 @@ export class MarineProviderCredentialsNatsHandler {
       await this.auditDenied(request, nonceClaim, outcome.serviceName);
       return { outcome: 'DENIED' };
     }
-    return { outcome: 'AUTHORIZED', request, caller: outcome.serviceName };
+    return {
+      outcome: 'AUTHORIZED',
+      request,
+      caller: outcome.serviceName,
+      nonce: outcome.nonce,
+    };
   }
 
   private isRequestShapeValid(
@@ -312,8 +340,7 @@ export class MarineProviderCredentialsNatsHandler {
         outcome: 'SUCCESS',
         credential: await this.configurationService.getEffectiveWithMetaFresh(
           request.tenantId,
-          request.service,
-          request.key,
+          ConfigurationKeyId.MARINE_CDSE_CREDENTIALS,
         ),
       };
     } catch {
@@ -323,6 +350,13 @@ export class MarineProviderCredentialsNatsHandler {
       });
       return { outcome: 'UNAVAILABLE' };
     }
+  }
+
+  private operationIdForNonce(caller: string, nonce: string): string {
+    const value = createHash('sha256')
+      .update(`marine-provider-configuration-v1\0${caller}\0${nonce}`, 'utf8')
+      .digest('hex');
+    return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20, 32)}`;
   }
 
   private isRecord(value: unknown): value is Record<string, unknown> {

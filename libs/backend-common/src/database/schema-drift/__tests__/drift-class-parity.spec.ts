@@ -13,14 +13,11 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { defined } from '@aquaculture/testing';
+
 import { DRIFT_CLASSES, type DriftClassId } from '../drift-classes';
 
-const VALIDATOR_SOURCE_PATH = join(
-  __dirname,
-  '..',
-  '..',
-  'schema-drift-validator.service.ts',
-);
+const VALIDATOR_SOURCE_PATH = join(__dirname, '..', '..', 'schema-drift-validator.service.ts');
 const HARNESS_EXPECT_DRIFT_PATH = join(
   __dirname,
   '..',
@@ -57,7 +54,7 @@ function extractClassIdsFromHarness(): Set<string> {
   const ids = new Set<string>();
   const re = /'([a-z_]+)'/g;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(blockMatch[1]!)) !== null) {
+  while ((m = re.exec(defined(blockMatch[1]))) !== null) {
     const id = m[1];
     if (id) ids.add(id);
   }
@@ -83,9 +80,7 @@ describe('drift-class parity — registry ↔ validator ↔ primitive ↔ harnes
   it('validator does not use any class IDs that are not in the registry', () => {
     const wiredInValidator = extractClassIdsFromValidator();
     const known = new Set(Object.keys(DRIFT_CLASSES));
-    const unknown = Array.from(wiredInValidator).filter(
-      (id) => !known.has(id),
-    );
+    const unknown = Array.from(wiredInValidator).filter((id) => !known.has(id));
     expect(unknown).toEqual([]);
   });
 

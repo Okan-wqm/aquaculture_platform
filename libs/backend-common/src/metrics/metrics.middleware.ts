@@ -4,6 +4,19 @@ import { Request, Response, NextFunction } from 'express';
 import { ServiceMetricsService } from './metrics.service';
 import { normalizeRoute } from './route-normalizer';
 
+function matchedRoutePath(request: Request): string | undefined {
+  const route: unknown = request.route;
+  if (
+    typeof route === 'object' &&
+    route !== null &&
+    'path' in route &&
+    typeof route.path === 'string'
+  ) {
+    return route.path;
+  }
+  return undefined;
+}
+
 /**
  * MetricsMiddleware
  *
@@ -49,10 +62,10 @@ export class MetricsMiddleware implements NestMiddleware {
 
       // Prefer Express route pattern if available (already parameterized)
       // e.g., /api/sensors/:id instead of /api/sensors/abc-123
-      const route =
-        (req.route?.path as string | undefined)
-          ? String(req.baseUrl || '') + String(req.route.path)
-          : normalizeRoute((path.split('?')[0] ?? path) as string); // Strip query params
+      const routePath = matchedRoutePath(req);
+      const route = routePath
+        ? req.baseUrl + routePath
+        : normalizeRoute(path.split('?')[0] ?? path); // Strip query params
 
       this.metricsService.recordHttpRequest(req.method, route, res.statusCode, durationSeconds);
     });

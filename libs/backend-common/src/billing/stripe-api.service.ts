@@ -1,10 +1,12 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+
 import {
   CircuitBreakerService,
   CircuitOpenError,
   DEFAULT_BREAKER_OPTIONS,
   type CircuitBreakerOptions,
 } from '../resilience/circuit-breaker';
+
 import {
   IAuditRecorder,
   IStripeApiClient,
@@ -218,10 +220,7 @@ export class StripeApiService {
     });
   }
 
-  async retrieveRefund(args: {
-    tenantId: string;
-    refundId: string;
-  }): Promise<StripeRefund | null> {
+  async retrieveRefund(args: { tenantId: string; refundId: string }): Promise<StripeRefund | null> {
     return this.breaker.execute({
       serviceName: 'stripe-api',
       tenantId: args.tenantId,
@@ -249,10 +248,12 @@ export class StripeApiService {
     });
   }
 
-  async reportMeterEvent(args: StripeMeterEvent & {
-    tenantId: string;
-    idempotencyKey: StripeIdempotencyKey;
-  }): Promise<void> {
+  async reportMeterEvent(
+    args: StripeMeterEvent & {
+      tenantId: string;
+      idempotencyKey: StripeIdempotencyKey;
+    },
+  ): Promise<void> {
     return this.executeMutation({
       tenantId: args.tenantId,
       action: 'stripe.meter.report',

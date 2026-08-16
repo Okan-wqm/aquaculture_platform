@@ -11,12 +11,11 @@
  * Closes: docs/reviews/legal-hold-auditor/2026-04-28-core-platform-review.md#LEGAL-CRITICAL-001 (foundation)
  */
 
+import { defined, mockCallArgument } from '@aquaculture/testing';
 import { ForbiddenException } from '@nestjs/common';
+
 import { LegalHoldEntity } from '../legal-hold.entity';
-import {
-  LegalHoldService,
-  LegalHoldCacheClient,
-} from '../legal-hold.service';
+import { LegalHoldService, LegalHoldCacheClient } from '../legal-hold.service';
 import { LegalHoldActiveError } from '../legal-hold.types';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
@@ -38,15 +37,22 @@ function makeRow(overrides: Partial<LegalHoldEntity> = {}): LegalHoldEntity {
     releasedAt: null,
     releaseReason: null,
     ...overrides,
-  } as LegalHoldEntity;
+  };
 }
 
-function makeMockRepo() {
+interface MockLegalHoldRepository {
+  readonly find: jest.Mock<Promise<LegalHoldEntity[]>, [options?: unknown]>;
+  readonly findOne: jest.Mock<Promise<LegalHoldEntity | null>, [options?: unknown]>;
+  readonly save: jest.Mock<Promise<LegalHoldEntity>, [entity: LegalHoldEntity]>;
+  readonly create: jest.Mock<LegalHoldEntity, [row: LegalHoldEntity]>;
+}
+
+function makeMockRepo(): MockLegalHoldRepository {
   return {
-    find: jest.fn(),
-    findOne: jest.fn(),
-    save: jest.fn(),
-    create: jest.fn((row: LegalHoldEntity) => row),
+    find: jest.fn<Promise<LegalHoldEntity[]>, [options?: unknown]>(),
+    findOne: jest.fn<Promise<LegalHoldEntity | null>, [options?: unknown]>(),
+    save: jest.fn<Promise<LegalHoldEntity>, [entity: LegalHoldEntity]>(),
+    create: jest.fn<LegalHoldEntity, [row: LegalHoldEntity]>((row) => row),
   };
 }
 
@@ -118,10 +124,13 @@ describe('LegalHoldService', () => {
         throw new Error('should have thrown');
       } catch (e) {
         expect(e).toBeInstanceOf(LegalHoldActiveError);
-        expect((e as LegalHoldActiveError).tenantId).toBe(TENANT);
-        expect((e as LegalHoldActiveError).scope).toBe('farm');
-        expect((e as LegalHoldActiveError).resourceId).toBe(RESOURCE);
-        expect((e as LegalHoldActiveError).legalMatterId).toBe('matter-X-2026');
+        if (!(e instanceof LegalHoldActiveError)) {
+          throw e;
+        }
+        expect(e.tenantId).toBe(TENANT);
+        expect(e.scope).toBe('farm');
+        expect(e.resourceId).toBe(RESOURCE);
+        expect(e.legalMatterId).toBe('matter-X-2026');
       }
     });
 
@@ -172,9 +181,7 @@ describe('LegalHoldService', () => {
   describe('release', () => {
     it('rejects when hold is already released (write-once-released)', async () => {
       const repo = makeMockRepo();
-      repo.findOne.mockResolvedValue(
-        makeRow({ releasedAt: new Date(), releasedBy: ADMIN }),
-      );
+      repo.findOne.mockResolvedValue(makeRow({ releasedAt: new Date(), releasedBy: ADMIN }));
       const svc = new LegalHoldService(repo as never);
       await expect(
         svc.release({
@@ -222,7 +229,9 @@ describe('LegalHoldService', () => {
       expect(cache.del).toHaveBeenCalled();
       expect(result.releasedBy).toBe(ADMIN);
       expect(result.releaseReason).toBe('matter closed');
-      expect(result.releasedAtIso).toBe(finalRow.releasedAt!.toISOString());
+      expect(result.releasedAtIso).toBe(
+        defined(finalRow.releasedAt, 'Expected release timestamp').toISOString(),
+      );
     });
   });
 
@@ -233,12 +242,12 @@ describe('LegalHoldService', () => {
       const svc = new LegalHoldService(repo as never);
       const holds = await svc.listActive(TENANT);
       expect(holds.length).toBe(2);
-      expect(repo.find).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({ tenantId: TENANT }),
-          order: { appliedAt: 'DESC' },
-        }),
-      );
+      const findOptions = mockCallArgument<{
+        where: { tenantId: string };
+        order: { appliedAt: 'DESC' };
+      }>(repo.find);
+      expect(findOptions.where.tenantId).toBe(TENANT);
+      expect(findOptions.order).toEqual({ appliedAt: 'DESC' });
     });
   });
 });

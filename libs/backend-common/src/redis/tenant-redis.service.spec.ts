@@ -1,9 +1,14 @@
-import { TenantRedisService } from './tenant-redis.service';
 import { RedisService } from './redis.service';
+import { TenantRedisService } from './tenant-redis.service';
 
 describe('TenantRedisService', () => {
   let service: TenantRedisService;
-  let mockRedis: jest.Mocked<Pick<RedisService, 'get' | 'set' | 'del' | 'exists' | 'deletePattern' | 'hset' | 'hget' | 'hdel' | 'hgetall'>>;
+  let mockRedis: jest.Mocked<
+    Pick<
+      RedisService,
+      'get' | 'set' | 'del' | 'exists' | 'deletePattern' | 'hset' | 'hget' | 'hdel' | 'hgetall'
+    >
+  >;
   const validTenantId = '550e8400-e29b-41d4-a716-446655440000';
 
   beforeEach(() => {
@@ -28,32 +33,45 @@ describe('TenantRedisService', () => {
     });
 
     it('should reject null/undefined tenantId', () => {
-      expect(() => TenantRedisService.forTenant(mockRedis as unknown as RedisService, null as unknown as string)).toThrow(
-        'tenantId must be a valid UUID',
-      );
-      expect(() => TenantRedisService.forTenant(mockRedis as unknown as RedisService, undefined as unknown as string)).toThrow(
-        'tenantId must be a valid UUID',
-      );
+      expect(() =>
+        TenantRedisService.forTenant(
+          mockRedis as unknown as RedisService,
+          null as unknown as string,
+        ),
+      ).toThrow('tenantId must be a valid UUID');
+      expect(() =>
+        TenantRedisService.forTenant(
+          mockRedis as unknown as RedisService,
+          undefined as unknown as string,
+        ),
+      ).toThrow('tenantId must be a valid UUID');
     });
 
     it('should reject invalid UUID format', () => {
-      expect(() => TenantRedisService.forTenant(mockRedis as unknown as RedisService, 'not-a-uuid')).toThrow(
-        'tenantId must be a valid UUID',
-      );
-      expect(() => TenantRedisService.forTenant(mockRedis as unknown as RedisService, '12345')).toThrow(
-        'tenantId must be a valid UUID',
-      );
-      expect(() => TenantRedisService.forTenant(mockRedis as unknown as RedisService, 'admin; DROP TABLE')).toThrow(
-        'tenantId must be a valid UUID',
-      );
+      expect(() =>
+        TenantRedisService.forTenant(mockRedis as unknown as RedisService, 'not-a-uuid'),
+      ).toThrow('tenantId must be a valid UUID');
+      expect(() =>
+        TenantRedisService.forTenant(mockRedis as unknown as RedisService, '12345'),
+      ).toThrow('tenantId must be a valid UUID');
+      expect(() =>
+        TenantRedisService.forTenant(mockRedis as unknown as RedisService, 'admin; DROP TABLE'),
+      ).toThrow('tenantId must be a valid UUID');
     });
 
     it('should accept valid UUID tenantId', () => {
-      expect(() => TenantRedisService.forTenant(mockRedis as unknown as RedisService, validTenantId)).not.toThrow();
+      expect(() =>
+        TenantRedisService.forTenant(mockRedis as unknown as RedisService, validTenantId),
+      ).not.toThrow();
     });
 
     it('should accept uppercase UUID tenantId', () => {
-      expect(() => TenantRedisService.forTenant(mockRedis as unknown as RedisService, validTenantId.toUpperCase())).not.toThrow();
+      expect(() =>
+        TenantRedisService.forTenant(
+          mockRedis as unknown as RedisService,
+          validTenantId.toUpperCase(),
+        ),
+      ).not.toThrow();
     });
   });
 
@@ -77,7 +95,11 @@ describe('TenantRedisService', () => {
     it('should prefix set calls without TTL', async () => {
       mockRedis.set.mockResolvedValue(undefined);
       await service.set('mykey', 'myvalue');
-      expect(mockRedis.set).toHaveBeenCalledWith(`tenant:${validTenantId}:mykey`, 'myvalue', undefined);
+      expect(mockRedis.set).toHaveBeenCalledWith(
+        `tenant:${validTenantId}:mykey`,
+        'myvalue',
+        undefined,
+      );
     });
 
     it('should prefix del calls', async () => {
@@ -104,7 +126,11 @@ describe('TenantRedisService', () => {
     it('should prefix hset calls', async () => {
       mockRedis.hset.mockResolvedValue(1);
       const result = await service.hset('myhash', 'field1', 'value1');
-      expect(mockRedis.hset).toHaveBeenCalledWith(`tenant:${validTenantId}:myhash`, 'field1', 'value1');
+      expect(mockRedis.hset).toHaveBeenCalledWith(
+        `tenant:${validTenantId}:myhash`,
+        'field1',
+        'value1',
+      );
       expect(result).toBe(1);
     });
 
@@ -118,7 +144,11 @@ describe('TenantRedisService', () => {
     it('should prefix hdel calls', async () => {
       mockRedis.hdel.mockResolvedValue(1);
       const result = await service.hdel('myhash', 'field1', 'field2');
-      expect(mockRedis.hdel).toHaveBeenCalledWith(`tenant:${validTenantId}:myhash`, 'field1', 'field2');
+      expect(mockRedis.hdel).toHaveBeenCalledWith(
+        `tenant:${validTenantId}:myhash`,
+        'field1',
+        'field2',
+      );
       expect(result).toBe(1);
     });
 

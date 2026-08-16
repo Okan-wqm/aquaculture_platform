@@ -31,6 +31,7 @@
 import type { QueryRunner } from 'typeorm';
 
 import { withDdlSafety } from '../base-migration';
+import { executeQueryRowsNormalized } from '../query-result-normalizer';
 import { sql, type SqlFragment } from '../sql-fragments';
 
 export interface CheckConstraintSpec {
@@ -122,7 +123,8 @@ export async function alignCheckConstraints(
     },
     async () => {
       // Fetch existing CHECK constraints on the table.
-      const existingRows: Array<{ conname: string }> = await qr.query(
+      const existingRows = await executeQueryRowsNormalized<{ conname: string }>(
+        qr,
         `SELECT c.conname
            FROM pg_constraint c
            JOIN pg_class t ON t.oid = c.conrelid

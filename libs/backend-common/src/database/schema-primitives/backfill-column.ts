@@ -58,6 +58,7 @@
 import type { QueryRunner } from 'typeorm';
 
 import { withDdlSafety } from '../base-migration';
+import { queryRowCountNormalized } from '../query-result-normalizer';
 import { sql, type SqlFragment } from '../sql-fragments';
 
 export interface BackfillColumnOptions {
@@ -83,9 +84,7 @@ export interface BackfillColumnOptions {
    * Called after each chunk. Useful for progress bars in long-running
    * migrations or for streaming to observability. Defaults to a no-op.
    */
-  readonly onChunk?: (
-    progress: BackfillProgress,
-  ) => void | Promise<void>;
+  readonly onChunk?: (progress: BackfillProgress) => void | Promise<void>;
   readonly lockTimeoutMs?: number;
 }
 
@@ -152,11 +151,11 @@ export async function backfillColumn(
           `   WHERE ${filterSqlRewritten} ` +
           `   LIMIT ${chunkSize} ` +
           `)) RETURNING 1`;
-        const result = await qr.query(stmt, [
+        const result: unknown = await qr.query(stmt, [
           ...opts.updateExpr.params,
           ...opts.filterExpr.params,
         ]);
-        const rowsUpdatedThisChunk = extractRowCount(result);
+        const rowsUpdatedThisChunk = queryRowCountNormalized(result);
         rowsUpdatedTotal += rowsUpdatedThisChunk;
 
         if (opts.onChunk) {
@@ -195,29 +194,4 @@ export async function backfillColumn(
 function rewritePlaceholders(sqlText: string, offset: number): string {
   if (offset === 0) return sqlText;
   return sqlText.replace(/\$(\d+)/g, (_, n: string) => `$${Number(n) + offset}`);
-}
-
-/**
- * Extract the row-count from a TypeORM `query()` result. With
- * RETURNING 1 the driver returns an Array<{?column?: 1}> whose length
- * equals the UPDATE's affected-row count. Array.isArray check supports
- * future driver changes that might wrap the rows.
- */
-function extractRowCount(result: unknown): number {
-  if (Array.isArray(result)) {
-    // Some drivers return [rowsArray, metadata]. Prefer the first
-    // element when it's itself an array (rowsArray).
-    const first = result[0];
-    if (Array.isArray(first)) return first.length;
-    return result.length;
-  }
-  if (
-    typeof result === 'object' &&
-    result !== null &&
-    'rowCount' in result &&
-    typeof (result as { rowCount: unknown }).rowCount === 'number'
-  ) {
-    return (result as { rowCount: number }).rowCount;
-  }
-  return 0;
 }

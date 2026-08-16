@@ -1,5 +1,7 @@
 import type { QueryRunner } from 'typeorm';
 
+import { executeQueryRowsNormalized } from './query-result-normalizer';
+
 /**
  * Shared utilities for TypeORM migration authors (MA5).
  * ============================================================================
@@ -103,10 +105,7 @@ const SAFE_IDENT_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
  * `up()` method. The runner will have already pinned, but re-asserting
  * makes the migration correct under non-runner invocation paths too.
  */
-export async function pinSearchPath(
-  queryRunner: QueryRunner,
-  schema: string,
-): Promise<void> {
+export async function pinSearchPath(queryRunner: QueryRunner, schema: string): Promise<void> {
   if (!SAFE_IDENT_RE.test(schema)) {
     throw new Error(
       `[pinSearchPath] Unsafe schema identifier: "${schema}". ` +
@@ -116,7 +115,8 @@ export async function pinSearchPath(
 
   await queryRunner.query(`SET search_path TO "${schema}", public`);
 
-  const rows: Array<{ current_schema: string }> = await queryRunner.query(
+  const rows = await executeQueryRowsNormalized<{ current_schema: string }>(
+    queryRunner,
     `SELECT current_schema()`,
   );
   const observed = rows[0]?.current_schema;
@@ -171,20 +171,14 @@ export async function dropPartialTables(
   signatureColumn: string,
 ): Promise<void> {
   if (!SAFE_IDENT_RE.test(schema)) {
-    throw new Error(
-      `[dropPartialTables] Unsafe schema identifier: "${schema}".`,
-    );
+    throw new Error(`[dropPartialTables] Unsafe schema identifier: "${schema}".`);
   }
   if (!SAFE_IDENT_RE.test(signatureColumn)) {
-    throw new Error(
-      `[dropPartialTables] Unsafe signatureColumn: "${signatureColumn}".`,
-    );
+    throw new Error(`[dropPartialTables] Unsafe signatureColumn: "${signatureColumn}".`);
   }
   for (const table of tables) {
     if (!SAFE_IDENT_RE.test(table)) {
-      throw new Error(
-        `[dropPartialTables] Unsafe table name in list: "${table}".`,
-      );
+      throw new Error(`[dropPartialTables] Unsafe table name in list: "${table}".`);
     }
   }
 
@@ -417,19 +411,13 @@ export async function dropDependentPartialIndexes(
 ): Promise<BlockingDependency[]> {
   for (const t of targets) {
     if (!SAFE_IDENT_RE.test(t.schema)) {
-      throw new Error(
-        `[dropDependentPartialIndexes] Unsafe schema identifier: "${t.schema}".`,
-      );
+      throw new Error(`[dropDependentPartialIndexes] Unsafe schema identifier: "${t.schema}".`);
     }
     if (!SAFE_IDENT_RE.test(t.table)) {
-      throw new Error(
-        `[dropDependentPartialIndexes] Unsafe table identifier: "${t.table}".`,
-      );
+      throw new Error(`[dropDependentPartialIndexes] Unsafe table identifier: "${t.table}".`);
     }
     if (!SAFE_IDENT_RE.test(t.column)) {
-      throw new Error(
-        `[dropDependentPartialIndexes] Unsafe column identifier: "${t.column}".`,
-      );
+      throw new Error(`[dropDependentPartialIndexes] Unsafe column identifier: "${t.column}".`);
     }
   }
 
@@ -462,12 +450,13 @@ export async function dropDependentPartialIndexes(
     // LEFT JOIN pg_constraint on conindid so we know whether each index is
     // backing a constraint. When it is, DROP CONSTRAINT is the correct
     // drop path (DROP INDEX is rejected by PG).
-    const indexRows: Array<{
+    const indexRows = await executeQueryRowsNormalized<{
       indexname: string;
       indexdef: string;
       conname: string | null;
       contype: string | null;
-    }> = await queryRunner.query(
+    }>(
+      queryRunner,
       `SELECT
          i.indexname,
          i.indexdef,
@@ -509,9 +498,7 @@ export async function dropDependentPartialIndexes(
             definition: row.indexdef,
           });
         } else {
-          await queryRunner.query(
-            `DROP INDEX IF EXISTS "${schema}"."${row.indexname}"`,
-          );
+          await queryRunner.query(`DROP INDEX IF EXISTS "${schema}"."${row.indexname}"`);
           dropped.push({
             schema,
             table,
@@ -529,17 +516,20 @@ export async function dropDependentPartialIndexes(
     // CHECK constraints are independent of indexes — they do not appear in
     // pg_indexes at all. They must be enumerated via pg_constraint and
     // dropped with ALTER TABLE … DROP CONSTRAINT.
-    const checkRows: Array<{ conname: string; condef: string }> =
-      await queryRunner.query(
-        `SELECT c.conname, pg_get_constraintdef(c.oid) AS condef
+    const checkRows = await executeQueryRowsNormalized<{
+      conname: string;
+      condef: string;
+    }>(
+      queryRunner,
+      `SELECT c.conname, pg_get_constraintdef(c.oid) AS condef
          FROM pg_constraint c
          JOIN pg_class t ON t.oid = c.conrelid
          JOIN pg_namespace ns ON ns.oid = t.relnamespace
          WHERE ns.nspname = $1
            AND t.relname = $2
            AND c.contype = 'c'`,
-        [schema, table],
-      );
+      [schema, table],
+    );
 
     for (const row of checkRows) {
       if (droppedConstraintNames.has(row.conname)) continue; // already dropped as backed index
@@ -652,9 +642,7 @@ export async function withDdlSafety<T>(
   opts: DdlSafetyOptions,
   fn: () => Promise<T>,
 ): Promise<T> {
-  const lockKey = buildAdvisoryLockKey(
-    opts.advisoryLockKeySuffix ?? opts.schema ?? 'default',
-  );
+  const lockKey = buildAdvisoryLockKey(opts.advisoryLockKeySuffix ?? opts.schema ?? 'default');
   const lockTimeoutMs = opts.lockTimeoutMs ?? 30_000;
   const inTx = qr.isTransactionActive;
 
@@ -680,10 +668,7 @@ export async function withDdlSafety<T>(
     // validation lives in pinSearchPath() when the caller needs it; this
     // helper relies on the orchestrator-side validation that the schema
     // name came from a trusted source (SCHEMA_REGISTRY).
-    await qr.query(
-      `SELECT set_config('search_path', $1, true)`,
-      [`${opts.schema},public`],
-    );
+    await qr.query(`SELECT set_config('search_path', $1, true)`, [`${opts.schema},public`]);
   }
 
   if (inTx) {
@@ -735,4 +720,3 @@ function buildAdvisoryLockKey(suffix: string): string {
   const safe = suffix.replace(/'/g, "''");
   return `hashtext('aqua-db-migrate:${safe}')`;
 }
-

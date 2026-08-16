@@ -1,10 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import {
-  IRateLimiterStrategy,
-  RateLimitResult,
-} from '../interfaces';
+import { IRateLimiterStrategy, RateLimitResult } from '../interfaces';
 
 /**
  * Rate limit entry for sliding window
@@ -12,6 +9,10 @@ import {
 interface SlidingWindowEntry {
   timestamps: number[];
   windowStart: number;
+}
+
+function resetTimeFor(timestamps: readonly number[], now: number, windowMs: number): Date {
+  return new Date((timestamps[0] ?? now) + windowMs);
 }
 
 /**
@@ -46,8 +47,8 @@ export class SlidingWindowStrategy implements IRateLimiterStrategy, OnModuleDest
     if (nodeEnv === 'production') {
       this.logger.warn(
         'SlidingWindowStrategy is using in-memory storage. ' +
-        'Rate limits will NOT be enforced across multiple instances. ' +
-        'Configure a Redis-backed rate limiter for production deployments.',
+          'Rate limits will NOT be enforced across multiple instances. ' +
+          'Configure a Redis-backed rate limiter for production deployments.',
       );
     }
   }
@@ -63,7 +64,7 @@ export class SlidingWindowStrategy implements IRateLimiterStrategy, OnModuleDest
    * Consume a rate limit point
    * Returns remaining points or -1 if blocked
    */
-  async consume(key: string, points = 1): Promise<RateLimitResult> {
+  consume(key: string, points = 1): Promise<RateLimitResult> {
     const now = Date.now();
     const windowMs = this.defaultWindowMs;
     const limit = this.extractLimitFromKey(key);
@@ -81,7 +82,7 @@ export class SlidingWindowStrategy implements IRateLimiterStrategy, OnModuleDest
     }
 
     // Remove timestamps outside the current window
-    entry.timestamps = entry.timestamps.filter(ts => ts > windowStart);
+    entry.timestamps = entry.timestamps.filter((ts) => ts > windowStart);
     entry.windowStart = windowStart;
 
     // Count requests in current window
@@ -92,12 +93,12 @@ export class SlidingWindowStrategy implements IRateLimiterStrategy, OnModuleDest
       const oldestTimestamp = entry.timestamps[0] || now;
       const retryAfter = Math.ceil((oldestTimestamp + windowMs - now) / 1000);
 
-      return {
+      return Promise.resolve({
         allowed: false,
         remaining: 0,
         resetTime: new Date(oldestTimestamp + windowMs),
         retryAfter: Math.max(1, retryAfter),
-      };
+      });
     }
 
     // Add timestamps for consumed points
@@ -106,31 +107,30 @@ export class SlidingWindowStrategy implements IRateLimiterStrategy, OnModuleDest
     }
 
     const remaining = Math.max(0, limit - entry.timestamps.length);
-    const resetTime = entry.timestamps.length > 0
-      ? new Date(entry.timestamps[0]! + windowMs)
-      : new Date(now + windowMs);
+    const resetTime = resetTimeFor(entry.timestamps, now, windowMs);
 
-    return {
+    return Promise.resolve({
       allowed: true,
       remaining,
       resetTime,
-    };
+    });
   }
 
   /**
    * Reset rate limit for a key
    */
-  async reset(key: string): Promise<void> {
+  reset(key: string): Promise<void> {
     this.store.delete(key);
+    return Promise.resolve();
   }
 
   /**
    * Get current state without consuming
    */
-  async get(key: string): Promise<RateLimitResult | null> {
+  get(key: string): Promise<RateLimitResult | null> {
     const entry = this.store.get(key);
     if (!entry) {
-      return null;
+      return Promise.resolve(null);
     }
 
     const now = Date.now();
@@ -139,23 +139,21 @@ export class SlidingWindowStrategy implements IRateLimiterStrategy, OnModuleDest
     const windowStart = now - windowMs;
 
     // Filter timestamps in current window
-    const validTimestamps = entry.timestamps.filter(ts => ts > windowStart);
+    const validTimestamps = entry.timestamps.filter((ts) => ts > windowStart);
     const remaining = Math.max(0, limit - validTimestamps.length);
-    const resetTime = validTimestamps.length > 0
-      ? new Date(validTimestamps[0]! + windowMs)
-      : new Date(now + windowMs);
+    const resetTime = resetTimeFor(validTimestamps, now, windowMs);
 
-    return {
+    return Promise.resolve({
       allowed: remaining > 0,
       remaining,
       resetTime,
-    };
+    });
   }
 
   /**
    * Consume with custom limit/window
    */
-  async consumeWithConfig(
+  consumeWithConfig(
     key: string,
     limit: number,
     windowMs: number,
@@ -175,7 +173,7 @@ export class SlidingWindowStrategy implements IRateLimiterStrategy, OnModuleDest
     }
 
     // Remove timestamps outside the current window
-    entry.timestamps = entry.timestamps.filter(ts => ts > windowStart);
+    entry.timestamps = entry.timestamps.filter((ts) => ts > windowStart);
     entry.windowStart = windowStart;
 
     const currentCount = entry.timestamps.length;
@@ -184,12 +182,12 @@ export class SlidingWindowStrategy implements IRateLimiterStrategy, OnModuleDest
       const oldestTimestamp = entry.timestamps[0] || now;
       const retryAfter = Math.ceil((oldestTimestamp + windowMs - now) / 1000);
 
-      return {
+      return Promise.resolve({
         allowed: false,
         remaining: 0,
         resetTime: new Date(oldestTimestamp + windowMs),
         retryAfter: Math.max(1, retryAfter),
-      };
+      });
     }
 
     for (let i = 0; i < points; i++) {
@@ -197,15 +195,13 @@ export class SlidingWindowStrategy implements IRateLimiterStrategy, OnModuleDest
     }
 
     const remaining = Math.max(0, limit - entry.timestamps.length);
-    const resetTime = entry.timestamps.length > 0
-      ? new Date(entry.timestamps[0]! + windowMs)
-      : new Date(now + windowMs);
+    const resetTime = resetTimeFor(entry.timestamps, now, windowMs);
 
-    return {
+    return Promise.resolve({
       allowed: true,
       remaining,
       resetTime,
-    };
+    });
   }
 
   /**
@@ -230,7 +226,7 @@ export class SlidingWindowStrategy implements IRateLimiterStrategy, OnModuleDest
 
     for (const [key, entry] of this.store.entries()) {
       // Remove entries with no valid timestamps
-      const validTimestamps = entry.timestamps.filter(ts => ts > now - windowMs);
+      const validTimestamps = entry.timestamps.filter((ts) => ts > now - windowMs);
 
       if (validTimestamps.length === 0) {
         this.store.delete(key);

@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
-import { FindingEntity } from './finding.entity';
 import { FindingRegistryService } from './finding-registry.service';
+import { FindingEntity } from './finding.entity';
 
 /**
  * FindingRegistryModule — Phase 12.1 completion.

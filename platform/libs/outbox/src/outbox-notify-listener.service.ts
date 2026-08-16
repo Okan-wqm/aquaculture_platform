@@ -6,17 +6,18 @@ import {
   OnModuleDestroy,
   Type,
 } from '@nestjs/common';
+import { Client as PgClient, type ClientConfig } from 'pg';
 import { DataSource } from 'typeorm';
 import type { PostgresConnectionOptions } from 'typeorm/driver/postgres/PostgresConnectionOptions';
-import { Client as PgClient, type ClientConfig } from 'pg';
-import { OutboxEntityBase } from './outbox-entity.base';
-import { OutboxWorkerService } from './outbox-worker.service';
+
 import {
   OUTBOX_ENTITY_CLASS,
   OUTBOX_NOTIFY_DEBOUNCE_MS,
   OUTBOX_NOTIFY_RECONNECT_INITIAL_MS,
   OUTBOX_NOTIFY_RECONNECT_MAX_MS,
 } from './constants';
+import { OutboxEntityBase } from './outbox-entity.base';
+import { OutboxWorkerService } from './outbox-worker.service';
 
 /**
  * OutboxNotifyListener
@@ -289,7 +290,7 @@ export class OutboxNotifyListener implements OnModuleInit, OnModuleDestroy {
     // Narrow to the Postgres-specific options type. TypeORM's union
     // type is widened to DataSourceOptions here; the type guard
     // above satisfies the narrowing.
-    const pgOptions = options as PostgresConnectionOptions;
+    const pgOptions: PostgresConnectionOptions = options;
 
     const config: ClientConfig = {
       host: pgOptions.host,
@@ -297,7 +298,7 @@ export class OutboxNotifyListener implements OnModuleInit, OnModuleDestroy {
       user: pgOptions.username,
       password:
         typeof pgOptions.password === 'string' ? pgOptions.password : undefined,
-      database: pgOptions.database as string | undefined,
+      database: pgOptions.database,
     };
 
     // Propagate SSL settings if present — the shared bootstrap

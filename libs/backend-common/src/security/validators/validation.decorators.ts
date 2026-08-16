@@ -15,6 +15,7 @@ import {
   isStrongPassword,
   safeRegexTest,
 } from './regex-patterns';
+import { containsSqlDelimiterOrControl } from './string-safety';
 
 /**
  * MaxLength Validation Decorator
@@ -307,11 +308,9 @@ export function NoHtmlTags(options?: ValidationOptions): PropertyDecorator {
  */
 @ValidatorConstraint({ name: 'noSqlInjection', async: false })
 export class NoSqlInjectionConstraint implements ValidatorConstraintInterface {
-  private readonly dangerousChars = /['";\\`\x00\n\r\x1a]/;
-
   validate(value: unknown): boolean {
     if (typeof value !== 'string') return true;
-    return !this.dangerousChars.test(value);
+    return !containsSqlDelimiterOrControl(value);
   }
 
   defaultMessage(): string {

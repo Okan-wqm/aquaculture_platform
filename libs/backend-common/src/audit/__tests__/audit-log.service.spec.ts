@@ -1,10 +1,11 @@
+import { mockCallArgument } from '@aquaculture/testing';
 import { Test } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
-import { AuditLogService } from '../audit-log.service';
 import { AuditLogEntity } from '../audit-log.entity';
+import { AuditLogService } from '../audit-log.service';
 import { AuditMethod, AuditResult, AuditSeverity } from '../audit-log.tokens';
-import { getRepositoryToken } from '@nestjs/typeorm';
 
 /**
  * AuditLogService — pin AUDITTRAIL-CRITICAL-004 mandatory-shape coverage
@@ -41,10 +42,7 @@ describe('AuditLogService — mandatory-shape coverage (AUDITTRAIL-CRITICAL-004)
     } as unknown as jest.Mocked<Repository<AuditLogEntity>>;
 
     const moduleRef = await Test.createTestingModule({
-      providers: [
-        AuditLogService,
-        { provide: getRepositoryToken(AuditLogEntity), useValue: repo },
-      ],
+      providers: [AuditLogService, { provide: getRepositoryToken(AuditLogEntity), useValue: repo }],
     }).compile();
 
     service = moduleRef.get(AuditLogService);
@@ -52,7 +50,7 @@ describe('AuditLogService — mandatory-shape coverage (AUDITTRAIL-CRITICAL-004)
 
   function lastSavedEntity(): Partial<AuditLogEntity> {
     expect(repo.save).toHaveBeenCalledTimes(1);
-    return repo.save.mock.calls[0]![0] as Partial<AuditLogEntity>;
+    return mockCallArgument<Partial<AuditLogEntity>>(repo.save);
   }
 
   describe('record() — fire-and-forget', () => {
@@ -172,9 +170,9 @@ describe('AuditLogService — mandatory-shape coverage (AUDITTRAIL-CRITICAL-004)
   describe('recordAwait() — failure propagation', () => {
     it('propagates DB errors to the caller (fail-closed audit gate)', async () => {
       repo.save.mockRejectedValueOnce(new Error('connection refused'));
-      await expect(
-        service.recordAwait({ action: 'X', resource: 'Y' }),
-      ).rejects.toThrow('connection refused');
+      await expect(service.recordAwait({ action: 'X', resource: 'Y' })).rejects.toThrow(
+        'connection refused',
+      );
     });
 
     it('increments failureCount on every silent record() failure', async () => {
@@ -198,9 +196,7 @@ describe('AuditLogService — mandatory-shape coverage (AUDITTRAIL-CRITICAL-004)
     });
 
     it('record() is a no-op (silent debug log) when no repo is bound', () => {
-      expect(() =>
-        unboundService.record({ action: 'X', resource: 'Y' }),
-      ).not.toThrow();
+      expect(() => unboundService.record({ action: 'X', resource: 'Y' })).not.toThrow();
     });
 
     it('recordAwait() resolves to undefined when no repo is bound', async () => {

@@ -1,10 +1,11 @@
+import { mockCallArgument } from '@aquaculture/testing';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { ExecutionContext } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
-import { TenantGuard } from '../tenant.guard';
-import { AuditLogService } from '../../audit/audit-log.service';
+
 import { AuditSeverity } from '../../audit/audit-log.entity';
+import { AuditLogService, type CreateAuditEntryDto } from '../../audit/audit-log.service';
 import { IS_PUBLIC_KEY, SKIP_TENANT_GUARD_KEY, Role } from '../../decorators/roles.decorator';
 import {
   JwtUser,
@@ -12,6 +13,7 @@ import {
   VerifiedServiceIdentity,
   VerifiedUserAssertion,
 } from '../../types/tenant-request.interface';
+import { TenantGuard } from '../tenant.guard';
 
 /**
  * Unit tests for TenantGuard — H-13 + BULGU-4 + ONEMLI-05 security fixes.
@@ -34,6 +36,10 @@ describe('TenantGuard', () => {
 
   const TENANT_A = '11111111-1111-1111-1111-111111111111';
   const TENANT_B = '22222222-2222-2222-2222-222222222222';
+
+  function recordedAuditEntry(): CreateAuditEntryDto {
+    return mockCallArgument<CreateAuditEntryDto>(auditLogService.recordAwait);
+  }
 
   /**
    * Creates a mock ExecutionContext for HTTP requests.
@@ -109,7 +115,7 @@ describe('TenantGuard', () => {
 
     return new TenantGuard(
       reflector,
-      withAudit ? (auditLogService as unknown as AuditLogService) : undefined,
+      withAudit ? auditLogService : undefined,
       configService as unknown as ConfigService,
     );
   };
@@ -207,22 +213,21 @@ describe('TenantGuard', () => {
       await guard.canActivate(context);
 
       expect(auditLogService.recordAwait).toHaveBeenCalledTimes(1);
-      expect(auditLogService.recordAwait).toHaveBeenCalledWith(
-        expect.objectContaining({
-          action: 'SUPER_ADMIN_CROSS_TENANT_ACCESS',
-          resource: 'TenantGuard',
-          resourceId: TENANT_B,
-          userId: 'admin-001',
-          tenantId: TENANT_B,
-          severity: AuditSeverity.WARNING,
-          metadata: expect.objectContaining({
-            sourceTenantId: TENANT_A,
-            targetTenantId: TENANT_B,
-            endpoint: 'GET /api/test',
-            mfaVerified: false,
-          }),
-        }),
-      );
+      const entry = recordedAuditEntry();
+      expect(entry).toMatchObject({
+        action: 'SUPER_ADMIN_CROSS_TENANT_ACCESS',
+        resource: 'TenantGuard',
+        resourceId: TENANT_B,
+        userId: 'admin-001',
+        tenantId: TENANT_B,
+        severity: AuditSeverity.WARNING,
+      });
+      expect(entry.metadata).toMatchObject({
+        sourceTenantId: TENANT_A,
+        targetTenantId: TENANT_B,
+        endpoint: 'GET /api/test',
+        mfaVerified: false,
+      });
     });
 
     it('should NOT call AuditLogService.recordAwait() when accessing own tenant', async () => {
@@ -246,11 +251,7 @@ describe('TenantGuard', () => {
       await guard.canActivate(context);
 
       // BULGU-7: request.ip is preferred because it respects trust proxy config
-      expect(auditLogService.recordAwait).toHaveBeenCalledWith(
-        expect.objectContaining({
-          ip: '127.0.0.1',
-        }),
-      );
+      expect(recordedAuditEntry().ip).toBe('127.0.0.1');
     });
 
     it('should fall back to X-Forwarded-For when request.ip is unavailable', async () => {
@@ -282,11 +283,7 @@ describe('TenantGuard', () => {
 
       await guard.canActivate(context);
 
-      expect(auditLogService.recordAwait).toHaveBeenCalledWith(
-        expect.objectContaining({
-          ip: '203.0.113.50',
-        }),
-      );
+      expect(recordedAuditEntry().ip).toBe('203.0.113.50');
     });
 
     it('should include user agent in audit record', async () => {
@@ -299,11 +296,7 @@ describe('TenantGuard', () => {
 
       await guard.canActivate(context);
 
-      expect(auditLogService.recordAwait).toHaveBeenCalledWith(
-        expect.objectContaining({
-          userAgent: 'Mozilla/5.0 TestBrowser',
-        }),
-      );
+      expect(recordedAuditEntry().userAgent).toBe('Mozilla/5.0 TestBrowser');
     });
 
     it('should include mfaVerified=true in metadata when MFA is verified', async () => {
@@ -313,13 +306,7 @@ describe('TenantGuard', () => {
 
       await guard.canActivate(context);
 
-      expect(auditLogService.recordAwait).toHaveBeenCalledWith(
-        expect.objectContaining({
-          metadata: expect.objectContaining({
-            mfaVerified: true,
-          }),
-        }),
-      );
+      expect(recordedAuditEntry().metadata).toMatchObject({ mfaVerified: true });
     });
 
     it('should use sourceTenantId "system" when SUPER_ADMIN has no tenantId', async () => {
@@ -329,13 +316,7 @@ describe('TenantGuard', () => {
 
       await guard.canActivate(context);
 
-      expect(auditLogService.recordAwait).toHaveBeenCalledWith(
-        expect.objectContaining({
-          metadata: expect.objectContaining({
-            sourceTenantId: 'system',
-          }),
-        }),
-      );
+      expect(recordedAuditEntry().metadata).toMatchObject({ sourceTenantId: 'system' });
     });
 
     it('should gracefully degrade when AuditLogService is not available', async () => {

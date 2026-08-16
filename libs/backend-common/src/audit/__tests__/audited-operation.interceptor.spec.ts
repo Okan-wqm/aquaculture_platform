@@ -1,17 +1,13 @@
+import { mockCallArgument } from '@aquaculture/testing';
 import { ExecutionContext, CallHandler } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Observable, of, lastValueFrom, throwError } from 'rxjs';
 import { DataSource } from 'typeorm';
 
-import { AuditedOperationInterceptor } from '../audited-operation.interceptor';
-import { AuditedOperationOptions } from '../audited-operation.decorator';
-import {
-  AuditLogEntity,
-  AuditMethod,
-  AuditResult,
-  AuditSeverity,
-} from '../audit-log.entity';
 import { requestContextStorage } from '../../logging/request-context';
+import { AuditLogEntity, AuditMethod, AuditResult, AuditSeverity } from '../audit-log.entity';
+import { AuditedOperationOptions } from '../audited-operation.decorator';
+import { AuditedOperationInterceptor } from '../audited-operation.interceptor';
 
 /**
  * AuditedOperationInterceptor — pin AUDITTRAIL-CRITICAL-004 mandatory-
@@ -37,12 +33,12 @@ import { requestContextStorage } from '../../logging/request-context';
  * NOT populated here — by design.
  *
  * Specs below assert that the audit row written through the canonical
- * `dataSource.getRepository(AuditLogEntity).save(...)` path carries the
+ * `dataSource.manager.save(AuditLogEntity, row)` path carries the
  * five context-derived fields exactly.
  */
 describe('AuditedOperationInterceptor — mandatory-shape population', () => {
-  let dataSource: { getRepository: jest.Mock };
-  let repo: { save: jest.Mock };
+  let dataSource: { manager: { save: jest.Mock } };
+  let auditWriter: { save: jest.Mock };
   let interceptor: AuditedOperationInterceptor;
   let reflector: Reflector;
 
@@ -61,28 +57,29 @@ describe('AuditedOperationInterceptor — mandatory-shape population', () => {
    */
   const handlerSentinel = (): void => undefined;
 
+  class ControllerSentinel {
+    readonly marker = 'audited-operation-controller';
+  }
+
   beforeEach(() => {
-    repo = { save: jest.fn().mockResolvedValue(undefined) };
-    dataSource = { getRepository: jest.fn().mockReturnValue(repo) };
+    auditWriter = { save: jest.fn().mockResolvedValue(undefined) };
+    dataSource = { manager: auditWriter };
     reflector = new Reflector();
-    jest
-      .spyOn(reflector, 'get')
-      .mockImplementation((_key: unknown, target: unknown) => {
-        if (target === handlerSentinel) {
-          return auditOptions;
-        }
-        return undefined;
-      });
-    interceptor = new AuditedOperationInterceptor(
-      reflector,
-      dataSource as unknown as DataSource,
-    );
+    jest.spyOn(reflector, 'get').mockImplementation((_key: unknown, target: unknown) => {
+      if (target === handlerSentinel) {
+        return auditOptions;
+      }
+      return undefined;
+    });
+    interceptor = new AuditedOperationInterceptor(reflector, dataSource as unknown as DataSource);
   });
 
-  function buildHttpCtx(options: {
-    user?: Record<string, unknown> | null;
-    tenantHeader?: string | null;
-  } = {}): ExecutionContext {
+  function buildHttpCtx(
+    options: {
+      user?: Record<string, unknown> | null;
+      tenantHeader?: string | null;
+    } = {},
+  ): ExecutionContext {
     const request = {
       user: options.user ?? {
         sub: 'user-1',
@@ -100,7 +97,7 @@ describe('AuditedOperationInterceptor — mandatory-shape population', () => {
     return {
       getType: () => 'http',
       getHandler: () => handlerSentinel,
-      getClass: () => class C {},
+      getClass: () => ControllerSentinel,
       switchToHttp: () => ({ getRequest: () => request }),
       getArgs: () => [],
     } as unknown as ExecutionContext;
@@ -119,13 +116,12 @@ describe('AuditedOperationInterceptor — mandatory-shape population', () => {
     return {
       getType: () => 'graphql',
       getHandler: () => handlerSentinel,
-      getClass: () => class C {},
+      getClass: () => ControllerSentinel,
       switchToHttp: () => {
         throw new Error('not http');
       },
       getArgs: () => [null, null, { req: request }, null],
-      getArgByIndex: (idx: number) =>
-        ([null, null, { req: request }, null] as unknown[])[idx],
+      getArgByIndex: (idx: number) => ([null, null, { req: request }, null] as unknown[])[idx],
     } as unknown as ExecutionContext;
   }
 
@@ -133,7 +129,7 @@ describe('AuditedOperationInterceptor — mandatory-shape population', () => {
     return {
       getType: () => 'rpc',
       getHandler: () => handlerSentinel,
-      getClass: () => class C {},
+      getClass: () => ControllerSentinel,
       switchToHttp: () => {
         throw new Error('not http');
       },
@@ -146,16 +142,13 @@ describe('AuditedOperationInterceptor — mandatory-shape population', () => {
   }
 
   function lastSavedAuditEntry(): Partial<AuditLogEntity> {
-    expect(repo.save).toHaveBeenCalled();
-    return repo.save.mock.calls[0]![0] as Partial<AuditLogEntity>;
+    expect(auditWriter.save).toHaveBeenCalled();
+    return mockCallArgument<Partial<AuditLogEntity>>(auditWriter.save, 0, 1);
   }
 
   it('HTTP context → method=HTTP and tenant fields propagated from JWT', async () => {
     const ctx = buildHttpCtx();
-    const observable = interceptor.intercept(
-      ctx,
-      buildNext(of({ id: 'farm-1' })),
-    );
+    const observable = interceptor.intercept(ctx, buildNext(of({ id: 'farm-1' })));
     await lastValueFrom(observable);
 
     const e = lastSavedAuditEntry();
@@ -169,10 +162,7 @@ describe('AuditedOperationInterceptor — mandatory-shape population', () => {
 
   it('GraphQL context → method=GRAPHQL', async () => {
     const ctx = buildGqlCtx();
-    const observable = interceptor.intercept(
-      ctx,
-      buildNext(of({ id: 'farm-2' })),
-    );
+    const observable = interceptor.intercept(ctx, buildNext(of({ id: 'farm-2' })));
     await lastValueFrom(observable);
 
     expect(lastSavedAuditEntry().method).toBe(AuditMethod.GRAPHQL);
@@ -184,10 +174,7 @@ describe('AuditedOperationInterceptor — mandatory-shape population', () => {
       userId: 'user-cmd',
       mfaVerified: true,
     });
-    const observable = interceptor.intercept(
-      ctx,
-      buildNext(of({ id: 'farm-3' })),
-    );
+    const observable = interceptor.intercept(ctx, buildNext(of({ id: 'farm-3' })));
     await lastValueFrom(observable);
 
     const e = lastSavedAuditEntry();
@@ -199,12 +186,9 @@ describe('AuditedOperationInterceptor — mandatory-shape population', () => {
 
   it('handler failure → result=FAILED and audit row STILL written', async () => {
     const ctx = buildHttpCtx();
-    const observable = interceptor.intercept(
-      ctx,
-      buildNext(throwError(() => new Error('boom'))),
-    );
+    const observable = interceptor.intercept(ctx, buildNext(throwError(() => new Error('boom'))));
     await expect(lastValueFrom(observable)).rejects.toThrow('boom');
-    expect(repo.save).toHaveBeenCalledTimes(1);
+    expect(auditWriter.save).toHaveBeenCalledTimes(1);
     expect(lastSavedAuditEntry().result).toBe(AuditResult.FAILED);
     expect(lastSavedAuditEntry().severity).toBe(AuditSeverity.ERROR);
   });

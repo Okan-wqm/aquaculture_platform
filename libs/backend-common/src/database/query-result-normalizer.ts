@@ -3,6 +3,16 @@ export interface NormalizedQueryResult<T extends object> {
   rowCount: number;
 }
 
+/**
+ * Narrow query authority shared by TypeORM DataSource and QueryRunner.
+ * Their public `query()` methods return `any`; this port converts that unsafe
+ * driver boundary to `unknown` once so callers must consume a normalized
+ * result instead of spreading driver-specific shapes through domain code.
+ */
+export interface QueryResultExecutor {
+  query(query: string, parameters?: unknown[]): Promise<unknown>;
+}
+
 export type StringColumnRow<K extends string> = Record<K, string>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -70,9 +80,7 @@ export function queryRowsWithStringColumn<K extends string>(
   return queryRowsNormalized<Record<string, unknown>>(result).map((row, index) => {
     const value = row[columnName];
     if (typeof value !== 'string') {
-      throw new Error(
-        `${context} returned row ${index} without string column "${columnName}".`,
-      );
+      throw new Error(`${context} returned row ${index} without string column "${columnName}".`);
     }
     return { [columnName]: value } as StringColumnRow<K>;
   });
@@ -94,11 +102,27 @@ export function querySingleStringColumn<K extends string>(
   return row[columnName];
 }
 
-export function queryResultNormalized<T extends object>(
-  result: unknown,
-): NormalizedQueryResult<T> {
+export function queryResultNormalized<T extends object>(result: unknown): NormalizedQueryResult<T> {
   return {
     rows: queryRowsNormalized<T>(result),
     rowCount: queryRowCountNormalized(result),
   };
+}
+
+export async function executeQueryRowsNormalized<T extends object>(
+  executor: QueryResultExecutor,
+  query: string,
+  parameters?: unknown[],
+): Promise<T[]> {
+  const result = await executor.query(query, parameters);
+  return queryRowsNormalized<T>(result);
+}
+
+export async function executeQueryResultNormalized<T extends object>(
+  executor: QueryResultExecutor,
+  query: string,
+  parameters?: unknown[],
+): Promise<NormalizedQueryResult<T>> {
+  const result = await executor.query(query, parameters);
+  return queryResultNormalized<T>(result);
 }

@@ -4,7 +4,6 @@ import { RedisService } from '@aquaculture/backend-common/redis';
 import { generateServiceIdentityHeadersV2 } from '@aquaculture/backend-common/utils';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { CommandBus } from '@nestjs/cqrs';
 import {
   MARINE_PROVIDER_CREDENTIAL_CUTOVER_ACTOR_ID,
   MARINE_PROVIDER_CREDENTIAL_RUNTIME_ACTOR_ID,
@@ -19,6 +18,8 @@ import {
 } from '@platform/event-contracts';
 
 import { ConfigurationService } from '../../services/configuration.service';
+import { ConfigurationBatchAuthorityService } from '../../services/configuration-batch-authority.service';
+import { ConfigurationSnapshotService } from '../../services/configuration-snapshot.service';
 import { MarineProviderCredentialsNatsHandler } from '../marine-provider-credentials-nats.handler';
 
 const TENANT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -28,7 +29,8 @@ interface Harness {
   handler: MarineProviderCredentialsNatsHandler;
   getEffectiveFresh: jest.Mock;
   getEffectiveCached: jest.Mock;
-  execute: jest.Mock;
+  apply: jest.Mock;
+  getSnapshot: jest.Mock;
   audit: jest.Mock;
   setNx: jest.Mock;
 }
@@ -74,7 +76,8 @@ function signedRequest(
 function build(sharedNonces = new Set<string>()): Harness {
   const getEffectiveFresh = jest.fn();
   const getEffectiveCached = jest.fn();
-  const execute = jest.fn();
+  const apply = jest.fn();
+  const getSnapshot = jest.fn().mockResolvedValue({ snapshotToken: 'a'.repeat(64) });
   const audit = jest.fn().mockResolvedValue(undefined);
   const setNx = jest.fn(async (key: string): Promise<boolean> => {
     if (sharedNonces.has(key)) {
@@ -90,7 +93,8 @@ function build(sharedNonces = new Set<string>()): Harness {
     getEffectiveWithMeta: getEffectiveCached,
     getEffectiveWithMetaFresh: getEffectiveFresh,
   };
-  const commandBus: Pick<CommandBus, 'execute'> = { execute };
+  const batchAuthority: Pick<ConfigurationBatchAuthorityService, 'apply'> = { apply };
+  const snapshotService: Pick<ConfigurationSnapshotService, 'getSnapshot'> = { getSnapshot };
   const auditLogService: Pick<AuditLogService, 'recordAwait'> = { recordAwait: audit };
   const configService: Pick<ConfigService, 'get'> = {
     get: (key: string): string | undefined =>
@@ -99,14 +103,16 @@ function build(sharedNonces = new Set<string>()): Harness {
   return {
     handler: new MarineProviderCredentialsNatsHandler(
       configurationService as ConfigurationService,
-      commandBus as CommandBus,
+      batchAuthority as ConfigurationBatchAuthorityService,
+      snapshotService as ConfigurationSnapshotService,
       auditLogService as AuditLogService,
       configService as ConfigService,
       { setNx } as Pick<RedisService, 'setNx'> as RedisService,
     ),
     getEffectiveFresh,
     getEffectiveCached,
-    execute,
+    apply,
+    getSnapshot,
     audit,
     setNx,
   };
@@ -232,14 +238,13 @@ describe('MarineProviderCredentialsNatsHandler', () => {
       sourceTenantId: null,
       configVersion: null,
     });
-    expect(harness.execute).not.toHaveBeenCalled();
+    expect(harness.apply).not.toHaveBeenCalled();
   });
 
   it('upserts the complete CDSE JSON bundle as one secret configuration command', async () => {
     const harness = build();
-    harness.execute.mockResolvedValue({
-      tenantId: TENANT_ID,
-      version: 4,
+    harness.apply.mockResolvedValue({
+      changes: [{ version: 4 }],
     });
     const bundleJson = '{"clientId":"id","clientSecret":"secret","instanceId":"instance"}';
     const request = signedRequest(
@@ -255,25 +260,27 @@ describe('MarineProviderCredentialsNatsHandler', () => {
       sourceTenantId: TENANT_ID,
       configVersion: 4,
     });
-    expect(harness.execute).toHaveBeenCalledTimes(1);
-    const command = harness.execute.mock.calls[0]?.[0] as {
-      value: string;
-      isSecret: boolean;
-      tenantId: string;
-      key: string;
-    };
-    expect(command).toMatchObject({
-      value: bundleJson,
-      isSecret: true,
-      tenantId: TENANT_ID,
-      key: 'marine.cdse.credentials',
-    });
+    expect(harness.apply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetTenantId: TENANT_ID,
+        changes: [
+          expect.objectContaining({
+            keyId: 'MARINE_CDSE_CREDENTIALS',
+            intent: 'SET',
+            value: bundleJson,
+          }),
+        ],
+      }),
+      TENANT_ID,
+      MARINE_PROVIDER_CREDENTIAL_CUTOVER_ACTOR_ID,
+      false,
+    );
     expect(JSON.stringify(harness.audit.mock.calls)).not.toContain('secret');
   });
 
   it('rejects replayed signed writes', async () => {
     const harness = build();
-    harness.execute.mockResolvedValue({ tenantId: TENANT_ID, version: 1 });
+    harness.apply.mockResolvedValue({ changes: [{ version: 1 }] });
     const request = signedRequest(
       MARINE_PROVIDER_CREDENTIAL_SUBJECTS.UPSERT,
       'upsert',
@@ -288,12 +295,12 @@ describe('MarineProviderCredentialsNatsHandler', () => {
       sourceTenantId: null,
       configVersion: null,
     });
-    expect(harness.execute).toHaveBeenCalledTimes(1);
+    expect(harness.apply).toHaveBeenCalledTimes(1);
   });
 
   it('returns a terminal tenant-erased outcome without exposing persistence details', async () => {
     const harness = build();
-    harness.execute.mockRejectedValue(new TenantErasureTombstoneError());
+    harness.apply.mockRejectedValue(new TenantErasureTombstoneError());
     const request = signedRequest(
       MARINE_PROVIDER_CREDENTIAL_SUBJECTS.UPSERT,
       'upsert',
@@ -372,7 +379,7 @@ describe('MarineProviderCredentialsNatsHandler', () => {
     });
 
     expect(harness.getEffectiveFresh).not.toHaveBeenCalled();
-    expect(harness.execute).not.toHaveBeenCalled();
+    expect(harness.apply).not.toHaveBeenCalled();
   });
 
   it('returns a sanitized transient outcome when the effective credential database read fails', async () => {
@@ -480,7 +487,7 @@ describe('MarineProviderCredentialsNatsHandler', () => {
     const loggerError = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
 
     const upsertHarness = build();
-    upsertHarness.execute.mockRejectedValue(new Error(leakSentinel));
+    upsertHarness.apply.mockRejectedValue(new Error(leakSentinel));
     await upsertHarness.handler.upsert(
       signedRequest(
         MARINE_PROVIDER_CREDENTIAL_SUBJECTS.UPSERT,

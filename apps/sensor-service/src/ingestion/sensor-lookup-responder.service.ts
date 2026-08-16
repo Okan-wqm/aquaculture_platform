@@ -1,4 +1,4 @@
-import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
+import { buildNatsConnectionOptions } from '@platform/event-bus/nats-connection';
 // NATS v3 (@nats-io/* 3.x). The v2 monolithic `nats` package split into
 // nats-core (connection + Msg/Subscription primitives) and transport-node
 // (Node connect). StringCodec was REMOVED — encode a string by passing it

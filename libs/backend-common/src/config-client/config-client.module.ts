@@ -1,6 +1,6 @@
 import { DynamicModule, Module } from '@nestjs/common';
 import { ClientsModule } from '@nestjs/microservices';
-import { CONFIG_RUNTIME_INBOX_PREFIX } from '@platform/event-contracts';
+import { CONFIG_RUNTIME_ACCESS_BY_CONSUMER } from '@platform/event-contracts';
 
 import { NatsV3Client } from '../nats/nats-v3-client.proxy';
 
@@ -24,6 +24,12 @@ import {
 @Module({})
 export class ConfigClientModule {
   static forRoot(options: { consumerService: string }): DynamicModule {
+    const access = CONFIG_RUNTIME_ACCESS_BY_CONSUMER[options.consumerService];
+    if (access === undefined) {
+      throw new Error(
+        `Configuration consumer ${options.consumerService} is absent from the signed catalog projection`,
+      );
+    }
     return {
       module: ConfigClientModule,
       imports: [
@@ -36,7 +42,7 @@ export class ConfigClientModule {
             // subscribes. Only billing subscribes / config publishes this token.
             options: {
               serviceName: options.consumerService,
-              inboxPrefix: CONFIG_RUNTIME_INBOX_PREFIX,
+              inboxPrefix: access.replyInboxPrefix,
             },
           },
         ]),

@@ -1,9 +1,22 @@
-import { Repository, EntityTarget, DataSource, ObjectLiteral, DeepPartial, FindManyOptions, FindOneOptions, FindOptionsWhere, SelectQueryBuilder } from 'typeorm';
 import { Injectable, Scope, Inject, Logger } from '@nestjs/common';
 import { REQUEST } from '@nestjs/core';
-import { SchemaManagerService } from './schema-manager.service';
+import {
+  Repository,
+  EntityTarget,
+  DataSource,
+  ObjectLiteral,
+  DeepPartial,
+  FindManyOptions,
+  FindOneOptions,
+  FindOptionsWhere,
+  SelectQueryBuilder,
+} from 'typeorm';
+
 import { TenantRequest } from '../types/tenant-request.interface';
+
+import { SchemaManagerService } from './schema-manager.service';
 import { TenantEntity } from './tenant-entity.interface';
+import { resolveTenantRepositoryFoundation } from './tenant-repository-foundation';
 
 // Re-export so downstream imports like
 // `import { TenantEntity } from './tenant-aware.repository'` still resolve.
@@ -72,9 +85,7 @@ export class TenantAwareRepository<T extends TenantEntity> {
       this.schemaName = this.schemaManager.getTenantSchemaName(this.tenantId);
     }
 
-    // Create repository (will be used with tenant filtering)
-    // eslint-disable-next-line no-restricted-syntax -- TenantAwareRepository is the LIBRARY-LEVEL implementation that other code uses INSTEAD of raw getRepository(). The tenant-filtering wrapper lives in this constructor; raw access here is the foundation everyone else's safe alternative is built on.
-    this.repository = this.dataSource.getRepository(entity);
+    this.repository = resolveTenantRepositoryFoundation(this.dataSource, entity);
   }
 
   /**
@@ -122,7 +133,7 @@ export class TenantAwareRepository<T extends TenantEntity> {
     const mergedOptions: FindManyOptions<T> = {
       ...options,
       where: {
-        ...(options?.where as Record<string, unknown> || {}),
+        ...((options?.where as Record<string, unknown>) || {}),
         tenantId,
       } as T extends ObjectLiteral ? T : never,
     };
@@ -143,7 +154,7 @@ export class TenantAwareRepository<T extends TenantEntity> {
     const mergedOptions: FindOneOptions<T> = {
       ...options,
       where: {
-        ...(options?.where as Record<string, unknown> || {}),
+        ...((options?.where as Record<string, unknown>) || {}),
         tenantId,
       } as T extends ObjectLiteral ? T : never,
     };
@@ -185,7 +196,7 @@ export class TenantAwareRepository<T extends TenantEntity> {
   async createMany(entities: DeepPartial<T>[]): Promise<T[]> {
     const tenantId = this.requireTenantId();
 
-    const entitiesWithTenant = entities.map(e => ({
+    const entitiesWithTenant = entities.map((e) => ({
       ...e,
       tenantId,
     })) as DeepPartial<T>[];
@@ -296,8 +307,8 @@ export class TenantAwareRepository<T extends TenantEntity> {
   getRepository(): never {
     throw new Error(
       'getRepository() is deprecated and unsafe. ' +
-      'Use getScopedRepository() for automatic tenant filtering, or ' +
-      'getUnfilteredRepository() for legitimate cross-tenant operations (e.g., admin, migrations).',
+        'Use getScopedRepository() for automatic tenant filtering, or ' +
+        'getUnfilteredRepository() for legitimate cross-tenant operations (e.g., admin, migrations).',
     );
   }
 
@@ -317,7 +328,7 @@ export class TenantAwareRepository<T extends TenantEntity> {
         const mergedOptions: FindManyOptions<T> = {
           ...options,
           where: {
-            ...(options?.where as Record<string, unknown> || {}),
+            ...((options?.where as Record<string, unknown>) || {}),
             tenantId,
           } as FindOptionsWhere<T>,
         };
@@ -328,7 +339,7 @@ export class TenantAwareRepository<T extends TenantEntity> {
         const mergedOptions: FindOneOptions<T> = {
           ...options,
           where: {
-            ...(options?.where as Record<string, unknown> || {}),
+            ...((options?.where as Record<string, unknown>) || {}),
             tenantId,
           } as FindOptionsWhere<T>,
         };
@@ -339,7 +350,7 @@ export class TenantAwareRepository<T extends TenantEntity> {
         const mergedOptions: FindManyOptions<T> = {
           ...options,
           where: {
-            ...(options?.where as Record<string, unknown> || {}),
+            ...((options?.where as Record<string, unknown>) || {}),
             tenantId,
           } as FindOptionsWhere<T>,
         };
@@ -390,10 +401,7 @@ export class TenantAwareRepository<T extends TenantEntity> {
    * in connection pools. The schema name is validated through
    * getTenantSchemaName() which ensures UUID format.
    */
-  async executeRaw<R = unknown>(
-    query: string,
-    parameters?: unknown[],
-  ): Promise<R> {
+  async executeRaw<R = unknown>(query: string, parameters?: unknown[]): Promise<R> {
     const tenantId = this.requireTenantId();
 
     // SECURITY: Validate schema name format before using in query

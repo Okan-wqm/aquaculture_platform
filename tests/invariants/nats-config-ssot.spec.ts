@@ -10,49 +10,50 @@
  * duplicated into 10 modules).
  */
 
-import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+
+import { listEffectiveWorktreeFiles } from './lib/effective-worktree-files';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
-function gitGrepFiles(pattern: string): string[] {
-  let out = '';
-  try {
-    out = execFileSync('git', ['-C', REPO_ROOT, 'grep', '-l', '-E', pattern], {
-      encoding: 'utf8',
-      maxBuffer: 32 * 1024 * 1024,
-    });
-  } catch {
-    // git grep exits 1 when there are no matches.
-    return [];
-  }
-  return out.split('\n').filter(Boolean);
+function filesContaining(pattern: RegExp): readonly string[] {
+  return listEffectiveWorktreeFiles(REPO_ROOT, ['apps/', 'libs/', 'platform/'])
+    .filter((file) => /\.(?:ts|tsx)$/u.test(file))
+    .filter((file) => pattern.test(readFileSync(resolve(REPO_ROOT, file), 'utf8')));
 }
 
 describe('INVARIANT (Config SSoT 3a): NATS config flows through buildEventBusConfig', () => {
   it('no service app.module.ts re-inlines the NATS URL / stream-name literals', () => {
-    const offenders = gitGrepFiles('nats://localhost:4222|AQUACULTURE_EVENTS').filter((f) =>
+    const offenders = filesContaining(/nats:\/\/localhost:4222|AQUACULTURE_EVENTS/u).filter((f) =>
       /^apps\/[^/]+\/src\/app\.module\.ts$/.test(f),
     );
     expect(offenders).toEqual([]);
   });
 
-  it('DEFAULT_NATS_URL is declared exactly once (backend-common connection layer)', () => {
-    // Exclude test files — this very spec mentions the symbol in its grep pattern.
-    const decls = gitGrepFiles('export const DEFAULT_NATS_URL\\b').filter(
+  it('DEFAULT_NATS_URL is declared exactly once by the event-bus transport', () => {
+    const decls = filesContaining(/export const DEFAULT_NATS_URL\b/u).filter(
       (f) => !f.endsWith('.spec.ts') && !f.includes('/__tests__/'),
     );
-    expect(decls).toEqual([
-      'libs/backend-common/src/nats/nats-connection.factory.ts',
-    ]);
+    expect(decls).toEqual(['platform/libs/event-bus/src/nats/nats-connection.factory.ts']);
   });
 
   it('DEFAULT_NATS_STREAM_NAME is declared exactly once (event-bus factory)', () => {
-    const decls = gitGrepFiles('export const DEFAULT_NATS_STREAM_NAME\\b').filter(
+    const decls = filesContaining(/export const DEFAULT_NATS_STREAM_NAME\b/u).filter(
       (f) => !f.endsWith('.spec.ts') && !f.includes('/__tests__/'),
     );
-    expect(decls).toEqual([
-      'platform/libs/event-bus/src/nats/event-bus-config.factory.ts',
-    ]);
+    expect(decls).toEqual(['platform/libs/event-bus/src/nats/event-bus-config.factory.ts']);
+  });
+
+  it('keeps the transport dependency graph one-way', () => {
+    const offenders = listEffectiveWorktreeFiles(REPO_ROOT, ['platform/libs/event-bus/'])
+      .filter((file) => /\.(?:ts|tsx)$/u.test(file))
+      .filter((file) =>
+        /from ['"]@(?:aquaculture|platform)\/backend-common(?:\/[^'"]+)?['"]/u.test(
+          readFileSync(resolve(REPO_ROOT, file), 'utf8'),
+        ),
+      );
+
+    expect(offenders).toEqual([]);
   });
 });

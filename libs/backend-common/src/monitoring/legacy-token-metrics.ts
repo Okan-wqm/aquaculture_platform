@@ -20,41 +20,38 @@
  * gauge.set({ field: 'withoutType' }, m.withoutType);
  * ```
  */
-export class LegacyTokenMetrics {
-  /** Count of tokens received without the `type` JWT claim. */
-  private static tokenWithoutType = 0;
+let tokenWithoutType = 0;
+let tokenWithoutJti = 0;
 
-  /** Count of tokens received without the `jti` (JWT ID) claim. */
-  private static tokenWithoutJti = 0;
-
+export const LegacyTokenMetrics = {
   /** Increment the counter for tokens missing the `type` claim. */
-  static incrementNoType(): void {
-    this.tokenWithoutType++;
-  }
+  incrementNoType(): void {
+    tokenWithoutType++;
+  },
 
   /** Increment the counter for tokens missing the `jti` claim. */
-  static incrementNoJti(): void {
-    this.tokenWithoutJti++;
-  }
+  incrementNoJti(): void {
+    tokenWithoutJti++;
+  },
 
   /**
    * Return current metric values.
    * Both counters are monotonically increasing within a process lifetime.
    */
-  static getMetrics(): { withoutType: number; withoutJti: number } {
+  getMetrics(): { withoutType: number; withoutJti: number } {
     return {
-      withoutType: this.tokenWithoutType,
-      withoutJti: this.tokenWithoutJti,
+      withoutType: tokenWithoutType,
+      withoutJti: tokenWithoutJti,
     };
-  }
+  },
 
   /**
    * Reset all counters to zero.
    * Intended for testing only; production systems should rely on the
    * monotonic counters and compute rates externally.
    */
-  static reset(): void {
-    this.tokenWithoutType = 0;
-    this.tokenWithoutJti = 0;
-  }
-}
+  reset(): void {
+    tokenWithoutType = 0;
+    tokenWithoutJti = 0;
+  },
+} as const;

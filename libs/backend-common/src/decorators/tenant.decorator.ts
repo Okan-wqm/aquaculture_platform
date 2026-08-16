@@ -1,5 +1,6 @@
 import { createParamDecorator, ExecutionContext, BadRequestException } from '@nestjs/common';
-import { GqlExecutionContext } from '@nestjs/graphql';
+
+import { getRequestFromArgumentsHost } from '../context/execution-context-request';
 import { TenantRequest } from '../types/tenant-request.interface';
 
 /**
@@ -13,20 +14,13 @@ import { TenantRequest } from '../types/tenant-request.interface';
  * Those sources are attacker-controlled and were previously exploitable when
  * combined with @SkipTenantGuard() to inject arbitrary tenant IDs.
  */
-export const Tenant = createParamDecorator(
-  (data: unknown, ctx: ExecutionContext): string => {
-    const contextType = ctx.getType<string>();
-
-    if (contextType === 'graphql') {
-      const gqlCtx = GqlExecutionContext.create(ctx);
-      const request = gqlCtx.getContext().req as TenantRequest;
-      return extractTenantId(request);
-    }
-
-    const request = ctx.switchToHttp().getRequest<TenantRequest>();
-    return extractTenantId(request);
-  },
-);
+export const Tenant = createParamDecorator((data: unknown, ctx: ExecutionContext): string => {
+  const request = getRequestFromArgumentsHost<TenantRequest>(ctx);
+  if (!request) {
+    throw new BadRequestException('Request context is unavailable');
+  }
+  return extractTenantId(request);
+});
 
 /**
  * Extract tenant ID exclusively from trusted, server-set sources.
@@ -65,16 +59,8 @@ function extractTenantId(request: TenantRequest): string {
 export const OptionalTenant = createParamDecorator(
   (data: unknown, ctx: ExecutionContext): string | undefined => {
     try {
-      const contextType = ctx.getType<string>();
-
-      if (contextType === 'graphql') {
-        const gqlCtx = GqlExecutionContext.create(ctx);
-        const request = gqlCtx.getContext().req as TenantRequest;
-        return extractTenantIdSafe(request);
-      }
-
-      const request = ctx.switchToHttp().getRequest<TenantRequest>();
-      return extractTenantIdSafe(request);
+      const request = getRequestFromArgumentsHost<TenantRequest>(ctx);
+      return request ? extractTenantIdSafe(request) : undefined;
     } catch {
       return undefined;
     }

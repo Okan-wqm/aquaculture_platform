@@ -27,6 +27,27 @@
  */
 import { Logger } from '@nestjs/common';
 
+function formatLogValue(value: unknown): string {
+  if (value instanceof Error) {
+    return value.stack ?? value.message;
+  }
+  if (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'bigint' ||
+    typeof value === 'boolean' ||
+    typeof value === 'undefined'
+  ) {
+    return String(value);
+  }
+  try {
+    return JSON.stringify(value) ?? '[unserializable]';
+  } catch {
+    return '[unserializable]';
+  }
+}
+
 export class MigrationLogger {
   private readonly logger: Logger;
 
@@ -38,12 +59,12 @@ export class MigrationLogger {
 
   /** Log an informational message. Extra args are stringified and appended. */
   log(message: string, ...args: unknown[]): void {
-    this.logger.log(args.length ? `${message} ${args.map(String).join(' ')}` : message);
+    this.logger.log(args.length ? `${message} ${args.map(formatLogValue).join(' ')}` : message);
   }
 
   /** Log a warning. Extra args are stringified and appended. */
   warn(message: string, ...args: unknown[]): void {
-    this.logger.warn(args.length ? `${message} ${args.map(String).join(' ')}` : message);
+    this.logger.warn(args.length ? `${message} ${args.map(formatLogValue).join(' ')}` : message);
   }
 
   /** Log an error. Pass an Error object as the second argument for stack traces. */
@@ -51,9 +72,10 @@ export class MigrationLogger {
     if (errorOrArg instanceof Error) {
       this.logger.error(message, errorOrArg.stack);
     } else {
-      const extra = errorOrArg !== undefined
-        ? `${String(errorOrArg)} ${rest.map(String).join(' ')}`.trim()
-        : '';
+      const extra =
+        errorOrArg !== undefined
+          ? `${formatLogValue(errorOrArg)} ${rest.map(formatLogValue).join(' ')}`.trim()
+          : '';
       this.logger.error(extra ? `${message} ${extra}` : message);
     }
   }

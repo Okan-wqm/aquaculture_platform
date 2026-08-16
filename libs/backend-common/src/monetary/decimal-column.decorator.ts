@@ -1,5 +1,5 @@
-import { Column, ColumnOptions } from 'typeorm';
 import Decimal from 'decimal.js';
+import { Column, ColumnOptions } from 'typeorm';
 
 /**
  * TypeORM value transformer that converts between Decimal.js and

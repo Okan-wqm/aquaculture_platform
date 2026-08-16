@@ -1,13 +1,25 @@
-import { Module, DynamicModule, Global, Provider, Logger } from '@nestjs/common';
+import {
+  DynamicModule,
+  Global,
+  InjectionToken,
+  Logger,
+  Module,
+  OptionalFactoryDependency,
+  Provider,
+  Type,
+} from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { DiscoveryModule, DiscoveryService, MetadataScanner } from '@nestjs/core';
+import { createDefaultRegistry } from '@platform/event-contracts';
+
+import {
+  getEventHandlerMetadata,
+  getSubscriptionMetadata,
+} from '../decorators/event-handler.decorator';
+import type { IEvent, IEventHandler } from '../interfaces/event-bus.interface';
+
 import { NatsEventBus } from './nats-event-bus';
 import { NatsRequestReply } from './nats-request-reply';
-import {
-  EVENT_HANDLER_METADATA,
-  EVENT_SUBSCRIPTION_METADATA,
-} from '../decorators/event-handler.decorator';
-import { createDefaultRegistry } from '@platform/event-contracts';
 
 /**
  * Event Bus Module configuration options
@@ -46,6 +58,35 @@ export interface EventBusModuleOptions {
    * @default false
    */
   required?: boolean;
+}
+
+/**
+ * Typed async bootstrap contract for the transport module.
+ *
+ * Factory argument types are carried from the caller instead of widening the
+ * dependency injection boundary to `any[]`. This keeps Nest's dynamic module
+ * surface explicit while preserving ordinary token-based injection.
+ */
+export interface EventBusModuleAsyncOptions<
+  TFactoryArgs extends unknown[] = unknown[],
+> {
+  imports?: Array<Type | DynamicModule | Promise<DynamicModule>>;
+  inject?: Array<InjectionToken | OptionalFactoryDependency>;
+  useFactory: (
+    ...args: TFactoryArgs
+  ) => Promise<EventBusModuleOptions> | EventBusModuleOptions;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isEventHandler(value: unknown): value is IEventHandler {
+  return (
+    isRecord(value) &&
+    typeof value['handle'] === 'function' &&
+    typeof value['getEventType'] === 'function'
+  );
 }
 
 /**
@@ -94,17 +135,13 @@ export class EventBusModule {
   /**
    * Register the module with async configuration
    */
-  static forRootAsync(options: {
-    imports?: any[];
-    useFactory: (
-      ...args: any[]
-    ) => Promise<EventBusModuleOptions> | EventBusModuleOptions;
-    inject?: any[];
-  }): DynamicModule {
+  static forRootAsync<TFactoryArgs extends unknown[] = unknown[]>(
+    options: EventBusModuleAsyncOptions<TFactoryArgs>,
+  ): DynamicModule {
     const providers: Provider[] = [
       {
         provide: 'EVENT_BUS_OPTIONS',
-        useFactory: options.useFactory,
+        useFactory: (...args: TFactoryArgs) => options.useFactory(...args),
         inject: options.inject ?? [],
       },
       {
@@ -172,18 +209,15 @@ export class EventHandlerRegistryModule {
     const failures: Array<{ subject: string; error: Error }> = [];
 
     for (const wrapper of providers) {
-      const { instance, metatype } = wrapper;
-      if (!instance || !metatype) {
+      const instance: unknown = wrapper.instance;
+      if (!isRecord(instance)) {
         continue;
       }
 
       // ── Class-level @EventHandler decorator ──
-      const handlerMetadata = Reflect.getMetadata(
-        EVENT_HANDLER_METADATA,
-        metatype,
-      );
+      const handlerMetadata = getEventHandlerMetadata(instance);
 
-      if (handlerMetadata && typeof instance.handle === 'function') {
+      if (handlerMetadata && isEventHandler(instance)) {
         try {
           await this.eventBus.subscribe(handlerMetadata.eventName, instance);
         } catch (err) {
@@ -196,16 +230,21 @@ export class EventHandlerRegistryModule {
       }
 
       // ── Method-level @SubscribeTo decorators ──
-      for (const methodKey of this.metadataScanner.getAllMethodNames(Object.getPrototypeOf(instance))) {
-        const subscriptionMetadata = Reflect.getMetadata(
-          EVENT_SUBSCRIPTION_METADATA,
-          instance,
-          methodKey,
-        );
+      const prototype: unknown = Object.getPrototypeOf(instance);
+      if (!isRecord(prototype)) {
+        continue;
+      }
 
-        if (subscriptionMetadata) {
-          const handler = {
-            handle: (instance[methodKey] as Function).bind(instance),
+      for (const methodKey of this.metadataScanner.getAllMethodNames(prototype)) {
+        const subscriptionMetadata = getSubscriptionMetadata(instance, methodKey);
+        const method = instance[methodKey];
+
+        if (subscriptionMetadata && typeof method === 'function') {
+          const handler: IEventHandler = {
+            handle: async (event: IEvent): Promise<void> => {
+              const result: unknown = Reflect.apply(method, instance, [event]);
+              await Promise.resolve(result);
+            },
             getEventType: () => subscriptionMetadata.topic,
           };
 
@@ -220,7 +259,7 @@ export class EventHandlerRegistryModule {
           } catch (err) {
             const error = err instanceof Error ? err : new Error(String(err));
             this.logger.error(
-              `Failed to register @SubscribeTo(${subscriptionMetadata.topic}) on ${metatype.name}.${methodKey}: ${error.message}`,
+              `Failed to register @SubscribeTo(${subscriptionMetadata.topic}) on ${instance.constructor.name}.${methodKey}: ${error.message}`,
             );
             failures.push({ subject: subscriptionMetadata.topic, error });
           }

@@ -13,6 +13,8 @@
  * Closes: docs/reviews/billing-expert/2026-04-28-core-platform-review.md#BILLING-CRITICAL-001 (foundation)
  */
 
+import { defined, mockCallArgument } from '@aquaculture/testing';
+
 import { CircuitBreakerService } from '../../resilience/circuit-breaker';
 import { StripeApiService } from '../stripe-api.service';
 import {
@@ -21,6 +23,8 @@ import {
   StripeRefund,
   StripeSubscription,
 } from '../stripe-api.types';
+
+type CreateSubscriptionArguments = Parameters<IStripeApiClient['createSubscription']>[0];
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const SUB_ID = 'sub_2026';
@@ -91,8 +95,14 @@ describe('StripeApiService', () => {
         idempotencyKey: 'idem-1',
       });
       // Audit was called and resolved before the Stripe client.
-      const auditOrder = audit.recordAwait.mock.invocationCallOrder[0]!;
-      const stripeOrder = client.createSubscription.mock.invocationCallOrder[0]!;
+      const auditOrder = defined(
+        audit.recordAwait.mock.invocationCallOrder[0],
+        'Expected audit invocation order',
+      );
+      const stripeOrder = defined(
+        client.createSubscription.mock.invocationCallOrder[0],
+        'Expected Stripe invocation order',
+      );
       expect(auditOrder).toBeLessThan(stripeOrder);
       expect(audit.recordAwait).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -125,14 +135,13 @@ describe('StripeApiService', () => {
         metadata: { campaign: 'spring-2026' },
         idempotencyKey: 'idem-1',
       });
-      expect(client.createSubscription).toHaveBeenCalledWith(
-        expect.objectContaining({
-          metadata: expect.objectContaining({
-            internalTenantId: TENANT,
-            campaign: 'spring-2026',
-          }),
-        }),
+      const stripeArguments = mockCallArgument<CreateSubscriptionArguments>(
+        client.createSubscription,
       );
+      expect(stripeArguments.metadata).toMatchObject({
+        internalTenantId: TENANT,
+        campaign: 'spring-2026',
+      });
     });
 
     it('refuses to fire Stripe when audit recordAwait throws', async () => {
@@ -223,7 +232,7 @@ describe('StripeApiService', () => {
           subscriptionId: SUB_ID,
         });
         // Either resolved value (cache hit) or fallback null
-        expect([null, fixtureSub()]).toEqual(expect.arrayContaining([result as StripeSubscription | null]));
+        expect([null, fixtureSub()]).toEqual(expect.arrayContaining([result]));
       } catch (e) {
         // CLOSED-state error is also acceptable for the unit-level
         // assertion — the architectural contract is "return null on

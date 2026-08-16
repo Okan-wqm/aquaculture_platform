@@ -1,8 +1,10 @@
-import type { NextFunction, Request, Response } from 'express';
 import { EventEmitter } from 'node:events';
 
+import { mockCallArgument } from '@aquaculture/testing';
+import type { NextFunction, Request, Response } from 'express';
+
+import { AccessLogService, type CreateAccessLogDto } from '../../audit/access-log.service';
 import { AccessLogMiddleware } from '../access-log.middleware';
-import { AccessLogService } from '../../audit/access-log.service';
 
 /**
  * AccessLogMiddleware specs (AUDITTRAIL-HIGH-004)
@@ -25,13 +27,23 @@ import { AccessLogService } from '../../audit/access-log.service';
  *      when the row emit itself fails.
  */
 describe('AccessLogMiddleware (AUDITTRAIL-HIGH-004)', () => {
-  let svc: { record: jest.Mock; getFailureCount: jest.Mock };
+  let svc: {
+    record: jest.Mock<undefined, [CreateAccessLogDto]>;
+    getFailureCount: jest.Mock<number, []>;
+  };
   let middleware: AccessLogMiddleware;
 
   beforeEach(() => {
-    svc = { record: jest.fn(), getFailureCount: jest.fn(() => 0) };
+    svc = {
+      record: jest.fn<undefined, [CreateAccessLogDto]>(),
+      getFailureCount: jest.fn<number, []>(() => 0),
+    };
     middleware = new AccessLogMiddleware(svc as unknown as AccessLogService);
   });
+
+  function recordedRow(): CreateAccessLogDto {
+    return mockCallArgument<CreateAccessLogDto>(svc.record);
+  }
 
   function fakeReq(
     overrides: Partial<Request> & { user?: unknown; correlationId?: string } = {},
@@ -75,7 +87,7 @@ describe('AccessLogMiddleware (AUDITTRAIL-HIGH-004)', () => {
     await new Promise((r) => setTimeout(r, 5));
     res.emit('finish');
 
-    const row = svc.record.mock.calls[0]![0];
+    const row = recordedRow();
     expect(row.method).toBe('POST');
     expect(row.path).toBe('/api/v1/farms');
     expect(row.status).toBe(201);
@@ -86,12 +98,12 @@ describe('AccessLogMiddleware (AUDITTRAIL-HIGH-004)', () => {
     const req = fakeReq({
       user: { sub: 'user-1', tenantId: 'tenant-1' },
       correlationId: 'corr-1',
-    } as unknown as Partial<Request>);
+    });
     const res = fakeRes();
     middleware.use(req, res, jest.fn());
     res.emit('finish');
 
-    const row = svc.record.mock.calls[0]![0];
+    const row = recordedRow();
     expect(row.userId).toBe('user-1');
     expect(row.tenantId).toBe('tenant-1');
     expect(row.correlationId).toBe('corr-1');
@@ -100,24 +112,24 @@ describe('AccessLogMiddleware (AUDITTRAIL-HIGH-004)', () => {
   it('falls back to x-correlation-id header when correlationId not on request', () => {
     const req = fakeReq({
       headers: { 'x-correlation-id': 'corr-from-header' },
-    } as unknown as Partial<Request>);
+    });
     const res = fakeRes();
     middleware.use(req, res, jest.fn());
     res.emit('finish');
 
-    expect(svc.record.mock.calls[0]![0].correlationId).toBe('corr-from-header');
+    expect(recordedRow().correlationId).toBe('corr-from-header');
   });
 
   it('hashes IP for EU-region users (sha256 hex)', () => {
     const req = fakeReq({
       user: { sub: 'u', tenantId: 't', region: 'de' },
       ip: '203.0.113.1',
-    } as unknown as Partial<Request>);
+    });
     const res = fakeRes();
     middleware.use(req, res, jest.fn());
     res.emit('finish');
 
-    const row = svc.record.mock.calls[0]![0];
+    const row = recordedRow();
     expect(row.ip).toMatch(/^[0-9a-f]{64}$/);
     expect(row.ip).not.toBe('203.0.113.1');
   });
@@ -126,23 +138,23 @@ describe('AccessLogMiddleware (AUDITTRAIL-HIGH-004)', () => {
     const req = fakeReq({
       user: { sub: 'u', tenantId: 't', region: 'us' },
       ip: '203.0.113.1',
-    } as unknown as Partial<Request>);
+    });
     const res = fakeRes();
     middleware.use(req, res, jest.fn());
     res.emit('finish');
 
-    expect(svc.record.mock.calls[0]![0].ip).toBe('203.0.113.1');
+    expect(recordedRow().ip).toBe('203.0.113.1');
   });
 
   it('extracts client IP from x-forwarded-for header (first hop)', () => {
     const req = fakeReq({
       headers: { 'x-forwarded-for': '198.51.100.5, 10.0.0.1, 10.0.0.2' },
-    } as unknown as Partial<Request>);
+    });
     const res = fakeRes();
     middleware.use(req, res, jest.fn());
     res.emit('finish');
 
-    expect(svc.record.mock.calls[0]![0].ip).toBe('198.51.100.5');
+    expect(recordedRow().ip).toBe('198.51.100.5');
   });
 
   it('truncates pathological paths beyond 2048 chars with visible marker', () => {
@@ -152,7 +164,7 @@ describe('AccessLogMiddleware (AUDITTRAIL-HIGH-004)', () => {
     middleware.use(req, res, jest.fn());
     res.emit('finish');
 
-    const persistedPath = svc.record.mock.calls[0]![0].path as string;
+    const persistedPath = recordedRow().path;
     expect(persistedPath.length).toBe(2048);
     expect(persistedPath.endsWith('…<truncated>')).toBe(true);
   });

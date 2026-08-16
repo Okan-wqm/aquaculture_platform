@@ -8,6 +8,7 @@
  *     endCursor, drop-extra)
  *   - normaliseCursorInput clamping and caps
  */
+import { defined } from '@aquaculture/testing';
 import { BadRequestException } from '@nestjs/common';
 
 import {
@@ -101,7 +102,7 @@ describe('buildCursorResponse', () => {
     const response = buildCursorResponse(rows, 10);
     expect(response.edges).toHaveLength(4);
     expect(response.pageInfo.hasNextPage).toBe(false);
-    expect(response.pageInfo.endCursor).toBe(encodeCursor(rows[3]!));
+    expect(response.pageInfo.endCursor).toBe(encodeCursor(defined(rows[3])));
   });
 
   it('drops the extra row and flags hasNextPage=true when rows.length > first', () => {
@@ -111,7 +112,7 @@ describe('buildCursorResponse', () => {
     const response = buildCursorResponse(rows, 3);
     expect(response.edges).toHaveLength(3);
     expect(response.pageInfo.hasNextPage).toBe(true);
-    expect(response.pageInfo.endCursor).toBe(encodeCursor(rows[2]!));
+    expect(response.pageInfo.endCursor).toBe(encodeCursor(defined(rows[2])));
     // Ensure the 4th row is NOT in the returned edges — it's
     // the signal-only row, not a page member.
     expect(response.edges.some((e) => e.node.id === '4')).toBe(false);
@@ -126,8 +127,8 @@ describe('buildCursorResponse', () => {
 
   it('each edge carries the cursor for that exact node (not the next one)', () => {
     const response = buildCursorResponse(rows.slice(0, 2), 10);
-    expect(response.edges[0]!.cursor).toBe(encodeCursor(rows[0]!));
-    expect(response.edges[1]!.cursor).toBe(encodeCursor(rows[1]!));
+    expect(defined(response.edges[0]).cursor).toBe(encodeCursor(defined(rows[0])));
+    expect(defined(response.edges[1]).cursor).toBe(encodeCursor(defined(rows[1])));
   });
 });
 

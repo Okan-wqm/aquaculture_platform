@@ -1,11 +1,14 @@
-import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { DataSource } from 'typeorm';
+
+import { Injectable, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { DataSource, Repository } from 'typeorm';
 
 import {
   agentFindingIssuedTotal,
   agentFindingStateTransitionTotal,
 } from '../metrics/orchestrator-metrics';
+
 import { FindingEntity } from './finding.entity';
 
 /**
@@ -95,7 +98,11 @@ const ADVISORY_LOCK_NAMESPACE = 'event_store.findings.append';
 export class FindingRegistryService {
   private readonly logger = new Logger(FindingRegistryService.name);
 
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    @InjectRepository(FindingEntity)
+    private readonly findingRepository: Repository<FindingEntity>,
+  ) {}
 
   /**
    * Append a new finding at the chain tail. Advisory-lock-serialised
@@ -105,10 +112,7 @@ export class FindingRegistryService {
     return this.dataSource.transaction(async (manager) => {
       // Acquire advisory lock — blocks concurrent appends from any
       // other pod on the same PG. Released on COMMIT/ROLLBACK.
-      await manager.query(
-        `SELECT pg_advisory_xact_lock(hashtext($1))`,
-        [ADVISORY_LOCK_NAMESPACE],
-      );
+      await manager.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [ADVISORY_LOCK_NAMESPACE]);
 
       const tail = await manager.findOne(FindingEntity, {
         where: {},
@@ -171,9 +175,7 @@ export class FindingRegistryService {
       throw new Error(`recordStateTransition: finding ${params.id} not found`);
     }
     if (latest.state === params.toState) {
-      this.logger.debug(
-        `State transition no-op: ${params.id} already ${params.toState}.`,
-      );
+      this.logger.debug(`State transition no-op: ${params.id} already ${params.toState}.`);
       return latest;
     }
 
@@ -230,16 +232,14 @@ export class FindingRegistryService {
    * supersedesId.
    */
   async findLatestById(id: string): Promise<FindingEntity | null> {
-    // eslint-disable-next-line no-restricted-syntax -- FindingEntity is the platform-wide finding registry (cross-tenant by design — the registry serves PSIRT + compliance + the audit pipeline). It has no tenantId column and no business owner; tenantManagerRepo would auto-inject a tenantId column the schema does not contain. The finding registry table is the canonical example of a non-tenant-scoped operational store (ADR-016 class).
-    const repo = this.dataSource.getRepository(FindingEntity);
-    const exact = await repo.findOne({
+    const exact = await this.findingRepository.findOne({
       where: { id },
       order: { chainSeq: 'DESC' },
     });
     if (exact) return exact;
     // Fall back: find the latest transition row whose supersedesId
     // matches.
-    return repo.findOne({
+    return this.findingRepository.findOne({
       where: { supersedesId: id },
       order: { chainSeq: 'DESC' },
     });
@@ -251,14 +251,12 @@ export class FindingRegistryService {
    * tests/invariants/finding-registry-integrity.spec.ts exactly.
    */
   async verify(): Promise<VerifyResult> {
-    // eslint-disable-next-line no-restricted-syntax -- Same rationale as findLatestById above: FindingEntity is platform-wide cross-tenant by design; verify() walks every chain entry regardless of tenant.
-    const entries = await this.dataSource.getRepository(FindingEntity).find({
+    const entries = await this.findingRepository.find({
       order: { chainSeq: 'ASC' },
     });
 
     let prev = ZERO_HASH;
-    for (let i = 0; i < entries.length; i++) {
-      const entry = entries[i]!;
+    for (const [i, entry] of entries.entries()) {
       if (entry.prevHash !== prev) {
         return {
           ok: false,
@@ -332,9 +330,7 @@ function canonicalJson(value: unknown): string {
   }
   const obj = value as Record<string, unknown>;
   const keys = Object.keys(obj).sort();
-  return (
-    '{' + keys.map((k) => JSON.stringify(k) + ':' + canonicalJson(obj[k])).join(',') + '}'
-  );
+  return '{' + keys.map((k) => JSON.stringify(k) + ':' + canonicalJson(obj[k])).join(',') + '}';
 }
 
 function sha256hex(input: string): string {

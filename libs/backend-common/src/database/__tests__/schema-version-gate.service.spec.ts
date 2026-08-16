@@ -1,7 +1,7 @@
+import { createMockDataSource } from '@aquaculture/testing';
 import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 
-import { createMockDataSource } from '../../../../testing/src/factories/mock-datasource.factory';
 import { createSchemaVersionGate } from '../schema-version-gate.service';
 
 function mockConfig(): ConfigService {

@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import { QueryRunner } from 'typeorm';
 
 import { assertRuntimeDdlAllowed } from './db-migrate-authority.util';
+import { executeQueryRowsNormalized } from './query-result-normalizer';
 
 /**
  * convertAuditColumnsToTimestamptz
@@ -188,7 +189,11 @@ async function discoverAuditColumns(
   // data type. We filter on `data_type = 'timestamp without time zone'`
   // (the standard SQL spelling for naked TIMESTAMP) so columns already
   // converted to `timestamp with time zone` are skipped.
-  const rows: Array<{ table_name: string; column_name: string }> = await qr.query(
+  const rows = await executeQueryRowsNormalized<{
+    table_name: string;
+    column_name: string;
+  }>(
+    qr,
     `
       SELECT c.table_name, c.column_name
       FROM information_schema.columns c
@@ -250,7 +255,8 @@ export async function convertAuditColumnsToTimestamptz(
   if (options.schemaOverride !== undefined) {
     schema = options.schemaOverride;
   } else {
-    const schemaRows: Array<{ schema: string }> = await qr.query(
+    const schemaRows = await executeQueryRowsNormalized<{ schema: string }>(
+      qr,
       `SELECT current_schema() AS schema`,
     );
     schema = schemaRows[0]?.schema ?? 'public';
@@ -264,7 +270,8 @@ export async function convertAuditColumnsToTimestamptz(
   // Our entire conversion semantics depend on the assumption that
   // existing TIMESTAMP values were written by a UTC-pinned process.
   // An unexpected session TZ is a deploy-time signal for review.
-  const tzRows: Array<{ setting: string }> = await qr.query(
+  const tzRows = await executeQueryRowsNormalized<{ setting: string }>(
+    qr,
     `SELECT setting FROM pg_settings WHERE name = 'TimeZone'`,
   );
   const sessionTz = tzRows[0]?.setting ?? 'unknown';
@@ -352,7 +359,8 @@ export async function revertAuditColumnsToTimestamp(
   if (options.schemaOverride !== undefined) {
     schema = options.schemaOverride;
   } else {
-    const schemaRows: Array<{ schema: string }> = await qr.query(
+    const schemaRows = await executeQueryRowsNormalized<{ schema: string }>(
+      qr,
       `SELECT current_schema() AS schema`,
     );
     schema = schemaRows[0]?.schema ?? 'public';
@@ -366,7 +374,11 @@ export async function revertAuditColumnsToTimestamp(
   // (the post-up() state) so we only revert what we previously
   // converted, not random columns that happened to use timestamptz
   // for other reasons.
-  const rows: Array<{ table_name: string; column_name: string }> = await qr.query(
+  const rows = await executeQueryRowsNormalized<{
+    table_name: string;
+    column_name: string;
+  }>(
+    qr,
     `
       SELECT c.table_name, c.column_name
       FROM information_schema.columns c

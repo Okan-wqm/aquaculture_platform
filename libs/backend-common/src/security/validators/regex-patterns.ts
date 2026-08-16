@@ -19,7 +19,8 @@
  * Email validation - ReDoS safe
  * Based on a simplified pattern that covers most valid emails
  */
-export const EMAIL_REGEX = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+export const EMAIL_REGEX =
+  /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
 
 /**
  * UUID v4 validation - ReDoS safe.
@@ -33,7 +34,8 @@ export const EMAIL_REGEX = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-z
  * check but fail this one — so making the names reflect it prevents the
  * caller from picking the wrong one silently. See AUDIT-MEDIUM-005.
  */
-export const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+export const UUID_V4_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
  * UUID any version - ReDoS safe. Kept for API parity with the v1-v5
@@ -62,7 +64,8 @@ export const SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 /**
  * IPv4 address - ReDoS safe
  */
-export const IPV4_REGEX = /^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?.[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?.[0-9])$/;
+export const IPV4_REGEX =
+  /^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?.[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?.[0-9])$/;
 
 /**
  * IPv6 address - ReDoS safe (simplified)
@@ -103,7 +106,7 @@ export const PASSWORD_MIN_LENGTH = 8;
 export const PASSWORD_HAS_UPPERCASE = /[A-Z]/;
 export const PASSWORD_HAS_LOWERCASE = /[a-z]/;
 export const PASSWORD_HAS_NUMBER = /[0-9]/;
-export const PASSWORD_HAS_SPECIAL = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/;
+export const PASSWORD_HAS_SPECIAL = /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/;
 
 /**
  * Check password strength safely
@@ -141,12 +144,14 @@ export const ISO_DATE_REGEX = /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$
 /**
  * DateTime format - ISO 8601, ReDoS safe
  */
-export const ISO_DATETIME_REGEX = /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,3})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)?$/;
+export const ISO_DATETIME_REGEX =
+  /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,3})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)?$/;
 
 /**
  * URL - Simplified, ReDoS safe
  */
-export const URL_REGEX = /^https?:\/\/[a-zA-Z0-9][-a-zA-Z0-9]*(?:\.[a-zA-Z0-9][-a-zA-Z0-9]*)+(?::\d{1,5})?(?:\/[^\s]*)?$/;
+export const URL_REGEX =
+  /^https?:\/\/[a-zA-Z0-9][-a-zA-Z0-9]*(?:\.[a-zA-Z0-9][-a-zA-Z0-9]*)+(?::\d{1,5})?(?:\/[^\s]*)?$/;
 
 /**
  * Domain name - ReDoS safe
@@ -156,7 +161,8 @@ export const DOMAIN_REGEX = /^[a-zA-Z0-9][-a-zA-Z0-9]*(?:\.[a-zA-Z0-9][-a-zA-Z0-
 /**
  * Semantic version - ReDoS safe
  */
-export const SEMVER_REGEX = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[a-zA-Z0-9]+(?:\.[a-zA-Z0-9]+)*)?(?:\+[a-zA-Z0-9]+(?:\.[a-zA-Z0-9]+)*)?$/;
+export const SEMVER_REGEX =
+  /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[a-zA-Z0-9]+(?:\.[a-zA-Z0-9]+)*)?(?:\+[a-zA-Z0-9]+(?:\.[a-zA-Z0-9]+)*)?$/;
 
 /**
  * Credit card number (basic) - ReDoS safe
@@ -172,7 +178,8 @@ export const SQL_IDENTIFIER_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]{0,62}$/;
 /**
  * JSON path - Simple validation, ReDoS safe
  */
-export const JSON_PATH_REGEX = /^(?:\$|\$\.[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*|\[\d+\])*)$/;
+export const JSON_PATH_REGEX =
+  /^(?:\$|\$\.[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*|\[\d+\])*)$/;
 
 /**
  * Safe regex test with timeout protection
@@ -181,11 +188,7 @@ export const JSON_PATH_REGEX = /^(?:\$|\$\.[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][
  * @param maxLength - Maximum input length to test (default 10000)
  * @returns Match result or null if input too long
  */
-export function safeRegexTest(
-  pattern: RegExp,
-  input: string,
-  maxLength: number = 10000,
-): boolean | null {
+export function safeRegexTest(pattern: RegExp, input: string, maxLength = 10000): boolean | null {
   if (input.length > maxLength) {
     return null; // Input too long
   }
@@ -198,7 +201,7 @@ export function safeRegexTest(
 export function safeRegexMatch(
   pattern: RegExp,
   input: string,
-  maxLength: number = 10000,
+  maxLength = 10000,
 ): RegExpMatchArray | null {
   if (input.length > maxLength) {
     return null;

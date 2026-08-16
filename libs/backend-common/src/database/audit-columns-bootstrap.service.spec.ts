@@ -1,4 +1,6 @@
+import { Logger } from '@nestjs/common';
 import type { DataSource, QueryRunner } from 'typeorm';
+
 import { AuditColumnsBootstrap } from './audit-columns-bootstrap.service';
 
 /**
@@ -41,21 +43,23 @@ function makeMockDataSource(opts: {
     createQueryRunner: () => {
       createdRunners++;
       const runner: QueryRunner = {
-        connect: async (): Promise<void> => {
+        connect: (): Promise<void> => {
           // No-op in mock — connect always succeeds
+          return Promise.resolve();
         },
-        query: async (): Promise<unknown> => {
+        query: (): Promise<unknown> => {
           if (opts.failOnQuery) {
-            throw opts.failOnQuery;
+            return Promise.reject(opts.failOnQuery);
           }
           if (replyIdx >= opts.replies.length) {
             // Default empty reply for unscripted DDL
-            return undefined;
+            return Promise.resolve(undefined);
           }
-          return opts.replies[replyIdx++];
+          return Promise.resolve(opts.replies[replyIdx++]);
         },
-        release: async (): Promise<void> => {
+        release: (): Promise<void> => {
           releasedRunners++;
+          return Promise.resolve();
         },
       } as unknown as QueryRunner;
       return runner;
@@ -121,13 +125,7 @@ describe('AuditColumnsBootstrap', () => {
         serviceName: 'notification',
       });
 
-      // Spy on the bootstrap's logger via prototype access
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const errorSpy = jest.spyOn(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (bootstrap as any).logger,
-        'error',
-      );
+      const errorSpy = jest.spyOn(Logger.prototype, 'error');
 
       await bootstrap.onApplicationBootstrap();
 

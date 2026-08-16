@@ -1,12 +1,9 @@
 /**
  * @aquaculture/backend-common/nats
  *
- * NATS connection factory (cert-is-identity mTLS per ADR-015) and the
- * tenant-validating consumer base that enforces cross-tenant isolation.
+ * NestJS NATS transport and tenant-validating consumer primitives.
+ * Connection construction is owned by `@platform/event-bus/nats-connection`.
  */
-
-export { buildNatsConnectionOptions, DEFAULT_NATS_URL } from './nats-connection.factory';
-export type { NatsAuthMode } from './nats-connection.factory';
 
 export { TenantValidatingConsumer } from './tenant-validating-consumer';
 export type { TenantValidationResult } from './tenant-validating-consumer';

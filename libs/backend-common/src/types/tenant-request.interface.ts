@@ -121,6 +121,11 @@ export interface JwtUser {
 export interface TenantRequest extends Request {
   /** Resolved tenant ID – set by TenantContextMiddleware or TenantGuard */
   tenantId?: string;
+  /**
+   * Validated PostgreSQL schema selected by TenantSchemaMiddleware and carried
+   * through AsyncLocalStorage for tenant-aware connection checkout.
+   */
+  schemaName?: string;
   /** Decoded JWT payload – set by JwtAuthGuard / UserContextMiddleware */
   user?: JwtUser;
   /** HMAC-verified service caller identity. */

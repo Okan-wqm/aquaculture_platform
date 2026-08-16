@@ -35,10 +35,9 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
-import {
-  listRetentionPolicies,
-  type RetentionPolicy,
-} from './retention-policy';
+import { queryRowCountNormalized } from '../query-result-normalizer';
+
+import { listRetentionPolicies, type RetentionPolicy } from './retention-policy';
 
 export interface RetentionEnforcementReport {
   readonly policyId: string;
@@ -69,9 +68,7 @@ export class RetentionEnforcementService {
    * NOW override so specs can time-travel without waiting for
    * actual wall-clock cron ticks.
    */
-  async enforceAllOnce(
-    now: Date = new Date(),
-  ): Promise<readonly RetentionEnforcementReport[]> {
+  async enforceAllOnce(now: Date = new Date()): Promise<readonly RetentionEnforcementReport[]> {
     const policies = listRetentionPolicies();
     if (policies.length === 0) {
       this.logger.debug('No retention policies registered; noop.');
@@ -98,9 +95,7 @@ export class RetentionEnforcementService {
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        this.logger.error(
-          `retention [${p.id}] FAILED: ${msg}. Subsequent policies continue.`,
-        );
+        this.logger.error(`retention [${p.id}] FAILED: ${msg}. Subsequent policies continue.`);
         reports.push({
           policyId: p.id,
           ownerTag: p.ownerTag,
@@ -127,9 +122,7 @@ export class RetentionEnforcementService {
     const quotedTable = `"${p.tableName}"`;
     const quotedCol = `"${p.timestampColumn}"`;
     const baseWhere = `${quotedCol} < $1`;
-    const legalHold = p.legalHoldClause
-      ? ` AND NOT (${p.legalHoldClause})`
-      : '';
+    const legalHold = p.legalHoldClause ? ` AND NOT (${p.legalHoldClause})` : '';
     // RETURNING 1 — same pattern as backfillColumn. TypeORM's
     // PostgresQueryRunner.query returns the result rows array;
     // rows.length is the portable row-count observation.
@@ -141,9 +134,8 @@ export class RetentionEnforcementService {
     if (p.legalHoldParams && p.legalHoldParams.length > 0) {
       for (const v of p.legalHoldParams) params.push(v);
     }
-    const result = await this.dataSource.query(sql, params);
-    if (Array.isArray(result)) return result.length;
-    return 0;
+    const result: unknown = await this.dataSource.query(sql, params);
+    return queryRowCountNormalized(result);
   }
 
   private cutoffFor(p: RetentionPolicy, now: Date): Date {

@@ -172,16 +172,16 @@ function coercePgLikeError(err: unknown): PgLikeError | null {
   const e = err as Record<string, unknown>;
   // TypeORM wrapping
   if (e['driverError'] && typeof e['driverError'] === 'object') {
-    return e['driverError'] as PgLikeError;
+    return e['driverError'];
   }
-  return e as PgLikeError;
+  return e;
 }
 
 function extractMessage(err: unknown): string {
   if (typeof err === 'string') return err;
   if (!err || typeof err !== 'object') return String(err);
   const msg = (err as { message?: unknown }).message;
-  return typeof msg === 'string' ? msg : String(err);
+  return typeof msg === 'string' ? msg : 'Database operation failed';
 }
 
 function classifySqlState(code: string | null): string | null {

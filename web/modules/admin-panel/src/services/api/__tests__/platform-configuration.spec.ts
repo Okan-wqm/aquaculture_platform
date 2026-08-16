@@ -1,180 +1,193 @@
-/**
- * Platform Configuration data layer tests (ORPHAN-HIGH-373)
- *
- * The pure mapping between config-service effective-configuration rows and the
- * System Settings tab models, plus the per-tab write builders. Rows arrive as
- * GraphQLJSON — typed for seeded rows, plain strings for keys created through
- * setConfiguration — so both encodings are covered.
- */
-
-import { describe, it, expect } from 'vitest';
-
 import {
-  DEFAULT_PLATFORM_SETTINGS,
-  PLATFORM_CONFIGURATION_SERVICE,
-  buildBillingWrites,
-  buildEmailWrites,
-  buildGeneralWrites,
-  buildRateLimitWrites,
-  buildSecurityWrites,
-  coerceBoolean,
-  coerceNumber,
-  mapPlatformSettings,
-} from '../platform-configuration';
-import type { EffectiveConfigurationRow } from '../platform-configuration';
+  CONFIGURATION_CATALOG_DIGEST,
+  ConfigurationChangeIntentV1,
+  ConfigurationKeyId,
+  ConfigurationSnapshotSourceV1,
+  ConfigurationSnapshotStateV1,
+} from '@aquaculture/configuration-contracts';
+import { describe, expect, it } from 'vitest';
 
-function row(
-  key: string,
-  value: unknown,
-  secretMode: 'none' | 'redacted' = 'none',
-): EffectiveConfigurationRow {
-  return { key, value, secretMode, source: 'system', version: 1 };
+import { ADMIN_CONFIGURATION_UI } from '../../../generated/configuration-ui.generated';
+import {
+  clearConfigurationChange,
+  configurationEditorValues,
+  setConfigurationChange,
+} from '../platform-configuration';
+import type {
+  ConfigurationSnapshotEntryV1,
+  ConfigurationSnapshotV1,
+} from '../platform-configuration';
+
+describe('configuration snapshot fail-red projection', () => {
+  it('accepts the exact generated key set and keeps missing required values editable', () => {
+    const current = snapshot();
+
+    expect(current.readiness).toBe('RED');
+    const values = configurationEditorValues(current);
+    expect(Object.keys(values).sort()).toEqual(
+      ADMIN_CONFIGURATION_UI.map((descriptor) => descriptor.id).sort(),
+    );
+    expect(values[ConfigurationKeyId.PLATFORM_NAME]).toBe('');
+    expect(values[ConfigurationKeyId.EMAIL_SMTP_HOST]).toBe('');
+  });
+
+  it('projects typed values canonically without exposing a stored secret', () => {
+    const current = snapshot({
+      entries: baseEntries().map((entry): ConfigurationSnapshotEntryV1 => {
+        if (entry.keyId === ConfigurationKeyId.PLATFORM_NAME) {
+          return valueEntry(entry, 'Aquaculture Control Plane');
+        }
+        if (entry.keyId === ConfigurationKeyId.EMAIL_SMTP_PORT) {
+          return valueEntry(entry, 465);
+        }
+        if (entry.keyId === ConfigurationKeyId.EMAIL_SMTP_SECURE) {
+          return valueEntry(entry, true);
+        }
+        if (entry.keyId === ConfigurationKeyId.MAINTENANCE_ALLOWED_IPS) {
+          return valueEntry(entry, ['192.0.2.1', '198.51.100.2']);
+        }
+        if (entry.keyId === ConfigurationKeyId.EMAIL_SMTP_PASSWORD) {
+          return {
+            ...entry,
+            state: ConfigurationSnapshotStateV1.SECRET_SET,
+            source: ConfigurationSnapshotSourceV1.SYSTEM,
+            sourceTenantId: SYSTEM_TENANT_ID,
+            effectiveVersion: `${SYSTEM_TENANT_ID}:3`,
+          };
+        }
+        return entry;
+      }),
+    });
+
+    const values = configurationEditorValues(current);
+    expect(values[ConfigurationKeyId.PLATFORM_NAME]).toBe('Aquaculture Control Plane');
+    expect(values[ConfigurationKeyId.EMAIL_SMTP_PORT]).toBe('465');
+    expect(values[ConfigurationKeyId.EMAIL_SMTP_SECURE]).toBe('true');
+    expect(values[ConfigurationKeyId.MAINTENANCE_ALLOWED_IPS]).toBe('["192.0.2.1","198.51.100.2"]');
+    expect(values[ConfigurationKeyId.EMAIL_SMTP_PASSWORD]).toBe('');
+  });
+
+  it('rejects stale catalog identity before constructing editor state', () => {
+    expect(() => configurationEditorValues(snapshot({ catalogDigest: '0'.repeat(64) }))).toThrow(
+      'Configuration catalog changed',
+    );
+  });
+
+  it('rejects persistence catalog mismatches and invalid values', () => {
+    expect(() =>
+      configurationEditorValues(
+        snapshot({
+          catalogMismatches: [`${SYSTEM_TENANT_ID}:UNREGISTERED_RUNTIME_KEY`],
+        }),
+      ),
+    ).toThrow('unknown catalog IDs');
+    expect(() =>
+      configurationEditorValues(snapshot({ invalidKeys: [ConfigurationKeyId.PLATFORM_NAME] })),
+    ).toThrow('invalid values');
+  });
+
+  it.each([ConfigurationSnapshotStateV1.INVALID, ConfigurationSnapshotStateV1.CATALOG_MISMATCH])(
+    'rejects an entry in non-editable %s state even if summary arrays drift',
+    (state) => {
+      expect(() =>
+        configurationEditorValues(
+          snapshot({
+            entries: baseEntries().map((entry) =>
+              entry.keyId === ConfigurationKeyId.PLATFORM_NAME ? { ...entry, state } : entry,
+            ),
+          }),
+        ),
+      ).toThrow(`not editable in state ${state}`);
+    },
+  );
+
+  it('rejects incomplete and duplicate projections instead of defaulting them', () => {
+    const entries = baseEntries();
+    expect(() => configurationEditorValues(snapshot({ entries: entries.slice(1) }))).toThrow(
+      'snapshot is incomplete',
+    );
+    expect(() =>
+      configurationEditorValues(snapshot({ entries: [...entries, entries[0]!] })),
+    ).toThrow('Unexpected or duplicate configuration entry');
+  });
+});
+
+describe('typed configuration change builders', () => {
+  it('canonicalizes values using the catalog-owned type and validation rules', () => {
+    expect(setConfigurationChange(ConfigurationKeyId.EMAIL_SMTP_PORT, '0465')).toEqual({
+      keyId: ConfigurationKeyId.EMAIL_SMTP_PORT,
+      intent: ConfigurationChangeIntentV1.SET,
+      value: '465',
+    });
+    expect(setConfigurationChange(ConfigurationKeyId.EMAIL_SMTP_SECURE, 'true')).toEqual({
+      keyId: ConfigurationKeyId.EMAIL_SMTP_SECURE,
+      intent: ConfigurationChangeIntentV1.SET,
+      value: 'true',
+    });
+    expect(() => setConfigurationChange(ConfigurationKeyId.EMAIL_SMTP_PORT, 'not-a-port')).toThrow(
+      'number input must be finite',
+    );
+  });
+
+  it('uses the typed clear intent without a compatibility payload', () => {
+    expect(clearConfigurationChange(ConfigurationKeyId.EMAIL_SMTP_HOST)).toEqual({
+      keyId: ConfigurationKeyId.EMAIL_SMTP_HOST,
+      intent: ConfigurationChangeIntentV1.CLEAR_OVERRIDE,
+    });
+  });
+});
+
+const SYSTEM_TENANT_ID = '00000000-0000-0000-0000-000000000000';
+
+function snapshot(overrides: Partial<ConfigurationSnapshotV1> = {}): ConfigurationSnapshotV1 {
+  const entries = overrides.entries ?? baseEntries();
+  const missingRequiredKeys = entries
+    .filter((entry) => entry.state === ConfigurationSnapshotStateV1.MISSING_REQUIRED)
+    .map((entry) => entry.keyId);
+  return {
+    catalogDigest: CONFIGURATION_CATALOG_DIGEST,
+    tenantId: SYSTEM_TENANT_ID,
+    environment: 'all',
+    scopeRevision: '0',
+    snapshotToken: 'a'.repeat(64),
+    readiness: missingRequiredKeys.length > 0 ? 'RED' : 'READY',
+    missingRequiredKeys,
+    invalidKeys: [],
+    catalogMismatches: [],
+    entries,
+    ...overrides,
+  };
 }
 
-describe('platform-configuration service namespace', () => {
-  it('targets the seeded platform namespace', () => {
-    expect(PLATFORM_CONFIGURATION_SERVICE).toBe('platform');
-  });
-});
+function baseEntries(): ConfigurationSnapshotEntryV1[] {
+  return ADMIN_CONFIGURATION_UI.map(
+    (descriptor): ConfigurationSnapshotEntryV1 => ({
+      keyId: descriptor.id,
+      state: descriptor.required
+        ? ConfigurationSnapshotStateV1.MISSING_REQUIRED
+        : ConfigurationSnapshotStateV1.OPTIONAL_ABSENT,
+      source: ConfigurationSnapshotSourceV1.NONE,
+      value: null,
+      sourceTenantId: null,
+      effectiveVersion: null,
+      mutable: descriptor.mutable,
+      required: descriptor.required,
+      requiresRestart: descriptor.requiresRestart,
+      fallbackSuppressed: false,
+    }),
+  );
+}
 
-describe('coercion', () => {
-  it('accepts typed and canonical-string encodings', () => {
-    expect(coerceNumber(480, 0)).toBe(480);
-    expect(coerceNumber('480', 0)).toBe(480);
-    expect(coerceNumber('abc', 7)).toBe(7);
-    expect(coerceNumber('', 7)).toBe(7);
-    expect(coerceBoolean(true, false)).toBe(true);
-    expect(coerceBoolean('true', false)).toBe(true);
-    expect(coerceBoolean('false', true)).toBe(false);
-    expect(coerceBoolean('nope', true)).toBe(true);
-  });
-});
-
-describe('mapPlatformSettings', () => {
-  it('maps typed seeded rows into the tab models', () => {
-    const settings = mapPlatformSettings([
-      row('platform.name', 'Aquaculture Platform'),
-      row('platform.version', '1.0.0'),
-      row('maintenance.mode_enabled', true),
-      row('email.smtp_host', 'smtp.example.com'),
-      row('email.smtp_port', 465),
-      row('email.smtp_secure', true),
-      row('email.smtp_username', 'mailer'),
-      row('email.smtp_password', '[ENCRYPTED]', 'redacted'),
-      row('email.from_address', 'noreply@example.com'),
-      row('email.from_name', 'Example'),
-      row('security.session_timeout_minutes', 120),
-      row('security.mfa_enabled', false),
-      row('billing.stripe_enabled', true),
-      row('billing.tax_rate', 18),
-      row('rate_limit.global_rpm', 2000),
-    ]);
-
-    expect(settings.general).toEqual({
-      platformName: 'Aquaculture Platform',
-      platformVersion: '1.0.0',
-      maintenanceMode: true,
-    });
-    expect(settings.email.smtpHost).toBe('smtp.example.com');
-    expect(settings.email.smtpPort).toBe(465);
-    expect(settings.email.smtpSecure).toBe(true);
-    // Secrets are never surfaced into the editable input...
-    expect(settings.email.smtpPassword).toBe('');
-    // ...but a stored (redacted, non-null) secret is signalled.
-    expect(settings.email.hasSmtpPassword).toBe(true);
-    expect(settings.security.sessionTimeoutMinutes).toBe(120);
-    expect(settings.security.mfaEnabled).toBe(false);
-    expect(settings.billing.stripeEnabled).toBe(true);
-    expect(settings.billing.taxRate).toBe(18);
-    expect(settings.billing.stripeSecretKey).toBe('');
-    expect(settings.rateLimits.globalRpm).toBe(2000);
-  });
-
-  it('maps canonical-string rows (post-setConfiguration inserts) identically', () => {
-    const settings = mapPlatformSettings([
-      row('security.password_require_symbols', 'true'),
-      row('rate_limit.per_user_rpm', '250'),
-      row('maintenance.mode_enabled', 'false'),
-    ]);
-
-    expect(settings.security.passwordRequireSymbols).toBe(true);
-    expect(settings.rateLimits.perUserRpm).toBe(250);
-    expect(settings.general.maintenanceMode).toBe(false);
-  });
-
-  it('treats a null-valued secret row as "no secret stored"', () => {
-    // config-service returns value: null for the seeded empty smtp password.
-    const settings = mapPlatformSettings([row('email.smtp_password', null, 'redacted')]);
-    expect(settings.email.hasSmtpPassword).toBe(false);
-  });
-
-  it('falls back to the seeded defaults for missing rows', () => {
-    const settings = mapPlatformSettings([]);
-    expect(settings).toEqual(DEFAULT_PLATFORM_SETTINGS);
-  });
-});
-
-describe('write builders', () => {
-  it('serializes general and rate-limit writes to canonical strings', () => {
-    expect(buildGeneralWrites(true)).toEqual([{ key: 'maintenance.mode_enabled', value: 'true' }]);
-
-    const rateWrites = buildRateLimitWrites({
-      globalRpm: 1500,
-      perUserRpm: 100,
-      perTenantRpm: 500,
-      apiKeyRpm: 60,
-    });
-    expect(rateWrites).toContainEqual({ key: 'rate_limit.global_rpm', value: '1500' });
-    expect(rateWrites).toHaveLength(4);
-  });
-
-  it('covers every security field with a namespaced key', () => {
-    const writes = buildSecurityWrites(DEFAULT_PLATFORM_SETTINGS.security);
-    expect(writes).toHaveLength(9);
-    expect(writes.map((write) => write.key)).toEqual([
-      'security.session_timeout_minutes',
-      'security.max_login_attempts',
-      'security.lockout_duration_minutes',
-      'security.password_min_length',
-      'security.password_require_uppercase',
-      'security.password_require_numbers',
-      'security.password_require_symbols',
-      'security.mfa_enabled',
-      'security.enforce_https',
-    ]);
-  });
-
-  it('sends the smtp password only when the operator typed one, flagged secret', () => {
-    const untouched = buildEmailWrites({
-      ...DEFAULT_PLATFORM_SETTINGS.email,
-      smtpPassword: '',
-    });
-    expect(untouched.some((write) => write.key === 'email.smtp_password')).toBe(false);
-
-    const updated = buildEmailWrites({
-      ...DEFAULT_PLATFORM_SETTINGS.email,
-      smtpPassword: 's3cret',
-    });
-    expect(updated).toContainEqual({
-      key: 'email.smtp_password',
-      value: 's3cret',
-      isSecret: true,
-    });
-  });
-
-  it('sends the stripe secret key only when typed, flagged secret', () => {
-    const untouched = buildBillingWrites(DEFAULT_PLATFORM_SETTINGS.billing);
-    expect(untouched.some((write) => write.key === 'billing.stripe_secret_key')).toBe(false);
-    expect(untouched).toContainEqual({ key: 'billing.stripe_enabled', value: 'false' });
-
-    const updated = buildBillingWrites({
-      ...DEFAULT_PLATFORM_SETTINGS.billing,
-      stripeSecretKey: 'sk_test_123',
-    });
-    expect(updated).toContainEqual({
-      key: 'billing.stripe_secret_key',
-      value: 'sk_test_123',
-      isSecret: true,
-    });
-  });
-});
+function valueEntry(
+  entry: ConfigurationSnapshotEntryV1,
+  value: unknown,
+): ConfigurationSnapshotEntryV1 {
+  return {
+    ...entry,
+    state: ConfigurationSnapshotStateV1.VALUE,
+    source: ConfigurationSnapshotSourceV1.SYSTEM,
+    value,
+    sourceTenantId: SYSTEM_TENANT_ID,
+    effectiveVersion: `${SYSTEM_TENANT_ID}:2`,
+  };
+}

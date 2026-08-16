@@ -900,16 +900,22 @@ describe('Frontend-Backend Contract Validation', () => {
   // --------------------------------------------------------------------------
 
   describe('H12 Critical Path Endpoints', () => {
-    it('live settings email test route should match', () => {
-      const fe = frontendEndpoints.find(
-        (e) => e.url === '/settings/config/email/test' && e.method === 'POST',
-      );
-      expect(fe).toBeDefined();
+    it('should not expose retired duplicate configuration authorities', () => {
+      const retiredPaths = [
+        '/settings/config/email/test',
+        '/settings/system/info',
+        '/system/settings/configs',
+        '/system/settings/provisioning-config',
+        '/health/circuit-breakers',
+        '/health/circuit-breakers/:param/reset',
+      ];
 
-      const be = backendEndpoints.find(
-        (e) => e.path === '/settings/config/email/test' && e.method === 'POST',
+      expect(frontendEndpoints.filter((endpoint) => retiredPaths.includes(endpoint.url))).toEqual(
+        [],
       );
-      expect(be).toBeDefined();
+      expect(backendEndpoints.filter((endpoint) => retiredPaths.includes(endpoint.path))).toEqual(
+        [],
+      );
     });
 
     it('announcement unpublish should use /cancel path', () => {
@@ -990,7 +996,7 @@ describe('Frontend-Backend Contract Validation', () => {
     // Bu, beklenmedik endpoint degisikliklerini yakalar.
     const count = backendEndpoints.length;
 
-    expect(count).toBe(603);
+    expect(count).toBe(572);
   });
 
   it('frontend endpoint snapshot should be up to date', () => {

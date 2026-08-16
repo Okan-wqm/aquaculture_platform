@@ -22,10 +22,9 @@
  */
 import type { DataSource } from 'typeorm';
 
-export type EmergencyOverrideKind =
-  | 'drift_fatal_bypass'
-  | 'migration_skip'
-  | 'validator_disable';
+import { executeQueryRowsNormalized } from './query-result-normalizer';
+
+export type EmergencyOverrideKind = 'drift_fatal_bypass' | 'migration_skip' | 'validator_disable';
 
 export interface EmergencyOverrideRow {
   readonly id: string;
@@ -54,7 +53,7 @@ export async function lookupEmergencyOverride(
   opts: EmergencyOverrideLookupOptions,
 ): Promise<EmergencyOverrideLookupResult> {
   try {
-    const rows: Array<{
+    const rows = await executeQueryRowsNormalized<{
       id: string;
       service_name: string;
       kind: EmergencyOverrideKind;
@@ -62,7 +61,8 @@ export async function lookupEmergencyOverride(
       actor: string;
       expires_at: Date;
       environment: string;
-    }> = await opts.dataSource.query(
+    }>(
+      opts.dataSource,
       `SELECT id, service_name, kind, reason, actor, expires_at, environment
          FROM observability.emergency_overrides
         WHERE service_name = $1
@@ -77,7 +77,10 @@ export async function lookupEmergencyOverride(
     if (rows.length === 0) {
       return { active: false };
     }
-    const r = rows[0]!;
+    const r = rows[0];
+    if (!r) {
+      return { active: false };
+    }
     return {
       active: true,
       row: {

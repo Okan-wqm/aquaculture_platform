@@ -1,16 +1,7 @@
-import {
-  Controller,
-  Get,
-  HttpCode,
-  HttpStatus,
-  NotFoundException,
-  Param,
-  Post,
-  Res,
-} from '@nestjs/common';
+import { Controller, Get, HttpCode, HttpStatus, Res } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { SkipThrottle } from '@aquaculture/backend-common/security';
-import { Response } from 'express';
+import type { Response } from 'express';
 
 import { Public } from '../decorators/public.decorator';
 
@@ -37,10 +28,7 @@ function safeRequireVersion(packageJsonPath: string): string {
  *   GET /health         - General: sanitized status (timestamp, uptime, version)
  *   GET /health/startup - Startup probe for K8s (200 after full init)
  *
- * Internal (auth required):
- *   GET  /health/metrics              - Process metrics
- *   GET  /health/circuit-breakers     - Circuit breaker states
- *   POST /health/circuit-breakers/:name/reset - Reset a circuit breaker
+ * Internal (auth required): GET /health/metrics - Process metrics
  */
 @ApiTags('Health')
 @Controller('health')
@@ -69,7 +57,6 @@ export class HealthController {
   async readiness(@Res() res: Response): Promise<void> {
     const draining = this.healthService.isDraining();
     const dbHealthy = draining ? false : await this.healthService.checkDatabase();
-    const smtpStatus = this.healthService.getSmtpStatus();
     const isReady = dbHealthy && !draining;
 
     const status = isReady ? 'ok' : 'not_ready';
@@ -79,7 +66,6 @@ export class HealthController {
       status,
       checks: {
         database: dbHealthy ? 'ok' : 'error',
-        smtp: smtpStatus.state === 'closed' ? 'ok' : 'error',
         ...(draining ? { draining: 'error' as const } : {}),
       },
     };
@@ -141,28 +127,7 @@ export class HealthController {
    * Internal metrics endpoint (auth required).
    */
   @Get('metrics')
-  async metrics() {
+  metrics(): ReturnType<HealthService['getMetrics']> {
     return this.healthService.getMetrics();
-  }
-
-  /**
-   * Internal circuit breaker status (auth required).
-   */
-  @Get('circuit-breakers')
-  getCircuitBreakers() {
-    return this.healthService.getCircuitBreakers();
-  }
-
-  /**
-   * Reset a circuit breaker (auth required).
-   */
-  @Post('circuit-breakers/:name/reset')
-  @HttpCode(HttpStatus.OK)
-  resetCircuitBreaker(@Param('name') name: string) {
-    const success = this.healthService.resetCircuitBreaker(name);
-    if (!success) {
-      throw new NotFoundException(`Circuit breaker '${name}' not found`);
-    }
-    return { success: true, name, state: 'closed' };
   }
 }

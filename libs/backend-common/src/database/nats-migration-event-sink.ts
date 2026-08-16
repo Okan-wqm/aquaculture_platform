@@ -30,6 +30,7 @@
  *   - Fire-and-forget semantics — publish failure is logged but never
  *     thrown (runner MUST NOT rollback on audit-pipeline hiccup).
  */
+import { Logger } from '@nestjs/common';
 import {
   SCHEMA_MIGRATION_SUBJECT_PREFIX,
   createBaseEvent,
@@ -42,10 +43,8 @@ import {
 
 import { GLOBAL_TENANT_UUID } from '../tenant/constants';
 import { sanitizePgError } from '../utils/sanitize-pg-error.util';
-import type {
-  MigrationEventSink,
-  MigrationSinkEvent,
-} from './migration-event-sink';
+
+import type { MigrationEventSink, MigrationSinkEvent } from './migration-event-sink';
 
 /**
  * Minimal publisher surface — matches IEventPublisher from
@@ -54,10 +53,7 @@ import type {
  * that satisfies this shape (the real NATS bus does).
  */
 export interface MigrationEventPublisher {
-  publishTo<TEvent extends { eventType: string }>(
-    subject: string,
-    event: TEvent,
-  ): Promise<void>;
+  publishTo<TEvent extends { eventType: string }>(subject: string, event: TEvent): Promise<void>;
 }
 
 export interface NatsMigrationEventSinkOptions {
@@ -68,27 +64,21 @@ export interface NatsMigrationEventSinkOptions {
 }
 
 export class NatsMigrationEventSink implements MigrationEventSink {
+  private readonly logger = new Logger(NatsMigrationEventSink.name);
   private readonly environment: string;
-  private readonly onPublishError: (
-    err: unknown,
-    ev: MigrationSinkEvent,
-  ) => void;
+  private readonly onPublishError: (err: unknown, ev: MigrationSinkEvent) => void;
 
   constructor(
     private readonly publisher: MigrationEventPublisher,
     options: NatsMigrationEventSinkOptions = {},
   ) {
     this.environment =
-      options.environment ??
-      process.env['AQUA_ENV'] ??
-      process.env['NODE_ENV'] ??
-      'development';
+      options.environment ?? process.env['AQUA_ENV'] ?? process.env['NODE_ENV'] ?? 'development';
     this.onPublishError =
       options.onPublishError ??
       ((err, ev) => {
         const msg = err instanceof Error ? err.message : String(err);
-        // eslint-disable-next-line no-console
-        console.error(
+        this.logger.error(
           `[NatsMigrationEventSink] publish failed for ` +
             `${ev.serviceName}/${ev.migrationName} [${ev.eventType}]: ${msg}`,
         );
@@ -109,10 +99,7 @@ export class NatsMigrationEventSink implements MigrationEventSink {
     // tenantId routing: tenant fan-out events use cleartext schema
     // name; source-schema events use the GLOBAL sentinel. Consumer
     // HMACs tenant_<uuid16> at persist time.
-    const tenantId =
-      event.tenantSchema !== undefined
-        ? event.tenantSchema
-        : GLOBAL_TENANT_UUID;
+    const tenantId = event.tenantSchema !== undefined ? event.tenantSchema : GLOBAL_TENANT_UUID;
     const targetSchema = event.tenantSchema ?? event.serviceName;
 
     switch (event.eventType) {

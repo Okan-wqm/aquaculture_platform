@@ -13,6 +13,7 @@
  *   - malformed input propagates BadRequestException from the
  *     primitive (fail-closed)
  */
+import { defined } from '@aquaculture/testing';
 import { BadRequestException } from '@nestjs/common';
 import type { Repository } from 'typeorm';
 
@@ -39,18 +40,14 @@ function makeRepo(rows: Row[]): {
 } {
   const calls: CapturedCall = { wheres: [], orderBys: [], take: null };
   const qb = {
-    where: jest
-      .fn()
-      .mockImplementation((clause: string, params?: Record<string, unknown>) => {
-        calls.wheres.push({ clause, params });
-        return qb;
-      }),
-    andWhere: jest
-      .fn()
-      .mockImplementation((clause: string, params?: Record<string, unknown>) => {
-        calls.wheres.push({ clause, params });
-        return qb;
-      }),
+    where: jest.fn().mockImplementation((clause: string, params?: Record<string, unknown>) => {
+      calls.wheres.push({ clause, params });
+      return qb;
+    }),
+    andWhere: jest.fn().mockImplementation((clause: string, params?: Record<string, unknown>) => {
+      calls.wheres.push({ clause, params });
+      return qb;
+    }),
     orderBy: jest.fn().mockImplementation((column: string, direction: 'ASC' | 'DESC') => {
       calls.orderBys.push({ column, direction });
       return qb;
@@ -154,12 +151,8 @@ describe('paginateCursor', () => {
     });
     const afterFirst = calls.wheres.slice(1);
     // `isActive` was undefined → NOT forwarded to WHERE.
-    expect(
-      afterFirst.some((w) => w.clause.includes('isActive')),
-    ).toBe(false);
-    expect(
-      afterFirst.some((w) => w.clause.includes('batchId')),
-    ).toBe(true);
+    expect(afterFirst.some((w) => w.clause.includes('isActive'))).toBe(false);
+    expect(afterFirst.some((w) => w.clause.includes('batchId'))).toBe(true);
   });
 
   it('with `after` cursor, adds compound tuple WHERE `(createdAt, id) < (?, ?)`', async () => {
@@ -172,14 +165,11 @@ describe('paginateCursor', () => {
       tenantId: 'tenant-1',
     });
 
-    const tupleWhere = calls.wheres.find((w) =>
-      w.clause.includes('e."createdAt"'),
-    );
+    const tupleWhere = calls.wheres.find((w) => w.clause.includes('e."createdAt"'));
     expect(tupleWhere).toBeDefined();
-    expect(tupleWhere!.clause).toBe(
-      '(e."createdAt", e."id") < (:cursorCreatedAt, :cursorId)',
-    );
-    expect(tupleWhere!.params).toEqual({
+    const tuple = defined(tupleWhere, 'Expected tuple cursor predicate');
+    expect(tuple.clause).toBe('(e."createdAt", e."id") < (:cursorCreatedAt, :cursorId)');
+    expect(tuple.params).toEqual({
       cursorCreatedAt: anchor.createdAt,
       cursorId: anchor.id,
     });
@@ -200,12 +190,12 @@ describe('paginateCursor', () => {
 
     expect(response.edges).toHaveLength(3);
     expect(response.pageInfo).toEqual({
-      endCursor: encodeCursor(rows[2]!),
+      endCursor: encodeCursor(defined(rows[2])),
       hasNextPage: false,
     });
     // Each edge carries its OWN cursor.
-    expect(response.edges[0]!.cursor).toBe(encodeCursor(rows[0]!));
-    expect(response.edges[2]!.cursor).toBe(encodeCursor(rows[2]!));
+    expect(defined(response.edges[0]).cursor).toBe(encodeCursor(defined(rows[0])));
+    expect(defined(response.edges[2]).cursor).toBe(encodeCursor(defined(rows[2])));
   });
 
   it('drops the extra signal row and flags hasNextPage=true', async () => {
@@ -225,7 +215,7 @@ describe('paginateCursor', () => {
     expect(response.edges).toHaveLength(2);
     expect(response.edges.some((e) => e.node.id === '3')).toBe(false);
     expect(response.pageInfo.hasNextPage).toBe(true);
-    expect(response.pageInfo.endCursor).toBe(encodeCursor(rows[1]!));
+    expect(response.pageInfo.endCursor).toBe(encodeCursor(defined(rows[1])));
   });
 
   it('propagates BadRequestException from decodeCursor (fail-closed)', async () => {
@@ -258,8 +248,6 @@ describe('paginateCursor', () => {
     // take = DEFAULT_FIRST + 1 = 21
     expect(calls.take).toBe(21);
     // No cursor predicate when `after` was omitted.
-    expect(
-      calls.wheres.some((w) => w.clause.includes('cursorCreatedAt')),
-    ).toBe(false);
+    expect(calls.wheres.some((w) => w.clause.includes('cursorCreatedAt'))).toBe(false);
   });
 });

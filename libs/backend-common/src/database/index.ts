@@ -11,6 +11,8 @@ export type { SqlIdentifierKind } from './sql-identifier.util';
 // TypeORM driver query result normalizer — single canonical adapter for
 // raw `DataSource.query()` return shapes across Postgres and CLI/test drivers.
 export {
+  executeQueryResultNormalized,
+  executeQueryRowsNormalized,
   queryResultNormalized,
   queryRowCountNormalized,
   queryRowsNormalized,
@@ -19,6 +21,7 @@ export {
 } from './query-result-normalizer';
 export type {
   NormalizedQueryResult,
+  QueryResultExecutor,
   StringColumnRow,
 } from './query-result-normalizer';
 
@@ -27,11 +30,6 @@ export * from './source-schema-bootstrap.service';
 
 // Tenant-Aware Repository (legacy request-scoped, HTTP-only)
 export * from './tenant-aware.repository';
-
-// Raw query result normalization. TypeORM + pg can return rows directly,
-// [rows, rowCount] tuples, or QueryResult-like objects depending on caller.
-// Lifecycle/provisioning code must not hand-roll this shape.
-export * from './query-result-normalizer';
 
 // Tenant-Scoped Repository (AsyncLocalStorage-based, works in HTTP + MQTT + cron + NATS)
 export * from './tenant-scoped-repository';

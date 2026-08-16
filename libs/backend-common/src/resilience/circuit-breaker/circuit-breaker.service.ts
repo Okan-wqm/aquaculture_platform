@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+
 import {
   CircuitBreakerOptions,
   CircuitOpenError,
@@ -21,10 +22,20 @@ import {
  * `cleanup()` pass drops buckets older than `windowSize × bucketDuration`
  * before any read so getStats() reflects ONLY the current window.
  */
-class SlidingWindow {
-  private readonly buckets: { success: number; failure: number; slow: number; timestamp: number }[] = [];
+interface SlidingWindowBucket {
+  success: number;
+  failure: number;
+  slow: number;
+  timestamp: number;
+}
 
-  constructor(private readonly windowSize: number, private readonly bucketDurationMs: number) {}
+class SlidingWindow {
+  private readonly buckets: SlidingWindowBucket[] = [];
+
+  constructor(
+    private readonly windowSize: number,
+    private readonly bucketDurationMs: number,
+  ) {}
 
   recordSuccess(slow: boolean): void {
     const b = this.currentBucket();
@@ -52,7 +63,7 @@ class SlidingWindow {
     this.buckets.length = 0;
   }
 
-  private currentBucket() {
+  private currentBucket(): SlidingWindowBucket {
     const now = Date.now();
     const bucketTs = Math.floor(now / this.bucketDurationMs) * this.bucketDurationMs;
     this.cleanup();
@@ -186,9 +197,7 @@ class CircuitBreaker {
     this.stateChangedAt = Date.now();
     if (next === 'HALF_OPEN') this.halfOpenAdmitted = 0;
     if (next === 'CLOSED') this.consecutiveFailures = 0;
-    this.logger.log(
-      `CircuitBreaker[${this.serviceName}:${this.tenantKey}] ${prev} → ${next}`,
-    );
+    this.logger.log(`CircuitBreaker[${this.serviceName}:${this.tenantKey}] ${prev} → ${next}`);
   }
 }
 

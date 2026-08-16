@@ -22,6 +22,8 @@ pnpm-lock.yaml
 
 # Generated files
 *.generated.*
+# RFC/JCS canonical JSON projections are byte/hash authorities owned by their compiler.
+infrastructure/configuration/generated/
 
 # Documentation
 CHANGELOG.md

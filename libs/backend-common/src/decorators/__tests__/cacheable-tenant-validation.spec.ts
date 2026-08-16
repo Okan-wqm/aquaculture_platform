@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+
 import { Cacheable } from '../cacheable.decorator';
 
 describe('Cacheable tenant key validation', () => {
@@ -6,7 +7,7 @@ describe('Cacheable tenant key validation', () => {
 
   beforeEach(() => {
     // Spy on Logger.prototype.warn to capture warnings
-    loggerWarnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+    loggerWarnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation((): void => undefined);
   });
 
   afterEach(() => {
@@ -26,8 +27,8 @@ describe('Cacheable tenant key validation', () => {
         redisService = mockRedis;
 
         @Cacheable('tenant:{0}:data', 3600)
-        async getData(tenantId: string): Promise<string> {
-          return 'result';
+        getData(_tenantId: string): Promise<string> {
+          return Promise.resolve('result');
         }
       }
 
@@ -35,8 +36,8 @@ describe('Cacheable tenant key validation', () => {
       await svc.getData('550e8400-e29b-41d4-a716-446655440000');
 
       // Should not have warned about missing tenant namespace
-      const tenantWarnings = loggerWarnSpy.mock.calls.filter(
-        (call: unknown[]) => String(call[0]).includes('missing tenant namespace'),
+      const tenantWarnings = loggerWarnSpy.mock.calls.filter((call: unknown[]) =>
+        String(call[0]).includes('missing tenant namespace'),
       );
       expect(tenantWarnings).toHaveLength(0);
     });
@@ -53,8 +54,8 @@ describe('Cacheable tenant key validation', () => {
         redisService = mockRedis;
 
         @Cacheable('user:{0}:profile', 3600)
-        async getProfile(userId: string): Promise<string> {
-          return 'profile';
+        getProfile(_userId: string): Promise<string> {
+          return Promise.resolve('profile');
         }
       }
 
@@ -62,8 +63,8 @@ describe('Cacheable tenant key validation', () => {
       await svc.getProfile('user-1');
 
       // Should have warned about missing tenant namespace
-      const tenantWarnings = loggerWarnSpy.mock.calls.filter(
-        (call: unknown[]) => String(call[0]).includes('missing tenant namespace'),
+      const tenantWarnings = loggerWarnSpy.mock.calls.filter((call: unknown[]) =>
+        String(call[0]).includes('missing tenant namespace'),
       );
       expect(tenantWarnings.length).toBeGreaterThan(0);
     });
@@ -80,16 +81,16 @@ describe('Cacheable tenant key validation', () => {
         redisService = mockRedis;
 
         @Cacheable('system:config:all', 3600)
-        async getSystemConfig(): Promise<string> {
-          return 'config';
+        getSystemConfig(): Promise<string> {
+          return Promise.resolve('config');
         }
       }
 
       const svc = new TestServiceSystem2();
       await svc.getSystemConfig();
 
-      const tenantWarnings = loggerWarnSpy.mock.calls.filter(
-        (call: unknown[]) => String(call[0]).includes('missing tenant namespace'),
+      const tenantWarnings = loggerWarnSpy.mock.calls.filter((call: unknown[]) =>
+        String(call[0]).includes('missing tenant namespace'),
       );
       expect(tenantWarnings).toHaveLength(0);
     });
@@ -106,16 +107,16 @@ describe('Cacheable tenant key validation', () => {
         redisService = mockRedis;
 
         @Cacheable('global:features', 3600)
-        async getFeatures(): Promise<string> {
-          return 'features';
+        getFeatures(): Promise<string> {
+          return Promise.resolve('features');
         }
       }
 
       const svc = new TestServiceGlobal2();
       await svc.getFeatures();
 
-      const tenantWarnings = loggerWarnSpy.mock.calls.filter(
-        (call: unknown[]) => String(call[0]).includes('missing tenant namespace'),
+      const tenantWarnings = loggerWarnSpy.mock.calls.filter((call: unknown[]) =>
+        String(call[0]).includes('missing tenant namespace'),
       );
       expect(tenantWarnings).toHaveLength(0);
     });
@@ -132,8 +133,8 @@ describe('Cacheable tenant key validation', () => {
         redisService = mockRedis;
 
         @Cacheable('unsafe-key:{0}', 3600)
-        async getData(id: string): Promise<string> {
-          return 'result-' + id;
+        getData(id: string): Promise<string> {
+          return Promise.resolve('result-' + id);
         }
       }
 
@@ -155,8 +156,8 @@ describe('Cacheable tenant key validation', () => {
         redisService = mockRedis;
 
         @Cacheable('unsafe:{0}', 3600)
-        async getData(id: string): Promise<string> {
-          return id;
+        getData(id: string): Promise<string> {
+          return Promise.resolve(id);
         }
       }
 
@@ -167,7 +168,9 @@ describe('Cacheable tenant key validation', () => {
 
       // Should have warned exactly once (deduplication by class.method)
       const tenantWarnings = loggerWarnSpy.mock.calls.filter(
-        (call: unknown[]) => String(call[0]).includes('missing tenant namespace') && String(call[0]).includes('TestServiceDedupe'),
+        (call: unknown[]) =>
+          String(call[0]).includes('missing tenant namespace') &&
+          String(call[0]).includes('TestServiceDedupe'),
       );
       expect(tenantWarnings).toHaveLength(1);
     });

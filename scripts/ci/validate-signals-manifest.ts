@@ -27,9 +27,10 @@ import { join } from 'node:path';
 import yaml from 'js-yaml';
 import { writeDummyEnvForCompose } from './lib/compose-dummy-env.ts';
 import {
+  BOOT_INVARIANT_SIGNAL_AUTHORITY_PATH,
   BOOT_INVARIANT_SIGNALS,
   type BootInvariantSignalKey,
-} from '../../libs/backend-common/src/constants/boot-invariant-signals.ts';
+} from '../../platform/libs/service-catalog/src/boot-invariant-signals.ts';
 
 const COMPOSE_FILE =
   process.env['COMPOSE_FILE'] ?? 'docker-compose.droplet.yml';
@@ -56,9 +57,6 @@ interface Manifest {
   signal_library?: Record<string, SignalDef>;
   services?: ServiceReq[];
 }
-
-const CANONICAL_SOURCE =
-  'libs/backend-common/src/constants/boot-invariant-signals.ts';
 
 function loadManifest(path: string): Manifest {
   if (!existsSync(path)) {
@@ -207,9 +205,9 @@ function main(): void {
         );
       }
     }
-    if (def.canonicalSource !== CANONICAL_SOURCE) {
+    if (def.canonicalSource !== BOOT_INVARIANT_SIGNAL_AUTHORITY_PATH) {
       errors.push(
-        `signal_library.${key}.canonicalSource must be "${CANONICAL_SOURCE}"`,
+        `signal_library.${key}.canonicalSource must be "${BOOT_INVARIANT_SIGNAL_AUTHORITY_PATH}"`,
       );
     } else if (!existsSync(def.canonicalSource)) {
       errors.push(

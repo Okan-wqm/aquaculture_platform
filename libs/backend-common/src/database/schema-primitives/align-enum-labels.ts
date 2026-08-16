@@ -39,6 +39,7 @@
 import type { QueryRunner } from 'typeorm';
 
 import { withDdlSafety } from '../base-migration';
+import { executeQueryRowsNormalized } from '../query-result-normalizer';
 import { sql } from '../sql-fragments';
 
 export interface AlignEnumLabelsTarget {
@@ -103,7 +104,11 @@ export async function alignEnumLabels(
       const typeNames = opts.targets.map((t) => t.typeName);
 
       // Batch-fetch every target enum's current labels in one query.
-      const rows: Array<{ type_name: string; label: string }> = await qr.query(
+      const rows = await executeQueryRowsNormalized<{
+        type_name: string;
+        label: string;
+      }>(
+        qr,
         `SELECT t.typname AS type_name, e.enumlabel AS label
            FROM pg_type t
            JOIN pg_namespace n ON n.oid = t.typnamespace
@@ -187,9 +192,7 @@ function quoteSqlLiteral(value: string): string {
   }
   // Reject NULs — PG text cannot contain them regardless.
   if (value.includes('\0')) {
-    throw new RangeError(
-      `quoteSqlLiteral: NUL character is not permitted in SQL text literals.`,
-    );
+    throw new RangeError(`quoteSqlLiteral: NUL character is not permitted in SQL text literals.`);
   }
   return `'${value.replace(/'/g, "''")}'`;
 }

@@ -1,18 +1,16 @@
-import { DEFAULT_NATS_URL } from '@aquaculture/backend-common/nats';
 import { ConfigService } from '@nestjs/config';
 
+import { DEFAULT_NATS_URL } from './nats-connection.factory';
 import type { EventBusModuleOptions } from './nats.module';
 
 /**
  * Canonical NATS / event-bus defaults — the SINGLE source of truth.
  *
- * `DEFAULT_NATS_URL` is declared in backend-common's nats-connection.factory
- * (the connection layer) and re-exported here, because event-bus already
- * depends on backend-common — declaring it here instead would force
- * backend-common's nats-connection.factory to import event-bus, a cycle.
- * `DEFAULT_NATS_STREAM_NAME` is JetStream-layer and lives with the event bus.
+ * The event-bus transport owns both defaults: `DEFAULT_NATS_URL` lives in the
+ * connection factory, while `DEFAULT_NATS_STREAM_NAME` lives in this
+ * JetStream configuration layer. Neither reaches into higher-level
+ * application infrastructure.
  */
-export { DEFAULT_NATS_URL };
 export const DEFAULT_NATS_STREAM_NAME = 'AQUACULTURE_EVENTS';
 
 /**

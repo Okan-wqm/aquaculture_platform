@@ -16,6 +16,8 @@
     "tools/executors/cargo"
   ],
   "scripts": {
+    "configuration:catalog:generate": "node tools/configuration/compile-configuration-catalog.cjs",
+    "configuration:catalog:check": "node tools/configuration/compile-configuration-catalog.cjs --check",
     "dev": "node tools/toolchain/run.mjs nx run-many --target=serve --all",
     "dev:backend": "node tools/toolchain/run.mjs nx run-many --target=serve --projects=gateway-api,farm-service,config-service,sensor-service,auth-service,alert-engine,billing-service,hr-service,hydroponics-service,notification-service",
     "dev:backend:minimal": "node tools/toolchain/run.mjs nx run-many --target=serve --projects=gateway-api,auth-service,config-service,farm-service --parallel=4",
@@ -80,8 +82,8 @@
     "schema:generate": "node tools/toolchain/run.mjs nx run-many --target=build --all --parallel=2",
     "codegen": "graphql-codegen --config codegen.ts",
     "codegen:check": "graphql-codegen --config codegen.ts --check",
-    "service-catalog:generate": "ts-node --project scripts/service-catalog/tsconfig.json scripts/service-catalog/generate-artifacts.ts",
-    "service-catalog:check": "ts-node --project scripts/service-catalog/tsconfig.json scripts/service-catalog/generate-artifacts.ts --check",
+    "service-catalog:generate": "ts-node --project scripts/service-catalog/tsconfig.json scripts/service-catalog/generate-artifacts.ts && node scripts/graphql/generate-registry-artifacts.mjs",
+    "service-catalog:check": "ts-node --project scripts/service-catalog/tsconfig.json scripts/service-catalog/generate-artifacts.ts --check && node scripts/graphql/generate-registry-artifacts.mjs --check",
     "codegen:schema-registry": "node --experimental-strip-types scripts/schema-registry/generate-init-schemas.ts",
     "graphql:validate-registry": "node scripts/graphql/validate-registry.mjs",
     "graphql:generate-registry-artifacts": "node scripts/graphql/generate-registry-artifacts.mjs",

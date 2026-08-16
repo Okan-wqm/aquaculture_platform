@@ -1,4 +1,13 @@
 import type { BaseEvent } from './base-event';
+import {
+  CONFIGURATION_CATALOG_DIGEST,
+  type ConfigurationKeyId,
+} from '@aquaculture/configuration-contracts';
+
+export {
+  CONFIG_RUNTIME_ACCESS_BY_CONSUMER,
+  type ConfigRuntimeConsumerAccessV1,
+} from './generated/configuration-runtime-access.generated';
 
 /**
  * Config-runtime RPC + change-signal contract (Billing Revival Faz C, D6).
@@ -54,46 +63,6 @@ export const CONFIG_RUNTIME_SYSTEM_TENANT_ID = '00000000-0000-0000-0000-00000000
  * keeps every caller honest.
  */
 export const CONFIG_RUNTIME_SERVICE = 'platform' as const;
-
-/** Canonical platform key names Faz C consumes. */
-export const CONFIG_RUNTIME_KEYS = {
-  STRIPE_ENABLED: 'billing.stripe_enabled',
-  STRIPE_PUBLIC_KEY: 'billing.stripe_public_key',
-  STRIPE_SECRET_KEY: 'billing.stripe_secret_key',
-} as const;
-
-/**
- * SCOPED reply-inbox prefix for the config-runtime request-reply client
- * (SEC-CRITICAL-001 cure). The decrypted Stripe secret returns on the reply
- * subject; the default `_INBOX.` prefix is subscribed by EVERY service cert, so
- * a compromised non-billing service could passively read it. Routing the reply
- * through a distinct first token — `_INBOXBILLINGCFG.<nuid>` (NO trailing dot:
- * createInbox appends `.nuid`) — means the broad `_INBOX.>` grants can NEVER
- * match it (NATS matching is segment-exact on the first token). Only
- * billing_service subscribes `_INBOXBILLINGCFG.>` and only config_service
- * publishes it; enforced by the NATS ACL SSoT + nats-invariants.
- */
-export const CONFIG_RUNTIME_INBOX_PREFIX = '_INBOXBILLINGCFG';
-
-/**
- * Per-caller (service/key) allowlist for the TRUSTED GET_SECRET path — the SSoT
- * the config-service handler enforces AND the nats-invariant cross-checks against
- * the NATS publish grants (a caller here MUST hold a config.runtime.* publish
- * grant in services.yaml). Keys are `${service}/${key}`; the service segment is
- * the ServiceIdentity caller name (matches the apps/ dir → cert-CN map).
- */
-export const CONFIG_RUNTIME_SECRET_ALLOWLIST: Readonly<Record<string, readonly string[]>> = {
-  'billing-service': ['platform/billing.stripe_secret_key'],
-};
-
-/**
- * Per-caller (service/key) allowlist for the NON-secret GET path. A key here can
- * NEVER be a secret key (the nats-invariant asserts the two maps are disjoint),
- * which is the structural guarantee that GET cannot decrypt-and-leak a secret.
- */
-export const CONFIG_RUNTIME_NONSECRET_ALLOWLIST: Readonly<Record<string, readonly string[]>> = {
-  'billing-service': ['platform/billing.stripe_enabled', 'platform/billing.stripe_public_key'],
-};
 
 /**
  * Atomic CDSE credential bundle owned by config-service.
@@ -434,9 +403,10 @@ function isPositiveSafeInteger(value: unknown): value is number {
 export type ConfigRuntimeIdentity = Record<string, string>;
 
 export interface ConfigRuntimeGetRequest {
-  /** MUST be CONFIG_RUNTIME_SERVICE for platform config. */
-  service: string;
-  key: string;
+  /** Pins the caller to the exact catalog generation used to interpret keyId. */
+  catalogDigest: string;
+  /** Stable catalog ID; arbitrary service/key coordinates are not accepted. */
+  keyId: ConfigurationKeyId;
   /** v2 X-Service-* headers minted by the caller for this exact (subject, body). */
   identity: ConfigRuntimeIdentity;
 }
@@ -450,6 +420,7 @@ export type ConfigRuntimeGetSecretRequest = ConfigRuntimeGetRequest;
  * cannot distinguish "not allowed" from "not set", so nothing leaks.
  */
 export interface ConfigRuntimeResult {
+  catalogDigest: string;
   found: boolean;
   value: string | null;
 }
@@ -460,8 +431,31 @@ export interface ConfigRuntimeResult {
  * matches byte-for-byte regardless of JSON key ordering — Tier-1 make-impossible
  * against the sha256(body)-drift class the service-identity util warns about.
  */
-export function canonicalConfigRuntimeBody(service: string, key: string): string {
-  return `${service}\n${key}`;
+export function canonicalConfigRuntimeBody(
+  catalogDigest: string,
+  keyId: ConfigurationKeyId,
+): string {
+  return `${catalogDigest}\n${keyId}`;
+}
+
+/** Exact runtime boundary parser; stale or shape-expanded replies fail closed. */
+export function parseConfigRuntimeResult(value: unknown): ConfigRuntimeResult | null {
+  if (!isRecord(value)) return null;
+  const fields = Object.keys(value).sort();
+  if (fields.join(',') !== 'catalogDigest,found,value') return null;
+  const catalogDigest = value['catalogDigest'];
+  const found = value['found'];
+  const runtimeValue = value['value'];
+  if (
+    catalogDigest !== CONFIGURATION_CATALOG_DIGEST ||
+    typeof found !== 'boolean' ||
+    (runtimeValue !== null && typeof runtimeValue !== 'string') ||
+    (found && runtimeValue === null) ||
+    (!found && runtimeValue !== null)
+  ) {
+    return null;
+  }
+  return { catalogDigest, found, value: runtimeValue };
 }
 
 /**
@@ -476,16 +470,10 @@ export function canonicalConfigRuntimeBody(service: string, key: string): string
  */
 export interface ConfigurationChangedEvent extends BaseEvent {
   eventType: 'ConfigurationChanged';
-  /** Config namespace, e.g. 'platform'. */
-  service: string;
-  /** Config key, e.g. 'billing.stripe_secret_key'. */
-  key: string;
+  catalogId: ConfigurationKeyId;
+  catalogDigest: string;
   /** Config environment scope ('all' | 'development' | ...). */
   environment: string;
-  /** Config value type ('string' | 'boolean' | 'secret' | ...). */
-  valueType: string;
-  /** Whether the changed row is a secret (redaction is enforced by type). */
-  isSecret: boolean;
   /**
    * Optimistic-lock version of the config row after the write. Named
    * `configVersion` (not `version`) so it does not shadow BaseEvent.version

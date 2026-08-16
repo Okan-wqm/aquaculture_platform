@@ -27,16 +27,15 @@ function validator(
   serviceName = 'auth',
   schemaName?: string,
 ): OnApplicationBootstrap {
-  const Validator = createSchemaDriftValidator(
-    serviceName,
-    schemaName,
-  ) as unknown as ValidatorCtor;
+  const Validator = createSchemaDriftValidator(serviceName, schemaName) as unknown as ValidatorCtor;
   return new Validator(dataSource, configService);
 }
 
-function entityWithColumn(
-  column: Partial<EntityMetadata['columns'][number]>,
-): EntityMetadata {
+function asyncQuery(handler: (sql: string) => unknown): jest.Mock<Promise<unknown>, [sql: string]> {
+  return jest.fn((sql: string) => Promise.resolve(handler(sql)));
+}
+
+function entityWithColumn(column: Partial<EntityMetadata['columns'][number]>): EntityMetadata {
   return {
     synchronize: true,
     schema: 'auth',
@@ -63,7 +62,7 @@ function dataSourceForColumn(dbColumn: {
 }): DataSource {
   return {
     entityMetadatas: [entityWithColumn({ isArray: true })],
-    query: jest.fn(async (sql: string) => {
+    query: asyncQuery((sql: string) => {
       if (sql.includes('FROM pg_tables')) {
         return [{ schemaname: 'auth' }];
       }
@@ -102,10 +101,7 @@ describe('SchemaDriftValidator boot signal contract', () => {
       query: jest.fn(),
     } as unknown as DataSource;
 
-    await validator(
-      dataSource,
-      config({ NODE_ENV: 'production' }),
-    ).onApplicationBootstrap();
+    await validator(dataSource, config({ NODE_ENV: 'production' })).onApplicationBootstrap();
 
     expect(logSpy).toHaveBeenCalledWith(
       SCHEMA_DRIFT_CLEAN_SIGNAL,
@@ -133,7 +129,7 @@ describe('SchemaDriftValidator boot signal contract', () => {
     } as unknown as EntityMetadata;
     const dataSource = {
       entityMetadatas: [entity],
-      query: jest.fn(async (sql: string) => {
+      query: asyncQuery((sql: string) => {
         if (sql.includes('FROM pg_tables')) {
           return [{ schemaname: 'public' }];
         }
@@ -145,17 +141,13 @@ describe('SchemaDriftValidator boot signal contract', () => {
     } as unknown as DataSource;
 
     await expect(
-      validator(dataSource, config({ NODE_ENV: 'production' }))
-        .onApplicationBootstrap(),
+      validator(dataSource, config({ NODE_ENV: 'production' })).onApplicationBootstrap(),
     ).rejects.toThrow(/Schema drift detected in 1 place/);
 
     expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining('schema.drift.detected service="auth"'),
     );
-    expect(logSpy).not.toHaveBeenCalledWith(
-      SCHEMA_DRIFT_CLEAN_SIGNAL,
-      expect.anything(),
-    );
+    expect(logSpy).not.toHaveBeenCalledWith(SCHEMA_DRIFT_CLEAN_SIGNAL, expect.anything());
   });
 
   it('refuses production startup when schema drift validation is disabled', async () => {
@@ -175,10 +167,7 @@ describe('SchemaDriftValidator boot signal contract', () => {
     ).rejects.toThrow(/Schema drift validator disabled/);
 
     expect(warnSpy).not.toHaveBeenCalled();
-    expect(logSpy).not.toHaveBeenCalledWith(
-      SCHEMA_DRIFT_CLEAN_SIGNAL,
-      expect.anything(),
-    );
+    expect(logSpy).not.toHaveBeenCalledWith(SCHEMA_DRIFT_CLEAN_SIGNAL, expect.anything());
   });
 
   it('refuses staging startup when schema drift validation is disabled', async () => {
@@ -197,10 +186,7 @@ describe('SchemaDriftValidator boot signal contract', () => {
       ).onApplicationBootstrap(),
     ).rejects.toThrow(/Schema drift validator disabled/);
 
-    expect(logSpy).not.toHaveBeenCalledWith(
-      SCHEMA_DRIFT_CLEAN_SIGNAL,
-      expect.anything(),
-    );
+    expect(logSpy).not.toHaveBeenCalledWith(SCHEMA_DRIFT_CLEAN_SIGNAL, expect.anything());
   });
 
   it('emits clean with structured warning count for warn-only drift', async () => {
@@ -213,7 +199,7 @@ describe('SchemaDriftValidator boot signal contract', () => {
     } as unknown as EntityMetadata;
     const dataSource = {
       entityMetadatas: [entity],
-      query: jest.fn(async (sql: string) => {
+      query: asyncQuery((sql: string) => {
         if (sql.includes('FROM pg_tables')) {
           return [{ schemaname: 'auth' }];
         }
@@ -233,10 +219,7 @@ describe('SchemaDriftValidator boot signal contract', () => {
       }),
     } as unknown as DataSource;
 
-    await validator(
-      dataSource,
-      config({ NODE_ENV: 'production' }),
-    ).onApplicationBootstrap();
+    await validator(dataSource, config({ NODE_ENV: 'production' })).onApplicationBootstrap();
 
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('schema.drift.warn service="auth"'),
@@ -259,14 +242,11 @@ describe('SchemaDriftValidator boot signal contract', () => {
       columns: [],
       checks: [],
     } as unknown as EntityMetadata;
-    const query = jest.fn(async (sql: string) => {
+    const query = asyncQuery((sql: string) => {
       if (sql.includes('FROM pg_tables')) {
         return [{ schemaname: 'alert' }];
       }
-      if (
-        sql.includes('information_schema.columns') ||
-        sql.includes('FROM pg_constraint')
-      ) {
+      if (sql.includes('information_schema.columns') || sql.includes('FROM pg_constraint')) {
         return [];
       }
       return [];
@@ -283,10 +263,7 @@ describe('SchemaDriftValidator boot signal contract', () => {
       'alert',
     ).onApplicationBootstrap();
 
-    expect(query).toHaveBeenCalledWith(expect.any(String), [
-      'alert_incidents',
-      'alert',
-    ]);
+    expect(query).toHaveBeenCalledWith(expect.any(String), ['alert_incidents', 'alert']);
     expect(logSpy).toHaveBeenCalledWith(
       SCHEMA_DRIFT_CLEAN_SIGNAL,
       expect.objectContaining({
@@ -304,10 +281,7 @@ describe('SchemaDriftValidator boot signal contract', () => {
       is_nullable: 'NO',
     });
 
-    await validator(
-      dataSource,
-      config({ NODE_ENV: 'production' }),
-    ).onApplicationBootstrap();
+    await validator(dataSource, config({ NODE_ENV: 'production' })).onApplicationBootstrap();
 
     expect(logSpy).toHaveBeenCalledWith(
       SCHEMA_DRIFT_CLEAN_SIGNAL,
@@ -332,14 +306,10 @@ describe('SchemaDriftValidator boot signal contract', () => {
     ];
 
     await expect(
-      validator(dataSource, config({ NODE_ENV: 'production' }))
-        .onApplicationBootstrap(),
+      validator(dataSource, config({ NODE_ENV: 'production' })).onApplicationBootstrap(),
     ).rejects.toThrow(/entity declares uuid but DB is uuid\[\]/);
 
-    expect(logSpy).not.toHaveBeenCalledWith(
-      SCHEMA_DRIFT_CLEAN_SIGNAL,
-      expect.anything(),
-    );
+    expect(logSpy).not.toHaveBeenCalledWith(SCHEMA_DRIFT_CLEAN_SIGNAL, expect.anything());
   });
 
   it('rejects uuid[] entity columns backed by ARRAY/_text', async () => {
@@ -351,14 +321,10 @@ describe('SchemaDriftValidator boot signal contract', () => {
     });
 
     await expect(
-      validator(dataSource, config({ NODE_ENV: 'production' }))
-        .onApplicationBootstrap(),
+      validator(dataSource, config({ NODE_ENV: 'production' })).onApplicationBootstrap(),
     ).rejects.toThrow(/entity declares uuid\[\] but DB is text\[\]/);
 
-    expect(logSpy).not.toHaveBeenCalledWith(
-      SCHEMA_DRIFT_CLEAN_SIGNAL,
-      expect.anything(),
-    );
+    expect(logSpy).not.toHaveBeenCalledWith(SCHEMA_DRIFT_CLEAN_SIGNAL, expect.anything());
   });
 
   it('does not emit clean when an emergency bypass suppresses fatal drift', async () => {
@@ -371,7 +337,7 @@ describe('SchemaDriftValidator boot signal contract', () => {
     } as unknown as EntityMetadata;
     const dataSource = {
       entityMetadatas: [entity],
-      query: jest.fn(async (sql: string) => {
+      query: asyncQuery((sql: string) => {
         if (sql.includes('FROM pg_tables')) {
           return [{ schemaname: 'public' }];
         }
@@ -392,18 +358,12 @@ describe('SchemaDriftValidator boot signal contract', () => {
       }),
     } as unknown as DataSource;
 
-    await validator(
-      dataSource,
-      config({ NODE_ENV: 'production' }),
-    ).onApplicationBootstrap();
+    await validator(dataSource, config({ NODE_ENV: 'production' })).onApplicationBootstrap();
 
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('schema.drift.bypassed service="auth"'),
     );
-    expect(logSpy).not.toHaveBeenCalledWith(
-      SCHEMA_DRIFT_CLEAN_SIGNAL,
-      expect.anything(),
-    );
+    expect(logSpy).not.toHaveBeenCalledWith(SCHEMA_DRIFT_CLEAN_SIGNAL, expect.anything());
   });
 
   it('does not emit clean when an owned table is missing', async () => {
@@ -416,7 +376,7 @@ describe('SchemaDriftValidator boot signal contract', () => {
     } as unknown as EntityMetadata;
     const dataSource = {
       entityMetadatas: [entity],
-      query: jest.fn(async (sql: string) => {
+      query: asyncQuery((sql: string) => {
         if (sql.includes('FROM pg_tables')) {
           return [];
         }
@@ -428,13 +388,9 @@ describe('SchemaDriftValidator boot signal contract', () => {
     } as unknown as DataSource;
 
     await expect(
-      validator(dataSource, config({ NODE_ENV: 'production' }))
-        .onApplicationBootstrap(),
+      validator(dataSource, config({ NODE_ENV: 'production' })).onApplicationBootstrap(),
     ).rejects.toThrow(/Schema drift detected/);
 
-    expect(logSpy).not.toHaveBeenCalledWith(
-      SCHEMA_DRIFT_CLEAN_SIGNAL,
-      expect.anything(),
-    );
+    expect(logSpy).not.toHaveBeenCalledWith(SCHEMA_DRIFT_CLEAN_SIGNAL, expect.anything());
   });
 });

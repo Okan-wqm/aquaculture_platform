@@ -1,11 +1,21 @@
-import { TenantAwareRepository, TenantEntity } from '../tenant-aware.repository';
 import { DataSource, Repository, EntityTarget, SelectQueryBuilder } from 'typeorm';
+
+import type { TenantRequest } from '../../types/tenant-request.interface';
 import { SchemaManagerService } from '../schema-manager.service';
+import { TenantAwareRepository, TenantEntity } from '../tenant-aware.repository';
 
 interface TestEntity extends TenantEntity {
   id: string;
   tenantId: string;
   name: string;
+}
+
+function tenantRequest(tenantId?: string): TenantRequest {
+  const request: Partial<TenantRequest> = {
+    headers: {},
+    ...(tenantId === undefined ? {} : { user: { sub: 'user-1', tenantId } }),
+  };
+  return request as TenantRequest;
 }
 
 describe('TenantAwareRepository', () => {
@@ -15,7 +25,6 @@ describe('TenantAwareRepository', () => {
   let mockRepository: jest.Mocked<Repository<TestEntity>>;
   let mockQueryBuilder: jest.Mocked<SelectQueryBuilder<TestEntity>>;
   const tenantId = '550e8400-e29b-41d4-a716-446655440000';
-  const otherTenantId = '660e8400-e29b-41d4-a716-446655440000';
 
   beforeEach(() => {
     mockQueryBuilder = {
@@ -46,23 +55,19 @@ describe('TenantAwareRepository', () => {
       setTenantSearchPathInTransaction: jest.fn(),
     } as unknown as jest.Mocked<SchemaManagerService>;
 
-    const mockRequest = {
-      user: { sub: 'user-1', tenantId },
-      headers: {},
-    };
-
     repo = new TenantAwareRepository<TestEntity>(
       mockDataSource,
       mockSchemaManager,
-      mockRequest as any,
+      tenantRequest(tenantId),
       {} as EntityTarget<TestEntity>,
     );
   });
 
   describe('getRepository() deprecation', () => {
     it('should throw an error explaining deprecation', () => {
-      expect(() => repo.getRepository()).toThrow(/deprecated/i);
-      expect(() => repo.getRepository()).toThrow(/getScopedRepository/i);
+      const deprecatedGetRepository = repo.getRepository.bind(repo);
+      expect(deprecatedGetRepository).toThrow(/deprecated/i);
+      expect(deprecatedGetRepository).toThrow(/getScopedRepository/i);
     });
   });
 
@@ -79,55 +84,33 @@ describe('TenantAwareRepository', () => {
     it('find should automatically add tenant filter', async () => {
       mockRepository.find.mockResolvedValue([]);
       const scoped = repo.getScopedRepository();
-      await scoped.find({ where: { name: 'test' } as any });
-      expect(mockRepository.find).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            tenantId,
-            name: 'test',
-          }),
-        }),
-      );
+      await scoped.find({ where: { name: 'test' } });
+      expect(mockRepository.find).toHaveBeenCalledWith({
+        where: { tenantId, name: 'test' },
+      });
     });
 
     it('find without options should add tenant filter', async () => {
       mockRepository.find.mockResolvedValue([]);
       const scoped = repo.getScopedRepository();
       await scoped.find();
-      expect(mockRepository.find).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            tenantId,
-          }),
-        }),
-      );
+      expect(mockRepository.find).toHaveBeenCalledWith({ where: { tenantId } });
     });
 
     it('findOne should automatically add tenant filter', async () => {
       mockRepository.findOne.mockResolvedValue(null);
       const scoped = repo.getScopedRepository();
-      await scoped.findOne({ where: { id: 'abc' } as any });
-      expect(mockRepository.findOne).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            tenantId,
-            id: 'abc',
-          }),
-        }),
-      );
+      await scoped.findOne({ where: { id: 'abc' } });
+      expect(mockRepository.findOne).toHaveBeenCalledWith({
+        where: { tenantId, id: 'abc' },
+      });
     });
 
     it('count should automatically add tenant filter', async () => {
       mockRepository.count.mockResolvedValue(5);
       const scoped = repo.getScopedRepository();
       const result = await scoped.count();
-      expect(mockRepository.count).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            tenantId,
-          }),
-        }),
-      );
+      expect(mockRepository.count).toHaveBeenCalledWith({ where: { tenantId } });
       expect(result).toBe(5);
     });
 
@@ -135,10 +118,9 @@ describe('TenantAwareRepository', () => {
       const scoped = repo.getScopedRepository();
       scoped.createQueryBuilder('entity');
       expect(mockRepository.createQueryBuilder).toHaveBeenCalledWith('entity');
-      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
-        '"tenantId" = :tenantId',
-        { tenantId },
-      );
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith('"tenantId" = :tenantId', {
+        tenantId,
+      });
     });
   });
 
@@ -161,7 +143,7 @@ describe('TenantAwareRepository', () => {
       const noTenantRepo = new TenantAwareRepository<TestEntity>(
         mockDataSource,
         mockSchemaManager,
-        { headers: {} } as any,
+        tenantRequest(),
         {} as EntityTarget<TestEntity>,
       );
       expect(() => noTenantRepo.getScopedRepository()).toThrow('Tenant context is required');

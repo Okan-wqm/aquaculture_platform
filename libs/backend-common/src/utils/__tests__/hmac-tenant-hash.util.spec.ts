@@ -49,19 +49,15 @@ describe('hmac-tenant-hash', () => {
     });
 
     it('uses dev-only default when NODE_ENV !== production and env unset', () => {
-      delete process.env[TENANT_HASH_PEPPER_ENV];
+      Reflect.deleteProperty(process.env, TENANT_HASH_PEPPER_ENV);
       process.env['NODE_ENV'] = 'development';
-      expect(() =>
-        hmacTenantHash('tenant_abc123def456789a'),
-      ).not.toThrow();
+      expect(() => hmacTenantHash('tenant_abc123def456789a')).not.toThrow();
     });
 
     it('throws when NODE_ENV=production and env unset (fail-closed)', () => {
-      delete process.env[TENANT_HASH_PEPPER_ENV];
+      Reflect.deleteProperty(process.env, TENANT_HASH_PEPPER_ENV);
       process.env['NODE_ENV'] = 'production';
-      expect(() => hmacTenantHash('tenant_abc123def456789a')).toThrow(
-        /REQUIRED in production/,
-      );
+      expect(() => hmacTenantHash('tenant_abc123def456789a')).toThrow(/REQUIRED in production/);
     });
 
     it('matches known RFC-4231-style test vector for HMAC-SHA256', () => {
@@ -81,21 +77,17 @@ describe('hmac-tenant-hash', () => {
     });
 
     it('logs warn in non-prod when env var is unset', () => {
-      delete process.env[TENANT_HASH_PEPPER_ENV];
+      Reflect.deleteProperty(process.env, TENANT_HASH_PEPPER_ENV);
       process.env['NODE_ENV'] = 'development';
       const warn = jest.fn();
       assertTenantHashPepperSet({ warn });
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining('dev-only default'),
-      );
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('dev-only default'));
     });
 
     it('throws in production when env var is unset', () => {
-      delete process.env[TENANT_HASH_PEPPER_ENV];
+      Reflect.deleteProperty(process.env, TENANT_HASH_PEPPER_ENV);
       process.env['NODE_ENV'] = 'production';
-      expect(() => assertTenantHashPepperSet()).toThrow(
-        /REQUIRED in production/,
-      );
+      expect(() => assertTenantHashPepperSet()).toThrow(/REQUIRED in production/);
     });
 
     it('throws when env var is too short (weak entropy)', () => {

@@ -13,9 +13,9 @@
  *
  * @module Pagination
  */
+import { Type } from '@nestjs/common';
 import { Field, Int, ObjectType, InputType, registerEnumType } from '@nestjs/graphql';
 import { IsOptional, IsInt, Min, Max, IsString, IsEnum, Matches } from 'class-validator';
-import { Type } from '@nestjs/common';
 
 // ============================================================================
 // ENUMS
@@ -55,7 +55,11 @@ export class PaginationInput {
   @Min(0)
   offset?: number;
 
-  @Field(() => Int, { nullable: true, defaultValue: 20, description: 'Maximum number of items to return (max: 100)' })
+  @Field(() => Int, {
+    nullable: true,
+    defaultValue: 20,
+    description: 'Maximum number of items to return (max: 100)',
+  })
   @IsOptional()
   @IsInt()
   @Min(1)
@@ -67,13 +71,23 @@ export class PaginationInput {
    * Consumers MUST validate this against an allowlist of permitted fields
    * before using in query builders to prevent SQL injection via ORDER BY.
    */
-  @Field({ nullable: true, defaultValue: 'createdAt', description: 'Field to sort by (must be a valid column name)' })
+  @Field({
+    nullable: true,
+    defaultValue: 'createdAt',
+    description: 'Field to sort by (must be a valid column name)',
+  })
   @IsOptional()
   @IsString()
-  @Matches(/^[a-zA-Z_][a-zA-Z0-9_]*$/, { message: 'sortBy must be a valid field name (alphanumeric and underscore only)' })
+  @Matches(/^[a-zA-Z_][a-zA-Z0-9_]*$/, {
+    message: 'sortBy must be a valid field name (alphanumeric and underscore only)',
+  })
   sortBy?: string;
 
-  @Field(() => SortOrder, { nullable: true, defaultValue: SortOrder.DESC, description: 'Sort direction (ASC or DESC)' })
+  @Field(() => SortOrder, {
+    nullable: true,
+    defaultValue: SortOrder.DESC,
+    description: 'Sort direction (ASC or DESC)',
+  })
   @IsOptional()
   @IsEnum(SortOrder)
   sortOrder?: SortOrder;
@@ -168,7 +182,11 @@ export class StandardPaginationInput {
   @Matches(/^[a-zA-Z_][a-zA-Z0-9_]*$/, { message: 'sortBy must be a valid field name' })
   sortBy?: string;
 
-  @Field(() => SortOrder, { nullable: true, defaultValue: SortOrder.DESC, description: 'Sort direction' })
+  @Field(() => SortOrder, {
+    nullable: true,
+    defaultValue: SortOrder.DESC,
+    description: 'Sort direction',
+  })
   @IsOptional()
   @IsEnum(SortOrder)
   sortOrder?: SortOrder;
@@ -338,7 +356,11 @@ export class KeysetPaginationInput {
   @Matches(/^[a-zA-Z_][a-zA-Z0-9_]*$/, { message: 'sortBy must be a valid field name' })
   sortBy?: string;
 
-  @Field(() => SortOrder, { nullable: true, defaultValue: SortOrder.DESC, description: 'Sort direction' })
+  @Field(() => SortOrder, {
+    nullable: true,
+    defaultValue: SortOrder.DESC,
+    description: 'Sort direction',
+  })
   @IsOptional()
   @IsEnum(SortOrder)
   sortOrder?: SortOrder;
@@ -375,9 +397,16 @@ export function encodeKeysetCursor(sortValue: string | Date, id: string): string
  */
 export function decodeKeysetCursor(cursor: string): { v: string; id: string } | null {
   try {
-    const decoded = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
-    if (typeof decoded.v === 'string' && typeof decoded.id === 'string') {
-      return decoded;
+    const decoded: unknown = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+    if (
+      typeof decoded === 'object' &&
+      decoded !== null &&
+      'v' in decoded &&
+      'id' in decoded &&
+      typeof decoded.v === 'string' &&
+      typeof decoded.id === 'string'
+    ) {
+      return { v: decoded.v, id: decoded.id };
     }
     return null;
   } catch {

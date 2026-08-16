@@ -1,4 +1,4 @@
-import { SetMetadata, applyDecorators, UseGuards } from '@nestjs/common';
+import { SetMetadata } from '@nestjs/common';
 
 /**
  * Throttle configuration metadata key

@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aquaculture.internal/schemas/configuration-catalog-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "settings"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "settings": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/setting" }
+    }
+  },
+  "$defs": {
+    "setting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "service",
+        "key",
+        "category",
+        "valueType",
+        "scopePolicy",
+        "required",
+        "mutable",
+        "requiresRestart",
+        "description",
+        "consumers",
+        "ui"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,63}$" },
+        "service": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,99}$" },
+        "key": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{2,254}$" },
+        "category": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{1,49}$" },
+        "valueType": { "enum": ["STRING", "NUMBER", "BOOLEAN", "JSON", "SECRET"] },
+        "scopePolicy": {
+          "enum": ["SYSTEM_ONLY", "SYSTEM_WITH_TENANT_OVERRIDE", "TENANT_WITH_SYSTEM_FALLBACK"]
+        },
+        "required": { "type": "boolean" },
+        "mutable": { "type": "boolean" },
+        "requiresRestart": { "type": "boolean" },
+        "description": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "default": {},
+        "validation": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "min": { "type": "number" },
+            "max": { "type": "number" },
+            "integer": { "type": "boolean" },
+            "minLength": { "type": "integer", "minimum": 0 },
+            "maxLength": { "type": "integer", "minimum": 1 },
+            "pattern": { "type": "string", "minLength": 1 },
+            "choices": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "oneOf": [{ "type": "string" }, { "type": "number" }] }
+            },
+            "arrayItemType": { "enum": ["STRING"] },
+            "maxItems": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "consumers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,63}$" }
+        },
+        "ui": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["label", "order", "control"],
+          "properties": {
+            "label": { "type": "string", "minLength": 1, "maxLength": 100 },
+            "order": { "type": "integer", "minimum": 0 },
+            "control": { "enum": ["TEXT", "NUMBER", "TOGGLE", "SECRET", "SELECT", "JSON"] }
+          }
+        }
+      }
+    }
+  }
+}

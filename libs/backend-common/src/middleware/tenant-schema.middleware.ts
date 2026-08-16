@@ -1,23 +1,19 @@
-import { Injectable, NestMiddleware, Logger, BadRequestException, UnauthorizedException } from '@nestjs/common';
-import { Request, Response, NextFunction } from 'express';
+import {
+  Injectable,
+  NestMiddleware,
+  Logger,
+  BadRequestException,
+  UnauthorizedException,
+  Type,
+} from '@nestjs/common';
+import { Response, NextFunction } from 'express';
 import { DataSource } from 'typeorm';
-import { requestContextStorage } from '../logging/request-context';
+
+import { executeQueryRowsNormalized } from '../database/query-result-normalizer';
 import { TenantSchemaCacheService } from '../database/tenant-schema-cache';
 import { getTenantSchemaName, isValidUUID } from '../database/tenant-schema.utils';
-
-/**
- * Request with tenant context
- */
-interface TenantRequest extends Request {
-  tenantId?: string;
-  user?: {
-    tenantId?: string;
-    sub?: string;
-    email?: string;
-    role?: string;
-  };
-  schemaName?: string;
-}
+import { requestContextStorage } from '../logging/request-context';
+import { TenantRequest } from '../types/tenant-request.interface';
 
 /**
  * Factory: creates a service-specific TenantSchemaMiddleware class.
@@ -25,9 +21,11 @@ interface TenantRequest extends Request {
  * Each multi-tenant service calls this once at import time:
  *   const TenantSchemaMiddleware = createTenantSchemaMiddleware('farm');
  */
-export function createTenantSchemaMiddleware(defaultSchema: string) {
+export function createTenantSchemaMiddleware(defaultSchema: string): Type<NestMiddleware> {
   if (!/^[a-z][a-z0-9_]*$/.test(defaultSchema)) {
-    throw new Error(`Invalid defaultSchema: "${defaultSchema}" — must be lowercase alphanumeric with underscores`);
+    throw new Error(
+      `Invalid defaultSchema: "${defaultSchema}" — must be lowercase alphanumeric with underscores`,
+    );
   }
 
   @Injectable()
@@ -103,7 +101,8 @@ export function createTenantSchemaMiddleware(defaultSchema: string) {
     /** @internal */
     async checkSchemaExists(schemaName: string): Promise<boolean> {
       return this.schemaCache.getOrCheck(schemaName, async () => {
-        const rows = await this.dataSource.query(
+        const rows = await executeQueryRowsNormalized<Record<string, unknown>>(
+          this.dataSource,
           `SELECT 1 FROM information_schema.schemata WHERE schema_name = $1`,
           [schemaName],
         );

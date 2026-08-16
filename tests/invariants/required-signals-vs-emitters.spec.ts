@@ -8,9 +8,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import yaml from 'js-yaml';
 import {
+  BOOT_INVARIANT_SIGNAL_AUTHORITY_PATH,
   BOOT_INVARIANT_SIGNALS,
   type BootInvariantSignalKey,
-} from '../../libs/backend-common/src/constants/boot-invariant-signals';
+} from '../../platform/libs/service-catalog/src/boot-invariant-signals';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const MANIFEST_PATH = resolve(
@@ -80,7 +81,7 @@ describe('INVARIANT: required-signals.yaml boot signal contract', () => {
         it('points to the canonical source file', () => {
           const fullPath = resolve(REPO_ROOT, def.canonicalSource);
           expect(def.canonicalSource).toBe(
-            'libs/backend-common/src/constants/boot-invariant-signals.ts',
+            BOOT_INVARIANT_SIGNAL_AUTHORITY_PATH,
           );
           expect(existsSync(fullPath)).toBe(true);
         });

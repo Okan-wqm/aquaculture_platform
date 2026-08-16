@@ -1,4 +1,5 @@
 import type { QueryRunner } from 'typeorm';
+
 import {
   convertAuditColumnsToTimestamptz,
   revertAuditColumnsToTimestamp,
@@ -45,14 +46,16 @@ function makeMockRunner(replies: ReadonlyArray<unknown>): {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
   let idx = 0;
   const runner = {
-    query: async (sql: string, params?: unknown[]): Promise<unknown> => {
+    query: (sql: string, params?: unknown[]): Promise<unknown> => {
       calls.push({ sql, params });
       if (idx >= replies.length) {
-        throw new Error(
-          `mock runner exhausted at call ${idx}: unexpected SQL "${sql.slice(0, 80)}..."`,
+        return Promise.reject(
+          new Error(
+            `mock runner exhausted at call ${idx}: unexpected SQL "${sql.slice(0, 80)}..."`,
+          ),
         );
       }
-      return replies[idx++];
+      return Promise.resolve(replies[idx++]);
     },
   } as unknown as QueryRunner;
   return { runner, calls };

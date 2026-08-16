@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
  * Every compose service that connects to NATS at boot MUST declare
  * `depends_on: nats: { condition: service_healthy }`.
  *
- * WHY: the NATS client factory (`libs/backend-common/src/nats/
+ * WHY: the NATS client factory (`platform/libs/event-bus/src/nats/
  * nats-connection.factory.ts`) THROWS in production when NATS is unreachable,
  * and with `restart: unless-stopped` that becomes a crash-loop. Eight services
  * mounted the NATS client certs (so they connect at boot) but declared no

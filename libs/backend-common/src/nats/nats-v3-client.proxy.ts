@@ -18,14 +18,9 @@
 import type { ConnectionOptions, Msg, NatsConnection } from '@nats-io/nats-core';
 import { createInbox } from '@nats-io/nats-core';
 import { connect } from '@nats-io/transport-node';
-import {
-  ClientProxy,
-  IncomingResponse,
-  ReadPacket,
-  WritePacket,
-} from '@nestjs/microservices';
+import { ClientProxy, type MsPattern, ReadPacket, WritePacket } from '@nestjs/microservices';
+import { buildNatsConnectionOptions } from '@platform/event-bus/nats-connection';
 
-import { buildNatsConnectionOptions } from './nats-connection.factory';
 import { NatsV3RequestSerializer, NatsV3ResponseDeserializer } from './nats-v3-codec';
 
 /**
@@ -37,14 +32,33 @@ export interface NatsV3ClientOptions {
   inboxPrefix?: string;
 }
 
+function isMessagePattern(value: unknown): value is MsPattern {
+  if (typeof value === 'string' || typeof value === 'number') {
+    return true;
+  }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+  return Object.values(value as Record<string, unknown>).every(isMessagePattern);
+}
+
+function requireMessagePattern(value: unknown): MsPattern {
+  if (!isMessagePattern(value)) {
+    throw new TypeError('NATS message pattern must be a string, number, or nested pattern object.');
+  }
+  return value;
+}
+
 export class NatsV3Client extends ClientProxy {
+  private readonly requestSerializer = new NatsV3RequestSerializer();
+  private readonly responseDeserializer = new NatsV3ResponseDeserializer();
   private natsConnection: NatsConnection | null = null;
   private connectionPromise: Promise<NatsConnection> | null = null;
 
   constructor(private readonly options: NatsV3ClientOptions = {}) {
     super();
-    this.serializer = new NatsV3RequestSerializer();
-    this.deserializer = new NatsV3ResponseDeserializer();
+    this.serializer = this.requestSerializer;
+    this.deserializer = this.responseDeserializer;
   }
 
   public async connect(): Promise<NatsConnection> {
@@ -91,8 +105,9 @@ export class NatsV3Client extends ClientProxy {
     try {
       const nc = this.assertConnection();
       const packet = this.assignPacketId(partialPacket);
-      const channel = this.normalizePattern(partialPacket.pattern);
-      const serialized = this.serializer.serialize(packet);
+      const pattern: unknown = partialPacket.pattern;
+      const channel = this.normalizePattern(requireMessagePattern(pattern));
+      const serialized = this.requestSerializer.serialize(packet);
       const inbox = createInbox(this.options.inboxPrefix);
       // Inline non-async callback (contextually typed by @nats-io MsgCallback) that
       // fire-and-forgets the async reply handling — mirrors the server strategy's
@@ -100,7 +115,7 @@ export class NatsV3Client extends ClientProxy {
       // async MsgCallback hits.
       const subscription = nc.subscribe(inbox, {
         callback: (err, natsMsg) => {
-          void this.handleReply(err, natsMsg, packet.id, channel, callback);
+          this.handleReply(err, natsMsg, packet.id, channel, callback);
         },
       });
       nc.publish(channel, serialized.data, { reply: inbox });
@@ -115,21 +130,22 @@ export class NatsV3Client extends ClientProxy {
 
   protected dispatchEvent<T = unknown>(packet: ReadPacket): Promise<T> {
     const nc = this.assertConnection();
-    const channel = this.normalizePattern(packet.pattern);
-    const serialized = this.serializer.serialize(packet);
+    const pattern: unknown = packet.pattern;
+    const channel = this.normalizePattern(requireMessagePattern(pattern));
+    const serialized = this.requestSerializer.serialize(packet);
     nc.publish(channel, serialized.data);
     // Events carry no reply; the abstract base types this as Promise<T> for the
     // request case, so a void resolution is surfaced through the framework generic.
     return Promise.resolve() as Promise<T>;
   }
 
-  private async handleReply(
+  private handleReply(
     err: unknown,
     natsMsg: Msg,
     requestId: string,
     channel: string,
     callback: (packet: WritePacket) => void,
-  ): Promise<void> {
+  ): void {
     if (err) {
       callback({ err });
       return;
@@ -144,13 +160,15 @@ export class NatsV3Client extends ClientProxy {
       });
       return;
     }
-    const message: IncomingResponse = await this.deserializer.deserialize(natsMsg.data);
+    const message = this.responseDeserializer.deserialize(natsMsg.data);
     // The inbox is unique per request; a mismatched id can only be a stray
     // late delivery — ignore it defensively (mirrors Nest's ClientNats).
     if (message.id && message.id !== requestId) {
       return;
     }
-    const { err: responseErr, response, isDisposed } = message;
+    const responseErr: unknown = message.err;
+    const response: unknown = message.response;
+    const { isDisposed } = message;
     callback({
       err: responseErr,
       response,

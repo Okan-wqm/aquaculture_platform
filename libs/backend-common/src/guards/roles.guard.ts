@@ -7,9 +7,9 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { GqlExecutionContext } from '@nestjs/graphql';
+
+import { getRequestFromArgumentsHost } from '../context/execution-context-request';
 import { ROLES_KEY, Role, IS_PUBLIC_KEY, roleHasPermission } from '../decorators/roles.decorator';
-import { CurrentUserPayload } from '../decorators/current-user.decorator';
 
 /**
  * User with role(s) - supports both single role and multiple roles
@@ -90,7 +90,7 @@ export class RolesGuard implements CanActivate {
     if (!hasRequiredRole) {
       this.logger.debug(
         `Access denied for user ${user.sub || user.userId}: ` +
-        `has [${userRoles.join(', ')}], needs one of [${requiredRoles.join(', ')}]`,
+          `has [${userRoles.join(', ')}], needs one of [${requiredRoles.join(', ')}]`,
       );
       throw new ForbiddenException(accessDeniedMessage);
     }
@@ -142,7 +142,7 @@ export class RolesGuard implements CanActivate {
     if (Object.values(Role).includes(upperRole as Role)) {
       this.logger.warn(
         `Role "${role}" matched after case normalization to "${upperRole}". ` +
-        `JWT should emit Role enum values in uppercase (e.g., SUPER_ADMIN).`,
+          `JWT should emit Role enum values in uppercase (e.g., SUPER_ADMIN).`,
       );
       return true;
     }
@@ -174,13 +174,6 @@ export class RolesGuard implements CanActivate {
    * Get user from request context
    */
   private getUser(context: ExecutionContext): UserWithRoles | undefined {
-    const contextType = context.getType<string>();
-
-    if (contextType === 'graphql') {
-      const gqlCtx = GqlExecutionContext.create(context);
-      return gqlCtx.getContext().req?.user as UserWithRoles | undefined;
-    }
-
-    return context.switchToHttp().getRequest()?.user as UserWithRoles | undefined;
+    return getRequestFromArgumentsHost<{ user?: UserWithRoles }>(context)?.user;
   }
 }

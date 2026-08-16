@@ -1,6 +1,12 @@
 import * as crypto from 'crypto';
 
-import { GoneException, Injectable, Logger, NotFoundException, BadRequestException, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+  OnModuleInit,
+} from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThanOrEqual, Repository } from 'typeorm';
@@ -11,7 +17,6 @@ import {
   FeatureToggleStatus,
   FeatureCondition,
 } from '../entities/feature-toggle.entity';
-import { ConfigCategory, ConfigValueType } from '../entities/global-config.entity';
 import {
   MaintenanceMode,
   MaintenanceScope,
@@ -54,7 +59,6 @@ export interface SystemHealthStatus {
   environment: string;
   maintenanceMode: boolean;
   featureToggles: number;
-  activeConfigs: number;
 }
 
 // ============================================================================
@@ -320,9 +324,13 @@ export class GlobalSettingsService implements OnModuleInit {
             this.conditionValueToString(condition.value),
           );
         case 'in':
-          return Array.isArray(condition.value) && (condition.value as unknown[]).includes(contextValue);
+          return (
+            Array.isArray(condition.value) && (condition.value as unknown[]).includes(contextValue)
+          );
         case 'not_in':
-          return Array.isArray(condition.value) && !(condition.value as unknown[]).includes(contextValue);
+          return (
+            Array.isArray(condition.value) && !(condition.value as unknown[]).includes(contextValue)
+          );
         case 'regex':
           return new RegExp(this.conditionValueToString(condition.value)).test(
             this.conditionValueToString(contextValue),
@@ -340,11 +348,7 @@ export class GlobalSettingsService implements OnModuleInit {
     if (typeof value === 'string') {
       return value;
     }
-    if (
-      typeof value === 'number' ||
-      typeof value === 'boolean' ||
-      typeof value === 'bigint'
-    ) {
+    if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
       return value.toString();
     }
     return '';
@@ -380,7 +384,11 @@ export class GlobalSettingsService implements OnModuleInit {
     type?: MaintenanceType;
     tenantId?: string;
     affectedTenants?: string[];
-    affectedServices?: Array<{ name: string; status: 'unavailable' | 'degraded' | 'read_only'; message?: string }>;
+    affectedServices?: Array<{
+      name: string;
+      status: 'unavailable' | 'degraded' | 'read_only';
+      message?: string;
+    }>;
     scheduledStart: Date;
     scheduledEnd?: Date;
     estimatedDurationMinutes?: number;
@@ -477,10 +485,10 @@ export class GlobalSettingsService implements OnModuleInit {
     const query = this.maintenanceModeRepo
       .createQueryBuilder('m')
       .where('m.status = :status', { status: MaintenanceStatus.IN_PROGRESS })
-      .orWhere(
-        'm.status = :scheduled AND m.scheduledStart <= :now',
-        { scheduled: MaintenanceStatus.SCHEDULED, now },
-      );
+      .orWhere('m.status = :scheduled AND m.scheduledStart <= :now', {
+        scheduled: MaintenanceStatus.SCHEDULED,
+        now,
+      });
 
     const activeMaintenance = await query.getMany();
 
@@ -561,10 +569,10 @@ export class GlobalSettingsService implements OnModuleInit {
       query.andWhere('m.type = :type', { type: params.type });
     }
     if (params.tenantId) {
-      query.andWhere(
-        '(m.tenantId = :tenantId OR m.affectedTenants @> :tenantArray)',
-        { tenantId: params.tenantId, tenantArray: JSON.stringify([params.tenantId]) },
-      );
+      query.andWhere('(m.tenantId = :tenantId OR m.affectedTenants @> :tenantArray)', {
+        tenantId: params.tenantId,
+        tenantArray: JSON.stringify([params.tenantId]),
+      });
     }
     if (params.startDate) {
       query.andWhere('m.scheduledStart >= :startDate', { startDate: params.startDate });
@@ -632,10 +640,7 @@ export class GlobalSettingsService implements OnModuleInit {
     }
 
     // Mark previous current version as not current
-    await this.systemVersionRepo.update(
-      { isCurrentVersion: true },
-      { isCurrentVersion: false },
-    );
+    await this.systemVersionRepo.update({ isCurrentVersion: true }, { isCurrentVersion: false });
 
     // Update this version
     version.status = ReleaseStatus.DEPLOYED;
@@ -707,88 +712,14 @@ export class GlobalSettingsService implements OnModuleInit {
     const page = params.page || 1;
     const limit = params.limit || 20;
 
-    query.orderBy('v.majorVersion', 'DESC')
+    query
+      .orderBy('v.majorVersion', 'DESC')
       .addOrderBy('v.minorVersion', 'DESC')
       .addOrderBy('v.patchVersion', 'DESC');
     query.skip((page - 1) * limit).take(limit);
 
     const [items, total] = await query.getManyAndCount();
     return { items, total };
-  }
-
-  // ============================================================================
-  // Global Configuration Management
-  // ============================================================================
-
-  createConfig(data: {
-    key: string;
-    name: string;
-    description?: string;
-    category?: ConfigCategory;
-    valueType?: ConfigValueType;
-    value: unknown;
-    defaultValue?: unknown;
-    validation?: {
-      required?: boolean;
-      min?: number;
-      max?: number;
-      minLength?: number;
-      maxLength?: number;
-      pattern?: string;
-      allowedValues?: unknown[];
-    };
-    isSecret?: boolean;
-    isReadOnly?: boolean;
-    requiresRestart?: boolean;
-    helpText?: string;
-    createdBy?: string;
-  }): never {
-    void data;
-    this.throwGlobalConfigGone();
-  }
-
-  updateConfig(
-    id: string,
-    value: unknown,
-    updatedBy: string,
-    reason?: string,
-  ): never {
-    void id;
-    void value;
-    void updatedBy;
-    void reason;
-    this.throwGlobalConfigGone();
-  }
-
-  getConfig(key: string): unknown {
-    return this.provisioningDefault(key);
-  }
-
-  getConfigEntity(id: string): never {
-    void id;
-    this.throwGlobalConfigGone();
-  }
-
-  queryConfigs(params: {
-    category?: ConfigCategory;
-    isSecret?: boolean;
-    search?: string;
-    page?: number;
-    limit?: number;
-    // Return type is `never[]`: the global_configs surface is retired, so this
-    // always yields an empty page (the GlobalConfig entity no longer exists).
-  }): { items: never[]; total: number } {
-    void params;
-    return { items: [], total: 0 };
-  }
-
-  bulkUpdateConfigs(
-    updates: Array<{ key: string; value: unknown }>,
-    updatedBy: string,
-  ): never {
-    void updates;
-    void updatedBy;
-    this.throwGlobalConfigGone();
   }
 
   // ============================================================================
@@ -847,7 +778,8 @@ export class GlobalSettingsService implements OnModuleInit {
             (now.getTime() - toggle.rolloutSchedule.startDate.getTime()) / (24 * 60 * 60 * 1000),
           );
           const newPercentage = Math.min(
-            toggle.rolloutSchedule.percentage + daysSinceStart * toggle.rolloutSchedule.incrementPerDay,
+            toggle.rolloutSchedule.percentage +
+              daysSinceStart * toggle.rolloutSchedule.incrementPerDay,
             toggle.rolloutSchedule.targetPercentage,
           );
 
@@ -872,44 +804,6 @@ export class GlobalSettingsService implements OnModuleInit {
   // System Status
   // ============================================================================
 
-  /**
-   * Get provisioning configuration for edge device installer scripts.
-   * Called by sensor-service to generate dynamic installer scripts.
-   */
-  getProvisioningConfig(): {
-    provisioningApiUrl: string;
-    mqttBrokerHost: string;
-    mqttBrokerPort: number;
-    githubReleaseUrl: string;
-    agentDefaultVersion: string;
-    githubRepo: string;
-  } {
-    return {
-      provisioningApiUrl: this.provisioningDefault('provisioning.api_url'),
-      mqttBrokerHost: this.provisioningDefault('provisioning.mqtt_broker_host'),
-      mqttBrokerPort: Number.parseInt(this.provisioningDefault('provisioning.mqtt_broker_port'), 10),
-      githubReleaseUrl: this.provisioningDefault('provisioning.github_release_url'),
-      agentDefaultVersion: this.provisioningDefault('provisioning.agent_default_version'),
-      githubRepo: this.provisioningDefault('provisioning.github_repo'),
-    };
-  }
-
-  /**
-   * Update provisioning configuration
-   */
-  updateProvisioningConfig(
-    updates: Record<string, string>,
-    updatedBy: string,
-  ): never {
-    void updates;
-    void updatedBy;
-    this.throwGlobalConfigGone();
-  }
-
-  // ============================================================================
-  // System Status
-  // ============================================================================
-
   async getSystemStatus(): Promise<SystemHealthStatus> {
     const [currentVersion, maintenanceCheck, toggleCount] = await Promise.all([
       this.getCurrentVersion(),
@@ -923,29 +817,6 @@ export class GlobalSettingsService implements OnModuleInit {
       environment: process.env['NODE_ENV'] || 'development',
       maintenanceMode: maintenanceCheck.isInMaintenance,
       featureToggles: toggleCount,
-      activeConfigs: 0,
     };
-  }
-
-  private provisioningDefault(key: string): string {
-    const defaults: Record<string, string> = {
-      'provisioning.api_url': process.env['PROVISIONING_API_URL'] ?? 'http://localhost:3000',
-      'provisioning.mqtt_broker_host': process.env['PROVISIONING_MQTT_BROKER_HOST'] ?? 'localhost',
-      'provisioning.mqtt_broker_port': process.env['PROVISIONING_MQTT_BROKER_PORT'] ?? '1883',
-      'provisioning.github_release_url':
-        process.env['PROVISIONING_GITHUB_RELEASE_URL'] ??
-        'https://github.com/Okan-wqm/aquaculture_platform/releases',
-      'provisioning.agent_default_version':
-        process.env['PROVISIONING_AGENT_DEFAULT_VERSION'] ?? 'latest',
-      'provisioning.github_repo':
-        process.env['PROVISIONING_GITHUB_REPO'] ?? 'Okan-wqm/aquaculture_platform',
-    };
-    return defaults[key] ?? '';
-  }
-
-  private throwGlobalConfigGone(): never {
-    throw new GoneException(
-      'admin-api direct global_configs writes are retired; use config-service effective configuration APIs',
-    );
   }
 }

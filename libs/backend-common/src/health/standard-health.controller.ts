@@ -1,32 +1,12 @@
-import {
-  Controller,
-  Get,
-  HttpCode,
-  HttpStatus,
-  Res,
-  Logger,
-} from '@nestjs/common';
+import { Controller, Get, HttpCode, HttpStatus, Res, Logger } from '@nestjs/common';
+import nestPackage from '@nestjs/core/package.json';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
 import { Response } from 'express';
+import expressPackage from 'express/package.json';
+import { DataSource } from 'typeorm';
 
 import { Public } from '../decorators/roles.decorator';
 import { SkipThrottle } from '../security/throttler/throttler.decorator';
-
-/**
- * Reads the version field from a package's package.json at runtime.
- * Uses require() which is the standard Node.js pattern for reading
- * installed package metadata. Returns 'unknown' if the package is
- * not resolvable (e.g. in a bundled/stripped deployment).
- */
-function readPackageVersion(packageJsonPath: string): string {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    return require(packageJsonPath).version;
-  } catch {
-    return 'unknown';
-  }
-}
 
 /**
  * Runtime framework versions exposed by the health endpoint.
@@ -174,10 +154,7 @@ export class StandardHealthController {
       status = 'ok';
     }
 
-    const httpStatus =
-      status === 'not_ready'
-        ? HttpStatus.SERVICE_UNAVAILABLE
-        : HttpStatus.OK;
+    const httpStatus = status === 'not_ready' ? HttpStatus.SERVICE_UNAVAILABLE : HttpStatus.OK;
 
     const body: ReadinessResponse = { status, checks: checks as ReadinessResponse['checks'] };
     res.status(httpStatus).json(body);
@@ -203,8 +180,8 @@ export class StandardHealthController {
       version: this.version,
       service: this.serviceName,
       framework: {
-        nestjs: readPackageVersion('@nestjs/core/package.json'),
-        express: readPackageVersion('express/package.json'),
+        nestjs: nestPackage.version,
+        express: expressPackage.version,
         node: process.version,
       },
     };
@@ -222,9 +199,7 @@ export class StandardHealthController {
       await this.dataSource.query('SELECT 1');
       return 'ok';
     } catch (error) {
-      this.logger.warn(
-        `Database health check failed: ${(error as Error).message}`,
-      );
+      this.logger.warn(`Database health check failed: ${(error as Error).message}`);
       return 'error';
     }
   }
@@ -239,7 +214,7 @@ export class StandardHealthController {
    *   return { timescale: await this.checkTimescale() };
    * }
    */
-  protected async getAdditionalChecks(): Promise<Record<string, 'ok' | 'error'>> {
-    return {};
+  protected getAdditionalChecks(): Promise<Record<string, 'ok' | 'error'>> {
+    return Promise.resolve({});
   }
 }

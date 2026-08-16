@@ -9,9 +9,11 @@ import {
   Logger,
   Optional,
 } from '@nestjs/common';
-import { GqlExecutionContext } from '@nestjs/graphql';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
+
+import { AUDIT_LOG_SERVICE, AuditSeverity, type IAuditLogService } from '../audit/audit-log.tokens';
+import { getRequestFromArgumentsHost } from '../context/execution-context-request';
 import { SKIP_TENANT_GUARD_KEY, IS_PUBLIC_KEY, Role } from '../decorators/roles.decorator';
 import { TenantRequest } from '../types/tenant-request.interface';
 // IMPORTANT: import from tokens, NOT from `audit-log.service` / `audit-log.entity`.
@@ -19,11 +21,6 @@ import { TenantRequest } from '../types/tenant-request.interface';
 // `@Entity()` decorator on every backend-common consumer, polluting TypeORM's
 // global metadata storage and surfacing as cross-service drift on services
 // that never opted into audit logging (DEFECT-1, INFRA-CRITICAL-021).
-import {
-  AUDIT_LOG_SERVICE,
-  AuditSeverity,
-  type IAuditLogService,
-} from '../audit/audit-log.tokens';
 
 /** UUID v4 format validator. */
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -103,33 +100,28 @@ export class TenantGuard implements CanActivate {
    */
   async canActivate(context: ExecutionContext): Promise<boolean> {
     // Skip if endpoint is marked public
-    const isPublic = this.reflector.getAllAndOverride<boolean>(
-      IS_PUBLIC_KEY,
-      [context.getHandler(), context.getClass()],
-    );
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
 
     if (isPublic) {
       return true;
     }
 
     // Skip if explicitly annotated with @SkipTenantGuard()
-    const skipGuard = this.reflector.getAllAndOverride<boolean>(
-      SKIP_TENANT_GUARD_KEY,
-      [context.getHandler(), context.getClass()],
-    );
+    const skipGuard = this.reflector.getAllAndOverride<boolean>(SKIP_TENANT_GUARD_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
 
     if (skipGuard) {
       return true;
     }
 
-    const contextType = context.getType<string>();
-    let request: TenantRequest;
-
-    if (contextType === 'graphql') {
-      const gqlCtx = GqlExecutionContext.create(context);
-      request = gqlCtx.getContext().req as TenantRequest;
-    } else {
-      request = context.switchToHttp().getRequest<TenantRequest>();
+    const request = getRequestFromArgumentsHost<TenantRequest>(context);
+    if (!request) {
+      throw new ForbiddenException('Access denied');
     }
 
     const user = request.user;
@@ -230,7 +222,7 @@ export class TenantGuard implements CanActivate {
       );
       throw new ForbiddenException(
         'MFA verification is required for cross-tenant access. ' +
-        'Please complete MFA step-up authentication before accessing another tenant.',
+          'Please complete MFA step-up authentication before accessing another tenant.',
       );
     }
   }
@@ -284,9 +276,7 @@ export class TenantGuard implements CanActivate {
     // Persist to audit trail via AuditLogService (awaited for critical events)
     if (!this.auditLogService) {
       if (this.isProduction) {
-        throw new ServiceUnavailableException(
-          'Cross-tenant audit trail is unavailable',
-        );
+        throw new ServiceUnavailableException('Cross-tenant audit trail is unavailable');
       }
       return;
     }
@@ -306,8 +296,7 @@ export class TenantGuard implements CanActivate {
           timestamp,
           mfaVerified,
         },
-        actorHomeTenantId:
-          sourceTenantId === 'system' ? null : sourceTenantId,
+        actorHomeTenantId: sourceTenantId === 'system' ? null : sourceTenantId,
         actedOnTenantId: targetTenantId,
         mfaVerified,
         ip: ip ?? null,
@@ -322,9 +311,7 @@ export class TenantGuard implements CanActivate {
         }),
       );
       if (this.isProduction) {
-        throw new ServiceUnavailableException(
-          'Cross-tenant audit trail is unavailable',
-        );
+        throw new ServiceUnavailableException('Cross-tenant audit trail is unavailable');
       }
     }
   }
@@ -390,9 +377,7 @@ export class TenantGuard implements CanActivate {
     if (identityTarget) {
       this.assertValidActAsTenant(identityTarget);
       if (rawActAs && rawActAs !== identityTarget) {
-        throw new ForbiddenException(
-          'Act-as tenant conflicts with verified gateway identity',
-        );
+        throw new ForbiddenException('Act-as tenant conflicts with verified gateway identity');
       }
       this.assertGatewayIdentityMatchesTarget(request, identityTarget);
       return {
@@ -417,22 +402,15 @@ export class TenantGuard implements CanActivate {
 
   private assertValidActAsTenant(tenantId: string): void {
     if (!UUID_REGEX.test(tenantId)) {
-      throw new BadRequestException(
-        'X-Act-As-Tenant header must be a valid UUID',
-      );
+      throw new BadRequestException('X-Act-As-Tenant header must be a valid UUID');
     }
   }
 
-  private assertGatewayIdentityMatchesTarget(
-    request: TenantRequest,
-    targetTenantId: string,
-  ): void {
+  private assertGatewayIdentityMatchesTarget(request: TenantRequest, targetTenantId: string): void {
     const identity = request.verifiedIdentity;
     if (!identity) {
       if (this.isProduction) {
-        throw new ForbiddenException(
-          'Cross-tenant access requires a verified gateway identity',
-        );
+        throw new ForbiddenException('Cross-tenant access requires a verified gateway identity');
       }
       return;
     }
@@ -442,9 +420,7 @@ export class TenantGuard implements CanActivate {
       identity.tenantId !== targetTenantId ||
       identity.effectiveTenantId !== targetTenantId
     ) {
-      throw new ForbiddenException(
-        'Cross-tenant target does not match verified gateway identity',
-      );
+      throw new ForbiddenException('Cross-tenant target does not match verified gateway identity');
     }
   }
 

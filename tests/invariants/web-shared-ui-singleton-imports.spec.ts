@@ -9,9 +9,10 @@
  * or shell hook reads a different context instance and throws at runtime.
  */
 
-import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+
+import { listEffectiveWorktreeFiles } from './lib/effective-worktree-files';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const WEB_RUNTIME_GLOBS = [
@@ -37,16 +38,9 @@ interface Hit {
 }
 
 function listRuntimeFiles(): readonly string[] {
-  const out = execFileSync(
-    'git',
-    ['ls-files', '-z', '--', ...WEB_RUNTIME_GLOBS],
-    { cwd: REPO_ROOT, encoding: 'utf-8', maxBuffer: 32 * 1024 * 1024 },
+  return listEffectiveWorktreeFiles(REPO_ROOT, WEB_RUNTIME_GLOBS).filter(
+    (file) => !EXEMPT_PATH_PATTERNS.some((pattern) => pattern.test(file)),
   );
-
-  return out
-    .split('\0')
-    .filter(Boolean)
-    .filter((file) => !EXEMPT_PATH_PATTERNS.some((pattern) => pattern.test(file)));
 }
 
 const IMPORT_SPECIFIER_RE =
@@ -76,9 +70,7 @@ describe('INVARIANT: federated web runtime imports shared-ui through one singlet
 
   it('does not deep-import shared-ui source files from shell or remote modules', () => {
     if (hits.length > 0) {
-      const details = hits
-        .map((hit) => `  ${hit.file}:${hit.line} -> ${hit.specifier}`)
-        .join('\n');
+      const details = hits.map((hit) => `  ${hit.file}:${hit.line} -> ${hit.specifier}`).join('\n');
 
       throw new Error(
         `Found ${hits.length} shared-ui deep source import(s):\n${details}\n\n` +

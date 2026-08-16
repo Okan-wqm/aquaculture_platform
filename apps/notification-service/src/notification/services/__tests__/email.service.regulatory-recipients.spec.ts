@@ -1,4 +1,5 @@
-import { ConfigService } from '@nestjs/config';
+import { CONFIGURATION_CATALOG_DIGEST } from '@aquaculture/configuration-contracts';
+import { ConfigRuntimeClient } from '@aquaculture/backend-common/config-client';
 
 import {
   EmailService,
@@ -6,6 +7,7 @@ import {
   MATTILSYNET_URGENT_EMAIL,
   RegulatoryReportEmailData,
 } from '../email.service';
+import { SmtpConfigurationProvider, SmtpConfigurationState } from '../smtp-configuration.provider';
 
 /**
  * Recipient-routing invariant for regulatory varsling emails.
@@ -34,16 +36,20 @@ jest.mock('nodemailer', () => ({
 }));
 
 function buildService(): EmailService {
-  // Real ConfigService over an in-memory config — SMTP_ENABLED + SMTP_HOST
-  // drive the constructor through the genuine initializeTransporter() path,
-  // which calls the mocked nodemailer.createTransport above.
-  const configService = new ConfigService({
-    SMTP_ENABLED: 'true',
-    SMTP_HOST: 'smtp.test.local',
-    SMTP_PORT: 587,
-    SMTP_FROM: 'noreply@aquaculture-platform.com',
+  const runtime = Object.create(null) as ConfigRuntimeClient;
+  const provider = new SmtpConfigurationProvider(runtime);
+  provider.getSnapshot = async () => ({
+    state: SmtpConfigurationState.READY,
+    catalogDigest: CONFIGURATION_CATALOG_DIGEST,
+    host: 'smtp.test.local',
+    port: 587,
+    secure: false,
+    username: null,
+    password: null,
+    fromAddress: 'noreply@aquaculture-platform.com',
+    fromName: 'Aquaculture Platform',
   });
-  return new EmailService(configService);
+  return new EmailService(provider);
 }
 
 function baseData(): Omit<RegulatoryReportEmailData, 'reportType'> {

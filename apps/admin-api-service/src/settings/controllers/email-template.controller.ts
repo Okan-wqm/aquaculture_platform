@@ -18,18 +18,12 @@ import {
   UpdateEmailTemplateDto,
   RenderTemplateDto,
 } from '../services/email-template.service';
-import {
-  CreateTenantOverrideDto,
-  ValidateTemplateDto,
-  SendTestEmailDto,
-} from '../dto/email-template.dto';
+import { CreateTenantOverrideDto, ValidateTemplateDto } from '../dto/email-template.dto';
 
 @ApiTags('Settings')
 @Controller('settings/email-templates')
 export class EmailTemplateController {
-  constructor(
-    private readonly templateService: EmailTemplateService,
-  ) {}
+  constructor(private readonly templateService: EmailTemplateService) {}
 
   // ============================================================================
   // Template CRUD
@@ -66,10 +60,7 @@ export class EmailTemplateController {
    * Get template by code
    */
   @Get('code/:code')
-  async getTemplateByCode(
-    @Param('code') code: string,
-    @Query('tenantId') tenantId?: string,
-  ) {
+  async getTemplateByCode(@Param('code') code: string, @Query('tenantId') tenantId?: string) {
     return this.templateService.getTemplateByCode(code, tenantId);
   }
 
@@ -93,10 +84,7 @@ export class EmailTemplateController {
    * Update a template
    */
   @Put(':id')
-  async updateTemplate(
-    @Param('id') id: string,
-    @Body() dto: UpdateEmailTemplateDto,
-  ) {
+  async updateTemplate(@Param('id') id: string, @Body() dto: UpdateEmailTemplateDto) {
     return this.templateService.updateTemplate(id, dto);
   }
 
@@ -104,10 +92,7 @@ export class EmailTemplateController {
    * Create tenant-specific override
    */
   @Post('code/:code/override')
-  async createTenantOverride(
-    @Param('code') code: string,
-    @Body() dto: CreateTenantOverrideDto,
-  ) {
+  async createTenantOverride(@Param('code') code: string, @Body() dto: CreateTenantOverrideDto) {
     const { tenantId, ...overrides } = dto;
     return this.templateService.createTenantOverride(code, tenantId, overrides);
   }
@@ -145,38 +130,7 @@ export class EmailTemplateController {
    * Validate template syntax
    */
   @Post('validate')
-  async validateTemplate(
-    @Body() dto: ValidateTemplateDto,
-  ) {
+  async validateTemplate(@Body() dto: ValidateTemplateDto) {
     return this.templateService.validateTemplate(dto.bodyHtml, dto.variables);
-  }
-
-  // ============================================================================
-  // Test Email
-  // ============================================================================
-
-  /**
-   * Send a test email using a template
-   * Note: Actual email sending would be handled by a notification service
-   */
-  @Post(':id/test')
-  async sendTestEmail(
-    @Param('id') id: string,
-    @Body() dto: SendTestEmailDto,
-  ) {
-    // This would integrate with a notification/email service
-    // For now, just return the rendered template
-    const template = await this.templateService.getTemplateById(id);
-
-    const rendered = await this.templateService.renderTemplate({
-      templateCode: template.code,
-      variables: dto.variables,
-    });
-
-    return {
-      message: 'Test email would be sent (email service integration required)',
-      recipientEmail: dto.recipientEmail,
-      rendered,
-    };
   }
 }

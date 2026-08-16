@@ -1,4 +1,13 @@
-import { Module, DynamicModule, Global, Provider, Type, InjectionToken, OptionalFactoryDependency } from '@nestjs/common';
+import {
+  Module,
+  DynamicModule,
+  Global,
+  Provider,
+  Type,
+  InjectionToken,
+  OptionalFactoryDependency,
+} from '@nestjs/common';
+
 import { RedisService, RedisModuleOptions } from './redis.service';
 
 export const REDIS_OPTIONS = 'REDIS_OPTIONS';

@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+
 import { validateSqlIdentifier } from '../sql-identifier.util';
 
 describe('validateSqlIdentifier', () => {

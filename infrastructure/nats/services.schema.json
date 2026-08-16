@@ -66,10 +66,10 @@
     },
     "subject": {
       "type": "string",
-      "pattern": "^(events\\.|commands\\.|request\\.|config\\.runtime\\.|config\\.marine_credentials\\.|sensor\\.|st\\.language\\.|policy\\.|\\$JS\\.API\\.|_INBOX\\.|_INBOXBILLINGCFG\\.|_INBOXFARMMARINECFG\\.)[A-Za-z0-9_.*>-]+$",
+      "pattern": "^(events\\.|commands\\.|request\\.|config\\.runtime\\.|config\\.marine_credentials\\.|sensor\\.|st\\.language\\.|policy\\.|\\$JS\\.API\\.|_INBOX(?:[A-Z0-9]+)?\\.)[A-Za-z0-9_.*>-]+$",
       "minLength": 3,
       "maxLength": 120,
-      "description": "NATS subject pattern in a canonical platform namespace. The legacy AQUACULTURE_EVENTS. prefix is structurally rejected because it is a stream name, never a publish subject. Secret-bearing request/reply paths use distinct first-token inboxes: `_INBOXBILLINGCFG.` is restricted to billing_service and config_service, while `_INBOXFARMMARINECFG.` is restricted to farm_service and config_service, so the platform-wide `_INBOX.>` grant cannot read either reply stream."
+      "description": "NATS subject pattern in a canonical platform namespace. The legacy AQUACULTURE_EVENTS. prefix is structurally rejected because it is a stream name, never a publish subject. Secret-bearing request/reply paths use catalog-generated `_INBOX<CONSUMER>.` first-token namespaces; executable invariants derive their exclusive publisher/subscriber pair from the configuration consumer registry, so this schema does not duplicate consumer names."
     }
   }
 }

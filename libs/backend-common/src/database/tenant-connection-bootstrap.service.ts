@@ -1,8 +1,10 @@
-import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Type } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+
 import { getRequestContext } from '../logging/request-context';
+
+import { getPgPoolFromDataSource, PgPoolClientLike } from './pg-pool-from-data-source.util';
 import { validateTenantSchemaName } from './schema-manager.service';
-import { getPgPoolFromDataSource } from './pg-pool-from-data-source.util';
 import { getTenantSchemaName, isValidUUID } from './tenant-schema.utils';
 
 /**
@@ -66,9 +68,17 @@ const TENANT_SCHEMA_REGEX = /^tenant_[a-f0-9]{16}$/;
  * That cost is vastly outweighed by never again shipping a deploy with a
  * schema split-brain.
  */
-export function createTenantConnectionBootstrap(sourceSchema: string) {
+type PoolConnectCallback = (
+  error: Error | null,
+  client?: PgPoolClientLike,
+  release?: (error?: unknown) => void,
+) => void;
+
+export function createTenantConnectionBootstrap(sourceSchema: string): Type<OnModuleInit> {
   if (!/^[a-z][a-z0-9_]*$/.test(sourceSchema)) {
-    throw new Error(`Invalid sourceSchema: "${sourceSchema}" — must be lowercase alphanumeric with underscores`);
+    throw new Error(
+      `Invalid sourceSchema: "${sourceSchema}" — must be lowercase alphanumeric with underscores`,
+    );
   }
 
   @Injectable()
@@ -99,97 +109,73 @@ export function createTenantConnectionBootstrap(sourceSchema: string) {
       const defaultSearchPath = `SET search_path TO "${src}", public`;
       const logger = this.logger;
 
-      // The wrapped function is polymorphic by construction — it
-      // returns void on the callback-style path AND Promise on
-      // the promise-style path. The PgPoolConnectFn surface
-      // declares both overloads but TypeScript can't infer the
-      // single-implementation polymorphic shape from the runtime
-      // function value. Assign through a unknown-cast so the
-      // narrow surface stays narrow at every consumer's read,
-      // while the polymorphic implementation is allowed to
-      // satisfy both call shapes.
-      pool.connect = function (callback?: any) {
-        if (typeof callback === 'function') {
-          return originalConnect((err: any, client: any, done: any) => {
-            if (err) return callback(err, client, done);
-
-            let schemaName: string | undefined;
-            try {
-              const ctx = getRequestContext();
-              schemaName = resolveTenantSchemaName(ctx?.schemaName, ctx?.tenantId);
-            } catch {
-              // Not in request context (migrations, startup) — use default
-            }
-
-            if (schemaName && TENANT_SCHEMA_REGEX.test(schemaName)) {
-              /** SEC-M13: Validate schema name before SQL interpolation as defense-in-depth */
-              validateTenantSchemaName(schemaName);
-              client.query(
-                `SET search_path TO "${schemaName}", "${src}", public`,
-                (qErr: any) => {
-                  if (qErr) {
-                    logger.error(`Failed to set search_path to ${schemaName}: ${qErr.message}`);
-                    done(qErr);
-                    callback(qErr);
-                    return;
-                  }
-                  callback(null, client, done);
-                },
-              );
-            } else {
-              // Non-request / bootstrap / migration context — re-assert the
-              // source-schema default on every checkout so pool state
-              // contamination (see the 2026-04-07 incident docblock above)
-              // can never leak a `public`-schema current_schema() into
-              // SourceSchemaBootstrap, MigrationRunner, or seed services.
-              client.query(defaultSearchPath, (qErr: any) => {
-                if (qErr) {
-                  logger.error(`Failed to set default search_path (${src},public): ${qErr.message}`);
-                  done(qErr);
-                  callback(qErr);
-                  return;
-                }
-                callback(null, client, done);
-              });
-            }
-          });
+      function searchPathForCurrentContext(): string {
+        const schemaName = resolveCurrentTenantSchemaName();
+        if (!schemaName) {
+          return defaultSearchPath;
         }
 
-        // Promise style (fallback)
-        return originalConnect().then(async (client: any) => {
-          let schemaName: string | undefined;
-          try {
-            const ctx = getRequestContext();
-            schemaName = resolveTenantSchemaName(ctx?.schemaName, ctx?.tenantId);
-          } catch {
-            // Not in request context
-          }
+        /** SEC-M13: Validate schema name before SQL interpolation as defense-in-depth. */
+        validateTenantSchemaName(schemaName);
+        return `SET search_path TO "${schemaName}", "${src}", public`;
+      }
 
-          if (schemaName && TENANT_SCHEMA_REGEX.test(schemaName)) {
-            try {
-              /** SEC-M13: Validate schema name before SQL interpolation as defense-in-depth */
-              validateTenantSchemaName(schemaName);
-              await client.query(`SET search_path TO "${schemaName}", "${src}", public`);
-            } catch (qErr) {
-              logger.error(`Failed to set search_path to ${schemaName}: ${(qErr as Error).message}`);
-              client.release(true); // release with error
-              throw qErr;
+      function patchedConnect(): Promise<PgPoolClientLike>;
+      function patchedConnect(callback: PoolConnectCallback): void;
+      function patchedConnect(callback?: PoolConnectCallback): Promise<PgPoolClientLike> | void {
+        if (callback !== undefined) {
+          originalConnect((connectionError, client, release): void => {
+            if (connectionError) {
+              callback(connectionError, client, release);
+              return;
             }
-          } else {
-            // Non-request / bootstrap / migration context — re-assert the
-            // source-schema default. See the 2026-04-07 split-brain incident
-            // docblock above for the full rationale.
-            try {
-              await client.query(defaultSearchPath);
-            } catch (qErr) {
-              logger.error(`Failed to set default search_path (${src},public): ${(qErr as Error).message}`);
-              client.release(true); // release with error
-              throw qErr;
+            if (!client || !release) {
+              const poolError = new Error('PostgreSQL pool returned no client or release callback');
+              logger.error(poolError.message);
+              callback(poolError);
+              return;
             }
+
+            let searchPath: string;
+            try {
+              searchPath = searchPathForCurrentContext();
+            } catch (validationFailure) {
+              const validationError = toError(validationFailure);
+              release(validationError);
+              callback(validationError);
+              return;
+            }
+
+            void client
+              .query(searchPath)
+              .then((): void => callback(null, client, release))
+              .catch((queryFailure: unknown): void => {
+                const queryError = toError(queryFailure);
+                logger.error(
+                  `Failed to establish tenant search_path (${src},public): ${queryError.message}`,
+                );
+                release(queryError);
+                callback(queryError);
+              });
+          });
+          return;
+        }
+
+        return originalConnect().then(async (client): Promise<PgPoolClientLike> => {
+          try {
+            await client.query(searchPathForCurrentContext());
+          } catch (queryFailure) {
+            const queryError = toError(queryFailure);
+            logger.error(
+              `Failed to establish tenant search_path (${src},public): ${queryError.message}`,
+            );
+            client.release(queryError);
+            throw queryError;
           }
           return client;
         });
-      } as unknown as typeof pool.connect;
+      }
+      pool.connect = patchedConnect;
 
       this.logger.log(
         `PostgreSQL connection pool patched for tenant-aware search_path routing ` +
@@ -199,6 +185,19 @@ export function createTenantConnectionBootstrap(sourceSchema: string) {
   }
 
   return TenantConnectionBootstrapImpl;
+}
+
+function resolveCurrentTenantSchemaName(): string | undefined {
+  try {
+    const context = getRequestContext();
+    return resolveTenantSchemaName(context?.schemaName, context?.tenantId);
+  } catch {
+    return undefined;
+  }
+}
+
+function toError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
 }
 
 function resolveTenantSchemaName(

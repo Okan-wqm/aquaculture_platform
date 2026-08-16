@@ -1,9 +1,19 @@
+import { mockCallArgument } from '@aquaculture/testing';
+
 import {
   buildSignedInternalHeaders,
   signedFetch,
   type SignedFetchCircuitBreakerLike,
   type SignedFetchCircuitBreakerOptionsLike,
 } from '../signed-http-client';
+
+interface ResponseBreakerArguments {
+  readonly serviceName: string;
+  readonly tenantId?: string;
+  readonly fn: () => Promise<Response>;
+  readonly options: SignedFetchCircuitBreakerOptionsLike;
+  readonly fallback?: () => Response | Promise<Response>;
+}
 
 /**
  * signedFetch — pin the optional circuit-breaker integration
@@ -28,7 +38,7 @@ import {
  */
 describe('signedFetch — circuit-breaker integration (CIRCUIT-MEDIUM-004)', () => {
   let originalFetch: typeof fetch;
-  let fetchMock: jest.Mock;
+  let fetchMock: jest.Mock<Promise<Response>, [input: RequestInfo | URL, init?: RequestInit]>;
 
   const TEST_SECRET = 'test-secret-for-hmac-binding';
 
@@ -43,14 +53,14 @@ describe('signedFetch — circuit-breaker integration (CIRCUIT-MEDIUM-004)', () 
 
   beforeEach(() => {
     fetchMock = jest
-      .fn()
+      .fn<Promise<Response>, [input: RequestInfo | URL, init?: RequestInit]>()
       .mockResolvedValue(
         new Response('{"ok":true}', {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         }),
       );
-    global.fetch = fetchMock as unknown as typeof fetch;
+    global.fetch = fetchMock;
   });
 
   const minimalBreakerOptions: SignedFetchCircuitBreakerOptionsLike = {
@@ -81,10 +91,12 @@ describe('signedFetch — circuit-breaker integration (CIRCUIT-MEDIUM-004)', () 
   });
 
   it('routes the fetch through circuitBreaker.service.execute() when supplied', async () => {
-    const breakerExecute = jest
-      .fn()
-      .mockImplementation(async (args: { fn: () => Promise<Response> }) => args.fn());
-    const breakerSvc: SignedFetchCircuitBreakerLike = { execute: breakerExecute };
+    const breakerExecute = jest.fn<Promise<Response>, [args: ResponseBreakerArguments]>((args) =>
+      args.fn(),
+    );
+    const breakerSvc: SignedFetchCircuitBreakerLike = {
+      execute: breakerExecute as unknown as SignedFetchCircuitBreakerLike['execute'],
+    };
 
     await signedFetch('https://internal.example/api', {
       method: 'POST',
@@ -97,7 +109,7 @@ describe('signedFetch — circuit-breaker integration (CIRCUIT-MEDIUM-004)', () 
 
     // Breaker.execute fired exactly once with the canonical args.
     expect(breakerExecute).toHaveBeenCalledTimes(1);
-    const call = breakerExecute.mock.calls[0]![0];
+    const call = mockCallArgument<ResponseBreakerArguments>(breakerExecute);
     expect(call.serviceName).toBe('callee-api');
     expect(call.tenantId).toBe('11111111-1111-4111-8111-111111111111');
     expect(call.options).toBe(minimalBreakerOptions);
@@ -107,10 +119,12 @@ describe('signedFetch — circuit-breaker integration (CIRCUIT-MEDIUM-004)', () 
   });
 
   it('empty tenantId routes to the global (*) per-callee breaker bucket', async () => {
-    const breakerExecute = jest
-      .fn()
-      .mockImplementation(async (args: { fn: () => Promise<Response> }) => args.fn());
-    const breakerSvc: SignedFetchCircuitBreakerLike = { execute: breakerExecute };
+    const breakerExecute = jest.fn<Promise<Response>, [args: ResponseBreakerArguments]>((args) =>
+      args.fn(),
+    );
+    const breakerSvc: SignedFetchCircuitBreakerLike = {
+      execute: breakerExecute as unknown as SignedFetchCircuitBreakerLike['execute'],
+    };
 
     await signedFetch('https://internal.example/health', {
       method: 'GET',
@@ -120,7 +134,7 @@ describe('signedFetch — circuit-breaker integration (CIRCUIT-MEDIUM-004)', () 
       circuitBreakerOptions: minimalBreakerOptions,
     });
 
-    expect(breakerExecute.mock.calls[0]![0].tenantId).toBe('*');
+    expect(mockCallArgument<ResponseBreakerArguments>(breakerExecute).tenantId).toBe('*');
   });
 
   it('surfaces breaker-side errors to the caller (fail-closed throw)', async () => {
@@ -148,9 +162,9 @@ describe('signedFetch — circuit-breaker integration (CIRCUIT-MEDIUM-004)', () 
 
   it('strips the circuitBreaker / circuitBreakerOptions fields before passing to the underlying fetch', async () => {
     const breakerSvc: SignedFetchCircuitBreakerLike = {
-      execute: jest
-        .fn()
-        .mockImplementation(async (args: { fn: () => Promise<Response> }) => args.fn()),
+      execute: jest.fn<Promise<Response>, [args: ResponseBreakerArguments]>((args) =>
+        args.fn(),
+      ) as unknown as SignedFetchCircuitBreakerLike['execute'],
     };
 
     await signedFetch('https://internal.example/api', {
@@ -162,10 +176,12 @@ describe('signedFetch — circuit-breaker integration (CIRCUIT-MEDIUM-004)', () 
       circuitBreakerOptions: minimalBreakerOptions,
     });
 
-    const fetchInit = fetchMock.mock.calls[0]![1] as RequestInit & {
-      circuitBreaker?: unknown;
-      circuitBreakerOptions?: unknown;
-    };
+    const fetchInit = mockCallArgument<
+      RequestInit & {
+        circuitBreaker?: unknown;
+        circuitBreakerOptions?: unknown;
+      }
+    >(fetchMock, 0, 1);
     expect(fetchInit).not.toHaveProperty('circuitBreaker');
     expect(fetchInit).not.toHaveProperty('circuitBreakerOptions');
     expect(fetchInit).not.toHaveProperty('serviceName');

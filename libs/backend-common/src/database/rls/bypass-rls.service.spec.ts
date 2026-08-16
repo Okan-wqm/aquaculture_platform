@@ -1,9 +1,8 @@
 import { Logger } from '@nestjs/common';
+
+import { requestContextStorage, getRequestContext } from '../../logging/request-context';
+
 import { BypassRlsService } from './bypass-rls.service';
-import {
-  requestContextStorage,
-  getRequestContext,
-} from '../../logging/request-context';
 
 /**
  * bypass-rls.service.spec.ts
@@ -29,7 +28,7 @@ import {
 
 describe('BypassRlsService', () => {
   let service: BypassRlsService;
-  let warnSpy: jest.SpyInstance;
+  let warnSpy: jest.SpyInstance<void, [message: unknown, ...optionalParams: unknown[]]>;
 
   beforeEach(() => {
     service = new BypassRlsService();
@@ -45,14 +44,14 @@ describe('BypassRlsService', () => {
 
   describe('withBypass — audit label requirement', () => {
     it('refuses an empty operation label', async () => {
-      await expect(
-        service.withBypass('', async () => 'result'),
-      ).rejects.toThrow(/requires a non-empty operation label/);
+      await expect(service.withBypass('', () => Promise.resolve('result'))).rejects.toThrow(
+        /requires a non-empty operation label/,
+      );
     });
 
     it('refuses a missing/undefined operation label', async () => {
       await expect(
-        service.withBypass(undefined as unknown as string, async () => 'result'),
+        service.withBypass(undefined as unknown as string, () => Promise.resolve('result')),
       ).rejects.toThrow(/requires a non-empty operation label/);
     });
   });
@@ -64,13 +63,10 @@ describe('BypassRlsService', () => {
 
       let flagDuringCallback: boolean | undefined;
 
-      const result = await service.withBypass(
-        'test:scope-check',
-        async () => {
-          flagDuringCallback = getRequestContext().bypassRls;
-          return 'ok';
-        },
-      );
+      const result = await service.withBypass('test:scope-check', () => {
+        flagDuringCallback = getRequestContext().bypassRls;
+        return Promise.resolve('ok');
+      });
 
       expect(result).toBe('ok');
       expect(flagDuringCallback).toBe(true);
@@ -85,25 +81,23 @@ describe('BypassRlsService', () => {
 
       // Establish an outer context that carries tenantId + userId, then
       // verify those fields survive inside the bypass frame.
-      await requestContextStorage.run(
-        { tenantId, userId: 'user-123' },
-        async () => {
-          let capturedTenant: string | undefined;
-          let capturedUser: string | undefined;
-          let capturedBypass: boolean | undefined;
+      await requestContextStorage.run({ tenantId, userId: 'user-123' }, async () => {
+        let capturedTenant: string | undefined;
+        let capturedUser: string | undefined;
+        let capturedBypass: boolean | undefined;
 
-          await service.withBypass('test:merge', async () => {
-            const ctx = getRequestContext();
-            capturedTenant = ctx.tenantId;
-            capturedUser = ctx.userId;
-            capturedBypass = ctx.bypassRls;
-          });
+        await service.withBypass('test:merge', () => {
+          const ctx = getRequestContext();
+          capturedTenant = ctx.tenantId;
+          capturedUser = ctx.userId;
+          capturedBypass = ctx.bypassRls;
+          return Promise.resolve();
+        });
 
-          expect(capturedTenant).toBe(tenantId);
-          expect(capturedUser).toBe('user-123');
-          expect(capturedBypass).toBe(true);
-        },
-      );
+        expect(capturedTenant).toBe(tenantId);
+        expect(capturedUser).toBe('user-123');
+        expect(capturedBypass).toBe(true);
+      });
     });
 
     it('restores the exact previous context on exception', async () => {
@@ -114,9 +108,9 @@ describe('BypassRlsService', () => {
         expect(getRequestContext().bypassRls).toBeUndefined();
 
         await expect(
-          service.withBypass('test:throws', async () => {
+          service.withBypass('test:throws', () => {
             expect(getRequestContext().bypassRls).toBe(true);
-            throw new Error('boom');
+            return Promise.reject(new Error('boom'));
           }),
         ).rejects.toThrow('boom');
 
@@ -133,29 +127,21 @@ describe('BypassRlsService', () => {
 
   describe('withBypass — audit logging', () => {
     it('emits grant + release WARN logs with the operation label', async () => {
-      await service.withBypass('admin-api:list-tenants', async () => 'done');
+      await service.withBypass('admin-api:list-tenants', () => Promise.resolve('done'));
 
       const labels = warnSpy.mock.calls.map((c) => String(c[0]));
       expect(labels.some((m) => m.includes('RLS BYPASS GRANTED'))).toBe(true);
       expect(labels.some((m) => m.includes('RLS BYPASS RELEASED'))).toBe(true);
-      expect(labels.some((m) => m.includes('[admin-api:list-tenants]'))).toBe(
-        true,
-      );
+      expect(labels.some((m) => m.includes('[admin-api:list-tenants]'))).toBe(true);
     });
 
     it('emits the release log even when the callback throws', async () => {
       await expect(
-        service.withBypass('admin-api:throws', async () => {
-          throw new Error('boom');
-        }),
+        service.withBypass('admin-api:throws', () => Promise.reject(new Error('boom'))),
       ).rejects.toThrow('boom');
 
       const labels = warnSpy.mock.calls.map((c) => String(c[0]));
-      expect(
-        labels.some((m) =>
-          m.includes('RLS BYPASS RELEASED [admin-api:throws]'),
-        ),
-      ).toBe(true);
+      expect(labels.some((m) => m.includes('RLS BYPASS RELEASED [admin-api:throws]'))).toBe(true);
     });
   });
 
@@ -168,11 +154,11 @@ describe('BypassRlsService', () => {
         // inner call's logging behaviour in isolation.
         warnSpy.mockClear();
 
-        const result = await service.withBypass('inner', async () => {
+        const result = await service.withBypass('inner', () => {
           innerRan = true;
           // The bypass flag remains true (inherited from outer frame)
           expect(getRequestContext().bypassRls).toBe(true);
-          return 'inner-result';
+          return Promise.resolve('inner-result');
         });
 
         expect(result).toBe('inner-result');
@@ -188,9 +174,9 @@ describe('BypassRlsService', () => {
     });
 
     it('returns the inner callback value unchanged during short-circuit', async () => {
-      const result = await service.withBypass('outer', async () => {
-        return service.withBypass('inner', async () => ({ nested: 'value' }));
-      });
+      const result = await service.withBypass('outer', () =>
+        service.withBypass('inner', () => Promise.resolve({ nested: 'value' })),
+      );
 
       expect(result).toEqual({ nested: 'value' });
     });

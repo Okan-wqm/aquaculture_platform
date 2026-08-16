@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 
+import { stripNullCharacters } from './string-safety';
+
 /**
  * Input Sanitizer Service
  *
@@ -97,7 +99,7 @@ export class InputSanitizerService {
       .replace(/\\/g, '/');
 
     // Remove null bytes
-    sanitized = sanitized.replace(/\x00/g, '');
+    sanitized = stripNullCharacters(sanitized);
 
     // Remove leading slashes
     sanitized = sanitized.replace(/^\/+/, '');
@@ -172,7 +174,7 @@ export class InputSanitizerService {
   removeNullBytes(input: string): string {
     if (typeof input !== 'string') return '';
 
-    return input.replace(/\x00/g, '');
+    return stripNullCharacters(input);
   }
 
   /**

@@ -2,8 +2,9 @@
 // type declarations, pure-JS, identical hash format to node-bcrypt). Align
 // here so the library has one bcrypt implementation — not two that can
 // drift on cost-factor defaults or constant-time comparison behavior.
-import * as bcrypt from 'bcryptjs';
 import { createHmac } from 'crypto';
+
+import * as bcrypt from 'bcryptjs';
 
 /**
  * @module PasswordUtil
@@ -118,10 +119,7 @@ export interface VerifyPasswordResult {
  * Returns `{ matched, shouldMigrate }` so the caller can trigger a lazy
  * re-hash on successful legacy matches.
  */
-export async function verifyPassword(
-  plain: string,
-  stored: string,
-): Promise<VerifyPasswordResult> {
+export async function verifyPassword(plain: string, stored: string): Promise<VerifyPasswordResult> {
   if (!stored) return { matched: false, shouldMigrate: false };
 
   const pepper = getPepper();

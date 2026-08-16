@@ -1,30 +1,28 @@
 import { Injectable, Logger, OnApplicationBootstrap, Type } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  BOOT_INVARIANT_SIGNALS,
+  emitBootInvariantSignal,
+} from '@platform/service-catalog/boot-signals';
 import { DataSource, EntityMetadata } from 'typeorm';
 
-import { DRIFT_CLASSES, type DriftClassId } from './schema-drift/drift-classes';
+import { isClassConstructor } from '../types/class-constructor';
+
+import { lookupEmergencyOverride } from './emergency-override-check';
 import {
   getEncryptedAtRestMetadata,
   type EncryptedAtRestMetadata,
 } from './encrypted-at-rest.decorator';
-import {
-  TENANT_AWARE_SCHEMAS,
-  TENANT_SCHEMA_NAME_RE,
-} from './tenant-aware-schemas';
-import { lookupEmergencyOverride } from './emergency-override-check';
-import { isTenantDeltaAllowed } from './tenant-fanout.decorator';
-import {
-  BOOT_INVARIANT_SIGNALS,
-  emitBootInvariantSignal,
-} from '../constants/boot-invariant-signals';
+import { DRIFT_CLASSES, type DriftClassId } from './schema-drift/drift-classes';
 import {
   expectedEntityDbType,
   isUuidTypeDrift,
   normalizeInformationSchemaType,
 } from './schema-drift/type-normalization';
+import { TENANT_AWARE_SCHEMAS, TENANT_SCHEMA_NAME_RE } from './tenant-aware-schemas';
+import { isTenantDeltaAllowed } from './tenant-fanout.decorator';
 
-export const SCHEMA_DRIFT_CLEAN_SIGNAL =
-  BOOT_INVARIANT_SIGNALS.schema_drift_clean.pattern;
+export const SCHEMA_DRIFT_CLEAN_SIGNAL = BOOT_INVARIANT_SIGNALS.schema_drift_clean.pattern;
 
 /**
  * createSchemaDriftValidator
@@ -92,9 +90,7 @@ export function createSchemaDriftValidator(
 
   @Injectable()
   class SchemaDriftValidator implements OnApplicationBootstrap {
-    private readonly logger = new Logger(
-      `SchemaDriftValidator[${serviceName}]`,
-    );
+    private readonly logger = new Logger(`SchemaDriftValidator[${serviceName}]`);
 
     constructor(
       private readonly dataSource: DataSource,
@@ -103,11 +99,9 @@ export function createSchemaDriftValidator(
 
     async onApplicationBootstrap(): Promise<void> {
       const isProductionLike = this.isProductionLike();
-      const enabled =
-        this.configService.get('SCHEMA_DRIFT_ENABLED', 'true') === 'true';
+      const enabled = this.configService.get('SCHEMA_DRIFT_ENABLED', 'true') === 'true';
       if (!enabled) {
-        const message =
-          'Schema drift validator disabled via SCHEMA_DRIFT_ENABLED=false';
+        const message = 'Schema drift validator disabled via SCHEMA_DRIFT_ENABLED=false';
         if (isProductionLike) {
           throw new Error(
             `${message}; refusing production-like startup because ` +
@@ -121,8 +115,7 @@ export function createSchemaDriftValidator(
       const fatal = this.resolveFatalDefault(isProductionLike);
 
       const tenantScanEnabled =
-        this.configService.get('SCHEMA_DRIFT_TENANT_SCAN_ENABLED', 'false') ===
-        'true';
+        this.configService.get('SCHEMA_DRIFT_TENANT_SCAN_ENABLED', 'false') === 'true';
 
       this.logger.log(
         `Scanning entity metadata for schema drift${tenantScanEnabled ? ' (+ per-tenant shape divergence)' : ''}...`,
@@ -207,8 +200,7 @@ export function createSchemaDriftValidator(
         emitBootInvariantSignal(this.logger, 'schema_drift_clean', {
           serviceName,
           schemaName: sourceSchemaName,
-          checkedOwnedEntities:
-            this.dataSource.entityMetadatas.length - skippedNotOwned,
+          checkedOwnedEntities: this.dataSource.entityMetadatas.length - skippedNotOwned,
           skippedCrossSchemaReadViews: skippedNotOwned,
           warningViolations: warningViolations.length,
         });
@@ -231,7 +223,7 @@ export function createSchemaDriftValidator(
         // Fail-safe: lookup errors never grant bypass.
         const environment =
           this.configService.get<string>('AQUA_ENV') ??
-          this.configService.get<string>('NODE_ENV', 'development')!;
+          this.configService.get<string>('NODE_ENV', 'development');
         const bypass = await lookupEmergencyOverride({
           dataSource: this.dataSource,
           serviceName,
@@ -260,18 +252,9 @@ export function createSchemaDriftValidator(
 
     private isProductionLike(): boolean {
       const nodeEnv =
-        this.configService.get<string>('NODE_ENV') ??
-        process.env['NODE_ENV'] ??
-        'development';
-      const aquaEnv =
-        this.configService.get<string>('AQUA_ENV') ??
-        process.env['AQUA_ENV'] ??
-        '';
-      return (
-        nodeEnv === 'production' ||
-        aquaEnv === 'production' ||
-        aquaEnv === 'staging'
-      );
+        this.configService.get<string>('NODE_ENV') ?? process.env['NODE_ENV'] ?? 'development';
+      const aquaEnv = this.configService.get<string>('AQUA_ENV') ?? process.env['AQUA_ENV'] ?? '';
+      return nodeEnv === 'production' || aquaEnv === 'production' || aquaEnv === 'staging';
     }
 
     private resolveFatalDefault(isProductionLike: boolean): boolean {
@@ -307,16 +290,15 @@ export function createSchemaDriftValidator(
       //
       // Replaced LIMIT 1 with explicit schema filtering: the entity's
       // declared schema is the only candidate we consider.
-      const tableRows: Array<{ schemaname: string }> = await this.dataSource
-        .query(
-          `SELECT schemaname FROM pg_tables
+      const tableRows: Array<{ schemaname: string }> = await this.dataSource.query(
+        `SELECT schemaname FROM pg_tables
            WHERE tablename = $1
              AND schemaname NOT LIKE 'tenant\\_%' ESCAPE '\\'
              AND schemaname NOT IN ('pg_catalog', 'information_schema')
            ORDER BY (schemaname = $2) DESC, schemaname
            LIMIT 1`,
-          [tableName, schema],
-        );
+        [tableName, schema],
+      );
       const [firstRow] = tableRows;
       if (!firstRow) {
         // Entity owns this table (synchronize !== false) but the source
@@ -366,10 +348,11 @@ export function createSchemaDriftValidator(
       // Keyed by property name, not DB column name — columns[].propertyName
       // maps to EntityMetadata.columns[].propertyName so we resolve by
       // the TypeScript property.
-      const encryptedProperties: ReadonlyMap<string, EncryptedAtRestMetadata> =
-        entity.target && typeof entity.target === 'function'
-          ? getEncryptedAtRestMetadata(entity.target as Function)
-          : new Map();
+      const encryptedProperties: ReadonlyMap<string, EncryptedAtRestMetadata> = isClassConstructor(
+        entity.target,
+      )
+        ? getEncryptedAtRestMetadata(entity.target)
+        : new Map();
 
       for (const column of entity.columns) {
         const dbName = column.databaseName;
@@ -452,16 +435,13 @@ export function createSchemaDriftValidator(
         // `{table}_{column}_enum` (see resolveEnumTypeName()).
         // Decorated columns are skipped here too (see Class J above).
         if (!isEncrypted && entityType === 'enum' && Array.isArray(column.enum)) {
-          const declaredLabels = (column.enum as readonly unknown[])
-            .filter((x): x is string => typeof x === 'string');
+          const declaredLabels = (column.enum as readonly unknown[]).filter(
+            (x): x is string => typeof x === 'string',
+          );
           if (declaredLabels.length > 0) {
             entityEnumColumns.push({
               dbName,
-              typeName: this.resolveEnumTypeName(
-                column.enumName,
-                tableName,
-                dbName,
-              ),
+              typeName: this.resolveEnumTypeName(column.enumName, tableName, dbName),
               declaredLabels,
             });
           }
@@ -512,9 +492,7 @@ export function createSchemaDriftValidator(
       // Phase 8 Stage 2+ may elevate specific orphan columns to error
       // severity once every existing E violation is either allowlisted
       // or dropped via Phase 3's dropOrphanedColumns primitive.
-      const entityColumnNames = new Set(
-        entity.columns.map((c) => c.databaseName),
-      );
+      const entityColumnNames = new Set(entity.columns.map((c) => c.databaseName));
       for (const dbCol of columnRows) {
         if (!entityColumnNames.has(dbCol.column_name)) {
           this.route(
@@ -712,20 +690,17 @@ export function createSchemaDriftValidator(
     ): Promise<void> {
       const tenantAwareEntities = entities.filter(
         (e) =>
-          e.schema !== undefined &&
-          TENANT_AWARE_SCHEMAS.has(e.schema) &&
-          e.synchronize !== false,
+          e.schema !== undefined && TENANT_AWARE_SCHEMAS.has(e.schema) && e.synchronize !== false,
       );
       if (tenantAwareEntities.length === 0) return;
 
       // Enumerate tenant schemas once — same set applies to every
       // tenant-aware entity.
-      const tenantSchemaRows: Array<{ schema_name: string }> =
-        await this.dataSource.query(
-          `SELECT schema_name FROM information_schema.schemata
+      const tenantSchemaRows: Array<{ schema_name: string }> = await this.dataSource.query(
+        `SELECT schema_name FROM information_schema.schemata
             WHERE schema_name ~ '^tenant_[a-f0-9]{16}$'
             ORDER BY schema_name`,
-        );
+      );
       const tenantSchemas = tenantSchemaRows
         .map((r) => r.schema_name)
         .filter((s) => TENANT_SCHEMA_NAME_RE.test(s));
@@ -739,9 +714,7 @@ export function createSchemaDriftValidator(
       // Fetch all columns for every tenant_*.table + source.table in a
       // single query. Filter in Node afterwards — simpler than N dynamic
       // SQL queries, and information_schema.columns is bounded.
-      const tableNames = Array.from(
-        new Set(tenantAwareEntities.map((e) => e.tableName)),
-      );
+      const tableNames = Array.from(new Set(tenantAwareEntities.map((e) => e.tableName)));
       const sourceSchemas = Array.from(
         new Set(
           tenantAwareEntities
@@ -771,10 +744,7 @@ export function createSchemaDriftValidator(
       for (const row of columnRows) {
         const key = `${row.table_schema}.${row.table_name}`;
         const shape = shapesBySchemaTable.get(key) ?? new Map<string, string>();
-        shape.set(
-          row.column_name,
-          `${normalizeInformationSchemaType(row)}|${row.is_nullable}`,
-        );
+        shape.set(row.column_name, `${normalizeInformationSchemaType(row)}|${row.is_nullable}`);
         shapesBySchemaTable.set(key, shape);
       }
 
@@ -812,16 +782,10 @@ export function createSchemaDriftValidator(
           // (plan v3 R24). A tenant carrying enterprise-tier add-on
           // columns whose names match the declared prefix is an
           // AUTHORIZED delta, not a drift.
-          const entityCtor =
-            typeof entity.target === 'function'
-              ? (entity.target as Function)
-              : undefined;
+          const entityCtor = typeof entity.target === 'function' ? entity.target : undefined;
           for (const [col] of tenantShape) {
             if (!sourceShape.has(col)) {
-              if (
-                entityCtor !== undefined &&
-                isTenantDeltaAllowed(entityCtor, col)
-              ) {
+              if (entityCtor !== undefined && isTenantDeltaAllowed(entityCtor, col)) {
                 // Allowlisted — silently skip.
                 continue;
               }
@@ -865,23 +829,20 @@ export function createSchemaDriftValidator(
       errorViolations: string[],
       warningViolations: string[],
     ): Promise<void> {
-      const rows: Array<{ conname: string; definition: string }> =
-        await this.dataSource.query(
-          `SELECT c.conname, pg_get_constraintdef(c.oid) AS definition
+      const rows: Array<{ conname: string; definition: string }> = await this.dataSource.query(
+        `SELECT c.conname, pg_get_constraintdef(c.oid) AS definition
              FROM pg_constraint c
              JOIN pg_class t ON t.oid = c.conrelid
              JOIN pg_namespace n ON n.oid = t.relnamespace
             WHERE n.nspname = $1
               AND t.relname = $2
               AND c.contype = 'c'`,
-          [schema, tableName],
-        );
+        [schema, tableName],
+      );
       const dbCount = rows.length;
       const entityCount = entityChecks.length;
       if (dbCount === entityCount) return;
-      const entityExprs = entityChecks
-        .map((c) => c.expression.trim())
-        .filter((e) => e.length > 0);
+      const entityExprs = entityChecks.map((c) => c.expression.trim()).filter((e) => e.length > 0);
       const dbDefs = rows.map((r) => `${r.conname}: ${r.definition}`);
       if (entityCount > dbCount) {
         const delta = entityCount - dbCount;
@@ -928,24 +889,21 @@ export function createSchemaDriftValidator(
       errorViolations: string[],
       warningViolations: string[],
     ): Promise<void> {
-      const rows: Array<{ conname: string; definition: string }> =
-        await this.dataSource.query(
-          `SELECT c.conname, pg_get_constraintdef(c.oid) AS definition
+      const rows: Array<{ conname: string; definition: string }> = await this.dataSource.query(
+        `SELECT c.conname, pg_get_constraintdef(c.oid) AS definition
              FROM pg_constraint c
              JOIN pg_class t ON t.oid = c.conrelid
              JOIN pg_namespace n ON n.oid = t.relnamespace
             WHERE n.nspname = $1
               AND t.relname = $2
               AND c.contype = 'f'`,
-          [schema, tableName],
-        );
+        [schema, tableName],
+      );
       const dbCount = rows.length;
       const entityCount = entityForeignKeys.length;
       if (dbCount === entityCount) return;
 
-      const dbDefs = rows
-        .map((r) => `${r.conname}: ${r.definition}`)
-        .join(' ; ');
+      const dbDefs = rows.map((r) => `${r.conname}: ${r.definition}`).join(' ; ');
 
       if (entityCount > dbCount) {
         const delta = entityCount - dbCount;

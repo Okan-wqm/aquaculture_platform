@@ -3,35 +3,38 @@
  * parseArgs + summarize + runCheck entry points with synthetic
  * NpmAuditReport fixtures — no real `npm audit` subprocess.
  */
-// `export {}` keeps strict-tsc treating this file as a MODULE (see
-// gha-sha-pin-gate.spec.ts header for the rationale). Surfaced by
-// PR-29 (PROC-MEDIUM-007 ratchet).
-export {};
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const {
-  parseArgs,
-  summarize,
-  runCheck,
-} = require('../../../../../../tools/gates/npm-audit') as {
-  parseArgs: (argv: readonly string[]) => {
-    failOn: 'critical' | 'high' | 'moderate' | 'low';
-    allowlist: ReadonlySet<number>;
-    jsonMode: boolean;
-  };
-  summarize: (report: unknown, args: unknown) => {
-    blocking: ReadonlyArray<{
-      module: string;
-      severity: 'critical' | 'high' | 'moderate' | 'low' | 'info';
-      advisoryId: number | null;
-      title: string;
-    }>;
-    countsBySeverity: Record<string, number>;
-  };
-  runCheck: (
+import { resolve } from 'node:path';
+
+type Severity = 'critical' | 'high' | 'moderate' | 'low' | 'info';
+
+interface NpmAuditArgs {
+  readonly failOn: Severity;
+  readonly allowlist: ReadonlySet<number>;
+  readonly jsonMode: boolean;
+}
+
+interface NpmAuditSummary {
+  readonly blocking: ReadonlyArray<{
+    readonly module: string;
+    readonly severity: Severity;
+    readonly advisoryId: number | null;
+    readonly title: string;
+  }>;
+  readonly countsBySeverity: Record<Severity, number>;
+}
+
+interface NpmAuditModule {
+  readonly parseArgs: (argv: readonly string[]) => NpmAuditArgs;
+  readonly summarize: (report: unknown, args: NpmAuditArgs) => NpmAuditSummary;
+  readonly runCheck: (
     report: unknown,
-    args: unknown,
-  ) => { exitCode: 0 | 1; summary: ReturnType<typeof summarize> };
-};
+    args: NpmAuditArgs,
+  ) => { readonly exitCode: 0 | 1; readonly summary: NpmAuditSummary };
+}
+
+const { parseArgs, summarize, runCheck } = jest.requireActual<NpmAuditModule>(
+  resolve(__dirname, '../../../../../../tools/gates/npm-audit'),
+);
 
 describe('npm-audit parseArgs', () => {
   it('defaults to failOn=high when unspecified', () => {
@@ -47,9 +50,7 @@ describe('npm-audit parseArgs', () => {
   });
 
   it('rejects invalid --fail-on', () => {
-    expect(() => parseArgs(['--fail-on', 'info'])).toThrow(
-      /critical\|high\|moderate\|low/,
-    );
+    expect(() => parseArgs(['--fail-on', 'info'])).toThrow(/critical\|high\|moderate\|low/);
     expect(() => parseArgs(['--fail-on', 'nonsense'])).toThrow();
   });
 
@@ -160,7 +161,7 @@ describe('npm-audit summarize', () => {
 
   it('missing vulnerabilities key → zero blocking (robust against npm@6 shape)', () => {
     const args = parseArgs([]);
-    const s = summarize({} as unknown, args);
+    const s = summarize({}, args);
     expect(s.blocking).toEqual([]);
   });
 });

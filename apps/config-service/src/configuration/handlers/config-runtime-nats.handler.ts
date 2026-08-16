@@ -1,5 +1,12 @@
 import { createHash } from 'crypto';
 
+import {
+  CONFIGURATION_CATALOG_DIGEST,
+  ConfigurationKeyId,
+  configurationDefinition,
+  isConfigurationKeyId,
+} from '@aquaculture/configuration-contracts';
+
 import { AuditLogService, AuditSeverity } from '@aquaculture/backend-common/audit';
 import { SecurityEventService } from '@aquaculture/backend-common/security';
 import {
@@ -12,8 +19,7 @@ import { Controller, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import {
-  CONFIG_RUNTIME_NONSECRET_ALLOWLIST,
-  CONFIG_RUNTIME_SECRET_ALLOWLIST,
+  CONFIG_RUNTIME_ACCESS_BY_CONSUMER,
   CONFIG_RUNTIME_SUBJECTS,
   CONFIG_RUNTIME_SYSTEM_TENANT_ID,
   canonicalConfigRuntimeBody,
@@ -34,15 +40,15 @@ import { ConfigurationService } from '../services/configuration.service';
  * allowlisted caller against its NATS publish grants AND assert the secret and
  * non-secret maps are disjoint (a secret key can never appear on the GET path).
  */
-const NONSECRET_FETCH_ALLOWLIST = toSetMap(CONFIG_RUNTIME_NONSECRET_ALLOWLIST);
-const SECRET_FETCH_ALLOWLIST = toSetMap(CONFIG_RUNTIME_SECRET_ALLOWLIST);
+const NONSECRET_FETCH_ALLOWLIST = toSetMap('nonSecretKeyIds');
+const SECRET_FETCH_ALLOWLIST = toSetMap('secretKeyIds');
 
 function toSetMap(
-  source: Readonly<Record<string, readonly string[]>>,
-): Readonly<Record<string, ReadonlySet<string>>> {
-  const out: Record<string, ReadonlySet<string>> = {};
-  for (const [caller, keys] of Object.entries(source)) {
-    out[caller] = new Set(keys);
+  field: 'nonSecretKeyIds' | 'secretKeyIds',
+): Readonly<Record<string, ReadonlySet<ConfigurationKeyId>>> {
+  const out: Record<string, ReadonlySet<ConfigurationKeyId>> = {};
+  for (const [caller, access] of Object.entries(CONFIG_RUNTIME_ACCESS_BY_CONSUMER)) {
+    out[caller] = new Set(access[field]);
   }
   return out;
 }
@@ -50,13 +56,17 @@ function toSetMap(
 /** Nonce-replay window — matches the ServiceIdentity signature validity (5 min). */
 const NONCE_TTL_MS = 5 * 60 * 1000;
 
+function runtimeResult(found: boolean, value: string | null): ConfigRuntimeResult {
+  return { catalogDigest: CONFIGURATION_CATALOG_DIGEST, found, value };
+}
+
 /**
  * ConfigRuntimeNatsHandler — the ONLY trusted read surface for effective
  * config-service configuration, including decrypted platform secrets (Faz C, D6).
  *
  * Defense in depth (5 layers):
- *   1. NATS cert-CN publish allowlist (services.yaml) — only the billing_service
- *      CN can PUBLISH `config.runtime.get_secret`. Enforced by the broker.
+ *   1. NATS cert-CN publish allowlist (services.yaml) — only catalog-registered
+ *      runtime consumer CNs can PUBLISH config.runtime subjects.
  *   2. ServiceIdentity HMAC-v2 verification — the request must carry a valid
  *      signature over the exact (subject, body) bound to the SYSTEM tenant +
  *      config-service audience. Forged/expired/tampered → deny.
@@ -116,12 +126,26 @@ export class ConfigRuntimeNatsHandler {
     subject: string,
     isSecretPath: boolean,
   ): Promise<ConfigRuntimeResult> {
-    const service = request?.service ?? '';
-    const key = request?.key ?? '';
-    const resource = `${service}/${key}`;
     const actions = isSecretPath
       ? { ok: 'config.secret.fetched', deny: 'config.secret.denied' }
       : { ok: 'config.value.fetched', deny: 'config.value.denied' };
+    const keyId = this.requestKeyId(request);
+    if (keyId === null) {
+      await this.deny(actions.deny, 'unknown', {
+        caller: 'unknown',
+        reason: 'invalid-catalog-id',
+      });
+      return runtimeResult(false, null);
+    }
+    const definition = configurationDefinition(keyId);
+    const resource = `${definition.service}/${definition.key}`;
+    if (request.catalogDigest !== CONFIGURATION_CATALOG_DIGEST) {
+      await this.deny(actions.deny, resource, {
+        caller: 'unknown',
+        reason: 'catalog-digest-mismatch',
+      });
+      return runtimeResult(false, null);
+    }
 
     // ── Layer 2: ServiceIdentity HMAC-v2 verification ──
     const headers = this.headersFrom(request);
@@ -129,7 +153,7 @@ export class ConfigRuntimeNatsHandler {
       headers,
       observedMethod: 'POST',
       observedPath: subject,
-      observedBody: canonicalConfigRuntimeBody(service, key),
+      observedBody: canonicalConfigRuntimeBody(request.catalogDigest, keyId),
       keyring: this.keyring,
       secret: this.devSecret,
       allowUnscopedDevKey: process.env['NODE_ENV'] !== 'production',
@@ -142,7 +166,7 @@ export class ConfigRuntimeNatsHandler {
         caller: getServiceIdentityHeader(headers, 'x-service-identity') ?? 'unknown',
         reason: outcome.reason,
       });
-      return { found: false, value: null };
+      return runtimeResult(false, null);
     }
 
     const caller = outcome.serviceName;
@@ -151,40 +175,40 @@ export class ConfigRuntimeNatsHandler {
     // ── Layer 3: nonce-replay rejection ──
     if (this.isReplay(nonce)) {
       await this.deny(actions.deny, resource, { caller, nonce, reason: 'nonce-replay' });
-      return { found: false, value: null };
+      return runtimeResult(false, null);
     }
 
     // ── Layer 4: per-caller (service, key) allowlist ──
     const allowlist = isSecretPath ? SECRET_FETCH_ALLOWLIST : NONSECRET_FETCH_ALLOWLIST;
-    if (!allowlist[caller]?.has(resource)) {
+    if (!allowlist[caller]?.has(keyId)) {
       await this.deny(actions.deny, resource, { caller, nonce, reason: 'key-not-allowed' });
-      return { found: false, value: null };
+      return runtimeResult(false, null);
     }
 
     // ── Fetch effective value + secret classification (single lookup) ──
     // The VALUE is never logged or placed in audit metadata.
-    let entry: { value: string; isSecret: boolean } | null;
+    let entry: { value: string } | null;
     try {
-      entry = await this.configurationService.getEffectiveWithMeta(SYSTEM_TENANT_ID, service, key);
+      entry = await this.configurationService.getEffectiveWithMeta(SYSTEM_TENANT_ID, keyId);
     } catch (err) {
       await this.deny(actions.deny, resource, {
         caller,
         nonce,
         reason: `fetch-error: ${err instanceof Error ? err.message : String(err)}`,
       });
-      return { found: false, value: null };
+      return runtimeResult(false, null);
     }
 
     // ── SEC-MEDIUM-001: the non-secret GET path can NEVER return a secret ──
     // Structural guard independent of the allowlist: even if a secret key were
     // ever added to the non-secret allowlist by mistake, GET refuses it here.
-    if (!isSecretPath && entry?.isSecret) {
+    if (!isSecretPath && definition.valueType === 'SECRET') {
       await this.deny(actions.deny, resource, {
         caller,
         nonce,
         reason: 'is-secret-on-nonsecret-path',
       });
-      return { found: false, value: null };
+      return runtimeResult(false, null);
     }
 
     const found = entry !== null;
@@ -208,19 +232,24 @@ export class ConfigRuntimeNatsHandler {
           `config-runtime secret audit write failed for ${resource} — refusing to ` +
             `return the secret (fail-closed): ${err instanceof Error ? err.message : String(err)}`,
         );
-        return { found: false, value: null };
+        return runtimeResult(false, null);
       }
-      return { found, value };
+      return runtimeResult(found, value);
     }
 
     // ── Layer 5 (non-secret): best-effort audit on allow (VALUE NEVER in metadata) ──
     await this.audit(actions.ok, resource, { caller, nonce, outcome: 'allow', found });
-    return { found, value };
+    return runtimeResult(found, value);
   }
 
   private headersFrom(request: ConfigRuntimeGetRequest): Record<string, string | undefined> {
     const identity = request?.identity;
     return identity && typeof identity === 'object' ? { ...identity } : {};
+  }
+
+  private requestKeyId(request: ConfigRuntimeGetRequest): ConfigurationKeyId | null {
+    const keyId = request?.keyId;
+    return typeof keyId === 'string' && isConfigurationKeyId(keyId) ? keyId : null;
   }
 
   /** Returns true if the nonce was already seen inside the replay window. */

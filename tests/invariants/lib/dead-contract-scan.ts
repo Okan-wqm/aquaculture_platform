@@ -13,9 +13,10 @@
  * This module is the SINGLE source of the scan so the baseline generator and
  * the invariant spec can never drift apart.
  */
-import { execFileSync } from 'child_process';
 import { readFileSync } from 'fs';
 import { join } from 'path';
+
+import { listEffectiveWorktreeFiles } from './effective-worktree-files';
 
 export type OperationKind = 'mutation' | 'query' | 'subscription';
 
@@ -36,14 +37,7 @@ const OP_RE = /\b(mutation|query|subscription)\s+[A-Za-z0-9_]+/;
 const TOKEN_RE = /\b[A-Z][A-Z0-9_]{1,}\b/g;
 
 function listWebFiles(repoRoot: string): string[] {
-  return execFileSync('git', ['ls-files', 'web/'], {
-    cwd: repoRoot,
-    encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024,
-  })
-    .split('\n')
-    .map((l) => l.trim())
-    .filter((f) => /\.(ts|tsx)$/.test(f));
+  return listEffectiveWorktreeFiles(repoRoot, ['web/']).filter((file) => /\.(ts|tsx)$/.test(file));
 }
 
 const isSpec = (f: string): boolean => /\.(spec|test)\.tsx?$/.test(f);

@@ -376,11 +376,16 @@ services:
       - 'events.*.NotificationServiceTenantErasureBlocked'
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
+      # Catalog-registered SMTP runtime projection. Secret reads remain bound to
+      # notification_service by cert CN + HMAC + generated key allowlist.
+      - 'config.runtime.get'
+      - 'config.runtime.get_secret'
       - '$JS.API.>'
       - '_INBOX.>'
     subscribe:
       - 'commands.notification.sendEmail'
       - 'commands.notification.sendPush'
+      - '_INBOXNOTIFICATIONCFG.>'
       - '$JS.API.>'
       - '_INBOX.>'
 
@@ -649,6 +654,9 @@ services:
       # Faz C (SEC-CRITICAL-001): config replies to billing's SCOPED secret-read
       # inbox — config is the ONLY CN that publishes this token.
       - '_INBOXBILLINGCFG.>'
+      # Catalog-generated SMTP secret replies use a second, consumer-exclusive
+      # first-token inbox; config is its only publisher.
+      - '_INBOXNOTIFICATIONCFG.>'
       # Config is the only publisher to farm's scoped credential reply inbox.
       - '_INBOXFARMMARINECFG.>'
       - 'events.platform.schema-migration.>'
@@ -656,8 +664,8 @@ services:
       - '$JS.API.>'
       - '_INBOX.>'
     subscribe:
-      # Faz C (D6): config-runtime request-reply responder subjects. The secret
-      # reply is published back on the caller's SCOPED `_INBOXBILLINGCFG.>` inbox.
+      # Catalog-generated config-runtime request-reply responder subjects. Each
+      # reply returns on its caller-exclusive first-token inbox.
       - 'config.runtime.get'
       - 'config.runtime.get_secret'
       - 'config.marine_credentials.resolve'

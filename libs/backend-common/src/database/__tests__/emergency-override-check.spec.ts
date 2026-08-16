@@ -1,17 +1,16 @@
+import { mockCall } from '@aquaculture/testing';
 import type { DataSource } from 'typeorm';
 
 import { lookupEmergencyOverride } from '../emergency-override-check';
 
-function makeDataSource(
-  behavior: {
-    rows?: Array<Record<string, unknown>>;
-    throwOn?: Error;
-  },
-): jest.Mocked<DataSource> {
+function makeDataSource(behavior: {
+  rows?: Array<Record<string, unknown>>;
+  throwOn?: Error;
+}): jest.Mocked<DataSource> {
   return {
-    query: jest.fn(async () => {
-      if (behavior.throwOn) throw behavior.throwOn;
-      return behavior.rows ?? [];
+    query: jest.fn((): Promise<Array<Record<string, unknown>>> => {
+      if (behavior.throwOn) return Promise.reject(behavior.throwOn);
+      return Promise.resolve(behavior.rows ?? []);
     }),
   } as unknown as jest.Mocked<DataSource>;
 }
@@ -85,7 +84,7 @@ describe('lookupEmergencyOverride', () => {
       kind: 'migration_skip',
       environment: 'production',
     });
-    const call = (ds.query as jest.Mock).mock.calls[0]!;
+    const call = mockCall<[sql: string, params: string[]]>(ds.query as jest.Mock);
     expect(call[1]).toEqual(['farm', 'migration_skip', 'production']);
     // SQL contains expected filters.
     expect(call[0]).toContain('expires_at > NOW()');

@@ -1,10 +1,11 @@
 import { Module, Global } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 
+import { RATE_LIMITER_STRATEGY } from '../interfaces';
+
+import { IpRateLimiterService } from './ip-rate-limiter.service';
 import { SlidingWindowStrategy } from './sliding-window.strategy';
 import { ThrottlerGuard } from './throttler.guard';
-import { IpRateLimiterService } from './ip-rate-limiter.service';
-import { RATE_LIMITER_STRATEGY } from '../interfaces';
 
 /**
  * Throttler Module
@@ -42,11 +43,6 @@ import { RATE_LIMITER_STRATEGY } from '../interfaces';
     ThrottlerGuard,
     IpRateLimiterService,
   ],
-  exports: [
-    SlidingWindowStrategy,
-    RATE_LIMITER_STRATEGY,
-    ThrottlerGuard,
-    IpRateLimiterService,
-  ],
+  exports: [SlidingWindowStrategy, RATE_LIMITER_STRATEGY, ThrottlerGuard, IpRateLimiterService],
 })
 export class ThrottlerModule {}

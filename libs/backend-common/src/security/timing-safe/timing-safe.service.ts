@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
 import * as crypto from 'crypto';
+
+import { Injectable } from '@nestjs/common';
 
 /**
  * Timing Safe Service
@@ -100,7 +101,7 @@ export class TimingSafeService {
    * // Add 50-150ms jitter to login response
    * await timingSafe.addJitter(50, 150);
    */
-  async addJitter(minMs: number = 0, maxMs: number = 100): Promise<void> {
+  async addJitter(minMs = 0, maxMs = 100): Promise<void> {
     const jitter = this.secureRandomInRange(minMs, maxMs);
     await this.sleep(jitter);
   }
@@ -142,10 +143,7 @@ export class TimingSafeService {
    *   200, // Always takes at least 200ms
    * );
    */
-  async validateWithUniformTime<T>(
-    validator: () => Promise<T>,
-    minDurationMs: number = 200,
-  ): Promise<T> {
+  async validateWithUniformTime<T>(validator: () => Promise<T>, minDurationMs = 200): Promise<T> {
     const startTime = Date.now();
 
     try {
@@ -209,6 +207,6 @@ export class TimingSafeService {
    * Sleep for specified duration
    */
   private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }

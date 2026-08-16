@@ -3,7 +3,17 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
 import { GracefulShutdownService } from '../lifecycle/graceful-shutdown.service';
-import { EmailSenderService } from '../settings/services/email-sender.service';
+
+export interface AdminProcessMetrics {
+  uptime: number;
+  memory: {
+    heapUsed: number;
+    heapTotal: number;
+    external: number;
+    rss: number;
+  };
+  timestamp: string;
+}
 
 @Injectable()
 export class HealthService {
@@ -13,7 +23,6 @@ export class HealthService {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    private readonly emailSenderService: EmailSenderService,
     @Optional() private readonly shutdownService?: GracefulShutdownService,
   ) {}
 
@@ -37,37 +46,13 @@ export class HealthService {
       await this.dataSource.query('SELECT 1');
       return true;
     } catch (error) {
-      this.logger.error(
-        `Database health check failed: ${(error as Error).message}`,
-      );
+      this.logger.error(`Database health check failed: ${(error as Error).message}`);
       return false;
     }
   }
 
-  /** Get SMTP circuit breaker status for health reporting */
-  getSmtpStatus(): { state: string; consecutiveFailures: number; lastFailureTime: number } {
-    return this.emailSenderService.getCircuitStatus();
-  }
-
-  /** Get all circuit breaker statuses */
-  getCircuitBreakers(): Record<string, { state: string; consecutiveFailures: number; lastFailureTime: number }> {
-    return {
-      smtp: this.emailSenderService.getCircuitStatus(),
-    };
-  }
-
-  /** Reset a specific circuit breaker by name */
-  resetCircuitBreaker(name: string): boolean {
-    if (name === 'smtp') {
-      this.emailSenderService.resetCircuit();
-      return true;
-    }
-    return false;
-  }
-
-  async getMetrics() {
+  getMetrics(): AdminProcessMetrics {
     const memoryUsage = process.memoryUsage();
-    const smtpStatus = this.getSmtpStatus();
 
     return {
       uptime: process.uptime(),
@@ -77,7 +62,6 @@ export class HealthService {
         external: memoryUsage.external,
         rss: memoryUsage.rss,
       },
-      smtp: smtpStatus,
       timestamp: new Date().toISOString(),
     };
   }

@@ -2,11 +2,7 @@ import { Injectable, Logger, NestMiddleware } from '@nestjs/common';
 import type { NextFunction, Request, Response } from 'express';
 
 import { AccessLogService } from '../audit/access-log.service';
-import {
-  hashIpForGdpr,
-  readIpHashingPolicyFromEnv,
-  shouldHashIp,
-} from '../audit/ip-hash.util';
+import { hashIpForGdpr, readIpHashingPolicyFromEnv, shouldHashIp } from '../audit/ip-hash.util';
 
 /**
  * AccessLogMiddleware — emits one row per HTTP request to
@@ -102,8 +98,7 @@ export class AccessLogMiddleware implements NestMiddleware {
         const userId = user?.sub ?? user?.id ?? null;
         // tenantId from the JWT trust anchor — same posture as
         // AUDITTRAIL-MEDIUM-003 cure on the audit interceptors.
-        const tenantId =
-          user?.tenantId ?? reqWithCtx.tenantContext?.tenantId ?? null;
+        const tenantId = user?.tenantId ?? reqWithCtx.tenantContext?.tenantId ?? null;
         const correlationId =
           reqWithCtx.correlationId ??
           (req.headers['x-correlation-id'] as string | undefined) ??
@@ -111,9 +106,7 @@ export class AccessLogMiddleware implements NestMiddleware {
 
         // ── IP region-gated hashing ──
         const rawIp = this.extractIp(req);
-        const ip = shouldHashIp(user?.region ?? null, policy)
-          ? hashIpForGdpr(rawIp)
-          : rawIp;
+        const ip = shouldHashIp(user?.region ?? null, policy) ? hashIpForGdpr(rawIp) : rawIp;
 
         // ── Path normalization + truncation ──
         const path = this.truncatePath(req.originalUrl ?? req.url ?? '');
@@ -127,7 +120,7 @@ export class AccessLogMiddleware implements NestMiddleware {
           tenantId,
           correlationId,
           ip,
-          userAgent: (req.headers['user-agent'] as string) ?? null,
+          userAgent: req.headers['user-agent'] ?? null,
         });
       } catch (err) {
         // The access-log path itself must never raise into the
@@ -158,8 +151,7 @@ export class AccessLogMiddleware implements NestMiddleware {
     }
     const slice = path.slice(
       0,
-      AccessLogMiddleware.MAX_PATH_LENGTH -
-        AccessLogMiddleware.TRUNCATE_MARKER.length,
+      AccessLogMiddleware.MAX_PATH_LENGTH - AccessLogMiddleware.TRUNCATE_MARKER.length,
     );
     return `${slice}${AccessLogMiddleware.TRUNCATE_MARKER}`;
   }

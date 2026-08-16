@@ -55,9 +55,9 @@ import { createHash } from 'crypto';
 
 import { Injectable, NestMiddleware, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { serviceIdentityAudiencesForService } from '@platform/service-catalog';
 import type { Request, Response, NextFunction } from 'express';
 
-import { serviceIdentityAudiencesForService } from '../../../../platform/libs/service-catalog/src/index';
 import type { TenantRequest, VerifiedServiceIdentity } from '../types/tenant-request.interface';
 import {
   getServiceIdentityHeader,

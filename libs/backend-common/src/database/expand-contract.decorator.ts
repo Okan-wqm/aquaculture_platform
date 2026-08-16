@@ -47,10 +47,10 @@
  */
 import 'reflect-metadata';
 
+import { ClassConstructor, isClassConstructor } from '../types/class-constructor';
+
 /** Reflect metadata key. Exported so the PR gate + tests can read it. */
-export const EXPAND_CONTRACT_META_KEY = Symbol.for(
-  '@aquaculture/backend-common:expand-contract',
-);
+export const EXPAND_CONTRACT_META_KEY = Symbol.for('@aquaculture/backend-common:expand-contract');
 
 export type ExpandContractPhase = 'expand' | 'contract';
 
@@ -75,16 +75,18 @@ export interface ExpandContractOptions {
  */
 export interface ExpandContractMetadata extends ExpandContractOptions {
   /** Class constructor for debug attribution. */
-  readonly target: Function;
+  readonly target: ClassConstructor;
 }
+
+export type ExpandContractDecorator = <TConstructor extends ClassConstructor>(
+  target: TConstructor,
+) => void;
 
 /**
  * Class decorator. Attaches the options to the migration class under
  * EXPAND_CONTRACT_META_KEY.
  */
-export function ExpandContract(
-  opts: ExpandContractOptions,
-): ClassDecorator {
+export function ExpandContract(opts: ExpandContractOptions): ExpandContractDecorator {
   if (opts.phase !== 'expand' && opts.phase !== 'contract') {
     throw new RangeError(
       `@ExpandContract: phase must be 'expand' or 'contract' (got '${String(opts.phase)}')`,
@@ -103,12 +105,8 @@ export function ExpandContract(
       `@ExpandContract: dependsOn must be a string (got ${typeof opts.dependsOn})`,
     );
   }
-  return (target: Function): void => {
-    Reflect.defineMetadata(
-      EXPAND_CONTRACT_META_KEY,
-      { ...opts, target },
-      target,
-    );
+  return <TConstructor extends ClassConstructor>(target: TConstructor): void => {
+    Reflect.defineMetadata(EXPAND_CONTRACT_META_KEY, { ...opts, target }, target);
   };
 }
 
@@ -117,11 +115,38 @@ export function ExpandContract(
  * `undefined` when not decorated — safe to call unconditionally.
  */
 export function getExpandContractMetadata(
-  ctor: Function,
+  ctor: ClassConstructor,
 ): ExpandContractMetadata | undefined {
-  const raw = Reflect.getMetadata(EXPAND_CONTRACT_META_KEY, ctor);
+  const raw: unknown = Reflect.getMetadata(EXPAND_CONTRACT_META_KEY, ctor);
   if (raw === undefined || raw === null) return undefined;
-  return raw as ExpandContractMetadata;
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new TypeError('@ExpandContract metadata must be an object');
+  }
+
+  const record = raw as Record<string, unknown>;
+  const phase = record['phase'];
+  const target = record['target'];
+  const dependsOn = record['dependsOn'];
+  const reason = record['reason'];
+  if (phase !== 'expand' && phase !== 'contract') {
+    throw new TypeError('@ExpandContract metadata has an invalid phase');
+  }
+  if (!isClassConstructor(target)) {
+    throw new TypeError('@ExpandContract metadata has an invalid target');
+  }
+  if (dependsOn !== undefined && typeof dependsOn !== 'string') {
+    throw new TypeError('@ExpandContract metadata has an invalid dependsOn');
+  }
+  if (reason !== undefined && typeof reason !== 'string') {
+    throw new TypeError('@ExpandContract metadata has an invalid reason');
+  }
+
+  return {
+    phase,
+    target,
+    ...(dependsOn !== undefined ? { dependsOn } : {}),
+    ...(reason !== undefined ? { reason } : {}),
+  };
 }
 
 /**
@@ -133,9 +158,7 @@ export function getExpandContractMetadata(
  *      contract is coming").
  *   - 'no' when undecorated — breaking diff MUST fail the gate.
  */
-export function authorizesBreaking(
-  ctor: Function,
-): 'yes' | 'expand' | 'no' {
+export function authorizesBreaking(ctor: ClassConstructor): 'yes' | 'expand' | 'no' {
   const meta = getExpandContractMetadata(ctor);
   if (meta === undefined) return 'no';
   return meta.phase === 'contract' ? 'yes' : 'expand';
@@ -171,7 +194,7 @@ export interface BatchClassificationResult {
  * reviewer sees the concrete fix required.
  */
 export function classifyMigrationsForBreaking(
-  migrations: ReadonlyArray<{ name: string; ctor: Function }>,
+  migrations: ReadonlyArray<{ name: string; ctor: ClassConstructor }>,
 ): BatchClassificationResult {
   const classifications: MigrationClassification[] = [];
   const undecorated: string[] = [];

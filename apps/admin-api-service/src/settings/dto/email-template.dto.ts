@@ -1,15 +1,6 @@
-import {
-  IsString,
-  IsOptional,
-  IsEmail,
-  IsArray,
-  IsUUID,
-  IsObject,
-  MaxLength,
-  ArrayMaxSize,
-} from 'class-validator';
+import { IsString, IsOptional, IsArray, IsUUID, MaxLength, ArrayMaxSize } from 'class-validator';
 
-import { EmailTemplateVariable } from '../entities/system-setting.entity';
+import { EmailTemplateVariable } from '../entities/settings-resource.entity';
 
 export class CreateTenantOverrideDto {
   @IsUUID('4')
@@ -44,12 +35,4 @@ export class ValidateTemplateDto {
   @IsArray()
   @ArrayMaxSize(50)
   variables!: EmailTemplateVariable[];
-}
-
-export class SendTestEmailDto {
-  @IsEmail()
-  recipientEmail!: string;
-
-  @IsObject()
-  variables!: Record<string, string>;
 }

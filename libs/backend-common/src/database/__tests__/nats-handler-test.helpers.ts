@@ -16,7 +16,7 @@
  *
  * @module BackendCommon/Database/TestHelpers
  */
-import { DataSource, QueryRunner, EntityManager } from 'typeorm';
+import { DataSource, QueryRunner, EntityManager, type EntityTarget } from 'typeorm';
 
 /**
  * Creates a mock DataSource with a mock QueryRunner for testing
@@ -24,14 +24,22 @@ import { DataSource, QueryRunner, EntityManager } from 'typeorm';
  *
  * Returns all three mocks so tests can set up expectations on any layer.
  */
-export function createMockDataSourceWithQueryRunner() {
+export function createMockDataSourceWithQueryRunner(): {
+  mockDataSource: jest.Mocked<DataSource>;
+  mockQueryRunner: jest.Mocked<QueryRunner>;
+  mockManager: jest.Mocked<EntityManager>;
+} {
   const mockManager = {
     find: jest.fn().mockResolvedValue([]),
     findOne: jest.fn().mockResolvedValue(null),
-    save: jest.fn().mockImplementation((_entity, data) =>
-      Promise.resolve({ id: 'mock-id', ...data }),
-    ),
-    create: jest.fn().mockImplementation((_entity, data) => data),
+    save: jest
+      .fn()
+      .mockImplementation((_entity: EntityTarget<object>, data: Record<string, unknown>) =>
+        Promise.resolve({ id: 'mock-id', ...data }),
+      ),
+    create: jest
+      .fn()
+      .mockImplementation((_entity: EntityTarget<object>, data: Record<string, unknown>) => data),
     getRepository: jest.fn().mockReturnValue({
       find: jest.fn().mockResolvedValue([]),
       findOne: jest.fn().mockResolvedValue(null),
@@ -79,11 +87,9 @@ export const INVALID_UUIDS: [string, string][] = [
  * Asserts that a QueryRunner was properly cleaned up.
  * Checks: RESET search_path was called, release() was called.
  */
-export function expectQueryRunnerCleanedUp(
-  mockQueryRunner: jest.Mocked<QueryRunner>,
-) {
-  const queryCalls = mockQueryRunner.query.mock.calls.map(
-    (c: any[]) => c[0],
+export function expectQueryRunnerCleanedUp(mockQueryRunner: jest.Mocked<QueryRunner>): void {
+  const queryCalls: unknown[] = mockQueryRunner.query.mock.calls.map(
+    (call: readonly unknown[]) => call[0],
   );
   expect(queryCalls).toContain('RESET search_path');
   expect(mockQueryRunner.release).toHaveBeenCalled();
@@ -100,7 +106,7 @@ export function expectSearchPathSet(
   mockQueryRunner: jest.Mocked<QueryRunner>,
   expectedSchema: string,
   moduleSchema: string,
-) {
+): void {
   expect(mockQueryRunner.query).toHaveBeenCalledWith(
     `SET search_path TO "${expectedSchema}", ${moduleSchema}, public`,
   );

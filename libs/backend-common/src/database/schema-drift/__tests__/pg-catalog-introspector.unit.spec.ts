@@ -5,14 +5,16 @@
  * coverage comes from libs/migration-harness which runs it against
  * testcontainers in Phase 2 Step 3+.
  */
+import { createMockDataSource } from '@aquaculture/testing';
 import type { QueryRunner } from 'typeorm';
 
 import { introspectSchema } from '../pg-catalog-introspector';
 
 /** Minimal QueryRunner mock that dispatches by query-text pattern. */
-function makeQr(
-  routes: Array<{ match: RegExp; rows: unknown[] }>,
-): { qr: QueryRunner; calls: string[] } {
+function makeQr(routes: Array<{ match: RegExp; rows: unknown[] }>): {
+  qr: QueryRunner;
+  calls: string[];
+} {
   // Default routes for the 10-shape introspector — tests only need to
   // override the shapes they assert on; the rest return empty arrays.
   // This keeps specs focused on behaviour-under-test without leaking
@@ -34,16 +36,17 @@ function makeQr(
   ];
   const allRoutes = [...routes, ...defaultRoutes];
   const calls: string[] = [];
-  const qr = {
-    query: jest.fn(async (sql: string, _params?: unknown[]) => {
+  const { mockQueryRunner } = createMockDataSource();
+  mockQueryRunner.query.mockImplementation(
+    (sql: string, _params?: unknown[]): Promise<unknown[]> => {
       calls.push(sql);
       for (const r of allRoutes) {
-        if (r.match.test(sql)) return r.rows;
+        if (r.match.test(sql)) return Promise.resolve(r.rows);
       }
       throw new Error(`Unexpected query in mock: ${sql}`);
-    }),
-  } as unknown as QueryRunner;
-  return { qr, calls };
+    },
+  );
+  return { qr: mockQueryRunner, calls };
 }
 
 describe('introspectSchema', () => {
@@ -179,21 +182,13 @@ describe('introspectSchema', () => {
       {
         match: /FROM information_schema\.tables/,
         // Return sorted (mimics ORDER BY in the real query)
-        rows: [
-          { table_name: 'a_first' },
-          { table_name: 'b_middle' },
-          { table_name: 'z_last' },
-        ],
+        rows: [{ table_name: 'a_first' }, { table_name: 'b_middle' }, { table_name: 'z_last' }],
       },
       { match: /FROM information_schema\.columns/, rows: [] },
       { match: /FROM pg_type t/, rows: [] },
       { match: /FROM pg_constraint c/, rows: [] },
     ]);
     const snap = await introspectSchema(qr, 'det');
-    expect(snap.tables.map((t) => t.name)).toEqual([
-      'a_first',
-      'b_middle',
-      'z_last',
-    ]);
+    expect(snap.tables.map((t) => t.name)).toEqual(['a_first', 'b_middle', 'z_last']);
   });
 });

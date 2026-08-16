@@ -1,8 +1,13 @@
+import * as crypto from 'crypto';
+
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import * as crypto from 'crypto';
 
+import {
+  executeQueryResultNormalized,
+  executeQueryRowsNormalized,
+} from '../../database/query-result-normalizer';
 import {
   IGdprService,
   DataExportResult,
@@ -10,6 +15,7 @@ import {
   DataDeletionResult,
   ProcessingStatus,
 } from '../interfaces';
+
 import {
   GdprDataRequest,
   DataRequestType,
@@ -50,10 +56,7 @@ export class GdprService implements IGdprService {
   /**
    * Export all user data (Right to Access / Data Portability)
    */
-  async exportUserData(
-    userId: string,
-    format: 'json' | 'csv' = 'json',
-  ): Promise<DataExportResult> {
+  async exportUserData(userId: string, format: 'json' | 'csv' = 'json'): Promise<DataExportResult> {
     this.logger.log(`Starting data export for user ${userId}`);
 
     // Create request record
@@ -88,7 +91,9 @@ export class GdprService implements IGdprService {
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
       };
 
-      this.logger.log(`Data export completed for user ${userId}: ${Object.keys(data).length} categories`);
+      this.logger.log(
+        `Data export completed for user ${userId}: ${Object.keys(data).length} categories`,
+      );
 
       return result;
     } catch (error) {
@@ -129,9 +134,12 @@ export class GdprService implements IGdprService {
       }
 
       // Determine final status
-      const status = errors.length === 0
-        ? DataRequestStatus.COMPLETED
-        : (totalDeleted > 0 ? DataRequestStatus.COMPLETED : DataRequestStatus.FAILED);
+      const status =
+        errors.length === 0
+          ? DataRequestStatus.COMPLETED
+          : totalDeleted > 0
+            ? DataRequestStatus.COMPLETED
+            : DataRequestStatus.FAILED;
 
       await this.requestRepository.update(request.id, {
         status,
@@ -185,7 +193,9 @@ export class GdprService implements IGdprService {
         recordsAffected: totalAnonymized,
       });
 
-      this.logger.log(`Data anonymization completed for user ${userId}: ${totalAnonymized} records`);
+      this.logger.log(
+        `Data anonymization completed for user ${userId}: ${totalAnonymized} records`,
+      );
     } catch (error) {
       await this.failRequest(request.id, (error as Error).message);
       throw error;
@@ -330,12 +340,13 @@ export class GdprService implements IGdprService {
     this.registerCollector('profile', {
       collect: async (userId: string) => {
         try {
-          const result = await this.dataSource.query(
+          const rows = await executeQueryRowsNormalized<Record<string, unknown>>(
+            this.dataSource,
             `SELECT id, email, "firstName", "lastName", "createdAt", "updatedAt"
              FROM users WHERE id = $1`,
             [userId],
           );
-          return result[0] || {};
+          return rows[0] ?? {};
         } catch {
           return {};
         }
@@ -354,11 +365,12 @@ export class GdprService implements IGdprService {
           );
           return 1;
         }
-        const result = await this.dataSource.query(
+        const result = await executeQueryResultNormalized<Record<string, unknown>>(
+          this.dataSource,
           `DELETE FROM users WHERE id = $1`,
           [userId],
         );
-        return result.rowCount || 0;
+        return result.rowCount;
       },
       anonymize: async (userId: string) => {
         await this.dataSource.query(
@@ -378,11 +390,12 @@ export class GdprService implements IGdprService {
     this.registerCollector('auditLogs', {
       collect: async (userId: string) => {
         try {
-          const result = await this.dataSource.query(
+          const rows = await executeQueryRowsNormalized<Record<string, unknown>>(
+            this.dataSource,
             `SELECT * FROM shared.audit_logs WHERE "userId" = $1 ORDER BY "createdAt" DESC LIMIT 1000`,
             [userId],
           );
-          return { count: result.length, logs: result };
+          return { count: rows.length, logs: rows };
         } catch {
           return { count: 0, logs: [] };
         }
@@ -393,22 +406,24 @@ export class GdprService implements IGdprService {
     this.registerCollector('sessions', {
       collect: async (userId: string) => {
         try {
-          const result = await this.dataSource.query(
+          const rows = await executeQueryRowsNormalized<Record<string, unknown>>(
+            this.dataSource,
             `SELECT id, "createdAt", "ipAddress", "userAgent"
              FROM refresh_tokens WHERE "userId" = $1`,
             [userId],
           );
-          return { count: result.length, sessions: result };
+          return { count: rows.length, sessions: rows };
         } catch {
           return { count: 0, sessions: [] };
         }
       },
       delete: async (userId: string) => {
-        const result = await this.dataSource.query(
+        const result = await executeQueryResultNormalized<Record<string, unknown>>(
+          this.dataSource,
           `DELETE FROM refresh_tokens WHERE "userId" = $1`,
           [userId],
         );
-        return result.rowCount || 0;
+        return result.rowCount;
       },
     });
   }

@@ -15,9 +15,9 @@ export class SchemaLRUCache {
   private pendingChecks = new Map<string, Promise<boolean>>();
 
   constructor(
-    private readonly maxSize: number = 1000,
-    private readonly positiveTtlMs: number = 5 * 60 * 1000,  // 5 minutes
-    private readonly negativeTtlMs: number = 30 * 1000,       // 30 seconds
+    private readonly maxSize = 1000,
+    private readonly positiveTtlMs: number = 5 * 60 * 1000, // 5 minutes
+    private readonly negativeTtlMs: number = 30 * 1000, // 30 seconds
   ) {}
 
   get(key: string): boolean | undefined {
@@ -47,10 +47,7 @@ export class SchemaLRUCache {
    * Check schema existence with request coalescing.
    * Prevents N concurrent requests from firing N identical DB queries.
    */
-  async getOrCheck(
-    key: string,
-    checker: () => Promise<boolean>,
-  ): Promise<boolean> {
+  async getOrCheck(key: string, checker: () => Promise<boolean>): Promise<boolean> {
     const cached = this.get(key);
     if (cached !== undefined) return cached;
 
@@ -58,14 +55,16 @@ export class SchemaLRUCache {
     const pending = this.pendingChecks.get(key);
     if (pending) return pending;
 
-    const check = checker().then(exists => {
-      this.set(key, exists);
-      this.pendingChecks.delete(key);
-      return exists;
-    }).catch(err => {
-      this.pendingChecks.delete(key);
-      throw err;
-    });
+    const check = checker()
+      .then((exists) => {
+        this.set(key, exists);
+        this.pendingChecks.delete(key);
+        return exists;
+      })
+      .catch((err) => {
+        this.pendingChecks.delete(key);
+        throw err;
+      });
 
     this.pendingChecks.set(key, check);
     return check;

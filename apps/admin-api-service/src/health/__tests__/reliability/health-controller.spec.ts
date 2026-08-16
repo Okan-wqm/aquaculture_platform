@@ -1,15 +1,15 @@
 import { HttpStatus } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import type { Response } from 'express';
 
 import { HealthController } from '../../health.controller';
 import { HealthService } from '../../health.service';
 
 // Mock response object
-const createMockResponse = () => {
-  const res: any = {
-    status: jest.fn().mockReturnThis(),
-    json: jest.fn().mockReturnThis(),
-  };
+const createMockResponse = (): Response => {
+  const res = Object.create(null) as Response;
+  res.status = jest.fn().mockReturnValue(res);
+  res.json = jest.fn().mockReturnValue(res);
   return res;
 };
 
@@ -19,11 +19,8 @@ describe('HealthController', () => {
   const mockHealthService = {
     isDraining: jest.fn(),
     checkDatabase: jest.fn(),
-    getSmtpStatus: jest.fn(),
     isStartupComplete: jest.fn(),
     getMetrics: jest.fn(),
-    getCircuitBreakers: jest.fn(),
-    resetCircuitBreaker: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -31,9 +28,7 @@ describe('HealthController', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [HealthController],
-      providers: [
-        { provide: HealthService, useValue: mockHealthService },
-      ],
+      providers: [{ provide: HealthService, useValue: mockHealthService }],
     }).compile();
 
     controller = module.get<HealthController>(HealthController);
@@ -64,10 +59,10 @@ describe('HealthController', () => {
     });
 
     it('should not expose sensitive data', () => {
-      const result = controller.health() as unknown as Record<string, unknown>;
-      expect(result).not.toHaveProperty('memory');
-      expect(result).not.toHaveProperty('database');
-      expect(result).not.toHaveProperty('smtp');
+      const result = controller.health();
+      expect('memory' in result).toBe(false);
+      expect('database' in result).toBe(false);
+      expect('smtp' in result).toBe(false);
     });
   });
 
@@ -76,10 +71,6 @@ describe('HealthController', () => {
       const res = createMockResponse();
       mockHealthService.isDraining.mockReturnValue(false);
       mockHealthService.checkDatabase.mockResolvedValue(true);
-      mockHealthService.getSmtpStatus.mockReturnValue({
-        state: 'closed',
-        consecutiveFailures: 0,
-      });
 
       await controller.readiness(res);
 
@@ -89,7 +80,6 @@ describe('HealthController', () => {
           status: 'ok',
           checks: expect.objectContaining({
             database: 'ok',
-            smtp: 'ok',
           }),
         }),
       );
@@ -99,10 +89,6 @@ describe('HealthController', () => {
       const res = createMockResponse();
       mockHealthService.isDraining.mockReturnValue(false);
       mockHealthService.checkDatabase.mockResolvedValue(false);
-      mockHealthService.getSmtpStatus.mockReturnValue({
-        state: 'closed',
-        consecutiveFailures: 0,
-      });
 
       await controller.readiness(res);
 
@@ -118,10 +104,6 @@ describe('HealthController', () => {
     it('should return 503 when service is draining', async () => {
       const res = createMockResponse();
       mockHealthService.isDraining.mockReturnValue(true);
-      mockHealthService.getSmtpStatus.mockReturnValue({
-        state: 'closed',
-        consecutiveFailures: 0,
-      });
 
       await controller.readiness(res);
 
@@ -137,33 +119,10 @@ describe('HealthController', () => {
     it('should skip database check when draining', async () => {
       const res = createMockResponse();
       mockHealthService.isDraining.mockReturnValue(true);
-      mockHealthService.getSmtpStatus.mockReturnValue({
-        state: 'closed',
-        consecutiveFailures: 0,
-      });
 
       await controller.readiness(res);
 
       expect(mockHealthService.checkDatabase).not.toHaveBeenCalled();
-    });
-
-    it('should report SMTP error when circuit is open', async () => {
-      const res = createMockResponse();
-      mockHealthService.isDraining.mockReturnValue(false);
-      mockHealthService.checkDatabase.mockResolvedValue(true);
-      mockHealthService.getSmtpStatus.mockReturnValue({
-        state: 'open',
-        consecutiveFailures: 5,
-      });
-
-      await controller.readiness(res);
-
-      expect(res.status).toHaveBeenCalledWith(HttpStatus.OK);
-      expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          checks: expect.objectContaining({ smtp: 'error' }),
-        }),
-      );
     });
   });
 
@@ -175,9 +134,7 @@ describe('HealthController', () => {
       controller.startup(res);
 
       expect(res.status).toHaveBeenCalledWith(HttpStatus.OK);
-      expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({ status: 'ok' }),
-      );
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'ok' }));
     });
 
     it('should return 503 when startup is not complete', () => {
@@ -187,14 +144,12 @@ describe('HealthController', () => {
       controller.startup(res);
 
       expect(res.status).toHaveBeenCalledWith(HttpStatus.SERVICE_UNAVAILABLE);
-      expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({ status: 'not_ready' }),
-      );
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'not_ready' }));
     });
   });
 
   describe('GET /health/metrics', () => {
-    it('should return system metrics', async () => {
+    it('should return system metrics', () => {
       const mockMetrics = {
         uptime: 12345,
         memory: {
@@ -203,12 +158,11 @@ describe('HealthController', () => {
           external: 1000000,
           rss: 150000000,
         },
-        smtp: { state: 'closed', consecutiveFailures: 0 },
         timestamp: new Date().toISOString(),
       };
-      mockHealthService.getMetrics.mockResolvedValue(mockMetrics);
+      mockHealthService.getMetrics.mockReturnValue(mockMetrics);
 
-      const result = await controller.metrics();
+      const result = controller.metrics();
 
       expect(result).toEqual(mockMetrics);
       expect(result.uptime).toBe(12345);

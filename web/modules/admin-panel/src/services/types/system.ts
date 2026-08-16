@@ -39,11 +39,3 @@ export interface ServiceHealth {
   lastCheck: string;
   details?: Record<string, unknown>;
 }
-
-export interface CircuitBreakerInfo {
-  state: 'closed' | 'open' | 'half_open';
-  consecutiveFailures: number;
-  lastFailureTime: number;
-}
-
-export type CircuitBreakerStatus = Record<string, CircuitBreakerInfo>;

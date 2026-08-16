@@ -2,16 +2,14 @@ import { Injectable, Logger, OnApplicationBootstrap, Type } from '@nestjs/common
 import { ConfigService } from '@nestjs/config';
 import { DataSource, Migration, MigrationExecutor, MigrationInterface, QueryRunner } from 'typeorm';
 
+import { isClassConstructor } from '../../types/class-constructor';
 import { assertExpandContractDependency } from '../assert-expand-contract-dependency';
 import {
   NoopMigrationEventSink,
   type MigrationEventSink,
   type MigrationSinkEventType,
 } from '../migration-event-sink';
-import {
-  MIGRATION_LEDGER_TABLE,
-  tenantMigrationLedgerTable,
-} from '../migration-ledger';
+import { MIGRATION_LEDGER_TABLE, tenantMigrationLedgerTable } from '../migration-ledger';
 import {
   TENANT_AWARE_SCHEMAS,
   TENANT_SCHEMA_NAME_RE as TENANT_SCHEMA_RE,
@@ -192,8 +190,7 @@ export interface MigrationRunnerOptions {
   eventSink?: MigrationEventSink;
 }
 
-type MigrationTarget =
-  Parameters<typeof assertExpandContractDependency>[0]['migrationClass'];
+type MigrationTarget = Parameters<typeof assertExpandContractDependency>[0]['migrationClass'];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -203,26 +200,18 @@ function rowsFromQueryResult(value: unknown): readonly Record<string, unknown>[]
   return Array.isArray(value) ? value.filter(isRecord) : [];
 }
 
-function booleanColumn(
-  rows: readonly Record<string, unknown>[],
-  column: string,
-): boolean {
+function booleanColumn(rows: readonly Record<string, unknown>[], column: string): boolean {
   return rows[0]?.[column] === true;
 }
 
-function stringColumn(
-  row: Record<string, unknown> | undefined,
-  column: string,
-): string | null {
+function stringColumn(row: Record<string, unknown> | undefined, column: string): string | null {
   const value = row?.[column];
   return typeof value === 'string' ? value : null;
 }
 
 const migrationRunnerCompletions = new Map<string, Promise<unknown>>();
 
-export function getMigrationRunnerCompletion(
-  sourceSchema: string,
-): Promise<unknown> | undefined {
+export function getMigrationRunnerCompletion(sourceSchema: string): Promise<unknown> | undefined {
   return migrationRunnerCompletions.get(sourceSchema);
 }
 
@@ -260,17 +249,13 @@ export function createMigrationRunnerService(
     );
   }
 
-  const tenantAware =
-    options?.tenantAware ?? TENANT_AWARE_SCHEMAS.has(sourceSchema);
+  const tenantAware = options?.tenantAware ?? TENANT_AWARE_SCHEMAS.has(sourceSchema);
   const lockTimeoutSeconds = options?.lockTimeoutSeconds ?? 300;
-  const eventSink: MigrationEventSink =
-    options?.eventSink ?? new NoopMigrationEventSink();
+  const eventSink: MigrationEventSink = options?.eventSink ?? new NoopMigrationEventSink();
 
   @Injectable()
   class MigrationRunnerService implements OnApplicationBootstrap {
-    private readonly logger = new Logger(
-      `MigrationRunnerService[${sourceSchema}]`,
-    );
+    private readonly logger = new Logger(`MigrationRunnerService[${sourceSchema}]`);
 
     constructor(
       private readonly dataSource: DataSource,
@@ -284,14 +269,11 @@ export function createMigrationRunnerService(
     }
 
     private async runMigrations(): Promise<void> {
-      const runnerEnabledOverride = this.configService.get<string>(
-        'MIGRATION_RUNNER_ENABLED',
-      );
+      const runnerEnabledOverride = this.configService.get<string>('MIGRATION_RUNNER_ENABLED');
       const enabled =
         runnerEnabledOverride !== undefined
           ? runnerEnabledOverride === 'true'
-          : this.configService.get('DATABASE_MIGRATIONS_RUN', 'true') ===
-            'true';
+          : this.configService.get('DATABASE_MIGRATIONS_RUN', 'true') === 'true';
       const isProduction = this.configService.get('NODE_ENV') === 'production';
 
       if (!enabled && isProduction) {
@@ -322,13 +304,9 @@ export function createMigrationRunnerService(
         const tenantSchemas = await this.listTenantSchemas();
         tenantCount = tenantSchemas.length;
         if (tenantSchemas.length === 0) {
-          this.logger.log(
-            'Phase 2: no tenant schemas present — skipping tenant fan-out',
-          );
+          this.logger.log('Phase 2: no tenant schemas present — skipping tenant fan-out');
         } else {
-          this.logger.log(
-            `Phase 2: fanning out to ${tenantSchemas.length} tenant schema(s)`,
-          );
+          this.logger.log(`Phase 2: fanning out to ${tenantSchemas.length} tenant schema(s)`);
           for (const tenantSchema of tenantSchemas) {
             // Defense-in-depth: listTenantSchemas already filters via regex,
             // but we re-assert before SQL interpolation.
@@ -338,10 +316,7 @@ export function createMigrationRunnerService(
                   `schema name "${tenantSchema}" — expected /${TENANT_SCHEMA_RE.source}/.`,
               );
             }
-            await this.runForSchema(
-              tenantSchema,
-              tenantMigrationLedgerTable(sourceSchema),
-            );
+            await this.runForSchema(tenantSchema, tenantMigrationLedgerTable(sourceSchema));
           }
         }
       }
@@ -416,10 +391,7 @@ export function createMigrationRunnerService(
      * keeping connection pressure bounded — matches the per-schema
      * isolation pattern used by aqua-db-migrate's orchestrator.
      */
-    private async runForSchema(
-      schema: string,
-      migrationsTableName: string,
-    ): Promise<void> {
+    private async runForSchema(schema: string, migrationsTableName: string): Promise<void> {
       const queryRunner = this.dataSource.createQueryRunner();
       try {
         await queryRunner.connect();
@@ -454,17 +426,11 @@ export function createMigrationRunnerService(
           // re-assert the correct search_path before every migration's
           // up(), regardless of what the previous migration left the
           // session state as.
-          await queryRunner.query(
-            `SET search_path TO "${schema}", public`,
-          );
+          await queryRunner.query(`SET search_path TO "${schema}", public`);
 
-          const schemaRowsResult: unknown =
-            await queryRunner.query(`SELECT current_schema()`);
+          const schemaRowsResult: unknown = await queryRunner.query(`SELECT current_schema()`);
           const observedSchema =
-            stringColumn(
-              rowsFromQueryResult(schemaRowsResult)[0],
-              'current_schema',
-            ) ?? '<unknown>';
+            stringColumn(rowsFromQueryResult(schemaRowsResult)[0], 'current_schema') ?? '<unknown>';
 
           if (observedSchema !== schema) {
             throw new Error(
@@ -474,9 +440,7 @@ export function createMigrationRunnerService(
             );
           }
 
-          this.logger.log(
-            `QueryRunner pinned on "${schema}" (current_schema() verified)`,
-          );
+          this.logger.log(`QueryRunner pinned on "${schema}" (current_schema() verified)`);
 
           const dataSourceOptions = this.dataSource.options as {
             migrationsTableName?: string;
@@ -485,10 +449,7 @@ export function createMigrationRunnerService(
           const executor = (() => {
             dataSourceOptions.migrationsTableName = migrationsTableName;
             try {
-              const migrationExecutor = new MigrationExecutor(
-                this.dataSource,
-                queryRunner,
-              );
+              const migrationExecutor = new MigrationExecutor(this.dataSource, queryRunner);
               const schemaScopedExecutor = migrationExecutor as unknown as {
                 migrationsSchema?: string;
                 migrationsTable: string;
@@ -498,11 +459,10 @@ export function createMigrationRunnerService(
               // default point every ledger probe at the source schema; make
               // the ledger table explicit for this schema instead.
               schemaScopedExecutor.migrationsSchema = schema;
-              schemaScopedExecutor.migrationsTable =
-                this.dataSource.driver.buildTableName(
-                  migrationsTableName,
-                  schema,
-                );
+              schemaScopedExecutor.migrationsTable = this.dataSource.driver.buildTableName(
+                migrationsTableName,
+                schema,
+              );
               return migrationExecutor;
             } finally {
               dataSourceOptions.migrationsTableName = previousMigrationsTableName;
@@ -516,17 +476,13 @@ export function createMigrationRunnerService(
             return;
           }
 
-          this.logger.log(
-            `Executing ${pending.length} pending migration(s) on "${schema}"`,
-          );
+          this.logger.log(`Executing ${pending.length} pending migration(s) on "${schema}"`);
 
           const appliedNames: string[] = [];
           for (const migration of pending) {
             // Re-assert search_path before every migration (see incident
             // note above — runner-level enforcement, not distributed).
-            await queryRunner.query(
-              `SET search_path TO "${schema}", public`,
-            );
+            await queryRunner.query(`SET search_path TO "${schema}", public`);
 
             const migrationStartedAt = Date.now();
             this.emit(schema, migration.name, 'start');
@@ -539,12 +495,12 @@ export function createMigrationRunnerService(
             // up() body. Fail-safe: bootstrap environments (pre-
             // Phase-0 observability schema) skip cleanly without
             // blocking.
-            const migrationCtor =
-              typeof migration.instance === 'object' &&
-              migration.instance !== null
-                ? (migration.instance as { constructor: MigrationTarget })
-                    .constructor
-                : undefined;
+            const candidateConstructor = migration.instance?.constructor;
+            const migrationCtor: MigrationTarget | undefined = isClassConstructor(
+              candidateConstructor,
+            )
+              ? candidateConstructor
+              : undefined;
             if (migrationCtor !== undefined) {
               const env =
                 this.configService.get<string>('AQUA_ENV') ??
@@ -556,10 +512,7 @@ export function createMigrationRunnerService(
                 environment: env,
               });
 
-              if (
-                schema !== sourceSchema &&
-                isSourceOnlyMigration(migrationCtor)
-              ) {
+              if (schema !== sourceSchema && isSourceOnlyMigration(migrationCtor)) {
                 await this.recordSourceOnlySkip(
                   queryRunner,
                   schema,
@@ -570,12 +523,7 @@ export function createMigrationRunnerService(
                 this.logger.log(
                   `Migration "${migration.name}" recorded as source-only skipped on "${schema}"`,
                 );
-                this.emit(
-                  schema,
-                  migration.name,
-                  'applied',
-                  Date.now() - migrationStartedAt,
-                );
+                this.emit(schema, migration.name, 'applied', Date.now() - migrationStartedAt);
                 continue;
               }
             }
@@ -595,34 +543,19 @@ export function createMigrationRunnerService(
               // row never commits and the silent-applied class
               // (HR HealHrEnumTypeDrift 1786900 docblock: "SAVEPOINT
               // band-aid swallowed the ALTER") becomes impossible.
-              await this.runPostConditionProbe(
-                migration,
-                queryRunner,
-                schema,
-              );
+              await this.runPostConditionProbe(migration, queryRunner, schema);
 
               await queryRunner.commitTransaction();
               appliedNames.push(migration.name);
-              this.logger.log(
-                `Migration "${migration.name}" applied on "${schema}"`,
-              );
-              this.emit(
-                schema,
-                migration.name,
-                'applied',
-                Date.now() - migrationStartedAt,
-              );
+              this.logger.log(`Migration "${migration.name}" applied on "${schema}"`);
+              this.emit(schema, migration.name, 'applied', Date.now() - migrationStartedAt);
             } catch (migrationErr) {
               await queryRunner.rollbackTransaction();
               const msg =
-                migrationErr instanceof Error
-                  ? migrationErr.message
-                  : String(migrationErr);
+                migrationErr instanceof Error ? migrationErr.message : String(migrationErr);
               this.logger.error(
                 `Migration "${migration.name}" failed on "${schema}": ${msg}`,
-                migrationErr instanceof Error
-                  ? migrationErr.stack
-                  : undefined,
+                migrationErr instanceof Error ? migrationErr.stack : undefined,
               );
               this.emit(
                 schema,
@@ -641,18 +574,14 @@ export function createMigrationRunnerService(
         } finally {
           // Release advisory lock inside the inner try so we always free
           // it even if the SET search_path / MigrationExecutor step threw.
-          await queryRunner.query(
-            `SELECT pg_advisory_unlock(hashtext('aqua-db-migrate:' || $1))`,
-            [schema],
-          );
+          await queryRunner.query(`SELECT pg_advisory_unlock(hashtext('aqua-db-migrate:' || $1))`, [
+            schema,
+          ]);
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         const stack = error instanceof Error ? error.stack : undefined;
-        this.logger.error(
-          `Migration runner failed on schema "${schema}": ${message}`,
-          stack,
-        );
+        this.logger.error(`Migration runner failed on schema "${schema}": ${message}`, stack);
         // Re-throw — failed migrations indicate a deployment problem and
         // the service must not start with an inconsistent schema.
         throw error;
@@ -695,8 +624,7 @@ export function createMigrationRunnerService(
       if (instance === null || typeof instance !== 'object') {
         return;
       }
-      const candidate = instance as PostConditionAwareMigration &
-        MigrationInterface;
+      const candidate = instance as PostConditionAwareMigration & MigrationInterface;
       if (typeof candidate.postCondition !== 'function') {
         return; // optional method
       }
@@ -705,8 +633,7 @@ export function createMigrationRunnerService(
       try {
         result = await candidate.postCondition(queryRunner);
       } catch (probeErr) {
-        const msg =
-          probeErr instanceof Error ? probeErr.message : String(probeErr);
+        const msg = probeErr instanceof Error ? probeErr.message : String(probeErr);
         this.logger.error(
           `[postCondition] Migration "${migration.name}" probe threw on "${schema}": ${msg}`,
           probeErr instanceof Error ? probeErr.stack : undefined,
@@ -732,9 +659,7 @@ export function createMigrationRunnerService(
       }
 
       // `undefined` / `void` / `true` all pass — runner proceeds to commit.
-      this.logger.debug?.(
-        `[postCondition] Migration "${migration.name}" passed on "${schema}"`,
-      );
+      this.logger.debug?.(`[postCondition] Migration "${migration.name}" passed on "${schema}"`);
     }
 
     private async recordSourceOnlySkip(
@@ -758,10 +683,7 @@ export function createMigrationRunnerService(
      * Acquire `pg_try_advisory_lock` with polling + timeout. Key matches
      * aqua-db-migrate orchestrator so both runners coordinate.
      */
-    private async acquireAdvisoryLock(
-      queryRunner: QueryRunner,
-      schema: string,
-    ): Promise<boolean> {
+    private async acquireAdvisoryLock(queryRunner: QueryRunner, schema: string): Promise<boolean> {
       const deadline = Date.now() + lockTimeoutSeconds * 1000;
       while (Date.now() < deadline) {
         const rowsResult: unknown = await queryRunner.query(

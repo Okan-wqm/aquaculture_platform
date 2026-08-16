@@ -2,7 +2,7 @@
 # source: platform/libs/service-catalog/src/index.ts
 # generator: scripts/service-catalog/generate-artifacts.ts
 # generatorVersion: 3
-# catalogHash: b314e8353e82369711981b1beff7d5e51b4624753693371e9dc0ea08f5178a2a
+# catalogHash: 9f0e516d8a7bf4af45fd5b09889d32db10a131767c77ed6e24905fab8a69229d
 # do not edit by hand
 schema_version: 2
 # window_seconds is the MAX time a service has to emit each required boot signal
@@ -22,19 +22,19 @@ signal_library:
   schema_drift_clean:
     pattern: "Schema drift scan clean"
     description: "SchemaDriftValidator found zero error-severity violations."
-    canonicalSource: "libs/backend-common/src/constants/boot-invariant-signals.ts"
+    canonicalSource: "platform/libs/service-catalog/src/boot-invariant-signals.ts"
     emitterSources:
       - libs/backend-common/src/database/schema-drift-validator.service.ts
   nats_auth_mode_mtls:
     pattern: "NATS auth mode: mtls-cert"
     description: "NATS client connected successfully with mTLS cert auth."
-    canonicalSource: "libs/backend-common/src/constants/boot-invariant-signals.ts"
+    canonicalSource: "platform/libs/service-catalog/src/boot-invariant-signals.ts"
     emitterSources:
       - platform/libs/event-bus/src/nats/nats-event-bus.ts
   db_migrate_complete:
     pattern: "aqua-db-migrate complete"
     description: "Centralized db-migrate runner reached its success exit."
-    canonicalSource: "libs/backend-common/src/constants/boot-invariant-signals.ts"
+    canonicalSource: "platform/libs/service-catalog/src/boot-invariant-signals.ts"
     emitterSources:
       - apps/db-migrate/src/main.ts
 services:

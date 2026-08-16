@@ -19,20 +19,17 @@
  */
 import type { ConnectionOptions, Msg, NatsConnection, Subscription } from '@nats-io/nats-core';
 import { connect } from '@nats-io/transport-node';
-import {
-  CustomTransportStrategy,
-  IncomingRequest,
-  NatsContext,
-  Server,
-  WritePacket,
-} from '@nestjs/microservices';
+import { CustomTransportStrategy, NatsContext, Server, WritePacket } from '@nestjs/microservices';
+import { buildNatsConnectionOptions } from '@platform/event-bus/nats-connection';
 
-import { buildNatsConnectionOptions } from './nats-connection.factory';
 import { NatsV3RequestDeserializer, NatsV3ResponseSerializer } from './nats-v3-codec';
 
 // Nest's exact constants.NO_MESSAGE_HANDLER string, inlined so the error envelope a v3
 // server returns is byte-identical to what v2 callers expect.
 const NO_MESSAGE_HANDLER = 'There is no matching message handler defined in the remote service.';
+
+type NatsV3ServerEventListener = (...args: unknown[]) => void;
+type NatsV3ServerEvents = Record<string, NatsV3ServerEventListener>;
 
 /**
  * Strategy options. `serviceName` selects the mTLS client cert through
@@ -44,15 +41,17 @@ export interface NatsV3ServerOptions {
   queue?: string;
 }
 
-export class NatsV3Server extends Server implements CustomTransportStrategy {
+export class NatsV3Server extends Server<NatsV3ServerEvents> implements CustomTransportStrategy {
+  private readonly requestDeserializer = new NatsV3RequestDeserializer();
+  private readonly responseSerializer = new NatsV3ResponseSerializer();
   private natsConnection: NatsConnection | null = null;
   private readonly subscriptions: Subscription[] = [];
 
   constructor(private readonly options: NatsV3ServerOptions = {}) {
     super();
     // Drop-in for Nest's JSONCodec serializers; the Server base invokes these.
-    this.serializer = new NatsV3ResponseSerializer();
-    this.deserializer = new NatsV3RequestDeserializer();
+    this.serializer = this.responseSerializer;
+    this.deserializer = this.requestDeserializer;
   }
 
   public async listen(callback: (...optionalParams: unknown[]) => void): Promise<void> {
@@ -94,8 +93,8 @@ export class NatsV3Server extends Server implements CustomTransportStrategy {
    * exactly so it satisfies the abstract member.
    */
   public on<
-    EventKey extends keyof Record<string, Function> = keyof Record<string, Function>,
-    EventCallback extends Record<string, Function>[EventKey] = Record<string, Function>[EventKey],
+    EventKey extends keyof NatsV3ServerEvents = keyof NatsV3ServerEvents,
+    EventCallback extends NatsV3ServerEvents[EventKey] = NatsV3ServerEvents[EventKey],
   >(_event: EventKey, _callback: EventCallback): void {
     /* intentionally empty — see doc comment */
   }
@@ -113,7 +112,8 @@ export class NatsV3Server extends Server implements CustomTransportStrategy {
     const defaultQueue = this.options.queue;
     for (const channel of this.messageHandlers.keys()) {
       const handlerRef = this.messageHandlers.get(channel);
-      const queue = handlerRef?.extras?.['queue'] ?? defaultQueue;
+      const configuredQueue: unknown = handlerRef?.extras?.['queue'];
+      const queue = typeof configuredQueue === 'string' ? configuredQueue : defaultQueue;
       const subscription = nc.subscribe(channel, {
         ...(queue ? { queue } : {}),
         // err/msg infer from @nats-io's MsgCallback<Msg> via the subscribe options.
@@ -131,10 +131,7 @@ export class NatsV3Server extends Server implements CustomTransportStrategy {
 
   private async handleNatsMessage(channel: string, natsMsg: Msg): Promise<void> {
     const natsCtx = new NatsContext([natsMsg.subject, natsMsg.headers]);
-    const message = (await this.deserializer.deserialize(natsMsg.data, {
-      channel,
-      replyTo: natsMsg.reply,
-    })) as IncomingRequest;
+    const message = this.requestDeserializer.deserialize(natsMsg.data);
 
     // No id ⇒ fire-and-forget event (no reply expected).
     if (message.id === undefined) {
@@ -148,7 +145,7 @@ export class NatsV3Server extends Server implements CustomTransportStrategy {
       // (Nest hand-builds `{ id, status, err }`; routing it through buildPublisher's
       // `{ ...response, id }` spread would put id LAST and diverge on the wire).
       if (natsMsg.reply) {
-        const outgoing = this.serializer.serialize({
+        const outgoing = this.responseSerializer.serialize({
           id: message.id,
           status: 'error',
           err: NO_MESSAGE_HANDLER,
@@ -169,7 +166,7 @@ export class NatsV3Server extends Server implements CustomTransportStrategy {
       if (!natsMsg.reply) {
         return;
       }
-      const outgoing = this.serializer.serialize({ ...response, id });
+      const outgoing = this.responseSerializer.serialize({ ...response, id });
       natsMsg.respond(outgoing.data);
     };
   }

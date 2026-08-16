@@ -16,9 +16,9 @@ import {
   type MarineProviderCredentialRequest,
   type MarineProviderCredentialResolveResult,
 } from '@platform/event-contracts';
+import { serviceIdentityAudienceForService } from '@platform/service-catalog';
 import { catchError, firstValueFrom, throwError, timeout } from 'rxjs';
 
-import { serviceIdentityAudienceForService } from '../../../../platform/libs/service-catalog/src/index';
 import { buildSignedInternalHeaders } from '../http/signed-http-client';
 
 export const MARINE_PROVIDER_CREDENTIAL_NATS_CLIENT = 'MARINE_PROVIDER_CREDENTIAL_NATS_CLIENT';

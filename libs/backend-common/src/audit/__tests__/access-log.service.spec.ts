@@ -1,9 +1,10 @@
+import { mockCallArgument } from '@aquaculture/testing';
 import { Test } from '@nestjs/testing';
-import { Repository } from 'typeorm';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 
-import { AccessLogService } from '../access-log.service';
 import { AccessLogEntity } from '../access-log.entity';
+import { AccessLogService } from '../access-log.service';
 
 /**
  * AccessLogService — pin every persistence-shape rule (AUDITTRAIL-HIGH-004)
@@ -56,7 +57,7 @@ describe('AccessLogService — persistence-shape coverage (AUDITTRAIL-HIGH-004)'
 
   function lastSavedEntity(): Partial<AccessLogEntity> {
     expect(repo.save).toHaveBeenCalledTimes(1);
-    return repo.save.mock.calls[0]![0] as Partial<AccessLogEntity>;
+    return mockCallArgument<Partial<AccessLogEntity>>(repo.save);
   }
 
   describe('record() — full DTO round-trip', () => {

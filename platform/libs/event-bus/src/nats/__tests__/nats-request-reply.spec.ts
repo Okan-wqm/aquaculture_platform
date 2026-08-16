@@ -203,7 +203,14 @@ describe('NatsRequestReply — requestTyped', () => {
       { timeout: 500 },
     );
     // The string payload must be the JSON we supplied, byte-for-byte.
-    const [[, payload]] = (connection.request as jest.Mock).mock.calls;
+    const requestMock = connection.request as jest.MockedFunction<
+      NatsConnection['request']
+    >;
+    const firstCall = requestMock.mock.calls.at(0);
+    if (!firstCall) {
+      throw new Error('Expected one NATS request');
+    }
+    const payload: unknown = firstCall[1];
     expect(payload).toBe('{"a":42}');
   });
 

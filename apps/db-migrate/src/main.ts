@@ -56,7 +56,6 @@ process.env['DB_MIGRATE_DDL_AUTHORITY'] = '1';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { bootInvariantSignalRecord } from '@aquaculture/backend-common/constants';
 import {
   applyInfrastructureLedgerRls,
   applyTenantRlsToSchema,
@@ -73,6 +72,7 @@ import {
   verifySourceSchemaWriteGuards,
   verifyTenantSchemaPrivileges,
 } from '@aquaculture/backend-common/database';
+import { bootInvariantSignalRecord } from '@platform/service-catalog/boot-signals';
 import { DataSource, QueryRunner } from 'typeorm';
 import type { PostgresConnectionOptions } from 'typeorm/driver/postgres/PostgresConnectionOptions';
 

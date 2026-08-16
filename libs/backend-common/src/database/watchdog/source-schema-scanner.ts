@@ -1,6 +1,8 @@
-import { DataSource } from 'typeorm';
-import { MODULE_SCHEMAS } from '../schema-manager.service';
 import { Logger } from '@nestjs/common';
+import { DataSource } from 'typeorm';
+
+import { executeQueryRowsNormalized } from '../query-result-normalizer';
+import { MODULE_SCHEMAS } from '../schema-manager.service';
 
 /**
  * Regex for safe SQL identifiers. Prevents injection via schema/table names.
@@ -84,7 +86,7 @@ export class SourceSchemaScanner {
 
     for (const mod of MODULE_SCHEMAS) {
       const refTables = mod.referenceDataTables ?? [];
-      const nonRefTables = mod.tables.filter(t => !refTables.includes(t));
+      const nonRefTables = mod.tables.filter((t) => !refTables.includes(t));
 
       for (const table of nonRefTables) {
         // Defence-in-depth: validate identifiers before interpolation into SQL.
@@ -97,10 +99,11 @@ export class SourceSchemaScanner {
           continue;
         }
         try {
-          const result = await this.dataSource.query(
+          const rows = await executeQueryRowsNormalized<{ cnt: string | number }>(
+            this.dataSource,
             `SELECT COUNT(*) as cnt FROM "${mod.sourceSchema}"."${table}"`,
           );
-          const count = parseInt(result[0]?.cnt || '0');
+          const count = Number.parseInt(String(rows[0]?.cnt ?? 0), 10);
 
           if (count > 0) {
             violations.push({

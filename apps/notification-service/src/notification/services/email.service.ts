@@ -1,7 +1,14 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { createHash } from 'node:crypto';
+
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 import { maskEmail } from '@aquaculture/backend-common/utils';
+
+import {
+  ReadySmtpConfigurationV1,
+  SmtpConfigurationProvider,
+  SmtpConfigurationState,
+} from './smtp-configuration.provider';
 
 /**
  * HTML escape function to prevent XSS in email templates.
@@ -111,68 +118,80 @@ export const FISKERIDIREKTORATET_EMAIL = 'postmottak@fiskeridir.no';
  * Handles email notifications using nodemailer
  */
 @Injectable()
-export class EmailService {
+export class EmailService implements OnModuleDestroy {
   private readonly logger = new Logger(EmailService.name);
   private transporter: nodemailer.Transporter | null = null;
-  private readonly fromAddress: string;
-  private readonly isEnabled: boolean;
+  private transporterFingerprint: string | null = null;
+  private fromAddress: string | null = null;
 
-  constructor(private readonly configService: ConfigService) {
-    this.fromAddress = this.configService.get(
-      'SMTP_FROM',
-      'noreply@aquaculture-platform.com',
-    );
-    this.isEnabled = this.configService.get('SMTP_ENABLED', 'true') === 'true';
+  constructor(private readonly smtpConfiguration: SmtpConfigurationProvider) {}
 
-    if (this.isEnabled) {
-      this.initializeTransporter();
-    } else {
-      this.logger.warn('Email service is disabled');
-    }
+  onModuleDestroy(): void {
+    this.transporter?.close();
   }
 
-  private initializeTransporter(): void {
-    const host = this.configService.get('SMTP_HOST');
-    const port = this.configService.get<number>('SMTP_PORT', 587);
-    const user = this.configService.get('SMTP_USER');
-    const pass = this.configService.get('SMTP_PASSWORD');
-
-    if (!host) {
-      this.logger.warn('SMTP_HOST not configured, email service will not work');
-      return;
-    }
-
+  private initializeTransporter(configuration: ReadySmtpConfigurationV1): void {
+    this.transporter?.close();
     this.transporter = nodemailer.createTransport({
-      host,
-      port,
-      secure: port === 465,
-      auth: user && pass ? { user, pass } : undefined,
+      host: configuration.host,
+      port: configuration.port,
+      secure: configuration.secure,
+      auth:
+        configuration.username !== null && configuration.password !== null
+          ? { user: configuration.username, pass: configuration.password }
+          : undefined,
       pool: true,
       maxConnections: 5,
       maxMessages: 100,
-      requireTLS: port !== 465,
+      requireTLS: !configuration.secure,
       tls: {
         rejectUnauthorized: true,
       },
     });
+    this.fromAddress = `${configuration.fromName} <${configuration.fromAddress}>`;
+    this.transporterFingerprint = this.configurationFingerprint(configuration);
+    this.logger.log(`Email service initialized with SMTP host: ${configuration.host}`);
+  }
 
-    this.logger.log(`Email service initialized with SMTP host: ${host}`);
+  private async ensureTransporter(): Promise<void> {
+    const configuration = await this.smtpConfiguration.getSnapshot();
+    if (configuration.state !== SmtpConfigurationState.READY) {
+      this.transporter?.close();
+      this.transporter = null;
+      this.transporterFingerprint = null;
+      this.fromAddress = null;
+      throw new Error(`SMTP configuration is ${configuration.state}`);
+    }
+    const fingerprint = this.configurationFingerprint(configuration);
+    if (!this.transporter || this.transporterFingerprint !== fingerprint) {
+      this.initializeTransporter(configuration);
+    }
+  }
+
+  private configurationFingerprint(configuration: ReadySmtpConfigurationV1): string {
+    return createHash('sha256')
+      .update(
+        JSON.stringify({
+          catalogDigest: configuration.catalogDigest,
+          host: configuration.host,
+          port: configuration.port,
+          secure: configuration.secure,
+          username: configuration.username,
+          password: configuration.password,
+          fromAddress: configuration.fromAddress,
+          fromName: configuration.fromName,
+        }),
+      )
+      .digest('hex');
   }
 
   /**
    * Send a generic email
    */
-  async sendEmail(
-    to: string,
-    subject: string,
-    html: string,
-    text?: string,
-  ): Promise<string> {
-    if (!this.transporter) {
-      // SECURITY: Mask email in logs to prevent PII exposure (H-14)
-      this.logger.warn(`Email not sent (disabled): ${subject} to ${maskEmail(to)}`);
-      throw new Error('SMTP transporter is not configured');
-    }
+  async sendEmail(to: string, subject: string, html: string, text?: string): Promise<string> {
+    await this.ensureTransporter();
+    if (!this.transporter || this.fromAddress === null)
+      throw new Error('SMTP initialization failed');
 
     try {
       const result = await this.transporter.sendMail({
@@ -188,9 +207,7 @@ export class EmailService {
       return result.messageId;
     } catch (error) {
       // SECURITY: Mask email in logs to prevent PII exposure (H-14)
-      this.logger.error(
-        `Failed to send email to ${maskEmail(to)}: ${(error as Error).message}`,
-      );
+      this.logger.error(`Failed to send email to ${maskEmail(to)}: ${(error as Error).message}`);
       throw error;
     }
   }
@@ -202,7 +219,10 @@ export class EmailService {
     // Sanitize recipient email to prevent header injection
     const sanitizedTo = this.sanitizeEmailAddress(to);
     // Strip CRLF from subject to prevent SMTP header injection
-    const subject = `[${alertData.severity.toUpperCase()}] ${alertData.ruleName}`.replace(/[\r\n]/g, '');
+    const subject = `[${alertData.severity.toUpperCase()}] ${alertData.ruleName}`.replace(
+      /[\r\n]/g,
+      '',
+    );
     const html = this.generateAlertEmailTemplate(alertData);
 
     return await this.sendEmail(sanitizedTo, subject, html);
@@ -357,24 +377,36 @@ export class EmailService {
                 <div class="field-label">Message</div>
                 <div class="field-value">${escapeHtml(data.message)}</div>
               </div>
-              ${data.farmName ? `
+              ${
+                data.farmName
+                  ? `
               <div class="field">
                 <div class="field-label">Farm</div>
                 <div class="field-value">${escapeHtml(data.farmName)}</div>
               </div>
-              ` : ''}
-              ${data.pondName ? `
+              `
+                  : ''
+              }
+              ${
+                data.pondName
+                  ? `
               <div class="field">
                 <div class="field-label">Pond</div>
                 <div class="field-value">${escapeHtml(data.pondName)}</div>
               </div>
-              ` : ''}
-              ${data.sensorId ? `
+              `
+                  : ''
+              }
+              ${
+                data.sensorId
+                  ? `
               <div class="field">
                 <div class="field-label">Sensor ID</div>
                 <div class="field-value">${escapeHtml(data.sensorId)}</div>
               </div>
-              ` : ''}
+              `
+                  : ''
+              }
               <div class="field">
                 <div class="field-label">Time</div>
                 <div class="field-value">${escapeHtml((data.timestamp || new Date()).toLocaleString())}</div>
@@ -415,7 +447,9 @@ export class EmailService {
 
     // Enforce RFC 5321 maximum email address length (254 characters)
     if (sanitized.length > 254) {
-      this.logger.warn(`Email address exceeds maximum length (254 chars): ${sanitized.substring(0, 20)}...`);
+      this.logger.warn(
+        `Email address exceeds maximum length (254 chars): ${sanitized.substring(0, 20)}...`,
+      );
       throw new Error('Email address exceeds maximum allowed length');
     }
 
@@ -458,17 +492,11 @@ export class EmailService {
 
     // SECURITY FIX: Sanitize all recipient email addresses to prevent header injection
     // This prevents CRLF injection attacks that could manipulate email headers (BCC injection, etc.)
-    const sanitizedRecipients = recipients.map(email => this.sanitizeEmailAddress(email));
+    const sanitizedRecipients = recipients.map((email) => this.sanitizeEmailAddress(email));
 
-    const messageId = await this.sendEmail(
-      sanitizedRecipients.join(', '),
-      subject,
-      html,
-    );
+    const messageId = await this.sendEmail(sanitizedRecipients.join(', '), subject, html);
 
-    this.logger.log(
-      `Regulatory report email sent: ${data.reportType} for ${data.siteName}`,
-    );
+    this.logger.log(`Regulatory report email sent: ${data.reportType} for ${data.siteName}`);
 
     return { messageId, sentTo: sanitizedRecipients };
   }
@@ -505,9 +533,9 @@ export class EmailService {
    */
   private generateRegulatoryReportTemplate(data: RegulatoryReportEmailData): string {
     const reportColors = {
-      welfare: '#dc3545',   // Red
-      disease: '#ff6600',   // Orange
-      escape: '#9c27b0',    // Purple
+      welfare: '#dc3545', // Red
+      disease: '#ff6600', // Orange
+      escape: '#9c27b0', // Purple
     };
 
     const reportIcons = {
@@ -604,12 +632,16 @@ export class EmailService {
                   <span class="field-label">Email:</span>
                   <span class="field-value">${escapeHtml(data.contactEmail)}</span>
                 </div>
-                ${data.contactPhone ? `
+                ${
+                  data.contactPhone
+                    ? `
                 <div class="field">
                   <span class="field-label">Phone / Telefon:</span>
                   <span class="field-value">${escapeHtml(data.contactPhone)}</span>
                 </div>
-                ` : ''}
+                `
+                    : ''
+                }
               </div>
 
               <!-- Report Metadata -->
@@ -645,7 +677,9 @@ export class EmailService {
   /**
    * Generate welfare event section HTML
    */
-  private generateWelfareSection(data: NonNullable<RegulatoryReportEmailData['welfareData']>): string {
+  private generateWelfareSection(
+    data: NonNullable<RegulatoryReportEmailData['welfareData']>,
+  ): string {
     return `
       <div class="section">
         <div class="section-title">Welfare Event Details / Velferdshendelsedetaljer</div>
@@ -659,29 +693,37 @@ export class EmailService {
             ${escapeHtml(data.severity.toUpperCase())}
           </span>
         </div>
-        ${data.mortalityRate !== undefined ? `
+        ${
+          data.mortalityRate !== undefined
+            ? `
         <div class="highlight-box">
           <div class="field">
             <span class="field-label">Mortality Rate / Dodelighet:</span>
             <span class="field-value"><strong>${escapeHtml(String(data.mortalityRate))}%</strong> (${escapeHtml(data.mortalityPeriod || 'N/A')})</span>
           </div>
         </div>
-        ` : ''}
+        `
+            : ''
+        }
         <div class="field">
           <span class="field-label">Description / Beskrivelse:</span>
           <span class="field-value">${escapeHtml(data.description)}</span>
         </div>
-        ${data.affectedBatches && data.affectedBatches.length > 0 ? `
+        ${
+          data.affectedBatches && data.affectedBatches.length > 0
+            ? `
         <div class="field">
           <span class="field-label">Affected Batches / Berorte partier:</span>
-          <span class="field-value">${data.affectedBatches.map(b => escapeHtml(b)).join(', ')}</span>
+          <span class="field-value">${data.affectedBatches.map((b) => escapeHtml(b)).join(', ')}</span>
         </div>
-        ` : ''}
+        `
+            : ''
+        }
         <div class="field">
           <span class="field-label">Immediate Actions / Strakstiltak:</span>
           <span class="field-value">
             <ul class="list-items">
-              ${data.immediateActions.map(action => `<li>${escapeHtml(action)}</li>`).join('')}
+              ${data.immediateActions.map((action) => `<li>${escapeHtml(action)}</li>`).join('')}
             </ul>
           </span>
         </div>
@@ -692,7 +734,9 @@ export class EmailService {
   /**
    * Generate disease outbreak section HTML
    */
-  private generateDiseaseSection(data: NonNullable<RegulatoryReportEmailData['diseaseData']>): string {
+  private generateDiseaseSection(
+    data: NonNullable<RegulatoryReportEmailData['diseaseData']>,
+  ): string {
     const categoryDescriptions: Record<string, string> = {
       A: 'Liste A - Exotic Disease / Eksotisk sykdom',
       C: 'Liste C - Non-Exotic Notifiable / Meldepliktig ikke-eksotisk',
@@ -726,7 +770,7 @@ export class EmailService {
           <span class="field-label">Clinical Signs / Kliniske tegn:</span>
           <span class="field-value">
             <ul class="list-items">
-              ${data.clinicalSigns.map(sign => `<li>${escapeHtml(sign)}</li>`).join('')}
+              ${data.clinicalSigns.map((sign) => `<li>${escapeHtml(sign)}</li>`).join('')}
             </ul>
           </span>
         </div>
@@ -743,7 +787,9 @@ export class EmailService {
   /**
    * Generate escape incident section HTML
    */
-  private generateEscapeSection(data: NonNullable<RegulatoryReportEmailData['escapeData']>): string {
+  private generateEscapeSection(
+    data: NonNullable<RegulatoryReportEmailData['escapeData']>,
+  ): string {
     return `
       <div class="section">
         <div class="section-title">Escape Incident Details / Rommingshendelsedetaljer</div>
@@ -771,7 +817,7 @@ export class EmailService {
         </div>
         <div class="field">
           <span class="field-label">Affected Units / Berorte enheter:</span>
-          <span class="field-value">${data.affectedUnits.map(u => escapeHtml(u)).join(', ')}</span>
+          <span class="field-value">${data.affectedUnits.map((u) => escapeHtml(u)).join(', ')}</span>
         </div>
         <div class="field">
           <span class="field-label">Recovery Ongoing / Bergingsoperasjon pagaar:</span>

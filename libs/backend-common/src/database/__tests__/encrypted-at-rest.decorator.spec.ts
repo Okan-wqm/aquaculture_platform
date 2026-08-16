@@ -5,6 +5,7 @@ import {
   ENCRYPTED_AT_REST_META_KEY,
   getEncryptedAtRestForProperty,
   getEncryptedAtRestMetadata,
+  type EncryptedAtRestOptions,
 } from '../encrypted-at-rest.decorator';
 
 describe('@EncryptedAtRest decorator', () => {
@@ -29,12 +30,12 @@ describe('@EncryptedAtRest decorator', () => {
       secret!: Buffer;
     }
 
-    const raw: Map<string, unknown> | undefined = Reflect.getMetadata(
-      ENCRYPTED_AT_REST_META_KEY,
-      Foo,
-    );
+    const raw: unknown = Reflect.getMetadata(ENCRYPTED_AT_REST_META_KEY, Foo);
     expect(raw).toBeInstanceOf(Map);
-    expect(raw?.has('secret')).toBe(true);
+    if (!(raw instanceof Map)) {
+      throw new Error('Expected encrypted metadata map');
+    }
+    expect(raw.has('secret')).toBe(true);
   });
 
   it('supports multiple decorated properties on the same class', () => {
@@ -74,16 +75,12 @@ describe('@EncryptedAtRest decorator', () => {
   });
 
   it('throws on empty keyId', () => {
-    expect(() =>
-      EncryptedAtRest({ keyId: '', algorithm: 'pgp_sym' }),
-    ).toThrow(/keyId/);
+    expect(() => EncryptedAtRest({ keyId: '', algorithm: 'pgp_sym' })).toThrow(/keyId/);
   });
 
   it('throws on unsupported algorithm', () => {
-    expect(() =>
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      EncryptedAtRest({ keyId: 'k', algorithm: 'rot13' as any }),
-    ).toThrow(/allowlist/);
+    const invalid = { keyId: 'k', algorithm: 'rot13' } as unknown as EncryptedAtRestOptions;
+    expect(() => EncryptedAtRest(invalid)).toThrow(/allowlist/);
   });
 
   it('supports the optional reason field for audit trails', () => {

@@ -45,6 +45,40 @@ export interface SubscribeToOptions {
   startFrom?: 'beginning' | 'latest';
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isOptionalBoolean(value: unknown): value is boolean | undefined {
+  return value === undefined || typeof value === 'boolean';
+}
+
+function isOptionalString(value: unknown): value is string | undefined {
+  return value === undefined || typeof value === 'string';
+}
+
+function isEventHandlerOptions(value: unknown): value is EventHandlerOptions {
+  return (
+    isRecord(value) &&
+    typeof value['eventName'] === 'string' &&
+    isOptionalString(value['groupId']) &&
+    isOptionalBoolean(value['durable']) &&
+    (value['maxRetries'] === undefined || typeof value['maxRetries'] === 'number')
+  );
+}
+
+function isSubscribeToOptions(value: unknown): value is SubscribeToOptions {
+  return (
+    isRecord(value) &&
+    typeof value['topic'] === 'string' &&
+    isOptionalString(value['groupId']) &&
+    isOptionalBoolean(value['durable']) &&
+    (value['startFrom'] === undefined ||
+      value['startFrom'] === 'beginning' ||
+      value['startFrom'] === 'latest')
+  );
+}
+
 /**
  * Decorator to subscribe a method to a specific topic
  * @param topicOrOptions - Topic string or subscription options
@@ -66,7 +100,11 @@ export function SubscribeTo(
 export function getEventHandlerMetadata(
   target: object,
 ): EventHandlerOptions | undefined {
-  return Reflect.getMetadata(EVENT_HANDLER_METADATA, target.constructor);
+  const metadata: unknown = Reflect.getMetadata(
+    EVENT_HANDLER_METADATA,
+    target.constructor,
+  );
+  return isEventHandlerOptions(metadata) ? metadata : undefined;
 }
 
 /**
@@ -76,5 +114,17 @@ export function getSubscriptionMetadata(
   target: object,
   propertyKey: string | symbol,
 ): SubscribeToOptions | undefined {
-  return Reflect.getMetadata(EVENT_SUBSCRIPTION_METADATA, target, propertyKey);
+  // Nest's SetMetadata method-decorator branch writes metadata on
+  // `descriptor.value` (the method function), not on the instance/property
+  // pair. Resolve the callable exactly as Nest stores it so the decorator and
+  // registry share one metadata contract.
+  const methodTarget: unknown = Reflect.get(target, propertyKey);
+  if (typeof methodTarget !== 'function') {
+    return undefined;
+  }
+  const metadata: unknown = Reflect.getMetadata(
+    EVENT_SUBSCRIPTION_METADATA,
+    methodTarget,
+  );
+  return isSubscribeToOptions(metadata) ? metadata : undefined;
 }

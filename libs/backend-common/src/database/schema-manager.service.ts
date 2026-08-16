@@ -914,7 +914,13 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES,
     ],
     referenceDataTables: [],
-    tables: ['configurations', 'configuration_history'],
+    tables: [
+      'configurations',
+      'configuration_history',
+      'configuration_scopes',
+      'configuration_operation_receipts',
+      'configuration_change_journal',
+    ],
   },
   {
     // DB-INFRA-HIGH-003: event-store-service — platform-level erasure target.

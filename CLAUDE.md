@@ -62,7 +62,7 @@ Nx monorepo: NestJS microservices (`apps/`), React microfrontends (`web/`), plat
 
 ### Platform & Shared Libs
 - `platform/libs/`: `@platform/cqrs` (command/query bus), `@platform/event-bus` (NATS abstraction), `@platform/outbox`. Also `@platform/event-contracts` (BaseEvent + branded `EventId`, validators, upcasters), `@platform/testing`, `@platform/shared`, `@platform/storage`.
-- `libs/backend-common` — dual-aliased `@aquaculture/backend-common` (primary) and `@platform/backend-common`. Bootstrap, guards, tenant context, RLS, health, audit, telemetry, Redis, NATS factory, signed HTTP client, schema-drift validator, migration-runner factory.
+- `libs/backend-common` — dual-aliased `@aquaculture/backend-common` (primary) and `@platform/backend-common`. Bootstrap, guards, tenant context, RLS, health, audit, telemetry, Redis, NATS Nest transport adapters, signed HTTP client, schema-drift validator, migration-runner factory.
 
 ### Web (`web/`)
 Module Federation via `@module-federation/vite`. `web/shell` is the host; `web/shared-ui` is the design system + federation shared-deps SSoT; `web/modules/*` are the 8 federated remotes (dashboard, farm-module, sensor-module, hr-module, admin-panel, tenant-admin, hydroponics-module, messaging-module); `web/apps/aquamobil` is a standalone offline-first Vite PWA (not a remote).
@@ -127,7 +127,7 @@ Each bounded context lives in `apps/{service}/src/{domain}/` with: `commands/`, 
 
 - Identity comes ONLY from the mTLS client cert CN (`verify_and_map: true`). User/pass auth is FORBIDDEN — the server ignores CONNECT-frame user/pass.
 - `infrastructure/nats/services.yaml` is the SSoT. Adding a service = edit it + mint a cert CN + run `scripts/nats/generate-nats-conf.py`, all in one commit. The `authorization.users[]` block in `infrastructure/docker/nats/nats.conf` is GENERATED between `# BEGIN/END GENERATED` sentinels; hand-editing fails the invariant.
-- The client factory (`libs/backend-common/src/nats/nats-connection.factory.ts`) in `mtls-cert` mode writes no user/pass/token. CI invariant: `e2e/tests/integration/nats-invariants.spec.ts`. Operator how-to: `docs/runbooks/nats-service-addition.md`.
+- The client factory (`platform/libs/event-bus/src/nats/nats-connection.factory.ts`) in `mtls-cert` mode writes no user/pass/token. CI invariant: `e2e/tests/integration/nats-invariants.spec.ts`. Operator how-to: `docs/runbooks/nats-service-addition.md`.
 
 ## Event Contract Rules
 

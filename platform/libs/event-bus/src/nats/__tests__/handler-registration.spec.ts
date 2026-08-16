@@ -1,32 +1,17 @@
 import 'reflect-metadata';
-import { Test, TestingModule } from '@nestjs/testing';
 import { Injectable, Module } from '@nestjs/common';
-import { DiscoveryModule, DiscoveryService, MetadataScanner } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
-import {
-  EVENT_HANDLER_METADATA,
-  EVENT_SUBSCRIPTION_METADATA,
-  SubscribeToOptions,
-} from '../../decorators/event-handler.decorator';
+import { DiscoveryModule } from '@nestjs/core';
+import { Test, TestingModule } from '@nestjs/testing';
+
+import { EventHandler, SubscribeTo } from '../../decorators/event-handler.decorator';
+import type {
+  IEvent,
+  IEventHandler,
+  SubscriptionOptions,
+} from '../../interfaces/event-bus.interface';
 import { NatsEventBus } from '../nats-event-bus';
 import { EventHandlerRegistryModule } from '../nats.module';
-import { IEventHandler, IEvent, SubscriptionOptions } from '../../interfaces/event-bus.interface';
-
-/**
- * Lightweight SubscribeTo decorator for testing that applies metadata
- * identically to the production decorator, without importing SetMetadata
- * (which requires full NestJS decorator pipeline).
- */
-function SubscribeTo(topicOrOptions: string | SubscribeToOptions): MethodDecorator {
-  const options: SubscribeToOptions =
-    typeof topicOrOptions === 'string'
-      ? { topic: topicOrOptions }
-      : topicOrOptions;
-
-  return (target: object, propertyKey: string | symbol, _descriptor: PropertyDescriptor) => {
-    Reflect.defineMetadata(EVENT_SUBSCRIPTION_METADATA, options, target, propertyKey);
-  };
-}
 
 /**
  * Test service with 3 @SubscribeTo decorated methods.
@@ -61,6 +46,7 @@ class TestSensorService {
  * Test service with a class-level @EventHandler decorator.
  */
 @Injectable()
+@EventHandler('events.alert.triggered')
 class TestAlertHandler implements IEventHandler {
   handle(_event: IEvent): Promise<void> {
     return Promise.resolve();
@@ -71,9 +57,6 @@ class TestAlertHandler implements IEventHandler {
   }
 }
 
-// Apply class-level metadata manually (same as @EventHandler('events.alert.triggered'))
-Reflect.defineMetadata(EVENT_HANDLER_METADATA, { eventName: 'events.alert.triggered' }, TestAlertHandler);
-
 @Module({
   providers: [TestSensorService, TestAlertHandler],
   exports: [TestSensorService, TestAlertHandler],
@@ -81,9 +64,19 @@ Reflect.defineMetadata(EVENT_HANDLER_METADATA, { eventName: 'events.alert.trigge
 class TestHandlersModule {}
 
 describe('EventHandlerRegistryModule — handler registration', () => {
-  let moduleRef: TestingModule;
-  const subscribeToSpy = jest.fn<Promise<void>, [string, IEventHandler, SubscriptionOptions | undefined]>();
+  type SubscribeToCall = [string, IEventHandler, SubscriptionOptions | undefined];
+
+  let moduleRef: TestingModule | undefined;
+  const subscribeToSpy = jest.fn<Promise<void>, SubscribeToCall>();
   const subscribeSpy = jest.fn<Promise<void>, [string, IEventHandler]>();
+
+  function findSubscription(topic: string): SubscribeToCall {
+    const call = subscribeToSpy.mock.calls.find((candidate) => candidate[0] === topic);
+    if (!call) {
+      throw new Error(`Expected subscription for ${topic}`);
+    }
+    return call;
+  }
 
   beforeAll(async () => {
     /**
@@ -117,7 +110,9 @@ describe('EventHandlerRegistryModule — handler registration', () => {
   });
 
   afterAll(async () => {
-    await moduleRef?.close();
+    if (moduleRef) {
+      await moduleRef.close();
+    }
   });
 
   it('should discover all 3 @SubscribeTo decorated methods', () => {
@@ -125,21 +120,15 @@ describe('EventHandlerRegistryModule — handler registration', () => {
   });
 
   it('should register the temperature handler with correct topic', () => {
-    const temperatureCall = subscribeToSpy.mock.calls.find(
-      (call) => call[0] === 'events.sensor.temperature',
-    );
-    expect(temperatureCall).toBeDefined();
-    expect(temperatureCall![1]).toHaveProperty('handle');
-    expect(temperatureCall![1]).toHaveProperty('getEventType');
-    expect(temperatureCall![1].getEventType()).toBe('events.sensor.temperature');
+    const temperatureCall = findSubscription('events.sensor.temperature');
+    expect(temperatureCall[1]).toHaveProperty('handle');
+    expect(temperatureCall[1]).toHaveProperty('getEventType');
+    expect(temperatureCall[1].getEventType()).toBe('events.sensor.temperature');
   });
 
   it('should register the pH handler with groupId and durable options', () => {
-    const phCall = subscribeToSpy.mock.calls.find(
-      (call) => call[0] === 'events.sensor.ph',
-    );
-    expect(phCall).toBeDefined();
-    expect(phCall![2]).toEqual(
+    const phCall = findSubscription('events.sensor.ph');
+    expect(phCall[2]).toEqual(
       expect.objectContaining({
         groupId: 'sensor-group',
         durable: true,
@@ -148,11 +137,8 @@ describe('EventHandlerRegistryModule — handler registration', () => {
   });
 
   it('should register the dissolved-oxygen handler', () => {
-    const doCall = subscribeToSpy.mock.calls.find(
-      (call) => call[0] === 'events.sensor.dissolved-oxygen',
-    );
-    expect(doCall).toBeDefined();
-    expect(doCall![1].getEventType()).toBe('events.sensor.dissolved-oxygen');
+    const doCall = findSubscription('events.sensor.dissolved-oxygen');
+    expect(doCall[1].getEventType()).toBe('events.sensor.dissolved-oxygen');
   });
 
   it('should NOT register the helperMethod (no decorator)', () => {
@@ -164,10 +150,12 @@ describe('EventHandlerRegistryModule — handler registration', () => {
 
   it('should register the class-level @EventHandler decorated handler', () => {
     expect(subscribeSpy).toHaveBeenCalledTimes(1);
-    expect(subscribeSpy).toHaveBeenCalledWith(
-      'events.alert.triggered',
-      expect.objectContaining({ handle: expect.any(Function) }),
-    );
+    const call = subscribeSpy.mock.calls.at(0);
+    if (!call) {
+      throw new Error('Expected class-level event-handler subscription');
+    }
+    expect(call[0]).toBe('events.alert.triggered');
+    expect(typeof call[1].handle).toBe('function');
   });
 
   it('should register exactly 4 total handlers (3 method-level + 1 class-level)', () => {
@@ -176,10 +164,8 @@ describe('EventHandlerRegistryModule — handler registration', () => {
   });
 
   it('should bind handler methods to the correct instance context', () => {
-    const temperatureCall = subscribeToSpy.mock.calls.find(
-      (call) => call[0] === 'events.sensor.temperature',
-    );
+    const temperatureCall = findSubscription('events.sensor.temperature');
     // The handler's handle function should be a bound function (callable without `this` issues)
-    expect(typeof temperatureCall![1].handle).toBe('function');
+    expect(typeof temperatureCall[1].handle).toBe('function');
   });
 });

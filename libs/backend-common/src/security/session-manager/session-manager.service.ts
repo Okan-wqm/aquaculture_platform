@@ -1,14 +1,11 @@
+import * as crypto from 'crypto';
+
 import { Injectable, Logger, OnModuleDestroy, Inject, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as crypto from 'crypto';
 import Redis from 'ioredis';
 import type { ChainableCommander } from 'ioredis';
 
-import {
-  ISessionManager,
-  SessionMetadata,
-  SessionInfo,
-} from '../interfaces';
+import { ISessionManager, SessionMetadata, SessionInfo } from '../interfaces';
 
 /**
  * Session data stored in backend
@@ -61,32 +58,32 @@ export class SessionManagerService implements ISessionManager, OnModuleDestroy {
     this.useRedis = this.configService.get<boolean>('SESSION_USE_REDIS', false) && !!redis;
 
     // Cleanup every 5 minutes
-    this.cleanupInterval = setInterval(() => this.cleanupExpiredSessions(), 300000);
+    this.cleanupInterval = setInterval((): void => this.cleanupExpiredSessions(), 300000);
 
     const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
     if (!this.useRedis && nodeEnv === 'production') {
       this.logger.error(
         'SessionManagerService is using in-memory storage in production. ' +
-        'Session limits and revocation will NOT work across multiple instances. ' +
-        'Set SESSION_USE_REDIS=true and provide a Redis connection.',
+          'Session limits and revocation will NOT work across multiple instances. ' +
+          'Set SESSION_USE_REDIS=true and provide a Redis connection.',
       );
       throw new Error(
         'SessionManagerService requires Redis in production. ' +
-        'Set SESSION_USE_REDIS=true and provide a Redis connection.',
+          'Set SESSION_USE_REDIS=true and provide a Redis connection.',
       );
     }
 
     if (!this.useRedis) {
       this.logger.warn(
         'SessionManagerService is using in-memory storage. ' +
-        'This is only suitable for single-instance development/test environments.',
+          'This is only suitable for single-instance development/test environments.',
       );
     }
 
     this.logger.log(
       `Session manager initialized (max sessions: ${this.maxSessionsPerUser}, ` +
-      `TTL: ${this.sessionTtlMs / 1000 / 60} minutes, ` +
-      `storage: ${this.useRedis ? 'Redis' : 'in-memory'})`,
+        `TTL: ${this.sessionTtlMs / 1000 / 60} minutes, ` +
+        `storage: ${this.useRedis ? 'Redis' : 'in-memory'})`,
     );
   }
 
@@ -135,10 +132,12 @@ export class SessionManagerService implements ISessionManager, OnModuleDestroy {
       this.sessions.set(sessionId, session);
 
       // Track user sessions
-      if (!this.userSessions.has(userId)) {
-        this.userSessions.set(userId, new Set());
+      let userSessionIds = this.userSessions.get(userId);
+      if (!userSessionIds) {
+        userSessionIds = new Set<string>();
+        this.userSessions.set(userId, userSessionIds);
       }
-      this.userSessions.get(userId)!.add(sessionId);
+      userSessionIds.add(sessionId);
     }
 
     this.logger.debug(`Session created for user ${userId}: ${sessionId.substring(0, 8)}...`);
@@ -330,7 +329,7 @@ export class SessionManagerService implements ISessionManager, OnModuleDestroy {
       if (results === null) {
         this.logger.error(
           `Pipeline exec returned null while revoking ${sessionIds.length} sessions ` +
-          `for user ${userId} (reason: ${reason})`,
+            `for user ${userId} (reason: ${reason})`,
         );
         return 0;
       }
@@ -348,8 +347,8 @@ export class SessionManagerService implements ISessionManager, OnModuleDestroy {
         if (delErr || sremErr) {
           this.logger.error(
             `Failed to revoke session ${sessionId.substring(0, 8)}... ` +
-            `for user ${userId} (reason: ${reason}): ` +
-            `del=${delErr?.message ?? 'ok'}, srem=${sremErr?.message ?? 'ok'}`,
+              `for user ${userId} (reason: ${reason}): ` +
+              `del=${delErr?.message ?? 'ok'}, srem=${sremErr?.message ?? 'ok'}`,
           );
           continue;
         }
@@ -377,7 +376,7 @@ export class SessionManagerService implements ISessionManager, OnModuleDestroy {
    */
   async getSessionCount(userId: string): Promise<number> {
     const sessions = await this.getUserSessions(userId);
-    return sessions.filter(s => s.isActive).length;
+    return sessions.filter((s) => s.isActive).length;
   }
 
   /**
@@ -451,7 +450,7 @@ export class SessionManagerService implements ISessionManager, OnModuleDestroy {
   /**
    * Cleanup expired sessions
    */
-  private async cleanupExpiredSessions(): Promise<void> {
+  private cleanupExpiredSessions(): void {
     if (this.useRedis) {
       // Redis handles TTL automatically
       return;

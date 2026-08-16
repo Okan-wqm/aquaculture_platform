@@ -7,6 +7,8 @@
  * Closes: docs/reviews/circuit-breaker-auditor/2026-04-28-core-platform-review.md#CIRCUIT-CRITICAL-004 (foundation)
  */
 
+import { defined } from '@aquaculture/testing';
+
 import {
   CircuitBreakerService,
   CircuitOpenError,
@@ -38,6 +40,18 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function rejectUpstream(): Promise<never> {
+  return Promise.reject(new Error('upstream-failed'));
+}
+
+function succeedsWith<T>(value: T): () => Promise<T> {
+  return () => Promise.resolve(value);
+}
+
+function breakerState(service: CircuitBreakerService): string {
+  return defined(service.getAllStats()[0], 'Expected circuit-breaker stats').stats.state;
+}
+
 describe('CircuitBreakerService', () => {
   let svc: CircuitBreakerService;
 
@@ -48,7 +62,7 @@ describe('CircuitBreakerService', () => {
   it('passes through to fn() when CLOSED', async () => {
     const result = await svc.execute({
       serviceName: 'test',
-      fn: async () => 'ok',
+      fn: succeedsWith('ok'),
       options: FAST_OPTIONS,
     });
     expect(result).toBe('ok');
@@ -56,31 +70,35 @@ describe('CircuitBreakerService', () => {
 
   it('records failures and trips to OPEN after threshold', async () => {
     let calls = 0;
-    const fail = async () => {
+    const fail = (): Promise<never> => {
       calls += 1;
-      throw new Error('upstream-failed');
+      return rejectUpstream();
     };
 
     // Three failures × volumeThreshold=3 → 100% failure rate, trips
     for (let i = 0; i < 3; i += 1) {
-      await expect(svc.execute({ serviceName: 'test', fn: fail, options: FAST_OPTIONS })).rejects.toThrow('upstream-failed');
+      await expect(
+        svc.execute({ serviceName: 'test', fn: fail, options: FAST_OPTIONS }),
+      ).rejects.toThrow('upstream-failed');
     }
 
     // Fourth call rejected by breaker (fail-closed)
-    await expect(svc.execute({ serviceName: 'test', fn: fail, options: FAST_OPTIONS })).rejects.toBeInstanceOf(CircuitOpenError);
+    await expect(
+      svc.execute({ serviceName: 'test', fn: fail, options: FAST_OPTIONS }),
+    ).rejects.toBeInstanceOf(CircuitOpenError);
     // fn() did NOT run for the fourth call (calls still 3)
     expect(calls).toBe(3);
 
     const stats = svc.getAllStats();
-    expect(stats[0]!.stats.state).toBe('OPEN');
+    expect(defined(stats[0], 'Expected circuit-breaker stats').stats.state).toBe('OPEN');
   });
 
   it('returns fallback when failureMode=fail-open-degraded and breaker is OPEN', async () => {
-    const fail = async () => {
-      throw new Error('upstream-failed');
-    };
+    const fail = rejectUpstream;
     for (let i = 0; i < 3; i += 1) {
-      await expect(svc.execute({ serviceName: 'test', fn: fail, options: FAIL_OPEN_OPTIONS })).rejects.toThrow();
+      await expect(
+        svc.execute({ serviceName: 'test', fn: fail, options: FAIL_OPEN_OPTIONS }),
+      ).rejects.toThrow();
     }
 
     const result = await svc.execute({
@@ -93,11 +111,11 @@ describe('CircuitBreakerService', () => {
   });
 
   it('throws when failureMode=fail-open-degraded and no fallback supplied', async () => {
-    const fail = async () => {
-      throw new Error('upstream-failed');
-    };
+    const fail = rejectUpstream;
     for (let i = 0; i < 3; i += 1) {
-      await expect(svc.execute({ serviceName: 'test', fn: fail, options: FAIL_OPEN_OPTIONS })).rejects.toThrow();
+      await expect(
+        svc.execute({ serviceName: 'test', fn: fail, options: FAIL_OPEN_OPTIONS }),
+      ).rejects.toThrow();
     }
 
     await expect(
@@ -106,64 +124,69 @@ describe('CircuitBreakerService', () => {
   });
 
   it('transitions OPEN → HALF_OPEN after openTimeoutMs', async () => {
-    const fail = async () => {
-      throw new Error('upstream-failed');
-    };
+    const fail = rejectUpstream;
     for (let i = 0; i < 3; i += 1) {
-      await expect(svc.execute({ serviceName: 'test', fn: fail, options: FAST_OPTIONS })).rejects.toThrow();
+      await expect(
+        svc.execute({ serviceName: 'test', fn: fail, options: FAST_OPTIONS }),
+      ).rejects.toThrow();
     }
-    expect(svc.getAllStats()[0]!.stats.state).toBe('OPEN');
+    expect(breakerState(svc)).toBe('OPEN');
 
     // Wait > openTimeoutMs (50 ms)
     await sleep(80);
 
     // First call after timeout → admitted as HALF_OPEN probe
-    const ok = async () => 'recovered';
+    const ok = succeedsWith('recovered');
     const result = await svc.execute({ serviceName: 'test', fn: ok, options: FAST_OPTIONS });
     expect(result).toBe('recovered');
-    expect(svc.getAllStats()[0]!.stats.state).toBe('HALF_OPEN');
+    expect(breakerState(svc)).toBe('HALF_OPEN');
   });
 
   it('closes after successThreshold consecutive successes in HALF_OPEN', async () => {
-    const fail = async () => {
-      throw new Error('upstream-failed');
-    };
+    const fail = rejectUpstream;
     for (let i = 0; i < 3; i += 1) {
-      await expect(svc.execute({ serviceName: 'test', fn: fail, options: FAST_OPTIONS })).rejects.toThrow();
+      await expect(
+        svc.execute({ serviceName: 'test', fn: fail, options: FAST_OPTIONS }),
+      ).rejects.toThrow();
     }
     await sleep(80); // open → half-open eligible
 
-    const ok = async () => 'recovered';
+    const ok = succeedsWith('recovered');
     await svc.execute({ serviceName: 'test', fn: ok, options: FAST_OPTIONS });
     await svc.execute({ serviceName: 'test', fn: ok, options: FAST_OPTIONS });
-    expect(svc.getAllStats()[0]!.stats.state).toBe('CLOSED');
+    expect(breakerState(svc)).toBe('CLOSED');
   });
 
   it('re-opens immediately if any HALF_OPEN probe fails', async () => {
-    const fail = async () => {
-      throw new Error('upstream-failed');
-    };
+    const fail = rejectUpstream;
     for (let i = 0; i < 3; i += 1) {
-      await expect(svc.execute({ serviceName: 'test', fn: fail, options: FAST_OPTIONS })).rejects.toThrow();
+      await expect(
+        svc.execute({ serviceName: 'test', fn: fail, options: FAST_OPTIONS }),
+      ).rejects.toThrow();
     }
     await sleep(80);
 
     // First HALF_OPEN probe fails → re-open
-    await expect(svc.execute({ serviceName: 'test', fn: fail, options: FAST_OPTIONS })).rejects.toThrow();
-    expect(svc.getAllStats()[0]!.stats.state).toBe('OPEN');
+    await expect(
+      svc.execute({ serviceName: 'test', fn: fail, options: FAST_OPTIONS }),
+    ).rejects.toThrow();
+    expect(breakerState(svc)).toBe('OPEN');
   });
 
   it('isolates breakers per (serviceName, tenantId)', async () => {
-    const fail = async () => {
-      throw new Error('upstream-failed');
-    };
+    const fail = rejectUpstream;
     const tenantA = '11111111-1111-4111-8111-111111111111';
     const tenantB = '22222222-2222-4222-8222-222222222222';
 
     // Trip tenant A
     for (let i = 0; i < 3; i += 1) {
       await expect(
-        svc.execute({ serviceName: 'shared-service', tenantId: tenantA, fn: fail, options: FAST_OPTIONS }),
+        svc.execute({
+          serviceName: 'shared-service',
+          tenantId: tenantA,
+          fn: fail,
+          options: FAST_OPTIONS,
+        }),
       ).rejects.toThrow();
     }
 
@@ -171,7 +194,7 @@ describe('CircuitBreakerService', () => {
     const result = await svc.execute({
       serviceName: 'shared-service',
       tenantId: tenantB,
-      fn: async () => 'ok-for-tenant-b',
+      fn: succeedsWith('ok-for-tenant-b'),
       options: FAST_OPTIONS,
     });
     expect(result).toBe('ok-for-tenant-b');
@@ -188,7 +211,7 @@ describe('CircuitBreakerService', () => {
     await svc.execute({
       serviceName: 'jwks-fetch',
       // tenantId omitted → '*' key
-      fn: async () => 'ok',
+      fn: succeedsWith('ok'),
       options: FAST_OPTIONS,
     });
     const stats = svc.getAllStats();
@@ -196,16 +219,16 @@ describe('CircuitBreakerService', () => {
   });
 
   it('resetAll() clears every breaker state', async () => {
-    const fail = async () => {
-      throw new Error('upstream-failed');
-    };
+    const fail = rejectUpstream;
     for (let i = 0; i < 3; i += 1) {
-      await expect(svc.execute({ serviceName: 'test', fn: fail, options: FAST_OPTIONS })).rejects.toThrow();
+      await expect(
+        svc.execute({ serviceName: 'test', fn: fail, options: FAST_OPTIONS }),
+      ).rejects.toThrow();
     }
-    expect(svc.getAllStats()[0]!.stats.state).toBe('OPEN');
+    expect(breakerState(svc)).toBe('OPEN');
 
     svc.resetAll();
-    expect(svc.getAllStats()[0]!.stats.state).toBe('CLOSED');
+    expect(breakerState(svc)).toBe('CLOSED');
   });
 
   it('stats reflect window state — successes, failures, slow calls', async () => {
@@ -213,21 +236,19 @@ describe('CircuitBreakerService', () => {
       await sleep(FAST_OPTIONS.slowCallMs + 10);
       return 'slow-but-ok';
     };
-    const ok = async () => 'ok';
+    const ok = succeedsWith('ok');
 
     await svc.execute({ serviceName: 'test', fn: ok, options: FAST_OPTIONS });
     await svc.execute({ serviceName: 'test', fn: slow, options: FAST_OPTIONS });
 
-    const stats = svc.getAllStats()[0]!.stats;
+    const stats = defined(svc.getAllStats()[0], 'Expected circuit-breaker stats').stats;
     expect(stats.successes).toBe(2);
     expect(stats.slowCalls).toBe(1);
     expect(stats.failures).toBe(0);
   });
 
   it('CircuitOpenError carries serviceName + tenantKey for downstream logging', async () => {
-    const fail = async () => {
-      throw new Error('upstream-failed');
-    };
+    const fail = rejectUpstream;
     const tenantId = '33333333-3333-4333-8333-333333333333';
     for (let i = 0; i < 3; i += 1) {
       await expect(
@@ -240,8 +261,11 @@ describe('CircuitBreakerService', () => {
       throw new Error('should have thrown');
     } catch (e) {
       expect(e).toBeInstanceOf(CircuitOpenError);
-      expect((e as CircuitOpenError).serviceName).toBe('pinned');
-      expect((e as CircuitOpenError).tenantKey).toBe(tenantId);
+      if (!(e instanceof CircuitOpenError)) {
+        throw e;
+      }
+      expect(e.serviceName).toBe('pinned');
+      expect(e.tenantKey).toBe(tenantId);
     }
   });
 });

@@ -1,4 +1,5 @@
 import { SetMetadata, applyDecorators } from '@nestjs/common';
+import type { CustomDecorator } from '@nestjs/common';
 
 /**
  * Roles metadata key
@@ -73,7 +74,7 @@ export function roleHasPermission(userRole: Role, requiredRole: Role): boolean {
  * Check if user role satisfies any of required roles
  */
 export function hasAnyRole(userRole: Role, requiredRoles: Role[]): boolean {
-  return requiredRoles.some(required => roleHasPermission(userRole, required));
+  return requiredRoles.some((required) => roleHasPermission(userRole, required));
 }
 
 /**
@@ -81,22 +82,24 @@ export function hasAnyRole(userRole: Role, requiredRoles: Role[]): boolean {
  * Defines required roles for a route/resolver
  * @param roles Required roles (user must have at least one)
  */
-export const Roles = (...roles: Role[]) => SetMetadata(ROLES_KEY, roles);
+export const Roles = (...roles: Role[]): CustomDecorator<string> => SetMetadata(ROLES_KEY, roles);
 
 /**
  * SuperAdmin only decorator - shortcut for super admin routes
  */
-export const SuperAdminOnly = () => Roles(Role.SUPER_ADMIN);
+export const SuperAdminOnly = (): CustomDecorator<string> => Roles(Role.SUPER_ADMIN);
 
 /**
  * TenantAdmin or higher decorator
  */
-export const TenantAdminOrHigher = () => Roles(Role.SUPER_ADMIN, Role.TENANT_ADMIN);
+export const TenantAdminOrHigher = (): CustomDecorator<string> =>
+  Roles(Role.SUPER_ADMIN, Role.TENANT_ADMIN);
 
 /**
  * ModuleManager or higher decorator
  */
-export const ModuleManagerOrHigher = () => Roles(Role.SUPER_ADMIN, Role.TENANT_ADMIN, Role.MODULE_MANAGER);
+export const ModuleManagerOrHigher = (): CustomDecorator<string> =>
+  Roles(Role.SUPER_ADMIN, Role.TENANT_ADMIN, Role.MODULE_MANAGER);
 
 /**
  * ModuleUser or higher decorator — every authenticated platform role.
@@ -107,14 +110,15 @@ export const ModuleManagerOrHigher = () => Roles(Role.SUPER_ADMIN, Role.TENANT_A
  * intent "any authenticated tenant member" is visible in metadata and
  * testable via ROLES_KEY reflection.
  */
-export const ModuleUserOrHigher = () =>
+export const ModuleUserOrHigher = (): CustomDecorator<string> =>
   Roles(Role.SUPER_ADMIN, Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER);
 
 /**
  * Skip tenant guard decorator - for endpoints that don't require tenant context
  */
 export const SKIP_TENANT_GUARD_KEY = 'skipTenantGuard';
-export const SkipTenantGuard = () => SetMetadata(SKIP_TENANT_GUARD_KEY, true);
+export const SkipTenantGuard = (): CustomDecorator<string> =>
+  SetMetadata(SKIP_TENANT_GUARD_KEY, true);
 
 /**
  * Public decorator - marks endpoint as publicly accessible.
@@ -127,10 +131,7 @@ export const IS_PUBLIC_KEY = 'isPublic';
 // class or a method — and carries the MethodDecorator & ClassDecorator
 // typing without any hand-rolled target/descriptor bridging.
 export const Public = (): MethodDecorator & ClassDecorator =>
-  applyDecorators(
-    SetMetadata(IS_PUBLIC_KEY, true),
-    SetMetadata(SKIP_TENANT_GUARD_KEY, true),
-  );
+  applyDecorators(SetMetadata(IS_PUBLIC_KEY, true), SetMetadata(SKIP_TENANT_GUARD_KEY, true));
 
 /**
  * Check if metadata indicates public access

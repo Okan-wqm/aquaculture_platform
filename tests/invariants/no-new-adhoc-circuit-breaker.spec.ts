@@ -1,8 +1,8 @@
 /**
  * Platform-wide invariant — CIRCUIT-MEDIUM-001:
  *
- * The 4 known ad-hoc circuit-breaker implementations (gateway
- * proxy, OPA, messaging-redis, email sender) are the GRANDFATHERED
+ * The 3 known ad-hoc circuit-breaker implementations (gateway
+ * proxy, messaging-redis, sensor retry) are the GRANDFATHERED
  * set being migrated to the canonical CircuitBreakerService under
  * the W3 wave. NO NEW ad-hoc breaker class may be added until
  * the W3 sweep completes — every new breaker usage MUST go
@@ -60,10 +60,6 @@ const KNOWN_ADHOC_BREAKERS: ReadonlyArray<{
     followOn: 'W3 wave — messaging redis-circuit migration',
   },
   {
-    path: 'apps/admin-api-service/src/settings/services/email-sender.service.ts',
-    followOn: 'W3 wave — admin email-sender migration',
-  },
-  {
     // Discovered while authoring this invariant — the audit
     // missed this 5th ad-hoc impl. Documented as ORPHAN-MEDIUM-033
     // in docs/reviews/orphan-findings.md so the W3 sweep picks
@@ -111,15 +107,9 @@ describe('CIRCUIT-MEDIUM-001 — no new ad-hoc CircuitBreaker outside the grandf
     expect(stale).toEqual([]);
 
     // Ceiling, lowered as each entry is retired. Raising it is a review event.
-    // Was 5; fell to 4 when the W3 sweep removed the OPA client's breaker.
-    //
-    // STALENESS IS EXISTENCE, NOT A TOKEN SCAN, and that is a correction to my
-    // first attempt at this: `email-sender.service.ts` carries no
-    // `class …CircuitBreaker` and no `failureThreshold`, so a token heuristic
-    // read it as migrated — it is not, it hand-rolls the same thing under
-    // `isCircuitOpen()`. Retiring an entry on a heuristic would have lowered
-    // this ceiling past live debt and locked the wrong number in.
-    expect(KNOWN_ADHOC_BREAKERS.length).toBeLessThanOrEqual(4);
+    // Was 5; fell to 4 when the W3 sweep removed the OPA client's breaker,
+    // then to 3 when configuration SSoT retired the admin email sender.
+    expect(KNOWN_ADHOC_BREAKERS.length).toBeLessThanOrEqual(3);
   });
 
   it('NO new ad-hoc CircuitBreaker class outside the grandfathered set + canonical lib', () => {
@@ -149,12 +139,10 @@ describe('CIRCUIT-MEDIUM-001 — no new ad-hoc CircuitBreaker outside the grandf
           // `class CircuitBreaker {` at libs/backend-common/src/
           // resilience/circuit-breaker/circuit-breaker.service.ts.
           ':!libs/backend-common/src/resilience/circuit-breaker/**',
-          // Grandfathered ad-hoc breakers (W3 migration targets):
-          ':!apps/gateway-api/src/proxy/circuit-breaker.service.ts',
-          ':!apps/gateway-api/src/opa/opa-client.service.ts',
-          ':!apps/messaging-service/src/shared/redis.provider.ts',
-          ':!apps/admin-api-service/src/settings/services/email-sender.service.ts',
-          ':!apps/sensor-service/src/sensor/utils/retry.util.ts',
+          // Grandfathered ad-hoc breakers (W3 migration targets). Derive the
+          // exclusions from the ratchet SSoT so the scanner cannot silently
+          // diverge from the list whose size and existence are asserted above.
+          ...KNOWN_ADHOC_BREAKERS.map(({ path }) => `:!${path}`),
         ],
         { cwd: REPO_ROOT, encoding: 'utf8' },
       );
@@ -192,9 +180,7 @@ describe('CIRCUIT-MEDIUM-001 — no new ad-hoc CircuitBreaker outside the grandf
     const src = read('apps/gateway-api/src/proxy/service-proxy.service.ts');
     // Locate the proxySSE method body.
     const methodMatch =
-      /async\s+proxySSE\s*\([\s\S]*?\)\s*:\s*Promise<void>\s*{([\s\S]*?)\n {2}}/.exec(
-        src,
-      );
+      /async\s+proxySSE\s*\([\s\S]*?\)\s*:\s*Promise<void>\s*{([\s\S]*?)\n {2}}/.exec(src);
     expect(methodMatch).not.toBeNull();
     const body = methodMatch![1] ?? '';
     // Within proxySSE: an `await this.circuitBreaker.execute(`

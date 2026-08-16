@@ -1,13 +1,11 @@
 import { ForbiddenException, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository, EntityManager } from 'typeorm';
+
 import { tenantManagerRepo } from '../../database';
+
 import { LegalHoldEntity } from './legal-hold.entity';
-import {
-  HoldScope,
-  LegalHoldActiveError,
-  LegalHoldRecord,
-} from './legal-hold.types';
+import { HoldScope, LegalHoldActiveError, LegalHoldRecord } from './legal-hold.types';
 
 /**
  * Optional Redis abstraction — service runs WITHOUT Redis in dev/test
@@ -69,11 +67,7 @@ export class LegalHoldService {
    * abort — the alternative (treat as no-hold) would let a transient
    * Redis blip authorise an erasure that overrides legal hold.
    */
-  async isUnderHold(
-    tenantId: string,
-    scope: HoldScope,
-    resourceId?: string,
-  ): Promise<boolean> {
+  async isUnderHold(tenantId: string, scope: HoldScope, resourceId?: string): Promise<boolean> {
     const cacheKey = this.cacheKey(tenantId, scope, resourceId);
     if (this.cache) {
       const cached = await this.cache.get(cacheKey);
@@ -103,11 +97,7 @@ export class LegalHoldService {
    * detects unguarded paths via grep. The error carries enough context
    * for the operator to find the blocking hold in one query.
    */
-  async assertNoHold(
-    tenantId: string,
-    scope: HoldScope,
-    resourceId?: string,
-  ): Promise<void> {
+  async assertNoHold(tenantId: string, scope: HoldScope, resourceId?: string): Promise<void> {
     if (await this.isUnderHold(tenantId, scope, resourceId)) {
       const blockingHold = await this.repo.findOne({
         where: {
@@ -208,7 +198,9 @@ export class LegalHoldService {
       where: { id: args.holdId, tenantId: args.tenantId },
     });
     if (!hold) {
-      throw new ForbiddenException(`Legal hold ${args.holdId} not found in tenant ${args.tenantId}`);
+      throw new ForbiddenException(
+        `Legal hold ${args.holdId} not found in tenant ${args.tenantId}`,
+      );
     }
     if (hold.releasedAt !== null) {
       throw new ForbiddenException(

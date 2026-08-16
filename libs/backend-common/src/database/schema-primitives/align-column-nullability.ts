@@ -41,8 +41,10 @@
  */
 import type { QueryRunner } from 'typeorm';
 
+import type { ClassConstructor } from '../../types/class-constructor';
 import { withDdlSafety } from '../base-migration';
 import { getEncryptedAtRestMetadata } from '../encrypted-at-rest.decorator';
+import { executeQueryRowsNormalized } from '../query-result-normalizer';
 import { sql, type SqlFragment } from '../sql-fragments';
 
 export interface AlignColumnNullabilitySpec {
@@ -65,7 +67,7 @@ export interface AlignColumnNullabilityOptions {
   readonly table: string;
   readonly columns: readonly AlignColumnNullabilitySpec[];
   /** Optional entity class for @EncryptedAtRest cross-check. */
-  readonly entity?: Function;
+  readonly entity?: ClassConstructor;
   readonly lockTimeoutMs?: number;
 }
 
@@ -136,24 +138,27 @@ export async function alignColumnNullability(
         const colIdent = sql.ident(c.name);
 
         // Inspect current nullability.
-        const colRows: Array<{ is_nullable: string }> = await qr.query(
+        const colRows = await executeQueryRowsNormalized<{ is_nullable: string }>(
+          qr,
           `SELECT is_nullable FROM information_schema.columns
             WHERE table_schema = $1 AND table_name = $2 AND column_name = $3`,
           [opts.schema, opts.table, c.name],
         );
-        if (colRows.length === 0) {
+        const currentColumn = colRows[0];
+        if (!currentColumn) {
           throw new Error(
             `[alignColumnNullability] column '${opts.schema}.${opts.table}.${c.name}' does not exist — ` +
               `use addMissingColumns first, or verify the migration order.`,
           );
         }
-        if (colRows[0]!.is_nullable === 'NO') {
+        if (currentColumn.is_nullable === 'NO') {
           skipped.push(c.name);
           continue;
         }
 
         // Count NULL rows.
-        const nullCountRows: Array<{ count: string }> = await qr.query(
+        const nullCountRows = await executeQueryRowsNormalized<{ count: string }>(
+          qr,
           `SELECT COUNT(*)::text AS count FROM "${opts.schema}"."${opts.table}" WHERE "${c.name}" IS NULL`,
         );
         const nullCount = Number.parseInt(nullCountRows[0]?.count ?? '0', 10);
@@ -178,7 +183,8 @@ export async function alignColumnNullability(
 
           // Re-count — fail loudly if the backfill left residual NULLs
           // (e.g. UPDATE expression evaluates to NULL for some rows).
-          const recheck: Array<{ count: string }> = await qr.query(
+          const recheck = await executeQueryRowsNormalized<{ count: string }>(
+            qr,
             `SELECT COUNT(*)::text AS count FROM "${opts.schema}"."${opts.table}" WHERE "${c.name}" IS NULL`,
           );
           const residual = Number.parseInt(recheck[0]?.count ?? '0', 10);

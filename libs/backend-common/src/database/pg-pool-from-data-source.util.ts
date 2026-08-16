@@ -125,14 +125,12 @@ interface DriverWithPool {
  * request. Returning null lets each caller log its own service-
  * specific error message and degrade in its own way.
  */
-export function getPgPoolFromDataSource(
-  dataSource: DataSource,
-): PgPoolLike | null {
+export function getPgPoolFromDataSource(dataSource: DataSource): PgPoolLike | null {
   // The cast is the SINGLE place in the codebase where TypeORM's
   // private driver shape is bridged to the typed surface. Every
   // other callsite in the codebase imports getPgPoolFromDataSource
   // — the no-driver-cast-as-any invariant catches drift.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   const driver = dataSource.driver as unknown as DriverWithPool;
   const pool = driver.master;
   if (!pool || typeof pool.connect !== 'function') {

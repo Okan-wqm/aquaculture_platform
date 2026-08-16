@@ -5,42 +5,57 @@
  */
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const {
-  collectMigrations,
-  extractDdlEvents,
-  runBackfill,
-} = require('../../../../../../tools/scripts/backfill-schema-object-history') as {
-  collectMigrations: (root?: string) => Array<{
-    path: string;
-    timestamp: number;
-    schema: string;
-  }>;
-  extractDdlEvents: (file: {
-    path: string;
-    timestamp: number;
-    schema: string;
-  }) => ReadonlyArray<{
-    schema: string;
-    tableName: string;
-    objectType: string;
-    objectName: string;
-    action: string;
-    observedAt: Date;
-    sourceFile: string;
-  }>;
-  runBackfill: (
-    writer: unknown,
-    options?: { dryRun?: boolean },
+import { defined } from '@aquaculture/testing';
+
+interface MigrationFile {
+  readonly path: string;
+  readonly timestamp: number;
+  readonly schema: string;
+}
+
+type ObjectType = 'table' | 'column' | 'index' | 'constraint' | 'enum' | 'policy';
+type Action = 'created' | 'altered' | 'dropped' | 'renamed';
+
+interface HistoricalSchemaEvent {
+  readonly schema: string;
+  readonly tableName: string;
+  readonly objectType: ObjectType;
+  readonly objectName: string;
+  readonly action: Action;
+  readonly observedAt: Date;
+  readonly sourceFile: string;
+}
+
+interface HistoricalEventWriter {
+  readonly findExisting: (
+    schema: string,
+    objectType: ObjectType,
+    objectName: string,
+    action: Action,
+    observedAt: Date,
+  ) => Promise<boolean>;
+  readonly insert: (event: HistoricalSchemaEvent) => Promise<void>;
+}
+
+interface BackfillModule {
+  readonly collectMigrations: (root?: string) => MigrationFile[];
+  readonly extractDdlEvents: (file: MigrationFile) => readonly HistoricalSchemaEvent[];
+  readonly runBackfill: (
+    writer: HistoricalEventWriter,
+    options?: { dryRun: boolean },
   ) => Promise<{
-    filesScanned: number;
-    eventsCollected: number;
-    eventsEmitted: number;
-    eventsSkipped: number;
+    readonly filesScanned: number;
+    readonly eventsCollected: number;
+    readonly eventsEmitted: number;
+    readonly eventsSkipped: number;
   }>;
-};
+}
+
+const { collectMigrations, extractDdlEvents, runBackfill } = jest.requireActual<BackfillModule>(
+  resolve(__dirname, '../../../../../../tools/scripts/backfill-schema-object-history'),
+);
 
 describe('extractDdlEvents', () => {
   let tmp: string;
@@ -51,7 +66,7 @@ describe('extractDdlEvents', () => {
     rmSync(tmp, { recursive: true, force: true });
   });
 
-  const mig = (name: string, body: string) => {
+  const mig = (name: string, body: string): MigrationFile => {
     const path = join(tmp, name);
     writeFileSync(
       path,
@@ -79,7 +94,9 @@ export class M implements MigrationInterface {
     );
     const events = extractDdlEvents(file);
     const created = events.filter((e) => e.action === 'created');
-    expect(created.some((e) => e.objectType === 'table' && e.objectName === 'employees')).toBe(true);
+    expect(created.some((e) => e.objectType === 'table' && e.objectName === 'employees')).toBe(
+      true,
+    );
   });
 
   it('detects ALTER TABLE ADD COLUMN as column/created', () => {
@@ -91,9 +108,7 @@ export class M implements MigrationInterface {
     expect(
       events.some(
         (e) =>
-          e.objectType === 'column' &&
-          e.objectName === 'preferred_name' &&
-          e.action === 'created',
+          e.objectType === 'column' && e.objectName === 'preferred_name' && e.action === 'created',
       ),
     ).toBe(true);
   });
@@ -105,24 +120,19 @@ export class M implements MigrationInterface {
     );
     const events = extractDdlEvents(file);
     expect(
-      events.some(
-        (e) =>
-          e.objectType === 'index' && e.objectName === 'IDX_employees_name',
-      ),
+      events.some((e) => e.objectType === 'index' && e.objectName === 'IDX_employees_name'),
     ).toBe(true);
   });
 
   it('detects CREATE TYPE AS ENUM as enum/created', () => {
     const file = mig(
       '4-CreateEnum.ts',
-      'await qr.query(`CREATE TYPE hr.status_enum AS ENUM (\\\'draft\\\', \\\'active\\\')`);',
+      "await qr.query(`CREATE TYPE hr.status_enum AS ENUM (\\'draft\\', \\'active\\')`);",
     );
     const events = extractDdlEvents(file);
-    expect(
-      events.some(
-        (e) => e.objectType === 'enum' && e.objectName === 'status_enum',
-      ),
-    ).toBe(true);
+    expect(events.some((e) => e.objectType === 'enum' && e.objectName === 'status_enum')).toBe(
+      true,
+    );
   });
 
   it('detects ALTER TYPE ADD VALUE as enum/altered', () => {
@@ -131,11 +141,7 @@ export class M implements MigrationInterface {
       "await qr.query(`ALTER TYPE hr.status_enum ADD VALUE 'archived'`);",
     );
     const events = extractDdlEvents(file);
-    expect(
-      events.some(
-        (e) => e.objectType === 'enum' && e.action === 'altered',
-      ),
-    ).toBe(true);
+    expect(events.some((e) => e.objectType === 'enum' && e.action === 'altered')).toBe(true);
   });
 
   it('detects CREATE POLICY', () => {
@@ -144,11 +150,9 @@ export class M implements MigrationInterface {
       'await qr.query(`CREATE POLICY "tenant_scope" ON hr.employees FOR ALL USING (true)`);',
     );
     const events = extractDdlEvents(file);
-    expect(
-      events.some(
-        (e) => e.objectType === 'policy' && e.objectName === 'tenant_scope',
-      ),
-    ).toBe(true);
+    expect(events.some((e) => e.objectType === 'policy' && e.objectName === 'tenant_scope')).toBe(
+      true,
+    );
   });
 
   it('does NOT extract from down() bodies', () => {
@@ -177,10 +181,7 @@ export class M implements MigrationInterface {
   });
 
   it('preserves observedAt from filename timestamp', () => {
-    const file = mig(
-      '8-Timestamp.ts',
-      'await qr.query(`CREATE TABLE hr.t (id uuid)`);',
-    );
+    const file = mig('8-Timestamp.ts', 'await qr.query(`CREATE TABLE hr.t (id uuid)`);');
     // Override the manual timestamp for assertion clarity.
     const fixedTimestamp = 1_770_000_000_000;
     const events = extractDdlEvents({ ...file, timestamp: fixedTimestamp });
@@ -198,19 +199,15 @@ describe('collectMigrations', () => {
       expect(f.schema.length).toBeGreaterThan(0);
     }
     // HR migrations exist + tagged 'hr'.
-    expect(
-      files.some(
-        (f) => f.path.includes('/hr-service/') && f.schema === 'hr',
-      ),
-    ).toBe(true);
+    expect(files.some((f) => f.path.includes('/hr-service/') && f.schema === 'hr')).toBe(true);
   });
 
   it('files returned in timestamp-ascending order', () => {
     const files = collectMigrations();
     for (let i = 1; i < files.length; i++) {
-      expect(files[i]!.timestamp).toBeGreaterThanOrEqual(
-        files[i - 1]!.timestamp,
-      );
+      const current = defined(files[i]);
+      const previous = defined(files[i - 1]);
+      expect(current.timestamp).toBeGreaterThanOrEqual(previous.timestamp);
     }
   });
 });
@@ -229,21 +226,22 @@ describe('runBackfill', () => {
     const seen = new Set<string>();
     const writer = {
       findExisting: jest.fn(
-        async (
+        (
           schema: string,
-          objectType: string,
+          objectType: ObjectType,
           objectName: string,
-          action: string,
+          action: Action,
           observedAt: Date,
-        ) => {
+        ): Promise<boolean> => {
           const key = `${schema}:${objectType}:${objectName}:${action}:${observedAt.toISOString()}`;
           const exists = seen.has(key);
           seen.add(key);
-          return exists;
+          return Promise.resolve(exists);
         },
       ),
-      insert: jest.fn(async (ev: unknown) => {
+      insert: jest.fn((ev: HistoricalSchemaEvent): Promise<void> => {
         inserts.push(ev);
+        return Promise.resolve();
       }),
     };
 
@@ -257,8 +255,8 @@ describe('runBackfill', () => {
 
   it('dryRun=true skips writer.insert but still counts emitted', async () => {
     const writer = {
-      findExisting: jest.fn(async () => false),
-      insert: jest.fn(async () => undefined),
+      findExisting: jest.fn(() => Promise.resolve(false)),
+      insert: jest.fn(() => Promise.resolve()),
     };
     const result = await runBackfill(writer, { dryRun: true });
     expect(result.eventsEmitted).toBeGreaterThan(0);

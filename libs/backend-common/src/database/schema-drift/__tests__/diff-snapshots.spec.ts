@@ -1,8 +1,6 @@
-import {
-  diffSnapshots,
-  partitionBySeverity,
-  type SnapshotChange,
-} from '../diff-snapshots';
+import { defined } from '@aquaculture/testing';
+
+import { diffSnapshots, partitionBySeverity, type SnapshotChange } from '../diff-snapshots';
 import type { SchemaSnapshot } from '../pg-catalog-introspector';
 
 function snap(overrides: Partial<SchemaSnapshot> = {}): SchemaSnapshot {
@@ -28,9 +26,9 @@ describe('diffSnapshots', () => {
   });
 
   it('throws when comparing different schemas', () => {
-    expect(() =>
-      diffSnapshots(snap({ schema: 'hr' }), snap({ schema: 'farm' })),
-    ).toThrow(/different schemas/);
+    expect(() => diffSnapshots(snap({ schema: 'hr' }), snap({ schema: 'farm' }))).toThrow(
+      /different schemas/,
+    );
   });
 
   it('detects table_added (expand)', () => {
@@ -198,20 +196,14 @@ describe('diffSnapshots', () => {
     const e = (labels: string[]): Parameters<typeof snap>[0] => ({
       enums: [{ schema: 'hr', name: 's', labels }],
     });
-    const diffAdd = diffSnapshots(
-      snap(e(['a', 'b'])),
-      snap(e(['a', 'b', 'c'])),
-    );
+    const diffAdd = diffSnapshots(snap(e(['a', 'b'])), snap(e(['a', 'b', 'c'])));
     expect(diffAdd).toHaveLength(1);
     expect(diffAdd[0]).toMatchObject({
       kind: 'enum_labels_added',
       severity: 'expand',
       details: { added: ['c'] },
     });
-    const diffRemove = diffSnapshots(
-      snap(e(['a', 'b', 'c'])),
-      snap(e(['a', 'b'])),
-    );
+    const diffRemove = diffSnapshots(snap(e(['a', 'b', 'c'])), snap(e(['a', 'b'])));
     expect(diffRemove[0]).toMatchObject({
       kind: 'enum_labels_removed',
       severity: 'breaking',
@@ -228,18 +220,12 @@ describe('diffSnapshots', () => {
         definition: d.def,
       })),
     });
-    const diffAdd = diffSnapshots(
-      snap(c([])),
-      snap(c([{ name: 'chk_x', def: 'x > 0' }])),
-    );
+    const diffAdd = diffSnapshots(snap(c([])), snap(c([{ name: 'chk_x', def: 'x > 0' }])));
     expect(diffAdd[0]).toMatchObject({
       kind: 'check_added',
       severity: 'breaking',
     });
-    const diffRemove = diffSnapshots(
-      snap(c([{ name: 'chk_x', def: 'x > 0' }])),
-      snap(c([])),
-    );
+    const diffRemove = diffSnapshots(snap(c([{ name: 'chk_x', def: 'x > 0' }])), snap(c([])));
     expect(diffRemove[0]).toMatchObject({
       kind: 'check_removed',
       severity: 'expand',
@@ -292,7 +278,7 @@ describe('diffSnapshots', () => {
           schema: 'hr',
           tableName: 't',
           indexName: 'IDX_active',
-          predicate: '(status = \'active\')',
+          predicate: "(status = 'active')",
           columns: ['id'],
           definition: 'CREATE INDEX ...',
         },
@@ -314,7 +300,7 @@ describe('diffSnapshots', () => {
             schema: 'hr',
             tableName: 't',
             indexName: 'IDX',
-            predicate: 'status = \'active\'',
+            predicate: "status = 'active'",
             columns: ['id'],
             definition: 'd1',
           },
@@ -326,7 +312,7 @@ describe('diffSnapshots', () => {
             schema: 'hr',
             tableName: 't',
             indexName: 'IDX',
-            predicate: 'status = \'archived\'',
+            predicate: "status = 'archived'",
             columns: ['id'],
             definition: 'd1',
           },
@@ -348,13 +334,9 @@ describe('diffSnapshots', () => {
         },
       ],
     });
-    expect(diffSnapshots(snap(), withExcl)[0]?.kind).toBe(
-      'exclude_constraint_added',
-    );
+    expect(diffSnapshots(snap(), withExcl)[0]?.kind).toBe('exclude_constraint_added');
     expect(diffSnapshots(snap(), withExcl)[0]?.severity).toBe('breaking');
-    expect(diffSnapshots(withExcl, snap())[0]?.kind).toBe(
-      'exclude_constraint_removed',
-    );
+    expect(diffSnapshots(withExcl, snap())[0]?.kind).toBe('exclude_constraint_removed');
     expect(diffSnapshots(withExcl, snap())[0]?.severity).toBe('expand');
   });
 
@@ -378,7 +360,7 @@ describe('diffSnapshots', () => {
     const fkNoAction = snap({
       foreignKeyActions: [
         {
-          ...fkCascade.foreignKeyActions[0]!,
+          ...defined(fkCascade.foreignKeyActions[0]),
           onDelete: 'a',
         },
       ],
@@ -446,9 +428,7 @@ describe('diffSnapshots', () => {
   it('hypertable_removed is breaking; hypertable_added is expand', () => {
     const ht = snap({
       schema: 'farm',
-      hypertables: [
-        { schema: 'farm', tableName: 'sensor_readings', chunkCount: 42 },
-      ],
+      hypertables: [{ schema: 'farm', tableName: 'sensor_readings', chunkCount: 42 }],
     });
     const empty = snap({ schema: 'farm' });
     expect(diffSnapshots(ht, empty)[0]?.kind).toBe('hypertable_removed');
@@ -458,9 +438,7 @@ describe('diffSnapshots', () => {
     // chunk-count change alone is NOT a drift event (data growth).
     const moreChunks = snap({
       schema: 'farm',
-      hypertables: [
-        { schema: 'farm', tableName: 'sensor_readings', chunkCount: 99 },
-      ],
+      hypertables: [{ schema: 'farm', tableName: 'sensor_readings', chunkCount: 99 }],
     });
     expect(diffSnapshots(ht, moreChunks)).toEqual([]);
   });
@@ -474,7 +452,7 @@ describe('diffSnapshots', () => {
           policyName: 'tenant_scope',
           permissive: true,
           command: '*',
-          usingExpr: 'tenant_id = current_setting(\'app.current_tenant\')',
+          usingExpr: "tenant_id = current_setting('app.current_tenant')",
           withCheckExpr: null,
         },
       ],
@@ -511,9 +489,7 @@ describe('diffSnapshots', () => {
         },
       ],
     });
-    expect(diffSnapshots(withPolicy, snap())[0]?.kind).toBe(
-      'rls_policy_removed',
-    );
+    expect(diffSnapshots(withPolicy, snap())[0]?.kind).toBe('rls_policy_removed');
     expect(diffSnapshots(withPolicy, snap())[0]?.severity).toBe('breaking');
   });
 

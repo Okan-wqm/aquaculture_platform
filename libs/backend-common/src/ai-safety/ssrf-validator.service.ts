@@ -108,11 +108,11 @@ const IPV4_DENY_CIDRS: Array<{ network: number; mask: number }> = [
  * IPv6 prefixes that MUST be blocked.
  */
 const IPV6_DENY_PREFIXES: string[] = [
-  '::1',       // Loopback
-  'fe80:',     // Link-local
-  'fc',        // Unique local (fc00::/7)
-  'fd',        // Unique local (fc00::/7)
-  '::ffff:',   // IPv4-mapped IPv6 (handled via IPv4 checks after extraction)
+  '::1', // Loopback
+  'fe80:', // Link-local
+  'fc', // Unique local (fc00::/7)
+  'fd', // Unique local (fc00::/7)
+  '::ffff:', // IPv4-mapped IPv6 (handled via IPv4 checks after extraction)
 ];
 
 /**
@@ -131,11 +131,15 @@ const METADATA_HOSTNAMES = new Set([
 /** Convert dotted IPv4 string to 32-bit number. */
 function ipToNumber(ip: string): number {
   const parts = ip.split('.');
+  const [first, second, third, fourth] = parts;
+  if (first === undefined || second === undefined || third === undefined || fourth === undefined) {
+    throw new TypeError(`Invalid IPv4 address: ${ip}`);
+  }
   return (
-    ((parseInt(parts[0]!, 10) << 24) |
-      (parseInt(parts[1]!, 10) << 16) |
-      (parseInt(parts[2]!, 10) << 8) |
-      parseInt(parts[3]!, 10)) >>>
+    ((Number.parseInt(first, 10) << 24) |
+      (Number.parseInt(second, 10) << 16) |
+      (Number.parseInt(third, 10) << 8) |
+      Number.parseInt(fourth, 10)) >>>
     0
   );
 }
@@ -196,9 +200,7 @@ export class SsrfValidatorService {
     }
 
     // ── Step 3: Port allowlist ──
-    const port = parsed.port
-      ? parseInt(parsed.port, 10)
-      : DEFAULT_PORTS[parsed.protocol] ?? 0;
+    const port = parsed.port ? parseInt(parsed.port, 10) : (DEFAULT_PORTS[parsed.protocol] ?? 0);
 
     if (!ALLOWED_PORTS.has(port)) {
       return {
@@ -254,7 +256,11 @@ export class SsrfValidatorService {
             };
           }
         }
-        resolvedIp = addresses[0]!;
+        const firstAddress = addresses[0];
+        if (!firstAddress) {
+          return { safe: false, reason: `DNS resolution failed: no A records for "${hostname}".` };
+        }
+        resolvedIp = firstAddress;
       } catch {
         return {
           safe: false,
@@ -305,18 +311,17 @@ export class SsrfValidatorService {
       return { safe: false, reason: `Port ${port} is out of range (1-65535).` };
     }
 
-    const hostname = host.trim().toLowerCase().replace(/^\[|\]$/g, '');
+    const hostname = host
+      .trim()
+      .toLowerCase()
+      .replace(/^\[|\]$/g, '');
 
     // Block known metadata hostnames + localhost variants (defense-in-depth
     // before DNS, mirroring validateUrl steps 4).
     if (METADATA_HOSTNAMES.has(hostname)) {
       return { safe: false, reason: `Host "${hostname}" is a cloud metadata endpoint.` };
     }
-    if (
-      hostname === 'localhost' ||
-      hostname === '0.0.0.0' ||
-      hostname === '::1'
-    ) {
+    if (hostname === 'localhost' || hostname === '0.0.0.0' || hostname === '::1') {
       return { safe: false, reason: 'Localhost addresses are not allowed.' };
     }
 
@@ -395,14 +400,16 @@ export class SsrfValidatorService {
       );
     }
 
-    const port = url.port ? parseInt(url.port, 10) : DEFAULT_PORTS[url.protocol] ?? 0;
+    const port = url.port ? parseInt(url.port, 10) : (DEFAULT_PORTS[url.protocol] ?? 0);
     if ((options?.portPolicy ?? 'any') === 'standard' && !ALLOWED_PORTS.has(port)) {
       throw new Error(`Blocked unsafe request target: port ${port} not allowed (80/443 only)`);
     }
 
     const verdict = await this.validateHost(url.hostname, port);
     if (!verdict.safe || !verdict.resolvedIp) {
-      throw new Error(`Blocked unsafe request target: ${verdict.reason ?? 'host validation failed'}`);
+      throw new Error(
+        `Blocked unsafe request target: ${verdict.reason ?? 'host validation failed'}`,
+      );
     }
 
     const pinnedIp = verdict.resolvedIp;
@@ -516,7 +523,8 @@ export class SsrfValidatorService {
       const v4MappedMatch = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(lower);
       if (v4MappedMatch) {
         // Recursively check the embedded IPv4 address
-        return this.isPrivateIp(v4MappedMatch[1]!);
+        const mappedAddress = v4MappedMatch[1];
+        return mappedAddress ? this.isPrivateIp(mappedAddress) : 'Invalid IPv4-mapped IPv6 address';
       }
 
       for (const prefix of IPV6_DENY_PREFIXES) {

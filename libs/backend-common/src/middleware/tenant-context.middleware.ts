@@ -1,7 +1,9 @@
-import { Injectable, NestMiddleware, Logger } from '@nestjs/common';
-import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
+
+import { Injectable, NestMiddleware, Logger } from '@nestjs/common';
 import { trace, context } from '@opentelemetry/api';
+import { Request, Response, NextFunction } from 'express';
+
 import { TenantRequest as CanonicalTenantRequest } from '../types/tenant-request.interface';
 
 /**
@@ -65,11 +67,10 @@ export class UserContextMiddleware implements NestMiddleware {
         // aggregation pipelines may persist debug rows long enough
         // for the PII to leak into a third-party retention. The
         // userId (sub) is sufficient for trace correlation.
-        this.logger.debug(
-          `User context set: userId=${user.sub} (tenant: ${user.tenantId})`,
-        );
+        this.logger.debug(`User context set: userId=${user.sub} (tenant: ${user.tenantId})`);
       } catch (error) {
-        this.logger.warn(`Failed to parse x-user-payload header: ${error}`);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`Failed to parse x-user-payload header: ${errorMessage}`);
       }
     }
 
@@ -151,9 +152,7 @@ export class TenantContextMiddleware implements NestMiddleware {
         // SECURITY: Subdomains must be valid UUIDs to prevent spoofing
         const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
         if (!uuidRegex.test(subdomain)) {
-          this.logger.debug(
-            `Rejected non-UUID subdomain: "${subdomain}" from host "${host}"`,
-          );
+          this.logger.debug(`Rejected non-UUID subdomain: "${subdomain}" from host "${host}"`);
           return null;
         }
 
@@ -161,7 +160,7 @@ export class TenantContextMiddleware implements NestMiddleware {
         if (!this.isAllowedBaseDomain(baseDomain)) {
           this.logger.warn(
             `Rejected subdomain tenant extraction from unauthorized domain: "${host}". ` +
-            `Base domain "${baseDomain}" is not in ALLOWED_BASE_DOMAINS.`,
+              `Base domain "${baseDomain}" is not in ALLOWED_BASE_DOMAINS.`,
           );
           return null;
         }
@@ -196,8 +195,8 @@ export class TenantContextMiddleware implements NestMiddleware {
 
     const allowedDomains = allowedDomainsEnv
       .split(',')
-      .map(d => d.trim().toLowerCase())
-      .filter(d => d.length > 0);
+      .map((d) => d.trim().toLowerCase())
+      .filter((d) => d.length > 0);
 
     return allowedDomains.includes(baseDomain.toLowerCase());
   }
@@ -209,7 +208,7 @@ export class TenantContextMiddleware implements NestMiddleware {
     // IPv4 pattern: 4 parts, all numeric
     const parts = host.split('.');
     if (parts.length === 4) {
-      return parts.every(part => /^\d+$/.test(part));
+      return parts.every((part) => /^\d+$/.test(part));
     }
     // IPv6 or localhost
     if (host.includes(':') || host === 'localhost') {
@@ -349,10 +348,6 @@ export class RequestLoggingMiddleware implements NestMiddleware {
     const correlationId = req.headers['x-correlation-id'];
     const tenantId = req.tenantId || req.headers['x-tenant-id'];
 
-    // Get trace context
-    const traceId = req.traceContext?.traceId || req.headers['x-trace-id'];
-    const spanId = req.traceContext?.spanId || req.headers['x-span-id'];
-
     // Log when response finishes
     res.on('finish', () => {
       const duration = Date.now() - startTime;
@@ -360,8 +355,10 @@ export class RequestLoggingMiddleware implements NestMiddleware {
 
       // Extract trace context
       const span = trace.getSpan(context.active());
-      const traceId = span?.spanContext().traceId;
-      const spanId = span?.spanContext().spanId;
+      const traceId =
+        span?.spanContext().traceId ?? req.traceContext?.traceId ?? req.headers['x-trace-id'];
+      const spanId =
+        span?.spanContext().spanId ?? req.traceContext?.spanId ?? req.headers['x-span-id'];
 
       const logMessage = `${method} ${originalUrl} ${statusCode} ${duration}ms`;
       const logContext = {

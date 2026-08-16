@@ -1,0 +1,72 @@
+schemaVersion: 1
+consumers:
+  - id: ADMIN_PANEL_CONFIGURATION
+    application: admin-panel
+    transport: GRAPHQL_OPERATOR
+    keys:
+      - { id: PLATFORM_NAME, access: OPERATOR_READ_WRITE }
+      - { id: PLATFORM_VERSION, access: OPERATOR_READ_WRITE }
+      - { id: PLATFORM_ENVIRONMENT, access: OPERATOR_READ_WRITE }
+      - { id: PLATFORM_TIMEZONE, access: OPERATOR_READ_WRITE }
+      - { id: PLATFORM_LOCALE, access: OPERATOR_READ_WRITE }
+      - { id: SECURITY_SESSION_TIMEOUT_MINUTES, access: OPERATOR_READ_WRITE }
+      - { id: SECURITY_MAX_LOGIN_ATTEMPTS, access: OPERATOR_READ_WRITE }
+      - { id: SECURITY_LOCKOUT_DURATION_MINUTES, access: OPERATOR_READ_WRITE }
+      - { id: SECURITY_PASSWORD_MIN_LENGTH, access: OPERATOR_READ_WRITE }
+      - { id: SECURITY_PASSWORD_REQUIRE_UPPERCASE, access: OPERATOR_READ_WRITE }
+      - { id: SECURITY_PASSWORD_REQUIRE_NUMBERS, access: OPERATOR_READ_WRITE }
+      - { id: SECURITY_PASSWORD_REQUIRE_SYMBOLS, access: OPERATOR_READ_WRITE }
+      - { id: SECURITY_MFA_ENABLED, access: OPERATOR_READ_WRITE }
+      - { id: SECURITY_ENFORCE_HTTPS, access: OPERATOR_READ_WRITE }
+      - { id: EMAIL_SMTP_HOST, access: OPERATOR_READ_WRITE }
+      - { id: EMAIL_SMTP_PORT, access: OPERATOR_READ_WRITE }
+      - { id: EMAIL_SMTP_SECURE, access: OPERATOR_READ_WRITE }
+      - { id: EMAIL_SMTP_USERNAME, access: OPERATOR_READ_WRITE }
+      - { id: EMAIL_SMTP_PASSWORD, access: OPERATOR_READ_WRITE }
+      - { id: EMAIL_FROM_ADDRESS, access: OPERATOR_READ_WRITE }
+      - { id: EMAIL_FROM_NAME, access: OPERATOR_READ_WRITE }
+      - { id: RATE_LIMIT_GLOBAL_RPM, access: OPERATOR_READ_WRITE }
+      - { id: RATE_LIMIT_PER_USER_RPM, access: OPERATOR_READ_WRITE }
+      - { id: RATE_LIMIT_PER_TENANT_RPM, access: OPERATOR_READ_WRITE }
+      - { id: RATE_LIMIT_API_KEY_RPM, access: OPERATOR_READ_WRITE }
+      - { id: STORAGE_PROVIDER, access: OPERATOR_READ_WRITE }
+      - { id: STORAGE_MAX_FILE_SIZE_MB, access: OPERATOR_READ_WRITE }
+      - { id: STORAGE_ALLOWED_EXTENSIONS, access: OPERATOR_READ_WRITE }
+      - { id: MAINTENANCE_MODE_ENABLED, access: OPERATOR_READ_WRITE }
+      - { id: MAINTENANCE_MESSAGE, access: OPERATOR_READ_WRITE }
+      - { id: MAINTENANCE_ALLOWED_IPS, access: OPERATOR_READ_WRITE }
+      - { id: BILLING_STRIPE_ENABLED, access: OPERATOR_READ_WRITE }
+      - { id: BILLING_STRIPE_PUBLIC_KEY, access: OPERATOR_READ_WRITE }
+      - { id: BILLING_STRIPE_SECRET_KEY, access: OPERATOR_READ_WRITE }
+      - { id: BILLING_DEFAULT_CURRENCY, access: OPERATOR_READ_WRITE }
+      - { id: BILLING_TAX_RATE, access: OPERATOR_READ_WRITE }
+      - { id: BILLING_INVOICE_DUE_DAYS, access: OPERATOR_READ_WRITE }
+      - { id: FEATURE_SWAGGER_ENABLED, access: OPERATOR_READ_WRITE }
+      - { id: FEATURE_GRAPHQL_PLAYGROUND, access: OPERATOR_READ_WRITE }
+      - { id: FEATURE_REGISTRATION_ENABLED, access: OPERATOR_READ_WRITE }
+  - id: BILLING_SERVICE_STRIPE
+    application: billing-service
+    transport: NATS_RUNTIME
+    replyInboxPrefix: _INBOXBILLINGCFG
+    keys:
+      - { id: BILLING_STRIPE_ENABLED, access: RUNTIME_READ }
+      - { id: BILLING_STRIPE_PUBLIC_KEY, access: RUNTIME_READ }
+      - { id: BILLING_STRIPE_SECRET_KEY, access: RUNTIME_SECRET_READ }
+  - id: NOTIFICATION_SERVICE_SMTP
+    application: notification-service
+    transport: NATS_RUNTIME
+    replyInboxPrefix: _INBOXNOTIFICATIONCFG
+    keys:
+      - { id: EMAIL_SMTP_HOST, access: RUNTIME_READ }
+      - { id: EMAIL_SMTP_PORT, access: RUNTIME_READ }
+      - { id: EMAIL_SMTP_SECURE, access: RUNTIME_READ }
+      - { id: EMAIL_SMTP_USERNAME, access: RUNTIME_READ }
+      - { id: EMAIL_SMTP_PASSWORD, access: RUNTIME_SECRET_READ }
+      - { id: EMAIL_FROM_ADDRESS, access: RUNTIME_READ }
+      - { id: EMAIL_FROM_NAME, access: RUNTIME_READ }
+  - id: FARM_SERVICE_MARINE_PROVIDER
+    application: farm-service
+    transport: NATS_DEDICATED
+    replyInboxPrefix: _INBOXFARMMARINECFG
+    keys:
+      - { id: MARINE_CDSE_CREDENTIALS, access: RUNTIME_SECRET_READ }

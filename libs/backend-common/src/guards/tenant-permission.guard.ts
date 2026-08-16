@@ -7,7 +7,8 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { GqlExecutionContext } from '@nestjs/graphql';
+
+import { getRequestFromArgumentsHost } from '../context/execution-context-request';
 import {
   REQUIRED_TENANT_PERMISSIONS_KEY,
   hasAllResourcePermissions,
@@ -91,9 +92,7 @@ export class TenantPermissionGuard implements CanActivate {
     const userId = user.sub || user.userId || 'unknown';
     const granted = user.resourcePermissions || [];
     const missing = requiredPermissions.filter((p) => !granted.includes(p));
-    this.logger.debug(
-      `Permission denied for user ${userId}: missing [${missing.join(', ')}]`,
-    );
+    this.logger.debug(`Permission denied for user ${userId}: missing [${missing.join(', ')}]`);
     throw new ForbiddenException('Access denied');
   }
 
@@ -101,13 +100,6 @@ export class TenantPermissionGuard implements CanActivate {
    * Get user from request context (HTTP or GraphQL)
    */
   private getUser(context: ExecutionContext): UserWithPermissions | undefined {
-    const contextType = context.getType<string>();
-
-    if (contextType === 'graphql') {
-      const gqlCtx = GqlExecutionContext.create(context);
-      return gqlCtx.getContext().req?.user as UserWithPermissions | undefined;
-    }
-
-    return context.switchToHttp().getRequest()?.user as UserWithPermissions | undefined;
+    return getRequestFromArgumentsHost<{ user?: UserWithPermissions }>(context)?.user;
   }
 }

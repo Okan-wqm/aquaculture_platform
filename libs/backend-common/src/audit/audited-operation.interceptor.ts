@@ -7,29 +7,21 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { GqlExecutionContext } from '@nestjs/graphql';
-import { DataSource, QueryRunner } from 'typeorm';
 import { Observable, from, throwError } from 'rxjs';
 import { switchMap, catchError } from 'rxjs/operators';
+import { DataSource, QueryRunner } from 'typeorm';
 
+import { getRequestFromArgumentsHost } from '../context/execution-context-request';
+import { getRequestContext } from '../logging/request-context';
+import { SENSITIVE_FIELDS_SET } from '../security/security-constants';
+
+import { AuditLogEntity, AuditMethod, AuditResult, AuditSeverity } from './audit-log.entity';
 import {
   AUDITED_OPERATION_KEY,
   AuditedOperationOptions,
   AuditedOperationStatus,
 } from './audited-operation.decorator';
-import {
-  AuditLogEntity,
-  AuditMethod,
-  AuditResult,
-  AuditSeverity,
-} from './audit-log.entity';
-import { getRequestContext } from '../logging/request-context';
-import {
-  hashIpForGdpr,
-  readIpHashingPolicyFromEnv,
-  shouldHashIp,
-} from './ip-hash.util';
-import { SENSITIVE_FIELDS_SET } from '../security/security-constants';
+import { hashIpForGdpr, readIpHashingPolicyFromEnv, shouldHashIp } from './ip-hash.util';
 
 /**
  * AUDITTRAIL-LOW-001 cure: re-export the canonical SENSITIVE_FIELDS_SET
@@ -259,9 +251,7 @@ export class AuditedOperationInterceptor implements NestInterceptor {
         ? hashIpForGdpr(ctx.ipAddress)
         : ctx.ipAddress,
       userAgent: ctx.userAgent,
-      severity: status === AuditedOperationStatus.FAILED
-        ? AuditSeverity.ERROR
-        : AuditSeverity.INFO,
+      severity: status === AuditedOperationStatus.FAILED ? AuditSeverity.ERROR : AuditSeverity.INFO,
       correlationId: ctx.correlationId,
 
       // ── AUDITTRAIL-CRITICAL-004 mandatory-shape population ──
@@ -277,10 +267,7 @@ export class AuditedOperationInterceptor implements NestInterceptor {
       actedOnTenantId: ctx.tenantId,
       method: ctx.method,
       mfaVerified: ctx.mfaVerified,
-      result:
-        status === AuditedOperationStatus.SUCCESS
-          ? AuditResult.SUCCESS
-          : AuditResult.FAILED,
+      result: status === AuditedOperationStatus.SUCCESS ? AuditResult.SUCCESS : AuditResult.FAILED,
     };
 
     // ── Transaction-aware write ──
@@ -289,10 +276,11 @@ export class AuditedOperationInterceptor implements NestInterceptor {
       // is part of the same transaction as the business operation.
       await ctx.queryRunner.manager.save(AuditLogEntity, auditEntry);
     } else {
-      // No transaction available — write directly but AWAIT the result.
-      // This is still better than fire-and-forget because failures propagate.
-      // eslint-disable-next-line no-restricted-syntax -- AuditLogEntity lives in the cross-tenant `shared` schema (one of the 4 canonical SHARED_SCHEMA_TABLES per ADR-011 / W1 audit). Every audit row carries its own tenantId scoped from the request context BEFORE this interceptor runs (see auditEntry construction above). Wrapping with tenantManagerRepo would inject the request's tenantId AGAIN onto a row that already carries the correctly-resolved one — redundant at best, wrong if the request scope differs from the audit row's intended scope (cross-tenant admin paths).
-      await this.dataSource.getRepository(AuditLogEntity).save(auditEntry);
+      // No transaction is available, so use the DataSource manager's entity
+      // write primitive and AWAIT the result. AuditLogEntity is a declared
+      // cross-tenant shared ledger and the row already carries the trusted
+      // tenant identity; a tenant repository would incorrectly rewrite it.
+      await this.dataSource.manager.save(AuditLogEntity, auditEntry);
     }
   }
 
@@ -336,8 +324,7 @@ export class AuditedOperationInterceptor implements NestInterceptor {
    * Extract context from a GraphQL execution context
    */
   private extractFromGraphQL(context: ExecutionContext): RequestContext {
-    const gqlCtx = GqlExecutionContext.create(context);
-    const request = gqlCtx.getContext().req as RequestLike | undefined;
+    const request = getRequestFromArgumentsHost<RequestLike>(context);
     return this.buildContextFromRequest(request);
   }
 
@@ -383,28 +370,14 @@ export class AuditedOperationInterceptor implements NestInterceptor {
     const ctx = getRequestContext();
 
     return {
-      userId:
-        ctx.userId ??
-        (command?.['userId'] as string | undefined) ??
-        null,
+      userId: ctx.userId ?? (command?.['userId'] as string | undefined) ?? null,
       userEmail: (command?.['userEmail'] as string) ?? null,
-      tenantId:
-        ctx.tenantId ??
-        (command?.['tenantId'] as string | undefined) ??
-        null,
-      schemaName:
-        ctx.schemaName ??
-        (command?.['schemaName'] as string | undefined) ??
-        null,
-      ipAddress:
-        ctx.ip ??
-        (command?.['ipAddress'] as string | undefined) ??
-        null,
+      tenantId: ctx.tenantId ?? (command?.['tenantId'] as string | undefined) ?? null,
+      schemaName: ctx.schemaName ?? (command?.['schemaName'] as string | undefined) ?? null,
+      ipAddress: ctx.ip ?? (command?.['ipAddress'] as string | undefined) ?? null,
       userAgent: null,
       correlationId:
-        ctx.correlationId ??
-        (command?.['correlationId'] as string | undefined) ??
-        null,
+        ctx.correlationId ?? (command?.['correlationId'] as string | undefined) ?? null,
       queryRunner: (command?.['queryRunner'] as QueryRunner) ?? null,
       // method is set by extractRequestContext after this returns;
       // a non-null override at this layer would be ignored by the spread.
@@ -457,7 +430,7 @@ export class AuditedOperationInterceptor implements NestInterceptor {
       ipAddress: this.extractIp(request),
       userAgent: (headers['user-agent'] as string) ?? null,
       correlationId: (headers['x-correlation-id'] as string) ?? null,
-      queryRunner: (request as Record<string, unknown>)['queryRunner'] as QueryRunner ?? null,
+      queryRunner: ((request as Record<string, unknown>)['queryRunner'] as QueryRunner) ?? null,
       // method is overwritten by extractRequestContext after this returns.
       method: null,
       mfaVerified: user?.['mfaVerified'] === true,
@@ -507,10 +480,7 @@ export class AuditedOperationInterceptor implements NestInterceptor {
    * Resolve the resource ID from the handler result.
    * Uses custom extractor if provided, otherwise looks for common patterns.
    */
-  private resolveResourceId(
-    options: AuditedOperationOptions,
-    result: unknown,
-  ): string | null {
+  private resolveResourceId(options: AuditedOperationOptions, result: unknown): string | null {
     // ── Custom extractor ──
     if (options.extractResourceId) {
       try {
@@ -548,10 +518,7 @@ export class AuditedOperationInterceptor implements NestInterceptor {
    * Sanitize an object by removing sensitive keys and truncating deep nesting.
    * Prevents passwords, tokens, and other secrets from appearing in audit logs.
    */
-  private sanitizeObject(
-    obj: Record<string, unknown>,
-    depth = 0,
-  ): Record<string, unknown> {
+  private sanitizeObject(obj: Record<string, unknown>, depth = 0): Record<string, unknown> {
     if (depth >= MAX_SANITIZE_DEPTH) {
       return { _truncated: true };
     }
@@ -567,10 +534,7 @@ export class AuditedOperationInterceptor implements NestInterceptor {
       if (value === null || value === undefined) {
         result[key] = value;
       } else if (typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date)) {
-        result[key] = this.sanitizeObject(
-          value as Record<string, unknown>,
-          depth + 1,
-        );
+        result[key] = this.sanitizeObject(value as Record<string, unknown>, depth + 1);
       } else if (Array.isArray(value)) {
         result[key] = value.slice(0, 10);
       } else {

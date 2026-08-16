@@ -1,6 +1,7 @@
+import * as crypto from 'crypto';
+
 import { Logger } from '@nestjs/common';
 import { ValueTransformer } from 'typeorm';
-import * as crypto from 'crypto';
 
 /**
  * AES-256-GCM encryption algorithm.
@@ -93,12 +94,9 @@ function resolveKey(envVarName: string): Buffer {
  */
 function encrypt(plaintext: string, key: Buffer, keyVersion: string): string {
   const iv = crypto.randomBytes(IV_LENGTH);
-  const cipher = crypto.createCipheriv(ALGORITHM, key, iv) as crypto.CipherGCM;
+  const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
 
-  const encrypted = Buffer.concat([
-    cipher.update(plaintext, 'utf8'),
-    cipher.final(),
-  ]);
+  const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
 
   const authTag = cipher.getAuthTag();
 
@@ -141,13 +139,10 @@ function decrypt(encrypted: string, key: Buffer): string {
   const authTag = Buffer.from(authTagHex, 'hex');
   const ciphertext = Buffer.from(ciphertextHex, 'hex');
 
-  const decipher = crypto.createDecipheriv(ALGORITHM, key, iv) as crypto.DecipherGCM;
+  const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
   decipher.setAuthTag(authTag);
 
-  const decrypted = Buffer.concat([
-    decipher.update(ciphertext),
-    decipher.final(),
-  ]);
+  const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
 
   return decrypted.toString('utf8');
 }
@@ -180,10 +175,10 @@ export function createEncryptedColumnTransformer(
 
   return {
     to(value: unknown): string | null | undefined {
-      if (value === null || value === undefined) return value as null | undefined;
+      if (value === null || value === undefined) return value;
 
       const key = resolveKey(envVarName);
-      const plaintext = isJson ? JSON.stringify(value) : String(value);
+      const plaintext = serializePlaintext(value, isJson);
 
       // SECURITY: Idempotency -- don't double-encrypt
       if (typeof value === 'string' && value.startsWith(ENCRYPTED_PREFIX)) {
@@ -201,11 +196,31 @@ export function createEncryptedColumnTransformer(
       try {
         const decrypted = decrypt(value, key);
         return isJson ? JSON.parse(decrypted) : decrypted;
-      } catch (err) {
+      } catch {
         // SECURITY: never log PII content -- only log opaque error code
         logger.error('Decryption failed for stored column value (content redacted)');
         return isJson ? null : '[DECRYPTION_FAILED]';
       }
     },
   };
+}
+
+function serializePlaintext(value: unknown, json: boolean): string {
+  if (json) {
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined) {
+      throw new TypeError('Encrypted JSON value is not serializable');
+    }
+    return serialized;
+  }
+
+  if (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'bigint' ||
+    typeof value === 'boolean'
+  ) {
+    return String(value);
+  }
+  throw new TypeError('Encrypted scalar value must be a primitive');
 }

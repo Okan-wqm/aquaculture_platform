@@ -1,4 +1,5 @@
 import { SetMetadata } from '@nestjs/common';
+import type { CustomDecorator } from '@nestjs/common';
 
 import { Role } from './roles.decorator';
 
@@ -32,7 +33,7 @@ export const REQUIRED_TENANT_PERMISSIONS_KEY = 'requiredTenantPermissions';
  * calibrateSensor() { ... }
  * ```
  */
-export const RequireTenantPermission = (...permissions: string[]) =>
+export const RequireTenantPermission = (...permissions: string[]): CustomDecorator<string> =>
   SetMetadata(REQUIRED_TENANT_PERMISSIONS_KEY, permissions);
 
 /**

@@ -1,9 +1,8 @@
 /**
  * @aquaculture/backend-common/types
  *
- * Canonical shared request + DI interfaces. This barrel is the only
- * import site for `TenantRequest` — middleware's extended shape remains
- * deep-import so the two don't collide.
+ * Canonical shared request, constructor, and DI interfaces.
  */
 
+export * from './class-constructor';
 export * from './tenant-request.interface';

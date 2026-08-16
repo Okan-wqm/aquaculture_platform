@@ -54,9 +54,7 @@ import { readdirSync, readFileSync, statSync } from 'fs';
 import { join } from 'path';
 
 import {
-  CONFIG_RUNTIME_INBOX_PREFIX,
-  CONFIG_RUNTIME_NONSECRET_ALLOWLIST,
-  CONFIG_RUNTIME_SECRET_ALLOWLIST,
+  CONFIG_RUNTIME_ACCESS_BY_CONSUMER,
   CONFIG_RUNTIME_SUBJECTS,
   MARINE_PROVIDER_CREDENTIAL_ALLOWLIST,
   MARINE_PROVIDER_CREDENTIAL_INBOX_PREFIX,
@@ -816,113 +814,126 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
     );
   });
 
-  describe('config-runtime secret-read grants (ARCH-HIGH-001 + ARCH-MEDIUM-004 + SEC-CRITICAL-001)', () => {
-    // Representative subject under the scoped reply-inbox token — createInbox
-    // appends `.<nuid>`, so any real reply subject is `_INBOXBILLINGCFG.<nuid>`.
-    const scopedInboxSubject = `${CONFIG_RUNTIME_INBOX_PREFIX}.reply`;
+  describe('catalog-generated config-runtime ACL closure', () => {
+    const runtimeApplications = Object.keys(CONFIG_RUNTIME_ACCESS_BY_CONSUMER).sort();
 
     const requireService = (name: string): Service => {
-      const svc = serviceByName.get(name);
-      if (!svc) throw new Error(`services.yaml is missing the "${name}" service`);
-      return svc;
+      const service = serviceByName.get(name);
+      if (!service) throw new Error(`services.yaml is missing the "${name}" service`);
+      return service;
     };
 
-    it('billing_service PUBLISHES both config.runtime subjects; config_service SUBSCRIBES both (pinned)', () => {
-      const billing = requireService('billing_service');
-      const config = requireService('config_service');
-      for (const subject of [CONFIG_RUNTIME_SUBJECTS.GET, CONFIG_RUNTIME_SUBJECTS.GET_SECRET]) {
-        if (!isCovered(subject, billing.publish)) {
-          throw new Error(`billing_service is missing the PUBLISH grant for "${subject}"`);
-        }
-        if (!isCovered(subject, config.subscribe)) {
-          throw new Error(`config_service is missing the SUBSCRIBE grant for "${subject}"`);
-        }
-      }
-    });
-
-    it('the decrypted-secret reply inbox is scoped to billing↔config ONLY (SEC-CRITICAL-001)', () => {
-      const billing = requireService('billing_service');
-      const config = requireService('config_service');
-      // billing subscribes the scoped inbox; config publishes replies to it.
-      if (!isCovered(scopedInboxSubject, billing.subscribe)) {
-        throw new Error(`billing_service is missing SUBSCRIBE for the scoped secret-reply inbox`);
-      }
-      if (!isCovered(scopedInboxSubject, config.publish)) {
-        throw new Error(`config_service is missing PUBLISH for the scoped secret-reply inbox`);
-      }
-      // The broad `_INBOX.>` must NOT match the scoped token (first-token distinctness) —
-      // this is the whole point: a `_INBOX.>` holder cannot read the secret reply.
-      if (isCovered(scopedInboxSubject, ['_INBOX.>'])) {
+    const requireConsumerService = (application: string): Service => {
+      const certificateName = APP_TO_SERVICE[application];
+      if (!certificateName) {
         throw new Error(
-          `${CONFIG_RUNTIME_INBOX_PREFIX} must be a DISTINCT first token from _INBOX so the ` +
-            'platform-wide _INBOX.> grant cannot match the scoped secret-reply subject',
+          `catalog runtime consumer "${application}" has no APP_TO_SERVICE certificate mapping`,
         );
       }
-      // No OTHER service may grant the scoped inbox token, on publish or subscribe.
-      for (const svc of servicesDoc.services) {
-        if (svc.name === 'billing_service' || svc.name === 'config_service') continue;
-        const leaks = [...svc.publish, ...svc.subscribe].filter(
-          (g) => g.startsWith(CONFIG_RUNTIME_INBOX_PREFIX) || isCovered(scopedInboxSubject, [g]),
-        );
-        if (leaks.length > 0) {
-          throw new Error(
-            `${svc.name} must NOT hold any grant on the scoped secret-reply inbox ` +
-              `(${CONFIG_RUNTIME_INBOX_PREFIX}) — it could passively read the plaintext ` +
-              `Stripe secret. Offending grants: ${leaks.join(', ')}`,
-          );
-        }
+      return requireService(certificateName);
+    };
+
+    it('projects one exact consumer object containing disjoint keys and one scoped inbox', () => {
+      expect(
+        new Set(
+          Object.values(CONFIG_RUNTIME_ACCESS_BY_CONSUMER).map((access) => access.replyInboxPrefix),
+        ).size,
+      ).toBe(runtimeApplications.length);
+      for (const application of runtimeApplications) {
+        const access = CONFIG_RUNTIME_ACCESS_BY_CONSUMER[application];
+        if (!access) throw new Error(`runtime consumer "${application}" lost its access object`);
+        const secretKeys = new Set(access.secretKeyIds);
+        const nonSecretKeys = access.nonSecretKeyIds;
+        const overlap = nonSecretKeys.filter((key) => secretKeys.has(key));
+        expect(overlap).toEqual([]);
+        expect(secretKeys.size + nonSecretKeys.length).toBeGreaterThan(0);
       }
     });
 
-    it('no service outside {billing,config} holds ANY config.runtime.* grant', () => {
-      for (const svc of servicesDoc.services) {
-        if (svc.name === 'billing_service' || svc.name === 'config_service') continue;
-        const leaks = [...svc.publish, ...svc.subscribe].filter((g) =>
-          g.startsWith('config.runtime.'),
-        );
-        if (leaks.length > 0) {
-          throw new Error(
-            `${svc.name} must NOT hold a config.runtime.* grant: ${leaks.join(', ')}`,
-          );
-        }
-      }
-    });
+    it('grants each request subject to exactly its generated callers and config responder', () => {
+      const config = requireService('config_service');
+      const contracts: ReadonlyArray<{
+        subject: string;
+        field: 'nonSecretKeyIds' | 'secretKeyIds';
+      }> = [
+        {
+          subject: CONFIG_RUNTIME_SUBJECTS.GET,
+          field: 'nonSecretKeyIds',
+        },
+        {
+          subject: CONFIG_RUNTIME_SUBJECTS.GET_SECRET,
+          field: 'secretKeyIds',
+        },
+      ];
 
-    it('every allowlisted caller holds the matching config.runtime.* PUBLISH grant (ARCH-MEDIUM-004)', () => {
-      const check = (
-        allowlist: Readonly<Record<string, readonly string[]>>,
-        subject: string,
-      ): void => {
-        for (const caller of Object.keys(allowlist)) {
-          const cn = APP_TO_SERVICE[caller];
-          if (!cn) {
+      for (const { subject, field } of contracts) {
+        expect(config.subscribe).toContain(subject);
+        const expectedPublishers = new Set(
+          runtimeApplications
+            .filter(
+              (application) =>
+                (CONFIG_RUNTIME_ACCESS_BY_CONSUMER[application]?.[field].length ?? 0) > 0,
+            )
+            .map((application) => requireConsumerService(application).name),
+        );
+        for (const service of servicesDoc.services) {
+          const grants = service.publish.filter((grant) => isCovered(subject, [grant]));
+          if (expectedPublishers.has(service.name)) {
+            expect(grants).toEqual([subject]);
+          } else if (grants.length > 0) {
             throw new Error(
-              `config-runtime allowlist caller "${caller}" has no APP_TO_SERVICE (cert-CN) mapping`,
+              `${service.name} is not a catalog-registered caller for "${subject}" but holds ` +
+                `${grants.join(', ')}`,
             );
           }
-          const svc = serviceByName.get(cn);
-          if (!svc || !isCovered(subject, svc.publish)) {
-            throw new Error(
-              `config-runtime allowlist caller "${caller}" (CN "${cn}") lacks the PUBLISH ` +
-                `grant for "${subject}" — the handler would authorize a caller the broker refuses.`,
-            );
+          if (service.name !== config.name) {
+            const responderLeaks = service.subscribe.filter((grant) => isCovered(subject, [grant]));
+            if (responderLeaks.length > 0) {
+              throw new Error(
+                `${service.name} is not the config responder but can subscribe "${subject}": ` +
+                  responderLeaks.join(', '),
+              );
+            }
           }
         }
-      };
-      check(CONFIG_RUNTIME_SECRET_ALLOWLIST, CONFIG_RUNTIME_SUBJECTS.GET_SECRET);
-      check(CONFIG_RUNTIME_NONSECRET_ALLOWLIST, CONFIG_RUNTIME_SUBJECTS.GET);
+      }
     });
 
-    it('secret and non-secret allowlists are DISJOINT per caller (a secret key can never ride the GET path)', () => {
-      for (const caller of Object.keys(CONFIG_RUNTIME_SECRET_ALLOWLIST)) {
-        const secretKeys = new Set(CONFIG_RUNTIME_SECRET_ALLOWLIST[caller]);
-        const nonSecretKeys = CONFIG_RUNTIME_NONSECRET_ALLOWLIST[caller] ?? [];
-        const overlap = nonSecretKeys.filter((k) => secretKeys.has(k));
-        if (overlap.length > 0) {
+    it('gives every runtime consumer one exclusive first-token reply inbox', () => {
+      const config = requireService('config_service');
+      for (const application of runtimeApplications) {
+        const consumer = requireConsumerService(application);
+        const access = CONFIG_RUNTIME_ACCESS_BY_CONSUMER[application];
+        if (!access) throw new Error(`runtime consumer "${application}" has no access object`);
+        const prefix = access.replyInboxPrefix;
+        const replySubject = `${prefix}.reply`;
+        if (isCovered(replySubject, ['_INBOX.>'])) {
           throw new Error(
-            `caller "${caller}" lists key(s) on BOTH the secret and non-secret allowlists ` +
-              `(${overlap.join(', ')}) — the non-secret GET path would then be able to serve a secret`,
+            `${prefix} must be a distinct first token so generic _INBOX.> cannot read secrets`,
           );
+        }
+        expect(consumer.subscribe).toContain(`${prefix}.>`);
+        expect(config.publish).toContain(`${prefix}.>`);
+
+        for (const service of servicesDoc.services) {
+          const publishGrants = service.publish.filter(
+            (grant) => grant.startsWith(`${prefix}.`) || isCovered(replySubject, [grant]),
+          );
+          const subscribeGrants = service.subscribe.filter(
+            (grant) => grant.startsWith(`${prefix}.`) || isCovered(replySubject, [grant]),
+          );
+          if (service.name !== config.name && publishGrants.length > 0) {
+            throw new Error(
+              `${service.name} can publish ${application}'s private reply inbox: ` +
+                publishGrants.join(', '),
+            );
+          }
+          if (service.name !== consumer.name && subscribeGrants.length > 0) {
+            throw new Error(
+              `${service.name} can subscribe ${application}'s private reply inbox: ` +
+                subscribeGrants.join(', '),
+            );
+          }
         }
       }
     });

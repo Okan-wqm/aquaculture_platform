@@ -1,104 +1,59 @@
+import { execFileSync } from 'node:child_process';
+import { resolve } from 'node:path';
+
 import {
-  PLATFORM_CONFIGURATION_SEED,
-  PLATFORM_CONFIGURATION_SERVICE,
-} from '../migrations/1805400000000-SeedPlatformConfigurations';
+  CONFIGURATION_DEFINITIONS,
+  ConfigurationKeyId,
+  parseCanonicalConfigurationValue,
+} from '@aquaculture/configuration-contracts';
 
-/**
- * Integrity contract for the platform-scope configuration seed
- * (ORPHAN-HIGH-373). The rows are a faithful derivation of admin-api's
- * DEFAULT_SYSTEM_SETTINGS vocabulary (35 entries) mapped onto the
- * config.configurations column semantics — this spec pins the mapping
- * invariants so a future edit cannot silently corrupt the seed.
- */
-describe('PLATFORM_CONFIGURATION_SEED', () => {
-  it('targets the platform service namespace', () => {
-    expect(PLATFORM_CONFIGURATION_SERVICE).toBe('platform');
+import { CONFIGURATION_SEED_ROWS } from '../generated/configuration-seed.generated';
+
+describe('generated configuration seed projection', () => {
+  it('is current with the strict catalog compiler', () => {
+    const repoRoot = resolve(__dirname, '../../../../..');
+    expect(() =>
+      execFileSync(
+        process.execPath,
+        ['tools/configuration/compile-configuration-catalog.cjs', '--check'],
+        { cwd: repoRoot, stdio: 'pipe' },
+      ),
+    ).not.toThrow();
   });
 
-  it('carries the full 35-entry vocabulary with unique namespaced keys', () => {
-    expect(PLATFORM_CONFIGURATION_SEED).toHaveLength(35);
+  it('contains exactly the catalog IDs with authoritative defaults', () => {
+    const expectedIds = CONFIGURATION_DEFINITIONS.filter((definition) =>
+      Object.prototype.hasOwnProperty.call(definition, 'default'),
+    )
+      .map((definition) => definition.id)
+      .sort();
+    const seedIds = CONFIGURATION_SEED_ROWS.map((row) => row.catalogId).sort();
+    expect(seedIds).toEqual(expectedIds);
+    expect(new Set(seedIds).size).toBe(seedIds.length);
+    expect(seedIds.every((catalogId) => catalogId in ConfigurationKeyId)).toBe(true);
+  });
 
-    const keys = PLATFORM_CONFIGURATION_SEED.map((row) => row.key);
-    expect(new Set(keys).size).toBe(keys.length);
-    for (const key of keys) {
-      // Namespaced dotted keys, e.g. `platform.name`, `rate_limit.global_rpm`.
-      expect(key).toMatch(/^[a-z_]+(\.[a-z0-9_]+)+$/);
+  it('round-trips every generated seed through its catalog-owned type rules', () => {
+    const definitions = new Map(
+      CONFIGURATION_DEFINITIONS.map((definition) => [definition.id, definition]),
+    );
+    for (const row of CONFIGURATION_SEED_ROWS) {
+      const definition = definitions.get(row.catalogId);
+      if (!definition) throw new Error(`seed row lost catalog definition ${row.catalogId}`);
+      expect(definition.valueType).not.toBe('SECRET');
+      expect(() => parseCanonicalConfigurationValue(definition, row.value)).not.toThrow();
+      expect(row.service).toBe(definition.service);
+      expect(row.key).toBe(definition.key);
+      expect(row.requiresRestart).toBe(definition.requiresRestart);
     }
   });
 
-  it('stays inside the configurations enum + category domains', () => {
-    const valueTypes = new Set(['string', 'number', 'boolean', 'json', 'secret']);
-    const categories = new Set([
-      'general',
-      'security',
-      'email',
-      'rate_limit',
-      'storage',
-      'maintenance',
-      'billing',
-      'feature_flag',
-    ]);
-
-    for (const row of PLATFORM_CONFIGURATION_SEED) {
-      expect(valueTypes.has(row.valueType)).toBe(true);
-      expect(categories.has(row.category)).toBe(true);
-      expect(row.description.length).toBeGreaterThan(0);
-      expect(row.description.length).toBeLessThanOrEqual(500);
-    }
-  });
-
-  it('stores every value in a form its declared type can parse back', () => {
-    for (const row of PLATFORM_CONFIGURATION_SEED) {
-      if (row.valueType === 'number') {
-        expect(Number.isFinite(Number(row.value))).toBe(true);
-      }
-      if (row.valueType === 'boolean') {
-        expect(['true', 'false']).toContain(row.value);
-      }
-      if (row.valueType === 'json') {
-        expect(() => JSON.parse(row.value)).not.toThrow();
-      }
-    }
-  });
-
-  it('marks exactly the smtp password as the secret entry, with no plaintext payload', () => {
-    const secrets = PLATFORM_CONFIGURATION_SEED.filter((row) => row.valueType === 'secret');
-    expect(secrets.map((row) => row.key)).toEqual(['email.smtp_password']);
-    // A seed migration must never ship a plaintext secret value.
-    expect(secrets[0]?.value).toBe('');
-  });
-
-  it('uses only the sanctioned classification tags', () => {
-    const allowed = new Set(['public', 'read-only', 'requires-restart']);
-    for (const row of PLATFORM_CONFIGURATION_SEED) {
-      for (const tag of row.tags ?? []) {
-        expect(allowed.has(tag)).toBe(true);
-      }
-    }
-  });
-
-  it('preserves the vocabulary values verbatim (spot checks)', () => {
-    const byKey = new Map(PLATFORM_CONFIGURATION_SEED.map((row) => [row.key, row]));
-
-    expect(byKey.get('platform.name')?.value).toBe('Aquaculture Platform');
-    expect(byKey.get('platform.version')?.tags).toEqual(['public', 'read-only']);
-    expect(byKey.get('security.session_timeout_minutes')?.value).toBe('480');
-    expect(byKey.get('rate_limit.global_rpm')?.value).toBe('1000');
-    expect(byKey.get('email.from_address')?.value).toBe('noreply@aquaculture.io');
-    expect(JSON.parse(byKey.get('storage.allowed_extensions')?.value ?? '[]')).toEqual([
-      'pdf',
-      'doc',
-      'docx',
-      'xls',
-      'xlsx',
-      'csv',
-      'jpg',
-      'jpeg',
-      'png',
-      'gif',
-      'mp4',
-    ]);
-    expect(byKey.get('maintenance.mode_enabled')?.value).toBe('false');
-    expect(byKey.get('feature.graphql_playground')?.value).toBe('false');
+  it('never invents a plaintext default for a secret', () => {
+    const secretIds = new Set(
+      CONFIGURATION_DEFINITIONS.filter((definition) => definition.valueType === 'SECRET').map(
+        (definition) => definition.id,
+      ),
+    );
+    expect(CONFIGURATION_SEED_ROWS.filter((row) => secretIds.has(row.catalogId))).toEqual([]);
   });
 });

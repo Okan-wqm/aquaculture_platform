@@ -1,3 +1,5 @@
+import { defined } from '@aquaculture/testing';
+
 import {
   maskEmail,
   logSafeUserId,
@@ -126,9 +128,7 @@ describe('maskPii — value-pattern redaction', () => {
   });
 
   it('redacts multiple PII classes in one string', () => {
-    const result = maskPii(
-      'User john@example.com from 10.0.0.5 with SSN 123-45-6789',
-    );
+    const result = maskPii('User john@example.com from 10.0.0.5 with SSN 123-45-6789');
     expect(result).toContain('[EMAIL-REDACTED]');
     expect(result).toContain('[SSN-REDACTED]');
     expect(result).toContain('10.0.0.***');
@@ -176,7 +176,7 @@ describe('maskPiiDeep — recursive masking', () => {
       cursor = next;
     }
     cursor['email'] = 'leaked@example.com';
-    const result = maskPiiDeep(deep) as Record<string, unknown>;
+    const result = maskPiiDeep(deep);
     // Top-level traversal applies; the function still returns
     // a sanitised shape for any depth it visits.
     expect(typeof result).toBe('object');
@@ -228,11 +228,11 @@ describe('maskAndTruncatePii (BILLING-MEDIUM-003)', () => {
     const longPii = 'jane.doe@example.com '.repeat(60); // ~1320 chars
     const out = maskAndTruncatePii(longPii);
     expect(out).not.toBeNull();
-    expect(out!.length).toBeLessThanOrEqual(500);
+    expect(defined(out).length).toBeLessThanOrEqual(500);
     // Contains the redaction token, never the raw email
     expect(out).toContain('[EMAIL-REDACTED]');
     expect(out).not.toContain('jane.doe@example.com');
-    expect(out!.endsWith('…<truncated>')).toBe(true);
+    expect(defined(out).endsWith('…<truncated>')).toBe(true);
   });
 
   it('returns the masked string unchanged when below the cap', () => {
@@ -246,13 +246,13 @@ describe('maskAndTruncatePii (BILLING-MEDIUM-003)', () => {
     expect(out).toContain('[CC-REDACTED]');
     expect(out).toContain('declined');
     expect(out).not.toContain('4242 4242 4242 4242');
-    expect(out!.endsWith('…<truncated>')).toBe(false);
+    expect(defined(out).endsWith('…<truncated>')).toBe(false);
   });
 
   it('honours a custom cap argument', () => {
     const out = maskAndTruncatePii('a'.repeat(200), 50);
-    expect(out!.length).toBe(50);
-    expect(out!.endsWith('…<truncated>')).toBe(true);
+    expect(defined(out).length).toBe(50);
+    expect(defined(out).endsWith('…<truncated>')).toBe(true);
   });
 
   it('returns null for null input (caller convention)', () => {
@@ -267,15 +267,14 @@ describe('maskAndTruncatePii (BILLING-MEDIUM-003)', () => {
     // Test multiple cap values around the marker length boundary
     for (const cap of [20, 50, 100, 500, 1000]) {
       const out = maskAndTruncatePii('x'.repeat(2000), cap);
-      expect(out!.length).toBe(cap);
+      expect(defined(out).length).toBe(cap);
     }
   });
 
   it('masks ALL PII patterns before truncating (mask-then-truncate ordering)', () => {
     // 600-char string ending in PII — if truncation happened FIRST
     // we might lose the chance to mask the trailing email.
-    const value =
-      'a'.repeat(450) + ' jane@example.com 4242 4242 4242 4242 555-1234';
+    const value = 'a'.repeat(450) + ' jane@example.com 4242 4242 4242 4242 555-1234';
     const out = maskAndTruncatePii(value, 500);
     // Email lives within the first 500 masked chars — verify
     // we replaced it before truncation rather than truncating

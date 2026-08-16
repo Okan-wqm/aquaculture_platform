@@ -46,11 +46,13 @@
  */
 import type { DataSource } from 'typeorm';
 
+import type { ClassConstructor } from '../types/class-constructor';
+
 import { getExpandContractMetadata } from './expand-contract.decorator';
 
 export interface AssertDependencyOptions {
   readonly dataSource: DataSource;
-  readonly migrationClass: Function;
+  readonly migrationClass: ClassConstructor;
   readonly environment: string;
 }
 
@@ -99,8 +101,7 @@ export async function assertExpandContractDependency(
       checked: false,
       skipped: true,
       dependsOn: meta.dependsOn,
-      reason:
-        'observability.migration_backfill_progress missing — fail-open at bootstrap',
+      reason: 'observability.migration_backfill_progress missing — fail-open at bootstrap',
     };
   }
 

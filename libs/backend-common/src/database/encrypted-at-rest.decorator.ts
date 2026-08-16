@@ -46,6 +46,8 @@
  */
 import 'reflect-metadata';
 
+import { ClassConstructor, isClassConstructor } from '../types/class-constructor';
+
 /** Reflect metadata key. Exported so the validator + primitives share it. */
 export const ENCRYPTED_AT_REST_META_KEY = Symbol.for(
   '@aquaculture/backend-common:encrypted-at-rest',
@@ -87,6 +89,17 @@ export interface EncryptedAtRestMetadata extends EncryptedAtRestOptions {
   readonly propertyKey: string;
 }
 
+function readEncryptedMetadata(ctor: ClassConstructor): Map<string, EncryptedAtRestMetadata> {
+  const metadata: unknown = Reflect.getMetadata(ENCRYPTED_AT_REST_META_KEY, ctor);
+  if (metadata === undefined) {
+    return new Map<string, EncryptedAtRestMetadata>();
+  }
+  if (!(metadata instanceof Map)) {
+    throw new TypeError('@EncryptedAtRest metadata must be stored as a Map');
+  }
+  return metadata as Map<string, EncryptedAtRestMetadata>;
+}
+
 /**
  * Property-level decorator. Attaches the options to the entity prototype
  * under ENCRYPTED_AT_REST_META_KEY keyed by property name.
@@ -95,21 +108,13 @@ export interface EncryptedAtRestMetadata extends EncryptedAtRestOptions {
  * TypeScript emit order applies. In practice this never matters because
  * a column is either encrypted or not — use the primary decorator once.
  */
-export function EncryptedAtRest(
-  opts: EncryptedAtRestOptions,
-): PropertyDecorator {
+export function EncryptedAtRest(opts: EncryptedAtRestOptions): PropertyDecorator {
   if (!opts.keyId || typeof opts.keyId !== 'string') {
     throw new Error(
-      `@EncryptedAtRest: keyId must be a non-empty string (got ${JSON.stringify(
-        opts.keyId,
-      )})`,
+      `@EncryptedAtRest: keyId must be a non-empty string (got ${JSON.stringify(opts.keyId)})`,
     );
   }
-  const algorithmsAllowed: readonly EncryptionAlgorithm[] = [
-    'pgp_sym',
-    'pgp_pub',
-    'aes_256_gcm',
-  ];
+  const algorithmsAllowed: readonly EncryptionAlgorithm[] = ['pgp_sym', 'pgp_pub', 'aes_256_gcm'];
   if (!algorithmsAllowed.includes(opts.algorithm)) {
     throw new Error(
       `@EncryptedAtRest: algorithm '${opts.algorithm}' not in allowlist [${algorithmsAllowed.join(', ')}]`,
@@ -121,19 +126,16 @@ export function EncryptedAtRest(
         `@EncryptedAtRest: property key must be a string (got ${String(propertyKey)})`,
       );
     }
-    const existing: Map<string, EncryptedAtRestMetadata> =
-      (Reflect.getMetadata(ENCRYPTED_AT_REST_META_KEY, target.constructor) as
-        | Map<string, EncryptedAtRestMetadata>
-        | undefined) ?? new Map();
+    const constructor: unknown = target.constructor;
+    if (!isClassConstructor(constructor)) {
+      throw new TypeError('@EncryptedAtRest target must have a class constructor');
+    }
+    const existing = readEncryptedMetadata(constructor);
     existing.set(propertyKey, {
       ...opts,
       propertyKey,
     });
-    Reflect.defineMetadata(
-      ENCRYPTED_AT_REST_META_KEY,
-      existing,
-      target.constructor,
-    );
+    Reflect.defineMetadata(ENCRYPTED_AT_REST_META_KEY, existing, constructor);
   };
 }
 
@@ -144,13 +146,9 @@ export function EncryptedAtRest(
  * callers that need DB names should look up via EntityMetadata.columns).
  */
 export function getEncryptedAtRestMetadata(
-  ctor: Function,
+  ctor: ClassConstructor,
 ): ReadonlyMap<string, EncryptedAtRestMetadata> {
-  const result =
-    (Reflect.getMetadata(ENCRYPTED_AT_REST_META_KEY, ctor) as
-      | Map<string, EncryptedAtRestMetadata>
-      | undefined) ?? new Map<string, EncryptedAtRestMetadata>();
-  return result;
+  return readEncryptedMetadata(ctor);
 }
 
 /**
@@ -159,7 +157,7 @@ export function getEncryptedAtRestMetadata(
  * level before proposing DDL.
  */
 export function getEncryptedAtRestForProperty(
-  ctor: Function,
+  ctor: ClassConstructor,
   propertyKey: string,
 ): EncryptedAtRestMetadata | undefined {
   return getEncryptedAtRestMetadata(ctor).get(propertyKey);

@@ -52,8 +52,8 @@
 import type { BaseEvent } from '@platform/event-contracts';
 import { EntityManager, type QueryRunner } from 'typeorm';
 
-import { OutboxPublisher } from '../outbox-publisher.service';
 import { OutboxEntityBase } from '../outbox-entity.base';
+import { OutboxPublisher } from '../outbox-publisher.service';
 import {
   OUTBOX_DELIVERY_POLICY_FIELD,
   OUTBOX_ROUTING_SCOPE_FIELD,
@@ -124,15 +124,23 @@ function makeManager(opts: { isTransactionActive: boolean; hasQueryRunner?: bool
     createQueryBuilder: jest.fn().mockReturnValue(queryBuilder),
     save: jest
       .fn()
-      .mockImplementation(async (entityClass: typeof TestOutbox, row: Record<string, unknown>) => {
+      .mockImplementation((entityClass: typeof TestOutbox, row: Record<string, unknown>) => {
         saveCalls.push({ entityClass, payload: row });
-        return row;
+        return Promise.resolve(row);
       }),
   });
   return { manager, saveCalls, insertCalls };
 }
 
 const VALID_TENANT = '11111111-1111-4111-8111-111111111111';
+
+function firstSaveCall(saveCalls: readonly SaveCall[]): SaveCall {
+  const call = saveCalls.at(0);
+  if (!call) {
+    throw new Error('Expected one outbox save call');
+  }
+  return call;
+}
 
 // BaseEvent.eventId is a branded `string & { __brand }` type — the
 // brand is enforced at the constructor boundary in production
@@ -172,7 +180,7 @@ describe('OutboxPublisher', () => {
       await publisher.enqueue(makeEvent(), manager);
 
       expect(saveCalls).toHaveLength(1);
-      const row = saveCalls[0]!;
+      const row = firstSaveCall(saveCalls);
       expect(row.entityClass).toBe(TestOutbox);
       expect(row.payload).toMatchObject({
         eventType: 'TestEventOccurred',
@@ -200,7 +208,7 @@ describe('OutboxPublisher', () => {
       }
       await publisher.enqueue(new FancyEvent() as unknown as BaseEvent, manager);
 
-      const row = saveCalls[0]!;
+      const row = firstSaveCall(saveCalls);
       // After JSON.parse(JSON.stringify(...)), the prototype is Object —
       // not FancyEvent. This is the load-bearing JSONB-safety property.
       expect(Object.getPrototypeOf(row.payload['payload'])).toBe(Object.prototype);
@@ -399,7 +407,7 @@ describe('OutboxPublisher', () => {
     it('forwards eventType + tenantId from the event into top-level row columns', async () => {
       const { manager, saveCalls } = makeManager({ isTransactionActive: true });
       await publisher.enqueue(makeEvent({ eventType: 'BatchClosed' }), manager);
-      const row = saveCalls[0]!;
+      const row = firstSaveCall(saveCalls);
       expect(row.payload['eventType']).toBe('BatchClosed');
       expect(row.payload['tenantId']).toBe(VALID_TENANT);
     });
@@ -412,7 +420,7 @@ describe('OutboxPublisher', () => {
         version: 3,
       });
       await publisher.enqueue(event, manager);
-      const row = saveCalls[0]!;
+      const row = firstSaveCall(saveCalls);
       const payload = row.payload['payload'] as Record<string, unknown>;
       expect(payload['eventId']).toBe('evt-payload-001');
       expect(payload['eventType']).toBe('PayloadCheck');

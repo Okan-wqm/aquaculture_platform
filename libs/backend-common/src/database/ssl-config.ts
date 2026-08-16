@@ -1,4 +1,5 @@
 import { readFileSync } from 'fs';
+
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
@@ -37,8 +38,8 @@ export function buildDatabaseSslConfig(configService: ConfigService): SslConfigR
   if (isProduction && !rejectUnauthorized && !caPath) {
     throw new Error(
       'SECURITY: SSL certificate verification is disabled in production without a CA certificate. ' +
-      'This exposes the connection to MITM attacks. ' +
-      'Set DATABASE_SSL_CA or set DATABASE_SSL_REJECT_UNAUTHORIZED=true.',
+        'This exposes the connection to MITM attacks. ' +
+        'Set DATABASE_SSL_CA or set DATABASE_SSL_REJECT_UNAUTHORIZED=true.',
     );
   }
 
@@ -46,7 +47,7 @@ export function buildDatabaseSslConfig(configService: ConfigService): SslConfigR
   if (!isProduction && !rejectUnauthorized) {
     logger.warn(
       'SSL certificate verification is disabled (DATABASE_SSL_REJECT_UNAUTHORIZED=false). ' +
-      'Acceptable for development/staging with self-signed certs only.',
+        'Acceptable for development/staging with self-signed certs only.',
     );
   }
 
@@ -63,7 +64,7 @@ export function buildDatabaseSslConfig(configService: ConfigService): SslConfigR
   } else if (rejectUnauthorized) {
     logger.warn(
       'DATABASE_SSL_CA is not set — the system CA bundle will be used for verification. ' +
-      'Set DATABASE_SSL_CA for explicit control.',
+        'Set DATABASE_SSL_CA for explicit control.',
     );
   }
 

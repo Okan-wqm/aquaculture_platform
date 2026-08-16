@@ -14,6 +14,7 @@
  */
 
 import type Redis from 'ioredis';
+
 import { LeaderElectionService } from './leader-election.service';
 
 /**
@@ -50,54 +51,45 @@ class FakeRedis {
   //   redis.set(key, value, 'PX', ms, 'NX')
   //   redis.set(key, value, 'PX', ms, 'XX')
   // Both invocations have the same argument shape.
-  async set(
-    key: string,
-    value: string,
-    ...args: Array<string | number>
-  ): Promise<'OK' | null> {
-    if (this.outage) throw new Error('Redis outage (mock)');
+  set(key: string, value: string, ...args: Array<string | number>): Promise<'OK' | null> {
+    if (this.outage) return Promise.reject(new Error('Redis outage (mock)'));
     this.checkExpiry(key);
     const pxIdx = args.findIndex((a) => a === 'PX');
     const ms = pxIdx >= 0 ? Number(args[pxIdx + 1]) : null;
     const nx = args.includes('NX');
     const xx = args.includes('XX');
     const existing = this.store.get(key);
-    if (nx && existing) return null;
-    if (xx && !existing) return null;
+    if (nx && existing) return Promise.resolve(null);
+    if (xx && !existing) return Promise.resolve(null);
     const expiresAt = ms ? Date.now() + ms : null;
     this.store.set(key, { value, expiresAt });
-    return 'OK';
+    return Promise.resolve('OK');
   }
 
-  async get(key: string): Promise<string | null> {
-    if (this.outage) throw new Error('Redis outage (mock)');
+  get(key: string): Promise<string | null> {
+    if (this.outage) return Promise.reject(new Error('Redis outage (mock)'));
     this.checkExpiry(key);
-    return this.store.get(key)?.value ?? null;
+    return Promise.resolve(this.store.get(key)?.value ?? null);
   }
 
-  async pttl(key: string): Promise<number> {
-    if (this.outage) throw new Error('Redis outage (mock)');
+  pttl(key: string): Promise<number> {
+    if (this.outage) return Promise.reject(new Error('Redis outage (mock)'));
     this.checkExpiry(key);
     const row = this.store.get(key);
-    if (!row || row.expiresAt === null) return -1;
-    return Math.max(0, row.expiresAt - Date.now());
+    if (!row || row.expiresAt === null) return Promise.resolve(-1);
+    return Promise.resolve(Math.max(0, row.expiresAt - Date.now()));
   }
 
-  async eval(
-    _script: string,
-    _numKeys: number,
-    key: string,
-    value: string,
-  ): Promise<number> {
+  eval(_script: string, _numKeys: number, key: string, value: string): Promise<number> {
     // Matches CONDITIONAL_DEL_LUA semantics: DEL iff GET == value.
-    if (this.outage) throw new Error('Redis outage (mock)');
+    if (this.outage) return Promise.reject(new Error('Redis outage (mock)'));
     this.checkExpiry(key);
     const current = this.store.get(key);
     if (current?.value === value) {
       this.store.delete(key);
-      return 1;
+      return Promise.resolve(1);
     }
-    return 0;
+    return Promise.resolve(0);
   }
 
   _advanceTime(ms: number): void {

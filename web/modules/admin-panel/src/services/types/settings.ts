@@ -2,22 +2,6 @@
  * Settings domain types (System Settings, Feature Toggles, Maintenance, Performance, Errors, Jobs)
  */
 
-// ============================================================================
-// System Settings Types
-// ============================================================================
-
-export interface SystemSetting {
-  key: string;
-  value: string | number | boolean | Record<string, unknown>;
-  category: string;
-  description: string;
-  isEncrypted?: boolean;
-  isReadOnly?: boolean;
-  validationRules?: Record<string, unknown>;
-  updatedAt: string;
-  updatedBy?: string;
-}
-
 export interface TenantConfiguration {
   tenantId: string;
   configuration: Record<string, unknown>;
@@ -95,8 +79,20 @@ export interface IpAccessRule {
 // ============================================================================
 
 export type FeatureToggleStatus = 'enabled' | 'disabled' | 'percentage_rollout' | 'scheduled';
-export type MaintenanceStatus = 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | 'extended';
-export type JobStatus = 'pending' | 'scheduled' | 'running' | 'completed' | 'failed' | 'cancelled' | 'retrying';
+export type MaintenanceStatus =
+  | 'scheduled'
+  | 'in_progress'
+  | 'completed'
+  | 'cancelled'
+  | 'extended';
+export type JobStatus =
+  | 'pending'
+  | 'scheduled'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'retrying';
 
 export interface FeatureToggle {
   id: string;

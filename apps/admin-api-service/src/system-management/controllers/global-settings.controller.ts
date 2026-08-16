@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -10,20 +9,26 @@ import {
   Post,
   Put,
   Query,
-  Req,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
-import { IsString, IsOptional, IsBoolean, IsArray, IsNumber, IsObject, IsDefined, MaxLength, Min, Max, ArrayMaxSize, ValidateNested } from 'class-validator';
-import { Request } from 'express';
+import {
+  IsString,
+  IsOptional,
+  IsBoolean,
+  IsArray,
+  IsNumber,
+  IsObject,
+  IsDefined,
+  MaxLength,
+  Min,
+  Max,
+} from 'class-validator';
 
-import { getAuthUser } from '../../shared/authenticated-request';
 import {
   FeatureToggleScope,
   FeatureToggleStatus,
   FeatureCondition,
 } from '../entities/feature-toggle.entity';
-import { ConfigCategory, ConfigValueType } from '../entities/global-config.entity';
 import {
   MaintenanceScope,
   MaintenanceStatus,
@@ -182,7 +187,11 @@ class CreateMaintenanceDto {
 
   @IsOptional()
   @IsArray()
-  affectedServices?: Array<{ name: string; status: 'unavailable' | 'degraded' | 'read_only'; message?: string }>;
+  affectedServices?: Array<{
+    name: string;
+    status: 'unavailable' | 'degraded' | 'read_only';
+    message?: string;
+  }>;
 
   @IsDefined()
   scheduledStart!: Date;
@@ -250,70 +259,6 @@ class CreateVersionDto {
   upgradeGuide?: string;
 }
 
-class CreateConfigDto {
-  @IsString()
-  key!: string;
-
-  @IsString()
-  name!: string;
-
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  @IsOptional()
-  @IsString()
-  category?: ConfigCategory;
-
-  @IsOptional()
-  @IsString()
-  valueType?: ConfigValueType;
-
-  @IsDefined()
-  value!: unknown;
-
-  @IsOptional()
-  defaultValue?: unknown;
-
-  @IsOptional()
-  @IsObject()
-  validation?: {
-    required?: boolean;
-    min?: number;
-    max?: number;
-    minLength?: number;
-    maxLength?: number;
-    pattern?: string;
-    allowedValues?: unknown[];
-  };
-
-  @IsOptional()
-  @IsBoolean()
-  isSecret?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  isReadOnly?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  requiresRestart?: boolean;
-
-  @IsOptional()
-  @IsString()
-  helpText?: string;
-}
-
-class UpdateConfigDto {
-  @IsDefined()
-  value!: unknown;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  reason?: string;
-}
-
 class UpdateMaintenanceDto {
   @IsOptional()
   @IsString()
@@ -344,7 +289,11 @@ class UpdateMaintenanceDto {
 
   @IsOptional()
   @IsArray()
-  affectedServices?: Array<{ name: string; status: 'unavailable' | 'degraded' | 'read_only'; message?: string }>;
+  affectedServices?: Array<{
+    name: string;
+    status: 'unavailable' | 'degraded' | 'read_only';
+    message?: string;
+  }>;
 
   @IsOptional()
   scheduledStart?: Date;
@@ -398,26 +347,6 @@ class RollbackVersionDto {
   rolledBackBy!: string;
 }
 
-class BulkConfigUpdateItem {
-  @IsString()
-  @MaxLength(255)
-  key!: string;
-
-  @IsDefined()
-  value!: unknown;
-}
-
-class BulkUpdateConfigsDto {
-  @IsArray()
-  @ArrayMaxSize(100)
-  @ValidateNested({ each: true })
-  @Type(() => BulkConfigUpdateItem)
-  updates!: BulkConfigUpdateItem[];
-}
-
-// UpdateProvisioningConfig uses runtime validation in the handler
-// since it's a dynamic key-value Record<string, string>
-
 // ============================================================================
 // Controller
 // ============================================================================
@@ -461,10 +390,7 @@ export class GlobalSettingsController {
   }
 
   @Put('feature-toggles/:id')
-  async updateFeatureToggle(
-    @Param('id') id: string,
-    @Body() dto: UpdateFeatureToggleDto,
-  ) {
+  async updateFeatureToggle(@Param('id') id: string, @Body() dto: UpdateFeatureToggleDto) {
     return this.globalSettingsService.updateFeatureToggle(id, dto);
   }
 
@@ -545,10 +471,7 @@ export class GlobalSettingsController {
   }
 
   @Put('maintenance/:id')
-  async updateMaintenanceMode(
-    @Param('id') id: string,
-    @Body() dto: UpdateMaintenanceDto,
-  ) {
+  async updateMaintenanceMode(@Param('id') id: string, @Body() dto: UpdateMaintenanceDto) {
     return this.globalSettingsService.updateMaintenanceMode(id, {
       ...dto,
       scheduledStart: dto.scheduledStart ? new Date(dto.scheduledStart) : undefined,
@@ -572,10 +495,7 @@ export class GlobalSettingsController {
   }
 
   @Post('maintenance/:id/extend')
-  async extendMaintenance(
-    @Param('id') id: string,
-    @Body() dto: ExtendMaintenanceDto,
-  ) {
+  async extendMaintenance(@Param('id') id: string, @Body() dto: ExtendMaintenanceDto) {
     return this.globalSettingsService.extendMaintenance(id, dto.additionalMinutes);
   }
 
@@ -614,81 +534,8 @@ export class GlobalSettingsController {
   }
 
   @Post('versions/:id/rollback')
-  async rollbackVersion(
-    @Param('id') id: string,
-    @Body() dto: RollbackVersionDto,
-  ) {
+  async rollbackVersion(@Param('id') id: string, @Body() dto: RollbackVersionDto) {
     return this.globalSettingsService.rollbackVersion(id, dto.reason, dto.rolledBackBy);
-  }
-
-  // ============================================================================
-  // Global Configuration
-  // ============================================================================
-
-  @Post('configs')
-  createConfig(@Body() dto: CreateConfigDto): never {
-    return this.globalSettingsService.createConfig(dto);
-  }
-
-  @Get('configs')
-  queryConfigs(
-    @Query('category') category?: ConfigCategory,
-    @Query('isSecret') isSecret?: string,
-    @Query('search') search?: string,
-    @Query('page') page?: number,
-    @Query('limit') limit?: number,
-  ): ReturnType<GlobalSettingsService['queryConfigs']> {
-    return this.globalSettingsService.queryConfigs({
-      category,
-      isSecret: isSecret !== undefined ? isSecret === 'true' : undefined,
-      search,
-      page: page ? Number(page) : undefined,
-      limit: limit ? Number(limit) : undefined,
-    });
-  }
-
-  @Get('configs/:id')
-  getConfig(@Param('id') id: string): never {
-    return this.globalSettingsService.getConfigEntity(id);
-  }
-
-  @Put('configs/:id')
-  updateConfig(
-    @Param('id') id: string,
-    @Body() dto: UpdateConfigDto,
-  ): never {
-    return this.globalSettingsService.updateConfig(id, dto.value, 'admin', dto.reason);
-  }
-
-  @Post('configs/bulk-update')
-  bulkUpdateConfigs(
-    @Body() dto: BulkUpdateConfigsDto,
-  ): never {
-    return this.globalSettingsService.bulkUpdateConfigs(dto.updates, 'admin');
-  }
-
-  // ============================================================================
-  // Provisioning Configuration
-  // ============================================================================
-
-  /** SEC-M19: Removed @Public() — this endpoint exposes platform configuration
-   *  and must be protected by the global APP_GUARD (PlatformAdminGuard). */
-  @Get('provisioning-config')
-  getProvisioningConfig(): ReturnType<GlobalSettingsService['getProvisioningConfig']> {
-    return this.globalSettingsService.getProvisioningConfig();
-  }
-
-  @Put('provisioning-config')
-  updateProvisioningConfig(
-    @Body() body: Record<string, string>,
-    @Req() req: Request,
-  ): never {
-    if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      throw new BadRequestException('Invalid configuration payload');
-    }
-    const user = getAuthUser(req);
-    const updatedBy = user?.email || user?.id || 'admin';
-    return this.globalSettingsService.updateProvisioningConfig(body, updatedBy);
   }
 
   // ============================================================================

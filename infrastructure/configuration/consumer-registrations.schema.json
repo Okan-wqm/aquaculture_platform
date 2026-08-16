@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aquaculture.internal/schemas/configuration-consumer-registrations-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "consumers"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "consumers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "application", "transport", "keys"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,63}$" },
+          "application": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,99}$" },
+          "transport": { "enum": ["GRAPHQL_OPERATOR", "NATS_RUNTIME", "NATS_DEDICATED"] },
+          "replyInboxPrefix": { "type": "string", "pattern": "^_INBOX[A-Z0-9]+$" },
+          "keys": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "access"],
+              "properties": {
+                "id": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,63}$" },
+                "access": { "enum": ["OPERATOR_READ_WRITE", "RUNTIME_READ", "RUNTIME_SECRET_READ"] }
+              }
+            }
+          }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "transport": { "const": "GRAPHQL_OPERATOR" } } },
+            "then": {
+              "properties": { "replyInboxPrefix": false }
+            },
+            "else": {
+              "properties": { "replyInboxPrefix": { "type": "string" } },
+              "required": ["replyInboxPrefix"]
+            }
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import {
   Repository,
   EntityTarget,
@@ -12,10 +13,11 @@ import {
   UpdateResult,
   DeleteResult,
 } from 'typeorm';
-import { Logger } from '@nestjs/common';
 
 import { getRequestContext } from '../logging/request-context';
+
 import { TenantEntity } from './tenant-entity.interface';
+import { resolveTenantRepositoryFoundation } from './tenant-repository-foundation';
 
 export type TenantScopedSelectQueryBuilder<T extends ObjectLiteral> = Omit<
   SelectQueryBuilder<T>,
@@ -102,9 +104,8 @@ export class TenantScopedRepository<T extends TenantEntity> {
     entity: EntityTarget<E>,
     explicitTenantId?: string,
   ): TenantScopedRepository<E> {
-    // eslint-disable-next-line no-restricted-syntax -- LIBRARY-LEVEL: this static factory is the canonical entry point that wraps a TypeORM Repository in TenantScopedRepository — every downstream caller goes THROUGH this point of contact precisely so application code does not.
-    const repository = dataSource.getRepository(entity);
-    return new TenantScopedRepository<E>(repository, explicitTenantId);
+    const repository = resolveTenantRepositoryFoundation(dataSource, entity);
+    return TenantScopedRepository.fromRepository(repository, explicitTenantId);
   }
 
   /**
@@ -146,10 +147,10 @@ export class TenantScopedRepository<T extends TenantEntity> {
 
     throw new Error(
       'SECURITY: No tenant context available. ' +
-      'TenantScopedRepository requires a tenant ID from either: ' +
-      '(1) explicit factory parameter, ' +
-      '(2) AsyncLocalStorage via RequestContextMiddleware (HTTP) or withTenantContext() (MQTT/cron). ' +
-      'This is a structural guard against cross-tenant data leaks.',
+        'TenantScopedRepository requires a tenant ID from either: ' +
+        '(1) explicit factory parameter, ' +
+        '(2) AsyncLocalStorage via RequestContextMiddleware (HTTP) or withTenantContext() (MQTT/cron). ' +
+        'This is a structural guard against cross-tenant data leaks.',
     );
   }
 
@@ -203,8 +204,7 @@ export class TenantScopedRepository<T extends TenantEntity> {
     const result = await this.findOne(options);
     if (!result) {
       throw new Error(
-        'Entity not found within tenant scope ' +
-        `(tenantId: ${this.requireTenantId()})`,
+        'Entity not found within tenant scope ' + `(tenantId: ${this.requireTenantId()})`,
       );
     }
     return result;
@@ -417,7 +417,7 @@ export class TenantScopedRepository<T extends TenantEntity> {
    * @param alias - Table alias for the query builder (default: 'entity')
    * @returns SelectQueryBuilder with tenant filter pre-applied and unsafe predicate resetters hidden
    */
-  createQueryBuilder(alias: string = 'entity'): TenantScopedSelectQueryBuilder<T> {
+  createQueryBuilder(alias = 'entity'): TenantScopedSelectQueryBuilder<T> {
     const tenantId = this.requireTenantId();
     const qb = this.repository.createQueryBuilder(alias);
     const tenantColumn = this.getTenantColumnName();
@@ -447,10 +447,7 @@ export class TenantScopedRepository<T extends TenantEntity> {
   /**
    * Merge tenantId into FindOneOptions.where clause.
    */
-  private mergeWhereOne(
-    options: FindOneOptions<T>,
-    tenantId: string,
-  ): FindOneOptions<T> {
+  private mergeWhereOne(options: FindOneOptions<T>, tenantId: string): FindOneOptions<T> {
     return {
       ...options,
       where: this.mergeWhereClause(options?.where, tenantId),
@@ -469,7 +466,7 @@ export class TenantScopedRepository<T extends TenantEntity> {
     }
 
     return {
-      ...(where as Record<string, unknown> | undefined || {}),
+      ...((where as Record<string, unknown> | undefined) || {}),
       tenantId,
     } as FindOptionsWhere<T>;
   }
@@ -518,8 +515,8 @@ export class TenantScopedRepository<T extends TenantEntity> {
  * — which the ESLint rule `no-restricted-syntax` rightly flags
  * (CLAUDE.md: "getRepository() is FORBIDDEN") and which frequently
  * leaks cross-tenant queries when a developer forgets the `tenantId`
- * key. The wrapper has a single, audited, eslint-disabled
- * `manager.getRepository()` call at the library boundary — that call
+ * key. The wrapper has a single, audited TypeORM primitive binding at the
+ * library boundary — that binding
  * is architecturally justified because the return value is
  * immediately handed to TenantScopedRepository which enforces
  * tenant scoping on every downstream query.
@@ -547,10 +544,6 @@ export function tenantManagerRepo<T extends TenantEntity>(
   entity: EntityTarget<T>,
   explicitTenantId?: string,
 ): TenantScopedRepository<T> {
-  // eslint-disable-next-line no-restricted-syntax -- justified: the Repository
-  // returned is immediately wrapped by TenantScopedRepository.fromRepository,
-  // which enforces tenantId injection on every downstream query. This is the
-  // single point of contact with manager.getRepository in the whole codebase.
-  const repository = manager.getRepository(entity);
+  const repository = resolveTenantRepositoryFoundation(manager, entity);
   return TenantScopedRepository.fromRepository(repository, explicitTenantId);
 }

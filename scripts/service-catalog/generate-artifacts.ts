@@ -4,12 +4,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 
-import type * as BootInvariantModule from '../../libs/backend-common/src/constants/boot-invariant-signals';
+import type * as BootInvariantModule from '../../platform/libs/service-catalog/src/boot-invariant-signals';
 import type * as ServiceCatalogModule from '../../platform/libs/service-catalog/src/index';
 
 const requireFromRepository = createRequire(resolve(process.cwd(), 'package.json'));
-const { BOOT_INVARIANT_SIGNALS } = requireFromRepository(
-  './libs/backend-common/src/constants/boot-invariant-signals.ts',
+const { BOOT_INVARIANT_SIGNALS, BOOT_INVARIANT_SIGNAL_AUTHORITY_PATH } = requireFromRepository(
+  './platform/libs/service-catalog/src/boot-invariant-signals.ts',
 ) as typeof BootInvariantModule;
 const {
   PLATFORM_SERVICE_CATALOG,
@@ -204,7 +204,7 @@ function requiredSignalsArtifact(): Artifact {
       `  ${key}:`,
       `    pattern: ${yamlString(signal.pattern)}`,
       `    description: ${yamlString(signal.description)}`,
-      '    canonicalSource: "libs/backend-common/src/constants/boot-invariant-signals.ts"',
+      `    canonicalSource: ${yamlString(BOOT_INVARIANT_SIGNAL_AUTHORITY_PATH)}`,
       '    emitterSources:',
       yamlList(signalEmitterSources(key), '      '),
     ].join('\n'),

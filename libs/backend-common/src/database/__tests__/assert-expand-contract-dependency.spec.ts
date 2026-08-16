@@ -3,27 +3,25 @@ import 'reflect-metadata';
 import type { DataSource } from 'typeorm';
 
 import { assertExpandContractDependency } from '../assert-expand-contract-dependency';
-import { ExpandContract } from '../expand-contract.decorator';
+import { EXPAND_CONTRACT_META_KEY, ExpandContract } from '../expand-contract.decorator';
 
 interface QueryLog {
   readonly sql: string;
   readonly params?: readonly unknown[];
 }
 
-function makeDs(
-  routes: Array<{ match: RegExp; rows: unknown[] }>,
-): {
+function makeDs(routes: Array<{ match: RegExp; rows: unknown[] }>): {
   ds: DataSource;
   calls: QueryLog[];
 } {
   const calls: QueryLog[] = [];
   const ds = {
-    query: jest.fn(async (sql: string, params?: readonly unknown[]) => {
+    query: jest.fn((sql: string, params?: readonly unknown[]): Promise<unknown[]> => {
       calls.push(params !== undefined ? { sql, params } : { sql });
       for (const r of routes) {
-        if (r.match.test(sql)) return r.rows;
+        if (r.match.test(sql)) return Promise.resolve(r.rows);
       }
-      return [];
+      return Promise.resolve([]);
     }),
   } as unknown as DataSource;
   return { ds, calls };
@@ -31,7 +29,9 @@ function makeDs(
 
 describe('assertExpandContractDependency', () => {
   it('no-op for undecorated migration class', async () => {
-    class Bare {}
+    class Bare {
+      readonly marker = 'undecorated';
+    }
     const { ds, calls } = makeDs([]);
     const result = await assertExpandContractDependency({
       dataSource: ds,
@@ -59,9 +59,7 @@ describe('assertExpandContractDependency', () => {
   it('returns SKIPPED when observability.migration_backfill_progress is missing', async () => {
     @ExpandContract({ phase: 'contract', dependsOn: 'AddFooExpand' })
     class ContractMig {}
-    const { ds } = makeDs([
-      { match: /information_schema\.tables/, rows: [{ exists: false }] },
-    ]);
+    const { ds } = makeDs([{ match: /information_schema\.tables/, rows: [{ exists: false }] }]);
     const result = await assertExpandContractDependency({
       dataSource: ds,
       migrationClass: ContractMig,
@@ -114,21 +112,17 @@ describe('assertExpandContractDependency', () => {
     // query also mentions migration_backfill_progress via
     // information_schema.tables WHERE table_name=..., so filter
     // down to the actual COUNT query (only that one has params).
-    const progressCall = calls.find(
-      (c) => /FROM observability\.migration_backfill_progress/.test(c.sql),
+    const progressCall = calls.find((c) =>
+      /FROM observability\.migration_backfill_progress/.test(c.sql),
     );
     expect(progressCall?.params).toEqual(['AddFooExpand', 'production']);
   });
 
   it('throws when decorator metadata has phase=contract without dependsOn (belt-and-braces)', async () => {
     // Runtime bypass: hand-inject metadata the decorator would reject.
-    class HandCrafted {}
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const {
-      EXPAND_CONTRACT_META_KEY,
-    } = require('../expand-contract.decorator') as {
-      EXPAND_CONTRACT_META_KEY: symbol;
-    };
+    class HandCrafted {
+      readonly marker = 'hand-crafted';
+    }
     Reflect.defineMetadata(
       EXPAND_CONTRACT_META_KEY,
       { phase: 'contract', target: HandCrafted },

@@ -2,10 +2,8 @@ import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
 import { assertRuntimeDdlAllowed } from '../db-migrate-authority.util';
-import {
-  applyTenantRlsToSchema,
-  ApplyTenantRlsOptions,
-} from './apply-tenant-rls.helper';
+
+import { applyTenantRlsToSchema, ApplyTenantRlsOptions } from './apply-tenant-rls.helper';
 
 /**
  * TenantRlsSyncService

@@ -1,4 +1,5 @@
 import { SetMetadata } from '@nestjs/common';
+import type { CustomDecorator } from '@nestjs/common';
 
 /**
  * Metadata key for the AuditLog decorator
@@ -39,5 +40,5 @@ export interface AuditLogOptions {
  * async createFarm(@Args('input') input: CreateFarmInput) { ... }
  * ```
  */
-export const AuditLog = (options: AuditLogOptions) =>
+export const AuditLog = (options: AuditLogOptions): CustomDecorator<string> =>
   SetMetadata(AUDIT_LOG_KEY, options);

@@ -141,9 +141,28 @@ const SAFE_IDENT_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
  * Short list — add as needed.
  */
 const RESERVED_IDENTS = new Set([
-  'select', 'insert', 'update', 'delete', 'drop', 'create', 'alter',
-  'table', 'schema', 'database', 'user', 'role', 'grant', 'revoke',
-  'from', 'where', 'and', 'or', 'not', 'null', 'true', 'false',
+  'select',
+  'insert',
+  'update',
+  'delete',
+  'drop',
+  'create',
+  'alter',
+  'table',
+  'schema',
+  'database',
+  'user',
+  'role',
+  'grant',
+  'revoke',
+  'from',
+  'where',
+  'and',
+  'or',
+  'not',
+  'null',
+  'true',
+  'false',
 ]);
 
 function brandedIdent(raw: string): SqlIdent {
@@ -151,14 +170,14 @@ function brandedIdent(raw: string): SqlIdent {
     [SQL_IDENT_BRAND]: true,
     quoted: `"${raw}"`,
     raw,
-  } as SqlIdent;
+  };
 }
 
 function brandedValue(v: unknown): SqlValue {
   return {
     [SQL_VALUE_BRAND]: true,
     value: v,
-  } as SqlValue;
+  };
 }
 
 function brandedFragment(sql: string, params: readonly unknown[]): SqlFragment {
@@ -166,22 +185,18 @@ function brandedFragment(sql: string, params: readonly unknown[]): SqlFragment {
     [SQL_FRAGMENT_BRAND]: true,
     sql,
     params,
-  } as SqlFragment;
+  };
 }
 
 function isIdent(x: unknown): x is SqlIdent {
   return (
-    typeof x === 'object' &&
-    x !== null &&
-    (x as Record<symbol, unknown>)[SQL_IDENT_BRAND] === true
+    typeof x === 'object' && x !== null && (x as Record<symbol, unknown>)[SQL_IDENT_BRAND] === true
   );
 }
 
 function isValue(x: unknown): x is SqlValue {
   return (
-    typeof x === 'object' &&
-    x !== null &&
-    (x as Record<symbol, unknown>)[SQL_VALUE_BRAND] === true
+    typeof x === 'object' && x !== null && (x as Record<symbol, unknown>)[SQL_VALUE_BRAND] === true
   );
 }
 
@@ -213,9 +228,7 @@ export const sql = {
       throw new RangeError('[sql.ident] empty identifier');
     }
     if (name.length > 63) {
-      throw new RangeError(
-        `[sql.ident] identifier "${name}" exceeds 63-char PostgreSQL limit`,
-      );
+      throw new RangeError(`[sql.ident] identifier "${name}" exceeds 63-char PostgreSQL limit`);
     }
     if (!SAFE_IDENT_RE.test(name)) {
       throw new RangeError(

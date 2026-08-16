@@ -10,10 +10,11 @@
  */
 
 import * as client from 'prom-client';
+
 import { ServiceMetricsService } from '../metrics.service';
 
 describe('ServiceMetricsService — registry isolation (PLAT-HIGH-006)', () => {
-  it('does NOT clear the global default prom-client registry on init', async () => {
+  it('does NOT clear the global default prom-client registry on init', () => {
     // Pre-arrange: register a metric against the GLOBAL default registry —
     // simulating what a third-party library or sibling module would do.
     // Use a unique name per test run so we don't collide with the

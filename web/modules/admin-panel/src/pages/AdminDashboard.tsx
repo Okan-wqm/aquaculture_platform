@@ -18,7 +18,6 @@ import {
   type ServiceHealth,
   type UserStats,
   type AuditLog,
-  type CircuitBreakerStatus,
 } from '../services/adminApi';
 
 // ============================================================================
@@ -38,7 +37,6 @@ interface DashboardData {
   userStats: UserStats | null;
   services: ServiceHealth[];
   recentLogs: AuditLog[];
-  circuitBreakers: CircuitBreakerStatus | null;
   cacheStats: CacheStats | null;
   loading: boolean;
   error: string | null;
@@ -49,11 +47,41 @@ interface DashboardData {
 // ============================================================================
 
 const quickLinks = [
-  { id: 'tenants', label: 'Tenant Management', path: '/admin/tenants', icon: '🏢', description: 'Create tenants, assign modules' },
-  { id: 'users', label: 'User Management', path: '/admin/users', icon: '👥', description: 'Manage all users' },
-  { id: 'modules', label: 'Module Management', path: '/admin/modules', icon: '📦', description: 'Manage system modules' },
-  { id: 'settings', label: 'System Settings', path: '/admin/settings', icon: '⚙️', description: 'Platform settings' },
-  { id: 'audit', label: 'Audit Logs', path: adminRoutes.audit, icon: '📋', description: 'System activities' },
+  {
+    id: 'tenants',
+    label: 'Tenant Management',
+    path: '/admin/tenants',
+    icon: '🏢',
+    description: 'Create tenants, assign modules',
+  },
+  {
+    id: 'users',
+    label: 'User Management',
+    path: '/admin/users',
+    icon: '👥',
+    description: 'Manage all users',
+  },
+  {
+    id: 'modules',
+    label: 'Module Management',
+    path: '/admin/modules',
+    icon: '📦',
+    description: 'Manage system modules',
+  },
+  {
+    id: 'settings',
+    label: 'System Settings',
+    path: '/admin/settings',
+    icon: '⚙️',
+    description: 'Platform settings',
+  },
+  {
+    id: 'audit',
+    label: 'Audit Logs',
+    path: adminRoutes.audit,
+    icon: '📋',
+    description: 'System activities',
+  },
 ];
 
 const formatMetricNumber = (value: number): string =>
@@ -87,8 +115,8 @@ const ServiceStatusCard: React.FC<{ services: ServiceHealth[] }> = ({ services }
                 service.status === 'healthy'
                   ? 'border-green-200 bg-green-50'
                   : service.status === 'degraded'
-                  ? 'border-yellow-200 bg-yellow-50'
-                  : 'border-red-200 bg-red-50'
+                    ? 'border-yellow-200 bg-yellow-50'
+                    : 'border-red-200 bg-red-50'
               }`}
             >
               <div className="flex items-center space-x-2">
@@ -97,8 +125,8 @@ const ServiceStatusCard: React.FC<{ services: ServiceHealth[] }> = ({ services }
                     service.status === 'healthy'
                       ? 'bg-green-500'
                       : service.status === 'degraded'
-                      ? 'bg-yellow-500'
-                      : 'bg-red-500'
+                        ? 'bg-yellow-500'
+                        : 'bg-red-500'
                   }`}
                 />
                 <span className="text-sm font-medium text-gray-700">{service.name}</span>
@@ -118,7 +146,9 @@ const ServiceStatusCard: React.FC<{ services: ServiceHealth[] }> = ({ services }
 // Database Stats Component
 // ============================================================================
 
-const DatabaseStatsCard: React.FC<{ database: SystemMetrics['database'] | undefined }> = ({ database }) => {
+const DatabaseStatsCard: React.FC<{ database: SystemMetrics['database'] | undefined }> = ({
+  database,
+}) => {
   if (!database) return null;
 
   return (
@@ -220,97 +250,6 @@ const RecentActivityCard: React.FC<{ logs: AuditLog[] }> = ({ logs }) => {
 };
 
 // ============================================================================
-// Circuit Breaker Status Component
-// ============================================================================
-
-const stateStyles: Record<string, { bg: string; border: string; dot: string; label: string }> = {
-  closed: { bg: 'bg-green-50', border: 'border-green-200', dot: 'bg-green-500', label: 'Closed' },
-  open: { bg: 'bg-red-50', border: 'border-red-200', dot: 'bg-red-500', label: 'Open' },
-  half_open: { bg: 'bg-yellow-50', border: 'border-yellow-200', dot: 'bg-yellow-500', label: 'Half-Open' },
-};
-
-const CircuitBreakerCard: React.FC<{
-  circuitBreakers: CircuitBreakerStatus | null;
-  onReset: (name: string) => void;
-  resetting: string | null;
-}> = ({ circuitBreakers, onReset, resetting }) => {
-  if (!circuitBreakers) return null;
-
-  const entries = Object.entries(circuitBreakers);
-  if (entries.length === 0) return null;
-
-  const formatTime = (timestamp: number): string => {
-    if (!timestamp) return '-';
-    const date = new Date(timestamp);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  };
-
-  return (
-    <Card>
-      <div className="px-4 py-3 border-b border-gray-200">
-        <h3 className="text-lg font-semibold text-gray-900">Circuit Breakers</h3>
-      </div>
-      <div className="p-4 space-y-3">
-        {entries.map(([name, info]) => {
-          const style = stateStyles[info.state] || stateStyles.closed;
-          const isOpen = info.state === 'open';
-          const isResetting = resetting === name;
-
-          return (
-            <div
-              key={name}
-              className={`p-4 rounded-lg border ${style.border} ${style.bg}`}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <div className={`w-3 h-3 rounded-full ${style.dot}`} />
-                  <div>
-                    <p className="text-sm font-semibold text-gray-900 uppercase">{name}</p>
-                    <Badge
-                      variant={info.state === 'closed' ? 'success' : info.state === 'open' ? 'error' : 'warning'}
-                      size="sm"
-                    >
-                      {style.label}
-                    </Badge>
-                  </div>
-                </div>
-                {(isOpen || info.state === 'half_open') && (
-                  <button
-                    onClick={() => onReset(name)}
-                    disabled={isResetting}
-                    className="inline-flex items-center px-3 py-1.5 border border-gray-300 rounded-md text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
-                  >
-                    {isResetting ? 'Resetting...' : 'Reset'}
-                  </button>
-                )}
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-4 text-xs">
-                <div>
-                  <span className="text-gray-500">Failures</span>
-                  <p className="font-semibold text-gray-900">{info.consecutiveFailures}</p>
-                </div>
-                <div>
-                  <span className="text-gray-500">Last failure</span>
-                  <p className="font-semibold text-gray-900">{formatTime(info.lastFailureTime)}</p>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </Card>
-  );
-};
-
-// ============================================================================
 // Cache Stats Component
 // ============================================================================
 
@@ -374,13 +313,10 @@ const AdminDashboard: React.FC = () => {
     userStats: null,
     services: [],
     recentLogs: [],
-    circuitBreakers: null,
     cacheStats: null,
     loading: true,
     error: null,
   });
-  const [resettingBreaker, setResettingBreaker] = useState<string | null>(null);
-
   const abortControllerRef = useRef<AbortController | null>(null);
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -396,12 +332,11 @@ const AdminDashboard: React.FC = () => {
     setData((prev) => ({ ...prev, loading: true, error: null }));
 
     try {
-      const [metrics, userStats, services, logsResult, circuitBreakers] = await Promise.allSettled([
+      const [metrics, userStats, services, logsResult] = await Promise.allSettled([
         systemApi.getMetrics(),
         usersApi.getStats(),
         systemApi.getServicesHealth(),
         auditApi.query({ limit: 10 }),
-        systemApi.getCircuitBreakers(),
       ]);
 
       // If this request was aborted while awaiting, discard results
@@ -412,7 +347,6 @@ const AdminDashboard: React.FC = () => {
         userStats: userStats.status === 'fulfilled' ? userStats.value : null,
         services: services.status === 'fulfilled' ? services.value : [],
         recentLogs: logsResult.status === 'fulfilled' ? logsResult.value.data : [],
-        circuitBreakers: circuitBreakers.status === 'fulfilled' ? circuitBreakers.value : null,
         cacheStats: null,
         loading: false,
         error: null,
@@ -425,23 +359,6 @@ const AdminDashboard: React.FC = () => {
         loading: false,
         error: error instanceof Error ? error.message : 'An error occurred while loading data',
       }));
-    }
-  }, []);
-
-  const handleResetCircuitBreaker = useCallback(async (name: string) => {
-    setResettingBreaker(name);
-    try {
-      await systemApi.resetCircuitBreaker(name);
-      // Refresh circuit breaker data after reset
-      const updated = await systemApi.getCircuitBreakers();
-      setData((prev) => ({ ...prev, circuitBreakers: updated }));
-    } catch {
-      setData((prev) => ({
-        ...prev,
-        error: `Failed to reset circuit breaker '${name}'`,
-      }));
-    } finally {
-      setResettingBreaker(null);
     }
   }, []);
 
@@ -488,7 +405,7 @@ const AdminDashboard: React.FC = () => {
     }
   }, []);
 
-  const { metrics, userStats, services, recentLogs, circuitBreakers, cacheStats, loading, error } = data;
+  const { metrics, userStats, services, recentLogs, cacheStats, loading, error } = data;
 
   // Calculate metrics with fallbacks
   const platformMetrics = metrics?.platform || {
@@ -532,7 +449,11 @@ const AdminDashboard: React.FC = () => {
       </div>
 
       {error && (
-        <Alert type="error" dismissible onDismiss={() => setData((prev) => ({ ...prev, error: null }))}>
+        <Alert
+          type="error"
+          dismissible
+          onDismiss={() => setData((prev) => ({ ...prev, error: null }))}
+        >
           {error}
         </Alert>
       )}
@@ -542,10 +463,19 @@ const AdminDashboard: React.FC = () => {
         <MetricCard
           title="Total Users"
           value={formatMetricNumber(userStats?.totalUsers || platformMetrics.totalUsers)}
-          change={userStats?.newUsersLast30Days ? ((userStats.newUsersLast30Days / (userStats.totalUsers || 1)) * 100) : 0}
+          change={
+            userStats?.newUsersLast30Days
+              ? (userStats.newUsersLast30Days / (userStats.totalUsers || 1)) * 100
+              : 0
+          }
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"
+              />
             </svg>
           }
         />
@@ -558,7 +488,12 @@ const AdminDashboard: React.FC = () => {
           }
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
+              />
             </svg>
           }
         />
@@ -567,7 +502,12 @@ const AdminDashboard: React.FC = () => {
           value={formatMetricNumber(userStats?.loginsLast24Hours || 0)}
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"
+              />
             </svg>
           }
         />
@@ -576,7 +516,12 @@ const AdminDashboard: React.FC = () => {
           value={formatMetricNumber(platformMetrics.apiCallsLast24h)}
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+              />
             </svg>
           }
         />
@@ -598,7 +543,7 @@ const AdminDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Alt Kisim: Servis Durumu, Veritabani, Circuit Breakers, Son Aktiviteler */}
+      {/* Alt Kisim: Servis Durumu, Veritabani, Son Aktiviteler */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
           <ServiceStatusCard services={services} />
@@ -614,13 +559,6 @@ const AdminDashboard: React.FC = () => {
           )}
         </div>
         <div className="space-y-6">
-          <CircuitBreakerCard
-            circuitBreakers={circuitBreakers}
-            onReset={(name) => {
-              void handleResetCircuitBreaker(name);
-            }}
-            resetting={resettingBreaker}
-          />
           <RecentActivityCard logs={recentLogs} />
         </div>
       </div>
@@ -675,7 +613,9 @@ const AdminDashboard: React.FC = () => {
               </div>
               <div>
                 <p className="text-xs text-gray-500">Node Version</p>
-                <p className="text-lg font-semibold text-gray-900">{metrics.resources.nodeVersion}</p>
+                <p className="text-lg font-semibold text-gray-900">
+                  {metrics.resources.nodeVersion}
+                </p>
               </div>
             </div>
           </div>

@@ -1,68 +1,43 @@
-/**
- * usePlatformConfiguration — read + write platform settings against
- * config-service through the gateway's federated GraphQL (ORPHAN-HIGH-373).
- *
- * WHY GraphQL here: the legacy admin-api settings stores are retired (their
- * write endpoints return 410 Gone and the backing table was dropped);
- * config-service's effectiveConfiguration queries + setConfiguration mutation
- * are the platform SSoT for system configuration. Transport follows the
- * admin-panel's sanctioned precedent — useAdminQuery (TanStack Query over the
- * shared-ui graphqlClient) keyed by the adminKeys factory, with mutations
- * invalidating the settings cache slice (see hooks/useAdminQuery.ts and
- * hooks/useAdminMutation.ts).
- */
-
+import { CONFIGURATION_CATALOG_DIGEST } from '@aquaculture/configuration-contracts';
+import { graphqlClient } from '@aquaculture/shared-ui';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { UseMutationResult } from '@tanstack/react-query';
-import { graphqlClient } from '@aquaculture/shared-ui';
 
 import {
-  PLATFORM_CONFIGURATIONS_QUERY,
-  SET_PLATFORM_CONFIGURATION_MUTATION,
+  APPLY_CONFIGURATION_BATCH_MUTATION,
+  CONFIGURATION_SNAPSHOT_QUERY,
 } from '../graphql/platform-configuration-operations';
-import {
-  PLATFORM_CONFIGURATION_SERVICE,
-  mapPlatformSettings,
-} from '../services/api/platform-configuration';
 import type {
-  EffectiveConfigurationRow,
-  PlatformConfigurationWrite,
-  PlatformSettingsSnapshot,
+  ApplyConfigurationBatchInputV1,
+  ConfigurationBatchReceiptV1,
+  ConfigurationSnapshotV1,
 } from '../services/api/platform-configuration';
+
 import { adminKeys } from './adminQueryKeys';
 import { useAdminQuery } from './useAdminQuery';
 
-interface PlatformConfigurationsResponse {
-  effectiveConfigurationsByService: EffectiveConfigurationRow[];
+interface ConfigurationSnapshotResponse {
+  configurationSnapshot: ConfigurationSnapshotV1;
 }
 
-interface SetConfigurationResponse {
-  setConfiguration: EffectiveConfigurationRow;
+interface ApplyConfigurationBatchResponse {
+  applyConfigurationBatch: ConfigurationBatchReceiptV1;
 }
 
-/** Recorded in configuration_history for every save from this page. */
-const SAVE_REASON = 'admin-panel system settings save';
-
-/**
- * Fetch all platform-scope settings and map them into the page's tab models.
- */
 export function usePlatformSettings(): {
-  settings: PlatformSettingsSnapshot | undefined;
+  snapshot: ConfigurationSnapshotV1 | undefined;
   isLoading: boolean;
   error: Error | null;
   refetch: () => void;
 } {
-  const query = useAdminQuery<PlatformConfigurationsResponse>(
+  const query = useAdminQuery<ConfigurationSnapshotResponse>(
     adminKeys.system.settings(),
-    PLATFORM_CONFIGURATIONS_QUERY,
-    { service: PLATFORM_CONFIGURATION_SERVICE },
+    CONFIGURATION_SNAPSHOT_QUERY,
+    { scope: { environment: 'ALL' } },
     { staleTime: 30_000 },
   );
-
   return {
-    settings: query.data
-      ? mapPlatformSettings(query.data.effectiveConfigurationsByService)
-      : undefined,
+    snapshot: query.data?.configurationSnapshot,
     isLoading: query.isLoading,
     error: query.error,
     refetch: () => {
@@ -71,34 +46,26 @@ export function usePlatformSettings(): {
   };
 }
 
-/**
- * Save a batch of settings (one tab's writes) via setConfiguration.
- *
- * WHY one mutation wrapping N upserts instead of N useAdminMutation calls:
- * setConfiguration is a single-key mutation, so a tab save is a sequence of
- * upserts — batching them in one mutationFn keeps a single pending state for
- * the Save button and invalidates the settings cache exactly once, after the
- * whole batch landed (sequential on purpose: deterministic history order and
- * no write-pool contention).
- */
 export function useSavePlatformSettings(): UseMutationResult<
-  void,
+  ConfigurationBatchReceiptV1,
   Error,
-  PlatformConfigurationWrite[]
+  Omit<ApplyConfigurationBatchInputV1, 'operationId' | 'catalogDigest' | 'environment'>
 > {
   const queryClient = useQueryClient();
-
-  return useMutation<void, Error, PlatformConfigurationWrite[]>({
-    mutationFn: async (writes: PlatformConfigurationWrite[]): Promise<void> => {
-      for (const write of writes) {
-        await graphqlClient.request<SetConfigurationResponse>(SET_PLATFORM_CONFIGURATION_MUTATION, {
-          service: PLATFORM_CONFIGURATION_SERVICE,
-          key: write.key,
-          value: write.value,
-          isSecret: write.isSecret ?? false,
-          reason: SAVE_REASON,
-        });
-      }
+  return useMutation({
+    mutationFn: async (input): Promise<ConfigurationBatchReceiptV1> => {
+      const response = await graphqlClient.request<ApplyConfigurationBatchResponse>(
+        APPLY_CONFIGURATION_BATCH_MUTATION,
+        {
+          input: {
+            ...input,
+            operationId: crypto.randomUUID(),
+            catalogDigest: CONFIGURATION_CATALOG_DIGEST,
+            environment: 'ALL',
+          },
+        },
+      );
+      return response.applyConfigurationBatch;
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: adminKeys.system.settings() });

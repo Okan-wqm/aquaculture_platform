@@ -47,7 +47,6 @@ const CustomPlansListPage = lazy(() => import('./pages/CustomPlansListPage'));
 const CustomPlanBuilderPage = lazy(() => import('./pages/CustomPlanBuilderPage'));
 const PaymentsPage = lazy(() => import('./pages/PaymentsPage'));
 const UsageDashboardPage = lazy(() => import('./pages/UsageDashboardPage'));
-const ProvisioningSettingsPage = lazy(() => import('./pages/ProvisioningSettingsPage'));
 
 // Messaging monitoring pages
 const MessagingMonitoringPage = lazy(() => import('./pages/messaging/MessagingMonitoringPage'));
@@ -83,8 +82,7 @@ const SuspenseFallback: React.FC = () => (
   </div>
 );
 
-const isPlatformAdminRole = (role?: string | null): boolean =>
-  role === 'SUPER_ADMIN';
+const isPlatformAdminRole = (role?: string | null): boolean => role === 'SUPER_ADMIN';
 
 // ============================================================================
 // Module Component
@@ -135,7 +133,10 @@ const AdminPanelModule: React.FC = () => {
         <Route path="billing/usage" element={<UsageDashboardPage />} />
         <Route path="billing/custom-plans" element={<CustomPlansListPage />} />
         <Route path="billing/custom-plans/new" element={<CustomPlanBuilderPage />} />
-        <Route path="billing/custom-plan-builder" element={<Navigate to="/admin/billing/custom-plans/new" replace />} />
+        <Route
+          path="billing/custom-plan-builder"
+          element={<Navigate to="/admin/billing/custom-plans/new" replace />}
+        />
 
         {/* Messaging Monitoring (SUPER_ADMIN) */}
         <Route path="messaging/monitoring" element={<MessagingMonitoringPage />} />
@@ -178,7 +179,6 @@ const AdminPanelModule: React.FC = () => {
         <Route path="settings" element={<SystemSettingsPage />} />
         <Route path="settings/email" element={<EmailTemplatesPage />} />
         <Route path="settings/integrations" element={<IpAccessRulesPage />} />
-        <Route path="settings/provisioning" element={<ProvisioningSettingsPage />} />
 
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/admin" replace />} />

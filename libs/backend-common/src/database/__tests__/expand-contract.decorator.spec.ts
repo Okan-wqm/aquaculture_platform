@@ -6,6 +6,7 @@ import {
   authorizesBreaking,
   classifyMigrationsForBreaking,
   getExpandContractMetadata,
+  type ExpandContractOptions,
 } from '../expand-contract.decorator';
 
 describe('@ExpandContract decorator', () => {
@@ -35,24 +36,21 @@ describe('@ExpandContract decorator', () => {
   });
 
   it('throws at decoration time on invalid phase', () => {
-    expect(() =>
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ExpandContract({ phase: 'nonsense' as any }),
-    ).toThrow(/expand.*contract/);
+    const invalid = { phase: 'nonsense' } as unknown as ExpandContractOptions;
+    expect(() => ExpandContract(invalid)).toThrow(/expand.*contract/);
   });
 
   it('throws when phase=contract but dependsOn missing', () => {
-    expect(() =>
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ExpandContract({ phase: 'contract' } as any),
-    ).toThrow(/dependsOn/);
+    const invalid = { phase: 'contract' } as unknown as ExpandContractOptions;
+    expect(() => ExpandContract(invalid)).toThrow(/dependsOn/);
   });
 
   it('throws when dependsOn is not a string', () => {
-    expect(() =>
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ExpandContract({ phase: 'contract', dependsOn: 42 as any }),
-    ).toThrow(/dependsOn/);
+    const invalid = {
+      phase: 'contract',
+      dependsOn: 42,
+    } as unknown as ExpandContractOptions;
+    expect(() => ExpandContract(invalid)).toThrow(/dependsOn/);
   });
 
   it('preserves optional reason field', () => {
@@ -65,12 +63,16 @@ describe('@ExpandContract decorator', () => {
   });
 
   it('getExpandContractMetadata returns undefined for undecorated class', () => {
-    class Plain {}
+    class Plain {
+      readonly marker = 'plain';
+    }
     expect(getExpandContractMetadata(Plain)).toBeUndefined();
   });
 
   it('authorizesBreaking reports "no" for undecorated class', () => {
-    class Plain {}
+    class Plain {
+      readonly marker = 'plain';
+    }
     expect(authorizesBreaking(Plain)).toBe('no');
   });
 
@@ -117,7 +119,9 @@ describe('classifyMigrationsForBreaking', () => {
   it('flags an undecorated class as unauthorized', () => {
     @ExpandContract({ phase: 'expand' })
     class OkMigration {}
-    class BareMigration {}
+    class BareMigration {
+      readonly marker = 'bare';
+    }
 
     const result = classifyMigrationsForBreaking([
       { name: 'OkMigration', ctor: OkMigration },
@@ -147,9 +151,7 @@ describe('classifyMigrationsForBreaking', () => {
       { name: 'ContractOne', ctor: ContractOne },
     ]);
     const expand = result.classifications.find((c) => c.name === 'ExpandOne');
-    const contract = result.classifications.find(
-      (c) => c.name === 'ContractOne',
-    );
+    const contract = result.classifications.find((c) => c.name === 'ContractOne');
     expect(expand?.phase).toBe('expand');
     expect(contract?.phase).toBe('contract');
     expect(contract?.dependsOn).toBe('ExpandOne');
@@ -160,7 +162,9 @@ describe('classifyMigrationsForBreaking', () => {
     class A {}
     @ExpandContract({ phase: 'expand' })
     class B {}
-    class C {} // unauthorized
+    class C {
+      readonly marker = 'unauthorized';
+    }
 
     const result = classifyMigrationsForBreaking([
       { name: 'A', ctor: A },

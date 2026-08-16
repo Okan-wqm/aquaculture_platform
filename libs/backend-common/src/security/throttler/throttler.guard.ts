@@ -10,9 +10,9 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
-import { GqlExecutionContext } from '@nestjs/graphql';
 import { Response } from 'express';
 
+import { getRequestFromArgumentsHost } from '../../context/execution-context-request';
 import { TenantRequest } from '../../types/tenant-request.interface';
 import { IIpValidator, IP_VALIDATOR } from '../interfaces';
 import { SecurityEventService } from '../security-event.service';
@@ -93,11 +93,7 @@ export class ThrottlerGuard implements CanActivate {
     const windowMs = config.ttl * 1000;
 
     // Check rate limit
-    const result = await this.rateLimiter.consumeWithConfig(
-      key,
-      config.limit,
-      windowMs,
-    );
+    const result = await this.rateLimiter.consumeWithConfig(key, config.limit, windowMs);
 
     // Set rate limit headers
     this.setHeaders(response, config, result.remaining, result.resetTime);
@@ -167,14 +163,11 @@ export class ThrottlerGuard implements CanActivate {
    * Extract request from context (REST or GraphQL)
    */
   private getRequest(context: ExecutionContext): TenantRequest {
-    const contextType = context.getType<string>();
-
-    if (contextType === 'graphql') {
-      const gqlContext = GqlExecutionContext.create(context);
-      return gqlContext.getContext().req as TenantRequest;
+    const request = getRequestFromArgumentsHost<TenantRequest>(context);
+    if (!request) {
+      throw new Error('Request context is unavailable');
     }
-
-    return context.switchToHttp().getRequest<TenantRequest>();
+    return request;
   }
 
   /**
@@ -184,9 +177,7 @@ export class ThrottlerGuard implements CanActivate {
     const contextType = context.getType<string>();
 
     if (contextType === 'graphql') {
-      const gqlContext = GqlExecutionContext.create(context);
-      const ctx = gqlContext.getContext();
-      return ctx.res || ctx.req?.res || null;
+      return getRequestFromArgumentsHost<TenantRequest>(context)?.res ?? null;
     }
 
     return context.switchToHttp().getResponse<Response>();
@@ -195,10 +186,7 @@ export class ThrottlerGuard implements CanActivate {
   /**
    * Get throttle configuration from decorator or defaults
    */
-  private getThrottleConfig(
-    context: ExecutionContext,
-    request: TenantRequest,
-  ): ThrottleOptions {
+  private getThrottleConfig(context: ExecutionContext, request: TenantRequest): ThrottleOptions {
     const decoratorConfig = this.reflector.getAllAndOverride<ThrottleOptions>(THROTTLE_KEY, [
       context.getHandler(),
       context.getClass(),
@@ -300,7 +288,8 @@ export class ThrottlerGuard implements CanActivate {
     const cleanIp = ip.replace(/^::ffff:/, '');
 
     // IPv4 regex
-    const ipv4Regex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+    const ipv4Regex =
+      /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
 
     // Simple IPv6 check
     const ipv6Regex = /^[0-9a-fA-F:]+$/;

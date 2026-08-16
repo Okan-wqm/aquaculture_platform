@@ -4,56 +4,19 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { EmailTemplateController } from './controllers/email-template.controller';
 import { IpAccessController } from './controllers/ip-access.controller';
 import { TenantConfigurationController } from './controllers/tenant-configuration.controller';
-import {
-  EmailTemplate,
-  IpAccessRule,
-} from './entities';
-import {
-  TenantConfigurationService,
-  SystemSettingService,
-  EmailTemplateService,
-  IpAccessService,
-} from './services';
-import { EmailSenderService } from './services/email-sender.service';
-import { SettingsController } from './settings.controller';
+import { EmailTemplate, IpAccessRule } from './entities';
+import { TenantConfigurationService, EmailTemplateService, IpAccessService } from './services';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([
-      EmailTemplate,
-      IpAccessRule,
-    ]),
-  ],
-  controllers: [
-    SettingsController,
-    TenantConfigurationController,
-    EmailTemplateController,
-    IpAccessController,
-  ],
-  providers: [
-    TenantConfigurationService,
-    SystemSettingService,
-    EmailTemplateService,
-    IpAccessService,
-    EmailSenderService,
-  ],
-  exports: [
-    TenantConfigurationService,
-    SystemSettingService,
-    EmailTemplateService,
-    IpAccessService,
-    EmailSenderService,
-  ],
+  imports: [TypeOrmModule.forFeature([EmailTemplate, IpAccessRule])],
+  controllers: [TenantConfigurationController, EmailTemplateController, IpAccessController],
+  providers: [TenantConfigurationService, EmailTemplateService, IpAccessService],
+  exports: [TenantConfigurationService, EmailTemplateService, IpAccessService],
 })
 export class SettingsModule implements OnModuleInit {
-  constructor(
-    private readonly systemSettingService: SystemSettingService,
-    private readonly emailTemplateService: EmailTemplateService,
-  ) {}
+  constructor(private readonly emailTemplateService: EmailTemplateService) {}
 
   async onModuleInit(): Promise<void> {
-    // Seed default settings and templates on startup
-    this.systemSettingService.seedDefaultSettings();
     await this.emailTemplateService.seedDefaultTemplates();
   }
 }

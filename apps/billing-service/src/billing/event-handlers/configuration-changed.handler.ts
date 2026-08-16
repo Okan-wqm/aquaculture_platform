@@ -1,11 +1,21 @@
 import { DynamicStripeClientProvider } from '@aquaculture/backend-common/billing';
+import { CONFIGURATION_CATALOG_DIGEST } from '@aquaculture/configuration-contracts';
 import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
 import {
-  CONFIG_RUNTIME_SERVICE,
+  CONFIG_RUNTIME_ACCESS_BY_CONSUMER,
   CONFIG_RUNTIME_SYSTEM_TENANT_ID,
   type ConfigurationChangedEvent,
 } from '@platform/event-contracts';
+
+const BILLING_RUNTIME_ACCESS = CONFIG_RUNTIME_ACCESS_BY_CONSUMER['billing-service'];
+if (!BILLING_RUNTIME_ACCESS) {
+  throw new Error('billing-service is absent from configuration consumer SSOT');
+}
+const STRIPE_CONFIGURATION_IDS = new Set([
+  ...BILLING_RUNTIME_ACCESS.nonSecretKeyIds,
+  ...BILLING_RUNTIME_ACCESS.secretKeyIds,
+]);
 
 /**
  * ConfigurationChangedHandler — invalidates the DynamicStripeClientProvider
@@ -51,16 +61,15 @@ export class ConfigurationChangedHandler
     // Only platform billing.* config on the SYSTEM tenant is relevant to the
     // Stripe client. Everything else is ignored (no value is ever read here).
     if (
-      event.service !== CONFIG_RUNTIME_SERVICE ||
       event.tenantId !== CONFIG_RUNTIME_SYSTEM_TENANT_ID ||
-      typeof event.key !== 'string' ||
-      !event.key.startsWith('billing.')
+      event.catalogDigest !== CONFIGURATION_CATALOG_DIGEST ||
+      !STRIPE_CONFIGURATION_IDS.has(event.catalogId)
     ) {
       return;
     }
 
     this.logger.log(
-      `ConfigurationChanged for ${event.service}/${event.key} — invalidating Stripe client snapshot`,
+      `ConfigurationChanged for ${event.catalogId} — invalidating Stripe client snapshot`,
     );
     this.dynamicStripeClientProvider.invalidate();
     // Promise-returning by interface; no async work needed for a synchronous

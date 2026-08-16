@@ -1,5 +1,6 @@
 import { DynamicModule, Global, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+
 import { LegalHoldEntity } from './legal-hold.entity';
 import { LegalHoldService } from './legal-hold.service';
 

@@ -1,222 +1,90 @@
-import { UnauthorizedException, ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
-import {
-  MARINE_PROVIDER_CREDENTIAL_KEYS,
-  MARINE_PROVIDER_CREDENTIAL_SERVICE,
-} from '@platform/event-contracts';
-import { Resolver, Query, Mutation, Args, Context } from '@nestjs/graphql';
+import { Args, Context, Mutation, Query, Resolver } from '@nestjs/graphql';
 
-import { UpsertConfigurationCommand } from './commands/upsert-configuration.command';
-import { SYSTEM_TENANT_ID } from './configuration.constants';
+import { ApplyConfigurationBatchCommand } from './commands/apply-configuration-batch.command';
 import {
-  EffectiveConfigurationDto,
-  toEffectiveConfigurationDto,
-} from './dto/effective-configuration.dto';
-import { Configuration, ConfigEnvironment } from './entities/configuration.entity';
-import { GetConfigurationQuery } from './queries/get-configuration.query';
-import { GetConfigurationsByServiceQuery } from './queries/get-configurations.query';
+  ApplyConfigurationBatchInputV1,
+  ConfigurationBatchReceiptV1,
+  ConfigurationScopeInputV1,
+  ConfigurationSnapshotV1,
+} from './dto/configuration-snapshot.dto';
+import { SYSTEM_TENANT_ID } from './configuration.constants';
+import { GetConfigurationSnapshotQuery } from './queries/get-configuration-snapshot.query';
 
 interface GraphQLContext {
   req: {
     user?: {
       sub: string;
-      /**
-       * Absent/null for SUPER_ADMIN: it is the platform's only tenantless
-       * principal by design (auth-service token-mint C1 invariant).
-       */
       tenantId?: string | null;
       roles?: string[];
     };
   };
 }
 
-/**
- * Roles allowed to administer configuration. The same vocabulary gates both
- * the setConfiguration mutation and the tenantless system-scope resolution,
- * so the two checks can never drift apart.
- */
-const PLATFORM_ADMIN_ROLES: readonly string[] = ['admin', 'platform_admin', 'SUPER_ADMIN'];
-const RESTRICTED_PROVIDER_CREDENTIAL_KEYS: ReadonlySet<string> = new Set(
-  Object.values(MARINE_PROVIDER_CREDENTIAL_KEYS),
-);
+const CONFIGURATION_ADMIN_ROLES: ReadonlySet<string> = new Set([
+  'admin',
+  'platform_admin',
+  'SUPER_ADMIN',
+]);
 
-function isRestrictedProviderCredential(service: string, key: string): boolean {
-  return (
-    service === MARINE_PROVIDER_CREDENTIAL_SERVICE && RESTRICTED_PROVIDER_CREDENTIAL_KEYS.has(key)
-  );
-}
-
-@Resolver(() => EffectiveConfigurationDto)
+@Resolver(() => ConfigurationSnapshotV1)
 export class ConfigurationResolver {
   constructor(
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
   ) {}
 
-  private hasPlatformAdminRole(context: GraphQLContext): boolean {
-    const roles = context.req.user?.roles ?? [];
-    return PLATFORM_ADMIN_ROLES.some((role) => roles.includes(role));
+  @Query(() => ConfigurationSnapshotV1, { name: 'configurationSnapshot' })
+  async configurationSnapshot(
+    @Args('scope', { type: () => ConfigurationScopeInputV1 })
+    scope: ConfigurationScopeInputV1,
+    @Context() context: GraphQLContext,
+  ): Promise<ConfigurationSnapshotV1> {
+    this.assertAdmin(context);
+    const tenantId = this.resolveTargetTenant(scope.targetTenantId, context);
+    return this.queryBus.execute<GetConfigurationSnapshotQuery, ConfigurationSnapshotV1>(
+      new GetConfigurationSnapshotQuery(tenantId, scope.environment),
+    );
   }
 
-  /**
-   * Provider credential metadata is an operations-only surface. A tenant
-   * principal must not learn whether a company or legacy tenant credential
-   * exists, which source won, or when it rotated. The only public GraphQL
-   * exception is the tenantless SUPER_ADMIN system scope.
-   */
-  private canReadRestrictedProviderCredentials(context: GraphQLContext): boolean {
+  @Mutation(() => ConfigurationBatchReceiptV1, { name: 'applyConfigurationBatch' })
+  async applyConfigurationBatch(
+    @Args('input', { type: () => ApplyConfigurationBatchInputV1 })
+    input: ApplyConfigurationBatchInputV1,
+    @Context() context: GraphQLContext,
+  ): Promise<ConfigurationBatchReceiptV1> {
+    this.assertAdmin(context);
+    const actorId = context.req.user?.sub;
+    if (!actorId) throw new UnauthorizedException('Authenticated actor is required');
+    const tenantId = this.resolveTargetTenant(input.targetTenantId, context);
+    return this.commandBus.execute<ApplyConfigurationBatchCommand, ConfigurationBatchReceiptV1>(
+      new ApplyConfigurationBatchCommand(input, tenantId, actorId, true),
+    );
+  }
+
+  private assertAdmin(context: GraphQLContext): void {
     const user = context.req.user;
-    return (
-      user !== undefined &&
-      (user.tenantId === undefined || user.tenantId === null) &&
-      (user.roles ?? []).includes('SUPER_ADMIN')
-    );
+    if (!user) throw new UnauthorizedException('Authentication required');
+    if (!(user.roles ?? []).some((role) => CONFIGURATION_ADMIN_ROLES.has(role))) {
+      throw new ForbiddenException('Configuration administrator role required');
+    }
   }
 
-  private assertConfigurationReadAllowed(
-    service: string,
-    key: string,
+  private resolveTargetTenant(
+    requestedTenantId: string | undefined,
     context: GraphQLContext,
-  ): void {
-    if (
-      isRestrictedProviderCredential(service, key) &&
-      !this.canReadRestrictedProviderCredentials(context)
-    ) {
-      throw new ForbiddenException('Configuration is not available through tenant APIs');
+  ): string {
+    const user = context.req.user;
+    if (!user) throw new UnauthorizedException('Authentication required');
+    if (requestedTenantId !== undefined) {
+      if (!(user.roles ?? []).some((role) => role === 'platform_admin' || role === 'SUPER_ADMIN')) {
+        throw new ForbiddenException('Cross-tenant configuration requires a platform role');
+      }
+      return requestedTenantId;
     }
-  }
-
-  /**
-   * Resolve the tenant scope exclusively from the verified JWT payload.
-   * SECURITY: Never fall back to headers - JWT is the only trusted source.
-   *
-   * WHY the SYSTEM_TENANT_ID resolution for tenantless platform admins:
-   * SUPER_ADMIN is the platform's only tenantless principal (auth-service
-   * refuses to mint any other token without a tenant), and TenantGuard already
-   * admits it in system scope. Platform-scope configuration rows are stored
-   * under SYSTEM_TENANT_ID, so a tenantless platform admin reads and writes the
-   * system rows — a tenant-scoped user still resolves ONLY from its verified
-   * JWT tenant claim, and an authenticated non-admin without a tenant stays
-   * rejected fail-closed.
-   */
-  private getTenantId(context: GraphQLContext): string {
-    const tenantId = context.req.user?.tenantId;
-    if (tenantId) {
-      return tenantId;
-    }
-    if (context.req.user && this.hasPlatformAdminRole(context)) {
-      return SYSTEM_TENANT_ID;
-    }
-    throw new UnauthorizedException('Authentication required - tenant ID must come from JWT');
-  }
-
-  /**
-   * Extract user ID exclusively from verified JWT payload.
-   * SECURITY: Never fall back to headers or 'system' literal.
-   */
-  private getUserId(context: GraphQLContext): string {
-    const userId = context.req.user?.sub;
-    if (!userId) {
-      throw new UnauthorizedException('Authentication required - user ID must come from JWT');
-    }
-    return userId;
-  }
-
-  /**
-   * Check admin access from verified JWT roles.
-   */
-  private checkAdminAccess(context: GraphQLContext): void {
-    if (!this.hasPlatformAdminRole(context)) {
-      throw new ForbiddenException('Admin access required for this operation');
-    }
-  }
-
-  // ─── Queries ──────────────────────────────────────────────────
-
-  @Query(() => EffectiveConfigurationDto, { name: 'effectiveConfiguration' })
-  async getEffectiveConfiguration(
-    @Args('serviceId') serviceId: string,
-    @Args('key') key: string,
-    @Args('environment', { type: () => ConfigEnvironment, nullable: true })
-    environment: ConfigEnvironment,
-    @Context() context: GraphQLContext,
-  ): Promise<EffectiveConfigurationDto> {
-    const tenantId = this.getTenantId(context);
-    this.assertConfigurationReadAllowed(serviceId, key, context);
-    const configuration = await this.queryBus.execute<GetConfigurationQuery, Configuration>(
-      new GetConfigurationQuery(tenantId, serviceId, key, environment),
-    );
-    return toEffectiveConfigurationDto(tenantId, configuration);
-  }
-
-  @Query(() => [EffectiveConfigurationDto], { name: 'effectiveConfigurationsByService' })
-  async getEffectiveConfigurationsByService(
-    @Args('service') service: string,
-    @Args('environment', { type: () => ConfigEnvironment, nullable: true })
-    environment: ConfigEnvironment,
-    @Context() context: GraphQLContext,
-  ): Promise<EffectiveConfigurationDto[]> {
-    const tenantId = this.getTenantId(context);
-    const configurations = await this.queryBus.execute<
-      GetConfigurationsByServiceQuery,
-      Configuration[]
-    >(new GetConfigurationsByServiceQuery(tenantId, service, environment));
-    const visibleConfigurations = this.canReadRestrictedProviderCredentials(context)
-      ? configurations
-      : configurations.filter(
-          (configuration) =>
-            !isRestrictedProviderCredential(configuration.service, configuration.key),
-        );
-    return visibleConfigurations.map((configuration) =>
-      toEffectiveConfigurationDto(tenantId, configuration),
-    );
-  }
-
-  // ─── Mutations ────────────────────────────────────────────────
-
-  /**
-   * Atomic upsert - uses INSERT ... ON CONFLICT DO UPDATE under the hood.
-   */
-  @Mutation(() => EffectiveConfigurationDto)
-  async setConfiguration(
-    @Args('service') service: string,
-    @Args('key') key: string,
-    @Args('value') value: string,
-    @Args('environment', {
-      type: () => ConfigEnvironment,
-      nullable: true,
-      defaultValue: ConfigEnvironment.ALL,
-    })
-    environment: ConfigEnvironment,
-    @Args('isSecret', { nullable: true, defaultValue: false }) isSecret: boolean,
-    @Args('reason', { type: () => String, nullable: true }) reason: string | undefined,
-    @Context() context: GraphQLContext,
-  ): Promise<EffectiveConfigurationDto> {
-    const tenantId = this.getTenantId(context);
-    const userId = this.getUserId(context);
-    this.checkAdminAccess(context);
-    const restrictedProviderCredential = isRestrictedProviderCredential(service, key);
-    if (
-      restrictedProviderCredential &&
-      !this.canReadRestrictedProviderCredentials(context)
-    ) {
-      throw new ForbiddenException(
-        'Provider credentials are writable only by tenantless SUPER_ADMIN operations',
-      );
-    }
-
-    const configuration = await this.commandBus.execute<UpsertConfigurationCommand, Configuration>(
-      new UpsertConfigurationCommand(
-        tenantId,
-        service,
-        key,
-        value,
-        environment,
-        userId,
-        restrictedProviderCredential ? true : isSecret,
-        reason,
-      ),
-    );
-    return toEffectiveConfigurationDto(tenantId, configuration);
+    if (user.tenantId) return user.tenantId;
+    if ((user.roles ?? []).includes('SUPER_ADMIN')) return SYSTEM_TENANT_ID;
+    throw new ForbiddenException('Configuration scope is not resolvable from the verified JWT');
   }
 }

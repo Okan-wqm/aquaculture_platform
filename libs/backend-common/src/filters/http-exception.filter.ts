@@ -41,9 +41,11 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
-import { GqlArgumentsHost, GqlExceptionFilter } from '@nestjs/graphql';
+import { GqlExceptionFilter } from '@nestjs/graphql';
 import { Request, Response } from 'express';
 import { GraphQLError } from 'graphql';
+
+import { getRequestFromArgumentsHost } from '../context/execution-context-request';
 
 /**
  * Interface for structured exception response objects
@@ -58,19 +60,14 @@ interface ExceptionResponseObject {
 /**
  * Type guard to check if exception response is an object
  */
-function isExceptionResponseObject(
-  response: string | object,
-): response is ExceptionResponseObject {
+function isExceptionResponseObject(response: string | object): response is ExceptionResponseObject {
   return typeof response === 'object' && response !== null;
 }
 
 /**
  * Extract message from exception response
  */
-function extractMessage(
-  response: string | object,
-  fallback: string,
-): string | string[] {
+function extractMessage(response: string | object, fallback: string): string | string[] {
   if (typeof response === 'string') {
     return response;
   }
@@ -100,18 +97,15 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const tenantId = request.headers['x-tenant-id'] || undefined;
 
     // SECURITY: tenantId is logged server-side but NEVER included in client response
-    this.logger.warn(
-      `HTTP Exception: ${status} ${request.method} ${request.url}`,
-      {
-        statusCode: status,
-        path: request.url,
-        method: request.method,
-        message,
-        correlationId,
-        tenantId,
-        stack: exception.stack,
-      },
-    );
+    this.logger.warn(`HTTP Exception: ${status} ${request.method} ${request.url}`, {
+      statusCode: status,
+      path: request.url,
+      method: request.method,
+      message,
+      correlationId,
+      tenantId,
+      stack: exception.stack,
+    });
 
     const errorResponse = {
       statusCode: status,
@@ -119,12 +113,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
       path: request.url,
       method: request.method,
       message,
-      error: isExceptionResponseObject(exceptionResponse)
-        ? exceptionResponse.error
-        : undefined,
-      details: isExceptionResponseObject(exceptionResponse)
-        ? exceptionResponse.details
-        : undefined,
+      error: isExceptionResponseObject(exceptionResponse) ? exceptionResponse.error : undefined,
+      details: isExceptionResponseObject(exceptionResponse) ? exceptionResponse.details : undefined,
       correlationId,
     };
 
@@ -140,7 +130,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
 export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger(AllExceptionsFilter.name);
 
-  catch(exception: unknown, host: ArgumentsHost): void | GraphQLError {
+  catch(exception: unknown, host: ArgumentsHost): GraphQLError | undefined {
     const contextType = host.getType<string>();
 
     // Route GraphQL contexts to GraphQL error handling
@@ -153,14 +143,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const request = ctx.getRequest<Request>();
 
     const status =
-      exception instanceof HttpException
-        ? exception.getStatus()
-        : HttpStatus.INTERNAL_SERVER_ERROR;
+      exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
 
-    const message =
-      exception instanceof Error
-        ? exception.message
-        : 'An unexpected error occurred';
+    const message = exception instanceof Error ? exception.message : 'An unexpected error occurred';
 
     const correlationId = request?.headers?.['x-correlation-id'] || undefined;
     const tenantId = request?.headers?.['x-tenant-id'] || undefined;
@@ -189,11 +174,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
     };
 
     response?.status(status).json(errorResponse);
+    return undefined;
   }
 
   private handleGraphQLException(exception: unknown, host: ArgumentsHost): GraphQLError {
-    const gqlHost = GqlArgumentsHost.create(host);
-    const context = gqlHost.getContext();
+    const request = getRequestFromArgumentsHost<Request>(host);
 
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = 'An unexpected error occurred';
@@ -209,8 +194,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
       message = exception.message;
     }
 
-    const correlationId = context?.req?.headers?.['x-correlation-id'];
-    const tenantId = context?.req?.headers?.['x-tenant-id'];
+    const correlationId = request?.headers['x-correlation-id'];
+    const tenantId = request?.headers['x-tenant-id'];
 
     // SECURITY: tenantId is logged server-side but NEVER included in client response
     this.logger.error(`GraphQL Unhandled Exception: ${code}`, {
@@ -256,8 +241,7 @@ export class GraphQLExceptionFilter implements GqlExceptionFilter {
   private readonly logger = new Logger(GraphQLExceptionFilter.name);
 
   catch(exception: unknown, host: ArgumentsHost): GraphQLError {
-    const gqlHost = GqlArgumentsHost.create(host);
-    const context = gqlHost.getContext();
+    const request = getRequestFromArgumentsHost<Request>(host);
 
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = 'An unexpected error occurred';
@@ -273,8 +257,8 @@ export class GraphQLExceptionFilter implements GqlExceptionFilter {
       message = exception.message;
     }
 
-    const correlationId = context?.req?.headers?.['x-correlation-id'];
-    const tenantId = context?.req?.headers?.['x-tenant-id'];
+    const correlationId = request?.headers['x-correlation-id'];
+    const tenantId = request?.headers['x-tenant-id'];
 
     // SECURITY: tenantId is logged server-side but NEVER included in client response
     this.logger.error(`GraphQL Exception: ${code}`, {
@@ -284,12 +268,13 @@ export class GraphQLExceptionFilter implements GqlExceptionFilter {
       stack: exception instanceof Error ? exception.stack : undefined,
     });
 
-    const details = (exception instanceof HttpException)
-      ? (() => {
-          const resp = exception.getResponse();
-          return isExceptionResponseObject(resp) ? resp.details : undefined;
-        })()
-      : undefined;
+    const details =
+      exception instanceof HttpException
+        ? (() => {
+            const resp = exception.getResponse();
+            return isExceptionResponseObject(resp) ? resp.details : undefined;
+          })()
+        : undefined;
 
     return new GraphQLError(message, {
       extensions: {

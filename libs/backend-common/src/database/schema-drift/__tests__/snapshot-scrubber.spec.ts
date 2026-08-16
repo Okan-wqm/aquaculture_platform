@@ -1,8 +1,7 @@
-import {
-  DEFAULT_PII_COLUMN_NAMES,
-  scrubSnapshot,
-} from '../snapshot-scrubber';
+import { defined } from '@aquaculture/testing';
+
 import type { SchemaSnapshot } from '../pg-catalog-introspector';
+import { DEFAULT_PII_COLUMN_NAMES, scrubSnapshot } from '../snapshot-scrubber';
 
 function snap(overrides: Partial<SchemaSnapshot> = {}): SchemaSnapshot {
   return {
@@ -19,6 +18,25 @@ function snap(overrides: Partial<SchemaSnapshot> = {}): SchemaSnapshot {
     capturedAt: '2026-04-21T10:00:00.000Z',
     ...overrides,
   };
+}
+
+function tableAt(snapshot: SchemaSnapshot, index = 0): SchemaSnapshot['tables'][number] {
+  return defined(snapshot.tables[index], `Expected table ${index}`);
+}
+
+function columnAt(
+  snapshot: SchemaSnapshot,
+  columnIndex: number,
+  tableIndex = 0,
+): SchemaSnapshot['tables'][number]['columns'][number] {
+  return defined(
+    tableAt(snapshot, tableIndex).columns[columnIndex],
+    `Expected column ${columnIndex}`,
+  );
+}
+
+function checkAt(snapshot: SchemaSnapshot, index = 0): SchemaSnapshot['checkConstraints'][number] {
+  return defined(snapshot.checkConstraints[index], `Expected check constraint ${index}`);
 }
 
 describe('scrubSnapshot', () => {
@@ -51,11 +69,11 @@ describe('scrubSnapshot', () => {
     });
     const out = scrubSnapshot(input);
     expect(out.redactedColumnCount).toBe(1);
-    expect(out.tables[0]!.columns[0]!.name).toBe('id');
-    expect(out.tables[0]!.columns[1]!.name).toMatch(/^<REDACTED_PII:[a-f0-9]{10}>$/);
+    expect(columnAt(out, 0).name).toBe('id');
+    expect(columnAt(out, 1).name).toMatch(/^<REDACTED_PII:[a-f0-9]{10}>$/);
     // data_type + nullability preserved (shape matters for diff).
-    expect(out.tables[0]!.columns[1]!.dataType).toBe('text');
-    expect(out.tables[0]!.columns[1]!.isNullable).toBe('NO');
+    expect(columnAt(out, 1).dataType).toBe('text');
+    expect(columnAt(out, 1).isNullable).toBe('NO');
   });
 
   it('applies the allowlist to skip legitimate matches', () => {
@@ -81,7 +99,7 @@ describe('scrubSnapshot', () => {
       allowlist: new Set(['id_number']),
     });
     expect(out.redactedColumnCount).toBe(0);
-    expect(out.tables[0]!.columns[0]!.name).toBe('id_number');
+    expect(columnAt(out, 0).name).toBe('id_number');
   });
 
   it('redacts CHECK constraint literals but keeps predicate structure', () => {
@@ -97,7 +115,7 @@ describe('scrubSnapshot', () => {
     });
     const out = scrubSnapshot(input);
     expect(out.redactedCheckLiteralCount).toBe(1);
-    expect(out.checkConstraints[0]!.definition).toBe(
+    expect(checkAt(out).definition).toBe(
       `(status IN ('<REDACTED_LITERAL>', '<REDACTED_LITERAL>', '<REDACTED_LITERAL>'))`,
     );
   });
@@ -115,7 +133,7 @@ describe('scrubSnapshot', () => {
     });
     const out = scrubSnapshot(input);
     expect(out.redactedCheckLiteralCount).toBe(0);
-    expect(out.checkConstraints[0]!.definition).toBe('(amount > 0)');
+    expect(checkAt(out).definition).toBe('(amount > 0)');
   });
 
   it('keeps function-call column defaults intact', () => {
@@ -146,8 +164,8 @@ describe('scrubSnapshot', () => {
       ],
     });
     const out = scrubSnapshot(input);
-    expect(out.tables[0]!.columns[0]!.columnDefault).toBe('gen_random_uuid()');
-    expect(out.tables[0]!.columns[1]!.columnDefault).toBe('CURRENT_TIMESTAMP');
+    expect(columnAt(out, 0).columnDefault).toBe('gen_random_uuid()');
+    expect(columnAt(out, 1).columnDefault).toBe('CURRENT_TIMESTAMP');
   });
 
   it('keeps numeric and boolean defaults intact', () => {
@@ -178,8 +196,8 @@ describe('scrubSnapshot', () => {
       ],
     });
     const out = scrubSnapshot(input);
-    expect(out.tables[0]!.columns[0]!.columnDefault).toBe('42');
-    expect(out.tables[0]!.columns[1]!.columnDefault).toBe('true');
+    expect(columnAt(out, 0).columnDefault).toBe('42');
+    expect(columnAt(out, 1).columnDefault).toBe('true');
   });
 
   it('redacts string-literal defaults', () => {
@@ -202,7 +220,7 @@ describe('scrubSnapshot', () => {
       ],
     });
     const out = scrubSnapshot(input);
-    expect(out.tables[0]!.columns[0]!.columnDefault).toBe('<REDACTED_DEFAULT>');
+    expect(columnAt(out, 0).columnDefault).toBe('<REDACTED_DEFAULT>');
   });
 
   it('is deterministic — same input produces byte-identical output', () => {
@@ -274,7 +292,7 @@ describe('scrubSnapshot', () => {
       piiColumnNames: new Set(['secret_field']),
     });
     // Custom deny-list replaces default, so national_id is now NOT redacted.
-    expect(out.tables[0]!.columns[0]!.name).toBe('national_id');
-    expect(out.tables[0]!.columns[1]!.name).toMatch(/^<REDACTED_PII:/);
+    expect(columnAt(out, 0).name).toBe('national_id');
+    expect(columnAt(out, 1).name).toMatch(/^<REDACTED_PII:/);
   });
 });

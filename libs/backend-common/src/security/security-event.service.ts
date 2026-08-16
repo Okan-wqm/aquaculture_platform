@@ -1,11 +1,7 @@
 import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
-import {
-  SecurityEventType,
-  SecurityEvent,
-  createBaseEvent,
-} from '@platform/event-contracts';
-import type { BaseEvent } from '@platform/event-contracts';
 import { IEventBus } from '@platform/event-bus';
+import { SecurityEventType, createBaseEvent } from '@platform/event-contracts';
+import type { BaseEvent } from '@platform/event-contracts';
 
 /**
  * Options shared by all publish helpers.
@@ -29,9 +25,7 @@ export interface SecurityEventOptions {
 export class SecurityEventService {
   private readonly logger = new Logger(SecurityEventService.name);
 
-  constructor(
-    @Optional() @Inject('EVENT_BUS') private readonly eventBus?: IEventBus,
-  ) {}
+  constructor(@Optional() @Inject('EVENT_BUS') private readonly eventBus?: IEventBus) {}
 
   // -------------------------------------------------------------------
   // Typed convenience methods
@@ -47,9 +41,7 @@ export class SecurityEventService {
     });
   }
 
-  async publishLoginSuccess(
-    opts: SecurityEventOptions & { email?: string },
-  ): Promise<void> {
+  async publishLoginSuccess(opts: SecurityEventOptions & { email?: string }): Promise<void> {
     await this.publish(SecurityEventType.AUTH_LOGIN_SUCCESS, opts, {
       email: opts.email,
     });
@@ -74,9 +66,7 @@ export class SecurityEventService {
     });
   }
 
-  async publishPasswordReset(
-    opts: SecurityEventOptions & { email?: string },
-  ): Promise<void> {
+  async publishPasswordReset(opts: SecurityEventOptions & { email?: string }): Promise<void> {
     await this.publish(SecurityEventType.AUTH_PASSWORD_RESET, opts, {
       email: opts.email,
     });
@@ -188,8 +178,7 @@ export class SecurityEventService {
     // every consumer importing this service. Drive-by fix
     // alongside CIRCUIT-LOW-002 because the sensor-service
     // unit-test compilation was blocked by it.
-    [SecurityEventType.REFRESH_TOKEN_REUSE_DETECTED]:
-      'AuthRefreshTokenReuseDetected',
+    [SecurityEventType.REFRESH_TOKEN_REUSE_DETECTED]: 'AuthRefreshTokenReuseDetected',
   };
 
   // -------------------------------------------------------------------
@@ -202,29 +191,21 @@ export class SecurityEventService {
     flatFields: Record<string, unknown>,
   ): Promise<void> {
     if (!this.eventBus) {
-      this.logger.debug(
-        `Event bus not available — skipping ${securityEventType}`,
-      );
+      this.logger.debug(`Event bus not available — skipping ${securityEventType}`);
       return;
     }
 
     if (!this.eventBus.isConnected()) {
-      this.logger.debug(
-        `Event bus not connected — skipping ${securityEventType}`,
-      );
+      this.logger.debug(`Event bus not connected — skipping ${securityEventType}`);
       return;
     }
 
     try {
       const eventTypeName = SecurityEventService.EVENT_TYPE_NAMES[securityEventType];
-      const base = createBaseEvent<BaseEvent>(
-        eventTypeName,
-        opts.tenantId ?? 'system',
-        {
-          userId: opts.userId,
-          correlationId: opts.correlationId,
-        },
-      );
+      const base = createBaseEvent<BaseEvent>(eventTypeName, opts.tenantId ?? 'system', {
+        userId: opts.userId,
+        correlationId: opts.correlationId,
+      });
 
       // Flat event: all fields at the top level, no nested details bag
       const event = {

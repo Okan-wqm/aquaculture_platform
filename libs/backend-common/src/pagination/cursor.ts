@@ -277,7 +277,7 @@ export function buildCursorResponse<T extends CursorKeyedRow>(
     cursor: encodeCursor(node),
     node,
   }));
-  const endCursor = edges.length > 0 ? edges[edges.length - 1]!.cursor : null;
+  const endCursor = edges[edges.length - 1]?.cursor ?? null;
   return {
     edges,
     pageInfo: { endCursor, hasNextPage },

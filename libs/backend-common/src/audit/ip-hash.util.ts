@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 
+import { Logger } from '@nestjs/common';
+
 /**
  * Region-gated IP hashing for audit row PII (AUDITTRAIL-LOW-002).
  *
@@ -92,9 +94,33 @@ const EU_REGIONS: ReadonlySet<string> = new Set([
   'eu',
   'eea',
   // EU-27 ISO 3166-1 alpha-2:
-  'at', 'be', 'bg', 'cy', 'cz', 'de', 'dk', 'ee', 'es', 'fi',
-  'fr', 'gr', 'hr', 'hu', 'ie', 'it', 'lt', 'lu', 'lv', 'mt',
-  'nl', 'pl', 'pt', 'ro', 'se', 'si', 'sk',
+  'at',
+  'be',
+  'bg',
+  'cy',
+  'cz',
+  'de',
+  'dk',
+  'ee',
+  'es',
+  'fi',
+  'fr',
+  'gr',
+  'hr',
+  'hu',
+  'ie',
+  'it',
+  'lt',
+  'lu',
+  'lv',
+  'mt',
+  'nl',
+  'pl',
+  'pt',
+  'ro',
+  'se',
+  'si',
+  'sk',
 ]);
 
 /**
@@ -112,10 +138,10 @@ const EU_REGIONS: ReadonlySet<string> = new Set([
  * invariant) should fail fast on missing AUDIT_IP_HASH_SALT
  * in production. Tracked as a follow-up to this finding.
  */
-const PLACEHOLDER_SALT =
-  'AUDIT_IP_HASH_SALT_NOT_SET_DEPLOYMENT_PLACEHOLDER_DO_NOT_USE_IN_PROD';
+const PLACEHOLDER_SALT = 'AUDIT_IP_HASH_SALT_NOT_SET_DEPLOYMENT_PLACEHOLDER_DO_NOT_USE_IN_PROD';
 
 let warnedAboutMissingSalt = false;
+const logger = new Logger('AuditIpHash');
 
 function resolveSalt(): string {
   const fromEnv = process.env['AUDIT_IP_HASH_SALT'];
@@ -124,16 +150,10 @@ function resolveSalt(): string {
   }
   if (!warnedAboutMissingSalt) {
     warnedAboutMissingSalt = true;
-    // We use console.warn here intentionally rather than
-    // NestJS Logger because this util is consumed by both Nest
-    // services AND non-Nest contexts (CLI, scripts). A
-    // deliberate one-time warn keeps operators aware of the
-    // misconfiguration without flooding logs on every audit
-    // emit. (The platform's `no-console` ESLint rule has an
-    // explicit allowlist for util-level fail-fast warnings
-    // tied to a tracked finding ID.)
-    // eslint-disable-next-line no-console -- AUDITTRAIL-LOW-002 deployment-warning surface; structured logger is not always available at module-load time
-    console.warn(
+    // A deliberate one-time structured warning keeps every runtime (including
+    // CLI consumers) on the same observable logging surface without flooding
+    // logs on every audit emission.
+    logger.warn(
       '[audit-ip-hash] AUDIT_IP_HASH_SALT env var not set; ' +
         'using deployment placeholder. EU-subject audit-IP ' +
         'hashing is still active, but the placeholder is ' +

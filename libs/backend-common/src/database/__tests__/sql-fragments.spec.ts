@@ -17,18 +17,12 @@ describe('sql-fragments', () => {
     });
 
     it('accepts snake_case + digits + underscores', () => {
-      expect(sql.ident('tenant_abc123def456789a').quoted).toBe(
-        '"tenant_abc123def456789a"',
-      );
-      expect(sql.ident('employee_certifications').quoted).toBe(
-        '"employee_certifications"',
-      );
+      expect(sql.ident('tenant_abc123def456789a').quoted).toBe('"tenant_abc123def456789a"');
+      expect(sql.ident('employee_certifications').quoted).toBe('"employee_certifications"');
     });
 
     it('rejects SQL injection attempts at construction', () => {
-      expect(() => sql.ident('hr"; DROP TABLE users; --')).toThrow(
-        /SAFE_IDENT_RE/,
-      );
+      expect(() => sql.ident('hr"; DROP TABLE users; --')).toThrow(/SAFE_IDENT_RE/);
       expect(() => sql.ident("hr'; DROP --")).toThrow(/SAFE_IDENT_RE/);
       expect(() => sql.ident('hr; DROP')).toThrow(/SAFE_IDENT_RE/);
     });
@@ -60,9 +54,7 @@ describe('sql-fragments', () => {
     });
 
     it('rejects non-string input', () => {
-      expect(() => sql.ident(123 as unknown as string)).toThrow(
-        /expected string/,
-      );
+      expect(() => sql.ident(123 as unknown as string)).toThrow(/expected string/);
       expect(() => sql.ident(null as unknown as string)).toThrow();
       expect(() => sql.ident(undefined as unknown as string)).toThrow();
     });
@@ -108,9 +100,7 @@ describe('sql-fragments', () => {
       const innerId = sql.value(7);
       const innerFragment = sql.fragment`SELECT ${innerId}`;
       const f = sql.fragment`WITH inner AS (${innerFragment}) UPDATE ${schema}.t SET x = 1 WHERE id = ${id}`;
-      expect(f.sql).toBe(
-        'WITH inner AS (SELECT $1) UPDATE "hr".t SET x = 1 WHERE id = $2',
-      );
+      expect(f.sql).toBe('WITH inner AS (SELECT $1) UPDATE "hr".t SET x = 1 WHERE id = $2');
       expect(f.params).toEqual([7, 'tenant-uuid']);
     });
 
@@ -120,9 +110,7 @@ describe('sql-fragments', () => {
       const col = sql.ident('status');
       const v = sql.value('active');
       const f = sql.fragment`ALTER TABLE ${schema}.${table} ALTER COLUMN ${col} SET DEFAULT ${v}`;
-      expect(f.sql).toBe(
-        'ALTER TABLE "hr"."employees" ALTER COLUMN "status" SET DEFAULT $1',
-      );
+      expect(f.sql).toBe('ALTER TABLE "hr"."employees" ALTER COLUMN "status" SET DEFAULT $1');
       expect(f.params).toEqual(['active']);
     });
 
@@ -130,9 +118,7 @@ describe('sql-fragments', () => {
       // This is a TypeScript compile error, but if someone casts around
       // it, the runtime guard still throws.
       const bad = 'DROP TABLE users; --' as unknown as SqlIdent;
-      expect(() => sql.fragment`SELECT * FROM ${bad}`).toThrow(
-        /not an SqlIdent/,
-      );
+      expect(() => sql.fragment`SELECT * FROM ${bad}`).toThrow(/not an SqlIdent/);
     });
 
     it('returns a branded SqlFragment detectable by guard', () => {
@@ -148,10 +134,7 @@ describe('sql-fragments', () => {
       const id = sql.value('abc');
       const f = sql.fragment`SELECT * FROM ${schema}.t WHERE id = ${id}`;
       const result = await executeSqlFragment({ query }, f);
-      expect(query).toHaveBeenCalledWith(
-        'SELECT * FROM "hr".t WHERE id = $1',
-        ['abc'],
-      );
+      expect(query).toHaveBeenCalledWith('SELECT * FROM "hr".t WHERE id = $1', ['abc']);
       expect(result).toEqual([{ x: 1 }]);
     });
   });
@@ -187,10 +170,11 @@ describe('sql-fragments', () => {
 
       // Raw string interpolation: compile-time rejected + runtime throws
       // (belt-and-braces — even if someone @ts-ignore's around it).
-      expect(() => {
-        // @ts-expect-error — raw string in interpolation slot refused by types
-        sql.fragment`SELECT FROM ${'hr'}`;
-      }).toThrow(/not an SqlIdent/);
+      expect(
+        () =>
+          // @ts-expect-error — raw string in interpolation slot refused by types
+          sql.fragment`SELECT FROM ${'hr'}`,
+      ).toThrow(/not an SqlIdent/);
     });
 
     it('sql.ident requires string (number rejected at compile)', () => {

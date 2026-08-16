@@ -5,33 +5,36 @@
  */
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+interface DecoratorInspection {
+  readonly className: string;
+  readonly filePath: string;
+  readonly hasDecorator: boolean;
+  readonly phase?: 'expand' | 'contract';
+  readonly dependsOn?: string;
+  readonly hasBreakingDdl: boolean;
+}
+
+interface ExpandContractAstModule {
+  readonly inspectFile: (path: string) => readonly DecoratorInspection[];
+  readonly validateInspections: (inspections: readonly DecoratorInspection[]) => ReadonlyArray<{
+    readonly kind: string;
+    readonly severity: 'error' | 'warn';
+    readonly className: string;
+    readonly filePath: string;
+    readonly details: string;
+  }>;
+  readonly main: (argv: readonly string[]) => number;
+}
+
 const {
   inspectFile,
   validateInspections,
   main: astMain,
-} = require('../../../../../../tools/gates/expand-contract-ast') as {
-  inspectFile: (path: string) => ReadonlyArray<{
-    className: string;
-    filePath: string;
-    hasDecorator: boolean;
-    phase?: 'expand' | 'contract';
-    dependsOn?: string;
-    hasBreakingDdl: boolean;
-  }>;
-  validateInspections: (
-    inspections: Parameters<typeof inspectFile> extends never ? never : unknown,
-  ) => ReadonlyArray<{
-    kind: string;
-    severity: 'error' | 'warn';
-    className: string;
-    filePath: string;
-    details: string;
-  }>;
-  main: (argv: readonly string[]) => number;
-};
+} = jest.requireActual<ExpandContractAstModule>(
+  resolve(__dirname, '../../../../../../tools/gates/expand-contract-ast'),
+);
 
 describe('expand-contract-ast inspectFile', () => {
   let tmp: string;
@@ -230,12 +233,10 @@ describe('expand-contract-ast main exits', () => {
   const chunks: string[] = [];
   beforeEach(() => {
     chunks.length = 0;
-    stdoutSpy = jest
-      .spyOn(process.stdout, 'write')
-      .mockImplementation(((c: string | Uint8Array) => {
-        chunks.push(c.toString());
-        return true;
-      }) as never);
+    stdoutSpy = jest.spyOn(process.stdout, 'write').mockImplementation((c: string | Uint8Array) => {
+      chunks.push(c.toString());
+      return true;
+    });
   });
   afterEach(() => {
     stdoutSpy.mockRestore();

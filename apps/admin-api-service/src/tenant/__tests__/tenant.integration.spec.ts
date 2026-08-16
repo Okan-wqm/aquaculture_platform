@@ -7,7 +7,6 @@ import { DataSource } from 'typeorm';
 
 import { AuditLogService } from '../../audit/audit.service';
 import { ModuleAssignmentService } from '../../modules/tenant-management/services/module-assignment.service';
-import { SystemSettingService } from '../../settings/services/system-setting.service';
 import {
   ActivateTenantCommand,
   ArchiveTenantCommand,
@@ -46,11 +45,6 @@ import { TenantAdminController } from '../tenant.controller';
 const mockAuditLogService = {
   log: jest.fn(),
   logTenantAction: jest.fn(),
-};
-
-const mockSettingsService = {
-  getSetting: jest.fn().mockResolvedValue(null),
-  setSetting: jest.fn(),
 };
 
 const mockProvisioningService = {
@@ -286,10 +280,6 @@ describe('Tenant Integration Tests', () => {
         {
           provide: AuditLogService,
           useValue: mockAuditLogService,
-        },
-        {
-          provide: SystemSettingService,
-          useValue: mockSettingsService,
         },
         {
           provide: TenantProvisioningService,

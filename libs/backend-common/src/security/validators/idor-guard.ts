@@ -9,6 +9,8 @@ import {
 import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 
+import { getRequestFromArgumentsHost } from '../../context/execution-context-request';
+
 /**
  * IDOR (Insecure Direct Object Reference) Protection
  *
@@ -110,6 +112,16 @@ interface AuthenticatedRequest {
   body?: Record<string, unknown>;
 }
 
+function scalarRequestParameter(value: unknown): string | undefined {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value);
+  }
+  return undefined;
+}
+
 /**
  * IDOR Guard
  *
@@ -162,7 +174,7 @@ export class IdorGuard implements CanActivate {
     if (!config) {
       this.logger.debug(
         `No @IdorCheck() configured for ${context.getClass().name}.${context.getHandler().name}. ` +
-        `Add @IdorCheck() for IDOR protection or @SkipIdorCheck() to explicitly opt out.`,
+          `Add @IdorCheck() for IDOR protection or @SkipIdorCheck() to explicitly opt out.`,
       );
       return true;
     }
@@ -178,7 +190,7 @@ export class IdorGuard implements CanActivate {
     // Check bypass roles
     if (config.bypassRoles && config.bypassRoles.length > 0) {
       const userRoles = user.roles || (user.role ? [user.role] : []);
-      if (config.bypassRoles.some(role => userRoles.includes(role))) {
+      if (config.bypassRoles.some((role) => userRoles.includes(role))) {
         return true;
       }
     }
@@ -186,9 +198,7 @@ export class IdorGuard implements CanActivate {
     // Tenant validation
     if (!this.validateTenantAccess(request, config)) {
       const errorMsg = config.errorMessage || 'Access denied: resource not found';
-      this.logger.warn(
-        `IDOR attempt blocked for user ${user.sub || user.userId}: tenant mismatch`,
-      );
+      this.logger.warn(`IDOR attempt blocked for user ${user.sub || user.userId}: tenant mismatch`);
       throw new ForbiddenException(errorMsg);
     }
 
@@ -210,26 +220,27 @@ export class IdorGuard implements CanActivate {
 
     if (contextType === 'graphql') {
       const gqlContext = GqlExecutionContext.create(context);
-      const ctx = gqlContext.getContext();
-      const args = gqlContext.getArgs();
+      const args = gqlContext.getArgs<Record<string, unknown>>();
+      const request = getRequestFromArgumentsHost<AuthenticatedRequest>(context);
+      if (!request) {
+        throw new ForbiddenException('Access denied');
+      }
 
       // Merge args into request for uniform access
-      const request = ctx.req as AuthenticatedRequest;
-      request.body = { ...request.body, ...args };
-
-      return request;
+      return { ...request, body: { ...request.body, ...args } };
     }
 
-    return context.switchToHttp().getRequest<AuthenticatedRequest>();
+    const request = getRequestFromArgumentsHost<AuthenticatedRequest>(context);
+    if (!request) {
+      throw new ForbiddenException('Access denied');
+    }
+    return request;
   }
 
   /**
    * Validate tenant access
    */
-  private validateTenantAccess(
-    request: AuthenticatedRequest,
-    config: IdorCheckConfig,
-  ): boolean {
+  private validateTenantAccess(request: AuthenticatedRequest, config: IdorCheckConfig): boolean {
     const user = request.user;
     if (!user) return false;
 
@@ -262,10 +273,7 @@ export class IdorGuard implements CanActivate {
   /**
    * Validate owner access
    */
-  private validateOwnerAccess(
-    request: AuthenticatedRequest,
-    config: IdorCheckConfig,
-  ): boolean {
+  private validateOwnerAccess(request: AuthenticatedRequest, config: IdorCheckConfig): boolean {
     const user = request.user;
     if (!user || !config.ownerIdParam) return false;
 
@@ -281,23 +289,23 @@ export class IdorGuard implements CanActivate {
   /**
    * Extract parameter from request
    */
-  private extractParam(
-    request: AuthenticatedRequest,
-    paramName: string,
-  ): string | undefined {
+  private extractParam(request: AuthenticatedRequest, paramName: string): string | undefined {
     // Check params (URL path parameters)
-    if (request.params?.[paramName] !== undefined) {
-      return String(request.params[paramName]);
+    const pathValue = scalarRequestParameter(request.params?.[paramName]);
+    if (pathValue !== undefined) {
+      return pathValue;
     }
 
     // Check query (URL query parameters)
-    if (request.query?.[paramName] !== undefined) {
-      return String(request.query[paramName]);
+    const queryValue = scalarRequestParameter(request.query?.[paramName]);
+    if (queryValue !== undefined) {
+      return queryValue;
     }
 
     // Check body (POST/PUT data)
-    if (request.body?.[paramName] !== undefined) {
-      return String(request.body[paramName]);
+    const bodyValue = scalarRequestParameter(request.body?.[paramName]);
+    if (bodyValue !== undefined) {
+      return bodyValue;
     }
 
     return undefined;

@@ -13,6 +13,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@aquaculture/configuration-contracts": "file:../../../libs/configuration-contracts",
     "@aquaculture/shared-ui": "file:../../shared-ui",
     "lucide-react": "0.469.0",
     "react": "19.2.7",

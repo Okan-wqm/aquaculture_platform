@@ -45,20 +45,21 @@
  */
 import {
   DynamicModule,
+  Inject,
+  Injectable,
   Logger,
   Module,
   OnApplicationBootstrap,
   Type,
 } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { DataSource } from 'typeorm';
+
+import { NoopMigrationEventSink, type MigrationEventSink } from '../migration-event-sink';
+import { NatsMigrationEventSink } from '../nats-migration-event-sink';
 
 import { createMigrationRunnerService } from './migration-runner.service';
 import type { MigrationRunnerOptions } from './migration-runner.service';
-import {
-  NoopMigrationEventSink,
-  type MigrationEventSink,
-} from '../migration-event-sink';
-import { NatsMigrationEventSink } from '../nats-migration-event-sink';
 
 export interface MigrationRunnerModuleOptions {
   /** Source schema name (e.g. 'hr'). Required. */
@@ -121,25 +122,17 @@ export class MigrationRunnerModule {
  * it takes the sink in options at FACTORY time. The sub-class
  * rebuilds the factory with the resolved sink baked in.
  */
-function makeRunnerCtor(
-  options: MigrationRunnerModuleOptions,
-): Type<OnApplicationBootstrap> {
+function makeRunnerCtor(options: MigrationRunnerModuleOptions): Type<OnApplicationBootstrap> {
   // The factory signature requires the sink at call time. We can't
   // inject the sink into an already-frozen class. So we build the
   // runner lazily inside a wrapper class whose onApplicationBootstrap
   // instantiates the real runner AFTER the sink provider resolves.
-  const { Injectable, Inject } = require('@nestjs/common') as typeof import('@nestjs/common');
-  const { DataSource } = require('typeorm') as typeof import('typeorm');
-  type DataSourceType = InstanceType<typeof DataSource>;
-
   @Injectable()
   class MigrationRunnerWrapper implements OnApplicationBootstrap {
-    private readonly logger = new Logger(
-      `MigrationRunnerWrapper[${options.schema}]`,
-    );
+    private readonly logger = new Logger(`MigrationRunnerWrapper[${options.schema}]`);
 
     constructor(
-      private readonly dataSource: DataSourceType,
+      private readonly dataSource: DataSource,
       private readonly configService: ConfigService,
       @Inject(EVENT_SINK_PROVIDER_TOKEN)
       private readonly sink: MigrationEventSink,
@@ -147,18 +140,13 @@ function makeRunnerCtor(
 
     async onApplicationBootstrap(): Promise<void> {
       const factoryOpts: MigrationRunnerOptions = {
-        ...(options.tenantAware !== undefined
-          ? { tenantAware: options.tenantAware }
-          : {}),
+        ...(options.tenantAware !== undefined ? { tenantAware: options.tenantAware } : {}),
         ...(options.lockTimeoutSeconds !== undefined
           ? { lockTimeoutSeconds: options.lockTimeoutSeconds }
           : {}),
         eventSink: this.sink,
       };
-      const RealRunner = createMigrationRunnerService(
-        options.schema,
-        factoryOpts,
-      );
+      const RealRunner = createMigrationRunnerService(options.schema, factoryOpts);
       const instance = new RealRunner(this.dataSource, this.configService);
       await instance.onApplicationBootstrap();
     }

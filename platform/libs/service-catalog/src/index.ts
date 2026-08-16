@@ -3,6 +3,7 @@
 // tenant-fanout) DERIVE their subset from here instead of hand-copying it.
 import { tenantAwareSchemas } from './topology';
 
+export * from './boot-invariant-signals';
 export * from './topology';
 
 export type DeployTarget = 'droplet' | 'staging' | 'unsupported';

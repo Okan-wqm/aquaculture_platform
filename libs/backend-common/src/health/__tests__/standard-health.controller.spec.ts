@@ -7,36 +7,46 @@
  *   GET /health       -> { status, timestamp, uptime, version }     (always 200)
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
-import { DataSource } from 'typeorm';
 import { Controller } from '@nestjs/common';
+import { Test, TestingModule } from '@nestjs/testing';
+import type { Response } from 'express';
+import { DataSource } from 'typeorm';
 
 import { StandardHealthController } from '../standard-health.controller';
 
-// Mock response object for @Res() endpoints
-const createMockResponse = () => {
-  const res: any = {
-    status: jest.fn().mockReturnThis(),
-    json: jest.fn().mockReturnThis(),
-  };
-  return res;
-};
+interface MockHealthResponse {
+  readonly response: Response;
+  readonly status: jest.Mock<Response, [statusCode: number]>;
+  readonly json: jest.Mock<Response, [body: unknown]>;
+}
+
+// Typed adapter for the two @Res() methods exercised by this controller.
+function createMockResponse(): MockHealthResponse {
+  const status = jest.fn<Response, [statusCode: number]>();
+  const json = jest.fn<Response, [body: unknown]>();
+  const response = { status, json } as unknown as Response;
+  status.mockReturnValue(response);
+  json.mockReturnValue(response);
+  return { response, status, json };
+}
 
 describe('StandardHealthController', () => {
   let controller: StandardHealthController;
-  let queryMock: jest.Mock;
+  let queryMock: jest.Mock<Promise<unknown>, [query: string]>;
   let isInitialized: boolean;
 
-  const createMockDataSource = () => ({
-    get isInitialized() {
-      return isInitialized;
-    },
-    query: queryMock,
-  });
+  function createMockDataSource(): DataSource {
+    return {
+      get isInitialized() {
+        return isInitialized;
+      },
+      query: queryMock,
+    } as unknown as DataSource;
+  }
 
   beforeEach(async () => {
     isInitialized = true;
-    queryMock = jest.fn().mockResolvedValue([{ '?column?': 1 }]);
+    queryMock = jest.fn<Promise<unknown>, [query: string]>().mockResolvedValue([{ '?column?': 1 }]);
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [StandardHealthController],
@@ -69,7 +79,7 @@ describe('StandardHealthController', () => {
       const res = createMockResponse();
       queryMock.mockResolvedValue([{ '?column?': 1 }]);
 
-      await controller.readiness(res);
+      await controller.readiness(res.response);
 
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({
@@ -82,7 +92,7 @@ describe('StandardHealthController', () => {
       isInitialized = false;
       const res = createMockResponse();
 
-      await controller.readiness(res);
+      await controller.readiness(res.response);
 
       expect(res.status).toHaveBeenCalledWith(503);
       expect(res.json).toHaveBeenCalledWith({
@@ -95,7 +105,7 @@ describe('StandardHealthController', () => {
       queryMock.mockRejectedValue(new Error('Connection refused'));
       const res = createMockResponse();
 
-      await controller.readiness(res);
+      await controller.readiness(res.response);
 
       expect(res.status).toHaveBeenCalledWith(503);
       expect(res.json).toHaveBeenCalledWith({
@@ -106,7 +116,7 @@ describe('StandardHealthController', () => {
 
     it('should use real SELECT 1 query, not just isInitialized', async () => {
       const res = createMockResponse();
-      await controller.readiness(res);
+      await controller.readiness(res.response);
 
       expect(queryMock).toHaveBeenCalledWith('SELECT 1');
     });
@@ -176,8 +186,8 @@ describe('StandardHealthController', () => {
         this.serviceName = 'test-service';
       }
 
-      protected override async getAdditionalChecks(): Promise<Record<string, 'ok' | 'error'>> {
-        return { custom: 'ok' };
+      protected override getAdditionalChecks(): Promise<Record<string, 'ok' | 'error'>> {
+        return Promise.resolve({ custom: 'ok' });
       }
     }
 
@@ -199,7 +209,7 @@ describe('StandardHealthController', () => {
 
     it('should include additional checks in readiness', async () => {
       const res = createMockResponse();
-      await extController.readiness(res);
+      await extController.readiness(res.response);
 
       expect(res.json).toHaveBeenCalledWith({
         status: 'ok',
@@ -210,12 +220,8 @@ describe('StandardHealthController', () => {
     it('should report degraded when additional check fails but database is ok', async () => {
       @Controller('health')
       class DegradedController extends StandardHealthController {
-        constructor(ds: DataSource) {
-          super(ds);
-        }
-
-        protected override async getAdditionalChecks(): Promise<Record<string, 'ok' | 'error'>> {
-          return { custom: 'error' };
+        protected override getAdditionalChecks(): Promise<Record<string, 'ok' | 'error'>> {
+          return Promise.resolve({ custom: 'error' });
         }
       }
 
@@ -231,7 +237,7 @@ describe('StandardHealthController', () => {
 
       const degradedController = module.get<DegradedController>(DegradedController);
       const res = createMockResponse();
-      await degradedController.readiness(res);
+      await degradedController.readiness(res.response);
 
       expect(res.status).toHaveBeenCalledWith(200); // degraded is still 200
       expect(res.json).toHaveBeenCalledWith({
@@ -243,7 +249,7 @@ describe('StandardHealthController', () => {
 
   describe('Controller Decorators', () => {
     it('should be decorated with @Controller("health")', () => {
-      const controllerPath = Reflect.getMetadata('path', StandardHealthController);
+      const controllerPath: unknown = Reflect.getMetadata('path', StandardHealthController);
       expect(controllerPath).toBe('health');
     });
   });

@@ -8,10 +8,18 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import {
-  main as attestationMain,
-  runCoverageCheck,
-} from '../../../../../../tools/gates/compliance-attestation-coverage';
+interface ComplianceAttestationModule {
+  readonly main: (argv: readonly string[]) => number;
+  readonly runCoverageCheck: (args: { cutoffIso: string }) => {
+    readonly totalInScope: number;
+    readonly missing: readonly string[];
+    readonly cutoffIso: string;
+  };
+}
+
+const { main: attestationMain, runCoverageCheck } = jest.requireActual<ComplianceAttestationModule>(
+  resolve(__dirname, '../../../../../../tools/gates/compliance-attestation-coverage'),
+);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

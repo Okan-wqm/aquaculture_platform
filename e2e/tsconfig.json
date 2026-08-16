@@ -30,6 +30,8 @@
       "@aquaculture/backend-common/tenant": ["libs/backend-common/src/tenant/index.ts"],
       "@aquaculture/backend-common/utils": ["libs/backend-common/src/utils/index.ts"],
       "@aquaculture/backend-common/*": ["libs/backend-common/src/*"],
+      "@aquaculture/configuration-contracts": ["libs/configuration-contracts/src/index.ts"],
+      "@aquaculture/configuration-contracts/*": ["libs/configuration-contracts/src/*"],
       "@platform/backend-common": ["libs/backend-common/src/index.ts"],
       "@platform/shared": ["libs/shared/src/index.ts"],
       "@platform/event-contracts": ["libs/event-contracts/src/index.ts"],
@@ -41,9 +43,5 @@
       "@platform/service-catalog": ["platform/libs/service-catalog/src/index.ts"]
     }
   },
-  "include": [
-    "**/*.ts",
-    "../apps/**/migrations/*.ts",
-    "../apps/**/database/migrations/*.ts"
-  ]
+  "include": ["**/*.ts", "../apps/**/migrations/*.ts", "../apps/**/database/migrations/*.ts"]
 }

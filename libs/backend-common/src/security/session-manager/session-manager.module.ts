@@ -1,8 +1,9 @@
 import { Module, Global } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 
-import { SessionManagerService } from './session-manager.service';
 import { SESSION_MANAGER } from '../interfaces';
+
+import { SessionManagerService } from './session-manager.service';
 
 /**
  * Session Manager Module

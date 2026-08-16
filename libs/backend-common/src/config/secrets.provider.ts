@@ -1,4 +1,5 @@
 import { readFileSync, existsSync } from 'fs';
+
 import { Logger } from '@nestjs/common';
 
 const logger = new Logger('SecretsProvider');
@@ -32,8 +33,9 @@ export function readSecret(envVarName: string): string | undefined {
         }
         logger.warn(`Secret file for "${envVarName}" exists but is empty, falling back to env var`);
       } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
         logger.error(
-          `Failed to read secret file for "${envVarName}" at ${filePath}: ${error instanceof Error ? error.message : error}`,
+          `Failed to read secret file for "${envVarName}" at ${filePath}: ${errorMessage}`,
         );
       }
     } else {

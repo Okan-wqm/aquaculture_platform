@@ -1,15 +1,10 @@
 import { DynamicModule, Module, Provider, Type } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+
 import { BypassRlsService } from './bypass-rls.service';
 import { createRlsConnectionBootstrap } from './rls-connection-bootstrap.service';
-import {
-  RlsSchemaBootstrap,
-  RlsSchemaBootstrapOptions,
-} from './rls-schema-bootstrap.service';
-import {
-  TenantRlsSyncService,
-  TenantRlsSyncOptions,
-} from './tenant-rls-sync.service';
+import { RlsSchemaBootstrap, RlsSchemaBootstrapOptions } from './rls-schema-bootstrap.service';
+import { TenantRlsSyncService, TenantRlsSyncOptions } from './tenant-rls-sync.service';
 
 /**
  * RlsModule
@@ -219,8 +214,7 @@ export class RlsModule {
     // Build the service-specific bootstrap class. The factory enforces
     // the identifier shape (no need to validate again here) and emits a
     // distinct logger context per service tag.
-    const RlsConnectionBootstrap: Type<unknown> =
-      createRlsConnectionBootstrap(options.serviceName);
+    const RlsConnectionBootstrap: Type<unknown> = createRlsConnectionBootstrap(options.serviceName);
 
     // Mandatory providers — the pool patch and the table-level helpers.
     // These are the bare minimum every pool-owning service gets.

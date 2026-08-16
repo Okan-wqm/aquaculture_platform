@@ -84,10 +84,12 @@ export function logSafeUserId(
 // ──────────────────────────────────────────────────────────────────────
 
 /** RFC5321-simplified email regex — correct enough for log scrubbing. */
-const EMAIL_PATTERN = /([A-Za-z0-9_.+-])[A-Za-z0-9_.+-]*@([A-Za-z0-9])[A-Za-z0-9.-]*\.([A-Za-z]{2,})/g;
+const EMAIL_PATTERN =
+  /([A-Za-z0-9_.+-])[A-Za-z0-9_.+-]*@([A-Za-z0-9])[A-Za-z0-9.-]*\.([A-Za-z]{2,})/g;
 
 /** E.164 and common national formats: +CC followed by 7-15 digits, optional separators. */
-const PHONE_PATTERN = /(?:\+\d{1,3}[\s-]?)?(?:\(\d{1,4}\)[\s-]?)?\d{3,4}[\s-]?\d{3,4}[\s-]?\d{3,4}/g;
+const PHONE_PATTERN =
+  /(?:\+\d{1,3}[\s-]?)?(?:\(\d{1,4}\)[\s-]?)?\d{3,4}[\s-]?\d{3,4}[\s-]?\d{3,4}/g;
 
 /** 13–19 digit credit-card-like sequences (Luhn not validated — bias toward false-positive masking). */
 const CREDIT_CARD_PATTERN = /\b(?:\d[ -]?){13,19}\b/g;
@@ -171,10 +173,7 @@ export function maskPii(value: string): string {
  * in BILLING-MEDIUM-003. Callers with stricter limits (e.g. log
  * lines with their own truncation) pass an explicit smaller cap.
  */
-export function maskAndTruncatePii(
-  value: string | null | undefined,
-  maxLen = 500,
-): string | null {
+export function maskAndTruncatePii(value: string | null | undefined, maxLen = 500): string | null {
   if (value === null || value === undefined) {
     return null;
   }
@@ -196,7 +195,8 @@ export function maskPiiDeep<T>(value: T, depth = 0, maxDepth = 4): T {
   if (depth > maxDepth || value == null) return value;
   if (typeof value === 'string') return maskPii(value) as unknown as T;
   if (Array.isArray(value)) {
-    return value.map((item) => maskPiiDeep(item, depth + 1, maxDepth)) as unknown as T;
+    const items = value as readonly unknown[];
+    return items.map((item) => maskPiiDeep(item, depth + 1, maxDepth)) as unknown as T;
   }
   if (typeof value === 'object') {
     const out: Record<string, unknown> = {};

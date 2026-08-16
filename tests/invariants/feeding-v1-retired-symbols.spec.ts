@@ -12,9 +12,10 @@
  * temizliği) kendi emekli simgelerini BU listeye ekler — silme + pinleme
  * aynı commit'te gelir.
  */
-import { execFileSync } from 'child_process';
 import { readFileSync } from 'fs';
 import { join, resolve } from 'path';
+
+import { listEffectiveWorktreeFiles } from './lib/effective-worktree-files';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const SPEC_PATH = 'tests/invariants/feeding-v1-retired-symbols.spec.ts';
@@ -49,13 +50,14 @@ const RETIRED_PATTERNS: Array<{ symbol: string; pattern: RegExp }> = [
 const EXEMPT_PATH_RE = /(^|\/)generated\//;
 
 function trackedSourceFiles(): string[] {
-  return execFileSync(
-    'git',
-    ['ls-files', 'web/', 'apps/', 'libs/', 'platform/', 'e2e/', 'tests/'],
-    { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 },
-  )
-    .split('\n')
-    .map((line) => line.trim())
+  return listEffectiveWorktreeFiles(REPO_ROOT, [
+    'web/',
+    'apps/',
+    'libs/',
+    'platform/',
+    'e2e/',
+    'tests/',
+  ])
     .filter((file) => /\.(ts|tsx)$/.test(file))
     .filter((file) => file !== SPEC_PATH && !EXEMPT_PATH_RE.test(file));
 }

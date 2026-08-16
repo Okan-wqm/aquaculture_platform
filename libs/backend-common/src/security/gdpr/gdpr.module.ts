@@ -1,12 +1,13 @@
 import { Module, Global } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
+import { TypeOrmModule } from '@nestjs/typeorm';
 
-import { GdprService } from './gdpr.service';
+import { CONSENT_MANAGER, GDPR_SERVICE } from '../interfaces';
+
 import { ConsentManagerService } from './consent-manager.service';
 import { UserConsent } from './entities/consent.entity';
 import { GdprDataRequest } from './entities/data-request.entity';
-import { CONSENT_MANAGER, GDPR_SERVICE } from '../interfaces';
+import { GdprService } from './gdpr.service';
 
 /**
  * GDPR Module
@@ -46,10 +47,7 @@ import { CONSENT_MANAGER, GDPR_SERVICE } from '../interfaces';
  */
 @Global()
 @Module({
-  imports: [
-    ConfigModule,
-    TypeOrmModule.forFeature([UserConsent, GdprDataRequest]),
-  ],
+  imports: [ConfigModule, TypeOrmModule.forFeature([UserConsent, GdprDataRequest])],
   providers: [
     GdprService,
     ConsentManagerService,
@@ -62,12 +60,6 @@ import { CONSENT_MANAGER, GDPR_SERVICE } from '../interfaces';
       useExisting: ConsentManagerService,
     },
   ],
-  exports: [
-    GdprService,
-    ConsentManagerService,
-    GDPR_SERVICE,
-    CONSENT_MANAGER,
-    TypeOrmModule,
-  ],
+  exports: [GdprService, ConsentManagerService, GDPR_SERVICE, CONSENT_MANAGER, TypeOrmModule],
 })
 export class GdprModule {}

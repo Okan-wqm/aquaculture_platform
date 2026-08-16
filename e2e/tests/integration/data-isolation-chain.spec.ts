@@ -15,7 +15,7 @@ import {
   closePool,
   getTenantSchemaName,
 } from '../../helpers/db.helper';
-import { graphqlRequest, hasGraphQLError } from '../../helpers/graphql-client';
+import { graphqlRequest, hasAnyGraphQLError, hasGraphQLError } from '../../helpers/graphql-client';
 import {
   loginAsSuperAdmin,
   createTestTenant,
@@ -249,7 +249,7 @@ describe('Data Isolation Chain', () => {
       const loginA = await loginAs(tenantAUserEmail, tenantAUserPassword);
       for (let i = 0; i < ITERATIONS; i++) {
         const response = await queryTenantUsers(loginA.accessToken);
-        expect(hasGraphQLError(response)).toBe(false);
+        expect(hasAnyGraphQLError(response)).toBe(false);
         const emails = response.data?.tenantUsers.map((u) => u.email) ?? [];
         expect(emails).toContain(tenantAUserEmail);
         expect(emails).not.toContain(tenantBUserEmail);
@@ -262,7 +262,7 @@ describe('Data Isolation Chain', () => {
         Array.from({ length: ITERATIONS }, () => queryTenantUsers(loginA.accessToken)),
       );
       for (const response of responses) {
-        expect(hasGraphQLError(response)).toBe(false);
+        expect(hasAnyGraphQLError(response)).toBe(false);
         const emails = response.data?.tenantUsers.map((u) => u.email) ?? [];
         expect(emails).toContain(tenantAUserEmail);
         expect(emails).not.toContain(tenantBUserEmail);
@@ -282,7 +282,7 @@ describe('Data Isolation Chain', () => {
       );
       for (const { isA, r } of results) {
         // A permission error is acceptable; a cross-tenant bleed is NOT.
-        if (hasGraphQLError(r)) continue;
+        if (hasAnyGraphQLError(r)) continue;
         const emails = r.data?.tenantUsers.map((u) => u.email) ?? [];
         if (isA) {
           expect(emails).not.toContain(tenantBUserEmail);

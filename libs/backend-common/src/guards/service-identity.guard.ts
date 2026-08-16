@@ -10,9 +10,9 @@ import {
   Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { GqlExecutionContext } from '@nestjs/graphql';
+import { serviceIdentityAudienceForService } from '@platform/service-catalog';
 
-import { serviceIdentityAudienceForService } from '../../../../platform/libs/service-catalog/src/index';
+import { getRequestFromArgumentsHost } from '../context/execution-context-request';
 import { SecurityEventService } from '../security/security-event.service';
 import type { TenantRequest } from '../types/tenant-request.interface';
 import {
@@ -61,8 +61,7 @@ export class ServiceIdentityGuard implements CanActivate {
       return true;
     }
 
-    const gqlCtx = GqlExecutionContext.create(context);
-    const req = gqlCtx.getContext().req as TenantRequest | undefined;
+    const req = getRequestFromArgumentsHost<TenantRequest>(context);
 
     if (!req) {
       return true;

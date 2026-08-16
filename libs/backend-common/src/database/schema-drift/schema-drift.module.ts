@@ -1,4 +1,5 @@
 import { DynamicModule, Module, Provider } from '@nestjs/common';
+
 import { createSchemaDriftValidator } from '../schema-drift-validator.service';
 
 /**
@@ -92,20 +93,14 @@ export class SchemaDriftModule {
           `Must match /^[a-z][a-z0-9_-]*$/ (lowercase, digits, underscore, hyphen).`,
       );
     }
-    if (
-      options.schemaName !== undefined &&
-      !/^[a-z][a-z0-9_-]*$/.test(options.schemaName)
-    ) {
+    if (options.schemaName !== undefined && !/^[a-z][a-z0-9_-]*$/.test(options.schemaName)) {
       throw new Error(
         `[SchemaDriftModule.forRoot] Invalid schemaName: "${options.schemaName}". ` +
           `Must match /^[a-z][a-z0-9_-]*$/ (lowercase, digits, underscore, hyphen).`,
       );
     }
 
-    const ValidatorClass = createSchemaDriftValidator(
-      options.serviceName,
-      options.schemaName,
-    );
+    const ValidatorClass = createSchemaDriftValidator(options.serviceName, options.schemaName);
     const provider: Provider = ValidatorClass;
 
     return {

@@ -4,7 +4,7 @@ import { createHash, createHmac, randomUUID, timingSafeEqual } from 'crypto';
 // serviceIdentityCallers). The sibling guard already imports the catalog at the
 // same depth (guards/service-identity.guard.ts), so this adds no new cross-lib
 // edge. The catalog lib has zero imports of its own → no circular dependency.
-import { serviceIdentityCallers } from '../../../../platform/libs/service-catalog/src/index';
+import { serviceIdentityCallers } from '@platform/service-catalog';
 
 /**
  * Service Identity Headers — HMAC-signed headers for inter-service authentication.

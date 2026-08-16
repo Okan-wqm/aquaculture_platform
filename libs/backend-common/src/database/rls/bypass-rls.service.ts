@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+
 import {
   getRequestContext,
   requestContextStorage,
@@ -108,16 +109,11 @@ export class BypassRlsService {
    * @throws Re-throws any error from `callback` after the AsyncLocalStorage
    *         frame is automatically unwound.
    */
-  async withBypass<T>(
-    operation: string,
-    callback: () => Promise<T> | T,
-  ): Promise<T> {
+  async withBypass<T>(operation: string, callback: () => Promise<T> | T): Promise<T> {
     if (!operation || operation.length === 0) {
       // Refuse to grant bypass without an audit label. This is a deliberate
       // ergonomic friction — every bypass call site MUST be greppable.
-      throw new Error(
-        'BypassRlsService.withBypass requires a non-empty operation label for audit',
-      );
+      throw new Error('BypassRlsService.withBypass requires a non-empty operation label for audit');
     }
 
     const previous = getRequestContext();

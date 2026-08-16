@@ -48,6 +48,8 @@
 
 import type { QueryRunner } from 'typeorm';
 
+import { executeQueryRowsNormalized } from './query-result-normalizer';
+
 /**
  * Returns true when the given column exists on the given table in the
  * current schema (per `current_schema()`). Use to guard ALTER COLUMN /
@@ -63,7 +65,8 @@ export async function columnExists(
   table: string,
   column: string,
 ): Promise<boolean> {
-  const rows: Array<{ exists: boolean }> = await queryRunner.query(
+  const rows = await executeQueryRowsNormalized<{ exists: boolean }>(
+    queryRunner,
     `SELECT EXISTS (
        SELECT 1 FROM information_schema.columns
        WHERE table_schema = current_schema()
@@ -84,11 +87,9 @@ export async function columnExists(
  * @param queryRunner active migration QueryRunner
  * @param table       unqualified table name
  */
-export async function tableExists(
-  queryRunner: QueryRunner,
-  table: string,
-): Promise<boolean> {
-  const rows: Array<{ exists: boolean }> = await queryRunner.query(
+export async function tableExists(queryRunner: QueryRunner, table: string): Promise<boolean> {
+  const rows = await executeQueryRowsNormalized<{ exists: boolean }>(
+    queryRunner,
     `SELECT EXISTS (
        SELECT 1 FROM information_schema.tables
        WHERE table_schema = current_schema()

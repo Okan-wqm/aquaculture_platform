@@ -1,8 +1,10 @@
+import { Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+
 import { MODULE_SCHEMAS } from '../schema-manager.service';
 import { listTenantSchemas } from '../tenant-schema.utils';
+
 import { WatchdogViolation } from './source-schema-scanner';
-import { Logger } from '@nestjs/common';
 
 /**
  * SchemaDriftDetector verifies that all tenant schemas match the MODULE_SCHEMAS definition
@@ -37,7 +39,7 @@ export class SchemaDriftDetector {
       return violations;
     }
 
-    const expectedTables = MODULE_SCHEMAS.flatMap(m => m.tables).sort();
+    const expectedTables = MODULE_SCHEMAS.flatMap((m) => m.tables).sort();
 
     // Track table sets per schema for cross-schema consistency check
     const schemaTableSets = new Map<string, string[]>();
@@ -49,14 +51,14 @@ export class SchemaDriftDetector {
            WHERE table_schema = $1 ORDER BY table_name`,
           [schema],
         );
-        const tableNames = tables.map(t => t.table_name).sort();
+        const tableNames = tables.map((t) => t.table_name).sort();
         schemaTableSets.set(schema, tableNames);
 
         // Check 1: Every expected table should exist
         for (const expected of expectedTables) {
           if (!tableNames.includes(expected)) {
             // Determine which module this table belongs to
-            const ownerModule = MODULE_SCHEMAS.find(m => m.tables.includes(expected));
+            const ownerModule = MODULE_SCHEMAS.find((m) => m.tables.includes(expected));
             violations.push({
               type: 'MISSING_TABLE',
               severity: 'HIGH',
@@ -72,16 +74,14 @@ export class SchemaDriftDetector {
         }
 
         // Check 2: Detect unexpected extra tables (informational, not necessarily bad)
-        const extraTables = tableNames.filter(t => !expectedTables.includes(t));
+        const extraTables = tableNames.filter((t) => !expectedTables.includes(t));
         if (extraTables.length > 0) {
           this.logger.debug(
             `Schema ${schema} has ${extraTables.length} extra tables not in MODULE_SCHEMAS: ${extraTables.join(', ')}`,
           );
         }
       } catch (err) {
-        this.logger.warn(
-          `Could not query tables for schema ${schema}: ${(err as Error).message}`,
-        );
+        this.logger.warn(`Could not query tables for schema ${schema}: ${(err as Error).message}`);
       }
     }
 
@@ -107,8 +107,8 @@ export class SchemaDriftDetector {
         .sort();
 
       for (const [schema, tables] of entries) {
-        const missingFromCanonical = canonicalTables.filter(t => !tables.includes(t));
-        const extraVsCanonical = tables.filter(t => !canonicalTables.includes(t));
+        const missingFromCanonical = canonicalTables.filter((t) => !tables.includes(t));
+        const extraVsCanonical = tables.filter((t) => !canonicalTables.includes(t));
 
         if (missingFromCanonical.length > 0) {
           violations.push({

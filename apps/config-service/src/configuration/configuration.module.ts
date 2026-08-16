@@ -4,6 +4,11 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 // Entities
 import { Configuration, ConfigurationHistory } from './entities/configuration.entity';
+import {
+  ConfigurationChangeJournal,
+  ConfigurationOperationReceipt,
+  ConfigurationScope,
+} from './entities/configuration-operation.entity';
 
 // Resolver
 import { ConfigurationResolver } from './configuration.resolver';
@@ -11,45 +16,32 @@ import { ConfigurationResolver } from './configuration.resolver';
 // Services
 import { ConfigurationService } from './services/configuration.service';
 import { EncryptionService } from './services/encryption.service';
-import { ConfigurationValidationService } from './services/configuration-validation.service';
+import { ConfigurationBatchAuthorityService } from './services/configuration-batch-authority.service';
+import { ConfigurationSnapshotService } from './services/configuration-snapshot.service';
 
 // Command Handlers
-import { CreateConfigurationHandler } from './handlers/create-configuration.handler';
-import { UpdateConfigurationHandler } from './handlers/update-configuration.handler';
-import { DeleteConfigurationHandler } from './handlers/delete-configuration.handler';
-import { UpsertConfigurationHandler } from './handlers/upsert-configuration.handler';
+import { ApplyConfigurationBatchHandler } from './handlers/apply-configuration-batch.handler';
 // Faz C (D6): trusted NATS read surface for effective config (incl. decrypted secrets).
 import { ConfigRuntimeNatsHandler } from './handlers/config-runtime-nats.handler';
 import { MarineProviderCredentialsNatsHandler } from './handlers/marine-provider-credentials-nats.handler';
 
 // Query Handlers
-import {
-  GetConfigurationHandler,
-  GetConfigurationByIdHandler,
-} from './query-handlers/get-configuration.handler';
-import {
-  GetConfigurationsHandler,
-  GetConfigurationsByServiceHandler,
-  GetConfigurationHistoryHandler,
-} from './query-handlers/get-configurations.handler';
+import { GetConfigurationSnapshotHandler } from './query-handlers/get-configuration-snapshot.handler';
 
-const CommandHandlers = [
-  CreateConfigurationHandler,
-  UpdateConfigurationHandler,
-  DeleteConfigurationHandler,
-  UpsertConfigurationHandler,
-];
+const CommandHandlers = [ApplyConfigurationBatchHandler];
 
-const QueryHandlers = [
-  GetConfigurationHandler,
-  GetConfigurationByIdHandler,
-  GetConfigurationsHandler,
-  GetConfigurationsByServiceHandler,
-  GetConfigurationHistoryHandler,
-];
+const QueryHandlers = [GetConfigurationSnapshotHandler];
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Configuration, ConfigurationHistory])],
+  imports: [
+    TypeOrmModule.forFeature([
+      Configuration,
+      ConfigurationHistory,
+      ConfigurationScope,
+      ConfigurationOperationReceipt,
+      ConfigurationChangeJournal,
+    ]),
+  ],
   // ConfigRuntimeNatsHandler is a @Controller so the NATS microservice
   // transport registers its @MessagePattern subscribers (config.runtime.*).
   controllers: [ConfigRuntimeNatsHandler, MarineProviderCredentialsNatsHandler],
@@ -57,7 +49,8 @@ const QueryHandlers = [
     ConfigurationResolver,
     ConfigurationService,
     EncryptionService,
-    ConfigurationValidationService,
+    ConfigurationSnapshotService,
+    ConfigurationBatchAuthorityService,
     // SecurityEventService emits real-time alerts on config-runtime denials.
     // Degrades gracefully when EVENT_BUS is unavailable (its own @Optional inject).
     SecurityEventService,

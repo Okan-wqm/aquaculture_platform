@@ -9,7 +9,25 @@
   },
   "required_status_checks": {
     "strict": true,
-    "contexts": ["sens-enterprise-summary", "merge-gate", "aria-merge-authority", "build-status"]
+    "contexts": ["sens-enterprise-summary", "merge-gate", "aria-merge-authority", "build-status"],
+    "checks": [
+      {
+        "context": "aria-merge-authority",
+        "app_id": 15368
+      },
+      {
+        "context": "build-status",
+        "app_id": 15368
+      },
+      {
+        "context": "merge-gate",
+        "app_id": 15368
+      },
+      {
+        "context": "sens-enterprise-summary",
+        "app_id": 15368
+      }
+    ]
   },
   "ci_affected_required_path_filters": [
     "sens-api-gateway/**",
@@ -107,6 +125,6 @@
   ],
   "live_verification": {
     "command": "npm run gates:required-status-checks:live",
-    "expected": "GitHub main branch protection exists, admin enforcement is enabled, strict mode is true, and required status check contexts match required_status_checks.contexts."
+    "expected": "GitHub main branch protection exists, admin enforcement is enabled, strict mode is true, required status check contexts match, and every context is bound to the exact required_status_checks.checks app_id."
   }
 }

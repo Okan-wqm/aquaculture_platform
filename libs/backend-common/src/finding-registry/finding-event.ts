@@ -108,8 +108,7 @@ export function replayFindingEvents(events: readonly FindingEvent[]): FindingRep
   const findings = new Map<string, FindingProjection>();
   let expectedPrevHash = FINDING_EVENT_ZERO_HASH;
 
-  for (let eventIndex = 0; eventIndex < events.length; eventIndex += 1) {
-    const event = events[eventIndex]!;
+  for (const [eventIndex, event] of events.entries()) {
     try {
       expectedPrevHash = applyGlobalFindingEvent(findings, event, expectedPrevHash);
     } catch (error) {

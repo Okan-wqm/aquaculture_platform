@@ -16,6 +16,7 @@ import {
   computeFindingEventHash,
   replayFindingEvents,
 } from '../../libs/backend-common/src/finding-registry/finding-event';
+
 import { commitReachableFrom, repoPinnedEnv } from './git-reachability';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
@@ -65,8 +66,11 @@ export function isCutoverReady(
   currentDifferences: readonly string[],
   cycles: readonly RecordedParityCycle[],
 ): boolean {
+  const [first, second] = cycles;
+  if (currentDifferences.length !== 0 || first === undefined || second === undefined) {
+    return false;
+  }
   return (
-    currentDifferences.length === 0 &&
     cycles.length === 2 &&
     cycles.every(
       (cycle) =>
@@ -74,7 +78,9 @@ export function isCutoverReady(
         cycle.registry_tip_hash === expectedRegistryTip &&
         cycle.ledger_tip_hash === currentLedgerTip,
     ) &&
-    cycles[0]!.main_sha !== cycles[1]!.main_sha
+    // Two cycles on the SAME main commit prove nothing: parity must hold across
+    // a moving repository, not twice against one snapshot.
+    first.main_sha !== second.main_sha
   );
 }
 
@@ -103,8 +109,8 @@ export function buildBootstrapEvents(
 
 function deterministicUuid(seed: string): string {
   const bytes = createHash('sha256').update(seed, 'utf8').digest().subarray(0, 16);
-  bytes[6] = (bytes[6]! & 0x0f) | 0x50;
-  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  bytes.writeUInt8((bytes.readUInt8(6) & 0x0f) | 0x50, 6);
+  bytes.writeUInt8((bytes.readUInt8(8) & 0x3f) | 0x80, 8);
   const hex = bytes.toString('hex');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
@@ -224,7 +230,7 @@ async function parity(mainSha: string, record: boolean): Promise<number> {
     };
     if (record) await recordParity(client, mainSha, result);
     if (record) await client.query('COMMIT');
-    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify(result)}\n`);
     return result.passed ? 0 : 1;
   } catch (error) {
     if (record) await client.query('ROLLBACK');
@@ -254,18 +260,14 @@ async function cutoverReady(): Promise<number> {
     const ready = isCutoverReady(expectedTip, replay.chain_tip, differences, result.rows);
     await client.query('COMMIT');
     process.stdout.write(
-      `${JSON.stringify(
-        {
-          ready,
-          required_cycles: 2,
-          current_registry_tip: expectedTip,
-          current_ledger_tip: replay.chain_tip,
-          current_differences: differences,
-          observed_cycles: result.rows,
-        },
-        null,
-        2,
-      )}\n`,
+      `${JSON.stringify({
+        ready,
+        required_cycles: 2,
+        current_registry_tip: expectedTip,
+        current_ledger_tip: replay.chain_tip,
+        current_differences: differences,
+        observed_cycles: result.rows,
+      })}\n`,
     );
     return ready ? 0 : 1;
   } catch (error) {

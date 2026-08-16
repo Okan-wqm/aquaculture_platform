@@ -633,6 +633,15 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     # branch-protection proof's source_ledger_ref resolves into. Observation
     # class: recording what GitHub REPORTS is a read, not a merge action.
     StateSurface("enterprise_branch_protection_snapshots", "enterprise/branch-protection-snapshots.jsonl", "ledger", "readiness", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    # F5-d (ORPHAN-694) — the acquired remote-CAS lease, snapshotted so the
+    # remote-cas proof's source ref resolves into a ledger row.
+    StateSurface("enterprise_remote_cas_lease_snapshots", "enterprise/remote-cas-lease-snapshots.jsonl", "ledger", "readiness", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    # F5-c (ORPHAN-694) — token-lease METADATA snapshot (mode, ttl, scoping
+    # hashes); the token itself never touches a ledger.
+    StateSurface("enterprise_token_lease_snapshots", "enterprise/token-lease-snapshots.jsonl", "ledger", "readiness", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    # F5-f (ORPHAN-694) — deterministic DLP scan results (pattern names +
+    # locations + digests; matched bytes never recorded).
+    StateSurface("enterprise_dlp_scan_snapshots", "enterprise/dlp-scan-snapshots.jsonl", "ledger", "readiness", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("enterprise_branch_protection_proofs", "enterprise/branch-protection-proofs.jsonl", "ledger", "readiness", "runtime", True, "append_fsync", True, profile_surface="pr_merge", observe_class="action"),
     StateSurface("enterprise_workflow_run_proofs", "enterprise/workflow-run-proofs.jsonl", "ledger", "readiness", "runtime", True, "append_fsync", True, profile_surface="pr_merge", observe_class="action"),
     StateSurface("enterprise_artifact_proofs", "enterprise/artifact-proofs.jsonl", "ledger", "readiness", "runtime", True, "append_fsync", True, profile_surface="pr_merge", observe_class="action"),

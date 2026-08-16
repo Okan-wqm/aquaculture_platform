@@ -1484,6 +1484,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional claim binding; omit when proofs are produced before the claim row is minted.",
     )
+    # F5-b (ORPHAN-694) — measured branch-protection proof.
+    readiness_bp = add_subparser(
+        readiness_sub,
+        "produce-branch-protection-proof",
+        help="Probe gh-api branch protection, snapshot it, and record a measured proof row.",
+    )
+    readiness_bp.add_argument("--pr-number", type=int, required=True)
+    readiness_bp.add_argument("--repo", required=True)
+    readiness_bp.add_argument("--target-ref", required=True)
+    readiness_bp.add_argument("--head-ref", required=True)
+    readiness_bp.add_argument("--head-sha", required=True)
+    readiness_bp.add_argument("--readiness-claim-id", default=None)
 
     inv_parser = add_subparser(sub, "agent-invocations")
     inv_sub = inv_parser.add_subparsers(dest="agent_invocation_command", required=True)
@@ -2748,6 +2760,21 @@ def _main(argv: list[str] | None = None) -> int:
         from .readiness_proofs import produce_workflow_run_proofs
 
         result = produce_workflow_run_proofs(
+            pr_number=args.pr_number,
+            repo=args.repo,
+            target_ref=args.target_ref,
+            head_ref=args.head_ref,
+            head_sha=args.head_sha,
+            readiness_claim_id=args.readiness_claim_id,
+            base_dir=args.tools_dir,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "readiness" and args.readiness_command == "produce-branch-protection-proof":
+        from .readiness_proofs import produce_branch_protection_proof
+
+        result = produce_branch_protection_proof(
             pr_number=args.pr_number,
             repo=args.repo,
             target_ref=args.target_ref,

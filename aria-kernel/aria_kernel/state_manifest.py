@@ -629,6 +629,10 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("enterprise_remote_cas_proofs", "enterprise/remote-cas-proofs.jsonl", "ledger", "readiness", "runtime", True, "append_fsync", True, profile_surface="remote_cas_lease", observe_class="action"),
     StateSurface("enterprise_waivers", "enterprise/waivers.jsonl", "ledger", "readiness", "runtime", True, "append_fsync", True, profile_surface="pr_merge", observe_class="action"),
     StateSurface("enterprise_rollback_proofs", "enterprise/rollback-proofs.jsonl", "ledger", "readiness", "runtime", True, "append_fsync", True, profile_surface="pr_merge", observe_class="action"),
+    # F5-b (ORPHAN-694) — the raw gh-api protection snapshot the
+    # branch-protection proof's source_ledger_ref resolves into. Observation
+    # class: recording what GitHub REPORTS is a read, not a merge action.
+    StateSurface("enterprise_branch_protection_snapshots", "enterprise/branch-protection-snapshots.jsonl", "ledger", "readiness", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("enterprise_branch_protection_proofs", "enterprise/branch-protection-proofs.jsonl", "ledger", "readiness", "runtime", True, "append_fsync", True, profile_surface="pr_merge", observe_class="action"),
     StateSurface("enterprise_workflow_run_proofs", "enterprise/workflow-run-proofs.jsonl", "ledger", "readiness", "runtime", True, "append_fsync", True, profile_surface="pr_merge", observe_class="action"),
     StateSurface("enterprise_artifact_proofs", "enterprise/artifact-proofs.jsonl", "ledger", "readiness", "runtime", True, "append_fsync", True, profile_surface="pr_merge", observe_class="action"),

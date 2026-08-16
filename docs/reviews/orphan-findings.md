@@ -9429,6 +9429,14 @@ Severity: MEDIUM. `tools/aria-adapters/**` is not an Nx project, and `npm run li
 
 **Owner:** claude (session lead). **Deadline:** 2026-09-15. **Status:** OPEN — named in the E9 PR body rather than folded into it, because a lint-target change touches every adapter and belongs in its own reviewable train.
 
+## ORPHAN-HIGH-694 — branch-protection proofs had no producer and no row to cite: the probe's evidence died with the process — RESOLVED (this PR, F5-b)
+
+Severity: HIGH (readiness-claim chain, family 2 of 8). `record_branch_protection_proof` had zero production callers (only F5-a's workflow-run family produced anything), and there existed NO ledger row a branch-protection proof's `source_ledger_ref` could resolve into — `preflight.verify_branch_protection` probed gh-api and threw the payload away, so the strongest evidence about merge safety evaporated with the process. The claim verifier demands a v3 proof (snapshot_hash, measured booleans, ruleset_ids, empty bypass_actors, resolvable source ref) — structurally unsatisfiable.
+
+**Fix (F5-b):** ONE probe (İ1) — `preflight.probe_branch_protection` returns verdict + reasons + RAW payload; `verify_branch_protection` becomes its thin projection (pinned by a source-inspection test: no second `subprocess.run`). New declared surface `enterprise/branch-protection-snapshots.jsonl` (observation-class) persists the payload with canonical sha256; `readiness_proofs.produce_branch_protection_proof` mints the proof whose EVERY field is measured from that snapshot — `required_checks` from `required_status_checks.contexts`, signature/review/conversation/force-push/delete booleans from their payload blocks, `ruleset_ids` + `bypass_actors` from the gh-api rules probe (probe failure raises: silence must never read as "no bypass actors"). A weakly-protected repo yields `valid=false` recorded HONESTLY — measurement here, policy at the claim gate. CLI: `readiness produce-branch-protection-proof`. 6 new tests incl. the honest-weakness path and source-ref resolution via `find_row_by_source_ledger_ref`.
+
+**Owner:** claude (session lead). **Deadline:** landed. **Status:** RESOLVED (this PR).
+
 ## ORPHAN-HIGH-687 — every judge re-read the same evidence files the envelope could have quoted — RESOLVED (this PR, E17-b)
 
 Severity: HIGH (E17-b, the mint-side half of context economy). The envelope carried repository_map, established_knowledge and recent_intent — but ZERO file content, so every judge opened each `evidence_refs` file itself, and the adversarial judge re-read the same files a second time by design. The counter-pattern already existed in-repo (cross-reviewer embeds plan text inline with a content hash, "no file Read required"); evidence never got it.

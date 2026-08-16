@@ -10,9 +10,7 @@ from aria_kernel import (
     fetch_research_source,
     generate_architecture_options,
     generate_fitness_report,
-    list_code_change_plans,
     record_architecture_evidence_pack,
-    record_code_change_plan,
     record_research_policy,
     run_validation_commands,
     verify_integrity,
@@ -163,43 +161,9 @@ class EnterprisePlan012Tests(unittest.TestCase):
         self.assertGreaterEqual(second["trend"]["window"], 1)
         self.assertIn("action", second["recommended_next_action"])
 
-    def test_codegen_plan_blocks_forbidden_or_out_of_scope_files(self):
-        blocked = record_code_change_plan(
-            proposal_id="proposal-1",
-            worktree_path="/tmp/worktree",
-            intended_files=["apps/api/src/app.ts", ".github/workflows/ci.yml", "aria-kernel/aria_kernel/cli.py"],
-            allowed_globs=["apps/api/**"],
-            pre_hashes={
-                "apps/api/src/app.ts": "sha256:before",
-                ".github/workflows/ci.yml": "sha256:before",
-                "aria-kernel/aria_kernel/cli.py": "sha256:before",
-            },
-            post_hashes={
-                "apps/api/src/app.ts": "sha256:after",
-                ".github/workflows/ci.yml": "sha256:after",
-                "aria-kernel/aria_kernel/cli.py": "sha256:after",
-            },
-            validation_refs=["validation:ok"],
-            base_dir=self.tools_dir,
-        )
-        self.assertEqual(blocked["status"], "blocked")
-        self.assertTrue(any(item.startswith("forbidden_path:") for item in blocked["blocked_by"]))
-        self.assertIn(".github/**", blocked["forbidden_globs"])
-
-        ready = record_code_change_plan(
-            proposal_id="proposal-1",
-            worktree_path="/tmp/worktree",
-            intended_files=["apps/api/src/app.ts"],
-            allowed_globs=["apps/api/**"],
-            pre_hashes={"apps/api/src/app.ts": "sha256:before"},
-            post_hashes={"apps/api/src/app.ts": "sha256:after"},
-            validation_refs=["validation:ok"],
-            base_dir=self.tools_dir,
-        )
-        self.assertEqual(ready["status"], "ready_for_review")
-        self.assertEqual(list_code_change_plans(base_dir=self.tools_dir)[-1]["code_change_plan_id"], ready["code_change_plan_id"])
-        self.assertTrue(verify_integrity(base_dir=self.tools_dir)["valid"])
-
+    # E14-b (ORPHAN-697) — the codegen/executor packet lane was DISMANTLED
+    # (superseded twin of the worker/implementation lane; İ1 forbids two
+    # parallel apply paths). Its scope tests left with it.
 
 if __name__ == "__main__":
     unittest.main()

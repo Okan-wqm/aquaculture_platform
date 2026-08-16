@@ -1533,6 +1533,21 @@ def _phase_judge_calibration(context: PhaseContext) -> dict[str, Any]:
     return compute_judge_calibration(cycle_id=context.cycle_id, base_dir=context.base_dir)
 
 
+def _phase_fitness_report(context: PhaseContext) -> dict[str, Any]:
+    """E14-b (ORPHAN-697) — the fitness WRITER joins the nightly body.
+
+    Readers abounded (agent_network, learning, triage, capability_gap all
+    consume fitness rows) while generate_fitness_report's only callers
+    were tests — reader-rich, writer-dead. One report per cycle, from the
+    same run/validation/impact evidence the readers already trust.
+    """
+    from .fitness import generate_fitness_report
+
+    return generate_fitness_report(
+        cycle_id=context.cycle_id, base_dir=context.base_dir,
+    )
+
+
 def _phase_goldset_proposal(context: PhaseContext) -> dict[str, Any]:
     # F4.2 of the intelligence program — the producer `propose_goldset` never
     # had. Counting labelled feedback is machine work, so the cycle mints the
@@ -2366,6 +2381,13 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
     # and the gold corpus this mints is what judge_replay scores judges
     # against. `record_and_continue` — a proposal that CRASHED recorded no
     # ground truth, but it must not fail a cycle whose real work succeeded.
+    # E14-b (ORPHAN-697) — one fitness report per cycle; its readers
+    # (agent_network / triage / capability_gap / learning) finally get a
+    # nightly producer. Observation-class; a crash must not cost the night.
+    CyclePhase(
+        "fitness_report", "post_tool", _phase_fitness_report,
+        on_error="record_and_continue", state_key="fitness_report",
+    ),
     CyclePhase(
         "goldset_proposal", "post_tool", _phase_goldset_proposal,
         precondition=WRITES_PERMITTED, on_error="record_and_continue",

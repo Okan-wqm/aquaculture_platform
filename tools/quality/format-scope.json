@@ -33106,6 +33106,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/access-boundary-auditor/2026-08-16-aquamobil-access-boundaries.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/admin-expert/2026-04-05-s2-high-findings.md",
       "prettier_managed": true
     },
@@ -33562,6 +33568,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/contract-parity-enforcer/2026-08-16-farm-mobile-contract-parity.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/data-expert/2026-04-06-nestjs-di-reflect-metadata-docker.md",
       "prettier_managed": true
     },
@@ -33616,6 +33628,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/data-expert/2026-08-16-farm-service-data-layer.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/database-reviewer/2026-04-10-full-repo-audit.md",
       "prettier_managed": true
     },
@@ -33640,6 +33658,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/db-audit/db-audit-farm-operations/2026-08-16-operations-partition.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/db-audit/db-audit-farm-platform/2026-07-11-farm-platform-assets.md",
       "prettier_managed": true
     },
@@ -33647,6 +33671,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/db-audit/db-audit-farm-production/2026-07-11-farm-production-biology.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/db-audit/db-audit-farm-production/2026-08-16-production-biology-partition.md",
       "prettier_managed": true
     },
     {
@@ -33904,6 +33934,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/farm-expert/2026-08-16-farm-service-domain-audit.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/farm-integration/2026-07-02-farm-full-integration.md",
       "prettier_managed": true
     },
@@ -33911,6 +33947,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/farm-integration/2026-07-03-farm-audit-followup.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/form-write-auditor/2026-08-16-aquamobil-form-write-paths.md",
       "prettier_managed": true
     },
     {
@@ -33947,6 +33989,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/frontend-expert/2026-06-17-superadmin-auth-context-bridge.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/frontend-expert/2026-08-16-aquamobil-architecture.md",
       "prettier_managed": true
     },
     {
@@ -34276,6 +34324,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/mobile-app-auditor/2026-08-16-aquamobil-e2e-audit.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/mobile-messaging-e2e/2026-07-01-findings.md",
       "prettier_managed": true
     },
@@ -34414,6 +34468,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/orchestrator/2026-08-16-farm-mobile-audit-cycle.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/orphan-findings.md",
       "prettier_managed": true
     },
@@ -34481,6 +34541,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/realtime-sync-auditor/2026-06-13-g1-ghost-markread.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/realtime-sync-auditor/2026-08-16-aquamobil-offline-sync.md",
       "prettier_managed": true
     },
     {
@@ -34582,6 +34648,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/tenant-isolation-auditor/2026-08-16-farm-mobile-tenant-isolation.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/tenant-rbac/2026-07-07-tenant-rbac-bridge.md",
       "prettier_managed": true
     },
@@ -34595,6 +34667,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/test-runner/2026-07-01-sensor-service-stale-specs.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/test-runner/2026-08-16-farm-mobile-test-health.md",
       "prettier_managed": true
     },
     {
@@ -44457,6 +44535,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/aria-poc/ci_executor_contract_proven.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-poc/experiment-recipes.json",
       "prettier_managed": true
     },
     {

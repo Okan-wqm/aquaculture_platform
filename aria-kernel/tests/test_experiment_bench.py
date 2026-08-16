@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import ast
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -35,6 +36,10 @@ from aria_kernel.implementation_safety import (
 )
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import GovernanceError
+from aria_kernel.validation import (
+    ALLOWED_CARGO_SUBCOMMANDS,
+    parse_allowed_command,
+)
 from aria_kernel.validation_matrix_gate import enforce_validation_matrix
 from aria_kernel.validation_runs_ledger import (
     list_validation_runs_for_change,
@@ -314,6 +319,29 @@ class ExperimentBenchTests(unittest.TestCase):
         with self.assertRaises(BashDenylistHit):
             verify_bash_command_allowed(["docker", "compose", "up", "-d"])
 
+    @unittest.skipUnless(shutil.which("cargo"), "cargo is not installed on this host")
+    def test_a_rust_recipe_runs_through_the_same_bench(self) -> None:
+        """E21-b — the portability claim, executed rather than asserted.
+
+        Before this phase the bench's domain-agnosticism rested on an AST
+        check: the kernel names no language, but the execution lane knew
+        only JavaScript and Python, so a Rust recipe could not run at all.
+        Nothing in ``experiment.py`` changed to make this pass — the recipe
+        is DATA and the lane learned one non-mutating verb.
+
+        ``check --help`` is deliberately used here so the assertion is
+        about the LANE, not about a compiler on a CI runner: it needs no
+        manifest, compiles nothing, and produces no ``target/``.
+        """
+        self._recipe(recipe_id="recipe-rust", command="cargo check --help")
+        self._experiment(experiment_id="exp-rust", recipe_ref="recipe-rust")
+        observation = self._run(experiment_id="exp-rust")
+        self.assertTrue(observation["matched"])
+        self.assertEqual(observation["run_status"], "ok")
+        runs = list_validation_runs_for_change(self.change_id, base_dir=self.base)
+        self.assertEqual(len(runs), 1)
+        verify_validation_run(runs[0]["validation_run_id"], base_dir=self.base)
+
     def test_latest_recipe_registration_wins(self) -> None:
         self._recipe(timeout_ms=1_000)
         self._recipe(timeout_ms=2_000)
@@ -356,6 +384,71 @@ class ExperimentBenchTests(unittest.TestCase):
             "promotion", "verdict", "triage", "confidence",
         }
         self.assertEqual(imported & forbidden, set())
+
+
+class CargoLaneTests(unittest.TestCase):
+    """E21-b — the Rust lane admits verbs that READ and nothing else.
+
+    Every test below is a deliberate break. Widen
+    ``validation.ALLOWED_CARGO_SUBCOMMANDS``, delete the ``cargo`` branch
+    in ``_validate_command_details``, or drop the ``--config`` refusal, and
+    the matching test goes red.
+
+    These run the parser, not cargo: refusal must be provable on a host
+    with no Rust toolchain, because a guard that can only be checked where
+    the tool happens to exist is a guard that stops being checked.
+    """
+
+    def test_non_mutating_verbs_are_admitted(self) -> None:
+        for command in ("cargo check -p alarm-core", "cargo test -p alarm-core"):
+            with self.subTest(command=command):
+                argv, env_updates = parse_allowed_command(command)
+                self.assertEqual(argv[0], "cargo")
+                self.assertIn(argv[1], ALLOWED_CARGO_SUBCOMMANDS)
+                self.assertEqual(env_updates, {})
+
+    def test_mutating_and_unknown_subcommands_are_refused(self) -> None:
+        """``install``/``publish``/``run`` change the machine, the registry
+        or the world; ``add``/``clean``/``fix`` change the tree; a bare
+        ``cargo`` and a toolchain selector name no subcommand at all. None
+        of them answers a hypothesis about this repository."""
+        for command in (
+            "cargo install cargo-audit",
+            "cargo publish",
+            "cargo run --release",
+            "cargo add serde",
+            "cargo clean",
+            "cargo fix --allow-dirty",
+            "cargo",
+            "cargo +nightly check",
+        ):
+            with self.subTest(command=command):
+                with self.assertRaises(GovernanceError) as ctx:
+                    parse_allowed_command(command)
+                self.assertIn(
+                    "cargo validation subcommand is not approved",
+                    str(ctx.exception),
+                )
+
+    def test_config_flag_is_refused_behind_an_allowed_verb(self) -> None:
+        """``--config target.<triple>.runner=<argv>`` makes cargo launch a
+        program of the caller's choosing, so allowlisting the verb without
+        this refusal would allowlist the word and not the behaviour."""
+        for command in (
+            'cargo test --config target.x86_64-unknown-linux-gnu.runner="/bin/sh"',
+            "cargo check --config=net.offline=false",
+        ):
+            with self.subTest(command=command):
+                with self.assertRaises(GovernanceError) as ctx:
+                    parse_allowed_command(command)
+                self.assertIn(
+                    "cargo validation flag is not approved", str(ctx.exception),
+                )
+
+    def test_the_lane_stays_narrow(self) -> None:
+        """A roster assertion, so widening the lane is a deliberate edit to
+        a test rather than an unnoticed line in a tuple."""
+        self.assertEqual(ALLOWED_CARGO_SUBCOMMANDS, ("check", "test"))
 
 
 if __name__ == "__main__":

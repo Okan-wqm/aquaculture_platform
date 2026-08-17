@@ -85,18 +85,28 @@ class SeedMintTests(unittest.TestCase):
 
 
 class DigestFieldTests(unittest.TestCase):
-    def test_watchdog_digest_uses_real_sweep_fields(self) -> None:
+    def test_watchdog_digest_fields_match_real_sweep_return(self) -> None:
+        """The digest field set must be run_watchdog_sweep's ACTUAL return keys.
+
+        Two generations of this digest shipped with names the sweep never
+        returns (invented fields, then the daemon's termination keys); both
+        recorded honest-looking zeros. This pin builds the payload from the
+        sweep's real return shape so a third drift cannot pass.
+        """
+        import inspect
+
+        from aria_kernel import aria_watchdog
         from aria_kernel.cycle import _phase_digest_of
 
-        payload = {
-            "exits_clean": True, "exit_reason": "max_iterations",
-            "iterations": 1, "findings_emitted": 2, "findings_suppressed": 1,
-        }
-        digest = _phase_digest_of(
-            payload, ("findings_emitted", "findings_suppressed", "iterations", "exit_reason"),
-        )
-        self.assertEqual(digest["findings_emitted"], 2)
-        self.assertEqual(digest["exit_reason"], "max_iterations")
+        digest_fields = ("candidates", "emitted", "suppressed")
+        sweep_source = inspect.getsource(aria_watchdog.run_watchdog_sweep)
+        for field in digest_fields:
+            self.assertIn(f'"{field}"', sweep_source)
+
+        payload = {"candidates": 3, "emitted": 2, "suppressed": 1,
+                   "latest_governance_ts": "2026-08-17T00:00:00+00:00"}
+        digest = _phase_digest_of(payload, digest_fields)
+        self.assertEqual(digest, {"candidates": 3, "emitted": 2, "suppressed": 1})
 
     def test_author_digest_is_assembled(self) -> None:
         import inspect

@@ -1871,10 +1871,13 @@ def _phase_metrics(context: PhaseContext) -> dict[str, Any]:
         phase_digests["experiment_night"] = night
     watchdog = _phase_digest_of(
         context.result("watchdog_sweep"),
-        # the sweep's REAL payload fields — the first digest shipped with
-        # invented names and recorded honest-looking zeros for a phase
-        # that was genuinely running (measured on cyc-20260817T022536Z).
-        ("findings_emitted", "findings_suppressed", "iterations", "exit_reason"),
+        # run_watchdog_sweep's REAL return keys (aria_watchdog.py: candidates/
+        # emitted/suppressed). Two prior digests shipped with wrong names —
+        # first invented fields, then the DAEMON's termination keys — and both
+        # recorded honest-looking zeros for a phase that was genuinely running
+        # (measured on cyc-20260817T022536Z). Field set is pinned by
+        # DigestFieldTests against the sweep's actual payload.
+        ("candidates", "emitted", "suppressed"),
     )
     if watchdog is not None:
         phase_digests["watchdog_sweep"] = watchdog

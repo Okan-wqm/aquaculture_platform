@@ -104,6 +104,10 @@ ORIGINATING_SKILL_ALLOWLIST: frozenset[str] = frozenset({
     "manual:operator",
     "aria-watchdog:stall",
     "aria-watchdog:bridge_warning_repeat",
+    # E24-a (ORPHAN-711) — the runtime-pull detectors: production telemetry
+    # (observability-service /metrics) becomes findings through the SAME
+    # dedup'd watchdog emitter, never a parallel path.
+    "aria-watchdog:runtime_anomaly",
     "report_ingestion:external_pr",
     # Kapalı Döngü D3 (ORPHAN-CRITICAL-642) — the judgment pipeline's own
     # origin: an ai_consensus true_positive promoted by finding_promotion.

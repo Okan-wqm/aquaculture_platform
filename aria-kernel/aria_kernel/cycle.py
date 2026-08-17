@@ -391,8 +391,35 @@ def _profile_permits_pr_open(context: PhaseContext) -> bool:
     return context.profile in ACTION_PERMISSIONS["pr_open"]
 
 
+def _backlog_below_cap(context: PhaseContext) -> bool:
+    """E25-a (ORPHAN-710) — work-minting phases pause at the backlog ceiling.
+
+    The operator's rhythm directive: findings ARIA opened and has not
+    finished must be worked BEFORE new ones are discovered — a system that
+    mints faster than it resolves drowns itself. The count is the SAME
+    counter the emptiness guard reads (cycle_guard._open_finding_count,
+    OPEN + IN_PROGRESS); the ceiling is policy (rhythm.backlog_cap). An
+    unmet precondition produces a recorded skip naming
+    ``backlog_below_cap`` — the sıfır-vs-yok discipline X3 established
+    makes the pause visible, never silent.
+    """
+    from .cycle_guard import _open_finding_count
+    from .genesis_policy import rhythm_policy
+
+    cap = int(rhythm_policy(context.workspace_root).get("backlog_cap") or 25)
+    return _open_finding_count(Path(context.workspace_root)) < cap
+
+
 ALWAYS = PhasePrecondition("always", _always)
 WRITES_PERMITTED = PhasePrecondition("writes_permitted", _writes_permitted)
+BACKLOG_BELOW_CAP = PhasePrecondition("backlog_below_cap", _backlog_below_cap)
+# Composite member for phases that already demand writes: a phase declares
+# ONE precondition, and the closed set is identity-compared, so the
+# combination is itself a reviewed member rather than an inline lambda.
+WRITES_PERMITTED_AND_BACKLOG_BELOW_CAP = PhasePrecondition(
+    "writes_permitted+backlog_below_cap",
+    lambda context: _writes_permitted(context) and _backlog_below_cap(context),
+)
 REFLECTION_NOT_DEFERRED = PhasePrecondition("reflection_not_deferred", _reflection_not_deferred)
 PLAN_ID_PRESENT = PhasePrecondition("plan_id_present", _plan_id_present)
 PROFILE_PERMITS_PR_OPEN = PhasePrecondition("profile_permits:pr_open", _profile_permits_pr_open)
@@ -412,6 +439,9 @@ CYCLE_PRECONDITIONS: tuple[PhasePrecondition, ...] = (
     REFLECTION_NOT_DEFERRED,
     PLAN_ID_PRESENT,
     PROFILE_PERMITS_PR_OPEN,
+    # E25-a (ORPHAN-710) — the rhythm gate and its writes-composite.
+    BACKLOG_BELOW_CAP,
+    WRITES_PERMITTED_AND_BACKLOG_BELOW_CAP,
 )
 
 
@@ -2323,6 +2353,12 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
     # cost the night.
     CyclePhase(
         "watchdog_sweep", "discovery", _phase_watchdog,
+        # E25-a — a finding-EMITTING phase pauses at the backlog ceiling.
+        # The plan named the discovery-class trio (discovery, watchdog_sweep,
+        # experiment_author); "discovery" itself is deliberately NOT gated —
+        # its payload is the comprehension the rest of the cycle propagates
+        # on, and pausing understanding is not what the rhythm rule means.
+        precondition=BACKLOG_BELOW_CAP,
         on_error="record_and_continue", state_key="watchdog_sweep",
         modes=frozenset({"standard"}),
     ),
@@ -2465,7 +2501,11 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
     # bench organ.
     CyclePhase(
         "experiment_author", "post_tool", _phase_experiment_author,
-        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        # E25-a — authoring mints new bench work; at the ceiling the bench
+        # keeps RUNNING what exists (experiment_night stays ungated) while
+        # authoring pauses.
+        precondition=WRITES_PERMITTED_AND_BACKLOG_BELOW_CAP,
+        on_error="record_and_continue",
         state_key="experiment_author",
     ),
     CyclePhase(

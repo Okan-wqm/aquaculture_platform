@@ -53,6 +53,15 @@ POLICY_KEYS = {
     # per-role pending ceiling that stops the nightly mint when the
     # executor's drain is behind. Consumed via judgment_pipeline_policy.
     "judgment_pipeline",
+    # E25-a (ORPHAN-710) — rhythm discipline: the open-backlog ceiling that
+    # pauses work-minting phases (watchdog_sweep, experiment_author) until
+    # ARIA finishes what it already opened. Consumed by
+    # cycle._backlog_below_cap via rhythm_policy.
+    "rhythm",
+    # E24-a (ORPHAN-711) — runtime telemetry pull: where the watchdog reads
+    # production metrics from, and the thresholds its detectors apply.
+    # Consumed by aria_watchdog.run_watchdog_sweep via watchdog_pull_policy.
+    "watchdog_pull",
     # Y8 (ORPHAN-709) — genesis panel lane: per-cycle ceiling on new
     # genesis_candidate panel escalations. Consumed by
     # agent_genesis.sweep_candidate_gaps_for_adjudication.
@@ -113,6 +122,64 @@ def genesis_panel_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
     raw_block = merged.get("genesis_panel")
     if isinstance(raw_block, dict):
         block.update({k: raw_block[k] for k in GENESIS_PANEL_DEFAULTS if k in raw_block})
+    return block
+
+
+RHYTHM_DEFAULTS: dict[str, Any] = {
+    # Calibrated against the live store at E25 time: 2 kernel findings open.
+    # 25 leaves an order of magnitude of headroom before the gate first
+    # fires — the ceiling exists for the pile-up failure mode, not for
+    # steady state.
+    "backlog_cap": 25,
+}
+
+
+def rhythm_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
+    """E25-a (ORPHAN-710) — typed accessor for the rhythm block
+    (circuit_breaker_policy pattern: the accessor is what makes the block
+    real configuration)."""
+    if repo_root is not None:
+        merged = load_policy(repo_root)
+    else:
+        raw = json.loads(
+            (Path(__file__).resolve().parent / "data" / DEFAULT_FILENAME).read_text(encoding="utf-8")
+        )
+        merged = raw if isinstance(raw, dict) else {}
+    block = dict(RHYTHM_DEFAULTS)
+    raw_block = merged.get("rhythm")
+    if isinstance(raw_block, dict):
+        block.update({k: raw_block[k] for k in RHYTHM_DEFAULTS if k in raw_block})
+    return block
+
+
+WATCHDOG_PULL_DEFAULTS: dict[str, Any] = {
+    "enabled": True,
+    # None → disclosed skip (source_unconfigured). The URL is machine-local
+    # (a docker-bridge address on the droplet), so it lives in the operator
+    # override, never in a tracked default.
+    "observability_base_url": None,
+    # The API key itself NEVER enters policy or ledgers — only the NAME of
+    # the environment variable the runner exports.
+    "api_key_env": "ARIA_OBSERVABILITY_API_KEY",
+    "http_5xx_share_threshold": 0.05,
+    "http_min_requests": 50,
+}
+
+
+def watchdog_pull_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
+    """E24-a (ORPHAN-711) — typed accessor for the watchdog_pull block
+    (circuit_breaker_policy pattern)."""
+    if repo_root is not None:
+        merged = load_policy(repo_root)
+    else:
+        raw = json.loads(
+            (Path(__file__).resolve().parent / "data" / DEFAULT_FILENAME).read_text(encoding="utf-8")
+        )
+        merged = raw if isinstance(raw, dict) else {}
+    block = dict(WATCHDOG_PULL_DEFAULTS)
+    raw_block = merged.get("watchdog_pull")
+    if isinstance(raw_block, dict):
+        block.update({k: raw_block[k] for k in WATCHDOG_PULL_DEFAULTS if k in raw_block})
     return block
 
 

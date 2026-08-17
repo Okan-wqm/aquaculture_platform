@@ -76,6 +76,9 @@
   },
   "materialization_requires_acknowledge": true,
   "max_requests_per_cycle": 5,
+  "rhythm": {
+    "backlog_cap": 25
+  },
   "schema_version": 1,
   "service_auditor_threshold": 25,
   "skill_genesis_drainer": {
@@ -84,5 +87,12 @@
     "estimated_tokens_per_authoring": 30000,
     "max_authorings_per_cycle": 3,
     "max_tokens_per_cycle": 50000
+  },
+  "watchdog_pull": {
+    "api_key_env": "ARIA_OBSERVABILITY_API_KEY",
+    "enabled": true,
+    "http_5xx_share_threshold": 0.05,
+    "http_min_requests": 50,
+    "observability_base_url": null
   }
 }

@@ -140,6 +140,13 @@ class GenesisPolicyTests(unittest.TestCase):
                 # Y8 (ORPHAN-709) — genesis panel lane ceiling, consumed
                 # by agent_genesis.sweep_candidate_gaps_for_adjudication.
                 "genesis_panel",
+                # E25-a (ORPHAN-710) — rhythm.backlog_cap, consumed by
+                # cycle._backlog_below_cap via rhythm_policy.
+                "rhythm",
+                # E24-a (ORPHAN-711) — watchdog_pull: runtime telemetry
+                # feed + detector thresholds, consumed by
+                # aria_watchdog.run_watchdog_sweep.
+                "watchdog_pull",
             },
         )
 

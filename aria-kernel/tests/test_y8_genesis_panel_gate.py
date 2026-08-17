@@ -38,6 +38,25 @@ from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 
 
+class HookOrderParityPin(unittest.TestCase):
+    def test_every_registered_learning_hook_is_selectable(self) -> None:
+        """A hook in the registry but absent from LEARNING_HOOK_ORDER is
+        structurally dead (_run_learning_hooks selects by order membership).
+        genesis_panel_sweep shipped exactly that way and left zero trace on
+        its first night — this pin derives parity from the SOURCE so the
+        class cannot recur."""
+        import inspect
+        import re
+
+        from aria_kernel import learning
+
+        src = inspect.getsource(learning._run_learning_hooks)
+        registered = set(re.findall(r'\(\s*"([a-z0-9_]+)",\s*lambda', src))
+        self.assertTrue(registered, "registry parse failed")
+        missing = registered - set(learning.LEARNING_HOOK_ORDER)
+        self.assertEqual(missing, set(), f"registered but never selectable: {missing}")
+
+
 class PolicyPins(unittest.TestCase):
     def test_panel_is_the_default_approval_mode(self) -> None:
         self.assertEqual(genesis_lifecycle_policy().get("request_approval_mode"), "panel")

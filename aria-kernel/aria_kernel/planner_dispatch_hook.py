@@ -204,6 +204,70 @@ def _redact_lease_in_message(message: str, lease_token: str | None) -> str:
     return message.replace(lease_token, "<lease-token-redacted>")
 
 
+def _executor_timeout_seconds(lease_seconds: int) -> int:
+    """Y1 (ORPHAN-703) — the child's wall-clock budget sits STRICTLY inside
+    the lease. The shipped value was ``lease_seconds + 60``: the lease was
+    already dead before the subprocess timeout could fire, so every timeout
+    became a silent ``lease_expired`` requeue charged to the REQUEST (106 in
+    one week; every planner HUMAN_REQUIRED escalation carried this signature).
+    The 120s margin leaves room for the release write below to land while
+    the lease is still live. Floor of 300s keeps test-scale leases usable.
+    """
+    return max(300, int(lease_seconds) - 120)
+
+
+def _release_abandoned_claim(
+    *,
+    root: Path,
+    claim_id: str,
+    agent_id: str,
+    lease_token: str,
+    reason: str,
+) -> bool:
+    """Y1 (ORPHAN-703) — release the claim on a failure exit path.
+
+    The child may ALREADY have released (ci_executor releases on the CLI
+    failure classes it recognises). ``release_claim`` does not refuse a
+    second release — it would append a duplicate released+requeued pair —
+    so this helper checks the claims ledger first and skips with a recorded
+    disclosure. Failures are recorded and never re-raised: this helper must
+    not convert a dispatch failure into a daemon crash.
+    """
+    import json as _json
+
+    from .agent_invocations import GovernanceError, release_claim
+    from .tool_registry import append_tools_governance
+
+    claims_path = root / "agent-invocations" / "claims.jsonl"
+    if claims_path.exists():
+        for line in claims_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            row = _json.loads(line)
+            if row.get("claim_id") == claim_id and row.get("event") == "released":
+                append_tools_governance(
+                    root, "planner_dispatch_release_skipped_already_released",
+                    {"claim_id": claim_id, "reason": reason},
+                )
+                return False
+
+    try:
+        release_claim(
+            claim_id=claim_id,
+            agent_id=agent_id,
+            lease_token=lease_token,
+            reason=reason,
+            base_dir=root,
+        )
+        return True
+    except GovernanceError as exc:
+        append_tools_governance(
+            root, "planner_dispatch_release_refused",
+            {"claim_id": claim_id, "reason": reason, "error": str(exc)},
+        )
+        return False
+
+
 def _default_ci_executor_path(base_dir: Path) -> Path:
     """Resolve the ci_executor.py path — from the CODE tree, not the store.
 
@@ -375,7 +439,7 @@ def dispatch_one_pending_planner_request(
         LEASE_TOKEN_ENV_VAR: lease_token,
         CLAIM_METADATA_ENV_VAR: metadata_env,
     }
-    timeout_seconds = lease_seconds + 60
+    timeout_seconds = _executor_timeout_seconds(lease_seconds)
     try:
         proc = subprocess.run(
             argv,
@@ -448,6 +512,15 @@ def dispatch_one_pending_planner_request(
             # crash: the timeout itself is already recorded above, and losing
             # the row is strictly better than losing the governance event.
             pass
+        # Y1 (ORPHAN-703) — the killed child cannot have released; do it
+        # here while the lease is still live (timeout < lease guarantees
+        # the window). Harness-fault reason: a wall-clock kill says nothing
+        # about the request, so its requeue budget is not burned.
+        if _release_abandoned_claim(
+            root=root, claim_id=claim_id, agent_id=agent_id,
+            lease_token=lease_token, reason="planner_dispatch_executor_timeout",
+        ):
+            governance_count += 1
         return {
             "status": "executor_failed",
             "request_id": request_id,
@@ -485,6 +558,17 @@ def dispatch_one_pending_planner_request(
     governance_count += 1
 
     status = "dispatched" if exit_code == 0 else "executor_failed"
+    if exit_code != 0:
+        # Y1 (ORPHAN-703) — a failed child usually releases through its own
+        # CLI-failure classes; when it dies before reaching them (spawn
+        # crash, unhandled exception) the claim used to dangle into
+        # lease_expired. The helper tolerates the already-released case.
+        if _release_abandoned_claim(
+            root=root, claim_id=claim_id, agent_id=agent_id,
+            lease_token=lease_token,
+            reason="planner_dispatch_executor_exit_nonzero",
+        ):
+            governance_count += 1
     return {
         "status": status,
         "request_id": request_id,

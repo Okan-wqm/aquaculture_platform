@@ -111,6 +111,9 @@ ORIGINATING_SKILL_ALLOWLIST: frozenset[str] = frozenset({
     # consensus into a durable finding — the loop was "find → judge →
     # forget" by construction.
     "ai_consensus:judgment_pipeline",
+    # Sabah treni (ORPHAN-702) — the drift seeder graduates from its own
+    # file format to the ONE mint path; this is its registered origin.
+    "seed:drift-scan",
     # V10.6 detectors registered here when F-AUTO-V10.6-EXTRA-DETECTORS lands:
     # "aria-watchdog:rejection_repeat",
     # "aria-watchdog:phase_asymmetry",

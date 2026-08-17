@@ -1871,10 +1871,19 @@ def _phase_metrics(context: PhaseContext) -> dict[str, Any]:
         phase_digests["experiment_night"] = night
     watchdog = _phase_digest_of(
         context.result("watchdog_sweep"),
-        ("findings_emitted", "deduped", "detectors_ran", "signals"),
+        # the sweep's REAL payload fields — the first digest shipped with
+        # invented names and recorded honest-looking zeros for a phase
+        # that was genuinely running (measured on cyc-20260817T022536Z).
+        ("findings_emitted", "findings_suppressed", "iterations", "exit_reason"),
     )
     if watchdog is not None:
         phase_digests["watchdog_sweep"] = watchdog
+    author = _phase_digest_of(
+        context.result("experiment_author"),
+        ("authored", "deduped", "unauthorable", "capped"),
+    )
+    if author is not None:
+        phase_digests["experiment_author"] = author
     return record_cycle_metrics(
         cycle_id=context.cycle_id,
         phase_durations_ms={"cycle": int((time.monotonic() - context.started_monotonic) * 1000)},

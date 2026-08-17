@@ -66,6 +66,10 @@
     "shadow_min_days": 14,
     "shadow_min_eval_runs": 10
   },
+  "judgment_pipeline": {
+    "max_pending_per_role": 32,
+    "sample_size_per_tool": 5
+  },
   "materialization_requires_acknowledge": true,
   "max_requests_per_cycle": 5,
   "schema_version": 1,

@@ -1372,11 +1372,19 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
     """
     from .convergence_drainer import _resolve_workspace_head_sha
     from .feedback_store import generate_ai_consensus, generate_judgment_sample
+    from .genesis_policy import judgment_pipeline_policy
     from .judge_fanout import dispatch_arbiter_for_split_verdicts, dispatch_judges_for_sample
 
     target_sha = _resolve_workspace_head_sha(context.workspace_root)
+    # Y2 (ORPHAN-704) — sample size and backlog ceiling come from policy
+    # (the 5 was hardcoded; the ceiling did not exist and one week minted
+    # 462 envelopes against ~9 drained per night).
+    pipeline_policy = judgment_pipeline_policy(context.workspace_root)
+    sample_size = int(pipeline_policy.get("sample_size_per_tool") or 5)
+    max_pending_per_role = int(pipeline_policy.get("max_pending_per_role") or 32)
     sampled = 0
     fanned_out = 0
+    mint_skipped_backlog = 0
     consensus_rows = 0
     arbiter_requests = 0
     blocked: list[dict[str, Any]] = []
@@ -1387,7 +1395,7 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
         try:
             sample = generate_judgment_sample(
                 tool_id=tool_id,
-                sample_size=5,
+                sample_size=sample_size,
                 strategy="stratified_by_uncertainty",
                 cycle_id=context.cycle_id,
                 base_dir=context.base_dir,
@@ -1400,8 +1408,13 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
                 # judge lane that dispatches two judges per finding is exactly
                 # where paying for the same file read twice is worst.
                 repo_root=context.workspace_root,
+                max_pending_per_role=max_pending_per_role,
             )
             fanned_out += len(fanout.get("minted") or [])
+            mint_skipped_backlog += sum(
+                1 for s in fanout.get("skipped") or []
+                if s.get("reason") == "mint_skipped_backlog"
+            )
         except GovernanceError as exc:
             blocked.append({"tool_id": tool_id, "step": "sample_or_fanout", "reason": str(exc)[:200]})
         try:
@@ -1497,6 +1510,7 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
         "status": "completed",
         "sampled_findings": sampled,
         "judge_requests_minted": fanned_out,
+        "mint_skipped_backlog": mint_skipped_backlog,
         "consensus_rows": consensus_rows,
         "arbiter_requests_minted": arbiter_requests,
         "promoted_findings": promotion_summary.get("promoted_count", 0),

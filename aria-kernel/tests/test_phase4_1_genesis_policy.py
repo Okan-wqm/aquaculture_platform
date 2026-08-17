@@ -132,6 +132,11 @@ class GenesisPolicyTests(unittest.TestCase):
                 "drift_class_weights",
                 "superiority",
                 "service_auditor_threshold",
+                # Y2 (ORPHAN-704) — judgment_pipeline (sample size +
+                # per-role pending ceiling consumed by
+                # cycle._phase_judgment_pipeline via
+                # judgment_pipeline_policy).
+                "judgment_pipeline",
             },
         )
 

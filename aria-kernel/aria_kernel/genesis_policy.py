@@ -48,7 +48,42 @@ POLICY_KEYS = {
     # would be dead configuration. Consumed by
     # service_agent_targeting.propose_service_auditor_requests.
     "service_auditor_threshold",
+    # Y2 (ORPHAN-704) — judgment fan-out discipline: per-tool sample size
+    # (was a hardcoded 5 in cycle._phase_judgment_pipeline) and the
+    # per-role pending ceiling that stops the nightly mint when the
+    # executor's drain is behind. Consumed via judgment_pipeline_policy.
+    "judgment_pipeline",
 }
+
+JUDGMENT_PIPELINE_DEFAULTS: dict[str, Any] = {
+    "sample_size_per_tool": 5,
+    # Second sealed night measured 462 judge envelopes minted against ~9
+    # drained per night: 296 died of anchor staleness without ever being
+    # read. 32 per role ≈ 3 nights of drain headroom at the measured
+    # ~13min/envelope CLI pace.
+    "max_pending_per_role": 32,
+}
+
+
+def judgment_pipeline_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
+    """Y2 (ORPHAN-704) — typed accessor for the judgment_pipeline block.
+
+    Mirrors circuit_breaker_policy: the accessor existing is what makes the
+    block real configuration — a key absent from POLICY_KEYS is silently
+    dropped by merge_with_override, and a block nobody reads is dead JSON.
+    """
+    if repo_root is not None:
+        merged = load_policy(repo_root)
+    else:
+        raw = json.loads(
+            (Path(__file__).resolve().parent / "data" / DEFAULT_FILENAME).read_text(encoding="utf-8")
+        )
+        merged = raw if isinstance(raw, dict) else {}
+    block = dict(JUDGMENT_PIPELINE_DEFAULTS)
+    raw_block = merged.get("judgment_pipeline")
+    if isinstance(raw_block, dict):
+        block.update({k: raw_block[k] for k in JUDGMENT_PIPELINE_DEFAULTS if k in raw_block})
+    return block
 
 
 GENESIS_LIFECYCLE_DEFAULTS: dict[str, Any] = {

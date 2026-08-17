@@ -163,6 +163,35 @@ class DrainPendingTests(unittest.TestCase):
             [rid for rid, _ in calls["dispatch"]], ["AIR-impl", "AIR-judge"]
         )
 
+    def test_quota_round_reaches_roles_behind_judge_volume(self) -> None:
+        # Y4 (ORPHAN-705) — the measured starvation: maintenance_utility and
+        # adjudication envelopes queued behind 64 judges at ~9 drains/night.
+        # The quota round must hand every WAITING role one slot before any
+        # role gets a second — so the younger maintenance envelope outranks
+        # the older judges' second slot, and judges still drain afterwards.
+        queue = [
+            {"request_id": "AIR-judge-old-1", "target_agent": "aria-evidence-judge", "role": "evidence_judgment"},
+            {"request_id": "AIR-judge-old-2", "target_agent": "aria-evidence-judge", "role": "evidence_judgment"},
+            {"request_id": "AIR-mu", "target_agent": "aria-autonomy-planner", "role": "maintenance_utility"},
+            {"request_id": "AIR-adj", "target_agent": "aria-consensus-arbiter", "role": "human_required_adjudication"},
+        ]
+        rc, calls, _ = _drain(
+            queue,
+            {
+                "AIR-judge-old-1": (0, True), "AIR-judge-old-2": (0, True),
+                "AIR-mu": (0, True), "AIR-adj": (0, True),
+            },
+            tmp=self._tmp.name,
+        )
+        self.assertEqual(rc, 0)
+        order = [rid for rid, _ in calls["dispatch"]]
+        # Quota round (arc order): adjudication, then maintenance, then ONE
+        # judge; the second judge only drains in the fallback.
+        self.assertEqual(
+            order,
+            ["AIR-adj", "AIR-mu", "AIR-judge-old-1", "AIR-judge-old-2"],
+        )
+
     def test_max_requests_cap_is_real(self) -> None:
         queue = [
             {"request_id": f"AIR-{i}", "target_agent": "aria-evidence-judge"}

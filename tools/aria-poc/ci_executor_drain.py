@@ -38,14 +38,29 @@ import ci_executor as _engine
 DEFAULT_DRAIN_BUDGET_SECONDS = 2100
 
 
-# E3/D10b — roles that UNLOCK the planning lane run before judge volume.
-# Order is the arc order: an implementation answer moves a plan further
-# than any number of judge verdicts.
-_PRIORITY_ROLES: tuple[str, ...] = (
+# E3/D10b + Y4 (ORPHAN-705) — the full arc order, planning lane first.
+# The four-role priority prefix fixed oldest-first starvation for the
+# planning roles and created it for everyone it omitted: the second sealed
+# night showed maintenance_utility and the adjudication roles queued behind
+# 64 judge envelopes at ~9 drains/night — structurally never reached. Every
+# dispatchable-or-minted role now has a place in the arc; the quota round
+# below guarantees each WAITING role one slot per run before any role gets
+# a second, and the fallback spends the remaining budget in this same order.
+_ROLE_QUOTA_ORDER: tuple[str, ...] = (
     "implementation",
     "cross_review",
     "challenger_plan",
     "primary_plan",
+    "consensus_arbitration",
+    "human_required_adjudication",
+    "completeness_critique",
+    "verification",
+    "change_intelligence",
+    "goldset_curation",
+    "specialist_domain_review",
+    "maintenance_utility",
+    "evidence_judgment",
+    "adversarial_judgment",
 )
 
 
@@ -53,6 +68,42 @@ def _drain_budget_seconds() -> int:
     return int(
         os.environ.get("ARIA_DRAIN_BUDGET_SECONDS", DEFAULT_DRAIN_BUDGET_SECONDS)
     )
+
+
+def _next_pending_for_role(
+    *,
+    tools_dir: Path,
+    repo_root: Path,
+    role_filter: str | None,
+    attempted: set[str],
+) -> tuple[dict | None, str | None]:
+    """One kernel next-pending query. Returns (candidate, error_reason)."""
+    argv = [
+        "python3", "-m", "aria_kernel", "agent", "next-pending",
+        "--tools-dir", str(tools_dir),
+    ]
+    if role_filter is not None:
+        argv += ["--role", role_filter]
+    for excluded in sorted(attempted):
+        argv += ["--exclude", excluded]
+    pending_proc = subprocess.run(
+        argv,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONPATH": str(repo_root / "aria-kernel")},
+    )
+    if pending_proc.returncode != 0:
+        _engine._stage(f"drain_next_pending_failed rc={pending_proc.returncode}")
+        sys.stderr.write(pending_proc.stderr[-1000:] + "\n")
+        return None, "next_pending_failed"
+    try:
+        candidate = json.loads(pending_proc.stdout or "null")
+    except json.JSONDecodeError:
+        _engine._stage("drain_next_pending_not_json")
+        return None, "next_pending_not_json"
+    if candidate and candidate.get("request_id"):
+        return candidate, None
+    return None, None
 
 
 def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
@@ -91,6 +142,8 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
     """
     started = time.monotonic()
     attempted: set[str] = set()
+    # Y4 (ORPHAN-705) — roles still owed their guaranteed slot this run.
+    quota_pending: list[str] = list(_ROLE_QUOTA_ORDER)
     succeeded = 0
     failed = 0
     stop_reason = "queue_empty"
@@ -125,50 +178,39 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
             except ValueError:
                 pass  # the spawn clamp already refuses garbage loudly
 
-        # E3/F10 + D10b — role-priority selection with tonight's attempted
-        # set EXCLUDED at the kernel. Two defects die here: (a) a released
-        # claim used to come straight back as the oldest row and END the
-        # night ("repeat_request" was the whole drain's stop condition —
-        # one poison request cost every request behind it); (b) strict
-        # oldest-first starved the planning lane: 200 judge requests meant
-        # challenger/cross_review/implementation envelopes expired at
-        # anchor age before a judge queue ever drained. Lane-unlocking
-        # roles now go first; a failed request is skipped, not fatal.
+        # E3/F10 + D10b + Y4 (ORPHAN-705) — quota round, then arc-order
+        # fallback, with tonight's attempted set EXCLUDED at the kernel.
+        # Three defects have died here: (a) a released claim used to come
+        # straight back as the oldest row and END the night; (b) strict
+        # oldest-first starved the planning lane behind judge volume;
+        # (c) the four-role priority prefix starved every role it omitted —
+        # maintenance_utility and the adjudication roles sat behind 64
+        # judge envelopes at ~9 drains/night, structurally unreachable.
+        # The quota round guarantees each WAITING role one slot per run
+        # (arc order); only then does the fallback hand out seconds, in the
+        # same arc order, with role=None as the final catch-all.
         request = None
-        for role_filter in _PRIORITY_ROLES + (None,):
-            argv = [
-                "python3", "-m", "aria_kernel", "agent", "next-pending",
-                "--tools-dir", str(tools_dir),
-            ]
-            if role_filter is not None:
-                argv += ["--role", role_filter]
-            for excluded in sorted(attempted):
-                argv += ["--exclude", excluded]
-            pending_proc = subprocess.run(
-                argv,
-                capture_output=True,
-                text=True,
-                env={**os.environ, "PYTHONPATH": str(repo_root / "aria-kernel")},
+        selection_error = None
+        while quota_pending and request is None and selection_error is None:
+            role_filter = quota_pending.pop(0)
+            candidate, selection_error = _next_pending_for_role(
+                tools_dir=tools_dir, repo_root=repo_root,
+                role_filter=role_filter, attempted=attempted,
             )
-            if pending_proc.returncode != 0:
-                _engine._stage(f"drain_next_pending_failed rc={pending_proc.returncode}")
-                sys.stderr.write(pending_proc.stderr[-1000:] + "\n")
-                stop_reason = "next_pending_failed"
-                failed += 1
-                request = None
-                break
-            try:
-                candidate = json.loads(pending_proc.stdout or "null")
-            except json.JSONDecodeError:
-                _engine._stage("drain_next_pending_not_json")
-                stop_reason = "next_pending_not_json"
-                failed += 1
-                candidate = None
-                break
-            if candidate and candidate.get("request_id"):
+            if candidate is not None:
                 request = candidate
-                break
-        if stop_reason in ("next_pending_failed", "next_pending_not_json"):
+        if request is None and selection_error is None:
+            for role_filter in _ROLE_QUOTA_ORDER + (None,):
+                candidate, selection_error = _next_pending_for_role(
+                    tools_dir=tools_dir, repo_root=repo_root,
+                    role_filter=role_filter, attempted=attempted,
+                )
+                if selection_error is not None or candidate is not None:
+                    request = candidate
+                    break
+        if selection_error is not None:
+            stop_reason = selection_error
+            failed += 1
             break
         request_id = (request or {}).get("request_id")
         if not request_id:

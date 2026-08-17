@@ -1524,6 +1524,34 @@ def _default_expected_output_path(root: Path, request_id: str, convergence_id: s
     return (root / "agent-invocations" / "outputs" / group / f"{round_part}-{role}-{request_id}.md").resolve().as_posix()
 
 
+def store_relative_artifact_path(root: Path, path: Path) -> str:
+    """Y6 (ORPHAN-707) — result rows record artifacts store-relative.
+
+    An absolute host path is machine-local state (the exact reason
+    repo_identity.json is absent from the state manifest): the store is
+    published to aria/state and restored on other roots, where the old
+    absolute path is a dangling pointer — measured as 20 ×
+    ``replay_output_envelope_unreadable`` burning to permanent_fail. An
+    artifact OUTSIDE the store keeps its absolute spelling: relativizing
+    it would fabricate a path that never existed.
+    """
+    resolved = path.resolve()
+    try:
+        return resolved.relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return resolved.as_posix()
+
+
+def resolve_output_artifact_path(root: Path, value: str | Path) -> Path:
+    """Y6 (ORPHAN-707) — the single reader-side resolution for
+    ``output_path`` values: store-relative rows resolve against THIS
+    store's root; absolute rows (legacy, or out-of-store artifacts) pass
+    through unchanged. Every consumer that opens a result artifact goes
+    through here so no reader can disagree about what the field means."""
+    p = Path(value)
+    return p if p.is_absolute() else root / p
+
+
 def _resolve_for_compare(path: str | Path | None) -> Path:
     if path is None:
         raise GovernanceError("output path is required")
@@ -3161,7 +3189,10 @@ def submit_claim_result(
             "agent_id": agent_id,
             "role": envelope_role,
             "status": "accepted",
-            "output_path": output.resolve().as_posix(),
+            # Y6 (ORPHAN-707) — store-relative so the row survives a store
+            # restore on a different root; readers resolve through
+            # resolve_output_artifact_path.
+            "output_path": store_relative_artifact_path(root, output),
             "output_hash": output_hash,
             "content_hash": output_hash,  # §C.2 alias
             "envelope_evidence_hash": submitted_hash,

@@ -299,7 +299,10 @@ def _load_opinion(
     output_path = accepted.get("output_path")
     if not isinstance(output_path, str) or not output_path:
         return None
-    path = Path(output_path)
+    from .agent_invocations import resolve_output_artifact_path
+    from .tool_registry import ensure_tools_dir
+
+    path = resolve_output_artifact_path(ensure_tools_dir(base_dir), output_path)
     if not path.exists():
         return None
     try:

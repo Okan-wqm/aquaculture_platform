@@ -299,7 +299,9 @@ def open_adjudication(
                     "cites the evidence it relied on"
                 ),
             }],
-            allowed_scope=[f"human-required/{escalation_request_id}"],
+            # Z2 — the SAME spelling as evidence_refs: one pointer form
+            # everywhere (the slash form matched no ref and no file).
+            allowed_scope=[f"human-required:{escalation_request_id}"],
             evidence_refs=[f"human-required:{escalation_request_id}"],
             base_dir=root,
         )

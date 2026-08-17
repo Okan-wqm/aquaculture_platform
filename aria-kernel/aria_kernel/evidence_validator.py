@@ -309,6 +309,16 @@ def _parse_agent_ref(ref: str) -> tuple[str, int | None] | None:
 from .canonical_path import _canonical_evidence_path  # noqa: F401
 
 
+def _is_ledger_pointer_ref(ref: str) -> bool:
+    """Z2 (ORPHAN-708 follow-through) — THE single definition of a kernel
+    ledger pointer. First live panel drain showed three law layers each
+    discovering the pointer separately: malformed passed (Z0 fix), then
+    repo-verified and allowed-scope each rejected the same ref. Every
+    layer now asks this one question; the load-bearing verification of
+    what the pointer NAMES stays at fold time."""
+    return ref.startswith("human-required:") and len(ref) > len("human-required:")
+
+
 def _check_agent_ref(
     ref: str,
     *,
@@ -328,7 +338,7 @@ def _check_agent_ref(
     # resolve the record from the store before any disposition acts), so
     # the law admits the pointer as checked rather than pretending a repo
     # check that cannot exist for state-store records.
-    if ref.startswith("human-required:") and len(ref) > len("human-required:"):
+    if _is_ledger_pointer_ref(ref):
         checked.append(ref)
         return
     parsed = _parse_agent_ref(ref)
@@ -408,6 +418,8 @@ def validate_agent_response_evidence(
             errors.append({"code": "agent_evidence_ref_not_string"})
             continue
         _check_agent_ref(ref, root=root, errors=errors, checked=checked)
+        if _is_ledger_pointer_ref(ref):
+            continue  # Z2 — a ledger pointer has no repo classification
         envelope = classify_evidence_ref(
             ref,
             workspace_root=root,
@@ -447,6 +459,8 @@ def validate_agent_response_evidence(
                     )
                     continue
                 _check_agent_ref(ref, root=root, errors=errors, checked=checked)
+                if _is_ledger_pointer_ref(ref):
+                    continue  # Z2 — same single definition as above
                 envelope = classify_evidence_ref(
                     ref,
                     workspace_root=root,
@@ -483,6 +497,8 @@ def validate_agent_response_evidence(
                 if isinstance(r, str)
             }
             for path in checked:
+                if _is_ledger_pointer_ref(path):
+                    continue  # Z2 — pointer identity is bound at mint, not by glob
                 if path in allowed_request_refs:
                     continue
                 if not _path_matches_any_glob(path, allowed_globs):

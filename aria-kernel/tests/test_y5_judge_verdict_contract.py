@@ -177,6 +177,38 @@ class LedgerPointerEvidenceTests(unittest.TestCase):
             self.assertEqual(len(checked), 1)
 
 
+class LedgerPointerAllLayersTests(unittest.TestCase):
+    def test_panel_shaped_response_passes_every_law_layer(self) -> None:
+        """Z2 — the smoke run proved layer-by-layer whack-a-mole: malformed
+        fixed, then repo-verified rejected, then allowed-scope rejected the
+        SAME pointer. This drives the full validator with a mint-shaped
+        request + agent echo, so all layers answer the one predicate."""
+        import tempfile as _tf
+
+        from aria_kernel.evidence_validator import validate_agent_response_evidence
+
+        pointer = "human-required:AIR-aria-challenger-planner-abc123"
+        with _tf.TemporaryDirectory() as tmp:
+            request = {
+                "request_id": "AIR-arb-1",
+                "allowed_scope": [pointer],
+                "evidence_refs": [pointer],
+                "target_sha": None,
+            }
+            response = {
+                "evidence_refs": [pointer],
+                "satisfaction_matrix": [{
+                    "id": "S1", "verdict": "satisfied",
+                    "evidence_refs": [pointer],
+                }],
+            }
+            result = validate_agent_response_evidence(
+                response=response, workspace_root=Path(tmp), request=request,
+            )
+            self.assertEqual(result["errors"], [])
+            self.assertTrue(result["valid"])
+
+
 class BridgeHealthSectionTests(unittest.TestCase):
     def test_troubled_roles_render_and_clean_ledgers_stay_silent(self) -> None:
         from aria_kernel.reflection import _compute_bridge_health, _render_bridge_health_section

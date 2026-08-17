@@ -79,5 +79,12 @@
     "estimated_tokens_per_authoring": 30000,
     "max_authorings_per_cycle": 3,
     "max_tokens_per_cycle": 50000
+  },
+  "watchdog_pull": {
+    "api_key_env": "ARIA_OBSERVABILITY_API_KEY",
+    "enabled": true,
+    "http_5xx_share_threshold": 0.05,
+    "http_min_requests": 50,
+    "observability_base_url": null
   }
 }

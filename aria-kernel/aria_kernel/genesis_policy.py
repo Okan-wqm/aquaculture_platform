@@ -53,6 +53,10 @@ POLICY_KEYS = {
     # ARIA finishes what it already opened. Consumed by
     # cycle._backlog_below_cap via rhythm_policy.
     "rhythm",
+    # E24-a (ORPHAN-711) — runtime telemetry pull: where the watchdog reads
+    # production metrics from, and the thresholds its detectors apply.
+    # Consumed by aria_watchdog.run_watchdog_sweep via watchdog_pull_policy.
+    "watchdog_pull",
 }
 
 RHYTHM_DEFAULTS: dict[str, Any] = {
@@ -79,6 +83,37 @@ def rhythm_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
     raw_block = merged.get("rhythm")
     if isinstance(raw_block, dict):
         block.update({k: raw_block[k] for k in RHYTHM_DEFAULTS if k in raw_block})
+    return block
+
+
+WATCHDOG_PULL_DEFAULTS: dict[str, Any] = {
+    "enabled": True,
+    # None → disclosed skip (source_unconfigured). The URL is machine-local
+    # (a docker-bridge address on the droplet), so it lives in the operator
+    # override, never in a tracked default.
+    "observability_base_url": None,
+    # The API key itself NEVER enters policy or ledgers — only the NAME of
+    # the environment variable the runner exports.
+    "api_key_env": "ARIA_OBSERVABILITY_API_KEY",
+    "http_5xx_share_threshold": 0.05,
+    "http_min_requests": 50,
+}
+
+
+def watchdog_pull_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
+    """E24-a (ORPHAN-711) — typed accessor for the watchdog_pull block
+    (circuit_breaker_policy pattern)."""
+    if repo_root is not None:
+        merged = load_policy(repo_root)
+    else:
+        raw = json.loads(
+            (Path(__file__).resolve().parent / "data" / DEFAULT_FILENAME).read_text(encoding="utf-8")
+        )
+        merged = raw if isinstance(raw, dict) else {}
+    block = dict(WATCHDOG_PULL_DEFAULTS)
+    raw_block = merged.get("watchdog_pull")
+    if isinstance(raw_block, dict):
+        block.update({k: raw_block[k] for k in WATCHDOG_PULL_DEFAULTS if k in raw_block})
     return block
 
 

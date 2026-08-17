@@ -87,6 +87,147 @@ def _signature_hash(*parts: str) -> str:
     return "wd-v1:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def pull_observability_metrics(
+    *,
+    base_url: str,
+    api_key: str | None,
+    timeout_seconds: int = 5,
+) -> tuple[str | None, str | None]:
+    """E24-a (ORPHAN-711) — one GET against the observability /metrics feed.
+
+    Returns (text, None) on success, (None, reason) on any failure. Stdlib
+    only, bounded timeout: the sweep runs inside the nightly cycle and an
+    unreachable endpoint must cost one disclosure line, never the night
+    (on_error is already record_and_continue at the phase).
+    """
+    import urllib.error
+    import urllib.request
+
+    request = urllib.request.Request(base_url.rstrip("/") + "/metrics")
+    if api_key:
+        request.add_header("x-internal-api-key", api_key)
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+            if response.status != 200:
+                return None, f"http_{response.status}"
+            return response.read().decode("utf-8", errors="replace"), None
+    except urllib.error.HTTPError as exc:
+        return None, f"http_{exc.code}"
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        return None, f"unreachable:{str(exc)[:120]}"
+
+
+def parse_prometheus_text(text: str) -> list[tuple[str, dict[str, str], float]]:
+    """Minimal prometheus exposition parser: (name, labels, value) samples.
+
+    Deliberately narrow — counters and gauges with simple label sets are
+    all the detectors below read. Unparseable lines are skipped, never
+    fatal: telemetry is evidence, not a contract surface.
+    """
+    samples: list[tuple[str, dict[str, str], float]] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        try:
+            metric_part, value_part = line.rsplit(" ", 1)
+            value = float(value_part)
+        except ValueError:
+            continue
+        labels: dict[str, str] = {}
+        name = metric_part
+        if "{" in metric_part and metric_part.endswith("}"):
+            name, raw_labels = metric_part.split("{", 1)
+            for pair in raw_labels[:-1].split(","):
+                if "=" not in pair:
+                    continue
+                key, raw_value = pair.split("=", 1)
+                labels[key.strip()] = raw_value.strip().strip('"')
+        samples.append((name, labels, value))
+    return samples
+
+
+def detect_http_5xx_share(
+    samples: list[tuple[str, dict[str, str], float]],
+    *,
+    threshold: float,
+    min_requests: int,
+) -> list[WatchdogFinding]:
+    """A 5xx share above threshold on a meaningful request volume."""
+    total = 0.0
+    errors_by_service: dict[str, float] = {}
+    total_by_service: dict[str, float] = {}
+    for name, labels, value in samples:
+        if name != "http_requests_total":
+            continue
+        service = labels.get("service") or labels.get("job") or "observability-service"
+        total += value
+        total_by_service[service] = total_by_service.get(service, 0.0) + value
+        status = str(labels.get("status_code") or labels.get("status") or "")
+        if status.startswith("5"):
+            errors_by_service[service] = errors_by_service.get(service, 0.0) + value
+    findings: list[WatchdogFinding] = []
+    for service, errors in sorted(errors_by_service.items()):
+        service_total = total_by_service.get(service, 0.0)
+        if service_total < min_requests:
+            continue
+        share = errors / service_total if service_total else 0.0
+        if share < threshold:
+            continue
+        findings.append(WatchdogFinding(
+            pattern="runtime_http_5xx",
+            severity="MEDIUM",
+            claim_summary=(
+                f"Production service {service} is answering "
+                f"{share:.1%} of requests with 5xx "
+                f"({int(errors)}/{int(service_total)})."
+            ),
+            facts=[
+                f"http_requests_total 5xx={int(errors)} total={int(service_total)}",
+                f"threshold={threshold:.0%} min_requests={min_requests}",
+            ],
+            evidences=[{
+                "ref": "observability-service:/metrics",
+                "summary": f"http_requests_total{{service={service}}} 5xx share {share:.1%}",
+            }],
+            scope_files=[],
+            pattern_signature_hash=_signature_hash("runtime_http_5xx", service),
+            originating_skill="aria-watchdog:runtime_anomaly",
+        ))
+    return findings
+
+
+def detect_security_critical_events(
+    samples: list[tuple[str, dict[str, str], float]],
+) -> list[WatchdogFinding]:
+    """Any critical-severity security event counter above zero."""
+    findings: list[WatchdogFinding] = []
+    for name, labels, value in samples:
+        if name != "security_events_total" or value <= 0:
+            continue
+        severity = str(labels.get("severity") or "").lower()
+        if severity != "critical":
+            continue
+        event_type = labels.get("type") or labels.get("event_type") or "unknown"
+        findings.append(WatchdogFinding(
+            pattern="runtime_security_critical",
+            severity="MEDIUM",
+            claim_summary=(
+                f"Production security telemetry reports {int(value)} "
+                f"critical-severity event(s) of type {event_type}."
+            ),
+            facts=[f"security_events_total{{severity=critical,type={event_type}}}={int(value)}"],
+            evidences=[{
+                "ref": "observability-service:/metrics",
+                "summary": f"security_events_total critical {event_type}={int(value)}",
+            }],
+            scope_files=[],
+            pattern_signature_hash=_signature_hash("runtime_security_critical", event_type),
+            originating_skill="aria-watchdog:runtime_anomaly",
+        ))
+    return findings
+
+
 def detect_stall(
     governance_rows: list[dict[str, Any]],
     autonomy_rows: list[dict[str, Any]],
@@ -559,6 +700,40 @@ def run_watchdog_sweep(
     candidates.extend(detect_stall(governance_rows, autonomy_rows, now=now))
     candidates.extend(detect_repeated_bridge_warning(governance_rows, now=now))
 
+    # E24-a (ORPHAN-711) — production telemetry joins the same sweep: pull
+    # the observability /metrics feed and run the runtime detectors over
+    # it. Every failure mode is a DISCLOSED skip in the payload
+    # (disabled / source_unconfigured / source_unreachable), never a
+    # silent absence and never a dead night.
+    import os as _os
+
+    from .genesis_policy import watchdog_pull_policy
+
+    pull_policy = watchdog_pull_policy(workspace_path)
+    runtime: dict[str, Any]
+    if not pull_policy.get("enabled", True):
+        runtime = {"skipped": "disabled"}
+    elif not pull_policy.get("observability_base_url"):
+        runtime = {"skipped": "source_unconfigured"}
+    else:
+        api_key = _os.environ.get(str(pull_policy.get("api_key_env") or ""))
+        metrics_text, pull_error = pull_observability_metrics(
+            base_url=str(pull_policy["observability_base_url"]),
+            api_key=api_key,
+        )
+        if metrics_text is None:
+            runtime = {"skipped": "source_unreachable", "error": pull_error}
+        else:
+            samples = parse_prometheus_text(metrics_text)
+            runtime_candidates = detect_http_5xx_share(
+                samples,
+                threshold=float(pull_policy.get("http_5xx_share_threshold") or 0.05),
+                min_requests=int(pull_policy.get("http_min_requests") or 50),
+            )
+            runtime_candidates.extend(detect_security_critical_events(samples))
+            candidates.extend(runtime_candidates)
+            runtime = {"samples": len(samples), "candidates": len(runtime_candidates)}
+
     emitted = 0
     suppressed = 0
     if not suppress_emission:
@@ -580,6 +755,9 @@ def run_watchdog_sweep(
         "emitted": emitted,
         "suppressed": suppressed,
         "latest_governance_ts": latest_governance_ts,
+        # E24-a — the runtime pull's honest account (additive; the X3
+        # digest keys above are unchanged).
+        "runtime": runtime,
     }
 
 

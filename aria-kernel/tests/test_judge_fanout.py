@@ -60,7 +60,9 @@ class JudgeFanoutTests(unittest.TestCase):
         # group must NOT be skipped wholesale — the missing adversarial judge
         # must be minted, or consensus (needs >=2) starves this finding forever.
         item = _item(1)
-        group = f"judge:{item['tool_id']}:{item['run_id']}:{item['finding_id']}"
+        # Y2 (ORPHAN-704) — the group key is finding-keyed, run-free: the old
+        # run-folded key made every nightly run re-mint the same finding.
+        group = f"judge:{item['tool_id']}:{item['finding_fingerprint']}"
         create_agent_invocation_request(
             target_agent="aria-evidence-judge", role="evidence_judgment",
             suggested_prompt="seed", must_satisfy=[{"id": "v", "criterion": "c"}],

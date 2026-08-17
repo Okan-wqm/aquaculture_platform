@@ -391,8 +391,35 @@ def _profile_permits_pr_open(context: PhaseContext) -> bool:
     return context.profile in ACTION_PERMISSIONS["pr_open"]
 
 
+def _backlog_below_cap(context: PhaseContext) -> bool:
+    """E25-a (ORPHAN-710) — work-minting phases pause at the backlog ceiling.
+
+    The operator's rhythm directive: findings ARIA opened and has not
+    finished must be worked BEFORE new ones are discovered — a system that
+    mints faster than it resolves drowns itself. The count is the SAME
+    counter the emptiness guard reads (cycle_guard._open_finding_count,
+    OPEN + IN_PROGRESS); the ceiling is policy (rhythm.backlog_cap). An
+    unmet precondition produces a recorded skip naming
+    ``backlog_below_cap`` — the sıfır-vs-yok discipline X3 established
+    makes the pause visible, never silent.
+    """
+    from .cycle_guard import _open_finding_count
+    from .genesis_policy import rhythm_policy
+
+    cap = int(rhythm_policy(context.workspace_root).get("backlog_cap") or 25)
+    return _open_finding_count(Path(context.workspace_root)) < cap
+
+
 ALWAYS = PhasePrecondition("always", _always)
 WRITES_PERMITTED = PhasePrecondition("writes_permitted", _writes_permitted)
+BACKLOG_BELOW_CAP = PhasePrecondition("backlog_below_cap", _backlog_below_cap)
+# Composite member for phases that already demand writes: a phase declares
+# ONE precondition, and the closed set is identity-compared, so the
+# combination is itself a reviewed member rather than an inline lambda.
+WRITES_PERMITTED_AND_BACKLOG_BELOW_CAP = PhasePrecondition(
+    "writes_permitted+backlog_below_cap",
+    lambda context: _writes_permitted(context) and _backlog_below_cap(context),
+)
 REFLECTION_NOT_DEFERRED = PhasePrecondition("reflection_not_deferred", _reflection_not_deferred)
 PLAN_ID_PRESENT = PhasePrecondition("plan_id_present", _plan_id_present)
 PROFILE_PERMITS_PR_OPEN = PhasePrecondition("profile_permits:pr_open", _profile_permits_pr_open)
@@ -412,6 +439,9 @@ CYCLE_PRECONDITIONS: tuple[PhasePrecondition, ...] = (
     REFLECTION_NOT_DEFERRED,
     PLAN_ID_PRESENT,
     PROFILE_PERMITS_PR_OPEN,
+    # E25-a (ORPHAN-710) — the rhythm gate and its writes-composite.
+    BACKLOG_BELOW_CAP,
+    WRITES_PERMITTED_AND_BACKLOG_BELOW_CAP,
 )
 
 
@@ -1372,11 +1402,19 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
     """
     from .convergence_drainer import _resolve_workspace_head_sha
     from .feedback_store import generate_ai_consensus, generate_judgment_sample
+    from .genesis_policy import judgment_pipeline_policy
     from .judge_fanout import dispatch_arbiter_for_split_verdicts, dispatch_judges_for_sample
 
     target_sha = _resolve_workspace_head_sha(context.workspace_root)
+    # Y2 (ORPHAN-704) — sample size and backlog ceiling come from policy
+    # (the 5 was hardcoded; the ceiling did not exist and one week minted
+    # 462 envelopes against ~9 drained per night).
+    pipeline_policy = judgment_pipeline_policy(context.workspace_root)
+    sample_size = int(pipeline_policy.get("sample_size_per_tool") or 5)
+    max_pending_per_role = int(pipeline_policy.get("max_pending_per_role") or 32)
     sampled = 0
     fanned_out = 0
+    mint_skipped_backlog = 0
     consensus_rows = 0
     arbiter_requests = 0
     blocked: list[dict[str, Any]] = []
@@ -1387,7 +1425,7 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
         try:
             sample = generate_judgment_sample(
                 tool_id=tool_id,
-                sample_size=5,
+                sample_size=sample_size,
                 strategy="stratified_by_uncertainty",
                 cycle_id=context.cycle_id,
                 base_dir=context.base_dir,
@@ -1400,8 +1438,13 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
                 # judge lane that dispatches two judges per finding is exactly
                 # where paying for the same file read twice is worst.
                 repo_root=context.workspace_root,
+                max_pending_per_role=max_pending_per_role,
             )
             fanned_out += len(fanout.get("minted") or [])
+            mint_skipped_backlog += sum(
+                1 for s in fanout.get("skipped") or []
+                if s.get("reason") == "mint_skipped_backlog"
+            )
         except GovernanceError as exc:
             blocked.append({"tool_id": tool_id, "step": "sample_or_fanout", "reason": str(exc)[:200]})
         try:
@@ -1497,6 +1540,7 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
         "status": "completed",
         "sampled_findings": sampled,
         "judge_requests_minted": fanned_out,
+        "mint_skipped_backlog": mint_skipped_backlog,
         "consensus_rows": consensus_rows,
         "arbiter_requests_minted": arbiter_requests,
         "promoted_findings": promotion_summary.get("promoted_count", 0),
@@ -2309,6 +2353,12 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
     # cost the night.
     CyclePhase(
         "watchdog_sweep", "discovery", _phase_watchdog,
+        # E25-a — a finding-EMITTING phase pauses at the backlog ceiling.
+        # The plan named the discovery-class trio (discovery, watchdog_sweep,
+        # experiment_author); "discovery" itself is deliberately NOT gated —
+        # its payload is the comprehension the rest of the cycle propagates
+        # on, and pausing understanding is not what the rhythm rule means.
+        precondition=BACKLOG_BELOW_CAP,
         on_error="record_and_continue", state_key="watchdog_sweep",
         modes=frozenset({"standard"}),
     ),
@@ -2451,7 +2501,11 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
     # bench organ.
     CyclePhase(
         "experiment_author", "post_tool", _phase_experiment_author,
-        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        # E25-a — authoring mints new bench work; at the ceiling the bench
+        # keeps RUNNING what exists (experiment_night stays ungated) while
+        # authoring pauses.
+        precondition=WRITES_PERMITTED_AND_BACKLOG_BELOW_CAP,
+        on_error="record_and_continue",
         state_key="experiment_author",
     ),
     CyclePhase(

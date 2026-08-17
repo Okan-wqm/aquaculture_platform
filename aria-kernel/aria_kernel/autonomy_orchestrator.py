@@ -218,18 +218,53 @@ def _drain_next_cycle_queue(
             base_dir=base_dir, queue_item_id=qid,
             requests=list_agent_invocation_requests(base_dir=base_dir),
         )
+        remint_of: str | None = None
         if existing_request is not None:
-            mark_consumed(base_dir, queue_item_id=qid, consumed_by=daemon_agent_id)
-            append_tools_governance(
-                base_dir,
-                "next_cycle_queue_item_projection_replayed",
-                {
-                    "queue_item_id": qid,
-                    "request_id": existing_request.get("request_id"),
-                },
+            # Y3 (ORPHAN-703) — a match that died of queue mechanics must
+            # not satisfy idempotency: the shipped check replayed ANY prior
+            # request, so a queue item whose envelope went HUMAN_REQUIRED /
+            # ANCHOR_STALE was consumed forever with no live successor.
+            # Live-or-outcome matches still replay; an eligible dead match
+            # falls through to the mint below with remint_of lineage. The
+            # remint budget mirrors DEFAULT_MAX_REQUEUES: after two
+            # successors the item is disclosed exhausted, not re-minted.
+            from .agent_invocations import derive_request_state
+            from .agent_surface import REMINT_ELIGIBLE_DEAD_STATES
+
+            existing_id = str(existing_request.get("request_id"))
+            state = derive_request_state(request_id=existing_id, base_dir=base_dir)
+            if state not in REMINT_ELIGIBLE_DEAD_STATES:
+                mark_consumed(base_dir, queue_item_id=qid, consumed_by=daemon_agent_id)
+                append_tools_governance(
+                    base_dir,
+                    "next_cycle_queue_item_projection_replayed",
+                    {
+                        "queue_item_id": qid,
+                        "request_id": existing_id,
+                        "request_state": state,
+                    },
+                )
+                consumed += 1
+                continue
+            lineage = sum(
+                1 for row in list_agent_invocation_requests(base_dir=base_dir)
+                if row.get("remint_of") and qid in str(row.get("suggested_prompt") or "")
             )
-            consumed += 1
-            continue
+            if lineage >= _MAX_QUEUE_ITEM_REMINTS:
+                mark_consumed(base_dir, queue_item_id=qid, consumed_by=daemon_agent_id)
+                append_tools_governance(
+                    base_dir,
+                    "next_cycle_queue_item_remint_exhausted",
+                    {
+                        "queue_item_id": qid,
+                        "request_id": existing_id,
+                        "request_state": state,
+                        "remint_budget": _MAX_QUEUE_ITEM_REMINTS,
+                    },
+                )
+                consumed += 1
+                continue
+            remint_of = existing_id
         prompt = {
             "$schema": "aria/next-cycle-queue-request/v1",
             "queue_item_id": qid,
@@ -297,6 +332,7 @@ def _drain_next_cycle_queue(
                 target_sha=target_sha,
                 evidence_refs=evidence_refs,
                 pressure_event_id=pressure_id or None,
+                remint_of=remint_of,
                 base_dir=base_dir,
             )
         except Exception as exc:
@@ -315,6 +351,12 @@ def _drain_next_cycle_queue(
         consumed += 1
     return consumed
 
+
+
+# Y3 (ORPHAN-703) — successor budget for dead projected-queue envelopes,
+# mirroring DEFAULT_MAX_REQUEUES: two lineage steps then an exhausted
+# disclosure. Kept beside its only consumer.
+_MAX_QUEUE_ITEM_REMINTS = 2
 
 
 def _find_projected_queue_request(

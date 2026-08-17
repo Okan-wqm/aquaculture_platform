@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 from typing import Any, Literal
 
@@ -119,7 +120,17 @@ def validate_transition(
                 f":{decision!r}"
             )
     if to_state == "REQUEST":
-        if not str(evidence.get("operator_feedback_ref") or "").strip():
+        # Y8 (ORPHAN-709) — two approval modes, one auditable ladder shape.
+        # Panel mode is satisfied by a resolved genesis_candidate panel
+        # adjudication (the ref is RESOLVED and overwritten kernel-side in
+        # record_transition — hand-built evidence cannot validate); operator
+        # mode keeps the signed feedback ref. Kernel-scoped entities are
+        # forced to operator mode by the chain recorder.
+        mode = str(evidence.get("approval_mode") or "operator")
+        if mode == "panel":
+            if not str(evidence.get("adjudication_ref") or "").strip():
+                reasons.append("request_requires_panel_adjudication_ref")
+        elif not str(evidence.get("operator_feedback_ref") or "").strip():
             reasons.append("request_requires_signed_operator_feedback")
     if to_state in {"REAL_SANDBOX", "SHADOW", "EVAL_WINDOW"}:
         required = ("eval_harness_id", "fixture_run_id", "transcript_hash", "operator_provenance_ref")
@@ -292,6 +303,55 @@ def _is_sha256_digest(value: str) -> bool:
     )
 
 
+def _resolve_panel_adjudication_proof(
+    *,
+    adjudication_ref: str,
+    capability_gap_key: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Y8 (ORPHAN-709) — kernel-computed panel-approval proof.
+
+    ``adjudication_ref`` names the genesis_candidate escalation record the
+    panel resolved. The proof is derived from the record file, never from
+    caller-supplied evidence: existence, resolved status, agent_panel
+    resolver, genesis_candidate kind, and a matching capability_gap_key are
+    each a hard refusal.
+    """
+    from .human_required import _human_required_path
+
+    if not adjudication_ref.strip():
+        raise GovernanceError("genesis_panel_proof_requires_adjudication_ref")
+    root = ensure_tools_dir(base_dir)
+    path = _human_required_path(root, adjudication_ref)
+    if not path.exists():
+        raise GovernanceError(
+            f"genesis_panel_adjudication_not_found:{adjudication_ref}"
+        )
+    record = json.loads(path.read_text(encoding="utf-8"))
+    context = record.get("context") or {}
+    if str(context.get("kind") or "") != "genesis_candidate":
+        raise GovernanceError(
+            f"genesis_panel_adjudication_wrong_kind:{context.get('kind')!r}"
+        )
+    if record.get("status") != "resolved" or record.get("resolved_by") != "agent_panel":
+        raise GovernanceError(
+            "genesis_panel_adjudication_not_panel_resolved:"
+            f"status={record.get('status')!r},resolved_by={record.get('resolved_by')!r}"
+        )
+    recorded_key = str(context.get("capability_gap_key") or "")
+    if not capability_gap_key or recorded_key != capability_gap_key:
+        raise GovernanceError(
+            "genesis_panel_adjudication_gap_key_mismatch:"
+            f"{recorded_key!r}!={capability_gap_key!r}"
+        )
+    return {
+        "adjudication_ref": adjudication_ref,
+        "capability_gap_key": recorded_key,
+        "resolved_at": record.get("resolved_at"),
+        "resolution_note": str(record.get("resolution_note") or "")[:300],
+    }
+
+
 def record_transition(
     *,
     entity_id: str,
@@ -321,6 +381,24 @@ def record_transition(
             **evidence,
             "resolved_eval_window_superiority": compute_eval_window_superiority(
                 entity_id=entity_id, base_dir=base_dir, repo_root=repo_root
+            ),
+        }
+    if to_state == "REQUEST" and str(evidence.get("approval_mode") or "") == "panel":
+        # Y8 (ORPHAN-709) — Z3d pattern: resolve the panel proof kernel-side
+        # and OVERWRITE whatever the caller put under the resolved key. The
+        # policy switch lets an operator force operator-mode globally.
+        policy_mode = str(
+            genesis_lifecycle_policy(repo_root).get("request_approval_mode")
+            or "operator"
+        )
+        if policy_mode != "panel":
+            raise GovernanceError("genesis_panel_mode_disabled_by_policy")
+        evidence = {
+            **evidence,
+            "resolved_panel_adjudication": _resolve_panel_adjudication_proof(
+                adjudication_ref=str(evidence.get("adjudication_ref") or ""),
+                capability_gap_key=str(evidence.get("capability_gap_key") or ""),
+                base_dir=base_dir,
             ),
         }
     verdict = validate_transition(from_state=from_state, to_state=to_state, evidence=evidence)

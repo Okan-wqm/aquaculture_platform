@@ -613,6 +613,26 @@ def append_jsonl(
             return _append_jsonl_unlocked(resolved, record)
 
 
+def _reraise_enospc_as_environment(exc: OSError) -> None:
+    """E18-b (ORPHAN-695 sibling; lived 2026-08-13) — a full disk during a
+    ledger APPEND is an ENVIRONMENT failure, not phase logic. Pre-E18-b
+    only the read/verify path classified I/O faults; a mid-run ENOSPC on
+    the write side still surfaced as an anonymous phase crash the operator
+    had to diagnose from a stack trace. Named here, once, for every
+    governed append."""
+    import errno as _errno
+
+    from .tool_registry import GovernanceError
+
+    if exc.errno == _errno.ENOSPC:
+        raise GovernanceError(
+            f"environment_failure:disk_full: ledger append hit ENOSPC "
+            f"({exc}); free disk and re-run — the rows already written are "
+            f"intact, the chain refuses to advance on a torn write"
+        ) from exc
+    raise exc
+
+
 def append_declared_jsonl(
     path: Path,
     record: dict[str, Any],
@@ -634,12 +654,18 @@ def append_declared_jsonl(
     )
     resolved = Path(path).resolve()
     requirement = _lock_requirements_for_path(resolved)
-    if requirement.index_group_lock_path is None:
-        with with_exclusive_lock(requirement.file_lock_path):
-            return _append_jsonl_unlocked(resolved, record)
-    with with_exclusive_lock(requirement.index_group_lock_path):
-        with with_exclusive_lock(requirement.file_lock_path):
-            return _append_jsonl_unlocked(resolved, record)
+    try:
+        if requirement.index_group_lock_path is None:
+            with with_exclusive_lock(requirement.file_lock_path):
+                return _append_jsonl_unlocked(resolved, record)
+    except OSError as exc:
+        _reraise_enospc_as_environment(exc)
+    try:
+        with with_exclusive_lock(requirement.index_group_lock_path):
+            with with_exclusive_lock(requirement.file_lock_path):
+                return _append_jsonl_unlocked(resolved, record)
+    except OSError as exc:
+        _reraise_enospc_as_environment(exc)
 
 
 def _assert_raw_jsonl_append_allowed(

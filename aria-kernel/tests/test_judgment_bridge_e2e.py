@@ -302,7 +302,12 @@ class JudgeBridgeUnitTests(unittest.TestCase):
             "agent_id": "aria-evidence-judge",
             "details": {"verdict": {"verdict": "true_positive", "confidence": 0.9}},
         }
-        with self.assertRaisesRegex(GovernanceError, "tool_id"):
+        # Y5 (ORPHAN-706) — DELIBERATE REWRITE: the bridge now raises the
+        # shared contract-validator's field list (one contract, two
+        # consumers) instead of its own prose about tool_id.
+        with self.assertRaisesRegex(
+            GovernanceError, "judge_verdict:missing_tool_run_or_finding_id",
+        ):
             record_judge_verdict_from_response(
                 request=request, response=response, base_dir=self.tools
             )

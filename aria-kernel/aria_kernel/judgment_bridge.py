@@ -87,6 +87,49 @@ def _verdict_field(details: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def validate_judge_response(
+    *,
+    request: dict[str, Any],
+    response: dict[str, Any],
+) -> list[str]:
+    """Y5 (ORPHAN-706) — the judge output contract, checkable BEFORE accept.
+
+    The second sealed night accepted 12 judge results whose envelopes never
+    carried a verdict the bridge could read ("expected verdict ..., got
+    None") — each one an accepted row that could never fold, burning bridge
+    retries toward permanent_fail. This is the SINGLE definition of what a
+    judge response must carry; ``record_judge_verdict_from_response`` raises
+    on exactly this list, and the executor's pre-submit gate releases the
+    claim on it instead of sealing an unfoldable result.
+
+    Returns [] for non-judge roles: the contract binds judges only.
+    """
+    role = response.get("role")
+    if not is_judge_role(role):
+        return []
+    errors: list[str] = []
+    details = response.get("details") or {}
+    if not isinstance(details, dict):
+        details = {}
+    verdict_block = _verdict_field(details)
+    if not verdict_block:
+        return ["judge_verdict:absent"]
+    verdict = verdict_block.get("verdict")
+    if verdict not in FEEDBACK_VERDICTS:
+        errors.append(f"judge_verdict.verdict:invalid:{verdict!r}")
+    tool_id = request.get("tool_id") or verdict_block.get("tool_id")
+    run_id = request.get("run_id") or verdict_block.get("run_id")
+    finding_id = request.get("finding_id") or verdict_block.get("finding_id")
+    if not (tool_id and run_id and finding_id):
+        errors.append("judge_verdict:missing_tool_run_or_finding_id")
+    judge_id = details.get("agent_subagent_type") or verdict_block.get("judge_id")
+    if not judge_id:
+        errors.append("judge_verdict:missing_judge_identity")
+    elif str(judge_id).startswith("ci-executor:"):
+        errors.append("judge_verdict:executor_shaped_judge_identity")
+    return errors
+
+
 def record_judge_verdict_from_response(
     *,
     request: dict[str, Any],
@@ -106,6 +149,16 @@ def record_judge_verdict_from_response(
     role = response.get("role")
     if not is_judge_role(role):
         return None
+
+    # Y5 (ORPHAN-706) — one contract, two consumers: the executor's
+    # pre-submit gate checks exactly this list and releases instead of
+    # sealing an unfoldable accepted result; the bridge raises on it so a
+    # row that somehow slipped past still fails loudly, never half-folds.
+    contract_errors = validate_judge_response(request=request, response=response)
+    if contract_errors:
+        raise GovernanceError(
+            "judge bridge contract violation: " + "; ".join(contract_errors)
+        )
 
     details = response.get("details") or {}
     if not isinstance(details, dict):

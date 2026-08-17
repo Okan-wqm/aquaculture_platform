@@ -345,7 +345,13 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     ),
     StateSurface(
         name="agent_output_artifacts",
-        path_pattern="agent-invocations/outputs/*.json",
+        # Y6 (ORPHAN-707) — the writer produces
+        # ``outputs/<group>/round-<n>-<role>-<id>.md`` (one directory level,
+        # .md extension); the declared ``outputs/*.json`` matched NOTHING,
+        # so zero artifacts were ever attested or published and every
+        # cross-run bridge replay died envelope-unreadable. ``**`` matches
+        # zero or more directories, so both direct and grouped files attest.
+        path_pattern="agent-invocations/outputs/**/*.md",
         state_class="artifact",
         lock_group="agent_invocations",
         index_group=None,

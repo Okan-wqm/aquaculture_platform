@@ -159,6 +159,12 @@ def run_reflection(
         # while three separate defects starved it, and every one was found by
         # a human noticing. This section is the machine noticing.
         "dataflow_health": _compute_dataflow_health(root),
+        # Y5 (ORPHAN-706) — the bridge's role×transition matrix. Twelve
+        # judge results failed to fold ("verdict None") and ten burned to
+        # permanent_fail with no report line anywhere; the truth lived only
+        # in agent-result-bridge-status.jsonl. This is that ledger's first
+        # reader.
+        "bridge_health": _compute_bridge_health(root),
         "next_cycle_plan": [
             {
                 "pressure_id": item.get("pressure_id"),
@@ -892,6 +898,58 @@ def _render_watchdog_section(reflection: dict[str, Any]) -> list[str]:
     ]
 
 
+def _compute_bridge_health(root: Path) -> dict[str, Any]:
+    """Y5 (ORPHAN-706) — fold agent-result-bridge-status.jsonl to a
+    role×transition matrix plus the distinct error signatures behind the
+    non-ok transitions. Missing ledger → empty dict (young store)."""
+    path = root / "agent-invocations" / "agent-result-bridge-status.jsonl"
+    if not path.exists():
+        return {}
+    matrix: dict[str, dict[str, int]] = {}
+    error_signatures: dict[str, int] = {}
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return {}
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        role = str(row.get("role") or "unknown")
+        transition = str(row.get("transition") or "unknown")
+        matrix.setdefault(role, {})[transition] = matrix.get(role, {}).get(transition, 0) + 1
+        if transition in ("pending_retry", "permanent_fail"):
+            detail = str(row.get("error_detail") or "")[:80]
+            if detail:
+                error_signatures[detail] = error_signatures.get(detail, 0) + 1
+    return {"matrix": matrix, "error_signatures": error_signatures}
+
+
+def _render_bridge_health_section(reflection: dict[str, Any]) -> list[str]:
+    """Y5 — non-ok bridge transitions become report lines; an all-ok (or
+    empty) ledger renders nothing, per the empty-heading rule below."""
+    health = reflection.get("bridge_health") or {}
+    matrix = health.get("matrix") or {}
+    troubled = {
+        role: counts for role, counts in sorted(matrix.items())
+        if any(t in counts for t in ("pending_retry", "permanent_fail"))
+    }
+    if not troubled:
+        return []
+    lines = ["", "## Bridge Health", ""]
+    for role, counts in troubled.items():
+        rendered = ", ".join(f"{t}: {n}" for t, n in sorted(counts.items()))
+        lines.append(f"- {role} — {rendered}")
+    for signature, count in sorted(
+        (health.get("error_signatures") or {}).items(), key=lambda kv: -kv[1],
+    )[:5]:
+        lines.append(f"- `{signature}` ×{count}")
+    return lines
+
+
 def _render_dataflow_health_section(reflection: dict[str, Any]) -> list[str]:
     """SIGNAL STARVED lines for the daily report — only when something is.
 
@@ -1410,6 +1468,7 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
         ],
         *_render_experiment_night_section(reflection),
         *_render_watchdog_section(reflection),
+        *_render_bridge_health_section(reflection),
         "",
         "## Tool Health",
         "",

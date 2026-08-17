@@ -42,8 +42,22 @@ CONSENSUS_ARBITRATION_ROLE: str = "consensus_arbitration"
 CONSENSUS_ARBITER_AGENT: str = "aria-consensus-arbiter"
 
 
+def _finding_key(item: dict[str, Any]) -> str:
+    """The run-independent identity of the finding being judged."""
+    return str(item.get("finding_fingerprint") or item.get("finding_id") or "")
+
+
 def _group_id(item: dict[str, Any]) -> str:
-    return f"judge:{item.get('tool_id')}:{item.get('run_id')}:{item.get('finding_id')}"
+    """Y2 (ORPHAN-704) — the judgment group is keyed by the FINDING, not the run.
+
+    The shipped key folded ``run_id`` in, so every nightly adapter run
+    re-minted fresh envelopes for findings already sitting in the queue —
+    462 minted, 42 accepted, 296 dead of anchor staleness in one week. With
+    the run out of the key, the (group, agent) dedupe below becomes
+    cross-night: a finding is asked once and re-examined only by the E9
+    decision-questioning lane, which exists for exactly that.
+    """
+    return f"judge:{item.get('tool_id')}:{_finding_key(item)}"
 
 
 def _render_prompt(item: dict[str, Any]) -> str:
@@ -88,12 +102,70 @@ def _existing_judge_dispatches(root: Path) -> set[tuple[str, str]]:
     }
 
 
+def _judged_pairs(root: Path, tool_id: str) -> set[tuple[str, str]]:
+    """(finding_key, judge_id) pairs that already carry an ai_judge verdict.
+
+    A finding a judge has ALREADY answered must not be re-minted by the
+    nightly fan-out regardless of ledger key drift — re-sampling closed
+    verdicts is the decision-questioning lane's deliberate act, not the
+    sampler's accident. Fingerprint preferred, finding_id fallback for
+    rows recorded before fingerprints were threaded.
+    """
+    from .feedback_store import load_feedback
+
+    pairs: set[tuple[str, str]] = set()
+    try:
+        rows = load_feedback(tool_id=tool_id, base_dir=root)
+    except Exception:
+        return pairs
+    for row in rows:
+        if row.get("source_type") != "ai_judge":
+            continue
+        key = str(row.get("finding_fingerprint") or row.get("finding_id") or "")
+        judge = str(row.get("judge_id") or "")
+        if key and judge:
+            pairs.add((key, judge))
+    return pairs
+
+
+def pending_judge_counts(*, base_dir: str | Path | None = None) -> dict[str, int]:
+    """Y2 (ORPHAN-704) — live (non-terminal) envelope count per judge role.
+
+    Bounded to the anchor window: anything older is ANCHOR_STALE by
+    definition, so deriving its state would only re-prove it dead.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from .agent_invocations import derive_request_state, list_agent_invocation_requests
+    from .agent_surface import TERMINAL_REQUEST_STATES
+
+    root = ensure_tools_dir(base_dir)
+    horizon = datetime.now(timezone.utc) - timedelta(days=4)
+    counts: dict[str, int] = {role: 0 for role, _ in JUDGE_FANOUT}
+    for row in list_agent_invocation_requests(base_dir=root):
+        role = str(row.get("role") or "")
+        if role not in counts:
+            continue
+        created = str(row.get("created_at") or "")
+        try:
+            created_dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+        except ValueError:
+            created_dt = None
+        if created_dt is not None and created_dt < horizon:
+            continue
+        state = derive_request_state(request_id=str(row.get("request_id")), base_dir=root)
+        if state not in TERMINAL_REQUEST_STATES:
+            counts[role] += 1
+    return counts
+
+
 def dispatch_judges_for_sample(
     *,
     sample: dict[str, Any],
     base_dir: str | Path | None = None,
     target_sha: str | None = None,
     repo_root: str | Path | None = None,
+    max_pending_per_role: int | None = None,
 ) -> dict[str, Any]:
     """Mint two judge envelopes per finding in a judgment sample.
 
@@ -111,6 +183,12 @@ def dispatch_judges_for_sample(
     root = ensure_tools_dir(base_dir)
     items = sample.get("items") or []
     existing = _existing_judge_dispatches(root)
+    # Y2 (ORPHAN-704) — backlog gate: when the executor's drain is behind,
+    # minting more envelopes only manufactures anchor-stale corpses. The
+    # ceiling is per role; freshly minted envelopes count toward it within
+    # this call so one large sample cannot blow through the cap.
+    pending = pending_judge_counts(base_dir=root) if max_pending_per_role is not None else {}
+    judged: dict[str, set[tuple[str, str]]] = {}
     minted: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     for item in items:
@@ -119,9 +197,24 @@ def dispatch_judges_for_sample(
         group = _group_id(item)
         prompt = _render_prompt(item)
         refs = _evidence_refs(item)
+        tool_id = str(item.get("tool_id") or "")
+        if tool_id not in judged:
+            judged[tool_id] = _judged_pairs(root, tool_id)
+        finding_key = _finding_key(item)
         for role, agent in JUDGE_FANOUT:
             if (group, agent) in existing:
                 skipped.append({"judgment_group_id": group, "target_agent": agent, "reason": "already_dispatched"})
+                continue
+            if (finding_key, agent) in judged[tool_id]:
+                skipped.append({"judgment_group_id": group, "target_agent": agent, "reason": "already_judged"})
+                continue
+            if max_pending_per_role is not None and pending.get(role, 0) >= max_pending_per_role:
+                skipped.append({
+                    "judgment_group_id": group, "target_agent": agent,
+                    "reason": "mint_skipped_backlog",
+                    "pending": pending.get(role, 0),
+                    "max_pending_per_role": max_pending_per_role,
+                })
                 continue
             req = create_agent_invocation_request(
                 target_agent=agent,
@@ -146,6 +239,8 @@ def dispatch_judges_for_sample(
                 "judgment_group_id": group,
             })
             existing.add((group, agent))
+            if max_pending_per_role is not None:
+                pending[role] = pending.get(role, 0) + 1
     return {"schema_version": 1, "minted_count": len(minted), "minted": minted, "skipped": skipped}
 
 

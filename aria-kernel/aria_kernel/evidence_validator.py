@@ -317,6 +317,20 @@ def _check_agent_ref(
     checked: list[str],
     allow_self_output: bool = False,
 ) -> None:
+    # Y7 follow-through (ORPHAN-708) — the kernel's OWN adjudication mint
+    # (human_required_adjudication.open_adjudication) issues
+    # ``human-required:<request-id>`` refs, and the first real panel drain
+    # showed this validator rejecting them: mint-side and law-side of the
+    # same kernel disagreed, every panel opinion died submit_rejected, and
+    # the rejection BURNED the envelope's requeue budget. The ref is a
+    # LEDGER POINTER, not a repo path — the load-bearing verification
+    # happens at fold time (fold_adjudication / adjudicate_human_required
+    # resolve the record from the store before any disposition acts), so
+    # the law admits the pointer as checked rather than pretending a repo
+    # check that cannot exist for state-store records.
+    if ref.startswith("human-required:") and len(ref) > len("human-required:"):
+        checked.append(ref)
+        return
     parsed = _parse_agent_ref(ref)
     if parsed is None:
         errors.append({"code": "agent_evidence_ref_malformed", "ref": ref})

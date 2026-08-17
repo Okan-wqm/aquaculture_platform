@@ -51,6 +51,15 @@ LEARNING_HOOK_ORDER = (
     "impact_graph_compute",
     "skill_or_agent_genesis",
     "service_auditor_targeting",
+    # Y8 (ORPHAN-709 follow-through) — the sweep was REGISTERED in the hook
+    # table but absent from this ORDER, and _run_learning_hooks selects by
+    # order membership: registered-but-never-selected is the exact
+    # dead-hook class this repository keeps closing. Caught by the first
+    # post-merge verification run (sweep left zero trace); the parity pin
+    # in test_y8_genesis_panel_gate now makes the mismatch impossible.
+    # Placed AFTER service_auditor_targeting: that pair's adjacency is its
+    # own pinned contract (LearningWiringTests).
+    "genesis_panel_sweep",
     "agent_fitness_score",
 )
 PRE_CYCLE_LEARNING_HOOKS = (
@@ -94,10 +103,12 @@ def _run_learning_hooks(
         ("plan_convergence_advance", lambda: _plan_convergence_advance(cycle_id=cycle_id, tools_root=root)),
         ("impact_graph_compute", lambda: _impact_graph_compute(cycle_id=cycle_id, paths=paths, tools_root=root)),
         ("skill_or_agent_genesis", lambda: _skill_or_agent_genesis(cycle_id=cycle_id, paths=paths, tools_root=root)),
+        ("service_auditor_targeting", lambda: _service_auditor_targeting(cycle_id=cycle_id, paths=paths, tools_root=root)),
         # Y8 (ORPHAN-709) — gaps blocked on genesis adjudication route to the
         # agent panel instead of vanishing from the actionable filter above.
+        # Registry position matches LEARNING_HOOK_ORDER (execution order is
+        # the registry's; phase2a pins the two lists equal).
         ("genesis_panel_sweep", lambda: _genesis_panel_sweep(cycle_id=cycle_id, paths=paths, tools_root=root)),
-        ("service_auditor_targeting", lambda: _service_auditor_targeting(cycle_id=cycle_id, paths=paths, tools_root=root)),
         ("agent_fitness_score", lambda: agent_fitness_score(cycle_id=cycle_id, base_dir=root)),
     )
     selected = set(hook_names)

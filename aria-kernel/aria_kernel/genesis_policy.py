@@ -53,6 +53,10 @@ POLICY_KEYS = {
     # per-role pending ceiling that stops the nightly mint when the
     # executor's drain is behind. Consumed via judgment_pipeline_policy.
     "judgment_pipeline",
+    # Y8 (ORPHAN-709) — genesis panel lane: per-cycle ceiling on new
+    # genesis_candidate panel escalations. Consumed by
+    # agent_genesis.sweep_candidate_gaps_for_adjudication.
+    "genesis_panel",
 }
 
 JUDGMENT_PIPELINE_DEFAULTS: dict[str, Any] = {
@@ -86,11 +90,43 @@ def judgment_pipeline_policy(repo_root: str | Path | None = None) -> dict[str, A
     return block
 
 
+GENESIS_PANEL_DEFAULTS: dict[str, Any] = {
+    "enabled": True,
+    # 16 parked gaps measured at Y8 time; 4/cycle drains the backlog in
+    # four nights while each record costs a 3-envelope panel.
+    "max_panel_opens_per_cycle": 4,
+}
+
+
+def genesis_panel_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
+    """Y8 (ORPHAN-709) — typed accessor for the genesis_panel block
+    (circuit_breaker_policy pattern: the accessor is what makes the block
+    real configuration)."""
+    if repo_root is not None:
+        merged = load_policy(repo_root)
+    else:
+        raw = json.loads(
+            (Path(__file__).resolve().parent / "data" / DEFAULT_FILENAME).read_text(encoding="utf-8")
+        )
+        merged = raw if isinstance(raw, dict) else {}
+    block = dict(GENESIS_PANEL_DEFAULTS)
+    raw_block = merged.get("genesis_panel")
+    if isinstance(raw_block, dict):
+        block.update({k: raw_block[k] for k in GENESIS_PANEL_DEFAULTS if k in raw_block})
+    return block
+
+
 GENESIS_LIFECYCLE_DEFAULTS: dict[str, Any] = {
     "pressure_min_score": 70,
     "min_evidence_refs": 3,
     "existing_capability_coverage_threshold": 0.80,
-    "request_requires_signed_operator_feedback": True,
+    # Y8 (ORPHAN-709) — how the REQUEST transition is approved. "panel"
+    # (default, operator directive 2026-08-17): a resolved genesis_candidate
+    # panel adjudication satisfies the gate; "operator" forces the signed
+    # operator-feedback ref everywhere. The OLD key
+    # (request_requires_signed_operator_feedback) was doubly dead: the
+    # validator hardcoded the check and read no policy — İ2 closes both.
+    "request_approval_mode": "panel",
     "real_sandbox_min_fixture_results": 3,
     "real_sandbox_required_lanes": [
         "real_repo_baseline",

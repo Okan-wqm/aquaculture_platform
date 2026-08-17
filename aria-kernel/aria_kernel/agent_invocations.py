@@ -865,6 +865,12 @@ def create_agent_invocation_request(
     transcript_hash: str | None = None,
     operator_provenance_ref: str | None = None,
     target_sha: str | None = None,
+    # Y3 (ORPHAN-703) — successor lineage for terminally-dead requests.
+    # remint_of names the dead request this row replaces; it participates
+    # in the request-id fold so a successor gets a FRESH id (an identical
+    # re-mint of the same dead id stays idempotent), mirroring the X4
+    # panel reopen_of pattern. The dead row itself is never resurrected.
+    remint_of: str | None = None,
 ) -> dict[str, Any]:
     # Plan ARIA-V5 §3c v2 (B1 fix) — ``plan_revision_hash`` binds the
     # envelope to a specific plan revision so I-V5.1-03 can assert
@@ -997,6 +1003,7 @@ def create_agent_invocation_request(
             "plan_revision_hash": plan_revision_hash,
             "pressure_event_id": pressure_event_id,
             "run_id": run_id,
+            "remint_of": remint_of,
             "shadow_eval_proof": shadow_eval_proof or {},
             "tool_id": tool_id,
             "target_sha": target_sha,
@@ -1044,6 +1051,7 @@ def create_agent_invocation_request(
         # Legacy rows return None on read — no upcaster needed.
         "cycle_id": cycle_id,
         "pressure_source_type": pressure_source_type,
+        "remint_of": remint_of,
         "shadow_eval": bool(shadow_eval),
         "shadow_eval_proof": shadow_eval_proof,
         "target_sha": target_sha,
@@ -1637,6 +1645,14 @@ HARNESS_FAULT_RELEASE_REASONS: frozenset[str] = frozenset({
     # the request's budget the way the old submit_rejected path did.
     "judge_verdict_contract_violation",
     "kernel_prompt_renderer_unavailable",
+    # Y1 (ORPHAN-703) — the planner dispatch hook now releases its claim on
+    # every failure exit instead of abandoning it to lease expiry. A killed
+    # or failed CHILD PROCESS says nothing about the request (the measured
+    # cause was the harness giving the child a longer wall-clock than the
+    # lease), so neither reason may burn the request's requeue budget the
+    # way the old silent lease_expired path did 106 times in one week.
+    "planner_dispatch_executor_timeout",
+    "planner_dispatch_executor_exit_nonzero",
     "prompt_hash_binding_mismatch",
 })
 

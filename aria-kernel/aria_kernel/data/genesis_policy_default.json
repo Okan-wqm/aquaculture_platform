@@ -61,10 +61,14 @@
       "semantic_regression",
       "scope_violation_guard"
     ],
-    "request_requires_signed_operator_feedback": true,
+    "request_approval_mode": "panel",
     "shadow_min_clean_cycles": 5,
     "shadow_min_days": 14,
     "shadow_min_eval_runs": 10
+  },
+  "genesis_panel": {
+    "enabled": true,
+    "max_panel_opens_per_cycle": 4
   },
   "judgment_pipeline": {
     "max_pending_per_role": 32,

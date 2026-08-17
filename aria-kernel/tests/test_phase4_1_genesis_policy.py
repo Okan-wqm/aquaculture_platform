@@ -137,6 +137,9 @@ class GenesisPolicyTests(unittest.TestCase):
                 # cycle._phase_judgment_pipeline via
                 # judgment_pipeline_policy).
                 "judgment_pipeline",
+                # Y8 (ORPHAN-709) — genesis panel lane ceiling, consumed
+                # by agent_genesis.sweep_candidate_gaps_for_adjudication.
+                "genesis_panel",
             },
         )
 
@@ -145,7 +148,12 @@ class GenesisPolicyTests(unittest.TestCase):
         self.assertEqual(policy["pressure_min_score"], 70)
         self.assertEqual(policy["shadow_min_clean_cycles"], 5)
         self.assertEqual(policy["max_critical_false_positives"], 0)
-        self.assertTrue(policy["request_requires_signed_operator_feedback"])
+        # Y8 (ORPHAN-709) — DELIBERATE REWRITE: the per-gap operator gate is
+        # panel-approved by default (operator directive 2026-08-17); the old
+        # boolean was ALSO dead configuration (the validator hardcoded the
+        # check and read no policy). "operator" remains a valid override.
+        self.assertEqual(policy["request_approval_mode"], "panel")
+        self.assertNotIn("request_requires_signed_operator_feedback", policy)
 
 
 if __name__ == "__main__":

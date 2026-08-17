@@ -132,6 +132,10 @@ class GenesisPolicyTests(unittest.TestCase):
                 "drift_class_weights",
                 "superiority",
                 "service_auditor_threshold",
+                # E24-a (ORPHAN-711) — watchdog_pull: runtime telemetry
+                # feed + detector thresholds, consumed by
+                # aria_watchdog.run_watchdog_sweep.
+                "watchdog_pull",
             },
         )
 

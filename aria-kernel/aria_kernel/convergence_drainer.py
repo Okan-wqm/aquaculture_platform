@@ -540,7 +540,9 @@ def _accepted_output_text(
     output_path = accepted.get("output_path")
     if not isinstance(output_path, str) or not output_path:
         return None
-    path = Path(output_path)
+    from .agent_invocations import resolve_output_artifact_path
+
+    path = resolve_output_artifact_path(ensure_tools_dir(base_dir), output_path)
     if not path.exists():
         return None
     try:
@@ -1073,9 +1075,16 @@ def run_convergence_drainer(
                 if row.get("status") == "rejected":
                     return None
                 output_path = row.get("output_path")
-                if not isinstance(output_path, str) or not Path(output_path).exists():
+                if not isinstance(output_path, str) or not output_path:
                     return None
-                text = Path(output_path).read_text(encoding="utf-8", errors="replace")
+                from .agent_invocations import resolve_output_artifact_path
+
+                artifact = resolve_output_artifact_path(
+                    ensure_tools_dir(base_dir), output_path,
+                )
+                if not artifact.exists():
+                    return None
+                text = artifact.read_text(encoding="utf-8", errors="replace")
                 envelope: dict[str, Any] | None = None
                 try:
                     parsed = json.loads(text)

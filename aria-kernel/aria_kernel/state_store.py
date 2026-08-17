@@ -216,6 +216,17 @@ def checkout_state_store(
     listing = _git(repo_root, "ls-remote", "--heads", remote, remote_ref)
     branch_exists = bool(listing.strip())
 
+    # Z1 (ORPHAN-712) — a DELETED store bypasses every protection below:
+    # `_clear_existing_store`'s unpublished-work refusal only fires when the
+    # directory exists, so anything written since the last publish vanishes
+    # and the next run silently re-materialises the remote tip as if nothing
+    # happened. Measured live 2026-08-17: the hourly dataflow watchdog's
+    # `git clean -ffdx` swept the store between runs. The deletion cannot be
+    # prevented here (the sweeper is another process), but it can never
+    # again be SILENT: a registered-but-missing worktree is disclosed as a
+    # governance event on the freshly restored store.
+    vanished_while_registered = (not root.exists()) and _worktree_registered(repo_root, root)
+
     if root.exists():
         _clear_existing_store(repo_root, root, remote=remote, branch=branch)
 
@@ -245,6 +256,8 @@ def checkout_state_store(
         # Detached, each store's HEAD moves alone and the only shared ref
         # is the remote's, where the server arbitrates.
         _git(repo_root, "worktree", "add", "--detach", "--force", str(root), f"{remote}/{branch}")
+        if vanished_while_registered:
+            _disclose_rematerialized_after_missing(root, branch=branch)
         return StateStore(
             root=root,
             branch=branch,
@@ -290,6 +303,39 @@ def checkout_state_store(
         bootstrapped=True,
     )
 
+
+
+def _worktree_registered(repo_root: Path, root: Path) -> bool:
+    """Is ``root`` a registered git worktree of ``repo_root``?"""
+    listing = _git(repo_root, "worktree", "list", "--porcelain", check=False)
+    needle = f"worktree {root.as_posix()}"
+    return any(line.strip() == needle for line in listing.splitlines())
+
+
+def _disclose_rematerialized_after_missing(root: Path, *, branch: str) -> None:
+    """Z1 (ORPHAN-712) — the store vanished between runs; say so, durably.
+
+    Written onto the FRESHLY RESTORED store so the disclosure itself is
+    published with the next state push. Best-effort by design: the restore
+    must never fail because the disclosure could not be written.
+    """
+    try:
+        from .tool_registry import append_tools_governance
+
+        append_tools_governance(
+            root / "tools",
+            "state_store_rematerialized_after_missing",
+            {
+                "branch": branch,
+                "store_root": root.as_posix(),
+                "note": (
+                    "store directory was deleted while its worktree stayed "
+                    "registered; anything unpublished at deletion time is gone"
+                ),
+            },
+        )
+    except Exception:
+        pass
 
 def read_published_snapshot(store: StateStore) -> dict[str, Any] | None:
     """The snapshot at the store's HEAD COMMIT, or ``None`` before the first publish.

@@ -83,8 +83,10 @@ on:
           - 'true'
           - 'false'
 
+# Z1 (ORPHAN-712) — shared self-hosted workspace group; see
+# dataflow-integrity-watchdog.yml for the measured wipe this prevents.
 concurrency:
-  group: aria-auto-cycle
+  group: aria-selfhosted-workspace
   cancel-in-progress: false
 
 permissions:

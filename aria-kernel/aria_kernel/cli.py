@@ -1690,6 +1690,14 @@ def build_parser() -> argparse.ArgumentParser:
     arch_review.add_argument("--migration-plan", default="")
     arch_review.add_argument("--rollback-plan", default="")
     arch_review.add_argument("--cycle-id", default=None)
+    # E14-b (ORPHAN-697) — the ADR renderer gains its operator verb; the
+    # option-set/evidence-pack producers run nightly (service threshold),
+    # the DRAFT stays a deliberate act.
+    arch_draft = add_subparser(arch_sub, "draft-adr")
+    arch_draft.add_argument("--option-set-ref", required=True)
+    arch_draft.add_argument("--evidence-pack-ref", required=True)
+    arch_draft.add_argument("--cycle-id", default=None)
+    arch_list_packs = add_subparser(arch_sub, "list-packs")
     arch_list = add_subparser(arch_sub, "list")
     research_parser = add_subparser(sub, 
         "research",
@@ -4093,6 +4101,28 @@ def _main(argv: list[str] | None = None) -> int:
             return 0
         if args.architecture_command == "list":
             print(json.dumps(list_architecture_reviews(base_dir=args.tools_dir), indent=2, sort_keys=True))
+            return 0
+        if args.architecture_command == "draft-adr":
+            from aria_kernel.architecture import draft_architecture_adr
+
+            row = draft_architecture_adr(
+                option_set_ref=args.option_set_ref,
+                evidence_pack_ref=args.evidence_pack_ref,
+                cycle_id=args.cycle_id,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.architecture_command == "list-packs":
+            from aria_kernel.architecture import (
+                list_architecture_evidence_packs,
+                list_architecture_option_sets,
+            )
+
+            print(json.dumps({
+                "option_sets": list_architecture_option_sets(base_dir=args.tools_dir),
+                "evidence_packs": list_architecture_evidence_packs(base_dir=args.tools_dir),
+            }, indent=2, sort_keys=True))
             return 0
         parser.error("unknown architecture command")
 

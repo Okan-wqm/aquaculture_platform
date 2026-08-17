@@ -173,6 +173,27 @@ def propose_service_auditor_requests(
             ),
         )
 
+    # E14-b (ORPHAN-697) — the architecture organ's first production
+    # producers, riding the SAME threshold event that mints the auditor
+    # request (E15-c's declared neighbour). A sick service gets both a
+    # reviewer AND an architecture picture: an option-set (what could be
+    # done) and an evidence pack (what we can already prove). Packs missing
+    # authoritative refs record status="blocked" — an honestly-blocked pack
+    # names its gaps; the ADR draft stays a deliberate operator/CLI act.
+    architecture_rows: list[dict[str, Any]] = []
+    for service, rows, target_agent, capability_key in capped:
+        guard_item(
+            item_failures,
+            item_kind="service_architecture_evidence",
+            item_id=service,
+            work=lambda service=service, rows=rows: architecture_rows.append(
+                _mint_architecture_evidence(
+                    service=service, rows=rows, threshold=threshold,
+                    cycle_id=cycle_id, base_dir=base_dir,
+                )
+            ),
+        )
+
     return with_item_failures({
         "schema_version": 1,
         "cycle_id": cycle_id,
@@ -185,7 +206,76 @@ def propose_service_auditor_requests(
         "requested_count": len(requests_emitted),
         "requests": requests_emitted,
         "suppressed": suppressed,
+        "architecture_evidence": architecture_rows,
     }, item_failures)
+
+
+def _mint_architecture_evidence(
+    *,
+    service: str,
+    rows: list[dict[str, Any]],
+    threshold: int,
+    cycle_id: str,
+    base_dir: str | Path,
+) -> dict[str, Any]:
+    from .architecture import (
+        generate_architecture_options,
+        record_architecture_evidence_pack,
+    )
+
+    # Path extraction rides the SSoT collector (İ1) — feedback-store rows
+    # carry `path`, repo findings carry scope.files/evidences; the
+    # dimension collector already speaks both.
+    from .service_dimension import finding_dimension_paths
+
+    scope_refs: list[str] = []
+    adr_refs: list[str] = []
+    for row in rows:
+        # feedback-store rows nest the tool finding under "finding"; the
+        # collector reads the finding document itself.
+        doc = row.get("finding") if isinstance(row.get("finding"), dict) else row
+        for path in finding_dimension_paths(doc):
+            if isinstance(path, str) and path.strip():
+                scope_refs.append(path)
+                if path.startswith("docs/adr/"):
+                    adr_refs.append(path)
+    # Bounded, deterministic evidence: the twelve most-cited paths.
+    from collections import Counter
+
+    ranked = [path for path, _count in Counter(scope_refs).most_common(12)]
+    option_set = generate_architecture_options(
+        technology=f"service:{service}",
+        evidence_refs=ranked,
+        root_cause=(
+            f"{len(rows)} open findings crossed the service-auditor "
+            f"threshold ({threshold}) for {service}"
+        ),
+        authoritative_refs=sorted(set(adr_refs)),
+        cycle_id=cycle_id,
+        base_dir=base_dir,
+    )
+    evidence_pack = record_architecture_evidence_pack(
+        technology=f"service:{service}",
+        repo_fit_refs=ranked,
+        current_stable_refs=ranked[:5],
+        authoritative_refs=sorted(set(adr_refs)),
+        migration_risk=(
+            f"finding-density remediation for {service}; risk scales with "
+            f"the {len(rows)} open findings' blast radius"
+        ),
+        repo_value=(
+            f"service {service} carries {len(rows)} open findings; an "
+            f"architecture decision here pays down the densest debt cluster"
+        ),
+        cycle_id=cycle_id,
+        base_dir=base_dir,
+    )
+    return {
+        "service": service,
+        "option_set_id": option_set.get("option_set_id"),
+        "evidence_pack_id": evidence_pack.get("evidence_pack_id"),
+        "evidence_pack_status": evidence_pack.get("status"),
+    }
 
 
 def _mint_request(

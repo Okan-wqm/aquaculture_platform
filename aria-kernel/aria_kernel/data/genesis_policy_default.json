@@ -68,6 +68,9 @@
   },
   "materialization_requires_acknowledge": true,
   "max_requests_per_cycle": 5,
+  "rhythm": {
+    "backlog_cap": 25
+  },
   "schema_version": 1,
   "service_auditor_threshold": 25,
   "skill_genesis_drainer": {

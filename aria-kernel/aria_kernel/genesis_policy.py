@@ -48,7 +48,38 @@ POLICY_KEYS = {
     # would be dead configuration. Consumed by
     # service_agent_targeting.propose_service_auditor_requests.
     "service_auditor_threshold",
+    # E25-a (ORPHAN-710) — rhythm discipline: the open-backlog ceiling that
+    # pauses work-minting phases (watchdog_sweep, experiment_author) until
+    # ARIA finishes what it already opened. Consumed by
+    # cycle._backlog_below_cap via rhythm_policy.
+    "rhythm",
 }
+
+RHYTHM_DEFAULTS: dict[str, Any] = {
+    # Calibrated against the live store at E25 time: 2 kernel findings open.
+    # 25 leaves an order of magnitude of headroom before the gate first
+    # fires — the ceiling exists for the pile-up failure mode, not for
+    # steady state.
+    "backlog_cap": 25,
+}
+
+
+def rhythm_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
+    """E25-a (ORPHAN-710) — typed accessor for the rhythm block
+    (circuit_breaker_policy pattern: the accessor is what makes the block
+    real configuration)."""
+    if repo_root is not None:
+        merged = load_policy(repo_root)
+    else:
+        raw = json.loads(
+            (Path(__file__).resolve().parent / "data" / DEFAULT_FILENAME).read_text(encoding="utf-8")
+        )
+        merged = raw if isinstance(raw, dict) else {}
+    block = dict(RHYTHM_DEFAULTS)
+    raw_block = merged.get("rhythm")
+    if isinstance(raw_block, dict):
+        block.update({k: raw_block[k] for k in RHYTHM_DEFAULTS if k in raw_block})
+    return block
 
 
 GENESIS_LIFECYCLE_DEFAULTS: dict[str, Any] = {

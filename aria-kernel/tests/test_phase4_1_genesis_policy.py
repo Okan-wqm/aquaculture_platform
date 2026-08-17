@@ -132,6 +132,9 @@ class GenesisPolicyTests(unittest.TestCase):
                 "drift_class_weights",
                 "superiority",
                 "service_auditor_threshold",
+                # E25-a (ORPHAN-710) — rhythm.backlog_cap, consumed by
+                # cycle._backlog_below_cap via rhythm_policy.
+                "rhythm",
             },
         )
 

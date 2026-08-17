@@ -1,7 +1,8 @@
+import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import assert from 'node:assert/strict';
+
 import { analyzeBundleBudgets } from './bundle-budget-adapter';
 
 const workspace = mkdtempSync(join(tmpdir(), 'aria-bundle-budget-'));
@@ -53,4 +54,4 @@ assert.ok(
 assert.equal(output.observations.filter((o) => o.type === 'bundle_budget_module').length, 2);
 assert.ok(output.read_paths.length > 0);
 
-console.log('bundle-budget-adapter tests passed');
+process.stdout.write('bundle-budget-adapter tests passed\n');

@@ -21,6 +21,103 @@
 
 ---
 
+## ORPHAN-HIGH-695 — the destructive-DDL gate rejected the migrations that FORBID truncation: `TRUNCATE` matched as a bare word — RESOLVED (this PR)
+
+**Discovered:** 2026-08-16 (landing the rescued FARM-CRITICAL-241 provenance migration; pre-commit refused it with five CRITICAL R1 violations, all false).
+**Evidence:** `tools/gates/migration-sql-lint.ts` rule `R1-destructive-without-marker` matched `/\bTRUNCATE\b/i` against raw SQL. In `1808600000000-ProtectFeedingRecordBackfillProvenance.ts` every one of the five hits destroyed nothing: `REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON feeding_record_provenance FROM PUBLIC` (:121) and the same for `farm_service` (:128) are privilege _withdrawals_; `IF TG_OP = 'TRUNCATE'` (:143) and its `RAISE EXCEPTION` message (:145) are string literals inside a trigger body; `BEFORE TRUNCATE ON feeding_record_provenance` (:209) is the trigger event that makes the table un-truncatable. A migration whose entire purpose is immutability was blocked for naming the operation it forbids.
+**Root cause:** the rule matched a token, not a statement. The file already owned the machinery to tell them apart — `tokenizeSqlStructure` deliberately skips string literals, dollar-quoted bodies and comments, and `routineConfigurationSetOffsets` (used by R4) is the same "exempt this construct" shape — but R1 never used it.
+**Why the marker was not the answer:** the only other way through was to write `-- DESTRUCTIVE:` on a statement that destroys nothing. That marker is a merge precondition carrying a documented pg_dump backup, a pre-merge rollback migration and an ops stage-gate; attaching it to a REVOKE would make it unreadable as a signal exactly where it matters most.
+**Remediation (this PR):** `destructiveTruncateOffsets()` walks the tokenised statements and keeps only `TRUNCATE` used as a statement verb. A statement led by `GRANT`/`REVOKE` yields a privilege list, so every `TRUNCATE` in it is exempt; a `TRUNCATE` preceded by `BEFORE`/`AFTER`/`OR` is a trigger event; and a regex hit with no `word` token at its offset came from a string or comment and is excluded by construction, because the tokeniser never emits those. R1 filters its `TRUNCATE` hits through that set; `DROP COLUMN`, `DROP TABLE` and `DROP SCHEMA ... CASCADE` are untouched.
+**Validation:** `tools/gates/migration-sql-lint.spec.ts` grows from 6 to 14 tests — five prove the non-destructive spellings pass (revoked privilege, granted privilege, `BEFORE TRUNCATE`, `OR TRUNCATE`, string literal in a routine body), two prove a real `TRUNCATE` and `TRUNCATE TABLE ONLY` are still CRITICAL, and one proves the `-- DESTRUCTIVE:` marker still clears a genuine one. `--mode=file` against the provenance migration now reports clean.
+**Owner:** data-expert. **Deadline:** closed by this PR's merge.
+
+## ORPHAN-HIGH-694 — the tenant-reality watchdog's two new alerts routed to nowhere: `severity: high` matches no Alertmanager route — RESOLVED (this PR)
+
+**Discovered:** 2026-08-16 (reconciling PR #1114 onto main during the codex-takeover consolidation; `invariants-fast` and `deploy-ssot-gates` both went red on the same assertion).
+**Evidence:** `infrastructure/monitoring/droplet/rules/60-dataflow-integrity.yml` labelled `TenantProvisioningNeverCompleted` and `TenantRealityProbeStale` with `severity: high`. `infrastructure/monitoring/droplet/alertmanager.yml` routes exactly three severity matchers — `severity = none` (to the `null` receiver), `severity = critical`, `severity = warning` — so `routedSeverities()` in `tests/invariants/monitoring-alert-delivery.spec.ts:102-118` yields `{critical, warning}` and both rules landed in the drop-everything default. Every other rule in the same file already uses `critical` or `warning` (`OutboxRelayNotRunning`, `CronJobNeverRan`, `TenantActiveWithoutPhysicalSchema`, `RuntimeSupervisorStale`, `TenantProvisioningRunsFailing`, `TenantProvisioningRunStuck`); `high` existed nowhere else in the platform's alert vocabulary.
+**Root cause:** severity was written as free prose rather than chosen from the routed vocabulary. The failure mode is silent by construction: the rule loads, the probe reports, the dashboard shows an armed watchdog, and the page never fires.
+**Remediation (this PR):** severities taken from the file's own precedent rather than invented. `TenantProvisioningNeverCompleted` -> `warning`, matching `TenantProvisioningRunStuck`; it is the precursor state and its own description says it becomes the CRITICAL above once the tenant flips to ACTIVE. `TenantRealityProbeStale` -> `critical`, matching `RuntimeSupervisorStale`; a probe that stopped reporting publishes no counts, which reads exactly like every tenant being consistent, so it silently disables the CRITICAL above it and carries that weight. Runbook headings follow the labels so the page an operator opens states the severity the alert carries.
+**Validation:** `npm run invariants:fast` — 224 suites / 2396 tests green, `monitoring-alert-delivery` and `deploy-ssot-contract` included. The gate that caught this (`routes every severity that a rule actually uses`) already existed; it was doing its job.
+**Owner:** observability-expert. **Deadline:** closed by this PR's merge.
+
+    "contexts": ["sens-enterprise-summary", "merge-gate", "aria-merge-authority", "build-status"],
+    "checks": [
+      {
+        "context": "aria-merge-authority",
+        "app_id": 15368
+      },
+      {
+        "context": "build-status",
+        "app_id": 15368
+      },
+      {
+        "context": "merge-gate",
+        "app_id": 15368
+      },
+      {
+        "context": "sens-enterprise-summary",
+        "app_id": 15368
+      }
+    ]
+    "expected": "GitHub main branch protection exists, admin enforcement is enabled, strict mode is true, required status check contexts match, and every context is bound to the exact required_status_checks.checks app_id."
+
+## ORPHAN-MEDIUM-696 — required status checks were pinned by NAME only, so the manifest could not notice a relaxed binding — RESOLVED (this PR)
+
+**Discovered:** 2026-08-16 (slicing the rescued codex DR-bootstrap pile; the pile carried this hardening as a second, separable capability alongside INFRA-HIGH-073).
+**Evidence:** `.github/manifests/main-required-status-checks.json` declared only `required_status_checks.contexts` (four names). `tools/gates/required-status-checks.ts` `checkLiveContract` then folded the live response's `contexts` and `checks[].context` into ONE sorted set and compared names — `sortedUnique([...contexts, ...checks.map(c => c.context)])` — so the `app_id` GitHub returns on every `checks[]` entry was parsed and discarded. Live protection today binds all four contexts to `app_id 15368` (verified: `gh api repos/:owner/:repo/branches/main/protection`), but nothing in the repo asserted it: if that binding were relaxed to "any app", both the static and the live gate would still report ok.
+**Root cause:** the manifest modelled a required check as a string. A check is a (context, producer) pair — a context satisfied by a different app is a different check, and name-only matching cannot express that.
+**Remediation (this PR):** the manifest gains `required_status_checks.checks[]`, one `{context, app_id}` per context, and the gate parses `app_id` on both sides, asserts the manifest binds every context exactly once with a positive integer, and compares live contexts without collapsing them into the checks set. The manifest now states what the live protection already enforces, so a future relaxation fails the gate instead of passing unnoticed.
+**Validation:** `gates:required-status-checks` static contract ok; `gates:required-status-checks:live` ok against the real branch protection.
+**Owner:** infra-expert. **Deadline:** closed by this PR's merge.
+
+    checks: RequiredStatusCheck[];
+
+interface RequiredStatusCheck {
+context: string;
+app_id: number;
+}
+
+app_id: number;
+checks: requireRecordArray(
+raw.required_status_checks.checks,
+'required_status_checks.checks',
+).map((check, index) => ({
+context: requireString(check.context, `required_status_checks.checks[${index}].context`),
+app_id: requireNumber(check.app_id, `required_status_checks.checks[${index}].app_id`),
+})),
+const manifestChecks = [...manifest.required_status_checks.checks].sort(
+(left, right) => left.context.localeCompare(right.context) || left.app_id - right.app_id,
+);
+if (
+JSON.stringify(manifestChecks.map((check) => check.context)) !==
+JSON.stringify(manifestContexts)
+) {
+errors.push('required_status_checks.checks must bind every context exactly once');
+}
+if (manifestChecks.some((check) => !Number.isInteger(check.app_id) || check.app_id <= 0)) {
+errors.push('required_status_checks.checks app_id values must be positive integers');
+}
+app_id: requireNumber(check.app_id, `${field}.checks[${index}].app_id`),
+const liveContexts = [...response.required_status_checks.contexts].sort((left, right) =>
+left.localeCompare(right),
+);
+if (JSON.stringify(liveContexts) !== JSON.stringify(expectedContexts)) {
+errors.push(
+`GitHub raw required status contexts=${JSON.stringify(liveContexts)}, manifest contexts=${JSON.stringify(expectedContexts)}`,
+);
+}
+const expectedChecks = [...manifest.required_status_checks.checks].sort(
+(left, right) => left.context.localeCompare(right.context) || left.app_id - right.app_id,
+);
+const liveChecks = [...response.required_status_checks.checks].sort(
+(left, right) => left.context.localeCompare(right.context) || left.app_id - right.app_id,
+);
+if (JSON.stringify(liveChecks) !== JSON.stringify(expectedChecks)) {
+errors.push(
+`GitHub required status check app bindings=${JSON.stringify(liveChecks)}, manifest checks=${JSON.stringify(expectedChecks)}`,
+);
+}
+
 ## ORPHAN-HIGH-415 — source-schema write-guard reconciler aborts EVERY prod deploy on declarative-partitioned guarded tables (messaging.messages / message_receipts) — RESOLVED (this PR)
 
 **Discovered:** 2026-07-14 (operator flagged that post-merge main `CI - Affected` deploy-production keeps failing; `aqua-db-migrate` aborts BEFORE service containers start).
@@ -7981,6 +8078,47 @@ Per-tenant tables live only in tenant schemas, so a tenant without one cannot ho
 
 **Owner:** operator to route (candidate: multi-tenant-saas-expert). **Status:** OPEN.
 
+## ORPHAN-HIGH-576 — tenant provisioning had no metric, no alarm and no check against physical reality: an ACTIVE tenant with no schema renders as a healthy customer — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, W-B slice while building the parity probe; confirmed firsthand against the production database, not from code.
+
+Provisioning verifies only its own bookkeeping. The saga compares `admin.tenant_schemas` against `platform.tenant_schema_jobs` and never asks `information_schema.schemata` whether the schema those two rows describe actually exists. Two ledgers agreeing with each other is not evidence about the database, so "ACTIVE, provisioned, nothing there" is a reachable and stable state — and it is the one state that looks perfect from the panel. Login works, the tenant list is green, and every per-tenant write has nowhere to land.
+
+Nothing measured this. Provisioning exported zero metrics and had zero alert rules, and the poll endpoint fetched per-step detail and discarded it before returning, so even a human watching the API could not see which of the eight steps had run. The gap was found by hand (ORPHAN-HIGH-570) after months.
+
+**Evidence, production, 2026-08-06.** `auth.tenants` holds three rows; `information_schema.schemata` holds one `tenant_*` schema. Oceanfarm is `ACTIVE` with no schema — the sinister class. Suderra AS is `PENDING` with no schema — the visible half. The Codex test tenant is consistent, with 211 tables in `tenant_7f6b08ab90e246d3`.
+
+**Fix (this PR):** the `tenant_reality_parity` probe in `tools/watchdog/probe-runner.mjs` joins `auth.tenants` against `information_schema.schemata` in one statement, deriving the schema name exactly as `getTenantSchemaName()` does (`libs/backend-common/src/database/tenant-schema.utils.ts:76` — `tenant_` plus the first 16 hex characters of the UUID, not the whole UUID). `ACTIVE` without a usable schema is CRITICAL and exits 3; a non-active status without one is a warning. A schema that exists but holds no table counts as missing: an empty shell stores no data either, and it is the shape a half-finished run leaves behind. Three alert rules in `60-dataflow-integrity.yml` read it, including one for the probe's own absence — the other two are count-based, so a dead probe would publish no counts, which reads exactly like every tenant being consistent.
+
+**The scrape surface stays identity-free.** Metrics carry counts per finding class and never a tenant id, name or healthy total. `probe_finding_count{class="active_without_usable_schema"}` tells an operator that something is broken and nothing about who; the runbook carries the SQL that names the tenant, against a database that already requires credentials. A `tenant` label would have turned the node_exporter textfile — readable by anything that can reach the port — into a customer list, and the healthy total alone would disclose the customer count.
+
+**Verified red before it could be trusted.** `node tools/watchdog/probe-runner.mjs --repo /var/aqua-saas` on production: `tenants=3 consistent=1 active-without-usable-schema=1 unprovisioned-pending=1`, `critical_count: 1`, exit 3. A parity probe that first reports green on a known-broken system has proved only that it runs.
+
+**Not in this slice.** The two missing schemas are not created here — that is a data-shaping act on production with migration-ledger and RLS consequences, and it remains ORPHAN-HIGH-570's question of why they were never created. The RLS defect that stopped the eight provisioning steps from starting is fixed on `fix/tenant-provisioning-receipt-rls` and is untouched here. The poll endpoint still discards per-step detail; this probe measures the outcome, not the progress, so that surface remains blind and is tracked as remaining work.
+
+**Owner:** claude (this session). **Status:** RESOLVED for detection; the two broken tenants remain OPEN under ORPHAN-HIGH-570.
+
+## ORPHAN-CRITICAL-578 — every alert rule shipped today was decorative: the metrics were never scraped, the probe's exit code was swallowed by a pipe, and the rules file is not in the deployed checkout — RESOLVED (code side; deploy side is operator's)
+
+**Discovered:** 2026-08-06 by an adversarial verifier reviewing my own W-B/W-C work, then confirmed firsthand against the running system. This is the same defect class those slices were built to close — a guarantee that does not run — reproduced by the person closing it.
+
+Four independent breaks, each sufficient on its own:
+
+1. **Exit code swallowed.** `.github/workflows/dataflow-integrity-watchdog.yml` ran `node probe-runner.mjs … | tee probe-evidence.json` and then read `$?` — which is `tee`'s status, not the probe's. Proven at the shell: `(exit 3) | tee /dev/null; echo $?` prints `0`. So `if: exit_code == '3'` never matched and the CRITICAL→ARIA bridge could not fire even once.
+2. **No metrics written.** The same step never passed `--textfile`, so the probe's `probe_ok` / `probe_finding_count` series were computed and discarded.
+3. **No collector to read them.** `aqua-node-exporter` runs with `--path.rootfs=/host` only — no `--collector.textfile.directory`, no mount. The T0 supervisor writes to `/var/lib/node_exporter/textfile/` too, so its metrics were equally unread.
+4. **Rules not deployed.** Prometheus mounts its rules from `/var/lib/aqua/deploy/checkout`, which is pinned at `7f1508dad` (2026-07-15) — **388 commits behind main**. `/etc/prometheus/rules/` holds four files dated 2026-06-28; `60-dataflow-integrity.yml` is absent and `/api/v1/rules` shows no group from it. Every rule added today — outbox stall, tenant isolation, cron heartbeat, supervisor, tenant reality — is dead on arrival in production.
+
+**Fix (this PR):** the pipe is gone and the status is captured directly; `--textfile` is passed and the resulting metrics are uploaded as an artefact so evidence survives even where the collector is not writable; node-exporter gains the textfile collector and the matching read-only mount in `docker-compose.droplet.yml`. `TenantRealityProbeStale` was rewritten — `absent()` alone would have fired from the first load and never cleared, and a permanently-firing alert is a muted one, so the safety net would have been the first thing switched off.
+
+**Also fixed here (found in the same review):** the probe counted a `PURGED`/`ARCHIVED`/`CANCELLED` tenant with no schema as unfinished provisioning. For those states the ABSENCE of a schema is correct and its PRESENCE is the defect — a completed GDPR erasure would have paged forever, and a schema outliving its purged tenant (data that should be gone, still on disk) went unnoticed. Both directions are now classified and tested.
+
+**Structural change, not a patch:** the classification lived inside a script that opens a database connection on import, so no test could reach it — an edit inverting the ACTIVE and retired branches would have stayed green. It now lives in `tools/watchdog/tenant-reality.mjs` beside the wire-format parser, with 10 tests (`npm run watchdog:test`). Live behaviour after the refactor is byte-identical: exit 3, `tenants=3 consistent=1 active-without-usable-schema=1 unprovisioned-pending=1`.
+
+**NOT fixed here, and it is the biggest one:** production runs a checkout 388 commits behind main under a deploy freeze. Until that lifts, none of today's work — including the tenant-provisioning fix — is real in production. That is an operator decision, not a code change, and it is stated rather than worked around.
+
+**Owner:** claude (this session). **Status:** RESOLVED (code); deploy gap open and owned by the operator.
+
 ## ORPHAN-HIGH-572 — every outbox alarm watches the queue, so a relay that stopped reads as a queue with nothing in it — RESOLVED (this PR)
 
 **Discovered:** 2026-08-06, W-C slice 3; verified firsthand against `platform/libs/outbox/src/outbox-worker.service.ts` and `outbox-metrics.service.ts`.
@@ -9424,6 +9562,37 @@ Severity: HIGH (E9; the meta-defense tooth). Every one of E8's sixteen findings 
 ## ORPHAN-MEDIUM-696 — the bench's residual seams: hand-typed evidence, anonymous disk-full crashes, and one measured non-problem — RESOLVED (this PR)
 
 Severity: MEDIUM (E21-a residue sweep). Three seams, two closures and one measured verdict: **(1) hand-written matrix evidence** — `validation-matrix check --validation-run-ref-json` accepted a JSON file of refs claiming commands that may never have run (the exact class ORPHAN-675 removed elsewhere). The flag is GONE; candidate refs derive from the validation-runs ledger itself, and only rows the single writer stamped `ok` qualify as pass evidence. **(2) E18-b append-path ENOSPC** — lived 2026-08-13: only the read/verify path classified I/O faults, so a mid-run disk-full APPEND died as an anonymous phase crash. One chokepoint (`_reraise_enospc_as_environment` on both lock arms of `append_declared_jsonl`) now raises `environment_failure:disk_full`, and the daily anchor's blocked-reason surface carries `environment_failure_disk_full`. Other OSErrors surface unchanged. **(3) log-rehash vs retention (residue 2) — MEASURED NON-PROBLEM**: `retention_apply` prunes only runtime-artifact-index rows; validation logs live on their own declared artifact surface (`validation/logs/*.log`) outside the pruner's reach. No code needed — but the separation is now PINNED so a future refactor cannot silently put gate evidence under the pruner.
+## ORPHAN-MEDIUM-689 — seven ARIA adapters carry 55 ESLint errors because no lint target reaches their directory — RESOLVED (this PR)
+
+## ORPHAN-HIGH-699 — adjudication panels were mint-once: a dead panel folded to still_escalated forever, and an SLA breach was one report line for eternity — RESOLVED (this PR, X4)
+
+Severity: HIGH (measured on the first real nightly: 9 HUMAN_REQUIRED items breaching SLA since 12-13 Aug, 7 of them lease_lifecycle-shaped and adjudicable). Two dead ends: **(1)** `open_adjudication` was reachable exactly once per escalation — once its 3 envelopes hit the 3-day anchor expiry unclaimed (the executor was disabled, ORPHAN-698), the sweep could only ever fold `still_escalated`, forever; **(2)** the SLA deadline was stamped once and its only reader was a single daily-report line — a breach aged without consequence.
+
+**Fix (X4):** bounded re-open in the sweep's fold branch — when the fold reason is `panel_incomplete:` AND every envelope of the LATEST panel is terminally dead (`derive_request_state` ∈ {ANCHOR_STALE, STALE, EXPIRED}; one live envelope blocks re-open, protecting delivered judge work), a NEW panel row is minted citing its dead predecessor (`reopen_of` + `attempt`), at most MAX_PANEL_REOPENS=2 re-opens (mirroring the claim-requeue budget); exhaustion emits `human_required_adjudication_reopen_exhausted` governance and the sweep payload discloses it — the honest "a human genuinely must act" terminal. The existing one-panel-ever pin passes UNTOUCHED (live panels stay mint-once). SLA breaches now age through the critical_observation N+k·window ladder (derived at render, never stored — append-only preserved): ≥2 windows `escalated`, ≥3 `sustained_breach`, ≥5 `critical_attention`, each amplified in the daily report's HUMAN_REQUIRED section.
+
+## ORPHAN-MEDIUM-700 — a phase's output could evaporate at the projection boundary: "ran empty" and "never ran" were the same absence — RESOLVED (this PR, X3)
+
+Severity: MEDIUM (measured on the first real nightly: experiment_night and watchdog_sweep both ran, and neither left a trace on any persistent surface — the workspace cycle projection drops phase payloads and no report read them; the operator had to be told "the code was in the tree, so it must have run"). **Fix (X3):** the cycle-metrics row (single writer, already-declared surface, already published nightly) gains additive `phase_digests` at schema v2 — a compact count-shaped digest per phase, assembled at the one `record_cycle_metrics` call site. The invariant that matters: a phase that RAN always leaves a digest, zeros allowed; a phase that never ran leaves none — zero-vs-absent becomes a recorded fact, pinned by test. v1 rows stay serveable (all readers .get()-tolerant, verified + pinned via dashboard round-trip). The daily report gains two first-reader sections: Experiment Night (loudly says "ran EMPTY: zero admissible experiments" with the unresolvable-bindings count — tonight's truth, finally visible) and Watchdog Sweep; both silent-by-absence for pre-X3 rows per the report's empty-heading discipline.
+
+## ORPHAN-HIGH-701 — the bench ran its first real night against a structurally empty admissible set: the binding parameter had no producer and the seeder's schema rejected it — RESOLVED (this PR, X2)
+
+Severity: HIGH (measured: experiment_night's first night planned zero candidates). E21-c gave the kernel `register_experiment(finding_ref=...)`; nothing in production could ever pass it — the manifest seeder's closed `_EXPERIMENT_FIELDS` rejected the key, both manifest experiments carried green contracts the planner rightly refuses, and no nightly authored anything. **Fix (X2):** new `experiment_author.py` cycle phase immediately BEFORE the bench (the planner stays pure selection; the author is the opposite and lives apart): falsifiable open findings — `test_disagreement`, `regression`, `wrong_code`, the claim types a command can prove wrong — gain red-contract experiments bound at registration, with the command derived from the finding's own service dimension through the SSoT collector as `npx nx run-many --target=test --projects=<svc>` (the validation allowlist stays the SINGLE gate: a refused command is disclosed as `unauthorable`, never worked around — and plain `nx test` staying refused is pinned end-to-end). One experiment per finding EVER (deterministic id + binding dedupe, pinned); cap 5/night, severity-ordered, disclosed. The seeder schema widens to accept `finding_ref` (the kernel accepted it all along) and the manifest gains a hand-authored red-contract exemplar. The integration pin that matters: an authored experiment appears in `plan_night_experiments()["problem"]` the same night — finding → experiment → bench, closed.
+
+## ORPHAN-HIGH-698 — the judgment chain's only consumer was disabled: judged_judges=0 across 5 cycles while 64 fresh judge envelopes waited — RESOLVED (this PR, X1)
+
+Severity: HIGH (first real nightly, 2026-08-16, measured). The nightly cycle minted 64 judge envelopes (32 evidence + 32 adversarial) and 105 prior claims had already expired unclaimed, because the roles' ONLY consumer — `.github/workflows/aria-agent-executor.yml`'s drain loop (`_PRIORITY_ROLES` then the role=None fallback pass) — was disabled in Actions, while the in-cycle planner daemon deliberately drains just three planning roles. The daily report said it itself: "SIGNAL STARVED: judged_judges — a zero this old is a severed feed." The first targeted smoke after enabling ALSO proved the cost breaker honest: `cost_budget_daily_cap_exceeded projected=$8.12 cap=$5.00` — the guardrail fired exactly as designed after the cycle spent the day's budget.
+
+**Fix (X1):** the workflow is ENABLED (operator-visible action recorded here); the topology becomes tested fact (`test_x1_drain_topology.py`): the planner daemon's role set is PINNED narrow (a second drainer for executor-owned roles is the İ1 duplicate), the executor's priority+fallback coverage of every dispatchable role is pinned, and the operator cost override (`aria-config/genesis_policy.json`, daily $5→$25, monthly $100→$300 — internal accounting weights; ARIA runs on CLI subscription auth, the operator confirmed no real spend) keeps the per-run breaker at $0.50 so a single runaway spawn still trips. Smoke ladder: targeted single-envelope dispatch → bounded --drain → 02:00 cron.
+
+**Owner:** claude (session lead). **Deadline:** landed. **Status:** RESOLVED (this PR).
+
+## ORPHAN-HIGH-693 — a reproduced defect could not change what ARIA believed about it: the finding fold spoke one event type — RESOLVED (this PR, E21-c)
+
+Severity: HIGH (E21-c, the Deney Masası's promotion arc). The finding ledger was event-sourced in name only: `_replay_findings` skipped every row whose `event` was not `finding_emitted`, so a finding was frozen at mint forever. Three consequences, each measured on 2026-08-16: **(1)** certainty was a caste system — `CONFIRMED` sat at the top of the vocabulary with ZERO producers (and `SUSPECTED`/`UNCERTAIN`/`UNKNOWN` beside it, equally producerless: three of five members were words nothing could utter); **(2)** STATUSES had readers (`cycle_guard` counts OPEN|IN_PROGRESS, `debt.py:242` expects RESOLVED, `handoff_ledger` closes on WITHDRAWN) but replay could never reach any state but OPEN — a state machine whose states were unreachable; **(3)** an experiment that re-ran a defect red (E21-a/b) changed NOTHING: the observation row existed, the finding stayed OBSERVED, and the next night's judges re-derived from scratch what the bench had already proven.
+
+**Fix (E21-c):** the fold speaks a CLOSED four-member vocabulary and REFUSES unknown types (silent skip is data loss in a compatibility costume). `finding_reproduced` — matched RED run (`timeout` refused, it is environment noise) of an experiment that DECLARED `finding_ref` at registration (no post-hoc stapling) — is the first producer of `certainty=CONFIRMED`: certainty is earned by reproduction, not asserted. `finding_fix_verified` — the SAME recipe re-runs matched GREEN with resolved provenance — lands directly on RESOLVED with `closes_in_commit` from the run row; a red rerun after resolution is refused as a REGRESSION deserving its own finding. Operator transitions ride `finding_status_changed` through the closed `STATUS_TRANSITIONS` map (RESOLVED/WITHDRAWN terminal, banned-phrase gate on reasons). İ2: `SUSPECTED`/`UNCERTAIN`/`UNKNOWN` are REMOVED, pinned by a deliberate-breakage test — a future grade re-enters only in the PR that adds its producer. The memory leg closes the loop through the single belief writer (İ1): a matched red run on a bound experiment becomes a `finding-reproduced-f-xxx` belief citing the finding's own scope files, so reproduction outlives the night. Fix-verified bindings are permanent (`list_fix_verified_bindings`) — the green recipe is the regression fixture, re-run through the SAME experiment lane (no third fixture system); the E21-d night phase is its consumer. CLI: `experiment register|run|reproduce|verify-fix|finding-status|regression-bindings` — `experiment run` is `run_experiment`'s first production caller, closing E21-a residue 3.
+
+**E21-d (same train) — the night runs the bench.** `experiment_night.py`: two budgeted lanes (3 problem + 3 regression per night, skips DISCLOSED in the payload). The problem lane selects only contracts that can ONLY match on a red run (`status_equals failed` / non-zero `exit_code_equals`) so a finding's SOLUTION experiment is never misread as an unproven hypothesis; it opens the finding's change-chain (`emit_change_planned`, idempotent — problem run, fix commit and green re-run join on ONE spine) and promotes matched red runs through the E21-c bridge. The regression lane re-runs fix-verified recipes; a red rerun emits `experiment_regression_detected` governance (judgment lanes own the response — no reflex finding mint). Registered as CyclePhase `experiment_night` with the EXISTING `WRITES_PERMITTED` precondition and `record_and_continue`. The integration test (real runner, real subprocess) caught a latent crash class merged audits missed: under `ARIA_REPO_STATE_ROOT` every `emit_finding`/`emit_debt` died on `relative_to(repo)` because the durable store lives outside the repo tree — four sites fixed (`finding.py` governance path + `_refresh_index`, and their `debt.py` twins), paths now resolve against the store that owns them.
 
 **Owner:** claude (session lead). **Deadline:** landed. **Status:** RESOLVED (this PR).
 
@@ -9433,7 +9602,7 @@ Severity: MEDIUM. `tools/aria-adapters/**` is not an Nx project, and `npm run li
 
 **Root cause is the GATE GAP, not the errors** — fixing 55 errors by hand leaves the directory unlinted and the fifty-sixth arrives with the next adapter. The architectural fix is to bring `tools/aria-adapters` under a lint target (its own Nx project or an explicit path in the repo-wide lint script), then clear the debt the gate reports. The E9 adapter (`kernel-dead-wire-adapter.ts`) landed clean and narrows the chunk type at the boundary, which is the shape its six siblings should converge on.
 
-**Owner:** claude (session lead). **Deadline:** 2026-09-15. **Status:** OPEN — named in the E9 PR body rather than folded into it, because a lint-target change touches every adapter and belongs in its own reviewable train.
+**Owner:** claude (session lead). **Deadline:** 2026-09-15. **Status:** RESOLVED (this PR) — the GATE first: `tools/aria-adapters/project.json` registers an Nx `lint` target (heap-bumped eslint, `--max-warnings=0`), so `nx affected --target=lint` reaches the directory and the fifty-sixth error cannot arrive unlinted. Then the debt the gate reported: 32 import/order autofixed; the seven-sibling `readStdin` idiom converged on the E9 adapter's boundary-narrowing shape; 8 `no-console` in self-test harnesses became `process.stdout.write`; 4 indent-argument `JSON.stringify` sites dropped the indent; the truly dead `secondArg` binding was DELETED (İ2 — not underscore-parked); one `String()`-on-object coercion became a type narrow; one missing return type annotated. All nine adapter self-tests pass unchanged.
 
 ## ORPHAN-HIGH-687 — every judge re-read the same evidence files the envelope could have quoted — RESOLVED (this PR, E17-b)
 
@@ -9444,6 +9613,22 @@ Severity: HIGH (E17-b, the mint-side half of context economy). The envelope carr
 **Scope note carried honestly:** no production caller passed `context_repo_root`, so the feature would have been DORMANT on the judge lane it exists for; the fix threads `repo_root` from the judgment-pipeline phase — which as a side effect also activates the FAZ-4 `recent_intent` section on that lane, dormant since it landed. Stated here rather than discovered later. 30 tests incl. the drop-from-fused-projection, oversized-set and post-mint-tamper deliberate breaks; full kernel suite 3924 passed + 573 subtests.
 
 **Owner:** claude (session lead) + parallel implementation agent. **Status:** RESOLVED. NOT done (named, not skipped): the four judge `.md` prompts still describe reading files directly — telling judges they may rely on the excerpt touches model-tier-protected files and is its own change.
+
+## ORPHAN-MEDIUM-692 — the bench could only run the two languages the lane knew, and its evidence could be an amputated log or a cache hit — RESOLVED (this PR, E21-b)
+
+Severity: MEDIUM (E21-b). E21-a landed a domain-agnostic experiment contract whose kernel is pinned domain-blind by an AST check. But the execution lane's allowlist knew only `npm`, `npx` and `python3`, so **a Rust recipe could not run at all** — the domain-agnostic claim rested on the kernel not naming a domain, never on a second language actually executing. An assertion, not a result.
+
+**Fix (agent-implemented on a parallel lane, lead-verified firsthand): the Rust lane opens narrowly.** `cargo` joins `validation.ALLOWED_COMMANDS` restricted to the non-mutating verbs `check` and `test`; `publish`, `install`, `run` and every other subcommand are refused, as is `--config`, which can turn an approved verb into arbitrary argv via a runner override. Precedent, not new privilege: `implementation_safety.ALLOWED_BASH_COMMANDS` already carried `cargo test` for the fixture runner, and this lane is strictly tighter than that one. `docker` remains structurally denied (`implementation_safety.py` diff is empty and the refusal test still passes). Lead probed all seven cases independently — the two allowed forms accepted, `publish`/`install`/`run`/`--config`/`docker compose` each refused with a named reason.
+
+**Recipes are DATA.** A manifest under `tools/aria-poc/` (the repo-facing lane that already knows this repository) plus a thin registrar; adding a recipe is a data edit, never a kernel change. A gate spec proves every manifest command is executable by the lane, using the lane's own parser rather than a second copy of the allowlist.
+
+**Two defects the RUNNING found, which reading would not have.** (1) The first TypeScript run recorded `exit_code=0` while its hash-bound log held 63 KB of a 161 KB run, cut mid-escape-sequence — 80 of 124 suites and the whole summary missing, because nx's default TUI writer emits redraw frames rather than a stream. The kernel does not truncate (`_write_run_log` writes the full captured stdout/stderr; the capture has no cap), so the honest fix is at the recipe layer: `--output-style=stream`. (2) The second run returned `exit_code=0` in seconds from `[local cache]` **having executed nothing** — a bench that can be answered by a build cache records greens it never earned. Both are now pinned by the manifest gate, including `test_no_recipe_can_be_answered_from_a_build_cache`.
+
+**Both recipes ran end to end, green, with real ledger rows.** Rust: `cargo check -p alarm-core`, `exit_code=0`, `status=ok`, `duration_ms=1307`, observation `matched=true`, and `verify_validation_run` re-hashed the log successfully. TypeScript: `npx nx run-many --target=test --projects=backend-common --skip-nx-cache --output-style=stream` → 124 suites, 1369 tests, including ORPHAN-691's own regression specs — so the first solution-experiment the bench ever ran verifies the previous finding's fix.
+
+**Schedulability, measured twice (agent and lead independently):** the Rust recipe costs **~96 KB of disk and 1.39 s**, producing a 156 KB `target/` — it compiles one dependency-free crate to rmeta. Safe for a nightly trigger. The TypeScript recipe costs ~40 MB of `.nx` growth per run — also acceptable, but not free. This measurement is mandatory after the 2026-08-15 incident, where the host filled and the kernel's own disk floor blocked every push.
+
+**Owner:** claude (session lead) + parallel implementation agent (opus). **Status:** RESOLVED. Named residues: the crate is `alarm-core`, the shared alarm decision core, NOT the `suderra-agent` edge binary — checking the binary would compile tokio/reqwest/rustls/rumqttc, gigabytes, so the Rust lane is proven on the workspace's small member and the binary remains unmeasured; `npx nx test <project>` is refused by the lane (only `affected`/`run-many` forms are admitted), so recipes use `run-many`; cold-runner cost of the cargo recipe (fresh registry index) was not measured, only the warm path.
 
 ## ORPHAN-HIGH-691 — the tenant-isolation watchdog reported ten schemas clean that it was never allowed to read — RESOLVED (this PR)
 

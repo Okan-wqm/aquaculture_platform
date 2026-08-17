@@ -983,6 +983,40 @@ def _phase_twin_refresh(context: PhaseContext) -> dict[str, Any]:
     return refresh_twin_map(workspace_root=context.workspace_root, base_dir=context.base_dir)
 
 
+def _phase_experiment_author(context: PhaseContext) -> dict[str, Any]:
+    """X2 (ORPHAN-701) — the night authors before the bench selects.
+
+    Falsifiable open findings gain red-contract, finding-bound
+    experiments through the ONE registration writer; the planner right
+    after this phase finally has an admissible set to choose from.
+    """
+    from .experiment_author import author_night_experiments
+
+    return author_night_experiments(
+        context.workspace_root,
+        cycle_id=context.cycle_id,
+        base_dir=context.base_dir,
+    )
+
+
+def _phase_experiment_night(context: PhaseContext) -> dict[str, Any]:
+    """E21-d (ORPHAN-693) — the night runs the Deney Masası.
+
+    Pending problem-experiments run and, on a matched red, CONFIRM their
+    finding; fix-verified recipes re-run as regression watch. Budgeted,
+    disclosed, and record_and_continue — a bench crash must not cost the
+    night. The heavy thinking lives in experiment_night.py; the cycle
+    only supplies identity and roots.
+    """
+    from .experiment_night import run_night_experiments
+
+    return run_night_experiments(
+        context.workspace_root,
+        cycle_id=context.cycle_id,
+        base_dir=context.base_dir,
+    )
+
+
 def _phase_watchdog(context: PhaseContext) -> dict[str, Any]:
     """M13/E12-c (ORPHAN-677) — the watchdog's eyes join the nightly body.
 
@@ -1796,15 +1830,57 @@ def _phase_artifact_integrity(context: PhaseContext) -> dict[str, Any]:
     return verify_artifacts(base_dir=context.base_dir)
 
 
+def _phase_digest_of(payload: Any, fields: tuple[str, ...]) -> dict[str, Any] | None:
+    """X3 (ORPHAN-700) — compact, count-shaped digest of a phase payload.
+
+    None when the phase produced no dict payload (it never ran or was
+    precondition-skipped); a dict — zeros allowed — when it RAN. That
+    None/zero distinction is the whole point: it is what lets the report
+    say "ran empty" instead of guessing.
+    """
+    if not isinstance(payload, dict):
+        return None
+    digest: dict[str, Any] = {}
+    for field in fields:
+        value = payload.get(field)
+        if isinstance(value, list):
+            digest[field] = len(value)
+        elif isinstance(value, (int, float)):
+            digest[field] = value
+        elif value is not None:
+            digest[field] = str(value)[:80]
+        else:
+            digest[field] = 0
+    return digest
+
+
 def _phase_metrics(context: PhaseContext) -> dict[str, Any]:
     tools_result = context.result("tools") or {}
     run_summary = tools_result.get("run_summary") or []
     decisions = tools_result.get("decisions") or []
+    # X3 (ORPHAN-700) — the two payloads that used to evaporate at the
+    # projection boundary now ride the metrics row the publish carries.
+    phase_digests: dict[str, dict[str, Any]] = {}
+    night = _phase_digest_of(
+        context.result("experiment_night"),
+        ("planned_problem", "planned_regression", "reproduced", "refuted",
+         "regressions", "still_fixed", "skipped_problem", "skipped_regression",
+         "unresolvable_bindings", "errors"),
+    )
+    if night is not None:
+        phase_digests["experiment_night"] = night
+    watchdog = _phase_digest_of(
+        context.result("watchdog_sweep"),
+        ("findings_emitted", "deduped", "detectors_ran", "signals"),
+    )
+    if watchdog is not None:
+        phase_digests["watchdog_sweep"] = watchdog
     return record_cycle_metrics(
         cycle_id=context.cycle_id,
         phase_durations_ms={"cycle": int((time.monotonic() - context.started_monotonic) * 1000)},
         artifact_count=len(run_summary) + 4,
         status="ok" if _runtime_status(context) == "ok" else "failed",
+        phase_digests=phase_digests or None,
         cost_units=sum(
             float((decision.get("envelope") or {}).get("cost_units") or 0)
             for decision in decisions if isinstance(decision, dict)
@@ -2334,6 +2410,27 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
         "decision_questioning", "post_tool", _phase_decision_questioning,
         precondition=WRITES_PERMITTED, on_error="record_and_continue",
         state_key="decision_questioning",
+    ),
+    # E21-d (ORPHAN-693) — the experiment bench joins the nightly body:
+    # pending problem-experiments run (matched red → certainty CONFIRMED
+    # through the E21-c bridge) and fix-verified recipes re-run as the
+    # regression watch. WRITES_PERMITTED (existing precondition — the
+    # closed-set identity rule) because runs, change-chains and finding
+    # events are all writes; record_and_continue because a crashed bench
+    # must not cost a night whose other organs succeeded.
+    # X2 (ORPHAN-701) — authoring runs immediately BEFORE the bench so an
+    # experiment minted tonight is selectable tonight. Writes (recipes +
+    # experiment rows) → WRITES_PERMITTED; record_and_continue like every
+    # bench organ.
+    CyclePhase(
+        "experiment_author", "post_tool", _phase_experiment_author,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="experiment_author",
+    ),
+    CyclePhase(
+        "experiment_night", "post_tool", _phase_experiment_night,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="experiment_night",
     ),
     # The judgment supply chain, in dependency order and BEFORE calibration:
     # fixtures stay fresh, findings get sampled, judges fan out, consensus is

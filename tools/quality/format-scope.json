@@ -969,6 +969,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": ".github/manifests/postgres-dr-bootstrap-policy.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": ".github/manifests/postgres-image.json",
       "prettier_managed": true
     },
@@ -7345,6 +7351,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/event-store-service/src/finding-registry/finding-event.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/event-store-service/src/finding-registry/finding-registry.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/event-store-service/src/finding-registry/finding-registry.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/event-store-service/src/guards/event-store-service-identity.guard.spec.ts",
       "prettier_managed": true
     },
@@ -7451,6 +7475,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/event-store-service/src/migrations/1801100000000-CreateTenantPayloadKeys.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/event-store-service/src/migrations/1801200000000-CreateFindingEventsLedger.ts",
       "prettier_managed": true
     },
     {
@@ -27053,6 +27083,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "aria-config/genesis_policy.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "aria-debts/_index.json",
       "prettier_managed": true
     },
@@ -33634,6 +33670,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/data-expert/2026-08-16-finding-event-ledger.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/database-reviewer/2026-04-10-full-repo-audit.md",
       "prettier_managed": true
     },
@@ -34967,6 +35009,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/runbooks/monitoring/tenant-provisioning.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/runbooks/monitoring/tenant-reality-parity.md",
       "prettier_managed": true
     },
     {
@@ -37921,19 +37969,13 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "libs/backend-common/src/finding-registry/finding-registry.module.ts",
+      "path": "libs/backend-common/src/finding-registry/finding-event.spec.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "libs/backend-common/src/finding-registry/finding-registry.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "libs/backend-common/src/finding-registry/finding.entity.ts",
+      "path": "libs/backend-common/src/finding-registry/finding-event.ts",
       "prettier_managed": true
     },
     {
@@ -43359,6 +43401,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/finding-event-ledger-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/finding-evidence-shape.spec.ts",
       "prettier_managed": true
     },
@@ -43378,6 +43426,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/fixtures/plan-020/banned-phrase-positive.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/fixtures/postgres-dr-bootstrap/check-runs-older-success-newer-failure.json",
       "prettier_managed": true
     },
     {
@@ -43768,6 +43822,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/postgres-ddl-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/postgres-dr-bootstrap-control-plane.spec.ts",
       "prettier_managed": true
     },
     {
@@ -44456,6 +44516,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/aria-adapters/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/aria-adapters/security-boundary-adapter.test.ts",
       "prettier_managed": true
     },
@@ -44535,6 +44601,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/aria-poc/ci_executor_contract_proven.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-poc/experiment-recipes.json",
       "prettier_managed": true
     },
     {
@@ -44961,6 +45033,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/gates/farm-service-enterprise-guardrails.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/finding-event-ledger.ts",
       "prettier_managed": true
     },
     {
@@ -45657,6 +45735,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/watchdog/README.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/watchdog/tenant-reality.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/watchdog/tenant-reality.spec.mjs",
       "prettier_managed": true
     },
     {

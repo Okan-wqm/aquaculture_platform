@@ -1,20 +1,32 @@
 {
   "findings": [
     {
-      "drift_class": "ui_option_drift",
-      "file": "F-101.json",
-      "id": "F-101",
-      "status": "OPEN",
-      "title": "ui_option_drift: 'financescope' value sets diverge (jaccard 0.67, cross_service=True)"
+      "claim_summary": "ui_option_drift: 'financescope' value sets diverge across 2 surfaces (cross_service=True)",
+      "claim_type": "spine_drift",
+      "created_at": "2026-08-17T15:43:37Z",
+      "evidence_chain_id": "chain_bfbc57ad402d1a69",
+      "finding_id": "F-001",
+      "path": "F-001.json",
+      "severity": "HIGH",
+      "source_event_id": "finding:F-001:emitted",
+      "source_ledger_hash": "sha256:7fecab1f8788f220a0a606cd04eef45546dbd673e42fce94c592803a9ee18024",
+      "status": "OPEN"
     },
     {
-      "drift_class": "ui_option_drift",
-      "file": "F-102.json",
-      "id": "F-102",
-      "status": "OPEN",
-      "title": "ui_option_drift: 'leaverequest' value sets diverge (jaccard 0.80, cross_service=True)"
+      "claim_summary": "ui_option_drift: 'leaverequest' value sets diverge across 2 surfaces (cross_service=True)",
+      "claim_type": "spine_drift",
+      "created_at": "2026-08-17T15:43:38Z",
+      "evidence_chain_id": "chain_99ec1e0028d46636",
+      "finding_id": "F-002",
+      "path": "F-002.json",
+      "severity": "HIGH",
+      "source_event_id": "finding:F-002:emitted",
+      "source_ledger_hash": "sha256:3f40f6782c2b0498d36806181ab85f9c3589dc5b78c2dc86e1178ad029f84efa",
+      "status": "OPEN"
     }
   ],
-  "schema_version": 1,
-  "source": "seed_drift_findings"
+  "generated_at": "2026-08-17T15:43:38Z",
+  "schema_version": 2,
+  "source_ledger": "aria-findings/finding-events.jsonl",
+  "source_ledger_tip_hash": "sha256:3f40f6782c2b0498d36806181ab85f9c3589dc5b78c2dc86e1178ad029f84efa"
 }

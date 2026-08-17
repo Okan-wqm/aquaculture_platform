@@ -97,10 +97,22 @@ class AdjudicabilityGate(unittest.TestCase):
         )
 
     def test_admitted_kind_without_files_is_adjudicable(self) -> None:
+        # Y8 (ORPHAN-709) — genesis_candidate is admitted WITH fail-closed
+        # identity requirements: the lifecycle proof resolver needs the gap
+        # key, the resolver decision ref, and the gap's evidence, so a bare
+        # context is deliberately NOT adjudicable for that kind alone.
+        genesis_identity = {
+            "capability_gap_key": "shadow_run:tool-x",
+            "capability_resolution_ref": "res-1",
+            "evidence_refs": ["apps/svc/src/a.ts"],
+        }
         for kind in sorted(hra.ADJUDICABLE_CONTEXT_KINDS):
             with self.subTest(kind=kind):
+                context: dict = {"kind": kind}
+                if kind == "genesis_candidate":
+                    context.update(genesis_identity)
                 self.assertTrue(
-                    hra.escalation_adjudicability({"context": {"kind": kind}}).adjudicable,
+                    hra.escalation_adjudicability({"context": context}).adjudicable,
                 )
 
 

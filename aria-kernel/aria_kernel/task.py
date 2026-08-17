@@ -219,7 +219,8 @@ def _candidate_from_shadow_summary(cycle_id: str, run: dict[str, Any], raw_count
         "risk_class": "triage_only",
         "validation_commands": ["PYTHONPATH=aria-kernel python3 -m unittest discover aria-kernel -p '*test*.py'"],
         "score": min(75, 30 + raw_count),
-        "blocked_by": ["operator_feedback_required"],
+        # Y8 (ORPHAN-709) — routes to the genesis panel, not the operator.
+        "blocked_by": ["genesis_adjudication_required"],
     }
 
 

@@ -128,6 +128,12 @@ ADJUDICABLE_CONTEXT_KINDS: frozenset[str] = frozenset({
     # no producer is dead vocabulary, a producer with no admitted kind
     # parks on the operator forever.
     "anchor_stale",
+    # Y8 (ORPHAN-709) — admitted together with ITS producer
+    # (agent_genesis.sweep_candidate_gaps_for_adjudication): a parked
+    # capability gap becomes a panel question instead of an operator queue
+    # item. Fail-closed identity requirements live in
+    # escalation_adjudicability below.
+    "genesis_candidate",
 })
 
 # Risk-policy lanes a panel may not clear.
@@ -208,6 +214,16 @@ def escalation_adjudicability(record: dict[str, Any]) -> AdjudicabilityVerdict:
         # Unknown kinds are irreducible: a new escalation source must be
         # reviewed and explicitly admitted, never admitted by omission.
         return AdjudicabilityVerdict(False, f"context_kind_not_admitted:{kind}")
+    if kind == "genesis_candidate":
+        # Y8 — a genesis question without its identity chain is not a
+        # panel question: the lifecycle proof resolver needs the gap key,
+        # the resolver's decision row, and the gap's own evidence.
+        for field in ("capability_gap_key", "capability_resolution_ref"):
+            if not str(context.get(field) or "").strip():
+                return AdjudicabilityVerdict(False, f"genesis_candidate_missing:{field}")
+        refs = context.get("evidence_refs")
+        if not isinstance(refs, list) or not refs:
+            return AdjudicabilityVerdict(False, "genesis_candidate_missing:evidence_refs")
     changed_files = context.get("changed_files")
     if changed_files is not None:
         if not isinstance(changed_files, list) or not changed_files:
@@ -660,9 +676,69 @@ def adjudicate_human_required(
             root, escalation_request_id, record, reason="quorum_refuse",
         )
         return verdict
+    if verdict.outcome == OUTCOME_REFUSED and kind == "genesis_candidate" and record:
+        # Y8 — a refuse quorum on a genesis candidate is a REJECTION, not a
+        # handoff: the panel judged the capability not worth minting. The
+        # record closes with the verdict on it; the resolved record is what
+        # keeps the sweep from re-asking the same question every night.
+        from .human_required import RESOLVED_BY_AGENT_PANEL, resolve_human_required
+
+        resolve_human_required(
+            request_id=escalation_request_id,
+            resolution_note=(
+                f"genesis refused by independent agent panel "
+                f"({verdict.refuse_votes}/{verdict.quorum_required} refuse)"
+            ),
+            resolved_by=RESOLVED_BY_AGENT_PANEL,
+            base_dir=root,
+        )
+        append_tools_governance(
+            root, "genesis_candidate_refused",
+            {
+                "escalation_request_id": escalation_request_id,
+                "capability_gap_key": (record.get("context") or {}).get("capability_gap_key"),
+            },
+        )
+        return verdict
     if not verdict.clears_escalation:
         return verdict
     from .human_required import RESOLVED_BY_AGENT_PANEL, resolve_human_required
+
+    if kind == "genesis_candidate" and record:
+        # Y8 (ORPHAN-709) — the panel's resolve quorum IS the genesis
+        # approval. Order matters: the lifecycle proof resolver demands a
+        # RESOLVED, agent_panel record, so resolve first, execute second;
+        # an execution failure honestly re-opens the record (the existing
+        # panel re-folds next cycle and retries — no silent wedge).
+        resolve_human_required(
+            request_id=escalation_request_id,
+            resolution_note=(
+                f"genesis approved by independent agent panel "
+                f"({verdict.resolve_votes}/{verdict.quorum_required} resolve)"
+            ),
+            resolved_by=RESOLVED_BY_AGENT_PANEL,
+            base_dir=root,
+        )
+        try:
+            from .agent_genesis import execute_genesis_panel_approval
+
+            execute_genesis_panel_approval(
+                escalation_id=escalation_request_id, record=record, base_dir=root,
+            )
+        except Exception as exc:
+            from .human_required import _human_required_path
+
+            reopened = dict(_load_escalation_record(root, escalation_request_id) or record)
+            reopened["status"] = "open"
+            reopened["genesis_execution_failure"] = str(exc)[:300]
+            _human_required_path(root, escalation_request_id).write_text(
+                json.dumps(reopened, indent=2, sort_keys=True) + "\n", encoding="utf-8",
+            )
+            append_tools_governance(
+                root, "genesis_panel_execution_failed",
+                {"escalation_request_id": escalation_request_id, "error": str(exc)[:300]},
+            )
+        return verdict
 
     disposition_note = ""
     if operational and record:

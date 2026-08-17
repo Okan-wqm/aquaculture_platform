@@ -82,6 +82,14 @@ def list_capability_gaps(*, base_dir: str | Path | None = None) -> list[dict[str
     return load_jsonl(ensure_tools_dir(base_dir) / "capability-gaps" / "gaps.jsonl")
 
 
+# Y8 (ORPHAN-709) — the genesis gate token. Renamed from
+# "operator_feedback_required" (İ2 semantic reversal): a gap carrying ONLY
+# this token routes to the agent panel via
+# agent_genesis.sweep_candidate_gaps_for_adjudication instead of parking on
+# the operator; the learning hook feeds it, the panel adjudicates it.
+GENESIS_ADJUDICATION_BLOCK_TOKEN = "genesis_adjudication_required"
+
+
 def latest_capability_gaps(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
     rows = list_capability_gaps(base_dir=base_dir)
     if not rows:
@@ -350,7 +358,7 @@ def _gaps_from_shadow_runs(cycle_id: str, root: Path, base_dir: str | Path | Non
                 evidence_refs=paths,
                 related_agents=related,
                 score=min(90, 45 + raw_count),
-                blocked_by=["operator_feedback_required"],
+                blocked_by=[GENESIS_ADJUDICATION_BLOCK_TOKEN],
                 capability_gap_key=f"shadow_run:{run.get('tool_id')}",
                 primary_source="shadow-run",
                 source_types=["shadow-run"],

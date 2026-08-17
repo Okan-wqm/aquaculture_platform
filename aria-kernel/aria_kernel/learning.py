@@ -94,6 +94,9 @@ def _run_learning_hooks(
         ("plan_convergence_advance", lambda: _plan_convergence_advance(cycle_id=cycle_id, tools_root=root)),
         ("impact_graph_compute", lambda: _impact_graph_compute(cycle_id=cycle_id, paths=paths, tools_root=root)),
         ("skill_or_agent_genesis", lambda: _skill_or_agent_genesis(cycle_id=cycle_id, paths=paths, tools_root=root)),
+        # Y8 (ORPHAN-709) — gaps blocked on genesis adjudication route to the
+        # agent panel instead of vanishing from the actionable filter above.
+        ("genesis_panel_sweep", lambda: _genesis_panel_sweep(cycle_id=cycle_id, paths=paths, tools_root=root)),
         ("service_auditor_targeting", lambda: _service_auditor_targeting(cycle_id=cycle_id, paths=paths, tools_root=root)),
         ("agent_fitness_score", lambda: agent_fitness_score(cycle_id=cycle_id, base_dir=root)),
     )
@@ -296,6 +299,30 @@ def _impact_graph_compute(
         "skipped_no_evidence": skipped_no_evidence,
         "dispatches": computed,
     }, item_failures)
+
+
+def _genesis_panel_sweep(
+    *,
+    cycle_id: str,
+    paths: WorkspacePaths,
+    tools_root: Path | None,
+) -> dict[str, Any]:
+    """Y8 (ORPHAN-709) — parked gaps become panel questions.
+
+    The actionable filter above rightly skips blocked gaps; pre-Y8 that
+    skip was a black hole (16 gaps parked on per-gap operator approval,
+    skill_genesis forever no_requests). This hook hands each
+    genesis-token-blocked gap to sweep_candidate_gaps_for_adjudication,
+    which mints ONE idempotent genesis_candidate escalation the existing
+    adjudication sweep panels.
+    """
+    if tools_root is None:
+        return _skipped(cycle_id, "tools_root_required")
+    from .agent_genesis import sweep_candidate_gaps_for_adjudication
+
+    return sweep_candidate_gaps_for_adjudication(
+        base_dir=tools_root, cycle_id=cycle_id, repo_root=paths.repo_root,
+    )
 
 
 def _skill_or_agent_genesis(

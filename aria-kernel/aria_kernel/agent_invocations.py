@@ -1602,6 +1602,12 @@ HARNESS_FAULT_RELEASE_REASONS: frozenset[str] = frozenset({
     "claude_cli_auth_failure",
     "claude_spawn_refused",
     "dispatch_budget_refused",
+    # Y5 (ORPHAN-706) — a judge envelope without a readable verdict block is
+    # released BEFORE submit instead of sealed as an accepted-but-unfoldable
+    # result. The malformed output says nothing about the REQUEST (the same
+    # finding judged again usually succeeds), so the requeue must not burn
+    # the request's budget the way the old submit_rejected path did.
+    "judge_verdict_contract_violation",
     "kernel_prompt_renderer_unavailable",
     "prompt_hash_binding_mismatch",
 })

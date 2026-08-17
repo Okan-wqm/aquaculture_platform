@@ -452,7 +452,9 @@ def _canonicalize_cross_review(
     return mutated
 
 
-def _pre_submit_validate_envelope(envelope: dict[str, Any], role: str) -> list[str]:
+def _pre_submit_validate_envelope(
+    envelope: dict[str, Any], role: str, request: dict[str, Any] | None = None,
+) -> list[str]:
     """Plan ARIA-V8.1 Phase 3 — fail-fast canonical schema gate.
 
     Validates the agent's response envelope against the same canonical
@@ -467,6 +469,21 @@ def _pre_submit_validate_envelope(envelope: dict[str, Any], role: str) -> list[s
     than a generic "plan content must be a JSON object" warning.
     """
     errors: list[str] = []
+    if role in ("evidence_judgment", "adversarial_judgment"):
+        # Y5 (ORPHAN-706) — the judge output contract, enforced BEFORE the
+        # result is sealed. The second sealed night accepted 12 judge
+        # results with no readable verdict block; each became an accepted
+        # row the bridge could never fold ("expected verdict ..., got
+        # None"), burning bridge retries toward permanent_fail. The check
+        # is the KERNEL's own (`judgment_bridge.validate_judge_response`)
+        # so the executor and the bridge can never disagree about what a
+        # valid judge response is.
+        from aria_kernel.judgment_bridge import validate_judge_response
+
+        return validate_judge_response(
+            request=request or {},
+            response={**envelope, "role": role},
+        )
     if role in ("primary_plan", "challenger_plan"):
         plan_content = envelope.get("plan_content")
         if not isinstance(plan_content, dict):
@@ -2335,19 +2352,30 @@ def main(argv: list[str] | None = None) -> int:
                 _write_sanitized_envelope(expected_output_path, _envelope_for_validation)
             except OSError as _exc:
                 _stage(f"canonicalize_write_failed: {_exc}")
+        _role_for_validation = str(request_envelope.get("role") or "")
         validation_errors = _pre_submit_validate_envelope(
             _envelope_for_validation,
-            role=str(request_envelope.get("role") or ""),
+            role=_role_for_validation,
+            request=request_envelope,
         )
         if validation_errors:
             _stage(f"pre_submit_validation_FAILED errors={validation_errors}")
             sys.stderr.write(
                 f"plan_content_pre_submit_rejected: {','.join(validation_errors)}\n"
             )
+            # Y5 (ORPHAN-706) — a judge contract violation is a HARNESS-class
+            # release (the malformed output says nothing about the request;
+            # re-judging usually succeeds), with the field-level errors in
+            # the log line above so the operator sees WHICH field was wrong.
+            # Plan-content violations keep their request-fault pricing.
+            if _role_for_validation in ("evidence_judgment", "adversarial_judgment"):
+                _release_reason = "judge_verdict_contract_violation"
+            else:
+                _release_reason = f"plan_content_invalid:{','.join(validation_errors)[:160]}"
             _release_claim(
                 tools_dir=tools_dir, repo=repo, claim_id=claim_id,
                 agent_id=agent_id, lease_token=lease_token,
-                reason=f"plan_content_invalid:{','.join(validation_errors)[:160]}",
+                reason=_release_reason,
             )
             return 1
         _stage("pre_submit_validation_passed")

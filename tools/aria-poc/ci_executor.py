@@ -1065,14 +1065,29 @@ def invoke_claude_cli(
                 "satisfaction_matrix": matrix,
                 "evidence_refs": [],
                 "details": {
+                    # Y5 (ORPHAN-706) — the mock envelope satisfies the SAME
+                    # judge contract the pre-submit gate enforces (verdict in
+                    # the closed set + resolvable ids), exactly like the eval
+                    # fixtures do. The old "uncertain" placeholder was an
+                    # envelope the bridge could never fold — the measured
+                    # defect class this contract exists to keep out. Mock
+                    # mode is env-gated and never on in production lanes;
+                    # the ci-mock fallbacks only fire when the request row
+                    # itself carries no judgment identity (test fixtures).
+                    "agent_subagent_type": subagent_type,
                     "verdict": {
-                        "verdict": "uncertain",
+                        "verdict": "false_positive",
                         "confidence": 0.5,
                         "judge_id": subagent_type,
                         "model": "mock",
+                        "tool_id": str((request_envelope or {}).get("tool_id") or "ci-mock"),
+                        "run_id": str((request_envelope or {}).get("run_id") or "ci-mock"),
+                        "finding_id": str((request_envelope or {}).get("finding_id") or "ci-mock"),
                         "rationale": "MOCK MODE — CI executor placeholder; real Claude Code CLI invocation not configured",
                         "evidence_refs": [],
-                        "judgment_group_id": "ci-mock",
+                        "judgment_group_id": str(
+                            (request_envelope or {}).get("judgment_group_id") or "ci-mock"
+                        ),
                         "severity": "low",
                     },
                 },

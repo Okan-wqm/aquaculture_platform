@@ -227,37 +227,39 @@ def _check_protection_field(payload: dict[str, Any], dotted: str, expected: str)
     return False, f"unknown expected sentinel: {expected!r}"
 
 
-def verify_branch_protection(
+def probe_branch_protection(
     *,
     branch: str = "main",
     repo: str | None = None,
     gh_cli: str = "gh",
-) -> tuple[bool, tuple[str, ...]]:
-    """Calls ``gh api /repos/{repo}/branches/{branch}/protection`` and
-    asserts the 4 required fields per REQUIRED_BRANCH_PROTECTION_FIELDS.
+) -> tuple[bool, tuple[str, ...], dict[str, Any] | None]:
+    """The ONE branch-protection probe: verdict + reasons + RAW payload.
 
-    Returns ``(ok, reasons)``. ``ok=True`` iff every required field
-    asserts true. ``reasons`` carries the per-field verdict string
-    (used both for audit trail + operator notification).
+    F5-b (ORPHAN-694) — the readiness proof producer needs the payload
+    itself (snapshot hash, measured fields), not just the verdict. One
+    probe serves both consumers (İ1): ``verify_branch_protection`` keeps
+    its (ok, reasons) contract as a thin projection of this function.
 
-    Failure modes:
+    Failure modes (payload=None in every one):
 
     * gh CLI absent → ``ok=False`` with ``"gh_cli_not_on_path"`` reason
     * GH_TOKEN absent → ``ok=False`` with ``"gh_token_absent"``
     * gh api call non-zero exit → ``ok=False`` with stderr summary
     * JSON parse failure → ``ok=False`` with ``"protection_payload_unparseable"``
-    * Any required field missing/wrong → ``ok=False`` with per-field reason
+    * Any required field missing/wrong → ``ok=False`` with per-field
+      reason, but the PAYLOAD is still returned — a proof producer must
+      be able to record honestly what IS configured.
 
     Plan ARIA-V9.0-C does NOT mutate branch-protection; if the
     rules are missing the operator must add them via the GitHub UI
-    or `gh api -X PUT`. The preflight is read-only.
+    or `gh api -X PUT`. The probe is read-only.
     """
     reasons: list[str] = []
 
     if not _gh_available():
-        return False, ("gh_cli_not_on_path",)
+        return False, ("gh_cli_not_on_path",), None
     if not _read_gh_token():
-        return False, ("gh_token_absent",)
+        return False, ("gh_token_absent",), None
 
     api_path = f"repos/{repo}/branches/{branch}/protection" if repo else f"repos/{{owner}}/{{repo}}/branches/{branch}/protection"
     try:
@@ -266,25 +268,38 @@ def verify_branch_protection(
             capture_output=True, text=True, timeout=30,
         )
     except subprocess.TimeoutExpired:
-        return False, ("gh_api_timeout",)
+        return False, ("gh_api_timeout",), None
     except FileNotFoundError:
-        return False, ("gh_cli_not_on_path",)
+        return False, ("gh_cli_not_on_path",), None
 
     if proc.returncode != 0:
         stderr_summary = proc.stderr.strip().split("\n")[0][:200] if proc.stderr else "<empty>"
-        return False, (f"gh_api_non_zero_exit: {stderr_summary}",)
+        return False, (f"gh_api_non_zero_exit: {stderr_summary}",), None
 
     try:
         payload = json.loads(proc.stdout)
     except json.JSONDecodeError:
-        return False, ("protection_payload_unparseable",)
+        return False, ("protection_payload_unparseable",), None
 
     for dotted, expected in REQUIRED_BRANCH_PROTECTION_FIELDS:
         ok, reason = _check_protection_field(payload, dotted, expected)
         if not ok:
             reasons.append(reason)
 
-    return (len(reasons) == 0), tuple(reasons)
+    return (len(reasons) == 0), tuple(reasons), payload
+
+
+def verify_branch_protection(
+    *,
+    branch: str = "main",
+    repo: str | None = None,
+    gh_cli: str = "gh",
+) -> tuple[bool, tuple[str, ...]]:
+    """(ok, reasons) projection of ``probe_branch_protection`` — see there."""
+    ok, reasons, _payload = probe_branch_protection(
+        branch=branch, repo=repo, gh_cli=gh_cli,
+    )
+    return ok, reasons
 
 
 def verify_preflight(

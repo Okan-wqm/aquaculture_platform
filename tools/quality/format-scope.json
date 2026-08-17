@@ -969,6 +969,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": ".github/manifests/postgres-dr-bootstrap-policy.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": ".github/manifests/postgres-image.json",
       "prettier_managed": true
     },
@@ -27077,6 +27083,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "aria-config/genesis_policy.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "aria-debts/_index.json",
       "prettier_managed": true
     },
@@ -43419,6 +43431,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/fixtures/postgres-dr-bootstrap/check-runs-older-success-newer-failure.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/git-hook-binding.spec.ts",
       "prettier_managed": true
     },
@@ -43804,6 +43822,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/postgres-ddl-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/postgres-dr-bootstrap-control-plane.spec.ts",
       "prettier_managed": true
     },
     {

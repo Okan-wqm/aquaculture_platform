@@ -157,6 +157,139 @@ protocol and fixed operation executors; it must contain no fallback to
 `DROPLET_SSH_KEY` and must restart the three-success evidence sequence. Do not
 seed executable secret payloads into this attestation-only broker.
 
+### PostgreSQL DR image bootstrap while the production stop-line is locked
+
+The production stop-line is not an image-build authority. When the running
+PostgreSQL image predates the signed WAL-G contract, dispatch
+`postgres-dr-bootstrap-candidate.yml` from `refs/heads/main` with the exact
+current main SHA. The workflow fails if main moves before either build or
+signing. Its build job has no production Environment, production credentials,
+SSH path, or deployment command. It publishes one run/SHA-scoped PostgreSQL
+tag, records its immutable digest, and passes that digest to the separately
+reviewed `production-backup-release` signing job. Administrator bypass must be
+disabled, self-review prevention enabled, and at least two eligible reviewers
+configured on that Environment. This candidate path addresses
+`INFRA-HIGH-073`; it does not close `INFRA-HIGH-033`, which still requires the
+three-backup and timestamp-PITR production evidence below.
+
+Both authorization and signing read live `main` branch protection and require
+an exact match for administrator enforcement, strict mode, context names, and
+the GitHub Actions application ID bound to every required check. The Check Runs
+API does not supply a creation timestamp, so every matching check ID is first
+bound to its exact Actions job and that job's authoritative `created_at`. For
+each context, the effective check is the newest `(Actions job created_at, check
+id)` pair created no later than the merge timestamp; queued, failed, cancelled,
+or post-merge completion evidence fails closed. The selected check ID must be
+the Actions job ID, and that job is bound to one exact run attempt and workflow path. The
+signing job reads branch protection again immediately before signing, and the
+signing step re-reads `refs/heads/main` before every signature or attestation.
+Any move away from the authorized SHA leaves the candidate incomplete and
+unusable. The provider verifies the normalized branch-protection snapshot
+embedded in the signed release authority.
+
+Two independent eligible reviewer identities are a hard external prerequisite.
+If `Okan-wqm` is the only repository collaborator or Environment reviewer, the
+signing job must remain blocked until a second independent collaborator or team
+is provisioned. Do not reduce the minimum-reviewer policy or enable
+administrator bypass to make the job advance.
+
+The provider host also has two fail-closed prerequisites:
+
+- `/usr/local/bin/cosign` is the official v3.0.6 binary, owned by root, not a
+  symlink, and neither its file nor any parent directory is group/world
+  writable. Its SHA-256 is
+  `c956e5dfcac53d52bcf058360d579472f0c1d2d9b69f55209e256fe7783f4c74`; and
+- the PostgreSQL GHCR package permits anonymous pulls. Provision the root-owned,
+  non-writable `/etc/aqua/dr-bootstrap-public-registry/config.json` as exactly
+  `{"auths":{}}`. An anonymous pull denial is a package-visibility blocker; do
+  not substitute a PAT, credential helper, SSH path, or broader registry token.
+
+Move the resulting signed artifact to the host through the provider console
+or an independently administered bastion. Do not use `DROPLET_SSH_KEY`, a
+backup workflow payload, or the general deployment executor. Before executing
+artifact code as root, verify both signed records and the executor bytes from
+an unmodified shell:
+
+```bash
+RELEASE_ROOT='/root/postgres-dr-bootstrap-<main-sha>-<run-id>-<attempt>'
+MAIN_SHA='<exact signed main SHA>'
+IDENTITY='https://github.com/Okan-wqm/aquaculture_platform/.github/workflows/postgres-dr-bootstrap-candidate.yml@refs/heads/main'
+
+test "$(cosign version 2>/dev/null | awk '$1 == "GitVersion:" {print $2}')" = v3.0.6
+test "$(sha256sum --binary /usr/local/bin/cosign | awk '{print $1}')" = \
+  c956e5dfcac53d52bcf058360d579472f0c1d2d9b69f55209e256fe7783f4c74
+
+for subject in candidate.json release-authority.json; do
+  cosign verify-blob \
+    --bundle "${RELEASE_ROOT}/${subject}.sigstore.json" \
+    --certificate-identity "${IDENTITY}" \
+    --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+    --certificate-github-workflow-repository 'Okan-wqm/aquaculture_platform' \
+    --certificate-github-workflow-ref 'refs/heads/main' \
+    --certificate-github-workflow-sha "${MAIN_SHA}" \
+    --certificate-github-workflow-trigger 'workflow_dispatch' \
+    --certificate-github-workflow-name 'PostgreSQL DR Bootstrap Candidate' \
+    "${RELEASE_ROOT}/${subject}"
+done
+
+EXECUTOR_RELATIVE_PATH='infrastructure/scripts/provider-console-bootstrap-postgres-walg.sh'
+EXECUTOR_SHA256=$(jq --raw-output \
+  --arg path "${EXECUTOR_RELATIVE_PATH}" \
+  '.materials[] | select(.path == $path) | .sha256' \
+  "${RELEASE_ROOT}/candidate.json")
+printf '%s  %s\n' \
+  "${EXECUTOR_SHA256}" \
+  "${RELEASE_ROOT}/repository/${EXECUTOR_RELATIVE_PATH}" \
+  | sha256sum --strict --check -
+```
+
+Supply the independently reviewed coordinates from `candidate.json` to the
+executor with an empty inherited environment:
+
+```bash
+sudo env -i \
+  PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+  RELEASE_ROOT="${RELEASE_ROOT}" \
+  EXPECTED_MAIN_SHA="${MAIN_SHA}" \
+  EXPECTED_IMAGE_DIGEST='<candidate image.digest>' \
+  EXPECTED_RUN_ID='<candidate build.run_id>' \
+  EXPECTED_RUN_ATTEMPT='<candidate build.run_attempt>' \
+  /bin/bash -p \
+    "${RELEASE_ROOT}/repository/infrastructure/scripts/provider-console-bootstrap-postgres-walg.sh"
+```
+
+The executor fixes Docker to the local Unix socket with no named context,
+re-verifies the two Sigstore bundles, OCI signature, exact candidate
+attestation, policy, materials, image labels, production environment ownership,
+and WAL-G file bundle before mutation. The executor does not accept overrides
+for its host boundaries: deploy checkout is
+`/var/lib/aqua/deploy/checkout`, production environment is
+`/var/aqua-saas/.env`, and durable state is
+`/var/lib/aqua/deploy/dr-bootstrap`. It holds the shared root-owned
+`/var/lib/aqua/deploy/control-plane.lock` from before image pull and prior-image
+observation through a durable terminal state; capacity GC and production
+recreation lanes must take the same lock before mutation. The PostgreSQL init
+directory is copied into, hashed by, and mounted only from the signed release
+material, and the fully rendered Compose model must contain exactly that one
+read-only bind at `/docker-entrypoint-initdb.d`. An internal
+`TAG` equal to the authorized main SHA satisfies interpolation in the signed
+production Compose file, while the digest-only override remains the image
+authority.
+
+A global nonblocking root-owned lock rejects overlapping candidates from
+observation through commit or rollback. The fsync-backed phase journal moves
+monotonically through `VERIFYING`, `PREPARED`, `FORWARD_STARTED`, and either
+`COMMITTED` or `ROLLBACK_STARTED` then `ROLLED_BACK`. `FORWARD_STARTED` is
+durable before the first Compose recreation. After SIGKILL, power loss, or an
+ordinary failure, every non-committed post-mutation re-entry restores the exact
+persisted prior image before any registry access, verifies that image is
+healthy, and records `ROLLED_BACK`. Never replay the same candidate after a
+rollback; dispatch and independently approve a new signed run attempt. A
+corrupt, partial, mismatched, or competing nonterminal journal permits no
+mutation; no application service, schema migration, mutable image tag,
+repository variable, or general deploy unlock is available. Preserve the
+root-owned run record with the backup and PITR evidence.
+
 `WALG_LIBSODIUM_KEY_B64` and its PITR counterpart must come from an approved
 secret manager. Keep an offline escrow copy indexed by bucket, epoch, and
 activation date. Never put

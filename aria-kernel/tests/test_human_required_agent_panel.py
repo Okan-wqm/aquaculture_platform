@@ -167,7 +167,10 @@ class PanelFold(unittest.TestCase):
         )
         return [str(r) for r in row["request_ids"]]
 
-    def _seed_opinion(self, request_id: str, *, agent_id: str, verdict: str) -> None:
+    def _seed_opinion(
+        self, request_id: str, *, agent_id: str, verdict: str,
+        disposition: str | None = None,
+    ) -> None:
         """Write a claim row + an accepted result + its output payload.
 
         Goes through ``append_declared_jsonl`` rather than writing lines
@@ -178,10 +181,10 @@ class PanelFold(unittest.TestCase):
         invocations = self.tools / "agent-invocations"
         invocations.mkdir(parents=True, exist_ok=True)
         output = invocations / f"{request_id}.opinion.json"
-        output.write_text(
-            json.dumps({"verdict": verdict, "rationale": f"{agent_id} says {verdict}"}),
-            encoding="utf-8",
-        )
+        payload = {"verdict": verdict, "rationale": f"{agent_id} says {verdict}"}
+        if disposition is not None:
+            payload["disposition"] = disposition
+        output.write_text(json.dumps(payload), encoding="utf-8")
         append_declared_jsonl(
             invocations / "claims.jsonl",
             {
@@ -262,8 +265,15 @@ class PanelFold(unittest.TestCase):
     # I-PANEL-11
     def test_i_panel_11_independent_quorum_clears_escalation(self) -> None:
         request_ids = self._open()
-        self._seed_opinion(request_ids[0], agent_id="judge-a", verdict=hra.RESOLVE_VERDICT)
-        self._seed_opinion(request_ids[1], agent_id="judge-b", verdict=hra.RESOLVE_VERDICT)
+        # Y7 (ORPHAN-708) — DELIBERATE REWRITE: on an OPERATIONAL kind a
+        # resolve vote must carry a disposition; a dispositionless quorum
+        # now stamps escalate_operator instead of closing the record
+        # (pinned in test_y7_self_adjudication). drop_with_reason keeps
+        # this pin about what it always tested: independence + quorum.
+        self._seed_opinion(request_ids[0], agent_id="judge-a", verdict=hra.RESOLVE_VERDICT,
+                           disposition=hra.DISPOSITION_DROP)
+        self._seed_opinion(request_ids[1], agent_id="judge-b", verdict=hra.RESOLVE_VERDICT,
+                           disposition=hra.DISPOSITION_DROP)
         self._seed_opinion(request_ids[2], agent_id="judge-c", verdict=hra.REFUSE_VERDICT)
         verdict = hra.adjudicate_human_required(
             escalation_request_id=self.escalation_id, base_dir=self.tools,
@@ -352,6 +362,14 @@ class AdjudicationPublicApiPin(unittest.TestCase):
         "PanelVerdict",
         # behaviour
         "adjudicate_human_required",
+        # Y7 (ORPHAN-708) — panel dispositions: the closed effect vocabulary
+        # and the budgets that bound it.
+        "DISPOSITION_DROP",
+        "DISPOSITION_ESCALATE_OPERATOR",
+        "DISPOSITION_RE_MINT",
+        "MAX_REQUEST_REMINTS",
+        "OPERATIONAL_DISPOSITION_KINDS",
+        "PANEL_DISPOSITIONS",
         "escalation_adjudicability",
         "fold_adjudication",
         "open_adjudication",

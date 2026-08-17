@@ -263,6 +263,12 @@ def resolve_human_required(
     return record
 
 
+# Y7 (ORPHAN-708) — per-sweep ceiling for anchor-stale escalations: bounds
+# panel inflow (each record costs a 3-envelope panel) while a legacy corpse
+# pile drains over nights instead of all at once.
+ANCHOR_STALE_SWEEP_CAP = 5
+
+
 def sweep_lease_lifecycle_for_human_required(
     *,
     base_dir: str | Path | None = None,
@@ -323,6 +329,53 @@ def sweep_lease_lifecycle_for_human_required(
             now=now,
         )
         created.append(record)
+
+    # Y7 (ORPHAN-708) — the OTHER operational death: an envelope nobody
+    # claimed before its anchor window closed. Pre-Y7 these died silently
+    # (296 measured on the second sealed night) — no record, no panel, the
+    # work just gone. Capped per sweep so a stale backlog drains gradually
+    # instead of flooding the panel queue; a request that already has a
+    # remint successor is recovered, not escalated.
+    anchor_created = 0
+    remint_successors = {
+        str(r.get("remint_of")) for r in requests if r.get("remint_of")
+    }
+    for request in requests:
+        if anchor_created >= ANCHOR_STALE_SWEEP_CAP:
+            break
+        rid = request.get("request_id")
+        if not rid:
+            continue
+        if rid in remint_successors:
+            skipped.append({"request_id": rid, "reason": "remint_successor_exists"})
+            continue
+        try:
+            state = derive_request_state(request_id=rid, base_dir=root)
+        except GovernanceError:
+            continue
+        if state != "ANCHOR_STALE":
+            continue
+        existing = _human_required_path(root, rid)
+        if existing.exists():
+            continue
+        record = record_human_required(
+            request_id=rid,
+            severity=request.get("severity") or DEFAULT_SEVERITY,
+            reason=(
+                f"request {rid!r} died ANCHOR_STALE unclaimed; "
+                f"panel disposition required (re_mint / drop_with_reason)."
+            ),
+            context={
+                "kind": "anchor_stale",
+                "request_id": rid,
+                "role": request.get("role"),
+                "target_agent": request.get("target_agent"),
+            },
+            base_dir=root,
+            now=now,
+        )
+        created.append(record)
+        anchor_created += 1
     return {"created": created, "skipped": skipped}
 
 

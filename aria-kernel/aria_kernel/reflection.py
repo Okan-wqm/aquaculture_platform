@@ -893,8 +893,8 @@ def _render_watchdog_section(reflection: dict[str, Any]) -> list[str]:
         "",
         "## Watchdog Sweep",
         "",
-        f"- detectors ran: {sweep.get('detectors_ran', 0)}",
-        f"- findings emitted: {sweep.get('findings_emitted', 0)} (deduped: {sweep.get('deduped', 0)})",
+        f"- candidates: {sweep.get('candidates', 0)}",
+        f"- emitted: {sweep.get('emitted', 0)} (suppressed: {sweep.get('suppressed', 0)})",
     ]
 
 

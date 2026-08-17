@@ -22,19 +22,11 @@
  *    any stock is touched.
  *  - Deducts feed from the storage ledger (StorageInventory + Feed.quantity
  *    roll-up) via StockMovementService.recordMovement on the SAME
- *    queryRunner.manager — but ONLY when the feed is storage-tracked
- *    (feedHasStoragePresence). For a storage-tracked feed, insufficient stock
- *    / no-lot throws and ROLLS BACK the whole feeding — replacing the old
- *    async storage event handler that swallowed its failure and let the two
- *    ledgers diverge silently. For a feed the tenant does NOT track in storage
- *    (zero storage rows — e.g. a tenant that never adopted the warehouse
- *    module), the storage OUT is SKIPPED with an observable structured warn
- *    and the feed_inventory-only path applies, so a pre-Phase-B tenant is not
- *    pushed off a fail-closed cliff.
- *  - Phase 2 (stock SSoT): the legacy feed_inventory decrement is GONE — the
- *    path still reads feed_inventory.quantityKg, so both ledgers update
- *    atomically (or roll back together). Collapsing onto one ledger is
- *    Phase B (table merge + read re-points + destructive migration).
+ *    queryRunner.manager. Insufficient stock / no-lot throws and ROLLS BACK
+ *    the whole feeding — replacing the retired async compatibility path.
+ *    Phase 2 made storage_inventory the single stock authority, so zero
+ *    projection rows now means no available stock; it can never select a
+ *    feed_inventory-only write mode.
  *
  * @module Feeding/Handlers
  */

@@ -1,7 +1,8 @@
+import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import assert from 'node:assert/strict';
+
 import { analyzeTestGaps } from './test-gap-adapter';
 
 const workspace = mkdtempSync(join(tmpdir(), 'aria-test-gap-adapter-'));
@@ -143,4 +144,4 @@ assert.equal(
   false,
 );
 
-console.log('test-gap-adapter tests passed');
+process.stdout.write('test-gap-adapter tests passed\n');

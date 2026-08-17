@@ -91,6 +91,7 @@ def run_reflection(
     top_pressures = pressure_payload.get("pressures", [])[:3] if isinstance(pressure_payload.get("pressures"), list) else []
     committed = _committed_findings_and_debts(root, repo_root_override=repo_root)
     human_required = _human_required_summary(root)
+    phase_digest_summary = _phase_digest_summary(root)
     gate_activity = _gate_activity_summary(root)
     reflection = {
         # Plan ARIA-V7 §3 Phase 7.7 — schema_version v2 → v3
@@ -123,6 +124,7 @@ def run_reflection(
         "committed_findings": committed["findings"],
         "committed_debts": committed["debts"],
         "human_required": human_required,
+        "phase_digest_summary": phase_digest_summary,
         "gate_activity": gate_activity,
         # Plan ARIA-V5 §3f v2 — convergence + review + pedagogy sub-
         # objects. Direct CLI path (no orchestrator kwargs) emits
@@ -281,11 +283,13 @@ def _human_required_summary(tools_root: Path) -> dict[str, Any]:
 
     items = list_human_required(base_dir=tools_root, include_resolved=False)
     if not items:
-        return {"open": 0, "breaching_sla": 0, "items": []}
+        return {"open": 0, "breaching_sla": 0, "items": [], "tiers": {}}
     now = datetime.now(timezone.utc)
     breaching = 0
+    tiers: dict[str, int] = {}
     for item in items:
         deadline = item.get("sla_deadline")
+        recorded = item.get("recorded_at")
         if not isinstance(deadline, str):
             continue
         try:
@@ -294,7 +298,29 @@ def _human_required_summary(tools_root: Path) -> dict[str, Any]:
             continue
         if dt < now:
             breaching += 1
-    return {"open": len(items), "breaching_sla": breaching, "items": items[:5]}
+            # X4 (ORPHAN-699) — the critical_observation N+k*SLA ladder,
+            # applied to the operator-triage queue: a breach used to be one
+            # report line forever; now age relative to the SLA window sets
+            # an escalation tier the renderer amplifies. Tier is derived,
+            # never stored — the ledger stays append-only and re-renders
+            # honestly as time passes.
+            try:
+                start = datetime.fromisoformat(str(recorded).replace("Z", "+00:00"))
+                window = (dt - start) or None
+            except (ValueError, TypeError):
+                window = None
+            tier = "breach"
+            if window:
+                age_windows = (now - dt) / window
+                if age_windows >= 5:
+                    tier = "critical_attention"
+                elif age_windows >= 3:
+                    tier = "sustained_breach"
+                elif age_windows >= 2:
+                    tier = "escalated"
+            item["sla_tier"] = tier
+            tiers[tier] = tiers.get(tier, 0) + 1
+    return {"open": len(items), "breaching_sla": breaching, "items": items[:5], "tiers": tiers}
 
 
 def _normalize_finding_status(row: dict[str, Any]) -> str | None:
@@ -798,6 +824,74 @@ def _compute_dataflow_health(root: Path) -> dict[str, Any]:
     }
 
 
+def _phase_digest_summary(tools_root: Path) -> dict[str, Any]:
+    """X3 (ORPHAN-700) — the latest sealed cycle's phase digests.
+
+    First reader of the metrics row's ``phase_digests`` (schema v2). The
+    absence of a digest for a phase is REPORTED as absence — that is the
+    zero-vs-absent distinction this train exists for.
+    """
+    path = tools_root / "observability" / "cycle-metrics.jsonl"
+    if not path.exists():
+        return {}
+    try:
+        rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not rows:
+        return {}
+    latest = rows[-1]
+    return {
+        "cycle_id": latest.get("cycle_id"),
+        "digests": latest.get("phase_digests") or {},
+    }
+
+
+def _render_experiment_night_section(reflection: dict[str, Any]) -> list[str]:
+    """X3 — the bench's night, visible. Silent when no digest exists yet
+    (pre-X3 rows), loud about 'ran empty' when the digest says zero."""
+    summary = reflection.get("phase_digest_summary") or {}
+    digests = summary.get("digests") or {}
+    night = digests.get("experiment_night")
+    if night is None:
+        return []
+    lines = ["", "## Experiment Night", ""]
+    planned = night.get("planned_problem", 0)
+    if not planned and not night.get("planned_regression", 0):
+        lines.append(
+            "- ran EMPTY: zero admissible experiments "
+            f"(unresolvable bindings: {night.get('unresolvable_bindings', 0)}) — "
+            "a finding-bound, red-contract experiment is what admits a candidate"
+        )
+    else:
+        lines.append(f"- problem runs planned: {planned}")
+        lines.append(f"- regression re-runs planned: {night.get('planned_regression', 0)}")
+        lines.append(f"- reproduced: {night.get('reproduced', 0)} | refuted: {night.get('refuted', 0)}")
+        lines.append(f"- regressions detected: {night.get('regressions', 0)} | still fixed: {night.get('still_fixed', 0)}")
+        skipped = night.get("skipped_problem", 0) + night.get("skipped_regression", 0)
+        if skipped:
+            lines.append(f"- skipped over budget: {skipped}")
+    if night.get("errors", 0):
+        lines.append(f"- errors: {night.get('errors')}")
+    return lines
+
+
+def _render_watchdog_section(reflection: dict[str, Any]) -> list[str]:
+    """X3 — the watchdog's sweep, visible (silent pre-X3)."""
+    summary = reflection.get("phase_digest_summary") or {}
+    digests = summary.get("digests") or {}
+    sweep = digests.get("watchdog_sweep")
+    if sweep is None:
+        return []
+    return [
+        "",
+        "## Watchdog Sweep",
+        "",
+        f"- detectors ran: {sweep.get('detectors_ran', 0)}",
+        f"- findings emitted: {sweep.get('findings_emitted', 0)} (deduped: {sweep.get('deduped', 0)})",
+    ]
+
+
 def _render_dataflow_health_section(reflection: dict[str, Any]) -> list[str]:
     """SIGNAL STARVED lines for the daily report — only when something is.
 
@@ -1271,7 +1365,16 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
         f"- Breaching SLA: {hr_breach}",
         *(
             [
-                f"- {item.get('request_id')} [{item.get('severity')}] sla {item.get('sla_deadline')} — {item.get('reason', '')[:80]}"
+                f"- **ESKALASYON**: {count} item(s) at tier '{tier}' — operator action overdue"
+                for tier, count in sorted((hr.get("tiers") or {}).items())
+                if tier != "breach" and count
+            ]
+        ),
+        *(
+            [
+                f"- {item.get('request_id')} [{item.get('severity')}]"
+                + (f" tier={item.get('sla_tier')}" if item.get('sla_tier') and item.get('sla_tier') != 'breach' else "")
+                + f" sla {item.get('sla_deadline')} — {item.get('reason', '')[:80]}"
                 for item in hr.get("items") or []
             ]
             or ["- (no operator-triage queue items)"]
@@ -1305,6 +1408,8 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
             f"- {item.get('pressure_id')}: {item.get('score')} - {item.get('reason')}"
             for item in reflection.get("top_pressures", [])
         ],
+        *_render_experiment_night_section(reflection),
+        *_render_watchdog_section(reflection),
         "",
         "## Tool Health",
         "",

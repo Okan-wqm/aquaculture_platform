@@ -55,6 +55,10 @@ tools/scripts/ci/run-protected-ssh.sh                 @Okan-wqm
 tools/scripts/ci/build-protected-ssh-broker.sh        @Okan-wqm
 tools/backup-ssh-broker/                              @Okan-wqm
 infrastructure/scripts/provision-backup-ssh-broker.sh @Okan-wqm
+infrastructure/scripts/provider-console-bootstrap-postgres-walg.sh @Okan-wqm
+infrastructure/scripts/postgres-dr-bootstrap-state.sh @Okan-wqm
+infrastructure/deploy/postgres-dr-bootstrap-rollback.override.yml @Okan-wqm
+.github/scripts/select-effective-required-check.jq @Okan-wqm
 tools/scripts/ci/                                     @Okan-wqm
 tools/scripts/database/                               @Okan-wqm
 

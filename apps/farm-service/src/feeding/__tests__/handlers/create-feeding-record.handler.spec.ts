@@ -1,5 +1,5 @@
 /**
- * CreateFeedingRecordHandler — feed dual-SSoT write-path correctness (Phase A)
+ * CreateFeedingRecordHandler — canonical feed-stock write-path correctness
  *
  * Pins the three properties the Phase-A fix introduces:
  *
@@ -62,13 +62,6 @@ function mock<T>(impl: Partial<T>): T {
 
 interface HarnessOpts {
   batch?: Batch | null;
-  /**
-   * feedHasStoragePresence result. Defaults to true (the feed IS
-   * storage-tracked) so the fail-closed paths exercise a real shortage; set
-   * false to exercise the fail-OPEN skip for a feed the tenant does not track
-   * in storage.
-   */
-  hasStoragePresence?: boolean;
   /** resolveFeedDeductionLocation result. */
   resolveLocation?: { storageLocationId: string; lotNumber?: string } | null;
   /** Make the storage recordMovement throw (insufficient stock). */
@@ -92,7 +85,6 @@ function makeFeedableBatch(over: Partial<Batch> = {}): Batch {
 
 interface Harness {
   handler: CreateFeedingRecordHandler;
-  feedHasStoragePresence: jest.Mock;
   resolveFeedDeductionLocation: jest.Mock;
   recordMovement: jest.Mock;
   commit: jest.Mock;
@@ -178,9 +170,6 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
   // Real domain service — production assertFeedable behaviour.
   const batchDomainService = new BatchDomainService(new BatchLifecyclePolicyService());
 
-  const feedHasStoragePresence = jest
-    .fn()
-    .mockResolvedValue(opts.hasStoragePresence === undefined ? true : opts.hasStoragePresence);
   const resolveFeedDeductionLocation = jest.fn().mockResolvedValue(
     opts.resolveLocation === undefined ? { storageLocationId: LOCATION, lotNumber: 'LOT-A' } : opts.resolveLocation,
   );
@@ -195,7 +184,6 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
     };
   });
   const stockMovementService = mock<StockMovementService>({
-    feedHasStoragePresence,
     resolveFeedDeductionLocation,
     recordMovement,
   });
@@ -209,7 +197,7 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
   });
 
   // GERÇEK ledger (P-05 tek yol) — pinlenen davranışlar (fail-closed no-lot,
-  // rollback, storage-skip) artık ledger kodunda yaşar ve buradan uçtan uca koşar.
+  // rollback) artık ledger kodunda yaşar ve buradan uçtan uca koşar.
   const feedingLedger = new FeedingLedgerService(
     stockMovementService,
     financeSettings,
@@ -245,7 +233,6 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
 
   return {
     handler,
-    feedHasStoragePresence,
     resolveFeedDeductionLocation,
     recordMovement,
     commit,
@@ -299,9 +286,8 @@ describe('CreateFeedingRecordHandler — feed dual-SSoT write path', () => {
     expect(rollback).toHaveBeenCalledTimes(1);
   });
 
-  it('fail-closed: STORAGE-TRACKED feed with no usable lot → reject + rollback (no silent swallow)', async () => {
+  it('fail-closed: depleted feed with no projection row rejects and rolls back', async () => {
     const { handler, rollback, commit, recordMovement } = makeHarness({
-      hasStoragePresence: true,
       resolveLocation: null,
     });
 
@@ -310,22 +296,6 @@ describe('CreateFeedingRecordHandler — feed dual-SSoT write path', () => {
     expect(recordMovement).not.toHaveBeenCalled();
     expect(commit).not.toHaveBeenCalled();
     expect(rollback).toHaveBeenCalledTimes(1);
-  });
-
-  it('fail-OPEN: feed NOT tracked in storage → skip deduction, proceed, COMMIT (no cliff)', async () => {
-    const { handler, feedHasStoragePresence, resolveFeedDeductionLocation, recordMovement, commit, rollback } =
-      makeHarness({ hasStoragePresence: false });
-
-    const result = await handler.execute(makeCommand(50));
-
-    expect(feedHasStoragePresence).toHaveBeenCalledTimes(1);
-    // Not storage-tracked → no resolve, no movement, NO throw: the
-    // feed_inventory-only path is correct for this tenant.
-    expect(resolveFeedDeductionLocation).not.toHaveBeenCalled();
-    expect(recordMovement).not.toHaveBeenCalled();
-    expect(commit).toHaveBeenCalledTimes(1);
-    expect(rollback).not.toHaveBeenCalled();
-    expect(result.id).toBe('rec-1');
   });
 
   it('fail-closed: storage deduction throws (insufficient stock) → rollback', async () => {

@@ -90,3 +90,78 @@ void test('does not treat SQL-standard routine body statements as declaration op
     END;
   `);
 });
+
+function expectR1Pass(sql: string): void {
+  const violations = scanMigrationSql(sql).filter(
+    ({ ruleId }) => ruleId === 'R1-destructive-without-marker',
+  );
+  assert.deepStrictEqual(violations, []);
+}
+
+function expectR1Failure(sql: string, expectedCount = 1): void {
+  const violations = scanMigrationSql(sql).filter(
+    ({ ruleId }) => ruleId === 'R1-destructive-without-marker',
+  );
+  assert.strictEqual(violations.length, expectedCount, JSON.stringify(violations));
+}
+
+void test('allows TRUNCATE as a revoked privilege name', () => {
+  expectR1Pass(`
+    REVOKE INSERT, UPDATE, DELETE, TRUNCATE
+      ON feeding_record_provenance FROM PUBLIC;
+  `);
+});
+
+void test('allows TRUNCATE as a granted privilege name', () => {
+  expectR1Pass(`
+    GRANT SELECT, TRUNCATE ON audit_ledger TO maintenance_role;
+  `);
+});
+
+void test('allows TRUNCATE as a trigger event that forbids truncation', () => {
+  expectR1Pass(`
+    CREATE TRIGGER trg_provenance_immutable
+      BEFORE TRUNCATE ON feeding_record_provenance
+      FOR EACH STATEMENT EXECUTE FUNCTION reject_write();
+  `);
+});
+
+void test('allows TRUNCATE in a trigger event list introduced by OR', () => {
+  expectR1Pass(`
+    CREATE TRIGGER trg_provenance_immutable
+      BEFORE UPDATE OR DELETE OR TRUNCATE ON feeding_record_provenance
+      FOR EACH STATEMENT EXECUTE FUNCTION reject_write();
+  `);
+});
+
+void test('allows TRUNCATE inside a string literal in a routine body', () => {
+  expectR1Pass(`
+    CREATE FUNCTION reject_write() RETURNS trigger LANGUAGE plpgsql AS $routine$
+    BEGIN
+      IF TG_OP = 'TRUNCATE' THEN
+        RAISE EXCEPTION 'feeding_record_provenance is immutable (TRUNCATE)';
+      END IF;
+      RETURN NULL;
+    END;
+    $routine$;
+  `);
+});
+
+void test('still rejects a bare TRUNCATE statement', () => {
+  expectR1Failure(`
+    TRUNCATE feeding_record_provenance;
+  `);
+});
+
+void test('still rejects TRUNCATE TABLE with an ONLY qualifier', () => {
+  expectR1Failure(`
+    TRUNCATE TABLE ONLY feeding_records;
+  `);
+});
+
+void test('accepts a real TRUNCATE that carries the DESTRUCTIVE marker', () => {
+  expectR1Pass(`
+    -- DESTRUCTIVE: rollback via docs/runbooks/database-restore-drill.md
+    TRUNCATE feeding_record_provenance;
+  `);
+});

@@ -7,8 +7,8 @@
  * The main barrel is consumed by every microservice, often just for
  * cross-cutting utilities (TenantGuard, RedisModule, factories). If the
  * barrel chains through entity files, every consumer service ends up
- * with `AuditLogEntity`, `UserConsent`, `GdprDataRequest`, and
- * `FindingEntity` registered in TypeORM's global metadata storage —
+ * with `AuditLogEntity`, `UserConsent`, and `GdprDataRequest` registered in
+ * TypeORM's global metadata storage —
  * which then surfaces in `dataSource.entityMetadatas` and trips the
  * `SchemaDriftValidator` on services that never opted into those
  * domains.
@@ -23,11 +23,13 @@
  *   `export * from './gdpr'` (which would chain through GDPR entities
  *   and re-pollute via `index.ts → security → gdpr → entities`).
  *
- * - Concrete entity-bearing modules (`AuditLogModule`, `GdprModule`,
- *   `FindingRegistryModule`) are reachable via deep import paths only:
+ * - Concrete entity-bearing modules (`AuditLogModule`, `GdprModule`) are
+ *   reachable via deep import paths only. The finding-registry deep import is
+ *   a pure replay contract; its persistence module belongs exclusively to
+ *   `event-store-service`:
  *     - `@aquaculture/backend-common/audit`
  *     - `@aquaculture/backend-common/gdpr`
- *     - `@aquaculture/backend-common/finding-registry`
+ *     - `@aquaculture/backend-common/finding-registry` (pure contract only)
  *
  * # What this invariant detects
  *
@@ -81,9 +83,7 @@ const MAIN_BARREL_GUARD_FILES = [
 const ENTITY_BEARING_IMPORT_RE =
   /from\s+['"](?<path>(\.\.?\/)+(audit|finding-registry|security\/gdpr)(\/[^'"]+)?)['"]/;
 
-const MAIN_BARREL_SAFE_DEEP_IMPORTS = new Set([
-  '../audit/audit-log.tokens',
-]);
+const MAIN_BARREL_SAFE_DEEP_IMPORTS = new Set(['../audit/audit-log.tokens']);
 
 describe('INVARIANT (INFRA-CRITICAL-021): main barrel does not chain to @Entity decorators', () => {
   it('forbids `export *` from entity-bearing submodules in the index files', () => {
@@ -97,9 +97,7 @@ describe('INVARIANT (INFRA-CRITICAL-021): main barrel does not chain to @Entity 
       const content = readFileSync(path, 'utf8');
       for (const pattern of patterns) {
         if (pattern.test(content)) {
-          violations.push(
-            `${file}: contains forbidden re-export ${pattern.toString()}`,
-          );
+          violations.push(`${file}: contains forbidden re-export ${pattern.toString()}`);
         }
       }
     }

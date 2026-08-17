@@ -13,15 +13,12 @@ from aria_kernel import (
     gate_apply_action,
     generate_adapter_calibration_report,
     generate_observability_dashboard,
-    list_generated_diff_packets,
     open_pr_for_action,
     plan_apply_worktree,
     plan_pr_lifecycle,
     plan_pr_split,
     prepare_agent_pr_lane,
-    record_code_change_plan,
     record_cycle_metrics,
-    record_generated_diff_packet,
     record_proposal,
     record_run,
     register_tool,
@@ -193,49 +190,7 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
         self.assertEqual(pr["event"], "pr_dry_run")
         self.assertIn("Validation Evidence", pr["body"])
 
-    def test_generated_diff_packet_is_limited_to_code_change_plan_scope(self):
-        plan = record_code_change_plan(
-            proposal_id="proposal-scope",
-            worktree_path=self.root.as_posix(),
-            intended_files=["apps/api/src/app.ts"],
-            allowed_globs=["apps/api/**"],
-            pre_hashes={"apps/api/src/app.ts": "sha256:before"},
-            post_hashes={"apps/api/src/app.ts": "sha256:after"},
-            validation_refs=["validation:ok"],
-            base_dir=self.tools_dir,
-        )
-        diff = "\n".join(
-            [
-                "diff --git a/apps/api/src/app.ts b/apps/api/src/app.ts",
-                "--- a/apps/api/src/app.ts",
-                "+++ b/apps/api/src/app.ts",
-                "@@ -1 +1 @@",
-                "-old",
-                "+new",
-            ],
-        )
-        packet = record_generated_diff_packet(
-            code_change_plan_id=plan["code_change_plan_id"],
-            unified_diff=diff,
-            changed_files=["apps/api/src/app.ts"],
-            rationale="Apply only the approved file change.",
-            validation_commands=["python3 -m unittest --help"],
-            base_dir=self.tools_dir,
-        )
-        self.assertEqual(packet["status"], "ready_for_candidate_worktree")
-        self.assertEqual(list_generated_diff_packets(base_dir=self.tools_dir)[-1]["generated_diff_packet_id"], packet["generated_diff_packet_id"])
-
-        blocked = record_generated_diff_packet(
-            code_change_plan_id=plan["code_change_plan_id"],
-            unified_diff=diff.replace("apps/api/src/app.ts", "apps/billing-service/src/app.ts"),
-            changed_files=["apps/billing-service/src/app.ts"],
-            rationale="This should be blocked by intended scope.",
-            validation_commands=["python3 -m unittest --help"],
-            base_dir=self.tools_dir,
-        )
-        self.assertEqual(blocked["status"], "blocked")
-        self.assertIn("outside_code_change_plan:apps/billing-service/src/app.ts", blocked["blocked_by"])
-
+    # E14-b (ORPHAN-697) — codegen/executor lane dismantled; see 012.py note.
     def test_adapter_calibration_report_marks_active_ready_only_after_gates(self):
         register_tool(
             {

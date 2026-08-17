@@ -57,15 +57,6 @@ _PROFILE_SURFACE_BY_NAME: dict[str, str] = {
     "proposals": "observation",
     "impact_graphs": "observation",
     "impact_plans": "observation",
-    "executor_registry": "observation",
-    "executor_packets": "observation",
-    "executor_diff_reviews": "observation",
-    "executor_prompts": "observation",
-    "executor_applications": "observation",
-    "executor_locks": "observation",
-    "executor_retries": "observation",
-    "executor_operator_takeovers": "observation",
-    "executor_flaky_fingerprints": "observation",
     "cycle_incremental_plans": "observation",
     "runtime_v2_promotions": "runtime_v2_promotion",
     "discovery_artifacts": "observation",
@@ -545,7 +536,7 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     # rows the night the gap was found), promotions, quarantine history,
     # per-run tool calibration, review records, agent priors,
     # kernel-change requests, the observability family (alert history the
-    # daily report reads!), and the architecture/codegen/research/llm
+    # daily report reads!), and the architecture/research/llm
     # subsystem ledgers. Every one died at job teardown. The lasting fix
     # is not this block — it is tests/test_ledger_roster_invariant.py:
     # a static sweep that fails CI the moment ANY kernel writer targets a
@@ -568,21 +559,10 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("architecture_option_sets", "architecture/option-sets.jsonl", "ledger", "architecture", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("architecture_evidence_packs", "architecture/evidence-packs.jsonl", "ledger", "architecture", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("architecture_adr_drafts", "architecture/adr-drafts.jsonl", "ledger", "architecture", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
-    StateSurface("codegen_change_plans", "codegen/code-change-plans.jsonl", "ledger", "codegen", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
-    StateSurface("codegen_diff_packets", "codegen/generated-diff-packets.jsonl", "ledger", "codegen", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("research_sources", "research/sources.jsonl", "ledger", "research", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("research_fetches", "research/fetches.jsonl", "ledger", "research", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("research_policies", "research/policies.jsonl", "ledger", "research", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("llm_proposal_amplifications", "llm/proposal-amplifications.jsonl", "ledger", "llm", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
-    StateSurface("executor_registry", "executor/registry.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
-    StateSurface("executor_packets", "executor/packets.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
-    StateSurface("executor_diff_reviews", "executor/diff-reviews.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
-    StateSurface("executor_prompts", "executor/prompts.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
-    StateSurface("executor_applications", "executor/applications.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
-    StateSurface("executor_locks", "executor/locks.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
-    StateSurface("executor_retries", "executor/retries.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
-    StateSurface("executor_operator_takeovers", "executor/operator-takeovers.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
-    StateSurface("executor_flaky_fingerprints", "executor/flaky-fingerprints.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
     StateSurface("apply_actions", "apply/actions.jsonl", "ledger", "apply", "runtime", True, "append_fsync", True, profile_surface="pr_action", observe_class="action"),
     StateSurface("performance_baselines", "performance/baselines.jsonl", "ledger", "performance", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation"),
     StateSurface("performance_comparisons", "performance/comparisons.jsonl", "ledger", "performance", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation"),

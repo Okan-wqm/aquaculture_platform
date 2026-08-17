@@ -478,10 +478,35 @@ def _pre_submit_validate_envelope(
         # is the KERNEL's own (`judgment_bridge.validate_judge_response`)
         # so the executor and the bridge can never disagree about what a
         # valid judge response is.
+        #
+        # Restart follow-through: the first healed drain refused two
+        # PERFECTLY-IDENTIFIED judge envelopes with
+        # missing_tool_run_or_finding_id — the caller's ``request`` here is
+        # the TRIMMED claim payload, which never carried the judgment
+        # identity fields; the full ledger row does (the submit-time bridge
+        # reads that row, which is why folding worked while this gate
+        # refused). Read the SAME row the bridge reads, so gate and bridge
+        # judge one truth.
         from aria_kernel.judgment_bridge import validate_judge_response
 
+        gate_request = dict(request or {})
+        if not (gate_request.get("tool_id") and gate_request.get("run_id") and gate_request.get("finding_id")):
+            request_id = str(gate_request.get("request_id") or envelope.get("request_id") or "")
+            tools_dir_raw = os.environ.get("ARIA_TOOLS_DIR")
+            if request_id and tools_dir_raw:
+                try:
+                    from aria_kernel.agent_invocations import _find_request_by_id
+                    from aria_kernel.tool_registry import ensure_tools_dir as _etd
+
+                    full_row = _find_request_by_id(_etd(tools_dir_raw), request_id)
+                except Exception:
+                    full_row = None
+                if full_row:
+                    for key in ("tool_id", "run_id", "finding_id", "judgment_group_id"):
+                        if not gate_request.get(key) and full_row.get(key):
+                            gate_request[key] = full_row[key]
         return validate_judge_response(
-            request=request or {},
+            request=gate_request,
             response={**envelope, "role": role},
         )
     if role in ("primary_plan", "challenger_plan"):

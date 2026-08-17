@@ -110,6 +110,73 @@ class ExecutorPreSubmitGateTests(unittest.TestCase):
         self.assertEqual(ok, [])
 
 
+class GateReadsTheLedgerRowTests(unittest.TestCase):
+    def test_trimmed_claim_payload_is_enriched_from_the_request_row(self) -> None:
+        """Restart follow-through: the drain child's claim payload never
+        carried tool/run/finding, so the gate refused perfectly-identified
+        envelopes. The gate now reads the SAME ledger row the bridge reads."""
+        import os as _os
+        import tempfile as _tf
+        from unittest.mock import patch as _patch
+
+        import ci_executor
+        from aria_kernel.tool_registry import ensure_tools_dir as _etd
+        from tests._helpers.declared_fixtures import append_declared_fixture
+
+        with _tf.TemporaryDirectory() as tmp:
+            tools = _etd(Path(tmp) / "aria-tools")
+            append_declared_fixture(
+                tools / "agent-invocations" / "requests.jsonl",
+                {
+                    "$schema": "aria/agent-invocation-request/v1",
+                    "schema_version": 1,
+                    "request_id": "AIR-judge-full-1",
+                    "role": "evidence_judgment",
+                    "target_agent": "aria-evidence-judge",
+                    "suggested_prompt": "judge",
+                    "must_satisfy": [{"id": "S1"}],
+                    "evidence_refs": [],
+                    "allowed_scope": ["**"],
+                    "expected_output_path": str(Path(tmp) / "o.json"),
+                    "state": "pending",
+                    "created_at": "2026-08-17T00:00:00Z",
+                    "tool_id": "tool-a", "run_id": "run-1", "finding_id": "F-9",
+                    "judgment_group_id": "judge:tool-a:fp9",
+                },
+                expected_surface="agent_invocation_requests",
+            )
+            trimmed = {"request_id": "AIR-judge-full-1", "role": "evidence_judgment"}
+            envelope = {"request_id": "AIR-judge-full-1", "details": {
+                "agent_subagent_type": "aria-evidence-judge",
+                "verdict": {"verdict": "true_positive"},
+            }}
+            with _patch.dict(_os.environ, {"ARIA_TOOLS_DIR": str(tools)}):
+                errors = ci_executor._pre_submit_validate_envelope(
+                    envelope, role="evidence_judgment", request=trimmed,
+                )
+            self.assertEqual(errors, [])
+
+
+class LedgerPointerEvidenceTests(unittest.TestCase):
+    def test_human_required_refs_are_admitted_ledger_pointers(self) -> None:
+        """The kernel's own adjudication mint issues human-required:<id>
+        refs; the law admitting them is what stops every panel opinion
+        dying submit_rejected. Load-bearing verification stays at fold."""
+        import tempfile as _tf
+
+        from aria_kernel.evidence_validator import _check_agent_ref
+
+        with _tf.TemporaryDirectory() as tmp:
+            errors: list = []
+            checked: list = []
+            _check_agent_ref(
+                "human-required:AIR-aria-challenger-planner-abc123",
+                root=Path(tmp), errors=errors, checked=checked,
+            )
+            self.assertEqual(errors, [])
+            self.assertEqual(len(checked), 1)
+
+
 class BridgeHealthSectionTests(unittest.TestCase):
     def test_troubled_roles_render_and_clean_ledgers_stay_silent(self) -> None:
         from aria_kernel.reflection import _compute_bridge_health, _render_bridge_health_section

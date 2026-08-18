@@ -367,7 +367,16 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 # `-<run_id>` here means a future edit back to a fixed name
                 # fails the contract rather than silently restoring the hazard.
                 upload_artifact_name_pattern=rf"^aria-state-cache-{_RUN_ID}$",
-                upload_artifact_path_patterns=(rf"^{_STORE_ROOT}$",),
+                # ORPHAN-720 — the forensic copy EXCLUDES the four pre-rename
+                # `genesis:<hash>` records: GitHub's uploader rejects ':' in
+                # paths and renaming a ledger-referenced record would break
+                # hash-chained refs. Pinning the exclusion line means a future
+                # edit that silently drops it fails the contract instead of
+                # resurrecting the every-sealed-run-red failure mode.
+                upload_artifact_path_patterns=(
+                    rf"^{_STORE_ROOT}$",
+                    rf"^!{_STORE_ROOT}/tools/human-required/genesis:\*$",
+                ),
                 retention_days=30,
                 # checks:read + pull-requests:read — ORPHAN-HIGH-626: the
                 # pr_ci_scan phase reads the check verdicts of ARIA's own

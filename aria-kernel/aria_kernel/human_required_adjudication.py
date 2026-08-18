@@ -786,7 +786,11 @@ MAX_PANEL_REOPENS = 2
 # opinion": nothing claimed it before the anchor window closed, or it went
 # stale with no result. A LIVE envelope (pending/claimed/running/judged)
 # anywhere in the panel means the panel might still fold — no re-open.
-_TERMINALLY_DEAD_STATES = frozenset({"ANCHOR_STALE", "STALE", "EXPIRED"})
+# REJECTED joined 2026-08-18 (ORPHAN-715): a rejected submit is terminal —
+# the envelope is unclaimable afterwards — so a panel whose every member
+# was rejected (e.g. by the pre-#1271 evidence-law contradiction) wedged
+# in panel_incomplete forever. MAX_PANEL_REOPENS still bounds the retry.
+_TERMINALLY_DEAD_STATES = frozenset({"ANCHOR_STALE", "STALE", "EXPIRED", "REJECTED"})
 
 
 def _panel_rows_for(root: Path, escalation_request_id: str) -> list[dict[str, Any]]:

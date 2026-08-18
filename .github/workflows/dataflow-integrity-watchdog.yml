@@ -19,8 +19,14 @@ permissions:
 # single-slot runner today; the shared group makes that serialization a
 # REPO-enforced property instead of an accident of runner count, so adding
 # a second runner service can never reopen the mid-run wipe window.
+# WHY its own group: a GitHub concurrency group holds ONE pending slot and
+# a newly arriving run EVICTS the queued one — inside the shared workspace
+# group this hourly probe cancelled the queued nightly executor three times
+# on 2026-08-18 (ORPHAN-713). Path isolation (watchdog-checkout/) already
+# removed its store-wipe vector, so the single-slot runner is the only
+# serializer this read-only probe needs.
 concurrency:
-  group: aria-selfhosted-workspace
+  group: dataflow-integrity-watchdog
   cancel-in-progress: false
 jobs:
   probe:

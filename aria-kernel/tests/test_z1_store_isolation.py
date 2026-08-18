@@ -29,6 +29,15 @@ _WF = _REPO / ".github" / "workflows"
 
 _SELF_HOSTED_GROUP = "aria-selfhosted-workspace"
 
+# ORPHAN-713 — the exemption is EARNED structurally, not declared: a GitHub
+# concurrency group holds ONE pending slot and an arriving run evicts the
+# queued one, so the hourly watchdog inside the shared group cancelled the
+# queued nightly executor three times on 2026-08-18. It may leave the group
+# ONLY because its checkout is scoped to a subdirectory (verified below) —
+# its clean can never reach the store, and a read-only probe needs no
+# workspace serialization beyond the runner itself.
+_PATH_ISOLATED_EXEMPT = {"dataflow-integrity-watchdog.yml"}
+
 
 def _workflows_with_selfhosted() -> list[Path]:
     hits = []
@@ -50,14 +59,37 @@ class SharedWorkspaceGroupPins(unittest.TestCase):
         for path in paths:
             doc = yaml.safe_load(path.read_text(encoding="utf-8"))
             group = (doc.get("concurrency") or {}).get("group")
-            self.assertEqual(
-                group, _SELF_HOSTED_GROUP,
-                f"{path.name}: self-hosted lane outside the shared workspace group",
-            )
+            if path.name in _PATH_ISOLATED_EXEMPT:
+                self.assertNotEqual(
+                    group, _SELF_HOSTED_GROUP,
+                    f"{path.name}: exempt lane must not occupy the shared "
+                    "group's single pending slot (it evicts queued lanes)",
+                )
+                self.assertTrue(
+                    group,
+                    f"{path.name}: exempt lane still needs its own group",
+                )
+            else:
+                self.assertEqual(
+                    group, _SELF_HOSTED_GROUP,
+                    f"{path.name}: self-hosted lane outside the shared workspace group",
+                )
             self.assertFalse(
                 (doc.get("concurrency") or {}).get("cancel-in-progress", False),
                 f"{path.name}: cancel-in-progress would kill a running cycle",
             )
+
+    def test_exempt_lanes_earned_it_with_a_scoped_checkout(self) -> None:
+        for name in _PATH_ISOLATED_EXEMPT:
+            doc = yaml.safe_load((_WF / name).read_text(encoding="utf-8"))
+            for job in (doc.get("jobs") or {}).values():
+                for step in job.get("steps") or []:
+                    if str(step.get("uses", "")).startswith("actions/checkout"):
+                        self.assertTrue(
+                            (step.get("with") or {}).get("path"),
+                            f"{name}: group exemption requires a subdirectory "
+                            "checkout — an unscoped clean could wipe the store",
+                        )
 
     def test_watchdog_checkout_is_scoped_away_from_the_store(self) -> None:
         doc = yaml.safe_load(

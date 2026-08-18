@@ -350,6 +350,37 @@ def run_pressure(
                 discriminator=f"pr-{red.get('pr_number')}",
             ),
         )
+    # ORPHAN-718 (2026-08-18 operator directive) — post-merge reds. A red
+    # main AFTER an ARIA merge outranks a red open PR: the defect already
+    # shipped to the default branch, so the severity is critical and the
+    # action is fix-forward, not wait-for-the-gate. A later green outcome
+    # row retires the pressure the same way open-PR reds clear.
+    from .own_pr_ci import load_post_merge_reds
+    for red in load_post_merge_reds(base_dir=root):
+        red_jobs = _array_of_strings(red.get("red_jobs"))
+        pressures.append(
+            _pressure(
+                weights=_weights,
+                cycle_id=cycle_id,
+                source="post_merge_ci",
+                pressure_type="UNKNOWN",
+                severity="critical",
+                reason=(
+                    f"main went RED after ARIA's merge of PR "
+                    f"#{red.get('pr_number')} ({red.get('merge_sha')}): "
+                    f"{', '.join(red_jobs) or 'failed workflow runs'}"
+                ),
+                evidence=[f"pr-{red.get('pr_number')}:{red.get('merge_sha') or 'main'}"],
+                occurrence_count=1,
+                candidate_tools=[],
+                recommended_action=(
+                    "read the failing main-branch run's log, root-cause it, and "
+                    "author a fix-forward change; a red main after our own merge "
+                    "is the highest-priority debt this repository can carry"
+                ),
+                discriminator=f"post-merge-{red.get('pr_number')}",
+            ),
+        )
     from .runtime_signal_bridge import load_open_runtime_signals
     for signal in load_open_runtime_signals(base_dir=root):
         severity = signal.get("severity") if signal.get("severity") in ("low", "medium", "high", "critical") else "high"

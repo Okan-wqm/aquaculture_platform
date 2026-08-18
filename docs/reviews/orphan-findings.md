@@ -10021,6 +10021,20 @@ Severity: CRITICAL (E4/C1; audit C1, adversarially CONFIRMED). `promotion.promot
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
+## ORPHAN-HIGH-717 — ARIA's merge gate trusted branch protection's short list: optional-red PRs were mergeable and local hygiene was never proven — RESOLVED (2026-08-18 operator directive)
+
+Severity: HIGH. Two blind spots in the autonomous merge path. (a) `evaluate_auto_merge` judged only the branch-protection REQUIRED checks — main requires two, while lint/format/typecheck run as non-required check runs; a PR with a red optional lint evaluated "eligible" (operator-measured on the Y-union train: mergeable_state said clean while lint was red). (b) Nothing proved the repo's own hygiene battery ran locally, and CI structurally cannot: ~16 projects are unit-test-quarantined on CI (`scripts/ci/affected-target-policy.json`), so a CI-green PR does not prove tests pass.
+
+**Fix:** (a) the evaluator now demands the FULL check-run battery on the head SHA — every run completed, none red (neutral/skipped tolerated), zero runs fails closed; (b) the merge authority's triple gate gains Gate 4: verified exit-0 `validation_runs` rows for format (`format:check`), typecheck (`type-check`) and tests (`--target=test`/`npm run test`) or the merge blocks with `triple_gate_hygiene_run_missing:<dimension>`. The aria-implementer contract now names the battery as mandatory. Deliberate breakage: passing fixtures re-seeded with the three-run battery; a test-only chain is pinned BLOCKED.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-718 — ARIA never looked back after merging: post-merge main runs were unobserved, so PR-green/main-red divergence was invisible — RESOLVED (2026-08-18 operator directive)
+
+Severity: HIGH. `own_pr_ci.scan_own_prs` watched OPEN PRs only. Once a PR merged, nobody ARIA-side read the merge commit's workflow runs on main — and this repository has lived the divergence: the production deploy lane sat red on main for months while every PR stayed green (ORPHAN-415). An autonomous merger that cannot see "my merge broke main" cannot learn from it.
+
+**Fix:** `scan_merged_own_prs` — same cycle phase, same reader: for each recently merged own-PR, the merge commit's main-branch workflow runs are classified (green/red/pending/no_runs_observed) and outcome CHANGES append to the new `ci/merge-outcomes.jsonl` surface. A NEW red lands a `post_merge_ci_red` governance event and `load_post_merge_reds` feeds the pressure producer at severity critical ("fix forward — the defect already shipped"); a later green retires the pressure the same way open-PR reds clear. This closes the loop the operator asked for: track the first Actions verdict AND the post-merge verdict, record both, learn from the reds.
+
 ## ORPHAN-HIGH-713 — the schedule layer starved the night: one shared pending slot + top-of-hour cron congestion — RESOLVED (morning train 2026-08-18)
 
 Severity: HIGH. Two independent schedule-layer defects compounded on Night-1. (a) A GitHub concurrency group holds ONE pending slot and a newly arriving run EVICTS the queued one — with the hourly dataflow-integrity-watchdog inside the shared `aria-selfhosted-workspace` group (Z1/#1271 put it there), every hourly probe cancelled whatever night lane was queued; proven three times on 2026-08-18 (queued executor evicted twice, queued cycle once). The nightly drain only ran because the operator manually dispatched it the moment the runner freed. (b) Both night crons sit at :00, where GitHub's shared cron infra fires late under load — measured 73min (01:00→02:13) and ~55min lateness the same night.
@@ -10050,5 +10064,13 @@ Severity: MEDIUM. X4's bounded re-open (ORPHAN-699) treated `{ANCHOR_STALE, STAL
 Severity: LOW (noise, not correctness — but noise that buries real incidents). The executor drain exits non-zero on partial success BY CONTRACT (honesty pin: "attempted 11, landed 3" is not green). `scheduled-workflow-watchdog` judges the newest completed run per lane, so every partial night became an incident issue + hourly red watchdog — indistinguishable from a lane that is actually broken. The plan's Z3 cancel-condition (first cron night green) did not hold, so the threshold change activates.
 
 **Fix:** additive manifest key `consecutiveFailuresForIncident: 2` on the executor lane only; the watchdog tolerates a single red completed run where the key is set — the newest N completed runs must ALL be non-green before the lane is an incident. Staleness, missing runs, and missing backup evidence still alarm alone, unchanged; the drain's red-exit contract is untouched.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-719 — the compliance grader kept a second definition of "valid evidence": every panel opinion hard-rejected at submit — RESOLVED (2026-08-18, Night-1 drain forensics)
+
+Severity: HIGH. Night-1's drain failed 4 of 12 envelopes with `compliance: compliance_rejected (hard_fail=1)` — all four were judges sitting as panel members whose opinions cite the kernel's own ledger pointer `human-required:<request-id>` as evidence. #1271 unified evidence law behind the single predicate `_is_ledger_pointer_ref` at every law layer — but `agent_compliance._check_evidence_schema_valid` is a PARALLEL validator with its own `_EVIDENCE_REF_RE`, and it graded the pointer `regex_mismatch` → hard fail → submit rejected → requeue budget burned. The kernel minted the ref, one validator admitted it, a second validator killed it: the same mint-vs-law contradiction, one validator further down. This was the last consumer of panel opinions still enforcing the pre-#1271 definition.
+
+**Fix:** the grader asks the same single predicate before its regex — a ledger pointer is admissible, the bare `human-required:` prefix (names nothing) still rejects, and what the pointer NAMES stays verified at fold time. No second regex survives. Pinned both ways (pointer admissible / bare prefix rejected).
 
 **Owner:** claude (this session). **Status:** RESOLVED.

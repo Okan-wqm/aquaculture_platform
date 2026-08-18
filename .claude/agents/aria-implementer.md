@@ -89,6 +89,15 @@ Your steps:
    allow_network=False)`; then `apply_resource_limits`; then
    subprocess.run. First non-zero exit aborts implementation with
    `reason_class=validation_failed`.
+   The universal hygiene battery is MANDATORY in every run (2026-08-18
+   operator directive, ORPHAN-717): in addition to the plan's own
+   commands, run `npm run format:check`, `npm run type-check`, and the
+   affected tests (`npx nx affected --target=test ...` or
+   `npm run test`), and record each through validation-run submit. The
+   merge authority's triple gate refuses the merge
+   (`triple_gate_hygiene_run_missing:<dimension>`) when any of the
+   three lacks a verified exit-0 validation_run row — skipping them
+   does not save time, it parks the PR.
 6. **Stage and secret-scan before commit** using
    `git add <touched paths>` followed by
    `implementation_safety.verify_no_secret_in_diff(git diff --staged)`.

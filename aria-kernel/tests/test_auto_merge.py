@@ -158,19 +158,25 @@ class AutoMergeTests(unittest.TestCase):
         )
         log_path = Path(self.tmp.name) / f"log-{pr_number}.txt"
         log_path.write_text("ok\n", encoding="utf-8")
-        record_validation_run(
-            change_id=change_id,
-            cmd="nx affected --target=test",
-            exit_code=0,
-            duration_ms=1_500,
-            log_path=str(log_path),
-            commit_sha=head_sha,
-            runner_identity="ci-executor:test-auto",
-            change_author_identity="agent:planner-auto",
-            started_at="2026-05-11T13:00:00+00:00",
-            completed_at="2026-05-11T13:01:00+00:00",
-            base_dir=self.tools_dir,
-        )
+        # ORPHAN-717 Gate 4 — passing chains carry the hygiene battery.
+        for battery_cmd in (
+            "npm run format:check",
+            "npm run type-check",
+            "nx affected --target=test",
+        ):
+            record_validation_run(
+                change_id=change_id,
+                cmd=battery_cmd,
+                exit_code=0,
+                duration_ms=1_500,
+                log_path=str(log_path),
+                commit_sha=head_sha,
+                runner_identity="ci-executor:test-auto",
+                change_author_identity="agent:planner-auto",
+                started_at="2026-05-11T13:00:00+00:00",
+                completed_at="2026-05-11T13:01:00+00:00",
+                base_dir=self.tools_dir,
+            )
         emit_change_validated(
             change_id=change_id,
             validation_run_refs=[{

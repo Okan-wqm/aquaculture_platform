@@ -154,6 +154,19 @@ def _check_evidence_schema_valid(
     bad: list[dict[str, Any]] = []
     for ref in refs:
         ref_str = str(ref)
+        # ORPHAN-719 — the kernel's own ledger pointer (`human-required:<id>`)
+        # is admissible evidence: the kernel MINTS it into panel scopes and
+        # evidence law (#1271) admits it at every layer via the single
+        # predicate below. This grader kept a SECOND, older definition of
+        # "valid ref" (the file:line regex) and hard-rejected every panel
+        # opinion the law had just learned to accept — the same
+        # mint-vs-law contradiction, one validator further down. One
+        # predicate, no second regex; what the pointer NAMES is verified
+        # at fold time, not here.
+        from .evidence_validator import _is_ledger_pointer_ref
+
+        if _is_ledger_pointer_ref(ref_str):
+            continue
         if not _EVIDENCE_REF_RE.match(ref_str):
             bad.append({"ref": ref_str, "reason": "regex_mismatch"})
             continue

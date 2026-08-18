@@ -36,6 +36,12 @@ SOURCE_WEIGHTS = {
     # (nobody else will fix it), and every cycle it stays red is a cycle the
     # merge gate silently blocks work that was already paid for.
     "own_pr_ci": 90,
+    # ORPHAN-723 — a third-party PR (Dependabot, a developer branch) that
+    # cannot pass CI. Lowest weight in the table on purpose: ARIA has no
+    # authority over these PRs until the E23 gate opens, so the row exists
+    # to make the repo's PR weather VISIBLE in the nightly report, never to
+    # pull work toward something ARIA may not touch.
+    "repo_pr_health": 20,
 }
 
 # ─── operator-approved weight overrides (Plan tranquil-sniffing-pancake F4.1) ──
@@ -138,6 +144,10 @@ DRIFT_CLASS_BY_SOURCE = {
     # not a new code-drift class — reusing the class keeps
     # genesis_policy_default.json untouched (parity test pins the two tables).
     "own_pr_ci": "process_health",
+    # Third-party PR CI is process health about the REPOSITORY, the same
+    # class as ARIA's own delivery loop; no new drift class, so the policy
+    # parity test keeps passing without a genesis_policy_default.json edit.
+    "repo_pr_health": "process_health",
 }
 
 PRESSURE_STATES = {"active", "faded", "sleeping", "archived", "closed", "satisfied"}
@@ -891,7 +901,22 @@ def _pressure(
     discriminator: str | None = None,
 ) -> dict[str, Any]:
     recency_decay = 1.0
-    base_weight = (weights or SOURCE_WEIGHTS)[source]
+    # ORPHAN-CRITICAL-733 — a source missing from the weight table used to
+    # raise a bare KeyError deep inside the pressure phase, and the phase's
+    # error surfaced as the opaque string "'repo_pr_health'" while the whole
+    # cycle failed (2026-08-18 evening run). The vocabulary is CLOSED by
+    # design; the fix is to say so at the boundary, in the producer's own
+    # language, so the next unregistered source names itself and its two
+    # registration sites.
+    table = weights or SOURCE_WEIGHTS
+    if source not in table:
+        raise GovernanceError(
+            f"unregistered_pressure_source: {source!r} — add it to "
+            "pressure.SOURCE_WEIGHTS and pressure.DRIFT_CLASS_BY_SOURCE "
+            "(both tables are closed vocabularies; the drift-class parity "
+            "test pins the pair)"
+        )
+    base_weight = table[source]
     count = max(1, occurrence_count)
     raw_score = base_weight * recency_decay * (1 + math.log10(count))
     score = round(min(100.0, raw_score), 3)

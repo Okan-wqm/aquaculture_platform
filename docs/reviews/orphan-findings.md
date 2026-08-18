@@ -10112,3 +10112,11 @@ Severity: MEDIUM (rhythm; the E25-b class). Cycle (01:13) and executor (02:29) w
 **Fix:** the executor gains a `workflow_run` trigger on completed `aria-auto-cycle` runs — each seal is followed by its drain, day or night. The cron stays as the safety net for a night where the cycle lane itself never fired; the shared concurrency group already serializes the pair, and a cron firing mid-drain just waits in the group's pending slot.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-CRITICAL-733 — an unregistered pressure source failed a whole sealed cycle with a one-word error — RESOLVED (same night)
+
+Severity: CRITICAL (self-inflicted, caught within hours). ORPHAN-723's observer produced pressures with `source="repo_pr_health"` while `pressure.SOURCE_WEIGHTS` and `pressure.DRIFT_CLASS_BY_SOURCE` are CLOSED vocabularies. `_pressure` indexed the weight table directly, so the omission surfaced as a bare `KeyError` deep inside the pressure phase; the 2026-08-18 evening cycle (`cyc-20260818T200659Z-auto`) failed whole with `failed_phases: [{phase: "pressure", error: "'repo_pr_health'"}]` — two hours of scanning discarded for a missing dictionary entry. The observer's own tests passed because they exercised the ledger writer and the loader, never the pressure producer.
+
+**Fix:** the source is registered in both tables (weight 20 — deliberately the LOWEST in the table, because ARIA holds no authority over third-party PRs until the E23 gate opens; class `process_health`, reusing the existing class so the policy-parity test needs no genesis-policy edit), and `_pressure` now refuses an unregistered source with a typed `unregistered_pressure_source` GovernanceError naming BOTH registration sites. The next producer that forgets says so in its own words instead of collapsing a cycle. Pinned: registration in both tables, the observe-only weight is the table minimum (the authority boundary in numeric form), and the refusal fires by name.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

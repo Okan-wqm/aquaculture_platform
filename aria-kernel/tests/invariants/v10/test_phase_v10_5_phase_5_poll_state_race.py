@@ -72,15 +72,20 @@ class PollStateRaceInvariants(unittest.TestCase):
             observed.append(plan_id)
             return real_fold(plan_id=plan_id, base_dir=base_dir)
 
-        def explode(*_a, **_k):
-            raise AssertionError("the resumable step slept")
+        # WALL-CLOCK is the honest instrument here. A blanket time.sleep
+        # patch cannot distinguish the step waiting (the defect) from the
+        # OS waiting on a git subprocess for target_sha (unavoidable and
+        # bounded) — it caught the latter and lied. Source-level "no
+        # sleeps in the module" is pinned by I-V10.5-5-02; this pin asks
+        # the question that one cannot: does a 3600s budget translate
+        # into a long run?
+        started = time.monotonic()
 
         with tempfile.TemporaryDirectory() as tmp:
             tools = Path(tmp) / "aria-tools"
             workspace = Path(tmp) / "workspace"
             (workspace / ".claude" / "agents").mkdir(parents=True)
-            with mock.patch.object(cd, "fold_plan_state", counting_fold), \
-                 mock.patch.object(time, "sleep", explode):
+            with mock.patch.object(cd, "fold_plan_state", counting_fold):
                 result = cd.run_convergence_drainer(
                     cycle_id="cyc-i-v10-5-5-03",
                     base_dir=tools,
@@ -108,8 +113,15 @@ class PollStateRaceInvariants(unittest.TestCase):
                     # A long timeout must not translate into a long run.
                     challenger_timeout_seconds=3600.0,
                 )
+        elapsed = time.monotonic() - started
         self.assertTrue(observed, "the step never observed plan state")
         self.assertEqual(result["arbiter_verdict"], "in_progress")
+        self.assertLess(
+            elapsed, 30.0,
+            "I-V10.5-5-03: a 3600s challenger budget must not translate "
+            f"into a long run — the step took {elapsed:.1f}s, which means "
+            "something is waiting for work the executor lane delivers.",
+        )
 
     def test_i_v10_5_5_04_aria_stop_precedence_preserved(self):
         from aria_kernel import convergence_drainer

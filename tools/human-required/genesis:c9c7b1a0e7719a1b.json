@@ -1,0 +1,44 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "capability_gap_key": "shadow_run:doc-staleness-adapter",
+    "capability_resolution": {
+      "decision": "request",
+      "row_id": "capability-resolution:03767ba09706978b30ef2199"
+    },
+    "capability_resolution_ref": "capability-resolution:03767ba09706978b30ef2199",
+    "cycle_id": "cyc-20260818T021107Z-auto",
+    "evidence_refs": [
+      "docs/DEPLOY.md",
+      "docs/FUXA_GAP_IMPLEMENTATION_PLAN.md",
+      "docs/HMI_TRANSFORMATION_PLAN.md",
+      "docs/LORAWAN_API.md",
+      "docs/LORAWAN_ARCHITECTURE.md",
+      "docs/LORAWAN_SETUP.md",
+      "docs/PID_SIMULATOR.md",
+      "docs/SCADA.md",
+      "docs/SCADA_BUILDER_WIRING.md",
+      "docs/SCADA_EDGE_DEPLOY.md",
+      "docs/SCADA_SIMULATION_MODE.md",
+      "docs/admin-panel-triangle-audit/2026-05-20/README.md",
+      "docs/admin-panel-triangle-audit/2026-05-20/admin-billing/implementation-record.md",
+      "docs/admin-panel-triangle-audit/2026-05-20/decision-record.md",
+      "docs/admin-panel-triangle-audit/2026-05-20/findings.md",
+      "docs/admin-panel-triangle-audit/2026-05-20/implementation-log.md",
+      "docs/admin-panel-triangle-audit/2026-05-20/out-of-scope-observations.md",
+      "docs/admin-panel-triangle-audit/2026-05-20/validation.md",
+      "docs/admin-panel-triangle-audit/2026-05-21/admin-billing-runtime-contract/README.md",
+      "docs/admin-panel-triangle-audit/2026-05-22/admin-security/README.md"
+    ],
+    "gap_id": "gap-639fd9847fc3",
+    "kind": "genesis_candidate",
+    "valid_cycles": 4
+  },
+  "reason": "capability gap 'shadow_run:doc-staleness-adapter' proposes agent genesis; panel adjudication required (resolver decision: request).",
+  "recorded_at": "2026-08-18T04:03:17Z",
+  "request_id": "genesis:c9c7b1a0e7719a1b",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "sla_deadline": "2026-08-25T04:03:17Z",
+  "status": "open"
+}

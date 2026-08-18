@@ -1,0 +1,16 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "kind": "anchor_stale",
+    "request_id": "AIR-aria-adversarial-judge-692c9885037b",
+    "role": "adversarial_judgment",
+    "target_agent": "aria-adversarial-judge"
+  },
+  "reason": "request 'AIR-aria-adversarial-judge-692c9885037b' died ANCHOR_STALE unclaimed; panel disposition required (re_mint / drop_with_reason).",
+  "recorded_at": "2026-08-18T03:49:45Z",
+  "request_id": "AIR-aria-adversarial-judge-692c9885037b",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-08-21T03:49:45Z",
+  "status": "open"
+}

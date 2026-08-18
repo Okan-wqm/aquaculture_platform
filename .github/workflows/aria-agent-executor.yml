@@ -21,6 +21,17 @@ name: aria-agent-executor
 #   - the GHA log ::add-mask:: directive masks any accidental leak.
 
 on:
+  # ORPHAN-724 — the drain FOLLOWS the producer. Cycle and executor were
+  # two unrelated crons: the night lost 1+ hours between seal and drain,
+  # and every daytime cycle needed a human to dispatch the drain after it.
+  # workflow_run chains them — each completed cycle is followed by a
+  # drain — while the cron stays as the safety net for a night where the
+  # cycle lane itself never ran. The shared concurrency group already
+  # serializes the pair, and a cron firing mid-drain just waits in the
+  # group's pending slot.
+  workflow_run:
+    workflows: ["aria-auto-cycle"]
+    types: [completed]
   schedule:
     # 02:00 UTC daily (off-hours for most ARIA contributors)
     # 29 past, not :00 — same top-of-hour congestion as the cycle cron;

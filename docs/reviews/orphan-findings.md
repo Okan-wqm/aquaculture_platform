@@ -10044,3 +10044,11 @@ Severity: MEDIUM. X4's bounded re-open (ORPHAN-699) treated `{ANCHOR_STALE, STAL
 **Fix:** `REJECTED` joins `_TERMINALLY_DEAD_STATES`; `MAX_PANEL_REOPENS=2` still bounds the second chance, and the fold-reason gate (`panel_incomplete:` only) still protects panels with live opinions. Pinned with the same mocked-state behavior test shape as the ANCHOR_STALE reopen pin.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-LOW-716 — the meta-watchdog turned contract-red into incident: every honest partial night would page — RESOLVED (Z3, 2026-08-18)
+
+Severity: LOW (noise, not correctness — but noise that buries real incidents). The executor drain exits non-zero on partial success BY CONTRACT (honesty pin: "attempted 11, landed 3" is not green). `scheduled-workflow-watchdog` judges the newest completed run per lane, so every partial night became an incident issue + hourly red watchdog — indistinguishable from a lane that is actually broken. The plan's Z3 cancel-condition (first cron night green) did not hold, so the threshold change activates.
+
+**Fix:** additive manifest key `consecutiveFailuresForIncident: 2` on the executor lane only; the watchdog tolerates a single red completed run where the key is set — the newest N completed runs must ALL be non-green before the lane is an incident. Staleness, missing runs, and missing backup evidence still alarm alone, unchanged; the drain's red-exit contract is untouched.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

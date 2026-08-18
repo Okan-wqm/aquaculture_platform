@@ -56,9 +56,10 @@ jobs:
                 // COMPLETED run, not the newest run.
                 per_page: 10,
               });
-              const run = response.data.workflow_runs.find(
+              const completedRuns = response.data.workflow_runs.filter(
                 (candidate) => candidate.status === 'completed',
               );
+              const run = completedRuns[0];
               const ageHours = run
                 ? (now - new Date(run.created_at).getTime()) / (60 * 60 * 1000)
                 : null;
@@ -84,7 +85,34 @@ jobs:
                   artifact.name.startsWith(watched.requiredArtifactPrefix),
                 );
               }
-              if (!run || run.conclusion !== 'success' || ageHours > watched.maxAgeHours || !evidenceOk) {
+              // Z3 (2026-08-18): some lanes exit red BY CONTRACT on partial
+              // success — the executor drain reports "attempted 11, landed 3"
+              // as a non-zero exit, honestly. Alarming on every such night
+              // buries real incidents in expected ones. Where the manifest
+              // sets consecutiveFailuresForIncident, one red completed run is
+              // tolerated; the newest N completed runs must ALL be non-green
+              // before the lane is an incident. Staleness, missing runs and
+              // missing evidence still alarm on their own, unchanged.
+              let redRunTolerated = false;
+              if (
+                run &&
+                run.conclusion !== 'success' &&
+                watched.consecutiveFailuresForIncident
+              ) {
+                const newest = completedRuns.slice(
+                  0,
+                  watched.consecutiveFailuresForIncident,
+                );
+                redRunTolerated =
+                  newest.length < watched.consecutiveFailuresForIncident ||
+                  newest.some((candidate) => candidate.conclusion === 'success');
+              }
+              if (
+                !run ||
+                (run.conclusion !== 'success' && !redRunTolerated) ||
+                ageHours > watched.maxAgeHours ||
+                !evidenceOk
+              ) {
                 incidents.push({
                   workflow: watched.workflow,
                   conclusion:

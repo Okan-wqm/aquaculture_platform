@@ -5182,25 +5182,10 @@ def _main(argv: list[str] | None = None) -> int:
             ),
             readiness_claim_resolver=resolve_readiness_claim_id_from_claims,
         )
-        # Plan ARIA-V8 §4 Phase 8.0 (B-V2-13) — fail-fast validation:
-        # cycle_deadline must accommodate at least 3 envelope-mint
-        # waits × max_rounds × challenger_timeout. Otherwise the
-        # watchdog kills cycles before they can converge — silent
-        # primary_silent regression. The lower bound is computed
-        # against the round-2+ worst case (3 envelopes per round).
-        _v8_min_cycle_deadline = (
-            args.max_rounds * 3 * args.challenger_timeout_seconds
-        )
-        if args.cycle_deadline_seconds < _v8_min_cycle_deadline:
-            print(
-                f"error: --cycle-deadline-seconds {args.cycle_deadline_seconds} "
-                f"< max_rounds × 3 envelopes × challenger_timeout "
-                f"({args.max_rounds} × 3 × {args.challenger_timeout_seconds} "
-                f"= {_v8_min_cycle_deadline}). Increase deadline OR "
-                f"decrease max_rounds OR decrease challenger_timeout.",
-                file=sys.stderr,
-            )
-            return 2
+        # CL-1 (ORPHAN-725) — the B-V2-13 deadline floor is retired with
+        # the waits it was sized for: the resumable step function never
+        # blocks on challenger_timeout, so a cycle deadline no longer
+        # needs to fit max_rounds × envelopes × timeout inside one run.
         # Plan ARIA-V8 §4 Phase 8.0 (B-V2-11) — surface the per-run
         # budget cap to the orchestrator environment so child ci_executor
         # subprocesses read it via MAX_BUDGET_USD_PER_RUN env var.

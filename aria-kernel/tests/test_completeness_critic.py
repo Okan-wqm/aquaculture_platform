@@ -19,7 +19,6 @@ from aria_kernel.agent_surface import (
     REQUEST_ROLES,
     ROLE_TARGET_PAIRING,
 )
-from aria_kernel.convergence_drainer import _CONVERGENCE_INLINE_DISPATCH_ROLES
 from aria_kernel.cross_review_bridge import (
     COMPLETENESS_CRITIC_ROLE,
     _completeness_critic_suggested_prompt,
@@ -169,7 +168,13 @@ class RolePlumbingPins(unittest.TestCase):
     def test_role_registered_across_surfaces(self):
         self.assertIn("completeness_critique", REQUEST_ROLES)
         self.assertIn("completeness_critique", DISPATCHABLE_ROLES)
-        self.assertIn("completeness_critique", _CONVERGENCE_INLINE_DISPATCH_ROLES)
+        # CL-1 (ORPHAN-725) deliberately DELETED the drainer's inline
+        # dispatch: the executor lane is the single consumer of every
+        # convergence role (X1 topology), the critic included.
+        import aria_kernel.convergence_drainer as drainer_module
+
+        self.assertFalse(hasattr(drainer_module, "_CONVERGENCE_INLINE_DISPATCH_ROLES"))
+        self.assertEqual(drainer_module._STEP_ROLE_CRITIC, "completeness_critique")
         self.assertEqual(ROLE_TARGET_PAIRING["completeness_critique"], ("aria-completeness-critic",))
         self.assertIn("aria-completeness-critic", DEFAULT_TARGET_AGENT_WHITELIST)
         self.assertEqual(COMPLETENESS_CRITIC_ROLE, ("aria-completeness-critic", "completeness_critique"))
@@ -182,19 +187,27 @@ class RolePlumbingPins(unittest.TestCase):
 
 
 class DrainerCriticGatePins(unittest.TestCase):
+    # CL-1 (ORPHAN-725) rewrote these pins for the resumable step: the
+    # PROPERTY is unchanged — waiver adjudication sits between coverage
+    # compute and record_coverage — but the critic now resolves either
+    # via the injected adjudicator (tests) or via an executor-delivered
+    # envelope folded on a later cycle (production), never via an
+    # in-cycle dispatch loop.
     def test_critic_gate_sits_between_compute_and_record(self):
         source = inspect.getsource(convergence_drainer.run_convergence_drainer)
-        gate = source.index("resolved_critic_adjudicator(payload, current_round)")
+        gate = source.index("adjudicate_waivers(")
         record = source.index("record_coverage(plan_id=plan_id, coverage=payload, base_dir=base_dir)")
         self.assertLess(gate, record)
         self.assertIn('payload.get("verdict") == "covered_with_waivers"', source)
 
-    def test_critic_adjudicator_is_injectable_with_production_default(self):
+    def test_critic_adjudicator_is_injectable_with_async_production_default(self):
         signature = inspect.signature(convergence_drainer.run_convergence_drainer)
         self.assertIn("critic_adjudicator", signature.parameters)
-        self.assertIn("critic_timeout_seconds", signature.parameters)
         source = inspect.getsource(convergence_drainer.run_convergence_drainer)
-        self.assertIn("critic_adjudicator or _dispatch_and_adjudicate", source)
+        # Injected adjudicator short-circuits synchronously; the
+        # production default mints the critic envelope for the executor.
+        self.assertIn("if critic_adjudicator is not None", source)
+        self.assertIn("issue_completeness_critic_envelope", source)
 
 
 if __name__ == "__main__":

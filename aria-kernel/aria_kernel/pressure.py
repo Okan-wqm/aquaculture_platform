@@ -381,6 +381,36 @@ def run_pressure(
                 discriminator=f"post-merge-{red.get('pr_number')}",
             ),
         )
+    # ORPHAN-723 — third-party PR reds, observation-only. Low severity by
+    # design: ARIA has NO authority over these PRs (E23 gate); the
+    # pressure exists so the nightly report can say "4 Dependabot
+    # branches cannot pass CI" instead of not knowing.
+    from .own_pr_ci import load_third_party_pr_reds
+    for red in load_third_party_pr_reds(base_dir=root):
+        red_jobs = _array_of_strings(red.get("red_jobs"))
+        pressures.append(
+            _pressure(
+                weights=_weights,
+                cycle_id=cycle_id,
+                source="repo_pr_health",
+                pressure_type="UNKNOWN",
+                severity="low",
+                reason=(
+                    f"third-party PR #{red.get('pr_number')} "
+                    f"({red.get('head_ref')}, author {red.get('author')}) "
+                    f"is RED in CI: {', '.join(red_jobs) or 'failed checks'}"
+                ),
+                evidence=[f"pr-{red.get('pr_number')}:{red.get('head_ref')}"],
+                occurrence_count=1,
+                candidate_tools=[],
+                recommended_action=(
+                    "OBSERVE ONLY — surface in the nightly report; ARIA holds "
+                    "no review or merge authority over third-party PRs until "
+                    "the E23 gate opens"
+                ),
+                discriminator=f"repo-pr-{red.get('pr_number')}",
+            ),
+        )
     from .runtime_signal_bridge import load_open_runtime_signals
     for signal in load_open_runtime_signals(base_dir=root):
         severity = signal.get("severity") if signal.get("severity") in ("low", "medium", "high", "critical") else "high"

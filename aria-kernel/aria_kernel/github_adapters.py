@@ -301,6 +301,26 @@ class RealChecksReader:
         except (_GovernanceError, OSError, ValueError):
             return None
 
+    def list_open_prs(self, *, limit: int = 30) -> list[dict[str, Any]]:
+        """ORPHAN-723 — every open PR, own or third-party (Dependabot,
+        developers). Read-only observation feed; review/merge AUTHORITY
+        over third-party PRs stays E23-gated."""
+        import json as _json
+        import subprocess as _subprocess
+
+        completed = _subprocess.run(
+            ["gh", "pr", "list", "--state", "open", "--limit", str(limit),
+             "--json", "number,headRefName,headRefOid,author"],
+            cwd=self._cwd, capture_output=True, text=True, check=False,
+        )
+        if completed.returncode != 0:
+            return []
+        try:
+            rows = _json.loads(completed.stdout or "[]")
+        except _json.JSONDecodeError:
+            return []
+        return [row for row in rows if isinstance(row, dict)]
+
     def list_merged_own_prs(self, *, limit: int = 20) -> list[dict[str, Any]]:
         """ORPHAN-718 — the merged tail of ARIA's own PRs.
 
@@ -391,6 +411,9 @@ class RecordingChecksReader:
 
     def pr_merge_state(self, pr_number: int) -> dict[str, Any] | None:
         return None
+
+    def list_open_prs(self, *, limit: int = 30) -> list[dict[str, Any]]:
+        return []
 
     def list_merged_own_prs(self, *, limit: int = 20) -> list[dict[str, Any]]:
         return []

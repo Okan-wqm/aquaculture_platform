@@ -10096,3 +10096,11 @@ Severity: HIGH (structural autonomy blocker). PRs opened with the job's `GITHUB_
 **Fix:** the operator minted a fine-grained PAT (this repo only; Contents+Pull-requests RW; Workflows permission deliberately withheld — kernel writes stay operator-gated) stored machine-local as `ARIA_GH_TOKEN` in the runner `.env` (the ARIA_OBSERVABILITY_API_KEY pattern; value never enters the repo). Both kernel-run steps (cycle + executor) export it as `GH_TOKEN` when present, with a disclosure line naming the identity source; the job token remains the fallback so a token-less runner degrades to today's behavior. PRs now author as the operator's identity; own-PR tracking is unaffected (branch-prefix based). Disclosed residual: github-hosted automation lanes (daily-report) cannot see runner-local env and would need a repo secret — separate decision, not taken here.
 
 **Owner:** claude (this session). **Status:** RESOLVED (wiring); first live proof = next scheduled night run.
+
+## ORPHAN-MEDIUM-723 — ARIA could not see the repo's PR weather: third-party CI failures (Dependabot included) were invisible — RESOLVED as observation-only (2026-08-18 operator approval)
+
+Severity: MEDIUM (visibility, deliberately not authority). The own-PR scan is branch-prefix scoped by design (`aria/`, `automation/`), so open third-party PRs — Dependabot's action bumps failing their own Rust CI, developer branches — appeared in no ARIA ledger. Operator question "does ARIA see these?" answered honestly: no.
+
+**Fix:** `scan_repo_pr_health` records EVERY open PR's check verdict to the new `ci/repo-pr-health.jsonl` surface (outcome changes only), marking own vs third-party. Third-party reds feed a LOW-severity pressure whose recommended action is literally "OBSERVE ONLY — no review or merge authority until the E23 gate opens", and a source-pin test breaks if either the severity or that boundary text is ever escalated. Seeing arrives today; judging and merging remain E23's judgment-health-gated work.
+
+**Owner:** claude (this session). **Status:** RESOLVED (observation scope).

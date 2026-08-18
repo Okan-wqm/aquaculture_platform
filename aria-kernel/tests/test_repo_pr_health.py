@@ -123,3 +123,51 @@ class RepoPrHealthTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PressureSourceRegistration(unittest.TestCase):
+    """ORPHAN-CRITICAL-733 — the observer's pressure source must be a
+    REGISTERED member of both closed vocabularies.
+
+    The 2026-08-18 evening cycle failed whole because `repo_pr_health`
+    was produced but never registered: `_pressure` raised a bare
+    KeyError inside the pressure phase and the cycle's only visible
+    error string was "'repo_pr_health'". Registration is pinned here;
+    the boundary refusal below is what makes the NEXT unregistered
+    source name itself instead of collapsing a cycle.
+    """
+
+    def test_source_is_registered_in_both_tables(self) -> None:
+        from aria_kernel import pressure
+
+        self.assertIn("repo_pr_health", pressure.SOURCE_WEIGHTS)
+        self.assertIn("repo_pr_health", pressure.DRIFT_CLASS_BY_SOURCE)
+
+    def test_observe_only_source_is_the_lowest_weight(self) -> None:
+        from aria_kernel import pressure
+
+        # The authority boundary in numeric form: a PR ARIA may not touch
+        # must never outrank work it owns.
+        self.assertEqual(
+            pressure.SOURCE_WEIGHTS["repo_pr_health"],
+            min(pressure.SOURCE_WEIGHTS.values()),
+        )
+
+    def test_unregistered_source_is_refused_by_name(self) -> None:
+        from aria_kernel import pressure
+        from aria_kernel.tool_registry import GovernanceError
+
+        with self.assertRaises(GovernanceError) as ctx:
+            pressure._pressure(
+                cycle_id="c1",
+                source="not_registered_anywhere",
+                pressure_type="UNKNOWN",
+                severity="low",
+                reason="r",
+                evidence=[],
+                occurrence_count=1,
+                candidate_tools=[],
+                recommended_action="a",
+            )
+        self.assertIn("unregistered_pressure_source", str(ctx.exception))
+        self.assertIn("not_registered_anywhere", str(ctx.exception))

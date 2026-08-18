@@ -1,0 +1,44 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "capability_gap_key": "shadow_run:bundle-budget-adapter",
+    "capability_resolution": {
+      "decision": "request",
+      "row_id": "capability-resolution:6a463a5e7b5c51fa2ed49424"
+    },
+    "capability_resolution_ref": "capability-resolution:6a463a5e7b5c51fa2ed49424",
+    "cycle_id": "cyc-20260818T074924Z-auto",
+    "evidence_refs": [
+      "web/apps/aquamobil/src/App.tsx",
+      "web/apps/aquamobil/src/__tests__/field-ergonomics.invariant.spec.ts",
+      "web/apps/aquamobil/src/components/AlertsBell.tsx",
+      "web/apps/aquamobil/src/components/BarcodeScanButton.tsx",
+      "web/apps/aquamobil/src/components/CriticalAlertBanner.tsx",
+      "web/apps/aquamobil/src/components/DataFreshness.tsx",
+      "web/apps/aquamobil/src/components/ErrorBoundary.tsx",
+      "web/apps/aquamobil/src/components/IdentityBoundary.tsx",
+      "web/apps/aquamobil/src/components/InstallPrompt.tsx",
+      "web/apps/aquamobil/src/components/LiveReadingsCard.tsx",
+      "web/apps/aquamobil/src/components/MultiFeatureRoute.tsx",
+      "web/apps/aquamobil/src/components/NotificationBell.tsx",
+      "web/apps/aquamobil/src/components/PhotoCaptureField.tsx",
+      "web/apps/aquamobil/src/components/QueuedStatusBadge.tsx",
+      "web/apps/aquamobil/src/components/VirtualList.tsx",
+      "web/apps/aquamobil/src/components/__tests__/BarcodeScanButton.spec.tsx",
+      "web/apps/aquamobil/src/components/__tests__/DataFreshness.spec.tsx",
+      "web/apps/aquamobil/src/components/__tests__/ErrorBoundary.spec.tsx",
+      "web/apps/aquamobil/src/components/__tests__/IdentityBoundary.spec.tsx",
+      "web/apps/aquamobil/src/components/__tests__/NotificationBell.spec.tsx"
+    ],
+    "gap_id": "gap-69d7f0bdef57",
+    "kind": "genesis_candidate",
+    "valid_cycles": 5
+  },
+  "reason": "capability gap 'shadow_run:bundle-budget-adapter' proposes agent genesis; panel adjudication required (resolver decision: request).",
+  "recorded_at": "2026-08-18T10:13:02Z",
+  "request_id": "genesis-10f1a89d944d435d",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "sla_deadline": "2026-08-25T10:13:02Z",
+  "status": "open"
+}

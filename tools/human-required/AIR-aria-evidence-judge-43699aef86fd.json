@@ -1,0 +1,16 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "kind": "anchor_stale",
+    "request_id": "AIR-aria-evidence-judge-43699aef86fd",
+    "role": "evidence_judgment",
+    "target_agent": "aria-evidence-judge"
+  },
+  "reason": "request 'AIR-aria-evidence-judge-43699aef86fd' died ANCHOR_STALE unclaimed; panel disposition required (re_mint / drop_with_reason).",
+  "recorded_at": "2026-08-18T09:54:25Z",
+  "request_id": "AIR-aria-evidence-judge-43699aef86fd",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-08-21T09:54:25Z",
+  "status": "open"
+}

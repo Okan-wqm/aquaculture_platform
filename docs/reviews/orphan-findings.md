@@ -10020,3 +10020,19 @@ Severity: CRITICAL (E4/C1; audit C1, adversarially CONFIRMED). `promotion.promot
 **Fix:** `aria-kernel tool promote --tool-id --target-status {SHADOW,ACTIVE} --reason [--operator-approval-ref]` routes to `promote_tool`; every gate is preserved and surfaces (operator-approval requirement, readiness blockers) exactly as the sibling tool verbs do. CALIBRATE→SHADOW needs no ref (fixture pass suffices); SHADOW→ACTIVE requires it. 3 new tests (routing + approval gate + readiness gate held through the CLI) + 39 governance/CLI-contract tests green. NOT this PR (own phases): the readiness EVIDENCE that lets a specific adapter pass — semantic_regression fixture lane (C3, with adapter fixes) and genesis-transition producer (C4, with BP0). C1 makes promotion POSSIBLE; those make it EARNED.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-717 — ARIA's merge gate trusted branch protection's short list: optional-red PRs were mergeable and local hygiene was never proven — RESOLVED (2026-08-18 operator directive)
+
+Severity: HIGH. Two blind spots in the autonomous merge path. (a) `evaluate_auto_merge` judged only the branch-protection REQUIRED checks — main requires two, while lint/format/typecheck run as non-required check runs; a PR with a red optional lint evaluated "eligible" (operator-measured on the Y-union train: mergeable_state said clean while lint was red). (b) Nothing proved the repo's own hygiene battery ran locally, and CI structurally cannot: ~16 projects are unit-test-quarantined on CI (`scripts/ci/affected-target-policy.json`), so a CI-green PR does not prove tests pass.
+
+**Fix:** (a) the evaluator now demands the FULL check-run battery on the head SHA — every run completed, none red (neutral/skipped tolerated), zero runs fails closed; (b) the merge authority's triple gate gains Gate 4: verified exit-0 `validation_runs` rows for format (`format:check`), typecheck (`type-check`) and tests (`--target=test`/`npm run test`) or the merge blocks with `triple_gate_hygiene_run_missing:<dimension>`. The aria-implementer contract now names the battery as mandatory. Deliberate breakage: passing fixtures re-seeded with the three-run battery; a test-only chain is pinned BLOCKED.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-718 — ARIA never looked back after merging: post-merge main runs were unobserved, so PR-green/main-red divergence was invisible — RESOLVED (2026-08-18 operator directive)
+
+Severity: HIGH. `own_pr_ci.scan_own_prs` watched OPEN PRs only. Once a PR merged, nobody ARIA-side read the merge commit's workflow runs on main — and this repository has lived the divergence: the production deploy lane sat red on main for months while every PR stayed green (ORPHAN-415). An autonomous merger that cannot see "my merge broke main" cannot learn from it.
+
+**Fix:** `scan_merged_own_prs` — same cycle phase, same reader: for each recently merged own-PR, the merge commit's main-branch workflow runs are classified (green/red/pending/no_runs_observed) and outcome CHANGES append to the new `ci/merge-outcomes.jsonl` surface. A NEW red lands a `post_merge_ci_red` governance event and `load_post_merge_reds` feeds the pressure producer at severity critical ("fix forward — the defect already shipped"); a later green retires the pressure the same way open-PR reds clear. This closes the loop the operator asked for: track the first Actions verdict AND the post-merge verdict, record both, learn from the reds.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

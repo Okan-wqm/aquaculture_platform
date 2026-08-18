@@ -301,6 +301,54 @@ class RealChecksReader:
         except (_GovernanceError, OSError, ValueError):
             return None
 
+    def list_merged_own_prs(self, *, limit: int = 20) -> list[dict[str, Any]]:
+        """ORPHAN-718 — the merged tail of ARIA's own PRs.
+
+        Post-merge outcome tracking needs the squash SHA each own-PR
+        landed as; ``gh pr list --state merged`` carries it as
+        ``mergeCommit.oid``. Read-only, same trust boundary as
+        ``list_own_prs``.
+        """
+        import json as _json
+        import subprocess as _subprocess
+
+        completed = _subprocess.run(
+            ["gh", "pr", "list", "--state", "merged", "--limit", str(limit),
+             "--json", "number,headRefName,mergeCommit"],
+            cwd=self._cwd, capture_output=True, text=True, check=False,
+        )
+        if completed.returncode != 0:
+            return []
+        try:
+            rows = _json.loads(completed.stdout or "[]")
+        except _json.JSONDecodeError:
+            return []
+        return [row for row in rows if isinstance(row, dict)]
+
+    def runs_for_commit(self, sha: str) -> list[dict[str, Any]]:
+        """Workflow runs whose head commit is ``sha`` (the merge commit).
+
+        This is the "did main stay green after MY merge" read — the
+        PR-side checks answer a different question, and the two disagreed
+        for months on this repository (deploy-production red on main while
+        every PR stayed green).
+        """
+        import json as _json
+        import subprocess as _subprocess
+
+        completed = _subprocess.run(
+            ["gh", "run", "list", "--commit", str(sha), "--limit", "50",
+             "--json", "name,status,conclusion,headBranch,url"],
+            cwd=self._cwd, capture_output=True, text=True, check=False,
+        )
+        if completed.returncode != 0:
+            return []
+        try:
+            rows = _json.loads(completed.stdout or "[]")
+        except _json.JSONDecodeError:
+            return []
+        return [row for row in rows if isinstance(row, dict)]
+
     def pr_merge_state(self, pr_number: int) -> dict[str, Any] | None:
         """E2/F1 — merged-or-not for one PR, from GitHub truth.
 
@@ -343,6 +391,12 @@ class RecordingChecksReader:
 
     def pr_merge_state(self, pr_number: int) -> dict[str, Any] | None:
         return None
+
+    def list_merged_own_prs(self, *, limit: int = 20) -> list[dict[str, Any]]:
+        return []
+
+    def runs_for_commit(self, sha: str) -> list[dict[str, Any]]:
+        return []
 
 
 def select_checks_reader(

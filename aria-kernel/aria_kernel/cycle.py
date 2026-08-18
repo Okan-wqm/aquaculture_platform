@@ -1194,6 +1194,17 @@ def _phase_pr_ci_scan(context: PhaseContext) -> dict[str, Any]:
         workspace_root=context.workspace_root,
         reader=reader,
     )
+    # ORPHAN-718 (2026-08-18 operator directive) — the SECOND verdict:
+    # after a PR merges, did main stay green? The same reader answers from
+    # the merge commit's workflow runs; reds land in ci/merge-outcomes.jsonl
+    # and become pressure below, exactly like open-PR reds.
+    from .own_pr_ci import scan_merged_own_prs
+
+    scan_result["merged"] = scan_merged_own_prs(
+        cycle_id=context.cycle_id,
+        base_dir=context.base_dir,
+        reader=reader,
+    )
     # E2/F1 — the same reader answers "was the implementation PR merged?"
     # for plans resting in IMPLEMENTATION_RECORDED. The operator merges on
     # GitHub; this reconciler is how that external fact becomes the plan's

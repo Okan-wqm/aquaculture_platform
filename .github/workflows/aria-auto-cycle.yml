@@ -440,6 +440,20 @@ jobs:
           MAX_TIMEOUT_SECONDS: '1800'
           MAX_CYCLES_INPUT: ${{ github.event.inputs.max_cycles }}
         run: |
+          # ORPHAN-722 — PR identity. PRs opened with the job token are
+          # authored by github-actions[bot], and GitHub parks bot-PR
+          # workflows in action_required (anti-recursion, not a repo
+          # setting), so ARIA's own PRs could never go green unattended
+          # (#1266/#1195 sat with ZERO check runs). The machine-local
+          # fine-grained PAT (runner .env, ARIA_GH_TOKEN) takes
+          # precedence; the job token stays the fallback so a token-less
+          # runner degrades to today's behavior instead of failing.
+          if [ -n "${ARIA_GH_TOKEN:-}" ]; then
+            export GH_TOKEN="$ARIA_GH_TOKEN"
+            echo "gh identity: machine PAT (ARIA_GH_TOKEN)"
+          else
+            echo "gh identity: job token fallback"
+          fi
           set -euo pipefail
           MAX_CYCLES="${MAX_CYCLES_INPUT:-1}"
           if ! [[ "$MAX_CYCLES" =~ ^[0-9]{1,2}$ ]]; then

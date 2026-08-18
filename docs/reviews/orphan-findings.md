@@ -10087,3 +10087,11 @@ Severity: MEDIUM (same noise class as ORPHAN-714's original red). ORPHAN-714 sto
 **Fix:** all four store-tree upload steps (cycle cache + quarantine, executor cache + quarantine) exclude `tools/human-required/genesis:*` with an in-file disclosure. The records remain fully present in the authoritative aria/state publish; only the convenience artifact skips what the uploader cannot carry.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-722 — ARIA's PRs were born unreviewable: bot-token authorship parked every workflow in action_required — RESOLVED (2026-08-18 operator + PAT)
+
+Severity: HIGH (structural autonomy blocker). PRs opened with the job's `GITHUB_TOKEN` are authored by `github-actions[bot]`, and GitHub parks workflows on bot-authored PRs in `action_required` (anti-recursion; not a repo setting). ARIA's own report PRs (#1266, #1195) sat with ZERO check runs — an autonomous merge chain cannot even begin when its PRs never get CI. Confirmed via `actions/permissions` API + both PRs' empty statusCheckRollup.
+
+**Fix:** the operator minted a fine-grained PAT (this repo only; Contents+Pull-requests RW; Workflows permission deliberately withheld — kernel writes stay operator-gated) stored machine-local as `ARIA_GH_TOKEN` in the runner `.env` (the ARIA_OBSERVABILITY_API_KEY pattern; value never enters the repo). Both kernel-run steps (cycle + executor) export it as `GH_TOKEN` when present, with a disclosure line naming the identity source; the job token remains the fallback so a token-less runner degrades to today's behavior. PRs now author as the operator's identity; own-PR tracking is unaffected (branch-prefix based). Disclosed residual: github-hosted automation lanes (daily-report) cannot see runner-local env and would need a repo secret — separate decision, not taken here.
+
+**Owner:** claude (this session). **Status:** RESOLVED (wiring); first live proof = next scheduled night run.

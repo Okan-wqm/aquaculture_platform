@@ -919,8 +919,17 @@ def sweep_candidate_gaps_for_adjudication(
         if gap_key in already_requested:
             skipped.append({"gap_key": gap_key, "reason": "genesis_already_requested"})
             continue
-        escalation_id = f"genesis:{_hashlib.sha256(gap_key.encode()).hexdigest()[:16]}"
-        if _human_required_path(root, escalation_id).exists():
+        digest = _hashlib.sha256(gap_key.encode()).hexdigest()[:16]
+        # WHY dash, not colon: the id doubles as the human-required FILENAME
+        # and GitHub's artifact uploader rejects ':' in paths — the first
+        # live escalation turned the sealed cycle's forensic upload red
+        # (run 32090429275, ORPHAN-714). WHAT: mint artifact-safe ids; the
+        # single pre-rename colon record still blocks a duplicate.
+        escalation_id = f"genesis-{digest}"
+        if (
+            _human_required_path(root, escalation_id).exists()
+            or _human_required_path(root, f"genesis:{digest}").exists()
+        ):
             skipped.append({"gap_key": gap_key, "reason": "already_escalated"})
             continue
         resolution = resolve_capability(

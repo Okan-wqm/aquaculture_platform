@@ -10020,3 +10020,35 @@ Severity: CRITICAL (E4/C1; audit C1, adversarially CONFIRMED). `promotion.promot
 **Fix:** `aria-kernel tool promote --tool-id --target-status {SHADOW,ACTIVE} --reason [--operator-approval-ref]` routes to `promote_tool`; every gate is preserved and surfaces (operator-approval requirement, readiness blockers) exactly as the sibling tool verbs do. CALIBRATE→SHADOW needs no ref (fixture pass suffices); SHADOW→ACTIVE requires it. 3 new tests (routing + approval gate + readiness gate held through the CLI) + 39 governance/CLI-contract tests green. NOT this PR (own phases): the readiness EVIDENCE that lets a specific adapter pass — semantic_regression fixture lane (C3, with adapter fixes) and genesis-transition producer (C4, with BP0). C1 makes promotion POSSIBLE; those make it EARNED.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-713 — the schedule layer starved the night: one shared pending slot + top-of-hour cron congestion — RESOLVED (morning train 2026-08-18)
+
+Severity: HIGH. Two independent schedule-layer defects compounded on Night-1. (a) A GitHub concurrency group holds ONE pending slot and a newly arriving run EVICTS the queued one — with the hourly dataflow-integrity-watchdog inside the shared `aria-selfhosted-workspace` group (Z1/#1271 put it there), every hourly probe cancelled whatever night lane was queued; proven three times on 2026-08-18 (queued executor evicted twice, queued cycle once). The nightly drain only ran because the operator manually dispatched it the moment the runner freed. (b) Both night crons sit at :00, where GitHub's shared cron infra fires late under load — measured 73min (01:00→02:13) and ~55min lateness the same night.
+
+**Fix:** the watchdog gets its own concurrency group back — the exemption is EARNED structurally, not declared: its checkout is scoped to `watchdog-checkout/` (its clean can never reach the store), and the Z1 pin now verifies exactly that shape (exempt lane must have a subdirectory checkout AND must not occupy the shared group's slot; every other self-hosted lane must still share the group). Both night crons move off the congested minute (`13 1 * * *`, `29 2 * * *`); ordering between them is not load-bearing because the shared group serializes cycle+executor.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-MEDIUM-714 — the first live genesis escalation id was not artifact-safe: `genesis:<hash>` turned a sealed cycle red — RESOLVED (morning train 2026-08-18)
+
+Severity: MEDIUM. Y8's sweep minted its FIRST live genesis_candidate escalation on Night-1 (`genesis:3050709fb0380795`) — and the id doubles as the human-required FILENAME, which the sealed cycle's forensic artifact upload then rejected (`The path ... is not valid ... Contains the following character: Colon :`, run 32090429275). The cycle itself sealed and published; only the non-authoritative forensic copy failed — but every future genesis night would repaint green runs red. Same defect class as Y6's absolute `output_path` (ORPHAN-707): an identifier that leaks host/uploader constraints it never promised to satisfy.
+
+**Fix:** minted ids are `genesis-<hash>`; the single pre-rename colon record on the live store still blocks a duplicate escalation of the same gap (the dedupe check consults both spellings). Pinned: minted id startswith `genesis-` and contains no colon; legacy colon record → `already_escalated`.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-MEDIUM-715 — REJECTED was outside the reopen scope: law-victim panels wedged in panel_incomplete forever — RESOLVED (morning train 2026-08-18)
+
+Severity: MEDIUM. X4's bounded re-open (ORPHAN-699) treated `{ANCHOR_STALE, STALE, EXPIRED}` as the terminally-dead set. But a rejected submit is ALSO terminal — the envelope is unclaimable afterwards (proven live in the Z2 smoke: v2's rejection left the request permanently dead). The pre-#1271 evidence-law contradiction rejected every panel member's submit, so those panels' every envelope sat REJECTED: not live, not reopenable — `panel_incomplete` forever, exactly the wedge X4 exists to break.
+
+**Fix:** `REJECTED` joins `_TERMINALLY_DEAD_STATES`; `MAX_PANEL_REOPENS=2` still bounds the second chance, and the fold-reason gate (`panel_incomplete:` only) still protects panels with live opinions. Pinned with the same mocked-state behavior test shape as the ANCHOR_STALE reopen pin.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-LOW-716 — the meta-watchdog turned contract-red into incident: every honest partial night would page — RESOLVED (Z3, 2026-08-18)
+
+Severity: LOW (noise, not correctness — but noise that buries real incidents). The executor drain exits non-zero on partial success BY CONTRACT (honesty pin: "attempted 11, landed 3" is not green). `scheduled-workflow-watchdog` judges the newest completed run per lane, so every partial night became an incident issue + hourly red watchdog — indistinguishable from a lane that is actually broken. The plan's Z3 cancel-condition (first cron night green) did not hold, so the threshold change activates.
+
+**Fix:** additive manifest key `consecutiveFailuresForIncident: 2` on the executor lane only; the watchdog tolerates a single red completed run where the key is set — the newest N completed runs must ALL be non-green before the lane is an incident. Staleness, missing runs, and missing backup evidence still alarm alone, unchanged; the drain's red-exit contract is untouched.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

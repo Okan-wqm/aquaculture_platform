@@ -148,6 +148,32 @@ class BacklogSweepTests(_GapStoreCase):
         self.assertEqual(record["context"]["kind"], "genesis_candidate")
         self.assertTrue(hra.escalation_adjudicability(record).adjudicable)
 
+    def test_minted_escalation_id_is_artifact_safe(self) -> None:
+        # ORPHAN-714: the id doubles as a filename inside the forensic
+        # artifact; GitHub's uploader rejects ':' so the first live
+        # escalation turned a sealed cycle red. Dash spelling is pinned.
+        self._seed_gap_batch([self._gap(1)])
+        opened = sweep_candidate_gaps_for_adjudication(base_dir=self.tools)["opened"]
+        escalation_id = str(opened[0]["escalation_id"])
+        self.assertTrue(escalation_id.startswith("genesis-"), escalation_id)
+        self.assertNotIn(":", escalation_id)
+
+    def test_legacy_colon_record_still_blocks_a_duplicate(self) -> None:
+        # The one record minted before the rename keeps its colon filename
+        # on the live store; the same gap must not escalate twice.
+        import hashlib as _h
+        gap = self._gap(1)
+        digest = _h.sha256(gap["capability_gap_key"].encode()).hexdigest()[:16]
+        legacy = self.tools / "human-required" / f"genesis:{digest}.json"
+        legacy.parent.mkdir(parents=True, exist_ok=True)
+        legacy.write_text("{}", encoding="utf-8")
+        self._seed_gap_batch([gap])
+        result = sweep_candidate_gaps_for_adjudication(base_dir=self.tools)
+        self.assertEqual(result["opened"], [])
+        self.assertIn(
+            "already_escalated", {s.get("reason") for s in result["skipped"]},
+        )
+
     def test_identityless_genesis_record_is_not_adjudicable(self) -> None:
         verdict = hra.escalation_adjudicability(
             {"context": {"kind": "genesis_candidate", "capability_gap_key": "k"}},

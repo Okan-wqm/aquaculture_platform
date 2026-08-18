@@ -10074,3 +10074,11 @@ Severity: HIGH. Night-1's drain failed 4 of 12 envelopes with `compliance: compl
 **Fix:** the grader asks the same single predicate before its regex — a ledger pointer is admissible, the bare `human-required:` prefix (names nothing) still rejects, and what the pointer NAMES stays verified at fold time. No second regex survives. Pinned both ways (pointer admissible / bare prefix rejected).
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-721 — under-implementation was structurally invisible: a partial plan landed as a normal commit — RESOLVED (2026-08-18 operator directive)
+
+Severity: HIGH. The scope gate (§D.2) made over-implementation impossible — `change_committed` refuses any file outside the planned scope (actual ⊆ intended). Nothing enforced the OTHER direction: an implementer landing 3 of 7 key_changes, touching 2 of 6 intended files, produced a subset-clean commit, green validations on the partial diff, a validated chain and a mergeable PR. The repository's own human rule ("never ship a partial fix as if complete") had no ARIA-side counterpart; silent shortfall read as success.
+
+**Fix:** completeness is now a DECLARED state. `emit_change_committed` computes `intended − actual`; every untouched intended file requires a one-sentence disposition (`uncovered_intended_dispositions`, CLI `--uncovered-disposition PATH=REASON`) or the row is refused (`implementation_incomplete_undeclared`). Dispositions for touched/unplanned files are rejected (prose may not overwrite the diff). The row records `uncovered_intended` + dispositions + `implementation_complete`; the triple gate re-checks as Gate 5 (`triple_gate_implementation_incomplete`) so legacy or writer-bypassed rows cannot merge as complete either. The aria-implementer contract names the declaration step. Legitimate planner over-approximation stays cheap — one honest sentence per file, on the audit trail.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

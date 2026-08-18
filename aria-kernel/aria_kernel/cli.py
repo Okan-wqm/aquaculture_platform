@@ -2213,6 +2213,14 @@ def build_parser() -> argparse.ArgumentParser:
     ch_commit.add_argument("--commit-sha", required=True)
     ch_commit.add_argument("--actual-file", action="append", required=True)
     ch_commit.add_argument("--claim-id", default=None)
+    # ORPHAN-721 — repeatable `path=reason`: the declared disposition for
+    # every intended file the diff did not touch. The emitter refuses an
+    # undeclared shortfall, so a partial implementation must say so here.
+    ch_commit.add_argument(
+        "--uncovered-disposition", action="append", default=[],
+        metavar="PATH=REASON",
+        help="Intended-but-untouched file with why it needs no change (repeatable).",
+    )
     ch_validate = add_subparser(change_sub, "validate", help="Close a change chain with validation refs.")
     ch_validate.add_argument("--change-id", required=True)
     ch_validate.add_argument("--validation-ref", action="append", required=True)
@@ -4524,11 +4532,20 @@ def _main(argv: list[str] | None = None) -> int:
             print(json.dumps(row, indent=2, sort_keys=True))
             return 0
         if args.change_command == "commit":
+            dispositions: dict[str, str] = {}
+            for pair in args.uncovered_disposition:
+                path_part, sep, reason = str(pair).partition("=")
+                if not sep or not path_part.strip() or not reason.strip():
+                    parser.error(
+                        f"--uncovered-disposition must be PATH=REASON, got {pair!r}"
+                    )
+                dispositions[path_part.strip()] = reason.strip()
             row = emit_change_committed(
                 change_id=args.change_id,
                 commit_sha=args.commit_sha,
                 actual_affected_files=args.actual_file,
                 claim_id=args.claim_id,
+                uncovered_intended_dispositions=dispositions or None,
                 base_dir=args.tools_dir,
             )
             print(json.dumps(row, indent=2, sort_keys=True))

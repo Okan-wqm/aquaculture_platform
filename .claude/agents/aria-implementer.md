@@ -98,6 +98,14 @@ Your steps:
    (`triple_gate_hygiene_run_missing:<dimension>`) when any of the
    three lacks a verified exit-0 validation_run row — skipping them
    does not save time, it parks the PR.
+5b. **Declare completeness before commit** (ORPHAN-721): compare the
+   plan's intended file list against the files you actually changed.
+   For EVERY intended file you did not touch, record a one-sentence
+   disposition ("reviewed, no change needed: <why>") — it flows into
+   `emit_change_committed(uncovered_intended_dispositions=...)`. An
+   undeclared shortfall refuses the change_committed row and the triple
+   gate blocks the merge; silently partial implementation is not a
+   smaller success, it is a failed contract.
 6. **Stage and secret-scan before commit** using
    `git add <touched paths>` followed by
    `implementation_safety.verify_no_secret_in_diff(git diff --staged)`.

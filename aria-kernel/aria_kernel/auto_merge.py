@@ -560,6 +560,32 @@ def _evaluate_triple_gate(
                 f"triple_gate_validation_run_unverified: "
                 f"{run_id}: {exc}"
             )
+    # Gate 5 (ORPHAN-721) — implementation completeness, defense in depth.
+    # The writer refuses undeclared shortfalls at emit time; this re-check
+    # covers rows written before the contract (or by a bypassed writer):
+    # a committed row whose uncovered_intended files lack dispositions is
+    # not a complete implementation and must not merge as one.
+    if committed is not None:
+        legacy_uncovered = committed.get("uncovered_intended")
+        if legacy_uncovered is None:
+            planned_files = set()
+            from .change_ledger import _find_planned
+            planned_row = _find_planned(tools_root, change_id)
+            if planned_row is not None:
+                planned_files = set(planned_row.get("intended_affected_files") or [])
+            legacy_uncovered = sorted(
+                planned_files - set(committed.get("actual_affected_files") or [])
+            )
+        declared = committed.get("uncovered_intended_dispositions") or {}
+        undeclared = [
+            f for f in legacy_uncovered if not str(declared.get(f, "")).strip()
+        ]
+        if undeclared:
+            reasons.append(
+                "triple_gate_implementation_incomplete: intended files "
+                f"untouched with no declared disposition: {undeclared}"
+            )
+
     # Gate 4 (2026-08-18 operator directive, ORPHAN-717) — universal
     # hygiene battery. The risk-type matrix proves the DOMAIN tests ran;
     # nothing proved the repo's own hygiene commands did. CI cannot carry

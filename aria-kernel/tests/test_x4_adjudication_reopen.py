@@ -76,6 +76,19 @@ class ReopenTests(unittest.TestCase):
         self.assertEqual(again["reopened"], [])
         self.assertEqual(len(_panel_rows_for(self.tools, "req-dead-001")), 1)
 
+    def test_rejected_member_panel_reopens(self) -> None:
+        # ORPHAN-715: submit rejection is terminal (the envelope is
+        # unclaimable afterwards), so a panel whose members were all
+        # rejected — the pre-#1271 evidence-law contradiction produced
+        # exactly that — must be reopenable instead of wedging forever.
+        sweep_human_required_adjudications(base_dir=self.tools)
+        with patch(
+            "aria_kernel.agent_invocations.derive_request_state",
+            return_value="REJECTED",
+        ):
+            second = sweep_human_required_adjudications(base_dir=self.tools)
+        self.assertEqual(second["reopened"], ["req-dead-001"])
+
     def test_non_incomplete_fold_reason_never_reopens(self) -> None:
         # A panel that folded for independence/split reasons carries live
         # judge work; re-opening would discard it.

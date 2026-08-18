@@ -48,7 +48,9 @@ on:
     # 01:00 UTC nightly — one hour BEFORE aria-agent-executor's 02:00
     # drain so any queue rows this cycle leaves behind get a same-night
     # second drain pass.
-    - cron: '0 1 * * *'
+    # 13 past, not :00 — GitHub fires top-of-hour crons up to ~75min late
+    # under shared-infra load (measured 2026-08-18: 01:00 fired 02:13).
+    - cron: '13 1 * * *'
   workflow_dispatch:
     inputs:
       mode:

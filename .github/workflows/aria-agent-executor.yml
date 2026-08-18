@@ -615,7 +615,17 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: aria-state-cache-${{ github.run_id }}
-          path: .aria-state-store/
+          path: |
+            .aria-state-store/
+            !.aria-state-store/tools/human-required/genesis:*
+          # The four pre-rename genesis escalations (2026-08-18 04:03) keep
+          # their colon filenames on the live store — renaming a
+          # ledger-referenced record would break hash-chained refs
+          # (ORPHAN-714) — and GitHub's uploader rejects ':' in paths, so
+          # the forensic copy must EXCLUDE them or every sealed run stays
+          # red at this step. The records themselves remain in the
+          # authoritative aria/state publish; only this non-authoritative
+          # artifact skips them.
           retention-days: 30
           # The store root is a dot-directory and `.gitkeep` markers hold its
           # empty subtrees; a forensic copy that dropped them would not
@@ -638,6 +648,7 @@ jobs:
           name: quarantine-evidence-${{ github.run_id }}
           path: |
             .aria-state-store/
+            !.aria-state-store/tools/human-required/genesis:*
             ${{ runner.temp }}/aria-integrity-verdict.json
             ${{ runner.temp }}/aria-integrity-verdict.err
           retention-days: 30

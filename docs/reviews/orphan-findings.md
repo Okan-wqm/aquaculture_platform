@@ -10074,3 +10074,11 @@ Severity: HIGH. Night-1's drain failed 4 of 12 envelopes with `compliance: compl
 **Fix:** the grader asks the same single predicate before its regex — a ledger pointer is admissible, the bare `human-required:` prefix (names nothing) still rejects, and what the pointer NAMES stays verified at fold time. No second regex survives. Pinned both ways (pointer admissible / bare prefix rejected).
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-MEDIUM-720 — the forensic upload still chokes on the four pre-rename records: every sealed run stays red until the copy learns to skip them — RESOLVED (2026-08-18 day run)
+
+Severity: MEDIUM (same noise class as ORPHAN-714's original red). ORPHAN-714 stopped NEW colon ids, but the 2026-08-18 04:03 sweep had already minted FOUR `genesis:<hash>` records (cap 4, not 1 — only the first surfaced in the original artifact error), and they stay colon-named on the live store because renaming a ledger-referenced record breaks hash-chained refs. GitHub's artifact uploader rejects ':' in paths, so every sealed cycle/executor run would keep failing at the non-authoritative forensic-copy step — green work repainted red indefinitely.
+
+**Fix:** all four store-tree upload steps (cycle cache + quarantine, executor cache + quarantine) exclude `tools/human-required/genesis:*` with an in-file disclosure. The records remain fully present in the authoritative aria/state publish; only the convenience artifact skips what the uploader cannot carry.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

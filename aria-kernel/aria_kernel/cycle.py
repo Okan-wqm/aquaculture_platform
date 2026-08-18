@@ -1205,6 +1205,16 @@ def _phase_pr_ci_scan(context: PhaseContext) -> dict[str, Any]:
         base_dir=context.base_dir,
         reader=reader,
     )
+    # ORPHAN-723 — read-only repo PR weather (Dependabot + developer
+    # branches included). Observation only; third-party action authority
+    # stays E23-gated.
+    from .own_pr_ci import scan_repo_pr_health
+
+    scan_result["repo_pr_health"] = scan_repo_pr_health(
+        cycle_id=context.cycle_id,
+        base_dir=context.base_dir,
+        reader=reader,
+    )
     # E2/F1 — the same reader answers "was the implementation PR merged?"
     # for plans resting in IMPLEMENTATION_RECORDED. The operator merges on
     # GitHub; this reconciler is how that external fact becomes the plan's

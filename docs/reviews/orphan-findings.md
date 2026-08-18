@@ -10104,3 +10104,11 @@ Severity: MEDIUM (visibility, deliberately not authority). The own-PR scan is br
 **Fix:** `scan_repo_pr_health` records EVERY open PR's check verdict to the new `ci/repo-pr-health.jsonl` surface (outcome changes only), marking own vs third-party. Third-party reds feed a LOW-severity pressure whose recommended action is literally "OBSERVE ONLY — no review or merge authority until the E23 gate opens", and a source-pin test breaks if either the severity or that boundary text is ever escalated. Seeing arrives today; judging and merging remain E23's judgment-health-gated work.
 
 **Owner:** claude (this session). **Status:** RESOLVED (observation scope).
+
+## ORPHAN-MEDIUM-724 — the drain never followed the producer: two unrelated crons left sealed work waiting for a human or an hour — RESOLVED (2026-08-18)
+
+Severity: MEDIUM (rhythm; the E25-b class). Cycle (01:13) and executor (02:29) were independent crons with no causal link. Every sealed cycle's fresh envelopes sat undrained until the next cron OR a human dispatch — the operator asked "why didn't the executor start by itself when the cycle finished?" and the honest answer was that nothing had ever connected them; every daytime run needed a manual drain dispatch.
+
+**Fix:** the executor gains a `workflow_run` trigger on completed `aria-auto-cycle` runs — each seal is followed by its drain, day or night. The cron stays as the safety net for a night where the cycle lane itself never fired; the shared concurrency group already serializes the pair, and a cron firing mid-drain just waits in the group's pending slot.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

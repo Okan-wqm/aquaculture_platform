@@ -151,11 +151,19 @@ class ImplementationEnvelopeIdsTests(unittest.TestCase):
         self.tools = root / "aria-tools"
         self.repo = root / "workspace"
         self.repo.mkdir()
+        # ORPHAN-HIGH-728 — the fixture follows the DEPLOYMENT's order,
+        # it does not bypass it: a strict profile now requires an
+        # operator-recorded ceiling that admits it, and only an operator
+        # gesture may widen that ceiling. A fixture that set the profile
+        # with a machine identity was arranging a world the kernel no
+        # longer permits — so it declares the grant first, exactly as the
+        # workflow's profile_gate does.
         set_profile(
             "strict",
             operator_approval_ref="test:orphan-critical-727:envelope-ids",
             base_dir=self.tools,
-            set_by="test-fixture",
+            set_by="operator",
+            scheduler_ceiling="strict",
         )
         self.plan = production_converged_plan(
             tools_dir=self.tools, workspace_root=self.repo,

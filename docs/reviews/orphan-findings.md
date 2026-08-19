@@ -10229,3 +10229,25 @@ Severity: MEDIUM (autonomy correctness; the mission layer's whole point). `asser
 **Not done in this pass, and why:** the closure gate stays OBSERVE-ONLY at the cycle seal. What it can still see is exactly the pre-rule backlog, and one class of it — a mission a human parked — is deliberately un-healable by any unattended writer, so a downgrading gate would redden the nightly for archaeology it is forbidden to touch. The promotion condition is now concrete and ledger-provable: the gate becomes cycle-downgrading when the only violations left are operator-held ones. `task._candidate_from_pressure`'s `evidence_refs` still reads the pressure's own key chain (unchanged); only the finding builder was moved onto the shared path collector, where it had been walking an `evidence[].path` shape `record_findings_for_run` does not produce.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-747 — the watchdog read a concurrency eviction as the lane's verdict — RESOLVED
+
+Severity: HIGH (a healthy lane is reported broken, and the noise buries the real incidents next to it). Measured 2026-08-19 on the overnight timeline of the shared `aria-selfhosted-workspace` group:
+
+| created                        | finished | conclusion                       |
+| ------------------------------ | -------- | -------------------------------- |
+| `aria-auto-cycle` 02:09:34     | 05:54:54 | **success** (3h45m of real work) |
+| `aria-auto-cycle` 02:32:01     | 03:25:08 | cancelled — never created a job  |
+| `aria-agent-executor` 05:54:56 | 08:57:33 | failure (ORPHAN-737)             |
+
+The 02:32 run is a second schedule firing that sat `pending` behind the group and was evicted when the executor arrived. Because it finished at 03:25 and the real cycle finished at 05:54, the evicted duplicate was the _newest completed run_ — and `completedRuns[0]` handed it to the watchdog as the lane's verdict. The incident issue therefore listed `aria-auto-cycle.yml | cancelled | 14.2h` for a lane that had run green for nearly four hours that same night.
+
+This is the third instance of one class in this file: **an honest mechanism working correctly, reported as a failure.** ORPHAN-716 (partial red ≠ incident), ORPHAN-737 (contract refusal ≠ build failure), and now eviction ≠ verdict.
+
+**Fix:** a `cancelled` run is probed for jobs before it is accepted as the verdict; a run that never created one is an eviction, not an outcome, and the watchdog looks past it to the newest run that actually executed. Only `cancelled` runs are probed — a success or a failure always ran — so the extra API call is bounded to the case that needs it. The tolerance window (`consecutiveFailuresForIncident`) is filtered the same way, or a tolerated red could be spent on an eviction.
+
+**What deliberately did NOT change:** a lane where _every_ run is an eviction still alarms. That is not a rescue clause — it is the honest state of `database-wal-archive-freshness.yml`, which has produced 730 runs and zero jobs since birth and must keep its incident until that is fixed on its own merits.
+
+Pinned in `tests/invariants/production-ops-proof-contract.spec.ts`: the jobs probe is present, it is gated on `cancelled`, and the total-count test is the acceptance rule. Verified by deliberate breakage — reverting the workflow reds the spec.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

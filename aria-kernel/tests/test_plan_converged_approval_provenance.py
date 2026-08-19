@@ -104,11 +104,17 @@ class PlanConvergedApprovalProvenanceTests(unittest.TestCase):
         self.repo = root / "workspace"
         self.repo.mkdir()
         self.tools = self.repo / "aria-tools"
+        # ORPHAN-HIGH-728 — the same authority order a deployment obeys:
+        # a strict profile needs an operator-recorded ceiling that admits
+        # it, and only an operator gesture may widen that ceiling. The
+        # fixture declares the grant instead of arranging a world the
+        # kernel refuses.
         set_profile(
             "strict",
             operator_approval_ref="test:orphan-critical-727:approval-provenance",
             base_dir=self.tools,
-            set_by="test-fixture",
+            set_by="operator",
+            scheduler_ceiling="strict",
         )
         _sp.run(["git", "init", "-q"], cwd=self.repo, check=True)
         _sp.run(["git", "config", "user.email", "t@t.invalid"], cwd=self.repo, check=True)

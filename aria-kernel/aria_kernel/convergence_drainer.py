@@ -69,6 +69,7 @@ from .independence_check import (
 from .ledger import load_declared_jsonl
 from .plan_convergence import (
     TERMINAL_STATES,
+    force_plan_human_required,
     _plan_requires_coverage,
     evaluate_plan,
     fold_plan_state,
@@ -80,7 +81,6 @@ from .plan_coverage import (
     environment_unable_payload,
     parse_critic_adjudication,
 )
-from .planner_dispatch_hook import dispatch_one_pending_planner_request
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 
 # Plan ARIA-V10.4 Phase 3.H.2 — the convergence drainer mints
@@ -94,13 +94,6 @@ from .tool_registry import GovernanceError, append_tools_governance, ensure_tool
 # mints — otherwise cross_review envelopes orphan in requests.jsonl
 # (the exact regression diagnostic v3 surfaced as
 # ``cross_review_poll_timeout`` at 08:13).
-_CONVERGENCE_INLINE_DISPATCH_ROLES: tuple[str, ...] = (
-    "primary_plan",
-    "challenger_plan",
-    "cross_review",
-    "completeness_critique",
-    "implementation",
-)
 
 
 # Plan ARIA-V8 v2 §4 Phase 8.6 (B-V2-04) — round-envelope sequence
@@ -150,6 +143,10 @@ class ConvergenceResult(TypedDict):
         "primary_revision_failed",
         "budget_exhausted",
         "aria_stop_interrupted",
+        # CL-1 (ORPHAN-725) — the step function's mid-flight verdict:
+        # convergence is advancing across cycles; the orchestrator
+        # skips implementation this cycle and resumes next cycle.
+        "in_progress",
     ]
     unsatisfied_items: list[dict[str, Any]]
     request_ids: list[str]
@@ -297,166 +294,6 @@ def _check_aria_stop(root: Path) -> bool:
     return (root / "ARIA_STOP").exists()
 
 
-def _inline_agent_id(role: str) -> str:
-    """Per-ROLE claim identity for inline dispatch (F2).
-
-    The independence check compares the agent_id that CLAIMED each role's
-    request and calls a shared id an echo chamber
-    (independence_check.py:194). This dispatcher used ONE id
-    (`convergence:<pid>`) for every role, so challenger and cross_review
-    always collided: every CONVERGED verdict was downgraded to
-    `cross_review_self_agreement` by ARIA's own gate, and the
-    implementation and auto-merge stages were skipped. Convergence was
-    structurally self-cancelling.
-
-    One process, several roles — and the roles are genuinely distinct
-    actors with distinct prompts, evidence and outputs. The identity now
-    says which one is claiming.
-    """
-    return f"convergence:{os.getpid()}:{role}"
-
-
-def _poll_for_state(
-    plan_id: str,
-    target_states: set[str],
-    base_dir: str | Path,
-    deadline: float,
-    aria_stop_root: Path,
-    sleep_interval: float,
-) -> str | None:
-    """Plan ARIA-V5 §2 — poll plan_convergence.fold_plan_state until
-    one of ``target_states`` is observed OR ``deadline`` expires OR
-    ARIA_STOP is written. Returns the observed state or None on
-    timeout / interrupt.
-
-    Plan ARIA-V8 §4 Phase 8.0 (B-V2-01) — fold_plan_state returns
-    ``dict[str, Any]``; the comparison ``current in target_states``
-    where ``target_states: set[str]`` is structurally always False on
-    a dict. EVERY ``primary_silent`` verdict since V5.1 traces to this
-    silent bug — the poll always times out, never observes the real
-    state transition. Fix: extract the state STRING via .get("state")
-    before comparing to the set[str] of target states; return the
-    extracted string (callers expect a state name, not a dict).
-
-    Plan ARIA-V10.4 Phase 3.H (F-016 root-cause fix) — INLINE planner
-    dispatch. Pre-V10.4 the convergence_drainer minted challenger /
-    cross_review envelopes and POLLED for plan_state transitions,
-    while assuming an EXTERNAL ``run_planner_dispatch_daemon`` was
-    claiming + processing the envelopes. The orchestrator's daemon is
-    bounded to ``max_iterations_per_phase=10`` per cycle and runs
-    BEFORE ``convergence_runner`` mints its envelopes — by the time
-    the convergence envelope hits ``requests.jsonl``, the planner
-    daemon has already exited.
-
-    F-016 evidence (cyc-20260520T065441Z): challenger envelope
-    ``AIR-aria-challenger-planner-241eadf5`` created at 07:04:35,
-    plan state never transitioned because no daemon was running to
-    claim it; ``challenger_drafted_poll_timeout`` fired at 07:08:07
-    with ``has_challenger_field=false`` (the smoking gun).
-
-    Tier-1 fix: ``_poll_for_state`` runs ONE
-    ``dispatch_one_pending_planner_request`` tick per poll iteration.
-    Each poll: check ARIA_STOP → check state → DISPATCH one pending
-    request → sleep → repeat. Convergence now OWNS dispatch of its
-    own envelopes — no dependency on the outer daemon's iteration
-    budget. The hook returns quickly when there are no pending
-    requests (``status=no_pending``) and blocks on real Claude
-    subprocess (~90-180s) when there is one; either way, the next
-    iteration sees the resulting state transition.
-
-    Concurrency note: ``dispatch_one_pending_planner_request`` does
-    not acquire the daemon-level lock. The underlying
-    ``claim_request`` / ``submit_claim_result`` carry their own §A.1
-    / §H-1 locks, so concurrent dispatch from the convergence_drainer
-    + a separately-running orchestrator daemon are mutually safe
-    (only one can claim any given request).
-    """
-    # Plan ARIA-V10.4 Phase 3.H.2 — `dispatch_one_pending_planner_request`
-    # promoted to a module-level import (line ~57). ARIA's diagnostic
-    # v3 challenger plan (req=AIR-aria-cross-reviewer-a2876b40)
-    # surfaced two architectural-quality gaps in the original Phase
-    # 3.H landing: (a) the local import paid a module-lookup cost on
-    # every hot-loop iteration, (b) the bare ``except Exception:
-    # pass`` made dispatch-hook regressions invisible. Both gaps are
-    # now closed below — promotion to module scope + Tier-3
-    # detectable governance event.
-    inline_agent_id = _inline_agent_id("dispatch")
-
-    # Plan ARIA-V10.5 Phase 5 — F-025 closure. Loop body order matters:
-    # fold_plan_state MUST run BEFORE the deadline check, so a state
-    # transition that was JUST folded inside the previous iteration's
-    # dispatch_one_pending_planner_request call is observed before
-    # deadline expiry can return None. Pre-fix the deadline check at
-    # the while-condition top ran before fold_plan_state, so a
-    # long-running successful dispatch (subprocess wall-clock >
-    # challenger_timeout_seconds) folded the state correctly but the
-    # next iteration exited via deadline-expired without observing it.
-    # F-025 evidence cycle (cyc-20260521T172723Z-auto round 2
-    # challenger): subprocess took 630s vs timeout 600s; bridge folded
-    # CHALLENGER_DRAFTED at t+630s; loop returned None at t+635s; post-
-    # termination fold_plan_state confirmed state was correctly set.
-    # State observation has temporal priority over budget enforcement.
-    while True:
-        if _check_aria_stop(aria_stop_root):
-            return None
-        try:
-            current_dict = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
-            current_state: str | None = current_dict.get("state") if isinstance(current_dict, dict) else None
-        except Exception:
-            current_state = None
-        if current_state is not None and current_state in target_states:
-            return current_state
-        if time.monotonic() >= deadline:
-            return None
-        # Plan ARIA-V10.4 Phase 3.H + 3.H.2 — inline dispatch tick.
-        # `planner_roles` MUST enumerate every role the convergence
-        # drainer mints (primary_plan revisions, challenger_plan,
-        # cross_review, implementation). Pre-3.H.2 the call relied on
-        # ``DEFAULT_PLANNER_ROLES = (primary_plan, challenger_plan)``,
-        # so cross_review envelopes orphaned and convergence stalled
-        # at ``cross_review_poll_timeout`` — surfaced by diagnostic v3
-        # cycle cyc-20260520T074642Z-auto.
-        #
-        # Phase 3.H.2 also hardens the previous silent-swallow into a
-        # Tier-3 detectable governance event so the next regression
-        # surfaces operator-visibly within one poll cycle instead of
-        # waiting ``challenger_timeout_seconds`` (10-30 min) for the
-        # downstream timeout to fire.
-        try:
-            # F2 — one dispatch per role, each claiming under ITS OWN
-            # identity. A single call over the role tuple claimed whatever
-            # was pending under one shared id, which is exactly what the
-            # independence check refuses. Stop at the first role that
-            # actually dispatched: this is one poll tick, not a drain.
-            for _role in _CONVERGENCE_INLINE_DISPATCH_ROLES:
-                _outcome = dispatch_one_pending_planner_request(
-                    base_dir=base_dir,
-                    agent_id=_inline_agent_id(_role),
-                    planner_roles=(_role,),
-                )
-                if isinstance(_outcome, dict) and _outcome.get("status") != "no_pending":
-                    break
-        except Exception as _disp_exc:
-            try:
-                append_tools_governance(
-                    ensure_tools_dir(base_dir),
-                    "inline_dispatch_tick_failed",
-                    {
-                        "plan_id": plan_id,
-                        "agent_id": inline_agent_id,
-                        "exception_class": type(_disp_exc).__name__,
-                        "exception_message": str(_disp_exc)[:500],
-                    },
-                )
-            except Exception:
-                # Best-effort: do not let governance-emission failure
-                # abort the poll loop. The V5 contract (return only on
-                # state-match / deadline / ARIA_STOP) is preserved.
-                pass
-        time.sleep(sleep_interval)
-    return None
-
-
 def _resolve_workspace_head_sha(workspace_root: str | Path | None) -> str | None:
     """The commit SHA the plan's evidence is grounded at (the checkout HEAD).
 
@@ -552,6 +389,94 @@ def _accepted_output_text(
     return text or None
 
 
+# CL-1 (ORPHAN-725) — resumable, wait-free convergence.
+#
+# WHY this body replaced the round loop: convergence used to run as a
+# synchronous multi-round loop that polled `fold_plan_state` for the
+# states a SEPARATE workflow run produces. The cycle lane mints the
+# challenger envelope; the executor lane (workflow_run-chained, or the
+# 02:29 cron) drains it later — so every poll structurally lost
+# (13/13 `challenger_drafted_poll_timeout` in production, zero plans
+# ever CONVERGED), and the round-1 re-entry called `start_plan` on an
+# adopted DRAFT plan, wedging it behind `convergence_invalid_plan`
+# every following night. WHAT: each cycle now advances the plan's
+# kernel state machine by exactly ONE derived step — fold whatever the
+# executor already delivered, mint the next envelope, return
+# `in_progress` — and convergence completes ACROSS cycles instead of
+# inside one. The state machine (plans/events.jsonl) is the resume
+# point; no new plan-event vocabulary exists.
+
+# Retry budgeting lives at the REQUEST layer (Y1: two requeues plus
+# harness-class releases) and the bridge mints are idempotent per
+# (plan, role, round) — a second mint folds to the same request, so a
+# drainer-side re-mint budget would be an unreachable double budget.
+# The honest rule: a step's envelope is either LIVE (wait), ABSENT
+# (mint once), or DEAD (its request-layer budget is spent) — dead
+# forces the plan to a TERMINAL HUMAN_REQUIRED via the kernel's own
+# event, and the next cycle starts a fresh plan.
+
+_STEP_ROLE_PRIMARY = "primary_plan"
+_STEP_ROLE_CHALLENGER = "challenger_plan"
+_STEP_ROLE_CROSS_REVIEW = "cross_review"
+_STEP_ROLE_CRITIC = "completeness_critique"
+
+
+def _requests_for_step(
+    base_dir: str | Path,
+    *,
+    convergence_id: str,
+    role: str,
+    round_number: int,
+) -> list[dict[str, Any]]:
+    """Every minted request for one (plan, role, round) — the remint budget's
+    denominator and the idempotent-mint guard's haystack."""
+    root = ensure_tools_dir(base_dir)
+    path = root / "agent-invocations" / "requests.jsonl"
+    if not path.exists():
+        return []
+    rows = load_declared_jsonl(path, expected_surface="agent_invocation_requests")
+    return [
+        row
+        for row in rows
+        if row.get("convergence_id") == convergence_id
+        and row.get("role") == role
+        and row.get("round_number") == round_number
+    ]
+
+
+def _live_request_id(
+    base_dir: str | Path,
+    *,
+    convergence_id: str,
+    role: str,
+    round_number: int,
+) -> str | None:
+    """A request the executor can still deliver (pending/claimed/requeued)."""
+    from .agent_invocations import derive_request_state
+
+    for row in _requests_for_step(
+        base_dir, convergence_id=convergence_id, role=role, round_number=round_number,
+    ):
+        request_id = str(row.get("request_id") or "")
+        if not request_id:
+            continue
+        try:
+            state = derive_request_state(request_id=request_id, base_dir=base_dir)
+        except Exception:
+            continue
+        if state in {"PENDING", "CLAIMED", "REQUEUED"}:
+            return request_id
+    return None
+
+
+class _EnvelopeDead(Exception):
+    """Raised when a step's envelope died at the request layer."""
+
+    def __init__(self, role: str) -> None:
+        super().__init__(role)
+        self.role = role
+
+
 def run_convergence_drainer(
     *,
     cycle_id: str,
@@ -568,659 +493,354 @@ def run_convergence_drainer(
     critic_adjudicator: Any | None = None,
     critic_timeout_seconds: float = 900.0,
 ) -> ConvergenceResult:
-    """Plan ARIA-V5 §2 — default Gate A convergence runner.
+    """CL-1 — advance the plan's convergence by ONE derived step, no waiting.
 
-    Drives the primary↔challenger convergence loop via
-    ``plan_convergence`` + ``convergent_planning_bridge``. Polls
-    ``fold_plan_state`` for submissions until ``challenger_timeout_seconds``
-    elapses per round. Returns ``ConvergenceResult`` whose
-    ``arbiter_verdict`` the autonomy orchestrator consumes to gate
-    ``worker_drainer``.
-
-    State persistence (R-A8): each round's progress is written to
-    ``aria-tools/state/convergence/<cycle_id>.json``; on restart, the
-    drainer detects the file and resumes from the saved round.
-
-    ARIA_STOP handling (R-A10): polled between rounds AND during
-    in-round wait loops; on detection, partial state is persisted
-    and ``aria_stop_interrupted`` verdict is returned. The
-    orchestrator then skips ``worker_drainer`` cleanly without losing
-    convergence progress.
-
-    Defensive defaults: with no external agents claiming envelopes
-    (typical V5.1 autonomous run without real Claude Code
-    dispatchers), the drainer times out at ``primary_silent`` or
-    ``challenger_unavailable``; the orchestrator then skips
-    ``worker_drainer`` for that cycle. This is the correct
-    fail-closed behaviour — no convergence, no implementation.
+    ``challenger_timeout_seconds`` / ``critic_timeout_seconds`` are
+    accepted for the ConvergenceRunner Protocol's stability but no
+    longer time anything: there is nothing to wait for, because the
+    executor lane delivers envelopes between cycles. The
+    ``critic_adjudicator`` seam keeps its test-injection contract —
+    when injected, the critic is resolved synchronously exactly as the
+    tests expect; production leaves it None and gets the async
+    mint-then-fold path.
     """
+    _ = challenger_timeout_seconds, critic_timeout_seconds
     root = ensure_tools_dir(base_dir)
     transcript_dir = root / "convergence"
     transcript_dir.mkdir(parents=True, exist_ok=True)
     transcript_path = transcript_dir / f"{cycle_id}.jsonl"
     persistence = _persistence_path(root, plan_id)
     convergence_id = plan_id
-    # The SHA the plan's evidence is grounded at — threaded into every envelope
-    # so the evidence-validator can grade agent evidence_refs as repo_verified
-    # (layer-4 blocker: without it every real ref is worktree_candidate and
-    # convergence never completes).
     target_sha = _resolve_workspace_head_sha(workspace_root)
+    resolved_coverage_computer = coverage_computer or compute_plan_coverage
 
-    resumed = False
-    starting_round = 1
-    # Coverage gaps from round N ride the round-persistence JSON into round
-    # N+1's must_satisfy (crash-resume safe) — the primary planner sees each
-    # uncovered node as a named obligation in its prompt.
+    request_ids: list[str] = []
+
+    # Coverage gaps carried across cycles ride the persistence JSON —
+    # the ONLY thing it still stores (round progress now lives in the
+    # kernel state machine itself).
     coverage_carry: list[dict[str, Any]] = []
+    resumed = False
     if persistence.exists():
         try:
             saved = json.loads(persistence.read_text(encoding="utf-8"))
             if saved.get("plan_id") == plan_id:
-                starting_round = int(saved.get("round", 1))
                 carried = saved.get("coverage_must_satisfy")
                 if isinstance(carried, list):
                     coverage_carry = [item for item in carried if isinstance(item, dict)]
                 resumed = True
         except (OSError, json.JSONDecodeError, ValueError):
             resumed = False
-    effective_must_satisfy: list[dict[str, Any]] = [*must_satisfy, *coverage_carry]
 
-    request_ids: list[str] = []
-    rounds_executed = 0
-    poll_sleep = max(0.05, min(5.0, challenger_timeout_seconds / 60.0))
+    state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
+    plan_state = state.get("state")
+    current_round = int(state.get("current_round") or 1)
+    # Adopted plans derive their obligations from what the plan STARTED
+    # with plus carried coverage gaps — not tonight's fresh synthesis,
+    # which may describe a different problem entirely.
+    if plan_state is not None:
+        started = state.get("plan_started") or {}
+        started_ms = started.get("must_satisfy") if isinstance(started, dict) else None
+        base_ms = started_ms if isinstance(started_ms, list) else must_satisfy
+    else:
+        base_ms = must_satisfy
+    effective_must_satisfy: list[dict[str, Any]] = [*base_ms, *coverage_carry]
 
-    # ORPHAN-HIGH-421 — role→dispatch map per round, recorded where the
-    # real values live instead of reconstructed by indexing request_ids.
-    round_dispatches: dict[int, dict[str, RoundDispatch]] = {}
-    # The primary is only agent-dispatched on a REVISION (round 2+); on
-    # round 1 the plan is kernel-seeded, so there is no request to claim.
-    # A mutable holder rather than `nonlocal` because the write happens in
-    # the outer function and the read happens inside the phase closure.
-    primary_dispatch_state: dict[str, str | None] = {"request_id": None}
-
-    def _record_round_dispatch(
-        current_round: int,
-        *,
-        role: str,
-        request_id: str,
-        revision_id: str | None,
-        agent_text: str | None,
-    ) -> None:
-        """Store one role's dispatch for the round, or record why it could not be.
-
-        A record that cannot be built (blank revision id, malformed role)
-        is left absent, and the independence gate treats an absent record
-        as a violation. Refusing to store a half-built record is what stops
-        a placeholder from reaching the checker.
-        """
-        try:
-            dispatch = RoundDispatch(
-                role=role,
-                request_id=request_id or None,
-                revision_id=revision_id,
-                agent_text=agent_text,
-            )
-        except IndependenceInputError as exc:
-            append_tools_governance(
-                ensure_tools_dir(base_dir),
-                "round_dispatch_record_refused",
-                {
-                    "plan_id": plan_id,
-                    "cycle_id": cycle_id,
-                    "round_number": current_round,
-                    "role": role,
-                    "reason": str(exc),
-                },
-            )
-            return
-        round_dispatches.setdefault(current_round, {})[role] = dispatch
-
-    def _aria_stop_return() -> ConvergenceResult:
-        # Plan ARIA-V5 R-A10 — partial state persisted; verdict is
-        # explicit so operator sees the interrupt in reflection.
-        persistence.write_text(
-            json.dumps({"plan_id": plan_id, "round": rounds_executed, "interrupted": True}),
-            encoding="utf-8",
-        )
+    def _result(verdict: str, *, rounds: int, converged: dict[str, Any] | None = None,
+                unsatisfied: list[dict[str, Any]] | None = None) -> ConvergenceResult:
         return ConvergenceResult(
             plan_id=plan_id,
-            converged_plan={},
-            rounds_count=rounds_executed,
-            arbiter_verdict="aria_stop_interrupted",
-            unsatisfied_items=[],
+            converged_plan=converged or {},
+            rounds_count=rounds,
+            arbiter_verdict=verdict,  # type: ignore[typeddict-item]
+            unsatisfied_items=unsatisfied or [],
             request_ids=request_ids,
             transcript_path=str(transcript_path),
             resumed_from_persistence=resumed,
             convergence_id=convergence_id,
         )
 
-    # Plan ARIA-V8 v2 §4 Phase 8.1 (architect B2) — round-1 + round-2+
-    # share the challenger + cross_review envelope-mint sequence;
-    # extracted into _run_challenge_and_cross_review_phase helper.
-    def _run_challenge_and_cross_review_phase(
-        *,
-        current_round: int,
-        primary_revision_id: str,
-        primary_plan_text: str,
-    ) -> tuple[str | None, ConvergenceResult | None]:
-        """Mint challenger envelope → poll CHALLENGER_DRAFTED → mint
-        cross_review envelope → poll CROSS_REVIEWED.
+    def _advanced(action: str, request_id: str | None, round_n: int) -> None:
+        append_tools_governance(
+            root,
+            "convergence_step_advanced",
+            {
+                "plan_id": plan_id,
+                "cycle_id": cycle_id,
+                "from_state": plan_state,
+                "action": action,
+                "round_number": round_n,
+                "request_id": request_id,
+            },
+        )
 
-        Returns (challenger_revision_id, early_terminal_result):
-        - On success: (challenger_revision_id_string, None)
-        - On challenger poll timeout: (None, ConvergenceResult(challenger_unavailable))
-        - On cross_review poll timeout: (None, ConvergenceResult(cross_review_unavailable))
-        - On ARIA_STOP: (None, ConvergenceResult(aria_stop_interrupted))
+    def _ensure_envelope(role: str, round_n: int, mint: Any) -> str | None:
+        """Idempotent envelope guarantee for one step.
+
+        Returns the live request id (existing or freshly minted). Raises
+        _EnvelopeDead when a prior request exists but is no longer
+        deliverable — its Y1 request-layer budget is already spent, and
+        the idempotent bridge mint could only fold back onto it.
         """
-        challenger_request = issue_challenger_envelope(
-            plan_id=plan_id,
-            round_number=current_round,
-            must_satisfy=effective_must_satisfy,
-            evidence_refs=evidence_refs,
-            allowed_scope=allowed_scope,
-            base_dir=base_dir,
-            target_sha=target_sha,
+        live = _live_request_id(
+            base_dir, convergence_id=convergence_id, role=role, round_number=round_n,
         )
-        challenger_request_id = challenger_request.get("request_id")
-        if challenger_request_id:
-            request_ids.append(challenger_request_id)
-        challenger_state = _poll_for_state(
-            plan_id=plan_id,
-            target_states={"CHALLENGER_DRAFTED"},
-            base_dir=base_dir,
-            deadline=time.monotonic() + challenger_timeout_seconds,
-            aria_stop_root=root,
-            sleep_interval=poll_sleep,
+        if live:
+            return live
+        prior = _requests_for_step(
+            base_dir, convergence_id=convergence_id, role=role, round_number=round_n,
         )
-        if _check_aria_stop(root):
-            return None, _aria_stop_return()
-        if challenger_state is None:
-            # Plan ARIA-V10.4 Phase 1 instrumentation — capture the
-            # CURRENT plan state when CHALLENGER_DRAFTED poll times out.
-            # V10.3-B endurance showed all 3 cycles fail at this exact
-            # timeout despite real Claude returning a 23KB plan response.
-            # The kernel state must reveal whether (a) state never
-            # transitioned past DRAFT, (b) bridge silently failed to
-            # ingest the agent result, or (c) some other state machine
-            # path is firing. Tier-3: detectable at runtime, no behavior
-            # change to the surrounding cycle flow.
-            try:
-                _diag_state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
-                _diag_state_summary = {
-                    "current_state": _diag_state.get("current_state") if isinstance(_diag_state, dict) else None,
-                    "has_challenger_field": bool(_diag_state.get("challenger")) if isinstance(_diag_state, dict) else False,
-                    "challenger_revision_id": (
-                        _diag_state.get("challenger", {}).get("challenger_revision_id")
-                        if isinstance(_diag_state, dict) and isinstance(_diag_state.get("challenger"), dict)
-                        else None
-                    ),
-                    "challenger_has_plan_content": (
-                        isinstance(_diag_state.get("challenger", {}).get("plan_content"), dict)
-                        if isinstance(_diag_state, dict) and isinstance(_diag_state.get("challenger"), dict)
-                        else False
-                    ),
-                    "latest_revision_id": (
-                        _diag_state.get("latest_revision", {}).get("revision_id")
-                        if isinstance(_diag_state, dict) and isinstance(_diag_state.get("latest_revision"), dict)
-                        else None
-                    ),
-                    "round_index": (
-                        _diag_state.get("round_index")
-                        if isinstance(_diag_state, dict)
-                        else None
-                    ),
-                }
-            except Exception as _diag_exc:
-                _diag_state_summary = {"fold_plan_state_failed": str(_diag_exc)[:200]}
-            append_tools_governance(
-                ensure_tools_dir(base_dir),
-                "challenger_drafted_poll_timeout",
-                {
-                    "plan_id": plan_id,
-                    "round_number": current_round,
-                    "challenger_request_id": challenger_request_id,
-                    "primary_revision_id": primary_revision_id,
-                    "challenger_timeout_seconds": challenger_timeout_seconds,
-                    "plan_state_at_timeout": _diag_state_summary,
-                },
-            )
-            return None, ConvergenceResult(
-                plan_id=plan_id,
-                converged_plan={},
-                rounds_count=rounds_executed,
-                arbiter_verdict="challenger_unavailable",
-                unsatisfied_items=[],
-                request_ids=request_ids,
-                transcript_path=str(transcript_path),
-                resumed_from_persistence=resumed,
-                convergence_id=convergence_id,
-            )
-        # Derive challenger revision_id + plan content from the now-
-        # CHALLENGER_DRAFTED plan state. Plan ARIA-V8.3 — the cross-
-        # review envelope MUST carry both plans' actual TEXT so the
-        # cross-reviewer can read them via untrusted-delimited prompt
-        # inline. Pre-V8.3 the challenger_plan_text was a stub string
-        # ("(challenger plan loaded by aria-cross-reviewer via Read
-        # tool)") which made the cross-reviewer refuse with
-        # missing_inputs — the agent's independence discipline rightly
-        # blocked: an empty plan body cannot be cross-reviewed.
+        if prior:
+            raise _EnvelopeDead(role)
+        request = mint()
+        request_id = request.get("request_id")
+        if request_id:
+            request_ids.append(str(request_id))
+        return str(request_id) if request_id else None
+
+    def _plan_texts_from_state(cur: dict[str, Any]) -> tuple[str, bool, str, str, bool]:
+        """(primary_text, primary_real, challenger_revision_id,
+        challenger_text, challenger_real) — from kernel state only."""
+        import json as _json
+
+        primary_text = ""
+        latest = cur.get("latest_revision") or {}
+        candidate: object = latest.get("content") if isinstance(latest, dict) else None
+        if not candidate:
+            plan_started = cur.get("plan_started") or {}
+            if isinstance(plan_started, dict):
+                candidate = plan_started.get("plan_content")
+        if isinstance(candidate, dict):
+            primary_text = _json.dumps(candidate, indent=2, sort_keys=True)
+        elif isinstance(candidate, str) and candidate.strip():
+            primary_text = candidate
+        primary_real = bool(primary_text) and primary_text.strip() not in {"", "{}", "null"}
+
+        challenger = cur.get("challenger") or {}
         challenger_revision_id = f"{plan_id}-c{current_round}"
-        challenger_plan_text = ""
-        # Plan ARIA-V8.10 — also enrich primary_plan_text from kernel
-        # state's latest_revision when cycle_runner's plan_seed was
-        # empty (dirty-tree skip leaves plan_seed = {} → primary
-        # serialization is "{}" or "null", cross-reviewer refuses with
-        # evidence_underspecified). Kernel state has the authoritative
-        # primary content (set at start_plan), so the helper fetches
-        # both sides from state.
-        try:
-            cur = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
-            if isinstance(cur, dict):
-                challenger = cur.get("challenger") or {}
-                if isinstance(challenger, dict):
-                    rid = challenger.get("challenger_revision_id")
-                    if isinstance(rid, str) and rid:
-                        challenger_revision_id = rid
-                    # V8.3 — pull the actual challenger plan_content
-                    # dict from kernel state and serialize it as the
-                    # text body for the <untrusted_challenger_plan>
-                    # delimiters.
-                    plan_content_dict = challenger.get("plan_content")
-                    if isinstance(plan_content_dict, dict):
-                        challenger_plan_text = _json.dumps(
-                            plan_content_dict, indent=2, sort_keys=True,
-                        )
-                # V8.10 + V8.11 — enrich primary_plan_text from kernel
-                # state when plan_seed-derived text is empty/null/junk.
-                # The kernel stores primary content in TWO places:
-                #   - DRAFT state: `plan_started.plan_content` (dict)
-                #     carries the initial seed; `latest_revision.content`
-                #     is None at this point (only revision_id + hash).
-                #   - REVISED state: `latest_revision.content` carries
-                #     the post-revision string body.
-                # Check both in order of recency so we always pick the
-                # most-recent primary content the kernel knows about.
-                if (not primary_plan_text) or primary_plan_text.strip() in {"", "{}", "null"}:
-                    latest = cur.get("latest_revision") or {}
-                    primary_candidate: object = None
-                    if isinstance(latest, dict):
-                        primary_candidate = latest.get("content")
-                    if not primary_candidate:
-                        plan_started = cur.get("plan_started") or {}
-                        if isinstance(plan_started, dict):
-                            primary_candidate = plan_started.get("plan_content")
-                    if isinstance(primary_candidate, dict):
-                        primary_plan_text = _json.dumps(
-                            primary_candidate, indent=2, sort_keys=True,
-                        )
-                    elif isinstance(primary_candidate, str) and primary_candidate.strip():
-                        primary_plan_text = primary_candidate
-        except Exception:
-            pass
-        # ORPHAN-HIGH-421 — capture whether each text is REAL before the
-        # error-envelope substitution below overwrites that fact. The
-        # substituted envelope is still handed to the cross-reviewer (it is
-        # the operator-visible mint-time signal), but independence must not
-        # treat two "unavailable" placeholders as two independent plans.
-        challenger_text_real = bool(challenger_plan_text)
-        primary_text_real = bool(primary_plan_text) and primary_plan_text.strip() not in {
-            "", "{}", "null",
-        }
-        if not challenger_plan_text:
-            # Fail-fast: if we can't load real challenger content the
-            # cross-reviewer will refuse anyway; surface the operator-
-            # visible signal at mint-time instead of after a wasted
-            # Opus cycle.
-            challenger_plan_text = (
+        challenger_text = ""
+        if isinstance(challenger, dict):
+            rid = challenger.get("challenger_revision_id")
+            if isinstance(rid, str) and rid:
+                challenger_revision_id = rid
+            content = challenger.get("plan_content")
+            if isinstance(content, dict):
+                challenger_text = _json.dumps(content, indent=2, sort_keys=True)
+        challenger_real = bool(challenger_text)
+        if not challenger_text:
+            challenger_text = (
                 f"{{\"error\": \"challenger plan_content unavailable in plan state for "
                 f"plan_id={plan_id} revision_id={challenger_revision_id}\"}}"
             )
-        if (not primary_plan_text) or primary_plan_text.strip() in {"", "{}", "null"}:
-            primary_plan_text = (
+        if not primary_real:
+            primary_text = (
                 f"{{\"error\": \"primary plan content unavailable in plan state for "
-                f"plan_id={plan_id} revision_id={primary_revision_id}\"}}"
+                f"plan_id={plan_id}\"}}"
             )
-        # Mint cross_review envelope.
-        #
-        # Plan ARIA-V10.4 Phase 1 instrumentation — defensive try/except
-        # around the mint call. Pre-V10.4 the call was unwrapped: any
-        # exception (BridgeContractViolation from the inner mint path,
-        # validation failure, kernel-state read race) would propagate
-        # uncaught and the caller would see no governance event naming
-        # the failure layer. The new wrapper emits
-        # cross_review_mint_failed with exception class + truncated
-        # message + cycle context. Re-raise after logging so behavior
-        # is unchanged. Tier-3: detectable, NOT a fix.
-        try:
-            cross_review_request = issue_cross_review_envelope(
-                plan_id=plan_id,
-                round_number=current_round,
-                primary_revision_id=primary_revision_id,
-                primary_plan_text=primary_plan_text,
-                challenger_revision_id=challenger_revision_id,
-                challenger_plan_text=challenger_plan_text,
-                must_satisfy=effective_must_satisfy,
-                evidence_refs=evidence_refs,
-                allowed_scope=allowed_scope,
-                base_dir=base_dir,
-                target_sha=target_sha,
+        return primary_text, primary_real, challenger_revision_id, challenger_text, challenger_real
+
+    def _store_round_dispatches(round_n: int) -> dict[str, RoundDispatch]:
+        """ORPHAN-HIGH-421 faithful rebuild — keyed store lookup per role,
+        never positional. Built only at CONVERGED time."""
+        cur = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
+        primary_text, primary_real, challenger_rid, challenger_text, challenger_real = (
+            _plan_texts_from_state(cur)
+        )
+        out: dict[str, RoundDispatch] = {}
+
+        def _latest_request_id(role: str) -> str:
+            rows = _requests_for_step(
+                base_dir, convergence_id=convergence_id, role=role, round_number=round_n,
             )
-        except Exception as _mint_exc:
-            append_tools_governance(
-                ensure_tools_dir(base_dir),
-                "cross_review_mint_failed",
-                {
-                    "plan_id": plan_id,
-                    "round_number": current_round,
-                    "primary_revision_id": primary_revision_id,
-                    "challenger_revision_id": challenger_revision_id,
-                    "exception_class": type(_mint_exc).__name__,
-                    "exception_message": str(_mint_exc)[:500],
-                },
-            )
-            raise
-        cross_review_request_id = cross_review_request.get("request_id")
-        if cross_review_request_id:
-            request_ids.append(cross_review_request_id)
-        # ORPHAN-HIGH-421 — record this round's REAL role→dispatch mapping
-        # while every value is still in scope. The independence check ~400
-        # lines below used to rebuild it by indexing request_ids
-        # positionally, which mismapped the roles because appends run
-        # challenger → cross_review → completeness_critic → primary.
-        _record_round_dispatch(
-            current_round,
-            role=IND_PRIMARY_ROLE,
-            request_id=str(primary_dispatch_state.get("request_id") or ""),
-            revision_id=primary_revision_id,
-            agent_text=primary_plan_text if primary_text_real else None,
-        )
-        _record_round_dispatch(
-            current_round,
-            role=IND_CHALLENGER_ROLE,
-            request_id=str(challenger_request_id or ""),
-            revision_id=challenger_revision_id,
-            agent_text=challenger_plan_text if challenger_text_real else None,
-        )
-        _record_round_dispatch(
-            current_round,
-            role=IND_CROSS_REVIEW_ROLE,
-            request_id=str(cross_review_request_id or ""),
-            # A cross-review has no revision of its own: it reviews the
-            # primary/challenger pair. None is the truthful value, and
-            # verify_revision_id_distinctness skips a None third id rather
-            # than inventing a comparison.
-            revision_id=None,
-            # No text YET — the request was minted microseconds ago and the
-            # reviewer has not run. This record exists so a cross-review that
-            # never delivers is a VIOLATION rather than a missing record, and
-            # it is replaced below with the reviewer's real output once the
-            # plan reaches CROSS_REVIEWED. See ORPHAN-CRITICAL-446: leaving
-            # this None at gate time is what made the diversity layer
-            # short-circuit on `cross_review_text_unavailable` in every
-            # production round.
-            agent_text=None,
-        )
-        cross_review_state = _poll_for_state(
-            plan_id=plan_id,
-            target_states={"CROSS_REVIEWED"},
-            base_dir=base_dir,
-            deadline=time.monotonic() + challenger_timeout_seconds,
-            aria_stop_root=root,
-            sleep_interval=poll_sleep,
-        )
-        if _check_aria_stop(root):
-            return None, _aria_stop_return()
-        if cross_review_state is None:
-            # Plan ARIA-V10.4 Phase 1 — mirror the CHALLENGER_DRAFTED
-            # timeout diagnostic for CROSS_REVIEWED. Same rationale:
-            # capture state at timeout to reveal which bridge layer
-            # failed to advance the plan state.
+            return str(rows[-1].get("request_id") or "") if rows else ""
+
+        def _put(ind_role: str, *, request_id: str, revision_id: str | None,
+                 agent_text: str | None) -> None:
             try:
-                _xr_state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
-                _xr_state_summary = {
-                    "current_state": _xr_state.get("current_state") if isinstance(_xr_state, dict) else None,
-                    "has_cross_review": bool(_xr_state.get("cross_review")) if isinstance(_xr_state, dict) else False,
-                    "round_index": (
-                        _xr_state.get("round_index") if isinstance(_xr_state, dict) else None
-                    ),
-                }
-            except Exception as _xr_exc:
-                _xr_state_summary = {"fold_plan_state_failed": str(_xr_exc)[:200]}
-            append_tools_governance(
-                ensure_tools_dir(base_dir),
-                "cross_review_poll_timeout",
-                {
-                    "plan_id": plan_id,
-                    "round_number": current_round,
-                    "cross_review_request_id": cross_review_request_id,
-                    "challenger_timeout_seconds": challenger_timeout_seconds,
-                    "plan_state_at_timeout": _xr_state_summary,
-                },
-            )
-            return None, ConvergenceResult(
-                plan_id=plan_id,
-                converged_plan={},
-                rounds_count=rounds_executed,
-                arbiter_verdict="cross_review_unavailable",
-                unsatisfied_items=[],
-                request_ids=request_ids,
-                transcript_path=str(transcript_path),
-                resumed_from_persistence=resumed,
-                convergence_id=convergence_id,
-            )
-        # ORPHAN-CRITICAL-446 — the cross-review has now DELIVERED, so its
-        # text exists. Re-record the dispatch with the real output; without
-        # this the record minted before the poll keeps `agent_text=None` all
-        # the way to the independence gate, `_diversity_reasons`
-        # short-circuits on `cross_review_text_unavailable` for both pairs
-        # that involve the reviewer, and every `converged` verdict is
-        # downgraded to `cross_review_self_agreement`. Two comparisons the
-        # diversity layer exists for were never computed.
-        #
-        # Read failure is left as a None text on purpose: a reviewer whose
-        # output cannot be read has not demonstrated independence, and the
-        # gate must say so rather than assume it.
-        _record_round_dispatch(
-            current_round,
-            role=IND_CROSS_REVIEW_ROLE,
-            request_id=str(cross_review_request_id or ""),
+                out[ind_role] = RoundDispatch(
+                    role=ind_role,
+                    request_id=request_id or None,
+                    revision_id=revision_id,
+                    agent_text=agent_text,
+                )
+            except IndependenceInputError as exc:
+                append_tools_governance(
+                    root,
+                    "round_dispatch_record_refused",
+                    {"plan_id": plan_id, "cycle_id": cycle_id,
+                     "round_number": round_n, "role": ind_role, "reason": str(exc)},
+                )
+
+        primary_revision_id = f"{plan_id}-r{round_n}"
+        latest = cur.get("latest_revision") or {}
+        if isinstance(latest, dict) and isinstance(latest.get("revision_id"), str):
+            primary_revision_id = latest["revision_id"] if round_n > 1 else f"{plan_id}-r1"
+        _put(
+            IND_PRIMARY_ROLE,
+            request_id=_latest_request_id(_STEP_ROLE_PRIMARY),
+            revision_id=primary_revision_id,
+            agent_text=primary_text if primary_real else None,
+        )
+        _put(
+            IND_CHALLENGER_ROLE,
+            request_id=_latest_request_id(_STEP_ROLE_CHALLENGER),
+            revision_id=challenger_rid,
+            agent_text=challenger_text if challenger_real else None,
+        )
+        cross_review_request_id = _latest_request_id(_STEP_ROLE_CROSS_REVIEW)
+        _put(
+            IND_CROSS_REVIEW_ROLE,
+            request_id=cross_review_request_id,
             revision_id=None,
+            # ORPHAN-CRITICAL-446 — the reviewer's REAL accepted output, or
+            # None so the gate says self_agreement instead of assuming.
             agent_text=_accepted_output_text(
-                request_id=str(cross_review_request_id or ""),
+                request_id=cross_review_request_id,
                 role=CROSS_REVIEW_TARGET_AND_ROLE[1],
                 base_dir=base_dir,
-            ),
+            ) if cross_review_request_id else None,
         )
-        return challenger_revision_id, None
+        return out
 
-    resolved_coverage_computer = coverage_computer or compute_plan_coverage
-
-    def _read_critic_adjudication(request_id: str, deadline: float) -> dict[str, Any] | None:
-        """Inline-dispatch the critic and poll the results ledger.
-
-        Returns the parsed adjudication dict, or None on timeout, ARIA_STOP,
-        rejection, or an unparseable output — the caller flips every waived
-        node to uncovered (fail-closed) in that case.
-        """
+    def _read_critic_result_once(request_id: str) -> dict[str, Any] | None:
+        """Single non-blocking pass over the results ledger (the executor
+        delivered — or has not yet). None = not delivered / unusable."""
         results_path = root / "agent-invocations" / "results.jsonl"
-        while time.monotonic() < deadline:
-            if _check_aria_stop(root):
+        rows = (
+            load_declared_jsonl(results_path, expected_surface="agent_invocation_results")
+            if results_path.exists()
+            else []
+        )
+        for row in reversed(rows):
+            if row.get("request_id") != request_id:
+                continue
+            if row.get("status") == "rejected":
                 return None
-            try:
-                # F6 — `agent_id` is keyword-only AND required, so this call
-                # raised TypeError on EVERY iteration and the bare except
-                # swallowed it: the coverage critic was minted, never
-                # claimed, and every waiver fail-closed to "uncovered",
-                # burning a convergence round each cycle. The identity is
-                # role-scoped for the same independence reason as above.
-                dispatch_one_pending_planner_request(
-                    base_dir=base_dir,
-                    agent_id=_inline_agent_id("completeness_critique"),
-                    planner_roles=("completeness_critique",),
-                )
-            except Exception as _critic_exc:
-                append_tools_governance(
-                    ensure_tools_dir(base_dir),
-                    "critic_dispatch_failed",
-                    {"reason": str(_critic_exc)[:200], "request_id": request_id},
-                )
-            rows = (
-                load_declared_jsonl(results_path, expected_surface="agent_invocation_results")
-                if results_path.exists()
-                else []
-            )
-            for row in reversed(rows):
-                if row.get("request_id") != request_id:
-                    continue
-                if row.get("status") == "rejected":
-                    return None
-                output_path = row.get("output_path")
-                if not isinstance(output_path, str) or not output_path:
-                    return None
-                from .agent_invocations import resolve_output_artifact_path
+            output_path = row.get("output_path")
+            if not isinstance(output_path, str) or not output_path:
+                return None
+            from .agent_invocations import resolve_output_artifact_path
 
-                artifact = resolve_output_artifact_path(
-                    ensure_tools_dir(base_dir), output_path,
-                )
-                if not artifact.exists():
-                    return None
-                text = artifact.read_text(encoding="utf-8", errors="replace")
-                envelope: dict[str, Any] | None = None
-                try:
-                    parsed = json.loads(text)
-                    envelope = parsed if isinstance(parsed, dict) else None
-                except json.JSONDecodeError:
-                    fenced = re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
-                    for block in reversed(fenced):
-                        try:
-                            candidate = json.loads(block)
-                        except json.JSONDecodeError:
-                            continue
-                        if isinstance(candidate, dict):
-                            envelope = candidate
-                            break
-                return parse_critic_adjudication(envelope)
-            time.sleep(poll_sleep)
+            artifact = resolve_output_artifact_path(root, output_path)
+            if not artifact.exists():
+                return None
+            text = artifact.read_text(encoding="utf-8", errors="replace")
+            envelope: dict[str, Any] | None = None
+            try:
+                parsed = json.loads(text)
+                envelope = parsed if isinstance(parsed, dict) else None
+            except json.JSONDecodeError:
+                fenced = re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+                for block in reversed(fenced):
+                    try:
+                        candidate = json.loads(block)
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(candidate, dict):
+                        envelope = candidate
+                        break
+            return parse_critic_adjudication(envelope)
         return None
 
-    def _dispatch_and_adjudicate(payload: dict[str, Any], current_round: int) -> dict[str, Any]:
-        """Production critic gate: mint -> dispatch -> poll -> fold verdict.
+    def _coverage_step(round_n: int) -> str | None:
+        """Record this round's coverage verdict, minting the critic
+        asynchronously when waivers need adjudication.
 
-        Every failure mode (mint refusal, dispatch crash, timeout, refusal,
-        malformed output) resolves to adjudication=None, which
-        adjudicate_waivers turns into waiver_unadjudicated gaps — PR-1's
-        machine-accepted waivers end here.
+        Returns None when coverage is now recorded (or not required) and
+        evaluation may proceed; returns "waiting" when a critic envelope
+        is pending delivery.
         """
-        manifest_name = Path(str(payload.get("closure_manifest_path"))).name
-        manifest_file = root / "coverage" / manifest_name
-        manifest_text = (
-            manifest_file.read_text(encoding="utf-8", errors="replace")
-            if manifest_file.exists()
-            else "(closure manifest unavailable)"
-        )
-        request_id: str | None = None
-        adjudication: dict[str, Any] | None = None
-        try:
-            critic_request = issue_completeness_critic_envelope(
-                plan_id=plan_id,
-                round_number=current_round,
-                closure_manifest_text=manifest_text,
-                closure_manifest_hash=str(payload.get("closure_manifest_hash")),
-                waivers=list(payload.get("waived", [])),
-                evidence_refs=[str(payload.get("closure_manifest_path")), *evidence_refs],
-                allowed_scope=allowed_scope,
-                base_dir=base_dir,
-                target_sha=target_sha,
-            )
-            request_id = critic_request.get("request_id")
-            if request_id:
-                request_ids.append(request_id)
-                adjudication = _read_critic_adjudication(
-                    request_id, time.monotonic() + critic_timeout_seconds,
-                )
-        except GovernanceError:
-            adjudication = None
-        adjudicated = adjudicate_waivers(
-            payload=payload,
-            adjudication=adjudication,
-            round_number=current_round,
-            critic_request_id=request_id,
-        )
-        try:
-            append_tools_governance(
-                root,
-                "coverage_waiver_adjudication",
-                {
-                    "plan_id": plan_id,
-                    "cycle_id": cycle_id,
-                    "round_number": current_round,
-                    "critic_request_id": request_id,
-                    **(adjudicated.get("witness") or {}).get("waiver_adjudication", {}),
-                    "verdict_after": adjudicated.get("verdict"),
-                },
-            )
-        except Exception:
-            pass
-        return adjudicated
-
-    resolved_critic_adjudicator = critic_adjudicator or _dispatch_and_adjudicate
-
-    def _run_coverage_phase(current_round: int) -> None:
-        """Compute + record the deterministic coverage verdict for this round.
-
-        Runs OUTSIDE the kernel's plan lock (evaluate_plan must stay
-        deterministic-fast; the witness subprocess can take tens of
-        seconds). Fail-closed by construction: any failure to record
-        leaves the round WITHOUT a coverage event, which the evaluator
-        escalates to HUMAN_REQUIRED (coverage_missing) for
-        schema_version>=2 plans — a crash here can never silently pass.
-        """
-        state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
-        if not _plan_requires_coverage(state):
-            return
-        challenger = state.get("challenger") or {}
-        latest = state.get("latest_revision") or {}
-        if current_round == 1 and challenger.get("challenger_revision_id"):
-            # Round 1 evaluates the challenger revision (submit_cross_review_v8
-            # targets it); the challenger's plan_content is kernel-validated.
+        cur = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
+        if not _plan_requires_coverage(cur):
+            return None
+        if (cur.get("coverage_by_round") or {}).get(round_n):
+            return None  # recorded on an earlier cycle
+        challenger = cur.get("challenger") or {}
+        latest = cur.get("latest_revision") or {}
+        if round_n == 1 and challenger.get("challenger_revision_id"):
             target_revision_id = challenger["challenger_revision_id"]
             target_hash = challenger["content_hash"]
             plan_content: Any = challenger.get("plan_content") or {}
         else:
             target_revision_id = latest.get("revision_id")
             target_hash = latest.get("content_hash")
-            plan_content = _structured_revision_content(state)
+            plan_content = _structured_revision_content(cur)
         try:
             if isinstance(plan_content, dict) and plan_content.get("affected_surfaces") is not None:
                 payload = resolved_coverage_computer(
                     plan_content=plan_content,
                     plan_id=plan_id,
-                    round_number=current_round,
+                    round_number=round_n,
                     target_revision_id=target_revision_id,
                     target_plan_content_hash=target_hash,
                     workspace_root=workspace_root or Path.cwd(),
                     base_dir=base_dir,
                 )
             else:
-                # A v2 plan whose round target is not a structured plan object
-                # (opaque revision content) — coverage cannot be computed from
-                # it. environment_unable escalates to HUMAN_REQUIRED; silently
-                # passing an unanalyzable plan is exactly the defect class
-                # this gate exists to kill.
                 payload = environment_unable_payload(
-                    round_number=current_round,
+                    round_number=round_n,
                     target_revision_id=str(target_revision_id),
                     target_plan_content_hash=str(target_hash),
-                    manifest_relpath=f"{root.name}/coverage/{plan_id}-r{current_round}.json",
+                    manifest_relpath=f"{root.name}/coverage/{plan_id}-r{round_n}.json",
                     manifest_hash="sha256:" + ("0" * 64),
                     computed_at_sha="unknown",
                     witness={"tool": "convergence_drainer", "error": "revision_content_not_structured"},
                 )
-            # PR-2 tightening: machine-computed waivers are only claims —
-            # the completeness critic adjudicates each one before the
-            # verdict is recorded. No waivers -> nothing to adjudicate.
             if payload.get("verdict") == "covered_with_waivers" and payload.get("waived"):
-                payload = resolved_critic_adjudicator(payload, current_round)
+                if critic_adjudicator is not None:
+                    payload = critic_adjudicator(payload, round_n)
+                else:
+                    manifest_name = Path(str(payload.get("closure_manifest_path"))).name
+                    manifest_file = root / "coverage" / manifest_name
+                    manifest_text = (
+                        manifest_file.read_text(encoding="utf-8", errors="replace")
+                        if manifest_file.exists()
+                        else "(closure manifest unavailable)"
+                    )
+                    critic_request_id = _ensure_envelope(
+                        _STEP_ROLE_CRITIC,
+                        round_n,
+                        lambda: issue_completeness_critic_envelope(
+                            plan_id=plan_id,
+                            round_number=round_n,
+                            closure_manifest_text=manifest_text,
+                            closure_manifest_hash=str(payload.get("closure_manifest_hash")),
+                            waivers=list(payload.get("waived", [])),
+                            evidence_refs=[str(payload.get("closure_manifest_path")), *evidence_refs],
+                            allowed_scope=allowed_scope,
+                            base_dir=base_dir,
+                            target_sha=target_sha,
+                        ),
+                    )
+                    adjudication = (
+                        _read_critic_result_once(critic_request_id)
+                        if critic_request_id
+                        else None
+                    )
+                    if adjudication is None and critic_request_id and _live_request_id(
+                        base_dir, convergence_id=convergence_id,
+                        role=_STEP_ROLE_CRITIC, round_number=round_n,
+                    ):
+                        _advanced("await_completeness_critic", critic_request_id, round_n)
+                        return "waiting"
+                    payload = adjudicate_waivers(
+                        payload=payload,
+                        adjudication=adjudication,
+                        round_number=round_n,
+                        critic_request_id=critic_request_id,
+                    )
+                    append_tools_governance(
+                        root,
+                        "coverage_waiver_adjudication",
+                        {
+                            "plan_id": plan_id,
+                            "cycle_id": cycle_id,
+                            "round_number": round_n,
+                            "critic_request_id": critic_request_id,
+                            **(payload.get("witness") or {}).get("waiver_adjudication", {}),
+                            "verdict_after": payload.get("verdict"),
+                        },
+                    )
             record_coverage(plan_id=plan_id, coverage=payload, base_dir=base_dir)
             append_tools_governance(
                 root,
@@ -1228,305 +848,320 @@ def run_convergence_drainer(
                 {
                     "plan_id": plan_id,
                     "cycle_id": cycle_id,
-                    "round_number": current_round,
+                    "round_number": round_n,
                     "verdict": payload.get("verdict"),
                     "uncovered_count": len(payload.get("uncovered", [])),
                     "waived_count": len(payload.get("waived", [])),
                 },
             )
+            return None
         except GovernanceError as exc:
-            # Recording refused (e.g. a concurrent revision made the target
-            # stale). No event lands -> evaluator fails closed with
-            # coverage_missing. The governance row keeps the WHY auditable.
             append_tools_governance(
                 root,
                 "coverage_phase_failed",
+                {"plan_id": plan_id, "cycle_id": cycle_id,
+                 "round_number": round_n, "error": str(exc)},
+            )
+            return None
+
+    def _terminal_result(cur: dict[str, Any], round_n: int) -> ConvergenceResult:
+        terminal_state = cur.get("terminal_state") or cur.get("state")
+        # Reasons live in the terminal plan_evaluated event's payload.
+        reason_codes: list[str] = []
+        for event in reversed(cur.get("events") or []):
+            if event.get("event_type") == "plan_evaluated":
+                reason_codes = list((event.get("payload") or {}).get("reason_codes") or [])
+                break
+        arbiter_verdict = _derive_arbiter_verdict(str(terminal_state), reason_codes)
+        try:
+            append_tools_governance(
+                root,
+                "verdict_provenance",
                 {
                     "plan_id": plan_id,
-                    "cycle_id": cycle_id,
-                    "round_number": current_round,
-                    "error": str(exc),
+                    "round_number": round_n,
+                    "terminal_state": _LAST_VERDICT_PROVENANCE.get("terminal_state"),
+                    "reasons": _LAST_VERDICT_PROVENANCE.get("reasons"),
+                    "branch": _LAST_VERDICT_PROVENANCE.get("branch"),
+                    "verdict": _LAST_VERDICT_PROVENANCE.get("verdict"),
                 },
             )
+        except Exception:
+            pass
+        if arbiter_verdict == "converged":
+            dispatches = _store_round_dispatches(round_n)
+            missing = [
+                role
+                for role in (IND_PRIMARY_ROLE, IND_CHALLENGER_ROLE, IND_CROSS_REVIEW_ROLE)
+                if role not in dispatches
+            ]
+            if missing:
+                independence_ok = False
+                violation_reasons = [f"round_dispatch_missing:{role}" for role in missing]
+            else:
+                independence_ok, violation_reasons = verify_independence(
+                    primary=dispatches[IND_PRIMARY_ROLE],
+                    challenger=dispatches[IND_CHALLENGER_ROLE],
+                    cross_review=dispatches[IND_CROSS_REVIEW_ROLE],
+                    base_dir=base_dir,
+                )
+            if not independence_ok:
+                arbiter_verdict = "cross_review_self_agreement"
+                try:
+                    append_tools_governance(
+                        root,
+                        "convergence_invalid_self_agreement",
+                        {
+                            "plan_id": plan_id,
+                            "cycle_id": cycle_id,
+                            "round_number": round_n,
+                            "violation_reasons": violation_reasons,
+                            "request_ids": request_ids,
+                        },
+                    )
+                except Exception:
+                    pass
+        converged_plan: dict[str, Any] = {}
+        if arbiter_verdict == "converged":
+            started = cur.get("plan_started") or {}
+            content = None
+            latest = cur.get("latest_revision") or {}
+            if isinstance(latest, dict):
+                content = latest.get("content")
+            if not isinstance(content, dict):
+                challenger = cur.get("challenger") or {}
+                if isinstance(challenger, dict) and isinstance(challenger.get("plan_content"), dict):
+                    content = challenger.get("plan_content")
+            if not isinstance(content, dict) and isinstance(started, dict):
+                content = started.get("plan_content")
+            converged_plan = content if isinstance(content, dict) else {}
+        if persistence.exists():
+            try:
+                persistence.unlink()
+            except OSError:
+                pass
+        return _result(arbiter_verdict, rounds=round_n, converged=converged_plan)
 
-    for round_n in range(starting_round, max_rounds + 1):
-        rounds_executed = round_n
-        effective_must_satisfy = [*must_satisfy, *coverage_carry]
+    # ------------------------------------------------------------------
+    # The step dispatch.
+    # ------------------------------------------------------------------
+    if _check_aria_stop(root):
+        persistence.write_text(
+            json.dumps({"plan_id": plan_id, "round": current_round, "interrupted": True}),
+            encoding="utf-8",
+        )
+        return _result("aria_stop_interrupted", rounds=current_round)
 
-        if _check_aria_stop(root):
-            return _aria_stop_return()
+    try:
+        if plan_state in TERMINAL_STATES or plan_state in {"ABANDONED"}:
+            return _terminal_result(state, current_round)
 
-        if round_n == 1:
-            # Plan ARIA-V8 v2 §4 Phase 8.1 — round-1 has NO primary envelope.
-            # plan_seed (from V7.1 cycle_runner) IS the primary draft;
-            # only register the plan in DRAFT state, then immediately
-            # mint challenger + cross_review (see _ROUND1_ENVELOPES).
+        if plan_state is None:
             start_convergent_plan_drafted_by_primary(
                 plan_id=plan_id,
                 plan_content=plan_seed,
                 initial_revision_id=f"{plan_id}-r1",
                 base_dir=base_dir,
             )
-            primary_revision_id_for_round = f"{plan_id}-r1"
-        else:
-            # Plan ARIA-V8 v2 §4 Phase 8.4 — round-2+ mints primary REVISION
-            # envelope via cross_review_bridge.issue_primary_envelope.
-            # Tier-1: refused at mint-time if state not in CRITIQUED or
-            # CROSS_REVIEWED. Legal here because prior round reached CROSS_REVIEWED.
-            try:
-                primary_revision_request = issue_primary_envelope(
+            request_id = _ensure_envelope(
+                _STEP_ROLE_CHALLENGER,
+                1,
+                lambda: issue_challenger_envelope(
                     plan_id=plan_id,
-                    round_number=round_n,
+                    round_number=1,
                     must_satisfy=effective_must_satisfy,
                     evidence_refs=evidence_refs,
                     allowed_scope=allowed_scope,
                     base_dir=base_dir,
                     target_sha=target_sha,
-                )
-            except BridgeContractViolation:
-                return ConvergenceResult(
-                    plan_id=plan_id,
-                    converged_plan={},
-                    rounds_count=rounds_executed,
-                    arbiter_verdict="primary_revision_failed",
-                    unsatisfied_items=[],
-                    request_ids=request_ids,
-                    transcript_path=str(transcript_path),
-                    resumed_from_persistence=resumed,
-                    convergence_id=convergence_id,
-                )
-            primary_revision_request_id = primary_revision_request.get("request_id")
-            if primary_revision_request_id:
-                request_ids.append(primary_revision_request_id)
-                # ORPHAN-HIGH-421 — from the next round on, the primary IS
-                # agent-dispatched, so its claim becomes checkable against
-                # the challenger's and the reviewer's.
-                primary_dispatch_state["request_id"] = str(primary_revision_request_id)
-            # Wait for primary to revise (state advances to REVISED).
-            revised_state = _poll_for_state(
-                plan_id=plan_id,
-                target_states={"REVISED"},
-                base_dir=base_dir,
-                deadline=time.monotonic() + challenger_timeout_seconds,
-                aria_stop_root=root,
-                sleep_interval=poll_sleep,
+                ),
             )
-            if _check_aria_stop(root):
-                return _aria_stop_return()
-            if revised_state is None:
-                return ConvergenceResult(
+            _advanced("plan_started_and_challenger_minted", request_id, 1)
+            return _result("in_progress", rounds=1)
+
+        if plan_state == "DRAFT":
+            # K1 root kill: an adopted DRAFT plan is NEVER re-started.
+            request_id = _ensure_envelope(
+                _STEP_ROLE_CHALLENGER,
+                current_round,
+                lambda: issue_challenger_envelope(
                     plan_id=plan_id,
-                    converged_plan={},
-                    rounds_count=rounds_executed,
-                    arbiter_verdict="primary_revision_failed",
-                    unsatisfied_items=[],
-                    request_ids=request_ids,
-                    transcript_path=str(transcript_path),
-                    resumed_from_persistence=resumed,
-                    convergence_id=convergence_id,
-                )
-            primary_revision_id_for_round = f"{plan_id}-r{round_n}"
-
-        # Render the primary plan text for the cross-reviewer prompt.
-        # cycle_runner's plan_seed is the canonical primary draft.
-        import json as _json
-        primary_plan_text = _json.dumps(plan_seed, indent=2, sort_keys=True)
-
-        challenger_revision_id, early_terminal = _run_challenge_and_cross_review_phase(
-            current_round=round_n,
-            primary_revision_id=primary_revision_id_for_round,
-            primary_plan_text=primary_plan_text,
-        )
-        if early_terminal is not None:
-            return early_terminal
-
-        # Coverage phase sits between cross-review success and evaluation:
-        # the evaluator's plan_coverage gate reads the event this records.
-        _run_coverage_phase(round_n)
-
-        # Plan ARIA-V10.5 Phase 4 — F-024 closure. Forward the drainer's
-        # max_rounds into the kernel evaluator so plan_convergence and
-        # convergence_drainer share a single source of truth for the
-        # "last round of the cycle" boundary. Pre-fix the drainer's cap
-        # (default 4, often overridden lower via CLI/profile) was
-        # invisible to evaluate_plan, which fell back to MAX_CROSS_REVIEW_ROUNDS=5
-        # and returned NEXT_ROUND_REQUIRED while the drainer was about
-        # to exit its bounded loop — leaving the kernel ledger with
-        # zero plan_evaluated events and no verdict provenance.
-        eval_result = evaluate_plan(
-            plan_id=plan_id,
-            round_number=round_n,
-            base_dir=base_dir,
-            max_rounds=max_rounds,
-        )
-        # Plan ARIA-V10.5 Phase 6 — F-026 closure. The kernel writes
-        # terminal-state evaluation results into the plan_evaluated event
-        # under event.payload.terminal_state (see plan_convergence.py
-        # _append_event line 989-1007 and evaluate_plan line 475-481).
-        # The pre-fix extraction looked at event.details.state — wrong
-        # field names on both axes:
-        #   - "details" was never the event payload key (the kernel uses
-        #     "payload"; "details" is reserved for tools governance events
-        #     written via append_tools_governance).
-        #   - "state" was never the terminal-state field on plan events
-        #     (the kernel emits "terminal_state"; "state" is the kernel-
-        #     internal fold output, not the event payload field).
-        # Result: drainer never observed terminal states, fell through to
-        # the line-926 hardcoded "max_rounds" verdict, verdict_provenance
-        # never appended. Cycle 1 of v10-5-f-025-validation endurance
-        # surfaced this — kernel correctly emitted plan_evaluated with
-        # terminal_state=HUMAN_REQUIRED + max_rounds_reached but drainer
-        # read None and missed the in-loop terminal branch.
-        _event_payload = eval_result.get("event", {}).get("payload", {})
-        terminal_state = _event_payload.get("terminal_state")
-        # NEXT_ROUND_REQUIRED has no event field — reason_codes live at
-        # eval_result top level for that case (plan_convergence.py line
-        # 466-474). Terminal cases carry reasons in event.payload.
-        reason_codes = (
-            _event_payload.get("reason_codes")
-            or eval_result.get("reason_codes")
-            or []
-        )
-
-        if terminal_state in TERMINAL_STATES:
-            arbiter_verdict = _derive_arbiter_verdict(
-                terminal_state, list(reason_codes),
+                    round_number=current_round,
+                    must_satisfy=effective_must_satisfy,
+                    evidence_refs=evidence_refs,
+                    allowed_scope=allowed_scope,
+                    base_dir=base_dir,
+                    target_sha=target_sha,
+                ),
             )
-            # Plan ARIA-V10.4 Phase 1 — emit verdict provenance so
-            # operators can triage WHICH branch of the mapping fired.
-            # Pre-V10.4 the verdict string alone collapsed multiple
-            # distinct (terminal_state, reasons) combinations into one
-            # label.
+            _advanced("await_challenger", request_id, current_round)
+            return _result("in_progress", rounds=current_round)
+
+        if plan_state == "REVISED":
+            request_id = _ensure_envelope(
+                _STEP_ROLE_CHALLENGER,
+                current_round,
+                lambda: issue_challenger_envelope(
+                    plan_id=plan_id,
+                    round_number=current_round,
+                    must_satisfy=effective_must_satisfy,
+                    evidence_refs=evidence_refs,
+                    allowed_scope=allowed_scope,
+                    base_dir=base_dir,
+                    target_sha=target_sha,
+                ),
+            )
+            _advanced("await_challenger_for_revision", request_id, current_round)
+            return _result("in_progress", rounds=current_round)
+
+        if plan_state == "CHALLENGER_DRAFTED":
+            primary_plan_text, _pr, challenger_rid, challenger_plan_text, _cr = (
+                _plan_texts_from_state(state)
+            )
+            latest = state.get("latest_revision") or {}
+            primary_revision_id = (
+                latest.get("revision_id")
+                if isinstance(latest, dict) and isinstance(latest.get("revision_id"), str)
+                else f"{plan_id}-r{current_round}"
+            )
             try:
+                request_id = _ensure_envelope(
+                    _STEP_ROLE_CROSS_REVIEW,
+                    current_round,
+                    lambda: issue_cross_review_envelope(
+                        plan_id=plan_id,
+                        round_number=current_round,
+                        primary_revision_id=str(primary_revision_id),
+                        primary_plan_text=primary_plan_text,
+                        challenger_revision_id=challenger_rid,
+                        challenger_plan_text=challenger_plan_text,
+                        must_satisfy=effective_must_satisfy,
+                        evidence_refs=evidence_refs,
+                        allowed_scope=allowed_scope,
+                        base_dir=base_dir,
+                        target_sha=target_sha,
+                    ),
+                )
+            except Exception as mint_exc:
+                if isinstance(mint_exc, _EnvelopeDead):
+                    raise
                 append_tools_governance(
-                    ensure_tools_dir(base_dir),
-                    "verdict_provenance",
+                    root,
+                    "cross_review_mint_failed",
                     {
                         "plan_id": plan_id,
-                        "round_number": round_n,
-                        "terminal_state": _LAST_VERDICT_PROVENANCE.get("terminal_state"),
-                        "reasons": _LAST_VERDICT_PROVENANCE.get("reasons"),
-                        "branch": _LAST_VERDICT_PROVENANCE.get("branch"),
-                        "verdict": _LAST_VERDICT_PROVENANCE.get("verdict"),
+                        "round_number": current_round,
+                        "exception_class": type(mint_exc).__name__,
+                        "exception_message": str(mint_exc)[:500],
                     },
                 )
-            except Exception:
-                pass
-            # Plan ARIA-V8 v2 §4 Phase 8.5 (B-V2-08) — independence
-            # enforcement on converged cycles. Echo chamber detection
-            # via verify_independence's 3-layer check (claim_id +
-            # revision_id + Jaccard). On violation the verdict
-            # downgrades to cross_review_self_agreement so the operator
-            # sees the fake-consensus signal in the reflection.
-            if arbiter_verdict == "converged":
-                # ORPHAN-HIGH-421 — the gate no longer depends on
-                # `len(request_ids) >= 3`, which silently skipped the whole
-                # check on any round that minted fewer envelopes, and no
-                # longer rebuilds the role mapping by position. A missing
-                # dispatch record is now a violation, not a bypass.
-                #
-                # Plan ARIA-V10.4 Phase 1.1 hotfix — local
-                # `append_tools_governance` import REMOVED; module-level
-                # import at line 56 is the SSoT. The local re-import
-                # was making Python's compiler classify
-                # `append_tools_governance` as a local variable of
-                # run_convergence_drainer, which leaked into the closure
-                # `_run_challenge_and_cross_review_phase` and caused a
-                # NameError when V10.4 Phase 1 instrumentation tried to
-                # call it from inside the closure before this code path
-                # executed.
-                _for_round = round_dispatches.get(rounds_executed) or {}
-                _missing = [
-                    role
-                    for role in (IND_PRIMARY_ROLE, IND_CHALLENGER_ROLE, IND_CROSS_REVIEW_ROLE)
-                    if role not in _for_round
-                ]
-                if _missing:
-                    independence_ok = False
-                    violation_reasons = [
-                        f"round_dispatch_missing:{role}" for role in _missing
-                    ]
-                else:
-                    independence_ok, violation_reasons = verify_independence(
-                        primary=_for_round[IND_PRIMARY_ROLE],
-                        challenger=_for_round[IND_CHALLENGER_ROLE],
-                        cross_review=_for_round[IND_CROSS_REVIEW_ROLE],
-                        base_dir=base_dir,
-                    )
-                if not independence_ok:
-                    arbiter_verdict = "cross_review_self_agreement"
-                    try:
-                        append_tools_governance(
-                            ensure_tools_dir(base_dir),
-                            "convergence_invalid_self_agreement",
-                            {
-                                "plan_id": plan_id,
-                                "cycle_id": cycle_id,
-                                "round_number": rounds_executed,
-                                "violation_reasons": violation_reasons,
-                                "dispatched_roles": sorted(_for_round),
-                                "request_ids": request_ids,
-                            },
-                        )
-                    except Exception:
-                        pass
-            converged_plan = (
-                eval_result.get("plan_content", {})
-                if arbiter_verdict == "converged"
-                else {}
-            )
-            unsatisfied = eval_result.get("unsatisfied_items", [])
-            if persistence.exists():
-                try:
-                    persistence.unlink()
-                except OSError:
-                    pass
-            return ConvergenceResult(
-                plan_id=plan_id,
-                converged_plan=converged_plan,
-                rounds_count=rounds_executed,
-                arbiter_verdict=arbiter_verdict,
-                unsatisfied_items=unsatisfied,
-                request_ids=request_ids,
-                transcript_path=str(transcript_path),
-                resumed_from_persistence=resumed,
-                convergence_id=convergence_id,
-            )
+                raise
+            _advanced("await_cross_review", request_id, current_round)
+            return _result("in_progress", rounds=current_round)
 
-        # NEXT_ROUND_REQUIRED — persist round bump and iterate. Uncovered
-        # closure nodes become named must_satisfy obligations for the next
-        # round's primary (and challenger) prompts; persisting them keeps the
-        # feed-forward crash-resume safe.
-        state_after_eval = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
-        coverage_after = (state_after_eval.get("coverage_by_round") or {}).get(round_n) or {}
-        coverage_carry = [
-            {
-                "id": f"coverage:{node.get('node_id')}",
-                "kind": "coverage_gap",
-                "description": (
-                    f"{node.get('node_id')}: {node.get('why')} — widen affected_surfaces "
-                    "to address this impact-closure node or add a coverage.waivers entry {node, reason}"
+        if plan_state == "CROSS_REVIEW_REQUESTED":
+            # Envelope minted on an earlier cycle; executor owns delivery.
+            request_id = _ensure_envelope(
+                _STEP_ROLE_CROSS_REVIEW,
+                current_round,
+                lambda: (_ for _ in ()).throw(
+                    GovernanceError("cross_review re-mint requires CHALLENGER_DRAFTED texts")
                 ),
-                "source": "plan-coverage-witness",
-            }
-            for node in coverage_after.get("uncovered", [])
-        ]
-        persistence.write_text(
-            json.dumps({"plan_id": plan_id, "round": round_n + 1, "coverage_must_satisfy": coverage_carry}),
-            encoding="utf-8",
-        )
+            )
+            _advanced("await_cross_review", request_id, current_round)
+            return _result("in_progress", rounds=current_round)
 
-    return ConvergenceResult(
-        plan_id=plan_id,
-        converged_plan={},
-        rounds_count=rounds_executed,
-        arbiter_verdict="max_rounds",
-        unsatisfied_items=[],
-        request_ids=request_ids,
-        transcript_path=str(transcript_path),
-        resumed_from_persistence=resumed,
-        convergence_id=convergence_id,
-    )
+        if plan_state in {"CROSS_REVIEWED", "CRITIQUED"}:
+            waiting = _coverage_step(current_round)
+            if waiting == "waiting":
+                return _result("in_progress", rounds=current_round)
+            eval_result = evaluate_plan(
+                plan_id=plan_id,
+                round_number=current_round,
+                base_dir=base_dir,
+                max_rounds=max_rounds,
+            )
+            event_payload = eval_result.get("event", {}).get("payload", {})
+            terminal_state = event_payload.get("terminal_state")
+            if terminal_state in TERMINAL_STATES:
+                return _terminal_result(
+                    fold_plan_state(plan_id=plan_id, base_dir=base_dir), current_round,
+                )
+            # NEXT_ROUND_REQUIRED — carry coverage gaps forward, mint the
+            # primary revision envelope, resume next cycle.
+            state_after = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
+            coverage_after = (state_after.get("coverage_by_round") or {}).get(current_round) or {}
+            coverage_carry = [
+                {
+                    "id": f"coverage:{node.get('node_id')}",
+                    "kind": "coverage_gap",
+                    "description": (
+                        f"{node.get('node_id')}: {node.get('why')} — widen affected_surfaces "
+                        "to address this impact-closure node or add a coverage.waivers entry {node, reason}"
+                    ),
+                    "source": "plan-coverage-witness",
+                }
+                for node in coverage_after.get("uncovered", [])
+            ]
+            persistence.write_text(
+                json.dumps({
+                    "plan_id": plan_id,
+                    "round": current_round + 1,
+                    "coverage_must_satisfy": coverage_carry,
+                }),
+                encoding="utf-8",
+            )
+            next_round = current_round + 1
+            try:
+                request_id = _ensure_envelope(
+                    _STEP_ROLE_PRIMARY,
+                    next_round,
+                    lambda: issue_primary_envelope(
+                        plan_id=plan_id,
+                        round_number=next_round,
+                        must_satisfy=[*base_ms, *coverage_carry],
+                        evidence_refs=evidence_refs,
+                        allowed_scope=allowed_scope,
+                        base_dir=base_dir,
+                        target_sha=target_sha,
+                    ),
+                )
+            except BridgeContractViolation:
+                return _result("primary_revision_failed", rounds=current_round)
+            _advanced("await_primary_revision", request_id, next_round)
+            return _result("in_progress", rounds=current_round)
+
+        if plan_state == "CRITIQUE_REQUESTED":
+            # Legacy V8 critique tasks are answered by the executor lane;
+            # nothing to mint here.
+            _advanced("await_critique_tasks", None, current_round)
+            return _result("in_progress", rounds=current_round)
+
+        # Implementation-phase states are the V9 runner's territory — the
+        # convergence step neither waits on nor advances them.
+        _advanced("noop_state", None, current_round)
+        return _result("in_progress", rounds=current_round)
+
+    except _EnvelopeDead as dead:
+        force_plan_human_required(
+            plan_id=plan_id,
+            round_number=current_round,
+            reason_codes=[f"convergence_envelope_dead:{dead.role}"],
+            base_dir=base_dir,
+        )
+        append_tools_governance(
+            root,
+            "convergence_envelope_dead",
+            {
+                "plan_id": plan_id,
+                "cycle_id": cycle_id,
+                "round_number": current_round,
+                "role": dead.role,
+            },
+        )
+        return _terminal_result(
+            fold_plan_state(plan_id=plan_id, base_dir=base_dir), current_round,
+        )
 
 
 def select_convergence_runner(profile: str = "standard") -> ConvergenceRunner:

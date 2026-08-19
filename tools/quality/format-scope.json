@@ -34756,6 +34756,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/runbooks/aria-runner-rebuild.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/runbooks/aria-state-branch-bootstrap.md",
       "prettier_managed": true
     },

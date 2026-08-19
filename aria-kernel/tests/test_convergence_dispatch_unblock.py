@@ -26,11 +26,19 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 class RoleScopedIdentityTests(unittest.TestCase):
-    def test_each_role_claims_under_its_own_identity(self) -> None:
-        ids = {role: cd._inline_agent_id(role) for role in cd._CONVERGENCE_INLINE_DISPATCH_ROLES}
-        self.assertEqual(len(set(ids.values())), len(ids))
-        for role, value in ids.items():
-            self.assertTrue(value.endswith(f":{role}"), value)
+    def test_drainer_no_longer_dispatches_at_all(self) -> None:
+        # CL-1 (ORPHAN-725) — the inline dispatcher these tests used to
+        # exercise is deliberately DEAD: the executor lane is the single
+        # consumer of every convergence role (the X1 topology), so
+        # role-scoped identity now lives where the claim happens —
+        # ci_executor — not in the drainer. The drainer must neither
+        # import nor call the planner dispatch hook.
+        import inspect
+
+        source = inspect.getsource(cd)
+        self.assertNotIn("dispatch_one_pending_planner_request", source)
+        self.assertFalse(hasattr(cd, "_inline_agent_id"))
+        self.assertFalse(hasattr(cd, "_CONVERGENCE_INLINE_DISPATCH_ROLES"))
 
     def test_shared_identity_fails_and_role_scoped_passes(self) -> None:
         # The gate reads agent_id from the CLAIMS ledger by request_id, so
@@ -67,8 +75,12 @@ class RoleScopedIdentityTests(unittest.TestCase):
         self.assertFalse(passed_shared)
         self.assertTrue(any("same_agent_id" in r for r in reasons), reasons)
 
+        # CL-1: the drainer no longer mints identities (it no longer
+        # claims anything); role-scoped ids are the EXECUTOR's discipline.
+        # The disjointness reader's contract is unchanged — pin it with
+        # explicitly role-scoped ids of the same shape.
         passed_scoped, reasons_scoped = _run({
-            role: cd._inline_agent_id(role)
+            role: f"convergence:{role}"
             for role in ("primary", "challenger", "cross_review")
         })
         self.assertTrue(passed_scoped, reasons_scoped)
@@ -89,16 +101,18 @@ class ExecutorPathTests(unittest.TestCase):
 
 
 class CriticDispatchTests(unittest.TestCase):
-    def test_critic_dispatch_passes_the_required_agent_id(self) -> None:
+    def test_critic_is_minted_for_the_executor_not_dispatched_inline(self) -> None:
+        # CL-1 (ORPHAN-725) — the critic envelope is MINTED by the
+        # coverage step and DELIVERED by the executor lane on a later
+        # cycle; the adjudication folds from the results ledger. The
+        # F6 agent_id defect class this pin guarded cannot recur because
+        # the call it guarded no longer exists.
         import inspect
 
         source = inspect.getsource(cd)
-        marker = 'planner_roles=("completeness_critique",)'
-        self.assertIn(marker, source)
-        head = source[: source.index(marker)]
-        # The agent_id must be supplied in the same call — without it the
-        # call raises TypeError before it ever reaches the queue.
-        self.assertIn('agent_id=_inline_agent_id("completeness_critique")', head[-400:])
+        self.assertIn("issue_completeness_critic_envelope", source)
+        self.assertIn("_read_critic_result_once", source)
+        self.assertNotIn('planner_roles=("completeness_critique",)', source)
 
 
 if __name__ == "__main__":

@@ -10321,3 +10321,15 @@ Severity: HIGH (blocked every PR reaching the rust lane). Measured 2026-08-19, t
 **Lesson (the fourth time this class has bitten today):** an exit code names _that_ something failed, never _why_. The retry was a plausible fix for a failure mode the log did not show. Read the log before choosing the remedy.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-751 — the capacity preflight measures /proc, so it fails whenever a process exits — RESOLVED
+
+Severity: HIGH (a preflight that refuses at random blocks every production deploy behind it, and its red is indistinguishable from a real capacity emergency). Measured 2026-08-19: `deploy-capacity-maintenance` failed with `disk_usage_unavailable path=/proc reason=du_failed detail=1`, and the run before it was green — the lane flips.
+
+**Root cause.** `scripts/deploy/droplet-capacity.sh` discovers capacity scopes with `find "${parent}" -xdev -mindepth 1 -maxdepth 1`. `-xdev` refuses to _descend_ past a mount point but still _lists_ the mount point itself, so `/proc` and `/sys` arrive as scopes. `du -sx /proc` then walks procfs and exits non-zero the instant a process it is reading exits. Reproduced on this host: `du -sx -B1 /proc` → exit 1, `cannot access '/proc/2532214': No such file or directory`; the same command over `/run`, `/dev` and `/dev/shm` → exit 0. So the failure is not a flake to retry, it is a race the lane runs _by design_ — and what it is racing to measure is meaningless, because a pseudo-filesystem occupies no disk at all.
+
+**Fix.** A scope is measured only when it is disk-backed, and the discriminator is a **property rather than a name list**: `df` reports zero total bytes for a pseudo-filesystem and a real size for every genuine mount. Measured: `/proc` 0, `/sys` 0, `/dev` 4143394816, `/run` 832696320, `/` 165295407104. Naming procfs and sysfs instead would go stale the first time the host mounts one nobody listed — the class of defect this ledger is full of. A skipped scope is recorded as `scope_not_disk_backed` through the existing `capacity_record_unavailable` path, so the preflight still says out loud what it did not measure; and an unreadable `df` fails closed to "not disk-backed", because walking a filesystem we could not identify is exactly how this started.
+
+Verified against real paths: `/proc` and `/sys` skipped; `/dev`, `/run`, `/dev/shm`, `/` and `/var/lib/docker` measured; a nonexistent path skipped rather than walked.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

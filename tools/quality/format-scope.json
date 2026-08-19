@@ -27089,6 +27089,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "aria-config/product_fitness_charter.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "aria-debts/_index.json",
       "prettier_managed": true
     },
@@ -43780,6 +43786,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/orchestrator-routing-coverage.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/orphan-ledger-append-only.spec.ts",
       "prettier_managed": true
     },
     {

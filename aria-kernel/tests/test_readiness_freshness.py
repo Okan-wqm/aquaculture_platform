@@ -29,8 +29,11 @@ def _iso_hours_ago(hours: float) -> str:
     ).replace(microsecond=0).isoformat()
 
 
-def _ok_run(recorded_at: str | None) -> dict[str, Any]:
+def _ok_run(recorded_at: str | None, run_id: str = "r") -> dict[str, Any]:
+    # run_id: readiness joins judged-precision volume to recorded runs, so
+    # the keys this fixture supplies have to name a run that exists.
     run: dict[str, Any] = {
+        "run_id": run_id,
         "status": "ok",
         "evidence_validation": {"valid": True},
         "runner": {"raw_findings_count": 1},
@@ -63,11 +66,36 @@ _METRICS_GREEN = {
 }
 
 
-def _readiness(tool: dict[str, Any], runs: list[dict[str, Any]]) -> dict[str, Any]:
+def _readiness(
+    tool: dict[str, Any],
+    runs: list[dict[str, Any]],
+    *,
+    operator_keys: set[tuple[str, str, str]] | None = None,
+    anchor_keys: set[tuple[str, str, str]] | None = None,
+) -> dict[str, Any]:
+    # JJ-2a (ORPHAN-HIGH-732) — a mocked precision_status no longer unblocks
+    # promotion. The judged-precision blocker reads the FEEDBACK LEDGER now
+    # (anchor volume, or an operator verdict), so this freshness fixture has
+    # to supply one; before JJ-2a "human_judged" in a mocked metrics dict was
+    # enough, which is precisely the paper qualification the gate lost.
+    #
+    # The judged-precision lane is a PARAMETER, not a constant, so that
+    # supplying it stays a deliberate act of this fixture: the last test in
+    # this file takes it away again and pins that freshness alone qualifies
+    # nothing. A mock that silently satisfies a gate is coverage deleted
+    # without a diff to notice.
     with patch("aria_kernel.readiness.get_tool", return_value=tool), \
          patch("aria_kernel.readiness.read_runs_rows", return_value=iter(runs)), \
          patch("aria_kernel.readiness.runs_path", return_value=Path("unused-runs.jsonl")), \
          patch("aria_kernel.readiness.latest_fixture_status", return_value=dict(_FIXTURES_GREEN)), \
+         patch(
+             "aria_kernel.readiness.operator_group_keys",
+             return_value={("r", "f", "g")} if operator_keys is None else operator_keys,
+         ), \
+         patch(
+             "aria_kernel.readiness.anchor_group_keys",
+             return_value=set() if anchor_keys is None else anchor_keys,
+         ), \
          patch("aria_kernel.readiness.compute_metrics", return_value=dict(_METRICS_GREEN)):
         return adapter_active_readiness("x-adapter", base_dir=None)
 
@@ -125,6 +153,40 @@ class StaleRunEvidenceBlockerTests(unittest.TestCase):
         self.assertEqual(result["freshness_window_hours"], float(DEFAULT_FRESHNESS_WINDOW_HOURS))
         # 30h < 168h default -> fresh.
         self.assertNotIn("stale_run_evidence", result["blocked_by"])
+
+
+class JudgedPrecisionStillGatesFreshEvidenceTests(unittest.TestCase):
+    """What the fixture above supplies, this class takes back.
+
+    Every other test in this file hands the judged-precision lane a verdict
+    so the freshness blocker can be read in isolation. That is a mock
+    standing in front of a gate, and a mock standing in front of a gate is
+    exactly how a gate stops being tested — so the gate is exercised here,
+    in the same file, on the same fixture.
+    """
+
+    def test_fresh_runs_alone_do_not_qualify_an_adapter(self) -> None:
+        runs = [_ok_run(_iso_hours_ago(2)) for _ in range(5)]
+        result = _readiness(
+            _tool(freshness_window_hours=168), runs,
+            operator_keys=set(), anchor_keys=set(),
+        )
+        self.assertNotIn("stale_run_evidence", result["blocked_by"])
+        self.assertIn("precision_not_anchor_judged", result["blocked_by"])
+        self.assertFalse(result["active_ready"])
+        self.assertFalse(result["precision_anchored"])
+
+    def test_anchor_volume_alone_qualifies_it(self) -> None:
+        from aria_kernel.feedback_store import ANCHOR_PROMOTION_MIN_JUDGMENTS
+
+        runs = [_ok_run(_iso_hours_ago(2)) for _ in range(5)]
+        result = _readiness(
+            _tool(freshness_window_hours=168), runs,
+            operator_keys=set(),
+            anchor_keys={("r", f"f-{i}", "g") for i in range(ANCHOR_PROMOTION_MIN_JUDGMENTS)},
+        )
+        self.assertNotIn("precision_not_anchor_judged", result["blocked_by"])
+        self.assertTrue(result["active_ready"], result["blocked_by"])
 
 
 if __name__ == "__main__":

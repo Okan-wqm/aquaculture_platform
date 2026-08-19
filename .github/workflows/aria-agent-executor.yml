@@ -711,3 +711,53 @@ jobs:
           echo "bootstrap=${{ steps.restore_state.outputs.bootstrap }}"
           echo "The tree is preserved as quarantine-evidence-${{ github.run_id }}."
           exit 1
+
+      # SI-5 (ORPHAN-HIGH-740) — the chain's RETURN edge. ORPHAN-724 gave
+      # the loop its forward edge (cycle -> executor); the pace of the loop
+      # still belonged to a clock ARIA cannot see, and that clock is
+      # measurably unreliable here: three nights of scheduled triggers
+      # fired 60-75 minutes late (02:13, 02:19, 03:21 against 01:13/02:29)
+      # and one cycle was evicted outright by a running drain.
+      #
+      # The DECISION is not in this script: cycle_rhythm.evaluate_cycle_chain
+      # owns it, so the three brakes (minimum interval, backlog ceiling,
+      # empty drain) are unit-tested and every refusal has a name. The cron
+      # stays as the floor — this edge can only make the rhythm faster than
+      # a broken scheduler, never faster than the interval allows.
+      - name: Chain the next cycle when the rhythm allows it
+        if: always() && steps.lease_check.outputs.blocked != 'true'
+        env:
+          GH_TOKEN: ${{ env.ARIA_GH_TOKEN || github.token }}
+          DRAINED: ${{ steps.executor.outputs.drained }}
+        run: |
+          # NOT `continue-on-error` — the enterprise gate rejects that
+          # pattern by name (`workflows_do_not_continue_on_error`) and it
+          # is right to: a step that cannot fail hides every failure,
+          # including the ones nobody predicted. The property this step
+          # actually needs is narrower — a chain that cannot decide must
+          # not colour a drain that earned its own verdict — so the two
+          # commands that could fail handle their own failure out loud
+          # and the step itself has nothing left to hide.
+          set -uo pipefail
+          LAST_CYCLE_STARTED_AT=$(gh api "repos/${{ github.repository }}/actions/workflows/aria-auto-cycle.yml/runs?per_page=1" --jq '.workflow_runs[0].run_started_at // ""' 2>/dev/null || echo "")
+          export LAST_CYCLE_STARTED_AT
+          # The decider always exits 0 and prints a named verdict, including
+          # `chain_undecidable:<Type>` — that contract is unit-tested, so
+          # this line cannot fail the step.
+          DECISION=$(python3 tools/aria/chain_next_cycle.py)
+          echo "chain decision: ${DECISION}"
+          case "${DECISION}" in
+            *'"dispatch": true'*)
+              if gh workflow run aria-auto-cycle.yml --ref main; then
+                echo "::notice::chained the next cycle"
+              else
+                # A dispatch the API refused is worth SAYING and not worth
+                # failing a successful drain over: the cron floor still
+                # fires, so the cost is one late cycle.
+                echo "::warning::chain dispatch refused by the API; the cron floor still applies"
+              fi
+              ;;
+            *)
+              echo "::notice::chain declined — see the reason above"
+              ;;
+          esac

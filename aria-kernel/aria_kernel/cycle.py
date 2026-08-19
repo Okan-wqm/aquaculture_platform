@@ -1077,6 +1077,123 @@ def _phase_watchdog(context: PhaseContext) -> dict[str, Any]:
     )
 
 
+def _phase_product_fitness(context: PhaseContext) -> dict[str, Any]:
+    """G-1 — measure the product against the operator's stated threshold.
+
+    ARIA has always been able to say how much it DID; this is the first
+    phase that can say whether the thing it works on is good. The charter
+    is operator-owned data (`aria-config/product_fitness_charter.json`)
+    and every dimension resolves through a gate that already votes on
+    main — the phase adds an instrument, never a new opinion.
+
+    Honesty rule, and the reason this is worth having: a night whose
+    lanes could not be read is `unknown`, and `unknown` breaks the green
+    streak exactly like `red`. A score a system can improve by looking
+    away is worse than no score.
+    """
+    from .convergence_drainer import _resolve_workspace_head_sha
+    from .github_adapters import select_checks_reader
+    from .ledger import append_jsonl, load_jsonl
+    from .product_fitness import evaluate_fitness, load_charter, streak_from_history
+
+    reader = select_checks_reader(
+        profile=get_profile(base_dir=context.base_dir),
+        cwd=context.workspace_root,
+    )
+    # One head-sha resolver, already used by the convergence step to bind
+    # evidence to a commit — a second `git rev-parse` here would be a
+    # second answer to the same question.
+    head_sha = _resolve_workspace_head_sha(context.workspace_root) or ""
+    try:
+        charter = load_charter(context.workspace_root)
+        verdict = evaluate_fitness(
+            workspace_root=context.workspace_root,
+            head_sha=head_sha,
+            reader=reader,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        # The charter is operator-owned DATA. A workspace without it (a
+        # fixture, a clone from before it landed) has no threshold to
+        # measure against — that is an unknown with a name, never a failed
+        # night. The same honesty rule as an unreadable lane: the streak
+        # does not advance, and nothing pretends it did.
+        return {
+            "status": "unknown",
+            "reason": f"charter_unavailable:{type(exc).__name__}",
+            "consecutive_green_nights": 0,
+            "threshold_met": False,
+            "dimensions": [],
+        }
+    path = ensure_tools_dir(context.base_dir) / "product-fitness.jsonl"
+    history = load_jsonl(path) if path.exists() else []
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "cycle_id": context.cycle_id,
+        "head_sha": head_sha,
+        **verdict.as_dict(),
+    }
+    append_jsonl(path, row)
+    streak = streak_from_history(
+        [*history, row],
+        required=int(charter.get("consecutive_green_nights_required") or 7),
+    )
+    return {"status": verdict.status, **streak,
+            "dimensions": [d.as_dict() for d in verdict.dimensions]}
+
+
+def _phase_habitat(context: PhaseContext) -> dict[str, Any]:
+    """SI-4 — ARIA looks after the machine it lives on.
+
+    Measured 2026-08-19: the runner went 43 GB → 33 GB free in one night
+    on ARIA's OWN litter (worktrees plus 8,430 abandoned `/tmp/aria-*`
+    fixtures from red suite runs), the production capacity lane went red
+    three times against its floor, and no mechanism here noticed. The
+    preflight refuses to START a night below its floor — it never cleans
+    and never tells anyone, so the pressure stayed invisible until a
+    human ran `df`.
+
+    Sweep first, then measure: a probe that reports the litter it is
+    about to remove would send the operator chasing a number that no
+    longer holds. When the post-sweep measurement is still degraded the
+    fact goes to `ingest_runtime_signal`, the same door the dataflow
+    watchdog uses for external truth — an unverified lead, not a finding.
+    """
+    from .habitat import probe_habitat, sweep_stale_scratch
+    from .runtime_signal_bridge import ingest_runtime_signal
+
+    sweep = sweep_stale_scratch()
+    probe = probe_habitat(workspace_root=context.workspace_root)
+    signal_id = None
+    if probe["degraded"]:
+        signal = ingest_runtime_signal(
+            source="telemetry",
+            service="aria-runner",
+            summary=(
+                f"habitat degraded: {probe['free_disk_gb']} GB free after "
+                f"reclaiming {sweep.reclaimed_bytes} bytes; load "
+                f"{probe['load_average'][0]} on {probe['cpu_count']} cpus"
+            ),
+            # The habitat's evidence is the runbook that rebuilds it and
+            # the janitor that maintains it — both repo-verified paths.
+            code_refs=[
+                "docs/runbooks/aria-runner-rebuild.md",
+                "aria-kernel/aria_kernel/habitat.py",
+            ],
+            severity="high",
+            base_dir=context.base_dir,
+        )
+        signal_id = signal.get("signal_id")
+    return {
+        "swept": len(sweep.removed),
+        "reclaimed_bytes": sweep.reclaimed_bytes,
+        "skipped_recent": sweep.skipped_recent,
+        "free_disk_gb": probe["free_disk_gb"],
+        "degraded": probe["degraded"],
+        "signal_id": signal_id,
+    }
+
+
 def _phase_tools(context: PhaseContext) -> dict[str, Any]:
     """Run every dispatchable tool and summarise the runs it produced.
 
@@ -1444,7 +1561,11 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
     from .convergence_drainer import _resolve_workspace_head_sha
     from .feedback_store import generate_ai_consensus, generate_judgment_sample
     from .genesis_policy import judgment_pipeline_policy
-    from .judge_fanout import dispatch_arbiter_for_split_verdicts, dispatch_judges_for_sample
+    from .judge_fanout import (
+        dispatch_arbiter_for_anchor_groups,
+        dispatch_arbiter_for_split_verdicts,
+        dispatch_judges_for_sample,
+    )
 
     target_sha = _resolve_workspace_head_sha(context.workspace_root)
     # Y2 (ORPHAN-704) — sample size and backlog ceiling come from policy
@@ -1552,6 +1673,22 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
             arbiter_requests += len(arbitration.get("minted") or [])
         except GovernanceError as exc:
             blocked.append({"tool_id": tool_id, "step": "arbitration", "reason": str(exc)[:200]})
+        try:
+            # JJ-1 (ORPHAN-HIGH-731) — the OTHER reason to mint the arbiter.
+            # The split arm above only fires on disagreement, so a unanimous
+            # pair walked straight into ground truth unexamined. This mints
+            # the third judge that has to try to refute it. Runs AFTER
+            # consensus so the 2-judge row (and its judge_count) already
+            # exists, and the anchor upgrade lands on the next tick.
+            anchoring = dispatch_arbiter_for_anchor_groups(
+                tool_id=tool_id,
+                base_dir=context.base_dir,
+                cycle_id=context.cycle_id,
+                target_sha=target_sha,
+            )
+            arbiter_requests += len(anchoring.get("minted") or [])
+        except GovernanceError as exc:
+            blocked.append({"tool_id": tool_id, "step": "anchoring", "reason": str(exc)[:200]})
     # D3 (Kapalı Döngü) — accepted consensus becomes a durable finding.
     # Runs AFTER the per-tool consensus loop so any row minted this cycle
     # is promotable immediately; idempotent via the promotions ledger.
@@ -2343,11 +2480,47 @@ def _phase_tool_manifest_sync(context: PhaseContext) -> dict[str, Any]:
                 "manifest": manifest_path.name,
                 "reason": str(exc)[:200],
             })
+    # JJ-2b (ORPHAN-HIGH-732) — the veto window is evaluated in the phase
+    # that ALREADY sweeps tool lifecycle/registry state, not in one of its
+    # own. Two consequences the split would have cost: the settle sees the
+    # registry exactly as this phase just re-registered it, and there is one
+    # place to look for "why is this adapter still SHADOW".
+    #
+    # Order is load-bearing. SETTLE first: an armed window whose 24h elapsed
+    # activates on this tick. SWEEP second: it opens panel questions only for
+    # adapters that are still SHADOW, so a tool activated moments ago is not
+    # asked about.
+    from .promotion_panel import sweep_promotable_adapters_for_adjudication
+    from .promotion_veto import settle_pending_promotions
+
+    # Same containment the judgment pipeline uses: a refusal in the
+    # promotion lane is RECORDED in this phase's result, never allowed to
+    # take the manifest sync (and the rest of the cycle) down with it.
+    promotion_lane_blocked: list[dict[str, str]] = []
+    veto_settlement: dict[str, Any] = {}
+    promotion_questions: dict[str, Any] = {}
+    try:
+        veto_settlement = settle_pending_promotions(
+            cycle_id=context.cycle_id, base_dir=context.base_dir,
+        )
+    except GovernanceError as exc:
+        promotion_lane_blocked.append({"step": "veto_settlement", "reason": str(exc)[:200]})
+    try:
+        promotion_questions = sweep_promotable_adapters_for_adjudication(
+            base_dir=context.base_dir, cycle_id=context.cycle_id,
+        )
+    except GovernanceError as exc:
+        promotion_lane_blocked.append({"step": "promotion_panels", "reason": str(exc)[:200]})
     return {
         "status": "synced",
         "synced_tool_ids": synced,
         "refused": refused,
         "manifest_dir": str(manifest_dir),
+        "promotions_activated": veto_settlement.get("activated") or [],
+        "promotions_pending_veto": veto_settlement.get("still_pending") or [],
+        "promotions_expired": veto_settlement.get("expired") or [],
+        "promotion_panels_opened": promotion_questions.get("opened") or [],
+        "promotion_lane_blocked": promotion_lane_blocked,
     }
 
 
@@ -2714,6 +2887,19 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
         modes=frozenset({"standard"}),
     ),
 
+    # SI-4 — standard mode ONLY, and the burn-in pin taught me why: the
+    # janitor DELETES. Burn-in exists to prove ARIA ran and touched
+    # nothing, so a phase that removes files — even ARIA's own litter in
+    # /tmp — is an action and does not belong in a no-action rehearsal.
+    # The rehearsal night's disk is left to the real nights that follow.
+    # No backlog precondition: cleaning up after itself is not
+    # finding-emitting work.
+    CyclePhase(
+        "habitat_sweep", "discovery", _phase_habitat,
+        on_error="record_and_continue", state_key="habitat_sweep",
+        modes=frozenset({"standard"}),
+    ),
+
     # --- pre_tool: gates that must observe preconditions, not results ---
     # Before anything reads the tool registry: the repo's adapter manifests
     # are its declared source, and a registry nobody fills strips every
@@ -2859,6 +3045,18 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
         on_error="record_and_continue",
         state_key="experiment_author",
     ),
+    # G-1 — the operator's threshold, measured. Observation-class and LAST:
+    # it reads the verdicts of lanes that vote on main and writes one row.
+    # Registered in post_tool beside the other end-of-night observers —
+    # an earlier slot made it the first phase to speak about a night whose
+    # work had not happened yet (and, in a fixture without the charter,
+    # the first phase to fail).
+    CyclePhase(
+        "product_fitness", "post_tool", _phase_product_fitness,
+        on_error="record_and_continue", state_key="product_fitness",
+        modes=frozenset({"standard"}),
+    ),
+
     CyclePhase(
         "experiment_night", "post_tool", _phase_experiment_night,
         precondition=WRITES_PERMITTED, on_error="record_and_continue",

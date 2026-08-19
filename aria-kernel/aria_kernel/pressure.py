@@ -42,6 +42,13 @@ SOURCE_WEIGHTS = {
     # to make the repo's PR weather VISIBLE in the nightly report, never to
     # pull work toward something ARIA may not touch.
     "repo_pr_health": 20,
+    # SI-1 (ORPHAN-741) — ARIA's OWN pipeline has stopped moving. Highest
+    # weight in the table: every other pressure describes work ARIA could
+    # do, and this one says the machinery that would do it is stuck. The
+    # 2026-08-19 measurement is the argument — 597 requests minted, ZERO
+    # plans ever CONVERGED, a wedge two days old that only a human
+    # reading ledgers ever noticed.
+    "pipeline_stalled": 100,
 }
 
 # ─── operator-approved weight overrides (Plan tranquil-sniffing-pancake F4.1) ──
@@ -148,6 +155,10 @@ DRIFT_CLASS_BY_SOURCE = {
     # class as ARIA's own delivery loop; no new drift class, so the policy
     # parity test keeps passing without a genesis_policy_default.json edit.
     "repo_pr_health": "process_health",
+    # A stalled funnel is process health about ARIA ITSELF — same class,
+    # so genesis_policy_default.json needs no new drift class and the
+    # parity test keeps passing.
+    "pipeline_stalled": "process_health",
 }
 
 PRESSURE_STATES = {"active", "faded", "sleeping", "archived", "closed", "satisfied"}
@@ -419,6 +430,46 @@ def run_pressure(
                     "the E23 gate opens"
                 ),
                 discriminator=f"repo-pr-{red.get('pr_number')}",
+            ),
+        )
+    # SI-1 (ORPHAN-741) — the funnel's own counters, finally read by
+    # something that can act. `rank_pressure_sources` already folds the
+    # cumulative snapshots and verifies the ledger's hash chain; the
+    # detector below only asks which stage takes work in and lets none
+    # out. Conservative by construction: a stage with little upstream
+    # volume is idle, not stalled (MIN_UPSTREAM_FOR_STALL).
+    from .funnel_health import detect_funnel_stalls
+    from .knowledge_graph import rank_pressure_sources
+
+    try:
+        # The effectiveness ledger lives under <workspace>/aria-tools/, and
+        # `root` IS that tools directory — deriving the workspace from it
+        # keeps one resolution rule instead of threading a second root
+        # through a function that already knows where the store is.
+        _funnel_rows = rank_pressure_sources(workspace_root=root.parent)
+    except Exception:  # noqa: BLE001 — an unreadable ledger is not a stall
+        _funnel_rows = []
+    for stall in detect_funnel_stalls(_funnel_rows):
+        pressures.append(
+            _pressure(
+                weights=_weights,
+                cycle_id=cycle_id,
+                source="pipeline_stalled",
+                pressure_type="UNKNOWN",
+                severity="critical",
+                reason=stall.summary,
+                evidence=[
+                    f"knowledge-graph/pressure-source-effectiveness.jsonl:"
+                    f"{stall.source_type}"
+                ],
+                occurrence_count=stall.upstream,
+                candidate_tools=[],
+                recommended_action=(
+                    f"diagnose why {stall.stage} converts nothing from "
+                    f"{stall.source_type} — this pressure is about ARIA's own "
+                    "machinery, and every other pressure waits behind it"
+                ),
+                discriminator=f"funnel-{stall.stage}-{stall.source_type}",
             ),
         )
     from .runtime_signal_bridge import load_open_runtime_signals

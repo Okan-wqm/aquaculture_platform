@@ -58,6 +58,13 @@ class FindingPromotionTests(unittest.TestCase):
             judgment_group_id="judge:tool-a:run-1:f-1",
             finding_fingerprint=fingerprint,
             evidence_refs=refs,
+            # JJ-1 — every consensus row must state its judge backing.
+            # TWO here on purpose: finding promotion is deliberately NOT
+            # anchor-gated (a promoted finding is a reviewable work item,
+            # not ground truth), so this row proves the two lanes stayed
+            # separate rather than silently converging on the anchor floor.
+            judge_count=2,
+            judges_voted=2,
             base_dir=self.tools,
         )
 

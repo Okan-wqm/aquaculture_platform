@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .apply_engine import list_apply_actions
+from .apply_engine import list_apply_actions, verify_plan_converged_approval
 from .auto_merge import record_pr_lifecycle
 from .implementation_safety import (
     GATE_PRE_PR_OPEN,
@@ -15,7 +15,11 @@ from .implementation_safety import (
     run_hard_fail_checks,
 )
 from .ledger import append_declared_jsonl, load_jsonl
-from .proposal import get_proposal
+from .proposal import (
+    approval_source_of,
+    get_proposal,
+    require_operator_approval,
+)
 from .runtime_profile import enforce_profile_for_action
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 from .validation import list_validation_plans
@@ -173,6 +177,34 @@ def open_pr_for_action(
     # but not auto-PR, observe must not PR at all, frozen must not PR at all.
     enforce_profile_for_action("pr_create", base_dir=base_dir)
     proposal = get_proposal(proposal_id=proposal_id, base_dir=base_dir)
+    # ORPHAN-CRITICAL-727 — a MACHINE approval has to be traceable to the
+    # convergence event it names. Staging approves its own proposal with an
+    # `aria:plan-converged:<plan_id>:<content_hash>` ref, which is only an
+    # authorisation because the plan ledger says the gate granted it; the ref
+    # itself is a string, and `approve_proposal` writes whatever it is given.
+    # Checked HERE because this is where an approval is spent: an audit that
+    # only ran after the fact would find the untraceable approval attached to
+    # a PR that already exists. Operator refs are a different population and
+    # return None from the verifier untouched.
+    # ORPHAN-CRITICAL-728 — the discrimination is on the COLUMN now, not on
+    # a string convention. A machine approval must survive the traceability
+    # join; an operator approval must actually carry an operator's ref.
+    approval_source = approval_source_of(proposal)
+    if approval_source is None:
+        raise GovernanceError(
+            f"open_pr_approval_source_unknown: proposal {proposal_id!r} is "
+            f"approved_for_apply but names neither an operator nor a machine "
+            f"grant; an approval nobody is recorded as having given is not one"
+        )
+    approval_violation = verify_plan_converged_approval(
+        proposal=proposal, base_dir=base_dir,
+    )
+    if approval_violation is not None:
+        raise GovernanceError(
+            f"open_pr_machine_approval_untraceable:{approval_violation}: "
+            f"proposal {proposal_id!r} carries a plan-converged approval ref "
+            f"that does not resolve to a CONVERGED plan_evaluated event"
+        )
     action = _latest_action_for_proposal(proposal_id, base_dir)
     if not action:
         raise GovernanceError("no apply action exists for proposal")
@@ -430,6 +462,10 @@ def prepare_branch(
     proposal = get_proposal(proposal_id=proposal_id, base_dir=base_dir)
     if proposal.get("status") != "approved_for_apply":
         raise GovernanceError("proposal must be approved_for_apply before branch preparation")
+    # ORPHAN-CRITICAL-728 — the manual branch lane acts on an operator's
+    # decision; the convergence lane's agent does its own git and never
+    # reaches here.
+    require_operator_approval(proposal, action="prepare_branch")
     action = _latest_action_for_proposal(proposal_id, base_dir)
     if not action or action.get("status") != "ready_for_pr":
         raise GovernanceError("branch preparation requires a ready_for_pr apply action")
@@ -475,6 +511,10 @@ def commit_prepared_branch(
     proposal = get_proposal(proposal_id=proposal_id, base_dir=base_dir)
     if proposal.get("status") != "approved_for_apply":
         raise GovernanceError("proposal must be approved_for_apply before commit")
+    # ORPHAN-CRITICAL-728 — the manual branch lane acts on an operator's
+    # decision; the convergence lane's agent does its own git and never
+    # reaches here.
+    require_operator_approval(proposal, action="commit_prepared_branch")
     branch_row = _latest_pr_action(proposal_id, "prepare_branch", base_dir)
     if not branch_row:
         raise GovernanceError("prepare-branch must run before commit")

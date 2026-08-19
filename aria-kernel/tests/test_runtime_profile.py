@@ -76,8 +76,16 @@ class ProfileTaxonomyTests(unittest.TestCase):
         # closes the test-runner missing-test-#6 invariant gap; a
         # future refactor that drops autonomous from any cell must
         # update this table directly.
+        # ORPHAN-CRITICAL-728 — `plan_stage` and `apply_gate` join the table.
+        # They are the two governed actions the convergence-to-PR producer
+        # added, and a cell HERE is what enrols an action in profile gating
+        # and — through the derived PROFILES_WITH_ACTION_AUTHORITY — in
+        # breaker gating. Without cells both ran under `observe`, under
+        # `frozen` and with the breaker tripped, reachable straight from the
+        # implementer's Bash allowlist.
         self.assertEqual(set(ACTION_PERMISSIONS.keys()), {
-            "agent_claim", "change_committed", "change_validated", "pr_create", "pr_open", "pr_merge",
+            "agent_claim", "change_committed", "change_validated", "pr_create",
+            "pr_open", "pr_merge", "plan_stage", "apply_gate",
         })
         self.assertEqual(
             ACTION_PERMISSIONS["agent_claim"],
@@ -102,6 +110,17 @@ class ProfileTaxonomyTests(unittest.TestCase):
         self.assertEqual(
             ACTION_PERMISSIONS["pr_merge"],
             frozenset({"autonomous"}),
+        )
+        # Same set as pr_create/pr_open: steps of one pipeline, and a profile
+        # that may not open a PR has no business minting the approval or the
+        # gate ref a PR open consumes.
+        self.assertEqual(
+            ACTION_PERMISSIONS["plan_stage"],
+            frozenset({"strict", "autonomous"}),
+        )
+        self.assertEqual(
+            ACTION_PERMISSIONS["apply_gate"],
+            frozenset({"strict", "autonomous"}),
         )
 
     def test_plan_020_write_surfaces_include_required_enterprise_entries(self) -> None:

@@ -125,6 +125,9 @@ PROFILE_HISTORY_FILENAME = "runtime-profile-history.jsonl"
 #   - pr_open           — auto-PR-open allowed under L3 + breaker-ok
 #   - pr_merge          — auto-merge execution allowed only under L3; this is
 #                         an action authority, not a ledger write surface.
+#   - plan_stage        — stage a CONVERGED plan (machine approval + change
+#                         chain + baseline validation)
+#   - apply_gate        — promote a staged apply action to ready_for_pr
 ACTION_PERMISSIONS: dict[str, frozenset[str]] = {
     "agent_claim": frozenset({"standard", "strict", "autonomous"}),
     "change_committed": frozenset({"standard", "strict", "autonomous"}),
@@ -132,6 +135,19 @@ ACTION_PERMISSIONS: dict[str, frozenset[str]] = {
     "pr_create": frozenset({"strict", "autonomous"}),
     "pr_open": frozenset({"strict", "autonomous"}),
     "pr_merge": frozenset({"autonomous"}),
+    # ORPHAN-CRITICAL-728 — the two governed actions the convergence-to-PR
+    # producer added. `plan_stage` mints a machine approval and opens a
+    # change chain; `apply_gate` promotes an apply action to `ready_for_pr`,
+    # which is the state `pr_open` requires. Both were reachable from the
+    # implementer's Bash allowlist under EVERY profile and with the failure
+    # breaker tripped, because a cell in this table is what enrols an action
+    # in profile gating and in `PROFILES_WITH_ACTION_AUTHORITY` below.
+    #
+    # Same set as pr_create/pr_open: they are steps of the same pipeline, and
+    # a profile that may not open a PR has no business minting the approval
+    # or the gate ref that a PR open consumes.
+    "plan_stage": frozenset({"strict", "autonomous"}),
+    "apply_gate": frozenset({"strict", "autonomous"}),
 }
 
 # ORPHAN-CRITICAL-420 S2 — the set of profiles that hold ANY governed

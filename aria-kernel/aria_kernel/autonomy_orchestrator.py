@@ -678,13 +678,6 @@ def run_autonomy_orchestrator(
     # row via set_profile() when the operator overrides via flag
     # (closes C-2 SOC2 gap).
     profile: str,
-    # Plan ARIA-V3.1-E + B-9 — distinct poll budget for the V9
-    # implementation phase (HIGH-13). Default 1800s (30 min)
-    # matches the CONVERGED-to-PR-merge wall-clock target. Distinct
-    # from `challenger_timeout_seconds` (which gates the inner
-    # convergence_drainer round-poll) — the V9 implementer pipeline
-    # has its own wall-clock budget.
-    implementer_poll_seconds: float = 1800.0,
     max_budget_usd_per_cycle: float = 3.00,
     # Runtime v2 hardening: artifact/lifecycle failures must stop the
     # autonomy loop by default after the cycle ledger has been closed.
@@ -1654,7 +1647,6 @@ def run_autonomy_orchestrator(
                         plan_id=convergence_result.get("plan_id") or active_plan_id,
                         workspace_root=Path(workspace_root) if workspace_root else root,
                         base_dir=root,
-                        converged_plan=convergence_result.get("converged_plan", {}) or {},
                         plan_envelope_metadata={
                             "_pressure_source_type": cycle_summary.get(
                                 "_pressure_source_type", "git_diff",
@@ -1712,9 +1704,12 @@ def run_autonomy_orchestrator(
                 # without inspecting terminal_state heuristically.
                 # NoOp/Strict variants return IMPLEMENTATION_REQUEST_REFUSED
                 # with specialist_review_signal=review_converged_plan so
-                # V8 behavior is preserved by default. Autonomous variant
-                # mints the aria-implementer subprocess + polls + records
-                # outcome.
+                # V8 behavior is preserved by default. The autonomous variant
+                # stages the plan for PR, mints the implementation envelope
+                # and returns IMPLEMENTATION_DISPATCHED — the executor lane
+                # delivers the implementation in a later run (K6,
+                # ORPHAN-CRITICAL-727), so there is no poll budget here to
+                # pass any more.
                 AutonomyStateReducer.transition(
                     root,
                     cycle_id=cycle_id,
@@ -1734,7 +1729,6 @@ def run_autonomy_orchestrator(
                         ),
                         workspace_root=Path(workspace_root) if workspace_root else root,
                         base_dir=root,
-                        converged_plan=convergence_result.get("converged_plan", {}) or {},
                         cross_review_summary={
                             "revision_id": convergence_result.get("convergence_id")
                             or convergence_result.get("plan_id"),
@@ -1742,7 +1736,6 @@ def run_autonomy_orchestrator(
                             "request_ids": convergence_result.get("request_ids", []),
                         },
                         profile=str(profile_snapshot or "standard"),
-                        implementer_poll_seconds=implementer_poll_seconds,
                     )
                     cycle_summary["v9_implementation"] = {
                         "terminal_state": v9_result.terminal_state,
@@ -1817,9 +1810,21 @@ def run_autonomy_orchestrator(
                     profile=profile_snapshot,
                     details={"plan_id": convergence_result.get("plan_id")},
                 )
-                _touched_services = list({
-                    p.get("source", "") for p in (convergence_result.get("converged_plan", {}).get("must_satisfy") or [])
-                }) or [f"cycle/{cycle_id}"]
+                from .plan_convergence import affected_surface_paths
+
+                # ORPHAN-CRITICAL-728 — the plan's SURFACES, not a
+                # `must_satisfy` key. `must_satisfy` is not plan content
+                # (PLAN_CONTENT_REQUIRED does not list it), so this
+                # comprehension was empty on every plan and the specialist
+                # reviewer was always told "cycle/<id>" instead of the files
+                # the plan touches.
+                _touched_services = list(dict.fromkeys(
+                    affected_surface_paths(
+                        (convergence_result.get("converged_plan") or {}).get(
+                            "affected_surfaces",
+                        ) or [],
+                    ),
+                )) or [f"cycle/{cycle_id}"]
                 specialist_review_result = specialist_review_runner(
                     cycle_id=cycle_id,
                     base_dir=root,

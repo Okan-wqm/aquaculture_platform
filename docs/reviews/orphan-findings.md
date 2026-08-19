@@ -10251,6 +10251,7 @@ This is the third instance of one class in this file: **an honest mechanism work
 Pinned in `tests/invariants/production-ops-proof-contract.spec.ts`: the jobs probe is present, it is gated on `cancelled`, and the total-count test is the acceptance rule. Verified by deliberate breakage — reverting the workflow reds the spec.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
 ## ORPHAN-HIGH-748 — the WAL freshness lane has never run: 730 runs, zero jobs, since birth — OPEN (decisive experiment shipped)
 
 Severity: HIGH (the lane that proves production WAL archiving is fresh has never produced a single verdict, and its permanent incident masks the watchdog's other signals). Measured 2026-08-19: `database-wal-archive-freshness.yml` has **730 runs, of which 100% concluded `cancelled` with `total_count: 0` jobs**. Each run's `updated_at` is exactly the next run's `created_at` — every run sits `pending` until the following one evicts it, and the one at the head never starts.
@@ -10273,3 +10274,21 @@ What remains is the concurrency group itself: an exclusive group with no visible
 Deliberately NOT changed in the same commit: the `*/5` cron. Changing two variables at once would have made the result unreadable, and this lane has already cost 730 runs of unreadable results.
 
 **Owner:** claude (this session). **Status:** OPEN until a run of this lane creates a job.
+
+## ORPHAN-MEDIUM-749 — a merge commit runs no hook, so the ARIA authority pin goes stale in silence — RESOLVED
+
+Severity: MEDIUM (no wrong behaviour ships; it costs a full CI cycle every time, and it hit three times in one afternoon). `docs/aria/CURRENT_STATE.md` declares a digest over the whole ARIA runtime surface, and `pre-commit` already regenerates it — but only for commits it runs on. **`git merge origin/main` produces a merge commit, and git runs no `pre-commit` for one.** So refreshing a branch from main moves the authority surface and leaves the pin declaring the previous digest, silently.
+
+Measured 2026-08-19: merging main into `feat/jj-humanless-judgment` staled the pin, and three separate required checks — `aria-merge-authority`, `deploy-ssot-gates`, `invariants-fast` — went red thirty minutes later on **the same single assertion**. The same staleness was then confirmed on the other two branches merged that hour.
+
+This is the class the `pre-commit` comment already names — "the mechanism exists, the caller is missing" — one trigger further along. The writer was there; nothing called it on the merge path.
+
+**Fix, in three parts:**
+
+1. `tools/gates/aria-authority-hash.ts --check`: the tool could print the digest and could write it, but could not _answer_ "is the declared pin current?" without the caller doing its own string comparison. `--check` answers in a second and exits non-zero with the exact command that fixes it, so a hook can stand on it.
+2. `.husky/post-merge`: regenerates and STAGES the pin after any merge, printing what is left to do. It cannot amend the merge commit git has already made — so it does not pretend to.
+3. `.husky/pre-push`: runs `--check` and refuses. Staged is not committed, and this is the last point where a second is cheaper than thirty minutes.
+
+Verified: with the surface changed, `post-merge` reports and stages; with the pin corrupted, `--check` exits 1 naming both digests; with everything current, both are silent and exit 0.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

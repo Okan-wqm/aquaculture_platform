@@ -1,0 +1,52 @@
+{
+  "$schema": "aria/product-fitness-charter/v1",
+  "schema_version": 1,
+  "declared_by": "operator",
+  "declared_at": "2026-08-19",
+  "statement": "Repodaki sistemlerin hepsi kusursuz organize bağlanacak ve kusursuz hizmet verecek: güvenli, performanslı, multi-tenant, üretimde olan bir yazılımın endüstriyel şekilde hatasız olması ve üstün kod kalitesi.",
+  "consecutive_green_nights_required": 7,
+  "dimensions": [
+    {
+      "id": "connection_integrity",
+      "operator_words": "sistemlerin hepsinin kusursuz organize bağlanması",
+      "measured_by": "workflow_conclusions",
+      "workflows": ["CI - Affected", "CI - Full"],
+      "rationale": "Contract parity, schema ownership and NATS identity all vote inside these lanes; a dimension may not invent a measurement that already has a gate."
+    },
+    {
+      "id": "flawless_service",
+      "operator_words": "kusursuz hizmet vermesi",
+      "measured_by": "workflow_conclusions",
+      "workflows": ["dataflow-integrity-watchdog"],
+      "rationale": "The hourly probe is the only mechanism that observes the RUNNING product rather than the repository."
+    },
+    {
+      "id": "security",
+      "operator_words": "güvenli",
+      "measured_by": "workflow_conclusions",
+      "workflows": ["Security - Gitleaks", "Security - Trivy"],
+      "rationale": "Dependabot severity counts join this dimension when the E23 authority gate opens; until then a red scanner is the honest signal ARIA owns."
+    },
+    {
+      "id": "multi_tenant",
+      "operator_words": "multi-tenant",
+      "measured_by": "workflow_conclusions",
+      "workflows": ["Quality Gates"],
+      "rationale": "Tenant-schema routing and RLS invariants run here; the tenant-scoping adapter's findings feed the same dimension once its class verdicts land (CE-1)."
+    },
+    {
+      "id": "production_integrity",
+      "operator_words": "üretimde olan bir yazılımın endüstriyel şekilde hatasız olması",
+      "measured_by": "workflow_conclusions",
+      "workflows": ["Backup - Production Postgres", "Database Migration Check"],
+      "rationale": "Production integrity is proven by the lanes that touch production, not by repository tests."
+    },
+    {
+      "id": "code_quality",
+      "operator_words": "üstün kod kalitesi",
+      "measured_by": "workflow_conclusions",
+      "workflows": ["aria-kernel", "aria-kernel-full"],
+      "rationale": "Lint, type and test verdicts for the kernel; the product-side equivalents ride CI - Full under connection_integrity."
+    }
+  ]
+}

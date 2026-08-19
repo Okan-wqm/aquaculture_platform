@@ -1065,6 +1065,71 @@ def _phase_watchdog(context: PhaseContext) -> dict[str, Any]:
     )
 
 
+def _phase_product_fitness(context: PhaseContext) -> dict[str, Any]:
+    """G-1 — measure the product against the operator's stated threshold.
+
+    ARIA has always been able to say how much it DID; this is the first
+    phase that can say whether the thing it works on is good. The charter
+    is operator-owned data (`aria-config/product_fitness_charter.json`)
+    and every dimension resolves through a gate that already votes on
+    main — the phase adds an instrument, never a new opinion.
+
+    Honesty rule, and the reason this is worth having: a night whose
+    lanes could not be read is `unknown`, and `unknown` breaks the green
+    streak exactly like `red`. A score a system can improve by looking
+    away is worse than no score.
+    """
+    from .convergence_drainer import _resolve_workspace_head_sha
+    from .github_adapters import select_checks_reader
+    from .ledger import append_jsonl, load_jsonl
+    from .product_fitness import evaluate_fitness, load_charter, streak_from_history
+
+    reader = select_checks_reader(
+        profile=get_profile(base_dir=context.base_dir),
+        cwd=context.workspace_root,
+    )
+    # One head-sha resolver, already used by the convergence step to bind
+    # evidence to a commit — a second `git rev-parse` here would be a
+    # second answer to the same question.
+    head_sha = _resolve_workspace_head_sha(context.workspace_root) or ""
+    try:
+        charter = load_charter(context.workspace_root)
+        verdict = evaluate_fitness(
+            workspace_root=context.workspace_root,
+            head_sha=head_sha,
+            reader=reader,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        # The charter is operator-owned DATA. A workspace without it (a
+        # fixture, a clone from before it landed) has no threshold to
+        # measure against — that is an unknown with a name, never a failed
+        # night. The same honesty rule as an unreadable lane: the streak
+        # does not advance, and nothing pretends it did.
+        return {
+            "status": "unknown",
+            "reason": f"charter_unavailable:{type(exc).__name__}",
+            "consecutive_green_nights": 0,
+            "threshold_met": False,
+            "dimensions": [],
+        }
+    path = ensure_tools_dir(context.base_dir) / "product-fitness.jsonl"
+    history = load_jsonl(path) if path.exists() else []
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "cycle_id": context.cycle_id,
+        "head_sha": head_sha,
+        **verdict.as_dict(),
+    }
+    append_jsonl(path, row)
+    streak = streak_from_history(
+        [*history, row],
+        required=int(charter.get("consecutive_green_nights_required") or 7),
+    )
+    return {"status": verdict.status, **streak,
+            "dimensions": [d.as_dict() for d in verdict.dimensions]}
+
+
 def _phase_habitat(context: PhaseContext) -> dict[str, Any]:
     """SI-4 — ARIA looks after the machine it lives on.
 
@@ -2592,6 +2657,18 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
         on_error="record_and_continue",
         state_key="experiment_author",
     ),
+    # G-1 — the operator's threshold, measured. Observation-class and LAST:
+    # it reads the verdicts of lanes that vote on main and writes one row.
+    # Registered in post_tool beside the other end-of-night observers —
+    # an earlier slot made it the first phase to speak about a night whose
+    # work had not happened yet (and, in a fixture without the charter,
+    # the first phase to fail).
+    CyclePhase(
+        "product_fitness", "post_tool", _phase_product_fitness,
+        on_error="record_and_continue", state_key="product_fitness",
+        modes=frozenset({"standard"}),
+    ),
+
     CyclePhase(
         "experiment_night", "post_tool", _phase_experiment_night,
         precondition=WRITES_PERMITTED, on_error="record_and_continue",

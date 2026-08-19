@@ -10178,3 +10178,15 @@ Severity: HIGH (the class that hid the CL-1 wedge for two days). The funnel coun
 Pinned: the measured 597/0 wedge is detected; a sub-floor sample is idle, not stalled; a flowing funnel is silent; each stage judges its own upstream (a 500/3/0 row is NOT a merge stall); the merge stage can stall on its own; an empty ledger is not a stall; the source exists in both tables; it outranks every other source.
 
 **Owner:** claude (this session). **Status:** RESOLVED (8-pin battery + 134 pressure/drift-class/knowledge-graph neighbours green). The kernel-mission hop this pressure feeds (benefit hypothesis → SI-2 lane) lands with SI-2; the pressure is the honest half that works today.
+
+## ORPHAN-HIGH-744 (G-1) — ARIA could say how much it did, never whether the product was good — RESOLVED
+
+Severity: HIGH (there was no definition of success). Audited across the kernel and the docs: every bar ARIA owns is either a PROCESS count (the enterprise "Acceptance bar" is 30 observe cycles + 30 L1 merges + …; burn-in passes on 30 cycles that may each prove they did NOTHING via `no_op_proof`) or a quality floor scoped to ONE tool (`precision >= 0.85` per adapter, repeated in six places). The acceptance harness even computes `fp_rate` and then gates on `unverifiable == 0` — the number that would have been a quality bar is discarded on the next line. Nothing aggregates, so ARIA could improve its own throughput forever without anyone — including ARIA — being able to say whether the product got better.
+
+**Fix:** the operator's stated threshold becomes an instrument. `aria-config/product_fitness_charter.json` carries the operator's words verbatim plus six dimensions (connection integrity, flawless service, security, multi-tenant, production integrity, code quality), each resolved by lanes that ALREADY vote on main — the charter may not invent a measurement, and a pin verifies every named lane exists in `.github/workflows`. `product_fitness.evaluate_fitness` judges one commit; the nightly `product_fitness` phase (post_tool, observation-class, gates nothing yet) writes one row to `product-fitness.jsonl` and reports the streak.
+
+The rule that makes it worth having: **`unknown` is never `green`, and `unknown` breaks the streak exactly like `red`.** A lane that did not report, a reader that could not run, a dimension whose instrument does not exist yet, and a missing charter all resolve to `unknown` WITH A NAME. A score a system can improve by looking away is worse than no score at all. The threshold is a streak (7 consecutive green nights), not a single lucky night.
+
+Pinned: unreadable reader → unknown; a silent lane → unknown (not green); all lanes passing → green; one failing lane reds the whole verdict; `unknown` and `red` break the streak identically; every dimension names the operator words it serves and a rationale; every measured lane exists; the threshold is a streak of at least 5.
+
+**Owner:** claude (this session), on the operator's stated bar of 2026-08-19. **Status:** RESOLVED (8-pin battery + 36 enterprise-cycle + habitat/rhythm/funnel neighbours green).

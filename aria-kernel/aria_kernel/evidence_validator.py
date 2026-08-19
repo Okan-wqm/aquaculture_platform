@@ -8,6 +8,7 @@ from .evidence_trust import EvidencePolicy, classify_evidence_ref
 from .tool_health import SELF_OUTPUT_MARKERS, find_scope_violations, normalize_path
 from .tool_registry import GovernanceError
 from .snapshot import snapshot_allowed_set
+from .ledger import load_declared_jsonl
 
 
 # Plan 016 Faz C7 — agent response evidence revalidation regex.
@@ -319,6 +320,96 @@ def _is_ledger_pointer_ref(ref: str) -> bool:
     return ref.startswith("human-required:") and len(ref) > len("human-required:")
 
 
+# ORPHAN-CRITICAL-734 — the arbitration classes read agent output BY
+# DESIGN, and the law had no way to say so. The consensus arbiter's whole
+# job is to weigh two judge envelopes; the kernel hands it their artifact
+# paths, and every submit died `evidence_ref_not_repo_verified:
+# …:worktree_candidate` (measured live, drain 32212069072). "Agent output
+# is untrusted" stays true for ordinary claims — an adapter may not cite
+# its own prose as proof of a repo fact. What changes is that a role whose
+# SUBJECT is another agent's verdict may cite that verdict, and the law
+# verifies provenance the strongest way available: the artifact must be a
+# kernel-RECORDED result whose content hash still matches the ledger row.
+# Unaltered-by-construction beats repo-committed here; a tampered or
+# invented artifact fails.
+ARBITRATION_ROLES: frozenset[str] = frozenset({
+    "consensus_arbitration",
+    "human_required_adjudication",
+})
+
+
+def _artifact_results_ledger(artifact: Path) -> Path | None:
+    """The results ledger that owns an outputs/ artifact, derived from the
+    artifact itself.
+
+    Deriving beats configuration here: the store lives at different roots
+    on the runner, in the operator clone and in a test fixture, and the
+    ledger is ALWAYS `<…>/agent-invocations/results.jsonl` beside the
+    `outputs/` tree the artifact sits in. Asking a tools-dir resolver
+    instead would make admissibility depend on ambient environment.
+    """
+    for parent in artifact.parents:
+        if parent.name == "agent-invocations":
+            if "outputs" not in artifact.relative_to(parent).parts[:1]:
+                return None
+            return parent / "results.jsonl"
+    return None
+
+
+def _kernel_artifact_verdict(ref: str, root: Path) -> tuple[bool, str]:
+    """(admissible, reason) for a ref naming a kernel-recorded agent output.
+
+    Admissible only when the results ledger beside the artifact records
+    it AND the bytes still hash to the recorded value: provenance by
+    content address, which a fabricated or edited artifact cannot forge.
+    """
+    import hashlib
+
+    raw = ref
+    if ref.count(":") >= 1 and ref.rsplit(":", 1)[-1].isdigit():
+        raw = ref.rsplit(":", 1)[0]
+    candidate = Path(raw) if Path(raw).is_absolute() else (root / raw)
+    try:
+        candidate = candidate.resolve()
+    except OSError:
+        return False, "artifact_unresolvable"
+    ledger = _artifact_results_ledger(candidate)
+    if ledger is None:
+        return False, "artifact_not_recorded_in_results_ledger"
+    if not ledger.exists():
+        return False, "artifact_not_recorded_in_results_ledger"
+    recorded: str | None = None
+    for row in load_declared_jsonl(ledger, expected_surface="agent_invocation_results"):
+        output_path = row.get("output_path")
+        output_hash = row.get("output_hash")
+        if not isinstance(output_path, str) or not isinstance(output_hash, str):
+            continue
+        # Rows carry both spellings in the wild: Y6 made new rows
+        # store-relative; older rows (and the live drain that surfaced
+        # this defect) carry the runner's absolute path. Compare by the
+        # file named, never by how the row spelled it.
+        try:
+            row_path = Path(output_path)
+            resolved = (
+                row_path.resolve()
+                if row_path.is_absolute()
+                else (ledger.parent.parent / output_path).resolve()
+            )
+        except OSError:
+            continue
+        if resolved == candidate:
+            recorded = output_hash
+            break
+    if recorded is None:
+        return False, "artifact_not_recorded_in_results_ledger"
+    if not candidate.exists() or not candidate.is_file():
+        return False, "artifact_missing"
+    digest = "sha256:" + hashlib.sha256(candidate.read_bytes()).hexdigest()
+    if digest != recorded:
+        return False, "artifact_hash_mismatch"
+    return True, "kernel_artifact_verified"
+
+
 def _check_agent_ref(
     ref: str,
     *,
@@ -326,6 +417,7 @@ def _check_agent_ref(
     errors: list[dict[str, Any]],
     checked: list[str],
     allow_self_output: bool = False,
+    allow_kernel_artifacts: bool = False,
 ) -> None:
     # Y7 follow-through (ORPHAN-708) — the kernel's OWN adjudication mint
     # (human_required_adjudication.open_adjudication) issues
@@ -341,6 +433,22 @@ def _check_agent_ref(
     if _is_ledger_pointer_ref(ref):
         checked.append(ref)
         return
+    if allow_kernel_artifacts:
+        admissible, reason = _kernel_artifact_verdict(ref, root)
+        if admissible:
+            checked.append(ref)
+            return
+        if reason != "artifact_not_recorded_in_results_ledger":
+            # It IS an artifact path — just not one the ledger vouches for.
+            # Naming the failure is the point: a silent fall-through to the
+            # repo check would report "not repo verified" about a file that
+            # was never meant to be in the repo.
+            errors.append({
+                "code": "agent_evidence_artifact_unverifiable",
+                "ref": ref,
+                "reason": reason,
+            })
+            return
     parsed = _parse_agent_ref(ref)
     if parsed is None:
         errors.append({"code": "agent_evidence_ref_malformed", "ref": ref})
@@ -408,6 +516,12 @@ def validate_agent_response_evidence(
     errors: list[dict[str, Any]] = []
     checked: list[str] = []
     evidence_envelopes: list[dict[str, Any]] = []
+    # ORPHAN-CRITICAL-734 — role-scoped, not global. Only a role whose
+    # SUBJECT is another agent's verdict may cite that verdict's artifact,
+    # and only when the results ledger still vouches for its bytes.
+    allow_kernel_artifacts = str(
+        (request or {}).get("role") or "",
+    ) in ARBITRATION_ROLES
 
     response_refs = response.get("evidence_refs") or []
     if not isinstance(response_refs, list):
@@ -417,9 +531,17 @@ def validate_agent_response_evidence(
         if not isinstance(ref, str) or not ref.strip():
             errors.append({"code": "agent_evidence_ref_not_string"})
             continue
-        _check_agent_ref(ref, root=root, errors=errors, checked=checked)
+        _check_agent_ref(
+            ref, root=root, errors=errors, checked=checked,
+            allow_kernel_artifacts=allow_kernel_artifacts,
+        )
         if _is_ledger_pointer_ref(ref):
             continue  # Z2 — a ledger pointer has no repo classification
+        if allow_kernel_artifacts and _kernel_artifact_verdict(ref, root)[0]:
+            # Verified by content hash against the results ledger — the
+            # repo classification below cannot describe it (the artifact
+            # is state-store-owned and was never meant to be committed).
+            continue
         envelope = classify_evidence_ref(
             ref,
             workspace_root=root,
@@ -458,9 +580,14 @@ def validate_agent_response_evidence(
                         {"code": "agent_matrix_evidence_ref_not_string", "id": entry.get("id")}
                     )
                     continue
-                _check_agent_ref(ref, root=root, errors=errors, checked=checked)
+                _check_agent_ref(
+                    ref, root=root, errors=errors, checked=checked,
+                    allow_kernel_artifacts=allow_kernel_artifacts,
+                )
                 if _is_ledger_pointer_ref(ref):
                     continue  # Z2 — same single definition as above
+                if allow_kernel_artifacts and _kernel_artifact_verdict(ref, root)[0]:
+                    continue  # ORPHAN-734 — same single definition as above
                 envelope = classify_evidence_ref(
                     ref,
                     workspace_root=root,
@@ -499,6 +626,11 @@ def validate_agent_response_evidence(
             for path in checked:
                 if _is_ledger_pointer_ref(path):
                     continue  # Z2 — pointer identity is bound at mint, not by glob
+                if allow_kernel_artifacts and _kernel_artifact_verdict(path, root)[0]:
+                    # ORPHAN-734 — an arbitrated artifact's identity is bound
+                    # by the results ledger's content hash, not by a repo glob
+                    # (the same reason the pointer above skips this check).
+                    continue
                 if path in allowed_request_refs:
                     continue
                 if not _path_matches_any_glob(path, allowed_globs):

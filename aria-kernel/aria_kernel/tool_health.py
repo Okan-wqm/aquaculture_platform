@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from .feedback_store import (
+    _judgment_key,
+    consensus_judge_count,
     load_feedback,
     mark_findings_need_revalidation,
     record_findings_for_run,
@@ -376,6 +378,42 @@ def auto_calibrate_reason(
     return None
 
 
+def _fold_consensus_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One settled judgment = one consensus row, whatever the ledger holds.
+
+    JJ-1 made a group RE-SETTLEABLE: the anchor upgrade appends a second
+    consensus row over its own 2-judge predecessor (and a judge trickling in
+    later can append a third). Counting rows then counts one settled question
+    two or three times, and the number it inflates is `judged_samples` /
+    `true_positive` — i.e. `precision`, the number the ACTIVE gate compares
+    to `precision_min`. Anchored findings would weigh more than un-anchored
+    ones for no reason anybody chose.
+
+    Folds on the (run, finding, group) identity every judgment lane already
+    keys on (`feedback_store._judgment_key`), keeping the row with the most
+    judges; later rows win ties, so the freshest settlement is the one that
+    counts. Non-consensus rows are untouched: an operator verdict and a
+    consensus about the same finding are two independent judgments and the
+    precision lane is meant to see both.
+    """
+    best: dict[tuple[str, str, str], int] = {}
+    keep: dict[tuple[str, str, str], int] = {}
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict) or row.get("source_type") != "ai_consensus":
+            continue
+        key = _judgment_key(row)
+        count = consensus_judge_count(row)
+        if key not in best or count >= best[key]:
+            best[key] = count
+            keep[key] = index
+    kept = set(keep.values())
+    return [
+        row for index, row in enumerate(rows)
+        if not (isinstance(row, dict) and row.get("source_type") == "ai_consensus")
+        or index in kept
+    ]
+
+
 def compute_metrics(
     tool: dict[str, Any],
     runs: list[dict[str, Any]],
@@ -389,7 +427,9 @@ def compute_metrics(
     non_critical_30d = 0
     human_judged = 0
     ai_consensus_judged = 0
-    feedback_rows = load_feedback(tool_id=tool["tool_id"], base_dir=base_dir)
+    feedback_rows = _fold_consensus_rows(
+        load_feedback(tool_id=tool["tool_id"], base_dir=base_dir),
+    )
     feedback_by_run: dict[str, list[dict[str, Any]]] = {}
     for feedback in feedback_rows:
         feedback_by_run.setdefault(str(feedback.get("run_id")), []).append(feedback)

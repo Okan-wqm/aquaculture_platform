@@ -43785,6 +43785,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/orphan-ledger-append-only.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/pii-events-mandatory-crypto-shred.spec.ts",
       "prettier_managed": true
     },

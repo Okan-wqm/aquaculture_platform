@@ -8,6 +8,7 @@ import {
   filterFilesBySnapshot,
   normalizeWorkspacePath,
   readWorkspaceFile,
+  requireScanRoots,
   resolveInsideWorkspace as resolveAdapterPath,
   workspacePathExists,
 } from './adapter-fs';
@@ -85,7 +86,6 @@ interface SecurityContext {
   readonly serviceGuards: ReadonlyMap<string, readonly string[]>;
 }
 
-const DEFAULT_ROOTS = ['apps', 'libs/backend-common/src', 'platform/libs', 'web', 'tools/eslint-rules'];
 const ROUTE_DECORATORS = new Set(['Get', 'Post', 'Put', 'Patch', 'Delete', 'Query', 'Mutation']);
 const WRITE_DECORATORS = new Set(['Post', 'Put', 'Patch', 'Delete', 'Mutation']);
 const SECURITY_DECORATORS = new Set(['UseGuards', 'Roles', 'Permissions', 'Public', 'SkipTenantGuard']);
@@ -95,7 +95,7 @@ const SAFE_RAW_IMPORT_ALLOWLIST = [
 ];
 
 export function analyzeSecurityBoundaries(input: AdapterInput, workspaceRoot = process.cwd()): AriaOutput {
-  const roots = input.roots ?? DEFAULT_ROOTS;
+  const roots = requireScanRoots('security-boundary-adapter', input.roots);
   const allowlist = new Set((input.allowlist ?? []).map(normalizePath));
   const files = roots
     .map((root) => resolveInsideWorkspace(workspaceRoot, root))

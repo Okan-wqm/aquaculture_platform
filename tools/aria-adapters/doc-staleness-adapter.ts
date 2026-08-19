@@ -16,6 +16,7 @@ import {
   filterFilesBySnapshot,
   normalizeWorkspacePath,
   readWorkspaceFile,
+  requireScanRoots,
   resolveInsideWorkspace,
   workspacePathExists,
 } from './adapter-fs';
@@ -58,8 +59,6 @@ interface AriaOutput {
   readonly metadata: Record<string, unknown>;
 }
 
-const DEFAULT_ROOTS = ['docs'];
-
 // A ref must start at a known top-level code directory to count as a repo
 // path claim — prose like `feature/branch-name` or `owner/repo` never
 // matches, which is what keeps this rule quiet.
@@ -99,7 +98,7 @@ export function analyzeDocStaleness(
   input: AdapterInput,
   workspaceRoot = process.cwd(),
 ): AriaOutput {
-  const roots = input.roots ?? DEFAULT_ROOTS;
+  const roots = requireScanRoots('doc-staleness-adapter', input.roots);
   const observations: AdapterObservation[] = [];
   const findings: AdapterFinding[] = [];
   const readPaths: string[] = [];

@@ -251,6 +251,30 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
                 },
                 base_dir=self.tools_dir,
             )
+        # JJ-2a (ORPHAN-HIGH-732) REWROTE this fixture. The five runs above
+        # carry an INLINE `operator_feedback_refs` blob, and that used to be
+        # enough to clear the judged-precision gate — a verdict with no
+        # source, no judge, no fingerprint and no author qualified an adapter
+        # for ACTIVE. Nothing in production writes that field
+        # (`tool_runner` emits `operator_feedback_refs: []` on every run), so
+        # the only thing it ever qualified was a fixture. The gate now reads
+        # the FEEDBACK LEDGER, where provenance lives, exactly like every
+        # other ground-truth reader; the ledger row below is what the inline
+        # blob was pretending to be.
+        from aria_kernel.feedback_store import record_operator_feedback
+
+        record_operator_feedback(
+            tool_id="demo-adapter",
+            run_id="run-0",
+            finding_id="F-demo-1",
+            verdict="true_positive",
+            severity="medium",
+            note="operator confirmed",
+            source_type="human",
+            judgment_group_id="judge:demo-adapter:F-demo-1",
+            finding_fingerprint="fp-demo-1",
+            base_dir=self.tools_dir,
+        )
         report = generate_adapter_calibration_report(
             tool_ids=["demo-adapter"],
             base_dir=self.tools_dir,

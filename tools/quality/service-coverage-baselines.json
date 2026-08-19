@@ -18,9 +18,9 @@
     "statements": 53.05
   },
   "farm-service": {
-    "branches": 32.86,
-    "functions": 20.39,
-    "lines": 33.92,
+    "branches": 42.17,
+    "functions": 28.03,
+    "lines": 56.69,
     "statements": 33.84
   },
   "hr-service": {

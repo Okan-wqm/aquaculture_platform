@@ -118,7 +118,14 @@ function verifyCoverage(root = repoRoot, { rewrite = false } = {}) {
           errors.push(
             `${reportPath}: coverage ROSE and the baseline was left behind — ` +
               gains
-                .map((metric) => `${metric} ${baseline[metric]}% -> ${metrics[metric].percentage}%`)
+                // Print what --write will PIN, not what the report rounds to. The
+                // two differ by up to 0.01, and a reader who acts on the rounded
+                // number writes a floor the enforcing gate cannot meet — which is
+                // exactly how this message misled once.
+                .map(
+                  (metric) =>
+                    `${metric} ${baseline[metric]}% -> ${pinnableFloor(metrics[metric])}%`,
+                )
                 .join(', ') +
               `. Re-pin it: node tools/quality/coverage-evidence.js --write`,
           );

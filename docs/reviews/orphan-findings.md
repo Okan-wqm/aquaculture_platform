@@ -10496,7 +10496,9 @@ Resolved by giving the numbers exactly one owner. The spec now asserts the SHAPE
 
 Fixed at the source: `pinnableFloor()` floors the raw `covered/found` ratio to two decimals, so the pin is reachable by construction and costs at most 0.01 of captured gain. The gain comparison uses the same floored value, so a gain the writer would round away is not reported as unpinned either. **A ratchet must pin what the gate that enforces it can actually meet — reporting precision and enforcement precision are not the same number.**
 
-`farm-service` also failed, and its exact jest-side numbers are not readable in the retained log. Rather than guess a value, its baseline is reverted to what was measured before (`branches 32.86 / functions 20.39 / lines 33.92`); the ratchet will raise it from the next full run, now with correct flooring. Pinning a number nobody measured is the defect this finding is about.
+`farm-service` also failed, and its exact jest-side numbers are not readable in the retained log. Rather than guess a value, its baseline is reverted to what was measured before (`branches 32.86 / functions 20.39 / lines 33.92`); the ratchet will raise it from the next full run, now with correct flooring. Pinning a number nobody measured is the defect this finding is about. The next full run supplied them — `branches 32.86 → 42.18, functions 20.39 → 28.04, lines 33.92 → 56.7` — with every other service green, which is what confirms the flooring fix worked.
+
+Two things follow. **The pins for farm are taken one hundredth BELOW the reported values** (`42.17 / 28.03 / 56.69`): the message prints the rounded number, the exact floor is not derivable from that text, and the asymmetry is decisive — a pin 0.01 high breaks the build, a pin 0.01 low merely leaves a hundredth of gain uncaptured. **And the message itself was fixed to print what `--write` will pin rather than what the report rounds to**, because a message that names a number the enforcing gate cannot meet is how this misled in the first place. The next run raises farm to the exact floor with no judgement call left in it.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 

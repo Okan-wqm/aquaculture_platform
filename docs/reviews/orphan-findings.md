@@ -10290,4 +10290,17 @@ Measured 2026-08-19, the pinned line coverage: billing 53.33, auth 48.18, sensor
 
 Pinned in `tests/invariants/coverage-evidence-contract.spec.ts`: the threshold constant, the message and its fix command, the monotonic writer, and — separately — that every baselined service actually imports the pin as its jest threshold, because a pin nothing enforces is decoration. Verified by deliberate breakage (reverting the tool reds the spec) and by four scenarios against synthetic LCOV: an unpinned +2-point gain errors with exact numbers; `--write` raises the pin; `--write` with a lower measurement is refused and the file is untouched; a +0.5-point gain does not red the build.
 
+**FIRST RUN, AND IT CAUGHT SOMETHING (2026-08-19 20:21).** The ratchet's first CI execution refused, and what it refused over was not a regression — it was four services whose coverage had risen materially and whose pins nobody had moved:
+
+| service           | branches      |     functions |            lines |
+| ----------------- | ------------- | ------------: | ---------------: |
+| admin-api-service | 14.17 → 15.99 |  18.16 → 20.8 |    27.27 → 28.88 |
+| auth-service      | 42.41 → 46.9  | 22.67 → 27.45 |    48.18 → 51.46 |
+| farm-service      | 32.86 → 42.18 | 20.39 → 28.04 | **33.92 → 56.7** |
+| sensor-service    | 19.22 → 24.58 | 14.92 → 18.76 |    38.64 → 43.57 |
+
+`farm-service` line coverage was 22.8 points above its pin. Every number anyone quoted from that file — including in this session, while rebutting an outside claim about farm-service coverage — was the pin, not the measurement. That is precisely the defect: a floor that only looks down stops being a description of the system and nobody notices, because nothing ever asks.
+
+The pins are raised to the measured values. `statements` is left where it stood: the evidence lane measures branches, functions and lines, and a number CI did not produce has no business in a file that claims to record what CI measured.
+
 **Owner:** claude (this session). **Status:** RESOLVED.

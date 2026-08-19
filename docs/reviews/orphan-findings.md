@@ -10146,3 +10146,11 @@ Severity: CRITICAL (starves the panel pipeline; sibling of -708/-719/-734 — fo
 Pinned: contract admits the arbiter's uncertainty; binary judge with the same shape still violates; fold writes the shared row and no feedback row; idempotent per distinct failure; unregistered reason refused by name at producer AND contract; vocabulary pinned closed.
 
 **Owner:** claude (this session). **Status:** RESOLVED (6-test battery + 152 judge/consensus/feedback neighbours green).
+
+## ORPHAN-MEDIUM-738 — the happy-path tool-governance test measured the machine, not the contract — RESOLVED
+
+Severity: MEDIUM (a load-sensitive pin that turns an unrelated PR red). `test_tool_runner_records_valid_subprocess_output` asserts that a healthy tool run records `status == "ok"`, but the shared `runner()` fixture gave it a **1000 ms** wall-clock budget. Observed live at load average 10-13 (a full kernel suite plus parallel agents on the same box): spawning the fixture's subprocess exceeded 1 s and the run recorded `budget_exceeded`, failing a pre-push suite for a change in an unrelated module. A pin whose verdict depends on how busy the host is teaches the team to re-run instead of to read.
+
+**Fix:** the happy-path budget becomes 30 s — still a bound (a fixture tool needing longer is genuinely broken), no longer a race against the scheduler. The budget-EXCEEDED path keeps its own dedicated test with a deliberate 40× margin (a 1 s sleep against `timeout_ms=25`), so the refusal remains proven by a case that load cannot explain.
+
+**Owner:** claude (this session). **Status:** RESOLVED (35 tool-governance tests green).

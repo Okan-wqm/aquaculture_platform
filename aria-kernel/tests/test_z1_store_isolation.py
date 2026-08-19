@@ -36,7 +36,16 @@ _SELF_HOSTED_GROUP = "aria-selfhosted-workspace"
 # ONLY because its checkout is scoped to a subdirectory (verified below) —
 # its clean can never reach the store, and a read-only probe needs no
 # workspace serialization beyond the runner itself.
-_PATH_ISOLATED_EXEMPT = {"dataflow-integrity-watchdog.yml"}
+_PATH_ISOLATED_EXEMPT = {
+    "dataflow-integrity-watchdog.yml",
+    # ORPHAN-HIGH-736 — the report lane joined the self-hosted runner for
+    # its PAT identity alone (a PR opened with the job token parks every
+    # check in action_required). It touches ARIA's state not at all, so it
+    # checks out into `report-checkout/` and keeps its own group: taking a
+    # slot in the shared group would let a two-minute report evict a queued
+    # drain, which is the harm ORPHAN-713 removed for the watchdog.
+    "aria-daily-report.yml",
+}
 
 
 def _workflows_with_selfhosted() -> list[Path]:
@@ -80,16 +89,39 @@ class SharedWorkspaceGroupPins(unittest.TestCase):
             )
 
     def test_exempt_lanes_earned_it_with_a_scoped_checkout(self) -> None:
+        """The exemption is earned by the jobs that can actually reach the store.
+
+        The property being protected is that a lane outside the shared
+        group never checks out — and therefore never cleans — at the
+        persistent workspace root. That is reachable ONLY from the
+        self-hosted runner: a github-hosted job gets a fresh VM, so its
+        unscoped checkout cannot touch ARIA's state. Scoping the check to
+        self-hosted jobs is what the rule always meant; requiring it of
+        every job would have forced a hosted job to adopt a subdirectory
+        for a danger it structurally does not have (ORPHAN-HIGH-736 —
+        the report lane's read-only generate job).
+        """
+        checked = 0
         for name in _PATH_ISOLATED_EXEMPT:
             doc = yaml.safe_load((_WF / name).read_text(encoding="utf-8"))
-            for job in (doc.get("jobs") or {}).values():
+            for job_name, job in (doc.get("jobs") or {}).items():
+                runs_on = job.get("runs-on")
+                if not (isinstance(runs_on, list) and "self-hosted" in runs_on):
+                    continue
                 for step in job.get("steps") or []:
                     if str(step.get("uses", "")).startswith("actions/checkout"):
+                        checked += 1
                         self.assertTrue(
                             (step.get("with") or {}).get("path"),
-                            f"{name}: group exemption requires a subdirectory "
-                            "checkout — an unscoped clean could wipe the store",
+                            f"{name}:{job_name}: group exemption requires a "
+                            "subdirectory checkout — an unscoped clean could "
+                            "wipe the store",
                         )
+        self.assertGreater(
+            checked, 0,
+            "every exempt lane must have a self-hosted checkout to scope; "
+            "an exemption with nothing to earn it is a hole",
+        )
 
     def test_watchdog_checkout_is_scoped_away_from_the_store(self) -> None:
         doc = yaml.safe_load(

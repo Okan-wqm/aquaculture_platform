@@ -183,7 +183,14 @@ jobs:
 
   commit-report:
     needs: generate-report
-    runs-on: ubuntu-latest
+    # ORPHAN-HIGH-736 (F-4) — this job OPENS the daily-report PR, and a PR
+    # opened with the ephemeral job token parks every check suite in
+    # `action_required` (measured on #1282: 7 suites, zero checks started,
+    # merge blocked until a human presses Approve). The PAT identity that
+    # fixes this (ORPHAN-722) lives in the self-hosted runner's .env — so
+    # the job moves to that runner instead of distributing a new secret.
+    # generate-report stays hosted: it is read-only and needs no identity.
+    runs-on: [self-hosted, linux, claude]
     timeout-minutes: 10
     if: github.ref == 'refs/heads/main'
     permissions:
@@ -196,8 +203,17 @@ jobs:
       # is committed with contents:write; this is the scope for publishing it.
       pull-requests: write
     steps:
+      # Z1 (ORPHAN-706) — a self-hosted job that checks out at the DEFAULT
+      # path shares the persistent ARIA workspace with the cycle and the
+      # executor; the store is that workspace. This job needs the runner
+      # only for its PAT identity (ORPHAN-736), never for ARIA's state, so
+      # it checks out into its OWN directory — the same structural
+      # isolation dataflow-integrity-watchdog uses, and the reason it may
+      # keep its own concurrency group instead of occupying the shared
+      # group's single pending slot.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          path: report-checkout
           ref: main
           persist-credentials: false
           fetch-depth: 0
@@ -208,6 +224,7 @@ jobs:
         env:
           REPORT_DATE: ${{ needs.generate-report.outputs.date }}
           PYTHONPATH: aria-kernel
+        working-directory: report-checkout
         run: |
           set -euo pipefail
           REPORT="aria-tools/reports/daily/${REPORT_DATE}.md"
@@ -242,7 +259,7 @@ jobs:
         uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e # v4
         with:
           name: aria-daily-report-${{ needs.generate-report.outputs.date }}
-          path: aria-tools/reports/daily/
+          path: report-checkout/aria-tools/reports/daily/
 
       - name: Open or update daily report PR
         env:
@@ -252,8 +269,19 @@ jobs:
           REPORT_DATE: ${{ needs.generate-report.outputs.date }}
           GH_TOKEN: ${{ secrets.ARIA_GITHUB_APP_TOKEN || github.token }}
           PR_TOKEN_SOURCE: ${{ secrets.ARIA_GITHUB_APP_TOKEN && 'aria-github-app' || 'actions-default' }}
+        working-directory: report-checkout
         run: |
           set -euo pipefail
+          # ORPHAN-722 identity ladder, verbatim from the cycle lane: the
+          # fine-grained PAT (runner .env, ARIA_GH_TOKEN) takes precedence
+          # so the PR carries the machine identity whose checks RUN.
+          if [ -n "${ARIA_GH_TOKEN:-}" ]; then
+            export GH_TOKEN="$ARIA_GH_TOKEN"
+            export PR_TOKEN_SOURCE="machine-pat"
+            echo "gh identity: machine PAT (ARIA_GH_TOKEN)"
+          else
+            echo "gh identity: ${PR_TOKEN_SOURCE} fallback"
+          fi
           REPORT="aria-tools/reports/daily/${REPORT_DATE}.md"
           BODY_FILE="$RUNNER_TEMP/aria-daily-report-body.md"
           # The body is rendered by python from the environment, not by the

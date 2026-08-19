@@ -135,6 +135,7 @@ from aria_kernel.runtime_artifacts import (
 from aria_kernel.runtime_profile import (
     PROFILES,
     get_profile,
+    get_scheduler_profile_ceiling,
     list_profile_history,
     set_profile,
 )
@@ -1057,6 +1058,18 @@ def build_parser() -> argparse.ArgumentParser:
     profile_set.add_argument("--profile", required=True, choices=list(PROFILES))
     profile_set.add_argument("--operator-approval-ref", required=True)
     profile_set.add_argument("--set-by", default="operator")
+    # ORPHAN-HIGH-728 — the operator gesture ADR-033/ADR-041 reserve for a
+    # human, given a verb. Omitted means "leave the grant where it is": a
+    # flag that silently reset the ceiling on every profile change would make
+    # the grant a thing operators have to re-assert instead of a thing they
+    # recorded once.
+    profile_set.add_argument(
+        "--scheduler-ceiling", default=None, choices=list(PROFILES),
+        help=(
+            "maximum profile an UNATTENDED lane may resolve for itself "
+            "(default standard; omit to leave the recorded ceiling unchanged)"
+        ),
+    )
     profile_get = add_subparser(profile_sub, "get")
     profile_history = add_subparser(profile_sub, "history")
 
@@ -1887,6 +1900,49 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run the suppression-scanner against a unified-diff file.",
     )
     a_scan.add_argument("--diff-file", required=True)
+    # ORPHAN-CRITICAL-727 — the reachable apply gate. `pr create` refuses an
+    # action that is not ready_for_pr with a validation_gate_ref, and the only
+    # promoter (apply_engine.gate_apply_action) had no command surface at all,
+    # so the implementer lane could be told to open a PR and had no way to
+    # earn one. Bound into the implementer's Bash allowlist next to the
+    # `pr create` row (implementation_safety.ALLOWED_BASH_COMMANDS).
+    a_gate = add_subparser(apply_sub,
+        "gate",
+        help=(
+            "Run the candidate validation for a staged proposal, compare it "
+            "against the staged baseline, and promote the apply action to "
+            "ready_for_pr (exit 1 when the gate blocks)."
+        ),
+    )
+    a_gate.add_argument("--proposal-id", required=True)
+    a_gate.add_argument(
+        "--change-id",
+        required=True,
+        help=(
+            "The change_id the staging opened for this proposal; the gate "
+            "refuses a change_id the staged action does not name."
+        ),
+    )
+    a_gate.add_argument(
+        "--runner-identity",
+        default=None,
+        help=(
+            "Who executed the validation. Defaults to the GitHub run "
+            "(ci-executor:gha-<run_id>) on the executor lane, else a "
+            "kernel-scoped identity."
+        ),
+    )
+    a_gate.add_argument("--cycle-id", default=None)
+    a_gate.add_argument(
+        "--workspace-root",
+        default=None,
+        help=(
+            "Where the implementation branch is checked out. Defaults to the "
+            "path the staging recorded; its sibling `pr create` has always "
+            "taken one, and without it the gate could only run on the machine "
+            "staging ran on (ORPHAN-CRITICAL-728)."
+        ),
+    )
 
     # Plan 019 Phase 3 — pr sub-command surface delegating to pr_manager.
     # Why argparser-only: pr_manager.py already carries the load-bearing
@@ -2120,21 +2176,10 @@ def build_parser() -> argparse.ArgumentParser:
              "transition still produces an audit row (closes C-2 "
              "SOC2 gap; matches set_profile() control-plane contract).",
     )
-    # Plan ARIA-V3.1-E (E1) + B-9 — distinct V9 implementer poll
-    # budget. Separate from --challenger-timeout-seconds (which
-    # gates the convergence_drainer round-poll wait); the V9
-    # implementation phase has its own wall-clock budget
-    # (CONVERGED → PR-merge typically <30min).
-    auto_run.add_argument(
-        "--implementer-poll-seconds", type=float, default=1800.0,
-        help="V9 implementer phase wall-clock budget in seconds "
-             "(default 1800s = 30 min). Distinct from "
-             "--challenger-timeout-seconds (which gates the inner "
-             "convergence_drainer round-poll). Used by the V3.1-B "
-             "AutonomousV9ImplementationRunner to bound the "
-             "CONVERGED→PR-merge polling window. Closes HIGH-13 "
-             "poll-budget conflation.",
-    )
+    # K6 (ORPHAN-CRITICAL-727) — the `--implementer-poll-seconds` budget that
+    # stood here is gone with the poll it bounded. The V9 implementation phase
+    # mints its envelope and returns; the executor lane delivers in a later
+    # run, so there is no wall-clock window for this lane to bound.
     auto_run.add_argument(
         "--output", choices=["summary", "full"], default="summary",
         help="Print bounded v2 summary by default; full requires --artifact.",
@@ -3242,11 +3287,21 @@ def _main(argv: list[str] | None = None) -> int:
             operator_approval_ref=args.operator_approval_ref,
             base_dir=args.tools_dir,
             set_by=args.set_by,
+            scheduler_ceiling=args.scheduler_ceiling,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
     if args.command == "profile" and args.profile_command == "get":
-        print(json.dumps({"active_profile": get_profile(base_dir=args.tools_dir)}, indent=2, sort_keys=True))
+        # ORPHAN-HIGH-728 — the ceiling is reported beside the active profile
+        # because they are one answer to "how much may ARIA do": an operator
+        # reading only `active_profile` cannot tell whether tonight's lane is
+        # standard because the ladder is short or because they capped it.
+        print(json.dumps({
+            "active_profile": get_profile(base_dir=args.tools_dir),
+            "scheduler_profile_ceiling": get_scheduler_profile_ceiling(
+                base_dir=args.tools_dir,
+            ),
+        }, indent=2, sort_keys=True))
         return 0
     if args.command == "profile" and args.profile_command == "history":
         print(json.dumps(list_profile_history(base_dir=args.tools_dir), indent=2, sort_keys=True))
@@ -4407,6 +4462,23 @@ def _main(argv: list[str] | None = None) -> int:
         print(json.dumps(plan, indent=2, sort_keys=True))
         return 0
 
+    if args.command == "apply" and args.apply_command == "gate":
+        from aria_kernel.apply_engine import run_apply_gate
+
+        row = run_apply_gate(
+            proposal_id=args.proposal_id,
+            change_id=args.change_id,
+            base_dir=args.tools_dir,
+            runner_identity=args.runner_identity,
+            cycle_id=args.cycle_id,
+            workspace_root=args.workspace_root,
+        )
+        print(json.dumps(row, indent=2, sort_keys=True))
+        # Exit code carries the verdict, like `apply scan-diff` above: the
+        # implementer runs this from Bash and must not proceed to `pr create`
+        # on a blocked gate.
+        return 0 if row.get("status") == "ready_for_pr" else 1
+
     if args.command == "apply" and args.apply_command == "scan-diff":
         from aria_kernel.suppression_scanner import scan_unified_diff_text
 
@@ -5231,10 +5303,9 @@ def _main(argv: list[str] | None = None) -> int:
             daemon_id=args.daemon_id,
             cycle_deadline_seconds=args.cycle_deadline_seconds,
             challenger_timeout_seconds=args.challenger_timeout_seconds,
-            # Plan ARIA-V3.1-E — explicit profile + distinct
-            # implementer poll budget threaded to the orchestrator.
+            # Plan ARIA-V3.1-E — explicit profile threaded to the
+            # orchestrator (the poll budget beside it died with K6's poll).
             profile=profile,
-            implementer_poll_seconds=args.implementer_poll_seconds,
             # Plan ARIA-V3.1-D2 — production MemoryHook +
             # CostTelemetryHook factories. observe/frozen profiles
             # get NoOp variants; standard/strict/autonomous get the
@@ -5244,14 +5315,18 @@ def _main(argv: list[str] | None = None) -> int:
             # Plan ARIA-V10.5 Phase 7 — F-027 closure. Wire the V9
             # implementation runner per profile so the orchestrator's
             # post-CONVERGED phase actually mints aria-implementer
-            # subprocess. observe/standard/frozen → NoOp (V8 backward-
-            # compat); strict → policy_strict_no_implementation refusal;
-            # autonomous → production AutonomousV9ImplementationRunner
-            # (mint_signing_key + mint_installation_token + issue_
-            # implementation_envelope + poll + record_outcome + cleanup).
-            # Pre-F-027 the CLI never installed this factory's return
-            # value so the orchestrator always fell back to NoOp; the
-            # V9 implementation phase was structurally unreachable.
+            # subprocess. Pre-F-027 the CLI never installed this
+            # factory's return value so the orchestrator always fell
+            # back to NoOp; the V9 implementation phase was
+            # structurally unreachable.
+            #
+            # ORPHAN-HIGH-728 — the mapping is no longer restated here.
+            # The factory reads `runtime_profile.ACTION_PERMISSIONS`:
+            # a profile holding `pr_create` (strict, autonomous) gets
+            # AutonomousV9ImplementationRunner, everything else NoOp.
+            # This comment used to enumerate a third `strict →
+            # policy_strict_no_implementation` arm that contradicted the
+            # profile table it was describing.
             v9_implementation_runner=select_v9_implementation_runner(profile=profile),
             max_budget_usd_per_cycle=args.max_budget_usd_per_cycle,
         )

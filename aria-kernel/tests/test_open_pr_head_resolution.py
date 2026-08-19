@@ -98,6 +98,13 @@ class OpenPrHeadResolutionTests(unittest.TestCase):
             "task_id": "task-test",
             "title": "Test PR",
             "status": "approved_for_apply",
+            # ORPHAN-CRITICAL-728 — an approval names WHO granted it.
+            # `open_pr_for_action` refuses a row in `approved_for_apply` that
+            # records neither an operator nor a machine grant, because a
+            # proposal nobody is recorded as having approved is not approved;
+            # this fixture is an operator's, so it says so.
+            "approval_source": "operator",
+            "operator_approval_ref": "operator:test-fixture:plan-023-p3",
             "kind": "external",
             "evidence": [],
             "validation_scope": {"commands": ["nx test x"]},

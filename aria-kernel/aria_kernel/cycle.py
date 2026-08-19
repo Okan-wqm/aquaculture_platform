@@ -2325,15 +2325,42 @@ def _run_pr_lifecycle_phase(context: PhaseContext) -> dict[str, Any]:
     # symbol importable while the call is gone is exactly what made
     # ORPHAN-HIGH-499's mutation invisible to a `hasattr` test, and it would let
     # a future reader conclude the edge is still here.
+    from .apply_engine import IN_FLIGHT_APPLY_STATUSES, latest_apply_action
     from .pr_manager import open_pr_for_action
     from .proposal import list_proposals
 
     workspace_root = context.workspace_root
     base_dir = context.base_dir
-    eligible = [
-        p for p in list_proposals(base_dir=base_dir)
-        if p.get("status") == "approved_for_apply"
-    ]
+    # ORPHAN-CRITICAL-728 — an approved proposal whose apply action is still
+    # IN FLIGHT is not a PR candidate, and counting its refusal as a phase
+    # failure made every cycle after the first staging terminate as FAILED,
+    # permanently.
+    #
+    # `stage_converged_plan_for_pr` approves the proposal and opens the action
+    # in `staged_for_implementation` — by design: the implementer has not run
+    # yet, and `open_pr_for_action` correctly refuses anything that is not
+    # `ready_for_pr` (pinned by test_skipping_the_gate_keeps_the_pinned_
+    # refusal). So `ok < total` held from the first staging onward, `cycle.py`
+    # downgraded the whole cycle on `status == "fail"`, and nothing ever
+    # cleared the proposal. Work that has not finished is not work that
+    # failed; this phase reports it and moves on.
+    candidates: list[dict[str, Any]] = []
+    in_flight: list[dict[str, Any]] = []
+    for prop in list_proposals(base_dir=base_dir):
+        if prop.get("status") != "approved_for_apply":
+            continue
+        action = latest_apply_action(
+            proposal_id=str(prop.get("proposal_id") or ""), base_dir=base_dir,
+        )
+        status = (action or {}).get("status")
+        if status in IN_FLIGHT_APPLY_STATUSES:
+            in_flight.append({
+                "proposal_id": prop.get("proposal_id"),
+                "apply_action_status": status,
+            })
+            continue
+        candidates.append(prop)
+    eligible = candidates
     per_proposal: list[dict[str, Any]] = []
     ok = 0
     for prop in eligible:
@@ -2413,6 +2440,9 @@ def _run_pr_lifecycle_phase(context: PhaseContext) -> dict[str, Any]:
         "status": status, "total": total,
         "ok": ok, "fail": total - ok,
         "proposals": per_proposal,
+        # Reported, never counted: an operator reading the cycle row must be
+        # able to see the staged work that is waiting for its implementer.
+        "in_flight": in_flight,
     }
 
 

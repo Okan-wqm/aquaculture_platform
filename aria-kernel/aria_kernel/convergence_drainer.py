@@ -69,6 +69,7 @@ from .independence_check import (
 from .ledger import load_declared_jsonl
 from .plan_convergence import (
     TERMINAL_STATES,
+    converged_plan_body,
     force_plan_human_required,
     _plan_requires_coverage,
     evaluate_plan,
@@ -921,20 +922,19 @@ def run_convergence_drainer(
                     )
                 except Exception:
                     pass
+        # ORPHAN-CRITICAL-728 — the CONVERGED body comes from the ONE
+        # producer that verifies it: `converged_plan_body` returns the
+        # recorded body only when its content hash reproduces the
+        # CONVERGED revision's hash. The hand-rolled precedence chain
+        # this replaces could hand the implementation lane a body no
+        # ledger event vouches for (and the pre-CL-1 spelling handed it
+        # `{}` on every converged plan, since `evaluate_plan` has never
+        # carried a `plan_content` key at all).
         converged_plan: dict[str, Any] = {}
         if arbiter_verdict == "converged":
-            started = cur.get("plan_started") or {}
-            content = None
-            latest = cur.get("latest_revision") or {}
-            if isinstance(latest, dict):
-                content = latest.get("content")
-            if not isinstance(content, dict):
-                challenger = cur.get("challenger") or {}
-                if isinstance(challenger, dict) and isinstance(challenger.get("plan_content"), dict):
-                    content = challenger.get("plan_content")
-            if not isinstance(content, dict) and isinstance(started, dict):
-                content = started.get("plan_content")
-            converged_plan = content if isinstance(content, dict) else {}
+            converged_plan = converged_plan_body(
+                plan_id=plan_id, base_dir=base_dir,
+            )["plan_content"]
         if persistence.exists():
             try:
                 persistence.unlink()

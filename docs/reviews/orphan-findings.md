@@ -10158,3 +10158,13 @@ Pinned: only owned prefixes are removed; a running suite's fixture survives; a s
 Live measurement at implementation time: 24.31 GB free, load 8.56 on 4 CPUs → degraded=True, and a dry-run swept 162 stale directories while correctly sparing 164 fresh ones.
 
 **Owner:** claude (this session). **Status:** RESOLVED (9-pin battery + 157 cycle/phase/runtime-signal/preflight neighbours green).
+
+## ORPHAN-HIGH-740 (SI-5) — the loop's pace belonged to a clock ARIA cannot see — RESOLVED
+
+Severity: HIGH (every night's throughput depends on it). Measured over three nights: GitHub's scheduled trigger fires this repository **60-75 minutes late** and sometimes not at all — schedule runs at 02:13, 02:19 and 03:21 against crons set for 01:13 and 02:29 — and on 2026-08-19 the cron cycle was **cancelled outright**, evicted from the shared `aria-selfhosted-workspace` group by a drain that was still running, while two executor copies (cron + chain) cancelled each other. ORPHAN-724 built the chain's forward edge (cycle → executor via `workflow_run`); the return edge did not exist, so a drain that finished at 08:49 waited for a scheduler that would not fire again until the next night.
+
+**Fix:** the executor's last step asks `cycle_rhythm.evaluate_cycle_chain` whether to start the next cycle. The decision lives in the kernel, not in shell, so the brakes are unit-tested and every refusal is NAMED — a chain that declines silently is indistinguishable from a chain that is broken. Three independent brakes, any one of which stops it: a **minimum interval since the last cycle STARTED** (6 h — four cycles a day, the bound that makes a runaway impossible to write by accident), the **E25-a backlog ceiling** (the same counter the minting phases pause on — a night already behind does not open more work), and an **empty drain** (nothing to feed a new cycle). Unknown history and any exception both fail CLOSED with a named reason (`last_cycle_time_unknown`, `chain_undecidable:<Type>`), because the cron remains the floor: an undecidable chain costs one late cycle, never a stacked one. The step is `continue-on-error` — a chain that cannot decide must not colour a drain that earned its own verdict.
+
+Pinned: a ready rhythm chains; the interval bounds the loop; a full backlog stops it; an empty drain stops it; unknown/unparseable history fails closed; the interval floor is ≥4 h so shrinking it toward a spin loop becomes a visible edit; the script always exits 0 and declines by name on a broken environment.
+
+**Owner:** claude (this session). **Status:** RESOLVED (8-pin battery + 193 workflow/rhythm/backlog neighbours green).

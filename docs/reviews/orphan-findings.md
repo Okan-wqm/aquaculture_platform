@@ -10136,3 +10136,11 @@ Severity: CRITICAL (self-inflicted, caught within hours). ORPHAN-723's observer 
 **Fix:** the source is registered in both tables (weight 20 — deliberately the LOWEST in the table, because ARIA holds no authority over third-party PRs until the E23 gate opens; class `process_health`, reusing the existing class so the policy-parity test needs no genesis-policy edit), and `_pressure` now refuses an unregistered source with a typed `unregistered_pressure_source` GovernanceError naming BOTH registration sites. The next producer that forgets says so in its own words instead of collapsing a cycle. Pinned: registration in both tables, the observe-only weight is the table minimum (the authority boundary in numeric form), and the refusal fires by name.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-736 — the daily-report PR is born with a dead identity: every check suite parks in action_required — RESOLVED (F-4)
+
+Severity: HIGH (the report face of ARIA is unreadable-by-CI; measured on PR #1282 — 7 check suites concluded `action_required`, zero checks started, merge blocked pending a human Approve). Root: `aria-daily-report.yml`'s `commit-report` job runs github-hosted and opens the PR with the ephemeral job token (`ARIA_GITHUB_APP_TOKEN` has never existed, so the `||` fallback always chose `github.token`); PRs authored by that identity require manual workflow approval by repository policy — the exact trap ORPHAN-722 closed for the cycle/executor lanes.
+
+**Fix (İ1 — no new secret distributed):** the PR-opening job moves to the self-hosted runner (`[self-hosted, linux, claude]`) where `ARIA_GH_TOKEN` already lives in the runner .env, and adopts the ORPHAN-722 identity ladder verbatim — PAT preferred with the disclosure line "gh identity: machine PAT (ARIA_GH_TOKEN)", honest fallback otherwise. `generate-report` deliberately stays github-hosted: it is read-only, needs no identity, and keeping it hosted keeps one job off the starved self-hosted queue. Workflow contract suite green (60 tests incl. enterprise preflight + report dashboard pins).
+
+**Owner:** claude (this session). **Status:** RESOLVED (next scheduled report proves it live; #1282 itself still needs one manual approval or a re-open under the new identity).

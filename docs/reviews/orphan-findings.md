@@ -10427,6 +10427,10 @@ This is the class the `pre-commit` comment already names — "the mechanism exis
 
 Verified: with the surface changed, `post-merge` reports and stages; with the pin corrupted, `--check` exits 1 naming both digests; with everything current, both are silent and exit 0.
 
+**KNOWN LIMIT, measured 2026-08-19 20:40 — the hook is inert in a worktree until the PRIMARY checkout advances.** Husky sets `core.hooksPath` to an absolute path (`/var/aqua-saas/.husky`), and every `git worktree` shares it. A hook a PR _adds_ therefore does not run in any worktree until the primary checkout itself moves past the merge that added it. Observed directly: merging main into a worktree branch left the authority pin stale and `post-merge` never fired, because the primary checkout was still at `24fc844e8` — one commit before the hook landed — so the file git looked for did not exist. The same applies to the `pre-push` guard.
+
+This is not a defect in the fix; it is how worktrees and a shared hooks directory interact. It does mean the fix's protection begins for a given machine only when its primary checkout advances, and until then the manual `npm run aria:authority-hash:write` remains the fallback. Recorded here rather than worked around, because a guard whose activation condition is invisible is the same class of problem this finding is about.
+
 **Owner:** claude (this session). **Status:** RESOLVED.
 
 ## ORPHAN-HIGH-753 — nothing in ARIA could say which parts of the repository it cannot see — RESOLVED

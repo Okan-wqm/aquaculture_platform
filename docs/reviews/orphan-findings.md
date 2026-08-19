@@ -10436,6 +10436,7 @@ This is the class the `pre-commit` comment already names — "the mechanism exis
 3. `.husky/pre-push`: runs `--check` and refuses. Staged is not committed, and this is the last point where a second is cheaper than thirty minutes.
 
 Verified: with the surface changed, `post-merge` reports and stages; with the pin corrupted, `--check` exits 1 naming both digests; with everything current, both are silent and exit 0.
+
 ## ORPHAN-MEDIUM-750 — the coverage floor only ever looked down, so improvement was never captured — RESOLVED
 
 Severity: MEDIUM (nothing breaks; the platform simply cannot tell whether it is getting better, and any gain can be eaten back in silence). Every service pins a per-metric coverage floor in `tools/quality/service-coverage-baselines.json`. That pin is genuinely load-bearing — each `apps/<svc>/jest.config.ts` imports it as `coverageThreshold.global`, and `tools/quality/coverage-evidence.js` (ci-full.yml) refuses any LCOV report below it. **Both enforcements only compare downward.** A service whose coverage rises keeps the old floor: the improvement is never pinned, and the next change can spend it without a single gate noticing. A ratchet with a pawl on one side is a floor, not a ratchet.
@@ -10460,6 +10461,7 @@ Pinned in `tests/invariants/coverage-evidence-contract.spec.ts`: the threshold c
 `farm-service` line coverage was 22.8 points above its pin. Every number anyone quoted from that file — including in this session, while rebutting an outside claim about farm-service coverage — was the pin, not the measurement. That is precisely the defect: a floor that only looks down stops being a description of the system and nobody notices, because nothing ever asks.
 
 The pins are raised to the measured values. `statements` is left where it stood: the evidence lane measures branches, functions and lines, and a number CI did not produce has no business in a file that claims to record what CI measured.
+
 ## ORPHAN-HIGH-752 — an adapter's scan surface lived in three places, and the copy that governed tests was the one nothing ran — RESOLVED
 
 Severity: HIGH (an adapter can silently scan a different file set in production than its fixtures validate, and every test stays green while it happens). First train of PROGRAM H.

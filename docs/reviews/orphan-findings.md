@@ -10420,5 +10420,29 @@ This is the class the `pre-commit` comment already names — "the mechanism exis
 3. `.husky/pre-push`: runs `--check` and refuses. Staged is not committed, and this is the last point where a second is cheaper than thirty minutes.
 
 Verified: with the surface changed, `post-merge` reports and stages; with the pin corrupted, `--check` exits 1 naming both digests; with everything current, both are silent and exit 0.
+## ORPHAN-MEDIUM-750 — the coverage floor only ever looked down, so improvement was never captured — RESOLVED
+
+Severity: MEDIUM (nothing breaks; the platform simply cannot tell whether it is getting better, and any gain can be eaten back in silence). Every service pins a per-metric coverage floor in `tools/quality/service-coverage-baselines.json`. That pin is genuinely load-bearing — each `apps/<svc>/jest.config.ts` imports it as `coverageThreshold.global`, and `tools/quality/coverage-evidence.js` (ci-full.yml) refuses any LCOV report below it. **Both enforcements only compare downward.** A service whose coverage rises keeps the old floor: the improvement is never pinned, and the next change can spend it without a single gate noticing. A ratchet with a pawl on one side is a floor, not a ratchet.
+
+Measured 2026-08-19, the pinned line coverage: billing 53.33, auth 48.18, sensor 38.64, hr 34.29, farm 33.92, admin-api 27.27. Nobody chose those numbers as targets — they are simply where each service stood when it was pinned, and they have no mechanism to move.
+
+**Fix:** the same file gains the upward pawl. A gain of at least `RATCHET_MIN_GAIN` (1.0 point — run-to-run jitter is fractions of a point, so one point is the smallest gain that is a change in the code rather than in the weather) is an error naming the exact old and new numbers plus the command that fixes it, and `--write` re-pins measured values. `rewriteBaselines` raises and never lowers; a measurement below the pin is already an error, so `--write` cannot become the road by which a floor is quietly reduced.
+
+**What this does NOT claim.** It does not enforce "every touch to a low-coverage module must close some test debt". That rule sounds right and would be wrong in a gate: it blocks a legitimate bug fix that needs no new test, and it is trivially satisfied by writing a test that asserts nothing. What a gate can honestly enforce is that improvement is _captured_ and cannot silently regress; that new code is _covered_ is the charter's separate stage-B rule (changed-line coverage ≥80%).
+
+Pinned in `tests/invariants/coverage-evidence-contract.spec.ts`: the threshold constant, the message and its fix command, the monotonic writer, and — separately — that every baselined service actually imports the pin as its jest threshold, because a pin nothing enforces is decoration. Verified by deliberate breakage (reverting the tool reds the spec) and by four scenarios against synthetic LCOV: an unpinned +2-point gain errors with exact numbers; `--write` raises the pin; `--write` with a lower measurement is refused and the file is untouched; a +0.5-point gain does not red the build.
+
+**FIRST RUN, AND IT CAUGHT SOMETHING (2026-08-19 20:21).** The ratchet's first CI execution refused, and what it refused over was not a regression — it was four services whose coverage had risen materially and whose pins nobody had moved:
+
+| service           | branches      |     functions |            lines |
+| ----------------- | ------------- | ------------: | ---------------: |
+| admin-api-service | 14.17 → 15.99 |  18.16 → 20.8 |    27.27 → 28.88 |
+| auth-service      | 42.41 → 46.9  | 22.67 → 27.45 |    48.18 → 51.46 |
+| farm-service      | 32.86 → 42.18 | 20.39 → 28.04 | **33.92 → 56.7** |
+| sensor-service    | 19.22 → 24.58 | 14.92 → 18.76 |    38.64 → 43.57 |
+
+`farm-service` line coverage was 22.8 points above its pin. Every number anyone quoted from that file — including in this session, while rebutting an outside claim about farm-service coverage — was the pin, not the measurement. That is precisely the defect: a floor that only looks down stops being a description of the system and nobody notices, because nothing ever asks.
+
+The pins are raised to the measured values. `statements` is left where it stood: the evidence lane measures branches, functions and lines, and a number CI did not produce has no business in a file that claims to record what CI measured.
 
 **Owner:** claude (this session). **Status:** RESOLVED.

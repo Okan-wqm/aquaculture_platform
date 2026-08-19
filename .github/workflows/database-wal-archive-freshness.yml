@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: database-wal-archive-freshness
+  group: database-wal-archive-freshness-v2
   cancel-in-progress: false
 
 jobs:

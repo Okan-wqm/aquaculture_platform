@@ -150,6 +150,28 @@ export function writeAriaAuthorityHash(repoRoot: string = ariaRepoRoot()): {
 
 function main(argv: string[]): number {
   const repoRoot = ariaRepoRoot();
+  // WHY --check: the tool could print the digest and it could write it, but it
+  // could not ANSWER "is the declared pin current?" without the caller doing
+  // the string comparison itself. That left the question to CI, which answers
+  // it thirty minutes later. --check answers in a second and exits non-zero
+  // naming both digests, so a hook can stand on it.
+  if (argv.includes('--check')) {
+    const expected = ariaAuthorityHash(repoRoot);
+    const declared = recordedAriaAuthorityHash(repoRoot);
+    if (declared === expected) {
+      process.stdout.write(`aria authority hash: current (${expected})\n`);
+      return 0;
+    }
+    process.stderr.write(
+      'aria authority hash: STALE pin.\n' +
+        `  declared in docs/aria/CURRENT_STATE.md: ${declared ?? '(none)'}\n` +
+        `  computed from the authority surface:    ${expected}\n` +
+        '  A merge commit runs no pre-commit, so `git merge origin/main` can move\n' +
+        '  the surface and leave the pin behind. Fix it here, not in CI:\n' +
+        '    npm run aria:authority-hash:write && git add docs/aria/CURRENT_STATE.md\n',
+    );
+    return 1;
+  }
   if (!argv.includes('--write')) {
     process.stdout.write(`${ariaAuthorityHash(repoRoot)}\n`);
     return 0;

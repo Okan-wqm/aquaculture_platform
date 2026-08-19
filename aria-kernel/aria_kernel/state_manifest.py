@@ -559,6 +559,12 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("agent_priors_map", "agent-priors/agent-map.jsonl", "ledger", "agent_priors", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("kernel_change_requests", "kernel-change/requests.jsonl", "ledger", "kernel_change", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("observability_cycle_metrics", "observability/cycle-metrics.jsonl", "ledger", "observability", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    # G-1 — the product-fitness verdict per night. Observation-class: it
+    # records what the charter's dimensions said, takes no action, and is
+    # read by the report and the streak. Rostered here because ORPHAN-670
+    # ended the class of ledgers that write at runtime and vanish at job
+    # teardown because nothing declared them.
+    StateSurface("product_fitness", "product-fitness.jsonl", "ledger", "observability", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("observability_dashboards", "observability/dashboards.jsonl", "ledger", "observability", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("observability_alerts", "observability/alerts.jsonl", "ledger", "observability", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("architecture_reviews", "architecture/reviews.jsonl", "ledger", "architecture", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),

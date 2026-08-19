@@ -2501,15 +2501,17 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
         modes=frozenset({"standard"}),
     ),
 
-    # SI-4 — habitat hygiene runs in EVERY mode, including burn_in: a
-    # rehearsal night fills the same disk as a real one, and the class
-    # that bit three times in one day must not be observable only on the
-    # nights ARIA is otherwise busy. No backlog precondition — cleaning
-    # up after itself is not finding-emitting work.
+    # SI-4 — standard mode ONLY, and the burn-in pin taught me why: the
+    # janitor DELETES. Burn-in exists to prove ARIA ran and touched
+    # nothing, so a phase that removes files — even ARIA's own litter in
+    # /tmp — is an action and does not belong in a no-action rehearsal.
+    # The rehearsal night's disk is left to the real nights that follow.
+    # No backlog precondition: cleaning up after itself is not
+    # finding-emitting work.
     CyclePhase(
         "habitat_sweep", "discovery", _phase_habitat,
         on_error="record_and_continue", state_key="habitat_sweep",
-        modes=frozenset({"standard", "burn_in"}),
+        modes=frozenset({"standard"}),
     ),
 
     # --- pre_tool: gates that must observe preconditions, not results ---

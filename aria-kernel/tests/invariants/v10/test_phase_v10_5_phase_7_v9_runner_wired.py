@@ -11,7 +11,7 @@ Root cause:
 
 The V3.1-B implementation phase plan landed the runner Protocol
 (V9ImplementationRunner), three concrete variants
-(NoOpV9ImplementationRunner, StrictV9ImplementationRunner,
+(NoOpV9ImplementationRunner,
 AutonomousV9ImplementationRunner), a factory
 (select_v9_implementation_runner), the orchestrator parameter
 declaration (v9_implementation_runner kwarg), and the orchestrator
@@ -175,33 +175,43 @@ class V9RunnerWiredInvariants(unittest.TestCase):
         )
 
     def test_i_v10_5_7_04_factory_maps_profile_to_variant(self):
-        """select_v9_implementation_runner must map profile to variant
-        per the contract:
+        """select_v9_implementation_runner maps profile to variant BY
+        AUTHORITY, not by name:
 
-          autonomous → AutonomousV9ImplementationRunner
-          strict     → StrictV9ImplementationRunner
-          observe / standard / frozen → NoOpV9ImplementationRunner
+          holds pr_create (strict, autonomous) → AutonomousV9ImplementationRunner
+          everything else (observe/standard/frozen, typos, future names)
+                                               → NoOpV9ImplementationRunner
 
-        Anything else (typo, new profile) must default to NoOp to
-        preserve V8 backward-compat.
+        ORPHAN-HIGH-728 rewrote this pin. It used to assert
+        `strict -> StrictV9ImplementationRunner`, which is now false in
+        both halves: that class is deleted, and strict is exactly the
+        profile `runtime_profile` defines as the full implementation
+        pipeline. The old assertion pinned the drift instead of the
+        contract - it stayed green for as long as the factory disagreed
+        with the profile table.
         """
+        from aria_kernel.runtime_profile import ACTION_PERMISSIONS
         from aria_kernel.cycle_phases.implementer import (
             AutonomousV9ImplementationRunner,
             NoOpV9ImplementationRunner,
-            StrictV9ImplementationRunner,
             select_v9_implementation_runner,
         )
-        self.assertIsInstance(
-            select_v9_implementation_runner(profile="autonomous"),
-            AutonomousV9ImplementationRunner,
-            "I-V10.5-7-04: autonomous profile must yield AutonomousV9ImplementationRunner",
+        implementing = ACTION_PERMISSIONS["pr_create"]
+        self.assertIn(
+            "strict", implementing,
+            "I-V10.5-7-04: strict holding pr_create is the premise of this "
+            "pin; if the table dropped it, the factory below is not the "
+            "thing that changed",
         )
-        self.assertIsInstance(
-            select_v9_implementation_runner(profile="strict"),
-            StrictV9ImplementationRunner,
-            "I-V10.5-7-04: strict profile must yield StrictV9ImplementationRunner",
-        )
+        for profile in sorted(implementing):
+            self.assertIsInstance(
+                select_v9_implementation_runner(profile=profile),
+                AutonomousV9ImplementationRunner,
+                f"I-V10.5-7-04: {profile!r} holds pr_create and must yield "
+                "AutonomousV9ImplementationRunner",
+            )
         for safe_profile in ("observe", "standard", "frozen"):
+            self.assertNotIn(safe_profile, implementing)
             self.assertIsInstance(
                 select_v9_implementation_runner(profile=safe_profile),
                 NoOpV9ImplementationRunner,

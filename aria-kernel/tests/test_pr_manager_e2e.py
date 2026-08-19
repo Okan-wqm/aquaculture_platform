@@ -80,7 +80,7 @@ def _seed_tools() -> Path:
         "strict",
         operator_approval_ref="test:plan-020-phase-1.B:pr-manager-e2e",
         base_dir=tools,
-        set_by="test-fixture",
+        set_by="operator",
     )
     # Plan 023 v3 §P-3 — open_pr_for_action now fails hard when
     # `git rev-parse <branch>` fails. _seed_apply_action uses a fixed

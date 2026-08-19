@@ -135,6 +135,7 @@ from aria_kernel.runtime_artifacts import (
 from aria_kernel.runtime_profile import (
     PROFILES,
     get_profile,
+    get_scheduler_profile_ceiling,
     list_profile_history,
     set_profile,
 )
@@ -1057,6 +1058,18 @@ def build_parser() -> argparse.ArgumentParser:
     profile_set.add_argument("--profile", required=True, choices=list(PROFILES))
     profile_set.add_argument("--operator-approval-ref", required=True)
     profile_set.add_argument("--set-by", default="operator")
+    # ORPHAN-HIGH-728 — the operator gesture ADR-033/ADR-041 reserve for a
+    # human, given a verb. Omitted means "leave the grant where it is": a
+    # flag that silently reset the ceiling on every profile change would make
+    # the grant a thing operators have to re-assert instead of a thing they
+    # recorded once.
+    profile_set.add_argument(
+        "--scheduler-ceiling", default=None, choices=list(PROFILES),
+        help=(
+            "maximum profile an UNATTENDED lane may resolve for itself "
+            "(default standard; omit to leave the recorded ceiling unchanged)"
+        ),
+    )
     profile_get = add_subparser(profile_sub, "get")
     profile_history = add_subparser(profile_sub, "history")
 
@@ -3274,11 +3287,21 @@ def _main(argv: list[str] | None = None) -> int:
             operator_approval_ref=args.operator_approval_ref,
             base_dir=args.tools_dir,
             set_by=args.set_by,
+            scheduler_ceiling=args.scheduler_ceiling,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
     if args.command == "profile" and args.profile_command == "get":
-        print(json.dumps({"active_profile": get_profile(base_dir=args.tools_dir)}, indent=2, sort_keys=True))
+        # ORPHAN-HIGH-728 — the ceiling is reported beside the active profile
+        # because they are one answer to "how much may ARIA do": an operator
+        # reading only `active_profile` cannot tell whether tonight's lane is
+        # standard because the ladder is short or because they capped it.
+        print(json.dumps({
+            "active_profile": get_profile(base_dir=args.tools_dir),
+            "scheduler_profile_ceiling": get_scheduler_profile_ceiling(
+                base_dir=args.tools_dir,
+            ),
+        }, indent=2, sort_keys=True))
         return 0
     if args.command == "profile" and args.profile_command == "history":
         print(json.dumps(list_profile_history(base_dir=args.tools_dir), indent=2, sort_keys=True))
@@ -5292,15 +5315,18 @@ def _main(argv: list[str] | None = None) -> int:
             # Plan ARIA-V10.5 Phase 7 — F-027 closure. Wire the V9
             # implementation runner per profile so the orchestrator's
             # post-CONVERGED phase actually mints aria-implementer
-            # subprocess. observe/standard/frozen → NoOp (V8 backward-
-            # compat); strict → policy_strict_no_implementation refusal;
-            # autonomous → production AutonomousV9ImplementationRunner
-            # (stage_converged_plan_for_pr + mint_signing_key +
-            # mint_installation_token + issue_implementation_envelope +
-            # cleanup; the executor lane delivers in a later run, K6).
-            # Pre-F-027 the CLI never installed this factory's return
-            # value so the orchestrator always fell back to NoOp; the
-            # V9 implementation phase was structurally unreachable.
+            # subprocess. Pre-F-027 the CLI never installed this
+            # factory's return value so the orchestrator always fell
+            # back to NoOp; the V9 implementation phase was
+            # structurally unreachable.
+            #
+            # ORPHAN-HIGH-728 — the mapping is no longer restated here.
+            # The factory reads `runtime_profile.ACTION_PERMISSIONS`:
+            # a profile holding `pr_create` (strict, autonomous) gets
+            # AutonomousV9ImplementationRunner, everything else NoOp.
+            # This comment used to enumerate a third `strict →
+            # policy_strict_no_implementation` arm that contradicted the
+            # profile table it was describing.
             v9_implementation_runner=select_v9_implementation_runner(profile=profile),
             max_budget_usd_per_cycle=args.max_budget_usd_per_cycle,
         )

@@ -44,6 +44,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+# ORPHAN-HIGH-728 — profile authority is READ from the table, never
+# restated. Every `profile == "autonomous"` / `profile in (...)` in this
+# module was a second copy of it, and copies of that mapping are what
+# shipped a nightly lane running a profile the table said could not open a
+# pull request. `pr_merge` names the merge-class profiles (the ones that can
+# land without a human, and so must satisfy branch protection and signing
+# preconditions); `PROFILES_WITH_ACTION_AUTHORITY` names every profile that
+# can act at all, which is the right audience for environment facts.
+from .runtime_profile import ACTION_PERMISSIONS, PROFILES_WITH_ACTION_AUTHORITY
 from .workflow_contract_registry import (
     WORKFLOW_CONTRACTS,
     WorkflowJobContract,
@@ -339,6 +348,7 @@ def verify_preflight(
         immutable_paths_count = 0
         bash_allowlist_count = 0
 
+    merge_authority_profiles = ACTION_PERMISSIONS["pr_merge"]
     # FAZ 5d — environment facts, measured for EVERY run profile. The
     # nightly producer runs `standard` and used to skip preflight entirely,
     # so a host with no sandbox or no node deps produced a green-looking run
@@ -359,16 +369,16 @@ def verify_preflight(
     # named reason instead of downstream noise.
     free_disk_gb = _free_disk_gb(workspace_root)
     disk_ok = free_disk_gb is None or free_disk_gb >= MIN_FREE_DISK_GB
-    if profile in ("autonomous", "strict", "standard"):
+    if profile in PROFILES_WITH_ACTION_AUTHORITY:
         if not sandbox_backend_present:
             reasons.append("sandbox_backend_absent")
-            if profile == "autonomous":
+            if profile in merge_authority_profiles:
                 failure_classes.append("autonomous_profile_preconditions_not_met")
             else:
                 failure_classes.append("environment_preconditions_not_met")
         if not node_modules_present:
             reasons.append("node_modules_absent")
-            if profile != "autonomous":
+            if profile not in merge_authority_profiles:
                 failure_classes.append("environment_preconditions_not_met")
         if not disk_ok:
             reasons.append(
@@ -376,7 +386,7 @@ def verify_preflight(
             )
             failure_classes.append("environment_preconditions_not_met")
 
-    if profile == "autonomous":
+    if profile in merge_authority_profiles:
         if not gh_token_present:
             reasons.append("gh_token_absent")
             failure_classes.append("autonomous_profile_preconditions_not_met")
@@ -402,8 +412,9 @@ def verify_preflight(
                 reasons.extend([f"branch_protection: {r}" for r in bp_reasons])
                 failure_classes.append("autonomous_profile_preconditions_not_met")
 
-    # strict profile: log warnings via reasons but don't fail the verdict
-    valid = (profile != "autonomous") or (len(failure_classes) == 0)
+    # Proposal-class profiles: log warnings via reasons but don't fail the
+    # verdict. Only merge-class authority hard-fails on its own preconditions.
+    valid = (profile not in merge_authority_profiles) or (len(failure_classes) == 0)
 
     return PreflightVerdict(
         valid=valid,

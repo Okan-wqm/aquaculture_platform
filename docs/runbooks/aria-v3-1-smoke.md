@@ -91,7 +91,6 @@ ARIA_DRY_RUN=true CLAUDE_CODE_MOCK=true \
     --max-rounds 2 \
     --max-budget-usd-per-run 10.00 \
     --max-budget-usd-per-cycle 1.50 \
-    --implementer-poll-seconds 60 \
   2>&1 | tee "$SMOKE_DIR/v31-f-smoke.log"
 ```
 
@@ -306,7 +305,6 @@ PYTHONPATH=aria-kernel:. python3 -m aria_kernel autonomy run \
     --max-rounds 3 \
     --max-budget-usd-per-run 45.00 \
     --max-budget-usd-per-cycle 1.50 \
-    --implementer-poll-seconds 1800 \
   2>&1 | tee "/tmp/v10-3-b-endurance-$(date +%Y%m%d-%H%M%S).log"
 ```
 

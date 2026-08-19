@@ -10251,3 +10251,25 @@ This is the third instance of one class in this file: **an honest mechanism work
 Pinned in `tests/invariants/production-ops-proof-contract.spec.ts`: the jobs probe is present, it is gated on `cancelled`, and the total-count test is the acceptance rule. Verified by deliberate breakage — reverting the workflow reds the spec.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+## ORPHAN-HIGH-748 — the WAL freshness lane has never run: 730 runs, zero jobs, since birth — OPEN (decisive experiment shipped)
+
+Severity: HIGH (the lane that proves production WAL archiving is fresh has never produced a single verdict, and its permanent incident masks the watchdog's other signals). Measured 2026-08-19: `database-wal-archive-freshness.yml` has **730 runs, of which 100% concluded `cancelled` with `total_count: 0` jobs**. Each run's `updated_at` is exactly the next run's `created_at` — every run sits `pending` until the following one evicts it, and the one at the head never starts.
+
+**Hypotheses eliminated by measurement, not by argument:**
+
+| Suspect                            | How it was ruled out                                                                                                                                                              |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Environment protection             | `production-backup` carries a single `branch_policy` rule and its allowed branch list contains `main`. No reviewers, no wait timer.                                               |
+| The `environment:` block itself    | `backup-production.yml` declares the **identical** `environment: {name: production-backup, deployment: false}` and runs green nightly, with artifacts.                            |
+| The `schedule` event               | A manual `workflow_dispatch` on `main` (run 32280364565) went `pending` with zero jobs exactly like the scheduled ones.                                                           |
+| Workflow disabled                  | `state: active`.                                                                                                                                                                  |
+| Another workflow sharing the group | The group string appears in no other workflow; the only other file mentioning it does so in a comment.                                                                            |
+| Something else holding the group   | Across the whole repository, the only `pending`/`queued`/`in_progress` runs at the time of measurement were this lane and an unrelated release lane in a differently-named group. |
+
+What remains is the concurrency group itself: an exclusive group with no visible holder that nevertheless never lets a run through — GitHub-side bookkeeping wedged on that group name.
+
+**This change is the experiment, and it names its own falsifier.** The concurrency group is renamed to `database-wal-archive-freshness-v2` and NOTHING else changes — not the cron, not the environment, not the job. If the lane starts producing jobs, the wedged group was the cause and this finding closes. **If runs still go `pending` with zero jobs after this lands, the group is exonerated** and the next suspect is the `*/5` cron creating runs faster than one can be scheduled; that would be a separate, separately-evidenced change.
+
+Deliberately NOT changed in the same commit: the `*/5` cron. Changing two variables at once would have made the result unreadable, and this lane has already cost 730 runs of unreadable results.
+
+**Owner:** claude (this session). **Status:** OPEN until a run of this lane creates a job.

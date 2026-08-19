@@ -10277,3 +10277,17 @@ Severity: HIGH (blocked every PR reaching the rust lane). Measured 2026-08-19, t
 **Lesson (the fourth time this class has bitten today):** an exit code names _that_ something failed, never _why_. The retry was a plausible fix for a failure mode the log did not show. Read the log before choosing the remedy.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-MEDIUM-750 — the coverage floor only ever looked down, so improvement was never captured — RESOLVED
+
+Severity: MEDIUM (nothing breaks; the platform simply cannot tell whether it is getting better, and any gain can be eaten back in silence). Every service pins a per-metric coverage floor in `tools/quality/service-coverage-baselines.json`. That pin is genuinely load-bearing — each `apps/<svc>/jest.config.ts` imports it as `coverageThreshold.global`, and `tools/quality/coverage-evidence.js` (ci-full.yml) refuses any LCOV report below it. **Both enforcements only compare downward.** A service whose coverage rises keeps the old floor: the improvement is never pinned, and the next change can spend it without a single gate noticing. A ratchet with a pawl on one side is a floor, not a ratchet.
+
+Measured 2026-08-19, the pinned line coverage: billing 53.33, auth 48.18, sensor 38.64, hr 34.29, farm 33.92, admin-api 27.27. Nobody chose those numbers as targets — they are simply where each service stood when it was pinned, and they have no mechanism to move.
+
+**Fix:** the same file gains the upward pawl. A gain of at least `RATCHET_MIN_GAIN` (1.0 point — run-to-run jitter is fractions of a point, so one point is the smallest gain that is a change in the code rather than in the weather) is an error naming the exact old and new numbers plus the command that fixes it, and `--write` re-pins measured values. `rewriteBaselines` raises and never lowers; a measurement below the pin is already an error, so `--write` cannot become the road by which a floor is quietly reduced.
+
+**What this does NOT claim.** It does not enforce "every touch to a low-coverage module must close some test debt". That rule sounds right and would be wrong in a gate: it blocks a legitimate bug fix that needs no new test, and it is trivially satisfied by writing a test that asserts nothing. What a gate can honestly enforce is that improvement is _captured_ and cannot silently regress; that new code is _covered_ is the charter's separate stage-B rule (changed-line coverage ≥80%).
+
+Pinned in `tests/invariants/coverage-evidence-contract.spec.ts`: the threshold constant, the message and its fix command, the monotonic writer, and — separately — that every baselined service actually imports the pin as its jest threshold, because a pin nothing enforces is decoration. Verified by deliberate breakage (reverting the tool reds the spec) and by four scenarios against synthetic LCOV: an unpinned +2-point gain errors with exact numbers; `--write` raises the pin; `--write` with a lower measurement is refused and the file is untouched; a +0.5-point gain does not red the build.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

@@ -209,6 +209,8 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
                     request = candidate
                     break
         if selection_error is not None:
+            # Infrastructure: the drain could not even choose work. This IS a
+            # drain failure (ORPHAN-HIGH-737 keeps this arm red on purpose).
             stop_reason = selection_error
             failed += 1
             break

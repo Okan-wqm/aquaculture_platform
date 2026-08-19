@@ -2417,7 +2417,17 @@ def main(argv: list[str] | None = None) -> int:
                 agent_id=agent_id, lease_token=lease_token,
                 reason=_release_reason,
             )
-            return 1
+            # ORPHAN-HIGH-737 — a REFUSED envelope is this executor doing its
+            # job, not failing it: the contract caught a malformed agent
+            # output, the claim is released above, the request stays pending
+            # with its Y1 retry budget, and the reason is in the ledger. The
+            # two sibling refusal arms already say so in their own comments
+            # ("refusal is a legitimate terminal — not a build failure",
+            # "a budget signal, NOT a build failure"); this one returned 1
+            # and, through the drain's `0 if failed == 0 else 1`, painted a
+            # 10-of-11 night RED — the honest-partial-red class ORPHAN-716
+            # closed for the meta-watchdog, still open here.
+            return 0
         _stage("pre_submit_validation_passed")
 
     _stage("submit_step_begin claim=" + claim_id)

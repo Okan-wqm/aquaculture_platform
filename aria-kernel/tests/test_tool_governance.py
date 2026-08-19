@@ -27,12 +27,23 @@ from aria_kernel.feedback_store import record_operator_feedback
 FAKE_RUNNER = Path(__file__).resolve().parent / "_helpers" / "fake_tool_runner.py"
 
 
+# ORPHAN-MEDIUM-738 — the happy-path budget measures the CONTRACT, not the
+# host. At 1000ms a healthy fixture tool could exceed its budget purely
+# because the machine was busy (observed at load average 10-13: a full
+# suite plus parallel agents), turning "a valid run records ok" into a
+# coin flip. 30s is still a bound — a tool that needs longer is genuinely
+# broken — while the budget-EXCEEDED path keeps its own dedicated test
+# with a deliberate 40x margin (sleep 1s against timeout_ms=25), so the
+# refusal stays proven by a case that cannot be explained by load.
+_HAPPY_PATH_TIMEOUT_MS = 30_000
+
+
 def runner(argv=None, **overrides):
     config = {
         "type": "subprocess",
         "argv": fake_tool_argv(valid_tool_output()) if argv is None else argv,
         "cwd": ".",
-        "timeout_ms": 1000,
+        "timeout_ms": _HAPPY_PATH_TIMEOUT_MS,
         "stdin_json": True,
     }
     config.update(overrides)

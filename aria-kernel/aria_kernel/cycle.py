@@ -39,7 +39,7 @@ from .goldset import propose_goldsets_for_labelled_tools
 from .judge_calibration import compute_judge_calibration
 from .proactive_priority import compute_proactive_priorities
 from .runtime_profile import ACTION_PERMISSIONS, get_profile
-from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_binding, list_tools, register_tool, utc_now, update_tools_index
+from .tool_registry import GovernanceError, append_tools_governance, append_tools_governance_once, ensure_tools_binding, list_tools, register_tool, utc_now, update_tools_index
 from .tool_runner import run_tool
 from .ledger import append_declared_jsonl
 
@@ -774,12 +774,24 @@ def run_enterprise_cycle(
     # before the terminal decision it is supposed to describe. Here it observes
     # exactly the cycle the row about to be appended describes.
     #
-    # OBSERVE-ONLY in this PR: a violation is recorded and does NOT downgrade
-    # the cycle. Every mission opened by mission_ingest starts in DISCOVERED
-    # with no next_action, so making this fail_cycle on day one would redden
-    # the nightly for the expected state of brand-new missions rather than for
-    # anything wrong. The promotion to a cycle-downgrading gate belongs with
-    # the scheduler that gives missions their next_action.
+    # OBSERVE-ONLY, and the reason is no longer the one written here before.
+    # That reason was "every mission opened by mission_ingest starts in
+    # DISCOVERED with no next_action" — false since ORPHAN-MEDIUM-730: ingest
+    # mints under a closure contract read off the candidate, and a
+    # non-terminal transition that does not restate the contract is refused,
+    # so neither producer can create a violation any more.
+    #
+    # What this can still see is exactly one shape: rows written BEFORE the
+    # rule existed (5 of them, measured on the live store 2026-08-19).
+    # Downgrading the cycle for those would redden the nightly for
+    # archaeology, and for one subset it would never go green by any
+    # machine's effort — a mission a human parked in HUMAN_REQUIRED is
+    # deliberately un-healable by an unattended writer
+    # (`mission.OPERATOR_HELD_STATES`). Every other pre-rule row heals the
+    # next time a producer re-observes it, which makes the promotion
+    # CONDITION concrete rather than a phase name: this becomes a
+    # cycle-downgrading gate when the only violations left are the
+    # operator-held ones, and that is a state the ledger can prove.
     #
     # Fail-soft on its own error for the same reason the continuity gate is:
     # a closure check that CRASHED did not observe a clean cycle, but it must
@@ -1370,6 +1382,14 @@ def _phase_mission_ingest(context: PhaseContext) -> dict[str, Any]:
     Adoption is idempotent by mission identity, so a candidate re-discovered
     on a later night folds into the mission it already opened. That is the
     whole point of PR 1.1's identity rule, and this is what consumes it.
+
+    ORPHAN-MEDIUM-730 — and this is the phase that wrote every row on the live
+    mission store (5 contract-less ``opened`` events, measured 2026-08-19), so
+    it is where the closure contract had to become reachable rather than
+    merely required elsewhere: a candidate whose own source cannot name a next
+    action is refused and disclosed, and re-adoption HEALS the rows this phase
+    wrote before the rule existed. The result reports ``healed`` because a
+    night that repaired a stuck mission did real work.
     """
     return adopt_task_candidates(
         cycle_id=context.cycle_id,
@@ -1867,13 +1887,130 @@ def _phase_service_examination(context: PhaseContext) -> dict[str, Any]:
 
 
 # The four core services, in the risk order the service-audit program set
-# (charter M-5.1). These are seeded even on a quiet night; every other
-# service earns its mission from examination evidence (changed files or
-# scoped pressures), so the mission ledger grows with reality instead of
-# opening 17 parallel fronts on day one.
+# (charter M-5.1). The list sets the ORDER and the priority floor of the
+# hardening program; every other service earns its place from examination
+# evidence (changed files or scoped pressures), so the mission ledger grows
+# with reality instead of opening 17 parallel fronts on day one.
+#
+# ORPHAN-MEDIUM-730 REWROTE WHAT MEMBERSHIP BUYS, AND WHAT IT STILL OWES.
+# Core services used to be MINTED even on a quiet night: with no findings, no
+# pressures and no diff there is nothing to name as a next action and nothing
+# to name as a wake, so the mint would produce exactly the row the closure
+# gate exists to report. (The live store's 5 paralysed rows came from the
+# ingest path, not from here — this phase had never produced one. The rule is
+# right regardless of which producer proved it.)
+#
+# What membership buys now: a core service is CONSIDERED first and priced
+# lowest. What it still owes, and what charter M-5.1 actually demands, is that
+# a core service is NEVER SILENTLY SKIPPED — so on a quiet night each of the
+# four is disclosed as a `service_mission_refused` row carrying ``core: true``
+# rather than minted or dropped. The successor pin
+# `test_core_services_are_considered_and_disclosed_on_a_quiet_night` holds
+# that obligation; the disclosure is what keeps "ARIA declined to harden
+# auth-service tonight" distinguishable from "ARIA never looked at it".
 SERVICE_HARDENING_CORE: tuple[str, ...] = (
     "auth-service", "billing-service", "farm-service", "sensor-service",
 )
+
+
+def _service_closure_contract(
+    project: str,
+    *,
+    pressures: list[dict[str, Any]],
+    changed_paths: list[str],
+    finding_ids: list[str],
+) -> tuple[str, dict[str, Any], str] | None:
+    """The forward pointer for a service-hardening mission, or ``None``.
+
+    ORPHAN-MEDIUM-730 — `mission.open_mission` now refuses a mint without
+    ``next_action`` + ``wake_condition``, so this function is what decides
+    whether the service HAS a mission at all. Every branch names a real
+    identifier the seeded service actually owns; nothing here composes a
+    stand-in, because a mission whose wake key names no evidence is exactly
+    the row the closure gate exists to report.
+
+    ATTRIBUTION DOES NOT HAPPEN HERE. ``changed_paths`` and ``finding_ids``
+    arrive already attributed to THIS project by the caller, through
+    `impact_graph.project_for_path` — the same longest-root-prefix rule that
+    produced the nx project names this function is handed. The first version
+    asked `service_dimension.service_for_path` instead: that vocabulary emits
+    ``shared:<lib>`` / ``web:<app>`` / ``None`` and can never produce 54 of
+    this repository's 71 nx project names, so for those 54 the seeder wrote a
+    governance row claiming no derivable evidence about the very paths that
+    had just selected the project. Two path -> project vocabularies deciding
+    whether a mission exists is one more than the number of correct answers.
+
+    THE TIER ORDER IS READ OFF `mission_scheduler.SOURCE_RANK` — literally,
+    not in prose. That table is this repo's statement of evidence authority
+    (a confirmed finding outranks a pressure); a changed path is evidence but
+    not a mission source at all, so it ranks strictly below every source that
+    is. Reordering SOURCE_RANK reorders these tiers with it instead of
+    leaving two orders to drift apart.
+
+    Returns ``(next_action, wake_condition, contract_source)``.
+    """
+    from .mission_scheduler import SOURCE_RANK
+
+    # (rank, contract_source, next_action, wake_condition)
+    candidates: list[tuple[int, str, str, dict[str, Any]]] = []
+
+    # A confirmed open defect this service owns. Ordered by finding_id
+    # alone: two severity vocabularies live in this kernel
+    # (`finding.SEVERITY_RANK` is uppercase INFORMATIONAL..HIGH, tool
+    # findings carry lowercase critical..low), so choosing one to sort by
+    # here would fork it. The action names the COUNT and the agent triages.
+    findings = sorted(set(finding_ids))
+    if findings:
+        candidates.append((
+            SOURCE_RANK["finding"],
+            "open_finding",
+            f"Harden {project} against its {len(findings)} open finding(s), "
+            f"starting with {findings[0]}",
+            {"kind": "evidence", "key": f"finding:{findings[0]}"},
+        ))
+
+    # A pressure this cycle scoped onto the service. Only a pressure that
+    # carries its own id qualifies: an id-less pressure would force a key
+    # naming the service instead of the evidence, and every such mission
+    # would then share one handle.
+    identified = sorted(
+        (
+            str(pressure.get("pressure_id"))
+            for pressure in pressures
+            if isinstance(pressure, dict)
+            and isinstance(pressure.get("pressure_id"), str)
+            and pressure["pressure_id"].strip()
+        )
+    )
+    if identified:
+        candidates.append((
+            SOURCE_RANK["pressure"],
+            "scoped_pressure",
+            f"Examine {project} against the {len(identified)} pressure(s) scoped "
+            f"to it this cycle, starting with {identified[0]}",
+            {"kind": "evidence", "key": f"pressure:{identified[0]}"},
+        ))
+
+    # The service moved this cycle. A changed path is evidence but not a
+    # mission source, so it cannot appear in SOURCE_RANK at all; ranking it
+    # one step below the weakest ranked source keeps it last WITHOUT pinning
+    # a number that a future source could quietly overtake.
+    mine = sorted(set(changed_paths))
+    if mine:
+        candidates.append((
+            max(SOURCE_RANK.values()) + 1,
+            "changed_path",
+            f"Review the {len(mine)} path(s) changed in {project} this cycle "
+            f"against charter D1-D6, starting with {mine[0]}",
+            {"kind": "evidence", "key": f"changed_path:{mine[0]}"},
+        ))
+
+    if not candidates:
+        return None
+    _, contract_source, next_action, wake_condition = min(
+        candidates, key=lambda candidate: (candidate[0], candidate[1])
+    )
+    return next_action, wake_condition, contract_source
 
 
 def _phase_service_mission_seed(context: PhaseContext) -> dict[str, Any]:
@@ -1888,6 +2025,23 @@ def _phase_service_mission_seed(context: PhaseContext) -> dict[str, Any]:
 
     Idempotent by mission identity: re-seeding a service folds into the
     mission it already opened.
+
+    ORPHAN-MEDIUM-730 — AND WHAT THE MEASUREMENT ACTUALLY SAID. An earlier
+    revision of this docstring named this phase "the producer of the paralysed
+    store: 28 mission events against 27 violations". Re-measured on
+    2026-08-19: the store holds 5 ``opened`` events, ``pressure`` x2 and
+    ``shadow_run_summary`` x3 — every one from `mission.adopt_task_candidates`
+    and NONE from here, with one recorded ``mission_closure_violation`` row
+    naming those five. This phase had produced nothing live; the rule it
+    adopts is still the right one, but it is not the confession it claimed.
+
+    It mints ONLY what it can also drive: `_service_closure_contract` derives
+    the forward pointer from the service's own findings / pressures / diff,
+    and a service that yields none is disclosed as a governance refusal
+    rather than minted as a mission nothing can advance. Re-seeding also
+    HEALS — through `open_mission`, which installs a contract on any
+    contract-less mission it re-opens, so the rule lives at the mint for both
+    producers instead of being copied into each phase.
     """
     from .mission import open_mission
 
@@ -1924,17 +2078,150 @@ def _phase_service_mission_seed(context: PhaseContext) -> dict[str, Any]:
     # more-central service gets a LOWER (stronger) priority. Graph absent →
     # empty scores → stable fallback to enumeration order within the band.
     centrality: dict[str, float] = {}
+    # The path -> project map the EXAMINATION used to name these very targets.
+    # Attribution and centrality come out of ONE read of ONE cache on purpose:
+    # a second path->project reader can disagree with the reader that chose
+    # the targets, and that disagreement is not academic — the first version
+    # of this phase attributed with `service_dimension.service_for_path`,
+    # which cannot name 54 of this repository's 71 nx projects, so it wrote
+    # "no derivable evidence" rows about the exact paths that had selected
+    # those projects.
+    project_roots: dict[str, str] = {}
     try:
         from .calibrated_intelligence import pagerank
         from .impact_graph import cached_service_analysis_order
 
-        cache = cached_service_analysis_order(context.workspace_root)
+        # `cached_service_analysis_order` is keyword-only. The pre-730 call
+        # passed the root POSITIONALLY, so every invocation raised TypeError
+        # into the handler below and the Z4b band silently never applied —
+        # dead code wearing a live comment. TypeError is out of the handler
+        # for the same reason: an absent graph is OSError/ValueError, a bad
+        # call is a defect and must not be absorbed as "graph absent".
+        cache = cached_service_analysis_order(
+            workspace_root=context.workspace_root, base_dir=context.base_dir
+        )
+        project_roots = {
+            name: root
+            for name, root in (cache.get("project_roots") or {}).items()
+            if isinstance(name, str) and isinstance(root, str) and root.strip()
+        }
         centrality = pagerank(cache.get("dependencies") or {})
-    except (OSError, ValueError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError):
         centrality = {}
+    from .impact_graph import project_for_path
+
+    diff = context.result("cycle_diff")
+    changed_paths = [
+        path
+        for path in ((diff.get("changed_paths") if isinstance(diff, dict) else None) or [])
+        if isinstance(path, str) and path.strip()
+    ]
+    changed_by_project: dict[str, list[str]] = {}
+    for path in changed_paths:
+        owner = project_for_path(path, project_roots)
+        if owner:
+            changed_by_project.setdefault(owner, []).append(path)
+    # The open findings, grouped by PROJECT once. The paths come from
+    # `service_dimension.finding_dimension_paths` — the E15-c collector that
+    # mint-time and read-time both use, so the seeder cannot disagree with the
+    # findings ledger about which paths a finding cites — and the project
+    # comes from the same `project_for_path` the changed paths went through.
+    # Grouping here rather than filtering per project also keeps the ledger
+    # read at one pass instead of one per target service.
+    from .feedback_store import list_findings
+    from .service_dimension import finding_dimension_paths
+
+    open_findings = list_findings(status="open", base_dir=context.base_dir)
+    findings_by_project: dict[str, list[str]] = {}
+    for finding_row in open_findings:
+        finding_id = finding_row.get("finding_id")
+        if not isinstance(finding_id, str) or not finding_id.strip():
+            continue
+        document = finding_row.get("finding")
+        cited = finding_dimension_paths(document if isinstance(document, dict) else {})
+        for path in cited:
+            owner = project_for_path(path, project_roots)
+            if owner and finding_id not in findings_by_project.setdefault(owner, []):
+                findings_by_project[owner].append(finding_id)
     seeded: list[dict[str, Any]] = []
+    refused: list[dict[str, Any]] = []
     for rank, project in enumerate(targets):
         pressures_here = per_service.get(project) or []
+        project_changed = changed_by_project.get(project) or []
+        project_findings = findings_by_project.get(project) or []
+        contract = _service_closure_contract(
+            project,
+            pressures=pressures_here,
+            changed_paths=project_changed,
+            finding_ids=project_findings,
+        )
+        if contract is None:
+            # The honest outcome: no evidence names a next action or a wake,
+            # so there is no mission to open. Disclosed rather than dropped —
+            # a service ARIA declined to harden is an operator-visible fact,
+            # and a silent skip is indistinguishable from a service that was
+            # never considered.
+            #
+            # A refusal may only state what this phase actually MEASURED.
+            # With no project map there was nothing to measure against, so
+            # asserting "no derivable evidence" while a diff and a findings
+            # ledger sit unattributed would be the disclosure claiming a
+            # result the cycle never computed. That is a different fact and
+            # it gets a different reason.
+            reason = (
+                "project_attribution_unavailable"
+                if not project_roots and (changed_paths or open_findings)
+                else "no_derivable_closure_contract"
+            )
+            row = {
+                "schema_version": 1,
+                "cycle_id": context.cycle_id,
+                "project": project,
+                "reason": reason,
+                "core": project in SERVICE_HARDENING_CORE,
+                "scoped_pressures": len(pressures_here),
+            }
+            if reason == "project_attribution_unavailable":
+                # A CENSUS IS A MEASUREMENT, so it may only report one that
+                # was made. With no project map, ``project_changed`` and
+                # ``project_findings`` are empty because nothing could be
+                # attributed — reporting them as "changed_paths: 0 /
+                # open_findings: 0" would state an absence this phase never
+                # observed while it holds the evidence unattributed in its
+                # hand. It reports the totals it DOES hold instead.
+                row["unattributed_changed_paths"] = len(changed_paths)
+                row["unattributed_open_findings"] = len(open_findings)
+            else:
+                row["changed_paths"] = len(project_changed)
+                row["open_findings"] = len(project_findings)
+            # Disclosed ONCE per standing fact. An unchanged refusal
+            # re-appended every night is the same weather-reporting the
+            # closure gate was doing — measured at 4 identical rows per cycle
+            # on an evidence-free night, forever. A refusal whose reason or
+            # census CHANGED is a different fact and gets its own row.
+            #
+            # Nothing is hidden by the silence: this phase declares
+            # `state_key="service_mission_seed"`, so the complete `refused`
+            # list below is projected into EVERY cycle's persisted state, and
+            # `newly_disclosed` says which of them the governance ledger
+            # learned tonight. The dedupe removes repetition from the
+            # audit trail, not the fact from the cycle record.
+            disclosure = append_tools_governance_once(
+                context.base_dir,
+                "service_mission_refused",
+                row,
+                claim_keys=(
+                    "project", "reason", "core", "scoped_pressures",
+                    "changed_paths", "open_findings",
+                    "unattributed_changed_paths", "unattributed_open_findings",
+                ),
+            )
+            refused.append({
+                **{k: v for k, v in row.items() if k != "schema_version"},
+                "newly_disclosed": bool(disclosure["appended"]),
+            })
+            continue
+        next_action, wake_condition, contract_source = contract
         if project in SERVICE_HARDENING_CORE:
             priority = rank
         elif centrality:
@@ -1950,22 +2237,35 @@ def _phase_service_mission_seed(context: PhaseContext) -> dict[str, Any]:
                 f"Harden {project}: secure/performant/sustainable/testable/"
                 f"documented/correct (charter D1-D6)"
             ),
+            next_action=next_action,
+            wake_condition=wake_condition,
             capability="service_hardening",
             priority=priority,
             target_project=project,
             base_dir=context.base_dir,
         )
+        # The heal verdict comes from `open_mission`: a mission opened before
+        # the contract was required gets one installed on re-open, and one a
+        # HUMAN parked keeps the operator's sentence. This phase reports that
+        # verdict rather than re-deciding it — the seed phase and the ingest
+        # path would otherwise hold two copies of the same rule, and the copy
+        # here was the one that overwrote an operator (`heal_declined` names
+        # that case explicitly so a declined heal is visible, not silent).
         seeded.append({
             "project": project,
-            "mission_id": result.get("mission_id"),
+            "mission_id": str(result.get("mission_id")),
             "idempotent": bool(result.get("idempotent")),
             "scoped_pressures": len(pressures_here),
             "priority": priority,
             "centrality": round(centrality.get(project, 0.0), 6) if centrality else None,
+            "contract_source": contract_source,
+            "contract_healed": bool(result.get("healed")),
+            "heal_declined": result.get("heal_declined"),
         })
     return {
         "status": "completed",
         "seeded": seeded,
+        "refused": refused,
         "core": list(SERVICE_HARDENING_CORE),
         "evidence_backed": evidence_backed,
     }

@@ -10229,6 +10229,7 @@ Severity: HIGH (would have shared the persistent ARIA workspace). ORPHAN-736 mov
 One pin followed its mechanism (İ2): `test_exempt_lanes_earned_it_with_a_scoped_checkout` required EVERY job of an exempt lane to scope its checkout, including github-hosted ones. A hosted job runs in a fresh VM and cannot reach the store, so the requirement is now scoped to self-hosted jobs — what the rule always meant — plus a floor assertion that an exemption with no self-hosted checkout to earn it is a hole.
 
 **Owner:** claude (this session). **Status:** RESOLVED (4 Z1 pins green).
+
 ## ORPHAN-HIGH-734 — the nightly cycle can spend its whole budget waiting for an executor that is queued behind it — OPEN (CL-4 review round 2, 2026-08-19)
 
 Severity: HIGH (throughput; activated, not caused, by ORPHAN-HIGH-728). `cycle_phases/implementer.py` polls the plan ledger for an implementation outcome up to `implementer_poll_seconds` (kernel default `1800.0`, `autonomy_orchestrator.py`) inside a night whose `--cycle-deadline-seconds` is also `1800`. The answer can never arrive in-run: the aria-agent-executor lane that drains the envelope is serialized behind the SAME `concurrency: aria-selfhosted-workspace` group as the producer (`aria-auto-cycle.yml`), so it cannot start until the cycle job finishes. Before ORPHAN-HIGH-728 the path was unreachable (the nightly lane ran `standard`, which got a NoOp runner); with strict reachable, every CONVERGED strict night would burn its entire budget to an `IMPLEMENTATION_TIMEOUT`.

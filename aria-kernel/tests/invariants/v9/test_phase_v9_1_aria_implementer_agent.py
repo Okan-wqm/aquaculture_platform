@@ -177,6 +177,109 @@ class TestV9ImplementerAgentFile(unittest.TestCase):
             )
 
 
+class TestV9ImplementerRunnerSelectionIsDerived(unittest.TestCase):
+    """I-V9-IMPL-03 (ORPHAN-HIGH-728) — the agent above only ever runs if a
+    runner selects it, and that selection must READ the profile table rather
+    than restate it.
+
+    The behaviour is pinned in `tests/test_runtime_profile.py` by revoking
+    `pr_create` in the table and watching the factory demote. This is the
+    structural half: a factory that compares profile NAMES is a second copy
+    of the authority mapping regardless of whether today's copy happens to
+    agree, and the copy is what drifted — `strict` refused implementation
+    while the table granted it `pr_create`/`pr_open`, so the whole V9 agent
+    contract this file guards was unreachable from every profile the nightly
+    lane ever ran under.
+    """
+
+    def _factory_ast(self):
+        import ast
+
+        from aria_kernel.cycle_phases import implementer
+
+        tree = ast.parse(Path(implementer.__file__).read_text(encoding="utf-8"))
+        return next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "select_v9_implementation_runner"
+        )
+
+    def test_factory_reads_the_permission_table(self):
+        """The factory must SUBSCRIPT `ACTION_PERMISSIONS`, structurally.
+
+        The import line this used to assert as text was red on a reformat
+        and green on an import that nothing then used. What makes the
+        selection derived is the READ, so the read is what is matched — by
+        name in the factory's own tree, not by the shape of the line that
+        brought the name into scope.
+        """
+        import ast
+
+        subscripted = {
+            node.value.id
+            for node in ast.walk(self._factory_ast())
+            if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name)
+        }
+        self.assertIn(
+            "ACTION_PERMISSIONS", subscripted,
+            "runner selection does not read the profile table",
+        )
+
+    def test_factory_does_not_test_profile_names(self):
+        """No comparison of `profile` against NAME LITERALS in the factory.
+
+        Equality is one shape of the defect; membership in a literal tuple
+        (`profile in ("strict", "autonomous")`) is the same defect with a
+        second name in it, and the first version of this pin walked straight
+        past it — a reviewer re-introduced exactly that drift and this test
+        stayed green. Both forms are rejected now, and the permitted form
+        (`profile in ACTION_PERMISSIONS[...]`) survives untouched because its
+        right-hand side is a subscript of the SSoT, not a literal anyone can
+        edit here.
+        """
+        import ast
+
+        literal_containers = (ast.Tuple, ast.List, ast.Set)
+        offenders: list[str] = []
+        for node in ast.walk(self._factory_ast()):
+            if not (
+                isinstance(node, ast.Compare)
+                and isinstance(node.left, ast.Name)
+                and node.left.id == "profile"
+            ):
+                continue
+            for operator, comparator in zip(node.ops, node.comparators):
+                if isinstance(operator, (ast.Eq, ast.NotEq)) and isinstance(
+                    comparator, ast.Constant,
+                ):
+                    offenders.append(f"== {comparator.value!r}")
+                elif isinstance(operator, (ast.In, ast.NotIn)) and isinstance(
+                    comparator, literal_containers,
+                ):
+                    offenders.append(
+                        "in "
+                        + repr([
+                            element.value for element in comparator.elts
+                            if isinstance(element, ast.Constant)
+                        ])
+                    )
+        self.assertEqual(
+            offenders, [],
+            "runner selection compares the profile NAME "
+            f"({offenders}); derive it from ACTION_PERMISSIONS instead "
+            "(ORPHAN-HIGH-728)",
+        )
+
+    def test_the_refusing_variant_is_gone(self):
+        """İ2 — a runner that refuses implementation under a profile granted
+        `pr_create` had no producer that could ever satisfy it. Removed with
+        reasoning in `cycle_phases/implementer.py`; a re-export means it came
+        back."""
+        from aria_kernel import cycle_phases
+
+        self.assertFalse(hasattr(cycle_phases, "StrictV9ImplementationRunner"))
+
+
 class TestV9ImplementerHashRegistry(unittest.TestCase):
     """I-V9-IMPL-02 — sha256 of aria-implementer.md pinned by
     IMMUTABLE_AGENT_FILE_HASH_REGISTRY in implementation_safety.

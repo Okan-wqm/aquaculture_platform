@@ -140,12 +140,23 @@ class V9PressureSourceProvider:
     bypassed when ORPHAN/F-finding ranking pulled it down + the
     operator's high-priority row missed a content field.
 
-    Profile-aware fail-fast (closes H-14): under `profile ==
-    "autonomous"` the provider raises GovernanceError when ALL V9.4
-    candidates fail conversion. The autonomous gate is operator-
-    explicit; a silent V7 fallback would mask the V9.4 surface
-    incompletely shipped. Under strict/standard/observe/frozen the
-    provider falls through to the V7 git_diff fallback.
+    Authority-aware fail-fast (closes H-14, ORPHAN-HIGH-728): when ALL
+    V9.4 candidates fail conversion, a profile that can LAND its own work
+    unattended — one holding ``pr_merge`` in
+    ``runtime_profile.ACTION_PERMISSIONS``, i.e. the merge-class authority,
+    read from the table rather than compared against the name
+    ``"autonomous"`` — raises GovernanceError. Nothing downstream would see
+    that the plan it implements and merges was synthesised from a git diff
+    instead of the pressure candidate that was selected, and there is no
+    reviewer between it and `main` to notice.
+
+    A profile that can only PROPOSE falls through to the V7 git_diff
+    fallback, and the fall is DECLARED: `plan_source_v7_fallback_engaged`
+    lands before the delegation. The substitution then reaches a human on
+    the pull request the profile is limited to opening, which is the whole
+    difference between the two cases. Silence was the defect —
+    `strict` began implementing under ORPHAN-HIGH-728 and a soft-fall that
+    emits nothing is indistinguishable from a candidate that converted.
 
     Tier-1 anchor: the per-candidate `plan_candidate_conversion_skipped`
     governance event lands EVERY skip, so the operator audit trail
@@ -194,8 +205,13 @@ class V9PressureSourceProvider:
                     "source_type": candidate.get("source_type"),
                 },
             )
-        # All V9.4 candidates failed conversion.
-        if profile == "autonomous":
+        # All V9.4 candidates failed conversion. Merge-class authority is
+        # read from the SSoT table: a second copy of "which profiles are
+        # dangerous" is the ORPHAN-HIGH-728 defect class, and this branch is
+        # one of the copies it left behind.
+        from ..runtime_profile import ACTION_PERMISSIONS
+
+        if profile in ACTION_PERMISSIONS["pr_merge"]:
             append_tools_governance(
                 base_dir, "autonomy_orchestrator_refused",
                 {
@@ -208,7 +224,18 @@ class V9PressureSourceProvider:
                 f"v9_4_source_conversion_failed_for_all_candidates: "
                 f"{attempted} attempted"
             )
-        # Non-autonomous: soft-fall to V7 git_diff (preserves V8 behavior).
+        # Proposal-class authority: soft-fall to V7 git_diff (preserves V8
+        # behaviour), DECLARED so the substitution is auditable and visible
+        # to the reviewer of the PR this cycle may open.
+        append_tools_governance(
+            base_dir, "plan_source_v7_fallback_engaged",
+            {
+                "cycle_id": cycle_id,
+                "profile": profile,
+                "attempted": attempted,
+                "reason": "v9_4_source_conversion_failed_for_all_candidates",
+            },
+        )
         return self._fallback.synthesize(
             cycle_id=cycle_id,
             workspace_root=workspace_root,

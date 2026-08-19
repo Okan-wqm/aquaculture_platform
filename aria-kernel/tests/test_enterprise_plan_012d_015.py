@@ -69,7 +69,7 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
             "strict",
             operator_approval_ref="test:plan-020-phase-1.B:enterprise-012d",
             base_dir=self.tools_dir,
-            set_by="test-fixture",
+            set_by="operator",
         )
 
     def tearDown(self):

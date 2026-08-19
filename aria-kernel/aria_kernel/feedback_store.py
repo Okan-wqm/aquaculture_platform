@@ -15,6 +15,20 @@ from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
 FEEDBACK_VERDICTS = ("true_positive", "false_positive")
+
+# ORPHAN-CRITICAL-735 — the CLOSED vocabulary of consensus-uncertainty
+# reasons. Every _consensus_uncertainty call site below uses a member;
+# the agent-arbiter bridge (judgment_bridge) validates against THIS
+# tuple, so the deterministic engine and the agent lane cannot drift
+# apart on what counts as a legitimate non-verdict outcome.
+CONSENSUS_UNCERTAINTY_REASONS = (
+    "conformal_abstain",
+    "evidence_not_repo_verified",
+    "judge_disagreement",
+    "low_confidence",
+    "missing_confidence",
+    "single_judge",
+)
 FEEDBACK_SEVERITIES = ("low", "medium", "high", "critical")
 FEEDBACK_SOURCE_TYPES = ("human", "ai_judge", "ai_consensus")
 JUDGMENT_STRATEGIES = ("stratified_by_uncertainty", "stratified_by_rule", "random")
@@ -1175,6 +1189,57 @@ def _feedback_cycle(row: dict[str, Any], base_dir: str | Path | None) -> str | N
         if run.get("run_id") == run_id:
             return str(run.get("cycle_id") or "")
     return None
+
+
+def record_consensus_uncertainty(
+    *,
+    tool_id: str,
+    run_id: str,
+    finding_id: str,
+    group_id: str,
+    reason: str,
+    cycle_id: str | None = None,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """ORPHAN-CRITICAL-735 — the ONE public producer of a consensus
+    uncertainty, shared by the deterministic engine's caller and the
+    agent-arbiter bridge.
+
+    The live arbiter did its job correctly ("the two judges disagree —
+    uncertainty, reason judge_disagreement", exactly as its contract and
+    the engine it mirrors specify) and the Y5 bridge contract burned the
+    claim as `judge_verdict.verdict:invalid:None` — the fourth instance
+    of the kernel minting an outcome its own law refuses. The fix is one
+    producer: the same row shape, the same ledger, the same idempotent
+    escalation_id, so `sweep_consensus_uncertainties_for_human_required`
+    drains BOTH lanes into one operator-triage record.
+    """
+    if reason not in CONSENSUS_UNCERTAINTY_REASONS:
+        raise GovernanceError(
+            f"unregistered_consensus_uncertainty_reason: {reason!r} — the "
+            "vocabulary is CONSENSUS_UNCERTAINTY_REASONS (closed)"
+        )
+    row = _consensus_uncertainty(tool_id, run_id, finding_id, group_id, reason)
+    uncertainties_path = (
+        ensure_tools_dir(base_dir) / "feedback-consensus-uncertainties.jsonl"
+    )
+    seen: set[str] = set()
+    for logged in load_jsonl(uncertainties_path) if uncertainties_path.exists() else []:
+        for item in logged.get("uncertainties") or []:
+            if item.get("escalation_id"):
+                seen.add(str(item["escalation_id"]))
+    if str(row.get("escalation_id")) not in seen:
+        append_jsonl(
+            uncertainties_path,
+            {
+                "schema_version": 1,
+                "recorded_at": utc_now(),
+                "tool_id": tool_id,
+                "cycle_id": cycle_id,
+                "uncertainties": [row],
+            },
+        )
+    return row
 
 
 def _consensus_uncertainty(

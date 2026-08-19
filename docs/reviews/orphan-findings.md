@@ -10236,6 +10236,24 @@ The stamp is now parsed ONCE, at the decision, by `plan_convergence.decide_orpha
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
+## ORPHAN-CRITICAL-735 — the arbiter's legitimate "no consensus" answer was a contract violation: uncertainty becomes a first-class arbitration outcome — RESOLVED (measured live)
+
+Severity: CRITICAL (starves the panel pipeline; sibling of -708/-719/-734 — fourth instance of the kernel minting an outcome its own law refuses). Measured: bridge ledger 2026-08-19T07:22, role `consensus_arbitration`, `judge bridge contract violation: judge_verdict.verdict:invalid:None`. The arbiter had done its job CORRECTLY — its output artifact reads "the consensus gate cannot be met: the two judges disagree, so the result is an uncertainty with reason `judge_disagreement`" — which is exactly what its agent contract ("return details.consensus, or the uncertainty reason when the consensus gate cannot be met") and the deterministic engine it mirrors (`generate_ai_consensus` → `_consensus_uncertainty`) both specify. The Y5 bridge contract knew only binary verdicts, so the correct answer burned the claim and the split escalated nowhere.
+
+**Fix:** one producer, one vocabulary, one ledger. `CONSENSUS_UNCERTAINTY_REASONS` becomes the CLOSED, exported vocabulary (the six reasons the deterministic engine already emits); `record_consensus_uncertainty` is the ONE public producer (same row shape, same `feedback-consensus-uncertainties.jsonl`, same idempotent `escalation_id`, refusing an unregistered reason by name). The Y5 contract admits a verdictless consensus block IFF role is `consensus_arbitration` and the reason is in the vocabulary — binary judges stay bound to binary verdicts. The fold routes that shape through the shared producer and returns a `consensus_uncertainty` row; it never writes an ai_judge feedback row (an uncertain arbitration is not a verdict). `sweep_consensus_uncertainties_for_human_required` now drains BOTH lanes into one operator-triage record.
+
+Pinned: contract admits the arbiter's uncertainty; binary judge with the same shape still violates; fold writes the shared row and no feedback row; idempotent per distinct failure; unregistered reason refused by name at producer AND contract; vocabulary pinned closed.
+
+**Owner:** claude (this session). **Status:** RESOLVED (6-test battery + 152 judge/consensus/feedback neighbours green).
+
+## ORPHAN-MEDIUM-738 — the happy-path tool-governance test measured the machine, not the contract — RESOLVED
+
+Severity: MEDIUM (a load-sensitive pin that turns an unrelated PR red). `test_tool_runner_records_valid_subprocess_output` asserts that a healthy tool run records `status == "ok"`, but the shared `runner()` fixture gave it a **1000 ms** wall-clock budget. Observed live at load average 10-13 (a full kernel suite plus parallel agents on the same box): spawning the fixture's subprocess exceeded 1 s and the run recorded `budget_exceeded`, failing a pre-push suite for a change in an unrelated module. A pin whose verdict depends on how busy the host is teaches the team to re-run instead of to read.
+
+**Fix:** the happy-path budget becomes 30 s — still a bound (a fixture tool needing longer is genuinely broken), no longer a race against the scheduler. The budget-EXCEEDED path keeps its own dedicated test with a deliberate 40× margin (a 1 s sleep against `timeout_ms=25`), so the refusal remains proven by a case that load cannot explain.
+
+**Owner:** claude (this session). **Status:** RESOLVED (35 tool-governance tests green).
+
 ## ORPHAN-HIGH-734 — the nightly cycle can spend its whole budget waiting for an executor that is queued behind it — OPEN (CL-4 review round 2, 2026-08-19)
 
 Severity: HIGH (throughput; activated, not caused, by ORPHAN-HIGH-728). `cycle_phases/implementer.py` polls the plan ledger for an implementation outcome up to `implementer_poll_seconds` (kernel default `1800.0`, `autonomy_orchestrator.py`) inside a night whose `--cycle-deadline-seconds` is also `1800`. The answer can never arrive in-run: the aria-agent-executor lane that drains the envelope is serialized behind the SAME `concurrency: aria-selfhosted-workspace` group as the producer (`aria-auto-cycle.yml`), so it cannot start until the cycle job finishes. Before ORPHAN-HIGH-728 the path was unreachable (the nightly lane ran `standard`, which got a NoOp runner); with strict reachable, every CONVERGED strict night would burn its entire budget to an `IMPLEMENTATION_TIMEOUT`.

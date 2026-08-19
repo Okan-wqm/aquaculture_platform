@@ -157,11 +157,15 @@ class WipTestBase(unittest.TestCase):
         from aria_kernel.mission import MAINLINE_STATES
 
         mission_id = mission_id_for("finding", source_id, REPO_HASH)
+        # ORPHAN-MEDIUM-730 — the mint refuses a mission with no forward
+        # pointer, so the fixture derives one from the finding it opens.
         open_mission(
             source_kind="finding",
             source_id=source_id,
             repo_hash=REPO_HASH,
             title=f"close {source_id}",
+            next_action=f"close {source_id}",
+            wake_condition={"kind": "evidence", "key": f"finding:{source_id}"},
             base_dir=self.base,
         )
         if state == "DISCOVERED":

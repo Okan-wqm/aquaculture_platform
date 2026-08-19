@@ -10146,3 +10146,15 @@ Severity: CRITICAL (blocks the 3-judge anchor Program B depends on). `dispatch_a
 Deliberate breakage: admissible-for-arbiter, still-inadmissible-for-an-ordinary-role, unrecorded-artifact-refused, tampered-artifact-refused-by-name, and the role set pinned closed (widening it must be a visible decision). The fixture builds a REAL store via `ensure_tools_dir` — the declared-surface loader was right to refuse a hand-made directory, so the fixture became production-shaped rather than the loader made lenient.
 
 **Owner:** claude (this session). **Status:** RESOLVED (360 evidence/judge/consensus/compliance tests green).
+
+## ORPHAN-HIGH-739 (SI-4) — ARIA could not see, let alone clean, the machine it lives on — RESOLVED
+
+Severity: HIGH (bit three times in one day). Measured 2026-08-19: ARIA's own litter — agent worktrees plus **8,430** abandoned `/tmp/aria-*` fixture directories left by red suite runs — took the runner from 43 GB to 33 GB free in one night; the production capacity lane refused three times against its 35 GiB floor; and no kernel mechanism noticed. `preflight.MIN_FREE_DISK_GB` refuses to START a night below its floor but never cleans and never reports, so the pressure was invisible until a human ran `df`. The scheduled-workflow watchdog does see the capacity lane, but it writes a GitHub issue whose signature ARIA's issue reader does not match — a signal with no consumer.
+
+**Fix:** a `habitat_sweep` cycle phase over a new `habitat` module, split into two obligations that must not be confused. The JANITOR removes only what ARIA produced: an owned-prefix literal (`aria-`, `aqua-`), directly under the temp root (no recursion), untouched for 3 h, never following a symlink, and reporting what it skipped as well as what it took. The PROBE measures free disk and load and decides nothing; when the post-sweep measurement is still degraded it hands the fact to `ingest_runtime_signal(source="telemetry")` — the same door the dataflow watchdog already uses — as an unverified lead, never a finding. Sweep runs BEFORE the probe on purpose: reporting litter that is about to be removed sends the operator after a number that no longer holds. The degraded threshold (40 GB) sits deliberately ABOVE the deploy lane's 35 GiB floor so ARIA is not the last to know.
+
+Pinned: only owned prefixes are removed; a running suite's fixture survives; a symlink is never followed; dry-run reports the same set it would remove; a missing temp root is not an error; the prefix list is a closed literal; an unprobeable disk is NOT degraded (the preflight's own honesty rule); a measured shortage is; the threshold stays above the deploy floor.
+
+Live measurement at implementation time: 24.31 GB free, load 8.56 on 4 CPUs → degraded=True, and a dry-run swept 162 stale directories while correctly sparing 164 fresh ones.
+
+**Owner:** claude (this session). **Status:** RESOLVED (9-pin battery + 157 cycle/phase/runtime-signal/preflight neighbours green).

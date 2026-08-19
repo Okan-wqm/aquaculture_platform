@@ -1065,6 +1065,58 @@ def _phase_watchdog(context: PhaseContext) -> dict[str, Any]:
     )
 
 
+def _phase_habitat(context: PhaseContext) -> dict[str, Any]:
+    """SI-4 — ARIA looks after the machine it lives on.
+
+    Measured 2026-08-19: the runner went 43 GB → 33 GB free in one night
+    on ARIA's OWN litter (worktrees plus 8,430 abandoned `/tmp/aria-*`
+    fixtures from red suite runs), the production capacity lane went red
+    three times against its floor, and no mechanism here noticed. The
+    preflight refuses to START a night below its floor — it never cleans
+    and never tells anyone, so the pressure stayed invisible until a
+    human ran `df`.
+
+    Sweep first, then measure: a probe that reports the litter it is
+    about to remove would send the operator chasing a number that no
+    longer holds. When the post-sweep measurement is still degraded the
+    fact goes to `ingest_runtime_signal`, the same door the dataflow
+    watchdog uses for external truth — an unverified lead, not a finding.
+    """
+    from .habitat import probe_habitat, sweep_stale_scratch
+    from .runtime_signal_bridge import ingest_runtime_signal
+
+    sweep = sweep_stale_scratch()
+    probe = probe_habitat(workspace_root=context.workspace_root)
+    signal_id = None
+    if probe["degraded"]:
+        signal = ingest_runtime_signal(
+            source="telemetry",
+            service="aria-runner",
+            summary=(
+                f"habitat degraded: {probe['free_disk_gb']} GB free after "
+                f"reclaiming {sweep.reclaimed_bytes} bytes; load "
+                f"{probe['load_average'][0]} on {probe['cpu_count']} cpus"
+            ),
+            # The habitat's evidence is the runbook that rebuilds it and
+            # the janitor that maintains it — both repo-verified paths.
+            code_refs=[
+                "docs/runbooks/aria-runner-rebuild.md",
+                "aria-kernel/aria_kernel/habitat.py",
+            ],
+            severity="high",
+            base_dir=context.base_dir,
+        )
+        signal_id = signal.get("signal_id")
+    return {
+        "swept": len(sweep.removed),
+        "reclaimed_bytes": sweep.reclaimed_bytes,
+        "skipped_recent": sweep.skipped_recent,
+        "free_disk_gb": probe["free_disk_gb"],
+        "degraded": probe["degraded"],
+        "signal_id": signal_id,
+    }
+
+
 def _phase_tools(context: PhaseContext) -> dict[str, Any]:
     """Run every dispatchable tool and summarise the runs it produced.
 
@@ -2382,6 +2434,17 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
         precondition=BACKLOG_BELOW_CAP,
         on_error="record_and_continue", state_key="watchdog_sweep",
         modes=frozenset({"standard"}),
+    ),
+
+    # SI-4 — habitat hygiene runs in EVERY mode, including burn_in: a
+    # rehearsal night fills the same disk as a real one, and the class
+    # that bit three times in one day must not be observable only on the
+    # nights ARIA is otherwise busy. No backlog precondition — cleaning
+    # up after itself is not finding-emitting work.
+    CyclePhase(
+        "habitat_sweep", "discovery", _phase_habitat,
+        on_error="record_and_continue", state_key="habitat_sweep",
+        modes=frozenset({"standard", "burn_in"}),
     ),
 
     # --- pre_tool: gates that must observe preconditions, not results ---

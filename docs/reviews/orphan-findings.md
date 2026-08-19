@@ -10331,6 +10331,7 @@ Severity: HIGH (a preflight that refuses at random blocks every production deplo
 **Fix.** A scope is measured only when it is disk-backed, and the discriminator is a **property rather than a name list**: `df` reports zero total bytes for a pseudo-filesystem and a real size for every genuine mount. Measured: `/proc` 0, `/sys` 0, `/dev` 4143394816, `/run` 832696320, `/` 165295407104. Naming procfs and sysfs instead would go stale the first time the host mounts one nobody listed — the class of defect this ledger is full of. A skipped scope is recorded as `scope_not_disk_backed` through the existing `capacity_record_unavailable` path, so the preflight still says out loud what it did not measure; and an unreadable `df` fails closed to "not disk-backed", because walking a filesystem we could not identify is exactly how this started.
 
 Verified against real paths: `/proc` and `/sys` skipped; `/dev`, `/run`, `/dev/shm`, `/` and `/var/lib/docker` measured; a nonexistent path skipped rather than walked.
+
 ## ORPHAN-HIGH-747 — the watchdog read a concurrency eviction as the lane's verdict — RESOLVED
 
 Severity: HIGH (a healthy lane is reported broken, and the noise buries the real incidents next to it). Measured 2026-08-19 on the overnight timeline of the shared `aria-selfhosted-workspace` group:

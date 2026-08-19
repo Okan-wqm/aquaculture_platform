@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .feedback_store import load_feedback
+from .feedback_store import is_ground_truth_row, load_feedback
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
@@ -44,10 +44,13 @@ def propose_goldset(
     """
     if target_true_positives <= 0 or target_known_false_positives < 0:
         raise GovernanceError("goldset targets must be positive true positives and non-negative known false positives")
+    # JJ-1 (ORPHAN-HIGH-731) — the gold corpus is what the judges are later
+    # replayed against, so admitting a 2-judge consensus here made the exam
+    # out of the pair's own answers. Anchors and operator verdicts only.
     rows = [
         row
         for row in load_feedback(tool_id=tool_id, base_dir=base_dir)
-        if row.get("source_type") in ("human", "ai_consensus", None)
+        if is_ground_truth_row(row)
     ]
     true_positives = [_gold_item(row) for row in rows if row.get("verdict") == "true_positive"]
     known_false_positives = [_gold_item(row) for row in rows if row.get("verdict") == "false_positive"]
@@ -144,7 +147,7 @@ def propose_goldsets_for_labelled_tools(
             for row in load_feedback(base_dir=root)
             if row.get("tool_id")
             and row.get("verdict") in ("true_positive", "false_positive")
-            and row.get("source_type") in ("human", "ai_consensus", None)
+            and is_ground_truth_row(row)
         }
     )
     latest: dict[str, dict[str, Any]] = {}
@@ -362,12 +365,25 @@ def load_active_goldset(
 
 def _gold_item(row: dict[str, Any]) -> dict[str, Any]:
     return {
+        # JJ-1 — the item carries its OWN provenance so the replay seed
+        # (judge_replay) re-states a fact instead of asserting an authority
+        # it never checked. Without this the replay's ground-truth anchor
+        # would have to guess its own judge_count. Both anchor numbers
+        # travel: an item that kept only judge_count could not tell a
+        # unanimous three from a three that outvoted a dissenter, which is
+        # exactly the distinction is_ground_truth_row turns on.
+        #
+        # A missing source_type is the bootstrap corpus's human label — the
+        # same default is_ground_truth_row applies to the row this item is
+        # built from, so the item restates the ledger instead of inventing.
+        "source_type": row.get("source_type") or "human",
+        "judge_count": row.get("judge_count"),
+        "judges_voted": row.get("judges_voted"),
         "run_id": row.get("run_id"),
         "finding_id": row.get("finding_id"),
         "finding_fingerprint": row.get("finding_fingerprint"),
         "verdict": row.get("verdict"),
         "severity": row.get("severity"),
-        "source_type": row.get("source_type", "human"),
         "confidence": row.get("confidence"),
         "evidence_refs": row.get("evidence_refs", []),
         "rationale": row.get("rationale") or row.get("note"),

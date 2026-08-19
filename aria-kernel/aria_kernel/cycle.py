@@ -1424,7 +1424,11 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
     from .convergence_drainer import _resolve_workspace_head_sha
     from .feedback_store import generate_ai_consensus, generate_judgment_sample
     from .genesis_policy import judgment_pipeline_policy
-    from .judge_fanout import dispatch_arbiter_for_split_verdicts, dispatch_judges_for_sample
+    from .judge_fanout import (
+        dispatch_arbiter_for_anchor_groups,
+        dispatch_arbiter_for_split_verdicts,
+        dispatch_judges_for_sample,
+    )
 
     target_sha = _resolve_workspace_head_sha(context.workspace_root)
     # Y2 (ORPHAN-704) — sample size and backlog ceiling come from policy
@@ -1532,6 +1536,22 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
             arbiter_requests += len(arbitration.get("minted") or [])
         except GovernanceError as exc:
             blocked.append({"tool_id": tool_id, "step": "arbitration", "reason": str(exc)[:200]})
+        try:
+            # JJ-1 (ORPHAN-HIGH-731) — the OTHER reason to mint the arbiter.
+            # The split arm above only fires on disagreement, so a unanimous
+            # pair walked straight into ground truth unexamined. This mints
+            # the third judge that has to try to refute it. Runs AFTER
+            # consensus so the 2-judge row (and its judge_count) already
+            # exists, and the anchor upgrade lands on the next tick.
+            anchoring = dispatch_arbiter_for_anchor_groups(
+                tool_id=tool_id,
+                base_dir=context.base_dir,
+                cycle_id=context.cycle_id,
+                target_sha=target_sha,
+            )
+            arbiter_requests += len(anchoring.get("minted") or [])
+        except GovernanceError as exc:
+            blocked.append({"tool_id": tool_id, "step": "anchoring", "reason": str(exc)[:200]})
     # D3 (Kapalı Döngü) — accepted consensus becomes a durable finding.
     # Runs AFTER the per-tool consensus loop so any row minted this cycle
     # is promotable immediately; idempotent via the promotions ledger.
@@ -2043,11 +2063,47 @@ def _phase_tool_manifest_sync(context: PhaseContext) -> dict[str, Any]:
                 "manifest": manifest_path.name,
                 "reason": str(exc)[:200],
             })
+    # JJ-2b (ORPHAN-HIGH-732) — the veto window is evaluated in the phase
+    # that ALREADY sweeps tool lifecycle/registry state, not in one of its
+    # own. Two consequences the split would have cost: the settle sees the
+    # registry exactly as this phase just re-registered it, and there is one
+    # place to look for "why is this adapter still SHADOW".
+    #
+    # Order is load-bearing. SETTLE first: an armed window whose 24h elapsed
+    # activates on this tick. SWEEP second: it opens panel questions only for
+    # adapters that are still SHADOW, so a tool activated moments ago is not
+    # asked about.
+    from .promotion_panel import sweep_promotable_adapters_for_adjudication
+    from .promotion_veto import settle_pending_promotions
+
+    # Same containment the judgment pipeline uses: a refusal in the
+    # promotion lane is RECORDED in this phase's result, never allowed to
+    # take the manifest sync (and the rest of the cycle) down with it.
+    promotion_lane_blocked: list[dict[str, str]] = []
+    veto_settlement: dict[str, Any] = {}
+    promotion_questions: dict[str, Any] = {}
+    try:
+        veto_settlement = settle_pending_promotions(
+            cycle_id=context.cycle_id, base_dir=context.base_dir,
+        )
+    except GovernanceError as exc:
+        promotion_lane_blocked.append({"step": "veto_settlement", "reason": str(exc)[:200]})
+    try:
+        promotion_questions = sweep_promotable_adapters_for_adjudication(
+            base_dir=context.base_dir, cycle_id=context.cycle_id,
+        )
+    except GovernanceError as exc:
+        promotion_lane_blocked.append({"step": "promotion_panels", "reason": str(exc)[:200]})
     return {
         "status": "synced",
         "synced_tool_ids": synced,
         "refused": refused,
         "manifest_dir": str(manifest_dir),
+        "promotions_activated": veto_settlement.get("activated") or [],
+        "promotions_pending_veto": veto_settlement.get("still_pending") or [],
+        "promotions_expired": veto_settlement.get("expired") or [],
+        "promotion_panels_opened": promotion_questions.get("opened") or [],
+        "promotion_lane_blocked": promotion_lane_blocked,
     }
 
 

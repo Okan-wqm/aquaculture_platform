@@ -887,6 +887,24 @@ def build_parser() -> argparse.ArgumentParser:
     tool_promote.add_argument("--target-status", required=True, choices=("SHADOW", "ACTIVE"))
     tool_promote.add_argument("--reason", required=True, type=_validate_reason)
     tool_promote.add_argument("--operator-approval-ref", default=None)
+    # JJ-2b (ORPHAN-HIGH-732) — the panel authority's command surface. The
+    # ref is a RESOLVED human-required adjudication id, and the kernel
+    # RESOLVES it (promotion_veto.resolve_panel_approval): a ref that names
+    # no panel-resolved tool_promotion record for this tool refuses here
+    # exactly as it refuses inside the cycle, so the CLI is not a softer
+    # door into the same authority. promote_tool arms a 24h operator veto
+    # window instead of transitioning.
+    tool_promote.add_argument(
+        "--panel-approval-ref", default=None,
+        help="request_id of a RESOLVED agent-panel tool_promotion adjudication",
+    )
+
+    # JJ-2b — the operator's one move, and only if he disagrees. Silence for
+    # 24h activates the promotion; this verb is how that silence is broken.
+    tool_veto = add_subparser(tool_sub, "veto-promotion")
+    tool_veto.add_argument("--tool-id", required=True)
+    tool_veto.add_argument("--reason", required=True, type=_validate_reason)
+    tool_veto.add_argument("--operator-ref", default=None)
 
     # FAZ 5a — the merge gate's attestation ledger finally gets a producer
     # verb. verify_runner_attestation was MANDATORY at merge and NOTHING
@@ -3015,6 +3033,17 @@ def _main(argv: list[str] | None = None) -> int:
             args.target_status,
             reason=args.reason,
             operator_approval_ref=args.operator_approval_ref,
+            panel_approval_ref=args.panel_approval_ref,
+            base_dir=args.tools_dir,
+        ), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "tool" and args.tool_command == "veto-promotion":
+        from aria_kernel.promotion_veto import veto_promotion
+        print(json.dumps(veto_promotion(
+            tool_id=args.tool_id,
+            reason=args.reason,
+            operator_ref=args.operator_ref,
             base_dir=args.tools_dir,
         ), indent=2, sort_keys=True))
         return 0

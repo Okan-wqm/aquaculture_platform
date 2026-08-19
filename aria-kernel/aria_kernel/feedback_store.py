@@ -21,6 +21,144 @@ JUDGMENT_STRATEGIES = ("stratified_by_uncertainty", "stratified_by_rule", "rando
 DEFAULT_MIN_JUDGED_SAMPLES = 10
 CONSENSUS_MIN_CONFIDENCE = 0.80
 
+# JJ-1 (ORPHAN-HIGH-731) - the ANCHOR class of consensus.
+#
+# WHY: a 2-judge consensus is two opinions that happened to agree; nothing
+# ever examined the agreement itself. Every reader that treats a consensus
+# row as GROUND TRUTH - false-positive suppression, rule_health quarantine,
+# goldset proposal, judge calibration - was therefore scoring the judge
+# fleet against the fleet's own unexamined pair, so one correlated blind
+# spot in those two judges became permanent repository "truth".
+#
+# An ANCHOR is a consensus that survived a THIRD judge (the arbiter, minted
+# even when the first two agree - that mint IS the judges-judging-judges
+# requirement). SURVIVED, not outvoted: the arbiter is minted to REFUTE the
+# pair, so counting him as backing when he refused to back is the thesis
+# inverted. Routine consensus stays 2-judge because the arbiter costs an
+# LLM call and the adapter-precision lane (tool_health.compute_metrics)
+# deliberately reads the looser set (ORPHAN-CRITICAL-643). The difference is
+# carried EXPLICITLY on the row as (judge_count, judges_voted) - how many
+# AGREED and how many VOTED - never re-derived per reader, so "is this
+# ground truth?" has exactly one answer everywhere.
+ANCHOR_MIN_JUDGE_COUNT = 3
+GROUND_TRUTH_SOURCE_TYPES = ("human", "ai_consensus")
+
+# JJ-2 (ORPHAN-HIGH-732) - how many ANCHOR judgments a tool must accumulate
+# before its precision counts as judged for promotion. Higher than
+# rule_health.MIN_JUDGED_FOR_QUARANTINE (3) because promotion is the more
+# consequential act - quarantining a rule stops noise, promoting an adapter
+# starts writing to the operator's queue - and it deliberately equals the
+# 5-run stability window the same readiness gate already demands, so a tool
+# cannot become promotable on evidence thinner than its own runtime proof.
+# Read by readiness (the gate) and by judge_fanout (the mint demand), which
+# is why it lives beside the ledger both of them read.
+ANCHOR_PROMOTION_MIN_JUDGMENTS = 5
+
+
+def _row_count(row: dict[str, Any], field: str) -> int:
+    """A non-negative integer count off a ledger row, or 0 when unprovable.
+
+    Fail-closed on absence, for the same reason readiness treats an
+    unprovable timestamp as stale: a row minted before JJ-1 carries neither
+    count, and ground-truth authority must never be inferred from a field
+    that was never written.
+    """
+    count = row.get(field)
+    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+        return 0
+    return count
+
+
+def consensus_judge_count(row: dict[str, Any]) -> int:
+    """How many judges a feedback row can PROVE stood behind it.
+
+    AGREEMENT-scoped, not attendance-scoped: only judges whose own verdict
+    equals the verdict this row settled on. The pre-fix writer counted every
+    judge who VOTED, which inverted the whole anchor thesis - under the
+    weighted lane a 2-1 majority settled at 3, so the arbiter minted
+    SPECIFICALLY TO REFUTE a pair became the third credential that promoted
+    the pair's verdict to ground truth and suppressed the finding class
+    forever. The judge that disagreed can never again be counted as backing.
+    """
+    return _row_count(row, "judge_count")
+
+
+def consensus_judges_voted(row: dict[str, Any]) -> int:
+    """How many judges VOTED on the question this row settled.
+
+    Written beside ``judge_count`` (never derived from it) so the two facts
+    the anchor rule needs - how many agreed, and whether anyone dissented -
+    are both on the row instead of re-derived per reader. Absence reads as
+    0, which makes the anchor predicate below fail closed for any row that
+    cannot say who else looked.
+    """
+    return _row_count(row, "judges_voted")
+
+
+def is_ground_truth_row(row: dict[str, Any]) -> bool:
+    """JJ-1 - may this feedback row act as GROUND TRUTH?
+
+    The operator is ACCEPTED but never REQUIRED (JJ-2): a human row is
+    ground truth unconditionally, an ai_consensus row only as an ANCHOR.
+    A missing source_type is the bootstrap corpus's human label - the
+    default this ledger has always carried.
+
+    An ANCHOR is agreement that SURVIVED a refutation attempt: at least
+    ANCHOR_MIN_JUDGE_COUNT judges agreed AND no judge who voted dissented.
+    Agreement that merely OUTVOTED a dissenter still settles the finding for
+    the adapter-precision lane (tool_health.compute_metrics reads the looser
+    set) and for nothing else - a contested question is not repository truth,
+    and the row that suppresses a finding class forever is the last place to
+    accept a majority over a live objection.
+    """
+    source_type = row.get("source_type") or "human"
+    if source_type not in GROUND_TRUTH_SOURCE_TYPES:
+        return False
+    if source_type == "human":
+        return True
+    agreed = consensus_judge_count(row)
+    return agreed >= ANCHOR_MIN_JUDGE_COUNT and consensus_judges_voted(row) == agreed
+
+
+def _judgment_key(row: dict[str, Any]) -> tuple[str, str, str]:
+    """The (run, finding, group) identity every judgment lane already keys on."""
+    return (
+        str(row.get("run_id") or ""),
+        str(row.get("finding_id") or ""),
+        str(row.get("judgment_group_id") or ""),
+    )
+
+
+def anchor_group_keys(
+    *,
+    tool_id: str,
+    base_dir: str | Path | None = None,
+) -> set[tuple[str, str, str]]:
+    """Distinct judgments this tool holds ANCHOR-grade consensus on.
+
+    Keyed by judgment, not by row: an anchor upgrade appends a new consensus
+    row over its own 2-judge predecessor (see generate_ai_consensus), so
+    counting rows would count one settled question twice.
+    """
+    return {
+        _judgment_key(row)
+        for row in load_feedback(tool_id=tool_id, base_dir=base_dir)
+        if row.get("source_type") == "ai_consensus" and is_ground_truth_row(row)
+    }
+
+
+def operator_group_keys(
+    *,
+    tool_id: str,
+    base_dir: str | Path | None = None,
+) -> set[tuple[str, str, str]]:
+    """Distinct judgments this tool carries a HUMAN verdict on."""
+    return {
+        _judgment_key(row)
+        for row in load_feedback(tool_id=tool_id, base_dir=base_dir)
+        if (row.get("source_type") or "human") == "human"
+    }
+
 
 def findings_path(base_dir: str | Path | None = None) -> Path:
     return ensure_tools_dir(base_dir) / "findings.jsonl"
@@ -216,6 +354,8 @@ def record_operator_feedback(
     evidence_refs: list[str] | None = None,
     judgment_group_id: str | None = None,
     finding_fingerprint: str | None = None,
+    judge_count: int | None = None,
+    judges_voted: int | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     if verdict not in FEEDBACK_VERDICTS:
@@ -232,6 +372,30 @@ def record_operator_feedback(
         raise GovernanceError("confidence must be between 0 and 1")
     if source_type != "human" and (not judge_id or not judge_id.strip()):
         raise GovernanceError("AI feedback requires judge_id")
+    for _name, _value in (("judge_count", judge_count), ("judges_voted", judges_voted)):
+        if _value is not None and (
+            isinstance(_value, bool) or not isinstance(_value, int) or _value < 1
+        ):
+            raise GovernanceError(f"{_name} must be a positive integer")
+    # JJ-1 (ORPHAN-HIGH-731) - Tier 1: a consensus row that cannot say how
+    # many judges backed it is UNWRITABLE. The alternative (absent field read
+    # as "unknown") puts the fail-closed burden on every downstream reader
+    # forever, and the pre-JJ-1 ledger proved readers forget: five separate
+    # ground-truth consumers each re-decided source eligibility on their own.
+    #
+    # judges_voted joins it under the SAME rule: "three judges agreed" and
+    # "three judges agreed and a fourth objected" are different facts, and a
+    # row that cannot tell them apart cannot be allowed to claim it survived
+    # refutation. Requiring both makes the anchor predicate readable off the
+    # row instead of guessed from a missing field.
+    if source_type == "ai_consensus" and (judge_count is None or judges_voted is None):
+        raise GovernanceError(
+            "ai_consensus feedback requires judge_count and judges_voted"
+        )
+    if judge_count is not None and judges_voted is not None and judges_voted < judge_count:
+        raise GovernanceError(
+            "judges_voted must be >= judge_count (agreement cannot exceed attendance)"
+        )
     row = {
         "schema_version": 2,
         "recorded_at": utc_now(),
@@ -251,6 +415,8 @@ def record_operator_feedback(
         "evidence_refs": evidence_refs or [],
         "judgment_group_id": judgment_group_id,
         "finding_fingerprint": finding_fingerprint,
+        "judge_count": judge_count,
+        "judges_voted": judges_voted,
     }
     append_jsonl(feedback_path(base_dir), row)
     return row
@@ -407,11 +573,23 @@ def generate_ai_consensus(
         for row in load_feedback(tool_id=tool_id, base_dir=base_dir)
         if row.get("source_type") == "ai_judge" and (cycle_id is None or _feedback_cycle(row, base_dir) == cycle_id)
     ]
-    existing_consensus = {
-        (str(row.get("run_id")), str(row.get("finding_id")), str(row.get("judgment_group_id") or ""))
-        for row in load_feedback(tool_id=tool_id, base_dir=base_dir)
-        if row.get("source_type") == "ai_consensus"
-    }
+    # JJ-1 - the dedup key remembers HOW MANY judges VOTED on the settled row.
+    # A group settled at 2 judges must be re-settleable once the anchor
+    # arbiter answers, otherwise the 3rd judge's verdict is minted, paid for,
+    # and then discarded by an idempotency guard - the anchor class would be
+    # unreachable by construction. Attendance (not agreement) is the right
+    # key: a third judge who DISAGREES leaves the agreement count at 2, and
+    # keying on agreement would re-settle that group every cycle forever.
+    # Re-running with no new judge still appends nothing, and the count is
+    # bounded by the number of distinct judges.
+    existing_consensus: dict[tuple[str, str, str], int] = {}
+    for row in load_feedback(tool_id=tool_id, base_dir=base_dir):
+        if row.get("source_type") != "ai_consensus":
+            continue
+        key = _judgment_key(row)
+        existing_consensus[key] = max(
+            existing_consensus.get(key, 0), consensus_judges_voted(row),
+        )
     grouped: dict[tuple[str, str, str], dict[str, dict[str, Any]]] = {}
     for row in ai_rows:
         run_id = str(row.get("run_id") or "")
@@ -427,22 +605,12 @@ def generate_ai_consensus(
     for key, by_judge in sorted(grouped.items()):
         rows = list(by_judge.values())
         run_id, finding_id, group_id = key
-        if key in existing_consensus:
+        if key in existing_consensus and existing_consensus[key] >= len(rows):
             continue
         if len(rows) < 2:
             uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "single_judge"))
             continue
         verdicts = {str(row.get("verdict") or "") for row in rows}
-        # Kalibre Zekâ Z2b — a judge whose bridge stored confidence=None used
-        # to be coerced to 0.0, silently dragging the mean under the 0.80
-        # gate: a unanimous, correct pair could escalate as "low_confidence"
-        # because one row lacked a number. Absent confidence now stays out of
-        # the mean; a group with NO numeric confidence at all escalates under
-        # its own name instead of masquerading as low confidence.
-        confidences = [
-            float(row["confidence"]) for row in rows
-            if isinstance(row.get("confidence"), (int, float))
-        ]
         if judge_weights is None:
             if len(verdicts) != 1:
                 uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "judge_disagreement"))
@@ -465,6 +633,27 @@ def generate_ai_consensus(
                 uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "judge_disagreement"))
                 continue
             verdicts = {winner}
+        # JJ-1 fix — from here the row speaks for the judges who AGREED with
+        # the settled verdict. Everything the consensus row asserts about
+        # itself (how many judges, at what confidence, on what evidence) is
+        # scoped to them: a dissenter's confidence has no business raising
+        # the mean of a verdict he refused, and his count has no business
+        # buying the row its anchor grade.
+        settled_verdict = next(iter(verdicts))
+        agreeing = [
+            row for row in rows
+            if str(row.get("verdict") or "") == settled_verdict
+        ]
+        # Kalibre Zekâ Z2b — a judge whose bridge stored confidence=None used
+        # to be coerced to 0.0, silently dragging the mean under the 0.80
+        # gate: a unanimous, correct pair could escalate as "low_confidence"
+        # because one row lacked a number. Absent confidence now stays out of
+        # the mean; a group with NO numeric confidence at all escalates under
+        # its own name instead of masquerading as low confidence.
+        confidences = [
+            float(row["confidence"]) for row in agreeing
+            if isinstance(row.get("confidence"), (int, float))
+        ]
         if not confidences:
             uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "missing_confidence"))
             continue
@@ -486,24 +675,37 @@ def generate_ai_consensus(
         if workspace_root is not None and _has_unverifiable_evidence(rows, workspace_root):
             uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "evidence_not_repo_verified"))
             continue
-        verdict = verdicts.pop()
-        severity = _max_severity(str(row.get("severity") or "medium") for row in rows)
+        dissenting = len(rows) - len(agreeing)
+        severity = _max_severity(str(row.get("severity") or "medium") for row in agreeing)
+        note = f"AI consensus from {len(agreeing)} independent judges"
+        if dissenting:
+            note += (
+                f" over {dissenting} dissenting (weighted majority; "
+                f"settles precision only, never ground truth)"
+            )
         consensus_rows.append(
             record_operator_feedback(
                 tool_id=tool_id,
                 run_id=run_id,
                 finding_id=finding_id,
-                verdict=verdict,
+                verdict=settled_verdict,
                 severity=severity,
-                note=f"AI consensus from {len(rows)} independent judges",
+                note=note,
                 source_type="ai_consensus",
                 judge_id="aria-consensus-arbiter",
                 model="consensus",
                 confidence=round(avg_confidence, 3),
-                rationale="; ".join(str(row.get("rationale") or row.get("note") or "") for row in rows if row.get("rationale") or row.get("note"))[:2000],
-                evidence_refs=sorted({ref for row in rows for ref in _optional_string_list(row.get("evidence_refs"))}),
+                rationale="; ".join(str(row.get("rationale") or row.get("note") or "") for row in agreeing if row.get("rationale") or row.get("note"))[:2000],
+                evidence_refs=sorted({ref for row in agreeing for ref in _optional_string_list(row.get("evidence_refs"))}),
                 judgment_group_id=group_id,
                 finding_fingerprint=next((str(row.get("finding_fingerprint")) for row in rows if row.get("finding_fingerprint")), ""),
+                # JJ-1 - the anchor discriminator, read off the pair
+                # (judge_count, judges_voted) by is_ground_truth_row. Equal
+                # and >= ANCHOR_MIN_JUDGE_COUNT is what makes this row
+                # ground-truth-bearing; anything less still settles the
+                # finding for the adapter-precision lane and nothing else.
+                judge_count=len(agreeing),
+                judges_voted=len(rows),
                 base_dir=base_dir,
             ),
         )
@@ -920,21 +1122,28 @@ def _confirmed_false_positive_fingerprints(base_dir: str | Path | None) -> dict[
     suppress directly — they flow through compute_ai_consensus_for_tool
     first; if they coalesce into an `ai_consensus` row, the suppression
     takes effect via that synthesized row.
+
+    JJ-1 (ORPHAN-HIGH-731) NARROWS THAT AGAIN. Plan 023 stopped ONE judge
+    from suppressing forever; it still let TWO do it, and suppression is the
+    most irreversible thing a verdict can cause — the finding class stops
+    being produced, so no later evidence can contradict it. Eligibility is
+    now `is_ground_truth_row`: an operator verdict, or an ANCHOR consensus
+    that a third judge was minted to attack and failed to overturn.
     """
     confirmed: dict[str, dict[str, Any]] = {}
     for row in load_feedback(base_dir=base_dir):
         if row.get("verdict") != "false_positive":
             continue
-        # Plan 023 v3 §F-1 — source_type filter. raw ai_judge rows are
-        # NOT suppression-eligible; they must pass through the
-        # consensus aggregator first.
-        source_type = row.get("source_type", "human")
-        if source_type not in ("human", "ai_consensus"):
+        # JJ-1 — ground-truth filter (one predicate, five readers). Raw
+        # ai_judge rows and 2-judge consensus rows both stop here.
+        if not is_ground_truth_row(row):
             continue
         fingerprint = str(row.get("finding_fingerprint") or "")
         if fingerprint:
             confirmed[fingerprint] = {
-                "source_type": source_type,
+                "source_type": row.get("source_type") or "human",
+                "judge_count": consensus_judge_count(row),
+                "judges_voted": consensus_judges_voted(row),
                 "run_id": row.get("run_id"),
                 "finding_id": row.get("finding_id"),
                 "recorded_at": row.get("recorded_at"),

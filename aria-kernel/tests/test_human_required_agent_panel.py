@@ -20,6 +20,9 @@ Locked cases:
   * I-PANEL-11 — a quorum of independent resolve votes clears the escalation
     and records resolved_by=agent_panel
   * I-PANEL-12 — an agent panel may NEVER write a ground-truth verdict
+  * I-PANEL-13 — an agent panel may NEVER close a record without stating
+    WHICH decision it reached (pinned end-to-end in
+    test_jj2_humanless_promotion.PanelDecisionIsRecordedNotInferredTests)
 """
 
 from __future__ import annotations
@@ -111,6 +114,15 @@ class AdjudicabilityGate(unittest.TestCase):
                 context: dict = {"kind": kind}
                 if kind == "genesis_candidate":
                     context.update(genesis_identity)
+                # JJ-2b (ORPHAN-HIGH-732) — tool_promotion is admitted with
+                # its own fail-closed identity: the executor resolves the
+                # adapter from context.tool_id, so a promotion question that
+                # cannot name its subject must never clear.
+                if kind == "tool_promotion":
+                    context.update({
+                        "tool_id": "x-adapter",
+                        "evidence_refs": ["aria-tools/runs.jsonl#x-adapter"],
+                    })
                 self.assertTrue(
                     hra.escalation_adjudicability({"context": context}).adjudicable,
                 )
@@ -300,6 +312,10 @@ class PanelFold(unittest.TestCase):
         self.assertEqual(record["status"], "resolved")
         self.assertEqual(record["resolved_by"], RESOLVED_BY_AGENT_PANEL)
         self.assertIn("independent agent panel", record["resolution_note"])
+        # The DECISION, not just the fact one was taken: a refusal closes the
+        # record with the same status/resolved_by pair, so those two fields
+        # never distinguished "the panel said yes" from "the panel said no".
+        self.assertEqual(record["panel_outcome"], hra.OUTCOME_RESOLVED)
 
     def test_refuse_quorum_does_not_resolve_the_record(self) -> None:
         request_ids = self._open()
@@ -330,6 +346,9 @@ class PanelFold(unittest.TestCase):
                 resolution_note="panel tried to supply ground truth",
                 verdict="true_positive",
                 resolved_by=RESOLVED_BY_AGENT_PANEL,
+                # An otherwise VALID panel resolution, so the ground-truth
+                # clause is the only reason this can refuse.
+                panel_outcome=hra.OUTCOME_RESOLVED,
                 base_dir=self.tools,
             )
         self.assertIn("cannot_supply_ground_truth_verdict", str(ctx.exception))

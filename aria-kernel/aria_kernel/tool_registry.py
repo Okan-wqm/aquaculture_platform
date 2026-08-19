@@ -1198,6 +1198,7 @@ def transition_tool(
     fixture_suite_passed: bool = False,
     operator_approval: bool = False,
     auto_promote_token: str | None = None,
+    panel_approval_token: str | None = None,
     precision: float | None = None,
     critical_false_positives: int = 0,
     evidence_chains_valid: bool = False,
@@ -1214,13 +1215,33 @@ def transition_tool(
     which inspects the precision_history ledger; tamper-evident hash
     over (tool_id, last_N runs, base_dir contract hash).
 
+    JJ-2b (ORPHAN-HIGH-732) — ``panel_approval_token`` is the THIRD
+    authority. Operator directive 2026-08-18: promotion to ACTIVE is
+    PANEL-APPROVED with a 24-hour operator VETO window, not operator-
+    approved. The token is minted by ``promotion_veto.compute_panel_
+    approval_token`` ONLY after the kernel has re-derived the panel approval
+    from the human-required adjudication record (exists, resolved, resolved_
+    by=agent_panel, kind=tool_promotion, context.tool_id matches) AND the
+    veto window elapsed with no veto recorded. A kernel-scoped adapter can
+    never obtain one — that exception is enforced at mint time, where the
+    scope is readable, and kernel scope is decided by the runtime glob
+    evaluator, not by how the manifest spells its globs.
+
+    What the token is NOT: a value this function verifies. Like the auto-
+    promote token it is a workspace-bound HMAC that ``transition_tool``
+    accepts on presence alone (see adapter_calibration.py's own note) — the
+    load-bearing gates are all upstream, at mint. Calling either token
+    "unforgeable" here would describe a consume-time check that does not
+    exist yet.
+
     The literal predicate (I-V6.4-04 source-substring invariant pins):
 
-        if (not operator_approval and not auto_promote_token) or not evidence_chains_valid:
+        if (not operator_approval and not auto_promote_token and not panel_approval_token) or not evidence_chains_valid:
 
-    preserves V5's evidence_chains_valid check unchanged; auto-promote
-    can never bypass evidence chain integrity. Precision + FP thresholds
-    above this line are also UNCHANGED.
+    preserves V5's evidence_chains_valid check unchanged; no authority
+    can bypass evidence chain integrity — it is still the LAST clause and
+    still short-circuits independently of who vouched. Precision + FP
+    thresholds above this line are also UNCHANGED.
     """
     if target_status not in TOOL_STATUSES:
         raise GovernanceError(f"unknown lifecycle state: {target_status}")
@@ -1265,13 +1286,16 @@ def transition_tool(
             # I-V6.4-04 source-substring invariant. The order of the
             # boolean clauses is load-bearing: evidence_chains_valid
             # is checked LAST so it short-circuits independently of
-            # the operator_approval / auto_promote_token path. A
-            # refactor that reorders OR drops either clause silently
-            # weakens the SHADOW -> ACTIVE gate.
-            if (not operator_approval and not auto_promote_token) or not evidence_chains_valid:
+            # the operator_approval / auto_promote_token /
+            # panel_approval_token path. A refactor that reorders OR
+            # drops any clause silently weakens the SHADOW -> ACTIVE
+            # gate. JJ-2b added the panel clause; the pin was rewritten
+            # with it, never deleted to make a test pass.
+            if (not operator_approval and not auto_promote_token and not panel_approval_token) or not evidence_chains_valid:
                 raise GovernanceError(
                     "SHADOW -> ACTIVE requires valid evidence chains and "
-                    "(operator_approval OR auto_promote_token under safe conditions)",
+                    "(operator_approval OR auto_promote_token OR "
+                    "panel_approval_token under safe conditions)",
                 )
 
     # Plan 022 §C-2b — transition_tool is the audited state machine;

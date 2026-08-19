@@ -7,10 +7,14 @@ precision anywhere. This module fills that gap WITHOUT re-invoking any LLM: it
 joins every ``ai_judge`` verdict to the ground-truth verdict on the same finding
 and scores each ``judge_id`` over the accumulated feedback ledger.
 
-Ground truth for a judge = a ``human`` or ``ai_consensus`` feedback row on the
-same ``(run_id, finding_id, judgment_group_id)`` the judge also voted on — the
-exact join ``generate_ai_consensus`` already uses to form consensus. ``human``
-outranks ``ai_consensus`` when both exist.
+Ground truth for a judge = an operator row or an ANCHOR consensus row (JJ-1:
+>= 3 judges) on the same ``(run_id, finding_id, judgment_group_id)`` the judge
+also voted on — the exact join ``generate_ai_consensus`` already uses to form
+consensus. ``human`` outranks ``ai_consensus`` when both exist.
+
+Why the anchor floor matters HERE most of all: a 2-judge consensus is formed
+from the very judges being scored, so grading them against it graded each
+judge partly against itself and rewarded agreement rather than correctness.
 
 Cheap by construction: precision / recall / calibration come from verdicts and
 confidences ALREADY recorded. NOTE on recall: this is recall over *surfaced*
@@ -23,11 +27,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .feedback_store import append_jsonl, load_feedback
+from .feedback_store import append_jsonl, is_ground_truth_row, load_feedback
 from .tool_registry import ensure_tools_dir, utc_now
 
 
-GROUND_TRUTH_SOURCES: tuple[str, ...] = ("human", "ai_consensus")
 DEFAULT_MIN_SAMPLES: int = 10
 DEFAULT_PRECISION_FLOOR: float = 0.7
 # Mirrors judge_replay.REPLAY_GROUP_PREFIX (kept local to avoid an import cycle).
@@ -52,9 +55,10 @@ def _build_ground_truth(rows: list[dict[str, Any]]) -> dict[tuple[str, str, str]
     """Best ground-truth verdict per finding. human beats ai_consensus."""
     truth: dict[tuple[str, str, str], tuple[str, str]] = {}
     for row in rows:
-        source = row.get("source_type")
-        if source not in GROUND_TRUTH_SOURCES:
+        # JJ-1 — one predicate, five readers (see feedback_store).
+        if not is_ground_truth_row(row):
             continue
+        source = row.get("source_type") or "human"
         verdict = str(row.get("verdict") or "")
         if not verdict:
             continue

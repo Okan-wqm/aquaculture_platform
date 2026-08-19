@@ -10201,3 +10201,21 @@ Severity: HIGH (throughput; activated, not caused, by ORPHAN-HIGH-728). `cycle_p
 **Root-cause fix still owed:** the poll is the wrong shape for a two-lane topology. The cycle should mint the envelope and END, with the outcome folded on the NEXT cycle's startup (the ledger already carries it) or announced by an in-flight signal from the executor lane, so no producer ever blocks on a consumer it is blocking. Landing that means changing the V9 implementation phase's return contract (`V9ImplementationResult` must currently name a terminal state) and the specialist-review signal that reads it — a larger change than this train's scope, and one that should not ride an authority fix.
 
 **Owner:** claude. **Deadline:** 2026-08-26 (one nightly week; the bound above holds the cost flat until then). **Status:** OPEN.
+
+## ORPHAN-CRITICAL-733 — an unregistered pressure source failed a whole sealed cycle with a one-word error — RESOLVED (same night)
+
+Severity: CRITICAL (self-inflicted, caught within hours). ORPHAN-723's observer produced pressures with `source="repo_pr_health"` while `pressure.SOURCE_WEIGHTS` and `pressure.DRIFT_CLASS_BY_SOURCE` are CLOSED vocabularies. `_pressure` indexed the weight table directly, so the omission surfaced as a bare `KeyError` deep inside the pressure phase; the 2026-08-18 evening cycle (`cyc-20260818T200659Z-auto`) failed whole with `failed_phases: [{phase: "pressure", error: "'repo_pr_health'"}]` — two hours of scanning discarded for a missing dictionary entry. The observer's own tests passed because they exercised the ledger writer and the loader, never the pressure producer.
+
+**Fix:** the source is registered in both tables (weight 20 — deliberately the LOWEST in the table, because ARIA holds no authority over third-party PRs until the E23 gate opens; class `process_health`, reusing the existing class so the policy-parity test needs no genesis-policy edit), and `_pressure` now refuses an unregistered source with a typed `unregistered_pressure_source` GovernanceError naming BOTH registration sites. The next producer that forgets says so in its own words instead of collapsing a cycle. Pinned: registration in both tables, the observe-only weight is the table minimum (the authority boundary in numeric form), and the refusal fires by name.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-745 — a finding's record vanished from the ledger while its fix stayed — RESOLVED
+
+Severity: HIGH (audit integrity). Measured 2026-08-19: `ORPHAN-CRITICAL-733`'s entry — the cycle-killing unregistered pressure source, fixed and merged as #1280 — was ABSENT from `docs/reviews/orphan-findings.md` on main a few hours later. The code fix survived; the record of what went wrong, why, and what class it closed did not. Nobody deleted it deliberately: a harvest copied the file wholesale from an agent worktree built on an older base, and the squash merge carried that older content forward. That is precisely the danger — an audit ledger you can lose by ACCIDENT is not an audit ledger, and the loss is invisible because the fix still works.
+
+**Fix:** the record is restored verbatim from the commit that wrote it (`350b9a1d5`), and the class is closed by an invariant: `tests/invariants/orphan-ledger-append-only.spec.ts` compares the finding headings at the merge-base against HEAD and refuses any that disappeared. The rule is deliberately narrow — headings may be ADDED and bodies may be EDITED (a status legitimately moves OPEN → RESOLVED); what may not happen is a heading that existed before this work being absent after it.
+
+**Process lesson (recorded, because it recurred):** harvesting an agent worktree by copying changed files reverts every file main advanced in the meantime. Today it hit `cli.py`, ten test files, and this ledger. The discipline is per-file three-way merge against `origin/main`, and for append-only documents: take main's copy, then append only the new entries from the worktree diff.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

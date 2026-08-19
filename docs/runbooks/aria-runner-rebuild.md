@@ -1,7 +1,9 @@
 # Runbook: Rebuilding the ARIA self-hosted runner
 
 **Owner:** ARIA operator
-**Related:** ORPHAN-HIGH-722 (PAT identity), ORPHAN-CRITICAL-591 (managed-login outage), RC-9 (`ensure-sandbox-backend`), Plan PROGRAM D task HB-1
+**Related:** ORPHAN-HIGH-722 (PAT identity), ORPHAN-CRITICAL-591
+(managed-login outage), RC-9 (`ensure-sandbox-backend`), Plan PROGRAM D
+task HB-1
 **Target:** fresh Ubuntu droplet → both ARIA lanes green in **≤ 1 hour**
 
 ## Purpose

@@ -12,7 +12,7 @@ import unittest
 from pathlib import Path
 
 from aria_kernel.ledger import load_jsonl
-from aria_kernel.mission import fold_mission, open_mission, transition_mission
+from aria_kernel.mission import TERMINAL_STATES, fold_mission, open_mission, transition_mission
 from aria_kernel.mission_scheduler import (
     _rank,
     ALL_MISSIONS_WAITING,
@@ -34,25 +34,43 @@ class MissionSchedulerTests(unittest.TestCase):
         ensure_tools_dir(self.tools)
 
     def _open(self, source_kind: str, source_id: str, **kwargs: object) -> str:
+        # ORPHAN-MEDIUM-730 — the mint refuses a mission with no forward
+        # pointer, so the fixture derives one from the source it opens.
         result = open_mission(
             source_kind=source_kind,
             source_id=source_id,
             repo_hash=REPO_HASH,
             title=f"{source_kind}:{source_id}",
+            next_action=f"work {source_kind} {source_id}",
+            wake_condition={"kind": "evidence", "key": f"{source_kind}:{source_id}"},
             base_dir=self.tools,
             **kwargs,  # type: ignore[arg-type]
         )
         return str(result["mission_id"])
 
     def _move(self, mission_id: str, to_state: str, **kwargs: object) -> None:
+        # ORPHAN-MEDIUM-730 — a non-terminal move restates the whole contract;
+        # a terminal one carries none, because a finished mission owes no next
+        # action. The helper follows the same split the module enforces so a
+        # fixture cannot drift into a shape the kernel refuses.
+        contract: dict[str, object] = (
+            {}
+            if to_state in TERMINAL_STATES
+            else {
+                "next_action": "continue",
+                "wake_condition": {"kind": "timer", "key": "next_cycle"},
+            }
+        )
+        # A callsite that names its own wake (a deadline test) overrides the
+        # default rather than colliding with it.
+        contract.update(kwargs)
         transition_mission(
             mission_id=mission_id,
             to_state=to_state,
             reason_code="test",
             step_id=f"step-{to_state}",
-            next_action="continue",
             base_dir=self.tools,
-            **kwargs,  # type: ignore[arg-type]
+            **contract,  # type: ignore[arg-type]
         )
 
     def test_an_empty_queue_says_so_rather_than_returning_nothing(self) -> None:

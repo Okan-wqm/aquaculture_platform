@@ -10486,6 +10486,12 @@ Pinned in `tests/invariants/adapter-scan-surface-authority.spec.ts`: no `DEFAULT
 
 This is not a defect in the fix; it is how worktrees and a shared hooks directory interact. It does mean the fix's protection begins for a given machine only when its primary checkout advances, and until then the manual `npm run aria:authority-hash:write` remains the fallback. Recorded here rather than worked around, because a guard whose activation condition is invisible is the same class of problem this finding is about.
 
+**AND THE RATCHET COLLIDED WITH A TEST THAT CLAIMED TO BE ONE (2026-08-19 22:00).** Raising the pins turned seven checks red, all from one assertion: `tests/invariants/ci-full-trigger-contract.spec.ts` → _"ratchets every previously dormant Jest coverage floor from its first full-CI baseline"_. Its body did the opposite of its name — a `toEqual` over all six services' hardcoded numbers, which froze them. So the repository already had a thing called a ratchet, and that thing was the mechanism refusing the correction: farm-service was 22.8 points above the number frozen there.
+
+The duplicate check I ran before writing ORPHAN-750 grepped `tests/invariants/` by filename for "coverage" and missed this spec, because its name is about CI triggers. **A capability can be pinned in a file whose name says nothing about it** — the search has to be by behaviour, not by filename.
+
+Resolved by giving the numbers exactly one owner. The spec now asserts the SHAPE nobody may quietly change (which services are floored, that each carries all four metrics, that every floor is a real percentage in (0,100]) and leaves the values to `service-coverage-baselines.json`, raised by `--write` from what CI measured. Verified by deliberate breakage: dropping a service or removing a metric still reds it; raising a floor no longer does.
+
 **Owner:** claude (this session). **Status:** RESOLVED.
 
 ## ORPHAN-HIGH-753 — nothing in ARIA could say which parts of the repository it cannot see — RESOLVED

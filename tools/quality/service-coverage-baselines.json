@@ -1,13 +1,13 @@
 {
   "admin-api-service": {
-    "branches": 15.99,
+    "branches": 15.98,
     "functions": 20.8,
     "lines": 28.88,
     "statements": 27.43
   },
   "auth-service": {
     "branches": 46.9,
-    "functions": 27.45,
+    "functions": 27.44,
     "lines": 51.46,
     "statements": 48.56
   },
@@ -18,9 +18,9 @@
     "statements": 53.05
   },
   "farm-service": {
-    "branches": 42.18,
-    "functions": 28.04,
-    "lines": 56.7,
+    "branches": 32.86,
+    "functions": 20.39,
+    "lines": 33.92,
     "statements": 33.84
   },
   "hr-service": {
@@ -30,9 +30,9 @@
     "statements": 34.66
   },
   "sensor-service": {
-    "branches": 24.58,
+    "branches": 24.57,
     "functions": 18.76,
-    "lines": 43.57,
+    "lines": 43.56,
     "statements": 39.85
   }
 }

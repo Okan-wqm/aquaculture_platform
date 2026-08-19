@@ -10492,6 +10492,12 @@ The duplicate check I ran before writing ORPHAN-750 grepped `tests/invariants/` 
 
 Resolved by giving the numbers exactly one owner. The spec now asserts the SHAPE nobody may quietly change (which services are floored, that each carries all four metrics, that every floor is a real percentage in (0,100]) and leaves the values to `service-coverage-baselines.json`, raised by `--write` from what CI measured. Verified by deliberate breakage: dropping a service or removing a metric still reds it; raising a floor no longer does.
 
+**AND THE RE-PIN ITSELF WAS WRONG BY ONE HUNDREDTH (2026-08-19 23:05).** Raising the pins to the measured values turned three services red, every one by exactly 0.01: _"threshold for branches (15.99%) not met: 15.98%"_, `24.58 → 24.57`, `43.57 → 43.56`, `27.45 → 27.44`. The evidence lane reports with `toFixed(2)`, which rounds half-up; jest truncates when it enforces `coverageThreshold`. So pinning the reported number produces a floor the enforcing gate can never meet — and it would have broken **every future re-pin**, silently, forever.
+
+Fixed at the source: `pinnableFloor()` floors the raw `covered/found` ratio to two decimals, so the pin is reachable by construction and costs at most 0.01 of captured gain. The gain comparison uses the same floored value, so a gain the writer would round away is not reported as unpinned either. **A ratchet must pin what the gate that enforces it can actually meet — reporting precision and enforcement precision are not the same number.**
+
+`farm-service` also failed, and its exact jest-side numbers are not readable in the retained log. Rather than guess a value, its baseline is reverted to what was measured before (`branches 32.86 / functions 20.39 / lines 33.92`); the ratchet will raise it from the next full run, now with correct flooring. Pinning a number nobody measured is the defect this finding is about.
+
 **Owner:** claude (this session). **Status:** RESOLVED.
 
 ## ORPHAN-HIGH-753 — nothing in ARIA could say which parts of the repository it cannot see — RESOLVED

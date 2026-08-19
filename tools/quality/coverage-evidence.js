@@ -111,7 +111,7 @@ function verifyCoverage(root = repoRoot, { rewrite = false } = {}) {
         // side only. Material improvement (>= RATCHET_MIN_GAIN points, so
         // run-to-run jitter does not red the build) must be re-pinned.
         const gains = METRICS.filter(
-          (metric) => metrics[metric].percentage - baseline[metric] >= RATCHET_MIN_GAIN,
+          (metric) => pinnableFloor(metrics[metric]) - baseline[metric] >= RATCHET_MIN_GAIN,
         );
         if (gains.length > 0 && !rewrite) {
           ratchet.push({ serviceName, metrics });
@@ -152,6 +152,20 @@ function verifyCoverage(root = repoRoot, { rewrite = false } = {}) {
   };
 }
 
+/**
+ * The pin must be a number the gate that enforces it can actually MEET.
+ * `percentage()` rounds half-up for reporting; jest truncates when it checks
+ * `coverageThreshold`. Pinning the reported value therefore produces a floor
+ * 0.01 above the measurement — observed on the ratchet's first re-pin, where
+ * four services failed by exactly one hundredth ("threshold for branches
+ * (15.99%) not met: 15.98%"). Flooring the raw ratio makes the pin reachable
+ * by construction, and costs at most 0.01 of captured gain.
+ */
+function pinnableFloor(metric) {
+  if (metric.found === 0) return 100;
+  return Math.floor((metric.covered / metric.found) * 10000) / 100;
+}
+
 /** Raise pinned baselines to the measured values. NEVER lowers one. */
 function rewriteBaselines(ratchet) {
   const baselines = JSON.parse(fs.readFileSync(serviceBaselinesPath, 'utf8'));
@@ -160,7 +174,7 @@ function rewriteBaselines(ratchet) {
     const current = baselines[serviceName];
     if (!current) continue;
     for (const metric of METRICS) {
-      const measured = metrics[metric].percentage;
+      const measured = pinnableFloor(metrics[metric]);
       // Monotonic by construction: a lower measurement is already an error
       // above, and --write must never be the way a floor gets lowered.
       if (measured > current[metric]) {
@@ -207,5 +221,6 @@ module.exports = {
   parseLcov,
   verifyCoverage,
   rewriteBaselines,
+  pinnableFloor,
   RATCHET_MIN_GAIN,
 };

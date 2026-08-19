@@ -142,6 +142,10 @@ class ReportSectionsTest(unittest.TestCase):
                 source_id="ORPHAN-HIGH-618",
                 repo_hash="deadbeef",
                 title="environment contract",
+                next_action="close ORPHAN-HIGH-618",
+                wake_condition={
+                    "kind": "evidence", "key": "orphan_finding:ORPHAN-HIGH-618",
+                },
                 priority=2,
                 base_dir=root,
             )

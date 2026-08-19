@@ -58,6 +58,7 @@ from aria_kernel.mission import (
     list_open_missions,
     open_mission,
     rebuild_mission_index,
+    set_closure_contract,
     transition_mission,
 )
 from aria_kernel.plan_round_controller import advance_plan_rounds
@@ -1457,8 +1458,29 @@ def build_parser() -> argparse.ArgumentParser:
     mission_open.add_argument("--source-id", required=True)
     mission_open.add_argument("--repo-hash", required=True)
     mission_open.add_argument("--title", required=True)
+    # ORPHAN-MEDIUM-730 — REQUIRED, exactly as at every other producer: the
+    # operator mints under the same closure contract the seeder does, so the
+    # CLI cannot be the one door that still admits a mission nothing can move.
+    mission_open.add_argument("--next-action", required=True)
+    mission_open.add_argument(
+        "--wake-file",
+        required=True,
+        help="Path to a JSON wake_condition object ({kind, key, not_before?}).",
+    )
     mission_open.add_argument("--capability", default=None)
     mission_open.add_argument("--priority", type=int, default=None)
+    mission_contract = add_subparser(
+        mission_sub, "set-contract",
+        help="Install next_action + wake_condition on a mission opened before the mint required them.",
+    )
+    mission_contract.add_argument("--mission-id", required=True)
+    mission_contract.add_argument("--next-action", required=True)
+    mission_contract.add_argument("--step-id", required=True)
+    mission_contract.add_argument(
+        "--wake-file",
+        required=True,
+        help="Path to a JSON wake_condition object ({kind, key, not_before?}).",
+    )
     mission_transition = add_subparser(mission_sub, "transition")
     mission_transition.add_argument("--mission-id", required=True)
     mission_transition.add_argument("--to-state", required=True)
@@ -1466,11 +1488,27 @@ def build_parser() -> argparse.ArgumentParser:
     mission_transition.add_argument("--step-id", required=True)
     mission_transition.add_argument("--target-sha", default="")
     mission_transition.add_argument("--retry-rung", default=None)
-    mission_transition.add_argument("--next-action", default=None)
+    # ORPHAN-MEDIUM-730 — these two stay argparse-OPTIONAL because their
+    # requirement depends on the destination: a non-terminal move must carry
+    # both, a terminal move must carry neither (a finished mission owes no
+    # next action). argparse cannot express "required unless --to-state is
+    # terminal", and re-deriving the terminal set here would put a second
+    # copy of `mission.TERMINAL_STATES` in the CLI — the exact split that
+    # lets two doors disagree. `transition_mission` refuses both wrong
+    # shapes, so the operator gets the refusal from the module that owns the
+    # rule; the CLI cannot open a door the kernel closed.
+    mission_transition.add_argument(
+        "--next-action",
+        default=None,
+        help="Required for a non-terminal --to-state; refused for a terminal one.",
+    )
     mission_transition.add_argument(
         "--wake-file",
         default=None,
-        help="Path to a JSON wake_condition object ({kind, key, not_before?}).",
+        help=(
+            "Path to a JSON wake_condition object ({kind, key, not_before?}). "
+            "Required for a non-terminal --to-state; refused for a terminal one."
+        ),
     )
     mission_transition.add_argument("--evidence-ref", action="append", default=None)
     # Wave 2 PR 1.6 — the scheduler. `--dry-run` reads the decision WITHOUT
@@ -3914,8 +3952,22 @@ def _main(argv: list[str] | None = None) -> int:
                 source_id=args.source_id,
                 repo_hash=args.repo_hash,
                 title=args.title,
+                next_action=args.next_action,
+                wake_condition=json.loads(
+                    Path(args.wake_file).read_text(encoding="utf-8")
+                ),
                 capability=args.capability,
                 priority=args.priority,
+                base_dir=args.tools_dir,
+            )
+        elif args.mission_command == "set-contract":
+            result = set_closure_contract(
+                mission_id=args.mission_id,
+                next_action=args.next_action,
+                wake_condition=json.loads(
+                    Path(args.wake_file).read_text(encoding="utf-8")
+                ),
+                step_id=args.step_id,
                 base_dir=args.tools_dir,
             )
         elif args.mission_command == "transition":

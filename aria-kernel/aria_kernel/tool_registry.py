@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_declared_jsonl, append_jsonl, file_hash, rewrite_declared_json, tools_index_group_ledgers, write_index
+from .ledger import append_declared_jsonl, append_jsonl, file_hash, load_jsonl, rewrite_declared_json, tools_index_group_ledgers, write_index
 from .workspace import canonical_identity, canonical_identity_source, canonical_repo_root, governance_event, repo_hash
 from .implementation_safety import verify_bash_command_allowed
 
@@ -568,6 +568,65 @@ def append_tools_governance(
         expected_surface="tools_governance",
         bypass_profile_gate=bypass_profile_gate,
     )
+
+
+def disclosure_fingerprint(kind: str, claim: dict[str, Any]) -> str:
+    """The identity of what a disclosure ASSERTS, ignoring when it was said.
+
+    Canonical JSON so key order cannot fork the fingerprint, and the kind is
+    part of it so two different disclosures that happen to share a claim
+    shape stay distinguishable.
+    """
+    canonical = json.dumps(
+        {"kind": kind, "claim": claim}, sort_keys=True, separators=(",", ":")
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+
+
+def append_tools_governance_once(
+    base_dir: str | os.PathLike[str] | Path,
+    kind: str,
+    details: dict[str, Any],
+    *,
+    claim_keys: tuple[str, ...],
+) -> dict[str, Any]:
+    """Disclose a standing fact ONCE, and again only when the fact changes.
+
+    ORPHAN-MEDIUM-730. A governance row is evidence; a governance row an
+    unattended lane re-appends verbatim every night is noise that buries
+    evidence. Measured: four identical evidence-free cycles wrote 16
+    ``service_mission_refused`` rows — 4 per cycle, byte-identical apart from
+    the cycle id — and with an empty findings ledger that is what the nightly
+    would do forever. The class this whole train exists to end is "a gate
+    reporting the same weather every night"; a refusal doing it in a second
+    ledger is the same defect wearing the other ledger's name.
+
+    ``claim_keys`` names the fields that ARE the claim (project + reason +
+    census, not the cycle id or the timestamp). A row whose claim matches one
+    already on `governance.jsonl` is not appended and the caller is told so;
+    a changed claim — new reason, new counts, evidence that arrived — is a
+    NEW fact and gets its own row. Callers that must never be silenced keep
+    using `append_tools_governance`; this is opt-in per callsite.
+
+    The fingerprint is stored ON the row (``disclosure_fingerprint``) rather
+    than in a side index, so the ledger stays the only thing that has to be
+    read to know what has been said, and losing a projection costs nothing.
+
+    Returns ``{"appended": bool, "fingerprint": str}``.
+    """
+    root = ensure_tools_dir(base_dir)
+    claim = {key: details.get(key) for key in claim_keys}
+    fingerprint = disclosure_fingerprint(kind, claim)
+    for row in load_jsonl(root / "governance.jsonl"):
+        if row.get("kind") != kind:
+            continue
+        recorded = row.get("details")
+        if isinstance(recorded, dict) and recorded.get("disclosure_fingerprint") == fingerprint:
+            return {"appended": False, "fingerprint": fingerprint}
+    append_tools_governance(
+        root, kind, {**details, "disclosure_fingerprint": fingerprint}
+    )
+    return {"appended": True, "fingerprint": fingerprint}
 
 
 def _prepare_tools_dirs(root: Path) -> None:

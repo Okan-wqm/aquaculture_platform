@@ -10209,6 +10209,7 @@ Severity: MEDIUM (a load-sensitive pin that turns an unrelated PR red). `test_to
 **Fix:** the happy-path budget becomes 30 s — still a bound (a fixture tool needing longer is genuinely broken), no longer a race against the scheduler. The budget-EXCEEDED path keeps its own dedicated test with a deliberate 40× margin (a 1 s sleep against `timeout_ms=25`), so the refusal remains proven by a case that load cannot explain.
 
 **Owner:** claude (this session). **Status:** RESOLVED (35 tool-governance tests green).
+
 ## ORPHAN-HIGH-734 — the nightly cycle can spend its whole budget waiting for an executor that is queued behind it — OPEN (CL-4 review round 2, 2026-08-19)
 
 Severity: HIGH (throughput; activated, not caused, by ORPHAN-HIGH-728). `cycle_phases/implementer.py` polls the plan ledger for an implementation outcome up to `implementer_poll_seconds` (kernel default `1800.0`, `autonomy_orchestrator.py`) inside a night whose `--cycle-deadline-seconds` is also `1800`. The answer can never arrive in-run: the aria-agent-executor lane that drains the envelope is serialized behind the SAME `concurrency: aria-selfhosted-workspace` group as the producer (`aria-auto-cycle.yml`), so it cannot start until the cycle job finishes. Before ORPHAN-HIGH-728 the path was unreachable (the nightly lane ran `standard`, which got a NoOp runner); with strict reachable, every CONVERGED strict night would burn its entire budget to an `IMPLEMENTATION_TIMEOUT`.

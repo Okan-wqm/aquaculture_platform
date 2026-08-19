@@ -15,9 +15,11 @@ Closes 6-validator audit findings:
 
 Invariants:
 
-* I-V31-B-01 — V9ImplementationRunner Protocol has 3 concrete
-  variants (NoOp, Strict, Autonomous) + select_v9_implementation_runner
-  factory.
+* I-V31-B-01 — V9ImplementationRunner Protocol has 2 concrete
+  variants (NoOp, Autonomous) + select_v9_implementation_runner
+  factory. Was 3: ORPHAN-HIGH-728 deleted the Strict variant, which
+  refused implementation under a profile the runtime-profile table
+  grants pr_create to.
 * I-V31-B-02 — _implementation_suggested_prompt source uses
   encode_untrusted_delimited_payload (V3.1-P-5 helper).
 * I-V31-B-03 — minted prompt with adversarial payload contains
@@ -37,28 +39,32 @@ from __future__ import annotations
 
 import inspect
 import re
-import shutil
-import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 
 class V9ImplementationRunnerVariantsTests(unittest.TestCase):
-    """Plan ARIA-V3.1-B-1 — Protocol + 3 concrete variants + factory."""
+    """Plan ARIA-V3.1-B-1 — Protocol + 2 concrete variants + factory.
 
-    def test_i_v31_b_01_three_variants_plus_factory(self) -> None:
+    ORPHAN-HIGH-728 rewrote this pin from THREE variants to two. The
+    third, ``StrictV9ImplementationRunner``, refused implementation under
+    a profile ``runtime_profile`` defines as the full implementation
+    pipeline and grants ``pr_create`` to; it is deleted rather than
+    renamed, so this list shrinks on purpose.
+    """
+
+    def test_i_v31_b_01_two_variants_plus_factory(self) -> None:
         from aria_kernel.cycle_phases import (
             AutonomousV9ImplementationRunner,
             NoOpV9ImplementationRunner,
-            StrictV9ImplementationRunner,
             V9ImplementationRunner,
             select_v9_implementation_runner,
         )
-        # Factory dispatches by profile.
+        # Factory dispatches by ACTION authority, not by profile name.
         for profile, expected_cls in (
             ("autonomous", AutonomousV9ImplementationRunner),
-            ("strict", StrictV9ImplementationRunner),
+            ("strict", AutonomousV9ImplementationRunner),
             ("standard", NoOpV9ImplementationRunner),
             ("observe", NoOpV9ImplementationRunner),
             ("frozen", NoOpV9ImplementationRunner),
@@ -329,29 +335,56 @@ class TerminalStateExhaustivenessTests(unittest.TestCase):
 
 
 class StrictRunnerBehaviorTests(unittest.TestCase):
-    """Plan ARIA-V3.1-B — strict variant refuses cleanly."""
+    """ORPHAN-HIGH-728 — strict IMPLEMENTS; the refusal is gone.
 
-    def test_strict_runner_refuses_with_policy_class(self) -> None:
-        from aria_kernel.cycle_phases import StrictV9ImplementationRunner
-        tmp = Path(tempfile.mkdtemp(prefix="v31b-strict-")).resolve()
-        try:
-            result = StrictV9ImplementationRunner().run(
-                cycle_id="cyc-test", plan_id="plan-test",
-                workspace_root=tmp, base_dir=tmp / "aria-tools",
-                cross_review_summary={},
-                profile="strict",
-            )
-            self.assertEqual(
-                result.terminal_state, "IMPLEMENTATION_REQUEST_REFUSED",
-            )
-            self.assertEqual(
-                result.rejection_class, "policy_strict_no_implementation",
-            )
-            self.assertEqual(
-                result.specialist_review_signal, "review_converged_plan",
-            )
-        finally:
-            shutil.rmtree(tmp, ignore_errors=True)
+    The successor of `test_strict_runner_refuses_with_policy_class`,
+    which asserted strict returned rejection_class
+    `policy_strict_no_implementation`. That assertion is now false
+    because the behaviour it pinned was the defect: a refusal class
+    `implementation_rejections.VALID_IMPLEMENTATION_REJECTION_CLASSES`
+    never accepted, standing in for a pipeline the profile table says
+    strict owns. Deleting the pin would have hidden the change; this asks
+    the same question of the successor truth.
+    """
+
+    def test_strict_selects_the_implementing_runner(self) -> None:
+        from aria_kernel.cycle_phases import (
+            AutonomousV9ImplementationRunner,
+            select_v9_implementation_runner,
+        )
+        self.assertIsInstance(
+            select_v9_implementation_runner(profile="strict"),
+            AutonomousV9ImplementationRunner,
+        )
+
+    def test_the_retired_refusal_class_has_no_emitter_left(self) -> None:
+        """İ2 — removed, not orphaned. A rejection class with no emitter is
+        exactly the dead code this repo deletes with reasoning; if one is
+        constructed again, the parallel policy came back with it.
+
+        Searched as a QUOTED LITERAL, not as a substring. A rejection class
+        can only be emitted by being written as a string, so the quotes are
+        what separate an emitter from the prose that records why the emitter
+        is gone — and the prose has to stay readable, or the next author
+        rediscovers the branch by reinventing it.
+        """
+        import aria_kernel
+        kernel_root = Path(aria_kernel.__file__).resolve().parent
+        needles = ('"policy_strict_no_implementation"', "'policy_strict_no_implementation'")
+        offenders = [
+            path.relative_to(kernel_root).as_posix()
+            for path in kernel_root.rglob("*.py")
+            if any(needle in path.read_text(encoding="utf-8") for needle in needles)
+        ]
+        self.assertEqual(offenders, [], f"retired refusal class resurrected in {offenders}")
+
+    def test_strict_runner_class_is_gone_from_the_package(self) -> None:
+        import aria_kernel.cycle_phases as cycle_phases
+        self.assertFalse(
+            hasattr(cycle_phases, "StrictV9ImplementationRunner"),
+            "StrictV9ImplementationRunner is deleted under I2; a re-export "
+            "means the parallel policy came back",
+        )
 
 
 if __name__ == "__main__":

@@ -808,7 +808,12 @@ class StepOrderingAndAbortGateContract(unittest.TestCase):
         """
         for workflow_id, victim in (
             (self._EXECUTOR, "Run CI executor"),
-            (self._CYCLE, "Run nightly standard-profile cycle"),
+            (self._CYCLE, "Run the nightly cycle under the resolved profile"),
+            # ORPHAN-HIGH-728 — the profile gate is inside the guarded region
+            # too: it reads the durable store, and a lease-blocked run that
+            # still resolved a profile would write a decision for a night that
+            # never ran.
+            (self._CYCLE, "Resolve the cycle profile within the operator ceiling"),
         ):
             with self.subTest(workflow=workflow_id, step=victim):
                 def mutate(steps, name=victim):

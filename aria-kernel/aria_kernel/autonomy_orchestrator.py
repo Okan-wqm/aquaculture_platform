@@ -603,11 +603,14 @@ def _apply_preflight_verdict(root: Path, profile: str, verdict: Any) -> None:
     """
     # Late import, same as every governance write in this module: the
     # runtime_profile ↔ tool_registry cycle forbids a module-level one.
+    from .runtime_profile import ACTION_PERMISSIONS
     from .tool_registry import GovernanceError, append_tools_governance
 
     failure_classes = tuple(getattr(verdict, "failure_classes", ()) or ())
     reasons = tuple(getattr(verdict, "reasons", ()) or ())
-    if profile == "autonomous" and not getattr(verdict, "valid", True):
+    # ORPHAN-HIGH-728 — merge-class authority read from the table, not
+    # matched against a profile name.
+    if profile in ACTION_PERMISSIONS["pr_merge"] and not getattr(verdict, "valid", True):
         append_tools_governance(
             root, "autonomy_orchestrator_refused",
             {
@@ -808,7 +811,13 @@ def run_autonomy_orchestrator(
     # the audit ledger even under frozen/observe (which would
     # otherwise block tool_governance writes via Plan 026R §A.4
     # surface enforcement).
-    if profile in ("autonomous", "strict", "standard"):
+    from .runtime_profile import (
+        ACTION_PERMISSIONS as _ACTION_PERMISSIONS,
+        PROFILES_WITH_ACTION_AUTHORITY as _PROFILES_WITH_ACTION_AUTHORITY,
+    )
+
+    _merge_authority_profiles = _ACTION_PERMISSIONS["pr_merge"]
+    if profile in _PROFILES_WITH_ACTION_AUTHORITY:
         try:
             from . import preflight as _preflight_mod
             # skip_remote=True under autonomous when GH_TOKEN unset
@@ -817,7 +826,7 @@ def run_autonomy_orchestrator(
             # skip_remote honors the token-presence signal so
             # operator dry-runs do not require GitHub auth.
             _skip_remote = (
-                profile in ("strict", "standard")
+                profile not in _merge_authority_profiles
                 and not bool(os.environ.get("GH_TOKEN"))
             )
             verdict = _preflight_mod.verify_preflight(
@@ -830,7 +839,7 @@ def run_autonomy_orchestrator(
             # autonomous must fail-fast (defense-in-depth: a kernel
             # missing preflight cannot be the autonomous-mode host).
             verdict = None
-            if profile == "autonomous":
+            if profile in _merge_authority_profiles:
                 append_tools_governance(
                     root, "autonomy_orchestrator_refused",
                     {
@@ -889,6 +898,17 @@ def run_autonomy_orchestrator(
             # Per-orphan + summary governance events surface the
             # reaping in the audit trail.
             #
+            # ORPHAN-HIGH-729 — AGE-BOUNDED, because "outstanding at
+            # startup" stopped meaning "abandoned". The mint and the
+            # drain are two workflow runs now: the cycle lane issues the
+            # implementation envelope and the executor lane answers it
+            # later. An unbounded reaper in that topology rejects the
+            # plan the executor is on its way to implement, and does it
+            # every time the executor window slips. The scanner already
+            # returns `last_event_at`, so the bound costs one comparison
+            # against a stamp that was being carried into the audit row
+            # and otherwise ignored.
+            #
             # bypass_profile_gate=True on the summary event ensures
             # the reaper's audit row reaches the ledger even under
             # frozen/observe profiles (the reaping itself goes
@@ -897,7 +917,12 @@ def run_autonomy_orchestrator(
             # summary event is suppressed (zero-noise floor).
             if profile_announce_allowed:
                 try:
+                    from .human_required import record_human_required
                     from .plan_convergence import (
+                        ORPHAN_DECISION_ESCALATE_UNDATEABLE,
+                        ORPHAN_DECISION_REAP,
+                        ORPHAN_IMPLEMENTATION_REAP_AFTER_HOURS,
+                        decide_orphan_reap,
                         scan_orphan_implementation_requests,
                         record_implementation_rejected,
                     )
@@ -913,9 +938,73 @@ def run_autonomy_orchestrator(
                         bypass_profile_gate=True,
                     )
                 _reaped: list[dict[str, Any]] = []
+                # ORPHAN-HIGH-729 — a request younger than the bound is LEFT
+                # ALONE and counted. Not silently: the summary row below
+                # carries the counts, so "the reaper ran and spared N" stays
+                # readable as something other than "the reaper found nothing".
+                #
+                # Round 2: an UNDATEABLE request is a third case, not a
+                # sparing. `decide_orphan_reap` ages a plan from its newest
+                # stamp and, failing that, from its first; only a plan with no
+                # readable stamp anywhere in its event stream comes back
+                # undateable, which `_append_event` cannot produce and so
+                # means the ledger was corrupted or hand-written. Sparing that
+                # made it IMMORTAL — the earlier note here claimed
+                # `resume_candidate_plan_id` was the backstop, and it is not:
+                # it `continue`s past `_IMPLEMENTATION_PHASE_STATES`, the only
+                # states this scanner ever returns, so no mechanism would ever
+                # have collected it. A machine cannot honestly decide between
+                # "abandoned" and "in flight" without a clock, so it stops
+                # deciding and hands the plan to the operator queue, once, by
+                # a request_id that dedupes across every later scan.
+                _spared_recent: list[dict[str, Any]] = []
+                _escalated_undateable: list[dict[str, Any]] = []
                 for _orphan in _orphans:
                     _orphan_plan_id = _orphan.get("plan_id")
                     if not isinstance(_orphan_plan_id, str) or not _orphan_plan_id:
+                        continue
+                    _orphan_decision = decide_orphan_reap(
+                        _orphan,
+                        reap_after_hours=ORPHAN_IMPLEMENTATION_REAP_AFTER_HOURS,
+                    )
+                    if _orphan_decision.decision == ORPHAN_DECISION_ESCALATE_UNDATEABLE:
+                        _escalated_undateable.append(_orphan)
+                        try:
+                            record_human_required(
+                                request_id=(
+                                    "implementation-orphan-undateable-"
+                                    f"{_orphan_plan_id}"
+                                ),
+                                severity="HIGH",
+                                reason=(
+                                    "implementation request outstanding in "
+                                    f"{_orphan.get('state')} with no readable "
+                                    "event timestamp; the reaper cannot "
+                                    "establish whether it is abandoned or in "
+                                    "flight, so an operator must decide"
+                                ),
+                                context={
+                                    "plan_id": _orphan_plan_id,
+                                    "prior_state": _orphan.get("state"),
+                                    "last_event_at": _orphan.get("last_event_at"),
+                                    "first_event_at": _orphan.get("first_event_at"),
+                                    "finding_id": "ORPHAN-HIGH-729",
+                                },
+                                base_dir=root,
+                            )
+                        except Exception as _escalate_exc:
+                            append_tools_governance(
+                                root, "implementation_orphan_escalation_failed",
+                                {
+                                    "plan_id": _orphan_plan_id,
+                                    "error_class": type(_escalate_exc).__name__,
+                                    "error_message": str(_escalate_exc)[:500],
+                                },
+                                bypass_profile_gate=True,
+                            )
+                        continue
+                    if _orphan_decision.decision != ORPHAN_DECISION_REAP:
+                        _spared_recent.append(_orphan)
                         continue
                     try:
                         record_implementation_rejected(
@@ -931,6 +1020,14 @@ def run_autonomy_orchestrator(
                                 "plan_id": _orphan_plan_id,
                                 "prior_state": _orphan.get("state"),
                                 "last_event_at": _orphan.get("last_event_at"),
+                                # Which stamp the age came from, because a
+                                # reap dated from `first_event_at` means the
+                                # newest row was unreadable — a fact an
+                                # auditor of this row must not have to infer.
+                                "age_source": _orphan_decision.age_source,
+                                "age_hours": _orphan_decision.age_hours,
+                                "reap_after_hours":
+                                    ORPHAN_IMPLEMENTATION_REAP_AFTER_HOURS,
                             },
                             bypass_profile_gate=True,
                         )
@@ -947,12 +1044,23 @@ def run_autonomy_orchestrator(
                             },
                             bypass_profile_gate=True,
                         )
-                if _reaped:
+                if _reaped or _spared_recent or _escalated_undateable:
                     append_tools_governance(
                         root, "implementation_orphans_reaped_summary",
                         {
                             "reaped_count": len(_reaped),
                             "scanned_count": len(_orphans),
+                            # ORPHAN-HIGH-729 — the spared count is the
+                            # evidence the bound is doing work. Without it a
+                            # night where the executor was merely late reads
+                            # exactly like a night with nothing outstanding,
+                            # and the escalated count is what stops an
+                            # undateable plan from disappearing into that
+                            # same silence.
+                            "spared_recent_count": len(_spared_recent),
+                            "escalated_undateable_count": len(_escalated_undateable),
+                            "reap_after_hours":
+                                ORPHAN_IMPLEMENTATION_REAP_AFTER_HOURS,
                         },
                         bypass_profile_gate=True,
                     )
@@ -1702,14 +1810,15 @@ def run_autonomy_orchestrator(
                 # The signal-typed V9ImplementationResult lets the
                 # orchestrator pick the next specialist_review behavior
                 # without inspecting terminal_state heuristically.
-                # NoOp/Strict variants return IMPLEMENTATION_REQUEST_REFUSED
-                # with specialist_review_signal=review_converged_plan so
-                # V8 behavior is preserved by default. The autonomous variant
-                # stages the plan for PR, mints the implementation envelope
-                # and returns IMPLEMENTATION_DISPATCHED — the executor lane
-                # delivers the implementation in a later run (K6,
-                # ORPHAN-CRITICAL-727), so there is no poll budget here to
-                # pass any more.
+                # ORPHAN-HIGH-728 — TWO variants, selected by authority:
+                # the NoOp returns IMPLEMENTATION_REQUEST_REFUSED with
+                # specialist_review_signal=review_converged_plan (V8
+                # behaviour) for every profile without `pr_create`, and
+                # AutonomousV9ImplementationRunner mints the
+                # aria-implementer subprocess + polls + records outcome for
+                # every profile that holds it. The third, `Strict`, refused
+                # under a profile the table grants `pr_create` and is
+                # deleted.
                 AutonomyStateReducer.transition(
                     root,
                     cycle_id=cycle_id,

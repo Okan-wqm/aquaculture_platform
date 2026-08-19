@@ -9,37 +9,32 @@ specialist_review:
 
 V3.1-B installs three concrete variants behind this Protocol:
 
-* ``NoOpV9ImplementationRunner`` — profile=observe/standard/frozen;
-  emits `implementation_phase_skipped` governance event + returns
+* ``NoOpV9ImplementationRunner`` — every profile WITHOUT ``pr_create``
+  authority (observe / standard / frozen); returns
   `V9ImplementationResult(terminal_state="IMPLEMENTATION_REQUEST_REFUSED",
   specialist_review_signal="review_converged_plan")` so the orchestrator
   proceeds to specialist_review of the CONVERGED PLAN.
-* ``StrictV9ImplementationRunner`` — profile=strict; refuses with
-  `policy_strict_no_implementation` so the operator-side review still
-  fires on the CONVERGED plan.
-* ``AutonomousV9ImplementationRunner`` — profile=autonomous; stages the
-  CONVERGED plan for PR (ORPHAN-CRITICAL-727), mints the signing key +
-  scoped installation token, issues the implementation envelope, and
-  RETURNS. try/finally cleans the keypair + revokes the installation
-  token regardless of outcome (closes C-11, H-4).
+* ``AutonomousV9ImplementationRunner`` — every profile WITH ``pr_create``
+  authority (strict / autonomous); mints the signing key + scoped
+  installation token + issues the implementation envelope + verifies
+  signature + records via
+  `plan_convergence.record_implementation_outcome`. try/finally
+  cleans the keypair + revokes the installation token regardless of
+  outcome (closes C-11, H-4).
 
-K6 (ORPHAN-CRITICAL-727) removed the synchronous poll that used to sit
-after the mint. Two independent reasons, either sufficient:
-
-  * the executor lane claims the envelope in a LATER workflow run, so
-    nothing the poll waited for could arrive inside the cycle that
-    minted it — the same fact CL-1 acted on when it deleted the
-    convergence-drainer polls;
-  * the poll called ``fold_plan_state(plan_id, base_dir=...)``
-    POSITIONALLY against a keyword-only function, so every real
-    invocation raised ``TypeError`` — not caught by its
-    ``except (KeyError, ValueError, GovernanceError)`` arm — and the
-    phase died at the first iteration. The tests were green because
-    they patched ``fold_plan_state`` with a mock, and a mock accepts a
-    positional call the real function refuses.
-
-V3.1-0 ships ONLY the Protocol + NoOp variant. The three real variants
-ship in V3.1-B.
+ORPHAN-HIGH-728 — ``StrictV9ImplementationRunner`` WAS the third variant
+and is DELETED, not deprecated. It refused implementation under
+``strict`` with ``policy_strict_no_implementation`` while
+``runtime_profile`` defines strict as "full implementation pipeline
+(claim → planned → committed → validated → PR)" and grants it
+``pr_create``/``pr_open``. Two contradictory definitions of one profile
+is not a variant, it is drift: the class encoded a policy the SSoT never
+held, so no producer could ever satisfy it and no operator could reach
+the pipeline the profile advertises. Its rejection_class was never a
+member of ``implementation_rejections.VALID_IMPLEMENTATION_REJECTION_CLASSES``
+either — the refusal it emitted could not even be recorded as an
+implementation outcome, which is the strongest available evidence that
+it was a dead branch rather than a governed refusal.
 
 Tier-1 anchor: signal-typed return forces the orchestrator to handle
 every terminal state — adding a new terminal becomes a Literal-type
@@ -110,16 +105,17 @@ class V9ImplementationResult:
 class V9ImplementationRunner(Protocol):
     """Plan ARIA-V3.1-0 — injection-seam contract for V9 impl phase.
 
-    Concrete variants (V3.1-B):
+    Concrete variants:
 
     * ``NoOpV9ImplementationRunner`` — default; refuses cleanly.
-    * ``StrictV9ImplementationRunner`` — strict profile; refuses with
-      policy event.
-    * ``AutonomousV9ImplementationRunner`` — autonomous profile; the
-      real implementation pipeline.
+    * ``AutonomousV9ImplementationRunner`` — the real implementation
+      pipeline.
 
     Profile dispatch happens at the orchestrator entry (V3.1-E sets up
-    the profile_gate before the runner fires).
+    the profile_gate before the runner fires); which of the two the
+    profile gets is DERIVED from ``runtime_profile.ACTION_PERMISSIONS``
+    by :func:`select_v9_implementation_runner`.
+
 
     ORPHAN-CRITICAL-728 — ``converged_plan`` was an input and is gone. Its
     only production producer was
@@ -167,36 +163,19 @@ class NoOpV9ImplementationRunner:
         )
 
 
-class StrictV9ImplementationRunner:
-    """Plan ARIA-V3.1-B — strict-profile variant. Refuses with
-    `policy_strict_no_implementation` so the operator-side specialist
-    review still fires on the CONVERGED plan (review_converged_plan
-    signal). Strict is the safe dry-run mode; the V9 implementation
-    phase requires the autonomous profile per V9.0-C contract.
-    """
-
-    def run(
-        self,
-        *,
-        cycle_id: str,
-        plan_id: str,
-        workspace_root: Path,
-        base_dir: Path,
-        cross_review_summary: dict,
-        profile: str,
-    ) -> V9ImplementationResult:
-        return V9ImplementationResult(
-            terminal_state="IMPLEMENTATION_REQUEST_REFUSED",
-            pr_url=None,
-            rejection_class="policy_strict_no_implementation",
-            specialist_review_signal="review_converged_plan",
-        )
-
-
 class AutonomousV9ImplementationRunner:
-    """Plan ARIA-V3.1-B — autonomous-profile variant (closes the
+    """Plan ARIA-V3.1-B — the IMPLEMENTING variant (closes the
     final value gap "CONVERGED plans never become real code").
 
+    ORPHAN-HIGH-728 — named for the profile that first held it, selected
+    now by AUTHORITY: any profile carrying ``pr_create`` in
+    ``runtime_profile.ACTION_PERMISSIONS`` gets this runner, because
+    ``pr_manager.open_pr_for_action`` is the gate the last step of this
+    pipeline actually hits. ``strict`` therefore runs it too; the merge
+    step is a different authority (``pr_merge``, autonomous-only) and is
+    not reached from here at all.
+
+    Pipeline:
     Pipeline (K6 / ORPHAN-CRITICAL-727):
 
       1. mint_signing_key(cycle_id) — per-cycle ed25519 keypair +
@@ -388,26 +367,53 @@ class AutonomousV9ImplementationRunner:
                     pass
 
 
-def select_v9_implementation_runner(*, profile: str) -> V9ImplementationRunner:
-    """Plan ARIA-V3.1-B — profile-derived runner factory.
+# ORPHAN-HIGH-728 — the action authority that DECIDES which runner a
+# profile gets. `pr_create` and not `change_committed`, because the
+# implementation pipeline's terminal step is `pr_manager.open_pr_for_action`,
+# which calls `enforce_profile_for_action("pr_create")`: a profile that
+# cannot pass that gate cannot finish an implementation no matter how much
+# of the pipeline it is handed, and a profile that CAN pass it must not be
+# handed a runner that refuses before trying.
+IMPLEMENTATION_ACTION_KIND: str = "pr_create"
 
-    Mirrors select_auto_merge_runner / select_convergence_runner
-    pattern. The orchestrator's CLI wire installs this factory's
-    return value as the v9_implementation_runner kwarg per cycle.
+
+def select_v9_implementation_runner(*, profile: str) -> V9ImplementationRunner:
+    """Runner selection DERIVED from ``runtime_profile.ACTION_PERMISSIONS``.
+
+    ORPHAN-HIGH-728 — this factory used to be a hand-written `if
+    profile == ...` switch, i.e. a SECOND copy of the profile→authority
+    mapping sitting beside the table the kernel actually enforces. The
+    copy drifted, as copies do: the table grants ``pr_create`` to
+    {strict, autonomous}, while the switch gave ``strict`` a runner that
+    refused implementation outright and ``standard`` — the profile the
+    nightly lane ran under — a NoOp. The observable cost was that ARIA
+    could converge a plan every night and mint zero diffs, with no gate
+    anywhere reporting a refusal, because from the switch's point of
+    view nothing had gone wrong.
+
+    Reading the table makes the drift impossible rather than merely
+    detectable: granting a profile ``pr_create`` in ``ACTION_PERMISSIONS``
+    now enrolls it in implementation automatically, and revoking it
+    demotes the profile to NoOp on the same edit — the same
+    derive-don't-enumerate discipline ``PROFILES_WITH_ACTION_AUTHORITY``
+    already uses one module over.
+
+    Lazy import: ``cycle_phases`` submodules keep a bare top-level import
+    surface so ``autonomy_orchestrator``'s cold start stays hermetic
+    (I-V31-0-01 / I-V31-0-05).
     """
-    if profile == "autonomous":
+    from ..runtime_profile import ACTION_PERMISSIONS
+
+    if profile in ACTION_PERMISSIONS[IMPLEMENTATION_ACTION_KIND]:
         return AutonomousV9ImplementationRunner()
-    if profile == "strict":
-        return StrictV9ImplementationRunner()
-    # observe / standard / frozen → NoOp (V8 backward-compat).
     return NoOpV9ImplementationRunner()
 
 
 __all__ = [
+    "IMPLEMENTATION_ACTION_KIND",
     "AutonomousV9ImplementationRunner",
     "NoOpV9ImplementationRunner",
     "SpecialistReviewSignal",
-    "StrictV9ImplementationRunner",
     "TerminalState",
     "V9ImplementationResult",
     "V9ImplementationRunner",

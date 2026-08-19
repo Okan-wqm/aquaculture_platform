@@ -34,6 +34,31 @@ _PLACEHOLDER = "workflow-placeholder-value"
 _EXPAND = re.compile(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|\$\{\{[^}]*\}\}")
 
 
+def _contract_violation(msg: str) -> bool:
+    """Is this argparse error a CALLER/CALLEE disagreement, or an artifact?
+
+    Missing-required and unknown-argument always are. `invalid choice` is the
+    interesting one: it is a real violation when the workflow WROTE the bad
+    value, and pure noise when the value is a shell variable this test
+    replaced with a placeholder — argparse is then rejecting the placeholder,
+    not the workflow.
+
+    ORPHAN-HIGH-728 made that distinction load-bearing. `aria-auto-cycle.yml`
+    passes `--profile "$ARIA_CYCLE_PROFILE"` because the profile is resolved
+    at runtime; the substituted token can never be a member of `choices`, so
+    the check reported a contract violation for a workflow that satisfies the
+    contract. Excluding the placeholder BY NAME keeps the literal case biting:
+    `--profile stricty` is still caught, which is the defect this test owns.
+    """
+    if "the following arguments are required" in msg:
+        return True
+    if "unrecognized arguments" in msg:
+        return True
+    if "invalid choice" in msg:
+        return f"invalid choice: '{_PLACEHOLDER}'" not in msg
+    return False
+
+
 def _kernel_invocations(text: str) -> list[list[str]]:
     """Return argv lists for each `python3 -m aria_kernel ...` run: block."""
     joined = re.sub(r"\\\s*\n\s*", " ", text)  # fold YAML line continuations
@@ -78,16 +103,11 @@ class WorkflowKernelCliContract(unittest.TestCase):
                     # arguments are satisfied; argparse exits 2 on a usage
                     # error, which is the defect class this test owns.
                     msg = err.getvalue()
-                    # Only MISSING-REQUIRED and UNKNOWN-ARGUMENT are contract
-                    # violations. Type/format complaints are artifacts of
-                    # substituting shell variables with a literal placeholder
-                    # and say nothing about caller/callee agreement.
-                    contract_violation = (
-                        "the following arguments are required" in msg
-                        or "unrecognized arguments" in msg
-                        or "invalid choice" in msg
-                    )
-                    if exc.code == 2 and contract_violation:
+                    # Type/format complaints are artifacts of substituting
+                    # shell variables with a literal placeholder and say
+                    # nothing about caller/callee agreement; see
+                    # `_contract_violation` for which errors count.
+                    if exc.code == 2 and _contract_violation(msg):
                         self.fail(
                             f"{wf.name}: `aria_kernel {' '.join(argv)}` does "
                             f"not satisfy the CLI.\n{err.getvalue().strip()}"
@@ -97,6 +117,30 @@ class WorkflowKernelCliContract(unittest.TestCase):
         # Anti-vacuous: a parser change that stops matching must fail loudly
         # rather than silently validating nothing.
         self.assertGreaterEqual(seen, 5, "no kernel invocations found to check")
+
+    def test_the_placeholder_exemption_does_not_disarm_the_check(self) -> None:
+        """The narrow exemption above is the kind that quietly becomes a
+        blanket one. These are the four cases it must keep separating."""
+        self.assertFalse(
+            _contract_violation(
+                f"error: argument --profile: invalid choice: '{_PLACEHOLDER}' "
+                "(choose from 'observe', 'standard')"
+            ),
+            "a runtime-resolved value must not read as a contract violation",
+        )
+        self.assertTrue(
+            _contract_violation(
+                "error: argument --profile: invalid choice: 'stricty' "
+                "(choose from 'observe', 'standard')"
+            ),
+            "a value the workflow WROTE must still be caught",
+        )
+        self.assertTrue(
+            _contract_violation("error: the following arguments are required: --snapshot-id"),
+        )
+        self.assertTrue(
+            _contract_violation("error: unrecognized arguments: --cycle-id x"),
+        )
 
 
 if __name__ == "__main__":

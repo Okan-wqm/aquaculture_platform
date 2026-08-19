@@ -55,8 +55,13 @@ class CyclePhasesScaffoldTests(unittest.TestCase):
             sys.path.pop(0)
         expected_exports = {
             # Plan ARIA-V3.1-B — concrete V9ImplementationRunner
-            # variants (Autonomous, Strict, NoOp).
+            # variants (Autonomous, NoOp). ORPHAN-HIGH-728 removed the
+            # Strict variant: it encoded a no-implementation policy for a
+            # profile the runtime-profile table grants pr_create to.
             "AutonomousV9ImplementationRunner",
+            # ORPHAN-HIGH-728 — the action kind the factory derives its
+            # choice from, exported so the derivation is inspectable.
+            "IMPLEMENTATION_ACTION_KIND",
             "CostAttributionEnvelope",
             "CostTelemetryHook",
             # Plan ARIA-V3.1-D2 — production CostTelemetryHookImpl
@@ -75,7 +80,6 @@ class CyclePhasesScaffoldTests(unittest.TestCase):
             "NoOpV9ImplementationRunner",
             "PlanContentProvider",
             "ProfileGate",
-            "StrictV9ImplementationRunner",
             # Plan ARIA-V3.1-A — concrete PlanContentProvider variants
             # (V9PressureSourceProvider for 5-source mining;
             # V7GitDiffProvider for fallback).

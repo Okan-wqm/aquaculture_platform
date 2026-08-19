@@ -83,6 +83,13 @@ class OrchestratorOrphanReaperHookTests(unittest.TestCase):
                     "rejection_class": rejection_class,
                 })
                 return {"event_type": "implementation_rejected"}
+            # ORPHAN-HIGH-729 — these stamps are now LOAD-BEARING, not
+            # decoration. The reap is age-bounded by
+            # `ORPHAN_IMPLEMENTATION_REAP_AFTER_HOURS`, so an orphan is only
+            # collected once it is provably past the executor's window; a
+            # fixture stamped "now" would make this invariant assert the
+            # opposite of what it reads as. 2026-05-19 is unambiguously past
+            # any window and stays that way, since dates only move forward.
             with patch(
                 "aria_kernel.plan_convergence.scan_orphan_implementation_requests",
                 return_value=[
@@ -136,6 +143,13 @@ class OrchestratorOrphanReaperHookTests(unittest.TestCase):
             self.assertEqual(len(reap_events), 2)
             self.assertEqual(len(summary_events), 1)
             self.assertEqual(summary_events[0]["details"]["reaped_count"], 2)
+            # ORPHAN-HIGH-729 — both were past the window, so nothing was
+            # spared. Stating it keeps this from silently becoming a
+            # zero-orphan pass if the fixture stamps ever drift into it.
+            self.assertEqual(summary_events[0]["details"]["spared_recent_count"], 0)
+            self.assertEqual(
+                summary_events[0]["details"]["escalated_undateable_count"], 0,
+            )
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 

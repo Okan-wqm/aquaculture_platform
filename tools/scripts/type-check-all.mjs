@@ -88,6 +88,24 @@ function runTsc(tsconfig) {
       cwd: REPO_ROOT,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    // A missing tsc used to surface as an unhandled 'error' event: the
+    // process died with a spawn ENOENT stack trace, and a reader (human or
+    // agent) could not tell "the gate could not run" from "the code is
+    // broken". The exit code was always non-zero — the gate never passed
+    // silently — but the MESSAGE decides whether anyone reads it right.
+    // A worktree without node_modules is the case that produces it.
+    proc.on('error', (err) => {
+      resolveP({
+        ok: false,
+        stdout: '',
+        stderr:
+          `type-check-all: cannot run tsc at ${tscBin} (${err.code || err.message}). ` +
+          'If this is a git worktree, link or install node_modules there ' +
+          '(ln -s <repo>/node_modules, or npm ci) — the type gate cannot ' +
+          'check anything without it.',
+        tsconfig,
+      });
+    });
     let stdout = '';
     let stderr = '';
     proc.stdout.on('data', (b) => (stdout += b.toString()));

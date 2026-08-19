@@ -10144,6 +10144,7 @@ Severity: HIGH (the report face of ARIA is unreadable-by-CI; measured on PR #128
 **Fix (İ1 — no new secret distributed):** the PR-opening job moves to the self-hosted runner (`[self-hosted, linux, claude]`) where `ARIA_GH_TOKEN` already lives in the runner .env, and adopts the ORPHAN-722 identity ladder verbatim — PAT preferred with the disclosure line "gh identity: machine PAT (ARIA_GH_TOKEN)", honest fallback otherwise. `generate-report` deliberately stays github-hosted: it is read-only, needs no identity, and keeping it hosted keeps one job off the starved self-hosted queue. Workflow contract suite green (60 tests incl. enterprise preflight + report dashboard pins).
 
 **Owner:** claude (this session). **Status:** RESOLVED (next scheduled report proves it live; #1282 itself still needs one manual approval or a re-open under the new identity).
+
 ## ORPHAN-HIGH-737 — a 10-of-11 drain reads RED: the contract refusal was counted as a build failure — RESOLVED (measured live)
 
 Severity: HIGH (poisons every downstream health signal). Measured: executor run 32221242315 — `drain_done attempted=11 succeeded=10 failed=1 stop=budget_exhausted`, workflow conclusion **failure**. The single "failure" was `pre_submit_validation_FAILED errors=['judge_verdict:absent']`: a judge returned an envelope with no verdict block, the Y5 contract caught it, released the claim, and left the request pending with its Y1 retry budget — precisely the designed behaviour. Its arm returned 1, and `ci_executor_drain` maps any non-zero child to a red workflow (`return 0 if failed == 0 else 1`), so a night that drained ten envelopes (including the first `human_required_adjudication` submissions to ever succeed) was indistinguishable from a broken lane. Same class as ORPHAN-716 (honest partial-red ≠ incident), still open on the executor side; it also feeds the scheduled-workflow watchdog's "6 lanes failing" incident.
@@ -10153,3 +10154,23 @@ Severity: HIGH (poisons every downstream health signal). Measured: executor run 
 Pinned: refusal exits 0 with the release reason; refusal NEVER submits (green must not mean "sealed anyway"); the drain's fatal arms stay fatal.
 
 **Owner:** claude (this session). **Status:** RESOLVED (3 new pins + 302 executor/drain/claim neighbours green).
+
+## ORPHAN-MEDIUM-742 (G-0) — the type gate refused by crashing, so a reader could not tell "it did not run" from "the code is broken" — RESOLVED
+
+Severity: MEDIUM (diagnosability, not correctness). An adversarial verifier reported that `npm run type-check` "exits 0 while running nothing" in a git worktree. **That claim is false and the correction matters more than the fix:** measured without a pipe, a worktree with no `node_modules` gives `EXIT=1` from both `node tools/scripts/type-check-all.mjs` and `npm run type-check`. The gate is fail-closed. The verifier's `EXIT=0` came from `cmd | head` — a pipeline reports the LAST command's status — the same trap that ate three push exit codes earlier the same day.
+
+What was real: a missing `tsc` surfaced as a Node **unhandled 'error' event** (`spawn … ENOENT` plus a stack trace), so the failure looked like a broken script rather than a missing prerequisite. **Fix:** `runTsc` handles `error` and refuses by name — "cannot run tsc at <path> (ENOENT). If this is a git worktree, link or install node_modules there — the type gate cannot check anything without it." Proven in a fresh link-free worktree: exit 1, message present, no stack trace.
+
+**Standing lesson (recorded, not just fixed):** an exit-code observation taken through a pipe is not evidence. This applies to agent reports as much as to shell sessions — a verdict resting on a piped status is unverified until re-measured directly.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-743 — the report lane joined the self-hosted runner without earning its group exemption — RESOLVED (pin caught it pre-merge)
+
+Severity: HIGH (would have shared the persistent ARIA workspace). ORPHAN-736 moved the daily-report PR job to the self-hosted runner for its PAT identity; the job kept its own concurrency group and checked out at the DEFAULT path — i.e. into the workspace the cycle and the executor use as ARIA's store. `test_every_selfhosted_workflow_shares_the_group` refused the push, exactly as designed: a self-hosted lane either shares the group or is path-isolated, never neither.
+
+**Fix (the honest one, not the exemption):** the job now checks out into `report-checkout/` with `working-directory` on its steps — the same structural isolation `dataflow-integrity-watchdog` earned — and keeps its own group, because taking a slot in the shared group would let a two-minute report evict a queued drain (the harm ORPHAN-713 removed). The exempt set gains the lane WITH that reason written down.
+
+One pin followed its mechanism (İ2): `test_exempt_lanes_earned_it_with_a_scoped_checkout` required EVERY job of an exempt lane to scope its checkout, including github-hosted ones. A hosted job runs in a fresh VM and cannot reach the store, so the requirement is now scoped to self-hosted jobs — what the rule always meant — plus a floor assertion that an exemption with no self-hosted checkout to earn it is a hole.
+
+**Owner:** claude (this session). **Status:** RESOLVED (4 Z1 pins green).

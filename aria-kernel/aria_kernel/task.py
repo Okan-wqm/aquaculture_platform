@@ -13,6 +13,28 @@ from .runs_reader import read_runs_rows
 from .tool_health import runs_path
 from .tool_registry import ensure_tools_dir, utc_now
 
+# ORPHAN-MEDIUM-730 — EVERY BUILDER BELOW OWES A `next_action`, OR OMITS IT.
+#
+# WHAT: a candidate carries two different sentences. `title`/`problem` say
+# what the WORK IS (a pressure's reason, a finding's message); `next_action`
+# says what to DO, and `mission.adopt_task_candidates` mints the mission's
+# closure contract from `next_action` alone.
+#
+# WHY here and not at the mission layer: only the builder knows its source's
+# vocabulary — a pressure states its own `recommended_action`, a finding
+# carries an id and cited paths, a capability gap recommends extend-or-draft.
+# The mission layer composing one would be inventing an instruction it has no
+# evidence for, and the first version of that layer did something worse: it
+# passed `next_action=title`, so a mission whose "what happens next" was the
+# restated defect or a bare identifier passed the closure gate and still told
+# an agent nothing. Every one of the 5 missions on the live store came from
+# that path.
+#
+# A builder whose source cannot name an action OMITS the key. That is a real
+# answer — adoption refuses the candidate and discloses
+# `no_derivable_next_action`, which is how a source that produces
+# unactionable work becomes visible instead of becoming a paralysed mission.
+
 # M12/E8 — a proactive ranking only becomes WORK above this bar. The
 # priority scale is 0-100 (impact x opportunity x 100); 60 requires a
 # high-impact tool with most opportunity signals firing, so quiet nights
@@ -127,6 +149,11 @@ def _candidate_from_pressure(cycle_id: str, pressure: dict[str, Any]) -> dict[st
         "source_authority": "deterministic_pressure",
         "title": str(pressure.get("recommended_action") or pressure.get("reason") or source_id),
         "problem": str(pressure.get("reason") or source_id),
+        # `_pressure` REQUIRES recommended_action, so a live pressure always
+        # names one; a legacy/hand-written row that does not gets no forward
+        # pointer rather than a fallback to `reason`, which restates the
+        # problem and would put the tautology straight back.
+        **_next_action(_clean(pressure.get("recommended_action"))),
         # Plan 022 C-1b — pressure schema v2 carries `evidence_refs`
         # (path-string list) populated by derive_pressure (Plan 022 C-1).
         # Legacy schema v1 used `evidence` for the same data.
@@ -153,18 +180,37 @@ def _candidate_from_finding(cycle_id: str, finding: dict[str, Any]) -> dict[str,
     services = finding.get("services") or services_for_paths(
         finding_dimension_paths(payload)
     )
+    finding_id = str(finding.get("finding_id"))
+    # The SAME collector the mint, the service seeder and the dimension axis
+    # read paths through (E15-c) — used here for BOTH the forward pointer's
+    # location and `evidence_refs` below. The previous expression walked
+    # `evidence[].path`, a shape `record_findings_for_run` does not produce:
+    # a real stored finding carries its location in `path`, so that list was
+    # empty on every live row and the candidate travelled with no evidence at
+    # all. Two path vocabularies over one finding is how two readers come to
+    # disagree about what it cites.
+    cited_paths = finding_dimension_paths(payload)
     return {
         "service": services[0] if len(services) == 1 else None,
         "services": services,
         "schema_version": 1,
-        "task_id": _task_id(cycle_id, "finding", str(finding.get("finding_id"))),
+        "task_id": _task_id(cycle_id, "finding", finding_id),
         "cycle_id": cycle_id,
         "source": "finding",
-        "source_id": str(finding.get("finding_id")),
+        "source_id": finding_id,
         "source_authority": "active_finding",
-        "title": str(payload.get("message") or finding.get("finding_id")),
-        "problem": str(payload.get("message") or finding.get("finding_id")),
-        "evidence_refs": [e.get("path") for e in payload.get("evidence", []) if isinstance(e, dict) and e.get("path")],
+        "title": str(payload.get("message") or finding_id),
+        "problem": str(payload.get("message") or finding_id),
+        "evidence_refs": cited_paths,
+        # A finding's `message` is a statement of the DEFECT; using it as the
+        # forward pointer told an agent to "do" the bug. The action names the
+        # finding id (and the path it cites when it cites one) — the same bar
+        # the service seeder's finding branch meets.
+        **_next_action(
+            f"Resolve open finding {finding_id} ({severity}) at {cited_paths[0]}"
+            if cited_paths
+            else f"Resolve open finding {finding_id} ({severity})"
+        ),
         "candidate_tools": [str(finding.get("tool_id"))],
         "risk_class": "requires_impact_plan",
         "validation_commands": ["npm run test", "npm run lint"],
@@ -189,6 +235,12 @@ def _candidate_from_proactive(cycle_id: str, entry: dict[str, Any]) -> dict[str,
         "source_id": tool_id,
         "source_authority": "proactive_ranking",
         "title": f"Invest in {tool_id}: {', '.join(reasons) or 'high impact x opportunity'}",
+        # The ranking is already an instruction ("invest in this tool") and it
+        # names a real tool_id plus the signals that ranked it.
+        **_next_action(
+            f"Invest in {tool_id} (priority {entry.get('priority')}): "
+            f"{', '.join(reasons) or 'high impact x opportunity'}"
+        ),
         "problem": (
             f"{tool_id} ranks priority {entry.get('priority')} "
             f"(impact {entry.get('impact')}, opportunity {entry.get('opportunity')}); "
@@ -213,6 +265,11 @@ def _candidate_from_shadow_summary(cycle_id: str, run: dict[str, Any], raw_count
         "source_id": tool_id,
         "source_authority": "shadow_draft",
         "title": f"Triage {raw_count} SHADOW findings from {tool_id}",
+        # Names the count the run measured and the tool that produced it.
+        **_next_action(
+            f"Triage the {raw_count} SHADOW findings {tool_id} produced, then "
+            f"calibrate or suppress it"
+        ),
         "problem": f"{tool_id} produced {raw_count} suppressed SHADOW findings that need calibration before action.",
         "evidence_refs": _strings(run.get("read_paths"))[:20],
         "candidate_tools": [tool_id],
@@ -250,11 +307,42 @@ def _candidate_from_capability_gap(cycle_id: str, gap: dict[str, Any]) -> dict[s
         "evidence_refs": _strings(gap.get("evidence_refs")),
         "candidate_tools": [],
         "related_specialized_agent_domains": _strings(gap.get("related_existing_agents")),
+        # `_gap` always recommends extend-or-draft, and the recommendation
+        # names either the agent to extend or the gap key to draft against. A
+        # gap row carrying neither says nothing actionable and gets no
+        # forward pointer.
+        **_next_action(_gap_next_action(gap, source_id)),
         "risk_class": "agent_genesis",
         "validation_commands": _strings(gap.get("candidate_validation_commands")),
         "score": float(gap.get("score") or 0),
         "blocked_by": _strings(gap.get("blocked_by")),
     }
+
+
+def _next_action(action: str | None) -> dict[str, str]:
+    """``{"next_action": ...}`` when the source named one, ``{}`` when not.
+
+    A DICT rather than a value so the key is genuinely ABSENT on a candidate
+    that cannot name an action: a ``None`` under the key looks like a field
+    the builder forgot, and adoption would then have to guess which of the
+    two it was looking at.
+    """
+    cleaned = _clean(action)
+    return {"next_action": cleaned} if cleaned else {}
+
+
+def _clean(value: Any) -> str | None:
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _gap_next_action(gap: dict[str, Any], source_id: str) -> str | None:
+    related = _strings(gap.get("related_existing_agents"))
+    recommendation = _clean(gap.get("recommended_action"))
+    if recommendation == "extend_existing_agent" and related:
+        return f"Extend {related[0]} to cover capability gap {source_id}"
+    if recommendation == "draft_new_aria_agent":
+        return f"Draft a new ARIA agent for capability gap {source_id}"
+    return None
 
 
 def _risk_from_pressure(pressure: dict[str, Any]) -> str:

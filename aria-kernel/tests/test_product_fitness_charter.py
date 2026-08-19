@@ -126,5 +126,60 @@ def _read_workflow_name(path: Path) -> dict | None:
     return doc if isinstance(doc, dict) else None
 
 
+class TheLadderIsHonestAboutWhatItCannotMeasure(unittest.TestCase):
+    """v2 — the thresholds are a ladder, and the first rung is being able to see.
+
+    Most of these dimensions are not instrumented today: production
+    deploys have been disabled since 2026-07-15, the WAL-freshness lane
+    has never produced a job, the backup evidence signature is skipped,
+    and there is no product-side latency ledger. A charter that scored
+    those as green would be measuring its own blindness.
+    """
+
+    def test_every_dimension_declares_the_instrument_it_still_lacks(self) -> None:
+        for dimension in load_charter(_REPO)["dimensions"]:
+            self.assertTrue(
+                dimension.get("instrument_gap"),
+                f"{dimension['id']}: a dimension must say what it cannot yet "
+                "measure — silence there is how a bar becomes theatre",
+            )
+
+    def test_the_zero_tolerance_dimension_carries_no_budget_to_spend(self) -> None:
+        # A budget says "this much failure is acceptable". For cross-tenant
+        # reads there is no such amount, so the budget's every ceiling is 0.
+        tenant = next(
+            d for d in load_charter(_REPO)["dimensions"] if d.get("zero_tolerance")
+        )
+        self.assertEqual(tenant["id"], "multi_tenant")
+        self.assertTrue(all(v == 0 for v in tenant["budget"].values()), tenant["budget"])
+
+    def test_the_stages_ratchet_upwards(self) -> None:
+        stages = load_charter(_REPO)["stages"]
+        nights = [int(s["consecutive_green_nights_required"]) for s in stages]
+        self.assertEqual(nights, sorted(nights), stages)
+        self.assertEqual(len(set(s["id"] for s in stages)), len(stages))
+
+    def test_the_active_stage_is_one_of_the_declared_stages(self) -> None:
+        charter = load_charter(_REPO)
+        ids = {s["id"] for s in charter["stages"]}
+        self.assertIn(charter["active_stage"], ids)
+        active = next(
+            s for s in charter["stages"] if s["id"] == charter["active_stage"]
+        )
+        self.assertEqual(
+            int(charter["consecutive_green_nights_required"]),
+            int(active["consecutive_green_nights_required"]),
+            "the evaluated streak requirement must be the ACTIVE stage's, "
+            "or the charter says one thing and the phase measures another",
+        )
+
+    def test_stage_c_names_the_operator_decision_that_blocks_it(self) -> None:
+        # Change-failure rate and MTTR cannot be computed while production
+        # deploys are off. Saying so in the charter is what stops a future
+        # reader from treating an unmeasurable stage as an unmet one.
+        note = load_charter(_REPO)["outcome_metrics_stage_c"]["note"]
+        self.assertIn("PRODUCTION_DEPLOY_ENABLED", note)
+
+
 if __name__ == "__main__":
     unittest.main()

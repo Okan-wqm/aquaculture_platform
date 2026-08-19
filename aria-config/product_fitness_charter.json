@@ -1,9 +1,36 @@
 {
-  "$schema": "aria/product-fitness-charter/v1",
-  "schema_version": 1,
+  "$schema": "aria/product-fitness-charter/v2",
+  "schema_version": 2,
   "declared_by": "operator",
   "declared_at": "2026-08-19",
   "statement": "Repodaki sistemlerin hepsi kusursuz organize bağlanacak ve kusursuz hizmet verecek: güvenli, performanslı, multi-tenant, üretimde olan bir yazılımın endüstriyel şekilde hatasız olması ve üstün kod kalitesi.",
+  "threshold_design": {
+    "why_a_ladder": "A bar nobody can measure is a wish. Most of these dimensions are not instrumented today (production deploys have been disabled since 2026-07-15, the WAL-freshness lane has never produced a job, the backup evidence signature is skipped, there is no product-side latency ledger), so the FIRST bar is being able to see, and only then being good.",
+    "zero_tolerance_vs_budgeted": "Cross-tenant reads and critical vulnerabilities are not budgeted — one occurrence ends the product. Latency and error rates ARE budgeted: bounded imperfection is engineering, pretended perfection is theatre.",
+    "ratchet": "A stage, once reached, cannot silently regress: falling back below a reached bar is a red night, not a return to the earlier stage.",
+    "unknown_is_never_green": "A dimension that cannot be read breaks the streak exactly like a failing one."
+  },
+  "stages": [
+    {
+      "id": "A_instrumented",
+      "goal": "every dimension has a measurement",
+      "acceptance": "zero dimensions report unknown for 7 consecutive nights",
+      "consecutive_green_nights_required": 7
+    },
+    {
+      "id": "B_bounded",
+      "goal": "every dimension inside its budget",
+      "acceptance": "all dimension budgets held for 14 consecutive nights",
+      "consecutive_green_nights_required": 14
+    },
+    {
+      "id": "C_industrial",
+      "goal": "outcome-grade quality, proven from production",
+      "acceptance": "escaped-defect rate <= 5%, change-failure rate <= 15%, MTTR <= 1h, all B budgets held, for 30 consecutive nights",
+      "consecutive_green_nights_required": 30
+    }
+  ],
+  "active_stage": "A_instrumented",
   "consecutive_green_nights_required": 7,
   "dimensions": [
     {
@@ -11,42 +38,73 @@
       "operator_words": "sistemlerin hepsinin kusursuz organize bağlanması",
       "measured_by": "workflow_conclusions",
       "workflows": ["CI - Affected", "CI - Full"],
-      "rationale": "Contract parity, schema ownership and NATS identity all vote inside these lanes; a dimension may not invent a measurement that already has a gate."
+      "budget": { "contract_drift_count": 0 },
+      "instrument_gap": "Contract parity votes inside these lanes but is not reported as its own number; stage B needs the count, not the lane verdict.",
+      "rationale": "Organised connection has an exact measurable form: zero drift between declared and implemented contracts (OpenAPI vs Nest, GraphQL schema vs resolver, event contract vs consumer)."
     },
     {
       "id": "flawless_service",
       "operator_words": "kusursuz hizmet vermesi",
       "measured_by": "workflow_conclusions",
       "workflows": ["dataflow-integrity-watchdog"],
-      "rationale": "The hourly probe is the only mechanism that observes the RUNNING product rather than the repository."
+      "budget": {
+        "http_5xx_share_max": 0.001,
+        "critical_endpoint_p99_ms_max": 500,
+        "open_incidents_max": 0
+      },
+      "instrument_gap": "detect_http_5xx_share exists (E24-a) but has never ingested a sample; there is no product-side p99 ledger at all.",
+      "rationale": "Service quality is a rate, not a boolean: bounded failure is engineering, and the bound is what makes it honest."
     },
     {
       "id": "security",
       "operator_words": "güvenli",
       "measured_by": "workflow_conclusions",
       "workflows": ["Security - Gitleaks", "Security - Trivy"],
-      "rationale": "Dependabot severity counts join this dimension when the E23 authority gate opens; until then a red scanner is the honest signal ARIA owns."
+      "budget": {
+        "critical_vulnerabilities_max": 0,
+        "high_vulnerability_age_days_max": 30,
+        "unallowlisted_public_write_endpoints_max": 0
+      },
+      "instrument_gap": "Dependabot severity counts (131 open today: 1 critical, 42 high) are not read by any ARIA consumer.",
+      "rationale": "Zero critical is not negotiable; a high with an age limit is, because a fleet of dependencies is never momentarily perfect."
     },
     {
       "id": "multi_tenant",
       "operator_words": "multi-tenant",
       "measured_by": "workflow_conclusions",
       "workflows": ["Quality Gates"],
-      "rationale": "Tenant-schema routing and RLS invariants run here; the tenant-scoping adapter's findings feed the same dimension once its class verdicts land (CE-1)."
+      "budget": { "cross_tenant_reads_max": 0, "unscoped_repository_reads_max": 0 },
+      "zero_tolerance": true,
+      "instrument_gap": "The tenant-scoping adapter's 41 findings live in shadow; nothing yet turns them into this count.",
+      "rationale": "This is the one dimension that cannot carry a budget: a single cross-tenant read is not a degraded service, it is a different product."
     },
     {
       "id": "production_integrity",
       "operator_words": "üretimde olan bir yazılımın endüstriyel şekilde hatasız olması",
       "measured_by": "workflow_conclusions",
       "workflows": ["Backup - Production Postgres", "Database Migration Check"],
-      "rationale": "Production integrity is proven by the lanes that touch production, not by repository tests."
+      "budget": { "restore_rehearsal_max_age_days": 30, "rpo_minutes_max": 15, "rto_hours_max": 1 },
+      "instrument_gap": "A green backup lane proves an upload, not a recovery; no restore has ever been rehearsed, and the evidence-signing job is skipped while DR activation waits on the operator.",
+      "rationale": "Industrial means provably recoverable. The number that matters is the last time a restore actually worked."
     },
     {
       "id": "code_quality",
       "operator_words": "üstün kod kalitesi",
       "measured_by": "workflow_conclusions",
       "workflows": ["aria-kernel", "aria-kernel-full"],
-      "rationale": "Lint, type and test verdicts for the kernel; the product-side equivalents ride CI - Full under connection_integrity."
+      "budget": {
+        "changed_line_coverage_min": 0.8,
+        "banned_constructs_max": 0,
+        "duplicate_ssot_count_max": 0
+      },
+      "instrument_gap": "Total coverage is reported; changed-line coverage is not, and total coverage flatters a large repository.",
+      "rationale": "Changed-line coverage is the only coverage number that cannot be inflated by untouched code."
     }
-  ]
+  ],
+  "outcome_metrics_stage_c": {
+    "escaped_defect_rate_max": 0.05,
+    "change_failure_rate_max": 0.15,
+    "mttr_hours_max": 1,
+    "note": "Both rates are unmeasurable while production deploys stay disabled (PRODUCTION_DEPLOY_ENABLED=false since 2026-07-15). Stage C cannot begin before that operator decision — the charter says so rather than quietly scoring around it."
+  }
 }

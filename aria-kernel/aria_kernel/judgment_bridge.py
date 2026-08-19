@@ -29,6 +29,7 @@ from typing import Any
 
 from .agent_surface import JUDGE_ROLES, SUPPORTING_ROLES
 from .feedback_store import (
+    CONSENSUS_UNCERTAINTY_REASONS,
     CONSENSUS_MIN_CONFIDENCE,
     FEEDBACK_SEVERITIES,
     FEEDBACK_VERDICTS,
@@ -116,7 +117,23 @@ def validate_judge_response(
         return ["judge_verdict:absent"]
     verdict = verdict_block.get("verdict")
     if verdict not in FEEDBACK_VERDICTS:
-        errors.append(f"judge_verdict.verdict:invalid:{verdict!r}")
+        # ORPHAN-CRITICAL-735 — the arbiter's contract says "return
+        # details.consensus, OR the uncertainty reason when the consensus
+        # gate cannot be met", and the deterministic engine it mirrors
+        # emits exactly that non-verdict outcome. The live arbiter obeyed
+        # and this contract burned the claim as invalid:None — fourth
+        # mint-vs-law instance. Uncertainty is a VALID arbitration
+        # outcome, for the arbiter alone, with a reason from the closed
+        # vocabulary; binary judges stay bound to binary verdicts.
+        reason = verdict_block.get("uncertainty_reason")
+        if (
+            role == "consensus_arbitration"
+            and verdict is None
+            and reason in CONSENSUS_UNCERTAINTY_REASONS
+        ):
+            pass
+        else:
+            errors.append(f"judge_verdict.verdict:invalid:{verdict!r}")
     tool_id = request.get("tool_id") or verdict_block.get("tool_id")
     run_id = request.get("run_id") or verdict_block.get("run_id")
     finding_id = request.get("finding_id") or verdict_block.get("finding_id")
@@ -163,6 +180,28 @@ def record_judge_verdict_from_response(
     details = response.get("details") or {}
     if not isinstance(details, dict):
         details = {}
+
+    # ORPHAN-CRITICAL-735 — the arbiter's legitimate non-verdict outcome
+    # folds through the SAME producer, ledger and idempotent escalation_id
+    # as the deterministic engine, so one sweep drains both lanes into one
+    # HUMAN_REQUIRED record. It is NOT a feedback verdict: an uncertain
+    # arbitration must never write an ai_judge row.
+    if role == "consensus_arbitration":
+        arb_block = _verdict_field(details)
+        arb_reason = arb_block.get("uncertainty_reason")
+        if arb_block.get("verdict") is None and arb_reason in CONSENSUS_UNCERTAINTY_REASONS:
+            from .feedback_store import record_consensus_uncertainty
+
+            row = record_consensus_uncertainty(
+                tool_id=str(request.get("tool_id") or arb_block.get("tool_id") or ""),
+                run_id=str(request.get("run_id") or arb_block.get("run_id") or ""),
+                finding_id=str(request.get("finding_id") or arb_block.get("finding_id") or ""),
+                group_id=str(request.get("judgment_group_id") or arb_block.get("group_id") or ""),
+                reason=str(arb_reason),
+                cycle_id=request.get("cycle_id"),
+                base_dir=base_dir,
+            )
+            return {"kind": "consensus_uncertainty", **row}
     verdict_block = _verdict_field(details)
 
     tool_id = request.get("tool_id") or verdict_block.get("tool_id")

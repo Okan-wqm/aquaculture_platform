@@ -301,7 +301,20 @@ def main() -> int:
         type=Path,
         default=None,
         metavar="PATH",
-        help="write the full report (incl. per-drift TP/FP details) as JSON",
+        help=(
+            "write the full report (incl. per-drift TP/FP details) as JSON. "
+            "Default: aria-tools/reports/acceptance/<UTC-date>.json — SI-0 "
+            "made persistence the default because an opt-in flag produced "
+            "ZERO scorecard artifacts in 8 days of 'continuous' acceptance "
+            "measurement; a measurement nobody can read later is a claim, "
+            "not a measurement. --no-artifact restores the old stdout-only "
+            "behaviour for ad-hoc runs."
+        ),
+    )
+    parser.add_argument(
+        "--no-artifact",
+        action="store_true",
+        help="do not persist a scorecard artifact (stdout only)",
     )
     parser.add_argument(
         "--skip-poc",
@@ -312,12 +325,23 @@ def main() -> int:
 
     report = run_all(skip_poc=args.skip_poc)
     _print_report(report)
-    if args.json_out is not None:
-        args.json_out.parent.mkdir(parents=True, exist_ok=True)
-        args.json_out.write_text(
+    json_out = args.json_out
+    if json_out is None and not args.no_artifact:
+        # The date names the artifact so consecutive runs on one day
+        # overwrite (latest wins) while history stays one file per day —
+        # the shape the nightly report section reads.
+        from datetime import datetime, timezone
+
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        json_out = (
+            _REPO_ROOT / "aria-tools" / "reports" / "acceptance" / f"{stamp}.json"
+        )
+    if json_out is not None:
+        json_out.parent.mkdir(parents=True, exist_ok=True)
+        json_out.write_text(
             json.dumps(report, indent=2, default=str) + "\n", encoding="utf-8"
         )
-        print(f"report written: {args.json_out}")
+        print(f"report written: {json_out}")
     return 0 if report["passed"] else 1
 
 

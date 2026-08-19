@@ -10382,7 +10382,7 @@ Pinned in `tests/invariants/production-ops-proof-contract.spec.ts`: the jobs pro
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
-## ORPHAN-HIGH-748 — the WAL freshness lane has never run: 730 runs, zero jobs, since birth — OPEN (decisive experiment shipped)
+## ORPHAN-HIGH-748 — the WAL freshness lane has never run: 730 runs, zero jobs, since birth — RESOLVED (experiment answered)
 
 Severity: HIGH (the lane that proves production WAL archiving is fresh has never produced a single verdict, and its permanent incident masks the watchdog's other signals). Measured 2026-08-19: `database-wal-archive-freshness.yml` has **730 runs, of which 100% concluded `cancelled` with `total_count: 0` jobs**. Each run's `updated_at` is exactly the next run's `created_at` — every run sits `pending` until the following one evicts it, and the one at the head never starts.
 
@@ -10403,7 +10403,13 @@ What remains is the concurrency group itself: an exclusive group with no visible
 
 Deliberately NOT changed in the same commit: the `*/5` cron. Changing two variables at once would have made the result unreadable, and this lane has already cost 730 runs of unreadable results.
 
-**Owner:** claude (this session). **Status:** OPEN until a run of this lane creates a job.
+**EXPERIMENT ANSWERED, 2026-08-19 20:09.** The rename landed at `d4b45a044`; the first scheduled run on that commit (32296991203) created a job, and that `verify` job completed **success**. Prior state: 730 runs, zero jobs, ever. **The concurrency group was the cause** — an exclusive group with no visible holder that nevertheless never released, wedged GitHub-side.
+
+The falsifier this record carried _before_ the change — if runs still go pending with zero jobs, the group is exonerated and the `*/5` cron becomes the next suspect — did not fire. So the cron needed no change, and none was made.
+
+What made the answer readable was refusing to move two things at once. Five hypotheses were eliminated by measurement first (environment protection, the `environment:` block itself, the `schedule` event, the workflow being disabled, another workflow holding the group), and then exactly one variable moved. The lane had already produced 730 unreadable results; a two-variable fix would have produced a 731st.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
 
 ## ORPHAN-MEDIUM-749 — a merge commit runs no hook, so the ARIA authority pin goes stale in silence — RESOLVED
 
@@ -10463,5 +10469,25 @@ The third copy was dangerous _because_ it was dead in production. It governed te
 **Fix.** `DEFAULT_ROOTS` is deleted from all six; `requireScanRoots(toolId, roots)` in `adapter-fs.ts` refuses with a named error that says where the surface is declared and why a second copy is not offered. `doc-staleness-adapter.test.ts` was the one test relying on the fallback — it now states the roots it scans, read from the manifest. A `test` target runs all nine files, so the pins below are load-bearing rather than decorative.
 
 Pinned in `tests/invariants/adapter-scan-surface-authority.spec.ts`: no `DEFAULT_ROOTS` in adapter source; no `input.roots ??` fallback shape; every `default_input.roots` entry covered by a `declared_scope` prefix; every `.test.ts` beside an adapter present in the test target; the test files tracked in git so the target cannot go hollow. Verified by deliberate breakage — restoring one adapter and `project.json` from main reds three of the five pins. All nine adapter tests pass under `nx run aria-adapters:test`.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-753 — nothing in ARIA could say which parts of the repository it cannot see — RESOLVED
+
+Severity: HIGH (every coverage claim ARIA makes rests on an unstated denominator). Second train of PROGRAM H, and the instrument the rest of the programme is measured against.
+
+**Measured 2026-08-19** against the live ledger: of 24,788 raw findings ever produced, the root distribution is docs 17,231 / apps 6,651 / web 405 / libs 375 / .claude 56 / aria-kernel 40 / .github 24 / tools 6. Ten top-level roots holding 1,582 files had never produced a single finding — `sens-api-gateway/` (the Rust edge that drives physical equipment) among them.
+
+That was not hidden by accident: each adapter declares its surface in its manifest (`declared_scope`), and the union of those declarations simply does not reach those roots. **The declaration was right there. Nothing read them all together and said so.**
+
+**Fix.** `observation_coverage.py` DERIVES the map at runtime from three things that already exist and already vote — `git ls-files`, every adapter's `declared_scope`, and an operator policy file that holds _exemptions only, never facts_. A hand-written coverage list would be stale the day it was written, which is the failure mode this ledger is full of, so none is written. `aria-config/observation_map.json` ships with an **empty** exemption list on purpose: the first honest map is the one that shows every blind root, including the ones we may later decide not to care about.
+
+**The rule is the operator's threshold (2026-08-19, "anlamlı görüş"):** a path counts as observed only when an adapter both declares it _and_ could parse it. An adapter that claims a root and reads none of its file types is coverage theatre, and the count refuses to reward it — pinned by a test where an adapter declaring `sens-api-gateway/**/*.ts` still leaves a `.rs` file unobserved.
+
+**First measurement from the instrument itself — 71.8% of tracked files fall inside some declared scope.** Seventeen roots are fully unobserved (`sens-api-gateway` 449 files, `tests` 260, `infrastructure` 165, `crates` 152, `infra` 122, `e2e` 99, `scripts` 98, `mcp` 65, `database` 25, `deploy` 13, `aria-tools` 12, `agents` 7, `aria-debts` 7, `.husky` 5, `.full-review` 5, `sensorprotocols` 5, `.cargo` 2, `nginx` 1, `aria-config` 3, plus 49 repository-root files). **`aria-kernel` is 13/799** — the kernel is effectively invisible to ARIA, which is the number G-10 asserted without one.
+
+Note the earlier estimate in the plan (86% observed) counted _roots with zero findings_; this counts _files inside a declared scope_. The second is the instrument; the first was a proxy, and it flattered.
+
+Pinned in `aria-kernel/tests/test_observation_coverage.py`: a root no adapter declares is not merely absent but NAMED; declaring a root without parsing its files is not coverage; partial coverage reports its fraction rather than rounding to green; an exemption is excluded from the denominator rather than counted as seen (permission to stop looking is never a claim of sight); an unreadable tree is `unknown`, never green; brace globs expand so a manifest shorthand is not silently missed.
 
 **Owner:** claude (this session). **Status:** RESOLVED.

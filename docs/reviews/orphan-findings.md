@@ -10245,3 +10245,13 @@ Deliberate breakage: the `_poll_for_state` regression pin is inverted (the primi
 Severity: MEDIUM (recoverability, not correctness). ARIA's state survives the machine (`aria/state`), but its HABITAT — runner service + labels, bubblewrap/userns sandbox backend, the `.env` key names, the Claude managed login, the machine-local policy override in its TWO roots — existed only as hand-applied history. `aria-runner-capability-probe` is explicitly a diagnostic, not a provisioner; no runbook or script could rebuild the machine.
 
 **Fix:** `docs/runbooks/aria-runner-rebuild.md` (fresh droplet → both lanes green in ≤1h; secrets by NAME with mint steps, never values) + `scripts/aria/provision_runner.sh` — idempotent, `--dry-run` reports ✓/✗ drift and exits 0 only when the machine already matches. Deliberately takes NO action on secrets, the Claude login, or a missing `aria/state` branch: those are reported with runbook pointers rather than automated, because each is an authority the script must not hold. Verified against the live runner: dry-run clean.
+
+## ORPHAN-HIGH-746 — one apt attempt turned a transient mirror stall into a blocked merge queue — RESOLVED
+
+Severity: HIGH (blocked every PR reaching the rust lane). Measured 2026-08-19, three consecutive runs: `install-tpm-build-dependencies` fails at `timeout 5m apt-get update` with exit 124 at exactly 300 s, which reds `sens-api-gateway-rust` → `merge-gate` → the PR. Re-running does not help — the third attempt failed the same way, so this is not a flake to wait out.
+
+Why the existing options did not cover it: `Acquire::Retries=5` retries a _failed_ fetch, not a _hung_ connection, and the per-connection timeouts (20 s) do not bound the overall command when a mirror accepts and then stalls. Raising the single timeout would only wait longer on the same dead socket.
+
+**Fix:** one bounded RETRY of the update step — two attempts of five minutes with a short pause, warning out loud on the first failure. Two tries stay under the previous worst-case budget; a third is deliberately absent, because at that point the job would be hiding an outage rather than surviving a hiccup. The install step (20 min) is untouched: it was never the stalling one.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

@@ -15,5 +15,22 @@ runs:
           -o Dpkg::Lock::Timeout=120
         )
 
-        sudo env DEBIAN_FRONTEND=noninteractive timeout 5m apt-get "${apt_options[@]}" update
+        # ORPHAN-HIGH-746 — `update` is the step that stalls, and one
+        # attempt made a transient mirror hang into a red PR: measured
+        # three times in a row on 2026-08-19 (exit 124 at exactly 300s,
+        # blocking every PR whose diff reaches the rust lane). Acquire's
+        # own retries do not help when the connection hangs rather than
+        # fails, and a LONGER single timeout only waits longer on the same
+        # dead socket — so the fix is a second ATTEMPT, bounded. Two tries
+        # of five minutes stays under the old worst case plus a pause; a
+        # third would start hiding a real outage, which is why there is
+        # not one.
+        update_attempt() {
+          sudo env DEBIAN_FRONTEND=noninteractive timeout 5m apt-get "${apt_options[@]}" update
+        }
+        if ! update_attempt; then
+          echo "::warning::apt-get update stalled; retrying once before failing the job"
+          sleep 10
+          update_attempt
+        fi
         sudo env DEBIAN_FRONTEND=noninteractive timeout 20m apt-get "${apt_options[@]}" install -y --no-install-recommends pkg-config libtss2-dev

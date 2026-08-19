@@ -10444,5 +10444,24 @@ Pinned in `tests/invariants/coverage-evidence-contract.spec.ts`: the threshold c
 `farm-service` line coverage was 22.8 points above its pin. Every number anyone quoted from that file — including in this session, while rebutting an outside claim about farm-service coverage — was the pin, not the measurement. That is precisely the defect: a floor that only looks down stops being a description of the system and nobody notices, because nothing ever asks.
 
 The pins are raised to the measured values. `statements` is left where it stood: the evidence lane measures branches, functions and lines, and a number CI did not produce has no business in a file that claims to record what CI measured.
+## ORPHAN-HIGH-752 — an adapter's scan surface lived in three places, and the copy that governed tests was the one nothing ran — RESOLVED
+
+Severity: HIGH (an adapter can silently scan a different file set in production than its fixtures validate, and every test stays green while it happens). First train of PROGRAM H.
+
+**Measured 2026-08-19.** The same list of roots existed three times per adapter:
+
+| where                          | what it is                                                                            | binding in production   |
+| ------------------------------ | ------------------------------------------------------------------------------------- | ----------------------- |
+| manifest `declared_scope`      | identity + read allowlist; hashed into `parse_window_signature`                       | yes (registry contract) |
+| manifest `default_input.roots` | the roots actually scanned — `cycle.py:1099` reads it and hands it to the tool runner | **yes**                 |
+| adapter `DEFAULT_ROOTS`        | `input.roots ?? DEFAULT_ROOTS`                                                        | **no — never fired**    |
+
+The third copy was dangerous _because_ it was dead in production. It governed tests and standalone runs, so a manifest edit would leave the fixtures validating a file set production never scans, with nothing red. Six adapters carried it: `bundle-budget`, `doc-staleness`, `kernel-dead-wire`, `security-boundary`, `tenant-scoping`, `test-gap`. The three copies **agreed** on the day this was written — the defect is that nothing made them agree.
+
+**And nothing ran those tests.** `tools/aria-adapters/project.json` declared only a `lint` target. Nine `.test.ts` files sat beside the adapters, passing when invoked by hand, invisible to every gate — the "mechanism without a caller" class again, one layer down: the pin existed, the runner did not.
+
+**Fix.** `DEFAULT_ROOTS` is deleted from all six; `requireScanRoots(toolId, roots)` in `adapter-fs.ts` refuses with a named error that says where the surface is declared and why a second copy is not offered. `doc-staleness-adapter.test.ts` was the one test relying on the fallback — it now states the roots it scans, read from the manifest. A `test` target runs all nine files, so the pins below are load-bearing rather than decorative.
+
+Pinned in `tests/invariants/adapter-scan-surface-authority.spec.ts`: no `DEFAULT_ROOTS` in adapter source; no `input.roots ??` fallback shape; every `default_input.roots` entry covered by a `declared_scope` prefix; every `.test.ts` beside an adapter present in the test target; the test files tracked in git so the target cannot go hollow. Verified by deliberate breakage — restoring one adapter and `project.json` from main reds three of the five pins. All nine adapter tests pass under `nx run aria-adapters:test`.
 
 **Owner:** claude (this session). **Status:** RESOLVED.

@@ -42819,6 +42819,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/adapter-scan-surface-authority.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/admin-api-health-probe-breakered.spec.ts",
       "prettier_managed": true
     },

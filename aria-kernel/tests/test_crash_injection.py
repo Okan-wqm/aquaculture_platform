@@ -50,23 +50,32 @@ class CrashResidueTests(unittest.TestCase):
         self.addCleanup(self._tmpdir.cleanup)
         self.tools = Path(self._tmpdir.name) / "aria-tools"
         ensure_tools_dir(self.tools)
+        # ORPHAN-MEDIUM-730 — the mint refuses a mission with no forward
+        # pointer, so the fixture derives one from the finding it opens.
         self.mission_id = open_mission(
             source_kind="finding",
             source_id="F-1",
             repo_hash=REPO_HASH,
             title="crash residue",
+            next_action="close F-1",
+            wake_condition={"kind": "evidence", "key": "finding:F-1"},
             base_dir=self.tools,
         )["mission_id"]
         self._advance("CONTRACTING", "s1")
         self.events = events_path(self.tools)
 
     def _advance(self, to_state: str, step_id: str) -> None:
+        # ORPHAN-MEDIUM-730 — a non-terminal move must RESTATE the whole
+        # contract (a half-stated one used to leave the mission wake-able and
+        # unable to say what to do once woken), so the fixture carries both
+        # fields rather than the next_action alone.
         transition_mission(
             mission_id=self.mission_id,
             to_state=to_state,
             reason_code="test",
             step_id=step_id,
             next_action="continue",
+            wake_condition={"kind": "timer", "key": "next_cycle"},
             base_dir=self.tools,
         )
 
@@ -110,6 +119,8 @@ class CrashResidueTests(unittest.TestCase):
             source_id="p-2",
             repo_hash=REPO_HASH,
             title="bystander",
+            next_action="triage p-2",
+            wake_condition={"kind": "evidence", "key": "pressure:p-2"},
             base_dir=self.tools,
         )["mission_id"]
         self.events.write_text(self.events.read_text() + TORN_RECORD, encoding="utf-8")
@@ -191,6 +202,8 @@ class CrashSubprocessTests(unittest.TestCase):
                 source_id="F-kill",
                 repo_hash=REPO_HASH,
                 title="killed",
+                next_action="close F-kill",
+                wake_condition={"kind": "evidence", "key": "finding:F-kill"},
                 base_dir=tools,
             )["mission_id"]
 
@@ -208,6 +221,7 @@ class CrashSubprocessTests(unittest.TestCase):
                     reason_code="test",
                     step_id="s1",
                     next_action="continue",
+                    wake_condition={{"kind": "timer", "key": "next_cycle"}},
                     base_dir={str(tools)!r},
                 )
                 os.kill(os.getpid(), signal.SIGKILL)
@@ -227,6 +241,7 @@ class CrashSubprocessTests(unittest.TestCase):
                 reason_code="test",
                 step_id="s2",
                 next_action="continue",
+                wake_condition={"kind": "timer", "key": "next_cycle"},
                 base_dir=tools,
             )
             self.assertEqual(

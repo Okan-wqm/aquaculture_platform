@@ -8,10 +8,9 @@ exercise:
 * H-12 second half — orchestrator startup hook actually CALLS
   scan_orphan_implementation_requests + reaps each via
   record_implementation_rejected.
-* H-11 — 3 integration tests covering the MERGED, REJECTED, TIMEOUT
-  paths through AutonomousV9ImplementationRunner.run() with mocked
-  dependencies (mint_signing_key, mint_installation_token,
-  issue_implementation_envelope, fold_plan_state).
+* H-11 — integration tests over AutonomousV9ImplementationRunner.run()
+  with mocked dependencies (mint_signing_key, mint_installation_token,
+  stage_converged_plan_for_pr, issue_implementation_envelope).
 
 Invariants:
 
@@ -22,13 +21,16 @@ Invariants:
   (behavioral test with patched scanner).
 * I-V31-B3-03 — implementation_orphans_reaped_summary governance
   event emitted when ≥1 orphan reaped.
-* I-V31-B3-MERGED — runner.run() returns terminal_state=IMPLEMENTATION_MERGED
-  + signal=review_merged_pr when fold returns MERGED state.
-* I-V31-B3-REJECTED — runner.run() returns IMPLEMENTATION_REJECTED
-  + signal=review_rejected_pr when fold returns REJECTED state.
-* I-V31-B3-TIMEOUT — runner.run() returns IMPLEMENTATION_TIMEOUT
-  + signal=review_converged_plan when fold never returns terminal
-  before implementer_poll_seconds expires.
+* I-V31-B3-DISPATCH (K6, ORPHAN-CRITICAL-727) — REPLACES the MERGED /
+  REJECTED / TIMEOUT path tests. Those three drove a poll loop that no
+  longer exists, and they only ever passed because they patched
+  ``fold_plan_state`` with a mock: the real function is keyword-only, the
+  runner called it POSITIONALLY, and every production invocation raised
+  TypeError past the ``except (KeyError, ValueError, GovernanceError)``
+  arm. A mock that accepts a call the real callee refuses is not a test of
+  the path — it is a test of the mock. The successor pins what the phase
+  now does: stage the plan, mint the envelope carrying the staged ids,
+  return IMPLEMENTATION_DISPATCHED, and never wait.
 """
 from __future__ import annotations
 
@@ -138,14 +140,24 @@ class OrchestratorOrphanReaperHookTests(unittest.TestCase):
             shutil.rmtree(tmp, ignore_errors=True)
 
 
-class AutonomousRunnerMergedPathTests(unittest.TestCase):
-    """Plan ARIA-V3.1-B3-MERGED — AutonomousV9ImplementationRunner
-    happy path: poll loop sees IMPLEMENTATION_MERGED → terminal +
-    review_merged_pr signal."""
+class AutonomousRunnerDispatchPathTests(unittest.TestCase):
+    """K6 (ORPHAN-CRITICAL-727) — mint-and-return, with the staged ids.
 
-    def _run_path(self, fold_state: dict) -> object:
-        """Drive AutonomousV9ImplementationRunner.run with mocked
-        mint + envelope + fold. Returns the V9ImplementationResult."""
+    The runner's contract in one sentence: it stages the CONVERGED plan for
+    PR, mints the implementation envelope carrying {proposal_id, change_id,
+    branch}, and returns IMPLEMENTATION_DISPATCHED without waiting for
+    anything. The executor lane claims the envelope in a later workflow run.
+    """
+
+    STAGED = {
+        "proposal_id": "proposal-b3",
+        "change_id": "chg-b3",
+        "branch": "aria-impl-0123456789abcdef",
+        "baseline_ref": "sha256:baseline-b3",
+        "base_sha": "abc1234",
+    }
+
+    def _run(self, *, stage_side_effect=None):
         from aria_kernel.cycle_phases.implementer import (
             AutonomousV9ImplementationRunner,
         )
@@ -168,6 +180,10 @@ class AutonomousRunnerMergedPathTests(unittest.TestCase):
                 fallback_active=True,
                 minted_at_utc="2026-05-19T00:00:00Z",
             )
+            envelope_mock = MagicMock(return_value={"request_id": "AIR-impl-001"})
+            stage_mock = MagicMock(
+                return_value=dict(self.STAGED), side_effect=stage_side_effect,
+            )
             patches = [
                 patch(
                     "aria_kernel.gh_token_factory.mint_signing_key",
@@ -177,13 +193,10 @@ class AutonomousRunnerMergedPathTests(unittest.TestCase):
                     "aria_kernel.gh_token_factory.mint_installation_token",
                     return_value=fake_lease,
                 ),
+                patch("aria_kernel.apply_engine.stage_converged_plan_for_pr", stage_mock),
                 patch(
                     "aria_kernel.cross_review_bridge.issue_implementation_envelope",
-                    return_value={"request_id": "AIR-impl-001"},
-                ),
-                patch(
-                    "aria_kernel.plan_convergence.fold_plan_state",
-                    return_value=fold_state,
+                    envelope_mock,
                 ),
                 patch(
                     "aria_kernel.gh_token_factory.revoke_signing_key",
@@ -193,50 +206,115 @@ class AutonomousRunnerMergedPathTests(unittest.TestCase):
                     "aria_kernel.gh_token_factory.revoke_installation_token",
                     return_value=None,
                 ),
+                patch("aria_kernel.tool_registry.append_tools_governance", MagicMock()),
             ]
-            for p in patches:
-                p.start()
+            for item in patches:
+                item.start()
             try:
-                runner = AutonomousV9ImplementationRunner()
-                # Short poll so timeout path runs quickly in tests.
-                return runner.run(
+                result = AutonomousV9ImplementationRunner().run(
                     cycle_id="cyc-test", plan_id="plan-test",
                     workspace_root=tmp, base_dir=tmp / "aria-tools",
-                    converged_plan={"plan_id": "plan-test",
-                                    "must_satisfy": [],
-                                    "evidence_refs": [],
-                                    "allowed_scope": []},
                     cross_review_summary={"verdict": "agreed"},
                     profile="autonomous",
-                    implementer_poll_seconds=1.0,
                 )
             finally:
-                for p in patches:
-                    p.stop()
+                for item in patches:
+                    item.stop()
+            return result, stage_mock, envelope_mock
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
-    def test_i_v31_b3_merged_path(self) -> None:
-        result = self._run_path({"state": "IMPLEMENTATION_MERGED",
-                                  "pr_url": "https://example/pr/1"})
-        self.assertEqual(result.terminal_state, "IMPLEMENTATION_MERGED")
-        self.assertEqual(result.specialist_review_signal, "review_merged_pr")
-
-    def test_i_v31_b3_rejected_path(self) -> None:
-        result = self._run_path({"state": "IMPLEMENTATION_REJECTED",
-                                  "rejection_class": "validation_failed"})
-        self.assertEqual(result.terminal_state, "IMPLEMENTATION_REJECTED")
-        self.assertEqual(result.specialist_review_signal, "review_rejected_pr")
-        self.assertEqual(result.rejection_class, "validation_failed")
-
-    def test_i_v31_b3_timeout_path(self) -> None:
-        """Plan ARIA-V3.1-B3-TIMEOUT — fold never returns terminal;
-        poll deadline expires; runner returns IMPLEMENTATION_TIMEOUT."""
-        # State that's neither MERGED nor REJECTED; poll deadline of
-        # 1s in _run_path means we exit timeout quickly.
-        result = self._run_path({"state": "IMPLEMENTATION_IN_FLIGHT"})
-        self.assertEqual(result.terminal_state, "IMPLEMENTATION_TIMEOUT")
+    def test_i_v31_b3_dispatch_returns_without_waiting(self) -> None:
+        result, stage_mock, envelope_mock = self._run()
+        self.assertEqual(result.terminal_state, "IMPLEMENTATION_DISPATCHED")
         self.assertEqual(result.specialist_review_signal, "review_converged_plan")
+        self.assertIsNone(result.pr_url)
+        self.assertIsNone(result.rejection_class)
+        self.assertEqual(stage_mock.call_count, 1)
+
+    def test_i_v31_b3_envelope_carries_the_staged_ids(self) -> None:
+        """The whole point of staging: the agent is told which rows to name.
+
+        An envelope without them sends the implementer to `apply gate` and
+        `pr create` with ids nobody minted — the refusal that ended every
+        CONVERGED plan before ORPHAN-CRITICAL-727.
+        """
+        _result, _stage, envelope_mock = self._run()
+        kwargs = envelope_mock.call_args.kwargs
+        self.assertEqual(kwargs["proposal_id"], self.STAGED["proposal_id"])
+        self.assertEqual(kwargs["change_id"], self.STAGED["change_id"])
+        self.assertEqual(kwargs["branch"], self.STAGED["branch"])
+        # ORPHAN-CRITICAL-728 — and the commit staging measured its baseline
+        # at, so the agent branches from it rather than from origin/main.
+        self.assertEqual(kwargs["base_sha"], self.STAGED["base_sha"])
+
+    def test_i_v31_b3_the_mint_takes_no_plan_content_from_its_caller(self) -> None:
+        """The pin that would have caught ORPHAN-CRITICAL-728.
+
+        Every existing pin in this class MOCKS the mint, so a required
+        parameter with no producer is invisible to them: the mock accepts
+        `must_satisfy=[]` happily while the real function refuses it and every
+        CONVERGED plan dies there. A mock cannot testify about a contract, but
+        a SIGNATURE can — and the contract that matters is that the mint
+        derives plan content from the ledger instead of accepting it.
+        """
+        from aria_kernel.cross_review_bridge import issue_implementation_envelope
+
+        params = set(
+            inspect.signature(issue_implementation_envelope).parameters,
+        )
+        forbidden = {
+            "must_satisfy", "allowed_scope", "evidence_refs",
+            "converged_plan", "converged_plan_text",
+            "converged_plan_revision_id", "plan_revision_hash",
+        }
+        self.assertEqual(
+            params & forbidden, set(),
+            "the implementation envelope must DERIVE plan content from the "
+            "plan ledger; a parameter here is a claim a caller can get wrong "
+            "and — for must_satisfy/allowed_scope — one no plan schema can "
+            "produce at all",
+        )
+        # Same contract on the staging producer: it folds the plan already.
+        from aria_kernel.apply_engine import stage_converged_plan_for_pr
+
+        self.assertNotIn(
+            "converged_plan",
+            inspect.signature(stage_converged_plan_for_pr).parameters,
+        )
+
+    def test_i_v31_b3_staging_refusal_stops_before_the_envelope(self) -> None:
+        """A plan that cannot be staged must not be dispatched.
+
+        The envelope mint is the CONVERGED -> IMPLEMENTATION_REQUESTED
+        transition and it is not reversible; minting after a staging failure
+        would strand the plan in a state whose agent has no ids to use.
+        """
+        from aria_kernel.tool_registry import GovernanceError
+
+        result, _stage, envelope_mock = self._run(
+            stage_side_effect=GovernanceError("stage_requires_converged_plan: x"),
+        )
+        self.assertEqual(result.terminal_state, "IMPLEMENTATION_REQUEST_REFUSED")
+        self.assertEqual(result.rejection_class, "staging_governance_error")
+        self.assertEqual(envelope_mock.call_count, 0)
+
+    def test_i_v31_b3_fold_plan_state_is_keyword_only(self) -> None:
+        """Why the deleted poll never worked in production.
+
+        ``fold_plan_state`` is keyword-only; the poll called it positionally,
+        so every real invocation raised TypeError — which its except arm did
+        not catch. Pinning the signature keeps a future author from
+        reintroducing the positional call that the mocks used to hide.
+        """
+        from aria_kernel.plan_convergence import fold_plan_state
+
+        params = inspect.signature(fold_plan_state).parameters
+        self.assertEqual(
+            [name for name, param in params.items()
+             if param.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD],
+            [],
+        )
 
 
 if __name__ == "__main__":

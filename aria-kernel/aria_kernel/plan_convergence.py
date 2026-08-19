@@ -2265,7 +2265,7 @@ def _validate_plan_content(plan: dict[str, Any]) -> None:
     _require_non_empty(plan["summary"], "summary")
     if not isinstance(plan["key_changes"], list) or not plan["key_changes"]:
         raise GovernanceError("key_changes must be a non-empty array")
-    affected_paths = _affected_surface_paths(plan["affected_surfaces"])
+    affected_paths = affected_surface_paths(plan["affected_surfaces"])
     if len(affected_paths) > MAX_AFFECTED_PATHS:
         raise GovernanceError("affected_surfaces.paths limit exceeded")
     if not all(_valid_repo_path(path) for path in affected_paths):
@@ -2294,6 +2294,24 @@ def _validate_plan_content(plan: dict[str, Any]) -> None:
                 raise GovernanceError("coverage waiver must be a JSON object")
             _require_non_empty(waiver.get("node"), "coverage waiver node")
             _require_non_empty(waiver.get("reason"), "coverage waiver reason")
+    # ORPHAN-CRITICAL-728 — the architectural-tier CLAIM, validated when it is
+    # made. Not added to PLAN_CONTENT_REQUIRED for exactly the reason above:
+    # the fold re-validates every historical plan_started payload, so a new
+    # required field would break replay of the whole recorded history.
+    # `apply_engine.stage_converged_plan_for_pr` refuses a plan that reaches
+    # IMPLEMENTATION without one — which is where the claim is needed and
+    # where its author can still be told to make it. What this check adds is
+    # that a claim which IS made must be a tier, so the cross-reviewers are
+    # reviewing a value the change ledger will accept.
+    tier = plan.get("architectural_tier")
+    if tier is not None:
+        from .change_ledger import ARCHITECTURAL_TIERS
+
+        if tier not in ARCHITECTURAL_TIERS:
+            raise GovernanceError(
+                f"architectural_tier must be one of {ARCHITECTURAL_TIERS}, "
+                f"got {tier!r}"
+            )
 
 
 def _validate_validation_command(command: dict[str, Any]) -> None:
@@ -2725,7 +2743,16 @@ def _validate_id(value: str, field: str) -> None:
         raise GovernanceError(f"{field} contains invalid characters")
 
 
-def _affected_surface_paths(affected_surfaces: Any) -> list[str]:
+def affected_surface_paths(affected_surfaces: Any) -> list[str]:
+    """Read the file paths out of a plan's ``affected_surfaces`` block.
+
+    ORPHAN-CRITICAL-727 — public because the PR-staging path derives a
+    change's ``intended_affected_files`` from exactly the surfaces this
+    validator accepted. While it was private, ``plan_coverage`` had
+    already grown a second, differently-shaped reader (dict-with-paths
+    only), and a third copy in the staging path would have made the
+    change ledger disagree with the plan the ledger claims to implement.
+    """
     if not isinstance(affected_surfaces, list):
         raise GovernanceError("affected_surfaces must be an array")
     paths: list[str] = []
@@ -2740,6 +2767,101 @@ def _affected_surface_paths(affected_surfaces: Any) -> list[str]:
         else:
             raise GovernanceError("affected_surfaces entries must be strings or objects")
     return paths
+
+
+def converged_plan_body(
+    *, plan_id: str, base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """The plan body the ledger itself holds for ``plan_id``, hash-verified.
+
+    ORPHAN-CRITICAL-728 — the ONE producer of a converged plan's content.
+
+    Every consumer that needed the body used to be handed one by its caller,
+    and no caller had a producer: ``evaluate_plan`` returns
+    ``{schema_version, plan_id, event_appended, idempotent, event}`` and
+    never a ``plan_content`` key, so ``convergence_drainer``'s
+    ``eval_result.get("plan_content", {})`` resolved to ``{}`` on every
+    converged plan and the implementation lane was handed an empty dict.
+    The fields staging and the envelope read off it — ``affected_surfaces``,
+    ``key_changes``, ``validation_commands``, ``evidence_refs`` — were
+    therefore absent, which is the same "required argument with no producer"
+    defect three separate call sites had grown independently
+    (``drainer`` line 1473, ``implementer`` must_satisfy/allowed_scope,
+    ``autonomy_orchestrator`` touched-services).
+
+    The body is not returned on trust: the ledger records the CONVERGED
+    revision's ``content_hash``, so this reader returns the recorded body
+    ONLY when ``content_hash(body)`` reproduces it. A body that does not
+    hash to the revision the plan converged on is not the converged plan,
+    and returning it would let an envelope quote one text while the
+    approval ref names another.
+
+    Returns ``{"plan_content", "revision_id", "content_hash"}``.
+    """
+    state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
+    return plan_body_from_state(state)
+
+
+def plan_body_from_state(state: dict[str, Any]) -> dict[str, Any]:
+    """``converged_plan_body`` for a fold the caller already has.
+
+    Split out because both callers that need the body (staging, the
+    envelope mint) already fold the plan for their own state precondition;
+    re-folding would read the same ledger twice per mint.
+    """
+    _require_started(state, "read plan body")
+    latest = state.get("latest_revision") or {}
+    revision_id = str(latest.get("revision_id") or "")
+    target_hash = str(latest.get("content_hash") or "")
+    if not target_hash:
+        raise GovernanceError(
+            "plan_body_no_revision_hash: the plan has no "
+            "latest_revision.content_hash, so no body can be proven to be "
+            "the one it converged on"
+        )
+    # Every place the reducer keeps a plan body, newest first. `content` is
+    # the post-revision body (revision_recorded), `plan_content` the initial
+    # seed (plan_started) and the challenger draft. Which one is CURRENT is
+    # decided by the hash, never by the order — the order only bounds the
+    # search.
+    challenger = state.get("challenger") or {}
+    candidates = (
+        latest.get("content"),
+        (state.get("plan_started") or {}).get("plan_content"),
+        challenger.get("plan_content") if isinstance(challenger, dict) else None,
+    )
+    for candidate in candidates:
+        body = _coerce_plan_body(candidate)
+        if body is not None and content_hash(body) == target_hash:
+            return {
+                "plan_content": body,
+                "revision_id": revision_id,
+                "content_hash": target_hash,
+            }
+    raise GovernanceError(
+        f"plan_body_unavailable_for_revision: no recorded body hashes to "
+        f"{target_hash} (revision_id={revision_id!r}); the ledger holds the "
+        f"revision's identity but not a body that reproduces it"
+    )
+
+
+def _coerce_plan_body(candidate: Any) -> dict[str, Any] | None:
+    """A recorded body as a dict, or None when it is not one.
+
+    ``record_revision`` accepts ``content`` as either the plan object or its
+    serialised form (``convergence_drainer`` reads both spellings back), and
+    a body that is neither is not a plan.
+    """
+    if isinstance(candidate, dict):
+        return candidate
+    if isinstance(candidate, str) and candidate.strip():
+        try:
+            parsed = json.loads(candidate)
+        except ValueError:
+            return None
+        if isinstance(parsed, dict):
+            return parsed
+    return None
 
 
 def _valid_repo_path(value: Any) -> bool:

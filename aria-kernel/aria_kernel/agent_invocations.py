@@ -871,6 +871,13 @@ def create_agent_invocation_request(
     # re-mint of the same dead id stays idempotent), mirroring the X4
     # panel reopen_of pattern. The dead row itself is never resurrected.
     remint_of: str | None = None,
+    # ORPHAN-CRITICAL-727 — the staged PR ids an implementation envelope
+    # carries {proposal_id, change_id, branch}. Structured on the row, not
+    # only prose in the prompt, because the executor and any later auditor
+    # must be able to join a request to the proposal/change rows it was
+    # minted against without parsing a prompt. Additive + optional: every
+    # other role mints with None and legacy rows read as None.
+    implementation_ids: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     # Plan ARIA-V5 §3c v2 (B1 fix) — ``plan_revision_hash`` binds the
     # envelope to a specific plan revision so I-V5.1-03 can assert
@@ -1060,6 +1067,7 @@ def create_agent_invocation_request(
         # legacy format is unmintable by construction; absent field =
         # historical row, rendered v1 for replay-hash fidelity only.
         "prompt_render_version": PROMPT_RENDER_VERSION,
+        "implementation_ids": dict(implementation_ids) if implementation_ids else None,
     }
     # PLAN Wave 3 — the Twin-lite slice for the files this request points at.
     # This is the map's ONE reader: what the agent gets instead of walking

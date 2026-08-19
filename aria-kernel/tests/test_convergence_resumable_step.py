@@ -117,19 +117,30 @@ class AdoptedDraftNeverRestarts(_StepCase):
 
 
 class NoStepEverSleeps(_StepCase):
-    def test_every_state_branch_completes_without_sleeping(self) -> None:
-        def _explode(*_a, **_k):
-            raise AssertionError("the resumable step slept")
-
+    def test_every_state_branch_completes_without_waiting(self) -> None:
+        # WALL-CLOCK, not a sleep patch. A blanket `time.sleep` patch
+        # cannot tell the step waiting (the defect) from the OS waiting
+        # on the git subprocess that resolves target_sha (unavoidable and
+        # bounded) — it caught the latter the moment a neighbouring train
+        # made that subprocess reachable from this fixture. The
+        # source-level "the module never sleeps" claim is pinned by
+        # I-V10.5-5-02; this asks what that one cannot: does a step take
+        # step-time or wait-time?
         start_plan(
             plan_id="plan-1", initial_revision_id="rev-0",
             plan_content=self.plan(), base_dir=self.tools,
         )
-        with mock.patch.object(time, "sleep", _explode):
-            first = self.step()   # DRAFT branch
-            second = self.step()  # idempotent await branch
+        started = time.monotonic()
+        first = self.step()   # DRAFT branch
+        second = self.step()  # idempotent await branch
+        elapsed = time.monotonic() - started
         self.assertEqual(first["arbiter_verdict"], "in_progress")
         self.assertEqual(second["arbiter_verdict"], "in_progress")
+        self.assertLess(
+            elapsed, 30.0,
+            f"two steps took {elapsed:.1f}s — something is waiting for work "
+            "the executor lane delivers between cycles.",
+        )
 
 
 class CrossCycleConvergence(_StepCase):

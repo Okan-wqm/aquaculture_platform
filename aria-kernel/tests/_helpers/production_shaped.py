@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -92,6 +93,147 @@ def cycle_workspace(tmp: Path, *, git: bool = False) -> CycleFixture:
         tools_dir=ensure_tools_dir(tmp / "aria-tools"),
     )
 
+
+@dataclass(frozen=True)
+class ConvergedPlan:
+    """A plan the real state machine drove to CONVERGED."""
+
+    plan_id: str
+    plan_content: dict[str, Any]
+    revision_id: str
+    content_hash: str
+
+
+def production_converged_plan(
+    *,
+    tools_dir: Path,
+    workspace_root: Path,
+    plan_id: str = "plan-converged-fixture",
+    reviewer: str = "farm-expert",
+    affected_paths: list[str] | None = None,
+) -> ConvergedPlan:
+    """Drive ``plan_convergence`` to CONVERGED the way production does.
+
+    Production-derived per this module's doctrine: the state, the revision id
+    and the content hash come from the real event ledger after real
+    ``start_plan`` / ``request_critics`` / ``record_critique`` /
+    ``evaluate_plan`` calls, never from a literal. A fixture that stamped
+    ``{"state": "CONVERGED"}`` into a fold would let a staging path claim
+    convergence that the state machine never granted — which is the exact
+    class of false evidence ORPHAN-CRITICAL-727's approval ref exists to make
+    auditable.
+
+    ``reviewer`` must resolve to an agent file under
+    ``<workspace_root>/.claude/agents``; the critique path resolves reviewer
+    identity against the repository, so the caller's workspace needs one.
+    """
+    from aria_kernel.plan_convergence import (
+        content_hash as plan_content_hash,
+        evaluate_plan,
+        plan_status,
+        record_critique,
+        request_critics,
+        start_plan,
+    )
+
+    agents_dir = Path(workspace_root) / ".claude" / "agents"
+    agents_dir.mkdir(parents=True, exist_ok=True)
+    (agents_dir / f"{reviewer}.md").write_text(
+        "\n".join(
+            [
+                "---",
+                f"name: {reviewer}",
+                "description: Fixture reviewer.",
+                "---",
+                "",
+                "Owns `apps/farm-service/**`.",
+            ],
+        ),
+        encoding="utf-8",
+    )
+
+    plan_content: dict[str, Any] = {
+        "schema_version": 1,
+        "title": "Converged fixture plan",
+        "summary": "A plan the convergence gate accepted.",
+        "affected_surfaces": [
+            {"paths": affected_paths or ["apps/farm-service/src/farm/services/water-quality.service.ts"]},
+        ],
+        "key_changes": ["apply the declared change"],
+        # ORPHAN-CRITICAL-728 — the spelling `plan_synthesizer` emits, not a
+        # hand-written `python3 -m unittest` line. Staging now executes only
+        # the canonical suite plus operator-registered recipes, because
+        # plan content is LLM-authored and `run_validation_commands` runs
+        # outside the implementer sandbox. A fixture declaring a command the
+        # production synthesizer never emits was testing a path production
+        # cannot take.
+        "validation_commands": [
+            {"cmd": "nx affected --target=lint", "timeout_ms": 600_000},
+            {"cmd": "nx affected --target=test", "timeout_ms": 1_800_000},
+        ],
+        "evidence_refs": ["docs/aria/SPEC.md"],
+        # The tier claim staging refuses to invent. Tier 1 ("make it
+        # impossible") is the fixture's claim about its own change; the point
+        # of the field is that SOMEONE claimed it, and the change ledger
+        # records who.
+        "architectural_tier": 1,
+    }
+    start_plan(
+        plan_id=plan_id,
+        initial_revision_id="rev-0",
+        plan_content=plan_content,
+        base_dir=tools_dir,
+    )
+    latest = plan_status(plan_id=plan_id, base_dir=tools_dir)["latest_revision"]
+    request_critics(
+        plan_id=plan_id,
+        request={
+            "round_number": 1,
+            "target_revision_id": latest["revision_id"],
+            "target_plan_content_hash": latest["content_hash"],
+            "tasks": [
+                {
+                    "task_id": "task-1",
+                    "task_packet_hash": plan_content_hash(
+                        {"task_id": "task-1", "reviewer": reviewer},
+                    ),
+                    "target_agent": reviewer,
+                    "target_revision_id": latest["revision_id"],
+                    "target_plan_content_hash": latest["content_hash"],
+                    "sla_deadline": (
+                        datetime.now(timezone.utc) + timedelta(seconds=600)
+                    ).replace(microsecond=0).isoformat(),
+                },
+            ],
+        },
+        base_dir=tools_dir,
+    )
+    state = plan_status(plan_id=plan_id, base_dir=tools_dir)
+    task = next(iter(state["rounds"][state["current_round"]]["tasks"].values()))
+    record_critique(
+        plan_id=plan_id,
+        critique={
+            "task_packet_hash": task["task_packet_hash"],
+            "target_revision_id": task["target_revision_id"],
+            "target_plan_content_hash": task["target_plan_content_hash"],
+            "reviewer": reviewer,
+            "risks": [],
+            "critique_content_hash": plan_content_hash({"reviewer": reviewer, "risks": []}),
+        },
+        workspace_root=workspace_root,
+        base_dir=tools_dir,
+    )
+    evaluated = evaluate_plan(plan_id=plan_id, round_number=1, base_dir=tools_dir)
+    terminal = evaluated["event"]["payload"]["terminal_state"]
+    if terminal != "CONVERGED":
+        raise AssertionError(f"fixture plan did not converge: {terminal}")
+    final = plan_status(plan_id=plan_id, base_dir=tools_dir)["latest_revision"]
+    return ConvergedPlan(
+        plan_id=plan_id,
+        plan_content=plan_content,
+        revision_id=str(final["revision_id"]),
+        content_hash=str(final["content_hash"]),
+    )
 
 def production_request_without_anchor(
     *,

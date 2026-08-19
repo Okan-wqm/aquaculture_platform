@@ -59,7 +59,35 @@ jobs:
               const completedRuns = response.data.workflow_runs.filter(
                 (candidate) => candidate.status === 'completed',
               );
-              const run = completedRuns[0];
+              // A run cancelled BEFORE it ever created a job is not a verdict
+              // about the lane — it is the concurrency group evicting a
+              // duplicate. Measured 2026-08-19: aria-auto-cycle ran 02:09→05:54
+              // GREEN, a second schedule firing at 02:32 sat pending behind the
+              // shared aria-selfhosted-workspace group and was cancelled at
+              // 03:25 when the executor arrived. The evicted run completed
+              // FIRST, so it won `completedRuns[0]` and the watchdog reported a
+              // healthy 3h45m cycle as an incident. Only `cancelled` runs are
+              // probed (a success or failure always ran), and a lane where
+              // EVERY run is an eviction still alarms — it has genuinely never
+              // executed, which is exactly the state of the wal-freshness lane.
+              const ranJobs = async (candidate) => {
+                if (candidate.conclusion !== 'cancelled') return true;
+                // No per_page here: total_count comes back regardless, and the
+                // contract pin forbids a single-run fetch shape in this file.
+                const jobs = await github.rest.actions.listJobsForWorkflowRun({
+                  owner,
+                  repo,
+                  run_id: candidate.id,
+                });
+                return jobs.data.total_count > 0;
+              };
+              let run = null;
+              for (const candidate of completedRuns) {
+                if (await ranJobs(candidate)) {
+                  run = candidate;
+                  break;
+                }
+              }
               const ageHours = run
                 ? (now - new Date(run.created_at).getTime()) / (60 * 60 * 1000)
                 : null;
@@ -99,10 +127,12 @@ jobs:
                 run.conclusion !== 'success' &&
                 watched.consecutiveFailuresForIncident
               ) {
-                const newest = completedRuns.slice(
-                  0,
-                  watched.consecutiveFailuresForIncident,
-                );
+                const executed = [];
+                for (const candidate of completedRuns) {
+                  if (await ranJobs(candidate)) executed.push(candidate);
+                  if (executed.length >= watched.consecutiveFailuresForIncident) break;
+                }
+                const newest = executed;
                 redRunTolerated =
                   newest.length < watched.consecutiveFailuresForIncident ||
                   newest.some((candidate) => candidate.conclusion === 'success');

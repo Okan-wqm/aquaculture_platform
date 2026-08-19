@@ -10331,5 +10331,65 @@ Severity: HIGH (a preflight that refuses at random blocks every production deplo
 **Fix.** A scope is measured only when it is disk-backed, and the discriminator is a **property rather than a name list**: `df` reports zero total bytes for a pseudo-filesystem and a real size for every genuine mount. Measured: `/proc` 0, `/sys` 0, `/dev` 4143394816, `/run` 832696320, `/` 165295407104. Naming procfs and sysfs instead would go stale the first time the host mounts one nobody listed — the class of defect this ledger is full of. A skipped scope is recorded as `scope_not_disk_backed` through the existing `capacity_record_unavailable` path, so the preflight still says out loud what it did not measure; and an unreadable `df` fails closed to "not disk-backed", because walking a filesystem we could not identify is exactly how this started.
 
 Verified against real paths: `/proc` and `/sys` skipped; `/dev`, `/run`, `/dev/shm`, `/` and `/var/lib/docker` measured; a nonexistent path skipped rather than walked.
+## ORPHAN-HIGH-747 — the watchdog read a concurrency eviction as the lane's verdict — RESOLVED
+
+Severity: HIGH (a healthy lane is reported broken, and the noise buries the real incidents next to it). Measured 2026-08-19 on the overnight timeline of the shared `aria-selfhosted-workspace` group:
+
+| created                        | finished | conclusion                       |
+| ------------------------------ | -------- | -------------------------------- |
+| `aria-auto-cycle` 02:09:34     | 05:54:54 | **success** (3h45m of real work) |
+| `aria-auto-cycle` 02:32:01     | 03:25:08 | cancelled — never created a job  |
+| `aria-agent-executor` 05:54:56 | 08:57:33 | failure (ORPHAN-737)             |
+
+The 02:32 run is a second schedule firing that sat `pending` behind the group and was evicted when the executor arrived. Because it finished at 03:25 and the real cycle finished at 05:54, the evicted duplicate was the _newest completed run_ — and `completedRuns[0]` handed it to the watchdog as the lane's verdict. The incident issue therefore listed `aria-auto-cycle.yml | cancelled | 14.2h` for a lane that had run green for nearly four hours that same night.
+
+This is the third instance of one class in this file: **an honest mechanism working correctly, reported as a failure.** ORPHAN-716 (partial red ≠ incident), ORPHAN-737 (contract refusal ≠ build failure), and now eviction ≠ verdict.
+
+**Fix:** a `cancelled` run is probed for jobs before it is accepted as the verdict; a run that never created one is an eviction, not an outcome, and the watchdog looks past it to the newest run that actually executed. Only `cancelled` runs are probed — a success or a failure always ran — so the extra API call is bounded to the case that needs it. The tolerance window (`consecutiveFailuresForIncident`) is filtered the same way, or a tolerated red could be spent on an eviction.
+
+**What deliberately did NOT change:** a lane where _every_ run is an eviction still alarms. That is not a rescue clause — it is the honest state of `database-wal-archive-freshness.yml`, which has produced 730 runs and zero jobs since birth and must keep its incident until that is fixed on its own merits.
+
+Pinned in `tests/invariants/production-ops-proof-contract.spec.ts`: the jobs probe is present, it is gated on `cancelled`, and the total-count test is the acceptance rule. Verified by deliberate breakage — reverting the workflow reds the spec.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-748 — the WAL freshness lane has never run: 730 runs, zero jobs, since birth — OPEN (decisive experiment shipped)
+
+Severity: HIGH (the lane that proves production WAL archiving is fresh has never produced a single verdict, and its permanent incident masks the watchdog's other signals). Measured 2026-08-19: `database-wal-archive-freshness.yml` has **730 runs, of which 100% concluded `cancelled` with `total_count: 0` jobs**. Each run's `updated_at` is exactly the next run's `created_at` — every run sits `pending` until the following one evicts it, and the one at the head never starts.
+
+**Hypotheses eliminated by measurement, not by argument:**
+
+| Suspect                            | How it was ruled out                                                                                                                                                              |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Environment protection             | `production-backup` carries a single `branch_policy` rule and its allowed branch list contains `main`. No reviewers, no wait timer.                                               |
+| The `environment:` block itself    | `backup-production.yml` declares the **identical** `environment: {name: production-backup, deployment: false}` and runs green nightly, with artifacts.                            |
+| The `schedule` event               | A manual `workflow_dispatch` on `main` (run 32280364565) went `pending` with zero jobs exactly like the scheduled ones.                                                           |
+| Workflow disabled                  | `state: active`.                                                                                                                                                                  |
+| Another workflow sharing the group | The group string appears in no other workflow; the only other file mentioning it does so in a comment.                                                                            |
+| Something else holding the group   | Across the whole repository, the only `pending`/`queued`/`in_progress` runs at the time of measurement were this lane and an unrelated release lane in a differently-named group. |
+
+What remains is the concurrency group itself: an exclusive group with no visible holder that nevertheless never lets a run through — GitHub-side bookkeeping wedged on that group name.
+
+**This change is the experiment, and it names its own falsifier.** The concurrency group is renamed to `database-wal-archive-freshness-v2` and NOTHING else changes — not the cron, not the environment, not the job. If the lane starts producing jobs, the wedged group was the cause and this finding closes. **If runs still go `pending` with zero jobs after this lands, the group is exonerated** and the next suspect is the `*/5` cron creating runs faster than one can be scheduled; that would be a separate, separately-evidenced change.
+
+Deliberately NOT changed in the same commit: the `*/5` cron. Changing two variables at once would have made the result unreadable, and this lane has already cost 730 runs of unreadable results.
+
+**Owner:** claude (this session). **Status:** OPEN until a run of this lane creates a job.
+
+## ORPHAN-MEDIUM-749 — a merge commit runs no hook, so the ARIA authority pin goes stale in silence — RESOLVED
+
+Severity: MEDIUM (no wrong behaviour ships; it costs a full CI cycle every time, and it hit three times in one afternoon). `docs/aria/CURRENT_STATE.md` declares a digest over the whole ARIA runtime surface, and `pre-commit` already regenerates it — but only for commits it runs on. **`git merge origin/main` produces a merge commit, and git runs no `pre-commit` for one.** So refreshing a branch from main moves the authority surface and leaves the pin declaring the previous digest, silently.
+
+Measured 2026-08-19: merging main into `feat/jj-humanless-judgment` staled the pin, and three separate required checks — `aria-merge-authority`, `deploy-ssot-gates`, `invariants-fast` — went red thirty minutes later on **the same single assertion**. The same staleness was then confirmed on the other two branches merged that hour.
+
+This is the class the `pre-commit` comment already names — "the mechanism exists, the caller is missing" — one trigger further along. The writer was there; nothing called it on the merge path.
+
+**Fix, in three parts:**
+
+1. `tools/gates/aria-authority-hash.ts --check`: the tool could print the digest and could write it, but could not _answer_ "is the declared pin current?" without the caller doing its own string comparison. `--check` answers in a second and exits non-zero with the exact command that fixes it, so a hook can stand on it.
+2. `.husky/post-merge`: regenerates and STAGES the pin after any merge, printing what is left to do. It cannot amend the merge commit git has already made — so it does not pretend to.
+3. `.husky/pre-push`: runs `--check` and refuses. Staged is not committed, and this is the last point where a second is cheaper than thirty minutes.
+
+Verified: with the surface changed, `post-merge` reports and stages; with the pin corrupted, `--check` exits 1 naming both digests; with everything current, both are silent and exit 0.
 
 **Owner:** claude (this session). **Status:** RESOLVED.

@@ -1,0 +1,105 @@
+{
+  "pinned": {
+    "ORPHAN-CRITICAL-601:fuse_prompt_envelope": {
+      "owner": "claude",
+      "pinned_at": "2026-08-20",
+      "reason": "ORPHAN-766 first-day pin: closures whose named producer had no production caller when the gate landed (ORPHAN-750 cricket template \u2014 named, not silenced; the baseline never ratchets up)"
+    },
+    "ORPHAN-CRITICAL-725:dispatch_one_pending_planner_request": {
+      "owner": "claude",
+      "pinned_at": "2026-08-20",
+      "reason": "ORPHAN-766 first-day pin: closures whose named producer had no production caller when the gate landed (ORPHAN-750 cricket template \u2014 named, not silenced; the baseline never ratchets up)"
+    },
+    "ORPHAN-CRITICAL-725:run_convergence_drainer": {
+      "owner": "claude",
+      "pinned_at": "2026-08-20",
+      "reason": "ORPHAN-766 first-day pin: closures whose named producer had no production caller when the gate landed (ORPHAN-750 cricket template \u2014 named, not silenced; the baseline never ratchets up)"
+    },
+    "ORPHAN-CRITICAL-728:approve_proposal": {
+      "owner": "claude",
+      "pinned_at": "2026-08-20",
+      "reason": "ORPHAN-766 first-day pin: closures whose named producer had no production caller when the gate landed (ORPHAN-750 cricket template \u2014 named, not silenced; the baseline never ratchets up)"
+    },
+    "ORPHAN-CRITICAL-728:plan_apply_worktree": {
+      "owner": "claude",
+      "pinned_at": "2026-08-20",
+      "reason": "ORPHAN-766 first-day pin: closures whose named producer had no production caller when the gate landed (ORPHAN-750 cricket template \u2014 named, not silenced; the baseline never ratchets up)"
+    },
+    "ORPHAN-HIGH-311:estimate_tokens_usd": {
+      "owner": "claude",
+      "pinned_at": "2026-08-20",
+      "reason": "ORPHAN-766 first-day pin: closures whose named producer had no production caller when the gate landed (ORPHAN-750 cricket template \u2014 named, not silenced; the baseline never ratchets up)"
+    },
+    "ORPHAN-HIGH-590:workflow_contract_registry": {
+      "owner": "claude",
+      "pinned_at": "2026-08-20",
+      "reason": "ORPHAN-766 first-day pin: closures whose named producer had no production caller when the gate landed (ORPHAN-750 cricket template \u2014 named, not silenced; the baseline never ratchets up)"
+    },
+    "ORPHAN-HIGH-599:add_fixture": {
+      "owner": "claude",
+      "pinned_at": "2026-08-20",
+      "reason": "ORPHAN-766 first-day pin: closures whose named producer had no production caller when the gate landed (ORPHAN-750 cricket template \u2014 named, not silenced; the baseline never ratchets up)"
+    },
+    "ORPHAN-HIGH-617:fuse_prompt_envelope": {
+      "owner": "claude",
+      "pinned_at": "2026-08-20",
+      "reason": "ORPHAN-766 first-day pin: closures whose named producer had no production caller when the gate landed (ORPHAN-750 cricket template \u2014 named, not silenced; the baseline never ratchets up)"
+    },
+    "ORPHAN-HIGH-617:lookup_pattern": {
+      "owner": "claude",
+      "pinned_at": "2026-08-20",
+      "reason": "ORPHAN-766 first-day pin: closures whose named producer had no production caller when the gate landed (ORPHAN-750 cricket template \u2014 named, not silenced; the baseline never ratchets up)"
+    },
+    "ORPHAN-HIGH-618:claim_and_dispatch_one": {
+      "owner": "claude",
+      "pinned_at": "2026-08-20",
+      "reason": "ORPHAN-766 first-day pin: closures whose named producer had no production caller when the gate landed (ORPHAN-750 cricket template \u2014 named, not silenced; the baseline never ratchets up)"
+    },
+    "ORPHAN-HIGH-638:fuse_prompt_envelope": {
+      "owner": "claude",
+      "pinned_at": "2026-08-20",
+      "reason": "ORPHAN-766 first-day pin: closures whose named producer had no production caller when the gate landed (ORPHAN-750 cricket template \u2014 named, not silenced; the baseline never ratchets up)"
+    },
+    "ORPHAN-HIGH-677:lookup_pattern": {
+      "owner": "claude",
+      "pinned_at": "2026-08-20",
+      "reason": "ORPHAN-766 first-day pin: closures whose named producer had no production caller when the gate landed (ORPHAN-750 cricket template \u2014 named, not silenced; the baseline never ratchets up)"
+    },
+    "ORPHAN-HIGH-681:update_tool": {
+      "owner": "claude",
+      "pinned_at": "2026-08-20",
+      "reason": "ORPHAN-766 first-day pin: closures whose named producer had no production caller when the gate landed (ORPHAN-750 cricket template \u2014 named, not silenced; the baseline never ratchets up)"
+    },
+    "ORPHAN-HIGH-693:emit_debt": {
+      "owner": "claude",
+      "pinned_at": "2026-08-20",
+      "reason": "ORPHAN-766 first-day pin: closures whose named producer had no production caller when the gate landed (ORPHAN-750 cricket template \u2014 named, not silenced; the baseline never ratchets up)"
+    },
+    "ORPHAN-HIGH-728:verify_workflow_preflight": {
+      "owner": "claude",
+      "pinned_at": "2026-08-20",
+      "reason": "ORPHAN-766 first-day pin: closures whose named producer had no production caller when the gate landed (ORPHAN-750 cricket template \u2014 named, not silenced; the baseline never ratchets up)"
+    },
+    "ORPHAN-MEDIUM-263:passed": {
+      "owner": "claude",
+      "pinned_at": "2026-08-20",
+      "reason": "ORPHAN-766 first-day pin: closures whose named producer had no production caller when the gate landed (ORPHAN-750 cricket template \u2014 named, not silenced; the baseline never ratchets up)"
+    },
+    "ORPHAN-MEDIUM-593:list_calibration_recommendations": {
+      "owner": "claude",
+      "pinned_at": "2026-08-20",
+      "reason": "ORPHAN-766 first-day pin: closures whose named producer had no production caller when the gate landed (ORPHAN-750 cricket template \u2014 named, not silenced; the baseline never ratchets up)"
+    },
+    "ORPHAN-MEDIUM-619:verify_workflow_preflight": {
+      "owner": "claude",
+      "pinned_at": "2026-08-20",
+      "reason": "ORPHAN-766 first-day pin: closures whose named producer had no production caller when the gate landed (ORPHAN-750 cricket template \u2014 named, not silenced; the baseline never ratchets up)"
+    },
+    "ORPHAN-MEDIUM-683:enforce_context_budget": {
+      "owner": "claude",
+      "pinned_at": "2026-08-20",
+      "reason": "ORPHAN-766 first-day pin: closures whose named producer had no production caller when the gate landed (ORPHAN-750 cricket template \u2014 named, not silenced; the baseline never ratchets up)"
+    }
+  },
+  "schema_version": 1
+}

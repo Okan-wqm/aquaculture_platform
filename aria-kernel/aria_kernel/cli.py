@@ -1612,6 +1612,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     readiness_claim.add_argument("--workspace-root", required=True)
     readiness_claim.add_argument("--owner", default=None)
+    # ORPHAN-HIGH-766 — closure-reachability gate (ratcheted). --write pins
+    # or shrinks the baseline; without it the command is check-only and
+    # exits nonzero on NEW unreachable closures.
+    closure_reach = add_subparser(
+        sub,
+        "closure-reachability",
+        help="Verify that findings closed by adding a producer added a REACHED producer.",
+    )
+    closure_reach.add_argument("--write", action="store_true")
+    closure_reach.add_argument("--owner", default="operator")
+    closure_reach.add_argument("--reason", default="ratchet update")
 
     inv_parser = add_subparser(sub, "agent-invocations")
     inv_sub = inv_parser.add_subparsers(dest="agent_invocation_command", required=True)
@@ -3028,6 +3039,19 @@ def _main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
+
+    if args.command == "closure-reachability":
+        from .closure_reachability import scan_closure_reachability, write_baseline
+
+        if args.write:
+            payload = write_baseline(".", owner=args.owner, reason=args.reason)
+            print(json.dumps(payload, indent=2, sort_keys=True))
+            return 0
+        report = scan_closure_reachability(".")
+        print(json.dumps(report.as_dict(), indent=2, sort_keys=True))
+        # A pinned baseline entry that became reachable is good news, not a
+        # failure — the shrink lands with the next --write.
+        return 1 if report.violations else 0
 
     if args.command == "state":
         return _handle_state_command(args)

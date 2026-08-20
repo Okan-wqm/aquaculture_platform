@@ -27215,6 +27215,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "aria-kernel/closure-reachability-baseline.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "aria-kernel/control-reachability.dormant.json",
       "prettier_managed": true
     },

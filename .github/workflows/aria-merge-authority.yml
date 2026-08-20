@@ -52,10 +52,12 @@ jobs:
               job_id="aria-merge-authority",
               profile="standard",
               workspace_root=os.environ["GITHUB_WORKSPACE"],
-              allowed_write_roots=[str(runner_temp)],
-              path_allowlist=[str(runner_temp)],
-              # The lane reads the repo and uploads its proof artifact; it
-              # pushes no state and opens no PR.
+              # The declared write root must match the contract's single
+              # allowed pattern exactly (the normalized preflight artifact
+              # file) — declaring the whole temp dir reads as a write reach
+              # the contract never granted.
+              allowed_write_roots=["runner-temp/aria-merge-authority-preflight.json"],
+              path_allowlist=["runner-temp/aria-merge-authority-preflight.json"],
               network_policy=["github_artifact"],
               network_enforcement_evidence=(
                   "assert-only lane: repository checkout plus artifact upload; "

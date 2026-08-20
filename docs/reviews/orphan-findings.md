@@ -10639,6 +10639,7 @@ The repository already had the correct matcher (`tool_health.matches_glob`). Thi
 **Fix.** `_matches` expands braces (which `matches_glob` does not do, and the manifests use the brace form) and then defers every alternative to the ONE matcher. The private copy is gone.
 
 **How it was found.** Not by the suite — all 25 observation pins pass both before and after, because they exercise the matcher through fixtures whose shapes happen to avoid the case. It was found by an independent design panel reading the module against its sibling, which is the same class of catch as ORPHAN-758: two implementations of one decision, and the wrong one was in the load-bearing position.
+
 ## ORPHAN-CRITICAL-754 — every nightly cycle died at its first step, and a pin held the break in place — RESOLVED
 
 Severity: CRITICAL (ARIA cannot run at all; the autonomy programme has no nights). Found 2026-08-20 by reading the failed run the operator pointed at, not by a gate.

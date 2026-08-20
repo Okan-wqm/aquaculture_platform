@@ -177,15 +177,21 @@ class TheNightlyProfileIsAVerdictNotALiteral(unittest.TestCase):
         before the successor lands. Pinned as a CEILING rather than a value,
         so tuning it down stays free and restoring the default fails here.
         """
+        # REWRITTEN PIN (ORPHAN-HIGH-754). The successor this bound was
+        # waiting for has landed: CL-1 removed the synchronous poll, the CLI
+        # dropped `--implementer-poll-seconds` with it, and the sibling pin in
+        # tests/invariants/v3_1/test_phase_v31_e_profile_preflight.py was
+        # updated to assert the PARAMETER is gone. This one was not, and it
+        # enforced the opposite — so the workflow kept passing a flag argparse
+        # no longer accepts and every nightly cycle died at its first step
+        # ("unrecognized arguments: --implementer-poll-seconds 120", run
+        # 32324892989). A pin that outlives the thing it pinned does not go
+        # quiet; it holds the broken state in place.
         run = _cycle_run_step()["run"]
-        match = re.search(r"--implementer-poll-seconds\s+(\d+)", run)
-        self.assertIsNotNone(
-            match, "the cycle step does not bound the implementer poll",
-        )
-        self.assertLessEqual(
-            int(match.group(1)), 300,
-            "a poll this long cannot be answered in-run and burns the night's "
-            "deadline (ORPHAN-HIGH-734)",
+        self.assertNotIn(
+            "--implementer-poll-seconds", run,
+            "the CLI no longer accepts this flag; passing it kills the cycle "
+            "before any phase runs",
         )
 
     def test_this_lane_cannot_reach_the_autonomous_profile(self) -> None:

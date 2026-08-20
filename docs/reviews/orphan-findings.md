@@ -10577,6 +10577,7 @@ Severity: MEDIUM (blocked every push from a busy checkout with a defect not in t
 ## ORPHAN-LOW-774 — the specialist-review --strict flip has lived as a workflow-comment TODO with no owner and no criterion — OPEN
 
 Severity: LOW. Found 2026-08-20. The specialist-review dry-run runs warn-mode in the kernel lanes behind "flip to --strict in a follow-up commit once the Lane-A inventory is fully populated" — a decision carried only in YAML comments: no owner, no flip criterion, no deadline (the third copy of the comment died with aria-kernel-full.yml). The comments now cite this finding. **Flip criterion:** Lane-A inventory fully populated (every Lane-A agent resolvable in the dry-run) AND 4 consecutive green weekly warn-mode runs. **Owner:** platform operator (Okan) with the kernel owner. **Deadline:** 2026-09-30. **Status:** OPEN. Detail: docs/reviews/claude/2026-08-20-aria-authority-chain-audit.md.
+
 ## ORPHAN-HIGH-755 — a belief ARIA could not resolve without a person, and the authority that resolving it accidentally bought — RESOLVED
 
 Severity: HIGH (the last human-shaped link in the belief-learning loop, plus a leak the fix would have opened). JJ-3 of PROGRAM B.

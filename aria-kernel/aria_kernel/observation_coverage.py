@@ -133,12 +133,25 @@ def adapter_scopes(workspace_root: Path) -> dict[str, tuple[str, ...]]:
 
 
 def _matches(path: str, glob: str) -> bool:
-    # fnmatch treats `*` as crossing separators, which is what `**/` means
-    # here anyway; the brace form used by some manifests is expanded first.
-    for pattern in _expand_braces(glob):
-        if fnmatch.fnmatch(path, pattern):
-            return True
-    return False
+    """Does this path fall inside this declared scope?
+
+    ORPHAN-HIGH-762 — this used to be a private `fnmatch` call with a comment
+    asserting that `*` crossing separators is "what `**/` means here anyway".
+    It is not. `**/` must also match ZERO directories, and `fnmatch` expands
+    `**` to `.*` with the literal `/` still required — so
+    `aria-kernel/aria_kernel/**/*.py` did not match
+    `aria-kernel/aria_kernel/cycle.py`, and the instrument built to measure
+    ARIA's blindness was blind in exactly the directory it was built to
+    measure. The repository already had the correct matcher; this module
+    shipped a second one.
+
+    Brace expansion stays here because `matches_glob` does not do it and the
+    manifests use the brace form; each expanded alternative is then answered
+    by the ONE matcher.
+    """
+    from .tool_health import matches_glob
+
+    return any(matches_glob(path, pattern) for pattern in _expand_braces(glob))
 
 
 def _expand_braces(glob: str) -> list[str]:

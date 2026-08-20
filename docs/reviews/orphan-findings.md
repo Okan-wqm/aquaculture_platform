@@ -10620,3 +10620,24 @@ Severity: HIGH (the volume is the risk: an unrefuted lead list read as a finding
 **What must happen before any of this is implemented.** Each lead gets an adversarial pass whose default is "refuted", the way the anchor rule treats agreement that met an objection. A lead that survives becomes its own finding with its own ID; a lead that does not gets recorded as refuted, with the reason, so the next comprehension pass does not re-file it. The failure mode being guarded against is this session's own: three of six items from the implementation workflow were refuted on verification, and two of my own first readings today were wrong until I reproduced them.
 
 **Owner:** claude. **Deadline:** 2026-08-27. **Status:** OPEN.
+
+## ORPHAN-HIGH-762 — the instrument built to measure ARIA's blindness had a broken ruler — RESOLVED
+
+Severity: HIGH (every number ORPHAN-753 published, and every number quoted from it since, was wrong in the understating direction).
+
+**Measured 2026-08-20.** `observation_coverage._matches` carried a private `fnmatch` implementation whose comment asserted the bug as a justification: _"fnmatch treats `_`as crossing separators, which is what`**/`means here anyway"*. It is not.`**/`must also match **zero** directories, and`fnmatch`expands`**`to`.\*`with the literal separator still required — so`aria-kernel/aria_kernel/**/\*.py`did **not** match`aria-kernel/aria_kernel/cycle.py`. Reproduced directly:
+
+```
+_matches('aria-kernel/aria_kernel/cycle.py', 'aria-kernel/aria_kernel/**/*.py')   -> False
+matches_glob(same pair)                                                           -> True
+```
+
+The repository already had the correct matcher (`tool_health.matches_glob`). This module shipped a second one — the Potemkin-SSoT shape this ledger is full of — and the copy governed the measurement.
+
+**Corrected numbers, from the fixed instrument:** observed ratio **74.71%** (published: 71.8%); `aria-kernel` **243 of 807** files inside a declared scope (published: 13 of 799). The kernel is not effectively invisible to ARIA — it is roughly a third observed, by two adapters (`kernel-dead-wire`, `agent-harness-security`). The corrected figure weakens the G-10 claim I made from the wrong one, and that correction is the point of recording this.
+
+**Fix.** `_matches` expands braces (which `matches_glob` does not do, and the manifests use the brace form) and then defers every alternative to the ONE matcher. The private copy is gone.
+
+**How it was found.** Not by the suite — all 25 observation pins pass both before and after, because they exercise the matcher through fixtures whose shapes happen to avoid the case. It was found by an independent design panel reading the module against its sibling, which is the same class of catch as ORPHAN-758: two implementations of one decision, and the wrong one was in the load-bearing position.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

@@ -283,3 +283,4 @@ aria-debts/keys/
 # trail of cross-agent tier-classification questions.
 aria-tools/agent-questions.jsonl
 aria-tools/agent-questions.jsonl.lock
+.aria-acceptance-poc-tmp/

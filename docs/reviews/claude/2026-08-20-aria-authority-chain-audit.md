@@ -163,3 +163,43 @@ that signature.
 ADR-040 live invocation (`PENDING-OPERATOR-LIVE-INVOCATION`), ADR-041 activation ceremony
 steps 1-2, v3.1 smoke / V10.3-B endurance (dates long past, no run recorded). These are listed
 for the operator: run them or re-date them with an explicit owner.
+
+## Operator decision register (prepared 2026-08-20, awaiting signature)
+
+Decisions this audit could PREPARE but not make — each needs the platform operator's signature
+because each removes a mechanism that could object, or spends operator-held credentials:
+
+1. **Snowball genesis retirement (governance, not hygiene).** `_maintenance/aria-drafter`, the
+   L3-snowball lane and the I-V3-00a invariant live in production code (`agent_genesis.py:782,848`
+   runtime-model resolution, `draft_validator.py:163` K6 refusal contract, `lane_classifier.py`).
+   Removing them removes the mechanism that validates the genesis path; the retirement needs a
+   signed decision with a migration plan (which module absorbs the drafter's validation role).
+2. **Python stub-adapter portfolio.** Four Python adapters ride `shadow_runner.py` while the real
+   logic lives in the TS adapters; `agent_harness_security_adapter.py` additionally owns the
+   `_APPROVED_WRAPPERS` allowlist whose single entry is `llm_bridge.py`. Decide: fold into the TS
+   registry or delete, together with the allowlist's future.
+3. **Legacy `aria-kernel/aria-tools/` shadow state tree.** Kept as a documented hazard and
+   referenced by `tool_registry` comments and V3.3 tests; removal migrates those references.
+
+## Operator gates and host checklist (recorded, not executed)
+
+- **ADR-040:** `verified_at_commit: PENDING-OPERATOR-LIVE-INVOCATION` — one supervised live
+  invocation upgrades the lane's evidence from smoke to live.
+- **ADR-041 activation ceremony:** (1) `aria-auto-cycle` dispatch with `mode=burn-in-observe`
+  → REAL 30-cycle observe burn-in; (2) ≥1 week of nightly cycles inside caps; (3) master-switch
+  enabling commit; (4) first autonomous-profile run watched end-to-end. The readiness-claim
+  producer this audit landed (ORPHAN-HIGH-763) is the missing prerequisite the ceremony had.
+- **GitHub App setup** (`docs/runbooks/aria-github-app-setup.md`): the `aria-readiness-claim`
+  lane needs `ARIA_GH_APP_INSTALLATION_ID` / `ARIA_GH_APP_ID` / private key as repo secrets;
+  until then the lane fails closed on every PR by design (`ARIA_REQUIRE_MODE_A=true`).
+- **v3.1 smoke / V10.3-B endurance gates:** dates long past with no run recorded — run or re-date
+  with an owner.
+- **Host (the droplet doubles as the self-hosted runner):** three zombie `tail -F` processes
+  (May, watching a deleted snowball worktree); `agent-workspace/` tar.gz archives and
+  `.aria-poc/` (7.1MB, 2026-05-13) as local debris; **disk at 97%** — `/tmp` test debris was
+  cleaned once (59GB→57GB) but the fill is structural; `aria-tools/daemons/codex-monitor-*`
+  locks removed locally this session.
+- **In-flight foreign work in the shared checkout:** `billing-plan-change-events.schema.ts` +
+  the billing saga migration are half-wired (the event-contracts adapter correctly reds on the
+  un-wired catalog) and belong to the parallel session's open train; every push from this
+  checkout had to set them aside.

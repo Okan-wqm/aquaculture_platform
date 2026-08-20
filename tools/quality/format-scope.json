@@ -1,48 +1,6 @@
 {
   "entries": [
     {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": ".aria-acceptance-poc-tmp/ADR_PRIORS.md",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": ".aria-acceptance-poc-tmp/AGENT_PRIORS.md",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": ".aria-acceptance-poc-tmp/CLAUDE_MD_PRIORS.md",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": ".aria-acceptance-poc-tmp/FATES.json",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": ".aria-acceptance-poc-tmp/GIT_RECONCILIATION.json",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": ".aria-acceptance-poc-tmp/REPO_FINGERPRINT.json",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": ".aria-acceptance-poc-tmp/SKIMMED_FILES.md",
-      "prettier_managed": true
-    },
-    {
       "class": "agent_contract_docs",
       "owner": "agent-governance",
       "path": ".claude/agents/_maintenance/aria-drafter.md",

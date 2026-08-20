@@ -2,7 +2,7 @@
 
 Date: 2026-08-20
 Target ref: `origin/main`
-Last verified ARIA authority hash: `642fa029edc59e92ee1d9217a9a4bf361ebbed9589d166b3261295690a684b75`
+Last verified ARIA authority hash: `697c199b2dc2b13b4b68fb5e76738a64a9d06617f29b57e90c665f5ad7e53d24`
 Status: nightly autonomy live on the branch-backed state store; narrow merge lane
 gated on the unlock ladder
 

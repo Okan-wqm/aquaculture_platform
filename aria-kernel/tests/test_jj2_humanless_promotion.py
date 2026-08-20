@@ -160,6 +160,18 @@ class AnchorPrecisionBlockerTests(unittest.TestCase):
             finding_fingerprint=f"fp-{index}",
             judge_count=judges,
             judges_voted=judges,
+            # G-2 — anchor-grade rows must name the models that agreed.
+            # Shaped like the live fleet: two opus judges plus the fable
+            # arbiter, so three agreeing judges span two distinct models.
+            observers=(
+                [
+                    {"judge_id": "aria-evidence-judge", "model": "claude-opus-5"},
+                    {"judge_id": "aria-adversarial-judge", "model": "claude-opus-5"},
+                    {"judge_id": "aria-consensus-arbiter", "model": "fable"},
+                ][:judges]
+                if judges >= 3
+                else None
+            ),
             base_dir=self.tools,
         )
 

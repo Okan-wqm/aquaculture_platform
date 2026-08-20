@@ -114,11 +114,25 @@ class ConsensusGateFilterTests(unittest.TestCase):
             note=f"AI consensus from {judges} independent judges",
             source_type="ai_consensus",
             judge_id="aria-consensus-arbiter",
-            model="consensus",
+            model=None,
             confidence=0.85,
             finding_fingerprint=fingerprint,
             judge_count=judges,
             judges_voted=judges if voted is None else voted,
+            # G-2 — the receipt an anchor is now required to carry. Shaped
+            # like the live fleet (two opus judges, one fable arbiter), so a
+            # 3-judge row spans two models and a 2-judge row is still only
+            # a precision settlement. Sub-anchor rows pass None because the
+            # rule binds exactly where it is load-bearing.
+            observers=(
+                [
+                    {"judge_id": "aria-evidence-judge", "model": "claude-opus-5"},
+                    {"judge_id": "aria-adversarial-judge", "model": "claude-opus-5"},
+                    {"judge_id": "aria-consensus-arbiter", "model": "fable"},
+                ][:judges]
+                if judges >= ANCHOR_MIN_JUDGE_COUNT
+                else None
+            ),
             base_dir=self.tools,
         )
 
@@ -189,11 +203,16 @@ class ConsensusGateFilterTests(unittest.TestCase):
             tool_id="alpha", run_id="r-3", finding_id="f-3",
             verdict="false_positive", severity="medium",
             source_type="ai_consensus", judge_id="aria-consensus-arbiter",
-            model="consensus", confidence=0.85,
+            model=None, confidence=0.85,
             note="consensus from 3 judges",
             finding_fingerprint="fp-consensus",
             judge_count=ANCHOR_MIN_JUDGE_COUNT,
             judges_voted=ANCHOR_MIN_JUDGE_COUNT,
+            observers=[
+                {"judge_id": "aria-evidence-judge", "model": "claude-opus-5"},
+                {"judge_id": "aria-adversarial-judge", "model": "claude-opus-5"},
+                {"judge_id": "aria-consensus-arbiter", "model": "fable"},
+            ],
             base_dir=self.tools,
         )
         # 2-judge consensus — NOT eligible (JJ-1).

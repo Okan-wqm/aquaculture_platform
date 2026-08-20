@@ -81,6 +81,18 @@ class RuleHealthTests(unittest.TestCase):
                 judgment_group_id=f"judge:t:{fingerprint}:{i}",
                 judge_count=judges if source == "ai_consensus" else None,
                 judges_voted=judges if source == "ai_consensus" else None,
+                # G-2 — the receipt an anchor now needs. Only consensus
+                # rows at anchor grade carry it; a 2-judge row settles
+                # precision and never truth, so it needs none.
+                observers=(
+                    [
+                        {"judge_id": "aria-evidence-judge", "model": "claude-opus-5"},
+                        {"judge_id": "aria-adversarial-judge", "model": "claude-opus-5"},
+                        {"judge_id": "aria-consensus-arbiter", "model": "fable"},
+                    ][:judges]
+                    if source == "ai_consensus" and judges >= 3
+                    else None
+                ),
                 base_dir=self.tools,
             )
 

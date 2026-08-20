@@ -89,6 +89,20 @@ class FindingPromotionTests(unittest.TestCase):
             ["no_repo_verified_evidence"],
         )
 
+    def test_empty_fingerprint_skips_visibly_not_silently(self) -> None:
+        # ORPHAN-HIGH-765 — a consensus row settled from pre-threading judge
+        # verdicts carries an empty fingerprint and can never promote. The
+        # skip must be RECORDED with its reason: an invisible skip is
+        # indistinguishable from "nothing to promote", which is the silence
+        # that hid 24,788 live raw findings promoting to zero for months.
+        self._consensus_row("", refs=["apps/target.ts:1"])
+        result = promote_consensus_findings(repo_root=self.repo, base_dir=self.tools)
+        self.assertEqual(result["promoted_count"], 0)
+        self.assertEqual(len(result["skipped"]), 1)
+        self.assertEqual(result["skipped"][0]["reason"], "missing_finding_fingerprint")
+        self.assertEqual(result["skipped"][0]["judgment_group_id"], "judge:tool-a:run-1:f-1")
+        self.assertEqual(list(findings_dir(self.repo).glob("F-*.json")), [])
+
     def test_sampler_skips_settled_fingerprints(self) -> None:
         # Deliberate-break of the K4 asymmetry: a promoted fingerprint must
         # be invisible to judgment sampling, exactly like a confirmed FP.

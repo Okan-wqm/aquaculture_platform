@@ -845,6 +845,13 @@ def create_agent_invocation_request(
     tool_id: str | None = None,
     run_id: str | None = None,
     judgment_group_id: str | None = None,
+    # ORPHAN-HIGH-765 — the verdict bridge reads the finding fingerprint
+    # from the MINT (D1 doctrine: identity comes from what was asked, never
+    # from what the agent volunteers), so the request must carry what the
+    # sampler already knows. Additive optional: historical rows lack the
+    # field and readers fall back to the envelope, then to empty — never to
+    # a guess.
+    finding_fingerprint: str | None = None,
     enforce_context_budget: bool = False,
     context_repo_root: str | Path | None = None,
     context_window_tokens_override: int | None = None,
@@ -1130,6 +1137,8 @@ def create_agent_invocation_request(
         row["run_id"] = run_id
     if judgment_group_id is not None:
         row["judgment_group_id"] = judgment_group_id
+    if finding_fingerprint is not None:
+        row["finding_fingerprint"] = finding_fingerprint
     rendered_prompt = render_invocation_prompt(row)
     context = build_invocation_context(
         request_id=request_id,

@@ -10660,6 +10660,7 @@ The second one's own docstring said the bound was a stopgap _"before the success
 **What this says about the day's work.** CL-1 was reported complete on the strength of its own suite. Its suite passed because the pin that would have caught this was _asserting the old world_ — the failure only became visible when a real night ran. Green tests are evidence about the tests as much as about the code.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
 ## ORPHAN-HIGH-760 — judge independence was not weakly measured, it was unmeasurable — RESOLVED
 
 Severity: HIGH (every anchor, every suppression and every promotion rests on judges being more than one opinion wearing several names). G-2 of PROGRAM G, redesigned after the first attempt was refuted.

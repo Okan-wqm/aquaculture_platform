@@ -34,24 +34,41 @@ _SYNTHETIC_FUNCTIONS = {"produce_readiness_claim": Path("aria-kernel/aria_kernel
 
 
 class ExtractionTests(unittest.TestCase):
-    def test_resolved_entry_backticked_symbols_become_claims(self) -> None:
+    def test_resolved_entry_backticked_producers_become_claims(self) -> None:
         ledger = (
             "## ORPHAN-HIGH-1 — closed by adding `produce_readiness_claim` — RESOLVED\n\n"
-            "Prose mentioning `resolve_readiness_claim_id_from_claims` too.\n\n"
+            "Prose mentioning `record_operator_feedback` too.\n\n"
             "## ORPHAN-HIGH-2 — still open — OPEN\n\n"
             "Also mentions `produce_readiness_claim` but is not resolved.\n"
         )
         pairs = closure_symbols_in_ledger(ledger, _SYNTHETIC_FUNCTIONS | {
-            "resolve_readiness_claim_id_from_claims": Path("a.py"),
+            "record_operator_feedback": Path("a.py"),
         })
         self.assertEqual(
             pairs,
             {ClosureSymbol("ORPHAN-HIGH-1", "produce_readiness_claim"),
-             ClosureSymbol("ORPHAN-HIGH-1", "resolve_readiness_claim_id_from_claims")},
+             ClosureSymbol("ORPHAN-HIGH-1", "record_operator_feedback")},
+        )
+
+    def test_non_producer_symbols_claim_nothing(self) -> None:
+        # A scanner or predicate the closure touched is not a producer
+        # claim: gate-type fixes are enforced BY tests, and gating their
+        # scanners would flag every honest one (the gate's own first catch,
+        # ORPHAN-MEDIUM-773, was exactly this shape).
+        ledger = (
+            "## ORPHAN-MEDIUM-9 — fixed the roster scan — RESOLVED\n\n"
+            "`unrostered_production_dirs` and `verify_integrity` updated.\n"
+        )
+        self.assertEqual(
+            closure_symbols_in_ledger(
+                ledger,
+                {"unrostered_production_dirs": Path("a.py"), "verify_integrity": Path("b.py")},
+            ),
+            set(),
         )
 
     def test_unknown_tokens_claim_nothing(self) -> None:
-        ledger = "## ORPHAN-LOW-9 — fixed the frobnicator — RESOLVED\n\n`frobnicate_all` done.\n"
+        ledger = "## ORPHAN-LOW-9 — fixed the frobnicator — RESOLVED\n\n`produce_all_the_things` done.\n"
         self.assertEqual(closure_symbols_in_ledger(ledger, _SYNTHETIC_FUNCTIONS), set())
 
 

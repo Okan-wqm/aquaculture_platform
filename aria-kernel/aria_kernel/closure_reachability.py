@@ -37,6 +37,32 @@ _LEDGER_HEADING = re.compile(r"^## (ORPHAN-[A-Z]+-\d+) ", re.MULTILINE)
 _BACKTICKED = re.compile(r"`([a-z][a-z0-9_]{3,})`")
 _RESOLVED = "RESOLVED"
 
+# The gate's question is "did the closure's PRODUCER get reached" — a
+# producer is a write-side mechanism (it mints rows, dispatches work,
+# records evidence). A scanner or predicate the closure also touched is
+# not a producer claim, and gating it would flag honest gate-type fixes
+# whose enforcement IS a test (the gate's first catch was exactly this:
+# ORPHAN-MEDIUM-773 named its scanner in backticks, and the scanner's
+# only caller is the test that enforces it).
+_PRODUCER_PREFIXES = (
+    "produce_",
+    "record_",
+    "commit_",
+    "generate_",
+    "mint_",
+    "dispatch_",
+    "register_",
+    "append_",
+    "write_",
+    "create_",
+    "ensure_",
+    "run_",
+)
+
+
+def _is_producer_symbol(token: str) -> bool:
+    return token.startswith(_PRODUCER_PREFIXES)
+
 
 @dataclass(frozen=True)
 class ClosureSymbol:
@@ -76,11 +102,12 @@ def _kernel_function_names(index: ProductionIndex) -> dict[str, Path]:
 
 
 def closure_symbols_in_ledger(ledger_text: str, known_functions: dict[str, Path]) -> set[ClosureSymbol]:
-    """(finding, symbol) pairs a RESOLVED entry names as kernel functions.
+    """(finding, symbol) pairs a RESOLVED entry names as kernel producers.
 
     Deliberately narrow: only backticked identifiers that resolve to REAL
-    kernel function definitions count. Prose that names no kernel symbol
-    makes no closure-reachability claim, so it makes no claim to verify.
+    kernel functions AND carry a write-side producer verb count. Prose that
+    names no producer makes no closure-reachability claim, so it makes no
+    claim to verify.
     """
     sections = _LEDGER_HEADING.split(ledger_text)
     # split yields [pre, id1, body1, id2, body2, ...]
@@ -91,7 +118,7 @@ def closure_symbols_in_ledger(ledger_text: str, known_functions: dict[str, Path]
             continue
         for match in _BACKTICKED.finditer(body):
             token = match.group(1)
-            if token in known_functions:
+            if token in known_functions and _is_producer_symbol(token):
                 pairs.add(ClosureSymbol(finding_id=finding_id, symbol=token))
     return pairs
 

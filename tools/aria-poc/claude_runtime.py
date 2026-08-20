@@ -103,6 +103,109 @@ API_KEY_ENV_VARS = ("ANTHROPIC_API_KEY", "CLAUDE_API_KEY")
 # API key does, so they are gated under the same policy switch.
 UNSAFE_BILLING_ENV_VARS = ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL")
 
+# ORPHAN-HIGH-764 — per-spawn provider redirect.
+#
+# WHY NOT A GLOBAL EXPORT. Z.ai serves GLM behind an Anthropic-shaped
+# endpoint, so the documented setup is to export ANTHROPIC_BASE_URL +
+# ANTHROPIC_AUTH_TOKEN. Doing that HERE would redirect every dispatch — judges,
+# planners, implementer — to one vendor, silently, because this process
+# dispatches many models. The redirect therefore binds to a single spawn's
+# `run_env` and never to `os.environ`.
+#
+# WHY THIS IS NOT ROUTING AROUND THE GATE. `assert_claude_policy_environment`
+# reads `os.environ`, so a run_env-only injection would never trip it — which
+# is precisely why it must not be left implicit. A redirect is a NEW mode, so
+# it gets its own named authorisation and its own named refusals, and it is
+# recorded rather than inferred. The gate guards managed-auth BILLING bypass;
+# this guards WHICH VENDOR a spawn reaches. Two questions, two gates.
+PROVIDER_REDIRECT_POLICY_ENV_VAR = "ARIA_PROVIDER_REDIRECT_POLICY_REF"
+
+# THE BASE URL IS CONFIGURABLE ON PURPOSE, and the reason is money.
+#
+# Z.ai documents THREE endpoints and they bill differently: the Coding-Plan
+# route (`/api/coding/paas/v4`) draws the subscription quota, the general route
+# (`/api/paas/v4`) draws the prepaid wallet, and the Anthropic-compatible route
+# (`/api/anthropic`) is listed as a third protocol whose billing the docs do
+# not settle — they warn only that the Anthropic base URL "does not apply to
+# resource packages / prepaid balance" and that swapping Coding for general
+# charges the wallet instead of the plan. A published bug in another harness is
+# exactly this: a Coding-Plan key routed to the generic endpoint and billed
+# against balance while the paid subscription sat unused.
+#
+# Which of those a given plan+key actually consumes is an EMPIRICAL question
+# (make one call, read the vendor dashboard), so it must not be frozen into a
+# constant. The default is the documented Anthropic-compatible route because
+# that is the one Claude Code speaks; the operator overrides it in one env var
+# once the billing side is measured, with no code change and no redeploy.
+PROVIDER_REDIRECT_BASE_URL_ENV_TEMPLATE = "ARIA_{provider}_BASE_URL"
+PROVIDER_REDIRECTS: dict[str, dict[str, str]] = {
+    "glm-5.3": {
+        "provider": "zai",
+        "default_base_url": "https://api.z.ai/api/anthropic",
+        "token_env_var": "ARIA_ZAI_API_KEY",
+    },
+}
+
+
+class ProviderRedirectUnavailable(RuntimeError):
+    """A model needs a vendor redirect that is not authorised or not configured."""
+
+
+def provider_redirect_env(model: str | None) -> dict[str, str]:
+    """The env a spawn on ``model`` needs to reach its vendor, or ``{}``.
+
+    Fail-closed in both directions, and NAMED in both: an unauthorised
+    redirect and a missing credential are different operator problems, and a
+    single "it didn't work" would send the reader to the wrong one. Silence is
+    the failure this repository keeps paying for — a missing key must not
+    degrade into a dispatch that quietly reaches the wrong vendor, or none.
+    """
+    redirect = PROVIDER_REDIRECTS.get(str(model or ""))
+    if redirect is None:
+        return {}
+    policy_ref = os.environ.get(PROVIDER_REDIRECT_POLICY_ENV_VAR, "").strip()
+    if not policy_ref:
+        raise ProviderRedirectUnavailable(
+            f"provider_redirect_unauthorised: model {model!r} routes to "
+            f"{redirect['provider']!r}; set {PROVIDER_REDIRECT_POLICY_ENV_VAR} "
+            "to the operator policy reference that authorises it"
+        )
+    token = os.environ.get(redirect["token_env_var"], "").strip()
+    if not token:
+        raise ProviderRedirectUnavailable(
+            f"provider_redirect_token_missing: model {model!r} needs "
+            f"{redirect['token_env_var']} in the runner environment"
+        )
+    override_var = PROVIDER_REDIRECT_BASE_URL_ENV_TEMPLATE.format(
+        provider=redirect["provider"].upper(),
+    )
+    base_url = os.environ.get(override_var, "").strip() or redirect["default_base_url"]
+    return {
+        "ANTHROPIC_BASE_URL": base_url,
+        "ANTHROPIC_AUTH_TOKEN": token,
+    }
+
+
+def provider_redirect_disclosure(model: str | None) -> dict[str, str]:
+    """What a spawn on ``model`` should RECORD about where it was sent.
+
+    Never the token. The endpoint is the fact that answers "did this night
+    consume the subscription we paid for, or the wallet?" — and today that
+    question cannot be answered from ARIA's own ledgers at all, which is how a
+    paid plan sits unused while a balance drains.
+    """
+    redirect = PROVIDER_REDIRECTS.get(str(model or ""))
+    if redirect is None:
+        return {}
+    override_var = PROVIDER_REDIRECT_BASE_URL_ENV_TEMPLATE.format(
+        provider=redirect["provider"].upper(),
+    )
+    return {
+        "provider": redirect["provider"],
+        "base_url": os.environ.get(override_var, "").strip() or redirect["default_base_url"],
+        "base_url_source": "operator_override" if os.environ.get(override_var, "").strip() else "default",
+    }
+
 
 class ClaudeCliUnavailable(RuntimeError):
     """Claude Code CLI is not installed or cannot satisfy ARIA's contract."""
@@ -684,6 +787,10 @@ def run_claude_exec(
     run_env = os.environ.copy()
     if _sandbox_acknowledged():
         run_env["IS_SANDBOX"] = "1"
+    # ORPHAN-HIGH-764 — vendor redirect, scoped to THIS spawn. A model with no
+    # redirect entry changes nothing here, so the managed Claude session stays
+    # the default for every Anthropic tier.
+    run_env.update(provider_redirect_env(model))
     proc = subprocess.run(
         argv,
         input=prompt_text,

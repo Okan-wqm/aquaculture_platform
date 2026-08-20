@@ -886,6 +886,60 @@ function cmdClose(id: string, shortSha: string, lease: RegistryLockLease): numbe
   return 0;
 }
 
+/**
+ * `reopen <id>` — the inverse admission `close` needs but lacked: a finding
+ * registered state=RESOLVED at birth (a registration error — the close
+ * ceremony cannot run pre-merge because `close` refuses branch-local SHAs by
+ * design, PROC-HIGH-001) had no sanctioned path back to the honest OPEN
+ * state. Reopen is deliberately NARROW: it only clears the close fields on a
+ * row that has NO closing_commits (a row closed through the ceremony keeps
+ * its history — reopening THAT is a state-machine override, a different and
+ * heavier decision), restitches the chain exactly like close, and refuses to
+ * write if verification fails.
+ */
+function cmdReopen(id: string, lease: RegistryLockLease): number {
+  const entries = loadRegistry();
+  const index = entries.findIndex((e) => e.id === id);
+  if (index === -1) {
+    console.error(`Finding not found: ${id}`);
+    return 1;
+  }
+  const entry = entries[index];
+  if (!entry) {
+    console.error(`Finding at index ${index} is undefined — registry corruption?`);
+    return 1;
+  }
+  if (entry.state !== 'RESOLVED') {
+    console.log(`No-op: ${id} is already ${entry.state}.`);
+    return 0;
+  }
+  if (entry.closing_commits.length > 0) {
+    console.error(
+      `reopen refused: ${id} carries closing_commits (${entry.closing_commits.join(', ')}) — ` +
+        'it was closed through the ceremony; reopening a ceremonially-closed finding is an ' +
+        'override decision, not a registration repair.',
+    );
+    return 1;
+  }
+
+  entry.state = 'OPEN';
+  entry.closed_at = null;
+  entry.notes =
+    String(entry.notes ?? '') +
+    ' [governed reopen: was registered RESOLVED at birth in error — the close ceremony runs post-merge via `close` with the main-reachable fix SHA.]';
+  rechain(entries, index);
+  const post = verify(entries);
+  if (!post.ok) {
+    console.error(`Post-reopen integrity check FAILED: ${post.reason}`);
+    return 1;
+  }
+  writeRegistry(entries, lease);
+  console.log(`Reopened: ${id} at position ${index} → state=OPEN (close fields cleared).`);
+  const tip = entries.length === 0 ? ZERO_HASH : (entries[entries.length - 1]?.content_hash ?? '');
+  console.log(`Chain tip: ${tip}`);
+  return 0;
+}
+
 interface SweepConfig {
   readonly staleAfterDays: number;
   readonly dryRun: boolean;
@@ -1378,6 +1432,13 @@ function main(): void {
       process.exit(2);
     }
     exitCode = runRegistryMutation((lease) => cmdClose(id, sha, lease));
+  } else if (sub === 'reopen') {
+    const id = args[0];
+    if (!id) {
+      console.error('reopen requires id: finding-registry reopen <id>');
+      process.exit(2);
+    }
+    exitCode = runRegistryMutation((lease) => cmdReopen(id, lease));
   } else if (sub === 'export') {
     const format = args[0];
     if (!format) {

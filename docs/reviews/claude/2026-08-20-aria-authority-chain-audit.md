@@ -203,3 +203,24 @@ because each removes a mechanism that could object, or spends operator-held cred
   the billing saga migration are half-wired (the event-contracts adapter correctly reds on the
   un-wired catalog) and belong to the parallel session's open train; every push from this
   checkout had to set them aside.
+
+## ORPHAN-MEDIUM-773 — the production-roster gate failed on machine activity, not on the repo
+
+Found while pushing Wave 1: two full-suite pre-push runs failed only on
+`test_the_production_roster_still_covers_the_repository` — `.claude` carried 3445 Python files,
+the full kernel copies inside parallel-session git worktrees. `unrostered_production_dirs`
+walked every `*.py` under the checkout, so the roster gate went red whenever any session had an
+active worktree and green only when the machine was idle. Fixed by skipping `.claude/worktrees`
+explicitly (a checkout of this tree at another commit is not an answer to the roster's question).
+Registration note: the finding was first registered state=RESOLVED at birth — a registration
+error, since the close ceremony cannot run pre-merge (`close` refuses branch-local SHAs,
+PROC-HIGH-001) — and was returned to OPEN through the new governed `reopen` verb; the close will
+run post-merge with the main-reachable SHA of fix commit 3d1574576.
+
+## ORPHAN-LOW-774 — the specialist-review --strict flip lived as a workflow-comment TODO
+
+The dry-run ran warn-mode in the kernel lanes behind "flip to --strict once the Lane-A inventory
+is fully populated" — a decision with no owner, no criterion, no deadline, carried only in YAML
+comments. The comments now cite the finding; the flip criterion (inventory fully populated AND
+four consecutive green weekly warn-mode runs), owner (platform operator with the kernel owner)
+and deadline (2026-09-30) are in the registry row.

@@ -10360,6 +10360,16 @@ Severity: HIGH (blocked every PR reaching the rust lane). Measured 2026-08-19, t
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
+## ORPHAN-HIGH-751 — the capacity preflight measures /proc, so it fails whenever a process exits — RESOLVED
+
+Severity: HIGH (a preflight that refuses at random blocks every production deploy behind it, and its red is indistinguishable from a real capacity emergency). Measured 2026-08-19: `deploy-capacity-maintenance` failed with `disk_usage_unavailable path=/proc reason=du_failed detail=1`, and the run before it was green — the lane flips.
+
+**Root cause.** `scripts/deploy/droplet-capacity.sh` discovers capacity scopes with `find "${parent}" -xdev -mindepth 1 -maxdepth 1`. `-xdev` refuses to _descend_ past a mount point but still _lists_ the mount point itself, so `/proc` and `/sys` arrive as scopes. `du -sx /proc` then walks procfs and exits non-zero the instant a process it is reading exits. Reproduced on this host: `du -sx -B1 /proc` → exit 1, `cannot access '/proc/2532214': No such file or directory`; the same command over `/run`, `/dev` and `/dev/shm` → exit 0. So the failure is not a flake to retry, it is a race the lane runs _by design_ — and what it is racing to measure is meaningless, because a pseudo-filesystem occupies no disk at all.
+
+**Fix.** A scope is measured only when it is disk-backed, and the discriminator is a **property rather than a name list**: `df` reports zero total bytes for a pseudo-filesystem and a real size for every genuine mount. Measured: `/proc` 0, `/sys` 0, `/dev` 4143394816, `/run` 832696320, `/` 165295407104. Naming procfs and sysfs instead would go stale the first time the host mounts one nobody listed — the class of defect this ledger is full of. A skipped scope is recorded as `scope_not_disk_backed` through the existing `capacity_record_unavailable` path, so the preflight still says out loud what it did not measure; and an unreadable `df` fails closed to "not disk-backed", because walking a filesystem we could not identify is exactly how this started.
+
+Verified against real paths: `/proc` and `/sys` skipped; `/dev`, `/run`, `/dev/shm`, `/` and `/var/lib/docker` measured; a nonexistent path skipped rather than walked.
+
 ## ORPHAN-HIGH-747 — the watchdog read a concurrency eviction as the lane's verdict — RESOLVED
 
 Severity: HIGH (a healthy lane is reported broken, and the noise buries the real incidents next to it). Measured 2026-08-19 on the overnight timeline of the shared `aria-selfhosted-workspace` group:
@@ -10382,7 +10392,7 @@ Pinned in `tests/invariants/production-ops-proof-contract.spec.ts`: the jobs pro
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
-## ORPHAN-HIGH-748 — the WAL freshness lane has never run: 730 runs, zero jobs, since birth — OPEN (decisive experiment shipped)
+## ORPHAN-HIGH-748 — the WAL freshness lane has never run: 730 runs, zero jobs, since birth — RESOLVED (experiment answered)
 
 Severity: HIGH (the lane that proves production WAL archiving is fresh has never produced a single verdict, and its permanent incident masks the watchdog's other signals). Measured 2026-08-19: `database-wal-archive-freshness.yml` has **730 runs, of which 100% concluded `cancelled` with `total_count: 0` jobs**. Each run's `updated_at` is exactly the next run's `created_at` — every run sits `pending` until the following one evicts it, and the one at the head never starts.
 
@@ -10403,7 +10413,13 @@ What remains is the concurrency group itself: an exclusive group with no visible
 
 Deliberately NOT changed in the same commit: the `*/5` cron. Changing two variables at once would have made the result unreadable, and this lane has already cost 730 runs of unreadable results.
 
-**Owner:** claude (this session). **Status:** OPEN until a run of this lane creates a job.
+**EXPERIMENT ANSWERED, 2026-08-19 20:09.** The rename landed at `d4b45a044`; the first scheduled run on that commit (32296991203) created a job, and that `verify` job completed **success**. Prior state: 730 runs, zero jobs, ever. **The concurrency group was the cause** — an exclusive group with no visible holder that nevertheless never released, wedged GitHub-side.
+
+The falsifier this record carried _before_ the change — if runs still go pending with zero jobs, the group is exonerated and the `*/5` cron becomes the next suspect — did not fire. So the cron needed no change, and none was made.
+
+What made the answer readable was refusing to move two things at once. Five hypotheses were eliminated by measurement first (environment protection, the `environment:` block itself, the `schedule` event, the workflow being disabled, another workflow holding the group), and then exactly one variable moved. The lane had already produced 730 unreadable results; a two-variable fix would have produced a 731st.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
 
 ## ORPHAN-MEDIUM-749 — a merge commit runs no hook, so the ARIA authority pin goes stale in silence — RESOLVED
 
@@ -10420,5 +10436,88 @@ This is the class the `pre-commit` comment already names — "the mechanism exis
 3. `.husky/pre-push`: runs `--check` and refuses. Staged is not committed, and this is the last point where a second is cheaper than thirty minutes.
 
 Verified: with the surface changed, `post-merge` reports and stages; with the pin corrupted, `--check` exits 1 naming both digests; with everything current, both are silent and exit 0.
+
+## ORPHAN-MEDIUM-750 — the coverage floor only ever looked down, so improvement was never captured — RESOLVED
+
+Severity: MEDIUM (nothing breaks; the platform simply cannot tell whether it is getting better, and any gain can be eaten back in silence). Every service pins a per-metric coverage floor in `tools/quality/service-coverage-baselines.json`. That pin is genuinely load-bearing — each `apps/<svc>/jest.config.ts` imports it as `coverageThreshold.global`, and `tools/quality/coverage-evidence.js` (ci-full.yml) refuses any LCOV report below it. **Both enforcements only compare downward.** A service whose coverage rises keeps the old floor: the improvement is never pinned, and the next change can spend it without a single gate noticing. A ratchet with a pawl on one side is a floor, not a ratchet.
+
+Measured 2026-08-19, the pinned line coverage: billing 53.33, auth 48.18, sensor 38.64, hr 34.29, farm 33.92, admin-api 27.27. Nobody chose those numbers as targets — they are simply where each service stood when it was pinned, and they have no mechanism to move.
+
+**Fix:** the same file gains the upward pawl. A gain of at least `RATCHET_MIN_GAIN` (1.0 point — run-to-run jitter is fractions of a point, so one point is the smallest gain that is a change in the code rather than in the weather) is an error naming the exact old and new numbers plus the command that fixes it, and `--write` re-pins measured values. `rewriteBaselines` raises and never lowers; a measurement below the pin is already an error, so `--write` cannot become the road by which a floor is quietly reduced.
+
+**What this does NOT claim.** It does not enforce "every touch to a low-coverage module must close some test debt". That rule sounds right and would be wrong in a gate: it blocks a legitimate bug fix that needs no new test, and it is trivially satisfied by writing a test that asserts nothing. What a gate can honestly enforce is that improvement is _captured_ and cannot silently regress; that new code is _covered_ is the charter's separate stage-B rule (changed-line coverage ≥80%).
+
+Pinned in `tests/invariants/coverage-evidence-contract.spec.ts`: the threshold constant, the message and its fix command, the monotonic writer, and — separately — that every baselined service actually imports the pin as its jest threshold, because a pin nothing enforces is decoration. Verified by deliberate breakage (reverting the tool reds the spec) and by four scenarios against synthetic LCOV: an unpinned +2-point gain errors with exact numbers; `--write` raises the pin; `--write` with a lower measurement is refused and the file is untouched; a +0.5-point gain does not red the build.
+
+**FIRST RUN, AND IT CAUGHT SOMETHING (2026-08-19 20:21).** The ratchet's first CI execution refused, and what it refused over was not a regression — it was four services whose coverage had risen materially and whose pins nobody had moved:
+
+| service           | branches      |     functions |            lines |
+| ----------------- | ------------- | ------------: | ---------------: |
+| admin-api-service | 14.17 → 15.99 |  18.16 → 20.8 |    27.27 → 28.88 |
+| auth-service      | 42.41 → 46.9  | 22.67 → 27.45 |    48.18 → 51.46 |
+| farm-service      | 32.86 → 42.18 | 20.39 → 28.04 | **33.92 → 56.7** |
+| sensor-service    | 19.22 → 24.58 | 14.92 → 18.76 |    38.64 → 43.57 |
+
+`farm-service` line coverage was 22.8 points above its pin. Every number anyone quoted from that file — including in this session, while rebutting an outside claim about farm-service coverage — was the pin, not the measurement. That is precisely the defect: a floor that only looks down stops being a description of the system and nobody notices, because nothing ever asks.
+
+The pins are raised to the measured values. `statements` is left where it stood: the evidence lane measures branches, functions and lines, and a number CI did not produce has no business in a file that claims to record what CI measured.
+
+## ORPHAN-HIGH-752 — an adapter's scan surface lived in three places, and the copy that governed tests was the one nothing ran — RESOLVED
+
+Severity: HIGH (an adapter can silently scan a different file set in production than its fixtures validate, and every test stays green while it happens). First train of PROGRAM H.
+
+**Measured 2026-08-19.** The same list of roots existed three times per adapter:
+
+| where                          | what it is                                                                            | binding in production   |
+| ------------------------------ | ------------------------------------------------------------------------------------- | ----------------------- |
+| manifest `declared_scope`      | identity + read allowlist; hashed into `parse_window_signature`                       | yes (registry contract) |
+| manifest `default_input.roots` | the roots actually scanned — `cycle.py:1099` reads it and hands it to the tool runner | **yes**                 |
+| adapter `DEFAULT_ROOTS`        | `input.roots ?? DEFAULT_ROOTS`                                                        | **no — never fired**    |
+
+The third copy was dangerous _because_ it was dead in production. It governed tests and standalone runs, so a manifest edit would leave the fixtures validating a file set production never scans, with nothing red. Six adapters carried it: `bundle-budget`, `doc-staleness`, `kernel-dead-wire`, `security-boundary`, `tenant-scoping`, `test-gap`. The three copies **agreed** on the day this was written — the defect is that nothing made them agree.
+
+**And nothing ran those tests.** `tools/aria-adapters/project.json` declared only a `lint` target. Nine `.test.ts` files sat beside the adapters, passing when invoked by hand, invisible to every gate — the "mechanism without a caller" class again, one layer down: the pin existed, the runner did not.
+
+**Fix.** `DEFAULT_ROOTS` is deleted from all six; `requireScanRoots(toolId, roots)` in `adapter-fs.ts` refuses with a named error that says where the surface is declared and why a second copy is not offered. `doc-staleness-adapter.test.ts` was the one test relying on the fallback — it now states the roots it scans, read from the manifest. A `test` target runs all nine files, so the pins below are load-bearing rather than decorative.
+
+Pinned in `tests/invariants/adapter-scan-surface-authority.spec.ts`: no `DEFAULT_ROOTS` in adapter source; no `input.roots ??` fallback shape; every `default_input.roots` entry covered by a `declared_scope` prefix; every `.test.ts` beside an adapter present in the test target; the test files tracked in git so the target cannot go hollow. Verified by deliberate breakage — restoring one adapter and `project.json` from main reds three of the five pins. All nine adapter tests pass under `nx run aria-adapters:test`.
+
+**KNOWN LIMIT, measured 2026-08-19 20:40 — the hook is inert in a worktree until the PRIMARY checkout advances.** Husky sets `core.hooksPath` to an absolute path (`/var/aqua-saas/.husky`), and every `git worktree` shares it. A hook a PR _adds_ therefore does not run in any worktree until the primary checkout itself moves past the merge that added it. Observed directly: merging main into a worktree branch left the authority pin stale and `post-merge` never fired, because the primary checkout was still at `24fc844e8` — one commit before the hook landed — so the file git looked for did not exist. The same applies to the `pre-push` guard.
+
+This is not a defect in the fix; it is how worktrees and a shared hooks directory interact. It does mean the fix's protection begins for a given machine only when its primary checkout advances, and until then the manual `npm run aria:authority-hash:write` remains the fallback. Recorded here rather than worked around, because a guard whose activation condition is invisible is the same class of problem this finding is about.
+
+**AND THE RATCHET COLLIDED WITH A TEST THAT CLAIMED TO BE ONE (2026-08-19 22:00).** Raising the pins turned seven checks red, all from one assertion: `tests/invariants/ci-full-trigger-contract.spec.ts` → _"ratchets every previously dormant Jest coverage floor from its first full-CI baseline"_. Its body did the opposite of its name — a `toEqual` over all six services' hardcoded numbers, which froze them. So the repository already had a thing called a ratchet, and that thing was the mechanism refusing the correction: farm-service was 22.8 points above the number frozen there.
+
+The duplicate check I ran before writing ORPHAN-750 grepped `tests/invariants/` by filename for "coverage" and missed this spec, because its name is about CI triggers. **A capability can be pinned in a file whose name says nothing about it** — the search has to be by behaviour, not by filename.
+
+Resolved by giving the numbers exactly one owner. The spec now asserts the SHAPE nobody may quietly change (which services are floored, that each carries all four metrics, that every floor is a real percentage in (0,100]) and leaves the values to `service-coverage-baselines.json`, raised by `--write` from what CI measured. Verified by deliberate breakage: dropping a service or removing a metric still reds it; raising a floor no longer does.
+
+**AND THE RE-PIN ITSELF WAS WRONG BY ONE HUNDREDTH (2026-08-19 23:05).** Raising the pins to the measured values turned three services red, every one by exactly 0.01: _"threshold for branches (15.99%) not met: 15.98%"_, `24.58 → 24.57`, `43.57 → 43.56`, `27.45 → 27.44`. The evidence lane reports with `toFixed(2)`, which rounds half-up; jest truncates when it enforces `coverageThreshold`. So pinning the reported number produces a floor the enforcing gate can never meet — and it would have broken **every future re-pin**, silently, forever.
+
+Fixed at the source: `pinnableFloor()` floors the raw `covered/found` ratio to two decimals, so the pin is reachable by construction and costs at most 0.01 of captured gain. The gain comparison uses the same floored value, so a gain the writer would round away is not reported as unpinned either. **A ratchet must pin what the gate that enforces it can actually meet — reporting precision and enforcement precision are not the same number.**
+
+`farm-service` also failed, and its exact jest-side numbers are not readable in the retained log. Rather than guess a value, its baseline is reverted to what was measured before (`branches 32.86 / functions 20.39 / lines 33.92`); the ratchet will raise it from the next full run, now with correct flooring. Pinning a number nobody measured is the defect this finding is about. The next full run supplied them — `branches 32.86 → 42.18, functions 20.39 → 28.04, lines 33.92 → 56.7` — with every other service green, which is what confirms the flooring fix worked.
+
+Two things follow. **The pins for farm are taken one hundredth BELOW the reported values** (`42.17 / 28.03 / 56.69`): the message prints the rounded number, the exact floor is not derivable from that text, and the asymmetry is decisive — a pin 0.01 high breaks the build, a pin 0.01 low merely leaves a hundredth of gain uncaptured. **And the message itself was fixed to print what `--write` will pin rather than what the report rounds to**, because a message that names a number the enforcing gate cannot meet is how this misled in the first place. The next run raises farm to the exact floor with no judgement call left in it.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-753 — nothing in ARIA could say which parts of the repository it cannot see — RESOLVED
+
+Severity: HIGH (every coverage claim ARIA makes rests on an unstated denominator). Second train of PROGRAM H, and the instrument the rest of the programme is measured against.
+
+**Measured 2026-08-19** against the live ledger: of 24,788 raw findings ever produced, the root distribution is docs 17,231 / apps 6,651 / web 405 / libs 375 / .claude 56 / aria-kernel 40 / .github 24 / tools 6. Ten top-level roots holding 1,582 files had never produced a single finding — `sens-api-gateway/` (the Rust edge that drives physical equipment) among them.
+
+That was not hidden by accident: each adapter declares its surface in its manifest (`declared_scope`), and the union of those declarations simply does not reach those roots. **The declaration was right there. Nothing read them all together and said so.**
+
+**Fix.** `observation_coverage.py` DERIVES the map at runtime from three things that already exist and already vote — `git ls-files`, every adapter's `declared_scope`, and an operator policy file that holds _exemptions only, never facts_. A hand-written coverage list would be stale the day it was written, which is the failure mode this ledger is full of, so none is written. `aria-config/observation_map.json` ships with an **empty** exemption list on purpose: the first honest map is the one that shows every blind root, including the ones we may later decide not to care about.
+
+**The rule is the operator's threshold (2026-08-19, "anlamlı görüş"):** a path counts as observed only when an adapter both declares it _and_ could parse it. An adapter that claims a root and reads none of its file types is coverage theatre, and the count refuses to reward it — pinned by a test where an adapter declaring `sens-api-gateway/**/*.ts` still leaves a `.rs` file unobserved.
+
+**First measurement from the instrument itself — 71.8% of tracked files fall inside some declared scope.** Seventeen roots are fully unobserved (`sens-api-gateway` 449 files, `tests` 260, `infrastructure` 165, `crates` 152, `infra` 122, `e2e` 99, `scripts` 98, `mcp` 65, `database` 25, `deploy` 13, `aria-tools` 12, `agents` 7, `aria-debts` 7, `.husky` 5, `.full-review` 5, `sensorprotocols` 5, `.cargo` 2, `nginx` 1, `aria-config` 3, plus 49 repository-root files). **`aria-kernel` is 13/799** — the kernel is effectively invisible to ARIA, which is the number G-10 asserted without one.
+
+Note the earlier estimate in the plan (86% observed) counted _roots with zero findings_; this counts _files inside a declared scope_. The second is the instrument; the first was a proxy, and it flattered.
+
+Pinned in `aria-kernel/tests/test_observation_coverage.py`: a root no adapter declares is not merely absent but NAMED; declaring a root without parsing its files is not coverage; partial coverage reports its fraction rather than rounding to green; an exemption is excluded from the denominator rather than counted as seen (permission to stop looking is never a claim of sight); an unreadable tree is `unknown`, never green; brace globs expand so a manifest shorthand is not silently missed.
 
 **Owner:** claude (this session). **Status:** RESOLVED.

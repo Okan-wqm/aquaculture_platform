@@ -9685,7 +9685,11 @@ Severity: MEDIUM. `tools/aria-adapters/**` is not an Nx project, and `npm run li
 
 **Owner:** claude (session lead). **Deadline:** 2026-09-15. **Status:** RESOLVED (this PR) — the GATE first: `tools/aria-adapters/project.json` registers an Nx `lint` target (heap-bumped eslint, `--max-warnings=0`), so `nx affected --target=lint` reaches the directory and the fifty-sixth error cannot arrive unlinted. Then the debt the gate reported: 32 import/order autofixed; the seven-sibling `readStdin` idiom converged on the E9 adapter's boundary-narrowing shape; 8 `no-console` in self-test harnesses became `process.stdout.write`; 4 indent-argument `JSON.stringify` sites dropped the indent; the truly dead `secondArg` binding was DELETED (İ2 — not underscore-parked); one `String()`-on-object coercion became a type narrow; one missing return type annotated. All nine adapter self-tests pass unchanged.
 
-## ORPHAN-HIGH-694 — branch-protection proofs had no producer and no row to cite: the probe's evidence died with the process — RESOLVED (this PR, F5-b)
+## ORPHAN-HIGH-775 — branch-protection proofs had no producer and no row to cite: the probe's evidence died with the process — RESOLVED (this PR, F5-b)
+
+> Renumbered 2026-08-20 from a triple-booked `ORPHAN-HIGH-694` (the Alertmanager routing entry kept
+> the number; the `readiness_proofs.py:1004` F5-g comment and this entry both claimed it too — the
+> PROC-HIGH-015 collision class, instance recorded under PROC-HIGH-015 on 2026-08-20).
 
 Severity: HIGH (readiness-claim chain, family 2 of 8). `record_branch_protection_proof` had zero production callers (only F5-a's workflow-run family produced anything), and there existed NO ledger row a branch-protection proof's `source_ledger_ref` could resolve into — `preflight.verify_branch_protection` probed gh-api and threw the payload away, so the strongest evidence about merge safety evaporated with the process. The claim verifier demands a v3 proof (snapshot_hash, measured booleans, ruleset_ids, empty bypass_actors, resolvable source ref) — structurally unsatisfiable.
 

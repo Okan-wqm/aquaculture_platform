@@ -459,18 +459,18 @@ function cmdVerify(): number {
   const entries = loadRegistry();
   const result = verify(entries);
   if (!result.ok) {
-    process.stderr.write(`FAIL: ${result.reason}\n`);
+    process.stderr.write(`FAIL: ${result.reason}\n\n`);
     return 1;
   }
-  process.stdout.write(`OK: registry chain valid (${result.entries} entries).\n`);
+  process.stdout.write(`OK: registry chain valid (${result.entries} entries).\n\n`);
   const tip = entries.length === 0 ? ZERO_HASH : (entries[entries.length - 1]?.content_hash ?? '');
-  if (tip) process.stdout.write(`Chain tip: ${tip}\n`);
+  if (tip) process.stdout.write(`Chain tip: ${tip}\n\n`);
   return 0;
 }
 
 function readFindingStub(stubPath: string): Partial<Finding> | null {
   if (!existsSync(stubPath)) {
-    process.stderr.write(`Stub file not found: ${stubPath}\n`);
+    process.stderr.write(`Stub file not found: ${stubPath}\n\n`);
     return null;
   }
   const stubRaw = readFileSync(stubPath, 'utf8');
@@ -488,7 +488,7 @@ function buildFinding(stub: Partial<Finding>, id: string): Finding | null {
   ];
   for (const field of required) {
     if (stub[field] === undefined || stub[field] === null) {
-      process.stderr.write(`Stub missing required field: ${field}\n`);
+      process.stderr.write(`Stub missing required field: ${field}\n\n`);
       return null;
     }
   }
@@ -525,7 +525,7 @@ function validateAndAppendFinding(
   beforeRegistryWrite?: () => void,
 ): number {
   if (entries.some((entry) => entry.id === newEntry.id)) {
-    process.stderr.write(`Duplicate id: ${newEntry.id} already exists in registry.\n`);
+    process.stderr.write(`Duplicate id: ${newEntry.id} already exists in registry.\n\n`);
     return 1;
   }
 
@@ -539,7 +539,9 @@ function validateAndAppendFinding(
   if (!validate(newEntry)) {
     process.stderr.write('Stub failed schema validation:\n');
     for (const err of validate.errors ?? []) {
-      process.stderr.write(`  ${err.instancePath || '<root>'}: ${err.message} (${err.keyword})\n`);
+      process.stderr.write(
+        `  ${err.instancePath || '<root>'}: ${err.message} (${err.keyword})\n\n`,
+      );
     }
     return 1;
   }
@@ -562,14 +564,14 @@ function validateAndAppendFinding(
 
   const post = verify(entries);
   if (!post.ok) {
-    process.stderr.write(`Post-add integrity check FAILED: ${post.reason}\n`);
+    process.stderr.write(`Post-add integrity check FAILED: ${post.reason}\n\n`);
     return 1;
   }
 
   beforeRegistryWrite?.();
   writeRegistry(entries, lease, paths.registryPath);
-  process.stdout.write(`Added: ${newEntry.id} at position ${entries.length - 1}\n`);
-  process.stdout.write(`Chain tip: ${newEntry.content_hash}\n`);
+  process.stdout.write(`Added: ${newEntry.id} at position ${entries.length - 1}\n\n`);
+  process.stdout.write(`Chain tip: ${newEntry.content_hash}\n\n`);
   return 0;
 }
 
@@ -726,7 +728,7 @@ export function appendAllocatedFinding(
   try {
     id = nextFindingId(domain, stub.severity, existingIds);
   } catch (error) {
-    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n\n`);
     return 2;
   }
   const newEntry = buildFinding(stub, id);
@@ -763,7 +765,7 @@ export function appendExplicitFinding(
 
   const idParts = /^([A-Z][A-Z0-9]*)-([A-Z0-9]+)-([0-9]{3})$/.exec(stub.id);
   if (!idParts?.[1] || !idParts[2] || !idParts[3]) {
-    process.stderr.write(`Explicit finding id has an invalid allocation shape: ${stub.id}\n`);
+    process.stderr.write(`Explicit finding id has an invalid allocation shape: ${stub.id}\n\n`);
     return 2;
   }
   // ORPHAN-HIGH-457 — the same stores AND the same sequence extraction the
@@ -784,7 +786,7 @@ export function appendExplicitFinding(
     return 1;
   }
   if (Number.parseInt(idParts[3], 10) < 1) {
-    process.stderr.write(`Explicit finding id suffix must be between 001 and 999: ${stub.id}\n`);
+    process.stderr.write(`Explicit finding id suffix must be between 001 and 999: ${stub.id}\n\n`);
     return 2;
   }
   if (
@@ -836,7 +838,7 @@ function cmdClose(id: string, shortSha: string, lease: RegistryLockLease): numbe
     // process.stderr.write (not console.error): no-console is an
     // error-level lint rule; the file's legacy console.* calls are
     // baseline-grandfathered but new lines must use the stream API.
-    process.stderr.write(`close refused: ${reachability.reason}\n`);
+    process.stderr.write(`close refused: ${reachability.reason}\n\n`);
     return 1;
   }
 
@@ -855,7 +857,7 @@ function cmdClose(id: string, shortSha: string, lease: RegistryLockLease): numbe
 
   const traceability = commitHasFindingCloseTrailer(REPO_ROOT, shortSha, id);
   if (!traceability.ok) {
-    process.stderr.write(`close refused: ${traceability.reason}\n`);
+    process.stderr.write(`close refused: ${traceability.reason}\n\n`);
     return 1;
   }
 
@@ -901,23 +903,23 @@ function cmdReopen(id: string, lease: RegistryLockLease): number {
   const entries = loadRegistry();
   const index = entries.findIndex((e) => e.id === id);
   if (index === -1) {
-    console.error(`Finding not found: ${id}`);
+    process.stderr.write(`Finding not found: ${id}\n`);
     return 1;
   }
   const entry = entries[index];
   if (!entry) {
-    console.error(`Finding at index ${index} is undefined — registry corruption?`);
+    process.stderr.write(`Finding at index ${index} is undefined — registry corruption?\n`);
     return 1;
   }
   if (entry.state !== 'RESOLVED') {
-    console.log(`No-op: ${id} is already ${entry.state}.`);
+    process.stdout.write(`No-op: ${id} is already ${entry.state}.\n`);
     return 0;
   }
   if (entry.closing_commits.length > 0) {
-    console.error(
+    process.stderr.write(
       `reopen refused: ${id} carries closing_commits (${entry.closing_commits.join(', ')}) — ` +
         'it was closed through the ceremony; reopening a ceremonially-closed finding is an ' +
-        'override decision, not a registration repair.',
+        'override decision, not a registration repair.\n',
     );
     return 1;
   }
@@ -930,13 +932,15 @@ function cmdReopen(id: string, lease: RegistryLockLease): number {
   rechain(entries, index);
   const post = verify(entries);
   if (!post.ok) {
-    console.error(`Post-reopen integrity check FAILED: ${post.reason}`);
+    process.stderr.write(`Post-reopen integrity check FAILED: ${post.reason}\n`);
     return 1;
   }
   writeRegistry(entries, lease);
-  console.log(`Reopened: ${id} at position ${index} → state=OPEN (close fields cleared).`);
+  process.stdout.write(
+    `Reopened: ${id} at position ${index} → state=OPEN (close fields cleared).\n`,
+  );
   const tip = entries.length === 0 ? ZERO_HASH : (entries[entries.length - 1]?.content_hash ?? '');
-  console.log(`Chain tip: ${tip}`);
+  process.stdout.write(`Chain tip: ${tip}\n`);
   return 0;
 }
 
@@ -1435,7 +1439,7 @@ function main(): void {
   } else if (sub === 'reopen') {
     const id = args[0];
     if (!id) {
-      console.error('reopen requires id: finding-registry reopen <id>');
+      process.stderr.write('reopen requires id: finding-registry reopen <id>\n');
       process.exit(2);
     }
     exitCode = runRegistryMutation((lease) => cmdReopen(id, lease));
@@ -1472,7 +1476,7 @@ function runRegistryMutation(
     });
   } catch (error) {
     if (error instanceof RegistryLockError) {
-      process.stderr.write(`Registry mutation refused [${error.code}]: ${error.message}\n`);
+      process.stderr.write(`Registry mutation refused [${error.code}]: ${error.message}\n\n`);
       return 1;
     }
     process.stderr.write(

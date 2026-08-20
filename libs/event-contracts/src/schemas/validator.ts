@@ -10,6 +10,10 @@ import type {
   UserAccessTokenInvalidationRequestedEvent,
 } from '../auth-events';
 import { AUTH_EVENT_SCHEMAS, type AuthEventType } from './auth-events.schema';
+import {
+  BILLING_PLAN_CHANGE_EVENT_SCHEMAS,
+  type BillingPlanChangeEventType,
+} from './billing-plan-change-events.schema';
 import { FARM_EVENT_SCHEMAS, type FarmEventType } from './farm-events.schema';
 import {
   FINANCE_EVENT_SCHEMAS,
@@ -161,6 +165,30 @@ const financeValidators = new Map<FinanceEventType, ValidateFunction>();
 for (const [eventType, schema] of Object.entries(FINANCE_EVENT_SCHEMAS)) {
   const validator = ajv.compile(schema as AnySchema);
   financeValidators.set(eventType as FinanceEventType, validator);
+}
+
+/**
+ * Billing plan-change event validator cache. Validates the operation-saga
+ * events (`SubscriptionPlanChangeScheduled`,
+ * `SubscriptionPlanChangeReconciliationRequired`) at the trust boundaries
+ * that carry them — the outbox publisher in billing-service and any
+ * consumer acting on reconciliation alerts. The catalog existed without a
+ * dispatcher until the event-contracts adapter caught it (PR #1300); this
+ * cache is the wiring that finding demanded.
+ */
+const billingPlanChangeValidators = new Map<
+  BillingPlanChangeEventType,
+  ValidateFunction
+>();
+
+for (const [eventType, schema] of Object.entries(
+  BILLING_PLAN_CHANGE_EVENT_SCHEMAS,
+)) {
+  const validator = ajv.compile(schema as AnySchema);
+  billingPlanChangeValidators.set(
+    eventType as BillingPlanChangeEventType,
+    validator,
+  );
 }
 
 /**
@@ -405,6 +433,44 @@ export function validateFinanceEvent(
     return {
       valid: false,
       errors: `Unknown finance event type: ${eventType}`,
+    };
+  }
+  if (typeof payload !== 'object' || payload === null) {
+    return {
+      valid: false,
+      errors: `Payload must be a JSON object (got ${typeof payload})`,
+    };
+  }
+  const isValid = validator(payload);
+  if (!isValid) {
+    return {
+      valid: false,
+      errors: formatFirstError(validator.errors),
+    };
+  }
+  return { valid: true };
+}
+
+export type BillingPlanChangeEventValidationResult =
+  | { valid: true }
+  | { valid: false; errors: string };
+
+/**
+ * Validate a decoded billing plan-change (operation-saga) event against its
+ * schema. Mirrors [`validateFinanceEvent`]; use at trust boundaries that
+ * decode untrusted plan-change-event JSON before acting on it.
+ */
+export function validateBillingPlanChangeEvent(
+  eventType: string,
+  payload: unknown,
+): BillingPlanChangeEventValidationResult {
+  const validator = billingPlanChangeValidators.get(
+    eventType as BillingPlanChangeEventType,
+  );
+  if (!validator) {
+    return {
+      valid: false,
+      errors: `Unknown billing plan-change event type: ${eventType}`,
     };
   }
   if (typeof payload !== 'object' || payload === null) {

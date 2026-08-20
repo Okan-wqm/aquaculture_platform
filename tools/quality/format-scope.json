@@ -39450,6 +39450,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/event-contracts/src/schemas/__tests__/billing-plan-change-events.schema.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/event-contracts/src/schemas/__tests__/ingest-backend-policy.schema.spec.ts",
       "prettier_managed": true
     },
@@ -39481,6 +39487,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/event-contracts/src/schemas/auth-user-queries.schema.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/schemas/billing-plan-change-events.schema.ts",
       "prettier_managed": true
     },
     {

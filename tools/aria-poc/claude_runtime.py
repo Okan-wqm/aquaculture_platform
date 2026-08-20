@@ -43,12 +43,28 @@ CLAUDE_DEFAULT_MODEL = "fable"
 # by an explicit ``--effort`` flag (low|medium|high|xhigh|max). These are the
 # model aliases and effort levels ARIA may target; the agent-runtime-profile
 # maps each agent's frontmatter to one of them.
-# ORPHAN-HIGH-763 — the second copy of the model vocabulary is GONE, not
-# synced. It was defined here and read by nothing: not by this module, not by
-# any importer, not by a test. A duplicate with no reader is the cheapest kind
-# of drift to remove, and keeping it in step with the kernel's frozenset would
-# have been ceremony protecting a value nobody consulted. The SSoT is
-# `aria_kernel.agent_runtime_profile.VALID_MODELS`.
+# ORPHAN-HIGH-763 — the second copy of the model vocabulary is DERIVED, not
+# declared.
+#
+# CORRECTION TO MY OWN FIRST CUT: I deleted it outright, having concluded it
+# was "read by nothing, not even a test". That conclusion was produced by my
+# own `grep ... | head -8` — the listing was truncated at eight lines and
+# `test_claude_runtime_contract.test_valid_models_includes_fable` sat below the
+# cut. A truncated search is an observation, not evidence, and this file has
+# now taught that lesson twice (a pipe eating an exit code was the first).
+#
+# The reader is real and the name must live here. What must NOT live here is a
+# second literal: `agent_runtime_profile.VALID_MODELS` is the SSoT, and this
+# module exposes it through PEP 562 so the kernel import stays LAZY — the same
+# discipline `_assert_budget_before_spawn` follows, because the kernel package
+# rides PYTHONPATH in the ARIA lanes and not necessarily anywhere else.
+def __getattr__(name: str):  # noqa: ANN202 - PEP 562 module hook
+    if name == "VALID_MODELS":
+        from aria_kernel.agent_runtime_profile import VALID_MODELS as _kernel_models
+
+        return tuple(sorted(_kernel_models))
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 VALID_EFFORTS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
 
 # ORPHAN-HIGH-473 — the fallback topology, as data rather than a literal string

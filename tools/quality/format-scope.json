@@ -1,6 +1,48 @@
 {
   "entries": [
     {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": ".aria-acceptance-poc-tmp/ADR_PRIORS.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": ".aria-acceptance-poc-tmp/AGENT_PRIORS.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": ".aria-acceptance-poc-tmp/CLAUDE_MD_PRIORS.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": ".aria-acceptance-poc-tmp/FATES.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": ".aria-acceptance-poc-tmp/GIT_RECONCILIATION.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": ".aria-acceptance-poc-tmp/REPO_FINGERPRINT.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": ".aria-acceptance-poc-tmp/SKIMMED_FILES.md",
+      "prettier_managed": true
+    },
+    {
       "class": "agent_contract_docs",
       "owner": "agent-governance",
       "path": ".claude/agents/_maintenance/aria-drafter.md",
@@ -1006,6 +1048,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": ".mcp.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": ".zcode/plans/plan-sess_69989c68-4ffb-4f0c-ad17-64b482dda7c5.md",
       "prettier_managed": true
     },
     {
@@ -6544,6 +6592,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/billing-service/src/database/migrations/1801900000000-AddPlanTierFreeEnumValue.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/database/migrations/1802100000000-AddPlanChangeOperationSaga.ts",
       "prettier_managed": true
     },
     {
@@ -27306,6 +27360,17 @@
     },
     {
       "class": "runtime_evidence",
+      "content_sha256": "6f439e414dafe68b4d94a4ad5c79a8b814c1b8e0180d0bf3f355696847032af3",
+      "hash_policy": "sha256",
+      "owner": "aria-runtime",
+      "path": "aria-tools/reports/daily/2026-08-05.md",
+      "prettier_managed": false,
+      "reason": "runtime evidence is declared artifact output",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "runtime_evidence",
       "content_sha256": "f459c94a7f7b2bb2fa6924e2dcc2d9b0b311f631e1a245d0f90bd6585fa28f3b",
       "hash_policy": "sha256",
       "owner": "aria-runtime",
@@ -33550,6 +33615,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-20-aria-authority-chain-audit.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md",
       "prettier_managed": true
     },
@@ -39451,6 +39522,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/event-contracts/src/schemas/billing-plan-change-events.schema.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/event-contracts/src/schemas/common.schema.ts",
       "prettier_managed": true
     },
@@ -40751,6 +40828,48 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/testing/tsconfig.spec.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "loginsample/_ds/suderra-labs-design-system-dd4b8e28-954b-4534-8bcb-2d85fa7326d3/_adherence.oxlintrc.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "loginsample/_ds/suderra-labs-design-system-dd4b8e28-954b-4534-8bcb-2d85fa7326d3/_ds_bundle.js",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "loginsample/_ds/suderra-labs-design-system-dd4b8e28-954b-4534-8bcb-2d85fa7326d3/_ds_manifest.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "loginsample/fish-background.js",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "loginsample/github.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "loginsample/reef-scene.js",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "loginsample/support.js",
       "prettier_managed": true
     },
     {

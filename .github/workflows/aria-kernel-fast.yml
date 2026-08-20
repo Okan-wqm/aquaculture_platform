@@ -1,11 +1,14 @@
 name: aria-kernel-fast
 
 # Plan ARIA-V2 §3.7 (Phase 6) — fast pre-merge gate.
-#   * push: trigger added so mainline commits get a green/red signal
-#     without waiting for the full kernel cycle (covers I-25 clause 3).
-#   * paths-ignore on docs/** + aria-tools/reports/daily/** so the
-#     aria-bot daily commit does not re-fire the gate.
-#   * Same hardening surface as aria-kernel.yml / aria-kernel-full.yml.
+#   * ORPHAN-MEDIUM-769 — PR-ONLY by design. The push: trigger is gone:
+#   aria-kernel.yml already runs on EVERY main push with no paths filter
+#   (ARIA-V-007 — mainline re-push must re-evaluate the kernel), so fast
+#   re-firing on push duplicated the always-on suite at ~90% overlap
+#   (three suites fired per non-docs merge; aria-kernel-full.yml, a
+#   strict subset of aria-kernel, was deleted in the same change).
+#   Fast's job is the PR-early signal, which push never was.
+#   * Same hardening surface as aria-kernel.yml.
 
 on:
   workflow_dispatch:
@@ -17,20 +20,6 @@ on:
       - ".github/workflows/aria-kernel*.yml"
       - "tools/aria-poc/**"
       - "tools/shared/**"
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - "docs/**"
-      - "**.md"
-      - "aria-tools/reports/daily/**"
-      # Plan ARIA-V3 §B3 + INFRA-HIGH-008 — SPEC + ADR edits MUST
-      # retrigger kernel tests so a Plan ARIA-V3 SPEC §0.2 / §5.4 /
-      # §8.1 amendment cannot drift from the kernel's invariant
-      # suite. Negation patterns un-ignore ``docs/aria/**`` and
-      # ``docs/adr/**`` from the broader ``docs/**`` exclusion.
-      - "!docs/aria/**"
-      - "!docs/adr/**"
 
 permissions:
   contents: read
@@ -57,8 +46,8 @@ jobs:
       - name: Run pedagogy lint (Plan ARIA-V5 §3e)
         run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel.pedagogy_lint --agents-dir .claude/agents --allowlist tests/invariants/agent-pedagogy.allowlist.json --strict --format text
       # Plan ARIA-V6 §3 V6.5 (C5) — specialist-review dry-run validates
-      # the Lane-A inventory + role mapping. Warn-mode at C5; flip to
-      # --strict in a follow-up commit once the Lane-A inventory is
-      # fully populated.
+      # the Lane-A inventory + role mapping. Warn-mode at C5; the --strict
+      # flip is a tracked decision (ORPHAN-LOW-774: owner + criterion +
+      # deadline), not a promise of a follow-up commit.
       - name: Specialist-review dry-run (Plan ARIA-V6 §3 V6.5)
         run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel specialist-review dry-run --agents-dir .claude/agents

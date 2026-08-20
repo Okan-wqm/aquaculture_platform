@@ -176,10 +176,11 @@ class WorkflowEnterprisePreflightTests(unittest.TestCase):
         self.assertTrue(verdict.valid, verdict.reasons)
 
     def test_audited_kernel_workflows_have_no_expiry_time_bomb(self) -> None:
-        # D1 (ADR-036) — the 3 kernel workflows are audited-excluded with a
+        # D1 (ADR-036) — the kernel workflows are audited-excluded with a
         # NON-expiring sentinel; the canonical's dated expires_at=2026-07-05
-        # time-bomb is rejected.
-        for workflow_id in ("aria-kernel", "aria-kernel-fast", "aria-kernel-full"):
+        # time-bomb is rejected. (aria-kernel-full was deleted outright —
+        # ORPHAN-MEDIUM-769 — so it is neither excluded nor contracted.)
+        for workflow_id in ("aria-kernel", "aria-kernel-fast"):
             self.assertIn(workflow_id, AUDITED_WORKFLOW_EXCLUSIONS)
             self.assertEqual(AUDITED_WORKFLOW_EXCLUSIONS[workflow_id].expires_at, "9999-12-31")
 

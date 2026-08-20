@@ -692,15 +692,8 @@ AUDITED_WORKFLOW_EXCLUSIONS: dict[str, AuditedWorkflowExclusion] = {
     ),
     "aria-kernel-fast": AuditedWorkflowExclusion(
         workflow_id="aria-kernel-fast",
-        reason="test-only fast kernel validation workflow; writes only ephemeral ./.aria-ci "
+        reason="test-only fast kernel validation workflow; writes only ephemeral .aria-ci "
         "and uploads no governed ARIA artifact",
-        owner="aria-kernel",
-        expires_at=_NEVER_EXPIRES,
-    ),
-    "aria-kernel-full": AuditedWorkflowExclusion(
-        workflow_id="aria-kernel-full",
-        reason="test-only full kernel validation workflow; writes only ephemeral ./.aria-ci, "
-        "verifies a clean worktree post-run, and uploads no governed ARIA artifact",
         owner="aria-kernel",
         expires_at=_NEVER_EXPIRES,
     ),

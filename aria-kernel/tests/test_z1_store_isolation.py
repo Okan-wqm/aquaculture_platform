@@ -135,6 +135,39 @@ class SharedWorkspaceGroupPins(unittest.TestCase):
         )
 
 
+class BranchWritingConcurrencyPins(unittest.TestCase):
+    """ORPHAN-MEDIUM-770 — the BRANCH hazard, sibling to the disk rule above.
+
+    The shared-group rule above protects the local state-store DISK and is
+    scoped to self-hosted lanes on purpose (its own docstring explains why a
+    hosted job is structurally outside it). But a lane that FF-pushes the
+    aria/state LEDGER — hosted or self-hosted — has a second hazard the disk
+    rule never covered: two concurrent writers waste a run at best (the
+    server rejects one CAS) and interleave restores at worst. The rule was
+    written about disks, not branches; this is the branch rule.
+    """
+
+    def test_every_state_publishing_lane_declares_a_concurrency_group(self) -> None:
+        publishers = []
+        for path in sorted(_WF.glob("*.yml")):
+            text = path.read_text(encoding="utf-8")
+            if "state publish" not in text:
+                continue
+            publishers.append(path)
+        self.assertGreaterEqual(len(publishers), 3, [p.name for p in publishers])
+        for path in publishers:
+            doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+            group = (doc.get("concurrency") or {}).get("group")
+            self.assertTrue(
+                group,
+                f"{path.name}: publishes aria/state but declares no concurrency group",
+            )
+            self.assertFalse(
+                (doc.get("concurrency") or {}).get("cancel-in-progress", False),
+                f"{path.name}: cancel-in-progress would kill a run mid-publish",
+            )
+
+
 class RematerializeDisclosureTests(unittest.TestCase):
     def test_registered_but_missing_store_discloses_on_restore(self) -> None:
         # Reuses the state-store test harness (offline remote + derived

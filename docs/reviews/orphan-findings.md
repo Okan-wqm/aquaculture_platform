@@ -10664,3 +10664,28 @@ A file that is DELETED is noticed. A glob that stops matching is noticed. **A li
 **Deliberate breakage this will require:** any pin asserting that a belief stays grounded while its file merely exists must be rewritten to successor truth — existence is not groundedness.
 
 **Owner:** claude. **Deadline:** 2026-08-27 (blocks the refutation-memory item of the ARIA-above-ultracode programme, which cannot be sound without it). **Status:** OPEN.
+
+## ORPHAN-HIGH-763 — a second vendor enters two Anthropic-only vocabularies — RESOLVED
+
+Severity: HIGH (one of the two vocabularies IS the write-protection authority; admitting a member changes who may overwrite whom).
+
+**Operator decision, 2026-08-20:** admit Z.ai's `glm-5.3` as a dispatchable model, ranked **between fable and opus**.
+
+**Why this is an extension and not a second runtime.** Z.ai serves GLM behind an Anthropic-shaped endpoint, so the existing `claude` binary reaches it by swapping `ANTHROPIC_BASE_URL` to `https://api.z.ai/api/anthropic`. No new dispatch path, no second harness. What had to change is that two closed vocabularies stopped assuming a single vendor.
+
+**What admission COSTS, and it is easy to miss.** `model_tier_rank` resolves an unlisted model **asymmetrically** — weakest as an actor, strongest as a target. Before this change `glm-5.3` could author nothing and its output was protected from everyone. Listing it trades that blanket protection for a stated rank. Above `MIN_AGENT_AUTHORING_TIER` it may author agents, and opus may not overwrite what it authored. That is the operator's decision recorded, not argued.
+
+**Pricing is measured, not invented.** Z.ai's posted rates for GLM-5.3 (published 2026-08-14): **$1.40 in / $4.40 out per MTok**, recorded as EXACT because they are vendor prices rather than a family estimate. A `glm-5` family row catches the next generation the day it ships, which is the failure ORPHAN-HIGH-474 was ($0.00 recorded silently for a model nobody had added). Cache-read ($0.26/MTok) has no column in the (input, output) pair and is deliberately **not** blended in — an invented average would be worse than a stated overcharge, and the budget gate fails toward safety.
+
+**Two defects fixed on the way in.**
+
+1. _The model vocabulary had two homes._ `tools/aria-poc/claude_runtime.py:46` declared its own `VALID_MODELS` tuple which **nothing read** — not its own module, not an importer, not a test. Deleted rather than synced: a copy with no reader cannot be kept in step by discipline, only by luck. The SSoT is `agent_runtime_profile.VALID_MODELS`.
+2. _The alias→id rule lived in a test's f-string and encoded a vendor._ `test_cost_pricing` built each family as `f"claude-{alias}-"`, which asserted that every dispatchable model is an Anthropic one. For `glm-5.3` that yields `claude-glm-5.3-`, an id no vendor will emit — coverage would have been reported for a family the ledger cannot match. The mapping now lives in `budget.ALIAS_PRICING_PREFIX` beside the prices it governs, and an unmapped alias falls back to **itself** rather than to a Claude-shaped guess: fail toward a miss, never toward a false hit.
+
+**Still gated, and this constant does not open it.** `claude_runtime.assert_claude_policy_environment` refuses API-key mode unless `ARIA_ALLOW_CLAUDE_API_KEY_MODE=1` is set _"under a new policy"_ — the gate's own wording. That operator policy, not this vocabulary entry, is what actually lets a GLM dispatch happen. The gate is a **billing** guard (managed-auth bypass), not a vendor ban, and its author left a governed door rather than a wall.
+
+**An argument for the change that came out of the same day's work:** ORPHAN-HIGH-760 made anchor grade require agreement spanning **two distinct models**, and the fleet is opus + opus + fable. A third genuinely independent model strengthens every anchor it joins. The counter-argument is placement, not admission: the calibration lane that would measure judge quality is currently broken (weights permanently `None`), so GLM belongs on cheap, measurable roles before the judge lane.
+
+Pinned in `aria-kernel/tests/test_glm_model_admission.py` (7 pins) plus the rewritten `test_model_tier_protection.test_order_is_the_operator_rule`. Deliberate-breakage direction measured: reverting the tier entry turns both authority pins red. One pin was **caught being decorative during review** — the authoring check used `model_tier_rank`, which returns -1 for an unknown model, so it passed whether or not GLM was listed; it now asserts membership first. A pin that cannot fail is decoration.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

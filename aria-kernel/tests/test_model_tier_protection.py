@@ -30,9 +30,21 @@ _BODY = "---\nname: aria-svc-farm-auditor\nmodel: fable\n---\n# Agent\n"
 
 class TierOrderTests(unittest.TestCase):
     def test_order_is_the_operator_rule(self) -> None:
-        self.assertEqual(MODEL_TIER_ORDER, ("fable", "opus", "sonnet", "haiku"))
+        """Deliberate breakage, ORPHAN-HIGH-763.
+
+        This pinned an Anthropic-only ladder. The operator admitted `glm-5.3`
+        between fable and opus on 2026-08-20, which is an AUTHORITY change and
+        not a vocabulary one: GLM now outranks the authoring floor, so it may
+        author agents, and opus may not overwrite what it authored. The pin is
+        rewritten rather than relaxed — the literal ordering stays asserted,
+        because the ordering IS the rule.
+        """
+        self.assertEqual(
+            MODEL_TIER_ORDER, ("fable", "glm-5.3", "opus", "sonnet", "haiku"),
+        )
         self.assertEqual(MIN_AGENT_AUTHORING_TIER, "opus")
-        self.assertLess(model_tier_rank("fable"), model_tier_rank("opus"))
+        self.assertLess(model_tier_rank("fable"), model_tier_rank("glm-5.3"))
+        self.assertLess(model_tier_rank("glm-5.3"), model_tier_rank("opus"))
         self.assertLess(model_tier_rank("opus"), model_tier_rank("sonnet"))
 
     def test_unknown_target_author_ranks_strongest(self) -> None:

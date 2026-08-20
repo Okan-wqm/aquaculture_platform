@@ -43,7 +43,12 @@ CLAUDE_DEFAULT_MODEL = "fable"
 # by an explicit ``--effort`` flag (low|medium|high|xhigh|max). These are the
 # model aliases and effort levels ARIA may target; the agent-runtime-profile
 # maps each agent's frontmatter to one of them.
-VALID_MODELS: tuple[str, ...] = ("opus", "sonnet", "haiku", "fable")
+# ORPHAN-HIGH-763 — the second copy of the model vocabulary is GONE, not
+# synced. It was defined here and read by nothing: not by this module, not by
+# any importer, not by a test. A duplicate with no reader is the cheapest kind
+# of drift to remove, and keeping it in step with the kernel's frozenset would
+# have been ceremony protecting a value nobody consulted. The SSoT is
+# `aria_kernel.agent_runtime_profile.VALID_MODELS`.
 VALID_EFFORTS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
 
 # ORPHAN-HIGH-473 — the fallback topology, as data rather than a literal string

@@ -194,6 +194,36 @@ class BeliefVerdictBuysNoAdapterAuthority(unittest.TestCase):
                 1,
             )
 
+    def test_both_belief_adjudicators_write_one_ledger_identity(self) -> None:
+        """The operator arm and the panel arm must key the SAME row.
+
+        Idempotency on (run_id, finding_id) is what stops one belief being
+        adjudicated twice — once by a panel and once by an operator, each
+        stacking its own confidence penalty. Two literal spellings of that
+        key in two modules is that guarantee waiting to drift, so both call
+        one function. Asserted through the module the operator path imports,
+        not by reading its source.
+        """
+        import inspect
+
+        from aria_kernel import human_required
+        from aria_kernel.belief_escalation import belief_panel_finding_id
+
+        source = inspect.getsource(human_required.resolve_human_required)
+        self.assertIn(
+            "belief_panel_finding_id(belief_id)",
+            source,
+            "the operator arm must key the row through the shared helper",
+        )
+        self.assertNotIn(
+            'f"belief-escalation:{belief_id}"',
+            source,
+            "a second literal spelling of the shared identity has come back",
+        )
+        self.assertEqual(
+            belief_panel_finding_id("belief-9"), "belief-escalation:belief-9"
+        )
+
     def test_an_unnamed_subject_is_unwritable(self) -> None:
         """Closed vocabulary — a typo may not become a third category."""
         with tempfile.TemporaryDirectory() as root:

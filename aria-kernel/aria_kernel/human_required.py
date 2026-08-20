@@ -350,6 +350,7 @@ def resolve_human_required(
         record["panel_outcome"] = panel_outcome
 
     if verdict is not None:
+        from .belief_escalation import belief_panel_finding_id
         from .feedback_store import (
             FEEDBACK_VERDICTS,
             JUDGMENT_SUBJECT_BELIEF,
@@ -389,7 +390,13 @@ def resolve_human_required(
             record_operator_feedback(
                 tool_id=str(ctx.get("source_tool_id") or "unknown"),
                 run_id=request_id,
-                finding_id=f"belief-escalation:{belief_id}",
+                # ONE spelling of this ledger identity, not two. The panel
+                # arm (JJ-3) writes the same (run_id, finding_id) key and its
+                # idempotency check depends on it — an f-string here and a
+                # helper there is two spellings of one identity waiting to
+                # drift apart, and the drift would let the same belief be
+                # adjudicated twice.
+                finding_id=belief_panel_finding_id(belief_id),
                 verdict=verdict,
                 severity="medium",
                 note=f"operator adjudication of belief escalation {request_id}",

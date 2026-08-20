@@ -10521,3 +10521,24 @@ Note the earlier estimate in the plan (86% observed) counted _roots with zero fi
 Pinned in `aria-kernel/tests/test_observation_coverage.py`: a root no adapter declares is not merely absent but NAMED; declaring a root without parsing its files is not coverage; partial coverage reports its fraction rather than rounding to green; an exemption is excluded from the denominator rather than counted as seen (permission to stop looking is never a claim of sight); an unreadable tree is `unknown`, never green; brace globs expand so a manifest shorthand is not silently missed.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-CRITICAL-754 — every nightly cycle died at its first step, and a pin held the break in place — RESOLVED
+
+Severity: CRITICAL (ARIA cannot run at all; the autonomy programme has no nights). Found 2026-08-20 by reading the failed run the operator pointed at, not by a gate.
+
+**The failure.** `aria-auto-cycle` run 32324892989, the first cycle to run with the day's merges: `aria-kernel: error: unrecognized arguments: --implementer-poll-seconds 120`, exit 2, before a single phase executed. The 08-19 cycle had the same shape.
+
+**Root cause — a half-finished removal.** CL-1 deleted the synchronous convergence poll (K6/ORPHAN-CRITICAL-727), and the CLI dropped `--implementer-poll-seconds` with it; the comment where the argument stood says so plainly. Two pins referenced that flag:
+
+| pin                                                           | what it asserted                                                  | updated by CL-1                         |
+| ------------------------------------------------------------- | ----------------------------------------------------------------- | --------------------------------------- |
+| `tests/invariants/v3_1/test_phase_v31_e_profile_preflight.py` | the `implementer_poll_seconds` PARAMETER is absent                | **yes** — rewritten, with the reasoning |
+| `tests/test_nightly_profile_authority_contract.py`            | the workflow MUST pass `--implementer-poll-seconds`, bounded ≤300 | **no**                                  |
+
+The second one's own docstring said the bound was a stopgap _"before the successor lands"_ and that ORPHAN-HIGH-734 owned the real fix. The successor landed. The pin did not follow — and because it required the flag, the workflow kept passing an argument argparse no longer accepts. **A pin that outlives the thing it pinned does not go quiet; it holds the broken state in place**, and it does so with the authority of a green test.
+
+**Fix.** The flag is removed from `aria-auto-cycle.yml`, and the stale pin now asserts its ABSENCE, mirroring the sibling pin that was already correct. Verified: 28 tests in the contract green; restoring the flag reds the pin (deliberate breakage); `autonomy run --help` shows no such argument.
+
+**What this says about the day's work.** CL-1 was reported complete on the strength of its own suite. Its suite passed because the pin that would have caught this was _asserting the old world_ — the failure only became visible when a real night ran. Green tests are evidence about the tests as much as about the code.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

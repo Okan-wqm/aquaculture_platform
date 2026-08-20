@@ -342,6 +342,18 @@ def _gap_next_action(gap: dict[str, Any], source_id: str) -> str | None:
         return f"Extend {related[0]} to cover capability gap {source_id}"
     if recommendation == "draft_new_aria_agent":
         return f"Draft a new ARIA agent for capability gap {source_id}"
+    if recommendation == "author_new_aria_adapter":
+        # H-3 — `recommended_action` is a closed vocabulary with TWO readers:
+        # the genesis router picks the surface, this builder names the work.
+        # An unread recommendation is not a silent default here — the mission
+        # path refuses the candidate as `no_derivable_next_action`, so a blind
+        # root would file a correct gap and then drop out of the mission lane
+        # for want of a sentence.
+        details = gap.get("details")
+        kinds = details.get("unparsed_file_types") if isinstance(details, dict) else None
+        readable = ", ".join(str(kind) for kind in kinds[:4]) if isinstance(kinds, list) and kinds else ""
+        scope = f"{source_id} (unparsable today: {readable})" if readable else source_id
+        return f"Author an ARIA adapter whose declared_scope covers {scope}"
     return None
 
 

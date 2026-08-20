@@ -55,6 +55,20 @@ CONSENSUS_MIN_CONFIDENCE = 0.80
 # AGREED and how many VOTED - never re-derived per reader, so "is this
 # ground truth?" has exactly one answer everywhere.
 ANCHOR_MIN_JUDGE_COUNT = 3
+# JJ-3 (ORPHAN-HIGH-755) - WHAT a judgment settled, written beside WHO settled
+# it. `source_type` says how much authority a row carries; it never said what
+# the row is ABOUT, so every ground-truth reader silently assumed "a finding
+# this adapter emitted". The belief-escalation bridges break that assumption:
+# they file a verdict on a BELIEF into the ledger of whichever adapter the
+# escalation named, and an adapter's finding-precision lane must not read it
+# as evidence about its own findings.
+#
+# Absent reads as "finding": every row written before this field existed is a
+# finding judgment (the ledger held zero belief rows when it was added), so the
+# default is the historical corpus's own value rather than a guess.
+JUDGMENT_SUBJECT_FINDING = "finding"
+JUDGMENT_SUBJECT_BELIEF = "belief"
+JUDGMENT_SUBJECTS = (JUDGMENT_SUBJECT_FINDING, JUDGMENT_SUBJECT_BELIEF)
 GROUND_TRUTH_SOURCE_TYPES = ("human", "ai_consensus")
 
 # JJ-2 (ORPHAN-HIGH-732) - how many ANCHOR judgments a tool must accumulate
@@ -134,6 +148,29 @@ def is_ground_truth_row(row: dict[str, Any]) -> bool:
     return agreed >= ANCHOR_MIN_JUDGE_COUNT and consensus_judges_voted(row) == agreed
 
 
+def judgment_subject_of(row: dict[str, Any]) -> str:
+    """What this feedback row settled - a finding, or a belief.
+
+    Absent reads as ``finding`` (see JUDGMENT_SUBJECT_FINDING): the field was
+    added to a ledger that held only finding judgments, so the default is a
+    fact about the corpus rather than a fail-open assumption.
+    """
+    subject = str(row.get("judgment_subject") or "").strip()
+    return subject if subject in JUDGMENT_SUBJECTS else JUDGMENT_SUBJECT_FINDING
+
+
+def _judges_this_tool_s_findings(row: dict[str, Any]) -> bool:
+    """Is this row evidence about the ADAPTER's own output?
+
+    The two key sets below buy an adapter authority: anchor volume unblocks
+    ACTIVE promotion and retires anchor demand. Only judgments of the
+    adapter's FINDINGS may do that. A belief adjudication is repository truth
+    about ARIA's memory - real, and deliberately writable by the panel (JJ-3)
+    - but it says nothing about whether this adapter's findings were right.
+    """
+    return judgment_subject_of(row) == JUDGMENT_SUBJECT_FINDING
+
+
 def _judgment_key(row: dict[str, Any]) -> tuple[str, str, str]:
     """The (run, finding, group) identity every judgment lane already keys on."""
     return (
@@ -157,7 +194,9 @@ def anchor_group_keys(
     return {
         _judgment_key(row)
         for row in load_feedback(tool_id=tool_id, base_dir=base_dir)
-        if row.get("source_type") == "ai_consensus" and is_ground_truth_row(row)
+        if row.get("source_type") == "ai_consensus"
+        and is_ground_truth_row(row)
+        and _judges_this_tool_s_findings(row)
     }
 
 
@@ -171,6 +210,7 @@ def operator_group_keys(
         _judgment_key(row)
         for row in load_feedback(tool_id=tool_id, base_dir=base_dir)
         if (row.get("source_type") or "human") == "human"
+        and _judges_this_tool_s_findings(row)
     }
 
 
@@ -370,8 +410,11 @@ def record_operator_feedback(
     finding_fingerprint: str | None = None,
     judge_count: int | None = None,
     judges_voted: int | None = None,
+    judgment_subject: str = JUDGMENT_SUBJECT_FINDING,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
+    if judgment_subject not in JUDGMENT_SUBJECTS:
+        raise GovernanceError(f"unknown judgment subject: {judgment_subject}")
     if verdict not in FEEDBACK_VERDICTS:
         raise GovernanceError(f"unknown feedback verdict: {verdict}")
     if severity not in FEEDBACK_SEVERITIES:
@@ -431,6 +474,7 @@ def record_operator_feedback(
         "finding_fingerprint": finding_fingerprint,
         "judge_count": judge_count,
         "judges_voted": judges_voted,
+        "judgment_subject": judgment_subject,
     }
     append_jsonl(feedback_path(base_dir), row)
     return row

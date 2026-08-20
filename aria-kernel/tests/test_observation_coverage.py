@@ -82,6 +82,54 @@ class ObservationCoverageTest(unittest.TestCase):
         self.assertEqual(verdict.verdict, "unknown")
         self.assertNotEqual(verdict.verdict, "green")
 
+    def test_a_blind_root_names_the_file_types_nothing_can_parse(self) -> None:
+        with TemporaryDirectory() as tmp:
+            # H-3 — the gap this feeds has to be an assignment, not a
+            # complaint: "23 files unseen" tells nobody what to build,
+            # ".rs — nothing in the toolbox reads it" names the parser.
+            root = _workspace(tmp, scopes={"ts-adapter": ["apps/**/*.ts"]})
+            rows = derive_observation_map(
+                root,
+                files=["apps/a/main.ts", "sens-api-gateway/src/lib.rs",
+                       "sens-api-gateway/Cargo.toml", "sens-api-gateway/Dockerfile"],
+            )
+            by_root = {row.root: row for row in rows}
+            self.assertEqual(
+                by_root["sens-api-gateway"].unparsed_file_types,
+                (".rs", ".toml", "Dockerfile"),
+            )
+
+    def test_unparsable_types_lead_with_the_one_that_dominates_the_root(self) -> None:
+        with TemporaryDirectory() as tmp:
+            # Measured on this repository: alphabetical order put `.aquamobil`
+            # (from `Dockerfile.aquamobil`) ahead of `.rs`, so a capped payload
+            # would have handed the reader the noise instead of the 449 Rust
+            # files that are the actual assignment.
+            root = _workspace(tmp, scopes={"ts-adapter": ["apps/**/*.ts"]})
+            rows = derive_observation_map(
+                root,
+                files=["apps/a/main.ts", "edge/Dockerfile.aquamobil",
+                       "edge/a.rs", "edge/b.rs", "edge/c.rs"],
+            )
+            by_root = {row.root: row for row in rows}
+            self.assertEqual(
+                by_root["edge"].unparsed_file_types, (".rs", ".aquamobil"),
+            )
+
+    def test_a_type_parsed_elsewhere_is_not_reported_as_unparsable(self) -> None:
+        with TemporaryDirectory() as tmp:
+            # The adapter reads TypeScript under apps/. web/ is unobserved
+            # because nothing DECLARES it — but .ts is not the missing
+            # parser, it is a missing scope line, and conflating the two
+            # would send someone to write an adapter that already exists.
+            root = _workspace(tmp, scopes={"ts-adapter": ["apps/**/*.ts"]})
+            rows = derive_observation_map(
+                root, files=["apps/a/main.ts", "web/shell/src/app.ts"],
+            )
+            by_root = {row.root: row for row in rows}
+            self.assertEqual(by_root["web"].verdict, "unobserved")
+            self.assertEqual(by_root["web"].unparsed_file_types, ())
+
     def test_brace_globs_expand_so_a_manifest_shorthand_is_not_silently_missed(self) -> None:
         self.assertEqual(
             sorted(_expand_braces("web/**/*.{ts,tsx}")),

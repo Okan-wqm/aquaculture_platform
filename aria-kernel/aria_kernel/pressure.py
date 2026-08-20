@@ -49,6 +49,11 @@ SOURCE_WEIGHTS = {
     # plans ever CONVERGED, a wedge two days old that only a human
     # reading ledgers ever noticed.
     "pipeline_stalled": 100,
+    # ORPHAN-HIGH-758 — emitted by the post-merge red scan since ORPHAN-718
+    # and registered in neither table until the reachability gate learned to
+    # look in this direction. Weighted above open-PR reds: the defect is
+    # already on the default branch, so the action is fix-forward.
+    "post_merge_ci": 95.0,
 }
 
 # ─── operator-approved weight overrides (Plan tranquil-sniffing-pancake F4.1) ──
@@ -159,6 +164,12 @@ DRIFT_CLASS_BY_SOURCE = {
     # so genesis_policy_default.json needs no new drift class and the
     # parity test keeps passing.
     "pipeline_stalled": "process_health",
+    # ORPHAN-HIGH-758 — see SOURCE_WEIGHTS. `process_health`, the same class
+    # as its sibling `own_pr_ci`: both are ARIA's own delivery pipeline
+    # reporting on itself, and a class invented for one member would have
+    # needed a neutral weight in the default policy that nothing would ever
+    # tune (the parity test caught exactly that on the first attempt).
+    "post_merge_ci": "process_health",
 }
 
 PRESSURE_STATES = {"active", "faded", "sleeping", "archived", "closed", "satisfied"}

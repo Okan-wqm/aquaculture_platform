@@ -123,6 +123,12 @@ class AdjudicabilityGate(unittest.TestCase):
                         "tool_id": "x-adapter",
                         "evidence_refs": ["aria-tools/runs.jsonl#x-adapter"],
                     })
+                # JJ-3 (ORPHAN-HIGH-755) — belief_escalation is admitted with
+                # its own fail-closed identity: the panel authorises a
+                # correction against ONE belief, so an escalation that cannot
+                # name it is not adjudicable.
+                if kind == "belief_escalation":
+                    context.update({"belief_id": "B-contradicted"})
                 self.assertTrue(
                     hra.escalation_adjudicability({"context": context}).adjudicable,
                 )
@@ -401,6 +407,11 @@ class AdjudicationPublicApiPin(unittest.TestCase):
         "MAX_REQUEST_REMINTS",
         "OPERATIONAL_DISPOSITION_KINDS",
         "PANEL_DISPOSITIONS",
+        # JJ-3 (ORPHAN-HIGH-755) — the kinds whose quorum-refuse HANDS the
+        # item to a human instead of closing it. Exported because it is a
+        # policy line: widening it silently would let a refusal close work
+        # that nobody did.
+        "REFUSE_HANDS_TO_OPERATOR_KINDS",
         "escalation_adjudicability",
         "fold_adjudication",
         "open_adjudication",

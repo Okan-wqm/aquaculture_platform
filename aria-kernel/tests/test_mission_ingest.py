@@ -275,6 +275,14 @@ class ForwardPointerTests(unittest.TestCase):
                 "gap_id": "gap-1", "capability_gap_key": "coverage:auth-service",
                 "recommended_action": "draft_new_aria_agent", "title": "t", "score": 1,
             }), "coverage:auth-service"),
+            # H-3 — a blind-surface gap recommends an ADAPTER, not an agent.
+            # Before the builder learned that word the candidate carried no
+            # next_action at all and the mission path refused it.
+            (_candidate_from_capability_gap("c", {
+                "gap_id": "gap-2", "capability_gap_key": "observation:sens-api-gateway",
+                "recommended_action": "author_new_aria_adapter", "title": "t", "score": 73,
+                "details": {"root": "sens-api-gateway", "unparsed_file_types": [".rs"]},
+            }), "observation:sens-api-gateway"),
             (_candidate_from_proactive("c", {
                 "tool_id": "typeorm-entity-schema-adapter", "priority": 70,
                 "reasons": ["no goldset"],

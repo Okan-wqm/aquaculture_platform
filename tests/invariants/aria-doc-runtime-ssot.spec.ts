@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from '@jest/globals';
 
-import { ariaAuthorityHash } from '../../tools/gates/aria-authority-hash';
+import { ariaAuthorityFiles, ariaAuthorityHash } from '../../tools/gates/aria-authority-hash';
 
 const REPO_ROOT = (() => {
   try {
@@ -122,7 +122,21 @@ function planMarkerCount(body: string): number {
 describe('ARIA live runtime/documentation SSoT', () => {
   it('CURRENT_STATE declares the live authority chain and executable anchors', () => {
     const current = read('docs/aria/CURRENT_STATE.md');
-    expect(current).toContain('Date: 2026-06-21');
+    // ORPHAN-MEDIUM-768 — the date is no longer a frozen literal: the writer
+    // stamps hash AND date in the same write, and this check holds the date
+    // accountable to the authority surfaces' newest change. A verification
+    // claim predating the content it verifies is the fresh-hash-old-date
+    // cover the frozen literal used to provide.
+    const declaredDate = current.match(/^Date: (\d{4}-\d{2}-\d{2})$/m)?.[1];
+    expect(declaredDate).toBeTruthy();
+    const authorityFiles = ariaAuthorityFiles(REPO_ROOT);
+    const lastAuthorityCommit = execFileSync(
+      'git',
+      ['log', '-1', '--format=%cs', '--', ...authorityFiles],
+      { encoding: 'utf8', cwd: REPO_ROOT },
+    ).trim();
+    expect(lastAuthorityCommit).toBeTruthy();
+    expect(declaredDate! >= lastAuthorityCommit).toBe(true);
     const target = current.match(/Target ref: `([^`]+)`/)?.[1];
     expect(target).toBe('origin/main');
     const verifiedHash = current.match(

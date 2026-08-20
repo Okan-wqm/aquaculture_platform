@@ -31689,6 +31689,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/plans/2026-06-13-aria-to-main-controlled-merge/README.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/plans/2026-06-13-farm-module-enterprise-hardening.md",
       "prettier_managed": true
     },

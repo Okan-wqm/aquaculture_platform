@@ -1,3 +1,7 @@
+<!-- ARIA-CURRENT-STATE-NOTICE: Historical/compatibility runbook. The Codex runtime decision of
+2026-05-25 was reversed (ADR-040) — the live runtime is the Claude Code CLI. For live ARIA
+runtime authority, see docs/aria/CURRENT_STATE.md and executable contracts. -->
+
 # ARIA Codex Runtime Observability
 
 ARIA Codex runs expose bounded summaries plus artifact-backed evidence. Operators should monitor both error signals and silence signals.

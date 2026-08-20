@@ -47,6 +47,18 @@ export const ARIA_AUTHORITY_HASH_SENTINEL =
 export const ARIA_AUTHORITY_HASH_LINE =
   /Last verified ARIA authority hash: `(?:[a-f0-9]{64}|ARIA_AUTHORITY_HASH_SENTINEL)`/;
 
+/**
+ * ORPHAN-MEDIUM-768 — the Date line is normalized alongside the hash line, and
+ * `--write` stamps BOTH. Before this, the writer refreshed only the 64 hex
+ * characters, so a doc whose body was months stale could carry a fresh hash and
+ * a frozen date — machine-fresh cover on stale content. With both stamped by
+ * the same write, the spec can hold Date accountable to the authority surfaces'
+ * last change instead of to a frozen literal.
+ */
+export const ARIA_AUTHORITY_DATE_SENTINEL = 'Date: ARIA_AUTHORITY_DATE_SENTINEL';
+
+export const ARIA_AUTHORITY_DATE_LINE = /^Date: \d{4}-\d{2}-\d{2}$/m;
+
 export function ariaRepoRoot(): string {
   try {
     return execFileSync('git', ['rev-parse', '--show-toplevel'], {
@@ -107,7 +119,9 @@ export function normalizedAriaAuthorityContent(
 ): string {
   const body = readFileSync(join(repoRoot, rel), 'utf8');
   if (rel !== CURRENT_STATE_PATH) return body;
-  return body.replace(ARIA_AUTHORITY_HASH_LINE, ARIA_AUTHORITY_HASH_SENTINEL);
+  return body
+    .replace(ARIA_AUTHORITY_HASH_LINE, ARIA_AUTHORITY_HASH_SENTINEL)
+    .replace(ARIA_AUTHORITY_DATE_LINE, ARIA_AUTHORITY_DATE_SENTINEL);
 }
 
 export function ariaAuthorityHash(repoRoot: string = ariaRepoRoot()): string {
@@ -139,13 +153,16 @@ export function writeAriaAuthorityHash(repoRoot: string = ariaRepoRoot()): {
   }
   const from = recordedAriaAuthorityHash(repoRoot);
   const to = ariaAuthorityHash(repoRoot);
-  if (from === to) return { from, to, changed: false };
-  writeFileSync(
-    path,
-    body.replace(ARIA_AUTHORITY_HASH_LINE, `Last verified ARIA authority hash: \`${to}\``),
-    'utf8',
-  );
-  return { from, to, changed: true };
+  // ORPHAN-MEDIUM-768 — the date travels WITH the hash, always. A no-op hash
+  // write with a stale date is still a changed document: the verification
+  // claim being renewed is "this body, on this date".
+  const today = new Date().toISOString().slice(0, 10);
+  const stamped = body
+    .replace(ARIA_AUTHORITY_HASH_LINE, `Last verified ARIA authority hash: \`${to}\``)
+    .replace(ARIA_AUTHORITY_DATE_LINE, `Date: ${today}`);
+  const changed = stamped !== body;
+  if (changed) writeFileSync(path, stamped, 'utf8');
+  return { from, to, changed };
 }
 
 function main(argv: string[]): number {

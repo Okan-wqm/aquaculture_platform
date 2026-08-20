@@ -10594,3 +10594,29 @@ The machinery for the second question was already there and threw its own answer
 Pinned in `aria-kernel/tests/test_surface_reachability.py::test_no_writer_emits_a_member_the_vocabulary_does_not_declare`, which fails with the emitting `path:line` rather than a bare set difference.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-759 — the comprehension pass produced 75 leads and no refutation; they are not findings yet — OPEN
+
+Severity: HIGH (the volume is the risk: an unrefuted lead list read as a finding list would put a dozen wrong fixes into the tree).
+
+**What happened.** On 2026-08-20 six independent readers were given the ARIA kernel and no finding list, and asked to describe its behaviour from the code. They returned 75 claims, each with `path:line` evidence, spread over: what one night actually executes; closed vocabularies and their siblings; where prose and code disagree; writers without readers; gates that pass without measuring; and whether the judgement loop can learn.
+
+**The adversarial round did not run.** The design was lenses → synthesis → refuters; the refuters were never dispatched. So every claim below is **single-reader and unrefuted**. Two were independently reproduced by me and became ORPHAN-758; the rest have not been.
+
+**The CRITICAL leads, verbatim in substance, all UNREFUTED unless marked:**
+
+- ARIA's autonomous merge path is structurally unreachable: `enumerate_prs_with_readiness_claims` reads a ledger whose only producer `produce_readiness_claim` (`readiness_proofs.py:1021`) has zero production callers. **Reproduced by me** — the grep excluding tests returns the definition alone.
+- The whole `GATE_PRE_MERGE` perimeter is never run; the only production call of `run_hard_fail_checks` passes `GATE_PRE_PR_OPEN` (`pr_manager.py:359`). **Reproduced by me.**
+- A night that executed no phases still publishes a green state commit to `aria/state`.
+- `AutonomousV9ImplementationRunner` is unreachable on every scheduled night — the resolver's ceiling pins the profile.
+- The merge hygiene battery can be satisfied entirely by validation runs at the PARENT commit.
+- The expert-consensus gate approves a fix with zero evidence, and nothing calls it anyway.
+- Judge calibration against ANCHOR ground truth is tautological where a judge took part in producing the anchor.
+- The promotion loop is a closed deadlock: no adapter can reach ACTIVE, and because none is ACTIVE the labelling that would promote one never happens.
+- Judge weights are permanently `None` in production: `judge_replay` appends an always-empty calibration row after the computation that would have filled it.
+
+**One HIGH lead is already half-answered and needs finishing.** The capability-gap router parity test claims set equality and checks two literals; `adapter_gap`, `agent_gap` and `policy_gap` fall to the default branch (`request_agent_genesis`) — the identical mis-route the §E.9 comment says was a bug for `skill_gap`. ORPHAN-756 (H-3) improved that test — the literals are now a named constant and the docstring says the default branch is not a route — but did not close the gap: a gap asking for an ADAPTER still requests an AGENT.
+
+**What must happen before any of this is implemented.** Each lead gets an adversarial pass whose default is "refuted", the way the anchor rule treats agreement that met an objection. A lead that survives becomes its own finding with its own ID; a lead that does not gets recorded as refuted, with the reason, so the next comprehension pass does not re-file it. The failure mode being guarded against is this session's own: three of six items from the implementation workflow were refuted on verification, and two of my own first readings today were wrong until I reproduced them.
+
+**Owner:** claude. **Deadline:** 2026-08-27. **Status:** OPEN.

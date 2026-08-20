@@ -57,6 +57,11 @@ def _anchor(root: str, n: int) -> None:
         judgment_group_id=f"group-{n}",
         judge_count=3,
         judges_voted=3,
+        observers=[
+            {"judge_id": "aria-evidence-judge", "model": "claude-opus-5"},
+            {"judge_id": "aria-adversarial-judge", "model": "claude-opus-5"},
+            {"judge_id": "aria-consensus-arbiter", "model": "fable"},
+        ],
         base_dir=root,
     )
 
@@ -76,6 +81,11 @@ def _belief_row(root: str) -> dict:
         judge_count=3,
         judges_voted=3,
         judgment_subject=JUDGMENT_SUBJECT_BELIEF,
+        observers=[
+            {"judge_id": "aria-evidence-judge", "model": "claude-opus-5"},
+            {"judge_id": "aria-adversarial-judge", "model": "claude-opus-5"},
+            {"judge_id": "aria-consensus-arbiter", "model": "fable"},
+        ],
         base_dir=root,
     )
 
@@ -188,6 +198,14 @@ class BeliefVerdictBuysNoAdapterAuthority(unittest.TestCase):
                 "judgment_group_id": "group-legacy",
                 "judge_count": 3,
                 "judges_voted": 3,
+                # Carries the G-2 receipt so this pin isolates the question
+                # it is actually about: a row missing `judgment_subject`
+                # must still read as a FINDING judgment. Observer diversity
+                # is a separate rule with its own pins.
+                "observers": [
+                    {"judge_id": "aria-evidence-judge", "model": "claude-opus-5"},
+                    {"judge_id": "aria-consensus-arbiter", "model": "fable"},
+                ],
             })
             self.assertEqual(
                 len(anchor_group_keys(tool_id=TOOL, base_dir=root)),

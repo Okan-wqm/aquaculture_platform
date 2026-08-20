@@ -10620,3 +10620,47 @@ Severity: HIGH (the volume is the risk: an unrefuted lead list read as a finding
 **What must happen before any of this is implemented.** Each lead gets an adversarial pass whose default is "refuted", the way the anchor rule treats agreement that met an objection. A lead that survives becomes its own finding with its own ID; a lead that does not gets recorded as refuted, with the reason, so the next comprehension pass does not re-file it. The failure mode being guarded against is this session's own: three of six items from the implementation workflow were refuted on verification, and two of my own first readings today were wrong until I reproduced them.
 
 **Owner:** claude. **Deadline:** 2026-08-27. **Status:** OPEN.
+
+## ORPHAN-HIGH-760 — judge independence was not weakly measured, it was unmeasurable — RESOLVED
+
+Severity: HIGH (every anchor, every suppression and every promotion rests on judges being more than one opinion wearing several names). G-2 of PROGRAM G, redesigned after the first attempt was refuted.
+
+**The first design was refuted by measurement, and the refutation is the reason this one exists.** It computed Cohen's κ over judge verdict pairs and discounted correlated judges' weight. An independent verifier ran that code against fleets its own tests omitted and found it inverts: **three PERFECTLY ACCURATE judges produce κ=1.0 on every pair, are classed as correlated, and invalidate every anchor they touch** — the calibration lane collapses to zero judged judges. A statistic over agreement cannot separate "same model, same prompt" from "both judges were right", and the fleets where it matters most are the ones where it fails hardest.
+
+**Structure is knowable; correlation is not.** This design never inspects a verdict, so it cannot punish a judge for being right.
+
+**Measured on the live ledger (9 rows, 2026-08-20):** four rows carry a `prompt_hash`, one `ai_judge` row has `model=None`, and the single consensus row carries `model="consensus"` — which is not a model, it is a process. The fields for observer identity have existed all along and were filled when convenient. So independence was never weakly measured: **it was unmeasurable, and any statistic layered on those rows would have been computed from holes.**
+
+**Fix.** The consensus row carries `observers` — one `{judge_id, model}` entry per judge that AGREED (dissenters excluded: they did not stand behind the verdict and must not lend it diversity). `is_ground_truth_row` — the single predicate JJ-1 collapsed five copies into, and the place the duplicate critic insisted this belongs — additionally requires the agreement to span `ANCHOR_MIN_DISTINCT_MODELS` distinct models. Row-local, exactly like `judge_count`/`judges_voted`: the anchor question is answered from the row or not at all.
+
+**Two, not three, and the number is measured rather than chosen.** The live fleet is `aria-evidence-judge` (opus), `aria-adversarial-judge` (opus), `aria-consensus-arbiter` (fable). A 3-judge anchor therefore spans exactly two models. Requiring three would make an anchor unreachable today, and an unreachable gate is a gate nobody keeps.
+
+**The rule binds where it bites.** `observers` is required only for anchor-grade rows, and `generate_ai_consensus` refuses at the anchor boundary — a group that would settle at anchor grade but whose judges cannot name their models escalates as `observer_identity_missing` instead of laundering unknown provenance into repository truth. Sub-anchor consensus is untouched: it can never be ground truth, so the receipt would be ceremony.
+
+**It reached JJ-3, and that is the interesting part.** The belief panel writes an anchor-grade row, so it must now name its principals too. It resolves them through `read_agent_runtime_profile` — the same frontmatter SSoT the executor dispatches by, so a row cannot claim a model the fleet does not run. Measured: the adjudication panel is opus + opus + fable, two distinct models, so the capability the operator authorised on 2026-08-20 still works. Had the panel been three of one model, it would have gone silent — correctly, and visibly.
+
+**Deliberate breakage, rewritten to successor truth rather than deleted:** `test_anchor_consensus_is_ground_truth` passed on counts alone and now requires attribution; a new pin states the old behaviour is gone (`test_counts_alone_no_longer_buy_an_anchor`); a third pins the defect in one sentence with no statistic in it (`test_one_model_wearing_three_names_is_not_an_anchor`). The JJ-3 panel fixture used invented agents `judge-a/b/c` — names that could not resolve to a model, and therefore a panel that could not exist; it now drives the real trio.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-761 — a belief survives the rewrite of the code it was derived from — OPEN
+
+Severity: HIGH (ARIA's memory is its structural advantage over a cold session; a memory that cannot notice its grounds moved is a confident memory of something that is no longer true).
+
+**Found by the operator's question**, not by a scan: _"if the parts that were refuted change, will ARIA see that too?"_
+
+**Measured 2026-08-20** against `origin/main`. The decay machinery is real and wired — `memory._evidence_state` feeds `pressure.py`, which mints `evidence_gone` (weight 80, the highest of the decay family) when a belief's cited evidence has gone, and `belief_revalidation` otherwise. But the identity it checks is **path membership only**:
+
+```
+"missing_concrete_refs": sorted(ref for ref in concrete_refs if current_paths and ref not in current_paths)
+```
+
+A file that is DELETED is noticed. A glob that stops matching is noticed. **A line whose content is rewritten is not**: the path is still in `current_paths`, so the belief reads as fully grounded. `_repo_state` records `base_commit_sha`, so the commit the belief was derived at IS known — and nothing ever compares content at that sha with content now.
+
+**Why it matters more than it looks.** Every consumer of a belief treats grounded-ness as evidence. A belief derived from `X = ("aria/", "automation/")` stays confident after that tuple becomes `("feat/", "fix/")` — the strongest possible form of being wrong, because the confidence is intact and the ledger shows the evidence present. The same hole will swallow the refutation ledger the ARIA-above-ultracode programme depends on: a lead correctly dismissed because of some line becomes a permanent blind spot the moment that line changes, which is the exact failure a refutation memory must not have.
+
+**Fix (not a new mechanism).** Extend the evidence anchor's identity from `path` to `path + content digest at the cited range`, and let the existing `evidence_gone` / `belief_revalidation` arms fire on a digest mismatch exactly as they fire on a missing path today. `base_commit_sha` is already on the record, so the comparison has both ends. No second ledger, no second decay lane, no new pressure source — the vocabulary already has the member this needs.
+
+**Deliberate breakage this will require:** any pin asserting that a belief stays grounded while its file merely exists must be rewritten to successor truth — existence is not groundedness.
+
+**Owner:** claude. **Deadline:** 2026-08-27 (blocks the refutation-memory item of the ARIA-above-ultracode programme, which cannot be sound without it). **Status:** OPEN.

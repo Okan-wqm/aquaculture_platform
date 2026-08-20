@@ -49,6 +49,14 @@ from aria_kernel.judge_fanout import (
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 
 
+# The live fleet, read off .claude/agents/*.md frontmatter (2026-08-20).
+_FLEET_MODELS = {
+    "aria-evidence-judge": "claude-opus-5",
+    "aria-adversarial-judge": "claude-opus-5",
+    "aria-consensus-arbiter": "fable",
+}
+
+
 class GroundTruthPredicateTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory(prefix="aria-jj1-pred-")
@@ -69,11 +77,56 @@ class GroundTruthPredicateTests(unittest.TestCase):
         )
 
     def test_anchor_consensus_is_ground_truth(self) -> None:
+        """Counts AND attribution. G-2 made the second half explicit.
+
+        Deliberate breakage: this pin used to pass on counts alone. Three
+        agreeing judges is a number; three agreeing judges from two
+        different models is evidence. The row must carry both.
+        """
         self.assertTrue(
             is_ground_truth_row({
                 "source_type": "ai_consensus",
                 "judge_count": ANCHOR_MIN_JUDGE_COUNT,
                 "judges_voted": ANCHOR_MIN_JUDGE_COUNT,
+                "observers": [
+                    {"judge_id": "aria-evidence-judge", "model": "claude-opus-5"},
+                    {"judge_id": "aria-adversarial-judge", "model": "claude-opus-5"},
+                    {"judge_id": "aria-consensus-arbiter", "model": "fable"},
+                ],
+            }),
+        )
+
+    def test_counts_alone_no_longer_buy_an_anchor(self) -> None:
+        """G-2 — a row that cannot say which models agreed is not truth.
+
+        This is the shape every consensus row written before `observers`
+        existed has. Unknown provenance is not green; it is unknown.
+        """
+        self.assertFalse(
+            is_ground_truth_row({
+                "source_type": "ai_consensus",
+                "judge_count": ANCHOR_MIN_JUDGE_COUNT,
+                "judges_voted": ANCHOR_MIN_JUDGE_COUNT,
+            }),
+        )
+
+    def test_one_model_wearing_three_names_is_not_an_anchor(self) -> None:
+        """The defect G-2 exists for, stated without a single statistic.
+
+        Three agreeing judges backed by one model is one observation with
+        two duplicate receipts. No verdict is inspected to reach that
+        conclusion — which is why this rule cannot punish judges for being
+        right, the failure that refuted the first design.
+        """
+        self.assertFalse(
+            is_ground_truth_row({
+                "source_type": "ai_consensus",
+                "judge_count": ANCHOR_MIN_JUDGE_COUNT,
+                "judges_voted": ANCHOR_MIN_JUDGE_COUNT,
+                "observers": [
+                    {"judge_id": f"judge-{n}", "model": "claude-opus-5"}
+                    for n in range(ANCHOR_MIN_JUDGE_COUNT)
+                ],
             }),
         )
 
@@ -159,6 +212,7 @@ class _LedgerCase(unittest.TestCase):
         finding: str = "F-1",
         confidence: float = 0.95,
         tool_id: str = "tool-a",
+        model: str | None = None,
     ) -> None:
         record_operator_feedback(
             tool_id=tool_id,
@@ -169,6 +223,12 @@ class _LedgerCase(unittest.TestCase):
             note="judge",
             source_type="ai_judge",
             judge_id=judge_id,
+            # G-2 — the fleet as it actually runs: the two routine judges are
+            # both claude-opus-5, the arbiter is fable. So a 3-judge anchor
+            # spans exactly two models, which is what
+            # ANCHOR_MIN_DISTINCT_MODELS is calibrated against. Fixtures that
+            # named no model were asserting an anchor nobody could attribute.
+            model=model or _FLEET_MODELS.get(judge_id, "claude-opus-5"),
             confidence=confidence,
             judgment_group_id=f"judge:{tool_id}:{finding}",
             finding_fingerprint=f"fp-{finding}",

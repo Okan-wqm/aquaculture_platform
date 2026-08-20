@@ -39528,12 +39528,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "libs/event-contracts/src/schemas/billing-plan-change-events.schema.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "libs/event-contracts/src/schemas/common.schema.ts",
       "prettier_managed": true
     },

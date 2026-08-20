@@ -62,7 +62,6 @@ const LIVE_WORKFLOWS = [
   '.github/workflows/aria-daily-report.yml',
   '.github/workflows/aria-kernel.yml',
   '.github/workflows/aria-kernel-fast.yml',
-  '.github/workflows/aria-kernel-full.yml',
   '.github/workflows/aria-operational-proof.yml',
 ];
 
@@ -449,13 +448,13 @@ describe('ARIA live runtime/documentation SSoT', () => {
     expect(executor).toContain('ref: main');
     expect(executor).toContain('REQUIRED_CLAUDE_VERSION="2.1.197"');
     expect(executor).toContain('claude --version');
+    // ORPHAN-MEDIUM-769 — aria-kernel-full.yml was deleted (a strict subset
+    // of aria-kernel.yml, never a required context) and aria-kernel-fast.yml
+    // became PR-only, so the push-on-main contract belongs to aria-kernel.yml
+    // alone.
     expect(read('.github/workflows/aria-kernel.yml')).toMatch(/branches:\s*\n\s*- main/);
-    expect(read('.github/workflows/aria-kernel-fast.yml')).toMatch(/branches:\s*\n\s*- main/);
-    expect(read('.github/workflows/aria-kernel-full.yml')).toMatch(/branches:\s*\n\s*- main/);
     const kernelWorkflow = read('.github/workflows/aria-kernel.yml');
-    const kernelFullWorkflow = read('.github/workflows/aria-kernel-full.yml');
     expect(kernelWorkflow).toContain('node-version: "22"');
-    expect(kernelFullWorkflow).toContain('node-version: "22"');
     // The dependency contract moved, and got stricter. It used to be pinned
     // as literal text inside these two workflows; the same text existed in
     // nine other jobs and was ABSENT from five that ran kernel code anyway
@@ -467,7 +466,7 @@ describe('ARIA live runtime/documentation SSoT', () => {
     const setupAction = read('.github/actions/setup-aria-kernel/action.yml');
     expect(setupAction).toContain('tomllib.load');
     expect(setupAction).toContain('aria-kernel/pyproject.toml');
-    for (const workflow of [kernelWorkflow, kernelFullWorkflow]) {
+    for (const workflow of [kernelWorkflow]) {
       expect(workflow).toContain('uses: ./.github/actions/setup-aria-kernel');
       // Still banned, everywhere: installing the package would add a second
       // source for `import aria_kernel` and make the explicit pyproject

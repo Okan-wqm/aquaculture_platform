@@ -78,7 +78,7 @@ jobs:
       # Plan ARIA-V6 §3 V6.5 (C5) — specialist-review dry-run validates
       # the Lane-A inventory + role mapping. Warn-mode at C5; the --strict
       # flip is a tracked decision (ORPHAN-LOW-774: owner + criterion +
-      # deadline), not a promise of a follow-up commit.
+      # deadline).
       - name: Specialist-review dry-run (Plan ARIA-V6 §3 V6.5)
         run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel specialist-review dry-run --agents-dir .claude/agents
       - name: Reset CI-local ARIA state

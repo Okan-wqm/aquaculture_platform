@@ -37,12 +37,21 @@ Unknown is not green. If the tree or the manifests cannot be read, the
 verdict is `unknown` — the same rule the fitness charter rests on,
 because a system that scores itself green when it cannot see is worse
 than one with no score at all.
+
+WHO READS THE VERDICT (H-3). `capability_gap._gaps_from_unobserved_surface`
+turns a root that measures blind on `unobserved_nights_before_gap`
+consecutive nights into an `unobserved_surface` capability gap, and the
+learning router sends that gap to adapter authoring — because a root
+nothing can parse needs a READER, and a review agent is not one. The
+per-root `unparsed_file_types` is what makes the gap an assignment rather
+than a complaint: it names the parser that has to exist.
 """
 from __future__ import annotations
 
 import fnmatch
 import json
 import subprocess
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -64,6 +73,14 @@ class RootCoverage:
     observing_adapters: tuple[str, ...]
     verdict: str  # observed | partial | unobserved | intentionally_unowned
     reason: str
+    # WHAT: the file types present in this root that NO adapter in the whole
+    # toolbox can parse. WHY it is a separate number from `observed_files`:
+    # "23 files unseen" is a complaint, while ".rs, .toml — nothing here can
+    # read them" names the adapter somebody has to write. A root can be
+    # unobserved with an empty tuple here — every one of its types IS parsed
+    # somewhere, just not declared for this root, and that is a scope edit
+    # rather than a new parser.
+    unparsed_file_types: tuple[str, ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -73,6 +90,7 @@ class RootCoverage:
             "observing_adapters": list(self.observing_adapters),
             "verdict": self.verdict,
             "reason": self.reason,
+            "unparsed_file_types": list(self.unparsed_file_types),
         }
 
 
@@ -142,11 +160,54 @@ def _root_of(path: str) -> str:
     return path.split("/", 1)[0] if "/" in path else "(repository root)"
 
 
+def file_type_of(path: str) -> str:
+    """The token an adapter needs a parser for.
+
+    The extension when there is one, otherwise the filename itself:
+    ``Dockerfile`` and ``Makefile`` are file types a parser is written
+    against exactly as ``.rs`` is, and reporting them as "" would hide the
+    very roots most likely to be blind.
+    """
+    return Path(path).suffix.lower() or Path(path).name
+
+
 def load_policy(workspace_root: Path) -> dict[str, Any]:
     path = workspace_root.joinpath(*POLICY_RELATIVE_PATH)
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+# How many consecutive nights a root must measure blind before the blindness
+# is filed as a capability gap. ONE night is a snapshot, not a property: an
+# adapter manifest can be mid-edit, a new root can land at 23:00, a scope typo
+# can be fixed before breakfast. Three consecutive nights is a standing fact
+# about the repository — the same count, for the same reason, that the
+# oscillation guard uses to tell a loop from a revision.
+DEFAULT_UNOBSERVED_NIGHTS_BEFORE_GAP: int = 3
+
+# The floor exists so the policy file cannot turn this back into the snapshot
+# the threshold was introduced to refuse. Policy may ask for MORE evidence;
+# it may not ask for less than two nights.
+MIN_UNOBSERVED_NIGHTS_BEFORE_GAP: int = 2
+
+
+def unobserved_nights_before_gap(workspace_root: str | Path) -> int:
+    """Operator-tunable blindness threshold, floored at two nights.
+
+    Read from ``aria-config/observation_map.json`` — still policy, never
+    fact: it says how much evidence the operator wants before ARIA files a
+    gap against itself, and says nothing about what is observed.
+    """
+    try:
+        policy = load_policy(Path(workspace_root))
+        raw = policy.get("unobserved_nights_before_gap")
+        value = DEFAULT_UNOBSERVED_NIGHTS_BEFORE_GAP if raw is None else int(raw)
+    except (OSError, TypeError, ValueError):
+        # An unreadable policy file is not permission to lower the bar; it
+        # falls back to the declared default and stays there.
+        return DEFAULT_UNOBSERVED_NIGHTS_BEFORE_GAP
+    return max(MIN_UNOBSERVED_NIGHTS_BEFORE_GAP, value)
 
 
 def derive_observation_map(
@@ -169,16 +230,40 @@ def derive_observation_map(
             continue
         by_root.setdefault(_root_of(path), []).append(path)
 
+    # Match every tracked path ONCE, and remember which file types some
+    # adapter somewhere already parses. The question "can anything in the
+    # toolbox read a .rs file?" is about the toolbox, not about the root that
+    # happens to hold the file, so it can only be answered tree-wide.
+    hits_by_path: dict[str, list[str]] = {}
+    parsable_types: set[str] = set()
+    for paths in by_root.values():
+        for path in paths:
+            hit = [tool for tool, globs in scopes.items() if any(_matches(path, g) for g in globs)]
+            if hit:
+                hits_by_path[path] = hit
+                parsable_types.add(file_type_of(path))
+
     rows: list[RootCoverage] = []
     for root_name in sorted(by_root):
         paths = by_root[root_name]
         observers: set[str] = set()
         observed = 0
         for path in paths:
-            hit = [tool for tool, globs in scopes.items() if any(_matches(path, g) for g in globs)]
+            hit = hits_by_path.get(path)
             if hit:
                 observed += 1
                 observers.update(hit)
+        # Ordered by how much of the root each type accounts for, not
+        # alphabetically. Measured on this repository, alphabetical order put
+        # `.aquamobil` (from `Dockerfile.aquamobil`) ahead of `.rs`, and with
+        # a capped payload the reader would have been handed the noise and
+        # not the 449 Rust files that are the actual assignment.
+        unparsed = Counter(
+            kind for path in paths if (kind := file_type_of(path)) not in parsable_types
+        )
+        ordered_types = tuple(
+            kind for kind, _ in sorted(unparsed.items(), key=lambda kv: (-kv[1], kv[0]))
+        )
         if root_name in unowned:
             verdict, reason = "intentionally_unowned", unowned[root_name]
         elif observed == 0:
@@ -198,6 +283,7 @@ def derive_observation_map(
                 observing_adapters=tuple(sorted(observers)),
                 verdict=verdict,
                 reason=reason,
+                unparsed_file_types=ordered_types,
             )
         )
     return tuple(rows)

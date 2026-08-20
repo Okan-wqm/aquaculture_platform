@@ -10521,3 +10521,76 @@ Note the earlier estimate in the plan (86% observed) counted _roots with zero fi
 Pinned in `aria-kernel/tests/test_observation_coverage.py`: a root no adapter declares is not merely absent but NAMED; declaring a root without parsing its files is not coverage; partial coverage reports its fraction rather than rounding to green; an exemption is excluded from the denominator rather than counted as seen (permission to stop looking is never a claim of sight); an unreadable tree is `unknown`, never green; brace globs expand so a manifest shorthand is not silently missed.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-755 — a belief ARIA could not resolve without a person, and the authority that resolving it accidentally bought — RESOLVED
+
+Severity: HIGH (the last human-shaped link in the belief-learning loop, plus a leak the fix would have opened). JJ-3 of PROGRAM B.
+
+**Measured 2026-08-20** against the live ledger: `belief_escalation.escalate_stuck_contradictions` mints a HUMAN_REQUIRED record for every belief that has stood contradicted for three cycles, and `resolve_human_required` fans an operator verdict into `affected_belief_ids` so the belief's confidence moves. Both halves worked. Nothing connected them without a person: `escalation_adjudicability` did not admit `belief_escalation`, and an unadmitted kind is irreducible **by construction** — so every standing contradiction parked in a queue that has never been drained (0 operator rows in `operator-feedback.jsonl`, 40 open records), while the Y7/Y8 panel sitting beside it adjudicated lease deaths, genesis candidates and tool promotions.
+
+**Fix.** No new panel. The kind is admitted to the existing panel vocabulary; the existing nightly sweep opens and folds it; the resolve arm calls an executor shaped exactly like the promotion and genesis ones, re-deriving the panel decision through the shared `resolve_panel_adjudication_proof` (a hand-built record dict proves nothing). A quorum-REFUSE hands the item to the operator loudly rather than closing it — for this kind a refusal settles nothing, and `record_human_required` is idempotent on the record file, so a closed record would silence the contradiction permanently.
+
+**The operator released the ground-truth boundary for this lane on 2026-08-20** (previous standing directive: ground truth stays with the operator). The authorisation covers the capability. It did not cover what the capability quietly bought — and that is the second half of this finding.
+
+**The leak, measured.** `source_type` said how much authority a row carries. Nothing said what the row was **about**. Both belief bridges file their verdict into the ledger of whichever adapter the escalation happened to name (`context.source_tool_id`), so a unanimous panel row was ground-truth-bearing **for that adapter**. With `ANCHOR_PROMOTION_MIN_JUDGMENTS=5` and four anchors banked, one belief adjudication pushed `anchor_group_keys` to five, `dispatch_arbiter_for_anchor_groups` computed a demand of **zero**, and the adapter's last outstanding anchor debt was retired without one additional finding being judged. Belief work silently suppressed finding judgement. `readiness` did not catch it: its `recorded_run_ids` join is the only place in the codebase that ever asked what a judgment was attached to, and `judge_fanout` has no such join.
+
+The same category error existed **latently** on the operator bridge before JJ-3 (`human_required.py`, `source_type="human"` → `operator_group_keys`, where `operator_judged > 0` alone satisfies `precision_anchored`); the run-id join masked it. Both are fixed here, because a defect that is currently masked by one consumer's join is a defect waiting for the second consumer.
+
+**The bound is a declared field, not a spelling convention.** `judgment_subject` is written on the row — `finding` or `belief`, closed vocabulary, unknown value unwritable. Readers ask the row what it settled instead of parsing `finding_id`. Absent reads as `finding` because the ledger held zero belief rows the day the field was added: the default is a fact about the corpus, not a guess.
+
+Pinned in `aria-kernel/tests/test_judgment_subject_boundary.py`, and the deliberate-breakage direction was measured before it was claimed — with the two filters reverted, three of the five pins go red and the two that should stay green (legacy row still counts, unknown subject still unwritable) stay green: a unanimous belief row is ground truth **and** not an adapter anchor; it does not retire the adapter's last anchor debt, driven through the real consumer rather than a restatement of its arithmetic; an operator belief adjudication is not a human precision anchor; a row written before the field existed still counts; a typo may not become a third category.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-756 — ARIA could measure its own blindness and had no way to act on it — RESOLVED
+
+Severity: HIGH (a measurement with no consumer is a report, not a capability). H-3 of PROGRAM H, and the first thing built on ORPHAN-753's instrument.
+
+**Measured 2026-08-20.** ORPHAN-753 gave ARIA an honest observation map — 71.8% of tracked files inside some declared scope, seventeen roots fully blind. That number went into a report and stopped there. `capability_gap.CAPABILITY_GAP_TYPES` is the closed vocabulary through which ARIA turns "I lack something" into a genesis candidate, and blindness was not in it. So ARIA could state that it cannot see `sens-api-gateway/` and had no mechanism by which that statement became work.
+
+**Fix.** `unobserved_surface` joins the closed set, with its router arm and its parity test in the same change — the three-place closed-dictionary lesson from ORPHAN-733, which cost a night the last time only two were updated. Routing goes to **adapter authoring, not agent genesis**: handing a review agent a root no tool can parse leaves it just as blind, and would mint a gap that can never close.
+
+**The streak needed somewhere to live.** A gap opens only after a root measures blind for N consecutive nights, so the first N-1 nights must leave a trace or the streak can only ever count gaps that already exist. Tonight's blindness is recorded on the cycle record whether or not it minted anything. `None` is preserved distinctly from `[]`: a night whose measurement could not be taken proved nothing, and must never extend a claim that something has been blind for N.
+
+Pinned in `aria-kernel/tests/test_unobserved_surface_gap.py` plus the router-parity spec: one blind night mints nothing and three consecutive ones mint exactly one gap; a night that could not measure BREAKS the streak rather than merely failing to extend it, and records `null` instead of an empty list; two cycles in one night count as one night; each root carries its own streak; a root seen in between starts the count over; the recommendation names the parser that would have to be written; an unregistered gap type is refused at mint; policy may raise the bar but never lower it to a single night.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-757 — the change chain proved a change landed and never whether it worked — RESOLVED
+
+Severity: HIGH (without it, "ARIA improved the repository" is an assertion with a hash chain behind the wrong noun). G-4 of PROGRAM G; the product twin of SI-2b.
+
+**Measured 2026-08-20.** `change_ledger` runs planned → committed → validated. All three events are about the **act** of changing: what was intended, what landed, what ran against it. None is about the **result**. The regression strip built in E21-d could in principle have noticed a merged fix failing, and has fired zero times in production (zero `finding_reproduced` rows) — so the only organ that could have caught it was also the organ nobody read.
+
+**Fix.** A fourth append-only event on the **same** chain, same `change_id`, same sequence discipline (`change_outcome` requires an existing `change_validated`), plus a nightly `change_outcome_evaluation` phase that emits it N nights after merge and folds a negative verdict into the effectiveness ledger's `cycles_rejected` **through that ledger's existing writer** — no second tally.
+
+**The rule that makes the event worth having:** the verdict is recomputed from the ledgers. Not one field comes from what the proposal, the plan, or the commit message claimed the benefit would be. A resolver must declare which surfaces its reading was computed from, and the emitter refuses any reading whose sources are not execution-or-after-the-fact records — `proposals` is a declared ledger too, and it is precisely what must never be admissible. `regression` is **consumed** from the existing `experiment_regression_detected` event rather than re-detected: one detector, one event, two readers.
+
+`unknown` is a first-class verdict, and most changes will land there at first. That is the honest reading of a chain whose metrics are still thin — and it is the number that will show whether the metric registry is growing.
+
+Pinned in `aria-kernel/tests/test_change_outcome.py`: a premature outcome is refused and an unmerged chain is never evaluated; a reading computed from the proposal's own claim is refused; the regression verdict is CONSUMED from the existing detector event rather than minted here; no measurable metric yields `unknown`, never `gain`, so a chain with no metric is visibly unanswered instead of silently absent; a red rerun alone is not promoted to a verdict; the verdict is reproducible from the ledgers alone and re-emitting the same evidence is idempotent.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-758 — every defence against unregistered vocabulary members faced the wrong way — RESOLVED
+
+Severity: HIGH (the recurrence of the class that killed a cycle, sitting in the tree while three separate defences against it passed).
+
+**How it was found.** Not by a grep. A comprehension pass over the kernel — six independent lenses reading the code with no finding list to confirm — asked whether ARIA's closed vocabularies are policed in both directions. They are not.
+
+**Measured 2026-08-20 against `origin/main`.** After ORPHAN-CRITICAL-733 (a pressure source present in `SOURCE_WEIGHTS` but not `DRIFT_CLASS_BY_SOURCE` killed the 2026-08-18 cycle), the kernel gained three good defences: a boundary raise that names both registration sites in the producer's own language, a parity test pinning the two tables to each other, and a generic reachability gate with an owner-and-deadline waiver ledger. Every one of them answers **"is a DECLARED member reachable?"** None answers **"is a WRITTEN value declared?"** — and the second question is the one the outage came from.
+
+The machinery for the second question was already there and threw its own answer away. `surface_reachability.written_members` resolves every literal reaching a writer's field, then filters `if member in surface.members` — discarding, one line before it could be reported, exactly the set that matters.
+
+**Two live instances, both surfaced the moment the direction was turned on:**
+
+1. `pressure.py:383` emits `source="post_merge_ci"`, a value in **neither** table. Its producer is the post-merge red scan built in ORPHAN-718 — my own change, three days old. `_pressure` raises `GovernanceError` on an unregistered source, the `pressure` phase inherits `on_error="halt_sequence"`, and `pr_ci_scan` runs before it. **Correction to the first reading:** this is not armed today — `merge-outcomes.jsonl` has never materialised on `aria/state`, so `load_post_merge_reds` returns `[]` and nothing calls the raise. It fires the first night a red merge outcome is recorded, which is precisely what that monitoring exists to produce. A loaded gun with no round chambered, and my own follow-up work is what chambers it.
+2. `agent_surface_request_role` bound `members=REQUEST_ROLES` to a writer governed by `INVOCATION_ROLES` (`agent_invocations.ROLES = INVOCATION_ROLES`, `role not in ROLES` → raise). The two differ by exactly `specialist_domain_review`, which `specialist_review_runner.py:481` emits in production. The surface described a rule its writer does not obey — invisible while only the forward direction ran.
+
+**Fix.** `undeclared_written_members` (the inverse of the function that was already computing it); a `pressure_source` surface declaration, so the vocabulary that caused ORPHAN-733 is bound to its producer in both directions for the first time; the role surface rebound to `INVOCATION_ROLES`; `post_merge_ci` registered in both tables. Its drift class is `process_health` — the same as its sibling `own_pr_ci`, both being ARIA's delivery pipeline reporting on itself. The first attempt invented a `runtime` class for it and the existing parity test rejected it on the spot, which is the gate working.
+
+**No waiver ledger for this direction, deliberately.** An unwritten member is a plan that has not happened yet and can reasonably carry an owner and a date. An undeclared written value is a raise waiting for its input.
+
+Pinned in `aria-kernel/tests/test_surface_reachability.py::test_no_writer_emits_a_member_the_vocabulary_does_not_declare`, which fails with the emitting `path:line` rather than a bare set difference.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

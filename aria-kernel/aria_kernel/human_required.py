@@ -350,7 +350,11 @@ def resolve_human_required(
         record["panel_outcome"] = panel_outcome
 
     if verdict is not None:
-        from .feedback_store import FEEDBACK_VERDICTS, record_operator_feedback
+        from .feedback_store import (
+            FEEDBACK_VERDICTS,
+            JUDGMENT_SUBJECT_BELIEF,
+            record_operator_feedback,
+        )
         if verdict not in FEEDBACK_VERDICTS:
             raise GovernanceError(f"verdict must be one of {FEEDBACK_VERDICTS}")
         ctx = record.get("context") or {}
@@ -391,6 +395,11 @@ def resolve_human_required(
                 note=f"operator adjudication of belief escalation {request_id}",
                 affected_belief_ids=[belief_id],
                 source_type="human",
+                # JJ-3 (ORPHAN-HIGH-755) - this settles a BELIEF, not a
+                # finding this adapter emitted. Declared on the row so the
+                # adapter-precision lanes exclude it structurally instead of
+                # each reader re-deciding from finding_id spelling.
+                judgment_subject=JUDGMENT_SUBJECT_BELIEF,
                 base_dir=root,
             )
             record["operator_verdict"] = verdict

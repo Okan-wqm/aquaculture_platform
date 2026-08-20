@@ -1059,6 +1059,30 @@ def _phase_experiment_night(context: PhaseContext) -> dict[str, Any]:
     )
 
 
+def _phase_change_outcome_evaluation(context: PhaseContext) -> dict[str, Any]:
+    """G-4 — the night asks the question a merge never answered.
+
+    The change chain recorded planned → committed → validated and
+    stopped, so ARIA could prove a change LANDED and never whether the
+    benefit it claimed arrived. This phase closes each merged chain with
+    a verdict RECOMPUTED FROM THE LEDGERS (never from the proposal's own
+    claim) N nights after the merge, and folds a negative one into the
+    effectiveness ledger's `cycles_rejected` through its existing writer.
+
+    Registered AFTER `experiment_night` so tonight's regression events
+    are already on the governance ledger when tonight's verdicts read
+    them. The thinking lives in change_outcome.py; the cycle supplies
+    identity and roots.
+    """
+    from .change_outcome import evaluate_change_outcomes
+
+    return evaluate_change_outcomes(
+        context.workspace_root,
+        cycle_id=context.cycle_id,
+        base_dir=context.base_dir,
+    )
+
+
 def _phase_watchdog(context: PhaseContext) -> dict[str, Any]:
     """M13/E12-c (ORPHAN-677) — the watchdog's eyes join the nightly body.
 
@@ -3061,6 +3085,18 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
         "experiment_night", "post_tool", _phase_experiment_night,
         precondition=WRITES_PERMITTED, on_error="record_and_continue",
         state_key="experiment_night",
+    ),
+    # G-4 — immediately after the bench, because the bench is what
+    # produces the evidence this phase reads: a regression detected
+    # tonight is a verdict tonight, not tomorrow. WRITES_PERMITTED (the
+    # existing closed-set member) because it appends the fourth
+    # change-ledger event and updates the effectiveness counters;
+    # record_and_continue because a night whose real work succeeded must
+    # not fail on a measurement that crashed.
+    CyclePhase(
+        "change_outcome_evaluation", "post_tool", _phase_change_outcome_evaluation,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="change_outcome_evaluation",
     ),
     # The judgment supply chain, in dependency order and BEFORE calibration:
     # fixtures stay fresh, findings get sampled, judges fan out, consensus is

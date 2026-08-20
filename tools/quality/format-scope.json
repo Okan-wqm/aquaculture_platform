@@ -28300,6 +28300,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/aria/BEHAVIOUR.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/aria/CONTRACTS.md",
       "prettier_managed": true
     },

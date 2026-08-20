@@ -50,10 +50,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .agent_surface import REQUEST_ROLES
+from .agent_surface import INVOCATION_ROLES
 from .genesis_lifecycle import GENESIS_LIFECYCLE_STATES
 from .literal_provenance import ProductionIndex, literals_reaching
 from .plan_convergence import EVENT_TYPES
+from .pressure import SOURCE_WEIGHTS
 from .tool_registry import TOOL_STATUSES
 
 
@@ -132,9 +133,31 @@ def declared_surfaces() -> tuple[DeclaredSurface, ...]:
             ),
         ),
         DeclaredSurface(
+            surface_id="pressure_source",
+            declared_in="aria_kernel/pressure.py",
+            members=tuple(sorted(SOURCE_WEIGHTS)),
+            writers=(WriterBinding("_pressure", "source"),),
+            why=(
+                "ORPHAN-CRITICAL-733 was a source in SOURCE_WEIGHTS but not "
+                "DRIFT_CLASS_BY_SOURCE, and it killed a cycle. The parity "
+                "test that followed pins the two tables to EACH OTHER; "
+                "neither is pinned to the producers. This surface binds the "
+                "vocabulary to the code that emits it — in BOTH directions, "
+                "which is the direction that outage actually came from."
+            ),
+        ),
+        DeclaredSurface(
             surface_id="agent_surface_request_role",
             declared_in="aria_kernel/agent_surface.py",
-            members=tuple(sorted(set(REQUEST_ROLES))),
+            # INVOCATION_ROLES, not REQUEST_ROLES. The writer bound below is
+            # governed by `agent_invocations.ROLES`, which IS
+            # INVOCATION_ROLES (`role not in ROLES` -> GovernanceError), and
+            # that set is `{*REQUEST_ROLES, "specialist_domain_review"}`.
+            # Binding the narrower vocabulary made the surface describe a
+            # rule the writer does not obey — invisible while only the
+            # forward direction ran, and the first thing
+            # `undeclared_written_members` reported when it did.
+            members=tuple(sorted(INVOCATION_ROLES)),
             writers=(WriterBinding("create_agent_invocation_request", "role"),),
             why=(
                 "ORPHAN-MEDIUM-571/572 were exactly this: a request "
@@ -156,6 +179,35 @@ def written_members(surface: DeclaredSurface, index: ProductionIndex) -> dict[st
             if member in surface.members:
                 evidence.setdefault(member, []).extend(locations)
     return evidence
+
+
+def undeclared_written_members(
+    surface: DeclaredSurface, index: ProductionIndex,
+) -> dict[str, list[str]]:
+    """Literals a production writer emits that the vocabulary does NOT declare.
+
+    The inverse of `written_members`, and the direction every defence in this
+    file was missing. `written_members` already resolves every literal
+    reaching a writer's field and then drops the unrecognised ones one line
+    before they could be reported — so a producer emitting a value no
+    registry knows was, until this function existed, structurally invisible
+    to the gate that exists to catch exactly that.
+
+    That is not a hypothetical. ORPHAN-CRITICAL-733 (a cycle killed by an
+    unregistered pressure source) was this direction, and the defences built
+    afterwards — a boundary raise, a parity test between the two tables, this
+    reachability gate — all answer "is a DECLARED member reachable?". None
+    answered "is a WRITTEN value declared?", and a second instance
+    (`post_merge_ci`, pressure.py) was sitting in the tree while they passed.
+    """
+    undeclared: dict[str, list[str]] = {}
+    for writer in surface.writers:
+        for member, locations in literals_reaching(
+            index, function_name=writer.function, field=writer.field, position=writer.position
+        ).items():
+            if member not in surface.members:
+                undeclared.setdefault(member, []).extend(locations)
+    return undeclared
 
 
 def unwritten_members(surface: DeclaredSurface, index: ProductionIndex) -> tuple[str, ...]:

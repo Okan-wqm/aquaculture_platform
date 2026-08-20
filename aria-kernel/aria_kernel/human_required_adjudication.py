@@ -54,6 +54,7 @@ from .agent_invocations import (
     derive_request_state,
 )
 from .agent_surface import allowed_targets_for_role
+from .belief_escalation import BELIEF_ESCALATION_KIND
 from .human_required import (
     OUTCOME_REFUSED,
     OUTCOME_RESOLVED,
@@ -153,7 +154,32 @@ ADJUDICABLE_CONTEXT_KINDS: frozenset[str] = frozenset({
     # from this set — an adapter scoped into aria-kernel/** must stay with
     # the operator, and an unadmitted kind is irreducible by construction.
     "tool_promotion",
+    # JJ-3 (ORPHAN-HIGH-755) — admitted together with ITS producer
+    # (belief_escalation.escalate_stuck_contradictions, already wired into
+    # the cycle): a belief that has stood contradicted for three cycles is a
+    # disagreement between ARIA's memory and its scanners, and adjudicating
+    # it moves ONE belief's confidence — it merges nothing and grants no
+    # authority. The kind carries a fail-closed identity requirement
+    # (context.belief_id) in escalation_adjudicability below, because the
+    # correction is written against that belief and a correction with no
+    # subject is not a panel question.
+    BELIEF_ESCALATION_KIND,
 })
+
+# JJ-3 — the kinds whose quorum-REFUSE is an affirmative HANDOFF to a human
+# rather than a rejection that closes the question.
+#
+# For tool_promotion and genesis_candidate a refusal SETTLES the proposal
+# (don't promote, don't mint) and the closed record is what stops the sweep
+# re-asking every night. For these kinds it settles nothing: an operational
+# death the panel will not dispose of, and a belief contradiction the panel
+# will not adjudicate, both leave real work undone — and
+# `record_human_required` is idempotent on the record FILE, so a closed
+# record would silence that contradiction permanently. They stay open,
+# CRITICAL, and loud on the SLA ladder.
+REFUSE_HANDS_TO_OPERATOR_KINDS: frozenset[str] = frozenset(
+    OPERATIONAL_DISPOSITION_KINDS | {BELIEF_ESCALATION_KIND},
+)
 
 # Risk-policy lanes a panel may not clear.
 IRREDUCIBLE_RISK_LANES: frozenset[str] = frozenset({"L3", "blocked"})
@@ -252,6 +278,15 @@ def escalation_adjudicability(record: dict[str, Any]) -> AdjudicabilityVerdict:
         refs = context.get("evidence_refs")
         if not isinstance(refs, list) or not refs:
             return AdjudicabilityVerdict(False, "genesis_candidate_missing:evidence_refs")
+    if kind == BELIEF_ESCALATION_KIND:
+        # JJ-3 — the correction this panel authorises is written against ONE
+        # belief (`affected_belief_ids=[belief_id]`). An escalation that
+        # cannot name its belief is not a panel question: there is nothing
+        # for a resolve quorum to move, and clearing it would file a
+        # correction that reached no belief. It stays with the operator, who
+        # can read the prose a panel cannot act on.
+        if not str(context.get("belief_id") or "").strip():
+            return AdjudicabilityVerdict(False, "belief_escalation_missing:belief_id")
     changed_files = context.get("changed_files")
     if changed_files is not None:
         if not isinstance(changed_files, list) or not changed_files:
@@ -709,8 +744,15 @@ def adjudicate_human_required(
 
     # Y7 — quorum-refuse on an operational kind is the panel affirmatively
     # handing the item to a human: stamp it loud (CRITICAL + SLA ladder)
-    # instead of letting it fold to refused-and-forgotten.
-    if verdict.outcome == OUTCOME_REFUSED and operational and record:
+    # instead of letting it fold to refused-and-forgotten. JJ-3 admitted
+    # belief_escalation to the same arm through the shared set: a belief
+    # contradiction the panel will not adjudicate is likewise unfinished
+    # work, and closing it would silence that contradiction forever.
+    if (
+        verdict.outcome == OUTCOME_REFUSED
+        and kind in REFUSE_HANDS_TO_OPERATOR_KINDS
+        and record
+    ):
         _stamp_escalated_to_operator(
             root, escalation_request_id, record, reason="quorum_refuse",
         )
@@ -842,6 +884,57 @@ def adjudicate_human_required(
             )
             append_tools_governance(
                 root, "genesis_panel_execution_failed",
+                {"escalation_request_id": escalation_request_id, "error": str(exc)[:300]},
+            )
+        return verdict
+
+    if kind == BELIEF_ESCALATION_KIND and record:
+        # JJ-3 (ORPHAN-HIGH-755) — the panel's resolve quorum IS the belief
+        # adjudication. Order mirrors Y8/JJ-2b: resolve the record first
+        # (the shared proof resolver the executor calls demands a RESOLVED,
+        # agent-panel, panel_outcome=resolved record), execute second; an
+        # execution failure honestly re-opens the record so the next cycle
+        # re-folds instead of wedging silently.
+        #
+        # NO `verdict=` is passed. That parameter writes `source_type="human"`
+        # into the ground-truth ledger and `resolve_human_required` refuses it
+        # for any non-operator resolver — the correction below is written by
+        # the executor as `ai_consensus`, which is the whole point of the
+        # boundary.
+        resolve_human_required(
+            request_id=escalation_request_id,
+            resolution_note=(
+                f"belief escalation adjudicated by independent agent panel "
+                f"({verdict.resolve_votes}/{verdict.quorum_required} resolve)"
+            ),
+            resolved_by=RESOLVED_BY_AGENT_PANEL,
+            panel_outcome=verdict.outcome,
+            base_dir=root,
+        )
+        try:
+            from .belief_escalation import execute_belief_panel_correction
+
+            execute_belief_panel_correction(
+                escalation_id=escalation_request_id,
+                record=record,
+                # AGREEMENT and ATTENDANCE, read off the fold rather than
+                # asserted: only the resolve voters stood behind the
+                # correction, and a dissenter still voted. The row is
+                # ground-truth-bearing only when those are equal and >= 3,
+                # so a split panel corrects the belief and settles nothing.
+                judge_count=verdict.resolve_votes,
+                judges_voted=len(verdict.opinions),
+                base_dir=root,
+            )
+        except Exception as exc:
+            reopened = dict(_load_escalation_record(root, escalation_request_id) or record)
+            reopened["status"] = "open"
+            reopened["belief_correction_failure"] = str(exc)[:300]
+            _human_required_path(root, escalation_request_id).write_text(
+                json.dumps(reopened, indent=2, sort_keys=True) + "\n", encoding="utf-8",
+            )
+            append_tools_governance(
+                root, "belief_panel_correction_failed",
                 {"escalation_request_id": escalation_request_id, "error": str(exc)[:300]},
             )
         return verdict
@@ -1073,6 +1166,7 @@ __all__ = [
     "OUTCOME_RESOLVED",
     "OUTCOME_STILL_ESCALATED",
     "PANEL_DISPOSITIONS",
+    "REFUSE_HANDS_TO_OPERATOR_KINDS",
     "REFUSE_VERDICT",
     "RESOLVE_VERDICT",
     "AdjudicabilityVerdict",

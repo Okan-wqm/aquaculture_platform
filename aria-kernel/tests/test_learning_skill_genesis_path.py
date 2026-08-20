@@ -6,10 +6,12 @@ converted form exercises ``_skill_or_agent_genesis`` with mocked
 dependencies and asserts the correct downstream function is called +
 the correct governance event kind is emitted.
 
-4 tests (1:1 conversion):
+5 tests (1:1 conversion, plus H-3):
 
 * gap_type="skill_gap" routes to request_skill_genesis (NOT
   request_agent_genesis); governance kind = skill_genesis_request_emitted.
+* gap_type="unobserved_surface" (H-3) takes the same adapter-authoring
+  surface: blindness needs a parser, not a reviewer.
 * gap_type="capability_gap" (default fallthrough) routes to
   request_agent_genesis; governance kind = genesis_request_emitted.
 * gap_type="existing_agent_extension" routes to
@@ -119,6 +121,23 @@ class LearningSkillGenesisPathTests(unittest.TestCase):
         ctx = self._invoke([_gap(
             gap_id="g-1", gap_type="skill_gap",
             capability_gap_key="cgk-1",
+        )])
+        ctx["skill"].assert_called_once()
+        ctx["agent"].assert_not_called()
+        ctx["ext"].assert_not_called()
+        self.assertIn(
+            "skill_genesis_request_emitted",
+            _governance_kinds(self.base),
+        )
+
+    def test_unobserved_surface_routes_to_adapter_authoring(self) -> None:
+        # H-3. A root no adapter can parse needs a READER. Routing it to
+        # request_agent_genesis would draft a review agent that still has no
+        # tool able to open the files, so the next night measures the
+        # identical blindness — a gap structurally incapable of closing.
+        ctx = self._invoke([_gap(
+            gap_id="g-4", gap_type="unobserved_surface",
+            capability_gap_key="observation:sens-api-gateway",
         )])
         ctx["skill"].assert_called_once()
         ctx["agent"].assert_not_called()

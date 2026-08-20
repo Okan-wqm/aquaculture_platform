@@ -405,6 +405,15 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("change_planned", "change-ledger/planned.jsonl", "ledger", "change_ledger", "runtime", True, "append_fsync", True),
     StateSurface("change_committed", "change-ledger/committed.jsonl", "ledger", "change_ledger", "runtime", True, "append_fsync", True),
     StateSurface("change_validated", "change-ledger/validated.jsonl", "ledger", "change_ledger", "runtime", True, "append_fsync", True),
+    # G-4 — the fourth event of the same chain: what the change ACHIEVED,
+    # recomputed from the ledgers N nights after the merge. Same lock group
+    # as its three siblings (one chain, one lock) and strict_read like them,
+    # because the stored verdict is meant to be re-derivable and therefore
+    # tamper-evident. Observation-class on purpose: the row asserts nothing
+    # about the world and authorises nothing (write_driving=False), so
+    # MEASURING whether a merged change worked never requires the authority
+    # to commit, merge, or open a PR.
+    StateSurface("change_outcome", "change-ledger/outcome.jsonl", "ledger", "change_ledger", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("pr_actions", "pr-actions.jsonl", "ledger", "pr_lifecycle", "runtime", True, "append_fsync", True),
     StateSurface("pr_lifecycle", "pr-lifecycle.jsonl", "ledger", "pr_lifecycle", "runtime", True, "append_fsync", True),
     StateSurface("pr_lifecycle_plans", "pr-lifecycle-plans.jsonl", "ledger", "pr_lifecycle", "runtime", True, "append_fsync", True),

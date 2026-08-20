@@ -676,7 +676,6 @@ jobs:
             --profile "$ARIA_CYCLE_PROFILE" \
             --operator-approval-ref "$ARIA_PROFILE_APPROVAL_REF" \
             --max-cycles "$MAX_CYCLES" \
-            --implementer-poll-seconds 120 \
             --cycle-deadline-seconds 1800 | tee /tmp/cycle-summary.txt
           {
             echo '### Nightly cycle summary'

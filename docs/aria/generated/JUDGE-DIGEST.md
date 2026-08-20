@@ -6,7 +6,7 @@
 
 # ARIA Judge Contract Digest
 
-source_hash: sha256:2571dfd82312eef366d73e5e5991481bdbf2eb96d896f1f778ff5f05167803b3
+source_hash: sha256:8a76d3e4b5ac0d6aea6fb17565787f93df6d83d54110723c94b2eaee8a263fa0
 
 Preamble digest for the four runtime-dispatched judge/worker agents. Every
 passage below is extracted VERBATIM from the `judge-digest` marked sections
@@ -66,7 +66,7 @@ the anchor you need — and cite the anchor you followed:
 ✗ Never manipulates customer data
 ✗ Never executes production database migrations
 ✗ Never flips production feature flags
-✗ Never auto-merges any pull request except the fail-closed Level 3 low-risk `snowball` lane defined in §8.1, and only when the `autonomous` runtime profile is active AND the cost + failure circuit breakers are in `ok` state (Plan ARIA-V3 §B2, ADR-033)
+✗ Never auto-merges any pull request except the fail-closed Level 3 low-risk narrow lane defined in §8.1 (risk-L1 docs/tests, base `main` — ADR-041; the historical `snowball`-branch lane it evolved from no longer exists), and only when the `autonomous` runtime profile is active AND the cost + failure circuit breakers are in `ok` state (Plan ARIA-V3 §B2, ADR-033)
 ✗ Never modifies its own kernel files (enforced via hash-chain, §6)
 ✗ Never modifies aria-immutable/
 ✗ Never promotes its own trust level

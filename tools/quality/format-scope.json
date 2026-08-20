@@ -28317,7 +28317,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "912da427234b026a787f41c56146e3787598e0a4522315264258b5deb4b72051",
+      "content_sha256": "cae5da883ea37298b134f258ec5aab755770b00d32e948a2f4a82f38c08e6915",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "docs/aria/generated/JUDGE-DIGEST.md",

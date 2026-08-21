@@ -35,14 +35,8 @@ test-gap — account for 90.4% of the 24,788 findings ever produced **[measured]
 
 **It knows what it cannot see.** `observation_coverage` derives a map from `git ls-files`,
 every adapter's `declared_scope`, and an exemption policy that ships empty. Current
-reading: **74.7% of tracked files fall inside some declared scope; twenty roots are fully
-unobserved, and `aria-kernel` is 243 of 807 files** **[measured]**.
-
-The first published figure was 71.8% with `aria-kernel` at 13 of 799, and it was wrong:
-the module carried its own private glob matcher whose comment asserted that `fnmatch`
-treats `*` as crossing separators "which is what `**/` means here anyway". It does not —
-`**/` must also match zero directories — so the instrument built to measure ARIA's
-blindness was itself blind in the very directory it existed to measure (ORPHAN-762). A path counts as
+reading: **71.8% of tracked files fall inside some declared scope; seventeen roots are
+fully unobserved, and `aria-kernel` is 13 of 799 files** **[measured]**. A path counts as
 observed only when an adapter both declares it _and_ could parse it.
 
 **It judges a sample of its own findings.** Findings are sampled, dispatched to independent

@@ -1,35 +1,24 @@
 {
   "$schema": "aria/agent-response/v1",
-  "agent_id": "ci-executor:gha-32490478443",
-  "claim_id": "claim_6c4d7da54143aa75",
+  "agent_id": "ci-executor:gha-32520637490",
+  "claim_id": "claim_2685496b98800979",
   "details": {
+    "agent_dispatch_model": "fable",
     "agent_subagent_type": "aria-consensus-arbiter",
     "agent_text": "You've hit your weekly limit \u00b7 resets Aug 23, 10am (UTC)",
     "claude_cli_usage": {
       "cache_creation": {
-        "ephemeral_1h_input_tokens": 105816,
+        "ephemeral_1h_input_tokens": 0,
         "ephemeral_5m_input_tokens": 0
       },
-      "cache_creation_input_tokens": 105816,
-      "cache_read_input_tokens": 1657843,
-      "inference_geo": "not_available",
-      "input_tokens": 42,
-      "iterations": [
-        {
-          "cache_creation": {
-            "ephemeral_1h_input_tokens": 3242,
-            "ephemeral_5m_input_tokens": 0
-          },
-          "cache_creation_input_tokens": 3242,
-          "cache_read_input_tokens": 121368,
-          "input_tokens": 2,
-          "output_tokens": 1948,
-          "type": "message"
-        }
-      ],
-      "output_tokens": 27889,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "inference_geo": "",
+      "input_tokens": 0,
+      "iterations": [],
+      "output_tokens": 0,
       "output_tokens_details": {
-        "thinking_tokens": 17785
+        "thinking_tokens": 0
       },
       "server_tool_use": {
         "web_fetch_requests": 0,

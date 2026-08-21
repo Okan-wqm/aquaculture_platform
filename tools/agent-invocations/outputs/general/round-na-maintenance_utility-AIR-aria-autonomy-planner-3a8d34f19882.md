@@ -1,10 +1,10 @@
 {
   "$schema": "aria/agent-response/v1",
   "agent_id": "ci-executor:gha-32520637490",
-  "claim_id": "claim_474bb2961b87c5a4",
+  "claim_id": "claim_fb0a0616c2f5a6c4",
   "details": {
-    "agent_dispatch_model": "opus",
-    "agent_subagent_type": "aria-evidence-judge",
+    "agent_dispatch_model": "fable",
+    "agent_subagent_type": "aria-autonomy-planner",
     "agent_text": "You've hit your weekly limit \u00b7 resets Aug 23, 10am (UTC)",
     "claude_cli_usage": {
       "cache_creation": {
@@ -29,13 +29,13 @@
     }
   },
   "evidence_refs": [],
-  "request_id": "AIR-aria-evidence-judge-8aae48f62067",
-  "role": "evidence_judgment",
+  "request_id": "AIR-aria-autonomy-planner-3a8d34f19882",
+  "role": "maintenance_utility",
   "satisfaction_matrix": [
     {
       "evidence": "You've hit your weekly limit \u00b7 resets Aug 23, 10am (UTC)",
       "evidence_refs": [],
-      "id": "verdict",
+      "id": "queue_item_projected",
       "verdict": "satisfied"
     }
   ],

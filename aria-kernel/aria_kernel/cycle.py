@@ -1598,6 +1598,26 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
     pipeline_policy = judgment_pipeline_policy(context.workspace_root)
     sample_size = int(pipeline_policy.get("sample_size_per_tool") or 5)
     max_pending_per_role = int(pipeline_policy.get("max_pending_per_role") or 32)
+    # ORPHAN-HIGH-784 — judge weights for THIS cycle, computed in memory
+    # before the consensus that consumes them. The previous consumer read
+    # the calibration ledger's tail (`_cal_rows[-1]`), which the
+    # judge_calibration phase appends AFTER this phase runs — a permanent
+    # one-cycle lag, and None on any cycle with no prior row, which was
+    # every cycle (the only row ever written carried `judges: []`). The
+    # ledger append stays owned by the calibration phase for audit; the
+    # freshness source is the computation, not the tail. Failure semantics
+    # unchanged: any error → None → the legacy gate bit for bit; failure
+    # costs calibration, never consensus.
+    _judge_weights = None
+    try:
+        from .calibrated_intelligence import judge_weights_from_calibration
+        from .judge_calibration import score_judges
+
+        _judge_weights = judge_weights_from_calibration(
+            score_judges(cycle_id=context.cycle_id, base_dir=context.base_dir)
+        ) or None
+    except (OSError, ValueError, KeyError, TypeError):
+        _judge_weights = None
     sampled = 0
     fanned_out = 0
     mint_skipped_backlog = 0
@@ -1634,25 +1654,17 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
         except GovernanceError as exc:
             blocked.append({"tool_id": tool_id, "step": "sample_or_fanout", "reason": str(exc)[:200]})
         try:
-            # Kalibre Zekâ Z2a/Z2c — the two calibrated knobs, derived from
-            # the ledgers each cycle. Missing ledgers → None → the legacy
-            # gate bit for bit; failure costs calibration, never consensus.
-            _judge_weights = None
+            # Kalibre Zekâ Z2c — the conformal floor, derived per tool from
+            # correct-consensus confidences. Judge weights come from the
+            # in-memory computation above (ORPHAN-HIGH-784); the floor stays
+            # per-tool because its input is tool-scoped. Missing data → None
+            # → the legacy gate bit for bit; failure costs calibration,
+            # never consensus.
             _conformal_floor = None
             try:
-                from .calibrated_intelligence import (
-                    conformal_threshold,
-                    judge_weights_from_calibration,
-                )
+                from .calibrated_intelligence import conformal_threshold
                 from .feedback_store import load_feedback
-                from .judge_calibration import calibration_path
-                from .strict_jsonl_reader import read_strict_jsonl
 
-                _cal_path = calibration_path(context.base_dir)
-                if _cal_path.exists():
-                    _cal_rows = list(read_strict_jsonl(_cal_path, on_corruption="tolerant"))
-                    if _cal_rows:
-                        _judge_weights = judge_weights_from_calibration(_cal_rows[-1]) or None
                 _correct_confidences = [
                     float(row.get("confidence"))
                     for row in load_feedback(tool_id=tool_id, base_dir=context.base_dir)
@@ -1661,7 +1673,6 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
                 ]
                 _conformal_floor = conformal_threshold(_correct_confidences)
             except (OSError, ValueError, KeyError, TypeError):
-                _judge_weights = None
                 _conformal_floor = None
             consensus = generate_ai_consensus(
                 tool_id=tool_id,

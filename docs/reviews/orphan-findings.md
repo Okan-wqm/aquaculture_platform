@@ -21,6 +21,13 @@
 
 ---
 
+## ORPHAN-HIGH-788 — the readiness-claim lane has been dead on an env-case typo since #1300: exports `work_dir`, reads `${WORK_DIR}` — RESOLVED (this PR)
+
+**Discovered:** 2026-08-21 (the operator read the Actions tab: red runs "on the pushes"). Not caused by them — the lane fires on `workflow_run` after ANY completing workflow, and the failure history runs continuously from 08:23 UTC, hours before the promotion-chain PR (17:51).
+**Evidence:** `aria-readiness-claim.yml:141` wrote `echo "work_dir=${work}" >> "$GITHUB_ENV"` (lowercase) while eleven consumers read `${WORK_DIR}` (uppercase) under `set -euo pipefail` — the very first consumer died with `WORK_DIR: unbound variable`, exit 1, every single firing. The typo arrived in #1300 (84404283f). Kernel-side tests could not see it: the mismatch lives in YAML/bash, not Python.
+**Remediation (this PR):** the export is `WORK_DIR`, matching every consumer. The class gets a detector (Tier 3): `test_workflow_env_binding.py` walks every `aria-*.yml`, collects the names exported to `$GITHUB_ENV`, and requires each to be consumed in its exact spelling — a case-variant usage anywhere in the file fails, verified by deliberate breakage (restoring the lowercase typo reds the detector). The concrete lane is pinned by name so a rename cannot orphan the fix.
+**Owner:** zcode (this session). **Deadline:** closed by this PR.
+
 ## ORPHAN-HIGH-779 — the fixture path-guard rejects every valid fixture path in the state-store layout, so no fixture suite has EVER produced a row — RESOLVED (this PR)
 
 **Discovered:** 2026-08-21 (verifying why `fixture-runs.jsonl` does not exist on `aria/state` despite six completed cycles running with phase + corpus + registry all in place).

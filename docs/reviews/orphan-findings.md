@@ -65,11 +65,12 @@
 **Remediation (this PR):** `compute_judge_calibration` is split into `score_judges` (pure computation) and the thin persistence owner that appends the row — one computation, two call shapes. The judgment pipeline now computes THIS cycle's calibration in memory before the consensus that consumes it; the calibration phase keeps owning the ledger append for audit, and the pipeline provably writes no row. Failure semantics unchanged: any error → weights None → the legacy gate bit for bit; the per-tool conformal floor stays per-tool because its input (correct-consensus confidences) is tool-scoped. Pinned by a regression test that seeds ground truth + judge verdicts with NO calibration row at all — the exact production shape — and requires non-None weights, correctly ordered (the accurate judge outweighs the wrong one), with no ledger side effect.
 **Owner:** zcode (this session). **Deadline:** closed by this PR.
 
-## ORPHAN-MEDIUM-785 — the judgment sampler only sees the current cycle's raw findings, so cross-night accumulation is impossible — OPEN
+## ORPHAN-MEDIUM-785 — the judgment sampler only sees the current cycle's raw findings, so cross-night accumulation is impossible — RESOLVED (this PR)
 
 **Discovered:** 2026-08-21 (judgment supply chain trace; survives the #1300 fingerprint fix).
 **Evidence:** `_sampleable_raw_findings` drops every raw-finding row whose `cycle_id` differs from the current cycle (`feedback_store.py:1029-1030`). Any night without fresh adapter runs samples `empty` and mints nothing; findings produced on thin or failed nights can never be judged later. With runs.jsonl currently 149 rows against a 30-cycle history, the exact-cycle filter guarantees the judge lane starves even after ORPHAN-HIGH-765 (fingerprint threading, #1300) is fixed.
-**Owner:** zcode (this session). **Deadline:** closed by this session's PR.
+**Remediation (this PR):** the exact-cycle match becomes a recency window — this cycle's rows always qualify, older rows qualify while inside `SAMPLE_RECENCY_HOURS` (168h, the operator-facing week; deliberately wider than the anchor TTL because a judge envelope's 3-day clock starts at MINT, so a several-day-old finding is still fresh enough to judge while month-old findings stay out). `cycle_id=None` keeps its process-all meaning unchanged. An unparseable `recorded_at` falls back to cycle-match-only — an unverifiable age neither widens nor narrows the cohort silently. The judged-once guarantee is untouched: the existing-feedback dedup sits upstream of the window, pinned by a test that records verdicts and requires a later night's window to offer nothing already judged.
+**Owner:** zcode (this session). **Deadline:** closed by this PR.
 
 ## ORPHAN-HIGH-786 — mint vastly exceeds drain against a 3-day anchor TTL, and stale envelopes are only marked at claim time — OPEN
 

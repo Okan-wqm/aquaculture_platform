@@ -1287,15 +1287,18 @@ def transition_tool(
     evaluator, not by how the manifest spells its globs.
 
     What the token is NOT: a value this function verifies. Like the auto-
-    promote token it is a workspace-bound HMAC that ``transition_tool``
-    accepts on presence alone (see adapter_calibration.py's own note) — the
-    load-bearing gates are all upstream, at mint. Calling either token
-    "unforgeable" here would describe a consume-time check that does not
-    exist yet.
+    promote token it is a workspace-bound HMAC — but unlike the auto-
+    promote token (whose consume-time MAC verification is wired since
+    ORPHAN-HIGH-787), the panel token's verification lives at its MINT:
+    ``promotion_veto.compute_panel_approval_token`` re-derives the panel
+    approval from the human-required adjudication record before signing,
+    so the kernel-side mint IS the check. Calling the panel token
+    "unforgeable HERE" would describe a consume-time check that does not
+    exist; its load-bearing gates are upstream, at mint.
 
     The literal predicate (I-V6.4-04 source-substring invariant pins):
 
-        if (not operator_approval and not auto_promote_token and not panel_approval_token) or not evidence_chains_valid:
+        if (not operator_approval and not _auto_promote_verified and not panel_approval_token) or not evidence_chains_valid:
 
     preserves V5's evidence_chains_valid check unchanged; no authority
     can bypass evidence chain integrity — it is still the LAST clause and
@@ -1350,7 +1353,24 @@ def transition_tool(
             # drops any clause silently weakens the SHADOW -> ACTIVE
             # gate. JJ-2b added the panel clause; the pin was rewritten
             # with it, never deleted to make a test pass.
-            if (not operator_approval and not auto_promote_token and not panel_approval_token) or not evidence_chains_valid:
+            # ORPHAN-HIGH-787 — the auto-promote token is VERIFIED, not
+            # counted: verify_auto_promote_token recomputes the
+            # workspace-bound HMAC over the envelope's payload and its
+            # tool binding, so a fabricated string, a cross-workspace
+            # replay or a cross-tool replay all read as "no token".
+            # Late import: adapter_calibration reads tool_registry at
+            # module level, so a top-level import would be a cycle.
+            _auto_promote_verified = False
+            if auto_promote_token:
+                from .adapter_calibration import verify_auto_promote_token
+
+                _auto_promote_verified = (
+                    verify_auto_promote_token(
+                        auto_promote_token, tool_id=tool_id, base_dir=base_dir
+                    )
+                    is not None
+                )
+            if (not operator_approval and not _auto_promote_verified and not panel_approval_token) or not evidence_chains_valid:
                 raise GovernanceError(
                     "SHADOW -> ACTIVE requires valid evidence chains and "
                     "(operator_approval OR auto_promote_token OR "

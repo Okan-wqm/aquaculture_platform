@@ -79,11 +79,12 @@ def compute_auto_promote_token(
     token bound to (tool_id, cycle_id, base_commit_sha, last_N runs).
 
     Returns:
-      Hex-encoded HMAC-SHA256 token. The token is consumed by
-      ``tool_registry.transition_tool(..., auto_promote_token=<token>)``
-      which treats it as equivalent to ``operator_approval=True`` ONLY
-      when ``evidence_chains_valid=True`` (literal predicate pinned by
-      I-V6.4-04).
+      A ``v1:<base64url(payload)>:<hmac>`` envelope token. The token is
+      consumed by ``tool_registry.transition_tool(..., auto_promote_token=<token>)``
+      which re-verifies the MAC and the tool binding at consume time
+      (ORPHAN-HIGH-787) and treats it as equivalent to
+      ``operator_approval=True`` ONLY when ``evidence_chains_valid=True``
+      (literal predicate pinned by I-V6.4-04).
 
     Raises:
       AutoPromoteIneligibleError: ANY policy gate fails. The adapter
@@ -94,11 +95,15 @@ def compute_auto_promote_token(
       A raw SHA256 over public fields would let any caller fabricate
       a token. The HMAC key is derived from the base_dir contract
       hash (bound to the workspace identity), so the token is valid
-      only inside the workspace that minted it. Replay across
-      workspaces / cycles is rejected at consume time by
-      transition_tool's gate predicate (NOT YET WIRED — current
-      revision permits any non-None token; future hardening will
-      reverify the HMAC at consume time).
+      only inside the workspace that minted it. ORPHAN-HIGH-787 wired
+      the consume-time half: the token is a self-describing envelope
+      (``v1:<base64url(payload)>:<hmac>``) and
+      ``transition_tool`` re-verifies the MAC against the SAME
+      workspace key and the tool binding before treating it as an
+      authority — replay across workspaces, tools, or a fabricated
+      string all refuse. Pre-787 the consumer accepted any non-None
+      token; that hole is closed, and the payload is inspectable at
+      consume time for audit.
     """
     # Lazy import — genesis_policy reads the default JSON; importing
     # at module load would create a cycle with tool_registry.
@@ -138,6 +143,9 @@ def compute_auto_promote_token(
             )
 
     # Tamper-evident HMAC token bound to workspace + cycle + commit.
+    # ORPHAN-HIGH-787 — self-describing envelope so the CONSUMER can
+    # recompute the MAC: the payload rides inside the token (base64url),
+    # and verify_auto_promote_token re-derives key + MAC at consume time.
     root = ensure_tools_dir(base_dir)
     workspace_key = _derive_workspace_key(root)
     payload = json.dumps({
@@ -148,7 +156,50 @@ def compute_auto_promote_token(
         "window_precision": [r.get("precision") for r in window],
         "window_recorded_at": [r.get("recorded_at") for r in window],
     }, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return hmac.new(workspace_key, payload, hashlib.sha256).hexdigest()
+    mac = hmac.new(workspace_key, payload, hashlib.sha256).hexdigest()
+    import base64 as _base64
+
+    body_b64 = _base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+    return f"v1:{body_b64}:{mac}"
+
+
+def verify_auto_promote_token(
+    token: str | None,
+    *,
+    tool_id: str,
+    base_dir: str | Path | None,
+) -> dict[str, Any] | None:
+    """ORPHAN-HIGH-787 — consume-time verification of the auto-promote token.
+
+    Returns the authenticated payload, or None for ANY of: a token that is
+    not a v1 envelope, a MAC that does not match this workspace's key, a
+    tampered payload, or a payload minted for a different tool. The caller
+    treats None as "no token presented" — no error message distinguishes
+    the failure modes, because a forged token must not learn which check
+    it failed.
+    """
+    if not isinstance(token, str):
+        return None
+    parts = token.split(":")
+    if len(parts) != 3 or parts[0] != "v1":
+        return None
+    _, body_b64, mac = parts
+    import base64 as _base64
+
+    try:
+        body = _base64.urlsafe_b64decode(body_b64 + "=" * (-len(body_b64) % 4))
+        payload = json.loads(body)
+    except (ValueError, UnicodeDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    root = ensure_tools_dir(base_dir)
+    expected = hmac.new(_derive_workspace_key(root), body, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, str(mac)):
+        return None
+    if str(payload.get("tool_id") or "") != str(tool_id):
+        return None
+    return payload
 
 
 def _precision_history(
@@ -180,7 +231,8 @@ def _derive_workspace_key(root: Path) -> bytes:
 
     Uses the contract hash from ``tools_contract_version`` if available;
     falls back to a sha256 of the resolved aria-tools root path. Either
-    way, tokens minted in workspace A do not verify in workspace B
-    (when verify-at-consume is wired in a follow-up).
+    way, tokens minted in workspace A do not verify in workspace B —
+    the consume-time half is wired since ORPHAN-HIGH-787
+    (``verify_auto_promote_token`` re-derives this same key).
     """
     return hashlib.sha256(str(root.resolve()).encode("utf-8")).digest()

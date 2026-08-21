@@ -80,7 +80,7 @@ def _mean(values: list[float]) -> float | None:
     return round(sum(values) / len(values), 3) if values else None
 
 
-def compute_judge_calibration(
+def score_judges(
     *,
     cycle_id: str | None = None,
     base_dir: str | Path | None = None,
@@ -88,7 +88,13 @@ def compute_judge_calibration(
     precision_floor: float = DEFAULT_PRECISION_FLOOR,
     judgment_group_prefix: str | None = None,
 ) -> dict[str, Any]:
-    """Score every judge_id against accumulated ground truth and persist a row.
+    """Score every judge_id against accumulated ground truth — pure, no write.
+
+    The same computation `compute_judge_calibration` persists, split out for
+    the consumer that must see THIS cycle's calibration (ORPHAN-HIGH-784):
+    the judgment pipeline computes weights in memory BEFORE the consensus
+    that consumes them, while the calibration phase keeps owning the ledger
+    append for audit. One computation, two call shapes, no one-cycle lag.
 
     Positive class = ``true_positive``. Per judge: precision, recall, accuracy,
     and a calibration signal (mean confidence on correct vs wrong calls). A
@@ -184,6 +190,32 @@ def compute_judge_calibration(
         "degraded_judges": degraded,
         "judges": judges,
     }
+    return result
+
+
+def compute_judge_calibration(
+    *,
+    cycle_id: str | None = None,
+    base_dir: str | Path | None = None,
+    min_samples: int = DEFAULT_MIN_SAMPLES,
+    precision_floor: float = DEFAULT_PRECISION_FLOOR,
+    judgment_group_prefix: str | None = None,
+) -> dict[str, Any]:
+    """Score every judge_id against accumulated ground truth and persist a row.
+
+    Thin persistence owner over `score_judges` (see its docstring for the
+    scoring semantics): the calibration phase appends exactly this row, and
+    every consumer that needs the CURRENT calibration calls `score_judges`
+    directly instead of reading this ledger's tail — the tail is audit
+    history, not a freshness source (ORPHAN-HIGH-784).
+    """
+    result = score_judges(
+        cycle_id=cycle_id,
+        base_dir=base_dir,
+        min_samples=min_samples,
+        precision_floor=precision_floor,
+        judgment_group_prefix=judgment_group_prefix,
+    )
     path = calibration_path(base_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     append_jsonl(path, result)

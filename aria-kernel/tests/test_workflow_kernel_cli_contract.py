@@ -80,7 +80,15 @@ def _substitute_placeholder_choice(msg: str, argv: list[str]) -> list[str] | Non
     m = _INVALID_CHOICE_MSG.search(msg)
     if m is None or m.group("value") != _PLACEHOLDER:
         return None
-    choices = re.findall(r"'([^']*)'", m.group("choices"))
+    raw_choices = m.group("choices")
+    if "'" in raw_choices:
+        # Python <= 3.12 renders choices quoted: 'observe', 'standard'.
+        choices = re.findall(r"'([^']*)'", raw_choices)
+    else:
+        # Python >= 3.13 renders them bare: observe, standard. A parser
+        # built for one rendering must not silently lose substitution on
+        # the other — the exact blindness this test exists to remove.
+        choices = [part.strip() for part in raw_choices.split(",") if part.strip()]
     if not choices:
         return None
     flag, replacement = m.group("flag"), choices[0]
@@ -213,6 +221,17 @@ class WorkflowKernelCliContract(unittest.TestCase):
             "a runtime-resolved placeholder must be substituted, not exempted",
         )
         self.assertEqual(argv, ["--profile", "observe"])
+        # Python >= 3.13 renders the choices list without quotes; the
+        # extraction must handle both renderings — this exact divergence
+        # is what made the substitution silently inert in CI while green
+        # on a 3.12 workstation.
+        bare = _substitute_placeholder_choice(
+            "error: argument --profile: invalid choice: "
+            f"'{_PLACEHOLDER}' (choose from observe, standard, strict, frozen, autonomous)",
+            ["--profile", _PLACEHOLDER],
+        )
+        self.assertIsNotNone(bare)
+        self.assertEqual(bare, ["--profile", "observe"])
         self.assertIsNone(
             _substitute_placeholder_choice(
                 "error: argument --profile: invalid choice: 'stricty' "

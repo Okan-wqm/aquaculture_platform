@@ -640,6 +640,89 @@ def _apply_preflight_verdict(root: Path, profile: str, verdict: Any) -> None:
         )
 
 
+def _calibration_reporter_and_auto_promotion(
+    root: Path,
+    cycle_id: str,
+    cycle_summary: dict[str, Any],
+    profile_snapshot: dict[str, Any],
+) -> None:
+    """Plan ARIA-V7 §3 Phase 7.6 — calibration_reporter + the V6.4 first caller.
+
+    ORPHAN-HIGH-782 — extracted from the converged-only tail: this block
+    used to sit AFTER the convergence `continue`, so every non-converged
+    night (most nights — recent autonomy_state shows convergence_blocked /
+    split) skipped it entirely. `adapter-calibration-reports.jsonl` had
+    zero rows, and `compute_auto_promote_token`'s `min_clean_cycles` window
+    over that ledger was structurally unreachable. The reporter is
+    observational: it has no business being gated on plan convergence, and
+    it now runs on EVERY completed cycle. The converged path keeps the
+    original placement (after auto_merge_runner, before reflection) so V6.4
+    still observes the freshest calibration on merge nights; the blocked
+    path runs it before its reflection. Called exactly once per cycle —
+    the `continue` separates the two branches. Pinned by the rewritten
+    I-V7.6-02/03/04 invariants (the literal call site now lives here).
+    """
+    from .adapter_calibration import (
+        generate_adapter_calibration_report,
+    )
+    from .tool_registry import list_tools as _v7_list_tools
+    _v7_calibration_tool_ids = [
+        t.get("tool_id")
+        for t in _v7_list_tools(base_dir=root)
+        if t.get("kind") == "adapter"
+        and t.get("status") in ("SHADOW", "ACTIVE")
+        and t.get("tool_id")
+    ]
+    if _v7_calibration_tool_ids:
+        try:
+            calibration_result = generate_adapter_calibration_report(
+                    tool_ids=_v7_calibration_tool_ids,
+                    base_dir=root,
+                    cycle_id=cycle_id,
+                )
+            cycle_summary["calibration_reporter"] = calibration_result
+        except Exception as _v7_calib_exc:
+            # Surface failure without crashing the cycle.
+            cycle_summary["calibration_reporter"] = {
+                "status": "error",
+                "error_class": type(_v7_calib_exc).__name__,
+                "error_message": str(_v7_calib_exc)[:500],
+            }
+    else:
+        cycle_summary["calibration_reporter"] = {
+            "status": "no_adapters",
+            "tool_ids": [],
+        }
+    AutonomyStateReducer.transition(
+        root,
+        cycle_id=cycle_id,
+        phase="calibration_reporter_completed",
+        status=str(cycle_summary["calibration_reporter"].get("status") or "ok"),
+        profile=profile_snapshot,
+        details={
+            "tool_ids_scanned": len(_v7_calibration_tool_ids),
+        },
+    )
+    # C7/E8 — the V6.4 auto-promote token's first caller. Fires directly
+    # AFTER the calibration reporter because the token gates on the
+    # precision history that phase just persisted. Policy-gated (default
+    # enabled=False): until the operator flips genesis-policy, every
+    # attempt records "ineligible" — the honest no-op. A failure here
+    # must not cost the night; it surfaces on the summary.
+    try:
+        from .promotion import attempt_auto_promotions
+
+        cycle_summary["auto_promotion"] = attempt_auto_promotions(
+            cycle_id=cycle_id, base_dir=root,
+        )
+    except Exception as _c7_exc:
+        cycle_summary["auto_promotion"] = {
+            "status": "error",
+            "error_class": type(_c7_exc).__name__,
+            "error_message": str(_c7_exc)[:500],
+        }
+
+
 def run_autonomy_orchestrator(
     *,
     base_dir: str | Path,
@@ -1507,6 +1590,12 @@ def run_autonomy_orchestrator(
                     cycle_summary["plan_synthesizer"] = {
                         "status": "no_pressure", "plan_content": None,
                     }
+                    # ORPHAN-HIGH-782 — this cycle COMPLETED (enterprise
+                    # cycle ran, tool health exists); a no-pressure night
+                    # is not a reason to skip precision history.
+                    _calibration_reporter_and_auto_promotion(
+                        root, cycle_id, cycle_summary, profile_snapshot,
+                    )
                     post_drain_reflection = run_reflection(
                         cycle_id=cycle_id,
                         base_dir=root,
@@ -1654,6 +1743,11 @@ def run_autonomy_orchestrator(
                         "error_class": type(_v7_exc).__name__,
                         "error_message": str(_v7_exc)[:1000],
                     }
+                    # ORPHAN-HIGH-782 — an invalid plan must not cost the
+                    # night its precision history; the cycle itself ran.
+                    _calibration_reporter_and_auto_promotion(
+                        root, cycle_id, cycle_summary, profile_snapshot,
+                    )
                     post_drain_reflection = run_reflection(
                         cycle_id=cycle_id,
                         base_dir=root,
@@ -1709,6 +1803,17 @@ def run_autonomy_orchestrator(
                             "rounds_count":
                                 convergence_result.get("rounds_count"),
                         },
+                    )
+                    # ORPHAN-HIGH-782 — the calibration reporter and the V6.4
+                    # auto-promote attempt run on convergence-blocked nights
+                    # too. This branch used to `continue` straight to
+                    # reflection, so most nights (convergence_blocked / split)
+                    # never wrote a precision-history row and the V6.4
+                    # min_clean_cycles window was structurally unreachable.
+                    # Reporting is observational; it is not gated on plan
+                    # convergence.
+                    _calibration_reporter_and_auto_promotion(
+                        root, cycle_id, cycle_summary, profile_snapshot,
                     )
                     # Plan ARIA-V3.3 §2b + V5.4 §3f — post-drain
                     # reflection STILL runs on convergence-blocked
@@ -1995,6 +2100,11 @@ def run_autonomy_orchestrator(
                             ),
                         },
                     )
+                    # ORPHAN-HIGH-782 — a specialist-blocked cycle still
+                    # ran end to end; its precision history must not rot.
+                    _calibration_reporter_and_auto_promotion(
+                        root, cycle_id, cycle_summary, profile_snapshot,
+                    )
                     # Reflection still runs (V3.3 §2b + V5.4 §3f)
                     # on specialist-blocked cycles so daily report
                     # covers them.
@@ -2196,77 +2306,16 @@ def run_autonomy_orchestrator(
                 except (OSError, ValueError, KeyError, TypeError):
                     pass
 
-                # Plan ARIA-V7 §3 Phase 7.6 — calibration_reporter
-                # invokes generate_adapter_calibration_report for
-                # every SHADOW/ACTIVE adapter; persists precision_
-                # history to aria-tools/calibration/adapter-
-                # calibration-reports.jsonl. Without this V6.4
-                # compute_auto_promote_token can NEVER fire (V6.4
-                # was a latent dead loop pre-V7). Pinned by I-V7.6-04
-                # source-substring invariant. Phase fires AFTER
-                # auto_merge_runner and BEFORE reflection so V6.4
-                # observes the freshest calibration.
-                from .adapter_calibration import (
-                    generate_adapter_calibration_report,
+                # Plan ARIA-V7 §3 Phase 7.6 — calibration_reporter +
+                # the V6.4 auto-promote first caller, via the extracted
+                # helper (ORPHAN-HIGH-782). On this converged path the
+                # placement is unchanged: AFTER auto_merge_runner and
+                # BEFORE reflection, so V6.4 observes the freshest
+                # calibration. The convergence-blocked branch calls the
+                # same helper before its own reflection.
+                _calibration_reporter_and_auto_promotion(
+                    root, cycle_id, cycle_summary, profile_snapshot,
                 )
-                from .tool_registry import list_tools as _v7_list_tools
-                _v7_calibration_tool_ids = [
-                    t.get("tool_id")
-                    for t in _v7_list_tools(base_dir=root)
-                    if t.get("kind") == "adapter"
-                    and t.get("status") in ("SHADOW", "ACTIVE")
-                    and t.get("tool_id")
-                ]
-                if _v7_calibration_tool_ids:
-                    try:
-                        calibration_result = generate_adapter_calibration_report(
-                            tool_ids=_v7_calibration_tool_ids,
-                            base_dir=root,
-                            cycle_id=cycle_id,
-                        )
-                        cycle_summary["calibration_reporter"] = calibration_result
-                    except Exception as _v7_calib_exc:
-                        # Surface failure without crashing the cycle.
-                        cycle_summary["calibration_reporter"] = {
-                            "status": "error",
-                            "error_class": type(_v7_calib_exc).__name__,
-                            "error_message": str(_v7_calib_exc)[:500],
-                        }
-                else:
-                    cycle_summary["calibration_reporter"] = {
-                        "status": "no_adapters",
-                        "tool_ids": [],
-                    }
-                AutonomyStateReducer.transition(
-                    root,
-                    cycle_id=cycle_id,
-                    phase="calibration_reporter_completed",
-                    status=str(cycle_summary["calibration_reporter"].get("status") or "ok"),
-                    profile=profile_snapshot,
-                    details={
-                        "tool_ids_scanned": len(_v7_calibration_tool_ids),
-                    },
-                )
-
-                # C7/E8 — the V6.4 auto-promote token's first caller.
-                # Fires directly AFTER the calibration reporter because
-                # the token gates on the precision history that phase
-                # just persisted. Policy-gated (default enabled=False):
-                # until the operator flips genesis-policy, every attempt
-                # records "ineligible" — the honest no-op. A failure here
-                # must not cost the night; it surfaces on the summary.
-                try:
-                    from .promotion import attempt_auto_promotions
-
-                    cycle_summary["auto_promotion"] = attempt_auto_promotions(
-                        cycle_id=cycle_id, base_dir=root,
-                    )
-                except Exception as _c7_exc:
-                    cycle_summary["auto_promotion"] = {
-                        "status": "error",
-                        "error_class": type(_c7_exc).__name__,
-                        "error_message": str(_c7_exc)[:500],
-                    }
 
                 # Plan ARIA-V3.3 §2b + V5.4 §3f — post-drain reflection
                 # runs AFTER planner+bridge+convergence+worker+review+

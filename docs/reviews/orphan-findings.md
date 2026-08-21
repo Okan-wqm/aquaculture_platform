@@ -45,11 +45,12 @@
 
 **Owner:** zcode (this session). **Deadline:** closed by this PR.
 
-## ORPHAN-HIGH-782 — the calibration reporter and auto-promotion attempt sit behind the converged-only `continue`; `precision_history` is structurally empty — OPEN
+## ORPHAN-HIGH-782 — the calibration reporter and auto-promotion attempt sit behind the converged-only `continue`; `precision_history` is structurally empty — RESOLVED (this PR)
 
 **Discovered:** 2026-08-21 (tracing why `adapter-calibration-reports.jsonl` has zero rows on aria/state).
 **Evidence:** in `autonomy_orchestrator.py`, a non-converged arbiter verdict records `convergence_blocked` and `continue`s (the `if arbiter_verdict != "converged":` block); `generate_adapter_calibration_report` (Phase 7.6 calibration_reporter) and `attempt_auto_promotions` both sit AFTER that continue and run only on converged nights. The standard `CYCLE_PHASES` lane has no adapter-calibration phase at all. Downstream, `compute_auto_promote_token` requires `len(precision_history) >= min_clean_cycles` (=5) drawn from exactly that ledger (`adapter_calibration.py:117-123`) → structurally unreachable: no rows can ever accumulate on non-converged nights, which are most nights (recent autonomy_state shows `convergence_blocked / split`). Report generation is observational — it has no business being gated on convergence.
-**Owner:** zcode (this session). **Deadline:** closed by this session's PR.
+**Remediation (this PR):** the block is extracted into `_calibration_reporter_and_auto_promotion` and called on EVERY cycle-exit reflection — not just the converged tail but all four blocked exits (no-pressure, invalid-plan, convergence-blocked, specialist-review-blocked), each before its own reflection; the converged path keeps the original placement (after auto_merge_runner, before reflection) so V6.4 still observes the freshest calibration on merge nights. The I-V7.6-02/03/04 source pins are rewritten atomically with the move: the literal V6.4-unlocking call is pinned inside the helper, and the ordering pin becomes structural — one reporter call per reflection exit, so a future exit branch that forgets the helper fails the count by construction. Policy stays OFF (`auto_promote.enabled=false`); every attempt still records its honest "ineligible", but now on every night, so `min_clean_cycles` can actually accumulate.
+**Owner:** zcode (this session). **Deadline:** closed by this PR.
 
 ## ORPHAN-MEDIUM-783 — blocked and skipped phase results die inside cycle state: six nights of blocked fixture refresh were invisible in every report — RESOLVED (this PR)
 

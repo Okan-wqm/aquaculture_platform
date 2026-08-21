@@ -24,6 +24,7 @@ from aria_kernel.agent_runtime_profile import (
     VALID_MODELS,
     model_tier_rank,
 )
+from aria_kernel.feedback_store import ANCHOR_MIN_DISTINCT_MODELS
 from aria_kernel.budget import (
     MODEL_FAMILY_PRICING_USD_PER_MTOK,
     MODEL_PRICING_USD_PER_MTOK,
@@ -100,6 +101,53 @@ class GlmAdmissionTests(unittest.TestCase):
         runtime = pathlib.Path(__file__).resolve().parents[2] / "tools" / "aria-poc" / "claude_runtime.py"
         body = runtime.read_text(encoding="utf-8")
         self.assertNotIn("VALID_MODELS: tuple", body)
+
+
+class FleetDiversityTests(unittest.TestCase):
+    """ORPHAN-HIGH-763/764 — admission is not usage; this pins the usage.
+
+    A vocabulary entry nobody declares is the defect class this repository
+    keeps finding. GLM is therefore ASSIGNED, and to the one seat where the
+    benefit is measured rather than assumed: ORPHAN-HIGH-760 requires an
+    anchor to span two distinct models, and the two ROUTINE judges were the
+    pair that shared one.
+    """
+
+    def _fleet(self) -> dict[str, str]:
+        from aria_kernel.agent_runtime_profile import read_agent_runtime_profile
+
+        return {
+            a: read_agent_runtime_profile(a).model
+            for a in (
+                "aria-evidence-judge",
+                "aria-adversarial-judge",
+                "aria-consensus-arbiter",
+            )
+        }
+
+    def test_the_adversarial_seat_actually_runs_on_glm(self) -> None:
+        """Declared in frontmatter AND resolvable — a typo silently falls back
+        to DEFAULT_MODEL, which would look wired and change nothing."""
+        self.assertEqual(self._fleet()["aria-adversarial-judge"], GLM)
+
+    def test_an_anchor_can_now_span_three_distinct_models(self) -> None:
+        """The measured reason for the seat choice.
+
+        Before: opus + opus + fable — two models, and the two judges most
+        likely to share a failure mode were the ones sharing a system. An
+        opus judge and an opus REFUTER is the weakest possible adversary.
+        """
+        models = set(self._fleet().values())
+        self.assertEqual(len(models), 3, f"fleet collapsed to {sorted(models)}")
+        self.assertGreaterEqual(len(models), ANCHOR_MIN_DISTINCT_MODELS)
+
+    def test_the_two_routine_judges_are_never_both_foreign(self) -> None:
+        """Reversibility is the whole rollback plan, so keep one seat anchored.
+
+        The evidence judge stays on the Anthropic tier: if GLM regresses, one
+        line reverts the adversarial seat and the lane is unchanged.
+        """
+        self.assertEqual(self._fleet()["aria-evidence-judge"], "opus")
 
 
 if __name__ == "__main__":

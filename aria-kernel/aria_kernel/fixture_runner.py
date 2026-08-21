@@ -34,7 +34,7 @@ def run_fixture_suite(
     base_dir: str | os.PathLike[str] | None = None,
 ) -> dict[str, Any]:
     tool = get_tool(tool_id, base_dir)
-    fixture_dir = resolve_fixture_dir(tool, base_dir)
+    fixture_dir = resolve_fixture_dir(tool, base_dir, workspace_root=workspace_root)
     cases_dir = fixture_dir / "cases"
     if not cases_dir.exists() or not cases_dir.is_dir():
         raise GovernanceError(f"fixture cases directory does not exist: {cases_dir}")
@@ -477,39 +477,92 @@ def _enforce_path_inside_repo(candidate: Path, repo_root: Path) -> Path:
     return resolved
 
 
-def _repo_root_for_path_guard(base_dir: str | os.PathLike[str] | None) -> Path:
+def _discover_git_root(start: Path) -> Path | None:
+    """Walk upward looking for a `.git` entry — the filesystem shape of
+    "this is a repository checkout", independent of any git subprocess and
+    therefore safe in sandboxed runners where git itself may be absent."""
+    current = start.resolve()
+    for candidate in (current, *current.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    return None
+
+
+def _repo_root_for_path_guard(
+    base_dir: str | os.PathLike[str] | None,
+    *,
+    workspace_root: str | os.PathLike[str] | None = None,
+) -> Path:
     """Plan 023 v3 §A-2 — repo_root anchor for the path-escape guard.
 
-    Honors ARIA_REPO_ROOT env var when set (test override), else
-    derives from the tools_dir parent (aria-tools/ lives inside the
-    repo by convention; tools_dir.parent IS the repo root).
+    Resolution order, most-explicit first:
+
+    1. ``ARIA_REPO_ROOT`` env var (test override, unchanged);
+    2. ``workspace_root`` — the cycle/phase knows its workspace and passes
+       it down (ORPHAN-HIGH-779);
+    3. git-root discovery upward from the tools root — the state-store
+       layout (``<workspace>/.aria-state-store/tools``) keeps the tools
+       root INSIDE the checkout, so the checkout's ``.git`` is on the
+       ancestor chain even though the tools root's parent is not the repo;
+    4. ``tools_dir.parent`` — the original "aria-tools/ lives inside the
+       repo by convention" assumption, DEMOTED to last resort. It was the
+       production default until ORPHAN-HIGH-779: with tools at
+       ``.aria-state-store/tools`` the parent is ``.aria-state-store``, the
+       guard then rejected every valid fixture path as an escape
+       (``fixture_path_escape_outside_repo``), and no fixture suite row was
+       ever written. It survives only for non-git sandboxes (unit-test
+       temp trees, genesis fixtures) where the caller is the layout's own
+       author.
     """
     override = os.environ.get("ARIA_REPO_ROOT")
     if override:
         return Path(override).resolve()
+    if workspace_root is not None:
+        return Path(workspace_root).resolve()
     tools_root = ensure_tools_dir(base_dir).resolve()
+    discovered = _discover_git_root(tools_root)
+    if discovered is not None:
+        return discovered
     return tools_root.parent
 
 
-def resolve_fixture_dir(tool: dict[str, Any], base_dir: str | os.PathLike[str] | None) -> Path:
+def resolve_fixture_dir(
+    tool: dict[str, Any],
+    base_dir: str | os.PathLike[str] | None,
+    *,
+    workspace_root: str | os.PathLike[str] | None = None,
+) -> Path:
     root = ensure_tools_dir(base_dir)
-    repo_root = _repo_root_for_path_guard(base_dir)
+    repo_root = _repo_root_for_path_guard(base_dir, workspace_root=workspace_root)
     fixture_set = Path(tool["fixture_set"])
-    if fixture_set.exists():
-        # Plan 023 v3 §A-2 — even when the literal path exists on disk,
-        # we still require it to live inside repo_root.
-        return _enforce_path_inside_repo(fixture_set, repo_root)
-    candidate = root / fixture_set
-    if candidate.exists():
-        return _enforce_path_inside_repo(candidate, repo_root)
-    fallback = root / "fixtures" / fixture_set.name
-    if fallback.exists():
-        return _enforce_path_inside_repo(fallback, repo_root)
+    # Registry `fixture_set` values are REPO-relative
+    # ("tools/aria-adapters/fixtures/<tool>"), so the repo-relative
+    # candidate is tried FIRST (ORPHAN-HIGH-779: the previous CWD-relative
+    # first branch only worked when CWD happened to be the checkout, and
+    # the candidate that existed from CWD was then rejected by a guard
+    # anchored elsewhere). Each candidate carries its OWN guard anchor:
+    # repo-spelled candidates are contained by repo_root, tools-local
+    # candidates (sandbox layouts keep the corpus under the tools root,
+    # as siblings of the workspace) are contained by the tools root. The
+    # escape guard is exactly as strict — a path must live inside the
+    # root that sanctions its spelling.
+    pairs: list[tuple[Path, Path]] = []
+    if not fixture_set.is_absolute():
+        pairs.append((repo_root / fixture_set, repo_root))
+    pairs.append((fixture_set, repo_root))
+    pairs.append((root / fixture_set, root))
+    pairs.append((root / "fixtures" / fixture_set.name, root))
+    for candidate, anchor in pairs:
+        if candidate.exists():
+            # Plan 023 v3 §A-2 — even when the candidate exists on disk,
+            # we still require it to live inside its anchor root.
+            return _enforce_path_inside_repo(candidate, anchor)
     # Even when nothing exists yet, the candidate path itself must
-    # resolve inside repo_root so a `fixture_set: '../../etc/passwd'`
+    # resolve inside its anchor so a `fixture_set: '../../etc/passwd'`
     # cannot be silently quarantined as "candidate that doesn't exist
-    # yet" and processed downstream.
-    return _enforce_path_inside_repo(candidate, repo_root)
+    # yet" and processed downstream. pairs[0] is the repo-relative
+    # (or absolute) spelling — the contract's own form.
+    return _enforce_path_inside_repo(pairs[0][0], pairs[0][1])
 
 
 def resolve_case_workspace(

@@ -79,10 +79,16 @@ ANCHOR_MIN_JUDGE_COUNT = 3
 # maximally correlated and invalidated every anchor they touched. Structure
 # is knowable at mint time; correlation is not.
 #
-# Two, not three: measured on the live fleet, an anchor is
-# evidence-judge + adversarial-judge (both claude-opus-5) + consensus-arbiter
-# (fable). Requiring three distinct models would make an anchor unreachable
-# today, and an unreachable gate is a gate nobody keeps.
+# Two, not three: when G-2 landed the live fleet was evidence-judge +
+# adversarial-judge (both claude-opus-5) + consensus-arbiter (fable), and
+# requiring three distinct models would have made an anchor unreachable —
+# an unreachable gate is a gate nobody keeps. Since d7fa539ea the fleet
+# spans three models (evidence-judge opus, adversarial-judge glm-5.3,
+# arbiter fable), so the two-judge anchor bar is comfortably satisfiable;
+# raising it to three remains a measured operator decision, not a
+# constant edit. What the rule counts also changed with ORPHAN-HIGH-781:
+# the observers' model now comes from the dispatch record the executor
+# stamps (`details.agent_dispatch_model`), not from a judge's self-report.
 ANCHOR_MIN_DISTINCT_MODELS = 2
 
 JUDGMENT_SUBJECT_FINDING = "finding"

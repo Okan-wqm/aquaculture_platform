@@ -143,6 +143,15 @@ jobs:
         with:
           ref: main
           persist-credentials: false
+          # Self-hosted workspace persists between ALL jobs (CI, executor,
+          # this lane). A dispatch-triggered run inherits whatever the
+          # previous job left behind; the mid-run preflight's
+          # workspace_worktree_not_clean guard then rejects the run for
+          # files this lane never created. clean: true runs
+          # git clean -ffdx + git reset --hard before checkout, so every
+          # cycle starts from the committed tree regardless of what ran
+          # before it.
+          clean: true
 
       - uses: ./.github/actions/setup-aria-kernel
 

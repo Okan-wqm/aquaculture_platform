@@ -1335,6 +1335,7 @@ def invoke_claude_cli(
             role=role,
             subagent_type=subagent_type,
             must_satisfy=must_satisfy or [],
+            dispatch_model=agent_profile.model,
         )
         output_path.parent.mkdir(parents=True, exist_ok=True)
         _write_sanitized_envelope(output_path, envelope)
@@ -1561,6 +1562,7 @@ def _build_envelope_from_claude_output(
     role: str,
     subagent_type: str,
     must_satisfy: list[dict[str, Any]],
+    dispatch_model: str | None = None,
 ) -> dict[str, Any]:
     """Convert ``claude -p stream-json`` JSONL into a kernel-valid envelope.
 
@@ -1637,6 +1639,16 @@ def _build_envelope_from_claude_output(
     # and a setdefault would let the agent's own payload spoof another
     # judge's identity into the per-judge precision ledger.
     details["agent_subagent_type"] = subagent_type
+    # ORPHAN-HIGH-781 — the dispatch-resolved model, same doctrine as
+    # agent_subagent_type above: FORCE-set from the runtime profile the
+    # executor resolved at invocation time. The judge's own
+    # verdict.model self-report remains in the payload as data, but the
+    # kernel's anchor distinct-model count must not trust a string the
+    # judged agent wrote about itself — a misreported model silently
+    # satisfies or violates ANCHOR_MIN_DISTINCT_MODELS, which is exactly
+    # the guarantee that field exists to provide.
+    if dispatch_model:
+        details["agent_dispatch_model"] = dispatch_model
     details.setdefault("agent_text", _safe_agent_text_excerpt(agent_text))
     usage = extract_usage(parse_claude_jsonl(raw_stdout))
     if usage is not None:

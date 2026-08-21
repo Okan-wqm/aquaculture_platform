@@ -70,11 +70,11 @@ Your steps:
 1. **Verify content_hash**. For each plan referenced in
    `must_satisfy[].evidence_refs[N].content_hash`, Read the file and
    compute its SHA256. On mismatch, emit a refusal envelope with
-   `reason_class=content_hash_mismatch` and STOP.
+   `reason_class=evidence` (note: the ref and both hashes) and STOP.
 2. **Verify scope**. For each `key_changes[].file` in the CONVERGED plan
    body, verify the path is INSIDE `allowed_scope[]` AND outside
    `implementation_safety.READONLY_PATHS`. On violation, emit
-   `reason_class=forbidden_scope_violation` and STOP.
+   `reason_class=scope` (note: the offending path) and STOP.
 3. **Switch to the kernel-minted implementation branch before edits**:
    `git switch -c <implementation_ids.branch> <implementation_ids.base_sha>`
    (the PR still opens against `<ARIA_PR_BASE>`; the kernel sets that base).
@@ -92,7 +92,10 @@ Your steps:
    `implementation_safety.verify_bash_command_allowed(argv)`, then
    `wrap_bash_in_sandbox(argv, workspace_root, allow_network=False)`,
    then `apply_resource_limits`, then subprocess.run. First non-zero exit
-   aborts with `reason_class=validation_failed`. The hygiene battery is
+   aborts with `reason_class=evidence` (note: failing command + exit
+   code). Outcome classes like `validation_failed` belong to the kernel's
+   `implementation_rejected` payload (`rejection_class`), never to a
+   refusal envelope. The hygiene battery is
    MANDATORY every run (ORPHAN-717): also `npm run format:check`,
    `npm run type-check` and affected tests, each recorded via
    validation-run submit — the triple gate blocks

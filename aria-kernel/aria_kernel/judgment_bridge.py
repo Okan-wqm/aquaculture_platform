@@ -277,7 +277,13 @@ def record_judge_verdict_from_response(
         # verdicts across two groups-of-one, so the real disagreement on
         # anthropic.provider.ts:3 never met itself and never escalated.
         judgment_group_id=request.get("judgment_group_id") or verdict_block.get("judgment_group_id"),
-        finding_fingerprint=verdict_block.get("finding_fingerprint"),
+        # ORPHAN-HIGH-765 — the fingerprint follows the SAME D1 doctrine as
+        # the group id above: mint first, envelope only as fallback. On live
+        # state 7 of 8 ai_judge rows carried an empty fingerprint because
+        # the mint never carried it and no prompt asks the judge to echo it,
+        # so every consensus row settled from those rows inherited the empty
+        # key — and promote_consensus_findings silently skipped it forever.
+        finding_fingerprint=request.get("finding_fingerprint") or verdict_block.get("finding_fingerprint"),
         base_dir=base_dir,
     )
     return row

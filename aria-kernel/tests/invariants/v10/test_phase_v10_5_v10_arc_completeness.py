@@ -23,7 +23,10 @@ CANONICAL_V10_TEST_FILES = frozenset({
     "test_phase_v10_4_phase_3_h_9_evidence_refs_path_only.py",  # F-020 closure
     "test_phase_v10_4_phase_3_h_10_primary_revision_canonicalizer.py",  # F-021 closure
     "test_phase_v10_4_phase_3_h_11_revision_round_advance.py",  # F-022 closure
-    "test_phase_v10_5_phase_3_api_backoff.py",  # V10.5 Phase 3 F-023 backoff
+    # ORPHAN-LOW-772 — test_phase_v10_5_phase_3_api_backoff.py was deleted
+    # with the dead api_backoff.py module (imported only by this test; the
+    # live backoff vocabulary is the api_backoff_engaged event string the
+    # watchdog reads).
     "test_phase_v10_5_aria_watchdog.py",  # V10.5 Phase 1 watchdog MVP
     "test_phase_v10_5_phase_4_drainer_kernel_max_rounds_ssot.py",  # F-024 closure
     "test_phase_v10_5_phase_5_poll_state_race.py",  # F-025 closure

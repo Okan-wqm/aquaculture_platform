@@ -555,6 +555,82 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
             ),
         ),
     ),
+    # ORPHAN-HIGH-763 — promoted from AUDITED_WORKFLOW_EXCLUSIONS: the lane
+    # is the PR-head evidence producer for the readiness-claim chain, so its
+    # shape is now governed. The claim assembled by aria-readiness-claim
+    # carries THIS lane's (workflow_id, job_id, run id) identity through
+    # produce_token_proof, which demands a full WorkflowJobContract here —
+    # under the old exclusion the token proof would have refused with
+    # token_proof_workflow_contract_unknown and the merge lock stayed
+    # unsatisfiable no matter how many producers were added.
+    "aria-merge-authority": WorkflowContract(
+        workflow_id="aria-merge-authority",
+        workflow_file=".github/workflows/aria-merge-authority.yml",
+        job_contracts=(
+            WorkflowJobContract(
+                job_id="aria-merge-authority",
+                preflight_step="Persist enterprise workflow preflight",
+                # The evidence artifact upload is the lane's one governed
+                # write: the claim's artifact proof cites it by id + digest
+                # with produced_by_workflow_run_id = this lane's run.
+                first_governed_mutation_step="Upload merge-authority preflight proof",
+                allowed_write_path_patterns=(
+                    rf"^{_RUNNER_TEMP}/aria-merge-authority-preflight\.json$",
+                ),
+                preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-merge-authority-preflight\.json$",
+                upload_artifact_name_pattern=rf"^aria-merge-authority-proof-{_RUN_ID_ATTEMPT}$",
+                upload_artifact_path_patterns=(
+                    rf"^{_RUNNER_TEMP}/aria-merge-authority-preflight\.json$",
+                ),
+                retention_days=7,
+                required_permissions=(("contents", "read"),),
+                token_source="github_actions_artifact_token",
+                # The lane reads the repo (checkout) and uploads its proof
+                # artifact; it pushes no state and opens no PR.
+                network_policy=("github_artifact",),
+                dlp_artifact="aria-merge-authority-preflight.json",
+                clean_worktree_policy="pre_and_post",
+                external_root_allowlist=("RUNNER_TEMP",),
+                job_timeout_minutes=30,
+            ),
+        ),
+    ),
+    # ORPHAN-HIGH-763 — the claim assembler lane. Runs on workflow_run after
+    # aria-merge-authority completes successfully on a PR head: records the
+    # COMPLETED run as its ci_workflow_run evidence row (a run's own
+    # conclusion only exists post-completion — recording it mid-run would be
+    # self-declaration, not evidence), assembles the claim under the
+    # completed lane's identity, and publishes the claims ledger to
+    # aria/state. Fail-closed by construction: without the GitHub App
+    # installation configured, mint falls back to PAT and the claim is
+    # poisoned loudly instead of passing.
+    "aria-readiness-claim": WorkflowContract(
+        workflow_id="aria-readiness-claim",
+        workflow_file=".github/workflows/aria-readiness-claim.yml",
+        job_contracts=(
+            WorkflowJobContract(
+                job_id="claim",
+                preflight_step="Persist enterprise workflow preflight",
+                first_governed_mutation_step=_RESTORE_STEP,
+                allowed_write_path_patterns=(
+                    rf"^{_STORE_ROOT}(/.*)?$",
+                ),
+                preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-readiness-claim-preflight\.json$",
+                upload_artifact_name_pattern=rf"^aria-readiness-claim-proof-{_RUN_ID_ATTEMPT}$",
+                upload_artifact_path_patterns=(
+                    rf"^{_RUNNER_TEMP}/aria-readiness-claim-preflight\.json$",
+                ),
+                retention_days=7,
+                required_permissions=(("contents", "write"), ("actions", "read")),
+                token_source="github_actions_artifact_token",
+                network_policy=("github_api", "github_artifact", "github_git"),
+                dlp_artifact="aria-readiness-claim-preflight.json",
+                clean_worktree_policy="pre_and_post",
+                external_root_allowlist=("RUNNER_TEMP",),
+                job_timeout_minutes=15,
+            ),
+        ),
+    ),
     "finding-state-sweep": WorkflowContract(
         workflow_id="finding-state-sweep",
         workflow_file=".github/workflows/finding-state-sweep.yml",
@@ -616,15 +692,8 @@ AUDITED_WORKFLOW_EXCLUSIONS: dict[str, AuditedWorkflowExclusion] = {
     ),
     "aria-kernel-fast": AuditedWorkflowExclusion(
         workflow_id="aria-kernel-fast",
-        reason="test-only fast kernel validation workflow; writes only ephemeral ./.aria-ci "
+        reason="test-only fast kernel validation workflow; writes only ephemeral .aria-ci "
         "and uploads no governed ARIA artifact",
-        owner="aria-kernel",
-        expires_at=_NEVER_EXPIRES,
-    ),
-    "aria-kernel-full": AuditedWorkflowExclusion(
-        workflow_id="aria-kernel-full",
-        reason="test-only full kernel validation workflow; writes only ephemeral ./.aria-ci, "
-        "verifies a clean worktree post-run, and uploads no governed ARIA artifact",
         owner="aria-kernel",
         expires_at=_NEVER_EXPIRES,
     ),
@@ -638,13 +707,6 @@ AUDITED_WORKFLOW_EXCLUSIONS: dict[str, AuditedWorkflowExclusion] = {
         "the illness it watches for is not a watchman. Its shape is pinned instead by "
         "tests/invariants/aria-external-watchdog-contract.spec.ts, which scans the YAML from "
         "outside and fails if a kernel import ever appears in it",
-        owner="aria-kernel",
-        expires_at=_NEVER_EXPIRES,
-    ),
-    "aria-merge-authority": AuditedWorkflowExclusion(
-        workflow_id="aria-merge-authority",
-        reason="required merge-gate check workflow; asserts ARIA merge authority via "
-        "`npm run gates:required-status-checks` and uploads no governed ARIA artifact",
         owner="aria-kernel",
         expires_at=_NEVER_EXPIRES,
     ),

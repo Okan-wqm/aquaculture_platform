@@ -198,7 +198,18 @@ def unrostered_production_dirs(repo_root: str | Path) -> dict[str, int]:
             relative = path.relative_to(root)
         except ValueError:
             continue
-        top = relative.parts[0] if len(relative.parts) > 1 else "."
+        parts = relative.parts
+        # Nested git worktrees under .claude/worktrees are CHECKOUTS of this
+        # same repository (parallel sessions each get one), every one carrying
+        # a full kernel copy. Counting them would make the roster test fail on
+        # any active session and pass only when the machine is idle — a gate
+        # that depends on machine activity measures the machine, not the repo.
+        # The roster's question is "where does THIS tree's production code
+        # live", and a checkout of this tree at another commit is not an
+        # answer to it.
+        if len(parts) >= 2 and parts[0] == ".claude" and parts[1] == "worktrees":
+            continue
+        top = parts[0] if len(parts) > 1 else "."
         if top in PRODUCTION_SOURCE_ROOTS or not _is_production_python(relative):
             continue
         stray[top] = stray.get(top, 0) + 1

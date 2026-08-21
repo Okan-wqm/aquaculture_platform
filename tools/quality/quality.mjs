@@ -177,7 +177,10 @@ function fileSha(path) {
 }
 
 function gitLsFiles() {
-  const out = runRequired('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z']);
+  // TRACKED FILES ONLY — see the source note at the manifest builder. The
+  // untracked inclusion is what made the committed manifest carry foreign WIP
+  // that CI's clean checkout has never contained.
+  const out = runRequired('git', ['ls-files', '--cached', '-z']);
   return out.split('\0').filter(Boolean).sort();
 }
 
@@ -314,7 +317,14 @@ function buildFormatScope() {
   return {
     schema_version: 1,
     generated_by: 'tools/quality/quality.mjs format-scope generate',
-    source: 'git ls-files --cached --others --exclude-standard',
+    // TRACKED FILES ONLY. The manifest is a committed artifact, so its scope
+    // must be exactly what a clean CI checkout contains. Including untracked
+    // files (--others) made every generate run on a working tree carrying
+    // foreign WIP commit entries for files CI has never seen — the check then
+    // fails on the merge ref while passing locally, a treadmill PR #1300
+    // measured three times in one day. A committer stages a new file, then
+    // regenerates; the staged-but-uncommitted file is in --cached already.
+    source: 'git ls-files --cached',
     entries,
   };
 }

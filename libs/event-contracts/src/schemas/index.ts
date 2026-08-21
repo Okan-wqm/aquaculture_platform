@@ -15,7 +15,13 @@ export {
   type IngestBackendPolicyEventValidationResult,
   validateFinanceEvent,
   type FinanceEventValidationResult,
+  validateBillingPlanChangeEvent,
+  type BillingPlanChangeEventValidationResult,
 } from './validator';
+export {
+  BILLING_PLAN_CHANGE_EVENT_SCHEMAS,
+  type BillingPlanChangeEventType,
+} from './billing-plan-change-events.schema';
 export { FARM_EVENT_SCHEMAS, type FarmEventType } from './farm-events.schema';
 export {
   SENSOR_EVENT_SCHEMAS,

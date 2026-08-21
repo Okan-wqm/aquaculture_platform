@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from '@jest/globals';
 
-import { ariaAuthorityHash } from '../../tools/gates/aria-authority-hash';
+import { ariaAuthorityFiles, ariaAuthorityHash } from '../../tools/gates/aria-authority-hash';
 
 const REPO_ROOT = (() => {
   try {
@@ -62,7 +62,6 @@ const LIVE_WORKFLOWS = [
   '.github/workflows/aria-daily-report.yml',
   '.github/workflows/aria-kernel.yml',
   '.github/workflows/aria-kernel-fast.yml',
-  '.github/workflows/aria-kernel-full.yml',
   '.github/workflows/aria-operational-proof.yml',
 ];
 
@@ -123,7 +122,21 @@ function planMarkerCount(body: string): number {
 describe('ARIA live runtime/documentation SSoT', () => {
   it('CURRENT_STATE declares the live authority chain and executable anchors', () => {
     const current = read('docs/aria/CURRENT_STATE.md');
-    expect(current).toContain('Date: 2026-06-21');
+    // ORPHAN-MEDIUM-768 — the date is no longer a frozen literal: the writer
+    // stamps hash AND date in the same write, and this check holds the date
+    // accountable to the authority surfaces' newest change. A verification
+    // claim predating the content it verifies is the fresh-hash-old-date
+    // cover the frozen literal used to provide.
+    const declaredDate = current.match(/^Date: (\d{4}-\d{2}-\d{2})$/m)?.[1];
+    expect(declaredDate).toBeTruthy();
+    const authorityFiles = ariaAuthorityFiles(REPO_ROOT);
+    const lastAuthorityCommit = execFileSync(
+      'git',
+      ['log', '-1', '--format=%cs', '--', ...authorityFiles],
+      { encoding: 'utf8', cwd: REPO_ROOT },
+    ).trim();
+    expect(lastAuthorityCommit).toBeTruthy();
+    expect(declaredDate! >= lastAuthorityCommit).toBe(true);
     const target = current.match(/Target ref: `([^`]+)`/)?.[1];
     expect(target).toBe('origin/main');
     const verifiedHash = current.match(
@@ -449,13 +462,13 @@ describe('ARIA live runtime/documentation SSoT', () => {
     expect(executor).toContain('ref: main');
     expect(executor).toContain('REQUIRED_CLAUDE_VERSION="2.1.197"');
     expect(executor).toContain('claude --version');
+    // ORPHAN-MEDIUM-769 — aria-kernel-full.yml was deleted (a strict subset
+    // of aria-kernel.yml, never a required context) and aria-kernel-fast.yml
+    // became PR-only, so the push-on-main contract belongs to aria-kernel.yml
+    // alone.
     expect(read('.github/workflows/aria-kernel.yml')).toMatch(/branches:\s*\n\s*- main/);
-    expect(read('.github/workflows/aria-kernel-fast.yml')).toMatch(/branches:\s*\n\s*- main/);
-    expect(read('.github/workflows/aria-kernel-full.yml')).toMatch(/branches:\s*\n\s*- main/);
     const kernelWorkflow = read('.github/workflows/aria-kernel.yml');
-    const kernelFullWorkflow = read('.github/workflows/aria-kernel-full.yml');
     expect(kernelWorkflow).toContain('node-version: "22"');
-    expect(kernelFullWorkflow).toContain('node-version: "22"');
     // The dependency contract moved, and got stricter. It used to be pinned
     // as literal text inside these two workflows; the same text existed in
     // nine other jobs and was ABSENT from five that ran kernel code anyway
@@ -467,7 +480,7 @@ describe('ARIA live runtime/documentation SSoT', () => {
     const setupAction = read('.github/actions/setup-aria-kernel/action.yml');
     expect(setupAction).toContain('tomllib.load');
     expect(setupAction).toContain('aria-kernel/pyproject.toml');
-    for (const workflow of [kernelWorkflow, kernelFullWorkflow]) {
+    for (const workflow of [kernelWorkflow]) {
       expect(workflow).toContain('uses: ./.github/actions/setup-aria-kernel');
       // Still banned, everywhere: installing the package would add a second
       // source for `import aria_kernel` and make the explicit pyproject

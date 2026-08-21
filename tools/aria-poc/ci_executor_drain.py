@@ -46,11 +46,25 @@ DEFAULT_DRAIN_BUDGET_SECONDS = 2100
 # dispatchable-or-minted role now has a place in the arc; the quota round
 # below guarantees each WAITING role one slot per run before any role gets
 # a second, and the fallback spends the remaining budget in this same order.
+#
+# ORPHAN-HIGH-786 — judges sit directly after the planning core, not last.
+# The anti-starvation property is the QUOTA ROUND (one guaranteed slot per
+# waiting role), never the arc order — the fallback only distributes
+# SURPLUS. Judges were last "by design" and that design starved exactly the
+# readiness-critical lane: anchor promotion needs `ANCHOR_PROMOTION_MIN_JUDGMENTS`
+# verdict pairs, and the 2100s fallback budget was routinely spent before
+# reaching positions 13-14, leaving judges their single quota slot against
+# a 60-envelope nightly mint. Judges also precede arbitration deliberately:
+# arbiter demand is DERIVED from judge verdicts (split groups exist only
+# after judges return), so draining judges first matches the same-night
+# data dependency.
 _ROLE_QUOTA_ORDER: tuple[str, ...] = (
     "implementation",
     "cross_review",
     "challenger_plan",
     "primary_plan",
+    "evidence_judgment",
+    "adversarial_judgment",
     "consensus_arbitration",
     "human_required_adjudication",
     "completeness_critique",
@@ -59,8 +73,6 @@ _ROLE_QUOTA_ORDER: tuple[str, ...] = (
     "goldset_curation",
     "specialist_domain_review",
     "maintenance_utility",
-    "evidence_judgment",
-    "adversarial_judgment",
 )
 
 

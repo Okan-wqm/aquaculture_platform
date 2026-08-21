@@ -1592,6 +1592,15 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
     )
 
     target_sha = _resolve_workspace_head_sha(context.workspace_root)
+    # ORPHAN-HIGH-786 — retire age-expired envelopes BEFORE minting, so the
+    # backlog cap below counts only envelopes still alive to claim. Expiry
+    # was lazy (discovered at claim time), the backlog read pending while
+    # being dead, and minting continued into the hole the drain could never
+    # fill within the TTL. Age-only sweep; repo-dependent refusals stay at
+    # the claim boundary.
+    from .agent_invocations import sweep_expired_anchors
+
+    anchor_sweep = sweep_expired_anchors(base_dir=context.base_dir)
     # Y2 (ORPHAN-704) — sample size and backlog ceiling come from policy
     # (the 5 was hardcoded; the ceiling did not exist and one week minted
     # 462 envelopes against ~9 drained per night).
@@ -1751,6 +1760,7 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
         blocked.append({"tool_id": "-", "step": "rule_health", "reason": str(exc)[:200]})
     return {
         "status": "completed",
+        "anchor_sweep": anchor_sweep,
         "sampled_findings": sampled,
         "judge_requests_minted": fanned_out,
         "mint_skipped_backlog": mint_skipped_backlog,

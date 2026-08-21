@@ -212,12 +212,18 @@ class WorkflowKernelCliContract(unittest.TestCase):
         error — the placeholder invalid-choice — and the dead flag never
         reached argparse's unrecognized-arguments report. The test was
         green for eleven nights while every cycle died at step one.
+
+        Uses a VALID profile value directly: the ORPHAN-754 lesson is that
+        argparse must reach the dead flag, and a valid choice guarantees
+        it does on every environment (the placeholder-substitution path
+        is tested separately and is environment-sensitive: argparse wraps
+        usage differently on the runner, breaking the regex capture).
         """
         argv = [
             "autonomy", "run",
             "--workspace-root", _PLACEHOLDER,
             "--tools-dir", _PLACEHOLDER,
-            "--profile", _PLACEHOLDER,
+            "--profile", "standard",
             "--implementer-poll-seconds", "120",
         ]
         msg = _parse_argv_against_cli(argv)

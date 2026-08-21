@@ -138,7 +138,11 @@ jobs:
           base_sha="$(jq -r '.base.sha' < <(gh api "repos/${repo}/pulls/${PR_NUMBER}"))"
           gh api "repos/${repo}/compare/${base_sha}...${{ steps.pr.outputs.head_sha }}" \
             --jq '.files[].patch // empty' > "${work}/compare.patch" || true
-          echo "work_dir=${work}" >> "$GITHUB_ENV"
+          # ORPHAN-HIGH-788 — the env key is WORK_DIR (uppercase): every
+          # consumer below reads ${WORK_DIR}, and the lowercase spelling
+          # died on `set -u`'s "unbound variable" the moment this lane
+          # fired, failing it continuously since #1300 landed.
+          echo "WORK_DIR=${work}" >> "$GITHUB_ENV"
 
       - name: Record the completed run as CI evidence
         if: steps.pr.outputs.skip != 'true'

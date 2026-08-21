@@ -1,10 +1,9 @@
 # ARIA Current State
 
-Date: 2026-08-20
+Date: 2026-08-21
 Target ref: `origin/main`
-Last verified ARIA authority hash: `0c45a23a34b2a07dd09c50202a00aa2273cdc8fc04e1c89fb577aca149b6a7d5`
-Status: nightly autonomy live on the branch-backed state store; narrow merge lane
-gated on the unlock ladder
+Last verified ARIA authority hash: `9d28ccd9891299b9fcf7073dbd9225196d3201b96d3e2d7d3ea548848a1eafbd`
+Status: post-snowball mainline hardening in progress
 
 ## Authority Chain
 
@@ -56,36 +55,6 @@ Legacy Codex executor language in older docs is historical or compatibility refe
 executable contract explicitly calls it. Any live doc section that treats `codex exec`,
 ChatGPT-managed Codex auth, or `codex_runtime.py` as the current ARIA runtime authority is a
 documentation defect.
-
-## Architecture Since 2026-06 (the part the June revision of this file could not index)
-
-- **State transport is a git branch.** ARIA's durable state lives on the orphan `aria/state`
-  branch (FF-only CAS pushes, signed snapshots), restored per run by the ONE composite action
-  `.github/actions/restore-aria-state` (RC-6) and published by `state publish`. The 30-day
-  artifact transport is gone.
-- **The nightly lanes.** `aria-auto-cycle` (01:13 UTC, self-hosted) runs the 45-phase
-  CyclePhase pipeline (`aria_kernel/cycle.py`) under a profile ceiling;
-  `aria-agent-executor` (02:29 UTC) drains judge/worker agent requests through the Claude
-  CLI in a bubblewrap sandbox; `aria-readiness-claim` assembles enterprise readiness claims
-  after `aria-merge-authority` completes on a PR head (ORPHAN-HIGH-763).
-- **Judgment pipeline.** Two independent judges per sampled finding (evidence + adversarial),
-  a consensus arbiter with anchor refutation (JJ-1), ledger-derived consensus with
-  conformal abstention, and fingerprint-threaded promotion into `aria-findings/`
-  (ORPHAN-HIGH-765).
-- **Missions.** `MISSION.md` / `MISSION_SPEC.md` plus the mission scheduler drive persistent
-  objectives; `aria-config/` carries the genesis policy, observation map and product fitness
-  charter.
-- **Gates that ask reachability.** `closure-reachability` (ORPHAN-HIGH-766) fails a finding
-  closed by adding a producer that production code never calls; the coverage ratchet
-  (ORPHAN-750) and observation map (ORPHAN-HIGH-753) pin visibility claims to measurements.
-- **Merge authority.** `merge_authority.merge_pr_if_ready` is the single real-merge boundary;
-  the GATE_PRE_MERGE hard-fail perimeter runs immediately before the merge side effect
-  (ORPHAN-HIGH-764). The narrow risk-L1 lane (ADR-041) stays inactive until the operator
-  activation ceremony; the readiness-claim producer that lane requires now exists.
-- **CI topology.** `aria-kernel.yml` runs on every main push unfiltered (ARIA-V-007);
-  `aria-kernel-fast.yml` is PR-only; `aria-kernel-full.yml` was deleted as a strict subset
-  (ORPHAN-MEDIUM-769). Every lane that pushes `aria/state` declares its own concurrency group
-  (ORPHAN-MEDIUM-770).
 
 ## State And Lifecycle
 

@@ -10716,3 +10716,34 @@ The second one's own docstring said the bound was a stopgap _"before the success
 **What this says about the day's work.** CL-1 was reported complete on the strength of its own suite. Its suite passed because the pin that would have caught this was _asserting the old world_ — the failure only became visible when a real night ran. Green tests are evidence about the tests as much as about the code.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-CRITICAL-776 — the nightly cycle died on an unbound name, and the detector for that exact class was pointed elsewhere — RESOLVED
+
+Severity: CRITICAL (ARIA's nights stopped; the `product_fitness` phase had never once completed).
+
+**Measured 2026-08-21** from run `32440461717`: the cycle reached its phases and failed with `name 'ensure_tools_dir' is not defined` in phase `product_fitness`, `exit_reason: cycle_failed`. This is the night AFTER ORPHAN-754 removed the argparse death — the cycle got further and hit the next landmine.
+
+**Root cause, one line.** `cycle.py:1151` calls `ensure_tools_dir(context.base_dir)`. The module imports from `tool_registry`: `GovernanceError, append_tools_governance, append_tools_governance_once, ensure_tools_binding, list_tools, register_tool, utc_now, update_tools_index` — `ensure_tools_**binding**`, not `ensure_tools_**dir**`. The name appears exactly once in the file and is bound nowhere. Introduced by **my own #1288** (PROGRAM E + G-1); the similar sibling name in the same import list is how it read as correct.
+
+**The part worth keeping.** A detector for precisely this class already existed — `test_executor_unbound_names.py`, written after ORPHAN-CRITICAL-479, whose docstring says: _"A fix without a detector just schedules the next instance."_ It was right. What it could not do is look outside `TARGETS = ("worker_executor.py", "ci_executor.py", "claude_runtime.py")`. **The detector was sound and its SCOPE was the defect** — the class recurred in the one place it was not watching, and 4,500+ tests stayed green because nothing exercises that phase.
+
+**Fix.** The scan now covers the whole kernel package by glob rather than a hand-listed tuple. A curated list is the same failure one level up: the module added tomorrow is outside it by default. Scanning everything means a new file is covered the day it lands — the only version of this check that does not decay. A floor assertion (`> 50` files) refuses the vacuous-green case where a refactor moves the package and the loop silently scans three files.
+
+**Widening it found four more live instances**, all on paths that run:
+
+| File                             | Name                      | Function                                       |
+| -------------------------------- | ------------------------- | ---------------------------------------------- |
+| `agent_genesis.py:945`           | `append_tools_governance` | `sweep_candidate_gaps_for_adjudication()`      |
+| `autonomy_orchestrator.py:299`   | `GovernanceError`         | `_drain_next_cycle_queue()` — runs every cycle |
+| `plan_convergence_bridge.py:374` | `GovernanceError`         | `_dispatch_implementation()`                   |
+| `plan_convergence_bridge.py:421` | `GovernanceError`         | —                                              |
+
+All four bound.
+
+**And the widened scan exposed a gap in the resolver itself, which is the more interesting half.** The first run reported **129** offenders — `item`, `row`, `c`, `kv`, `e`. None were defects: `ast.Lambda` was not treated as a scope boundary, so the walker descended into `sort(key=lambda item: ...)` bodies and collected their loads while reading parameters only from the enclosing function. Every lambda argument in the kernel read as unbound. Teaching it that a lambda is a scope took 129 down to **4** — and the 4 are real. A detector aimed at a corpus ten times larger than it was written for will surface its own approximations first; the discipline is to fix the resolver rather than narrow the corpus back until the noise stops.
+
+The extension announced one more bug of its own: a `Lambda`'s `body` is a single expression, not a statement list, so iterating it raised `TypeError: 'Tuple' object is not iterable`. Normalised.
+
+Pinned by the check itself, and the deliberate-breakage direction was measured rather than asserted: reverting the `cycle.py` import makes the detector report the original defect again.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

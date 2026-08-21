@@ -24,7 +24,7 @@ from .ledger import (
     rewrite_declared_json,
 )
 from .runtime_profile import enforce_profile_for_write
-from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
 
 # Plan ARIA-V3 §A3 — banned-phrase list relocated to ``draft_intent``

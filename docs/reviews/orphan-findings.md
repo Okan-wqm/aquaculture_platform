@@ -21,6 +21,62 @@
 
 ---
 
+## ORPHAN-HIGH-779 — the fixture path-guard rejects every valid fixture path in the state-store layout, so no fixture suite has EVER produced a row — OPEN
+
+**Discovered:** 2026-08-21 (verifying why `fixture-runs.jsonl` does not exist on `aria/state` despite six completed cycles running with phase + corpus + registry all in place).
+**Evidence:** `_repo_root_for_path_guard` (`aria-kernel/aria_kernel/fixture_runner.py:487-493`) honors `ARIA_REPO_ROOT`, else returns `tools_dir.parent` — the docstring says "aria-tools/ lives inside the repo by convention; tools_dir.parent IS the repo root". That convention broke when the tools root moved into the state store: the nightly lane exports `ARIA_TOOLS_DIR = <workspace>/.aria-state-store/tools` (`state_store.py:121-122` `tools_root = store.root / TOOLS_SUBDIR`; the `restore-aria-state` action exports `store_environment` into the job env), so `tools_dir.parent` is `.aria-state-store`, not the repo. `resolve_fixture_dir` then resolves the registry's `fixture_set` ("tools/aria-adapters/fixtures/<tool>") from CWD — the repo root, where it EXISTS — and `_enforce_path_inside_repo(candidate, repo_root=.aria-state-store)` fails `relative_to()` with ValueError → `GovernanceError("fixture_path_escape_outside_repo")` for every tool, every night. `_phase_fixture_refresh` catches it into a "blocked" list and `record_and_continue`s.
+**Measured timeline:** the phase landed 2026-08-10 (#1161), the corpus 2026-08-15 18:37 (#1238), registry `fixture_set` values by 2026-08-16 20:31 (f18c495ac on aria/state); six completed cycles ran after all three (Aug 17 ×2, Aug 18 ×3, Aug 19 05:28) and `tools/fixture-runs.jsonl` still does not exist on the branch (`git cat-file`: path does not exist). "Wait one night" is falsified by six prior nights.
+**Consequence:** readiness checks 3–5 (fixture evidence, `readiness.py:91-96`) are unsatisfiable → SHADOW→ACTIVE unreachable → `can_emit_operator_facing` (`tool_health.py:293`) never true → `emitted_findings` always `[]` (`tool_runner.py:204`).
+**Owner:** zcode (this session). **Deadline:** closed by this session's PR.
+
+## ORPHAN-HIGH-780 — the workflow-argv contract test is blind to the ORPHAN-754 class, and launch deaths never enter the ledger — OPEN
+
+**Discovered:** 2026-08-21 (re-deriving how ORPHAN-CRITICAL-754 escaped a test built to catch exactly it).
+**Evidence:** `aria-kernel/tests/test_workflow_kernel_cli_contract.py` `_contract_violation` exempts the message `invalid choice: 'workflow-placeholder-value'` (ORPHAN-HIGH-728 accommodation). Argparse processes arguments left-to-right; `aria-auto-cycle.yml` passes `--profile "$ARIA_CYCLE_PROFILE"` BEFORE later flags, so the exempted invalid-choice error fires and SystemExit(2) happens before argparse ever reports an unrecognized trailing flag — the exemption disarms the one check for the one invocation that matters, and a reintroduced `--implementer-poll-seconds`-class flag passes green. Separately, an argparse exit-2 happens before the kernel mints any row: the ledger gap between `cyc-20260819T022108Z` (completed) and `cyc-20260821T024646Z` (started) contains nights that died at launch — they consume calendar time but never enter the 30-attempt burn-in denominator, so cycle reliability reads better than it is.
+**Owner:** zcode (this session). **Deadline:** closed by this session's PR.
+
+## ORPHAN-HIGH-781 — the anchor distinct-model guarantee counts judge self-report, and the shipped rationale describes a fleet its own commit retired — OPEN
+
+**Discovered:** 2026-08-21 (adversarial cross-review of d7fa539ea).
+**Evidence:** `generate_ai_consensus` copies each agreeing judge row's top-level `model` into `observers[]` (`feedback_store.py:874`); that field is the judge's own verdict payload (`judgment_bridge.py:269` `model=verdict_block.get("model")`); `validate_judge_response` does not require it. The executor knows the truth at dispatch — `agent_profile = read_agent_runtime_profile(subagent_type)` (`ci_executor.py:1172`) — but force-stamps only `agent_subagent_type` (`:1639`), passing the agent's `details` through untouched (`:1623-1644`). "Independence by construction" is therefore independence by self-declaration: a judge misreporting its model silently satisfies or violates `ANCHOR_MIN_DISTINCT_MODELS`. Worse, the comment justifying the value (`feedback_store.py:82-86`, "measured on the live fleet, an anchor is evidence-judge + adversarial-judge (both claude-opus-5)") was added in d7fa539ea — the same commit that moved the adversarial judge to glm-5.3 and made the fleet span three models, so the gate's own rationale is false as of the commit that shipped it. (A frontmatter-resolved precedent exists: `belief_escalation.py:270-274` does not trust self-report for panel observers.)
+**Owner:** zcode (this session). **Deadline:** closed by this session's PR.
+
+## ORPHAN-HIGH-782 — the calibration reporter and auto-promotion attempt sit behind the converged-only `continue`; `precision_history` is structurally empty — OPEN
+
+**Discovered:** 2026-08-21 (tracing why `adapter-calibration-reports.jsonl` has zero rows on aria/state).
+**Evidence:** in `autonomy_orchestrator.py`, a non-converged arbiter verdict records `convergence_blocked` and `continue`s (the `if arbiter_verdict != "converged":` block); `generate_adapter_calibration_report` (Phase 7.6 calibration_reporter) and `attempt_auto_promotions` both sit AFTER that continue and run only on converged nights. The standard `CYCLE_PHASES` lane has no adapter-calibration phase at all. Downstream, `compute_auto_promote_token` requires `len(precision_history) >= min_clean_cycles` (=5) drawn from exactly that ledger (`adapter_calibration.py:117-123`) → structurally unreachable: no rows can ever accumulate on non-converged nights, which are most nights (recent autonomy_state shows `convergence_blocked / split`). Report generation is observational — it has no business being gated on convergence.
+**Owner:** zcode (this session). **Deadline:** closed by this session's PR.
+
+## ORPHAN-MEDIUM-783 — blocked and skipped phase results die inside cycle state: six nights of blocked fixture refresh were invisible in every report — OPEN
+
+**Discovered:** 2026-08-21 (consequence analysis of ORPHAN-HIGH-779).
+**Evidence:** `_phase_fixture_refresh` catches per-tool `GovernanceError` into a "blocked" list; the phase is registered `on_error="record_and_continue"`. Nothing surfaces blocked/empty results to `health.jsonl` or the reflection report — the nightly reports for Aug 17–19 carry no trace that every tool's fixture refresh was refused. This is the silent-pass class: a mechanism that "ran" and "completed" while producing nothing, watched by gates that only look for loud failure. A blocked fixture refresh must be a first-class health signal, not a detail inside the cycle state dict.
+**Owner:** zcode (this session). **Deadline:** closed by this session's PR.
+
+## ORPHAN-HIGH-784 — judge weights are structurally one cycle stale: the calibration phase runs after the pipeline that consumes its output — OPEN
+
+**Discovered:** 2026-08-21 (verifying the [reported] claim in docs/aria/BEHAVIOUR.md §3).
+**Evidence:** `CYCLE_PHASES` orders `judgment_pipeline` before `judge_calibration`; `_phase_judgment_pipeline` reads `_cal_rows[-1]` (`cycle.py:1655`) — LAST cycle's calibration row — then derives `_judge_weights`, falling back to `None` on any failure; the row that would fill this cycle's weights is appended afterward by `_phase_judge_calibration` (`judge_calibration.py:186-189`). The comment at `cycle.py:1639-1641` admits "Missing ledgers → None → the legacy gate bit for bit". In production today the only row ever written carries `judges: []` (no ground truth exists), so weights are `None` every night regardless — but even with ground truth the ordering would keep consensus permanently one cycle behind calibration. The phase comment calls this "dependency order"; it is emission order, not consumption order.
+**Owner:** zcode (this session). **Deadline:** closed by this session's PR.
+
+## ORPHAN-MEDIUM-785 — the judgment sampler only sees the current cycle's raw findings, so cross-night accumulation is impossible — OPEN
+
+**Discovered:** 2026-08-21 (judgment supply chain trace; survives the #1300 fingerprint fix).
+**Evidence:** `_sampleable_raw_findings` drops every raw-finding row whose `cycle_id` differs from the current cycle (`feedback_store.py:1029-1030`). Any night without fresh adapter runs samples `empty` and mints nothing; findings produced on thin or failed nights can never be judged later. With runs.jsonl currently 149 rows against a 30-cycle history, the exact-cycle filter guarantees the judge lane starves even after ORPHAN-HIGH-765 (fingerprint threading, #1300) is fixed.
+**Owner:** zcode (this session). **Deadline:** closed by this session's PR.
+
+## ORPHAN-HIGH-786 — mint vastly exceeds drain against a 3-day anchor TTL, and stale envelopes are only marked at claim time — OPEN
+
+**Discovered:** 2026-08-21 (quantifying the judgment backlog against drain capacity).
+**Evidence:** measured "462 minted, 42 accepted, 296 anchor-dead in one week" (`judge_fanout.py:65`, ORPHAN-HIGH-704). The drain is a 2100s nightly budget shared across 14 roles with the two judge roles LAST in `_ROLE_QUOTA_ORDER` (`ci_executor_drain.py:48, 52-63`); anchor TTL defaults to 3 days (`DEFAULT_ANCHOR_MAX_AGE_SECONDS`, `agent_invocations.py:1972`). Arithmetically most minted envelopes expire before any executor can claim them, and expiry is terminal (`ANCHOR_STALE`, irreversible). There is no proactive sweep: `_record_anchor_stale` fires only when a claim is attempted against an already-dead envelope, so the backlog reads pending while being dead, and minting continues into the same hole. Minting is not dispatching; the mint side has no cap derived from what the drain can actually consume within the TTL.
+**Owner:** zcode (this session). **Deadline:** closed by this session's PR.
+
+## ORPHAN-HIGH-787 — the auto-promote token is accepted on presence; the HMAC is never re-verified at consume time — OPEN
+
+**Discovered:** 2026-08-21 (audit of the promotion authority paths).
+**Evidence:** the mint side says so verbatim — "NOT YET WIRED — current revision permits any non-None token" (`adapter_calibration.py:97-101`, `_derive_workspace_key` :178-186); the consumer agrees — "accepts on presence alone" (`tool_registry.py:1289-1292`); the load-bearing predicate (`tool_registry.py:1348-1356`) treats `auto_promote_token` as satisfied by any non-empty string. A genuine token is replayable across cycles and workspaces, and a fabricated one is indistinguishable from a real one. Policy is OFF today (`auto_promote.enabled=false` default; `aria-config/genesis_policy.json` `auto_promote: null`), so this is a latent hole — it must close before auto-promotion is ever enabled, not after.
+**Owner:** zcode (this session). **Deadline:** closed by this session's PR.
+
 ## ORPHAN-HIGH-695 — the destructive-DDL gate rejected the migrations that FORBID truncation: `TRUNCATE` matched as a bare word — RESOLVED (this PR)
 
 **Discovered:** 2026-08-16 (landing the rescued FARM-CRITICAL-241 provenance migration; pre-commit refused it with five CRITICAL R1 violations, all false).

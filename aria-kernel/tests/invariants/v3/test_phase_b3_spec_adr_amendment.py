@@ -33,6 +33,8 @@ from __future__ import annotations
 import re
 import sys
 import unittest
+
+import yaml
 from pathlib import Path
 
 
@@ -41,8 +43,8 @@ _KERNEL_ROOT = _REPO_ROOT / "aria-kernel"
 _KERNEL_SRC = _KERNEL_ROOT / "aria_kernel"
 _SPEC = _REPO_ROOT / "docs" / "aria" / "SPEC.md"
 _ADR_033 = _REPO_ROOT / "docs" / "adr" / "033-aria-autonomous-profile.md"
-_KERNEL_FULL_WF = _REPO_ROOT / ".github" / "workflows" / "aria-kernel-full.yml"
 _KERNEL_FAST_WF = _REPO_ROOT / ".github" / "workflows" / "aria-kernel-fast.yml"
+_KERNEL_WF = _REPO_ROOT / ".github" / "workflows" / "aria-kernel.yml"
 
 if str(_KERNEL_ROOT) not in sys.path:
     sys.path.insert(0, str(_KERNEL_ROOT))
@@ -53,8 +55,8 @@ class PhaseB3SpecAdrAmendment(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.spec_text = _SPEC.read_text(encoding="utf-8")
         cls.adr_text = _ADR_033.read_text(encoding="utf-8") if _ADR_033.exists() else ""
-        cls.full_wf_text = _KERNEL_FULL_WF.read_text(encoding="utf-8")
         cls.fast_wf_text = _KERNEL_FAST_WF.read_text(encoding="utf-8")
+        cls.kernel_wf_text = _KERNEL_WF.read_text(encoding="utf-8")
 
     # I-V3-30 — Hard Limits L3-snowball clause references B2 + ADR-033.
     def test_i_v3_30_hard_limits_references_autonomous_profile_and_breakers(self) -> None:
@@ -155,20 +157,18 @@ class PhaseB3SpecAdrAmendment(unittest.TestCase):
                 msg=f"ADR-033 missing required token {required!r}",
             )
 
-    # I-V3-31c — workflow paths-ignore retriggers on SPEC/ADR edits.
+    # I-V3-31c — SPEC/ADR edits retrigger the kernel suite (ORPHAN-MEDIUM-769
+    # topology: aria-kernel.yml owns the push lane UNFILTERED, which
+    # satisfies this concern strictly more strongly than the old negation
+    # patterns in fast/full ever did; fast is PR-only now).
     def test_i_v3_31c_workflow_paths_ignore_retriggers_on_spec_edit(self) -> None:
-        for wf_name, wf_text in (
-            ("aria-kernel-full.yml", self.full_wf_text),
-            ("aria-kernel-fast.yml", self.fast_wf_text),
-        ):
-            self.assertIn(
-                '"!docs/aria/**"', wf_text,
-                msg=f"{wf_name} missing !docs/aria/** negation",
-            )
-            self.assertIn(
-                '"!docs/adr/**"', wf_text,
-                msg=f"{wf_name} missing !docs/adr/** negation",
-            )
+        kernel_on = yaml.safe_load(self.kernel_wf_text)["on"] if "on" in yaml.safe_load(self.kernel_wf_text) else yaml.safe_load(self.kernel_wf_text)[True]
+        push = kernel_on.get("push")
+        self.assertIsInstance(push, dict, "aria-kernel.yml must carry a push trigger")
+        self.assertNotIn("paths", push, "an unfiltered push retriggers on SPEC/ADR edits; a paths filter is the only way to lose that")
+        self.assertNotIn("paths-ignore", push, "an unfiltered push retriggers on SPEC/ADR edits; a paths-ignore filter is the only way to lose that")
+        fast_on = yaml.safe_load(self.fast_wf_text)["on"] if "on" in yaml.safe_load(self.fast_wf_text) else yaml.safe_load(self.fast_wf_text)[True]
+        self.assertNotIn("push", fast_on, "aria-kernel-fast.yml is PR-only (ORPHAN-MEDIUM-769)")
 
     # I-V3-31d — ADR-033 documents rollback path + change discipline.
     def test_i_v3_31d_adr_documents_rollback_and_approval_ref(self) -> None:

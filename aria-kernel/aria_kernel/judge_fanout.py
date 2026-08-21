@@ -234,6 +234,10 @@ def dispatch_judges_for_sample(
                 allowed_scope=["**"],
                 evidence_refs=refs or None,
                 finding_id=str(item.get("finding_id") or ""),
+                # ORPHAN-HIGH-765 — thread the sampler's fingerprint onto the
+                # mint so the verdict bridge can source identity from the
+                # request (D1) instead of trusting the judge to echo it.
+                finding_fingerprint=str(item.get("finding_fingerprint") or ""),
                 tool_id=str(item.get("tool_id") or ""),
                 run_id=str(item.get("run_id") or ""),
                 judgment_group_id=group,

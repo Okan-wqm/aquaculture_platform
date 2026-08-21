@@ -107,9 +107,11 @@ Your steps:
    Before commit, because a leaked secret becomes durable in commit history
    and PR notifications the moment it is committed.
 7. **Commit** with the per-cycle signing key and `Closes:` trailer per
-   CLAUDE.md format:
+   CLAUDE.md format (kernel-lane findings route through the ORPHAN
+   registry like all kernel work — there is no per-agent
+   `docs/reviews/aria-implementer/` directory, and a trailer pointing at
+   one would be a dangling reference):
    ```
-   Closes: docs/reviews/aria-implementer/{date}-{topic}.md#F-V9-NN
    Closes: aria-findings/F-V9-NN.json#F-V9-NN
    ```
 8. **Secret-scan committed patch** using

@@ -91,7 +91,7 @@
       "id": "code_quality",
       "operator_words": "üstün kod kalitesi",
       "measured_by": "workflow_conclusions",
-      "workflows": ["aria-kernel", "aria-kernel-full"],
+      "workflows": ["aria-kernel"],
       "budget": {
         "changed_line_coverage_min": 0.8,
         "banned_constructs_max": 0,

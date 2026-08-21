@@ -10721,7 +10721,10 @@ A file that is DELETED is noticed. A glob that stops matching is noticed. **A li
 
 **Owner:** claude. **Deadline:** 2026-08-27 (blocks the refutation-memory item of the ARIA-above-ultracode programme, which cannot be sound without it). **Status:** OPEN.
 
-## ORPHAN-HIGH-763 — a second vendor enters two Anthropic-only vocabularies — RESOLVED
+## ORPHAN-HIGH-777 — a second vendor enters two Anthropic-only vocabularies — RESOLVED
+
+> Renumbered 2026-08-21 from a collided `ORPHAN-HIGH-763` (the GLM train and the authority-chain
+> audit both claimed the number; PROC-HIGH-015 class).
 
 Severity: HIGH (one of the two vocabularies IS the write-protection authority; admitting a member changes who may overwrite whom).
 
@@ -10749,11 +10752,13 @@ Pinned in `aria-kernel/tests/test_glm_model_admission.py` (7 pins) plus the rewr
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
-## ORPHAN-HIGH-764 — a spawn may reach another vendor; the process may not — RESOLVED
+## ORPHAN-HIGH-778 — a spawn may reach another vendor; the process may not — RESOLVED
+
+> Renumbered 2026-08-21 from a collided `ORPHAN-HIGH-764` (PROC-HIGH-015 class).
 
 Severity: HIGH (the naive wiring silently redirects every judge, planner and implementer to one vendor, and the wrong endpoint bills a wallet while a paid subscription sits unused).
 
-**Context.** ORPHAN-HIGH-763 admitted `glm-5.3` to the dispatchable vocabulary. Admission alone reaches nothing: the model still has to be routed to Z.ai, and the routing is where both defects live.
+**Context.** ORPHAN-HIGH-777 admitted `glm-5.3` to the dispatchable vocabulary. Admission alone reaches nothing: the model still has to be routed to Z.ai, and the routing is where both defects live.
 
 **Defect 1 — the documented setup is process-wide.** Z.ai's published Claude Code integration says to export `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN`. ARIA dispatches many models from ONE process and chooses the model per agent, so following that literally would send every dispatch — every judge, every planner, the implementer — to one vendor, silently. The fix binds the redirect to a single spawn's `run_env` at the existing seam (`claude_runtime.py`, beside the `IS_SANDBOX` injection) and never to `os.environ`. A model with no redirect entry gets `{}`, so the managed Claude session stays byte-identical for every Anthropic tier.
 

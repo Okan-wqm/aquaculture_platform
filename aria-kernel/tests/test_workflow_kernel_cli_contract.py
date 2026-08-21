@@ -37,26 +37,90 @@ _EXPAND = re.compile(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|\$\{\{[^}]*\}\}")
 def _contract_violation(msg: str) -> bool:
     """Is this argparse error a CALLER/CALLEE disagreement, or an artifact?
 
-    Missing-required and unknown-argument always are. `invalid choice` is the
-    interesting one: it is a real violation when the workflow WROTE the bad
-    value, and pure noise when the value is a shell variable this test
-    replaced with a placeholder — argparse is then rejecting the placeholder,
-    not the workflow.
+    Missing-required, unknown-argument and invalid-choice all are once the
+    caller has run through `_parse_argv_against_cli`: that loop substitutes
+    a VALID member of `choices` for every runtime-resolved placeholder
+    before giving up, so an `invalid choice` that survives to reporting is
+    a value the workflow literally wrote (`--profile stricty`), never the
+    placeholder.
 
-    ORPHAN-HIGH-728 made that distinction load-bearing. `aria-auto-cycle.yml`
-    passes `--profile "$ARIA_CYCLE_PROFILE"` because the profile is resolved
-    at runtime; the substituted token can never be a member of `choices`, so
-    the check reported a contract violation for a workflow that satisfies the
-    contract. Excluding the placeholder BY NAME keeps the literal case biting:
-    `--profile stricty` is still caught, which is the defect this test owns.
+    ORPHAN-HIGH-728 originally excluded the placeholder BY NAME here. That
+    exemption was the ORPHAN-CRITICAL-754 escape: argparse processes
+    arguments left-to-right, `--profile "$ARIA_CYCLE_PROFILE"` precedes
+    later flags, the exempted invalid-choice error fired and exited before
+    argparse ever reached a reintroduced `--implementer-poll-seconds` — a
+    green test for a workflow whose nightly dies at step one. Substitution
+    replaces exemption: the parser is satisfied past the choice and the
+    trailing dead flag gets its `unrecognized arguments` reported.
     """
     if "the following arguments are required" in msg:
         return True
     if "unrecognized arguments" in msg:
         return True
     if "invalid choice" in msg:
-        return f"invalid choice: '{_PLACEHOLDER}'" not in msg
+        return True
     return False
+
+
+_INVALID_CHOICE_MSG = re.compile(
+    r"argument (?P<flag>--[A-Za-z0-9_-]+): invalid choice: '(?P<value>[^']*)' "
+    r"\(choose from (?P<choices>.*)\)"
+)
+
+
+def _substitute_placeholder_choice(msg: str, argv: list[str]) -> list[str] | None:
+    """Rewrite one placeholder invalid-choice error into a valid argv.
+
+    Returns the substituted argv, or None when the rejected value is not
+    the placeholder (a workflow-written literal must stay a violation).
+    The choices are taken from argparse's own error message, so this never
+    hardcodes a flag list: a new choice-argument is covered the day it
+    lands, which a curated map never is.
+    """
+    m = _INVALID_CHOICE_MSG.search(msg)
+    if m is None or m.group("value") != _PLACEHOLDER:
+        return None
+    choices = re.findall(r"'([^']*)'", m.group("choices"))
+    if not choices:
+        return None
+    flag, replacement = m.group("flag"), choices[0]
+    patched = list(argv)
+    for i, token in enumerate(patched):
+        if token == flag and i + 1 < len(patched) and patched[i + 1] == _PLACEHOLDER:
+            patched[i + 1] = replacement
+            return patched
+        if token.startswith(flag + "=") and token.endswith(_PLACEHOLDER):
+            patched[i] = f"{flag}={replacement}"
+            return patched
+    return None
+
+
+def _parse_argv_against_cli(argv: list[str]) -> str | None:
+    """Parse one argv against the real CLI, substituting placeholder choices.
+
+    Returns None on a clean parse (or a non-usage exception), else the final
+    argparse error message for `_contract_violation` to judge. Each
+    placeholder-choice error costs one retry; the bound is argv length so
+    a substitution bug cannot loop forever and must surface as a violation.
+    """
+    from aria_kernel.cli import build_parser
+
+    current = list(argv)
+    for _ in range(len(argv) + 1):
+        err = io.StringIO()
+        try:
+            with redirect_stderr(err), redirect_stdout(io.StringIO()):
+                build_parser().parse_args(current)
+            return None
+        except SystemExit as exc:
+            if exc.code != 2:
+                return None
+            msg = err.getvalue()
+            patched = _substitute_placeholder_choice(msg, current)
+            if patched is None:
+                return msg
+            current = patched
+    return "error: placeholder invalid-choice did not resolve within the retry bound"
 
 
 def _kernel_invocations(text: str) -> list[list[str]]:
@@ -83,8 +147,6 @@ def _kernel_invocations(text: str) -> list[list[str]]:
 
 class WorkflowKernelCliContract(unittest.TestCase):
     def test_every_workflow_kernel_call_parses(self) -> None:
-        from aria_kernel.cli import build_parser
-
         seen = 0
         for wf in sorted(_WORKFLOWS.glob("*.yml")):
             for argv in _kernel_invocations(wf.read_text(encoding="utf-8")):
@@ -93,47 +155,46 @@ class WorkflowKernelCliContract(unittest.TestCase):
                 # BEFORE validating required arguments, so a --help probe is
                 # green for exactly the defect this test owns. Parse the real
                 # argv against the real parser instead — parse_args never
-                # executes the command.
-                err = io.StringIO()
-                try:
-                    with redirect_stderr(err), redirect_stdout(io.StringIO()):
-                        build_parser().parse_args(argv)
-                except SystemExit as exc:
-                    # --help exits 0 once the subcommand path and its required
-                    # arguments are satisfied; argparse exits 2 on a usage
-                    # error, which is the defect class this test owns.
-                    msg = err.getvalue()
-                    # Type/format complaints are artifacts of substituting
-                    # shell variables with a literal placeholder and say
-                    # nothing about caller/callee agreement; see
-                    # `_contract_violation` for which errors count.
-                    if exc.code == 2 and _contract_violation(msg):
-                        self.fail(
-                            f"{wf.name}: `aria_kernel {' '.join(argv)}` does "
-                            f"not satisfy the CLI.\n{err.getvalue().strip()}"
-                        )
-                except Exception:
-                    pass  # ran past parsing; not this test's concern
+                # executes the command, and placeholder choices are
+                # substituted with valid members so later arguments are
+                # still reached (ORPHAN-CRITICAL-754).
+                msg = _parse_argv_against_cli(argv)
+                if msg is not None and _contract_violation(msg):
+                    self.fail(
+                        f"{wf.name}: `aria_kernel {' '.join(argv)}` does "
+                        f"not satisfy the CLI.\n{msg.strip()}"
+                    )
         # Anti-vacuous: a parser change that stops matching must fail loudly
         # rather than silently validating nothing.
         self.assertGreaterEqual(seen, 5, "no kernel invocations found to check")
 
-    def test_the_placeholder_exemption_does_not_disarm_the_check(self) -> None:
-        """The narrow exemption above is the kind that quietly becomes a
-        blanket one. These are the four cases it must keep separating."""
-        self.assertFalse(
-            _contract_violation(
-                f"error: argument --profile: invalid choice: '{_PLACEHOLDER}' "
-                "(choose from 'observe', 'standard')"
+    def test_the_placeholder_substitution_does_not_disarm_the_check(self) -> None:
+        """Substitution is the new exemption, and it is narrower. These are
+        the cases it must keep separating."""
+        argv = _substitute_placeholder_choice(
+            "error: argument --profile: invalid choice: "
+            f"'{_PLACEHOLDER}' (choose from 'observe', 'standard', 'strict')",
+            ["--profile", _PLACEHOLDER],
+        )
+        self.assertIsNotNone(
+            argv,
+            "a runtime-resolved placeholder must be substituted, not exempted",
+        )
+        self.assertEqual(argv, ["--profile", "observe"])
+        self.assertIsNone(
+            _substitute_placeholder_choice(
+                "error: argument --profile: invalid choice: 'stricty' "
+                "(choose from 'observe', 'standard', 'strict')",
+                ["--profile", "stricty"],
             ),
-            "a runtime-resolved value must not read as a contract violation",
+            "a value the workflow WROTE must not be substituted away",
         )
         self.assertTrue(
             _contract_violation(
                 "error: argument --profile: invalid choice: 'stricty' "
-                "(choose from 'observe', 'standard')"
+                "(choose from 'observe', 'standard', 'strict')"
             ),
-            "a value the workflow WROTE must still be caught",
+            "an invalid choice that survives substitution is a violation",
         )
         self.assertTrue(
             _contract_violation("error: the following arguments are required: --snapshot-id"),
@@ -141,6 +202,31 @@ class WorkflowKernelCliContract(unittest.TestCase):
         self.assertTrue(
             _contract_violation("error: unrecognized arguments: --cycle-id x"),
         )
+
+    def test_dead_flag_after_a_runtime_resolved_choice_is_caught(self) -> None:
+        """ORPHAN-CRITICAL-754 regression, in the exact shape it shipped in.
+
+        The nightly passed `--profile "$ARIA_CYCLE_PROFILE"` (runtime
+        resolved) FOLLOWED BY `--implementer-poll-seconds 120`, a flag the
+        CLI had removed. The old by-name exemption stopped at the first
+        error — the placeholder invalid-choice — and the dead flag never
+        reached argparse's unrecognized-arguments report. The test was
+        green for eleven nights while every cycle died at step one.
+        """
+        argv = [
+            "autonomy", "run",
+            "--workspace-root", _PLACEHOLDER,
+            "--tools-dir", _PLACEHOLDER,
+            "--profile", _PLACEHOLDER,
+            "--implementer-poll-seconds", "120",
+        ]
+        msg = _parse_argv_against_cli(argv)
+        self.assertIsNotNone(msg, "the argv must not parse clean")
+        self.assertTrue(
+            _contract_violation(msg),
+            f"the ORPHAN-754 shape must be a contract violation, got: {msg}",
+        )
+        self.assertIn("unrecognized arguments", msg)
 
 
 if __name__ == "__main__":

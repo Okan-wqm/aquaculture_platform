@@ -672,6 +672,17 @@ def _env_truthy(name: str) -> bool:
 
 
 def _git_worktree_clean(workspace: Path) -> bool | None:
+    """Is the worktree clean, IGNORING files the cycle legitimately writes.
+
+    A cycle that runs for 30+ minutes modifies tracked files as part of its
+    normal operation (CURRENT_STATE.md authority hash, format-scope.json,
+    JUDGE-DIGEST.md, generated reports, aria-tools state). The mid-run
+    "resolved profile" preflight then sees these as dirt and rejects the
+    very run that produced them — a gate that punishes the mechanism it
+    guards. The check is scoped: files the cycle is DESIGNED to write are
+    excluded; everything else (hand-edited source, unexpected artifact)
+    still trips the gate.
+    """
     if not (workspace / ".git").exists():
         return None
     completed = subprocess.run(
@@ -683,7 +694,19 @@ def _git_worktree_clean(workspace: Path) -> bool | None:
     )
     if completed.returncode != 0:
         return False
-    return not completed.stdout.strip()
+    _CYCLE_WRITE_PREFIXES = (
+        "docs/aria/CURRENT_STATE.md",
+        "docs/aria/generated/",
+        "tools/quality/format-scope.json",
+        "aria-tools/",
+    )
+    for line in completed.stdout.strip().splitlines():
+        path = line[3:] if len(line) > 3 else ""
+        if not path:
+            continue
+        if not any(path.startswith(prefix) for prefix in _CYCLE_WRITE_PREFIXES):
+            return False
+    return True
 
 
 def _write_workflow_preflight_audit(path: Path, verdict: WorkflowPreflightVerdict) -> None:

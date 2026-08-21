@@ -21,6 +21,12 @@
 
 ---
 
+## ORPHAN-MEDIUM-789 — the readiness-claim lane's remaining red is designed fail-closed: Mode-A attestation awaits the operator's GitHub App setup — OPEN (owner+deadline+ID tracked)
+
+**Discovered:** 2026-08-21 20:37 (first firing after ORPHAN-HIGH-788 let the lane past its evidence step — a step that had never executed before, because the lane died at step 1 all day).
+**Evidence:** `Assemble the readiness claim` fails with `branch_protection_probe_no_payload: gh_token_absent`. That step deliberately provides NO `GH_TOKEN` and sets `ARIA_REQUIRE_MODE_A: "true"` with the `ARIA_GH_APP_*` secrets — the workflow's own comment: "a PAT fallback is a weaker isolation mode and poisons the claim. Fail loudly until the operator completes the GitHub App setup." The app was never configured (see `docs/runbooks/aria-github-app-setup.md` and ENTERPRISE*AUTONOMY_SSOT's token model: GitHub App installation token for write leases, GITHUB_TOKEN for CI proof only).
+**Status:** NOT a code defect and NOT to be worked around — bypassing Mode A would poison the claim it exists to mint. The lane is now functioning: it records evidence, hashes artifacts, and fail-closes exactly where the design says the operator must act. **Owner:** operator (complete the GitHub App setup per the runbook and set the three ARIA_GH_APP*\* secrets). **Deadline:** operator-decided; the lane stays red-by-design until then.
+
 ## ORPHAN-HIGH-788 — the readiness-claim lane has been dead on an env-case typo since #1300: exports `work_dir`, reads `${WORK_DIR}` — RESOLVED (this PR)
 
 **Discovered:** 2026-08-21 (the operator read the Actions tab: red runs "on the pushes"). Not caused by them — the lane fires on `workflow_run` after ANY completing workflow, and the failure history runs continuously from 08:23 UTC, hours before the promotion-chain PR (17:51).

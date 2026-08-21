@@ -574,9 +574,54 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _record_launch_failure(argv: list[str] | None) -> None:
+    """ORPHAN-HIGH-780 — an argv the CLI rejects kills the night BEFORE any
+    cycle row exists, so the death never enters the burn-in denominator:
+    the ledger gap between cyc-20260819T022108Z and cyc-20260821T024646Z
+    is two ORPHAN-754 nights that consumed calendar time as if they never
+    happened. Recording the launch failure in the bound store makes every
+    stop a recorded stop — the mission's own rule.
+
+    Tools root comes from the ARIA_TOOLS_DIR lane binding, not from argv:
+    when argparse refuses the argv there is no parsed --tools-dir to read,
+    and the walk-up default would bind to whatever tree is on the ancestor
+    chain. Unbound (operator shell) stays unrecorded — there is no store
+    to be honest to.
+
+    Best-effort BY DESIGN: the recorder must not become a second failure
+    mode on a night that is already dying. A refusal (e.g. the frozen
+    profile's no-write containment) or an unwritable store is printed to
+    stderr and swallowed; governance events are observation-class, so
+    observe and standard nights — the lanes that feed burn-in — record.
+    """
+    tools_dir = os.environ.get("ARIA_TOOLS_DIR")
+    if not tools_dir:
+        return
+    try:
+        from .tool_registry import append_tools_governance
+
+        append_tools_governance(
+            tools_dir,
+            "cycle_launch_failed",
+            {
+                "argv": list(argv) if argv is not None else sys.argv[1:],
+                "exit_code": 2,
+                "recorded_via": "cli.main",
+            },
+        )
+    except Exception as exc:  # noqa: BLE001 — post-mortem telemetry, see docstring
+        print(f"cycle_launch_failed could not be recorded: {exc}", file=sys.stderr)
+
+
 def main(argv: list[str] | None = None) -> int:
     try:
         return _main(argv)
+    except SystemExit as exc:
+        # argparse exits 2 on a usage error — a caller/callee disagreement
+        # that killed the night before the kernel could record anything.
+        if exc.code == 2:
+            _record_launch_failure(argv)
+        raise
     except (GovernanceError, RuntimeError) as exc:
         message = str(exc)
         if message in ERROR_EXIT_CODES:

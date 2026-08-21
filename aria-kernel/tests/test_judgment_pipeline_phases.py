@@ -147,6 +147,45 @@ class FixtureRefreshPhaseTest(unittest.TestCase):
             refresh.assert_called_once()
             self.assertEqual(refresh.call_args.args[0], "with-fixtures")
             self.assertEqual(len(result["tools"]), 1)
+            self.assertEqual(result["blocked_count"], 0)
+            self.assertEqual(result["skipped_no_fixture_set"], ["without-fixtures"])
+
+    def test_a_blocked_refresh_is_a_governance_event_not_a_silent_pass(self) -> None:
+        # ORPHAN-MEDIUM-783 — six nights of blocked fixture refresh were
+        # invisible in every daily report because record_and_continue was
+        # the only listener. The refusal must reach the governance feed,
+        # which the reflection report's gate activity counts by kind.
+        with TemporaryDirectory() as tmp:
+            ctx = _context(tmp)
+            tools = [{"tool_id": "blocked-adapter", "fixture_set": "tools/x"}]
+            with patch.object(cycle_mod, "list_tools", return_value=tools), \
+                 patch("aria_kernel.fixture_runner.refresh_fixture_suite",
+                       side_effect=GovernanceError("fixture_path_escape_outside_repo: boom")), \
+                 patch.object(cycle_mod, "append_tools_governance") as governance:
+                result = cycle_mod._phase_fixture_refresh(ctx)
+
+            self.assertEqual(result["status"], "completed")  # cycle still survives
+            self.assertEqual(result["blocked_count"], 1)
+            governance.assert_called_once()
+            kind = governance.call_args.args[1]
+            details = governance.call_args.args[2]
+            self.assertEqual(kind, "fixture_refresh_blocked")
+            self.assertEqual(details["blocked"][0]["tool_id"], "blocked-adapter")
+
+    def test_a_registry_gap_with_no_refreshable_tools_is_also_loud(self) -> None:
+        # Tools without fixture_set can never satisfy readiness checks 3-5;
+        # a registry where NOTHING is refreshable must not read as a quiet
+        # success.
+        with TemporaryDirectory() as tmp:
+            ctx = _context(tmp)
+            tools = [{"tool_id": "no-fixtures"}]
+            with patch.object(cycle_mod, "list_tools", return_value=tools), \
+                 patch.object(cycle_mod, "append_tools_governance") as governance:
+                result = cycle_mod._phase_fixture_refresh(ctx)
+
+            self.assertEqual(result["tools"], [])
+            governance.assert_called_once()
+            self.assertEqual(governance.call_args.args[2]["skipped_no_fixture_set"], ["no-fixtures"])
 
 
 if __name__ == "__main__":

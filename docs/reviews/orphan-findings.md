@@ -51,11 +51,12 @@
 **Evidence:** in `autonomy_orchestrator.py`, a non-converged arbiter verdict records `convergence_blocked` and `continue`s (the `if arbiter_verdict != "converged":` block); `generate_adapter_calibration_report` (Phase 7.6 calibration_reporter) and `attempt_auto_promotions` both sit AFTER that continue and run only on converged nights. The standard `CYCLE_PHASES` lane has no adapter-calibration phase at all. Downstream, `compute_auto_promote_token` requires `len(precision_history) >= min_clean_cycles` (=5) drawn from exactly that ledger (`adapter_calibration.py:117-123`) → structurally unreachable: no rows can ever accumulate on non-converged nights, which are most nights (recent autonomy_state shows `convergence_blocked / split`). Report generation is observational — it has no business being gated on convergence.
 **Owner:** zcode (this session). **Deadline:** closed by this session's PR.
 
-## ORPHAN-MEDIUM-783 — blocked and skipped phase results die inside cycle state: six nights of blocked fixture refresh were invisible in every report — OPEN
+## ORPHAN-MEDIUM-783 — blocked and skipped phase results die inside cycle state: six nights of blocked fixture refresh were invisible in every report — RESOLVED (this PR)
 
 **Discovered:** 2026-08-21 (consequence analysis of ORPHAN-HIGH-779).
 **Evidence:** `_phase_fixture_refresh` catches per-tool `GovernanceError` into a "blocked" list; the phase is registered `on_error="record_and_continue"`. Nothing surfaces blocked/empty results to `health.jsonl` or the reflection report — the nightly reports for Aug 17–19 carry no trace that every tool's fixture refresh was refused. This is the silent-pass class: a mechanism that "ran" and "completed" while producing nothing, watched by gates that only look for loud failure. A blocked fixture refresh must be a first-class health signal, not a detail inside the cycle state dict.
-**Owner:** zcode (this session). **Deadline:** closed by this session's PR.
+**Remediation (this PR):** a blocked refresh (or a registry where nothing is refreshable — tools without `fixture_set` can never satisfy readiness checks 3–5) now mints a `fixture_refresh_blocked` governance event with the per-tool refusal reasons and the skipped-tool list. Governance events are observation-class, so observe and standard nights both record, and the reflection report's gate activity (kind counts) carries the signal to the operator by construction — no second silent channel. The phase result also exposes `blocked_count` and `skipped_no_fixture_set` as first-class fields for the cycle state. Pinned by phase tests: blocked → exactly one governance event; all-skipped → exactly one governance event; healthy → none, cycle still survives all cases.
+**Owner:** zcode (this session). **Deadline:** closed by this PR.
 
 ## ORPHAN-HIGH-784 — judge weights are structurally one cycle stale: the calibration phase runs after the pipeline that consumes its output — OPEN
 

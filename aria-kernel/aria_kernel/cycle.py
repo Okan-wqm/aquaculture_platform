@@ -1789,9 +1789,12 @@ def _phase_fixture_refresh(context: PhaseContext) -> dict[str, Any]:
     from .fixture_runner import refresh_fixture_suite
 
     refreshed: list[dict[str, Any]] = []
+    skipped_no_fixture_set: list[str] = []
     for tool in list_tools(base_dir=context.base_dir):
         tool_id = str(tool.get("tool_id") or "")
         if not tool_id or not tool.get("fixture_set"):
+            if tool_id:
+                skipped_no_fixture_set.append(tool_id)
             continue
         try:
             result = refresh_fixture_suite(
@@ -1803,7 +1806,31 @@ def _phase_fixture_refresh(context: PhaseContext) -> dict[str, Any]:
             refreshed.append({"tool_id": tool_id, "status": result.get("status", "ok")})
         except GovernanceError as exc:
             refreshed.append({"tool_id": tool_id, "status": "blocked", "reason": str(exc)[:200]})
-    return {"status": "completed", "tools": refreshed}
+    # ORPHAN-MEDIUM-783 — a blocked refresh is a first-class health signal,
+    # not a detail inside the cycle state dict. ORPHAN-HIGH-779's six nights
+    # of fixture_path_escape_outside_repo refusals were invisible in every
+    # daily report precisely because record_and_continue was the only
+    # listener. The governance event lands in the reflection report's gate
+    # activity (kind counts) and the durable governance feed; a registry
+    # gap (tools without fixture_set can never satisfy readiness checks
+    # 3-5) rides the same event rather than a second silent channel.
+    blocked = [entry for entry in refreshed if entry.get("status") == "blocked"]
+    if blocked or (skipped_no_fixture_set and not refreshed):
+        append_tools_governance(
+            context.base_dir,
+            "fixture_refresh_blocked",
+            {
+                "cycle_id": context.cycle_id,
+                "blocked": blocked,
+                "skipped_no_fixture_set": skipped_no_fixture_set,
+            },
+        )
+    return {
+        "status": "completed",
+        "tools": refreshed,
+        "blocked_count": len(blocked),
+        "skipped_no_fixture_set": skipped_no_fixture_set,
+    }
 
 
 def _phase_judge_calibration(context: PhaseContext) -> dict[str, Any]:

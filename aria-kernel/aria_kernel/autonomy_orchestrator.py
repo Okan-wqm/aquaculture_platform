@@ -69,6 +69,7 @@ from .file_lock import with_exclusive_lock
 from .next_cycle_queue import mark_consumed, read_pending
 from .reflection import run_reflection
 from .reflection_inputs import pedagogy_lint_snapshot, producer_reflection_kwargs
+from .tool_registry import GovernanceError
 
 if TYPE_CHECKING:
     # Plan ARIA-V3.1-0 — cycle_phases Protocol typing for the 5 new

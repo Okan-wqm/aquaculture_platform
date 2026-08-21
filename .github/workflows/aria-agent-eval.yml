@@ -34,6 +34,15 @@ permissions:
   # publishing is.
   contents: write
 
+concurrency:
+  # ORPHAN-MEDIUM-770 — this lane publishes the shared aria/state ledger
+  # from a hosted runner. Its OWN group, never the self-hosted shared
+  # group: a weekly two-minute eval must not evict a queued nightly drain
+  # (the ORPHAN-713 harm), but two overlapping eval dispatches must not
+  # both write the branch either.
+  group: aria-agent-eval
+  cancel-in-progress: false
+
 jobs:
   eval:
     runs-on: ubuntu-latest

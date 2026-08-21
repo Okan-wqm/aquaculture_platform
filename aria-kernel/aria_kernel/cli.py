@@ -1567,6 +1567,62 @@ def build_parser() -> argparse.ArgumentParser:
     readiness_bp.add_argument("--head-ref", required=True)
     readiness_bp.add_argument("--head-sha", required=True)
     readiness_bp.add_argument("--readiness-claim-id", default=None)
+    # ORPHAN-HIGH-763 — the two lane-side verbs the claim chain was missing.
+    # `produce-claim` had NO command entry at all (half of why the F5-g
+    # assembler had zero production callers), and `record-ci-report` exposes
+    # the existing ci.py ingestion so a lane can record its OWN completed run
+    # as the ci_workflow_run evidence row the claim guard demands — recorded
+    # post-completion from the GitHub API payload, never self-declared
+    # mid-run.
+    readiness_ci = add_subparser(
+        readiness_sub,
+        "record-ci-report",
+        help="Ingest a completed run + PR payload as ci/ ledger rows (workflow-runs, failures, report).",
+    )
+    readiness_ci.add_argument(
+        "--github-file", required=True,
+        help="JSON file with the completed run payload under workflow_runs (GitHub Actions API shape).",
+    )
+    readiness_ci.add_argument(
+        "--pr-file", required=True,
+        help="JSON file with the PR payload (number, head_sha/headRefOid, base/head refs).",
+    )
+    readiness_ci.add_argument("--cycle-id", default=None)
+    readiness_claim = add_subparser(
+        readiness_sub,
+        "produce-claim",
+        help="Assemble and record the enterprise readiness claim for one PR head.",
+    )
+    readiness_claim.add_argument("--pr-number", type=int, required=True)
+    readiness_claim.add_argument("--repo", required=True)
+    readiness_claim.add_argument("--target-ref", required=True)
+    readiness_claim.add_argument("--head-ref", required=True)
+    readiness_claim.add_argument("--head-sha", required=True)
+    readiness_claim.add_argument("--workflow-id", required=True)
+    readiness_claim.add_argument("--job-id", required=True)
+    readiness_claim.add_argument("--workflow-run-id", required=True)
+    readiness_claim.add_argument("--cycle-id", required=True)
+    readiness_claim.add_argument(
+        "--artifact-file", required=True,
+        help="JSON file: {artifact_id, uri, sha256, content_type} of the lane's uploaded evidence artifact.",
+    )
+    readiness_claim.add_argument(
+        "--surfaces-file", required=True,
+        help="JSON file: DLP surface name -> list of file paths (diff/prompt/transcript/logs/artifacts).",
+    )
+    readiness_claim.add_argument("--workspace-root", required=True)
+    readiness_claim.add_argument("--owner", default=None)
+    # ORPHAN-HIGH-766 — closure-reachability gate (ratcheted). --write pins
+    # or shrinks the baseline; without it the command is check-only and
+    # exits nonzero on NEW unreachable closures.
+    closure_reach = add_subparser(
+        sub,
+        "closure-reachability",
+        help="Verify that findings closed by adding a producer added a REACHED producer.",
+    )
+    closure_reach.add_argument("--write", action="store_true")
+    closure_reach.add_argument("--owner", default="operator")
+    closure_reach.add_argument("--reason", default="ratchet update")
 
     inv_parser = add_subparser(sub, "agent-invocations")
     inv_sub = inv_parser.add_subparsers(dest="agent_invocation_command", required=True)
@@ -2948,6 +3004,54 @@ def _main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
+
+    if args.command == "readiness" and args.readiness_command == "record-ci-report":
+        from .ci import record_ci_report
+
+        github = json.loads(Path(args.github_file).read_text(encoding="utf-8"))
+        pr = json.loads(Path(args.pr_file).read_text(encoding="utf-8"))
+        result = record_ci_report(
+            pr=pr, github=github, cycle_id=args.cycle_id, base_dir=args.tools_dir,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "readiness" and args.readiness_command == "produce-claim":
+        from .readiness_proofs import produce_readiness_claim
+
+        artifact = json.loads(Path(args.artifact_file).read_text(encoding="utf-8"))
+        surfaces = json.loads(Path(args.surfaces_file).read_text(encoding="utf-8"))
+        result = produce_readiness_claim(
+            pr_number=args.pr_number,
+            repo=args.repo,
+            target_ref=args.target_ref,
+            head_ref=args.head_ref,
+            head_sha=args.head_sha,
+            workflow_id=args.workflow_id,
+            job_id=args.job_id,
+            workflow_run_id=args.workflow_run_id,
+            cycle_id=args.cycle_id,
+            artifact=artifact,
+            surface_paths=surfaces,
+            workspace_root=args.workspace_root,
+            owner=args.owner,
+            base_dir=args.tools_dir,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "closure-reachability":
+        from .closure_reachability import scan_closure_reachability, write_baseline
+
+        if args.write:
+            payload = write_baseline(".", owner=args.owner, reason=args.reason)
+            print(json.dumps(payload, indent=2, sort_keys=True))
+            return 0
+        report = scan_closure_reachability(".")
+        print(json.dumps(report.as_dict(), indent=2, sort_keys=True))
+        # A pinned baseline entry that became reachable is good news, not a
+        # failure — the shrink lands with the next --write.
+        return 1 if report.violations else 0
 
     if args.command == "state":
         return _handle_state_command(args)

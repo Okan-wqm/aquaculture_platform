@@ -54,6 +54,7 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -182,6 +183,38 @@ def store_environment(store: StateStore, repo_hash: str) -> dict[str, str]:
     }
 
 
+def _attest_state_writer(store: "StateStore", *, action: str) -> None:
+    """ORPHAN-MEDIUM-767 — attribute every LOCAL state-tree materialization.
+
+    The local mirror's ledgers were batch-touched twice on 2026-08-20 with
+    nanosecond-identical mtimes and no content change; the ledgers are
+    gitignored, so no VCS signal exists, and the writer could not be named.
+
+    The attestation is a HOST-LOCAL sibling of the store directory, never a
+    write into the store worktree itself: the store's clean-tree and
+    snapshot-continuity invariants must not see it, and the branch side is
+    already attributed by git (every publish is a commit). What git cannot
+    name is the local materialization — this file names it: action, pid,
+    command, timestamp. Best-effort: checkout must never fail because the
+    attestation could not be written.
+    """
+    try:
+        import json as _json
+        from datetime import datetime, timezone
+
+        ledger = store.root.parent / f"{store.root.name}.writers.jsonl"
+        row = {
+            "recorded_at": datetime.now(timezone.utc).isoformat(),
+            "action": action,
+            "pid": os.getpid(),
+            "command": " ".join(sys.argv[:8]),
+        }
+        with ledger.open("a", encoding="utf-8") as handle:
+            handle.write(_json.dumps(row, sort_keys=True) + "\n")
+    except Exception:  # noqa: BLE001 — best-effort, see docstring
+        pass
+
+
 def checkout_state_store(
     repo_root: str | Path,
     *,
@@ -258,13 +291,15 @@ def checkout_state_store(
         _git(repo_root, "worktree", "add", "--detach", "--force", str(root), f"{remote}/{branch}")
         if vanished_while_registered:
             _disclose_rematerialized_after_missing(root, branch=branch)
-        return StateStore(
+        store = StateStore(
             root=root,
             branch=branch,
             repo_root=repo_root,
             remote=remote,
             bootstrapped=False,
         )
+        _attest_state_writer(store, action="checkout")
+        return store
 
     _require_bootstrap_ack(repo_root, branch)
     _git(repo_root, "worktree", "add", "--detach", "--force", str(root), "HEAD")
@@ -295,13 +330,15 @@ def checkout_state_store(
     _git_commit(root, f"chore(aria-state): genesis for {branch}")
     _git(root, "checkout", "--detach", "HEAD")
     _git(root, "branch", "--delete", "--force", orphan_ref)
-    return StateStore(
+    store = StateStore(
         root=root,
         branch=branch,
         repo_root=repo_root,
         remote=remote,
         bootstrapped=True,
     )
+    _attest_state_writer(store, action="bootstrap")
+    return store
 
 
 
@@ -472,6 +509,10 @@ def publish_state(
     therefore a statement about the bytes, not about whether a download
     step exited zero.
     """
+    # ORPHAN-MEDIUM-767 note: publish is attributed BY GIT (the commit it
+    # creates); the anonymous touches were LOCAL tree materializations, and
+    # those attest in checkout_state_store. Attesting here would mutate the
+    # tree AFTER the snapshot was built and break manifest continuity.
     if not verify_manifest_root(snapshot):
         raise StateStoreRefusal(
             "state_publish_manifest_root_mismatch: the snapshot's recorded root does "

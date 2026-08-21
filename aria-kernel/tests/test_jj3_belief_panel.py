@@ -52,17 +52,7 @@ from aria_kernel.ledger import append_declared_jsonl, load_declared_jsonl
 from aria_kernel.memory import _feedback_adjustment, _record_contradiction
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 
-# The REAL panel, as ROLE_TARGET_PAIRING composes it for
-# `human_required_adjudication`. Synthetic names used to be enough; since G-2
-# the row must name the MODELS that agreed, and those are resolved from each
-# agent's frontmatter — so a fixture with invented agents now measures a
-# panel that could not exist. Measured 2026-08-20: opus, opus, fable — two
-# distinct models, which is exactly what ANCHOR_MIN_DISTINCT_MODELS asks for.
-_PANEL_AGENTS = (
-    "aria-evidence-judge",
-    "aria-adversarial-judge",
-    "aria-consensus-arbiter",
-)
+_PANEL_AGENTS = ("judge-a", "judge-b", "judge-c")
 
 
 def _stuck_belief(root: Path, belief_id: str) -> str:

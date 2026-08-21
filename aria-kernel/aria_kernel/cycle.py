@@ -39,7 +39,7 @@ from .goldset import propose_goldsets_for_labelled_tools
 from .judge_calibration import compute_judge_calibration
 from .proactive_priority import compute_proactive_priorities
 from .runtime_profile import ACTION_PERMISSIONS, get_profile
-from .tool_registry import GovernanceError, append_tools_governance, append_tools_governance_once, ensure_tools_binding, list_tools, register_tool, utc_now, update_tools_index
+from .tool_registry import GovernanceError, append_tools_governance, append_tools_governance_once, ensure_tools_binding, ensure_tools_dir, list_tools, register_tool, utc_now, update_tools_index
 from .tool_runner import run_tool
 from .ledger import append_declared_jsonl
 

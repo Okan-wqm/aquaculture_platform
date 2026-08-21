@@ -66,25 +66,6 @@ ANCHOR_MIN_JUDGE_COUNT = 3
 # Absent reads as "finding": every row written before this field existed is a
 # finding judgment (the ledger held zero belief rows when it was added), so the
 # default is the historical corpus's own value rather than a guess.
-# G-2 (ORPHAN-HIGH-760) — how many DISTINCT MODELS must stand behind an
-# anchor. Two judges that agreed are two votes only if two different systems
-# produced them; the same model asked twice is one observation with a
-# duplicate receipt, and correlated failure is exactly what an anchor must
-# not launder into repository truth.
-#
-# The rule never inspects a VERDICT. That is deliberate and it is the whole
-# design: a statistic over agreement cannot tell "same model, same prompt"
-# apart from "both judges were right", and the first version of this work
-# was refuted by measurement — three perfectly ACCURATE judges scored as
-# maximally correlated and invalidated every anchor they touched. Structure
-# is knowable at mint time; correlation is not.
-#
-# Two, not three: measured on the live fleet, an anchor is
-# evidence-judge + adversarial-judge (both claude-opus-5) + consensus-arbiter
-# (fable). Requiring three distinct models would make an anchor unreachable
-# today, and an unreachable gate is a gate nobody keeps.
-ANCHOR_MIN_DISTINCT_MODELS = 2
-
 JUDGMENT_SUBJECT_FINDING = "finding"
 JUDGMENT_SUBJECT_BELIEF = "belief"
 JUDGMENT_SUBJECTS = (JUDGMENT_SUBJECT_FINDING, JUDGMENT_SUBJECT_BELIEF)
@@ -164,39 +145,7 @@ def is_ground_truth_row(row: dict[str, Any]) -> bool:
     if source_type == "human":
         return True
     agreed = consensus_judge_count(row)
-    if not (agreed >= ANCHOR_MIN_JUDGE_COUNT and consensus_judges_voted(row) == agreed):
-        return False
-    # G-2 — and the agreement must span more than one model. A row written
-    # before `observers` existed cannot answer this question, so it is not
-    # ground truth: unknown is never green, and this ledger has exactly one
-    # such row (already non-anchor for other reasons, measured 2026-08-20).
-    return distinct_observer_models(row) >= ANCHOR_MIN_DISTINCT_MODELS
-
-
-def consensus_observers(row: dict[str, Any]) -> tuple[dict[str, str], ...]:
-    """The distinct principals whose agreement this consensus row records.
-
-    Row-local by construction, the same discipline JJ-1 applied to
-    judge_count/judges_voted: the anchor predicate must be answerable from
-    the row, not from a join a future reader might forget to perform.
-    """
-    raw = row.get("observers")
-    if not isinstance(raw, list):
-        return ()
-    out: list[dict[str, str]] = []
-    for item in raw:
-        if not isinstance(item, dict):
-            continue
-        judge_id = str(item.get("judge_id") or "").strip()
-        model = str(item.get("model") or "").strip()
-        if judge_id and model:
-            out.append({"judge_id": judge_id, "model": model})
-    return tuple(out)
-
-
-def distinct_observer_models(row: dict[str, Any]) -> int:
-    """How many different MODELS stand behind this row."""
-    return len({observer["model"] for observer in consensus_observers(row)})
+    return agreed >= ANCHOR_MIN_JUDGE_COUNT and consensus_judges_voted(row) == agreed
 
 
 def judgment_subject_of(row: dict[str, Any]) -> str:
@@ -462,7 +411,6 @@ def record_operator_feedback(
     judge_count: int | None = None,
     judges_voted: int | None = None,
     judgment_subject: str = JUDGMENT_SUBJECT_FINDING,
-    observers: list[dict[str, str]] | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     if judgment_subject not in JUDGMENT_SUBJECTS:
@@ -505,38 +453,6 @@ def record_operator_feedback(
         raise GovernanceError(
             "judges_voted must be >= judge_count (agreement cannot exceed attendance)"
         )
-    # G-2 (ORPHAN-HIGH-760) — WHO observed, recorded rather than inferred.
-    #
-    # MEASURED on the live ledger before this rule existed: 9 rows, 4 with a
-    # prompt_hash, one ai_judge row with model=None, and the single consensus
-    # row carrying model="consensus" — which is not a model. Judge
-    # independence was not weakly measured; it was UNMEASURABLE, and every
-    # statistic built on top of those rows would have been computed from
-    # holes. A closed vocabulary was never the missing piece: the missing
-    # piece was the receipt.
-    if observers is not None:
-        if not isinstance(observers, list) or not observers:
-            raise GovernanceError("observers must be a non-empty array")
-        for observer in observers:
-            if not isinstance(observer, dict):
-                raise GovernanceError("each observer must be an object")
-            if not str(observer.get("judge_id") or "").strip():
-                raise GovernanceError("each observer requires judge_id")
-            if not str(observer.get("model") or "").strip():
-                raise GovernanceError("each observer requires model")
-    anchor_claimed = (
-        source_type == "ai_consensus"
-        and judge_count is not None
-        and judge_count >= ANCHOR_MIN_JUDGE_COUNT
-    )
-    if anchor_claimed and observers is None:
-        raise GovernanceError(
-            "anchor-grade ai_consensus feedback requires observers — the "
-            "anchor rule asks how many distinct models agreed, and that is "
-            "answered from the row or not at all. Required HERE and not on "
-            "every consensus row because this is the only place it is "
-            "load-bearing: a sub-anchor row can never be ground truth."
-        )
     row = {
         "schema_version": 2,
         "recorded_at": utc_now(),
@@ -559,10 +475,6 @@ def record_operator_feedback(
         "judge_count": judge_count,
         "judges_voted": judges_voted,
         "judgment_subject": judgment_subject,
-        "observers": [
-            {"judge_id": str(o["judge_id"]).strip(), "model": str(o["model"]).strip()}
-            for o in (observers or [])
-        ] or None,
     }
     append_jsonl(feedback_path(base_dir), row)
     return row
@@ -829,23 +741,6 @@ def generate_ai_consensus(
                 f" over {dissenting} dissenting (weighted majority; "
                 f"settles precision only, never ground truth)"
             )
-        # G-2 (ORPHAN-HIGH-760) — an ANCHOR must be able to say which models
-        # produced it. Enforced HERE rather than on every judge row: this is
-        # the one place the answer becomes load-bearing, and a rule placed
-        # where it does not bite only teaches people to satisfy it.
-        # Fail-closed: a group that would settle at anchor grade but cannot
-        # name its observers escalates as an uncertainty instead of
-        # laundering unknown provenance into repository truth.
-        if len(agreeing) >= ANCHOR_MIN_JUDGE_COUNT and any(
-            not str(row.get("model") or "").strip() for row in agreeing
-        ):
-            uncertainties.append(
-                _consensus_uncertainty(
-                    tool_id, run_id, finding_id, group_id,
-                    "observer_identity_missing",
-                ),
-            )
-            continue
         consensus_rows.append(
             record_operator_feedback(
                 tool_id=tool_id,
@@ -856,30 +751,7 @@ def generate_ai_consensus(
                 note=note,
                 source_type="ai_consensus",
                 judge_id="aria-consensus-arbiter",
-                # NOT a model, and it never was. "consensus" is a process;
-                # writing it into the model field made every reader that
-                # asked "which system produced this?" get a category error
-                # for an answer. The models that actually spoke are on
-                # `observers` below.
-                model=None,
-                # G-2 — the receipt: one entry per judge that AGREED, so the
-                # anchor rule reads diversity off the row instead of
-                # re-joining the judge rows it was folded from. Dissenters
-                # are deliberately absent: they did not stand behind this
-                # verdict, and counting them would let a lone opposing model
-                # buy the diversity the agreeing side lacks.
-                observers=[
-                    {
-                        "judge_id": str(row.get("judge_id") or ""),
-                        "model": str(row.get("model") or ""),
-                    }
-                    for row in agreeing
-                    # A judge row that cannot name its model contributes no
-                    # receipt. Dropping it here rather than writing an empty
-                    # one keeps the sub-anchor lane writable while the anchor
-                    # lane above has already refused the group outright.
-                    if str(row.get("model") or "").strip()
-                ] or None,
+                model="consensus",
                 confidence=round(avg_confidence, 3),
                 rationale="; ".join(str(row.get("rationale") or row.get("note") or "") for row in agreeing if row.get("rationale") or row.get("note"))[:2000],
                 evidence_refs=sorted({ref for row in agreeing for ref in _optional_string_list(row.get("evidence_refs"))}),

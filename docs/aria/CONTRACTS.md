@@ -297,8 +297,10 @@ ARIA does **not** run as a standalone Python daemon calling the Anthropic API di
 
 ### What this kills from v7.2
 
-- The `aria-kernel/llm_bridge.py` file mentioned in SPEC §6.1 — does not exist. Kernel never imports
-  `anthropic`.
+- `aria-kernel/aria_kernel/llm_bridge.py` EXISTS (ORPHAN-MEDIUM-771 correction: this bullet
+  used to say it does not). It is the SINGLE sanctioned LLM-wrapper boundary — the one entry in
+  the agent-harness security adapter's `_APPROVED_WRAPPERS` allowlist that may touch the
+  Anthropic SDK; no other kernel module imports `anthropic`.
 
 - The `ANTHROPIC_API_KEY` requirement in SPEC §6.5 Day-0 prerequisites — the operator already
   authenticated with Claude Code; no separate key.

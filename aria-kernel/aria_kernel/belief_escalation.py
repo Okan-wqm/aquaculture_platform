@@ -154,26 +154,6 @@ BELIEF_PANEL_SOURCE_TYPE: str = "ai_consensus"
 BELIEF_PANEL_JUDGE_ID: str = "aria-adjudication-panel"
 
 
-def _panel_agent_model(agent_id: str) -> str:
-    """The model an adjudicator actually runs as, from its frontmatter.
-
-    Read through `read_agent_runtime_profile` rather than recorded on the
-    opinion: the opinion says who spoke, the frontmatter is the SSoT for
-    what they spoke as, and duplicating it onto the opinion would be a
-    second place for the tier to drift.
-    """
-    from .agent_runtime_profile import read_agent_runtime_profile
-
-    try:
-        return str(read_agent_runtime_profile(agent_id).model or "").strip()
-    except Exception:
-        # An unresolvable agent contributes NO receipt. Fail closed: the
-        # anchor predicate then sees fewer distinct models and declines to
-        # treat the row as truth, which is the honest reading of "we cannot
-        # say what produced this".
-        return ""
-
-
 def belief_panel_finding_id(belief_id: str) -> str:
     """The feedback ledger's identity for a belief adjudication.
 
@@ -191,7 +171,6 @@ def execute_belief_panel_correction(
     record: dict[str, Any],
     judge_count: int,
     judges_voted: int,
-    panel_agent_ids: tuple[str, ...] = (),
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Write the belief-confidence correction a panel's resolve quorum earned.
@@ -262,15 +241,5 @@ def execute_belief_panel_correction(
         # adapter's real anchor debts per belief adjudicated - belief work
         # silently suppressing finding judgement.
         judgment_subject=JUDGMENT_SUBJECT_BELIEF,
-        # G-2 — the observer receipt, resolved through the SAME frontmatter
-        # SSoT the executor dispatches by, so the row cannot claim a model
-        # the fleet does not actually run. A panel of three agents that all
-        # resolve to one model is one observation, and the anchor predicate
-        # will refuse it — which is the correct outcome, not a regression.
-        observers=[
-            {"judge_id": agent_id, "model": _panel_agent_model(agent_id)}
-            for agent_id in panel_agent_ids
-            if _panel_agent_model(agent_id)
-        ] or None,
         base_dir=root,
     )

@@ -7760,6 +7760,8 @@ Severity: HIGH (recurrence enabler for the 2026-07-07 messaging outage class). #
 
 **Discovered and reproduced:** 2026-07-15 enterprise-closure registry audit, confirmed 2026-07-17 against `tools/gates/finding-registry.ts`. The append command required callers to choose an ID before entering the registry write path. Duplicate detection therefore happened only against one worktree's snapshot; two concurrent worktrees could both select the same domain suffix and remain locally valid until merge. This is the recurrence of the allocator class recorded by `AUDIT-CRITICAL-003`, whose earlier repair detected duplicates but did not establish a repository-wide allocation authority. **Fix in progress:** serialize every mutation through a bounded Git-common-dir lock, allocate from the maximum of the current registry, all active worktree registries, and a durable high-water reservation ledger, then schema-validate and atomically append under the same fenced lease. Malformed and foreign-host stale locks fail closed; a crash may leave a documented numeric gap but cannot reuse the reservation. Closure also requires a legacy-client cutover: every active allocator-old worktree must be removed, advanced, or explicitly frozen for registry writes while protected deploy and certificate checkouts remain intact. **Owner:** context-manager. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Overrides:** `AUDIT-CRITICAL-003`. **Canonical registry:** `PROC-HIGH-015`.
 
+**New instance measured 2026-08-20 (authority-chain audit):** the number `ORPHAN-HIGH-694` is triple-booked — two full ledger headings (`orphan-findings.md:34` Alertmanager severity routing, `:9686` branch-protection F5-b, both RESOLVED, different topics) plus the code comment at `aria-kernel/aria_kernel/readiness_proofs.py:1004` using the same number for F5-g. The live defect the F5-g closure missed is reopened as ORPHAN-HIGH-763. Renumbering waits for PR #1299's ledger-identity uniqueness mechanism; until then no new commit writes `Closes: ...#ORPHAN-HIGH-694`.
+
 ## INFRA-HIGH-073 — Production stop-line deadlocks its own WAL-G bootstrap — IN-PROGRESS
 
 **Discovered and reproduced:** 2026-07-17 production backup/runtime review. The fail-closed `PRODUCTION_DEPLOY_ENABLED` stop-line correctly prevents the general production deployment workflow from mutating the droplet until backup and isolated-restore evidence is accepted. The PostgreSQL image carrying the already-merged WAL-G archive and health contract is deployed through that same general path, while the running image predates the health script. WAL freshness therefore exits before it can establish evidence, and the only ordinary route that could install the required image is waiting for that evidence: a control-plane dependency cycle, not an application release failure. **Fix in progress:** retain the general stop-line unchanged; add a manual, exact-protected-main candidate build with no production Environment, secrets, SSH, or deployment authority; sign the digest and authority only behind the protected `production-backup-release` Environment; and provide a provider-console executor whose sole mutation is an exact-digest recreation of the existing `postgres` Compose service. The executor must exclude `db-migrate`, application services, mutable tags, GitHub SSH, and repository-variable changes, verify signed materials before root execution, and roll back only to the observed prior PostgreSQL image. **Owner:** infra-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-073`.
@@ -9683,7 +9685,11 @@ Severity: MEDIUM. `tools/aria-adapters/**` is not an Nx project, and `npm run li
 
 **Owner:** claude (session lead). **Deadline:** 2026-09-15. **Status:** RESOLVED (this PR) — the GATE first: `tools/aria-adapters/project.json` registers an Nx `lint` target (heap-bumped eslint, `--max-warnings=0`), so `nx affected --target=lint` reaches the directory and the fifty-sixth error cannot arrive unlinted. Then the debt the gate reported: 32 import/order autofixed; the seven-sibling `readStdin` idiom converged on the E9 adapter's boundary-narrowing shape; 8 `no-console` in self-test harnesses became `process.stdout.write`; 4 indent-argument `JSON.stringify` sites dropped the indent; the truly dead `secondArg` binding was DELETED (İ2 — not underscore-parked); one `String()`-on-object coercion became a type narrow; one missing return type annotated. All nine adapter self-tests pass unchanged.
 
-## ORPHAN-HIGH-694 — branch-protection proofs had no producer and no row to cite: the probe's evidence died with the process — RESOLVED (this PR, F5-b)
+## ORPHAN-HIGH-775 — branch-protection proofs had no producer and no row to cite: the probe's evidence died with the process — RESOLVED (this PR, F5-b)
+
+> Renumbered 2026-08-20 from a triple-booked `ORPHAN-HIGH-694` (the Alertmanager routing entry kept
+> the number; the `readiness_proofs.py:1004` F5-g comment and this entry both claimed it too — the
+> PROC-HIGH-015 collision class, instance recorded under PROC-HIGH-015 on 2026-08-20).
 
 Severity: HIGH (readiness-claim chain, family 2 of 8). `record_branch_protection_proof` had zero production callers (only F5-a's workflow-run family produced anything), and there existed NO ledger row a branch-protection proof's `source_ledger_ref` could resolve into — `preflight.verify_branch_protection` probed gh-api and threw the payload away, so the strongest evidence about merge safety evaporated with the process. The claim verifier demands a v3 proof (snapshot_hash, measured booleans, ruleset_ids, empty bypass_actors, resolvable source ref) — structurally unsatisfiable.
 
@@ -10522,6 +10528,56 @@ Pinned in `aria-kernel/tests/test_observation_coverage.py`: a root no adapter de
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
+---
+
+## ORPHAN-HIGH-763 — the merge lock was declared satisfiable by a producer nobody calls — OPEN
+
+Severity: HIGH (the autonomous-merge authority chain cannot pass its own first gate). Found 2026-08-20 (authority-chain audit). `ORPHAN-HIGH-694` was closed by `52d150c77` (PR #1247) titled "the claim chain closes — every proof family gains a producer and the merge lock becomes satisfiable". Measured: `produce_readiness_claim` (`readiness_proofs.py:1021`) has zero production callers (only `test_branch_protection_proof.py`), `enterprise/readiness-claims.jsonl` is empty, and `resolve_readiness_claim_id_from_claims` (`auto_merge_runners.py:347`) demands exactly one match it can never find. The closure did not hold; the defect is live. The producer's own guard (`readiness_claim_current_run_unproven`, :1060-1072) forbids the merge runner from producing its own claim — the fix places production in the PR-head CI lane (`aria-merge-authority.yml`) with its own run identity, publishing to aria/state; the inactive-lane contract (`test_narrow_lane_inactive_until_unlock.py`) stays green. The ORPHAN-694 number itself is triple-booked (ledger lines 34 + 9686 + code comment readiness_proofs.py:1004) — new instance recorded under PROC-HIGH-015; no new commit writes `Closes: ...#ORPHAN-HIGH-694` until that lands. **Status:** OPEN (owner: okan, correction-plan Wave 1a). Detail: docs/reviews/claude/2026-08-20-aria-authority-chain-audit.md.
+
+## ORPHAN-HIGH-764 — the pre-merge perimeter is defined, default-gated, and runs nowhere — OPEN
+
+Severity: HIGH (ADR-041's ordered gate chain is incomplete in code). Found 2026-08-20. `GATE_PRE_MERGE` is defined (`implementation_safety.py:993`), hard-fail checks default to it (:1119), `HARD_FAIL_GATES` includes it (:994) — but the only production perimeter callsites are `pr_manager.py:347,359`, both `GATE_PRE_PR_OPEN`. `merge_authority` contains no perimeter call, while ADR-041 decision 3 lists "a fresh pre-merge re-check" among the ordered gates. Fix: insert `observe_perimeter` + `run_hard_fail_checks(GATE_PRE_MERGE)` into `merge_pr_if_ready` before any merge side effect; static pin + behavioral refusal test. **Status:** OPEN (owner: okan, correction-plan Wave 1b). Detail: docs/reviews/claude/2026-08-20-aria-authority-chain-audit.md.
+
+## ORPHAN-HIGH-765 — 24,788 live raw findings, zero promotions, every cycle — OPEN
+
+Severity: HIGH (the find→judge→forget loop finding_promotion.py was built to close is still open). Found 2026-08-20, measured on live state: `origin/aria/state:tools/raw-findings.jsonl` = 24,788 rows, `tools/findings.jsonl` = 0. `promote_consensus_findings` runs from `cycle.py:1697` every cycle and has never triggered. Diagnosis (on live state) determines which filter empties it — no `ai_consensus` feedback rows, no `true_positive` verdicts, or `evidence_refs` that never resolve to repo files (`finding_promotion.py:95-109`); the fix lands on the producer side. The local mirror (687 rows, 0 promoted) agrees but is a stale dev copy and is not the basis. **Status:** OPEN (owner: okan, correction-plan Wave 1c). Detail: docs/reviews/claude/2026-08-20-aria-authority-chain-audit.md.
+
+## ORPHAN-HIGH-766 — the closure ceremony never asks whether the closing thing is reached — OPEN
+
+Severity: HIGH (process integrity — RESOLVED can carry a live defect). Found 2026-08-20. The ceremony verifies a `Closes:` line names an existing finding; it never verifies the mechanism the closing commit added is reachable. ORPHAN-694/PR #1247 is the first measured RESOLVED-but-live instance. This is the findings-analog of the closed-vocabulary reachability direction: `literal_provenance.ProductionIndex` already computes writer/producer call-reachability; the caller dimension is the missing half. Fix: Tier-3 gate on the ORPHAN-750 cricket template — first run pins the existing unreachable-closure set as a named, owner+dated baseline; red only on NEW unreachable closures; the baseline never ratchets up and shrinks only when a baseline entry becomes genuinely reachable. ORPHAN-694/PR #1247 sits in the baseline by name — counted, not silenced. **Status:** OPEN (owner: okan, correction-plan Wave 1e). Detail: docs/reviews/claude/2026-08-20-aria-authority-chain-audit.md.
+
+## ORPHAN-MEDIUM-767 — the local ledger mirror's writer is unattributable — OPEN
+
+Severity: MEDIUM (ARIA cannot say who last touched its own memory). Found 2026-08-20. All ten `aria-tools/*.jsonl` ledgers carry nanosecond-identical mtimes in two batch events (10:12:26 and 10:49:54.957779186); digests unchanged; the files are gitignored (`.gitignore:208-214`) so no VCS signal exists; `refs/aria-snap2` pins the morning's published tip at 07:02 with an unknown owner. Mechanism unidentified and recorded as unknown — size-equality is not content-equality. Fix (Tier 3): last-writer row (command, pid, ts) in the state manifest from every state-materializing path; kernel conftest refuses tests whose `ARIA_TOOLS_DIR` is the repo's real `aria-tools/`. **Status:** OPEN (owner: okan, correction-plan Wave 1d). Detail: docs/reviews/claude/2026-08-20-aria-authority-chain-audit.md.
+
+## ORPHAN-MEDIUM-768 — the authority chain's live node is structurally stale — OPEN
+
+Severity: MEDIUM (the delegation chain ends at a frozen date). Found 2026-08-20. All three core docs delegate to CURRENT_STATE via ARIA-LIVE-AUTHORITY banners; CURRENT_STATE's `Date:` is 2026-06-21 because `aria-authority-hash.ts --write` rewrites only the hash and `aria-doc-runtime-ssot.spec.ts:126` pins the literal date — the freshness signal is frozen by the gate that should carry it, so the doc can never look stale to a machine. Fix: CURRENT_STATE indexes the last two months; `--write` stamps Date with the hash; the spec literal becomes a same-write consistency check. **Status:** OPEN (owner: okan, correction-plan Wave 3a). Detail: docs/reviews/claude/2026-08-20-aria-authority-chain-audit.md.
+
+## ORPHAN-MEDIUM-769 — three suites per main push, one of them a strict subset — OPEN
+
+Severity: MEDIUM (CI cost honesty). Found 2026-08-20. `aria-kernel.yml` push is deliberately unfiltered (ARIA-V-007 — kept); `aria-kernel-fast` and `aria-kernel-full` fire on the same push, full running a strict subset of kernel's steps (verified line by line) and fast re-running the same PR suite. Neither is a required context; the redundancy is pinned by `test_ci_workflow_invariants.py:164` and `workflow_contract_registry.py`. Fix: delete full, make fast PR-only, migrate the pins and rationale. **Status:** OPEN (owner: okan, correction-plan Wave 2c). Detail: docs/reviews/claude/2026-08-20-aria-authority-chain-audit.md.
+
+## ORPHAN-MEDIUM-770 — a branch-writing lane outside every concurrency rule — OPEN
+
+Severity: MEDIUM (shared-ledger integrity). Found 2026-08-20. `aria-agent-eval.yml` (hosted, weekly) publishes to `aria/state` with no concurrency group; the z1 rule is disk-scoped by design (its docstring explains why hosted jobs are out of the DISK rule) and no rule covers the BRANCH hazard. Fix: eval gets its own group (not the shared self-hosted group — ORPHAN-713/736 eviction hazard); sibling invariant: every workflow that pushes to `aria/state` must declare a concurrency group. **Status:** OPEN (owner: okan, correction-plan Wave 2a/2b). Detail: docs/reviews/claude/2026-08-20-aria-authority-chain-audit.md.
+
+## ORPHAN-MEDIUM-771 — live prose contradicting executable reality — OPEN
+
+Severity: MEDIUM (SSoT discipline). Found 2026-08-20. CONTRACTS.md:300 declares `llm_bridge.py` absent while the file exists and is the single entry of the security allowlist `_APPROVED_WRAPPERS` (`agent_harness_security_adapter.py:105`) — it is corrected, not deleted. Same set: IDENTITY §0 / CONTRACTS §0,§14 "ARIA does not exist" honesty floors; SPEC §8.1 ceiling predating the staged unlock ladder; dangling `docs/plans/2026-06-13-aria-to-main-controlled-merge/` (added in 29f2f2055, now absent) and `docs/reviews/aria-implementer/`; stale cron comments (say 01:00/05:16, actual 01:13/02:29); Node 20/22 pin split; codex-era runbooks without historical banners; stale counts (58 ADRs, 107 agent files, 23 aria-\* today). **Status:** OPEN (owner: okan, correction-plan Wave 3). Detail: docs/reviews/claude/2026-08-20-aria-authority-chain-audit.md.
+
+## ORPHAN-LOW-772 — hygiene debt blunting honest signals — OPEN
+
+Severity: LOW. Found 2026-08-20. `.aria-acceptance-poc-tmp/` untracked and unignored; `api_backoff.py` alive to grep only via the watchdog's `api_backoff_engaged` event string; `restart_verify.sh` referenced nowhere; `tool_health_placeholder_test.py` asserts True; codex-monitor pid locks; the legacy `aria-kernel/aria-tools/` tree. Host-level debris for the operator: three zombie `tail -F` (May), `.aria-poc/` 7.1MB (2026-05-13), ~130 `.aria-ci/` tmp dirs, `agent-workspace/` archives. The snowball genesis retirement is deliberately NOT here — it requires an operator-signed governance decision (production code: `agent_genesis.py`, `draft_validator.py`). **Status:** OPEN (owner: okan, correction-plan Wave 4). Detail: docs/reviews/claude/2026-08-20-aria-authority-chain-audit.md.
+
+## ORPHAN-MEDIUM-773 — the production-roster gate failed on machine activity, not on the repo — RESOLVED
+
+Severity: MEDIUM (blocked every push from a busy checkout with a defect not in the pushed tree). Found 2026-08-20 while pushing the authority-chain fixes: two full-suite pre-push runs failed only on `test_the_production_roster_still_covers_the_repository`. Measured: `.claude` carried 3445 Python files — the full kernel copies inside `.claude/worktrees/wf_*`, each a git worktree of THIS repository created by a parallel session. `unrostered_production_dirs` walked every `*.py` under the checkout, so the roster gate went red whenever any session had an active worktree and green only when the machine was idle. A gate whose result depends on who else is working measures the machine, not the repo. **Fix:** the scanner skips `.claude/worktrees` explicitly — a checkout of this tree at another commit is not an answer to the roster's question of where THIS tree's production code lives; every other stray production root still fails the gate. **Owner:** claude (this session). **Status:** RESOLVED. Detail: docs/reviews/claude/2026-08-20-aria-authority-chain-audit.md.
+
+## ORPHAN-LOW-774 — the specialist-review --strict flip has lived as a workflow-comment TODO with no owner and no criterion — OPEN
+
+Severity: LOW. Found 2026-08-20. The specialist-review dry-run runs warn-mode in the kernel lanes behind "flip to --strict in a follow-up commit once the Lane-A inventory is fully populated" — a decision carried only in YAML comments: no owner, no flip criterion, no deadline (the third copy of the comment died with aria-kernel-full.yml). The comments now cite this finding. **Flip criterion:** Lane-A inventory fully populated (every Lane-A agent resolvable in the dry-run) AND 4 consecutive green weekly warn-mode runs. **Owner:** platform operator (Okan) with the kernel owner. **Deadline:** 2026-09-30. **Status:** OPEN. Detail: docs/reviews/claude/2026-08-20-aria-authority-chain-audit.md.
+
 ## ORPHAN-HIGH-755 — a belief ARIA could not resolve without a person, and the authority that resolving it accidentally bought — RESOLVED
 
 Severity: HIGH (the last human-shaped link in the belief-learning loop, plus a leak the fix would have opened). JJ-3 of PROGRAM B.
@@ -10716,3 +10772,74 @@ Pinned in `aria-kernel/tests/test_provider_redirect.py` (10 pins): an Anthropic 
 **Not done here, and named rather than left implicit:** quota exhaustion is not yet a distinct outcome. Z.ai bills a fixed plan by points, so a night can end on an exhausted quota rather than a failure — and this repository has already paid for that exact shape once, when Fable credit exhaustion arrived as `exit 0` plus a content message and read as success (`run_with_model_fallback` exists because of it). The `credit_exhaustion` field on `ClaudeRunResult` is the seam; wiring GLM's quota signal into it is the next train.
 
 **Owner:** claude (this session). **Status:** RESOLVED (redirect); quota-exhaustion wiring tracked as the follow-on.
+
+## ORPHAN-HIGH-762 — the instrument built to measure ARIA's blindness had a broken ruler — RESOLVED
+
+Severity: HIGH (every number ORPHAN-753 published, and every number quoted from it since, was wrong in the understating direction).
+
+**Measured 2026-08-20.** `observation_coverage._matches` carried a private `fnmatch` implementation whose comment asserted the bug as a justification: _"fnmatch treats `_`as crossing separators, which is what`**/`means here anyway"*. It is not.`**/`must also match **zero** directories, and`fnmatch`expands`**`to`.\*`with the literal separator still required — so`aria-kernel/aria_kernel/**/\*.py`did **not** match`aria-kernel/aria_kernel/cycle.py`. Reproduced directly:
+
+```
+_matches('aria-kernel/aria_kernel/cycle.py', 'aria-kernel/aria_kernel/**/*.py')   -> False
+matches_glob(same pair)                                                           -> True
+```
+
+The repository already had the correct matcher (`tool_health.matches_glob`). This module shipped a second one — the Potemkin-SSoT shape this ledger is full of — and the copy governed the measurement.
+
+**Corrected numbers, from the fixed instrument:** observed ratio **74.71%** (published: 71.8%); `aria-kernel` **243 of 807** files inside a declared scope (published: 13 of 799). The kernel is not effectively invisible to ARIA — it is roughly a third observed, by two adapters (`kernel-dead-wire`, `agent-harness-security`). The corrected figure weakens the G-10 claim I made from the wrong one, and that correction is the point of recording this.
+
+**Fix.** `_matches` expands braces (which `matches_glob` does not do, and the manifests use the brace form) and then defers every alternative to the ONE matcher. The private copy is gone.
+
+**How it was found.** Not by the suite — all 25 observation pins pass both before and after, because they exercise the matcher through fixtures whose shapes happen to avoid the case. It was found by an independent design panel reading the module against its sibling, which is the same class of catch as ORPHAN-758: two implementations of one decision, and the wrong one was in the load-bearing position.
+
+## ORPHAN-CRITICAL-754 — every nightly cycle died at its first step, and a pin held the break in place — RESOLVED
+
+Severity: CRITICAL (ARIA cannot run at all; the autonomy programme has no nights). Found 2026-08-20 by reading the failed run the operator pointed at, not by a gate.
+
+**The failure.** `aria-auto-cycle` run 32324892989, the first cycle to run with the day's merges: `aria-kernel: error: unrecognized arguments: --implementer-poll-seconds 120`, exit 2, before a single phase executed. The 08-19 cycle had the same shape.
+
+**Root cause — a half-finished removal.** CL-1 deleted the synchronous convergence poll (K6/ORPHAN-CRITICAL-727), and the CLI dropped `--implementer-poll-seconds` with it; the comment where the argument stood says so plainly. Two pins referenced that flag:
+
+| pin                                                           | what it asserted                                                  | updated by CL-1                         |
+| ------------------------------------------------------------- | ----------------------------------------------------------------- | --------------------------------------- |
+| `tests/invariants/v3_1/test_phase_v31_e_profile_preflight.py` | the `implementer_poll_seconds` PARAMETER is absent                | **yes** — rewritten, with the reasoning |
+| `tests/test_nightly_profile_authority_contract.py`            | the workflow MUST pass `--implementer-poll-seconds`, bounded ≤300 | **no**                                  |
+
+The second one's own docstring said the bound was a stopgap _"before the successor lands"_ and that ORPHAN-HIGH-734 owned the real fix. The successor landed. The pin did not follow — and because it required the flag, the workflow kept passing an argument argparse no longer accepts. **A pin that outlives the thing it pinned does not go quiet; it holds the broken state in place**, and it does so with the authority of a green test.
+
+**Fix.** The flag is removed from `aria-auto-cycle.yml`, and the stale pin now asserts its ABSENCE, mirroring the sibling pin that was already correct. Verified: 28 tests in the contract green; restoring the flag reds the pin (deliberate breakage); `autonomy run --help` shows no such argument.
+
+**What this says about the day's work.** CL-1 was reported complete on the strength of its own suite. Its suite passed because the pin that would have caught this was _asserting the old world_ — the failure only became visible when a real night ran. Green tests are evidence about the tests as much as about the code.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-CRITICAL-776 — the nightly cycle died on an unbound name, and the detector for that exact class was pointed elsewhere — RESOLVED
+
+Severity: CRITICAL (ARIA's nights stopped; the `product_fitness` phase had never once completed).
+
+**Measured 2026-08-21** from run `32440461717`: the cycle reached its phases and failed with `name 'ensure_tools_dir' is not defined` in phase `product_fitness`, `exit_reason: cycle_failed`. This is the night AFTER ORPHAN-754 removed the argparse death — the cycle got further and hit the next landmine.
+
+**Root cause, one line.** `cycle.py:1151` calls `ensure_tools_dir(context.base_dir)`. The module imports from `tool_registry`: `GovernanceError, append_tools_governance, append_tools_governance_once, ensure_tools_binding, list_tools, register_tool, utc_now, update_tools_index` — `ensure_tools_**binding**`, not `ensure_tools_**dir**`. The name appears exactly once in the file and is bound nowhere. Introduced by **my own #1288** (PROGRAM E + G-1); the similar sibling name in the same import list is how it read as correct.
+
+**The part worth keeping.** A detector for precisely this class already existed — `test_executor_unbound_names.py`, written after ORPHAN-CRITICAL-479, whose docstring says: _"A fix without a detector just schedules the next instance."_ It was right. What it could not do is look outside `TARGETS = ("worker_executor.py", "ci_executor.py", "claude_runtime.py")`. **The detector was sound and its SCOPE was the defect** — the class recurred in the one place it was not watching, and 4,500+ tests stayed green because nothing exercises that phase.
+
+**Fix.** The scan now covers the whole kernel package by glob rather than a hand-listed tuple. A curated list is the same failure one level up: the module added tomorrow is outside it by default. Scanning everything means a new file is covered the day it lands — the only version of this check that does not decay. A floor assertion (`> 50` files) refuses the vacuous-green case where a refactor moves the package and the loop silently scans three files.
+
+**Widening it found four more live instances**, all on paths that run:
+
+| File                             | Name                      | Function                                       |
+| -------------------------------- | ------------------------- | ---------------------------------------------- |
+| `agent_genesis.py:945`           | `append_tools_governance` | `sweep_candidate_gaps_for_adjudication()`      |
+| `autonomy_orchestrator.py:299`   | `GovernanceError`         | `_drain_next_cycle_queue()` — runs every cycle |
+| `plan_convergence_bridge.py:374` | `GovernanceError`         | `_dispatch_implementation()`                   |
+| `plan_convergence_bridge.py:421` | `GovernanceError`         | —                                              |
+
+All four bound.
+
+**And the widened scan exposed a gap in the resolver itself, which is the more interesting half.** The first run reported **129** offenders — `item`, `row`, `c`, `kv`, `e`. None were defects: `ast.Lambda` was not treated as a scope boundary, so the walker descended into `sort(key=lambda item: ...)` bodies and collected their loads while reading parameters only from the enclosing function. Every lambda argument in the kernel read as unbound. Teaching it that a lambda is a scope took 129 down to **4** — and the 4 are real. A detector aimed at a corpus ten times larger than it was written for will surface its own approximations first; the discipline is to fix the resolver rather than narrow the corpus back until the noise stops.
+
+The extension announced one more bug of its own: a `Lambda`'s `body` is a single expression, not a statement list, so iterating it raised `TypeError: 'Tuple' object is not iterable`. Normalised.
+
+Pinned by the check itself, and the deliberate-breakage direction was measured rather than asserted: reverting the `cycle.py` import makes the detector report the original defect again.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

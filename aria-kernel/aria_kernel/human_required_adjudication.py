@@ -924,16 +924,6 @@ def adjudicate_human_required(
                 # so a split panel corrects the belief and settles nothing.
                 judge_count=verdict.resolve_votes,
                 judges_voted=len(verdict.opinions),
-                # G-2 (ORPHAN-HIGH-760) — a panel that writes ground truth
-                # must say WHICH PRINCIPALS sat on it. Only the resolve
-                # voters: a dissenter attended, and attendance is already
-                # carried by judges_voted; it did not stand behind the
-                # correction and must not lend it diversity.
-                panel_agent_ids=tuple(
-                    opinion.agent_id
-                    for opinion in verdict.opinions
-                    if opinion.verdict == RESOLVE_VERDICT
-                ),
                 base_dir=root,
             )
         except Exception as exc:

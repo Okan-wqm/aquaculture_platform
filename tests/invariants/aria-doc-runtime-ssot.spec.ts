@@ -130,11 +130,23 @@ describe('ARIA live runtime/documentation SSoT', () => {
     const declaredDate = current.match(/^Date: (\d{4}-\d{2}-\d{2})$/m)?.[1];
     expect(declaredDate).toBeTruthy();
     const authorityFiles = ariaAuthorityFiles(REPO_ROOT);
-    const lastAuthorityCommit = execFileSync(
+    // ORPHAN-HIGH-791 — compare INSTANTS, not timezone renderings. The
+    // pin writer stamps the UTC day (aria-authority-hash.ts:
+    // new Date().toISOString().slice(0, 10)); `%cs` renders the commit
+    // date in the VIEWER's timezone, so a commit at 2026-08-22T00:37+02:00
+    // (= 2026-08-21T22:37Z, #1309) rendered as 2026-08-22 and failed a
+    // pin stamped 2026-08-21 — the exact fresh-cover check this assertion
+    // exists to run, firing on a timezone illusion instead. %cI is the
+    // full ISO instant; normalize it to the UTC day both sides share.
+    const lastAuthorityCommitIso = execFileSync(
       'git',
-      ['log', '-1', '--format=%cs', '--', ...authorityFiles],
+      ['log', '-1', '--format=%cI', '--', ...authorityFiles],
       { encoding: 'utf8', cwd: REPO_ROOT },
     ).trim();
+    expect(lastAuthorityCommitIso).toBeTruthy();
+    const lastAuthorityCommit = new Date(lastAuthorityCommitIso)
+      .toISOString()
+      .slice(0, 10);
     expect(lastAuthorityCommit).toBeTruthy();
     expect(declaredDate! >= lastAuthorityCommit).toBe(true);
     const target = current.match(/Target ref: `([^`]+)`/)?.[1];

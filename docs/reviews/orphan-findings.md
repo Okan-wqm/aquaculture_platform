@@ -21,6 +21,13 @@
 
 ---
 
+## ORPHAN-HIGH-791 — the SSoT date invariant compares a UTC stamp against a timezone-rendered commit date — RESOLVED (this PR)
+
+**Discovered:** 2026-08-21 23:43 UTC (PR #1310's aria-kernel check red on a day-boundary that does not exist).
+**Evidence:** `aria-doc-runtime-ssot.spec.ts` held the pin's `Date:` accountable via `git log -1 --format=%cs` over the authority surface. The pin writer stamps the UTC day (`aria-authority-hash.ts`: `new Date().toISOString().slice(0, 10)`); `%cs` renders the commit date in the VIEWER's timezone. Commit 47f5d3dea (#1309) carries `2026-08-22T00:37:16+02:00` — 2026-08-21T22:37Z — and rendered as `2026-08-22` against a pin stamped `2026-08-21`: the fresh-hash-fresh-date check fired on a timezone illusion, the first commit after 21:00Z with a positive-offset committer timezone to do so.
+**Remediation (this PR):** the assertion compares INSTANTS — `%cI` (full ISO) normalized to the UTC day both sides share (`new Date(iso).toISOString().slice(0,10)`), leaving the ORPHAN-MEDIUM-768 intent (a verification claim must not predate the content it verifies) exactly as strict, with the day-boundary illusion gone. Verified against the boundary commit itself: `%cI` normalizes to 2026-08-21, the pin's own UTC day.
+**Owner:** zcode (this session). **Deadline:** closed by this PR.
+
 ## ORPHAN-HIGH-790 — two agent files teach refusal values the kernel rejects; the conflation of reason_class with rejection_class — RESOLVED (this PR)
 
 **Discovered:** 2026-08-21 (the operator's clarity criterion for ARIA's decision layer: agents must be unambiguous; adversarial review confirmed the diagnosis).

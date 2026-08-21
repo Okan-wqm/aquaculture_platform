@@ -209,6 +209,13 @@ def unrostered_production_dirs(repo_root: str | Path) -> dict[str, int]:
         # answer to it.
         if len(parts) >= 2 and parts[0] == ".claude" and parts[1] == "worktrees":
             continue
+        # Same class, different checkout location: .worktrees/ holds
+        # parallel-session worktrees (the promotion-chain branch's session
+        # uses this root). A checkout of this tree at another commit is
+        # not an answer to the roster's question, regardless of where the
+        # worktree happens to be mounted.
+        if parts[0] == ".worktrees":
+            continue
         top = parts[0] if len(parts) > 1 else "."
         if top in PRODUCTION_SOURCE_ROOTS or not _is_production_python(relative):
             continue

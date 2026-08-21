@@ -95,13 +95,43 @@ def _substitute_placeholder_choice(msg: str, argv: list[str]) -> list[str] | Non
     return None
 
 
+_INVALID_INT_MSG = re.compile(
+    r"argument (?P<flag>--[A-Za-z0-9_-]+): invalid (?P<type>int)_ value: '(?P<value>[^']*)'"
+)
+
+
+def _substitute_placeholder_int(msg: str, argv: list[str]) -> list[str] | None:
+    """Rewrite one placeholder invalid-int error into a valid argv.
+
+    Same contract as _substitute_placeholder_choice: only the placeholder
+    is substituted; a workflow-written literal stays a violation. Int
+    arguments (`--max-cycles`, `--cycle-deadline-seconds`) reject the
+    string placeholder with `invalid int value`, which the choice-only
+    substitution does not catch.
+    """
+    m = _INVALID_INT_MSG.search(msg)
+    if m is None or m.group("value") != _PLACEHOLDER:
+        return None
+    flag = m.group("flag")
+    patched = list(argv)
+    for i, token in enumerate(patched):
+        if token == flag and i + 1 < len(patched) and patched[i + 1] == _PLACEHOLDER:
+            patched[i + 1] = "1"
+            return patched
+        if token.startswith(flag + "=") and token.endswith(_PLACEHOLDER):
+            patched[i] = f"{flag}=1"
+            return patched
+    return None
+
+
 def _parse_argv_against_cli(argv: list[str]) -> str | None:
-    """Parse one argv against the real CLI, substituting placeholder choices.
+    """Parse one argv against the real CLI, substituting placeholder values.
 
     Returns None on a clean parse (or a non-usage exception), else the final
     argparse error message for `_contract_violation` to judge. Each
-    placeholder-choice error costs one retry; the bound is argv length so
-    a substitution bug cannot loop forever and must surface as a violation.
+    placeholder error (choice or int) costs one retry; the bound is argv
+    length so a substitution bug cannot loop forever and must surface as
+    a violation.
     """
     from aria_kernel.cli import build_parser
 
@@ -118,9 +148,11 @@ def _parse_argv_against_cli(argv: list[str]) -> str | None:
             msg = err.getvalue()
             patched = _substitute_placeholder_choice(msg, current)
             if patched is None:
+                patched = _substitute_placeholder_int(msg, current)
+            if patched is None:
                 return msg
             current = patched
-    return "error: placeholder invalid-choice did not resolve within the retry bound"
+    return "error: placeholder substitution did not resolve within the retry bound"
 
 
 def _kernel_invocations(text: str) -> list[list[str]]:

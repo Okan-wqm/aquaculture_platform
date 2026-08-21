@@ -2231,6 +2231,55 @@ def _record_anchor_stale(
     )
 
 
+def sweep_expired_anchors(
+    *,
+    base_dir: str | Path | None = None,
+    now: datetime | None = None,
+) -> dict[str, int]:
+    """ORPHAN-HIGH-786 — proactively retire age-expired requests.
+
+    Expiry is terminal but was only ever discovered LAZILY: `_record_anchor_stale`
+    fired when a claim was attempted against an already-dead envelope, so the
+    backlog read pending while being dead, `pending_judge_counts` fed the mint
+    gate inflated numbers, and minting continued into the hole the drain could
+    never fill within the TTL. The sweep makes the ledger tell the truth on
+    its own schedule: run before minting, the backlog cap counts only envelopes
+    that are still alive to claim.
+
+    Age-only BY DESIGN: the unreachable arm of `_anchor_refusal_reason` needs
+    repo evaluation and stays claim-time's job (ORPHAN-CRITICAL-495 — a
+    sweep that evaluated git reachability would be a selection boundary
+    pretending not to be one); the expiry arm needs only `created_at`, which
+    is on every row. Idempotent by construction: ANCHOR_STALE is terminal and
+    `derive_request_state` skips terminal requests, so a second sweep finds
+    nothing.
+    """
+    root = ensure_tools_dir(base_dir)
+    reference = now or _utc_now_dt()
+    max_age_seconds = _anchor_max_age_seconds(root)
+    swept = 0
+    by_role: dict[str, int] = {}
+    for row in list_agent_invocation_requests(base_dir=root):
+        request_id = str(row.get("request_id") or "")
+        if not request_id:
+            continue
+        state = derive_request_state(request_id=request_id, base_dir=root, now=reference)
+        if state not in ("PENDING", "REQUEUED"):
+            continue
+        created = _parse_iso(row.get("created_at"))
+        if created is None:
+            # Undatable rows keep the claim-time refusal path; a sweep that
+            # guessed an age would be the silent-narrowing class.
+            continue
+        if (reference - created).total_seconds() <= max_age_seconds:
+            continue
+        _record_anchor_stale(root, row, "anchor_expired", now=reference)
+        swept += 1
+        role = str(row.get("role") or "unknown")
+        by_role[role] = by_role.get(role, 0) + 1
+    return {"swept": swept, "by_role": by_role}
+
+
 def next_pending_request(
     *,
     role: str | None = None,

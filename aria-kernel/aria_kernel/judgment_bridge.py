@@ -266,7 +266,15 @@ def record_judge_verdict_from_response(
         note=note,
         source_type="ai_judge",
         judge_id=str(judge_id),
-        model=verdict_block.get("model"),
+        # ORPHAN-HIGH-781 — mint-first doctrine, same as judgment_group_id
+        # and finding_fingerprint above: the model the DISPATCHER resolved
+        # (`details.agent_dispatch_model`, force-stamped by ci_executor from
+        # the runtime profile) outranks the judge's own verdict.model
+        # self-report. The anchor distinct-model count must not trust a
+        # string the judged agent wrote about itself; the self-report
+        # survives only as the fallback for mock/legacy envelopes that
+        # predate the stamp.
+        model=details.get("agent_dispatch_model") or verdict_block.get("model"),
         prompt_hash=verdict_block.get("prompt_hash"),
         confidence=float(confidence) if confidence is not None else None,
         rationale=str(note),

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import hashlib
 import fnmatch
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,18 @@ from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
 FEEDBACK_VERDICTS = ("true_positive", "false_positive")
+
+# ORPHAN-MEDIUM-785 — how far back the judgment sampler looks when the
+# current cycle's own runs are thin or absent. The exact-cycle filter
+# starved the judge lane on every night without fresh adapter runs (a
+# failed tools phase, a cancelled night, an empty queue): findings
+# produced on OTHER recent nights became permanently unsampleable, so
+# cross-night accumulation was impossible even with the fingerprint
+# threading fixed. The window matches the operator-facing week, not the
+# anchor TTL — a judge envelope's 3-day clock starts at MINT, so a
+# several-day-old finding is still fresh enough to judge; month-old
+# findings are not, and stay out.
+SAMPLE_RECENCY_HOURS = 168
 
 # ORPHAN-CRITICAL-735 — the CLOSED vocabulary of consensus-uncertainty
 # reasons. Every _consensus_uncertainty call site below uses a member;
@@ -79,10 +92,16 @@ ANCHOR_MIN_JUDGE_COUNT = 3
 # maximally correlated and invalidated every anchor they touched. Structure
 # is knowable at mint time; correlation is not.
 #
-# Two, not three: measured on the live fleet, an anchor is
-# evidence-judge + adversarial-judge (both claude-opus-5) + consensus-arbiter
-# (fable). Requiring three distinct models would make an anchor unreachable
-# today, and an unreachable gate is a gate nobody keeps.
+# Two, not three: when G-2 landed the live fleet was evidence-judge +
+# adversarial-judge (both claude-opus-5) + consensus-arbiter (fable), and
+# requiring three distinct models would have made an anchor unreachable —
+# an unreachable gate is a gate nobody keeps. Since d7fa539ea the fleet
+# spans three models (evidence-judge opus, adversarial-judge glm-5.3,
+# arbiter fable), so the two-judge anchor bar is comfortably satisfiable;
+# raising it to three remains a measured operator decision, not a
+# constant edit. What the rule counts also changed with ORPHAN-HIGH-781:
+# the observers' model now comes from the dispatch record the executor
+# stamps (`details.agent_dispatch_model`), not from a judge's self-report.
 ANCHOR_MIN_DISTINCT_MODELS = 2
 
 JUDGMENT_SUBJECT_FINDING = "finding"
@@ -997,6 +1016,35 @@ def load_feedback(
     return rows
 
 
+def _within_sampling_recency(
+    row: dict[str, Any],
+    cycle_id: str | None,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    """ORPHAN-MEDIUM-785 — this cycle's findings, plus the recent window.
+
+    ``cycle_id=None`` keeps its process-all meaning (no filter, no window).
+    With a specific cycle: the cycle's own rows always qualify, older rows
+    qualify while inside SAMPLE_RECENCY_HOURS, and a row whose age cannot
+    be parsed falls back to the pre-window behavior (cycle match only) —
+    an unverifiable age must not silently widen or narrow the cohort.
+    """
+    if cycle_id is None:
+        return True
+    if row.get("cycle_id") == cycle_id:
+        return True
+    recorded = str(row.get("recorded_at") or "")
+    try:
+        recorded_dt = datetime.fromisoformat(recorded)
+    except ValueError:
+        return False
+    if recorded_dt.tzinfo is None:
+        recorded_dt = recorded_dt.replace(tzinfo=timezone.utc)
+    reference = now or datetime.now(timezone.utc)
+    return (reference - recorded_dt) <= timedelta(hours=SAMPLE_RECENCY_HOURS)
+
+
 def _sampleable_raw_findings(
     *,
     tool_id: str,
@@ -1024,7 +1072,10 @@ def _sampleable_raw_findings(
             continue
         if row.get("status") == "invalid_evidence":
             continue
-        if cycle_id is not None and row.get("cycle_id") != cycle_id:
+        # ORPHAN-MEDIUM-785 — recency window instead of the exact-cycle
+        # match: a night without fresh runs must not make every other
+        # recent night's findings permanently unsampleable.
+        if not _within_sampling_recency(row, cycle_id):
             continue
         finding = row.get("finding") if isinstance(row.get("finding"), dict) else {}
         if not finding and row.get("artifact_ref"):

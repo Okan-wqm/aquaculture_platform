@@ -4,13 +4,21 @@ Four invariants pin the V6.4 dead-loop fix:
 
   * I-V7.6-01 — phase fires once per cycle (idempotent re-invocation
                 safe)
-  * I-V7.6-02 — phase ordering: AFTER auto_merge_runner, BEFORE
+  * I-V7.6-02 — phase ordering on the converged path: AFTER
+                auto_merge_runner, BEFORE reflection; AND since
+                ORPHAN-HIGH-782 the phase also runs on the
+                convergence-BLOCKED path (most nights), before its
                 reflection
   * I-V7.6-03 — when no SHADOW/ACTIVE adapters exist, phase emits
                 status="no_adapters" (NO crash, NO silent skip)
   * I-V7.6-04 — source-substring invariant pins the literal
-                ``generate_adapter_calibration_report(tool_ids=``
-                call site
+                ``generate_adapter_calibration_report(`` call site in
+                the extracted helper
+
+ORPHAN-HIGH-782 rewrote 02/03/04: the block moved out of the converged-only
+tail into `_calibration_reporter_and_auto_promotion`, because a reporter
+gated on plan convergence left precision_history structurally empty
+(zero rows on aria/state; non-converged nights skipped it entirely).
 """
 
 from __future__ import annotations
@@ -40,43 +48,46 @@ class PhaseV7_6CalibrationReporter(unittest.TestCase):
             ),
         )
 
-    # I-V7.6-02 — phase ordering.
-    def test_i_v7_6_02_phase_after_auto_merge_before_reflection(self) -> None:
-        """Plan ARIA-V7 §3 V7.6 — calibration_reporter between
-        auto_merge_runner and reflection."""
+    # I-V7.6-02 — phase ordering + the ORPHAN-HIGH-782 every-exit rule.
+    def test_i_v7_6_02_runs_on_every_completed_cycle_before_reflection(self) -> None:
+        """Every cycle-exit path runs the reporter before its reflection:
+        converged, convergence-blocked, no-pressure and invalid-plan.
+        A reporter gated on any single path starves precision_history on
+        the others — the exact defect ORPHAN-HIGH-782 closed (the
+        converged-only tail left adapter-calibration-reports.jsonl at
+        zero rows on aria/state). The structural form: one helper call
+        per reflection exit — a new exit branch that forgets the helper
+        fails the count by construction."""
         import aria_kernel.autonomy_orchestrator as mod
         src = inspect.getsource(mod.run_autonomy_orchestrator)
+        helper_calls = src.count("_calibration_reporter_and_auto_promotion(")
+        reflection_exits = src.count("post_drain_reflection = run_reflection(")
+        self.assertEqual(
+            helper_calls, reflection_exits,
+            msg=f"every cycle-exit reflection ({reflection_exits}) must be "
+                f"preceded by its own calibration reporter call "
+                f"(found {helper_calls}) — ORPHAN-HIGH-782",
+        )
         idx_auto_merge = src.find("auto_merge_result = auto_merge_runner(")
-        idx_calib = src.find("generate_adapter_calibration_report(")
-        # Multiple post_drain_reflection callsites exist (skip-path
-        # branches each have one). We care about the MAIN happy-path
-        # one — find the LAST occurrence (after calibration_reporter
-        # in the source order).
+        idx_calib_converged = src.rfind("_calibration_reporter_and_auto_promotion(")
         idx_reflection_last = src.rfind("post_drain_reflection = run_reflection(")
-        # All markers must exist + ordered: auto_merge < calibration < reflection (last)
         self.assertNotEqual(idx_auto_merge, -1, "auto_merge_runner call marker missing")
-        self.assertNotEqual(idx_calib, -1, "calibration_reporter call marker missing")
+        self.assertNotEqual(idx_calib_converged, -1, "calibration helper call marker missing")
         self.assertNotEqual(idx_reflection_last, -1, "reflection call marker missing")
-        self.assertLess(
-            idx_auto_merge, idx_calib,
-            msg="auto_merge_runner MUST precede calibration_reporter",
-        )
-        self.assertLess(
-            idx_calib, idx_reflection_last,
-            msg="calibration_reporter MUST precede main reflection call",
-        )
+        # Converged path order: auto_merge < helper(last) < reflection(last).
+        self.assertLess(idx_auto_merge, idx_calib_converged)
+        self.assertLess(idx_calib_converged, idx_reflection_last)
 
     # I-V7.6-03 — no adapters → status="no_adapters" (no crash).
     def test_i_v7_6_03_no_adapters_emits_status(self) -> None:
-        """Plan ARIA-V7 §3 V7.6 — empty tool registry → no_adapters status."""
-        # Smoke: invoke the orchestrator branch logic by checking the
-        # source contains the no_adapters case.
+        """Empty tool registry → no_adapters status, in the helper that
+        owns the block since ORPHAN-HIGH-782."""
         import aria_kernel.autonomy_orchestrator as mod
-        src = inspect.getsource(mod.run_autonomy_orchestrator)
+        src = inspect.getsource(mod._calibration_reporter_and_auto_promotion)
         self.assertIn(
             '"status": "no_adapters"', src,
             msg=(
-                "Plan ARIA-V7 §3 V7.6 — orchestrator MUST emit "
+                "Plan ARIA-V7 §3 V7.6 — the helper MUST emit "
                 "status=no_adapters when tool registry has no "
                 "SHADOW/ACTIVE adapters (operator visibility; no crash)."
             ),
@@ -84,23 +95,24 @@ class PhaseV7_6CalibrationReporter(unittest.TestCase):
 
     # I-V7.6-04 — source-substring invariant.
     def test_i_v7_6_04_source_substring_pins_call_site(self) -> None:
-        """Plan ARIA-V7 §3 V7.6 — refactor-resistant V6.4 unlock.
+        """Refactor-resistant V6.4 unlock.
 
-        Literal call to ``generate_adapter_calibration_report(tool_ids=``
-        pinned. A refactor that drops or renames the call re-introduces
-        the V6.4 dead loop (precision_history empty → compute_auto_
-        promote_token always raises → auto-promote never fires).
+        Literal call to ``generate_adapter_calibration_report(`` pinned
+        inside the extracted helper. A refactor that drops or renames the
+        call re-introduces the V6.4 dead loop (precision_history empty →
+        compute_auto_promote_token always raises → auto-promote never
+        fires).
         """
         import aria_kernel.autonomy_orchestrator as mod
-        src = inspect.getsource(mod.run_autonomy_orchestrator)
+        src = inspect.getsource(mod._calibration_reporter_and_auto_promotion)
         self.assertIn(
-            "generate_adapter_calibration_report(\n                            tool_ids=",
+            "generate_adapter_calibration_report(",
             src,
             msg=(
-                "Plan ARIA-V7 §3 V7.6 (I-V7.6-04) — orchestrator MUST "
+                "Plan ARIA-V7 §3 V7.6 (I-V7.6-04) — the helper MUST "
                 "contain the literal `generate_adapter_calibration_"
-                "report(tool_ids=` call site. Refactor that drops it "
-                "silently breaks V6.4 auto-promote."
+                "report(` call site. A refactor that drops it silently "
+                "breaks V6.4 auto-promote."
             ),
         )
 

@@ -10677,6 +10677,102 @@ Severity: HIGH (the volume is the risk: an unrefuted lead list read as a finding
 
 **Owner:** claude. **Deadline:** 2026-08-27. **Status:** OPEN.
 
+## ORPHAN-HIGH-760 — judge independence was not weakly measured, it was unmeasurable — RESOLVED
+
+Severity: HIGH (every anchor, every suppression and every promotion rests on judges being more than one opinion wearing several names). G-2 of PROGRAM G, redesigned after the first attempt was refuted.
+
+**The first design was refuted by measurement, and the refutation is the reason this one exists.** It computed Cohen's κ over judge verdict pairs and discounted correlated judges' weight. An independent verifier ran that code against fleets its own tests omitted and found it inverts: **three PERFECTLY ACCURATE judges produce κ=1.0 on every pair, are classed as correlated, and invalidate every anchor they touch** — the calibration lane collapses to zero judged judges. A statistic over agreement cannot separate "same model, same prompt" from "both judges were right", and the fleets where it matters most are the ones where it fails hardest.
+
+**Structure is knowable; correlation is not.** This design never inspects a verdict, so it cannot punish a judge for being right.
+
+**Measured on the live ledger (9 rows, 2026-08-20):** four rows carry a `prompt_hash`, one `ai_judge` row has `model=None`, and the single consensus row carries `model="consensus"` — which is not a model, it is a process. The fields for observer identity have existed all along and were filled when convenient. So independence was never weakly measured: **it was unmeasurable, and any statistic layered on those rows would have been computed from holes.**
+
+**Fix.** The consensus row carries `observers` — one `{judge_id, model}` entry per judge that AGREED (dissenters excluded: they did not stand behind the verdict and must not lend it diversity). `is_ground_truth_row` — the single predicate JJ-1 collapsed five copies into, and the place the duplicate critic insisted this belongs — additionally requires the agreement to span `ANCHOR_MIN_DISTINCT_MODELS` distinct models. Row-local, exactly like `judge_count`/`judges_voted`: the anchor question is answered from the row or not at all.
+
+**Two, not three, and the number is measured rather than chosen.** The live fleet is `aria-evidence-judge` (opus), `aria-adversarial-judge` (opus), `aria-consensus-arbiter` (fable). A 3-judge anchor therefore spans exactly two models. Requiring three would make an anchor unreachable today, and an unreachable gate is a gate nobody keeps.
+
+**The rule binds where it bites.** `observers` is required only for anchor-grade rows, and `generate_ai_consensus` refuses at the anchor boundary — a group that would settle at anchor grade but whose judges cannot name their models escalates as `observer_identity_missing` instead of laundering unknown provenance into repository truth. Sub-anchor consensus is untouched: it can never be ground truth, so the receipt would be ceremony.
+
+**It reached JJ-3, and that is the interesting part.** The belief panel writes an anchor-grade row, so it must now name its principals too. It resolves them through `read_agent_runtime_profile` — the same frontmatter SSoT the executor dispatches by, so a row cannot claim a model the fleet does not run. Measured: the adjudication panel is opus + opus + fable, two distinct models, so the capability the operator authorised on 2026-08-20 still works. Had the panel been three of one model, it would have gone silent — correctly, and visibly.
+
+**Deliberate breakage, rewritten to successor truth rather than deleted:** `test_anchor_consensus_is_ground_truth` passed on counts alone and now requires attribution; a new pin states the old behaviour is gone (`test_counts_alone_no_longer_buy_an_anchor`); a third pins the defect in one sentence with no statistic in it (`test_one_model_wearing_three_names_is_not_an_anchor`). The JJ-3 panel fixture used invented agents `judge-a/b/c` — names that could not resolve to a model, and therefore a panel that could not exist; it now drives the real trio.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-761 — a belief survives the rewrite of the code it was derived from — OPEN
+
+Severity: HIGH (ARIA's memory is its structural advantage over a cold session; a memory that cannot notice its grounds moved is a confident memory of something that is no longer true).
+
+**Found by the operator's question**, not by a scan: _"if the parts that were refuted change, will ARIA see that too?"_
+
+**Measured 2026-08-20** against `origin/main`. The decay machinery is real and wired — `memory._evidence_state` feeds `pressure.py`, which mints `evidence_gone` (weight 80, the highest of the decay family) when a belief's cited evidence has gone, and `belief_revalidation` otherwise. But the identity it checks is **path membership only**:
+
+```
+"missing_concrete_refs": sorted(ref for ref in concrete_refs if current_paths and ref not in current_paths)
+```
+
+A file that is DELETED is noticed. A glob that stops matching is noticed. **A line whose content is rewritten is not**: the path is still in `current_paths`, so the belief reads as fully grounded. `_repo_state` records `base_commit_sha`, so the commit the belief was derived at IS known — and nothing ever compares content at that sha with content now.
+
+**Why it matters more than it looks.** Every consumer of a belief treats grounded-ness as evidence. A belief derived from `X = ("aria/", "automation/")` stays confident after that tuple becomes `("feat/", "fix/")` — the strongest possible form of being wrong, because the confidence is intact and the ledger shows the evidence present. The same hole will swallow the refutation ledger the ARIA-above-ultracode programme depends on: a lead correctly dismissed because of some line becomes a permanent blind spot the moment that line changes, which is the exact failure a refutation memory must not have.
+
+**Fix (not a new mechanism).** Extend the evidence anchor's identity from `path` to `path + content digest at the cited range`, and let the existing `evidence_gone` / `belief_revalidation` arms fire on a digest mismatch exactly as they fire on a missing path today. `base_commit_sha` is already on the record, so the comparison has both ends. No second ledger, no second decay lane, no new pressure source — the vocabulary already has the member this needs.
+
+**Deliberate breakage this will require:** any pin asserting that a belief stays grounded while its file merely exists must be rewritten to successor truth — existence is not groundedness.
+
+**Owner:** claude. **Deadline:** 2026-08-27 (blocks the refutation-memory item of the ARIA-above-ultracode programme, which cannot be sound without it). **Status:** OPEN.
+
+## ORPHAN-HIGH-763 — a second vendor enters two Anthropic-only vocabularies — RESOLVED
+
+Severity: HIGH (one of the two vocabularies IS the write-protection authority; admitting a member changes who may overwrite whom).
+
+**Operator decision, 2026-08-20:** admit Z.ai's `glm-5.3` as a dispatchable model, ranked **between fable and opus**.
+
+**Why this is an extension and not a second runtime.** Z.ai serves GLM behind an Anthropic-shaped endpoint, so the existing `claude` binary reaches it by swapping `ANTHROPIC_BASE_URL` to `https://api.z.ai/api/anthropic`. No new dispatch path, no second harness. What had to change is that two closed vocabularies stopped assuming a single vendor.
+
+**What admission COSTS, and it is easy to miss.** `model_tier_rank` resolves an unlisted model **asymmetrically** — weakest as an actor, strongest as a target. Before this change `glm-5.3` could author nothing and its output was protected from everyone. Listing it trades that blanket protection for a stated rank. Above `MIN_AGENT_AUTHORING_TIER` it may author agents, and opus may not overwrite what it authored. That is the operator's decision recorded, not argued.
+
+**Pricing is measured, not invented.** Z.ai's posted rates for GLM-5.3 (published 2026-08-14): **$1.40 in / $4.40 out per MTok**, recorded as EXACT because they are vendor prices rather than a family estimate. A `glm-5` family row catches the next generation the day it ships, which is the failure ORPHAN-HIGH-474 was ($0.00 recorded silently for a model nobody had added). Cache-read ($0.26/MTok) has no column in the (input, output) pair and is deliberately **not** blended in — an invented average would be worse than a stated overcharge, and the budget gate fails toward safety.
+
+**Two defects fixed on the way in.**
+
+1. _The model vocabulary had two homes._ `tools/aria-poc/claude_runtime.py:46` declared its own `VALID_MODELS` tuple. It is now **derived** from `agent_runtime_profile.VALID_MODELS` through a PEP 562 module hook, so the name stays where its reader expects it while the literal exists once. The kernel import is lazy, matching `_assert_budget_before_spawn`, because the kernel package rides PYTHONPATH in the ARIA lanes and not necessarily elsewhere.
+
+   **Correction, recorded rather than edited away.** This entry first said the duplicate was read by "nothing — not its own module, not an importer, not a test", and deleted it outright. That was false. The falsehood was manufactured by my own search: the check was `grep -rn VALID_MODELS ... | head -8`, the listing was cut at eight lines, and `test_claude_runtime_contract.test_valid_models_includes_fable` sat below the cut. The full suite caught it — 1 failure in 4,542. **A truncated search is an observation, not evidence**, the same class as a pipe eating an exit code, which this repository was bitten by four times in a single day. The rule that follows is narrow enough to keep: never conclude ABSENCE from a search whose output was capped.
+
+2. _The alias→id rule lived in a test's f-string and encoded a vendor._ `test_cost_pricing` built each family as `f"claude-{alias}-"`, which asserted that every dispatchable model is an Anthropic one. For `glm-5.3` that yields `claude-glm-5.3-`, an id no vendor will emit — coverage would have been reported for a family the ledger cannot match. The mapping now lives in `budget.ALIAS_PRICING_PREFIX` beside the prices it governs, and an unmapped alias falls back to **itself** rather than to a Claude-shaped guess: fail toward a miss, never toward a false hit.
+
+**Still gated, and this constant does not open it.** `claude_runtime.assert_claude_policy_environment` refuses API-key mode unless `ARIA_ALLOW_CLAUDE_API_KEY_MODE=1` is set _"under a new policy"_ — the gate's own wording. That operator policy, not this vocabulary entry, is what actually lets a GLM dispatch happen. The gate is a **billing** guard (managed-auth bypass), not a vendor ban, and its author left a governed door rather than a wall.
+
+**An argument for the change that came out of the same day's work:** ORPHAN-HIGH-760 made anchor grade require agreement spanning **two distinct models**, and the fleet is opus + opus + fable. A third genuinely independent model strengthens every anchor it joins. The counter-argument is placement, not admission: the calibration lane that would measure judge quality is currently broken (weights permanently `None`), so GLM belongs on cheap, measurable roles before the judge lane.
+
+Pinned in `aria-kernel/tests/test_glm_model_admission.py` (7 pins) plus the rewritten `test_model_tier_protection.test_order_is_the_operator_rule`. Deliberate-breakage direction measured: reverting the tier entry turns both authority pins red. One pin was **caught being decorative during review** — the authoring check used `model_tier_rank`, which returns -1 for an unknown model, so it passed whether or not GLM was listed; it now asserts membership first. A pin that cannot fail is decoration.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-764 — a spawn may reach another vendor; the process may not — RESOLVED
+
+Severity: HIGH (the naive wiring silently redirects every judge, planner and implementer to one vendor, and the wrong endpoint bills a wallet while a paid subscription sits unused).
+
+**Context.** ORPHAN-HIGH-763 admitted `glm-5.3` to the dispatchable vocabulary. Admission alone reaches nothing: the model still has to be routed to Z.ai, and the routing is where both defects live.
+
+**Defect 1 — the documented setup is process-wide.** Z.ai's published Claude Code integration says to export `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN`. ARIA dispatches many models from ONE process and chooses the model per agent, so following that literally would send every dispatch — every judge, every planner, the implementer — to one vendor, silently. The fix binds the redirect to a single spawn's `run_env` at the existing seam (`claude_runtime.py`, beside the `IS_SANDBOX` injection) and never to `os.environ`. A model with no redirect entry gets `{}`, so the managed Claude session stays byte-identical for every Anthropic tier.
+
+**Defect 2 — the temptation to route around the gate.** `assert_claude_policy_environment` inspects `os.environ`, so a run_env-only injection never trips it. That makes it easy to call the problem solved — which would mean doing the thing the gate exists to notice, without the gate noticing. A redirect is a NEW mode, so it carries its own authorisation (`ARIA_PROVIDER_REDIRECT_POLICY_REF`) and two **distinct named** refusals: `provider_redirect_unauthorised` (nobody approved this vendor) and `provider_redirect_token_missing` (the key is not on the runner). One message for both would send the reader to the wrong problem half the time. The old gate asks "is this billing bypassing managed auth?"; this one asks "which vendor does this spawn reach?" — two questions, two gates.
+
+**And a correction to my own first implementation.** I hardcoded `https://api.z.ai/api/anthropic` as the base URL. That was the same defect class I spent the day removing: **an unverified fact frozen into a constant.** The vendor documents THREE endpoints that bill differently — Coding-Plan (`/api/coding/paas/v4`, draws the subscription), general (`/api/paas/v4`, draws the prepaid wallet), and Anthropic-compatible (`/api/anthropic`, listed as a third protocol whose billing the docs do not settle; they warn only that the Anthropic base URL "does not apply to resource packages / prepaid balance"). A published bug in another agent harness is exactly this failure: a Coding-Plan key routed to the generic endpoint and billed against balance while the paid plan sat unused.
+
+Which route a given plan+key actually consumes is an **empirical** question — one call, then read the vendor dashboard. So the base URL is an operator override (`ARIA_ZAI_BASE_URL`) with the documented default, switchable without a code change, and every redirect is **disclosed**: provider, endpoint, and whether the endpoint came from the default or an operator override. Never the token — a disclosure carrying the credential is a leak, not a record. Without that disclosure the question "did tonight consume the subscription we paid for, or the wallet?" is unanswerable from ARIA's own ledgers, which is precisely how a paid plan sits unused.
+
+**MEASURED 2026-08-20, and the question is closed for this account.** Two live calls to the default Anthropic-compatible route returned HTTP 200 (`glm-5.3` answered; 44 input / 27 output tokens across both). The operator's account has **cash balance auto-load disabled and no prepaid balance** — so a wallet-billed request could not have succeeded, it would have been rejected for insufficient funds. Success under those conditions is only explicable by the Coding Plan serving them. The default route therefore consumes the subscription, and `ARIA_ZAI_BASE_URL` stays unset.
+
+The response carries no quota, limit or balance header — checked directly — so the API cannot answer this question about itself; the deduction above and the vendor dashboard are the only two instruments. That is exactly why the endpoint remained an operator override rather than a constant: the fact was not knowable from the docs, and it was not knowable from the response either.
+
+Pinned in `aria-kernel/tests/test_provider_redirect.py` (10 pins): an Anthropic tier is never redirected; each refusal is named and distinct; the process environment is never mutated (a leak would send the NEXT opus judge to Z.ai with nobody choosing it); the default is the documented route; an operator override wins and is disclosed as such; a disclosure never carries the credential; and — against this repository's dominant defect class — the helper is actually **called** at the per-spawn seam, because a redirect nobody invokes would pass every other pin and change nothing at runtime.
+
+**Not done here, and named rather than left implicit:** quota exhaustion is not yet a distinct outcome. Z.ai bills a fixed plan by points, so a night can end on an exhausted quota rather than a failure — and this repository has already paid for that exact shape once, when Fable credit exhaustion arrived as `exit 0` plus a content message and read as success (`run_with_model_fallback` exists because of it). The `credit_exhaustion` field on `ClaudeRunResult` is the seam; wiring GLM's quota signal into it is the next train.
+
+**Owner:** claude (this session). **Status:** RESOLVED (redirect); quota-exhaustion wiring tracked as the follow-on.
+
 ## ORPHAN-HIGH-762 — the instrument built to measure ARIA's blindness had a broken ruler — RESOLVED
 
 Severity: HIGH (every number ORPHAN-753 published, and every number quoted from it since, was wrong in the understating direction).

@@ -28,7 +28,14 @@ from functools import lru_cache
 from pathlib import Path
 
 
-VALID_MODELS: frozenset[str] = frozenset({"opus", "sonnet", "haiku", "fable"})
+# ORPHAN-HIGH-763 — `glm-5.3` (Z.ai) joins the dispatchable vocabulary.
+# It reaches the same `claude` binary through the provider swap Z.ai
+# publishes (ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic), so this is
+# one more member of an existing vocabulary rather than a second runtime.
+# The lane still refuses API-key mode unless ARIA_ALLOW_CLAUDE_API_KEY_MODE=1
+# is set "under a new policy" (claude_runtime.assert_claude_policy_environment)
+# — that operator policy, not this constant, is what actually enables it.
+VALID_MODELS: frozenset[str] = frozenset({"opus", "sonnet", "haiku", "fable", "glm-5.3"})
 VALID_EFFORTS: frozenset[str] = frozenset({"low", "medium", "high", "xhigh", "max"})
 
 DEFAULT_MODEL: str = "fable"
@@ -38,7 +45,16 @@ DEFAULT_MODEL: str = "fable"
 # stronger model authored, and models below the authoring floor must not
 # author agents at all. Strongest first; future stronger models are
 # PREPENDED here deliberately — never inferred.
-MODEL_TIER_ORDER: tuple[str, ...] = ("fable", "opus", "sonnet", "haiku")
+#
+# `glm-5.3` sits between fable and opus by OPERATOR DECISION (2026-08-20).
+# The consequence is deliberate and stated here because the ordering IS the
+# authority: ranking above `MIN_AGENT_AUTHORING_TIER` lets it author agents,
+# and opus may not overwrite what it authored. Note what admission COSTS: an
+# unlisted model resolves asymmetrically (weakest as actor, strongest as
+# target), so before this line glm output was protected from everyone and
+# could author nothing. Listing it trades that blanket protection for a
+# stated rank — which is the honest position once a model actually runs.
+MODEL_TIER_ORDER: tuple[str, ...] = ("fable", "glm-5.3", "opus", "sonnet", "haiku")
 MIN_AGENT_AUTHORING_TIER: str = "opus"
 
 

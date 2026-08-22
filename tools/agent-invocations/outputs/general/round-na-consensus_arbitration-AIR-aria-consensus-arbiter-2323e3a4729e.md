@@ -1,10 +1,10 @@
 {
   "$schema": "aria/agent-response/v1",
   "agent_id": "ci-executor:gha-32595458879",
-  "claim_id": "claim_0298ad887f51affb",
+  "claim_id": "claim_3b0bab44e39dd814",
   "details": {
-    "agent_dispatch_model": "opus",
-    "agent_subagent_type": "aria-evidence-judge",
+    "agent_dispatch_model": "fable",
+    "agent_subagent_type": "aria-consensus-arbiter",
     "agent_text": "You've hit your weekly limit \u00b7 resets 10am (UTC)",
     "claude_cli_usage": {
       "cache_creation": {
@@ -29,13 +29,13 @@
     }
   },
   "evidence_refs": [],
-  "request_id": "AIR-aria-evidence-judge-03fce14b4e8f",
-  "role": "evidence_judgment",
+  "request_id": "AIR-aria-consensus-arbiter-2323e3a4729e",
+  "role": "consensus_arbitration",
   "satisfaction_matrix": [
     {
       "evidence": "You've hit your weekly limit \u00b7 resets 10am (UTC)",
       "evidence_refs": [],
-      "id": "verdict",
+      "id": "consensus",
       "verdict": "satisfied"
     }
   ],

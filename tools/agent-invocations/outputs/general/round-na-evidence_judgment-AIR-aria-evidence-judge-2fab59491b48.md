@@ -1,7 +1,7 @@
 {
   "$schema": "aria/agent-response/v1",
-  "agent_id": "ci-executor:gha-32570929048",
-  "claim_id": "claim_2aec1bf7b9425c4c",
+  "agent_id": "ci-executor:gha-32595458879",
+  "claim_id": "claim_48ed2c76060acb6e",
   "details": {
     "agent_dispatch_model": "opus",
     "agent_subagent_type": "aria-evidence-judge",

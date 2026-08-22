@@ -1797,30 +1797,38 @@ def derive_request_state(
     request_id: str,
     base_dir: str | Path | None = None,
     now: datetime | None = None,
+    _ledgers: tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]] | None = None,
 ) -> str:
     """Derive the Plan 016 lifecycle state from request + claims + results ledgers.
 
     Pure function over append-only ledgers, so two callers always see the
     same state given the same files. Returns one of `DERIVED_STATES`.
+
+    ``_ledgers`` is the batch API's injection point (see
+    `derive_request_states`) — private on purpose: callers that derive many
+    requests must use the batch form, not reload three ledgers per call.
     """
     root = ensure_tools_dir(base_dir)
-    requests = load_declared_jsonl(
-        root / "agent-invocations" / "requests.jsonl",
-        expected_surface="agent_invocation_requests",
-    )
+    if _ledgers is not None:
+        requests, results, claims = _ledgers
+    else:
+        requests = load_declared_jsonl(
+            root / "agent-invocations" / "requests.jsonl",
+            expected_surface="agent_invocation_requests",
+        )
+        results = load_declared_jsonl(
+            root / "agent-invocations" / "results.jsonl",
+            expected_surface="agent_invocation_results",
+        )
+        claims = load_declared_jsonl(
+            _claims_path(root),
+            expected_surface="agent_invocation_claims",
+        )
     request = next((row for row in requests if row.get("request_id") == request_id), None)
     if request is None:
         raise GovernanceError(f"unknown request_id: {request_id}")
     if request.get("state") == "cancelled":
         return "CANCELLED"
-    results = load_declared_jsonl(
-        root / "agent-invocations" / "results.jsonl",
-        expected_surface="agent_invocation_results",
-    )
-    claims = load_declared_jsonl(
-        _claims_path(root),
-        expected_surface="agent_invocation_claims",
-    )
 
     # Results dominate (terminal states first). Rows arrive CANONICAL from
     # _result_rows_for (legacy completed/partial spellings normalized at
@@ -2231,6 +2239,49 @@ def _record_anchor_stale(
     )
 
 
+def derive_request_states(
+    *,
+    base_dir: str | Path | None = None,
+    now: datetime | None = None,
+) -> dict[str, str]:
+    """ORPHAN-HIGH-794 — derive EVERY request's state with ONE ledger load.
+
+    The single-request form reloads all three ledgers (requests, results,
+    claims) on every call. Callers that derive N requests — the anchor
+    sweep over a 698-row backlog, the judge pending-count — churned N×3
+    full-file loads in a tight loop: gigabytes of allocations inside the
+    memory window where the OOM killer ended the nightly (2026-08-22
+    11:40, runner unit killed mid-cycle). The batch form loads once and
+    feeds the same authoritative fold; states are identical by
+    construction and pinned by an equivalence test.
+    """
+    root = ensure_tools_dir(base_dir)
+    ledgers = (
+        load_declared_jsonl(
+            root / "agent-invocations" / "requests.jsonl",
+            expected_surface="agent_invocation_requests",
+        ),
+        load_declared_jsonl(
+            root / "agent-invocations" / "results.jsonl",
+            expected_surface="agent_invocation_results",
+        ),
+        load_declared_jsonl(
+            _claims_path(root),
+            expected_surface="agent_invocation_claims",
+        ),
+    )
+    return {
+        str(row["request_id"]): derive_request_state(
+            request_id=str(row["request_id"]),
+            base_dir=base_dir,
+            now=now,
+            _ledgers=ledgers,
+        )
+        for row in ledgers[0]
+        if row.get("request_id")
+    }
+
+
 def sweep_expired_anchors(
     *,
     base_dir: str | Path | None = None,
@@ -2259,11 +2310,14 @@ def sweep_expired_anchors(
     max_age_seconds = _anchor_max_age_seconds(root)
     swept = 0
     by_role: dict[str, int] = {}
+    # ORPHAN-HIGH-794 — one batch derivation for the whole backlog: the
+    # per-request form here was 698×3 full-ledger loads in the OOM window.
+    states = derive_request_states(base_dir=root, now=reference)
     for row in list_agent_invocation_requests(base_dir=root):
         request_id = str(row.get("request_id") or "")
         if not request_id:
             continue
-        state = derive_request_state(request_id=request_id, base_dir=root, now=reference)
+        state = states.get(request_id, "PENDING")
         if state not in ("PENDING", "REQUEUED"):
             continue
         created = _parse_iso(row.get("created_at"))

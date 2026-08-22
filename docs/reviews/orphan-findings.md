@@ -21,6 +21,13 @@
 
 ---
 
+## ORPHAN-HIGH-794 — the nightly died in an OOM window the anchor sweep amplified: per-request derivation reloaded all three ledgers on every call — RESOLVED (this PR; deadline-scope half open)
+
+**Discovered:** 2026-08-22 11:40 UTC (runner unit killed by the OOM killer mid-cycle; journalctl: "A process of this unit has been killed by the OOM killer", service Failed with result 'oom-kill').
+**Evidence:** the manual dispatch (32562430643) entered `autonomy run` at 10:18:56 with `--cycle-deadline-seconds 1800` and produced zero output until the 11:40 kill — 82 minutes, no deadline fire. The box hosts everything (7.8GB RAM; 6.5GB used + 5.2GB swap at inspection) and the kernel chose the runner unit's python. Amplifier, measured in code: `derive_request_state` loads requests+results+claims on EVERY call; the anchor sweep (ORPHAN-HIGH-786, my own) calls it per request over the 698-row backlog, and `pending_judge_counts` repeats the pattern per judge row — N×3 full-ledger loads in a tight loop, gigabytes of allocation churn exactly when free memory was scarcest. The box's own capacity (shared with two agent sessions and the stack) is an operator reality recorded here, not fixed here.
+**Remediation (this PR):** `derive_request_states` — the batch form loads the three ledgers exactly once and feeds the same authoritative fold (single-request API gains a private `_ledgers` injection; behavior unchanged, pinned by a batch==single equivalence test). The sweep and the judge pending-count now derive in batch; a load-count test pins the shape (3 loads total, not 3N). The OPEN half: why 82 minutes passed without the cycle deadline firing — the deadline's checkpoint lives in the per-cycle watchdog while the orchestrator's pre-cycle drain path appears unbounded; next run's ledger timeline decides whether that is a code fix or a configuration bound, tracked in this entry.
+**Owner:** zcode (this session). **Deadline:** batch half closed by this PR; deadline-scope half next run.
+
 ## ORPHAN-HIGH-793 — the nightly cycle cannot start: the workspace-clean gate refuses a persistent-runner dirty tree WITHOUT NAMING IT — RESOLVED (this PR, diagnostic half)
 
 **Discovered:** 2026-08-22 morning audit (Faz 0 of the E2E drive). The auto-cycle failed three runs straight (19:28, 22:38, 02:20) at `Persist enterprise workflow preflight for the resolved profile` with `workspace_worktree_not_clean` — no cycle row, no nightly production at all. This is the E2E critical path: everything fixed in 779-787 lands on a lane that cannot start.

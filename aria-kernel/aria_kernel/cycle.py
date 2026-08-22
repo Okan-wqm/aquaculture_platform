@@ -1117,7 +1117,7 @@ def _phase_product_fitness(context: PhaseContext) -> dict[str, Any]:
     """
     from .convergence_drainer import _resolve_workspace_head_sha
     from .github_adapters import select_checks_reader
-    from .ledger import append_jsonl, load_jsonl
+    from .ledger import append_declared_jsonl, load_jsonl
     from .product_fitness import evaluate_fitness, load_charter, streak_from_history
 
     reader = select_checks_reader(
@@ -1157,7 +1157,13 @@ def _phase_product_fitness(context: PhaseContext) -> dict[str, Any]:
         "head_sha": head_sha,
         **verdict.as_dict(),
     }
-    append_jsonl(path, row)
+    # The surface is declared (G-1, state_manifest.py: product_fitness,
+    # observation-class) — the append must go through the declared writer,
+    # not the raw one: the nightly's first fully-alive run (2026-08-22
+    # 32578768498) reached this phase for the first time and the
+    # declared-surface discipline refused the raw append, failing the
+    # phase that had never before executed past its NameError.
+    append_declared_jsonl(path, row, expected_surface="product_fitness")
     streak = streak_from_history(
         [*history, row],
         required=int(charter.get("consecutive_green_nights_required") or 7),

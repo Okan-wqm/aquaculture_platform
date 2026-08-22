@@ -478,12 +478,24 @@ def _enforce_path_inside_repo(candidate: Path, repo_root: Path) -> Path:
 
 
 def _discover_git_root(start: Path) -> Path | None:
-    """Walk upward looking for a `.git` entry — the filesystem shape of
-    "this is a repository checkout", independent of any git subprocess and
-    therefore safe in sandboxed runners where git itself may be absent."""
+    """Walk upward looking for a real `.git` DIRECTORY — the filesystem
+    shape of "this is a repository checkout", independent of any git
+    subprocess and therefore safe in sandboxed runners where git itself
+    may be absent.
+
+    ORPHAN-HIGH-797 — only a .git DIRECTORY anchors discovery. A `.git`
+    FILE is a linked-worktree stub (the state store at
+    ``.aria-state-store/`` is a worktree of the aria/state branch), and
+    anchoring there makes the CHECKOUT's own paths read as escapes —
+    exactly the live failure the fixture_refresh_blocked signal surfaced
+    on the first fully-alive night: discovery walked up from the store's
+    tools root, hit the store's stub first, and repo-relative fixture
+    paths "escaped" a repo that was never their repo. Skipping stub
+    files lets discovery continue to the checkout's real .git.
+    """
     current = start.resolve()
     for candidate in (current, *current.parents):
-        if (candidate / ".git").exists():
+        if (candidate / ".git").is_dir():
             return candidate
     return None
 

@@ -21,6 +21,13 @@
 
 ---
 
+## ORPHAN-HIGH-795 — `state publish` holds ~5.8GB resident (74% of the box) loading the accumulated ledgers — OPEN (owner+deadline+ID tracked)
+
+**Discovered:** 2026-08-22 13:5x UTC, live on the host: `ps` caught the executor lane's `python3 -m aria_kernel state publish --snapshot-id executor-32570929048-1` at **74.2% MEM (≈5.8GB of 7.8GB), 18+ seconds in** — the same command class the nightly's publish step runs AFTER the autonomy loop. This is the OOM anatomy's missing organ: the 82-minute cycle churned allocations (794, now batched), but a publish that briefly needs ~three-quarters of the box turns any concurrent pressure into a kill.
+**Evidence:** the store has grown to 87MB runs.jsonl + 51MB raw-findings + 14MB beliefs + growing agent-invocation ledgers; parsing multi-MB JSONL into Python dicts multiplies size ~10-30×, and publish builds the full snapshot tree in memory before writing. Measured live: 5.8GB resident.
+**Why OPEN, not fixed here:** the architectural options are real design work — (a) streaming/iterative publish that never holds the whole tree, (b) snapshot delta publishing (only surfaces changed since the last snapshot — the branch already carries the full history), (c) capping the publish's residency by publishing per-surface. Each changes what `publish_state` guarantees; picking one is an operator-level design decision on the state-transport contract, not a session patch. Interim relief shipped separately: 794 removed the sweep/pending-count churn (N×3 full loads → 1), so the cycle itself no longer stacks allocation peaks on top of the publish window.
+**Owner:** operator (design choice among a/b/c) + zcode (implementation when chosen). **Deadline:** before the store doubles again — at current growth (87MB/night-class runs) the box cannot host publish + any second consumer.
+
 ## ORPHAN-HIGH-794 — the nightly died in an OOM window the anchor sweep amplified: per-request derivation reloaded all three ledgers on every call — RESOLVED (this PR; deadline-scope half open)
 
 **Discovered:** 2026-08-22 11:40 UTC (runner unit killed by the OOM killer mid-cycle; journalctl: "A process of this unit has been killed by the OOM killer", service Failed with result 'oom-kill').

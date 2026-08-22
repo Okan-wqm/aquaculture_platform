@@ -542,6 +542,12 @@ describe('ARIA live runtime/documentation SSoT', () => {
       'aria-tools/autonomy_state.jsonl',
       'aria-tools/daemons/lease.json',
       'aria-tools/quarantine/finding.jsonl',
+      // ORPHAN-HIGH-793 — the writers attestation is a DELIBERATE
+      // host-local SIBLING of the store directory (state_store.py keeps
+      // it outside the store so store invariants stay blind to it), and
+      // the nightly's workspace-clean gate tripped on it for exactly as
+      // long as git refused to ignore it: three dead nights.
+      '.aria-state-store.writers.jsonl',
     ]) {
       expect(gitSucceeds(['check-ignore', '--no-index', '-q', '--', rel])).toBe(true);
     }

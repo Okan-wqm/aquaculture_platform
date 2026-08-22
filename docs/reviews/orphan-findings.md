@@ -21,6 +21,12 @@
 
 ---
 
+## ORPHAN-MEDIUM-792 — server-side merges bypass every authority-stamp hook: any merge landing on a later UTC day than the pin reddens main — OPEN (owner+deadline+ID tracked)
+
+**Discovered:** 2026-08-22 00:32 UTC (main's aria-kernel red immediately after PR #1310's merge, while the same PR's own check was green twelve minutes earlier).
+**Evidence:** the stamping discipline lives in local hooks (`.husky/pre-push` checks the pin; `post-merge` regenerates it), but `gh pr merge` runs on the server where no hook exists. Merge 23bf52702 (2026-08-22T00:2xZ) became the newest authority-surface change on a UTC day the pin (stamped 2026-08-21 during the PR) could not know — the ORPHAN-MEDIUM-768 date check then correctly refused a verification claim predating its content. The window is structural: PR checks validate the PR's merge preview, not the post-merge main tree, and any merge crossing a UTC midnight with authority-file changes re-enacts it.
+**Remediation status:** the immediate red is closed by a manual pin refresh (this PR: date-only stamp, hash unchanged by design — the digest normalizes the date line). The architectural closure is a server-side equivalent of post-merge stamping (a workflow that refreshes the pin on main after every merge touching the authority surface, or moving the check to compare against the PR's own head rather than main's post-merge log); which shape to take is an operator decision because it changes what "verified" means on main. **Owner:** operator (design decision) + zcode (implementation when chosen). **Deadline:** next session — until then, merges crossing UTC midnight need a manual refresh like this one.
+
 ## ORPHAN-HIGH-791 — the SSoT date invariant compares a UTC stamp against a timezone-rendered commit date — RESOLVED (this PR)
 
 **Discovered:** 2026-08-21 23:43 UTC (PR #1310's aria-kernel check red on a day-boundary that does not exist).

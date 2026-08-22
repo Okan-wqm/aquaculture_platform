@@ -4,9 +4,14 @@
 - Owner: `platform-autonomy`
 - Plan: `docs/superpowers/plans/2026-08-22-aria-end-to-end-autonomy-closure.md`
 
-This audit registers the measured implementation gaps for closure tasks that did not already have a named ORPHAN finding. The structured registry allocated every ID below through the shared domain-wide `ARIA` allocator. The closure policy binds each ID to one owner task and one required predicate; Task 20 derives its set from that policy and accepts no caller-supplied substitute.
+This audit registers the measured implementation gaps for closure tasks that did not already have a
+named ORPHAN finding. The structured registry allocated every ID below through the shared
+domain-wide `ARIA` allocator. The closure policy binds each ID to one owner task and one required
+predicate; Task 20 derives its set from that policy and accepts no caller-supplied substitute.
 
-The broader narrative registry migration is not claimed by this program: 561 unique historical ORPHAN headings remain absent from the structured registry after the scoped 775–792 import. They remain unresolved narrative debt under the existing finding governance.
+The broader narrative registry migration is not claimed by this program: 561 unique historical
+ORPHAN headings remain absent from the structured registry after the scoped 775–792 import. They
+remain unresolved narrative debt under the existing finding governance.
 
 ## ARIA-HIGH-001 — Target-bound autonomy evidence status is absent
 

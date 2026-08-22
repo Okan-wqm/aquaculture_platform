@@ -17,10 +17,13 @@ difference is provable rather than asserted.
 The second half is that raising the ceiling did not raise the roof.
 `pr_merge` remains autonomous-only, `RealAutoMergeRunner` still forces
 `dry_run` for every profile that is not `autonomous`, `merge_pr_if_ready`
-still demands the unlock ladder, and charter M-6.1 still says no
-self-merge. A change that grants ARIA the authority to PROPOSE has to be
-provably not a change that grants it the authority to LAND, and this file
-is where that is provable rather than asserted.
+still demands the unlock ladder, and charter M-6.1 keeps runtime merge on
+that one path under an operator-granted ceiling, with the existing two-role
+human approval at L3. ARIA may lower or freeze authority but cannot grant or
+raise it; closure implementation PRs remain human-approved and do not count
+as autonomy evidence. A change that grants ARIA the authority to PROPOSE has
+to be provably not a change that grants it the authority to LAND, and this
+file is where that is provable rather than asserted.
 
 The workflow half EXECUTES the gate's own script against a seeded ledger
 rather than pattern-matching the YAML around it. A regex can only pin that
@@ -603,7 +606,8 @@ class TheGateDecidesWhatItClaimsToDecide(unittest.TestCase):
         narrow a proposal, never widen one. An unattended lane cannot run a
         merge-capable profile even when every input says yes, and the
         executor lane, which enforces whatever this run persists, inherits
-        that bound too. The only reading compatible with charter M-6.1.
+        that bound too. This is the scheduler side of M-6.1's operator
+        ceiling: evidence may never grant or raise ARIA's merge authority.
         """
         from aria_kernel.runtime_profile import (
             SCHEDULER_MAX_PROPOSABLE_PROFILE,
@@ -787,9 +791,26 @@ class MergeStaysImpossibleWhenTheNightRunsStrict(unittest.TestCase):
 
     def test_charter_m_6_1_is_intact(self) -> None:
         charter = _MISSION_SPEC.read_text(encoding="utf-8")
-        self.assertIn(
-            "**M-6.1** No self-merge, ever; human approval is not removable.",
+        heading_count = len(re.findall(r"^- \*\*M-6\.1\*\* ", charter, flags=re.MULTILINE))
+        self.assertEqual(heading_count, 1, "MISSION_SPEC must contain exactly one M-6.1 boundary")
+        section = re.search(
+            r"^- \*\*M-6\.1\*\* (?P<body>.*?)(?=^- \*\*M-6\.2\*\*)",
             charter,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+        if section is None:
+            self.fail("MISSION_SPEC M-6.1 boundary must precede M-6.2")
+        normalized_contract = "- **M-6.1** " + " ".join(section.group("body").split())
+        self.assertEqual(
+            normalized_contract,
+            "- **M-6.1** No direct or unreviewed self-merge. Only "
+            "`merge_pr_if_ready` may execute a runtime merge, and only after an "
+            "operator has granted the required profile/stage ceiling; L3 still "
+            "requires the existing two-role human policy approval. ARIA may lower "
+            "or freeze authority, but may not grant or raise its own merge authority. "
+            "The end-to-end autonomy closure implementation PRs remain human-approved "
+            "squash merges under protected `main` and do not count as ARIA "
+            "autonomous-merge evidence.",
         )
 
 

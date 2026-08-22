@@ -1516,7 +1516,9 @@ function main(): void {
     console.error('  verify');
     console.error('  add <domain> <stub.json>  — atomically allocate id + append');
     console.error('  add-explicit <stub.json>  — governed replay/import with fixed id');
-    console.error('  import-narrative <stub.json>  — import one exact ORPHAN heading as OPEN');
+    process.stderr.write(
+      '  import-narrative <stub.json>  — import one exact ORPHAN heading as OPEN\n',
+    );
     console.error('  close <finding-id> <short-sha>');
     console.error('  sweep [--dry-run] [--stale-after=<days>]');
     console.error('  export <json-array|csv>');
@@ -1553,8 +1555,8 @@ function main(): void {
   } else if (sub === 'import-narrative') {
     const stubPath = args[0];
     if (!stubPath) {
-      console.error(
-        'import-narrative requires a stub: finding-registry import-narrative <stub.json>',
+      process.stderr.write(
+        'import-narrative requires a stub: finding-registry import-narrative <stub.json>\n',
       );
       process.exit(2);
     }

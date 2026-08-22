@@ -600,8 +600,23 @@ def verify_workflow_preflight(
             failure_classes.append("path_allowlist_violation")
 
     worktree_clean = _git_worktree_clean(workspace)
+    worktree_dirty_paths: tuple[str, ...] = ()
     if worktree_clean is False:
+        # ORPHAN-HIGH-793 — a gate that refuses must NAME its subject. The
+        # nightly died on `workspace_worktree_not_clean` three runs in a row
+        # without a single path in the log: on a persistent self-hosted
+        # runner the dirt is evidence (which lane left it? did an agent
+        # write outside the designed set?), and evidence that is not
+        # printed is evidence that does not exist. Capped so a polluted
+        # tree cannot flood the reason line.
+        worktree_dirty_paths = tuple(
+            _git_worktree_offending_paths(workspace)[:10]
+        )
         reasons.append("workspace_worktree_not_clean")
+        if worktree_dirty_paths:
+            reasons.append(
+                "workspace_worktree_dirty_paths:" + ";".join(worktree_dirty_paths)
+            )
         failure_classes.append("workflow_preflight_contract")
 
     for root in roots:
@@ -681,10 +696,22 @@ def _git_worktree_clean(workspace: Path) -> bool | None:
     very run that produced them — a gate that punishes the mechanism it
     guards. The check is scoped: files the cycle is DESIGNED to write are
     excluded; everything else (hand-edited source, unexpected artifact)
-    still trips the gate.
+    still trips the gate. No .git → None (unknown), preserved exactly.
     """
     if not (workspace / ".git").exists():
         return None
+    return not _git_worktree_offending_paths(workspace)
+
+
+def _git_worktree_offending_paths(workspace: Path) -> list[str]:
+    """Paths that dirty the worktree beyond the cycle's designed write set.
+
+    Returns [] when clean. A workspace with no .git is NOT "clean" — the
+    caller's bool|None contract maps it to None (unknown); this helper
+    signals it by returning [] only for a real repo that is clean, so the
+    wrapper below preserves the None-vs-False distinction. ORPHAN-HIGH-793
+    split this out so the refusal can name its subject.
+    """
     completed = subprocess.run(
         ["git", "status", "--porcelain", "--untracked-files=all"],
         cwd=workspace,
@@ -693,20 +720,26 @@ def _git_worktree_clean(workspace: Path) -> bool | None:
         check=False,
     )
     if completed.returncode != 0:
-        return False
+        return ["<git-status-failed>"]
     _CYCLE_WRITE_PREFIXES = (
         "docs/aria/CURRENT_STATE.md",
         "docs/aria/generated/",
         "tools/quality/format-scope.json",
         "aria-tools/",
     )
+    offending: list[str] = []
     for line in completed.stdout.strip().splitlines():
-        path = line[3:] if len(line) > 3 else ""
+        # Porcelain v1 is "XY <path>"; rather than slicing a fixed offset
+        # (fragile against status-column variants), drop the status
+        # tokens and take everything after the first whitespace run —
+        # paths with leading spaces are not a thing git emits here.
+        parts = line.split(None, 1)
+        path = parts[1].strip() if len(parts) == 2 else ""
         if not path:
             continue
         if not any(path.startswith(prefix) for prefix in _CYCLE_WRITE_PREFIXES):
-            return False
-    return True
+            offending.append(path)
+    return offending
 
 
 def _write_workflow_preflight_audit(path: Path, verdict: WorkflowPreflightVerdict) -> None:

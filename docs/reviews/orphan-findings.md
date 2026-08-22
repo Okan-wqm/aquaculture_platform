@@ -21,6 +21,13 @@
 
 ---
 
+## ORPHAN-HIGH-793 — the nightly cycle cannot start: the workspace-clean gate refuses a persistent-runner dirty tree WITHOUT NAMING IT — RESOLVED (this PR, diagnostic half)
+
+**Discovered:** 2026-08-22 morning audit (Faz 0 of the E2E drive). The auto-cycle failed three runs straight (19:28, 22:38, 02:20) at `Persist enterprise workflow preflight for the resolved profile` with `workspace_worktree_not_clean` — no cycle row, no nightly production at all. This is the E2E critical path: everything fixed in 779-787 lands on a lane that cannot start.
+**Evidence:** the self-hosted runner's workspace persists between runs; #1309 taught the gate the cycle's designed write set (CURRENT_STATE.md, generated/, format-scope.json, aria-tools/) but something OUTSIDE that set is dirty since ~#1305 (19:25-19:28 window), and the gate reported only the class — no path — leaving the evidence unprinted. Prime suspect class: an executor-lane agent writing into the shared checkout (an L2 violation by construction — implementers belong in isolated worktrees), but the diagnosis could not proceed without the names.
+**Remediation (this PR):** the gate now names its subject — `_git_worktree_offending_paths` returns the offending paths (porcelain parsing made offset-independent), the refusal reason carries up to ten (`workspace_worktree_dirty_paths:...`), and the audit verdict exposes them. Semantics unchanged: designed writes still pass, no-.git is still None/unknown, git-status failure still fails. The ROOT-CAUSE half (what the paths turn out to be, and whether the fix is checkout hygiene in the workflow or an executor-isolation repair) follows as soon as the named paths appear in the next run's log — recorded here, not speculated.
+**Owner:** zcode (this session). **Deadline:** diagnostic half closed by this PR; root-cause half tracked in this entry.
+
 ## ORPHAN-MEDIUM-792 — server-side merges bypass every authority-stamp hook: any merge landing on a later UTC day than the pin reddens main — OPEN (owner+deadline+ID tracked)
 
 **Discovered:** 2026-08-22 00:32 UTC (main's aria-kernel red immediately after PR #1310's merge, while the same PR's own check was green twelve minutes earlier).

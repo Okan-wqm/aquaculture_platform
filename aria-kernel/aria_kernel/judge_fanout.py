@@ -146,12 +146,15 @@ def pending_judge_counts(*, base_dir: str | Path | None = None) -> dict[str, int
     """
     from datetime import datetime, timedelta, timezone
 
-    from .agent_invocations import derive_request_state, list_agent_invocation_requests
+    from .agent_invocations import derive_request_states, list_agent_invocation_requests
     from .agent_surface import TERMINAL_REQUEST_STATES
 
     root = ensure_tools_dir(base_dir)
     horizon = datetime.now(timezone.utc) - timedelta(days=4)
     counts: dict[str, int] = {role: 0 for role, _ in JUDGE_FANOUT}
+    # ORPHAN-HIGH-794 — one batch derivation instead of a per-row derive
+    # (each of which reloaded all three ledgers — the OOM churn class).
+    states = derive_request_states(base_dir=root)
     for row in list_agent_invocation_requests(base_dir=root):
         role = str(row.get("role") or "")
         if role not in counts:
@@ -163,7 +166,7 @@ def pending_judge_counts(*, base_dir: str | Path | None = None) -> dict[str, int
             created_dt = None
         if created_dt is not None and created_dt < horizon:
             continue
-        state = derive_request_state(request_id=str(row.get("request_id")), base_dir=root)
+        state = states.get(str(row.get("request_id")), "PENDING")
         if state not in TERMINAL_REQUEST_STATES:
             counts[role] += 1
     return counts

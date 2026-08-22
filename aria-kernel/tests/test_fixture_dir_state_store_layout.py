@@ -120,6 +120,18 @@ class StateStoreLayoutTests(unittest.TestCase):
         resolved = resolve_fixture_dir(tool, self.tools, workspace_root=self.workspace)
         self.assertEqual(resolved, self.fixture_dir.resolve())
 
+    def test_git_discovery_skips_worktree_stub_files(self) -> None:
+        # ORPHAN-HIGH-797 — the state store is a git WORKTREE of aria/state:
+        # its .git is a FILE (stub), not a directory. Discovery must not
+        # anchor there or the checkout's own fixture paths read as escapes —
+        # the live failure on the first fully-alive night.
+        stub = self.tools.parent / ".git"
+        stub.write_text("gitdir: /somewhere/else/main-worktree\n", encoding="utf-8")
+        tool = get_tool("x-adapter", self.tools)
+        resolved = resolve_fixture_dir(tool, self.tools)
+        # Discovery walks past the stub FILE to the workspace's real .git dir.
+        self.assertEqual(resolved, self.fixture_dir.resolve())
+
     def test_suite_actually_writes_the_row_the_six_nights_never_got(self) -> None:
         result = run_fixture_suite(
             "x-adapter",

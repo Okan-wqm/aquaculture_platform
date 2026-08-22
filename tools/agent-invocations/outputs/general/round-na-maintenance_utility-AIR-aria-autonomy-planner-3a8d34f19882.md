@@ -1,7 +1,7 @@
 {
   "$schema": "aria/agent-response/v1",
-  "agent_id": "ci-executor:gha-32520637490",
-  "claim_id": "claim_fb0a0616c2f5a6c4",
+  "agent_id": "ci-executor:gha-32535294929",
+  "claim_id": "claim_24f819fd7231c027",
   "details": {
     "agent_dispatch_model": "fable",
     "agent_subagent_type": "aria-autonomy-planner",

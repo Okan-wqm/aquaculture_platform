@@ -1,11 +1,11 @@
 {
   "$schema": "aria/agent-response/v1",
-  "agent_id": "ci-executor:gha-32560468234",
-  "claim_id": "claim_41c4c898be490c54",
+  "agent_id": "ci-executor:gha-32570929048",
+  "claim_id": "claim_ee5c1ee5d981ad8f",
   "details": {
     "agent_dispatch_model": "fable",
     "agent_subagent_type": "aria-autonomy-planner",
-    "agent_text": "You've hit your weekly limit \u00b7 resets Aug 23, 10am (UTC)",
+    "agent_text": "You've hit your weekly limit \u00b7 resets 10am (UTC)",
     "claude_cli_usage": {
       "cache_creation": {
         "ephemeral_1h_input_tokens": 0,
@@ -33,7 +33,7 @@
   "role": "maintenance_utility",
   "satisfaction_matrix": [
     {
-      "evidence": "You've hit your weekly limit \u00b7 resets Aug 23, 10am (UTC)",
+      "evidence": "You've hit your weekly limit \u00b7 resets 10am (UTC)",
       "evidence_refs": [],
       "id": "queue_item_projected",
       "verdict": "satisfied"

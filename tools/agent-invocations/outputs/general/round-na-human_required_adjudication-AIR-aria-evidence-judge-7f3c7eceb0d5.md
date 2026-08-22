@@ -1,11 +1,11 @@
 {
   "$schema": "aria/agent-response/v1",
-  "agent_id": "ci-executor:gha-32560468234",
-  "claim_id": "claim_d3390ddd364fcadf",
+  "agent_id": "ci-executor:gha-32570929048",
+  "claim_id": "claim_54aa7ef317b12766",
   "details": {
     "agent_dispatch_model": "opus",
     "agent_subagent_type": "aria-evidence-judge",
-    "agent_text": "You've hit your weekly limit \u00b7 resets Aug 23, 10am (UTC)",
+    "agent_text": "You've hit your weekly limit \u00b7 resets 10am (UTC)",
     "claude_cli_usage": {
       "cache_creation": {
         "ephemeral_1h_input_tokens": 0,
@@ -33,7 +33,7 @@
   "role": "human_required_adjudication",
   "satisfaction_matrix": [
     {
-      "evidence": "You've hit your weekly limit \u00b7 resets Aug 23, 10am (UTC)",
+      "evidence": "You've hit your weekly limit \u00b7 resets 10am (UTC)",
       "evidence_refs": [],
       "id": "adjudicate-AIR-aria-evidence-judge-69273584482a",
       "verdict": "satisfied"

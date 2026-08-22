@@ -21,6 +21,13 @@
 
 ---
 
+## ORPHAN-HIGH-796 — product_fitness wrote through the raw append on a declared surface — RESOLVED (this PR)
+
+**Discovered:** 2026-08-22 19:49 UTC — the nightly's first FULLY-ALIVE run (32578768498: every phase executed, state published, normal exit after ~4h) reached the product_fitness phase for the FIRST TIME (every prior night died at ORPHAN-776's NameError before it) and failed with `raw_jsonl_declared_surface_rejected`: the phase appended product-fitness.jsonl via the raw writer while the surface is declared (G-1, observation-class) and the discipline correctly refused.
+**Evidence:** `cycle.py:1160` called `append_jsonl(path, row)`; state_manifest.py:576 declares `product_fitness` / `product-fitness.jsonl`. The G-1 declaration and the phase's writer shipped in the same feature (#1288) disagreeing with each other — the surface-discipline invariant did its job on the first night that could reach it.
+**Remediation (this PR):** the append goes through `append_declared_jsonl(path, row, expected_surface="product_fitness")`; pinned by a phase test that mocks the verdict and asserts exactly one declared append with the right surface and a real row on disk. Note for the run history: this failure is the HEALTHIEST signal yet — the phase that had never once executed finally ran, and the guard that fired is the one that is SUPPOSED to fire.
+**Owner:** zcode (this session). **Deadline:** closed by this PR.
+
 ## ORPHAN-HIGH-795 — `state publish` holds ~5.8GB resident (74% of the box) loading the accumulated ledgers — OPEN (owner+deadline+ID tracked)
 
 **Discovered:** 2026-08-22 13:5x UTC, live on the host: `ps` caught the executor lane's `python3 -m aria_kernel state publish --snapshot-id executor-32570929048-1` at **74.2% MEM (≈5.8GB of 7.8GB), 18+ seconds in** — the same command class the nightly's publish step runs AFTER the autonomy loop. This is the OOM anatomy's missing organ: the 82-minute cycle churned allocations (794, now batched), but a publish that briefly needs ~three-quarters of the box turns any concurrent pressure into a kill.

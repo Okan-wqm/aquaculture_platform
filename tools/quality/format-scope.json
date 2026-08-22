@@ -28521,6 +28521,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/aria/policy/autonomy-closure-findings.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/aria/policy/autonomy-unlock.json",
       "prettier_managed": true
     },
@@ -33243,6 +33249,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md",
       "prettier_managed": true
     },
@@ -35383,6 +35395,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/superpowers/plans/2026-04-06-webpack-to-tsc-migration.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/superpowers/plans/2026-08-22-aria-end-to-end-autonomy-closure.md",
       "prettier_managed": true
     },
     {

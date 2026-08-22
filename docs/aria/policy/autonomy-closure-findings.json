@@ -1,0 +1,420 @@
+{
+  "$schema": "aria/autonomy-closure-findings/v1",
+  "schema_version": 1,
+  "policy_id": "aria-end-to-end-autonomy-closure",
+  "entries": [
+    {
+      "task_id": "task-1-orphan-775",
+      "finding_id": "ORPHAN-HIGH-775",
+      "owner_task": "task-1",
+      "required_predicate": "branch_protection_proof_producer_code_proven",
+      "closure_mode": "task_commit",
+      "review_anchor": "docs/reviews/orphan-findings.md#ORPHAN-HIGH-775",
+      "narrative_anchor": "docs/reviews/orphan-findings.md#ORPHAN-HIGH-775",
+      "historical_fix_shas": ["84404283f64ef15487fac8e7a7d7aa683feeae94"],
+      "closing_sha_rule": "task_commit",
+      "regression_test_refs": [
+        "aria-kernel/tests/test_readiness_claim_lane.py",
+        "aria-kernel/tests/test_workflow_enterprise_preflight.py"
+      ]
+    },
+    {
+      "task_id": "task-1-orphan-776",
+      "finding_id": "ORPHAN-CRITICAL-776",
+      "owner_task": "task-1",
+      "required_predicate": "executor_unbound_name_detector_code_proven",
+      "closure_mode": "historical_main",
+      "review_anchor": "docs/reviews/orphan-findings.md#ORPHAN-CRITICAL-776",
+      "narrative_anchor": "docs/reviews/orphan-findings.md#ORPHAN-CRITICAL-776",
+      "historical_fix_shas": ["a16977a968d72a0957b271e3609ff398b6d9c85b"],
+      "closing_sha_rule": "last_historical_fix",
+      "regression_test_refs": ["aria-kernel/tests/test_executor_unbound_names.py"]
+    },
+    {
+      "task_id": "task-1-orphan-777",
+      "finding_id": "ORPHAN-HIGH-777",
+      "owner_task": "task-1",
+      "required_predicate": "multi_vendor_model_vocabulary_code_proven",
+      "closure_mode": "task_commit",
+      "review_anchor": "docs/reviews/orphan-findings.md#ORPHAN-HIGH-777",
+      "narrative_anchor": "docs/reviews/orphan-findings.md#ORPHAN-HIGH-777",
+      "historical_fix_shas": [
+        "b2e8ea6241d7b5f6ef5bd212c43cf9f95a4a4585",
+        "d7fa539ea03a52ff2cf5e21a9253d4d7cb84f311"
+      ],
+      "closing_sha_rule": "task_commit",
+      "regression_test_refs": [
+        "aria-kernel/tests/test_glm_model_admission.py",
+        "aria-kernel/tests/test_model_tier_protection.py"
+      ]
+    },
+    {
+      "task_id": "task-1-orphan-778",
+      "finding_id": "ORPHAN-HIGH-778",
+      "owner_task": "task-1",
+      "required_predicate": "provider_process_boundary_code_proven",
+      "closure_mode": "task_commit",
+      "review_anchor": "docs/reviews/orphan-findings.md#ORPHAN-HIGH-778",
+      "narrative_anchor": "docs/reviews/orphan-findings.md#ORPHAN-HIGH-778",
+      "historical_fix_shas": [
+        "260620fbbcf289c75135b635d970f2134256164c",
+        "d7fa539ea03a52ff2cf5e21a9253d4d7cb84f311"
+      ],
+      "closing_sha_rule": "task_commit",
+      "regression_test_refs": ["aria-kernel/tests/test_provider_redirect.py"]
+    },
+    {
+      "task_id": "task-7",
+      "finding_id": "ORPHAN-HIGH-779",
+      "owner_task": "task-7",
+      "required_predicate": "learning_funnel_scheduled_path_live_proven",
+      "closure_mode": "task_commit_and_live",
+      "review_anchor": "docs/reviews/orphan-findings.md#ORPHAN-HIGH-779",
+      "narrative_anchor": "docs/reviews/orphan-findings.md#ORPHAN-HIGH-779",
+      "historical_fix_shas": ["620683fc9a089790b18bc96b91e0f180fb2c7b63"],
+      "closing_sha_rule": "task_commit",
+      "regression_test_refs": [
+        "aria-kernel/tests/test_fixture_dir_state_store_layout.py",
+        "aria-kernel/tests/test_learning_funnel_scheduled_path.py"
+      ]
+    },
+    {
+      "task_id": "task-1-orphan-780",
+      "finding_id": "ORPHAN-HIGH-780",
+      "owner_task": "task-1",
+      "required_predicate": "workflow_launch_failure_ledger_code_proven",
+      "closure_mode": "historical_main",
+      "review_anchor": "docs/reviews/orphan-findings.md#ORPHAN-HIGH-780",
+      "narrative_anchor": "docs/reviews/orphan-findings.md#ORPHAN-HIGH-780",
+      "historical_fix_shas": [
+        "960b8902b9ec11d5c97dd022c52e38928628f257",
+        "b048624cd76054efb4fa7c7a8e67d2ea3b7f76d9",
+        "2d9f672d74f559c7163a2e649000cbaa79b259fb"
+      ],
+      "closing_sha_rule": "last_historical_fix",
+      "regression_test_refs": [
+        "aria-kernel/tests/test_workflow_kernel_cli_contract.py",
+        "aria-kernel/tests/test_cli_launch_failure_ledger.py"
+      ]
+    },
+    {
+      "task_id": "task-1-orphan-781",
+      "finding_id": "ORPHAN-HIGH-781",
+      "owner_task": "task-1",
+      "required_predicate": "dispatch_model_identity_code_proven",
+      "closure_mode": "historical_main",
+      "review_anchor": "docs/reviews/orphan-findings.md#ORPHAN-HIGH-781",
+      "narrative_anchor": "docs/reviews/orphan-findings.md#ORPHAN-HIGH-781",
+      "historical_fix_shas": ["a7f375ec18e81e3ebf3a71d078e7d4b5332cb886"],
+      "closing_sha_rule": "last_historical_fix",
+      "regression_test_refs": ["aria-kernel/tests/test_dispatch_model_stamping.py"]
+    },
+    {
+      "task_id": "task-1-orphan-782",
+      "finding_id": "ORPHAN-HIGH-782",
+      "owner_task": "task-1",
+      "required_predicate": "calibration_reporter_all_exits_code_proven",
+      "closure_mode": "historical_main",
+      "review_anchor": "docs/reviews/orphan-findings.md#ORPHAN-HIGH-782",
+      "narrative_anchor": "docs/reviews/orphan-findings.md#ORPHAN-HIGH-782",
+      "historical_fix_shas": ["2e9a6929e6a14717aa1725d9511ae0267b3d288c"],
+      "closing_sha_rule": "last_historical_fix",
+      "regression_test_refs": [
+        "aria-kernel/tests/invariants/v7/test_phase_v7_6_calibration_reporter.py"
+      ]
+    },
+    {
+      "task_id": "task-1-orphan-783",
+      "finding_id": "ORPHAN-MEDIUM-783",
+      "owner_task": "task-1",
+      "required_predicate": "fixture_phase_result_telemetry_code_proven",
+      "closure_mode": "historical_main",
+      "review_anchor": "docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-783",
+      "narrative_anchor": "docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-783",
+      "historical_fix_shas": ["7a49ebfca19fb175d95cfebac8e9ba8fd19fcacb"],
+      "closing_sha_rule": "last_historical_fix",
+      "regression_test_refs": ["aria-kernel/tests/test_judgment_pipeline_phases.py"]
+    },
+    {
+      "task_id": "task-1-orphan-784",
+      "finding_id": "ORPHAN-HIGH-784",
+      "owner_task": "task-1",
+      "required_predicate": "same_cycle_judge_weights_code_proven",
+      "closure_mode": "historical_main",
+      "review_anchor": "docs/reviews/orphan-findings.md#ORPHAN-HIGH-784",
+      "narrative_anchor": "docs/reviews/orphan-findings.md#ORPHAN-HIGH-784",
+      "historical_fix_shas": ["f19264a48ccb67d989c3db01982904497bb5cf52"],
+      "closing_sha_rule": "last_historical_fix",
+      "regression_test_refs": ["aria-kernel/tests/test_judgment_pipeline_phases.py"]
+    },
+    {
+      "task_id": "task-1-orphan-785",
+      "finding_id": "ORPHAN-MEDIUM-785",
+      "owner_task": "task-1",
+      "required_predicate": "judgment_sampler_recency_window_code_proven",
+      "closure_mode": "historical_main",
+      "review_anchor": "docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-785",
+      "narrative_anchor": "docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-785",
+      "historical_fix_shas": ["16f8ba624729a3d427a3d5ff59f784e4cee4dbca"],
+      "closing_sha_rule": "last_historical_fix",
+      "regression_test_refs": ["aria-kernel/tests/test_sampler_recency_window.py"]
+    },
+    {
+      "task_id": "task-1-orphan-786",
+      "finding_id": "ORPHAN-HIGH-786",
+      "owner_task": "task-1",
+      "required_predicate": "anchor_sweep_and_drain_topology_code_proven",
+      "closure_mode": "historical_main",
+      "review_anchor": "docs/reviews/orphan-findings.md#ORPHAN-HIGH-786",
+      "narrative_anchor": "docs/reviews/orphan-findings.md#ORPHAN-HIGH-786",
+      "historical_fix_shas": ["61632372ef765d1dbb0b9cd46673eb98fa2d0815"],
+      "closing_sha_rule": "last_historical_fix",
+      "regression_test_refs": [
+        "aria-kernel/tests/test_anchor_sweep.py",
+        "aria-kernel/tests/test_x1_drain_topology.py"
+      ]
+    },
+    {
+      "task_id": "task-1-orphan-787",
+      "finding_id": "ORPHAN-HIGH-787",
+      "owner_task": "task-1",
+      "required_predicate": "auto_promote_token_consumer_hmac_code_proven",
+      "closure_mode": "historical_main",
+      "review_anchor": "docs/reviews/orphan-findings.md#ORPHAN-HIGH-787",
+      "narrative_anchor": "docs/reviews/orphan-findings.md#ORPHAN-HIGH-787",
+      "historical_fix_shas": ["bd605b5cba516d44e5f879a90ade8adbe6d7b26c"],
+      "closing_sha_rule": "last_historical_fix",
+      "regression_test_refs": [
+        "aria-kernel/tests/invariants/v6/test_phase_v6_4_auto_promotion.py",
+        "aria-kernel/tests/test_auto_promote_token_verification.py"
+      ]
+    },
+    {
+      "task_id": "task-1-orphan-788",
+      "finding_id": "ORPHAN-HIGH-788",
+      "owner_task": "task-1",
+      "required_predicate": "readiness_workflow_env_binding_code_proven",
+      "closure_mode": "historical_main",
+      "review_anchor": "docs/reviews/orphan-findings.md#ORPHAN-HIGH-788",
+      "narrative_anchor": "docs/reviews/orphan-findings.md#ORPHAN-HIGH-788",
+      "historical_fix_shas": ["b19fee8b4fd7ee84caa530aa06b76784557ef044"],
+      "closing_sha_rule": "last_historical_fix",
+      "regression_test_refs": ["aria-kernel/tests/test_workflow_env_binding.py"]
+    },
+    {
+      "task_id": "task-18",
+      "finding_id": "ORPHAN-MEDIUM-789",
+      "owner_task": "task-18",
+      "required_predicate": "mode_a_signed_readiness_live_proven",
+      "closure_mode": "task_commit_and_live",
+      "review_anchor": "docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-789",
+      "narrative_anchor": "docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-789",
+      "closing_sha_rule": "task_commit",
+      "regression_test_refs": [
+        "aria-kernel/tests/test_workflow_mode_a_transport.py",
+        "aria-kernel/tests/test_signed_readiness_snapshot.py"
+      ]
+    },
+    {
+      "task_id": "task-1-orphan-790",
+      "finding_id": "ORPHAN-HIGH-790",
+      "owner_task": "task-1",
+      "required_predicate": "agent_refusal_vocabulary_code_proven",
+      "closure_mode": "historical_main",
+      "review_anchor": "docs/reviews/orphan-findings.md#ORPHAN-HIGH-790",
+      "narrative_anchor": "docs/reviews/orphan-findings.md#ORPHAN-HIGH-790",
+      "historical_fix_shas": ["8daedd72ff6c83460b0631a513e5c1585dac75e4"],
+      "closing_sha_rule": "last_historical_fix",
+      "regression_test_refs": ["aria-kernel/tests/test_agent_refusal_vocabulary.py"]
+    },
+    {
+      "task_id": "task-1-orphan-791",
+      "finding_id": "ORPHAN-HIGH-791",
+      "owner_task": "task-1",
+      "required_predicate": "authority_date_utc_normalization_code_proven",
+      "closure_mode": "historical_main",
+      "review_anchor": "docs/reviews/orphan-findings.md#ORPHAN-HIGH-791",
+      "narrative_anchor": "docs/reviews/orphan-findings.md#ORPHAN-HIGH-791",
+      "historical_fix_shas": ["80f92eb6f15520b505bdf6f3b4e6c486784b094b"],
+      "closing_sha_rule": "last_historical_fix",
+      "regression_test_refs": ["tests/invariants/aria-doc-runtime-ssot.spec.ts"]
+    },
+    {
+      "task_id": "task-3",
+      "finding_id": "ORPHAN-MEDIUM-792",
+      "owner_task": "task-3",
+      "required_predicate": "server_merge_safe_authority_hash_code_proven",
+      "closure_mode": "task_commit",
+      "review_anchor": "docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-792",
+      "narrative_anchor": "docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-792",
+      "closing_sha_rule": "task_commit",
+      "regression_test_refs": [
+        "tools/gates/aria-authority-hash.spec.ts",
+        "tests/invariants/aria-doc-runtime-ssot.spec.ts"
+      ]
+    },
+    {
+      "task_id": "task-2",
+      "finding_id": "ARIA-HIGH-001",
+      "owner_task": "task-2",
+      "required_predicate": "autonomy_evidence_status_code_proven",
+      "closure_mode": "task_commit",
+      "review_anchor": "docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-001",
+      "closing_sha_rule": "task_commit",
+      "regression_test_refs": ["aria-kernel/tests/test_autonomy_evidence_status.py"]
+    },
+    {
+      "task_id": "task-4",
+      "finding_id": "ARIA-HIGH-002",
+      "owner_task": "task-4",
+      "required_predicate": "executor_failure_contract_code_proven",
+      "closure_mode": "task_commit",
+      "review_anchor": "docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-002",
+      "closing_sha_rule": "task_commit",
+      "regression_test_refs": ["aria-kernel/tests/test_executor_failure_classification.py"]
+    },
+    {
+      "task_id": "task-5",
+      "finding_id": "ARIA-HIGH-003",
+      "owner_task": "task-5",
+      "required_predicate": "three_classified_live_drains",
+      "closure_mode": "task_commit_and_live",
+      "review_anchor": "docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-003",
+      "closing_sha_rule": "task_commit",
+      "regression_test_refs": ["aria-kernel/tests/test_executor_drain_breaker.py"]
+    },
+    {
+      "task_id": "task-6",
+      "finding_id": "ARIA-HIGH-004",
+      "owner_task": "task-6",
+      "required_predicate": "learning_funnel_code_proven",
+      "closure_mode": "task_commit",
+      "review_anchor": "docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-004",
+      "closing_sha_rule": "task_commit",
+      "regression_test_refs": ["aria-kernel/tests/test_promotion_funnel_e2e.py"]
+    },
+    {
+      "task_id": "task-8",
+      "finding_id": "ARIA-HIGH-005",
+      "owner_task": "task-8",
+      "required_predicate": "pre_merge_snapshot_code_proven",
+      "closure_mode": "task_commit",
+      "review_anchor": "docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-005",
+      "closing_sha_rule": "task_commit",
+      "regression_test_refs": ["aria-kernel/tests/test_pre_merge_evidence.py"]
+    },
+    {
+      "task_id": "task-9",
+      "finding_id": "ARIA-HIGH-006",
+      "owner_task": "task-9",
+      "required_predicate": "branch_and_file_claim_checks_code_proven",
+      "closure_mode": "task_commit",
+      "review_anchor": "docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-006",
+      "closing_sha_rule": "task_commit",
+      "regression_test_refs": [
+        "aria-kernel/tests/test_file_claim_atomic_acquire.py",
+        "aria-kernel/tests/test_pre_merge_file_claims.py"
+      ]
+    },
+    {
+      "task_id": "task-10",
+      "finding_id": "ARIA-CRITICAL-007",
+      "owner_task": "task-10",
+      "required_predicate": "operator_feedback_signature_code_proven",
+      "closure_mode": "task_commit",
+      "review_anchor": "docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-CRITICAL-007",
+      "closing_sha_rule": "task_commit",
+      "regression_test_refs": ["aria-kernel/tests/test_operator_feedback_signature.py"]
+    },
+    {
+      "task_id": "task-11",
+      "finding_id": "ARIA-HIGH-008",
+      "owner_task": "task-11",
+      "required_predicate": "budget_and_content_checks_code_proven",
+      "closure_mode": "task_commit",
+      "review_anchor": "docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-008",
+      "closing_sha_rule": "task_commit",
+      "regression_test_refs": ["aria-kernel/tests/test_pre_merge_budget_and_content.py"]
+    },
+    {
+      "task_id": "task-12",
+      "finding_id": "ARIA-CRITICAL-009",
+      "owner_task": "task-12",
+      "required_predicate": "seven_pre_merge_checks_live_proven",
+      "closure_mode": "task_commit_and_live",
+      "review_anchor": "docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-CRITICAL-009",
+      "closing_sha_rule": "task_commit",
+      "regression_test_refs": ["aria-kernel/tests/test_pre_merge_consensus_and_coverage.py"]
+    },
+    {
+      "task_id": "task-13",
+      "finding_id": "ARIA-HIGH-010",
+      "owner_task": "task-13",
+      "required_predicate": "rust_observation_shadow_proven",
+      "closure_mode": "task_commit",
+      "review_anchor": "docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-010",
+      "closing_sha_rule": "task_commit",
+      "regression_test_refs": ["tools/aria-adapters/rust-runtime-safety-adapter.test.ts"]
+    },
+    {
+      "task_id": "task-14",
+      "finding_id": "ARIA-HIGH-011",
+      "owner_task": "task-14",
+      "required_predicate": "migration_observation_shadow_proven",
+      "closure_mode": "task_commit",
+      "review_anchor": "docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-011",
+      "closing_sha_rule": "task_commit",
+      "regression_test_refs": ["tools/aria-adapters/sql-migration-safety-adapter.test.ts"]
+    },
+    {
+      "task_id": "task-15",
+      "finding_id": "ARIA-HIGH-012",
+      "owner_task": "task-15",
+      "required_predicate": "infrastructure_observation_shadow_proven",
+      "closure_mode": "task_commit",
+      "review_anchor": "docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-012",
+      "closing_sha_rule": "task_commit",
+      "regression_test_refs": ["tools/aria-adapters/infrastructure-policy-adapter.test.ts"]
+    },
+    {
+      "task_id": "task-16",
+      "finding_id": "ARIA-HIGH-013",
+      "owner_task": "task-16",
+      "required_predicate": "workflow_shell_observation_shadow_proven",
+      "closure_mode": "task_commit",
+      "review_anchor": "docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-013",
+      "closing_sha_rule": "task_commit",
+      "regression_test_refs": ["tools/aria-adapters/workflow-shell-safety-adapter.test.ts"]
+    },
+    {
+      "task_id": "task-17",
+      "finding_id": "ARIA-HIGH-014",
+      "owner_task": "task-17",
+      "required_predicate": "whole_repo_observation_and_vertical_slice_live_proven",
+      "closure_mode": "task_commit_and_live",
+      "review_anchor": "docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-014",
+      "closing_sha_rule": "task_commit",
+      "regression_test_refs": ["aria-kernel/tests/test_vertical_slice_evidence.py"]
+    },
+    {
+      "task_id": "task-19",
+      "finding_id": "ARIA-CRITICAL-015",
+      "owner_task": "task-19",
+      "required_predicate": "staged_autonomy_ladder_live_proven",
+      "closure_mode": "task_commit_and_live",
+      "review_anchor": "docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-CRITICAL-015",
+      "closing_sha_rule": "task_commit",
+      "regression_test_refs": ["aria-kernel/tests/test_autonomy_stage_progression.py"]
+    },
+    {
+      "task_id": "task-20a",
+      "finding_id": "ARIA-HIGH-016",
+      "owner_task": "task-20a",
+      "required_predicate": "closure_verifier_code_proven",
+      "closure_mode": "task_commit",
+      "review_anchor": "docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-016",
+      "closing_sha_rule": "task_commit",
+      "regression_test_refs": ["aria-kernel/tests/test_autonomy_closure.py"]
+    }
+  ]
+}

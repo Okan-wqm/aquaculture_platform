@@ -210,7 +210,13 @@ NOT yet seeded.
 
 ## 6. Hard boundaries (non-negotiable)
 
-- **M-6.1** No self-merge, ever; human approval is not removable.
+- **M-6.1** No direct or unreviewed self-merge. Only `merge_pr_if_ready` may
+  execute a runtime merge, and only after an operator has granted the required
+  profile/stage ceiling; L3 still requires the existing two-role human policy
+  approval. ARIA may lower or freeze authority, but may not grant or raise its
+  own merge authority. The end-to-end autonomy closure implementation PRs
+  remain human-approved squash merges under protected `main` and do not count
+  as ARIA autonomous-merge evidence.
 - **M-6.2** Identity is the mTLS cert / managed session ONLY; fabricating
   identity is forbidden.
 - **M-6.3** No secrets in any output channel; PII never unmasked.

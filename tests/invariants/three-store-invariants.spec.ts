@@ -64,6 +64,52 @@ import {
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const REGISTRY_PATH = resolve(REPO_ROOT, 'docs/reviews/_registry/findings.jsonl');
+const AUTONOMY_CLOSURE_FINDINGS_PATH = resolve(
+  REPO_ROOT,
+  'docs/aria/policy/autonomy-closure-findings.json',
+);
+
+const SCOPED_ORPHAN_FINDING_IDS = [
+  'ORPHAN-HIGH-775',
+  'ORPHAN-CRITICAL-776',
+  'ORPHAN-HIGH-777',
+  'ORPHAN-HIGH-778',
+  'ORPHAN-HIGH-779',
+  'ORPHAN-HIGH-780',
+  'ORPHAN-HIGH-781',
+  'ORPHAN-HIGH-782',
+  'ORPHAN-MEDIUM-783',
+  'ORPHAN-HIGH-784',
+  'ORPHAN-MEDIUM-785',
+  'ORPHAN-HIGH-786',
+  'ORPHAN-HIGH-787',
+  'ORPHAN-HIGH-788',
+  'ORPHAN-MEDIUM-789',
+  'ORPHAN-HIGH-790',
+  'ORPHAN-HIGH-791',
+  'ORPHAN-MEDIUM-792',
+] as const;
+
+const EXPECTED_ARIA_TASK_FINDING_IDS = [
+  'ARIA-HIGH-001',
+  'ARIA-HIGH-002',
+  'ARIA-HIGH-003',
+  'ARIA-HIGH-004',
+  'ARIA-HIGH-005',
+  'ARIA-HIGH-006',
+  'ARIA-CRITICAL-007',
+  'ARIA-HIGH-008',
+  'ARIA-CRITICAL-009',
+  'ARIA-HIGH-010',
+  'ARIA-HIGH-011',
+  'ARIA-HIGH-012',
+  'ARIA-HIGH-013',
+  'ARIA-HIGH-014',
+  'ARIA-CRITICAL-015',
+  'ARIA-HIGH-016',
+] as const;
+
+const EXPECTED_CLOSURE_SCOPE = [...SCOPED_ORPHAN_FINDING_IDS, ...EXPECTED_ARIA_TASK_FINDING_IDS];
 
 interface Finding {
   id: string;
@@ -87,6 +133,26 @@ interface Finding {
   content_hash: string;
 }
 
+interface AutonomyClosureFinding {
+  task_id: string;
+  finding_id: string;
+  owner_task: string;
+  required_predicate: string;
+  closure_mode: 'historical_main' | 'task_commit' | 'task_commit_and_live';
+  review_anchor: string;
+  narrative_anchor?: string;
+  historical_fix_shas?: string[];
+  closing_sha_rule: 'last_historical_fix' | 'task_commit';
+  regression_test_refs: string[];
+}
+
+interface AutonomyClosureFindingsPolicy {
+  $schema: string;
+  schema_version: number;
+  policy_id: string;
+  entries: AutonomyClosureFinding[];
+}
+
 function loadRegistry(): Finding[] {
   if (!existsSync(REGISTRY_PATH)) return [];
   const raw = readFileSync(REGISTRY_PATH, 'utf8').trim();
@@ -95,6 +161,12 @@ function loadRegistry(): Finding[] {
     .split('\n')
     .filter(Boolean)
     .map((line) => JSON.parse(line) as Finding);
+}
+
+function loadAutonomyClosureFindings(): AutonomyClosureFindingsPolicy {
+  return JSON.parse(
+    readFileSync(AUTONOMY_CLOSURE_FINDINGS_PATH, 'utf8'),
+  ) as AutonomyClosureFindingsPolicy;
 }
 
 function commitExists(sha: string): boolean {
@@ -487,6 +559,49 @@ describe('three-store invariants', () => {
 
   it('registry is non-empty (otherwise nothing to cross-check)', () => {
     expect(entries.length).toBeGreaterThan(0);
+  });
+
+  it('registers every finding in the ARIA closure policy', () => {
+    const policy = loadAutonomyClosureFindings();
+    const narrative = readFileSync(resolve(REPO_ROOT, 'docs/reviews/orphan-findings.md'), 'utf8');
+    const registryIds = new Set(entries.map((row) => row.id));
+    const policyIds = new Set(policy.entries.map((entry) => entry.finding_id));
+
+    expect(policy.$schema).toBe('aria/autonomy-closure-findings/v1');
+    expect(policy.schema_version).toBe(1);
+    expect(policy.policy_id).toBe('aria-end-to-end-autonomy-closure');
+    expect(policy.entries).toHaveLength(EXPECTED_CLOSURE_SCOPE.length);
+    expect([...policyIds].sort()).toEqual([...EXPECTED_CLOSURE_SCOPE].sort());
+    expect(new Set(policy.entries.map((entry) => entry.task_id)).size).toBe(policy.entries.length);
+    expect(policyIds.size).toBe(policy.entries.length);
+
+    for (const entry of policy.entries) {
+      expect(entry.finding_id).not.toMatch(/PLACEHOLDER|TBD|TODO/i);
+      expect(entry.owner_task).toMatch(/^task-(?:[1-9]|1\d|20a)$/);
+      expect(entry.required_predicate).toMatch(/^[a-z][a-z0-9_]+$/);
+      expect(['historical_main', 'task_commit', 'task_commit_and_live']).toContain(
+        entry.closure_mode,
+      );
+      expect(['last_historical_fix', 'task_commit']).toContain(entry.closing_sha_rule);
+      expect(entry.regression_test_refs.length).toBeGreaterThan(0);
+      for (const regressionRef of entry.regression_test_refs) {
+        expect(regressionRef).toMatch(/(?:^|\/)(?:tests?|[^/]*\.(?:spec|test)\.)/);
+      }
+      for (const sha of entry.historical_fix_shas ?? []) {
+        expect(sha).toMatch(/^[a-f0-9]{40}$/);
+      }
+
+      expect(registryIds.has(entry.finding_id)).toBe(true);
+      if (entry.narrative_anchor) {
+        expect(narrative).toContain(`## ${entry.finding_id} `);
+      }
+
+      const [reviewFile, reviewFindingId] = entry.review_anchor.split('#');
+      expect(reviewFindingId).toBe(entry.finding_id);
+      expect(reviewFile).toBeDefined();
+      const review = readFileSync(resolve(REPO_ROOT, reviewFile as string), 'utf8');
+      expect(review).toContain(`## ${entry.finding_id} `);
+    }
   });
 
   describe('store-2: commit trailers match registry', () => {

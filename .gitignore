@@ -14,6 +14,14 @@ aria-kernel/aria-tools/
 # content is committed to its OWN branch by `publish_state`, and staging any of
 # it here would put the state tree in the code branch.
 .aria-state-store/
+# ORPHAN-HIGH-793 — the writers attestation is a DELIBERATE host-local
+# SIBLING of the store directory (state_store.py: "a HOST-LOCAL sibling of
+# the store directory, never a write into the store worktree itself", so
+# the store's own invariants stay blind to it). The nightly's
+# workspace-clean gate is NOT blind to it: for three nights it tripped on
+# this one untracked file. Ignored for the same reason the store is: it is
+# designed host-local runtime material, never content for the code branch.
+.aria-state-store.writers.jsonl
 # ARIA runtime state trees — created at runtime by the kernel/workflows
 # (cycle ledgers, artifact-restored state, fresh-scan seed findings);
 # runtime writes must never dirty the discovery/burn-in worktree

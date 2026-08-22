@@ -356,6 +356,20 @@ if (childMode === '--worktree-allocator-child') {
     assert.equal(readFileSync(fixture.registryPath, 'utf8'), '');
   });
 
+  void test('narrative import refuses an exact heading with a suffixed severity variant on the same sequence', () => {
+    const fixture = narrativeImportFixture('narrative-import-conflicting-sequence', {
+      narrative:
+        '## ORPHAN-HIGH-775 — requested historical finding\n' +
+        '## ORPHAN-LOW-775b — conflicting suffixed re-open\n',
+    });
+    const exitCode = withRegistryFileLock(fixture.registryPath, (lease) =>
+      appendNarrativeFinding(fixture.stubPath, lease, fixture.paths),
+    );
+
+    assert.equal(exitCode, 1);
+    assert.equal(readFileSync(fixture.registryPath, 'utf8'), '');
+  });
+
   void test('narrative import refuses a missing heading', () => {
     const fixture = narrativeImportFixture('narrative-import-missing', {
       narrative: '## ORPHAN-HIGH-776 — another historical finding\n',

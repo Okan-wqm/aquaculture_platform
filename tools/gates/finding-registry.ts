@@ -888,7 +888,7 @@ export function appendNarrativeFinding(
     sequenceHeadings.push(line);
     if (heading[1] === stub.id) matchingHeadings.push(line);
   }
-  if (matchingHeadings.length !== 1) {
+  if (matchingHeadings.length !== 1 || sequenceHeadings.length !== 1) {
     const reason =
       matchingHeadings.length > 1
         ? `${stub.id} occurs ${matchingHeadings.length} times`

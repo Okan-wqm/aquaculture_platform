@@ -54,7 +54,7 @@ const DAY_D_PLUS_1_TEXT = '2026-08-23';
 // so a fixture `git ls-files` can never enumerate the host's index — the
 // same hermetic rule HERMETIC_GIT_ENV then applies to spawned commands.
 for (const key of Object.keys(process.env)) {
-  if (key.startsWith('GIT_')) delete process.env[key];
+  Reflect.deleteProperty(process.env, key);
 }
 
 const HERMETIC_GIT_ENV: NodeJS.ProcessEnv = Object.fromEntries(
@@ -131,7 +131,7 @@ after(() => {
   for (const root of fixtureRoots) rmSync(root, { recursive: true, force: true });
 });
 
-test('a next-UTC-day merge of the stamped tree keeps the pin current', () => {
+void test('a next-UTC-day merge of the stamped tree keeps the pin current', () => {
   const repo = makeRepo();
   gitAt(repo, ['checkout', '-q', '-b', 'feat/authority-change']);
   writeFileSync(join(repo, 'docs/aria/SPEC.md'), '# spec\n\nv2\n');
@@ -162,7 +162,7 @@ test('a next-UTC-day merge of the stamped tree keeps the pin current', () => {
   assert.ok(declaredDay(repo) < lastAuthorityDay);
 });
 
-test('an authority change without a re-stamp is stale by content', () => {
+void test('an authority change without a re-stamp is stale by content', () => {
   const repo = makeRepo();
   stampAtDay(repo, DAY_D_TEXT);
   commitAll(repo, 'chore: stamp the pin', DAY_D);
@@ -177,7 +177,7 @@ test('an authority change without a re-stamp is stale by content', () => {
   assert.notEqual(recordedAriaAuthorityHash(repo), ariaAuthorityHash(repo));
 });
 
-test('a union-merge driver that lands a stale pin fails closed', () => {
+void test('a union-merge driver that lands a stale pin fails closed', () => {
   const repo = makeRepo();
   // The declared danger: a merge driver that "resolves" CURRENT_STATE by
   // concatenation can land a pin whose declared hash no longer matches the
@@ -205,19 +205,19 @@ test('a union-merge driver that lands a stale pin fails closed', () => {
   assert.equal(verdict.reason, 'authority_hash_stale');
 });
 
-test('the merge-authority lane checks out the merge-result tree and runs the docs SSoT gate', () => {
+void test('the merge-authority lane checks out the merge-result tree and runs the docs SSoT gate', () => {
   const workflow = readFileSync(MERGE_AUTHORITY_WORKFLOW, 'utf8');
   // `pull_request:` trigger with no checkout `ref:` override means
   // actions/checkout resolves refs/pull/<N>/merge — the GitHub merge-result
   // SHA — not merely the PR head.
   assert.match(workflow, /^on:\s*$/m);
-  assert.match(workflow, /^  pull_request:\s*$/m);
+  assert.match(workflow, /^ {2}pull_request:\s*$/m);
   assert.match(workflow, /actions\/checkout@/);
   assert.doesNotMatch(workflow, /github\.event\.pull_request\.head\.sha/);
   assert.match(workflow, /npm run aria:docs:ssot/);
 });
 
-test('the CLI --check exit code mirrors the pure verdict', () => {
+void test('the CLI --check exit code mirrors the pure verdict', () => {
   const repo = makeRepo();
   stampAtDay(repo, DAY_D_TEXT);
   commitAll(repo, 'chore: stamp the pin', DAY_D);

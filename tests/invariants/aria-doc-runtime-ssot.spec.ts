@@ -120,6 +120,14 @@ function planMarkerCount(body: string): number {
 }
 
 describe('ARIA live runtime/documentation SSoT', () => {
+  it('BEHAVIOUR labels itself as dated measurement and points to machine truth', () => {
+    const behaviour = read('docs/aria/BEHAVIOUR.md');
+    expect(behaviour).toMatch(/\*\*Status:\*\* measured \d{4}-\d{2}-\d{2}/);
+    expect(behaviour).toContain('aria-kernel autonomy status --evidence');
+    expect(behaviour).toContain('docs/aria/CURRENT_STATE.md');
+    expect(behaviour).toContain('dated measurement');
+  });
+
   it('CURRENT_STATE declares the live authority chain and executable anchors', () => {
     const current = read('docs/aria/CURRENT_STATE.md');
     // ORPHAN-MEDIUM-768 — the writer stamps hash AND date in the same write,

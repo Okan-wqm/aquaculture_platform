@@ -12,6 +12,12 @@ from typing import Any
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+
+def _full_git_sha(value: str) -> str:
+    if len(value) != 40 or any(character not in "0123456789abcdef" for character in value):
+        raise argparse.ArgumentTypeError("target SHA must be 40 lowercase hexadecimal characters")
+    return value
+
 from aria_kernel.cycle import run_cycle
 from aria_kernel.agent_invocations import (
     DEFAULT_HEARTBEAT_EXTEND_SECONDS,
@@ -2381,6 +2387,17 @@ def build_parser() -> argparse.ArgumentParser:
     auto_status = add_subparser(
         autonomy_sub, "status",
         help="Print the canonical AutonomyState derived from autonomy_state.jsonl.",
+    )
+    auto_status.add_argument(
+        "--evidence",
+        action="store_true",
+        help="Derive immutable target-bound autonomy evidence status.",
+    )
+    auto_status.add_argument(
+        "--target-sha",
+        type=_full_git_sha,
+        default=None,
+        help="Full target commit SHA (valid only with --evidence; defaults to HEAD).",
     )
     auto_project_queue = add_subparser(autonomy_sub, "project-queue")
     auto_project_queue.add_argument("--limit", type=int, default=None)
@@ -5690,6 +5707,18 @@ def _main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "autonomy" and args.autonomy_command == "status":
+        if args.target_sha is not None and not args.evidence:
+            parser.error("autonomy status --target-sha requires --evidence")
+        if args.evidence:
+            from .autonomy_evidence import derive_autonomy_evidence_status
+
+            status = derive_autonomy_evidence_status(
+                base_dir=args.tools_dir,
+                repo_root=Path.cwd(),
+                target_sha=args.target_sha,
+            )
+            print(json.dumps(status.to_dict(), indent=2, sort_keys=True))
+            return 0
         # Plan 026R §F.3 — canonical state via the reducer.
         from .autonomy_state import AutonomyStateReducer
         state = AutonomyStateReducer.derive_current(args.tools_dir)

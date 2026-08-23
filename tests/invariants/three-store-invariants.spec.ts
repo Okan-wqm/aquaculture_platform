@@ -138,6 +138,10 @@ interface AutonomyClosureFinding {
   finding_id: string;
   owner_task: string;
   required_predicate: string;
+  operator_prerequisite?: {
+    capability: string;
+    blocker: string;
+  };
   closure_mode: 'historical_main' | 'task_commit' | 'task_commit_and_live';
   review_anchor: string;
   narrative_anchor?: string;
@@ -574,6 +578,21 @@ describe('three-store invariants', () => {
     expect([...policyIds].sort()).toEqual([...EXPECTED_CLOSURE_SCOPE].sort());
     expect(new Set(policy.entries.map((entry) => entry.task_id)).size).toBe(policy.entries.length);
     expect(policyIds.size).toBe(policy.entries.length);
+    const operatorPrerequisites = policy.entries.filter(
+      (entry) => entry.operator_prerequisite !== undefined,
+    );
+    expect(operatorPrerequisites).toHaveLength(1);
+    expect(operatorPrerequisites[0]?.finding_id).toBe('ORPHAN-MEDIUM-789');
+    expect(operatorPrerequisites[0]?.required_predicate).toBe(
+      'mode_a_signed_readiness_live_proven',
+    );
+    expect(operatorPrerequisites[0]?.operator_prerequisite).toEqual({
+      capability: 'enterprise_readiness',
+      blocker: 'github_app_mode_a_unconfigured',
+    });
+    expect(
+      policy.entries.find((entry) => entry.finding_id === 'ARIA-HIGH-001')?.operator_prerequisite,
+    ).toBeUndefined();
 
     for (const entry of policy.entries) {
       expect(entry.finding_id).not.toMatch(/PLACEHOLDER|TBD|TODO/i);

@@ -364,13 +364,33 @@ def record_raw_findings_for_run(
             "reason_code": "artifact_backed_raw_finding" if run.get("artifact_ref") else "legacy_inline_or_sample_only",
             "json_pointer": f"/payload/raw_findings/{finding_index}",
         }
-        if run_ledger_format(base_dir) != "v2":
+        # ORPHAN-HIGH-798 — the row carries artifact_ref + json_pointer into
+        # the artifact payload; the inline finding object (54.8MB over 27,853
+        # rows) is redundant double-storage. Only the legacy v1 format has no
+        # artifact to resolve, so it keeps the inline object. A finding_summary
+        # (rule + id, ~60 bytes) lets rule_health and quick readers classify
+        # without resolving the artifact.
+        if run_ledger_format(base_dir) == "v1":
             row["finding"] = finding
+        else:
+            row["finding_summary"] = {
+                "rule": str(finding.get("rule") or ""),
+                "id": str(finding.get("id") or ""),
+            }
         append_jsonl(raw_findings_path(base_dir), row)
 
 
-def record_findings_for_run(run: dict[str, Any], base_dir: str | Path | None = None) -> None:
-    findings = run.get("emitted_findings", [])
+def record_findings_for_run(
+    run: dict[str, Any],
+    *,
+    emitted_findings: list[dict[str, Any]] | None = None,
+    base_dir: str | Path | None = None,
+) -> None:
+    # ORPHAN-HIGH-798 — record_run strips emitted_findings from the envelope
+    # before appending to runs.jsonl (the row only carries emitted_counts),
+    # so the arrays arrive as an explicit parameter. Legacy callers that
+    # pass a run dict still containing the arrays keep working.
+    findings = emitted_findings if emitted_findings is not None else run.get("emitted_findings", [])
     if not isinstance(findings, list) or not findings:
         return
     for finding in findings:
@@ -1077,9 +1097,20 @@ def _sampleable_raw_findings(
         # recent night's findings permanently unsampleable.
         if not _within_sampling_recency(row, cycle_id):
             continue
+        # ORPHAN-HIGH-798 — three-tier resolution: inline finding (legacy v1),
+        # finding_summary (new compact rows, has rule+id but not full content),
+        # artifact_ref fallback (full content from the artifact payload).
+        # The sampler needs rule/fingerprint for bucketing and the finding
+        # content for the judge prompt — resolve from the artifact when the
+        # inline object is absent.
         finding = row.get("finding") if isinstance(row.get("finding"), dict) else {}
-        if not finding and row.get("artifact_ref"):
-            finding = resolve_finding_from_artifact(row, base_dir=base_dir) or {}
+        if not finding:
+            summary = row.get("finding_summary") if isinstance(row.get("finding_summary"), dict) else {}
+            if summary.get("rule"):
+                # Compact row: we know the rule; full content from artifact
+                finding = resolve_finding_from_artifact(row, base_dir=base_dir) or summary
+            elif row.get("artifact_ref"):
+                finding = resolve_finding_from_artifact(row, base_dir=base_dir) or {}
         finding_id = str(row.get("finding_id") or finding.get("id") or "")
         run_id = str(row.get("run_id") or "")
         if not finding_id or not run_id or (run_id, finding_id) in existing_feedback:

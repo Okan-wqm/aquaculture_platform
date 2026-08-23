@@ -237,8 +237,17 @@ class CIWorkflowInvariants(unittest.TestCase):
             text = (_WORKFLOWS / name).read_text(encoding="utf-8")
             if "open-report-pr.sh" not in text:
                 continue
-            if "secrets.ARIA_GITHUB_APP_TOKEN" not in text:
-                violations.append(f"{name}: automation PR does not use ARIA_GITHUB_APP_TOKEN")
+            # ORPHAN-HIGH-798 era: the sweep mints an installation token
+            # from the configured App (dynamic, correct — installation
+            # tokens expire, you cannot store them as static secrets).
+            # Accept either the static secret reference or the dynamic
+            # mint step; both are "not the default GITHUB_TOKEN".
+            has_app_token = (
+                "secrets.ARIA_GITHUB_APP_TOKEN" in text
+                or "mint_installation_token" in text
+            )
+            if not has_app_token:
+                violations.append(f"{name}: automation PR does not use App token (static secret or dynamic mint)")
             if "secrets.GITHUB_TOKEN" in text:
                 violations.append(f"{name}: automation PR still references default GITHUB_TOKEN")
         self.assertEqual(violations, [], msg="\n".join(violations))

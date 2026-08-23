@@ -491,13 +491,25 @@ def _consecutive_blind_nights(
     return streaks
 
 
+
+def _emitted_count(run: dict, kind: str) -> int:
+    """ORPHAN-HIGH-798 — int-tolerant emitted count (see reflection.py)."""
+    counts = run.get("emitted_counts")
+    if isinstance(counts, dict):
+        return int(counts.get(kind, 0))
+    legacy = run.get(f"emitted_{kind}")
+    if isinstance(legacy, list):
+        return len(legacy)
+    if isinstance(legacy, int):
+        return legacy
+    return 0
 def _gaps_from_shadow_runs(cycle_id: str, root: Path, base_dir: str | Path | None) -> list[dict[str, Any]]:
     gaps = []
     for run in list(read_runs_rows(runs_path(root), base_dir=root)):
         if run.get("cycle_id") != cycle_id or run.get("status") != "ok":
             continue
         raw_count = int(run.get("runner", {}).get("raw_findings_count") or 0)
-        emitted = run.get("emitted_findings", [])
+        emitted = _emitted_count(run, "findings")
         if raw_count < 3 or emitted:
             continue
         paths = [str(path) for path in run.get("read_paths", [])[:20]]

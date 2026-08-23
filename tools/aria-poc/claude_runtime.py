@@ -26,7 +26,7 @@ import os
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable
 
@@ -283,6 +283,14 @@ class ClaudeRunResult:
     # policy. Never recoverable by the fallback ladder — see
     # AUTH_FAILURE_MARKERS.
     auth_failure: dict[str, Any] | None = None
+    # ARIA-HIGH-002 — typed terminal classification of THIS result (auth
+    # failure / credit-exhaustion markers, process exit), stamped by the
+    # runtime through dispatch_failure.classify_dispatch_failure before the
+    # result is returned; None on a clean success. The exception-family half
+    # of the contract is the executors' to classify at their boundary.
+    failure_class: str | None = None
+    retryable: bool | None = None
+    failure_detail_code: str | None = None
 
 
 def is_mock_mode() -> bool:
@@ -835,7 +843,7 @@ def run_claude_exec(
         )
     if proc.returncode == 0 and require_usage and usage is None:
         raise ClaudeUsageUnavailable("claude_stream_json_missing_result_usage")
-    return ClaudeRunResult(
+    result = ClaudeRunResult(
         returncode=proc.returncode,
         stdout=proc.stdout,
         stderr=proc.stderr,
@@ -854,6 +862,21 @@ def run_claude_exec(
             final_message=final_message,
         ),
     )
+    # ARIA-HIGH-002 — stamp the typed classification on the result itself so
+    # downstream consumers (drains, evidence surfaces) read one vocabulary
+    # instead of re-deriving it from markers. Lazy import: dispatch_failure
+    # imports this module, so the dependency direction resolves at call time.
+    from dispatch_failure import classify_dispatch_failure
+
+    failure = classify_dispatch_failure(result=result, phase="runtime")
+    if failure is not None:
+        result = replace(
+            result,
+            failure_class=failure.failure_class,
+            retryable=failure.retryable,
+            failure_detail_code=failure.detail_code,
+        )
+    return result
 
 
 def parse_claude_jsonl(raw: str) -> tuple[dict[str, Any], ...]:

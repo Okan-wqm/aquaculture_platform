@@ -145,11 +145,30 @@ jobs:
           npx ts-node --project tools/gates/tsconfig.json \
             tools/gates/finding-registry.ts verify
 
+      - name: Mint GitHub App installation token
+        id: app_token
+        env:
+          ARIA_GH_APP_ID: ${{ secrets.ARIA_GH_APP_ID }}
+          ARIA_GH_APP_INSTALLATION_ID: ${{ secrets.ARIA_GH_APP_INSTALLATION_ID }}
+          ARIA_GH_APP_PRIVATE_KEY_PATH: ${{ secrets.ARIA_GH_APP_PRIVATE_KEY_PATH }}
+        run: |
+          set -euo pipefail
+          if [ -z "$ARIA_GH_APP_ID" ] || [ -z "$ARIA_GH_APP_INSTALLATION_ID" ]; then
+            echo "::notice::GitHub App not configured; PR will use GITHUB_TOKEN (may trigger action_required on CI)"
+            echo "token=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          PYTHONPATH=aria-kernel python3 -c "
+          from aria_kernel.gh_token_factory import mint_installation_token
+          t = mint_installation_token()
+          print(f'token={t.token}')
+          " >> "$GITHUB_OUTPUT"
+
       - name: Open or update sweep PR
         if: steps.plan.outputs.has_changes == 'true' && steps.plan.outputs.dry_run != 'true'
         env:
-          GH_TOKEN: ${{ secrets.ARIA_GITHUB_APP_TOKEN || github.token }}
-          PR_TOKEN_SOURCE: ${{ secrets.ARIA_GITHUB_APP_TOKEN && 'aria-github-app' || 'actions-default' }}
+          GH_TOKEN: ${{ steps.app_token.outputs.token || github.token }}
+          PR_TOKEN_SOURCE: ${{ steps.app_token.outputs.token && 'aria-github-app' || 'actions-default' }}
         run: |
           set -euo pipefail
           BODY_FILE="$RUNNER_TEMP/finding-state-sweep-pr-body.md"

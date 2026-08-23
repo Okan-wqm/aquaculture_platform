@@ -419,6 +419,19 @@
       "review_anchor": "docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-016",
       "closing_sha_rule": "task_commit",
       "regression_test_refs": ["aria-kernel/tests/test_autonomy_closure.py"]
+    },
+    {
+      "task_id": "task-5-live-unblock",
+      "finding_id": "ARIA-HIGH-017",
+      "owner_task": "task-5",
+      "required_predicate": "state_publish_line_cap_code_proven",
+      "closure_mode": "task_commit",
+      "review_anchor": "docs/reviews/aria/2026-08-23-state-publish-line-cap-regression.md#ARIA-HIGH-017",
+      "closing_sha_rule": "task_commit",
+      "regression_test_refs": [
+        "aria-kernel/tests/test_state_snapshot.py",
+        "aria-kernel/tests/test_agent_submit_result_e2e.py"
+      ]
     }
   ]
 }

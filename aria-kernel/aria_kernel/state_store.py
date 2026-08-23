@@ -1314,6 +1314,16 @@ def build_publishable_snapshot(
     number the caller chose against a number the caller chose.
     """
     previous = read_published_snapshot(store)
+    # ARIA-HIGH-017 — rows already published at the tip are inherited
+    # history: the per-line cap binds only rows appended after it. An
+    # append-only hash chain cannot be retroactively shrunk, so a cap
+    # that rejects inherited lines turns the repository's own published
+    # ledger into a permanent publication outage.
+    grandfather: dict[str, int] = {}
+    if isinstance(previous, dict):
+        for key, entry in (previous.get("surfaces") or {}).items():
+            if isinstance(entry, dict) and isinstance(entry.get("row_count"), int):
+                grandfather[key] = entry["row_count"]
     return build_snapshot(
         snapshot_id=snapshot_id,
         cycle_id=cycle_id,
@@ -1321,6 +1331,7 @@ def build_publishable_snapshot(
         roots=store_roots(store, repo_hash),
         parent_commit=parent_commit,
         previous=previous,
+        grandfather_row_counts=grandfather,
     )
 
 

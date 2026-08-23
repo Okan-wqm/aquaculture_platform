@@ -1159,7 +1159,17 @@ def verify_jsonl_chunks(
     max_line_bytes: int,
     max_rows: int,
     on_row: Callable[[dict[str, Any]], None] | None = None,
+    grandfather_line_prefixes: int = 0,
 ) -> dict[str, Any]:
+    """Strictly verify one immutable JSONL blob without materialising it.
+
+    ``grandfather_line_prefixes`` (ARIA-HIGH-017) exempts the first N
+    lines from ``max_line_bytes``: those rows are INHERITED — present in
+    the previously published tip of the same ledger, written under an
+    older policy — and an append-only hash chain cannot be retroactively
+    shrunk. Row limits, chain verification, and every byte budget still
+    apply to the whole file; only the per-line cap binds new appends.
+    """
     """Strictly verify one immutable JSONL blob without materialising it.
 
     Git supplies immutable object bytes in arbitrary chunks.  This reader
@@ -1180,7 +1190,7 @@ def verify_jsonl_chunks(
     def consume(raw_line: bytes, *, terminated: bool) -> None:
         nonlocal previous_hash, row_count, line_no
         line_no += 1
-        if len(raw_line) > max_line_bytes:
+        if len(raw_line) > max_line_bytes and line_no > grandfather_line_prefixes:
             raise LedgerReadLimitError(
                 f"immutable_ledger_line_too_large:{source_path.as_posix()}:"
                 f"line={line_no}",
@@ -1254,7 +1264,7 @@ def verify_jsonl_chunks(
                 break
             consume(bytes(pending[: newline + 1]), terminated=True)
             del pending[: newline + 1]
-        if len(pending) > max_line_bytes:
+        if len(pending) > max_line_bytes and line_no + 1 > grandfather_line_prefixes:
             raise LedgerReadLimitError(
                 f"immutable_ledger_line_too_large:{source_path.as_posix()}:"
                 f"line={line_no + 1}",

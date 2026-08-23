@@ -151,6 +151,10 @@ class SubmitResultE2ETests(unittest.TestCase):
             **self._binding_kwargs(request, transcript),
         )
         self.assertEqual(result["status"], "accepted", result)
+        # ARIA-HIGH-003 — the accepted row stamps the trusted request's
+        # immutable target SHA at acceptance; the submitted envelope never
+        # supplies it, so a caller cannot substitute a convenient tree.
+        self.assertEqual(result["row"]["target_sha"], self.target_sha)
         # Plan 026R §C.5 — derive_request_state is bridge-aware. For
         # BRIDGE_REQUIRED roles (this test uses evidence_judgment) the
         # state lifts to ACCEPTED_PENDING_BRIDGE when the bridge has

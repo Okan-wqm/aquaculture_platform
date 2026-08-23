@@ -3343,6 +3343,13 @@ def submit_claim_result(
             "prompt_hash": prompt_hash,
             "transcript_hash": transcript_hash,
             "transcript_artifact_ref": verified_transcript_artifact.as_posix(),
+            # ARIA-HIGH-003 — the trusted request's immutable target SHA,
+            # stamped at acceptance from the REQUEST row only. The submitted
+            # envelope is never consulted, so a caller cannot substitute a
+            # convenient SHA; a request minted without one leaves "" here,
+            # which the evidence surface reads as countable-but-not-live
+            # history rather than a fabricatable proof.
+            "target_sha": str(request.get("target_sha") or ""),
             "bridge_status": bridge_status_for_role(envelope_role),  # §C.5
             "checked_evidence_count": len(revalidation["checked_refs"]),
             "submitted_at": utc_now(),

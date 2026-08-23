@@ -42,6 +42,18 @@ from .tool_registry import ensure_tools_dir, utc_now
 PROACTIVE_CANDIDATE_MIN_PRIORITY: float = 60.0
 
 
+
+def _emitted_count(run: dict, kind: str) -> int:
+    """ORPHAN-HIGH-798 — int-tolerant emitted count (see reflection.py)."""
+    counts = run.get("emitted_counts")
+    if isinstance(counts, dict):
+        return int(counts.get(kind, 0))
+    legacy = run.get(f"emitted_{kind}")
+    if isinstance(legacy, list):
+        return len(legacy)
+    if isinstance(legacy, int):
+        return legacy
+    return 0
 def generate_task_candidates(
     *,
     cycle_id: str,
@@ -83,7 +95,7 @@ def generate_task_candidates(
         if run.get("cycle_id") != cycle_id or run.get("status") != "ok":
             continue
         raw_count = int(run.get("runner", {}).get("raw_findings_count") or 0)
-        emitted_count = len(run.get("emitted_findings", [])) if isinstance(run.get("emitted_findings"), list) else 0
+        emitted_count = _emitted_count(run, "findings")
         if raw_count > 0 and emitted_count == 0:
             candidates.append(_candidate_from_shadow_summary(cycle_id, run, raw_count))
     candidates.sort(key=lambda item: (-float(item["score"]), item["task_id"]))

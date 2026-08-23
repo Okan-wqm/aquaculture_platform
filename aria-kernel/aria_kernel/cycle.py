@@ -1224,6 +1224,18 @@ def _phase_habitat(context: PhaseContext) -> dict[str, Any]:
     }
 
 
+
+def _emitted_count(run: dict, kind: str) -> int:
+    """ORPHAN-HIGH-798 — int-tolerant emitted count (see reflection.py)."""
+    counts = run.get("emitted_counts")
+    if isinstance(counts, dict):
+        return int(counts.get(kind, 0))
+    legacy = run.get(f"emitted_{kind}")
+    if isinstance(legacy, list):
+        return len(legacy)
+    if isinstance(legacy, int):
+        return legacy
+    return 0
 def _phase_tools(context: PhaseContext) -> dict[str, Any]:
     """Run every dispatchable tool and summarise the runs it produced.
 
@@ -1271,8 +1283,8 @@ def _phase_tools(context: PhaseContext) -> dict[str, Any]:
                 "artifact_hash": run.get("artifact_hash"),
                 "raw_findings_count": int(runner.get("raw_findings_count") or 0),
                 "raw_observations_count": int(runner.get("raw_observations_count") or 0),
-                "emitted_findings_count": len(run.get("emitted_findings", [])) if isinstance(run.get("emitted_findings"), list) else 0,
-                "emitted_observations_count": len(run.get("emitted_observations", [])) if isinstance(run.get("emitted_observations"), list) else 0,
+                "emitted_findings_count": _emitted_count(run, "findings"),
+                "emitted_observations_count": _emitted_count(run, "observations"),
             },
         )
     return {"decisions": decisions, "run_summary": run_summary}

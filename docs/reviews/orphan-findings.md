@@ -21,6 +21,13 @@
 
 ---
 
+## ORPHAN-HIGH-798 — the state branch is 838MB and GitHub refuses the push: runs.jsonl rows carry 600KB inline arrays and raw-findings rows double-store every finding — RESOLVED (this PR, write-time half)
+
+**Discovered:** 2026-08-23, from the nightly's own push failure: `raw-findings.jsonl is 57.84 MB; this is larger than GitHub's recommended maximum file size of 50.00 MB` → `state_publish_write_denied`. The state branch total is 838MB.
+**Evidence:** runs.jsonl: 94.5MB / 158 rows (~600KB each) — every row carries `emitted_observations` and `emitted_findings` arrays inline (tool_runner.py:203-204) even though the artifact system (`run-artifacts/hot/`) already stores the same data via `_runtime_artifact_payload`. raw-findings.jsonl: 54.8MB / 27,853 rows — each row embeds the FULL finding object (feedback_store.py:367-368) because the default `v2-shadow` format fails the `!= "v2"` inline test, so the finding data is double-stored (inline + artifact_ref). The artifact system was built to carry this data; the writers never stopped also putting it inline.
+**Remediation (this PR — write-time fix, the root cause):** runs.jsonl rows now carry `emitted_counts` (observations + findings as integers) instead of the arrays; the arrays are popped AFTER `record_findings_for_run` receives them as an explicit parameter (pop before starves findings.jsonl — the ordering bug the adversarial review caught). raw-findings.jsonl rows carry `finding_summary` (rule + id, ~60 bytes) instead of the full finding object; the sampler and rule_health resolve the full content from the artifact when needed (rule_health gained the artifact fallback it was missing). All readers (reflection.py, task.py, capability_gap.py, cycle.py) use an int-tolerant `_emitted_count` helper that reads both the new `emitted_counts` dict and the legacy inline arrays. New rows: ~2KB (runs) and ~200B (raw-findings). The one-time compact of EXISTING data is tracked as this finding's open half.
+**Owner:** zcode (this session). **Deadline:** write-time half closed by this PR; compact half next PR.
+
 ## ORPHAN-HIGH-797 — git-root discovery anchored on the state store's worktree STUB, so the checkout's fixture paths still read as escapes — RESOLVED (this PR)
 
 **Discovered:** 2026-08-22, harvesting the first fully-alive run's evidence: the `fixture_refresh_blocked` governance event (ORPHAN-MEDIUM-783's signal, firing for the first time — the silence is broken) named the live failure: `fixture_path_escape_outside_repo` on `event-contracts-adapter`, on a runner whose checkout has the corpus, the registry binding, and my 779 ladder all in place.

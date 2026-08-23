@@ -162,11 +162,28 @@ def record_run(
                 runner.pop("raw_findings_sample", None)
     else:
         envelope["artifact_status"] = "legacy_inline_or_sample_only"
+    # ORPHAN-HIGH-798 — the runs.jsonl row carried emitted_observations and
+    # emitted_findings arrays inline. In v2/v2-shadow (the formats that write
+    # an artifact above), the artifact already contains the full payload via
+    # _runtime_artifact_payload; the row only needs the counts. v1 writes NO
+    # artifact, so stripping the arrays there would lose the observation
+    # content entirely (adversarial review caught this) — v1 keeps them.
+    # Copy the arrays for record_findings_for_run (which reads them from the
+    # envelope AFTER the append — popping before line 169 starves
+    # findings.jsonl), then strip from the row only when the artifact exists.
+    _saved_emitted_findings = list(envelope.get("emitted_findings") or [])
+    envelope["emitted_counts"] = {
+        "observations": _count(envelope.get("emitted_observations")),
+        "findings": _count(envelope.get("emitted_findings")),
+    }
+    if ledger_format in ("v2-shadow", "v2"):
+        envelope.pop("emitted_observations", None)
+        envelope.pop("emitted_findings", None)
     run_row = append_jsonl(runs_path(base_dir), {"recorded_at": utc_now(), **envelope})
     if ledger_format in ("v2-shadow", "v2"):
         append_run_by_cycle(base_dir=base_dir, cycle_uid=envelope["cycle_id"], run_row=run_row)
     record_raw_findings_for_run(envelope, raw_findings, base_dir=base_dir)
-    record_findings_for_run(envelope, base_dir=base_dir)
+    record_findings_for_run(envelope, emitted_findings=_saved_emitted_findings, base_dir=base_dir)
     decision = evaluate_health(envelope["tool_id"], base_dir=base_dir, latest_run=envelope)
     append_jsonl(health_path(base_dir), decision)
     if envelope["status"] == "tool_unhealthy":
@@ -468,8 +485,24 @@ def compute_metrics(
     )
 
     precision = 0.0 if judged == 0 else true_positive / max(true_positive + false_positive, 1)
+    # ORPHAN-HIGH-798 — use the same counts-first helper as every other
+    # reader: post-798 rows carry emitted_counts (the arrays moved to the
+    # artifact payload), pre-798 rows carry the arrays. Without this,
+    # new rows silently contribute 0 to raw_findings and precision_status
+    # misclassifies tools as no_findings_to_judge.
+    def _emitted_count(run: dict[str, Any], kind: str) -> int:
+        counts = run.get("emitted_counts")
+        if isinstance(counts, dict):
+            return int(counts.get(kind, 0))
+        legacy = run.get(f"emitted_{kind}")
+        if isinstance(legacy, list):
+            return len(legacy)
+        if isinstance(legacy, int):
+            return legacy
+        return 0
+
     raw_findings = sum(
-        _count(run.get("emitted_findings")) + int(run.get("runner", {}).get("raw_findings_count") or 0)
+        _emitted_count(run, "findings") + int(run.get("runner", {}).get("raw_findings_count") or 0)
         for run in runs
     )
     return {

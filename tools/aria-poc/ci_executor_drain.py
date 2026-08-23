@@ -23,6 +23,140 @@ _POC_DIR = Path(__file__).resolve().parent
 if str(_POC_DIR) not in sys.path:
     sys.path.insert(0, str(_POC_DIR))
 import ci_executor as _engine
+import dispatch_failure as _dispatch_failure
+
+# ARIA-HIGH-003 — the persistent breaker owners, bound at import when the
+# kernel is reachable and None otherwise (the harness pattern the engine's
+# own optional bindings use, so tests can patch the drain-level wrappers).
+try:
+    sys.path.insert(0, str(_POC_DIR.parents[1] / "aria-kernel"))
+    from aria_kernel.circuit_breaker import evaluate_breaker, record_failure
+except ImportError:  # pragma: no cover — kernel-less standalone import
+    evaluate_breaker = None  # type: ignore[assignment]
+    record_failure = None  # type: ignore[assignment]
+
+
+# ARIA-HIGH-003 — failure classes that name an environment condition no
+# fallback tier heals inside one drain: the first one opens the keyed
+# same-run circuit for that (provider, model) so the remaining candidates
+# on the same route are skipped WITHOUT claiming, and each occurrence is
+# appended to the persistent breaker ledger.
+ENVIRONMENT_FAILURE_CLASSES: frozenset[str] = frozenset(
+    {
+        "cli_unavailable",
+        "auth_unavailable",
+        "auth_failed",
+        "usage_unavailable",
+        "credit_exhausted",
+        "provider_redirect_unavailable",
+    }
+)
+
+# The closed dispatch-class → persistent breaker-kind mapping. Refusals and
+# response-schema rejections are request-scoped outcomes, not outages, and
+# deliberately have NO row here; process_exit/unknown stay visible in the
+# aggregate but cannot trip a provider-wide circuit.
+PERSISTENT_BREAKER_KIND_BY_CLASS: dict[str, str] = {
+    "timeout": "subprocess_timeout",
+    **{cls: "executor_environment_failure" for cls in ENVIRONMENT_FAILURE_CLASSES},
+}
+
+SELECTION_FAILURE_KIND = "executor_selection_failure"
+
+
+def _record_breaker_failure(
+    tools_dir: Path,
+    *,
+    kind: str,
+    materialize_event_id: str,
+    extra: dict,
+) -> None:
+    if record_failure is None:
+        return
+    try:
+        record_failure(
+            base_dir=tools_dir,
+            kind=kind,
+            materialize_event_id=materialize_event_id,
+            extra=extra,
+        )
+    except Exception as exc:  # noqa: BLE001 — a breaker-append failure must
+        # not mask the drain result it is trying to record.
+        sys.stderr.write(f"breaker_record_failed: {exc}\n")
+
+
+def _breaker_state(tools_dir: Path) -> str:
+    if evaluate_breaker is None:
+        return "unknown"
+    try:
+        return evaluate_breaker(tools_dir).state
+    except Exception as exc:  # noqa: BLE001 — unreadable evidence is the
+        # breaker's own tripped verdict; a raise here would only lose the
+        # drain's aggregate.
+        sys.stderr.write(f"breaker_evaluate_failed: {exc}\n")
+        return "unknown"
+
+
+def _circuit_label(key: tuple[str, str, str]) -> str:
+    return "/".join(key)
+
+
+def _joined_target_sha(dispatched_target_shas: set[str]) -> str:
+    """One non-empty SHA when every dispatched request shared it, else "".
+
+    A mixed-SHA drain (requests grounded at different trees) joins as the
+    empty string: the aggregate refuses to name one evidence target for
+    many trees, and the empty join reads as historical-only downstream.
+    """
+    non_empty = {sha for sha in dispatched_target_shas if sha}
+    if len(non_empty) == 1:
+        return next(iter(non_empty))
+    return ""
+
+
+def build_drain_governance_payload(
+    *,
+    attempted: int,
+    succeeded: int,
+    failed: int,
+    stop_reason: str,
+    failure_counts: dict[str, int],
+    by_provider_model_role: dict[str, dict],
+    failure_details: list[dict],
+    open_circuits: set[tuple[str, str, str]],
+    breaker_state: str,
+    target_sha: str = "",
+) -> dict:
+    """ARIA-HIGH-003 — the schema-v2 ``executor_drain_completed`` aggregate.
+
+    The legacy flat fields (attempted/succeeded/failed/stop_reason) stay
+    top-level for the consumers that already read them; everything the
+    three-drain checkpoint reconciles joins underneath. ``target_sha`` is
+    the joined evidence target: non-empty only when every dispatched
+    request carried the SAME trusted target SHA — a mixed-SHA drain joins
+    as "" and stays honest instead of inventing one SHA for many trees.
+    """
+    return {
+        "schema_version": 2,
+        "attempted": attempted,
+        "succeeded": succeeded,
+        "failed": failed,
+        "stop_reason": stop_reason,
+        "failure_counts": dict(sorted(failure_counts.items())),
+        "by_provider_model_role": {
+            key: {
+                "attempted": bucket["attempted"],
+                "succeeded": bucket["succeeded"],
+                "failed": bucket["failed"],
+                "failure_classes": dict(sorted(bucket["failure_classes"].items())),
+            }
+            for key, bucket in sorted(by_provider_model_role.items())
+        },
+        "failure_details": failure_details,
+        "circuit_breakers": sorted(_circuit_label(key) for key in open_circuits),
+        "breaker_state": breaker_state,
+        "target_sha": target_sha,
+    }
 
 
 # Drain-mode wall-clock budget: the time window the WHOLE loop must fit in,
@@ -154,6 +288,18 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
     """
     started = time.monotonic()
     attempted: set[str] = set()
+    # ARIA-HIGH-003 — requests skipped by the keyed same-run circuit. They
+    # stay pending for a later healthy drain and are surfaced to the kernel
+    # through the same --exclude API the attempted set uses, so the skip
+    # never claims, releases, or marks them attempted.
+    circuit_excluded: set[str] = set()
+    open_circuits: set[tuple[str, str, str]] = set()
+    failure_counts: dict[str, int] = {}
+    by_provider_model_role: dict[str, dict] = {}
+    failure_details: list[dict] = []
+    # ARIA-HIGH-003 — the joined evidence target: the set of trusted
+    # target SHAs carried by the requests actually dispatched this run.
+    dispatched_target_shas: set[str] = set()
     # Y4 (ORPHAN-705) — roles still owed their guaranteed slot this run.
     quota_pending: list[str] = list(_ROLE_QUOTA_ORDER)
     succeeded = 0
@@ -162,6 +308,13 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
     envelope_paths: list[str] = []
     transcript_paths: list[str] = []
     parent_github_output = os.environ.get("GITHUB_OUTPUT")
+    run_ref = os.environ.get("GITHUB_RUN_ID", "local")
+
+    def _bucket(route_key: str) -> dict:
+        return by_provider_model_role.setdefault(
+            route_key,
+            {"attempted": 0, "succeeded": 0, "failed": 0, "failure_classes": {}},
+        )
 
     while True:
         if len(attempted) >= _engine._max_requests():
@@ -191,23 +344,16 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
                 pass  # the spawn clamp already refuses garbage loudly
 
         # E3/F10 + D10b + Y4 (ORPHAN-705) — quota round, then arc-order
-        # fallback, with tonight's attempted set EXCLUDED at the kernel.
-        # Three defects have died here: (a) a released claim used to come
-        # straight back as the oldest row and END the night; (b) strict
-        # oldest-first starved the planning lane behind judge volume;
-        # (c) the four-role priority prefix starved every role it omitted —
-        # maintenance_utility and the adjudication roles sat behind 64
-        # judge envelopes at ~9 drains/night, structurally unreachable.
-        # The quota round guarantees each WAITING role one slot per run
-        # (arc order); only then does the fallback hand out seconds, in the
-        # same arc order, with role=None as the final catch-all.
+        # fallback, with tonight's attempted ∪ circuit-excluded sets
+        # EXCLUDED at the kernel.
+        excluded = attempted | circuit_excluded
         request = None
         selection_error = None
         while quota_pending and request is None and selection_error is None:
             role_filter = quota_pending.pop(0)
             candidate, selection_error = _next_pending_for_role(
                 tools_dir=tools_dir, repo_root=repo_root,
-                role_filter=role_filter, attempted=attempted,
+                role_filter=role_filter, attempted=excluded,
             )
             if candidate is not None:
                 request = candidate
@@ -215,7 +361,7 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
             for role_filter in _ROLE_QUOTA_ORDER + (None,):
                 candidate, selection_error = _next_pending_for_role(
                     tools_dir=tools_dir, repo_root=repo_root,
-                    role_filter=role_filter, attempted=attempted,
+                    role_filter=role_filter, attempted=excluded,
                 )
                 if selection_error is not None or candidate is not None:
                     request = candidate
@@ -223,15 +369,44 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
         if selection_error is not None:
             # Infrastructure: the drain could not even choose work. This IS a
             # drain failure (ORPHAN-HIGH-737 keeps this arm red on purpose).
+            _record_breaker_failure(
+                tools_dir,
+                kind=SELECTION_FAILURE_KIND,
+                materialize_event_id=f"drain:{run_ref}:selection",
+                extra={"stop_reason": selection_error, "run_id": run_ref},
+            )
             stop_reason = selection_error
             failed += 1
             break
         request_id = (request or {}).get("request_id")
         if not request_id:
-            # Nothing pending outside tonight's attempted set — the queue
+            # Nothing pending outside tonight's excluded sets — the queue
             # is exhausted for this run (clean stop, not a failure).
             break
+
+        # ARIA-HIGH-003 — resolve the route pre-dispatch (the trusted row is
+        # the identity); an open circuit on that (provider, model) skips the
+        # request WITHOUT claiming it. Burning the quota slot on a skip is
+        # accepted: the request stays pending and the next healthy drain
+        # re-quotas it.
+        try:
+            route = _dispatch_failure.resolve_dispatch_route(
+                request=request, repo_root=repo_root,
+            )
+        except ValueError:
+            route = None
+        if route is not None and any(
+            route.provider == provider and route.model == model
+            for (provider, model, _failure_class) in open_circuits
+        ):
+            circuit_excluded.add(request_id)
+            _engine._stage(
+                f"drain_circuit_skip request_id={request_id} "
+                f"route={route.provider}/{route.model}"
+            )
+            continue
         attempted.add(request_id)
+        dispatched_target_shas.add(str(request.get("target_sha") or ""))
 
         target_agent = str(request.get("target_agent") or "").strip()
         child_argv = ["python3", str(_POC_DIR / "ci_executor.py"), request_id]
@@ -239,10 +414,12 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
             child_argv.append(target_agent)
 
         # The child announces its envelope/transcript paths via GITHUB_OUTPUT
-        # (_publish_artifact_paths). Point each child at its own scratch file
-        # so the parent can AGGREGATE them — children appending to the real
-        # GITHUB_OUTPUT would each overwrite the step output key, and the
-        # artifact upload would only ever see the LAST request of the night.
+        # (_publish_artifact_paths) and, since ARIA-HIGH-002, its classified
+        # aria/dispatch-result/v1 summary path. Point each child at its own
+        # scratch file so the parent can AGGREGATE them — children appending
+        # to the real GITHUB_OUTPUT would each overwrite the step output key,
+        # and the artifact upload would only ever see the LAST request of
+        # the night.
         child_output = (
             Path(os.environ.get("RUNNER_TEMP", "/tmp"))
             / f"aria-drain-output-{request_id}.txt"
@@ -250,34 +427,101 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
         child_env = {**os.environ, "GITHUB_OUTPUT": str(child_output)}
         _engine._stage(f"drain_dispatch request_id={request_id} target={target_agent or '-'}")
         child = subprocess.run(child_argv, env=child_env, cwd=str(repo_root))
-        if child.returncode == 0:
-            succeeded += 1
-        else:
-            failed += 1
+        summary: dict | None = None
         if child_output.exists():
             for line in child_output.read_text(encoding="utf-8").splitlines():
                 if line.startswith("envelope_path="):
                     envelope_paths.append(line.split("=", 1)[1])
                 elif line.startswith("transcript_path="):
                     transcript_paths.append(line.split("=", 1)[1])
+                elif line.startswith("dispatch_summary_path="):
+                    summary_path = Path(line.split("=", 1)[1])
+                    try:
+                        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+                    except (OSError, json.JSONDecodeError) as exc:
+                        _engine._stage(
+                            f"drain_summary_unreadable request_id={request_id}: {exc}"
+                        )
             child_output.unlink()
+
+        # ARIA-HIGH-003 — classify the terminal outcome from the child's own
+        # v1 summary (falling back to the exit code when the child died
+        # before writing one) and fold it into the circuit, the persistent
+        # breaker, and the schema-v2 aggregate.
+        outcome = (summary or {}).get("outcome")
+        failure_class = (summary or {}).get("failure_class")
+        provider = str((summary or {}).get("provider") or "unknown")
+        model = str((summary or {}).get("model") or "unknown")
+        role = str(
+            (summary or {}).get("role") or request.get("role") or "unknown",
+        )
+        route_key = f"{provider}/{model}/{role}"
+        bucket = _bucket(route_key)
+        bucket["attempted"] += 1
+        if outcome == "refused":
+            # A model refusal is not a build failure and never a breaker
+            # event: it stays visible as the attempted/succeeded/failed delta.
+            pass
+        elif outcome == "succeeded" or (outcome is None and child.returncode == 0):
+            succeeded += 1
+            bucket["succeeded"] += 1
+        else:
+            failed += 1
+            bucket["failed"] += 1
+            counted_class = str(failure_class or "unknown")
+            failure_counts[counted_class] = failure_counts.get(counted_class, 0) + 1
+            bucket["failure_classes"][counted_class] = (
+                bucket["failure_classes"].get(counted_class, 0) + 1
+            )
+            failure_details.append(
+                {
+                    "request_id": request_id,
+                    "failure_class": counted_class,
+                    "retryable": bool((summary or {}).get("retryable")),
+                    "detail_code": (summary or {}).get("failure_detail_code"),
+                    "provider": provider,
+                    "model": model,
+                }
+            )
+            persistent_kind = PERSISTENT_BREAKER_KIND_BY_CLASS.get(counted_class)
+            if persistent_kind is not None:
+                _record_breaker_failure(
+                    tools_dir,
+                    kind=persistent_kind,
+                    materialize_event_id=f"drain:{run_ref}:{request_id}",
+                    extra={
+                        "failure_class": counted_class,
+                        "provider": provider,
+                        "model": model,
+                        "request_id": request_id,
+                        "run_id": run_ref,
+                    },
+                )
+            if counted_class in ENVIRONMENT_FAILURE_CLASSES:
+                open_circuits.add((provider, model, counted_class))
 
     _engine._stage(
         f"drain_done attempted={len(attempted)} succeeded={succeeded} "
-        f"failed={failed} stop={stop_reason}"
+        f"failed={failed} stop={stop_reason} "
+        f"circuit_skipped={len(circuit_excluded)}"
     )
     if _engine._append_tools_governance is not None:
         try:
             _engine._append_tools_governance(
                 tools_dir,
                 "executor_drain_completed",
-                {
-                    "attempted": len(attempted),
-                    "succeeded": succeeded,
-                    "failed": failed,
-                    "stop_reason": stop_reason,
-                    "run_id": os.environ.get("GITHUB_RUN_ID", "local"),
-                },
+                build_drain_governance_payload(
+                    attempted=len(attempted),
+                    succeeded=succeeded,
+                    failed=failed,
+                    stop_reason=stop_reason,
+                    failure_counts=failure_counts,
+                    by_provider_model_role=by_provider_model_role,
+                    failure_details=failure_details,
+                    open_circuits=open_circuits,
+                    breaker_state=_breaker_state(tools_dir),
+                    target_sha=_joined_target_sha(dispatched_target_shas),
+                ),
             )
         except Exception as exc:  # noqa: BLE001 — governance-write failure
             # must not mask the drain result it is trying to record.

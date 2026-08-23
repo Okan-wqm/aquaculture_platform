@@ -1302,6 +1302,39 @@ class NativeProofContractTests(unittest.TestCase):
     def test_executor_result_without_authoritative_sha_cannot_prove_live(
         self,
     ) -> None:
+        # ARIA-HIGH-003 — the contract now binds target_sha, so a terminal
+        # row missing it (or carrying a malformed / PR-head-only value) is
+        # countable history that can never become live_proven.
+        candidates, counts, blockers = _evaluate_native_rows(
+            "executor",
+            {
+                "agent_invocation_results": (
+                    {
+                        "$schema": "aria/agent-claim-result/v1",
+                        "schema_version": 1,
+                        "row_id": "result:claim-1",
+                        "status": "accepted",
+                        "ledger_hash": "sha256:" + "2" * 64,
+                    },
+                    {
+                        "$schema": "aria/agent-claim-result/v1",
+                        "schema_version": 1,
+                        "row_id": "result:claim-2",
+                        "status": "accepted",
+                        "ledger_hash": "sha256:" + "3" * 64,
+                        "target_sha": "not-a-full-sha",
+                    },
+                ),
+            },
+        )
+        self.assertEqual(candidates, ())
+        self.assertEqual(counts, {"rows": 2, "terminal": 2, "admissible": 0})
+        self.assertEqual(
+            blockers,
+            ("proof_target_sha_invalid:agent_invocation_results",),
+        )
+
+    def test_executor_result_with_stamped_target_sha_is_admissible(self) -> None:
         candidates, counts, blockers = _evaluate_native_rows(
             "executor",
             {
@@ -1311,15 +1344,14 @@ class NativeProofContractTests(unittest.TestCase):
                     "row_id": "result:claim-1",
                     "status": "accepted",
                     "ledger_hash": "sha256:" + "2" * 64,
+                    "target_sha": "a" * 40,
                 },),
             },
         )
-        self.assertEqual(candidates, ())
-        self.assertEqual(counts, {"rows": 1, "terminal": 1, "admissible": 0})
-        self.assertEqual(
-            blockers,
-            ("proof_target_sha_unavailable:agent_invocation_results",),
-        )
+        self.assertEqual(blockers, ())
+        self.assertEqual(counts, {"rows": 1, "terminal": 1, "admissible": 1})
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0].evidence_target_sha, "a" * 40)
 
     def test_fixture_terminal_requires_native_suite_row_type(self) -> None:
         base = {

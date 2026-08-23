@@ -434,7 +434,13 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             schema_versions=frozenset({1}),
             identity_field="row_id",
             integrity_hash_field="ledger_hash",
-            authoritative_sha_field=None,
+            # ARIA-HIGH-003 — accepted results carry the trusted request's
+            # immutable target SHA (stamped by agent_invocations at
+            # acceptance, never read from the submitted envelope), so an
+            # executor proof binds the tree it ran against. A row whose SHA
+            # is missing or malformed stays terminal/countable history but
+            # can never become live_proven for any evaluated target.
+            authoritative_sha_field="target_sha",
             upcaster=_identity_upcaster,
             terminal_predicate=_field_equals("status", "accepted"),
         ),),

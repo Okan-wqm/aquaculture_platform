@@ -28,7 +28,9 @@ WHAT IS ASSERTED HERE, and why each one is not obvious:
 
 from __future__ import annotations
 
+from dataclasses import replace
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -36,6 +38,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import aria_kernel.state_snapshot as state_snapshot_module
 from aria_kernel.state_manifest import iter_surfaces
 from aria_kernel.state_snapshot import (
     SIGNATURE_NAMESPACE,
@@ -45,6 +48,7 @@ from aria_kernel.state_snapshot import (
     compute_manifest_root,
     sign_snapshot,
     snapshot_continuity,
+    validate_snapshot_manifest,
     verify_manifest_root,
     verify_snapshot_signature,
 )
@@ -106,23 +110,189 @@ class SnapshotBuildTests(unittest.TestCase):
         self.assertEqual(beliefs["segments"], ["memory/beliefs.jsonl"])
         self.assertTrue(verify_manifest_root(manifest))
 
-    def test_a_broken_chain_is_recorded_not_given_plausible_counts(self) -> None:
-        """Attesting a tip for a chain that does not verify is worse than none.
-
-        The builder routes through the kernel's one strict reader, so a
-        tampered ledger cannot yield a count-and-tip that looks like
-        evidence of a state that never existed.
-        """
+    def test_a_broken_chain_is_rejected_instead_of_snapshotted(self) -> None:
         path = self.tools / "memory" / "beliefs.jsonl"
         path.write_text(
             path.read_text(encoding="utf-8").replace("B-snap", "B-forged"),
             encoding="utf-8",
         )
-        entry = self._build()["surfaces"]["memory_beliefs"]
-        self.assertFalse(entry["chain_valid"])
-        self.assertIsNone(entry["row_count"])
-        self.assertIsNone(entry["tail_ledger_hash"])
-        self.assertTrue(entry["sha256"], "the bytes are still identified")
+        with self.assertRaisesRegex(SnapshotError, "snapshot_ledger_invalid"):
+            self._build()
+
+    def test_matching_symlink_directory_and_fifo_are_rejected_not_omitted(self) -> None:
+        path = self.tools / "memory" / "beliefs.jsonl"
+        original = path.read_bytes()
+        path.unlink()
+        external = self.tmp / "external.jsonl"
+        external.write_bytes(original)
+        path.symlink_to(external)
+        with self.assertRaisesRegex(SnapshotError, "snapshot_surface_not_regular"):
+            self._build()
+
+        path.unlink()
+        path.mkdir()
+        with self.assertRaisesRegex(SnapshotError, "snapshot_surface_not_regular"):
+            self._build()
+
+        path.rmdir()
+        if os.name == "posix":
+            os.mkfifo(path)
+            with self.assertRaisesRegex(SnapshotError, "snapshot_surface_not_regular"):
+                self._build()
+
+    def test_glob_surface_nonregular_match_is_rejected(self) -> None:
+        path = self.tools / "dispatch" / "not-a-ledger.jsonl"
+        path.mkdir(parents=True)
+        with self.assertRaisesRegex(SnapshotError, "snapshot_surface_not_regular"):
+            self._build()
+
+    def test_glob_parent_symlink_is_rejected_before_external_discovery_or_read(self) -> None:
+        source = self.tools / "memory" / "beliefs.jsonl"
+        external = self.tmp / "external-ledgers"
+        external.mkdir()
+        outside = external / "outside.jsonl"
+        outside.write_bytes(source.read_bytes())
+        source.unlink()
+        seeded = self.tools / "operator-feedback-seeding"
+        seeded.mkdir()
+        (seeded / "escape").symlink_to(external, target_is_directory=True)
+
+        real_scandir = os.scandir
+        real_read = os.read
+        external_identity = (external.stat().st_dev, external.stat().st_ino)
+        outside_identity = (outside.stat().st_dev, outside.stat().st_ino)
+
+        def guarded_scandir(target):
+            if isinstance(target, int):
+                opened = os.fstat(target)
+                identity = (opened.st_dev, opened.st_ino)
+            else:
+                opened = os.stat(target)
+                identity = (opened.st_dev, opened.st_ino)
+            if identity == external_identity:
+                raise AssertionError("snapshot discovery entered the external tree")
+            return real_scandir(target)
+
+        def guarded_read(descriptor, size):
+            opened = os.fstat(descriptor)
+            if (opened.st_dev, opened.st_ino) == outside_identity:
+                raise AssertionError("snapshot read external bytes")
+            return real_read(descriptor, size)
+
+        with mock.patch.object(
+            state_snapshot_module.os,
+            "scandir",
+            side_effect=guarded_scandir,
+        ), mock.patch.object(
+            state_snapshot_module.os,
+            "read",
+            side_effect=guarded_read,
+        ), self.assertRaisesRegex(
+            SnapshotError,
+            "snapshot_surface_ancestry_not_directory",
+        ):
+            self._build()
+
+    def test_snapshot_discovery_has_an_explicit_aggregate_work_budget(self) -> None:
+        with mock.patch.object(
+            state_snapshot_module,
+            "SNAPSHOT_MAX_DISCOVERY_WORK",
+            0,
+            create=True,
+        ), self.assertRaisesRegex(
+            SnapshotError,
+            "snapshot_surface_discovery_budget_exceeded",
+        ):
+            self._build()
+
+    def test_snapshot_path_normalization_errors_are_named(self) -> None:
+        path = self.tools / "dispatch" / "artifacts"
+        for _ in range(128):
+            path /= "d"
+        path.mkdir(parents=True)
+        (path / "result.json").write_text("{}", encoding="utf-8")
+        with self.assertRaisesRegex(SnapshotError, "snapshot_surface_path_invalid"):
+            self._build()
+
+    def test_root_swap_during_build_is_rejected_not_mixed_into_one_manifest(self) -> None:
+        replacement = self.tmp / "replacement-tools"
+        shutil.copytree(self.tools, replacement)
+        append_declared_fixture(
+            replacement / "cycles.jsonl",
+            {"schema_version": 1, "cycle_id": "replacement-root"},
+            expected_surface="cycles",
+        )
+        displaced = self.tmp / "displaced-tools"
+        original_surface_entry = state_snapshot_module._surface_entry
+        swapped = False
+
+        def swap_after_first_read(*args, **kwargs):
+            nonlocal swapped
+            entry = original_surface_entry(*args, **kwargs)
+            if not swapped:
+                self.tools.rename(displaced)
+                replacement.rename(self.tools)
+                swapped = True
+            return entry
+
+        with mock.patch.object(
+            state_snapshot_module,
+            "_surface_entry",
+            side_effect=swap_after_first_read,
+        ), self.assertRaisesRegex(SnapshotError, "snapshot_root_changed"):
+            self._build()
+        self.assertTrue(swapped, "fixture must swap after a real surface read")
+
+    def test_manifest_validation_caps_claim_count_before_iteration(self) -> None:
+        manifest = self._build()
+        with mock.patch.object(
+            state_snapshot_module,
+            "SNAPSHOT_MAX_SURFACE_ENTRIES",
+            0,
+        ), self.assertRaisesRegex(
+            SnapshotError,
+            "surface_claim_budget_exceeded",
+        ):
+            validate_snapshot_manifest(manifest)
+
+    def test_snapshot_surface_reads_are_bounded_and_streaming(self) -> None:
+        registry = self.tools / "registry.json"
+        registry.write_bytes(b"x" * 9)
+        with mock.patch.object(
+            state_snapshot_module,
+            "SNAPSHOT_MAX_SURFACE_BLOB_BYTES",
+            8,
+            create=True,
+        ), self.assertRaisesRegex(SnapshotError, "snapshot_surface_too_large"):
+            self._build()
+
+        registry.unlink()
+        with mock.patch.object(
+            state_snapshot_module,
+            "file_hash",
+            side_effect=AssertionError("legacy whole-buffer hash is forbidden"),
+            create=True,
+        ), mock.patch.object(
+            state_snapshot_module,
+            "load_jsonl_verified",
+            side_effect=AssertionError("legacy whole-buffer ledger load is forbidden"),
+            create=True,
+        ):
+            manifest = self._build()
+        self.assertIn("memory_beliefs", manifest["surfaces"])
+
+    def test_one_actual_path_cannot_be_owned_by_two_snapshot_surfaces(self) -> None:
+        beliefs = next(
+            surface for surface in iter_surfaces()
+            if surface.name == "memory_beliefs"
+        )
+        duplicate = replace(beliefs, name="duplicate_memory_beliefs")
+        with mock.patch.object(
+            state_snapshot_module,
+            "iter_surfaces",
+            return_value=(beliefs, duplicate),
+        ), self.assertRaisesRegex(SnapshotError, "snapshot_surface_ambiguous"):
+            self._build()
 
     def test_no_lock_surface_is_ever_carried(self) -> None:
         (self.tools / "locks").mkdir(parents=True, exist_ok=True)

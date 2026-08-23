@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from '@jest/globals';
 
-import { ariaAuthorityFiles, ariaAuthorityHash } from '../../tools/gates/aria-authority-hash';
+import { ariaAuthorityHash, checkAriaAuthorityHash } from '../../tools/gates/aria-authority-hash';
 
 const REPO_ROOT = (() => {
   try {
@@ -130,35 +130,28 @@ describe('ARIA live runtime/documentation SSoT', () => {
 
   it('CURRENT_STATE declares the live authority chain and executable anchors', () => {
     const current = read('docs/aria/CURRENT_STATE.md');
-    // ORPHAN-MEDIUM-768 — the date is no longer a frozen literal: the writer
-    // stamps hash AND date in the same write, and this check holds the date
-    // accountable to the authority surfaces' newest change. A verification
-    // claim predating the content it verifies is the fresh-hash-old-date
-    // cover the frozen literal used to provide.
+    // ORPHAN-MEDIUM-768 — the writer stamps hash AND date in the same write,
+    // so the Date line must exist and stay ISO-shaped.
+    // ORPHAN-MEDIUM-792 — that is all it must do: the date is descriptive
+    // metadata, not an authorization predicate. A server-side merge runs no
+    // local writer and may land on the next UTC day while the authority
+    // content is byte-identical to what was stamped, and holding the date
+    // accountable to the newest authority-commit day rejected exactly those
+    // valid pins. Validity is the content hash asserted below;
+    // tools/gates/aria-authority-hash.spec.ts pins the merge regression.
     const declaredDate = current.match(/^Date: (\d{4}-\d{2}-\d{2})$/m)?.[1];
     expect(declaredDate).toBeTruthy();
-    const authorityFiles = ariaAuthorityFiles(REPO_ROOT);
-    // ORPHAN-HIGH-791 — compare INSTANTS, not timezone renderings. The
-    // pin writer stamps the UTC day (aria-authority-hash.ts:
-    // new Date().toISOString().slice(0, 10)); `%cs` renders the commit
-    // date in the VIEWER's timezone, so a commit at 2026-08-22T00:37+02:00
-    // (= 2026-08-21T22:37Z, #1309) rendered as 2026-08-22 and failed a
-    // pin stamped 2026-08-21 — the exact fresh-cover check this assertion
-    // exists to run, firing on a timezone illusion instead. %cI is the
-    // full ISO instant; normalize it to the UTC day both sides share.
-    const lastAuthorityCommitIso = execFileSync(
-      'git',
-      ['log', '-1', '--format=%cI', '--', ...authorityFiles],
-      { encoding: 'utf8', cwd: REPO_ROOT },
-    ).trim();
-    expect(lastAuthorityCommitIso).toBeTruthy();
-    const lastAuthorityCommit = new Date(lastAuthorityCommitIso).toISOString().slice(0, 10);
-    expect(lastAuthorityCommit).toBeTruthy();
-    expect(declaredDate! >= lastAuthorityCommit).toBe(true);
     const target = current.match(/Target ref: `([^`]+)`/)?.[1];
     expect(target).toBe('origin/main');
     const verifiedHash = current.match(/Last verified ARIA authority hash: `([a-f0-9]{64})`/)?.[1];
     expect(verifiedHash).toBeTruthy();
+    // ORPHAN-MEDIUM-792 — one verdict producer: the same pure checker the
+    // CLI `--check` consumes decides validity here, so the invariant and the
+    // gate can never disagree about what a valid pin is.
+    const verdict = checkAriaAuthorityHash(REPO_ROOT);
+    expect(verdict.valid).toBe(true);
+    expect(verdict.reason).toBe('current');
+    expect(verifiedHash).toBe(verdict.computed);
     expect(verifiedHash).toBe(ariaAuthorityHash());
     expect(current).not.toContain('Last verified commit');
     expect(current).toContain('## Authority Chain');

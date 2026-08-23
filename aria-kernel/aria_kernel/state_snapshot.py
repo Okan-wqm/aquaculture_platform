@@ -143,6 +143,7 @@ def build_snapshot(
     roots: dict[str, Path],
     parent_commit: str | None = None,
     previous: dict[str, Any] | None = None,
+    grandfather_row_counts: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     """Fold the present state of ``roots`` into one signed-able manifest.
 
@@ -198,6 +199,7 @@ def build_snapshot(
                 declared=declared,
                 discovery_budget=discovery_budget,
                 root_fd=root_anchors[surface.root_kind].descriptor,
+                grandfather_row_counts=grandfather_row_counts or {},
             ):
                 entry_count += 1
                 if entry_count > SNAPSHOT_MAX_SURFACE_ENTRIES:
@@ -648,6 +650,7 @@ def _surface_entries(
     declared: tuple[StateSurface, ...] | None = None,
     discovery_budget: _SnapshotDiscoveryBudget | None = None,
     root_fd: int | None | object = _ROOT_FD_UNSET,
+    grandfather_row_counts: dict[str, int] | None = None,
 ) -> list[tuple[str, dict[str, Any]]]:
     """One entry per file backing the surface; glob surfaces fan out.
 
@@ -669,6 +672,7 @@ def _surface_entries(
                     declared=declared,
                     discovery_budget=discovery_budget,
                     root_fd=opened_root_fd,
+                    grandfather_row_counts=grandfather_row_counts,
                 )
         except _SnapshotRootMissing:
             return []
@@ -701,7 +705,13 @@ def _surface_entries(
         key = f"{surface.name}:{relative}" if wildcard else surface.name
         entries.append((
             key,
-            _surface_entry(surface, relative, root, root_fd=root_fd),
+            _surface_entry(
+                surface,
+                relative,
+                root,
+                root_fd=root_fd,
+                grandfather_prefix=(grandfather_row_counts or {}).get(key, 0),
+            ),
         ))
     return entries
 
@@ -1029,6 +1039,7 @@ def _surface_entry(
     root: Path,
     *,
     root_fd: int | None = None,
+    grandfather_prefix: int = 0,
 ) -> dict[str, Any]:
     relative = _normalize_snapshot_relative_path(relative)
     path = root / relative
@@ -1045,6 +1056,7 @@ def _surface_entry(
                     expected_size=size,
                     max_line_bytes=SNAPSHOT_MAX_LEDGER_LINE_BYTES,
                     max_rows=SNAPSHOT_MAX_LEDGER_ROWS,
+                    grandfather_line_prefixes=grandfather_prefix,
                 )
             except LedgerReadLimitError as exc:
                 reason = (

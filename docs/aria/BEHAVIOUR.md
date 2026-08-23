@@ -1,6 +1,9 @@
 # ARIA — what it does, what it cannot do, and what it only appears to do
 
 **Status:** measured 2026-08-20 against `origin/main` and the live `aria/state` ledgers.
+**Authority notice:** This is a dated measurement, not current machine truth. Derive current
+capability evidence with `aria-kernel autonomy status --evidence`; use
+`docs/aria/CURRENT_STATE.md` for the stamped documentation authority chain.
 **Companion to** `SPEC.md` (what ARIA is for), `IDENTITY.md` (what it is), `CONTRACTS.md`
 (what it promises). This file is the fourth question those three do not answer: _what does
 it actually do tonight?_

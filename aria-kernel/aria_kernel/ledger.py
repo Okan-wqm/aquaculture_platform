@@ -8,7 +8,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterable, Iterator
 
 from .file_lock import with_exclusive_lock
 from .state_manifest import surface_for_path
@@ -16,6 +16,7 @@ from .state_manifest import surface_for_path
 
 __all__ = [
     "LedgerIntegrityError",
+    "LedgerReadLimitError",
     "ROW_FORMAT_VERSION",
     "StateTransaction",
     "append_declared_jsonl",
@@ -27,6 +28,9 @@ __all__ = [
     "load_declared_jsonl",
     "load_jsonl",
     "load_jsonl_verified",
+    "load_jsonl_verified_text",
+    "json_nesting_within_limit",
+    "verify_jsonl_chunks",
     "read_jsonl",
     "rewrite_declared_json",
     "rewrite_declared_jsonl",
@@ -41,6 +45,45 @@ __all__ = [
 
 class LedgerIntegrityError(RuntimeError):
     pass
+
+
+class LedgerReadLimitError(RuntimeError):
+    """An immutable ledger exceeded an explicit evidence-read budget."""
+
+    pass
+
+
+def json_nesting_within_limit(content: str, *, max_depth: int = 128) -> bool:
+    """Reject pathological JSON nesting before handing input to ``json``.
+
+    CPython's decoder recursion limit is process-global and can change between
+    hosts.  Evidence admission instead uses this deterministic lexical bound;
+    the JSON decoder remains responsible for every other syntax check.
+    Brackets inside strings are ignored, including escaped quotes.
+    """
+    stack: list[str] = []
+    in_string = False
+    escaped = False
+    pairs = {"}": "{", "]": "["}
+    for character in content:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+            continue
+        if character == '"':
+            in_string = True
+        elif character in "[{":
+            stack.append(character)
+            if len(stack) > max_depth:
+                return False
+        elif character in "]}":
+            if not stack or stack.pop() != pairs[character]:
+                return False
+    return not stack and not in_string
 
 
 # ORPHAN-HIGH-552 — the row-format contract, defined ONCE.
@@ -405,7 +448,7 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
             continue
         try:
             records.append(json.loads(stripped))
-        except json.JSONDecodeError as exc:
+        except (json.JSONDecodeError, RecursionError, ValueError) as exc:
             raise LedgerIntegrityError(f"Invalid JSONL at {path}:{line_no}: {exc}") from exc
     return records
 
@@ -1089,6 +1132,147 @@ def load_jsonl_verified(path: Path) -> list[dict[str, Any]]:
             f"reason={result.get('reason')} line={result.get('line')}"
         )
     return rows
+
+
+def load_jsonl_verified_text(
+    content: str,
+    *,
+    source: str | Path,
+) -> list[dict[str, Any]]:
+    """Strictly verify immutable JSONL content without a filesystem rewrite."""
+    source_path = Path(source)
+    result, rows = _verify_jsonl_from_text(source_path, content)
+    if not result.get("valid", False) or result.get("torn_tail_bytes"):
+        raise LedgerIntegrityError(
+            f"strict verification failed for {source_path.as_posix()}: "
+            f"reason={result.get('reason') or 'immutable_torn_tail'} "
+            f"line={result.get('line')}"
+        )
+    return rows
+
+
+def verify_jsonl_chunks(
+    chunks: Iterable[bytes],
+    *,
+    source: str | Path,
+    expected_size: int,
+    max_line_bytes: int,
+    max_rows: int,
+    on_row: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    """Strictly verify one immutable JSONL blob without materialising it.
+
+    Git supplies immutable object bytes in arbitrary chunks.  This reader
+    bounds the only carry-over buffer (one line), verifies the canonical
+    hash chain before exposing a row to ``on_row``, and retains only the
+    chain tip and counters.  Malformed bytes remain integrity failures;
+    line/row limits are separate availability-budget failures so callers
+    can name them without reporting corruption.
+    """
+    source_path = Path(source)
+    digest = hashlib.sha256()
+    pending = bytearray()
+    previous_hash: str | None = None
+    total = 0
+    row_count = 0
+    line_no = 0
+
+    def consume(raw_line: bytes, *, terminated: bool) -> None:
+        nonlocal previous_hash, row_count, line_no
+        line_no += 1
+        if len(raw_line) > max_line_bytes:
+            raise LedgerReadLimitError(
+                f"immutable_ledger_line_too_large:{source_path.as_posix()}:"
+                f"line={line_no}",
+            )
+        content = raw_line[:-1] if terminated else raw_line
+        if not content.strip():
+            return
+        try:
+            text = content.decode("utf-8")
+            if not json_nesting_within_limit(text):
+                raise ValueError("json_nesting_limit_exceeded")
+            row = json.loads(text)
+        except UnicodeDecodeError as exc:
+            raise LedgerIntegrityError(
+                "strict verification failed for "
+                f"{source_path.as_posix()}: reason=invalid_utf8 line={line_no}",
+            ) from exc
+        except (json.JSONDecodeError, RecursionError, ValueError) as exc:
+            raise LedgerIntegrityError(
+                "strict verification failed for "
+                f"{source_path.as_posix()}: reason={exc} line={line_no}",
+            ) from exc
+        if not isinstance(row, dict):
+            raise LedgerIntegrityError(
+                "strict verification failed for "
+                f"{source_path.as_posix()}: reason=row_not_object line={line_no}",
+            )
+        row_count += 1
+        if row_count > max_rows:
+            raise LedgerReadLimitError(
+                f"immutable_ledger_row_limit_exceeded:{source_path.as_posix()}",
+            )
+        expected = row.get("ledger_hash")
+        if not expected:
+            raise LedgerIntegrityError(
+                "strict verification failed for "
+                f"{source_path.as_posix()}: reason=ledger_hash_missing "
+                f"line={line_no}",
+            )
+        actual = _record_hash(row, previous_hash)
+        if expected != actual:
+            raise LedgerIntegrityError(
+                "strict verification failed for "
+                f"{source_path.as_posix()}: reason=ledger_hash_mismatch "
+                f"line={line_no}",
+            )
+        if row.get("previous_ledger_hash") != previous_hash:
+            raise LedgerIntegrityError(
+                "strict verification failed for "
+                f"{source_path.as_posix()}: reason=previous_hash_mismatch "
+                f"line={line_no}",
+            )
+        previous_hash = str(expected)
+        if on_row is not None:
+            on_row(row)
+
+    for chunk in chunks:
+        if not isinstance(chunk, bytes):
+            raise TypeError("immutable_ledger_chunk_must_be_bytes")
+        total += len(chunk)
+        if total > expected_size:
+            raise LedgerIntegrityError(
+                "strict verification failed for "
+                f"{source_path.as_posix()}: reason=blob_size_changed",
+            )
+        digest.update(chunk)
+        pending.extend(chunk)
+        while True:
+            newline = pending.find(b"\n")
+            if newline < 0:
+                break
+            consume(bytes(pending[: newline + 1]), terminated=True)
+            del pending[: newline + 1]
+        if len(pending) > max_line_bytes:
+            raise LedgerReadLimitError(
+                f"immutable_ledger_line_too_large:{source_path.as_posix()}:"
+                f"line={line_no + 1}",
+            )
+    if total != expected_size:
+        raise LedgerIntegrityError(
+            "strict verification failed for "
+            f"{source_path.as_posix()}: reason=blob_size_changed",
+        )
+    if pending:
+        consume(bytes(pending), terminated=False)
+    return {
+        "valid": True,
+        "row_count": row_count,
+        "last_hash": previous_hash,
+        "sha256": digest.hexdigest(),
+        "size_bytes": total,
+    }
 
 
 def load_index(path: Path) -> dict[str, Any]:

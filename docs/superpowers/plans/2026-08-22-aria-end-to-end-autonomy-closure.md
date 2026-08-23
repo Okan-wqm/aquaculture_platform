@@ -115,7 +115,7 @@ human-authorized actions.
 | Runtime and learning   |   4-7 | Three classified drains pass live; one real finding traverses the full learning funnel without duplicate promotion                       |
 | Merge safety           |  8-12 | The immutable snapshot is complete and all seven concrete checks fail closed under mutation                                              |
 | Whole-repo observation | 13-17 | Every behavioral file is meaningfully observed; scheduler-selected product slice merges with a verified witness                          |
-| Mode A and readiness   |    18 | App-only mutation, signed v3/v4 readiness, remote CAS, and disposable restore are live-proven                                            |
+| Mode A and readiness   |    18 | App-only mutation, signed readiness v3, branch-protection v4, remote CAS, and disposable restore are live-proven                         |
 | Staged autonomy        |    19 | Real outcome counters advance in order, at least one L1 authority merge maps pre-merge proof to merged main, and freeze paths are proven |
 | Closure                |    20 | Three-PR reachability ceremony ends with the two-SHA closure verdict green                                                               |
 
@@ -365,9 +365,253 @@ Closes: docs/reviews/orphan-findings.md#ORPHAN-HIGH-778"
 git push
 ```
 
+### Task 2: Add the derived autonomy evidence status surface — controller-reviewed correction
+
+This executable correction supersedes the conflicting extracted Task 2 text
+retained below for audit history.
+
+**Exact files:**
+
+- Create: `aria-kernel/aria_kernel/autonomy_evidence.py`
+- Create: `aria-kernel/tests/test_autonomy_evidence_status.py`
+- Modify: `aria-kernel/aria_kernel/autonomy_state.py`
+- Modify: `aria-kernel/aria_kernel/cli.py`
+- Modify: `aria-kernel/aria_kernel/file_lock.py`
+- Modify: `aria-kernel/aria_kernel/ledger.py`
+- Modify: `aria-kernel/aria_kernel/state_manifest.py`
+- Modify: `aria-kernel/aria_kernel/state_snapshot.py`
+- Modify: `aria-kernel/aria_kernel/state_store.py`
+- Modify: `aria-kernel/tests/test_autonomy_state_reducer.py`
+- Modify: `aria-kernel/tests/test_cli_autonomy_subcommand.py`
+- Modify: `aria-kernel/tests/test_file_lock_and_claim_idempotency.py`
+- Modify: `aria-kernel/tests/test_publish_contention.py`
+- Modify: `aria-kernel/tests/test_state_manifest_transaction.py`
+- Modify: `aria-kernel/tests/test_state_snapshot.py`
+- Modify: `aria-kernel/tests/test_state_store.py`
+- Modify: `docs/aria/policy/autonomy-closure-findings.json`
+- Modify: `tests/invariants/three-store-invariants.spec.ts`
+- Modify: `docs/aria/BEHAVIOUR.md`
+- Modify: `tests/invariants/aria-doc-runtime-ssot.spec.ts`
+- Modify: this executable plan
+- Generate: `docs/aria/CURRENT_STATE.md` only through the authority writer
+- Generate if changed: `tools/quality/format-scope.json` only through its
+  canonical generator
+- Write execution evidence: ignored task-local `task-2-report.md` and
+  `progress.md`
+
+Task 2 is an ordered-TDD, read-only projection over exactly seven immutable
+`CapabilitySpec` entries. Each entry owns literal producer, authorizing-consumer,
+authority, count-surface, native schema/upcaster, terminal, identity/hash, and
+authoritative-SHA contracts. Common authority includes the evidence module,
+lock and strict-ledger primitives, manifest/snapshot/state-store admission,
+tool registry/binding, workspace identity, and closure finding policy. Exact
+literal producer roles include every current direct writer even when a writer
+is also an authorizing consumer. Generic validation rows and source presence
+are never proof. The roster regression is source-derived: an AST scanner
+classifies direct ledger readers/writers, imported aliases, path helpers, and
+one-level wrappers across the authority modules, then requires each discovered
+role to be represented by the literal capability contract or an explicit
+observational-only entry with a durable rationale. A hand-maintained expected
+roster alone is not sufficient coverage. The scanner walks nested synchronous
+and asynchronous function scopes across every existing literal Python authority
+path as well as the complete kernel source tree. `tool_health.py` is literal
+cycle-runtime authority and a producer because its `append_jsonl()` wrapper can
+write `cycles.jsonl`; it is not an observational exception.
+
+Each admitted `EvidenceRef` also carries its producer-native `proof_kind`,
+`schema_id`, and `schema_version`; the surface name alone is never a contract
+discriminator. This extends the superseded extracted dataclass shape below and
+prevents schema generations sharing one ledger from being treated as the same
+proof.
+
+Proof rows are admissible only when producer-native validation succeeds, their
+full event SHA is equal to or a positively proven ancestor of the evaluated
+target, and exact target-tree authority path/blob hashes match. Missing paths
+bind as `MISSING`; present paths bind the exact Git mode, object type, object
+ID, literal path, and blob bytes. Non-regular authority entries, tree/blob read
+failures, missing history, and shallow-history
+false ancestry are named unavailable states, not absence or non-ancestry.
+Before any public derivation, the evaluated target must contain the exact
+executing `autonomy_evidence.py` bytes, the current checked-out capability
+authority hash must match the target hash, and the union of evaluator authority
+paths must be clean including ignored matches. Every Git read preserves ambient
+environment while setting `GIT_OPTIONAL_LOCKS=0`.
+
+Evidence admission composes `ensure_tools_dir_readonly()`,
+`open_state_store()`, `tools_root()`, `canonical_identity()`, strict immutable
+HEAD-blob ledger reads, and its own canonical immutable-snapshot verifier; it
+must never call the mutable-worktree `verify_state_store()` path. Before and
+after reads it requires a same-common-dir registered worktree, detached
+full-SHA HEAD, matching host and published bindings, HEAD equal to tracking and
+live remote tips, and exact host-artifact-classified porcelain cleanliness
+including ignored paths. The live-tip probe accepts exactly one strict
+`<full-sha>\trefs/heads/aria/state` record; an empty, wrong-ref, duplicate,
+malformed, or zero-SHA response is unavailable. It then reads `snapshot.json`
+from that admitted HEAD, requires the exact `build_snapshot()`
+top-level/projection contract, enumerates the complete immutable commit tree,
+and streams every claimed surface from its Git blob. Every ledger, including
+ledgers not used for capability counts, has
+its hash, size, strict chain, row count, and tail hash recomputed from that same
+stream; every other surface has hash and size recomputed. Missing claims for
+declared non-excluded paths, non-regular claimed paths, excluded claims, and
+noncanonical glob paths fail closed. Every proof row and count is parsed from
+the admitted state commit rather than mutable worktree bytes. Unavailable
+stores expose unavailable counts; absent optional ledgers expose healthy zero;
+corrupt committed ledgers raise. The evidence path performs no bootstrap,
+fetch, checkout, repair, clean, append, or publish.
+
+The immutable commit-tree contract is an exact allowlist, not only a scan for
+known surface patterns. It admits `snapshot.json`, the unchanged regular
+`GENESIS` entry from the commit's single parent, optional exact regular-empty
+`tools/.gitkeep`, `findings/.gitkeep`, and `workspace/.gitkeep` bootstrap
+markers, claimed regular blobs, and only their required tree ancestors. Every
+existing declared-root component, including both `workspace` and
+`workspace/<repository-identity>`, must be a `040000 tree`; any other blob,
+symlink, gitlink, tree, pre-staged entry, merge parent, or unknown path fails
+closed. `publish_state()` applies this same canonical verifier to the
+just-created immutable commit, captures its exact object ID, rechecks that HEAD
+still names it after verification, pushes that object ID rather than symbolic
+HEAD. A nonzero push is an ambiguous outcome: a bounded strict remote probe
+plus a fetch into an always-cleaned unique ephemeral ref and ancestry proof
+reconciles success when the remote tip is the exact commit or a descendant
+containing it. A contained descendant is adopted only by a clean, exact
+fast-forward of the owned state-worktree HEAD, integrity-index rebuild, and
+exact tracking update. Replay is reachable only through a typed contention
+carrying the verified winner, loser, and pre-commit base. It re-fetches and
+revalidates the winner before replay; if the loser has since become contained,
+it adopts that commit without duplicate replay. Only the owned commit may be
+rolled back, using an expected-old HEAD compare-and-swap that preserves the
+index. Missing, malformed, unavailable, disappearing, tracking-rewound,
+unrelated, or ancestry-unverifiable remote history fails closed with the commit
+recoverable. Replay failure restores the preserved local ledger and index when
+possible and otherwise leaves recoverable staging. Remote tracking refs advance
+by compare-and-swap and never rewind.
+Surface bytes that disappear between the two cleanliness scans remain dirty.
+
+The unchanged regular `GENESIS` contract is positive: both the state commit and
+its single parent must contain the same regular blob. Two consecutive trees
+that both omit `GENESIS` are invalid rather than vacuously equal.
+
+Repository identity derivation on this hostile read path is independently
+bounded and strict-UTF-8 while retaining the workspace identity precedence:
+canonical remote URL, then root commit, then canonical-root basename. It does
+not call the workspace helper's unbounded subprocess path, and malformed Git
+output becomes a named unavailable state.
+
+All hostile-input reads are explicit resource contracts, not unbounded parser
+calls. Evaluator, authority, and policy blobs have per-blob and per-capability
+caps; snapshot JSON, commit-tree bytes/entries, each surface blob, total
+snapshot input, each evidence ledger, and aggregate evidence input are capped.
+Git processes have bounded stdout/stderr and wall-clock lifetimes. JSON nesting,
+ledger line length, evidence-ledger rows, and all-snapshot-ledger rows are
+bounded before or during streaming, with distinct named fail-closed outcomes
+for size, line, row, tree, aggregate, timeout, and unavailable cases. Proof
+candidates retain at most 128 distinct target SHAs per capability and 256
+globally. They retain one witness per producer-native contract while preserving
+only the selected witness candidate's exact admissible same-SHA
+`proof_cardinality`; admissible ancestor candidates never inflate the selected
+SHA's count. Evidence refs therefore stay
+bounded even when a valid ledger contains many duplicate-SHA rows, and the
+Mode-A predicate can still require cardinality exactly one.
+
+The manifest owner supplies the single component-aware path matcher used by
+manifest resolution, snapshot production, and immutable verification. Its
+declared grammar, normalized-path and component-depth limits, deterministic
+exact-before-glob ownership, and ambiguity rejection are invariants. The
+snapshot producer anchors each supplied root with one build-lifetime directory
+descriptor, performs component-wise no-follow discovery under that anchor with
+an aggregate work cap, opens final regular files through the same anchored
+directory chain, and rechecks the root path's device/inode before return. It uses
+the same bounded streaming ledger/hash limits as the verifier and rejects
+non-regular matches, symlink ancestry, ownership collisions, corrupt chains,
+races, claim-count excess, and byte/work budget excess instead of silently
+omitting them. Every snapshot the producer returns therefore satisfies the same
+exact typed contract the immutable verifier admits.
+
+Production-shaped RED established that a normal restored state worktree holds
+host-only `repo_identity.json`, a reproducible integrity index, and lock
+sidecars despite a valid snapshot. Task 2 therefore minimally modifies the
+existing state-store owner and adjacent lock helper: admission classifies only
+validated exact untracked host derivatives, refuses every ignored path and
+every declared/unknown lock, acquires exact manifest/index/state-group
+sidecars non-blockingly through worktree removal, and repeats status to narrow
+the classification-to-removal race. It never mutates the Git common exclude
+file. Ignored user state is preserved by refusal, while ignored declared drift
+is also rejected by snapshot verification. Host identity and reproducible
+integrity-index bytes are validated exactly; allowed-path content/inode/mode
+fingerprints must survive the second status scan, and acquired sidecar locks
+remain held through removal. This narrows but does not claim to eliminate a
+writer that ignores the repository's locking protocol.
+
+The target-tree policy must be the exact
+`aria/autonomy-closure-findings/v1` object, cover the complete 34-finding
+closure scope once each, contain only the exact envelope and entry keys/types,
+use governed task/severity/status enums, and bind full fixing SHAs plus
+regression and immutable-target refs. Every regression and immutable-target ref
+must be a canonical relative path that resolves in the target tree to an exact
+`100644` or `100755` blob. Each immutable target must contain its finding's
+heading token at a line start, either exact `## FINDING_ID` or
+`## FINDING_ID ...`; substrings and longer ID prefixes do not match. Malformed
+UTF-8, missing headings, non-object JSON, incomplete scope, duplicates, and
+extra keys all fail closed. Only the target-tree `ORPHAN-MEDIUM-789` entry may
+declare the exact
+`enterprise_readiness` / `mode_a_signed_readiness_live_proven` /
+`github_app_mode_a_unconfigured` operator prerequisite. Registry OPEN/CLOSED
+state is irrelevant; malformed/unreadable policy fails closed; `ARIA-HIGH-001`
+cannot self-block. The existing readiness-v2 structural contract remains
+auditable/countable but cannot clear the signed Mode-A operator prerequisite;
+Task 18 owns the v3-only live contract and post-merge SHA binding. Overall state
+is derived internally with active operator
+prerequisites first, then the lowest capability state.
+
+Extract `fold_autonomy_state_rows()` without changing legacy JSON behavior.
+Add `autonomy status --evidence [--target-sha FULL_SHA]`, reject target without
+evidence, and resolve the repository with Git top-level discovery. Update only
+the dated authority notice in `BEHAVIOUR.md`; update `CURRENT_STATE.md` only via
+the authority writer. Run the controller addendum's focused/adjacent/full Nx,
+registry, invariant, docs, format, authority, and diff gates. Write
+`task-2-report.md`, make exactly one signed local Task 2 commit with the governed
+ARIA-HIGH-001 trailer, and do not push, merge, open a PR, or close the registry
+row during the task.
+
+The final affected-test gate has two non-Task-2 failures. The expected
+controller-owned `CURRENT_STATE.md` authority pin remains stale until the
+canonical writer runs. Independently, the PostgreSQL DR bootstrap invariant
+requires all three executable classes while this host's restrictive checkout
+umask materializes
+`infrastructure/scripts/provider-console-bootstrap-postgres-walg.sh` as
+`0700`. Task 2 changes neither that script nor its invariant: the index, Task 2
+HEAD, and base `f6a6d2c1395b88d964f9133753f01b41c0f58967` all carry the same
+`100755` blob `6a91cc801d170af1e86893a5cc25de77d01947c1`, and an isolated no-cache run in a
+clean disposable worktree at that base reproduces the exact expected-73,
+received-64 failure. Do not chmod or expand Task 2 to alter that unrelated
+surface; record both failures explicitly alongside the green Task 2 gates.
+
+#### Third controlled-freeze correction
+
+Controller review reopened Task 2 for eight concrete defects in the existing
+owners. (A) Replay derives its base from the admitted state-worktree HEAD, not a
+host-worktree snapshot. (B) Every remote-tip consumer shares the strict
+single-record parser above. (C) accepted descendant reconciliation leaves HEAD,
+tracking, snapshot, and regenerated integrity index coherent. (D) an observed
+remote rewind behind local tracking is a named history mismatch, never a
+tracking rewind. (E) rollback uses expected-old HEAD compare-and-swap and does
+not reset the index. (F) every fetch uses a unique ephemeral ref that is removed
+on success and failure while replay failures preserve recoverable local bytes or
+staging. (G) policy refs and heading tokens obey the exact target-tree rules
+above. (H) contention carries winner/loser/base identity, revalidates the live
+winner, and adopts a now-contained loser without replay.
+
+The correction remains inside `state_store.py`, `autonomy_evidence.py`, and
+their existing tests; it creates no new module or subsystem. RED coverage must
+exercise malformed/duplicate/wrong remote listings, rollback and tracking
+races, accepted-descendant coherence, remote rewinds, cleanup/recovery paths,
+loser adoption, and policy path/blob/heading false positives before the focused,
+owner, adjacent, and repository gates are rerun.
+
 ---
 
-### Task 2: Add the derived autonomy evidence status surface
+#### Superseded extracted Task 2 text (retained for audit)
 
 **Files:**
 
@@ -859,8 +1103,11 @@ git push
 
 - Modify: `tools/aria-poc/ci_executor_drain.py`
 - Modify: `aria-kernel/aria_kernel/circuit_breaker.py`
+- Modify: `aria-kernel/aria_kernel/agent_invocations.py`
+- Modify: `aria-kernel/aria_kernel/autonomy_evidence.py`
 - Create: `aria-kernel/tests/test_executor_drain_breaker.py`
 - Modify: `aria-kernel/tests/test_executor_drain_mode.py`
+- Modify: `aria-kernel/tests/test_autonomy_evidence_status.py`
 
 **Interfaces:**
 
@@ -940,6 +1187,12 @@ Retain the existing top-level attempted/succeeded/failed/stop reason fields cons
 state tooling. Each breakdown bucket contains attempted/succeeded/failed counts and failure-class
 counts; never infer provider/model/role from stderr.
 
+Propagate the trusted request's immutable target SHA through `agent_invocations.py` into every
+accepted producer-native terminal result and the joined `executor_drain_completed` row. Update the
+`executor` contract in `autonomy_evidence.py` and its exact contract tests so a terminal row with a
+missing, caller-substituted, PR-head-only, or mismatched target SHA remains historical/countable but
+cannot become `live_proven` for the evaluated target.
+
 - [ ] **Step 5: Run breaker, drain, and workflow contract tests**
 
 ```bash
@@ -948,16 +1201,20 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider \
   aria-kernel/tests/test_executor_drain_breaker.py \
   aria-kernel/tests/test_breaker_producer_scheduled_lane.py \
   aria-kernel/tests/test_drain_refusal_is_not_a_build_failure.py \
-  aria-kernel/tests/test_executor_workflow_sandbox_contract.py
+  aria-kernel/tests/test_executor_workflow_sandbox_contract.py \
+  aria-kernel/tests/test_autonomy_evidence_status.py
 ```
 
 - [ ] **Step 6: Commit, push, and wait for merge**
 
 ```bash
 git add tools/aria-poc/ci_executor_drain.py \
+  aria-kernel/aria_kernel/agent_invocations.py \
+  aria-kernel/aria_kernel/autonomy_evidence.py \
   aria-kernel/aria_kernel/circuit_breaker.py \
   aria-kernel/tests/test_executor_drain_breaker.py \
-  aria-kernel/tests/test_executor_drain_mode.py
+  aria-kernel/tests/test_executor_drain_mode.py \
+  aria-kernel/tests/test_autonomy_evidence_status.py
 git commit -m "feat(aria): stop classified executor failure storms" \
   -m "Closes: ${ARIA_TASK_FINDING_REF:?set the governed finding reference}"
 git push
@@ -999,6 +1256,7 @@ readable; otherwise open a governed finding and use `superpowers:systematic-debu
 - Modify: `aria-kernel/aria_kernel/tool_registry.py`
 - Create: `aria-kernel/tests/test_promotion_funnel_e2e.py`
 - Modify: `aria-kernel/tests/test_funnel_self_diagnosis.py`
+- Modify: `aria-kernel/tests/test_autonomy_evidence_status.py`
 
 **Interfaces:**
 
@@ -1084,6 +1342,13 @@ Do not add a second promotion, fixture, or calibration writer.
 `finding_funnel` and `fixture_calibration` must report named stage counts and refuse `live_proven`
 while any downstream terminal count is zero or stale.
 
+Extend the producer-native status contracts at the same time: a terminal promotion must carry the
+trusted finding-envelope target SHA, and a terminal fixture-suite row must carry the exact target
+SHA propagated through its governed run envelope. Pin both contracts in
+`test_autonomy_evidence_status.py`. Missing, legacy, inferred-latest, PR-head-only, or mismatched
+values remain audit/count evidence only and never satisfy the target-bound live predicate. Task 7
+only executes these contracts in the scheduled lane; it does not invent or repair their schema.
+
 - [ ] **Step 6: Run the learning neighbour suite**
 
 ```bash
@@ -1096,7 +1361,8 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider \
   aria-kernel/tests/test_jj1_anchor_consensus.py \
   aria-kernel/tests/test_jj2_humanless_promotion.py \
   aria-kernel/tests/test_auto_promotion_caller.py \
-  aria-kernel/tests/test_tool_lifecycle_matrix.py
+  aria-kernel/tests/test_tool_lifecycle_matrix.py \
+  aria-kernel/tests/test_autonomy_evidence_status.py
 ```
 
 - [ ] **Step 7: Commit and push**
@@ -1112,7 +1378,8 @@ git add aria-kernel/aria_kernel/funnel_health.py \
   aria-kernel/aria_kernel/readiness.py \
   aria-kernel/aria_kernel/tool_registry.py \
   aria-kernel/tests/test_promotion_funnel_e2e.py \
-  aria-kernel/tests/test_funnel_self_diagnosis.py
+  aria-kernel/tests/test_funnel_self_diagnosis.py \
+  aria-kernel/tests/test_autonomy_evidence_status.py
 git commit -m "feat(aria): expose the complete learning evidence funnel" \
   -m "Closes: ${ARIA_TASK_FINDING_REF:?set the governed finding reference}"
 git push
@@ -2319,6 +2586,7 @@ data is not a valid reference slice.
 - Create: `aria-kernel/aria_kernel/readiness_schema.py`
 - Modify: `aria-kernel/aria_kernel/readiness_proofs.py`
 - Modify: `aria-kernel/aria_kernel/enterprise_readiness.py`
+- Modify: `aria-kernel/aria_kernel/autonomy_evidence.py`
 - Modify: `aria-kernel/aria_kernel/rollback_bundle.py`
 - Modify: `aria-kernel/aria_kernel/state_manifest.py`
 - Create: `aria-kernel/tests/test_workflow_mode_a_transport.py`
@@ -2329,6 +2597,7 @@ data is not a valid reference slice.
 - Modify: `aria-kernel/tests/test_readiness_proofs.py`
 - Modify: `aria-kernel/tests/test_enterprise_readiness_and_genesis_lifecycle.py`
 - Modify: `aria-kernel/tests/test_branch_protection_proof.py`
+- Modify: `aria-kernel/tests/test_autonomy_evidence_status.py`
 - Modify: `docs/runbooks/aria-github-app-setup.md`
 - Modify: `docs/aria/runbooks/autonomy-unlock.md`
 
@@ -2340,6 +2609,8 @@ data is not a valid reference slice.
   `aria/branch-protection-proof/v4`.
 - Upcasts: legacy readiness v2 and branch-proof v3 into audit-only views that can never satisfy a
   new live claim.
+- Replaces: the status evaluator's v2 live contract with a v3-only producer-native contract bound
+  to a verified post-merge `resulting_main_sha`.
 - Adds: a ledger-bound `state_snapshot_proof` and cryptographically verified CODEOWNERS evidence.
 - Replaces: assertion-only rollback simulation with a disposable restore rehearsal.
 
@@ -2418,6 +2689,19 @@ rollback, or continuity proofs. The first v3/v4 claim cites the final legacy row
 operator-approved transition ref. Test unknown versions, lossy fields, legacy display, attempted
 legacy promotion, and v3/v4 round-trip canonicalization.
 
+Update `autonomy_evidence.py` in the same change: remove readiness v2 from the live evidence
+contract and accept only terminal readiness v3 rows carrying the verified
+`resulting_main_sha`. The producer obtains that SHA from the post-merge main fact, not from the PR
+head or tree equality. `mode_a_signed_readiness_live_proven` requires exactly one admitted v3 live
+readiness ref whose signed-snapshot predicate, App-authenticated state-CAS predicate, and full
+readiness verifier all pass for that resulting main SHA. A valid v2 row remains visible in counts
+and audit refs but leaves the operator prerequisite blocked.
+
+Pin the coexistence boundary explicitly in `test_autonomy_evidence_status.py`: a v2-only ref on the
+shared readiness surface cannot clear the blocker; v2 plus exactly one qualifying v3 ref may clear
+it; two qualifying v3 refs fail the exact-one predicate. Match refs by proof kind, schema ID, and
+schema version, never by surface alone.
+
 - [ ] **Step 5: Write failing signed-readiness and CODEOWNERS tests**
 
 Require readiness v3 to include:
@@ -2474,7 +2758,8 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider \
   aria-kernel/tests/test_branch_protection_proof.py \
   aria-kernel/tests/test_enterprise_readiness_and_genesis_lifecycle.py \
   aria-kernel/tests/test_state_snapshot.py \
-  aria-kernel/tests/test_auto_merge.py
+  aria-kernel/tests/test_auto_merge.py \
+  aria-kernel/tests/test_autonomy_evidence_status.py
 npx jest --config tests/invariants/jest.config.ts --runInBand \
   tests/invariants/aria-workflow-sha-pin.spec.ts \
   tests/invariants/aria-workflow-input-injection.spec.ts
@@ -2496,6 +2781,7 @@ git add .github/actions/mint-aria-app-token/action.yml \
   aria-kernel/aria_kernel/readiness_schema.py \
   aria-kernel/aria_kernel/readiness_proofs.py \
   aria-kernel/aria_kernel/enterprise_readiness.py \
+  aria-kernel/aria_kernel/autonomy_evidence.py \
   aria-kernel/aria_kernel/rollback_bundle.py \
   aria-kernel/aria_kernel/state_manifest.py \
   aria-kernel/tests/test_workflow_mode_a_transport.py \
@@ -2506,6 +2792,7 @@ git add .github/actions/mint-aria-app-token/action.yml \
   aria-kernel/tests/test_readiness_proofs.py \
   aria-kernel/tests/test_enterprise_readiness_and_genesis_lifecycle.py \
   aria-kernel/tests/test_branch_protection_proof.py \
+  aria-kernel/tests/test_autonomy_evidence_status.py \
   docs/runbooks/aria-github-app-setup.md \
   docs/aria/runbooks/autonomy-unlock.md
 git commit -m "feat(aria): require signed Mode A readiness" \
@@ -2528,9 +2815,11 @@ workflows.
 
 After code review and the pre-merge configuration probe, merge Task 18. Verify with a dedicated
 low-risk readiness canary PR and the live readiness workflow; this canary does not count as an
-autonomous merge before Task 19 opens the relevant stage. Accept only one readiness claim for the
-exact canary head/history with a successful App-authenticated state CAS, every v3/v4 proof valid, no
-waiver/bypass, a valid signed snapshot, and a successful disposable rollback restore. Confirm the
+autonomous merge before Task 19 opens the relevant stage. After the canary merges, obtain the
+verified PR-head-to-resulting-main mapping and accept only one v3 readiness claim whose
+`resulting_main_sha` is that exact reachable main commit, with a successful App-authenticated state
+CAS, every v3/v4 proof valid, no waiver/bypass, a valid signed snapshot, and a successful disposable
+rollback restore. A squash merge is not proven by PR-head ancestry or tree equality. Confirm the
 App actor—and no PAT or ambient token—authored the remote state publication. Task 20 closes
 ORPHAN-HIGH-788 against its existing reachable fix `b19fee8b4fd7ee84caa530aa06b76784557ef044`; close
 ORPHAN-MEDIUM-789 only against the main-reachable Task 18/operator-live closure commit recorded by
@@ -2547,6 +2836,9 @@ the Task 1 policy.
 - Create: `aria-kernel/tests/test_acceptance_reconcile_cursor.py`
 - Create: `aria-kernel/tests/test_autonomy_stage_progression.py`
 - Create: `aria-kernel/tests/test_autonomy_freeze_conditions.py`
+- Modify: `aria-kernel/aria_kernel/autonomy_evidence.py`
+- Modify: `aria-kernel/tests/test_autonomy_evidence_status.py`
+- Modify: `aria-kernel/aria_kernel/auto_merge.py`
 - Modify: `aria-kernel/aria_kernel/autonomy_unlock.py`
 - Modify: `aria-kernel/aria_kernel/autonomy_ladder.py`
 - Modify: `aria-kernel/aria_kernel/runtime_profile.py`
@@ -2568,6 +2860,8 @@ the Task 1 policy.
 - Adds: an operator-owned `autonomy_stage` field to the existing runtime-profile control plane; no
   second master switch.
 - Restricts: acceptance events to verified burn-in, merge, approval, or rollback outcome producers.
+- Produces: the first live pre-merge-perimeter proof as a producer-native post-merge decision row
+  bound by a verified PR-head-to-`resulting_main_sha` fact, plus target-bound unlock verdict rows.
 
 - [ ] **Step 1: Write failing provenance, cursor, and idempotency tests**
 
@@ -2639,6 +2933,14 @@ Call the reconciler after a successful autonomous merge and from the scheduled c
 human-supervised merges that occurred since the last cursor. A GitHub API read failure yields an
 explicit reconciliation failure; it never means no new merges.
 
+At the successful merge boundary, `auto_merge.py` must write the producer-native terminal decision
+only after verifying the GitHub merge fact maps the reviewed PR head to the exact
+`resulting_main_sha`. Extend `autonomy_evidence.py` with that authoritative-SHA contract. Add a real
+Git regression proving a squash PR head is not an ancestor of the resulting main commit: the PR
+head must be rejected as `proof_non_ancestor`, while the verified resulting-main SHA is accepted.
+Never substitute tree equality. This Task 19 contract—not Task 12 and not Task 20—turns the current
+empty pre-merge live contract into evidence.
+
 Declare `enterprise/acceptance-reconcile-cursor.jsonl` in `state_manifest.py` as an append-fsync
 ledger in the same `enterprise_policy` lock group as `enterprise/acceptance-events.jsonl`. Each
 cursor row carries:
@@ -2679,6 +2981,12 @@ diagnostic without inventing a durable success row, and every subsequent action 
 effective profile as `frozen`. Add the safety diagnostic to the existing explicit diagnostic
 allowlist; do not widen the frozen write surface.
 
+The producer-native `enterprise_autonomy_unlock_events` terminal row must carry the complete
+verified target/resulting-main SHA (as applicable to the accepted outcome family). Update the
+`autonomy_unlock` status contract and exact tests so an assertion-only, legacy, PR-head-only, or
+mismatched row remains countable but cannot unlock `live_proven` status. Task 20 consumes this
+verdict; it may not synthesize a replacement row or authoritative SHA.
+
 - [ ] **Step 6: Run progression, continuity, and freeze tests**
 
 ```bash
@@ -2693,13 +3001,16 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider \
   aria-kernel/tests/test_cycle_burn_in_mode.py \
   aria-kernel/tests/test_nightly_profile_authority_contract.py \
   aria-kernel/tests/test_watchdog_freeze.py \
-  aria-kernel/tests/test_auto_merge.py
+  aria-kernel/tests/test_auto_merge.py \
+  aria-kernel/tests/test_autonomy_evidence_status.py
 ```
 
 - [ ] **Step 7: Commit and push**
 
 ```bash
 git add aria-kernel/aria_kernel/acceptance_reconciler.py \
+  aria-kernel/aria_kernel/auto_merge.py \
+  aria-kernel/aria_kernel/autonomy_evidence.py \
   aria-kernel/aria_kernel/autonomy_unlock.py \
   aria-kernel/aria_kernel/autonomy_ladder.py \
   aria-kernel/aria_kernel/runtime_profile.py \
@@ -2711,6 +3022,7 @@ git add aria-kernel/aria_kernel/acceptance_reconciler.py \
   aria-kernel/tests/test_state_manifest_transaction.py \
   aria-kernel/tests/test_autonomy_stage_progression.py \
   aria-kernel/tests/test_autonomy_freeze_conditions.py \
+  aria-kernel/tests/test_autonomy_evidence_status.py \
   .github/workflows/aria-auto-cycle.yml \
   docs/aria/policy/autonomy-unlock.json \
   docs/aria/runbooks/autonomy-unlock.md

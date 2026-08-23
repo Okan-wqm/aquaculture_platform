@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import os
 import tempfile
 import unittest
@@ -8,11 +9,54 @@ from unittest.mock import patch
 
 from aria_kernel.ledger import load_jsonl, state_transaction
 from aria_kernel.next_cycle_queue import append_pending, read_pending
+import aria_kernel.state_manifest as state_manifest
 from aria_kernel.state_manifest import surface_for_path, surface_by_name
 from aria_kernel.tool_registry import ensure_tools_dir
 
 
 class StateManifestTransactionTests(unittest.TestCase):
+    def test_component_matcher_matches_path_glob_without_crossing_slashes(self) -> None:
+        cases = {
+            ("dispatch/direct.jsonl", "dispatch/*.jsonl"): True,
+            ("dispatch/nested/rejected.jsonl", "dispatch/*.jsonl"): False,
+            ("agent-invocations/outputs/direct.md", "agent-invocations/outputs/**/*.md"): True,
+            ("agent-invocations/outputs/group/one.md", "agent-invocations/outputs/**/*.md"): True,
+            ("agent-invocations/outputs/group/deep/two.md", "agent-invocations/outputs/**/*.md"): True,
+        }
+        for (relative, pattern), expected in cases.items():
+            with self.subTest(relative=relative, pattern=pattern):
+                self.assertEqual(
+                    state_manifest.surface_path_matches(relative, pattern),
+                    expected,
+                )
+        self.assertIsNone(
+            state_manifest.surface_for_relative_path(
+                "dispatch/nested/rejected.jsonl",
+            ),
+        )
+
+    def test_pathological_match_input_is_rejected_by_named_limits(self) -> None:
+        deep = "/".join(["component"] * 129)
+        with self.assertRaisesRegex(ValueError, "surface_path_too_deep"):
+            state_manifest.surface_path_matches(deep, "**/*.jsonl")
+        overlong = "x" * 4097
+        with self.assertRaisesRegex(ValueError, "surface_path_too_long"):
+            state_manifest.surface_path_matches(overlong, "*.jsonl")
+
+    def test_manifest_pattern_grammar_and_duplicate_ambiguity_are_invariant(self) -> None:
+        state_manifest.validate_state_surface_patterns()
+        runs = surface_by_name("runs")
+        duplicate = replace(runs, name="duplicate_runs")
+        with self.assertRaisesRegex(ValueError, "state_surface_pattern_ambiguous"):
+            state_manifest.validate_state_surface_patterns((runs, duplicate))
+        invalid = replace(
+            runs,
+            name="invalid_recursive_pattern",
+            path_pattern="runs/**suffix/*.jsonl",
+        )
+        with self.assertRaisesRegex(ValueError, "state_surface_pattern_invalid"):
+            state_manifest.validate_state_surface_patterns((invalid,))
+
     def test_manifest_resolves_ack_and_queue_paths(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aria-state-manifest-") as tmp:
             root = ensure_tools_dir(Path(tmp) / "aria-tools")

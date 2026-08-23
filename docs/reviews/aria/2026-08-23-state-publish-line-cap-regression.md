@@ -5,7 +5,7 @@ Triggered by the Task 5 live checkpoint: drain run
 on `main@0e134d0ef`) completed its children but ended red at the
 `Publish ARIA state to the aria/state branch` step:
 
-```
+```text
 aria_kernel.state_snapshot.SnapshotError: snapshot_surface_line_too_large:runs.jsonl
 ```
 

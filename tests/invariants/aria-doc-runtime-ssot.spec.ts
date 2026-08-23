@@ -120,6 +120,14 @@ function planMarkerCount(body: string): number {
 }
 
 describe('ARIA live runtime/documentation SSoT', () => {
+  it('BEHAVIOUR labels itself as dated measurement and points to machine truth', () => {
+    const behaviour = read('docs/aria/BEHAVIOUR.md');
+    expect(behaviour).toMatch(/\*\*Status:\*\* measured \d{4}-\d{2}-\d{2}/);
+    expect(behaviour).toContain('aria-kernel autonomy status --evidence');
+    expect(behaviour).toContain('docs/aria/CURRENT_STATE.md');
+    expect(behaviour).toContain('dated measurement');
+  });
+
   it('CURRENT_STATE declares the live authority chain and executable anchors', () => {
     const current = read('docs/aria/CURRENT_STATE.md');
     // ORPHAN-MEDIUM-768 — the date is no longer a frozen literal: the writer
@@ -144,16 +152,12 @@ describe('ARIA live runtime/documentation SSoT', () => {
       { encoding: 'utf8', cwd: REPO_ROOT },
     ).trim();
     expect(lastAuthorityCommitIso).toBeTruthy();
-    const lastAuthorityCommit = new Date(lastAuthorityCommitIso)
-      .toISOString()
-      .slice(0, 10);
+    const lastAuthorityCommit = new Date(lastAuthorityCommitIso).toISOString().slice(0, 10);
     expect(lastAuthorityCommit).toBeTruthy();
     expect(declaredDate! >= lastAuthorityCommit).toBe(true);
     const target = current.match(/Target ref: `([^`]+)`/)?.[1];
     expect(target).toBe('origin/main');
-    const verifiedHash = current.match(
-      /Last verified ARIA authority hash: `([a-f0-9]{64})`/,
-    )?.[1];
+    const verifiedHash = current.match(/Last verified ARIA authority hash: `([a-f0-9]{64})`/)?.[1];
     expect(verifiedHash).toBeTruthy();
     expect(verifiedHash).toBe(ariaAuthorityHash());
     expect(current).not.toContain('Last verified commit');
@@ -187,14 +191,13 @@ describe('ARIA live runtime/documentation SSoT', () => {
 
   it('CURRENT_STATE file.py::symbol anchors resolve through Python AST', () => {
     const current = read('docs/aria/CURRENT_STATE.md');
-    const anchors = [...current.matchAll(/([\w./-]+\.py)::([A-Za-z_]\w*)/g)]
-      .map((match) => {
-        const [, file, symbol] = match;
-        if (!file || !symbol) {
-          throw new Error(`Malformed ARIA anchor match: ${match[0] ?? '<empty>'}`);
-        }
-        return { file, symbol };
-      });
+    const anchors = [...current.matchAll(/([\w./-]+\.py)::([A-Za-z_]\w*)/g)].map((match) => {
+      const [, file, symbol] = match;
+      if (!file || !symbol) {
+        throw new Error(`Malformed ARIA anchor match: ${match[0] ?? '<empty>'}`);
+      }
+      return { file, symbol };
+    });
     expect(anchors.length).toBeGreaterThan(0);
     const script = [
       'import ast, sys',
@@ -266,7 +269,9 @@ describe('ARIA live runtime/documentation SSoT', () => {
     const architecture = read(ARCHITECTURE_DOC);
     expect(architecture).toContain('ARIA-CURRENT-STATE-NOTICE');
     expect(architecture).toContain('Authority: explanatory-architecture');
-    expect(architecture).toContain('Current authority: `docs/aria/CURRENT_STATE.md` + executable contracts');
+    expect(architecture).toContain(
+      'Current authority: `docs/aria/CURRENT_STATE.md` + executable contracts',
+    );
     for (const anchor of [
       'Executable code and machine-checked contracts are normative',
       'Claude Code CLI',
@@ -284,7 +289,12 @@ describe('ARIA live runtime/documentation SSoT', () => {
       expect(sectionBody).toContain('### Diagram / Diyagram');
     }
     expect(architecture.match(/```mermaid/g)?.length ?? 0).toBeGreaterThanOrEqual(12);
-    for (const diagramKind of ['flowchart TD', 'flowchart LR', 'stateDiagram-v2', 'sequenceDiagram']) {
+    for (const diagramKind of [
+      'flowchart TD',
+      'flowchart LR',
+      'stateDiagram-v2',
+      'sequenceDiagram',
+    ]) {
       expect(architecture).toContain(diagramKind);
     }
     for (const anchor of [
@@ -314,7 +324,9 @@ describe('ARIA live runtime/documentation SSoT', () => {
     const body = read(ENTERPRISE_AUTONOMY_DOC);
     expect(body).toContain('ARIA-CURRENT-STATE-NOTICE');
     expect(body).toContain('Authority: enterprise-autonomy-ssot');
-    expect(body).toContain('Current authority: `docs/aria/CURRENT_STATE.md` + executable contracts');
+    expect(body).toContain(
+      'Current authority: `docs/aria/CURRENT_STATE.md` + executable contracts',
+    );
     expect(body).toContain('Runtime entrypoint: `autonomy burn-in observe`');
     expect(body).toContain(BURN_IN_SCHEMA);
     expect(body).toContain('## EN');
@@ -369,15 +381,11 @@ describe('ARIA live runtime/documentation SSoT', () => {
   });
 
   it('observe burn-in report schema is the machine contract for enterprise acceptance', () => {
-    const generated = execFileSync(
-      'python3',
-      ['-m', 'aria_kernel.docs_ssot', 'burn-in-schema'],
-      {
-        cwd: REPO_ROOT,
-        encoding: 'utf8',
-        env: { ...process.env, PYTHONPATH: 'aria-kernel' },
-      },
-    );
+    const generated = execFileSync('python3', ['-m', 'aria_kernel.docs_ssot', 'burn-in-schema'], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+      env: { ...process.env, PYTHONPATH: 'aria-kernel' },
+    });
     expect(read(BURN_IN_SCHEMA)).toBe(generated);
     const schema = JSON.parse(read(BURN_IN_SCHEMA)) as {
       additionalProperties: boolean;
@@ -445,7 +453,9 @@ describe('ARIA live runtime/documentation SSoT', () => {
     expect(contract).toContain('claude_cli_version_minimum: claude-code 2.1.197');
     expect(contract).toContain('verification_mode: runtime-preflight');
     expect(contract).toContain('managed Claude Code login');
-    expect(contract).not.toMatch(/PENDING-CLAUDE-CONTRACT-TESTS|claude_cli_version_minimum:\s*PENDING|verified_by_operator_handle:\s*PENDING|verified_at_iso8601:\s*PENDING/);
+    expect(contract).not.toMatch(
+      /PENDING-CLAUDE-CONTRACT-TESTS|claude_cli_version_minimum:\s*PENDING|verified_by_operator_handle:\s*PENDING|verified_at_iso8601:\s*PENDING/,
+    );
   });
 
   it('snowball curation is SSoT-bound and rejects duplicate runtime ownership', () => {
@@ -511,12 +521,22 @@ describe('ARIA live runtime/documentation SSoT', () => {
 
   it('package scripts expose the clean ARIA validation entrypoints', () => {
     const pkg = JSON.parse(read('package.json')) as { scripts: Record<string, string> };
-    expect(pkg.scripts['aria:compile']).toContain("compile(p.read_text(encoding='utf-8'), str(p), 'exec')");
+    expect(pkg.scripts['aria:compile']).toContain(
+      "compile(p.read_text(encoding='utf-8'), str(p), 'exec')",
+    );
     expect(pkg.scripts['aria:compile']).not.toContain('compileall');
-    expect(pkg.scripts['aria:test:unit']).toContain("python3 -m unittest discover aria-kernel -p '*test*.py'");
-    expect(pkg.scripts['aria:docs:ssot']).toBe('jest --config tests/invariants/jest.config.ts --selectProjects layer-3 --runTestsByPath tests/invariants/aria-doc-runtime-ssot.spec.ts');
-    expect(pkg.scripts['aria:burnin:observe']).toBe('PYTHONPATH=aria-kernel python3 -m aria_kernel autonomy burn-in observe');
-    expect(pkg.scripts['aria:ci:all']).toBe('npm run aria:compile && npm run aria:test:unit && npm run invariants:fast');
+    expect(pkg.scripts['aria:test:unit']).toContain(
+      "python3 -m unittest discover aria-kernel -p '*test*.py'",
+    );
+    expect(pkg.scripts['aria:docs:ssot']).toBe(
+      'jest --config tests/invariants/jest.config.ts --selectProjects layer-3 --runTestsByPath tests/invariants/aria-doc-runtime-ssot.spec.ts',
+    );
+    expect(pkg.scripts['aria:burnin:observe']).toBe(
+      'PYTHONPATH=aria-kernel python3 -m aria_kernel autonomy burn-in observe',
+    );
+    expect(pkg.scripts['aria:ci:all']).toBe(
+      'npm run aria:compile && npm run aria:test:unit && npm run invariants:fast',
+    );
   });
 
   it('CODEOWNERS covers the ARIA control-plane authority chain', () => {

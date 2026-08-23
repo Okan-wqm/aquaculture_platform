@@ -206,6 +206,10 @@
       "finding_id": "ORPHAN-MEDIUM-789",
       "owner_task": "task-18",
       "required_predicate": "mode_a_signed_readiness_live_proven",
+      "operator_prerequisite": {
+        "capability": "enterprise_readiness",
+        "blocker": "github_app_mode_a_unconfigured"
+      },
       "closure_mode": "task_commit_and_live",
       "review_anchor": "docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-789",
       "narrative_anchor": "docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-789",

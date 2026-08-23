@@ -48,6 +48,14 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .diagnostics import emit_ledger_corruption_diagnostic
+from .ledger import (
+    LedgerIntegrityError,
+    LedgerReadLimitError,
+    REPLAY_TRANSPORT_SCHEMA_PREFIX,
+    is_replay_transport_row,
+    read_jsonl,
+    read_jsonl_reverse_verified,
+)
 from .tool_registry import GovernanceError
 
 
@@ -99,19 +107,14 @@ def read_governance_rows(
         return
     sink_base = base_dir if base_dir is not None else path.parent
     raw_text = path.read_text(encoding="utf-8")
-    # Compute forward (line_no, line) tuples first so reverse=True
-    # iteration still surfaces the ORIGINAL line number to operators.
-    enumerated: list[tuple[int, str]] = list(
-        enumerate(raw_text.splitlines(), start=1)
-    )
-    if reverse:
-        enumerated = list(reversed(enumerated))
-    for line_no, raw in enumerated:
+    decoded: list[dict[str, Any]] = []
+    transport_claimed = False
+    for line_no, raw in enumerate(raw_text.splitlines(), start=1):
         line = raw.strip()
         if not line:
             continue
         try:
-            yield json.loads(line)
+            row = json.loads(line)
         except json.JSONDecodeError as exc:
             corruption = {
                 "kind": "ledger_row_corrupt",
@@ -120,19 +123,81 @@ def read_governance_rows(
                 "error": str(exc),
                 "raw_excerpt": line[:200],
             }
-            # Plan 024 §H-7 — sink owns its own stderr fallback.
-            # Caller-side ``try/except: pass`` swallow is BANNED.
             emit_ledger_corruption_diagnostic(corruption, base_dir=sink_base)
             if on_corruption == "strict":
                 raise GovernanceError(
                     f"governance_row_corrupt_strict_mode: "
                     f"{path}:{line_no}: {exc}"
-                )
-            # tolerant: skip + continue
+                ) from exc
             continue
+        if not isinstance(row, dict):
+            continue
+        decoded.append(row)
+        transport_claimed = transport_claimed or is_replay_transport_row(row)
+    if transport_claimed:
+        try:
+            rows = read_jsonl(path, expected_surface="tools_governance")
+        except (
+            LedgerIntegrityError,
+            LedgerReadLimitError,
+            OSError,
+            UnicodeError,
+        ) as exc:
+            corruption = {
+                "kind": "ledger_row_corrupt",
+                "ledger": str(path),
+                "line_no": 0,
+                "error": str(exc),
+                "raw_excerpt": REPLAY_TRANSPORT_SCHEMA_PREFIX,
+            }
+            emit_ledger_corruption_diagnostic(corruption, base_dir=sink_base)
+            if on_corruption == "strict":
+                raise GovernanceError(
+                    f"governance_replay_transport_corrupt: {path}: {exc}"
+                ) from exc
+            return
+        if reverse:
+            rows = list(reversed(rows))
+        yield from rows
+        return
+    if reverse:
+        decoded = list(reversed(decoded))
+    yield from decoded
 
 
 _BOUNDED_READ_CHUNK_SIZE: int = 65536  # 64 KB
+_MAX_GOVERNANCE_LEDGER_LINE_BYTES: int = 1024 * 1024
+_MAX_GOVERNANCE_LEDGER_ROWS: int = 1_000_000
+_REPLAY_TRANSPORT_RAW_MARKERS: tuple[bytes, ...] = (
+    b'"producer_event_id"',
+    b'"replay_transaction_id"',
+    b'"producer_payload"',
+)
+
+
+def _raw_claims_replay_transport(raw: bytes) -> bool:
+    return REPLAY_TRANSPORT_SCHEMA_PREFIX.encode("ascii") in raw or all(
+        marker in raw for marker in _REPLAY_TRANSPORT_RAW_MARKERS
+    )
+
+
+def _raise_reverse_read_limit(*, path: Path, base_dir: Path) -> None:
+    error = LedgerReadLimitError(
+        f"immutable_ledger_line_too_large:{path.as_posix()}:line=unknown",
+    )
+    emit_ledger_corruption_diagnostic(
+        {
+            "kind": "ledger_row_corrupt",
+            "ledger": str(path),
+            "line_no": 0,
+            "error": str(error),
+            "raw_excerpt": "governance_reverse_line_budget_exceeded",
+        },
+        base_dir=base_dir,
+    )
+    raise GovernanceError(
+        f"governance_reverse_read_limit_exceeded: {path}: {error}",
+    ) from error
 
 
 def read_governance_rows_reverse(
@@ -151,15 +216,20 @@ def read_governance_rows_reverse(
     skill genesis stability check.
 
     V3.1-C-1 Tier-1 anchor: `seek(0, 2)` to EOF, then read backwards
-    in 64 KB chunks until either `limit` rows accumulated OR BOF
-    reached. Worst case for a 100MB ledger:
+    in 64 KB chunks. Returned-row materialization stops at ``limit``.
+    The byte walk nevertheless continues to BOF so an older contention
+    replay envelope cannot hide behind a short tail query. Once one is
+    found, ``read_jsonl`` verifies the complete physical chain before any
+    producer payload is returned. Worst case for a replay-free 100MB ledger:
 
-      * 64 KB read from disk
-      * ~100 JSON parses (avg row ~640 bytes)
-      * <50 ms wall-clock
+      * 64 KB resident read buffer
+      * at most ``limit`` retained rows
+      * a complete reverse ancestry scan for transport discovery
 
-    Bounded irrespective of total ledger size — the cost scales with
-    the requested `limit`, NOT the ledger's full row count.
+    Memory is bounded irrespective of total ledger size. The ancestry scan
+    intentionally scales with the ledger because no older durable metadata
+    can prove that a replay envelope is absent; stopping at ``limit`` would
+    expose unverified tail payload from a replay-bearing physical chain.
 
     Returns up to `limit` rows in REVERSE chronological order (newest
     first). When the ledger has fewer than `limit` rows, returns all
@@ -180,10 +250,11 @@ def read_governance_rows_reverse(
     if file_size == 0:
         return []
     rows: list[dict[str, Any]] = []
+    transport_seen = False
     leftover = b""
     pos = file_size
     with path.open("rb") as f:
-        while pos > 0 and len(rows) < limit:
+        while pos > 0:
             chunk_start = max(0, pos - _BOUNDED_READ_CHUNK_SIZE)
             chunk_len = pos - chunk_start
             f.seek(chunk_start)
@@ -196,6 +267,8 @@ def read_governance_rows_reverse(
             # is a complete first line.
             if chunk_start > 0:
                 leftover = lines[0]
+                if len(leftover) > _MAX_GOVERNANCE_LEDGER_LINE_BYTES:
+                    _raise_reverse_read_limit(path=path, base_dir=base_dir)
                 completed_lines = lines[1:]
             else:
                 leftover = b""
@@ -203,23 +276,71 @@ def read_governance_rows_reverse(
             # Walk completed_lines in reverse so newest rows accumulate
             # first within this chunk.
             for raw in reversed(completed_lines):
+                if len(raw) > _MAX_GOVERNANCE_LEDGER_LINE_BYTES:
+                    _raise_reverse_read_limit(path=path, base_dir=base_dir)
                 raw_stripped = raw.strip()
                 if not raw_stripped:
                     continue
                 try:
                     row = json.loads(raw_stripped)
                 except json.JSONDecodeError:
+                    if _raw_claims_replay_transport(raw_stripped):
+                        transport_seen = True
+                        break
                     # Malformed row — skip (Tier-3 detect runs at
                     # verify_chain_or_quarantine callsite, not here).
                     continue
                 if not isinstance(row, dict):
                     continue
+                if is_replay_transport_row(row):
+                    transport_seen = True
+                    break
+                if len(rows) >= limit:
+                    # The caller already has its bounded result set, but the
+                    # ancestry still has to be scanned for an older replay
+                    # envelope. Such an envelope changes the read contract:
+                    # the complete physical chain must verify before any
+                    # logical producer row can be exposed.
+                    continue
                 if kind_filter is not None:
                     if row.get("kind") not in kind_filter:
                         continue
                 rows.append(row)
-                if len(rows) >= limit:
-                    break
+            if transport_seen:
+                break
+    if transport_seen:
+        try:
+            return read_jsonl_reverse_verified(
+                path,
+                expected_surface="tools_governance",
+                limit=limit,
+                max_line_bytes=_MAX_GOVERNANCE_LEDGER_LINE_BYTES,
+                max_rows=_MAX_GOVERNANCE_LEDGER_ROWS,
+                row_predicate=(
+                    None
+                    if kind_filter is None
+                    else lambda row: row.get("kind") in kind_filter
+                ),
+            )
+        except (
+            LedgerIntegrityError,
+            LedgerReadLimitError,
+            OSError,
+            UnicodeError,
+        ) as exc:
+            emit_ledger_corruption_diagnostic(
+                {
+                    "kind": "ledger_row_corrupt",
+                    "ledger": str(path),
+                    "line_no": 0,
+                    "error": str(exc),
+                    "raw_excerpt": REPLAY_TRANSPORT_SCHEMA_PREFIX,
+                },
+                base_dir=base_dir,
+            )
+            raise GovernanceError(
+                f"governance_replay_transport_corrupt: {path}: {exc}"
+            ) from exc
     return rows
 
 

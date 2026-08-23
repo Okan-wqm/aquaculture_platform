@@ -65,7 +65,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent_resolver import resolve_agent_md_path
-from .ledger import append_declared_jsonl
+from .ledger import append_declared_jsonl, read_jsonl
 from .runtime_profile import enforce_profile_for_write
 from .tool_registry import (
     GovernanceError,
@@ -521,10 +521,7 @@ def list_surface_validations(
     path = root / VALIDATIONS_FILENAME
     if not path.exists():
         return []
-    rows = [
-        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    rows = read_jsonl(path, expected_surface="surface_validations")
     if limit is not None and limit > 0:
         rows = rows[-limit:]
     return rows

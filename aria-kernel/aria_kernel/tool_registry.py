@@ -8,7 +8,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_declared_jsonl, append_jsonl, file_hash, load_jsonl, rewrite_declared_json, tools_index_group_ledgers, write_index
+from .ledger import (
+    StateTransaction,
+    append_declared_jsonl,
+    append_jsonl,
+    file_hash,
+    load_jsonl,
+    rewrite_declared_json,
+    tools_index_group_ledgers,
+    write_index,
+)
 from .workspace import canonical_identity, canonical_identity_source, canonical_repo_root, governance_event, repo_hash
 from .implementation_safety import verify_bash_command_allowed
 
@@ -506,7 +515,11 @@ def covered_tool_ledgers(root: Path) -> dict[str, Path]:
     return ledgers
 
 
-def update_tools_index(root: Path) -> None:
+def update_tools_index(
+    root: Path,
+    *,
+    transaction: StateTransaction | None = None,
+) -> None:
     index: dict[str, Any] = {}
     file_hashes: dict[str, str] = {}
     state_path = root / "migration_state.json"
@@ -522,7 +535,12 @@ def update_tools_index(root: Path) -> None:
     # indexed append, so writing a wider set here would plant entries the
     # next append silently discards (ORPHAN-HIGH-525). Chain verification
     # of the full covered set is integrity's job, not this index's.
-    write_index(root / "integrity_index.json", index, tools_index_group_ledgers(root))
+    index_path = root / "integrity_index.json"
+    ledgers = tools_index_group_ledgers(root)
+    if transaction is None:
+        write_index(index_path, index, ledgers)
+    else:
+        transaction.write_index(index_path, index, ledgers)
 
 
 def append_tools_governance(
@@ -531,6 +549,8 @@ def append_tools_governance(
     details: dict[str, Any],
     *,
     bypass_profile_gate: bool = False,
+    transaction: StateTransaction | None = None,
+    prepared_event: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Plan 026R §A.2 — append a governance row and rely on A.1's grouped
     index refresh to keep ``integrity_index.json`` current.
@@ -556,15 +576,24 @@ def append_tools_governance(
     Removing the duplicate eliminates both the race and the extra fcntl
     pair per governance event.
     """
-    if not bypass_profile_gate:
+    if prepared_event is None and not bypass_profile_gate:
         # Late import avoids a module-load cycle: runtime_profile imports
         # tool_registry for ensure_tools_dir + append_tools_governance.
         from .runtime_profile import enforce_profile_for_write
         enforce_profile_for_write("tool_governance", base_dir=base_dir)
-    root = ensure_tools_dir(base_dir)
+    event = prepared_event or governance_event(kind=kind, details=details)
+    root = tools_dir(base_dir) if transaction is not None else ensure_tools_dir(base_dir)
+    governance_path = root / "governance.jsonl"
+    if transaction is not None:
+        return transaction.append_declared_jsonl(
+            governance_path,
+            event,
+            expected_surface="tools_governance",
+            bypass_profile_gate=bypass_profile_gate,
+        )
     return append_declared_jsonl(
-        root / "governance.jsonl",
-        governance_event(kind=kind, details=details),
+        governance_path,
+        event,
         expected_surface="tools_governance",
         bypass_profile_gate=bypass_profile_gate,
     )

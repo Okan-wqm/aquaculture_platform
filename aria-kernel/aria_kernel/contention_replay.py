@@ -30,17 +30,46 @@ of them shares.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
 from pathlib import Path
+import re
 from typing import Any
 
-from .ledger import append_declared_jsonl, read_jsonl
-from .state_manifest import surface_key_name
+from .ledger import (
+    LedgerIntegrityError,
+    StateTransaction,
+    _load_jsonl_stored_verified,
+    _load_jsonl_stored_verified_text,
+    _make_replay_transport_row,
+    _replay_logical_payload_from_stored,
+    _replay_payload_sha256,
+    _replay_transport_metadata,
+    append_declared_jsonl,
+    state_transaction,
+)
+from .state_manifest import (
+    normalize_surface_relative_path,
+    surface_by_name,
+    surface_for_path,
+    surface_for_relative_path,
+    surface_key_name,
+)
 
 # The two fields the chain owns. A replayed row is re-chained onto its new
 # predecessor, so these are recomputed rather than carried: a copied
 # `ledger_hash` would describe a predecessor the row no longer has, producing a
 # file that looks valid to a naive reader and fails the real verifier.
 _CHAIN_FIELDS = ("ledger_hash", "previous_ledger_hash")
+_LEDGER_EVENT_ID = re.compile(r"^sha256:[0-9a-f]{64}$")
+_REPLAY_TRANSACTION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+_DUAL_CHAIN_SURFACES = frozenset({
+    "kg_conventions",
+    "kg_anti_patterns",
+    "kg_pressure_source_effectiveness",
+    "kg_duel_ratings",
+    "kg_embeddings",
+})
+_ProducerIdentity = tuple[str, str | None, str, dict[str, Any]]
 
 
 class ReplayRefusal(RuntimeError):
@@ -51,6 +80,90 @@ class ReplayRefusal(RuntimeError):
 class ReplayResult:
     replayed_rows: int
     per_surface: dict[str, int] = field(default_factory=dict)
+    deduplicated_per_surface: dict[str, int] = field(default_factory=dict)
+
+
+def _declared_surface_instance(
+    path: Path,
+    *,
+    expected_surface: str,
+) -> str | None:
+    try:
+        match = surface_for_path(path)
+    except ValueError as exc:
+        raise ReplayRefusal("replay_surface_instance_ambiguous") from exc
+    if match is None:
+        return None
+    surface, root = match
+    if surface.name != expected_surface:
+        raise ReplayRefusal("replay_surface_instance_mismatch")
+    try:
+        relative = path.resolve().relative_to(root.resolve()).as_posix()
+        return normalize_surface_relative_path(relative)
+    except (ValueError, OSError) as exc:
+        raise ReplayRefusal("replay_surface_instance_invalid") from exc
+
+
+def _validate_surface_specs(
+    surfaces: dict[str, dict[str, Any]],
+) -> dict[str, str]:
+    instances: dict[str, str] = {}
+    seen_paths: dict[Path, tuple[str, str]] = {}
+    for name, spec in surfaces.items():
+        winner_path = Path(spec["winner_path"]).resolve()
+        loser_path = Path(spec["loser_path"]).resolve()
+        for role, path in (("winner", winner_path), ("loser", loser_path)):
+            previous = seen_paths.get(path)
+            if previous is not None:
+                raise ReplayRefusal(
+                    "replay_surface_path_alias:"
+                    f"{previous[0]}:{previous[1]}:{name}:{role}"
+                )
+            seen_paths[path] = (name, role)
+
+    for name, spec in surfaces.items():
+        expected_surface = surface_key_name(name)
+        winner_path = Path(spec["winner_path"]).resolve()
+        loser_path = Path(spec["loser_path"]).resolve()
+        candidates: list[str] = []
+        if ":" in name:
+            try:
+                candidates.append(
+                    normalize_surface_relative_path(name.split(":", 1)[1])
+                )
+            except ValueError as exc:
+                raise ReplayRefusal("replay_surface_instance_invalid") from exc
+        supplied = spec.get("relative_path")
+        if supplied is not None:
+            try:
+                candidates.append(normalize_surface_relative_path(supplied))
+            except ValueError as exc:
+                raise ReplayRefusal("replay_surface_instance_invalid") from exc
+        for path in (winner_path, loser_path):
+            concrete = _declared_surface_instance(
+                path,
+                expected_surface=expected_surface,
+            )
+            if concrete is not None:
+                candidates.append(concrete)
+        if not candidates:
+            declared = surface_by_name(expected_surface)
+            if "*" in declared.path_pattern:
+                raise ReplayRefusal("replay_surface_instance_unbound")
+            candidates.append(
+                normalize_surface_relative_path(declared.path_pattern)
+            )
+        if len(set(candidates)) != 1:
+            raise ReplayRefusal("replay_surface_instance_mismatch")
+        instance = candidates[0]
+        try:
+            owner = surface_for_relative_path(instance)
+        except ValueError as exc:
+            raise ReplayRefusal("replay_surface_instance_ambiguous") from exc
+        if owner is None or owner.name != expected_surface:
+            raise ReplayRefusal("replay_surface_instance_mismatch")
+        instances[name] = instance
+    return instances
 
 
 def append_only_suffix(
@@ -86,16 +199,202 @@ def append_only_suffix(
     return list(rows[base_row_count:])
 
 
-def _payload(row: dict[str, Any]) -> dict[str, Any]:
-    """A row without the two fields the chain owns — its logical content."""
-    return {k: v for k, v in row.items() if k not in _CHAIN_FIELDS}
+def replay_logical_payload(row: dict[str, Any]) -> dict[str, Any]:
+    """Return producer content without the current ledger chain fields.
+
+    Shared verified readers unwrap replay transport before invoking ordinary
+    consumers, including state replay verification.  Raw envelope access is
+    deliberately confined to this module's contention internals.
+    """
+
+    return {
+        key: value
+        for key, value in row.items()
+        if key not in _CHAIN_FIELDS
+    }
+
+
+def _validate_transaction_identity(value: str | None) -> str:
+    if not isinstance(value, str) or not _REPLAY_TRANSACTION_ID.fullmatch(value):
+        raise ReplayRefusal("replay_transaction_identity_missing")
+    return value
+
+
+def _transport_metadata(
+    row: dict[str, Any],
+    *,
+    expected_surface: str,
+) -> dict[str, Any] | None:
+    try:
+        return _replay_transport_metadata(
+            row,
+            expected_surface=expected_surface,
+        )
+    except LedgerIntegrityError as exc:
+        raise ReplayRefusal(str(exc)) from exc
+
+
+def _producer_event_identity(
+    row: dict[str, Any],
+    *,
+    expected_surface: str,
+) -> str:
+    origin = _transport_metadata(row, expected_surface=expected_surface)
+    candidate = (
+        origin["producer_event_id"]
+        if origin is not None
+        else row.get("ledger_hash")
+    )
+    if not isinstance(candidate, str) or not _LEDGER_EVENT_ID.fullmatch(candidate):
+        raise ReplayRefusal("replay_producer_event_identity_missing")
+    return candidate
+
+
+def _producer_previous_ledger_hash(
+    row: dict[str, Any],
+    *,
+    expected_surface: str,
+) -> str | None:
+    origin = _transport_metadata(row, expected_surface=expected_surface)
+    candidate = (
+        origin["producer_previous_ledger_hash"]
+        if origin is not None
+        else row.get("previous_ledger_hash")
+    )
+    if candidate is None:
+        return None
+    if not isinstance(candidate, str) or not _LEDGER_EVENT_ID.fullmatch(candidate):
+        raise ReplayRefusal("replay_producer_previous_identity_invalid")
+    return candidate
+
+
+def _logical_payload(
+    row: dict[str, Any],
+    *,
+    expected_surface: str,
+) -> dict[str, Any]:
+    try:
+        return _replay_logical_payload_from_stored(
+            row,
+            expected_surface=expected_surface,
+        )
+    except LedgerIntegrityError as exc:
+        raise ReplayRefusal(str(exc)) from exc
+
+
+def _transport_row(
+    row: dict[str, Any],
+    *,
+    expected_surface: str,
+    surface_instance: str,
+    replay_transaction_id: str,
+) -> dict[str, Any]:
+    try:
+        return _make_replay_transport_row(
+            _logical_payload(row, expected_surface=expected_surface),
+            expected_surface=expected_surface,
+            surface_instance=surface_instance,
+            producer_event_id=_producer_event_identity(
+                row,
+                expected_surface=expected_surface,
+            ),
+            producer_previous_ledger_hash=_producer_previous_ledger_hash(
+                row,
+                expected_surface=expected_surface,
+            ),
+            replay_transaction_id=replay_transaction_id,
+        )
+    except LedgerIntegrityError as exc:
+        raise ReplayRefusal(str(exc)) from exc
+
+
+def _replay_identity(
+    metadata: dict[str, Any],
+) -> tuple[str, str, str | None, str, dict[str, Any]]:
+    return (
+        metadata["replay_transaction_id"],
+        metadata["producer_event_id"],
+        metadata["producer_previous_ledger_hash"],
+        metadata["payload_sha256"],
+        metadata["producer_payload"],
+    )
+
+
+def _producer_identity(
+    row: dict[str, Any],
+    *,
+    expected_surface: str,
+) -> _ProducerIdentity:
+    payload = _logical_payload(row, expected_surface=expected_surface)
+    return (
+        _producer_event_identity(row, expected_surface=expected_surface),
+        _producer_previous_ledger_hash(row, expected_surface=expected_surface),
+        _replay_payload_sha256(payload),
+        payload,
+    )
+
+
+def _producer_identity_map(
+    rows: list[dict[str, Any]],
+    *,
+    expected_surface: str,
+) -> dict[str, tuple[int, _ProducerIdentity]]:
+    identities: dict[str, tuple[int, _ProducerIdentity]] = {}
+    for position, row in enumerate(rows):
+        identity = _producer_identity(row, expected_surface=expected_surface)
+        if identity[0] in identities:
+            raise ReplayRefusal("replay_producer_event_identity_ambiguous")
+        identities[identity[0]] = (position, identity)
+    return identities
+
+
+def _drop_existing_producer_events(
+    winner_identities: dict[
+        str,
+        tuple[int, _ProducerIdentity],
+    ],
+    loser_suffix: list[dict[str, Any]],
+    *,
+    expected_surface: str,
+) -> tuple[list[dict[str, Any]], int]:
+    matches: list[tuple[int, int]] = []
+    for loser_position, row in enumerate(loser_suffix):
+        identity = _producer_identity(row, expected_surface=expected_surface)
+        winner_match = winner_identities.get(identity[0])
+        if winner_match is None:
+            continue
+        winner_position, winner_identity = winner_match
+        if winner_identity != identity:
+            raise ReplayRefusal("replay_producer_event_payload_mismatch")
+        matches.append((loser_position, winner_position))
+    if not matches:
+        return loser_suffix, 0
+    if len(matches) == len(loser_suffix):
+        winner_positions = [winner for _loser, winner in matches]
+        if winner_positions != list(
+            range(winner_positions[0], winner_positions[0] + len(matches))
+        ):
+            raise ReplayRefusal("replay_producer_event_ordering_ambiguous")
+        return [], len(matches)
+    prefix_length = len(matches)
+    if matches != [(position, position) for position in range(prefix_length)]:
+        raise ReplayRefusal("replay_producer_event_ordering_ambiguous")
+    # Both lanes independently extended the recorded base by this exact
+    # contiguous producer prefix. Treat that prefix as an implicit longer
+    # common base; replaying it again would make one source identity ambiguous.
+    return loser_suffix[prefix_length:], prefix_length
 
 
 def _drop_already_replayed(
     winner_suffix: list[dict[str, Any]],
     loser_suffix: list[dict[str, Any]],
+    *,
+    winner_identities: dict[str, tuple[int, _ProducerIdentity]],
+    expected_surface: str,
+    surface_instance: str,
+    replay_transaction_id: str,
 ) -> list[dict[str, Any]]:
-    """Nothing to do when the winner's suffix already ENDS WITH the loser's.
+    """Drop one complete occurrence durably marked as this replay operation.
 
     Replay is not idempotent by construction, and it took a failing test to
     make that visible: after a successful replay the winner holds the loser's
@@ -104,25 +403,89 @@ def _drop_already_replayed(
     only when the lane re-snapshots and re-publishes, so a retry between those
     two points would duplicate every replayed row.
 
-    The guard is a TAIL match on logical content, not a set-membership test.
-    Two lanes can legitimately emit rows that look alike, and a membership test
-    would drop those; requiring the winner's suffix to end with the loser's
-    ENTIRE suffix, in order, describes only the state a prior replay produces.
-    In practice the rows carry per-cycle identifiers, so even the tail match is
-    far stronger than it needs to be — but it is the shape that cannot discard
-    a row a second lane genuinely wrote.
+    Payload equality is not identity: two producers can append the same event
+    content after different predecessors. A prior replay is proven only by the
+    producer's original chained event id, this durable recovery transaction id,
+    and the exact logical payload digest carried on every replayed row. The
+    occurrence need not remain at the tail because an ordinary writer can
+    append after a crashed replay releases its locks and before recovery retry.
+    Any partial, reordered, or conflicting occurrence fails closed.
     """
-    if not loser_suffix or len(winner_suffix) < len(loser_suffix):
-        return loser_suffix
-    tail = winner_suffix[-len(loser_suffix) :]
-    if [_payload(row) for row in tail] == [_payload(row) for row in loser_suffix]:
+    if not loser_suffix:
         return []
-    return loser_suffix
+    expected = [
+        _replay_identity(_transport_row(
+            loser_row,
+            expected_surface=expected_surface,
+            surface_instance=surface_instance,
+            replay_transaction_id=replay_transaction_id,
+        ))
+        for loser_row in loser_suffix
+    ]
+    expected_by_event = {
+        identity[1]: identity
+        for identity in expected
+    }
+    relevant: list[
+        tuple[int, tuple[str, str, str | None, str, dict[str, Any]]]
+    ] = []
+    for index, winner_row in enumerate(winner_suffix):
+        winner_origin = _transport_metadata(
+            winner_row,
+            expected_surface=expected_surface,
+        )
+        if (
+            winner_origin is None
+            or winner_origin["replay_transaction_id"]
+            != replay_transaction_id
+        ):
+            continue
+        identity = _replay_identity(winner_origin)
+        expected_identity = expected_by_event.get(identity[1])
+        if expected_identity is None:
+            raise ReplayRefusal("replay_event_identity_ambiguous")
+        if identity != expected_identity:
+            raise ReplayRefusal("replay_event_payload_mismatch")
+        relevant.append((index, identity))
+
+    if not relevant:
+        return loser_suffix
+    relevant_by_event = {
+        identity[1]: (position, identity)
+        for position, identity in relevant
+    }
+    expected_replayed: list[
+        tuple[str, str, str | None, str, dict[str, Any]]
+    ] = []
+    for identity in expected:
+        replayed_match = relevant_by_event.get(identity[1])
+        if replayed_match is not None:
+            expected_replayed.append(identity)
+            continue
+        winner_match = winner_identities.get(identity[1])
+        producer_identity = (
+            identity[1],
+            identity[2],
+            identity[3],
+            identity[4],
+        )
+        if winner_match is None or winner_match[1] != producer_identity:
+            raise ReplayRefusal("replay_event_identity_partial")
+    positions = [position for position, _identity in relevant]
+    identities = [identity for _position, identity in relevant]
+    if (
+        identities != expected_replayed
+        or positions != list(range(positions[0], positions[0] + len(relevant)))
+    ):
+        raise ReplayRefusal("replay_event_ordering_ambiguous")
+    return []
 
 
 def replay_append_only_suffixes(
     *,
     surfaces: dict[str, dict[str, Any]],
+    transaction: StateTransaction | None = None,
+    replay_transaction_id: str | None = None,
 ) -> ReplayResult:
     """Append the loser's suffix onto the winner's file, for every surface.
 
@@ -134,15 +497,86 @@ def replay_append_only_suffixes(
     tree neither lane ever held and no snapshot would describe it — which is the
     absorbing state this whole wave exists to make unreachable.
     """
+    transaction_id = _validate_transaction_identity(replay_transaction_id)
+    surface_instances = _validate_surface_specs(surfaces)
+    if transaction is None:
+        # The public convenience path must own the same lock window as an
+        # encompassing state-store transaction.  Lock both sides before the
+        # idempotency plan is derived: locking only each eventual append lets
+        # two retries both observe an empty winner suffix and then serialize
+        # two identical transport rows.
+        replay_paths = {
+            Path(spec[path_key])
+            for spec in surfaces.values()
+            for path_key in ("winner_path", "loser_path")
+        }
+        if not replay_paths:
+            return ReplayResult(replayed_rows=0, per_surface={})
+        with state_transaction(replay_paths) as owned_transaction:
+            return replay_append_only_suffixes(
+                surfaces=surfaces,
+                transaction=owned_transaction,
+                replay_transaction_id=transaction_id,
+            )
+
     planned: list[tuple[str, Path, list[dict[str, Any]]]] = []
+    deduplicated_per_surface: dict[str, int] = {}
     for name, spec in surfaces.items():
+        expected_surface = surface_key_name(name)
+        surface_instance = surface_instances[name]
         winner_path = Path(spec["winner_path"])
         loser_path = Path(spec["loser_path"])
         base_row_count = int(spec["base_row_count"])
         base_tail_hash = spec.get("base_tail_hash")
 
-        winner_rows = read_jsonl(winner_path) if winner_path.exists() else []
-        loser_rows = read_jsonl(loser_path) if loser_path.exists() else []
+        try:
+            winner_rows = (
+                _load_jsonl_stored_verified(
+                    winner_path,
+                    expected_surface=expected_surface,
+                    expected_surface_instance=surface_instance,
+                )
+                if winner_path.exists()
+                else []
+            )
+            loser_content = spec.get("loser_attested_content")
+            if loser_content is None:
+                loser_rows = (
+                    _load_jsonl_stored_verified(
+                        loser_path,
+                        expected_surface=expected_surface,
+                        expected_surface_instance=surface_instance,
+                    )
+                    if loser_path.exists()
+                    else []
+                )
+            else:
+                expected_size = spec.get("loser_expected_size")
+                expected_sha256 = spec.get("loser_expected_sha256")
+                if (
+                    not isinstance(loser_content, (bytes, bytearray))
+                    or not isinstance(expected_size, int)
+                    or isinstance(expected_size, bool)
+                    or expected_size < 0
+                    or not isinstance(expected_sha256, str)
+                    or len(expected_sha256) != 64
+                    or len(loser_content) != expected_size
+                    or hashlib.sha256(loser_content).hexdigest()
+                    != expected_sha256
+                ):
+                    raise ReplayRefusal("replay_loser_attestation_mismatch")
+                try:
+                    loser_text = loser_content.decode("utf-8")
+                except UnicodeDecodeError as exc:
+                    raise ReplayRefusal("replay_loser_encoding_invalid") from exc
+                loser_rows = _load_jsonl_stored_verified_text(
+                    loser_text,
+                    source=loser_path,
+                    expected_surface=expected_surface,
+                    expected_surface_instance=surface_instance,
+                )
+        except LedgerIntegrityError as exc:
+            raise ReplayRefusal(str(exc)) from exc
 
         # Both sides, against the same base. The winner is not exempt.
         winner_suffix = append_only_suffix(
@@ -151,7 +585,33 @@ def replay_append_only_suffixes(
         suffix = append_only_suffix(
             loser_rows, base_row_count=base_row_count, base_tail_hash=base_tail_hash
         )
-        suffix = _drop_already_replayed(winner_suffix, suffix)
+        winner_identities = _producer_identity_map(
+            winner_suffix,
+            expected_surface=expected_surface,
+        )
+        _producer_identity_map(
+            suffix,
+            expected_surface=expected_surface,
+        )
+        suffix = _drop_already_replayed(
+            winner_suffix,
+            suffix,
+            winner_identities=winner_identities,
+            expected_surface=expected_surface,
+            surface_instance=surface_instance,
+            replay_transaction_id=transaction_id,
+        )
+        suffix, deduplicated = _drop_existing_producer_events(
+            winner_identities,
+            suffix,
+            expected_surface=expected_surface,
+        )
+        if deduplicated:
+            deduplicated_per_surface[name] = deduplicated
+        if name in _DUAL_CHAIN_SURFACES and winner_suffix and suffix:
+            raise ReplayRefusal(
+                f"dual_chain_semantic_merge_required:{name}"
+            )
         if suffix:
             planned.append((name, winner_path, suffix))
 
@@ -161,15 +621,38 @@ def replay_append_only_suffixes(
         for row in suffix:
             # `name` may be a glob fan-out key (`surface:relative/path`); the
             # declared-surface gate speaks manifest names (ORPHAN-HIGH-555).
-            append_declared_jsonl(winner_path, _payload(row), expected_surface=surface_key_name(name))
+            expected_surface = surface_key_name(name)
+            payload = _transport_row(
+                row,
+                expected_surface=expected_surface,
+                surface_instance=surface_instances[name],
+                replay_transaction_id=transaction_id,
+            )
+            if transaction is None:
+                append_declared_jsonl(
+                    winner_path,
+                    payload,
+                    expected_surface=expected_surface,
+                )
+            else:
+                transaction.append_declared_jsonl(
+                    winner_path,
+                    payload,
+                    expected_surface=expected_surface,
+                )
         per_surface[name] = len(suffix)
         total += len(suffix)
-    return ReplayResult(replayed_rows=total, per_surface=per_surface)
+    return ReplayResult(
+        replayed_rows=total,
+        per_surface=per_surface,
+        deduplicated_per_surface=deduplicated_per_surface,
+    )
 
 
 __all__ = [
     "ReplayRefusal",
     "ReplayResult",
     "append_only_suffix",
+    "replay_logical_payload",
     "replay_append_only_suffixes",
 ]

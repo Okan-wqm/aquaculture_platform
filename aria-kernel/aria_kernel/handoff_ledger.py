@@ -35,7 +35,6 @@ are observation-class).
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -48,8 +47,8 @@ from .debt import list_debts
 from .finding import list_findings
 from .governance_reader import read_governance_rows
 from .ledger import append_declared_jsonl
-from .diagnostics import emit_ledger_corruption_diagnostic
 from .runtime_profile import enforce_profile_for_write
+from .strict_jsonl_reader import read_strict_jsonl
 from .tool_registry import (
     GovernanceError,
     append_tools_governance,
@@ -350,35 +349,25 @@ def list_handoffs(
     path = root / HANDOFFS_FILENAME
     if not path.exists():
         return []
-    rows: list[dict[str, Any]] = []
-    raw_text = path.read_text(encoding="utf-8")
-    for line_no, raw in enumerate(raw_text.splitlines(), start=1):
-        line = raw.strip()
-        if not line:
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError as exc:
-            corruption = {
-                "kind": "ledger_row_corrupt",
-                "ledger": str(path),
-                "line_no": line_no,
-                "error": str(exc),
-                "raw_excerpt": line[:200],
-            }
-            emit_ledger_corruption_diagnostic(corruption, base_dir=root)
-            if on_corruption == "strict":
-                raise GovernanceError(
-                    f"ledger_row_corrupt_strict_mode: "
-                    f"{path}:{line_no}: {exc}"
-                )
-            # tolerant: skip + continue
-            continue
-        if session_id is not None and row.get("session_id") != session_id:
-            continue
-        if trigger is not None and row.get("trigger") != trigger:
-            continue
-        rows.append(row)
+    try:
+        decoded = read_strict_jsonl(
+            path,
+            on_corruption=on_corruption,
+            base_dir=root,
+        )
+        rows: list[dict[str, Any]] = []
+        for row in decoded:
+            if session_id is not None and row.get("session_id") != session_id:
+                continue
+            if trigger is not None and row.get("trigger") != trigger:
+                continue
+            rows.append(row)
+    except GovernanceError as exc:
+        if on_corruption == "strict":
+            raise GovernanceError(
+                f"ledger_row_corrupt_strict_mode: {exc}"
+            ) from exc
+        raise
     if limit is not None and limit > 0:
         rows = rows[-limit:]
     return rows

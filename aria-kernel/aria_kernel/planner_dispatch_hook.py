@@ -37,6 +37,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from .ledger import read_jsonl
+
 
 __all__ = [
     "DEFAULT_PLANNER_ROLES",
@@ -233,17 +235,15 @@ def _release_abandoned_claim(
     disclosure. Failures are recorded and never re-raised: this helper must
     not convert a dispatch failure into a daemon crash.
     """
-    import json as _json
-
     from .agent_invocations import GovernanceError, release_claim
     from .tool_registry import append_tools_governance
 
     claims_path = root / "agent-invocations" / "claims.jsonl"
     if claims_path.exists():
-        for line in claims_path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            row = _json.loads(line)
+        for row in read_jsonl(
+            claims_path,
+            expected_surface="agent_invocation_claims",
+        ):
             if row.get("claim_id") == claim_id and row.get("event") == "released":
                 append_tools_governance(
                     root, "planner_dispatch_release_skipped_already_released",

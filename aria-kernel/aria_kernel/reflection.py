@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .governance_reader import read_governance_rows
-from .ledger import append_declared_jsonl, load_jsonl_verified
+from .ledger import append_declared_jsonl, load_jsonl_verified, read_jsonl
 from .snapshot import file_counts_from_payload
 from .tool_health import runs_path
 from .tool_registry import ensure_tools_dir, utc_now
@@ -846,8 +846,11 @@ def _phase_digest_summary(tools_root: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     try:
-        rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
-    except (OSError, json.JSONDecodeError):
+        rows = read_jsonl(
+            path,
+            expected_surface="observability_cycle_metrics",
+        )
+    except OSError:
         return {}
     if not rows:
         return {}
@@ -913,16 +916,13 @@ def _compute_bridge_health(root: Path) -> dict[str, Any]:
     matrix: dict[str, dict[str, int]] = {}
     error_signatures: dict[str, int] = {}
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        rows = read_jsonl(
+            path,
+            expected_surface="agent_result_bridge_status",
+        )
     except OSError:
         return {}
-    for line in lines:
-        if not line.strip():
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for row in rows:
         role = str(row.get("role") or "unknown")
         transition = str(row.get("transition") or "unknown")
         matrix.setdefault(role, {})[transition] = matrix.get(role, {}).get(transition, 0) + 1

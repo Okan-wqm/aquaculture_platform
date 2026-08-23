@@ -46,6 +46,13 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .diagnostics import emit_ledger_corruption_diagnostic
+from .ledger import (
+    LedgerIntegrityError,
+    REPLAY_TRANSPORT_SCHEMA_PREFIX,
+    is_replay_transport_row,
+    read_jsonl,
+)
+from .state_manifest import surface_for_path
 from .tool_registry import GovernanceError
 
 
@@ -85,6 +92,88 @@ def read_strict_jsonl(
         return
     sink_base = base_dir if base_dir is not None else path.parent
     raw_text = path.read_text(encoding="utf-8")
+    declared = surface_for_path(path)
+    if declared is not None:
+        decoded: list[dict[str, Any]] = []
+        transport_claimed = False
+        for line_no, raw in enumerate(raw_text.splitlines(), start=1):
+            line = raw.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError as exc:
+                corruption = {
+                    "kind": "ledger_row_corrupt",
+                    "ledger": str(path),
+                    "line_no": line_no,
+                    "error": str(exc),
+                    "raw_excerpt": line[:200],
+                }
+                emit_ledger_corruption_diagnostic(corruption, base_dir=sink_base)
+                if on_corruption == "strict":
+                    raise GovernanceError(
+                        f"strict_jsonl_row_corrupt: {path}:{line_no}: {exc}"
+                    ) from exc
+                continue
+            if not isinstance(row, dict):
+                corruption = {
+                    "kind": "ledger_row_corrupt",
+                    "ledger": str(path),
+                    "line_no": line_no,
+                    "error": "row_not_object",
+                    "raw_excerpt": line[:200],
+                }
+                emit_ledger_corruption_diagnostic(corruption, base_dir=sink_base)
+                if on_corruption == "strict":
+                    raise GovernanceError(
+                        f"strict_jsonl_row_corrupt: {path}:{line_no}: row_not_object"
+                    )
+                continue
+            decoded.append(row)
+            transport_claimed = transport_claimed or is_replay_transport_row(row)
+        if not transport_claimed:
+            yield from decoded
+            return
+        try:
+            yield from read_jsonl(path, expected_surface=declared[0].name)
+            return
+        except (LedgerIntegrityError, OSError, UnicodeError) as exc:
+            corruption = {
+                "kind": "ledger_row_corrupt",
+                "ledger": str(path),
+                "line_no": 0,
+                "error": str(exc),
+                "raw_excerpt": REPLAY_TRANSPORT_SCHEMA_PREFIX,
+            }
+            emit_ledger_corruption_diagnostic(corruption, base_dir=sink_base)
+            if on_corruption == "strict":
+                raise GovernanceError(
+                    f"strict_jsonl_replay_transport_corrupt: {path}: {exc}"
+                ) from exc
+            return
+    if REPLAY_TRANSPORT_SCHEMA_PREFIX in raw_text:
+        try:
+            # A transport payload is exposed only after the complete outer
+            # chain and exact envelope have been verified by the shared
+            # ledger owner.  Legacy/hashless files retain the line-oriented
+            # strict/tolerant behavior below.
+            yield from read_jsonl(path)
+            return
+        except (LedgerIntegrityError, OSError, UnicodeError) as exc:
+            corruption = {
+                "kind": "ledger_row_corrupt",
+                "ledger": str(path),
+                "line_no": 0,
+                "error": str(exc),
+                "raw_excerpt": REPLAY_TRANSPORT_SCHEMA_PREFIX,
+            }
+            emit_ledger_corruption_diagnostic(corruption, base_dir=sink_base)
+            if on_corruption == "strict":
+                raise GovernanceError(
+                    f"strict_jsonl_replay_transport_corrupt: {path}: {exc}"
+                ) from exc
+            return
     for line_no, raw in enumerate(raw_text.splitlines(), start=1):
         line = raw.strip()
         if not line:

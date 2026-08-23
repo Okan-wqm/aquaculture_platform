@@ -1,13 +1,27 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import replace
+import inspect
 import os
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from aria_kernel.ledger import load_jsonl, state_transaction
+import aria_kernel.agent_invocations as agent_invocations
+import aria_kernel.ledger as ledger_module
+import aria_kernel.worker_dispatch as worker_dispatch
+from aria_kernel.ledger import (
+    append_declared_jsonl,
+    append_jsonl,
+    load_jsonl,
+    rewrite_declared_json,
+    rewrite_declared_jsonl,
+    rewrite_jsonl,
+    state_transaction,
+    write_index,
+)
 from aria_kernel.next_cycle_queue import append_pending, read_pending
 import aria_kernel.state_manifest as state_manifest
 from aria_kernel.state_manifest import surface_for_path, surface_by_name
@@ -79,6 +93,122 @@ class StateManifestTransactionTests(unittest.TestCase):
             rows = load_jsonl(target, verify=True)
             self.assertEqual([row["event"] for row in rows], ["one", "two"])
             self.assertEqual(rows[1]["previous_ledger_hash"], rows[0]["ledger_hash"])
+
+    def test_transaction_lock_order_is_globally_deduplicated_by_bucket(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="aria-lock-order-") as tmp:
+            root = ensure_tools_dir(Path(tmp) / "aria-tools")
+            cycles = root / "cycles.jsonl"
+            index = root / "integrity_index.json"
+            observed = ledger_module._transaction_lock_paths([cycles, index])
+
+            group = ledger_module._state_group_lock_path(cycles)
+            self.assertIsNotNone(group)
+            self.assertEqual(len(observed), len(set(observed)))
+            self.assertEqual(
+                observed,
+                [
+                    group.resolve(),
+                    index.resolve(),
+                    cycles.resolve(),
+                ],
+            )
+
+    def test_all_public_state_writers_take_group_index_file_order(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="aria-writer-lock-order-") as tmp:
+            root = ensure_tools_dir(Path(tmp) / "aria-tools")
+            queue = root / "queues" / "next_cycle_queue.jsonl"
+            profile = root / "runtime-profile.json"
+            cycles = root / "cycles.jsonl"
+            index = root / "integrity_index.json"
+            acquired: list[Path] = []
+
+            @contextmanager
+            def record_lock(path, *args, **kwargs):
+                acquired.append(Path(path).resolve())
+                yield None
+
+            cases = (
+                (
+                    "append_declared",
+                    [queue],
+                    lambda: append_declared_jsonl(
+                        queue,
+                        {"event": "declared"},
+                        expected_surface="next_cycle_queue",
+                        bypass_profile_gate=True,
+                    ),
+                ),
+                (
+                    "append_raw_fixture",
+                    [queue],
+                    lambda: append_jsonl(
+                        queue,
+                        {"event": "raw"},
+                        test_fixture=True,
+                    ),
+                ),
+                (
+                    "rewrite_declared_json",
+                    [profile],
+                    lambda: rewrite_declared_json(
+                        profile,
+                        {"schema_version": 1, "profile": "observe"},
+                        expected_surface="runtime_profile_state",
+                        bypass_profile_gate=True,
+                    ),
+                ),
+                (
+                    "rewrite_declared_jsonl",
+                    [queue],
+                    lambda: rewrite_declared_jsonl(
+                        queue,
+                        [{"event": "declared-rewrite"}],
+                        expected_surface="next_cycle_queue",
+                        bypass_profile_gate=True,
+                    ),
+                ),
+                (
+                    "rewrite_raw_fixture",
+                    [queue],
+                    lambda: rewrite_jsonl(
+                        queue,
+                        [{"event": "raw-rewrite"}],
+                        test_fixture=True,
+                    ),
+                ),
+                (
+                    "write_index",
+                    [cycles, index],
+                    lambda: write_index(index, {}, {"cycles": cycles}),
+                ),
+            )
+
+            with patch.object(
+                ledger_module,
+                "with_exclusive_lock",
+                side_effect=record_lock,
+            ):
+                for label, paths, writer in cases:
+                    with self.subTest(writer=label):
+                        acquired.clear()
+                        writer()
+                        self.assertEqual(
+                            acquired,
+                            ledger_module._transaction_lock_paths(paths),
+                        )
+
+    def test_claim_and_result_cas_writers_use_state_transactions(self) -> None:
+        functions = (
+            worker_dispatch.claim_assignment,
+            worker_dispatch.release_claim_assignment,
+            agent_invocations.claim_request,
+            agent_invocations.submit_claim_result,
+        )
+        for function in functions:
+            with self.subTest(function=function.__qualname__):
+                source = inspect.getsource(function)
+                self.assertIn("state_transaction(", source)
+                self.assertNotIn("with_exclusive_lock(", source)
 
     def test_queue_depth_check_runs_under_transaction(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aria-queue-txn-") as tmp:

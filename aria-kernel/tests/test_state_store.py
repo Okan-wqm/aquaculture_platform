@@ -13,12 +13,24 @@ import hashlib
 import os
 import subprocess
 import tempfile
+import threading
+import time
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest import mock
 
 from aria_kernel import state_store
-from aria_kernel.ledger import append_jsonl
+from aria_kernel import state_snapshot as state_snapshot_module
+from aria_kernel.ledger import (
+    LedgerIntegrityError,
+    _transaction_lock_paths,
+    append_jsonl,
+    canonical_json,
+    state_transaction as ledger_state_transaction,
+)
+from aria_kernel.state_manifest import iter_surfaces
+from aria_kernel.state_snapshot import SnapshotError, compute_manifest_root
 from aria_kernel.state_store import (
     BOOTSTRAP_ACK_ENV,
     StateStoreError,
@@ -59,6 +71,26 @@ def _write_chained_fixture(path: Path, text: str) -> Path:
             test_fixture=True,
         )
     return path
+
+
+def _snapshot_with_serialized_size(
+    snapshot: dict[str, object],
+    target_bytes: int,
+) -> tuple[dict[str, object], bytes]:
+    candidate = json.loads(json.dumps(snapshot))
+    candidate["lane"] = "x"
+    candidate["manifest_root"] = compute_manifest_root(candidate)
+    initial = (canonical_json(candidate) + "\n").encode("utf-8")
+    if len(initial) > target_bytes:
+        raise AssertionError("snapshot fixture target is smaller than its manifest")
+    candidate["lane"] += "p" * (target_bytes - len(initial))
+    candidate["manifest_root"] = compute_manifest_root(candidate)
+    payload = (canonical_json(candidate) + "\n").encode("utf-8")
+    if len(payload) != target_bytes:
+        raise AssertionError(
+            f"snapshot fixture size mismatch: {len(payload)} != {target_bytes}"
+        )
+    return candidate, payload
 
 
 class StateStoreTestCase(unittest.TestCase):
@@ -220,6 +252,133 @@ class BootstrapDiscipline(StateStoreTestCase):
 
         published = read_published_snapshot(store)
         self.assertEqual(published["manifest_root"], first["manifest_root"])
+
+
+class SnapshotJsonSizeBoundary(StateStoreTestCase):
+    LIMIT = 4 * 1024 * 1024
+
+    def test_exact_cap_publish_read_and_immutable_round_trip(self) -> None:
+        from aria_kernel.autonomy_evidence import _read_immutable_snapshot_claim
+
+        store = self._bootstrap()
+        self._seed_surface(store, "")
+        snapshot, payload = _snapshot_with_serialized_size(
+            self._snapshot(store, "snap-exact-cap"),
+            self.LIMIT,
+        )
+
+        result = publish_state(
+            store,
+            snapshot=snapshot,
+            cycle_id="cycle-1",
+            repo_hash=REPO_HASH,
+        )
+        self.assertTrue(result["published"])
+        published = read_published_snapshot(store)
+        self.assertEqual(published["lane"], snapshot["lane"])
+        self.assertEqual(
+            state_store.snapshot_path(store).read_bytes(),
+            payload,
+        )
+
+        commit = _git(store.root, "rev-parse", "HEAD").strip()
+        immutable, _object_id = _read_immutable_snapshot_claim(
+            store.root,
+            commit,
+        )
+        self.assertEqual(immutable["manifest_root"], snapshot["manifest_root"])
+        self.assertEqual(
+            state_snapshot_module.MAX_SNAPSHOT_JSON_BYTES,
+            self.LIMIT,
+        )
+
+    def test_over_cap_publish_refuses_before_any_store_mutation(self) -> None:
+        store = self._bootstrap()
+        self._seed_surface(store, "")
+        snapshot, _payload = _snapshot_with_serialized_size(
+            self._snapshot(store, "snap-over-cap"),
+            self.LIMIT + 1,
+        )
+        head_before = _git(store.root, "rev-parse", "HEAD").strip()
+        index_before = _git(
+            store.root,
+            "diff",
+            "--cached",
+            "--binary",
+        )
+        remote_before = _git(
+            self.repo,
+            "ls-remote",
+            "--heads",
+            "origin",
+            "refs/heads/aria/state",
+        )
+        snapshot_file = state_store.snapshot_path(store)
+        self.assertFalse(snapshot_file.exists())
+
+        with mock.patch.object(
+            state_store,
+            "recover_pending_state_replay",
+            wraps=state_store.recover_pending_state_replay,
+        ) as recover, self.assertRaisesRegex(
+            SnapshotError,
+            "state_snapshot_json_too_large",
+        ):
+            publish_state(
+                store,
+                snapshot=snapshot,
+                cycle_id="cycle-1",
+                repo_hash=REPO_HASH,
+            )
+
+        recover.assert_called_once_with(store, repo_hash=REPO_HASH)
+        self.assertFalse(snapshot_file.exists())
+        self.assertEqual(_git(store.root, "rev-parse", "HEAD").strip(), head_before)
+        self.assertEqual(
+            _git(store.root, "diff", "--cached", "--binary"),
+            index_before,
+        )
+        self.assertEqual(
+            _git(
+                self.repo,
+                "ls-remote",
+                "--heads",
+                "origin",
+                "refs/heads/aria/state",
+            ),
+            remote_before,
+        )
+
+    def test_over_cap_committed_blob_is_refused_by_both_readers(self) -> None:
+        from aria_kernel.autonomy_evidence import _read_immutable_snapshot_claim
+
+        store = self._bootstrap()
+        self._seed_surface(store, "")
+        _snapshot, payload = _snapshot_with_serialized_size(
+            self._snapshot(store, "snap-over-cap"),
+            self.LIMIT + 1,
+        )
+        state_store.snapshot_path(store).write_bytes(payload)
+        self._commit_in_store(store, "commit oversized snapshot fixture")
+        _git(store.root, "push", "origin", "HEAD:refs/heads/aria/state")
+        _git(
+            store.root,
+            "update-ref",
+            "refs/remotes/origin/aria/state",
+            "HEAD",
+        )
+        commit = _git(store.root, "rev-parse", "HEAD").strip()
+
+        with self.subTest(reader="normal"), self.assertRaisesRegex(
+            StateStoreError,
+            "state_snapshot_json_too_large",
+        ):
+            read_published_snapshot(store)
+        with self.subTest(reader="immutable"), self.assertRaisesRegex(
+            RuntimeError,
+            "state_snapshot_json_too_large",
+        ):
+            _read_immutable_snapshot_claim(store.root, commit)
 
 
 class AncestryProof(StateStoreTestCase):
@@ -842,6 +1001,204 @@ class ReCheckoutSafety(StateStoreTestCase):
         self.assertTrue(observed_held_during_remove)
         self.assertEqual(read_published_snapshot(again)["snapshot_id"], "snap-1")
 
+    def test_checkout_locks_absent_fixed_and_glob_writers_before_clean_scan(
+        self,
+    ) -> None:
+        """A clean scan cannot authorise deleting bytes written after it."""
+        from aria_kernel.runtime_profile import set_profile
+        from aria_kernel.tool_registry import ensure_tools_binding
+
+        store = self._bootstrap()
+        tools = tools_root(store)
+        set_profile(
+            "standard",
+            operator_approval_ref="r9-checkout-lock-test",
+            base_dir=tools,
+        )
+        ensure_tools_binding(tools, workspace_root=self.repo)
+        self._seed_surface(store, '{"row": 1}\n')
+        workspace = state_store.workspace_root(store, REPO_HASH)
+        publish_state(
+            store,
+            snapshot=self._snapshot(store, "snap-1"),
+            cycle_id="cycle-1",
+            repo_hash=REPO_HASH,
+        )
+        # An empty authority root is invisible to Git but lets the test assert
+        # the complete workspace lock-group closure without planting writer
+        # sidecars of its own.
+        workspace.mkdir(parents=True, exist_ok=True)
+
+        fixed_path = tools / "queues" / "next_cycle_queue.jsonl"
+        glob_path = tools / "dispatch" / "late-writer.jsonl"
+        self.assertFalse(fixed_path.exists())
+        self.assertFalse(glob_path.exists())
+        from aria_kernel.workspace import canonical_identity
+
+        self.assertEqual(
+            state_store._state_store_uncommitted_paths(
+                store.root,
+                expected_repo_identity=canonical_identity(self.repo),
+                expected_repo_root=self.repo,
+            ),
+            (),
+        )
+
+        scan_complete = threading.Event()
+        writer_started = {
+            "fixed": threading.Event(),
+            "glob": threading.Event(),
+        }
+        writer_done = {
+            "fixed": threading.Event(),
+            "glob": threading.Event(),
+        }
+        blocked_during_remove: dict[str, bool] = {}
+        writer_successes: list[str] = []
+        writer_errors: dict[str, BaseException] = {}
+        transaction_specs: list[
+            tuple[tuple[Path, ...], tuple[Path, ...]]
+        ] = []
+        real_scan = state_store._state_store_uncommitted_paths
+        real_cleanup_transaction = state_store.state_transaction
+
+        def writer(name: str, path: Path, surface: str) -> None:
+            try:
+                if not scan_complete.wait(timeout=10):
+                    raise TimeoutError("cleanliness scan did not complete")
+                writer_started[name].set()
+                with ledger_state_transaction(
+                    [path],
+                    timeout_seconds=5.0,
+                ) as transaction:
+                    transaction.append_declared_jsonl(
+                        path,
+                        {
+                            "schema_version": 1,
+                            "event": f"late-{name}",
+                        },
+                        expected_surface=surface,
+                    )
+                writer_successes.append(name)
+            except BaseException as exc:  # noqa: BLE001 - thread handoff
+                writer_errors[name] = exc
+            finally:
+                writer_done[name].set()
+
+        def pause_after_both_scans(*args, **kwargs):
+            dirty = real_scan(*args, **kwargs)
+            scan_complete.set()
+            for started in writer_started.values():
+                if not started.wait(timeout=5):
+                    raise TimeoutError("late writer did not start")
+            time.sleep(0.1)
+            blocked_during_remove.update(
+                {
+                    name: not writer_done[name].is_set()
+                    for name in writer_done
+                }
+            )
+            return dirty
+
+        @contextmanager
+        def observed_cleanup_transaction(
+            paths,
+            *,
+            group_lock_paths=(),
+            **kwargs,
+        ):
+            transaction_specs.append(
+                (
+                    tuple(Path(path).resolve() for path in paths),
+                    tuple(Path(path).resolve() for path in group_lock_paths),
+                )
+            )
+            with real_cleanup_transaction(
+                paths,
+                group_lock_paths=group_lock_paths,
+                **kwargs,
+            ) as transaction:
+                yield transaction
+
+        writers = [
+            threading.Thread(
+                target=writer,
+                args=("fixed", fixed_path, "next_cycle_queue"),
+                daemon=True,
+            ),
+            threading.Thread(
+                target=writer,
+                args=("glob", glob_path, "worker_dispatch"),
+                daemon=True,
+            ),
+        ]
+        for thread in writers:
+            thread.start()
+
+        with mock.patch.object(
+            state_store,
+            "_state_store_uncommitted_paths",
+            side_effect=pause_after_both_scans,
+        ), mock.patch.object(
+            state_store,
+            "state_transaction",
+            side_effect=observed_cleanup_transaction,
+        ):
+            restored = checkout_state_store(
+                self.repo,
+                store_dir=store.root,
+            )
+
+        for thread in writers:
+            thread.join(timeout=5)
+        self.assertTrue(all(not thread.is_alive() for thread in writers))
+        self.assertEqual(
+            blocked_during_remove,
+            {"fixed": True, "glob": True},
+        )
+        self.assertEqual(writer_successes, [])
+        self.assertEqual(set(writer_errors), {"fixed", "glob"})
+        self.assertTrue(
+            all(
+                isinstance(exc, LedgerIntegrityError)
+                and "state_transaction_declared_root_changed" in str(exc)
+                for exc in writer_errors.values()
+            ),
+            writer_errors,
+        )
+        self.assertEqual(len(transaction_specs), 1)
+        concrete_paths, group_locks = transaction_specs[0]
+        roots = {
+            "tools": tools,
+            "workspace": workspace,
+            "repo": state_store.findings_root(store),
+        }
+        expected_groups = {
+            (
+                roots[surface.root_kind]
+                / "locks"
+                / "state-groups"
+                / f"{surface.lock_group}.lock"
+            ).resolve()
+            for surface in iter_surfaces()
+        }
+        self.assertEqual(set(group_locks), expected_groups)
+        ordered_locks = _transaction_lock_paths(
+            list(concrete_paths),
+            group_lock_paths=group_locks,
+        )
+        self.assertEqual(len(ordered_locks), len(set(ordered_locks)))
+        self.assertEqual(
+            ordered_locks[: len(expected_groups)],
+            sorted(expected_groups, key=lambda path: path.as_posix()),
+        )
+        self.assertFalse((tools_root(restored) / "queues" / fixed_path.name).exists())
+        self.assertFalse((tools_root(restored) / "dispatch" / glob_path.name).exists())
+        self.assertIn(
+            '"row":1',
+            (tools_root(restored) / "runs.jsonl").read_text(encoding="utf-8"),
+        )
+
     def test_a_store_holding_uncommitted_writes_refuses_re_checkout(self) -> None:
         # Those uncommitted paths are a cycle's ledger writes. Silently
         # re-checking out would delete state that exists nowhere else —
@@ -880,6 +1237,124 @@ class ReCheckoutSafety(StateStoreTestCase):
             checkout_state_store(self.repo, store_dir=store.root)
         self.assertIn("state_store_unpushed_commits", str(ctx.exception))
         self.assertIn("committed-never-pushed", surface.read_text(encoding="utf-8"))
+
+    def test_checkout_cannot_remove_a_commit_created_by_an_active_publisher(
+        self,
+    ) -> None:
+        """Cleanup and commit-to-push are one common-git lifecycle."""
+        store = self._bootstrap()
+        self._seed_surface(store, "")
+        publish_state(
+            store,
+            snapshot=self._snapshot(store, "snap-1"),
+            cycle_id="cycle-1",
+            repo_hash=REPO_HASH,
+        )
+        pending = self._snapshot(
+            store,
+            "snap-unpublished-local",
+            cycle_id="cycle-unpublished-local",
+        )
+        cleanup_past_containment = threading.Event()
+        publisher_started = threading.Event()
+        publisher_at_push = threading.Event()
+        checkout_finished = threading.Event()
+        publisher_commits: list[str] = []
+        publisher_errors: list[BaseException] = []
+        checkout_errors: list[BaseException] = []
+        publisher_was_blocked: list[bool] = []
+        real_cleanup_locks = state_store._checkout_cleanup_transaction_locks
+        real_run_git = state_store._run_git
+
+        def pause_cleanup_after_initial_containment(root: Path):
+            cleanup_past_containment.set()
+            if not publisher_started.wait(timeout=10):
+                raise TimeoutError("publisher did not enter publish_state")
+            publisher_was_blocked.append(
+                not publisher_at_push.wait(timeout=1.0),
+            )
+            return real_cleanup_locks(root)
+
+        def crash_publisher_after_commit(cwd: Path, args: tuple[str, ...]):
+            if args and args[0] == "push" and Path(cwd).resolve() == store.root:
+                publisher_commits.append(
+                    _git(store.root, "rev-parse", "HEAD").strip(),
+                )
+                publisher_at_push.set()
+                if not checkout_finished.wait(timeout=10):
+                    raise TimeoutError("checkout did not finish its cleanup")
+                raise RuntimeError("injected crash before publisher push")
+            return real_run_git(cwd, args)
+
+        def run_checkout() -> None:
+            try:
+                checkout_state_store(self.repo, store_dir=store.root)
+            except BaseException as exc:  # noqa: BLE001 - thread handoff
+                checkout_errors.append(exc)
+
+        def run_publisher() -> None:
+            publisher_started.set()
+            try:
+                publish_state(
+                    store,
+                    snapshot=pending,
+                    cycle_id="cycle-unpublished-local",
+                    repo_hash=REPO_HASH,
+                )
+            except BaseException as exc:  # noqa: BLE001 - thread handoff
+                publisher_errors.append(exc)
+
+        with mock.patch.object(
+            state_store,
+            "_checkout_cleanup_transaction_locks",
+            side_effect=pause_cleanup_after_initial_containment,
+        ), mock.patch.object(
+            state_store,
+            "_run_git",
+            side_effect=crash_publisher_after_commit,
+        ):
+            checkout_thread = threading.Thread(target=run_checkout, daemon=True)
+            checkout_thread.start()
+            self.assertTrue(cleanup_past_containment.wait(timeout=10))
+            publisher_thread = threading.Thread(target=run_publisher, daemon=True)
+            publisher_thread.start()
+            checkout_thread.join(timeout=15)
+            checkout_finished.set()
+            publisher_thread.join(timeout=15)
+
+        self.assertFalse(checkout_thread.is_alive())
+        self.assertFalse(publisher_thread.is_alive())
+        self.assertEqual(checkout_errors, [])
+        self.assertEqual(publisher_was_blocked, [True])
+        self.assertEqual(len(publisher_commits), 1)
+        self.assertEqual(len(publisher_errors), 1)
+        self.assertIn("injected crash", str(publisher_errors[0]))
+        self.assertEqual(
+            _git(store.root, "rev-parse", "HEAD").strip(),
+            publisher_commits[0],
+        )
+        self.assertNotEqual(
+            _git(self.remote, "rev-parse", "refs/heads/aria/state").strip(),
+            publisher_commits[0],
+        )
+
+    def test_publish_with_replay_keeps_nested_lifecycle_entries_reentrant(
+        self,
+    ) -> None:
+        store = self._bootstrap()
+        self._seed_surface(store, "")
+
+        with mock.patch.object(state_store, "GIT_TIMEOUT_SECONDS", 0.1):
+            result = state_store.publish_with_contention_replay(
+                store,
+                snapshot_id="snap-nested-lifecycle",
+                cycle_id="cycle-nested-lifecycle",
+                lane="test",
+                repo_hash=REPO_HASH,
+            )
+
+        self.assertTrue(result["published"])
+        self.assertEqual(result["attempts"], 1)
 
     def test_a_directory_that_is_not_a_worktree_refuses(self) -> None:
         store_dir = self.repo.parent / "not-a-worktree"

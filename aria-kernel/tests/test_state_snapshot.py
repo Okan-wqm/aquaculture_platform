@@ -29,6 +29,7 @@ WHAT IS ASSERTED HERE, and why each one is not obvious:
 from __future__ import annotations
 
 from dataclasses import replace
+import errno
 import json
 import os
 import shutil
@@ -39,6 +40,7 @@ from pathlib import Path
 from unittest import mock
 
 import aria_kernel.state_snapshot as state_snapshot_module
+import aria_kernel.ledger as ledger_module
 from aria_kernel.state_manifest import iter_surfaces
 from aria_kernel.state_snapshot import (
     SIGNATURE_NAMESPACE,
@@ -100,6 +102,9 @@ class SnapshotBuildTests(unittest.TestCase):
         params.update(kwargs)
         return build_snapshot(**params)
 
+    def _surface(self, name: str):
+        return next(surface for surface in iter_surfaces() if surface.name == name)
+
     def test_a_snapshot_records_present_surfaces_with_chain_tips(self) -> None:
         manifest = self._build()
         self.assertEqual(manifest["$schema"], "aria/state-snapshot/v1")
@@ -109,6 +114,30 @@ class SnapshotBuildTests(unittest.TestCase):
         self.assertTrue(beliefs["tail_ledger_hash"].startswith("sha256:"))
         self.assertEqual(beliefs["segments"], ["memory/beliefs.jsonl"])
         self.assertTrue(verify_manifest_root(manifest))
+
+    def test_snapshot_json_budget_uses_exact_written_bytes(self) -> None:
+        limit = 4 * 1024 * 1024
+        baseline = self._build(lane="x")
+        baseline_bytes = (
+            state_snapshot_module.canonical_json(baseline) + "\n"
+        ).encode("utf-8")
+        exact_lane = "x" + ("p" * (limit - len(baseline_bytes)))
+
+        exact = self._build(lane=exact_lane)
+        exact_bytes = (
+            state_snapshot_module.canonical_json(exact) + "\n"
+        ).encode("utf-8")
+        self.assertEqual(len(exact_bytes), limit)
+
+        with self.assertRaisesRegex(
+            SnapshotError,
+            "state_snapshot_json_too_large",
+        ):
+            self._build(lane=exact_lane + "p")
+        self.assertEqual(
+            state_snapshot_module.MAX_SNAPSHOT_JSON_BYTES,
+            limit,
+        )
 
     def test_a_broken_chain_is_rejected_instead_of_snapshotted(self) -> None:
         path = self.tools / "memory" / "beliefs.jsonl"
@@ -144,6 +173,30 @@ class SnapshotBuildTests(unittest.TestCase):
         path = self.tools / "dispatch" / "not-a-ledger.jsonl"
         path.mkdir(parents=True)
         with self.assertRaisesRegex(SnapshotError, "snapshot_surface_not_regular"):
+            self._build()
+
+    def test_glob_snapshot_binds_replay_transport_to_concrete_path(self) -> None:
+        august = "cost-attribution/2026-08.jsonl"
+        september = "cost-attribution/2026-09.jsonl"
+        payload = {"schema_version": 1, "event": "cost_observed"}
+        append_declared_fixture(
+            self.tools / september,
+            ledger_module._make_replay_transport_row(
+                payload,
+                expected_surface="cost_attribution",
+                surface_instance=august,
+                producer_event_id=ledger_module._record_hash(payload, None),
+                producer_previous_ledger_hash=None,
+                replay_transaction_id="snapshot-producer-instance-binding",
+            ),
+            expected_surface="cost_attribution",
+        )
+
+        with mock.patch.object(
+            ledger_module,
+            "_surface_instance_for_path",
+            return_value=None,
+        ), self.assertRaisesRegex(SnapshotError, "snapshot_ledger_invalid"):
             self._build()
 
     def test_glob_parent_symlink_is_rejected_before_external_discovery_or_read(self) -> None:
@@ -204,6 +257,313 @@ class SnapshotBuildTests(unittest.TestCase):
             "snapshot_surface_discovery_budget_exceeded",
         ):
             self._build()
+
+    def test_exact_surface_created_after_pass_one_is_rejected(self) -> None:
+        requests = self._surface("agent_invocation_requests")
+        beliefs = self._surface("memory_beliefs")
+        requests_path = self.tools / "agent-invocations" / "requests.jsonl"
+        original_surface_entry = state_snapshot_module._surface_entry
+        created = False
+
+        def create_after_first_read(*args, **kwargs):
+            nonlocal created
+            entry = original_surface_entry(*args, **kwargs)
+            if not created:
+                append_declared_fixture(
+                    requests_path,
+                    {"schema_version": 1, "request_id": "req-created-after-p1"},
+                    expected_surface="agent_invocation_requests",
+                )
+                created = True
+            return entry
+
+        with mock.patch.object(
+            state_snapshot_module,
+            "iter_surfaces",
+            return_value=(requests, beliefs),
+        ), mock.patch.object(
+            state_snapshot_module,
+            "_surface_entry",
+            side_effect=create_after_first_read,
+        ), self.assertRaisesRegex(
+            SnapshotError,
+            "snapshot_surface_changed",
+        ):
+            self._build()
+        self.assertTrue(created, "fixture must create the exact surface after pass one")
+
+    def test_nested_glob_add_remove_and_rename_after_pass_one_are_rejected(self) -> None:
+        artifact = self._surface("agent_output_artifacts")
+        original_surface_entry = state_snapshot_module._surface_entry
+
+        for operation in ("add", "remove", "rename"):
+            with self.subTest(operation=operation):
+                operation_root = self.tools / "agent-invocations" / "outputs" / operation
+                case_dir = operation_root / "nested"
+                case_dir.mkdir(parents=True)
+                source = case_dir / "result.md"
+                source.write_text("original", encoding="utf-8")
+                source_relative = source.relative_to(self.tools).as_posix()
+                mutated = False
+
+                def mutate_after_read(*args, **kwargs):
+                    nonlocal mutated
+                    entry = original_surface_entry(*args, **kwargs)
+                    if not mutated and args[1] == source_relative:
+                        if operation == "add":
+                            (case_dir / "added.md").write_text("added", encoding="utf-8")
+                        elif operation == "remove":
+                            source.unlink()
+                        else:
+                            source.rename(case_dir / "renamed.md")
+                        mutated = True
+                    return entry
+
+                try:
+                    with mock.patch.object(
+                        state_snapshot_module,
+                        "iter_surfaces",
+                        return_value=(artifact,),
+                    ), mock.patch.object(
+                        state_snapshot_module,
+                        "_surface_entry",
+                        side_effect=mutate_after_read,
+                    ), self.assertRaisesRegex(
+                        SnapshotError,
+                        "snapshot_surface_changed",
+                    ):
+                        self._build()
+                    self.assertTrue(mutated, "fixture must mutate a discovered glob leaf")
+                finally:
+                    shutil.rmtree(operation_root, ignore_errors=True)
+
+    def test_leaf_replace_between_projection_and_open_is_rejected(self) -> None:
+        artifact = self._surface("agent_output_artifacts")
+        target = self.tools / "agent-invocations" / "outputs" / "replace" / "result.md"
+        target.parent.mkdir(parents=True)
+        target.write_text("old", encoding="utf-8")
+        replacement = self.tmp / "replacement.md"
+        replacement.write_text("new", encoding="utf-8")
+        original_surface_entry = state_snapshot_module._surface_entry
+        replaced = False
+
+        def replace_before_open(*args, **kwargs):
+            nonlocal replaced
+            if not replaced:
+                os.replace(replacement, target)
+                replaced = True
+            return original_surface_entry(*args, **kwargs)
+
+        with mock.patch.object(
+            state_snapshot_module,
+            "iter_surfaces",
+            return_value=(artifact,),
+        ), mock.patch.object(
+            state_snapshot_module,
+            "_surface_entry",
+            side_effect=replace_before_open,
+        ), self.assertRaisesRegex(
+            SnapshotError,
+            "snapshot_surface_changed",
+        ):
+            self._build()
+        self.assertTrue(replaced, "fixture must replace the projected leaf before open")
+
+    def test_post_pass_two_nested_directory_mutation_is_rejected(self) -> None:
+        artifact = self._surface("agent_output_artifacts")
+        nested = self.tools / "agent-invocations" / "outputs" / "post-p2" / "nested"
+        nested.mkdir(parents=True)
+        (nested / "result.md").write_text("stable", encoding="utf-8")
+        original_matches = state_snapshot_module._secure_surface_matches
+        calls = 0
+
+        def mutate_after_second_projection(*args, **kwargs):
+            nonlocal calls
+            matches = original_matches(*args, **kwargs)
+            calls += 1
+            if calls == 2:
+                (nested / "nonmatching.tmp").write_text("changed", encoding="utf-8")
+            return matches
+
+        with mock.patch.object(
+            state_snapshot_module,
+            "iter_surfaces",
+            return_value=(artifact,),
+        ), mock.patch.object(
+            state_snapshot_module,
+            "_secure_surface_matches",
+            side_effect=mutate_after_second_projection,
+        ), self.assertRaisesRegex(
+            SnapshotError,
+            "snapshot_surface_changed",
+        ):
+            self._build()
+
+    def test_two_pass_projection_is_stable_and_deterministic(self) -> None:
+        artifact = self._surface("agent_output_artifacts")
+        nested = self.tools / "agent-invocations" / "outputs" / "stable" / "nested"
+        nested.mkdir(parents=True)
+        (nested / "b.md").write_text("b", encoding="utf-8")
+        (nested / "a.md").write_text("a", encoding="utf-8")
+
+        with mock.patch.object(
+            state_snapshot_module,
+            "iter_surfaces",
+            return_value=(artifact,),
+        ):
+            first = self._build()
+            second = self._build()
+        self.assertEqual(first, second)
+
+    def test_pass_two_spends_the_same_aggregate_discovery_budget(self) -> None:
+        beliefs = self._surface("memory_beliefs")
+        with mock.patch.object(
+            state_snapshot_module,
+            "iter_surfaces",
+            return_value=(beliefs,),
+        ), mock.patch.object(
+            state_snapshot_module,
+            "SNAPSHOT_MAX_DISCOVERY_WORK",
+            4,
+        ), self.assertRaisesRegex(
+            SnapshotError,
+            "snapshot_surface_discovery_budget_exceeded",
+        ):
+            self._build()
+
+    def test_final_directory_revalidation_keeps_live_fds_depth_bounded(self) -> None:
+        artifact = self._surface("agent_output_artifacts")
+        broad = self.tools / "agent-invocations" / "outputs" / "broad"
+        for index in range(256):
+            leaf = broad / f"branch-{index:03d}" / "result.md"
+            leaf.parent.mkdir(parents=True)
+            leaf.write_text(str(index), encoding="utf-8")
+
+        real_open = os.open
+        real_close = os.close
+        live: set[int] = set()
+        max_live = 0
+
+        def tracked_open(*args, **kwargs):
+            nonlocal max_live
+            descriptor = real_open(*args, **kwargs)
+            live.add(descriptor)
+            max_live = max(max_live, len(live))
+            return descriptor
+
+        def tracked_close(descriptor: int) -> None:
+            live.discard(descriptor)
+            real_close(descriptor)
+
+        with mock.patch.object(
+            state_snapshot_module,
+            "iter_surfaces",
+            return_value=(artifact,),
+        ), mock.patch.object(
+            state_snapshot_module.os,
+            "open",
+            side_effect=tracked_open,
+        ), mock.patch.object(
+            state_snapshot_module.os,
+            "close",
+            side_effect=tracked_close,
+        ), mock.patch.object(
+            state_snapshot_module,
+            "_require_nofollow_dirfd_support",
+            return_value=None,
+        ):
+            self._build()
+
+        self.assertEqual(live, set(), "snapshot leaked a descriptor")
+        self.assertLessEqual(
+            max_live,
+            state_snapshot_module.MAX_SURFACE_PATH_COMPONENTS + 8,
+            "final revalidation retained one descriptor per sibling directory",
+        )
+
+    def test_final_directory_fd_exhaustion_is_named_as_unavailable(self) -> None:
+        artifact = self._surface("agent_output_artifacts")
+        leaf = self.tools / "agent-invocations" / "outputs" / "emfile" / "result.md"
+        leaf.parent.mkdir(parents=True)
+        leaf.write_text("fixture", encoding="utf-8")
+        real_matches = state_snapshot_module._secure_surface_matches
+        real_open = os.open
+        projections = 0
+        final_revalidation = False
+
+        def mark_second_projection(*args, **kwargs):
+            nonlocal projections, final_revalidation
+            matches = real_matches(*args, **kwargs)
+            projections += 1
+            if projections == 2:
+                final_revalidation = True
+            return matches
+
+        def exhaust_only_during_final(*args, **kwargs):
+            if final_revalidation and kwargs.get("dir_fd") is not None:
+                raise OSError(errno.EMFILE, "too many open files")
+            return real_open(*args, **kwargs)
+
+        with mock.patch.object(
+            state_snapshot_module,
+            "iter_surfaces",
+            return_value=(artifact,),
+        ), mock.patch.object(
+            state_snapshot_module,
+            "_secure_surface_matches",
+            side_effect=mark_second_projection,
+        ), mock.patch.object(
+            state_snapshot_module.os,
+            "open",
+            side_effect=exhaust_only_during_final,
+        ), mock.patch.object(
+            state_snapshot_module,
+            "_require_nofollow_dirfd_support",
+            return_value=None,
+        ), self.assertRaisesRegex(
+            SnapshotError,
+            r"snapshot_surface_revalidation_unavailable:.*errno=24",
+        ):
+            self._build()
+
+    def test_root_inode_stability_does_not_hide_child_content_mutation(self) -> None:
+        artifact = self._surface("agent_output_artifacts")
+        target = self.tools / "agent-invocations" / "outputs" / "same-root" / "result.md"
+        target.parent.mkdir(parents=True)
+        target.write_text("alpha", encoding="utf-8")
+        root_before = os.stat(self.tools, follow_symlinks=False)
+        root_identity = (root_before.st_dev, root_before.st_ino, root_before.st_mode)
+        original_surface_entry = state_snapshot_module._surface_entry
+        mutated = False
+
+        def mutate_child_after_read(*args, **kwargs):
+            nonlocal mutated
+            entry = original_surface_entry(*args, **kwargs)
+            if not mutated:
+                target.write_text("omega", encoding="utf-8")
+                mutated = True
+                root_after = os.stat(self.tools, follow_symlinks=False)
+                self.assertEqual(
+                    (root_after.st_dev, root_after.st_ino, root_after.st_mode),
+                    root_identity,
+                    "the root anchor stays on the same inode while its child changes",
+                )
+            return entry
+
+        with mock.patch.object(
+            state_snapshot_module,
+            "iter_surfaces",
+            return_value=(artifact,),
+        ), mock.patch.object(
+            state_snapshot_module,
+            "_surface_entry",
+            side_effect=mutate_child_after_read,
+        ), self.assertRaisesRegex(
+            SnapshotError,
+            "snapshot_surface_changed",
+        ):
+            self._build()
+        self.assertTrue(mutated, "fixture must mutate a child without replacing the root")
 
     def test_snapshot_path_normalization_errors_are_named(self) -> None:
         path = self.tools / "dispatch" / "artifacts"

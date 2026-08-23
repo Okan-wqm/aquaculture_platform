@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 import subprocess
 from pathlib import Path
@@ -190,16 +189,7 @@ def _previous_completed_head(root: Path, cycle_id: str) -> str | None:
     cycles_path = root / "cycles.jsonl"
     if not cycles_path.exists():
         return None
-    rows: list[dict[str, Any]] = []
-    for line_no, line in enumerate(cycles_path.read_text(encoding="utf-8").splitlines(), start=1):
-        if not line.strip():
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"cycle artifact parse error at {cycles_path}:{line_no}: {exc}") from exc
-        if isinstance(row, dict):
-            rows.append(row)
+    rows = read_jsonl(cycles_path, expected_surface="cycles")
     for row in reversed(rows):
         if row.get("cycle_id") == cycle_id:
             continue

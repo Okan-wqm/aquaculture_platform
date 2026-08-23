@@ -138,8 +138,8 @@ class ClaimRequestCasTests(unittest.TestCase):
             / "aria_kernel"
             / "agent_invocations.py"
         ).read_text(encoding="utf-8")
-        self.assertIn("with_exclusive_lock(claims_path)", src,
-            "Plan 024 §H-1 — claims.jsonl lock must be wired")
+        self.assertIn("with state_transaction([claims_path])", src,
+            "Plan 024 §H-1 — claims CAS transaction must be wired")
         self.assertIn("claim_request_state_changed_during_lock", src,
             "Plan 024 §H-1 — CAS recheck error code must exist")
         # Recheck must call derive_request_state a second time after

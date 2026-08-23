@@ -35,6 +35,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .strict_jsonl_reader import read_strict_jsonl
+
 
 def _safe_read_lines(path: Path) -> list[str]:
     """Read a JSONL file, return list of non-blank lines. Missing → []."""
@@ -92,11 +94,11 @@ def _blocked_reasons(governance_path: Path, date: str) -> list[dict[str, Any]]:
     row, so the anchor carries the cause with zero caller cooperation.
     """
     reasons: list[dict[str, Any]] = []
-    for line in _safe_read_lines(governance_path):
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for row in read_strict_jsonl(
+        governance_path,
+        on_corruption="tolerant",
+        base_dir=governance_path.parent,
+    ):
         if not isinstance(row, dict):
             continue
         kind = str(row.get("kind") or "")
@@ -122,11 +124,11 @@ def _read_sealed_cycle_ids(cycles_path: Path) -> list[str]:
     """Return cycle_ids whose latest row carries a terminal status."""
     terminal = {"completed", "failed", "stopped", "aborted"}
     state: dict[str, str] = {}
-    for line in _safe_read_lines(cycles_path):
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for row in read_strict_jsonl(
+        cycles_path,
+        on_corruption="tolerant",
+        base_dir=cycles_path.parent,
+    ):
         if not isinstance(row, dict):
             continue
         cycle_id = row.get("cycle_id")
@@ -204,11 +206,11 @@ def _roi_metrics(tools_root: Path, date: str) -> dict[str, Any]:
     day_cost = mtd_cost = 0.0
     day_calls = 0
     day_cycles: set[str] = set()
-    for line in _safe_read_lines(shard):
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for row in read_strict_jsonl(
+        shard,
+        on_corruption="tolerant",
+        base_dir=tools_root,
+    ):
         recorded = str(row.get("recorded_at") or "")
         if not recorded.startswith(month):
             continue
@@ -223,11 +225,11 @@ def _roi_metrics(tools_root: Path, date: str) -> dict[str, Any]:
             if row.get("cycle_id"):
                 day_cycles.add(str(row["cycle_id"]))
     day_merged = mtd_merged = 0
-    for line in _safe_read_lines(tools_root / "pr-lifecycle.jsonl"):
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for row in read_strict_jsonl(
+        tools_root / "pr-lifecycle.jsonl",
+        on_corruption="tolerant",
+        base_dir=tools_root,
+    ):
         if row.get("event") != "merged":
             continue
         recorded = str(row.get("recorded_at") or "")

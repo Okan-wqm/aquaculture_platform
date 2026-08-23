@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import subprocess
 import unittest
@@ -26,10 +27,9 @@ from aria_kernel import (
     verify_integrity,
 )
 from aria_kernel.agent_genesis import approve_agent_pr, evaluate_genesis_sandbox
-from aria_kernel.fixture_runner import fixture_runs_path, tool_manifest_hash
+from aria_kernel.fixture_runner import run_fixture_suite
 from aria_kernel.implementation_safety import CANONICAL_VALIDATION_COMMANDS
 from aria_kernel.runtime_profile import set_profile
-from aria_kernel.tool_registry import get_tool
 from tests._helpers.declared_fixtures import (
     append_declared_fixture,
     seed_validation_provenance,
@@ -217,19 +217,40 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
             },
             base_dir=self.tools_dir,
         )
-        append_declared_fixture(
-            fixture_runs_path(self.tools_dir),
-            {
-                "schema_version": 1,
-                "tool_id": "demo-adapter",
-                "tool_version": "1.0.0",
-                "tool_manifest_hash": tool_manifest_hash(get_tool("demo-adapter", base_dir=self.tools_dir)),
-                "passed": True,
-                "fixture_baseline_passed": True,
-                "semantic_fixture_passed": True,
-            },
-            expected_surface="agent_eval_fixture_runs",
+        cases_dir = self.tools_dir / "fixtures" / "demo" / "cases"
+        cases_dir.mkdir(parents=True)
+        (cases_dir / "baseline.json").write_text(
+            json.dumps({
+                "name": "baseline",
+                "lane": "real_repo_baseline",
+                "input": {},
+                "expected": {"status": "schema_error"},
+            }),
+            encoding="utf-8",
         )
+        (cases_dir / "semantic.json").write_text(
+            json.dumps({
+                "name": "semantic",
+                "lane": "semantic_regression",
+                "input": {},
+                "expected": {"status": "schema_error"},
+                "curation": {
+                    "curator": "enterprise-plan-test",
+                    "gold_set": {
+                        "true_positive_count": 1,
+                        "known_false_positive_count": 0,
+                    },
+                },
+            }),
+            encoding="utf-8",
+        )
+        fixture_result = run_fixture_suite(
+            "demo-adapter",
+            workspace_root=self.root,
+            cycle_id="cycle-fixture",
+            base_dir=self.tools_dir,
+        )
+        self.assertTrue(fixture_result["passed"])
         for index in range(5):
             record_run(
                 {

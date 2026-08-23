@@ -51,9 +51,15 @@ export const ARIA_AUTHORITY_HASH_LINE =
  * ORPHAN-MEDIUM-768 — the Date line is normalized alongside the hash line, and
  * `--write` stamps BOTH. Before this, the writer refreshed only the 64 hex
  * characters, so a doc whose body was months stale could carry a fresh hash and
- * a frozen date — machine-fresh cover on stale content. With both stamped by
- * the same write, the spec can hold Date accountable to the authority surfaces'
- * last change instead of to a frozen literal.
+ * a frozen date — machine-fresh cover on stale content.
+ *
+ * ORPHAN-MEDIUM-792 — the Date line is descriptive metadata, never an
+ * authorization predicate. Server-side merges run no local writer and may land
+ * on the next UTC day with the authority content byte-identical to what was
+ * stamped; holding the date accountable to the newest authority-commit day
+ * rejected exactly those valid pins. Validity is the content hash alone, and
+ * `checkAriaAuthorityHash` is the single verdict producer both the CLI and the
+ * invariant consume.
  */
 export const ARIA_AUTHORITY_DATE_SENTINEL = 'Date: ARIA_AUTHORITY_DATE_SENTINEL';
 
@@ -141,6 +147,39 @@ export function recordedAriaAuthorityHash(repoRoot: string = ariaRepoRoot()): st
   return body.match(/Last verified ARIA authority hash: `([a-f0-9]{64})`/)?.[1] ?? null;
 }
 
+/**
+ * ORPHAN-MEDIUM-792 — the pure verdict over the checked-out authority tree.
+ *
+ * `valid` is exactly "the declared pin equals the digest recomputed from the
+ * tracked authority surface"; nothing about commit time or calendar days
+ * participates. A server-side squash merge that lands a day after the
+ * contributor stamped the pin keeps `valid: true` when the content is
+ * unchanged, and any merge driver that lands a pin describing older content
+ * is `authority_hash_stale` regardless of dates. `--check` and the
+ * documentation SSoT invariant both consume this function so the two can
+ * never disagree about what a valid pin is.
+ */
+export interface AriaAuthorityHashVerdict {
+  readonly valid: boolean;
+  readonly declared: string | null;
+  readonly computed: string;
+  readonly reason: 'current' | 'authority_hash_stale';
+}
+
+export function checkAriaAuthorityHash(
+  repoRoot: string = ariaRepoRoot(),
+): AriaAuthorityHashVerdict {
+  const declared = recordedAriaAuthorityHash(repoRoot);
+  const computed = ariaAuthorityHash(repoRoot);
+  const valid = declared === computed;
+  return {
+    valid,
+    declared,
+    computed,
+    reason: valid ? 'current' : 'authority_hash_stale',
+  };
+}
+
 export function writeAriaAuthorityHash(repoRoot: string = ariaRepoRoot()): {
   from: string | null;
   to: string;
@@ -173,16 +212,15 @@ function main(argv: string[]): number {
   // it thirty minutes later. --check answers in a second and exits non-zero
   // naming both digests, so a hook can stand on it.
   if (argv.includes('--check')) {
-    const expected = ariaAuthorityHash(repoRoot);
-    const declared = recordedAriaAuthorityHash(repoRoot);
-    if (declared === expected) {
-      process.stdout.write(`aria authority hash: current (${expected})\n`);
+    const verdict = checkAriaAuthorityHash(repoRoot);
+    if (verdict.valid) {
+      process.stdout.write(`aria authority hash: current (${verdict.computed})\n`);
       return 0;
     }
     process.stderr.write(
       'aria authority hash: STALE pin.\n' +
-        `  declared in docs/aria/CURRENT_STATE.md: ${declared ?? '(none)'}\n` +
-        `  computed from the authority surface:    ${expected}\n` +
+        `  declared in docs/aria/CURRENT_STATE.md: ${verdict.declared ?? '(none)'}\n` +
+        `  computed from the authority surface:    ${verdict.computed}\n` +
         '  A merge commit runs no pre-commit, so `git merge origin/main` can move\n' +
         '  the surface and leave the pin behind. Fix it here, not in CI:\n' +
         '    npm run aria:authority-hash:write && git add docs/aria/CURRENT_STATE.md\n',

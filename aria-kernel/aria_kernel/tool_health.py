@@ -162,11 +162,27 @@ def record_run(
                 runner.pop("raw_findings_sample", None)
     else:
         envelope["artifact_status"] = "legacy_inline_or_sample_only"
+    # ORPHAN-HIGH-798 — the runs.jsonl row carried emitted_observations and
+    # emitted_findings arrays inline (~600KB/row; 94.5MB over 158 rows). The
+    # artifact (written above) already contains the full payload via
+    # _runtime_artifact_payload; the row only needs the counts. Copy the
+    # arrays for record_findings_for_run (which reads them from the envelope
+    # AFTER the append — popping before line 169 starves findings.jsonl),
+    # then strip the arrays from the row before it lands in runs.jsonl.
+    # New key emitted_counts; the old keys are REMOVED from the row, so
+    # readers must use emitted_counts (or resolve from the artifact ref).
+    _saved_emitted_findings = list(envelope.get("emitted_findings") or [])
+    envelope["emitted_counts"] = {
+        "observations": _count(envelope.get("emitted_observations")),
+        "findings": _count(envelope.get("emitted_findings")),
+    }
+    envelope.pop("emitted_observations", None)
+    envelope.pop("emitted_findings", None)
     run_row = append_jsonl(runs_path(base_dir), {"recorded_at": utc_now(), **envelope})
     if ledger_format in ("v2-shadow", "v2"):
         append_run_by_cycle(base_dir=base_dir, cycle_uid=envelope["cycle_id"], run_row=run_row)
     record_raw_findings_for_run(envelope, raw_findings, base_dir=base_dir)
-    record_findings_for_run(envelope, base_dir=base_dir)
+    record_findings_for_run(envelope, emitted_findings=_saved_emitted_findings, base_dir=base_dir)
     decision = evaluate_health(envelope["tool_id"], base_dir=base_dir, latest_run=envelope)
     append_jsonl(health_path(base_dir), decision)
     if envelope["status"] == "tool_unhealthy":

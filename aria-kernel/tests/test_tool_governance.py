@@ -314,8 +314,8 @@ class ToolGovernanceTests(unittest.TestCase):
         run = self.latest_run()
         self.assertEqual(run["status"], "ok")
         self.assertEqual(run["run_id"], "runner-ok")
-        self.assertEqual(len(run["emitted_observations"]), 1)
-        self.assertEqual(len(run["emitted_findings"]), 1)
+        self.assertEqual(run["emitted_counts"]["observations"], 1)
+        self.assertEqual(run["emitted_counts"]["findings"], 1)
         self.assertTrue(run["input_hash"].startswith("sha256:"))
         self.assertTrue(run["output_hash"].startswith("sha256:"))
 
@@ -488,8 +488,8 @@ class ToolGovernanceTests(unittest.TestCase):
             base_dir=self.tools_dir,
         )
         run = self.latest_run()
-        self.assertEqual(run["emitted_observations"], [])
-        self.assertEqual(run["emitted_findings"], [])
+        self.assertEqual(run["emitted_counts"]["observations"], 0)
+        self.assertEqual(run["emitted_counts"]["findings"], 0)
 
         self.tools_dir = Path(self.tmp.name) / "aria-tools-calibrate"
         register_active_for_test(valid_tool(status="CALIBRATE"), base_dir=self.tools_dir)
@@ -501,8 +501,8 @@ class ToolGovernanceTests(unittest.TestCase):
             base_dir=self.tools_dir,
         )
         run = self.latest_run()
-        self.assertEqual(run["emitted_observations"], [])
-        self.assertEqual(run["emitted_findings"], [])
+        self.assertEqual(run["emitted_counts"]["observations"], 0)
+        self.assertEqual(run["emitted_counts"]["findings"], 0)
 
     def test_tool_runner_refuses_quarantined_tool(self):
         register_active_for_test(valid_tool(status="QUARANTINED"), base_dir=self.tools_dir)

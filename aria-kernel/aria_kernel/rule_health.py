@@ -49,12 +49,29 @@ MAX_FP_RATE = 0.75
 
 def _fingerprint_rules(base_dir: str | Path | None) -> dict[str, str]:
     """fingerprint → rule, from the raw ledger (feedback rows carry no rule)."""
+    from .runtime_artifacts import resolve_finding_from_artifact
+
     mapping: dict[str, str] = {}
     path = raw_findings_path(base_dir)
     for row in load_jsonl(path) if path.exists() else []:
         fingerprint = str(row.get("finding_fingerprint") or "")
+        # ORPHAN-HIGH-798 — three-tier resolution mirroring the sampler:
+        # inline finding (legacy v1), finding_summary (compact rows), then
+        # artifact fallback. Without the fallback, compact rows yield empty
+        # rules and the entire rule-health / quarantine pipeline silently
+        # stops functioning.
         finding = row.get("finding") if isinstance(row.get("finding"), dict) else {}
-        rule = str(finding.get("rule") or "").strip()
+        if finding:
+            rule = str(finding.get("rule") or "").strip()
+        else:
+            summary = row.get("finding_summary") if isinstance(row.get("finding_summary"), dict) else {}
+            if summary.get("rule"):
+                rule = str(summary["rule"]).strip()
+            elif row.get("artifact_ref"):
+                resolved = resolve_finding_from_artifact(row, base_dir=base_dir) or {}
+                rule = str(resolved.get("rule") or "").strip()
+            else:
+                rule = ""
         if fingerprint and rule and fingerprint not in mapping:
             mapping[fingerprint] = rule
     return mapping

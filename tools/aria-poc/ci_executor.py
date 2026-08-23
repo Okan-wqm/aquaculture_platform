@@ -57,6 +57,7 @@ from claude_runtime import (
     ClaudePolicyViolation,
     ClaudeRunResult,
     ClaudeUsageUnavailable,
+    ProviderRedirectUnavailable,
     UsageRecording,
     extract_final_message,
     extract_usage,
@@ -65,6 +66,12 @@ from claude_runtime import (
     preflight_claude_auth,
     run_claude_exec,
     run_with_model_fallback,
+)
+from dispatch_failure import (
+    DispatchFailure,
+    classify_dispatch_failure,
+    emit_dispatch_result_summary,
+    resolve_dispatch_route,
 )
 
 try:
@@ -1170,6 +1177,42 @@ def invoke_claude_cli(
     # unknown agent → most expensive tier.
     from aria_kernel.agent_runtime_profile import read_agent_runtime_profile
     agent_profile = read_agent_runtime_profile(subagent_type)
+    # ARIA-HIGH-002 — resolve the dispatch route BEFORE the claim is taken:
+    # the trusted request envelope names the agent/role, the frontmatter SSoT
+    # resolves the model, the redirect SSoT resolves the provider, and a
+    # drain can key its circuit on that route without claiming work. The
+    # provider/model fallback policy itself stays owned by claude_runtime.
+    _route_request: dict[str, Any] = {"role": role, "target_agent": subagent_type}
+    if isinstance(request_envelope, dict):
+        _route_request["target_agent"] = str(
+            request_envelope.get("target_agent") or subagent_type,
+        )
+    _dispatch_route = resolve_dispatch_route(
+        request=_route_request,
+        repo_root=Path(__file__).resolve().parents[2],
+    )
+    _summary_emitted = False
+
+    def _emit_dispatch_summary(
+        *, outcome: str, failure: DispatchFailure | None, exit_code: int | None,
+    ) -> None:
+        """Exactly one sanitized classified summary per terminal path."""
+        nonlocal _summary_emitted
+        if _summary_emitted:
+            return
+        _summary_emitted = True
+        try:
+            emit_dispatch_result_summary(
+                route=_dispatch_route,
+                request_id=request_id,
+                outcome=outcome,
+                failure=failure,
+                exit_code=exit_code,
+            )
+        except (OSError, ValueError) as summary_exc:
+            # The summary is telemetry; a dispatch outcome must never fail
+            # because the telemetry channel did. Name it on stderr instead.
+            sys.stderr.write(f"dispatch_summary_unwritable: {summary_exc}\n")
     try:
         # Model dispatch with the fable→opus fallback policy (credit + refusal),
         # applied by the claude_runtime SSoT helper. The executor supplies the
@@ -1294,15 +1337,43 @@ def invoke_claude_cli(
                         )
                 except (subprocess.TimeoutExpired, OSError) as _hr_exc:
                     sys.stderr.write(f"human-required record (refusal) failed: {_hr_exc}\n")
+            # ARIA-HIGH-002 — a model refusal is not a build failure: the
+            # summary says "refused", the escalation path stays as-is.
+            _emit_dispatch_summary(
+                outcome="refused", failure=None, exit_code=completed.returncode,
+            )
             raise ClaudeCliUnavailable(
                 "model_safety_refusal_unresolved: request "
                 f"{request_id} refused by {agent_profile.model} "
                 f"(category={completed.refusal.get('category')!r}); "
                 "escalated to HUMAN_REQUIRED"
             )
-    except (ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation, ClaudeUsageUnavailable) as exc:
-        contract = "tools/aria-poc/ci_executor_contract_proven.md"
-        raise ClaudeCliUnavailable(f"{exc}; see {contract}") from exc
+    except (
+        ClaudeAuthUnavailable,
+        ClaudeCliUnavailable,
+        ClaudePolicyViolation,
+        ClaudeUsageUnavailable,
+        ClaudeAuthFailure,
+        ClaudeCreditExhausted,
+        ProviderRedirectUnavailable,
+        subprocess.TimeoutExpired,
+    ) as exc:
+        # ARIA-HIGH-002 — every terminal perimeter path writes exactly one
+        # sanitized classified summary before the exception travels on. The
+        # classification names the ORIGINAL condition; the translation below
+        # preserves the existing contract-reference wrapping unchanged.
+        _emit_dispatch_summary(
+            outcome="failed",
+            failure=classify_dispatch_failure(exception=exc, phase="spawn"),
+            exit_code=None,
+        )
+        if isinstance(
+            exc,
+            (ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation, ClaudeUsageUnavailable),
+        ):
+            contract = "tools/aria-poc/ci_executor_contract_proven.md"
+            raise ClaudeCliUnavailable(f"{exc}; see {contract}") from exc
+        raise
     # Plan ARIA-V7 §2g v2 + V7.10 envelope-extraction fix.
     #
     # WHY: claude -p stream-json emits JSONL events
@@ -1360,6 +1431,11 @@ def invoke_claude_cli(
                 role=role,
                 request_id=request_id,
             )
+    _emit_dispatch_summary(
+        outcome="succeeded" if completed.returncode == 0 else "failed",
+        failure=classify_dispatch_failure(result=completed, phase="runtime"),
+        exit_code=completed.returncode,
+    )
     return completed.returncode
 
 

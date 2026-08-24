@@ -13,10 +13,7 @@
 
 import { ConfigService } from '@nestjs/config';
 
-import {
-  IEventBus,
-  IEventHandler,
-} from '@platform/event-bus';
+import { IEventBus, IEventHandler } from '@platform/event-bus';
 import { type SensorMetricIngestedEvent } from '@platform/event-contracts';
 
 import { SensorDataChannel } from '../../database/entities/sensor-data-channel.entity';
@@ -24,11 +21,11 @@ import { Sensor } from '../../database/entities/sensor.entity';
 import { SensorMetricWriterService } from '../sensor-metric-writer.service';
 import { NatsIngestionConsumerService } from '../nats-ingestion-consumer.service';
 
-const TENANT_ID  = '11111111-1111-1111-1111-111111111111';
-const SENSOR_ID  = '22222222-2222-2222-2222-222222222222';
+const TENANT_ID = '11111111-1111-1111-1111-111111111111';
+const SENSOR_ID = '22222222-2222-2222-2222-222222222222';
 const CHANNEL_ID = '33333333-3333-3333-3333-333333333333';
-const FARM_ID    = '44444444-4444-4444-4444-444444444444';
-const POND_ID    = '55555555-5555-5555-5555-555555555555';
+const FARM_ID = '44444444-4444-4444-4444-444444444444';
+const POND_ID = '55555555-5555-5555-5555-555555555555';
 
 function fakeSensor(overrides: Partial<Sensor> = {}): Sensor {
   return {
@@ -40,7 +37,10 @@ function fakeSensor(overrides: Partial<Sensor> = {}): Sensor {
   } as unknown as Sensor;
 }
 
-function fakeChannel(channelKey: string, overrides: Partial<SensorDataChannel> = {}): SensorDataChannel {
+function fakeChannel(
+  channelKey: string,
+  overrides: Partial<SensorDataChannel> = {},
+): SensorDataChannel {
   return {
     id: CHANNEL_ID,
     sensorId: SENSOR_ID,
@@ -68,6 +68,11 @@ function fakeEvent(overrides: Partial<SensorMetricIngestedEvent> = {}): SensorMe
     producerTs: 1_730_000_000_000,
     ...overrides,
   } as unknown as SensorMetricIngestedEvent;
+}
+
+/** Single-cast accessor for asserting on published event payloads. */
+function asRecord(value: unknown): Record<string, unknown> {
+  return value as Record<string, unknown>;
 }
 
 function makeBatch(): jest.Mocked<SensorMetricWriterService> {
@@ -104,8 +109,7 @@ function makeService(opts?: {
   // test uses a thin stub that returns whatever the test scenario
   // dictates, mirroring the real service's contract (null for missing
   // sensor, array for channels). No DB roundtrip in tests.
-  const sensorMaybe =
-    opts?.sensor === undefined ? fakeSensor() : opts.sensor;
+  const sensorMaybe = opts?.sensor === undefined ? fakeSensor() : opts.sensor;
   const channelArr = opts?.channels ?? [fakeChannel('temperature')];
   const metaCache = {
     getSensor: jest.fn().mockResolvedValue(sensorMaybe),
@@ -150,10 +154,7 @@ describe('NatsIngestionConsumerService', () => {
       const { svc } = makeService({ bus });
       try {
         await svc.onModuleInit();
-        expect(bus.subscribeTo).toHaveBeenCalledWith(
-          'events.*.SensorMetricIngested',
-          svc,
-        );
+        expect(bus.subscribeTo).toHaveBeenCalledWith('events.*.SensorMetricIngested', svc);
       } finally {
         // onModuleInit started a 60s statsTimer — cleanup so jest does
         // not flag an open handle.
@@ -173,9 +174,7 @@ describe('NatsIngestionConsumerService', () => {
       const { svc } = makeService({ bus });
       await svc.onModuleInit();
       await svc.onModuleDestroy();
-      expect(bus.unsubscribeFrom).toHaveBeenCalledWith(
-        'events.*.SensorMetricIngested',
-      );
+      expect(bus.unsubscribeFrom).toHaveBeenCalledWith('events.*.SensorMetricIngested');
     });
 
     it('onModuleDestroy is no-op when bus absent', async () => {
@@ -254,9 +253,7 @@ describe('NatsIngestionConsumerService', () => {
       // proving the new fallback chain accepts the event-side path.
       const batch = makeBatch();
       const { svc } = makeService({ batch });
-      await svc.handle(
-        fakeEvent({ farmId: FARM_ID, pondId: POND_ID }),
-      );
+      await svc.handle(fakeEvent({ farmId: FARM_ID, pondId: POND_ID }));
       expect(batch.enqueue).toHaveBeenCalledTimes(1);
       const firstCall = batch.enqueue.mock.calls[0];
       if (!firstCall) throw new Error('expected at least one enqueue call');
@@ -313,9 +310,7 @@ describe('NatsIngestionConsumerService', () => {
     it('publishes a typed SensorReadingEvent after enqueue (event-side farm/pond honored)', async () => {
       const bus = makeBus();
       const { svc } = makeService({ bus });
-      await svc.handle(
-        fakeEvent({ farmId: FARM_ID, pondId: POND_ID }),
-      );
+      await svc.handle(fakeEvent({ farmId: FARM_ID, pondId: POND_ID }));
       expect(bus.publish).toHaveBeenCalledTimes(1);
       const firstCall = bus.publish.mock.calls[0];
       if (!firstCall) throw new Error('expected at least one publish call');
@@ -354,19 +349,14 @@ describe('NatsIngestionConsumerService', () => {
         bus,
         sensor: fakeSensor({ farmId: SENSOR_FARM, pondId: SENSOR_POND }),
       });
-      await svc.handle(
-        fakeEvent({ farmId: EVENT_FARM, pondId: EVENT_POND }),
-      );
+      await svc.handle(fakeEvent({ farmId: EVENT_FARM, pondId: EVENT_POND }));
       // SensorMetricInput receives the EVENT-side ids.
       const enqArg = batch.enqueue.mock.calls[0]?.[0];
       if (!enqArg) throw new Error('expected enqueue arg');
       expect(enqArg.farmId).toBe(EVENT_FARM);
       expect(enqArg.pondId).toBe(EVENT_POND);
       // Typed event also carries the EVENT-side ids.
-      const typedEv = bus.publish.mock.calls[0]?.[0] as unknown as Record<
-        string,
-        unknown
-      >;
+      const typedEv = asRecord(bus.publish.mock.calls[0]?.[0]);
       expect(typedEv['farmId']).toBe(EVENT_FARM);
       expect(typedEv['pondId']).toBe(EVENT_POND);
     });
@@ -394,10 +384,7 @@ describe('NatsIngestionConsumerService', () => {
       if (!enqArg) throw new Error('expected enqueue arg');
       expect(enqArg.farmId).toBe(FARM_ID);
       expect(enqArg.pondId).toBe(POND_ID);
-      const typedEv = bus.publish.mock.calls[0]?.[0] as unknown as Record<
-        string,
-        unknown
-      >;
+      const typedEv = asRecord(bus.publish.mock.calls[0]?.[0]);
       expect(typedEv['farmId']).toBe(FARM_ID);
       expect(typedEv['pondId']).toBe(POND_ID);
     });
@@ -409,6 +396,34 @@ describe('NatsIngestionConsumerService', () => {
       const { svc } = makeService({ bus, batch });
       await expect(svc.handle(fakeEvent())).resolves.toBeUndefined();
       expect(batch.enqueue).toHaveBeenCalledTimes(1);
+    });
+
+    it('awaits the durable write — a DB failure aborts fanout/publish so the bus NAKs (ack-after-commit)', async () => {
+      const bus = makeBus();
+      const fanout = { fanoutMetric: jest.fn(), drainStats: jest.fn() };
+      const batch = makeBatch();
+      batch.enqueue.mockRejectedValue(new Error('db down'));
+      const { svc } = makeService({ bus, batch, fanout });
+
+      await expect(svc.handle(fakeEvent())).rejects.toThrow('db down');
+      // The JetStream message is NOT acked: handle() threw, so the event-bus
+      // NAKs for redelivery. Downstream effects must not have fired either —
+      // they would be duplicates on redelivery.
+      expect(bus.publish).not.toHaveBeenCalled();
+      expect(fanout.fanoutMetric).not.toHaveBeenCalled();
+    });
+
+    it('settles when the write commits — publish still fires afterwards', async () => {
+      const bus = makeBus();
+      const batch = makeBatch();
+      batch.enqueue.mockResolvedValue({
+        tenantId: TENANT_ID,
+        committedRows: 1,
+      });
+      const { svc } = makeService({ bus, batch });
+      await expect(svc.handle(fakeEvent())).resolves.toBeUndefined();
+      expect(batch.enqueue).toHaveBeenCalledTimes(1);
+      expect(bus.publish).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -442,21 +457,18 @@ describe('NatsIngestionConsumerService', () => {
       readingWaterLevel: true,
     } as const;
 
-    it.each(cases)(
-      'channelKey "%s" → typed field "%s"',
-      (channelKey, expectedField) => {
-        const { svc } = makeService();
-        const ev = svc._testBuildTypedReadingEvent(
-          fakeEvent({ value: 99.9 }),
-          fakeSensor(),
-          fakeChannel(channelKey),
-        );
-        // Cast through unknown — SensorReadingEvent has no string
-        // index signature; the intent is field-name lookup.
-        const r = ev as unknown as Record<string, unknown>;
-        expect(r[expectedField]).toBe(99.9);
-      },
-    );
+    it.each(cases)('channelKey "%s" → typed field "%s"', (channelKey, expectedField) => {
+      const { svc } = makeService();
+      const ev = svc._testBuildTypedReadingEvent(
+        fakeEvent({ value: 99.9 }),
+        fakeSensor(),
+        fakeChannel(channelKey),
+      );
+      // Cast through unknown — SensorReadingEvent has no string
+      // index signature; the intent is field-name lookup.
+      const r = asRecord(ev);
+      expect(r[expectedField]).toBe(99.9);
+    });
 
     it('unknown channelKey omits all readingXxx fields', () => {
       const { svc } = makeService();
@@ -465,7 +477,7 @@ describe('NatsIngestionConsumerService', () => {
         fakeSensor(),
         fakeChannel('exotic_unmapped_channel'),
       );
-      const r = ev as unknown as Record<string, unknown>;
+      const r = asRecord(ev);
       for (const k of Object.keys(readingFields)) {
         expect(r[k]).toBeUndefined();
       }

@@ -8,10 +8,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import {
-  IEventBus,
-  IEventHandler,
-} from '@platform/event-bus';
+import { IEventBus, IEventHandler } from '@platform/event-bus';
 import {
   createBaseEvent,
   parameterForChannelKey,
@@ -67,10 +64,7 @@ import { SensorMetaCacheService } from './sensor-meta-cache.service';
  */
 @Injectable()
 export class NatsIngestionConsumerService
-  implements
-    OnModuleInit,
-    OnModuleDestroy,
-    IEventHandler<SensorMetricIngestedEvent>
+  implements OnModuleInit, OnModuleDestroy, IEventHandler<SensorMetricIngestedEvent>
 {
   private readonly logger = new Logger(NatsIngestionConsumerService.name);
 
@@ -110,9 +104,7 @@ export class NatsIngestionConsumerService
 
   async onModuleInit(): Promise<void> {
     if (!this.eventBus) {
-      this.logger.warn(
-        'EVENT_BUS not provided; NatsIngestionConsumerService will not subscribe',
-      );
+      this.logger.warn('EVENT_BUS not provided; NatsIngestionConsumerService will not subscribe');
       return;
     }
 
@@ -157,13 +149,9 @@ export class NatsIngestionConsumerService
     }
     if (this.eventBus) {
       try {
-        await this.eventBus.unsubscribeFrom(
-          NatsIngestionConsumerService.SUBJECT_PATTERN,
-        );
+        await this.eventBus.unsubscribeFrom(NatsIngestionConsumerService.SUBJECT_PATTERN);
       } catch (e) {
-        this.logger.warn(
-          `unsubscribeFrom failed at shutdown: ${(e as Error).message}`,
-        );
+        this.logger.warn(`unsubscribeFrom failed at shutdown: ${(e as Error).message}`);
       }
     }
   }
@@ -279,7 +267,12 @@ export class NatsIngestionConsumerService
       farmId: event.farmId ?? sensor.farmId ?? undefined,
       pondId: event.pondId ?? sensor.pondId ?? undefined,
     };
-    this.metricWriter.enqueue(metric);
+    // 4. Hand to the single writer and AWAIT the durable outcome: the writer
+    //    settles this promise only after the row's tenant batch COMMITTED
+    //    (ack-after-commit, SENSOR-CRITICAL-087), so the event-bus ACK fires
+    //    strictly after persistence and a DB failure propagates into a NAK
+    //    for redelivery instead of an acked loss.
+    await this.metricWriter.enqueue(metric);
     this.enqueuedCount++;
 
     // 4b. Live fan-out to subscribed /scada operator sockets. Best-effort by

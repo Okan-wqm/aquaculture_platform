@@ -511,6 +511,17 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
         workspace_root,
     )
 
+    # ORPHAN-HIGH-798 compact half — shrink bloated ledgers in-place.
+    if getattr(args, "state_command", None) == "compact":
+        from .state_compact import compact_state
+        result = compact_state(
+            base_dir=getattr(args, "tools_dir", None) or os.environ.get("ARIA_TOOLS_DIR"),
+            retain_days=getattr(args, "retain_days", 7),
+            dry_run=getattr(args, "dry_run", False),
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
     # Every refusal in this command is a VERDICT, not a crash — an
     # unacknowledged bootstrap and an unproven ancestry both mean "the
     # state does not permit this write". Reported as structured output on
@@ -749,6 +760,14 @@ def build_parser() -> argparse.ArgumentParser:
     # tree instead of two that each know half the story.
     state_parser = add_subparser(sub, "state")
     state_sub = state_parser.add_subparsers(dest="state_command", required=True)
+    state_compact = add_subparser(
+        state_sub, "compact",
+        help="Shrink bloated state ledgers (runs, raw-findings, beliefs, learning-events).",
+    )
+    state_compact.add_argument("--retain-days", type=int, default=7,
+                               help="Keep rows newer than this many days (default 7).")
+    state_compact.add_argument("--dry-run", action="store_true",
+                               help="Report what would be compacted without writing.")
     state_snapshot = add_subparser(
         state_sub, "snapshot",
         help="Build (and optionally sign) a state snapshot manifest.",

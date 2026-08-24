@@ -132,6 +132,7 @@ EXPECTED_SPECIFIC_AUTHORITY = {
         f"{KERNEL}funnel_health.py",
         f"{KERNEL}pr_tracking.py",
         f"{KERNEL}rule_health.py",
+        f"{KERNEL}state_compact.py",
         f"{KERNEL}state_manifest.py",
         ".github/workflows/aria-auto-cycle.yml",
         ".github/workflows/aria-agent-executor.yml",
@@ -212,7 +213,7 @@ EXPECTED_PRODUCERS = {
     "finding_funnel": (
         f"{KERNEL}calibration_bootstrap.py", f"{KERNEL}feedback_store.py",
         f"{KERNEL}finding_promotion.py", f"{KERNEL}pr_tracking.py",
-        f"{KERNEL}rule_health.py",
+        f"{KERNEL}rule_health.py", f"{KERNEL}state_compact.py",
         ".github/workflows/aria-auto-cycle.yml",
         ".github/workflows/aria-agent-executor.yml",
     ),
@@ -263,7 +264,7 @@ EXPECTED_CONSUMERS = {
     ),
     "finding_funnel": (
         f"{KERNEL}finding_promotion.py", f"{KERNEL}funnel_health.py",
-        f"{KERNEL}rule_health.py",
+        f"{KERNEL}rule_health.py", f"{KERNEL}state_compact.py",
     ),
     "fixture_calibration": (
         f"{KERNEL}agent_genesis.py", f"{KERNEL}fixture_runner.py",

@@ -1,11 +1,11 @@
 {
   "$schema": "aria/agent-response/v1",
-  "agent_id": "ci-executor:gha-32595458879",
-  "claim_id": "claim_9d3441d4ba18c274",
+  "agent_id": "ci-executor:gha-32674328825",
+  "claim_id": "claim_a8c6247bd29d4cc0",
   "details": {
     "agent_dispatch_model": "opus",
     "agent_subagent_type": "aria-evidence-judge",
-    "agent_text": "You've hit your weekly limit \u00b7 resets 10am (UTC)",
+    "agent_text": "Your organization has disabled Claude subscription access for Claude Code \u00b7 Use an Anthropic API key instead, or ask your admin to enable access",
     "claude_cli_usage": {
       "cache_creation": {
         "ephemeral_1h_input_tokens": 0,
@@ -33,7 +33,7 @@
   "role": "human_required_adjudication",
   "satisfaction_matrix": [
     {
-      "evidence": "You've hit your weekly limit \u00b7 resets 10am (UTC)",
+      "evidence": "Your organization has disabled Claude subscription access for Claude Code \u00b7 Use an Anthropic API key instead, or ask your admin to enable access",
       "evidence_refs": [],
       "id": "adjudicate-AIR-aria-evidence-judge-69273584482a",
       "verdict": "satisfied"

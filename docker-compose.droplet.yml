@@ -571,8 +571,12 @@ services:
     deploy:
       resources:
         limits:
-          memory: 192M
-          cpus: '0.25'
+          # 100-tenant readiness Task 0 (SENSOR-HIGH-090): the 192M/0.25 floor
+          # starved a file-store JetStream node on the MQTT hot path. The
+          # deploy gate (droplet-capacity.sh broker_capacity_error_lines)
+          # enforces this floor — raise both together.
+          memory: 512M
+          cpus: '1.0'
     healthcheck:
       # SEC-H01: Use HTTP monitoring endpoint (enabled in nats.conf http_port: 8222)
       test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:8222/healthz']
@@ -2043,6 +2047,25 @@ services:
       resources:
         limits:
           memory: 128M
+
+  # NATS server/JetStream metrics for the DROPLET Prometheus (100-tenant
+  # readiness Task 0, SENSOR-HIGH-091). Server-level collector only —
+  # per-consumer ack-pending arrives with the Task 2 stream work (nats-surveyor).
+  nats-exporter:
+    logging: *default-logging
+    image: nats-io/prometheus-nats-exporter:0.20.2
+    container_name: aqua-nats-exporter
+    restart: unless-stopped
+    # -prefix nats renames jetstream_* metrics to nats_server_jetstream_*
+    # (the naming the alert rules and Grafana dashboards expect). The NATS
+    # monitoring endpoint is plain HTTP on the internal docker network only.
+    command: ['-varz', '-js=server', '-prefix', 'nats', 'http://nats:8222']
+    networks:
+      - aqua-internal
+    deploy:
+      resources:
+        limits:
+          memory: 64M
 
   alertmanager:
     logging: *default-logging

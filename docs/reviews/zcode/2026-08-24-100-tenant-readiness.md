@@ -467,10 +467,18 @@ PENDING_CAPACITY and requires droplet resize or a dedicated nats_data volume.
 
 - [ ] **Step 0.6: Consolidate monitoring and prove alert delivery**
 
-Make docker-compose.monitoring.yml canonical. Add digest-pinned NATS exporter
+Make docker-compose.monitoring.yml canonical. Add version-pinned NATS exporter
 for 8222, a dedicated least-privileged Mosquitto SYS exporter, protected
 observability scrape credentials, broker/consumer/DLQ rules, a real
 Alertmanager receiver receipt and external deadman.
+
+**Sıralama notu (2026-08-24):** NATS exporter + scrape + broker/host rules
+(droplet compose, prometheus.yml, rules/35-broker-jetstream.yml) code yarısı
+olarak landed. Mosquitto `$SYS` exporter'ı mqtt-auth HTTP-auth eklentisi
+global olduğundan ayrı bir monitor kimliği tasarımı gerektirir — Task 1'in
+mqtt dayanıklılık işi (aynı kod yüzeyi) ile birlikte teslim edilir; per-consumer
+ack-pending alerting de Task 2'nin nats-surveyor kalemidir. Alertmanager gerçek
+receiver makbuzu ve dış deadman operator artefaktıdır (Task 0 exit gate'te).
 
 - [ ] **Step 0.7: Verify and commit**
 

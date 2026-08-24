@@ -67,6 +67,24 @@ SERVICE_PULL_ESTIMATE_GIB="${SERVICE_PULL_ESTIMATE_GIB:-2}"
 FULL_PROJECTED_RESERVE_GIB="${FULL_PROJECTED_RESERVE_GIB:-20}"
 SELECTIVE_PROJECTED_RESERVE_GIB="${SELECTIVE_PROJECTED_RESERVE_GIB:-10}"
 
+# --- Broker/JetStream capacity floors (100-tenant readiness Task 0) ---
+# NATS file-store floor: sum of DECLARED stream budgets × 1.25 reserve. Today
+# the only stream is AQUACULTURE_EVENTS (1.5GiB, nats-event-bus
+# getStreamConfig), so the floor is 1920MiB. When Task 2 lands
+# AQUACULTURE_TELEMETRY (~6GiB at the locked 2K msg/s envelope), this default
+# AND infrastructure/docker/nats/nats.conf max_file_store MUST be raised in the
+# same commit — this gate exists to catch the half-done version of exactly
+# that change.
+NATS_REQUIRED_FILE_STORE_BYTES="${NATS_REQUIRED_FILE_STORE_BYTES:-2013265920}"
+NATS_MIN_MEMORY_BYTES="${NATS_MIN_MEMORY_BYTES:-536870912}"
+NATS_MIN_CPUS="${NATS_MIN_CPUS:-1.0}"
+# Measured 60-minute broker queue projection from the Task 0.4 M/E/R artifact.
+# Zero until that operator measurement exists; the projected-reserve gate
+# enforces it only when it is provided.
+BROKER_QUEUE_BUDGET_BYTES="${BROKER_QUEUE_BUDGET_BYTES:-0}"
+NATS_CONF_PATH="${NATS_CONF_PATH:-infrastructure/docker/nats/nats.conf}"
+DROPLET_COMPOSE_PATH="${DROPLET_COMPOSE_PATH:-docker-compose.droplet.yml}"
+
 usage() {
   cat <<'EOF'
 Usage:
@@ -82,6 +100,10 @@ Environment:
   CAPACITY_GC_MODE=auto|off
   CAPACITY_DISK_USAGE_MODE=summary|deep|off
   CAPACITY_DU_TIMEOUT_SECONDS=1..120
+  NATS_REQUIRED_FILE_STORE_BYTES=<bytes>  (default 1920MiB = 1.5GiB streams × 1.25)
+  NATS_MIN_MEMORY_BYTES=<bytes>           (default 512MiB)
+  NATS_MIN_CPUS=<cores>                   (default 1.0)
+  BROKER_QUEUE_BUDGET_BYTES=<bytes>       (default 0; measured 60-min queue projection)
   GC_DRY_RUN=true|false   (gc only: enumerate removals without deleting)
 EOF
 }
@@ -788,6 +810,96 @@ thresholds() {
   fi
 }
 
+# Parse a NATS/compose size literal ("2GB", "512M", "1536MiB", "1048576") into
+# bytes. NATS conf and docker compose both interpret G/M/K as powers of 1024.
+# Unparseable input echoes nothing (caller treats empty as a gate failure).
+parse_size_bytes() {
+  local raw="$1" value suffix
+  raw="${raw//\'/}"
+  raw="${raw//\"/}"
+  raw="${raw%;}"
+  case "${raw}" in
+    '' | *[!0-9GMKBgmkbibIB.]*) return 0 ;;
+  esac
+  value="${raw%%[!0-9.]*}"
+  suffix="${raw#"$value"}"
+  case "${suffix^^}" in
+    GB | G | GIB) suffix=1073741824 ;;
+    MB | M | MIB) suffix=1048576 ;;
+    KB | K | KIB) suffix=1024 ;;
+    B | '') suffix=1 ;;
+    *) return 0 ;;
+  esac
+  case "${value}" in
+    '' | *[!0-9.]*) return 0 ;;
+  esac
+  awk -v v="${value}" -v m="${suffix}" 'BEGIN { printf "%.0f\n", v * m }'
+}
+
+nats_conf_max_file_store_bytes() {
+  [ -f "${NATS_CONF_PATH}" ] || return 0
+  awk '
+    /^jetstream[[:space:]]*\{/ { in_js = 1 }
+    in_js && /\}/ { in_js = 0 }
+    in_js && $1 == "max_file_store:" { print $2; exit }
+  ' "${NATS_CONF_PATH}"
+}
+
+# First `<key>:` value inside a top-level compose service block, with any
+# YAML quoting stripped ("'1.0'" -> "1.0") so numeric consumers never parse a
+# leading quote as zero.
+droplet_compose_service_value() {
+  local service="$1" key="$2"
+  [ -f "${DROPLET_COMPOSE_PATH}" ] || return 0
+  awk -v svc="  ${service}:" -v key="${key}" '
+    $0 == svc { in_svc = 1; next }
+    in_svc && /^  [A-Za-z0-9_-]+:/ { in_svc = 0 }
+    in_svc && $1 == key ":" {
+      sub(/^[^:]*:[[:space:]]*/, "")
+      gsub(/[\047"]/, "")
+      print
+      exit
+    }
+  ' "${DROPLET_COMPOSE_PATH}"
+}
+
+# Emits one ::error line per broker/JetStream floor violation (empty output =
+# clean). Counted into the capacity verdict like disk failures so a deploy
+# cannot proceed with an undersized JetStream store or NATS container.
+broker_capacity_error_lines() {
+  local max_file_store compose_memory compose_cpus
+
+  if [ ! -f "${NATS_CONF_PATH}" ]; then
+    echo "::error::nats_preflight_missing_conf path=${NATS_CONF_PATH}"
+  else
+    max_file_store="$(parse_size_bytes "$(nats_conf_max_file_store_bytes)")"
+    if [ -z "${max_file_store}" ]; then
+      echo "::error::nats_preflight_unparsed_max_file_store path=${NATS_CONF_PATH}"
+    elif [ "${max_file_store}" -lt "${NATS_REQUIRED_FILE_STORE_BYTES}" ]; then
+      echo "::error::nats_file_store_below_required configured_bytes=${max_file_store} required_bytes=${NATS_REQUIRED_FILE_STORE_BYTES} note=raise_with_task2_telemetry_stream"
+    fi
+  fi
+
+  if [ ! -f "${DROPLET_COMPOSE_PATH}" ]; then
+    echo "::error::nats_preflight_missing_compose path=${DROPLET_COMPOSE_PATH}"
+  else
+    compose_memory="$(parse_size_bytes "$(droplet_compose_service_value nats memory)")"
+    if [ -z "${compose_memory}" ]; then
+      echo "::error::nats_preflight_unparsed_compose_memory path=${DROPLET_COMPOSE_PATH}"
+    elif [ "${compose_memory}" -lt "${NATS_MIN_MEMORY_BYTES}" ]; then
+      echo "::error::nats_compose_memory_below_floor configured_bytes=${compose_memory} floor_bytes=${NATS_MIN_MEMORY_BYTES}"
+    fi
+
+    compose_cpus="$(droplet_compose_service_value nats cpus)"
+    if [ -z "${compose_cpus}" ]; then
+      echo "::error::nats_preflight_unparsed_compose_cpus path=${DROPLET_COMPOSE_PATH}"
+    elif ! awk -v a="${compose_cpus}" -v b="${NATS_MIN_CPUS}" \
+      'BEGIN { exit (a + 0 >= b + 0) ? 0 : 1 }'; then
+      echo "::error::nats_compose_cpus_below_floor configured=${compose_cpus} floor=${NATS_MIN_CPUS}"
+    fi
+  fi
+}
+
 capacity_core_snapshot() {
   local pull_estimate
   pull_estimate="$(projected_pull_bytes)"
@@ -799,6 +911,11 @@ capacity_core_snapshot() {
   echo "deploy_sha=${DEPLOY_SHA:-unknown}"
   echo "docker_root=$(docker_root)"
   echo "projected_pull_bytes=${pull_estimate}"
+  echo "broker_queue_budget_bytes=${BROKER_QUEUE_BUDGET_BYTES}"
+  local nats_max_file_store
+  nats_max_file_store="$(parse_size_bytes "$(nats_conf_max_file_store_bytes)")"
+  echo "nats_max_file_store_bytes=${nats_max_file_store:-unparsed}"
+  echo "nats_required_file_store_bytes=${NATS_REQUIRED_FILE_STORE_BYTES}"
   echo ""
   echo "Filesystem bytes:"
   local path fs size avail mount used_pct free_pct
@@ -886,6 +1003,9 @@ capacity_failures() {
   local warnings=0
   local path fs size avail mount free_pct projected_free
   local inodes_total inodes_free inode_free_pct
+  # The broker queue projection (Task 0.4 measured artifact) is disk that the
+  # outage buffer will legitimately claim on top of the deploy reserve.
+  local effective_reserve=$((projected_reserve + BROKER_QUEUE_BUDGET_BYTES))
 
   while IFS= read -r path; do
     [ -n "${path}" ] || continue
@@ -909,8 +1029,8 @@ capacity_failures() {
       failures=$((failures + 1))
     fi
 
-    if [ "${projected_free}" -lt "${projected_reserve}" ]; then
-      echo "::error::disk_preflight_projected_low path=${path} projected_free_bytes=${projected_free} reserve_bytes=${projected_reserve}"
+    if [ "${projected_free}" -lt "${effective_reserve}" ]; then
+      echo "::error::disk_preflight_projected_low path=${path} projected_free_bytes=${projected_free} reserve_bytes=${projected_reserve} broker_queue_budget_bytes=${BROKER_QUEUE_BUDGET_BYTES}"
       failures=$((failures + 1))
     fi
 
@@ -926,6 +1046,13 @@ capacity_failures() {
       fi
     fi
   done < <(runtime_paths)
+
+  local broker_error
+  while IFS= read -r broker_error; do
+    [ -n "${broker_error}" ] || continue
+    echo "${broker_error}"
+    failures=$((failures + 1))
+  done < <(broker_capacity_error_lines)
 
   if [ "${failures}" -gt 0 ]; then
     return 2

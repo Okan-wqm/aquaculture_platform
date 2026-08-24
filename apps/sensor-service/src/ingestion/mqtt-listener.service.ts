@@ -149,6 +149,16 @@ interface TenantEdgeStatusPayload {
 }
 
 /**
+ * Marks a failure of the DURABLE leg of message handling (the metric write
+ * transaction). Only these propagate out of handleMessage: an unpersisted
+ * reading must not be PUBACKed — the MQTT ack gate force-redelivers it from
+ * the persistent session. Non-durable failures (parse, fan-out) stay
+ * swallow-and-ack until the Task 1.6 disposition/DLQ contract classifies
+ * them (SENSOR-CRITICAL-086).
+ */
+class DurableWriteError extends Error {}
+
+/**
  * MQTT Listener Service
  * Global MQTT listener that subscribes to all sensor topics
  * and routes data to appropriate sensors.
@@ -257,15 +267,11 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     this.legacyEdgeTopicsEnabled =
       this.configService.get('LEGACY_EDGE_TOPICS_ENABLED', 'true') === 'true';
 
-    // Bind message handler to this instance
-    this.messageHandler = (topic: string, message: Buffer) => {
-      this.handleMessage(topic, message).catch((error: Error) => {
-        this.logger.error(
-          `Unhandled error in message handler for topic ${topic}: ${error.message}`,
-          error.stack,
-        );
-      });
-    };
+    // Bind message handler to this instance. The promise is RETURNED, not
+    // swallowed: MqttClientService's ack gate (dispatchDurable) awaits it to
+    // decide PUBACK-vs-redelivery (SENSOR-CRITICAL-086). A swallowed error
+    // here would ack a message that was never durably persisted.
+    this.messageHandler = (topic: string, message: Buffer) => this.handleMessage(topic, message);
   }
 
   async onModuleInit(): Promise<void> {
@@ -463,8 +469,16 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
       const now = new Date();
 
-      // Save reading
-      await this.saveReading(sensor, data);
+      // Save reading. A failure here means the reading was NOT durably
+      // persisted — it must propagate (wrapped in DurableWriteError) so the
+      // MQTT ack gate holds PUBACK and the persistent session redelivers
+      // (SENSOR-CRITICAL-086). Everything else in this handler stays
+      // swallow-and-ack until the Task 1.6 disposition/DLQ contract lands.
+      await this.saveReading(sensor, data).catch((error: Error) => {
+        throw new DurableWriteError(
+          `Durable metric write failed for sensor ${sensor.id}: ${error.message}`,
+        );
+      });
 
       // Debounce lastSeenAt update (flushed every 30 seconds)
       this.lastSeenPending.set(sensor.id, now);
@@ -472,6 +486,11 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       // Publish real-time event for WebSocket clients
       await this.publishSensorReadingEvent(sensor, data, now);
     } catch (error) {
+      if (error instanceof DurableWriteError) {
+        // Not durable → no ack → redelivery. The ack gate in
+        // MqttClientService.forceRedelivery owns the reconnect.
+        throw error;
+      }
       this.logger.error(`Error handling MQTT message: ${(error as Error).message}`);
     }
   }

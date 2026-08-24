@@ -971,6 +971,8 @@ services:
       MQTT_SENSOR_SERVICE_HASH: ${MQTT_SENSOR_SERVICE_HASH:?MQTT_SENSOR_SERVICE_HASH is required}
       MQTT_USERNAME: sensor_service
       MQTT_PASSWORD: ${MQTT_SENSOR_SERVICE_PASSWORD:?MQTT_SENSOR_SERVICE_PASSWORD is required}
+      # SENSOR-CRITICAL-086: stable persistent-session identity for delayed PUBACK
+      MQTT_CLIENT_ID: aqua-sensor-service
       # SEC-C02: No hardcoded default — credential encryption key must be provided externally
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?CREDENTIAL_ENCRYPTION_KEY is required}
       MQTT_BROKER_HOST: app.suderra.com

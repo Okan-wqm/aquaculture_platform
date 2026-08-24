@@ -26489,6 +26489,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/shared-mqtt/__tests__/mqtt-client.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/shared-mqtt/index.ts",
       "prettier_managed": true
     },

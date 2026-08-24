@@ -459,6 +459,7 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             f"{_KERNEL}funnel_health.py",
             f"{_KERNEL}pr_tracking.py",
             f"{_KERNEL}rule_health.py",
+            f"{_KERNEL}state_compact.py",
             f"{_KERNEL}state_manifest.py",
             ".github/workflows/aria-auto-cycle.yml",
             ".github/workflows/aria-agent-executor.yml",
@@ -469,6 +470,7 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             f"{_KERNEL}finding_promotion.py",
             f"{_KERNEL}pr_tracking.py",
             f"{_KERNEL}rule_health.py",
+            f"{_KERNEL}state_compact.py",
             ".github/workflows/aria-auto-cycle.yml",
             ".github/workflows/aria-agent-executor.yml",
         ),
@@ -476,6 +478,7 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             f"{_KERNEL}finding_promotion.py",
             f"{_KERNEL}funnel_health.py",
             f"{_KERNEL}rule_health.py",
+            f"{_KERNEL}state_compact.py",
         ),
         contracts=(EvidenceContract(
             surface="promotions",

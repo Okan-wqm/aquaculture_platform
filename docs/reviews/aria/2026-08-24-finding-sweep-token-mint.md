@@ -29,7 +29,7 @@ watchdog red.
 - With the correct key, the exact workflow snippet mints a Mode A `ghs_`
   installation token locally (`fallback_active=False`).
 
-## ARIA-MEDIUM-018 — the sweep lane's App-token mint crashes and both hosted lanes reference an unreadable key path
+## ARIA-MEDIUM-018 — the sweep lane's App-token mint crashes and hosted lanes point at an unreadable key path
 
 The mint step can never succeed on any runner: the call signature is stale,
 the returned attribute does not exist, and the key path secret points at a

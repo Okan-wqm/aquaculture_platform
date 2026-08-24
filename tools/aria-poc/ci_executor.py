@@ -1903,29 +1903,25 @@ def _on_disk_anchors(
     requests_path = tools_dir / "agent-invocations" / "requests.jsonl"
     claim_hash: str | None = None
     request_hash: str | None = None
+    # Late import keeps standalone/mock executor startup behavior unchanged.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "aria-kernel"))
+    from aria_kernel.ledger import load_declared_jsonl
+
     if claims_path.exists():
-        for raw in claims_path.read_text(encoding="utf-8").splitlines():
-            raw = raw.strip()
-            if not raw:
-                continue
-            try:
-                row = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
+        for row in load_declared_jsonl(
+            claims_path,
+            expected_surface="agent_invocation_claims",
+        ):
             if (
                 row.get("claim_id") == claim_id
                 and row.get("event") == "claimed"
             ):
                 claim_hash = row.get("ledger_hash")
     if requests_path.exists():
-        for raw in requests_path.read_text(encoding="utf-8").splitlines():
-            raw = raw.strip()
-            if not raw:
-                continue
-            try:
-                row = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
+        for row in load_declared_jsonl(
+            requests_path,
+            expected_surface="agent_invocation_requests",
+        ):
             if row.get("request_id") == request_id:
                 request_hash = row.get("ledger_hash")
     return claim_hash, request_hash

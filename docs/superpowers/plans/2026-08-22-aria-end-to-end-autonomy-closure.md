@@ -609,6 +609,248 @@ races, accepted-descendant coherence, remote rewinds, cleanup/recovery paths,
 loser adoption, and policy path/blob/heading false positives before the focused,
 owner, adjacent, and repository gates are rerun.
 
+#### Fourth controlled-freeze correction
+
+Final controller review reopens the third correction only for stronger
+existing-owner concurrency and recovery contracts. Snapshot construction and
+publication bind one exact base commit: the orchestrator captures HEAD once,
+the snapshot reader verifies that exact object before and after its immutable
+read, and `publish_state()` verifies the same base again before any index or
+worktree mutation. A symbolic-HEAD or tracking-ref approximation is not an
+acceptable base proof.
+
+Before replay can reset the worktree, every declared ledger/index recovery
+source is validated against its canonical snapshot claim and copied through an
+anchored no-follow descriptor chain into an exclusive `0600` staging file.
+Declared size, streamed size, digest, per-surface cap, partial-write handling,
+and file-plus-directory durability are all verified before the first reset.
+Symlinks, FIFOs, path escapes, source replacement, truncated/oversize input,
+hash mismatch, or failure to establish durable staging refuse without a reset.
+The state-store recovery cap may be larger than the public snapshot cap, but is
+still explicit and bounded through the existing snapshot streaming helper.
+
+Failure restoration is an atomic compare-and-swap-like replacement, not a
+direct copy over the destination. It traverses the destination through
+no-follow directory descriptors, rejects symlink/non-regular destinations,
+revalidates the staged source, creates an exclusive same-directory `0600`
+ephemeral restore file, fsyncs it, rechecks destination identity, performs a dirfd
+rename, fsyncs the parent directory, and securely verifies the restored bytes.
+Restored manifest entries and explicit integrity-index groups must match exact
+declared size/hash claims before staging is removed. Any restoration or replay
+verification failure retains named recovery staging, while every ephemeral
+restore file and every successful/fail-before-reset staging directory is
+cleaned exactly.
+
+Replay success is also content proof. A fresh exact remote tip must first pass
+the canonical immutable single-parent snapshot verifier. The completed tree is
+rebuilt as a canonical snapshot, every preserved logical suffix is proved by
+row count, content digest, and winner-tail boundary, and derived indexes are
+verified. A zero-row replay is valid only when the winner already ends with the
+exact staged suffix; a validly rechained mutation of the winner prefix cannot
+pass. This supersedes the third-correction shorthand about late loser adoption:
+a two-parent commit containing divergent winner and loser histories is invalid
+state and must fail `state_publish_outcome_unknown` with zero reset/replay and
+the exact loser tree recoverable. The immutable verifier is never weakened or
+skipped for a tip considered for adoption.
+
+The final hostile-input correction also routes target-policy refs through the
+shared manifest path normalizer and treats only CR/LF as heading line
+boundaries; NUL, surrogate, Unicode line-separator, component-depth, byte-length,
+and longer-prefix heading lookalikes remain fail-closed. Final artifact tests
+must assert exact HEAD/tracking/remote equality, immediate snapshot and index
+coherence, transient-ref cleanup on success and failure, index preservation
+across rollback CAS, zero reset/replay for invalid remote commits, and atomic
+recovery cleanup before the full owner, contention, neighbor, type-check,
+registry, invariant, format-scope, authority-pin, and diff gates are rerun.
+
+#### Fifth and final controlled-freeze correction
+
+The fourth-correction statement that the remaining work stays only inside
+`state_store.py`, `autonomy_evidence.py`, and their existing tests is
+superseded. Production-shaped failure injection exposed shared existing-owner
+defects at the state publication, executor-result, fixture-reader, and outage
+recovery boundaries. This correction is still Task 2 hardening: it introduces
+no mutable dashboard, capability ledger, or product API and does not implement
+the target-SHA producer contracts reserved for Tasks 3, 6, and 19. Passing
+these code gates is `code_proven` only; scheduled execution evidence remains
+required before any `live_proven` state.
+
+Result submission becomes one recoverable operation. Before any terminal
+result, the claims ledger records a durable `result_submission_prepared`
+journal carrying a stable operation identity, canonical input bindings, and
+portable content-addressed response/transcript references. Existing downstream
+side effects are append-once under that identity and the terminal result is
+last. Claim release, heartbeat, lease-expiry reaping, and external-outage
+reaping mutate lifecycle state only inside a claims-plus-results transaction
+and recheck the locked history; a prepared or terminal submission therefore
+cannot be requeued, released, or revived. Recovery verifies every journal-bound
+sealed artifact again before continuing, and terminal idempotency accepts only
+the same input binding. Successfully parsed output uses the canonical envelope
+binding; malformed output additionally binds its raw digest so two unreadable
+payloads cannot collide.
+
+Submission input is read once through a bounded, stable, no-follow descriptor
+and then sealed into the existing state package with file and parent-directory
+durability. The same rule applies to transcripts. Symlink leaves, replaced
+files, oversized or unstable input, absent sealed artifacts, and nonportable
+references fail closed. Authority is checked before a new operation creates a
+sealed artifact. On journal recovery, exact journal-declared sealed bytes are
+verified and reused before consulting a caller-controlled raw path. A missing
+raw response or transcript cannot strand a fully sealed operation; a fresh
+operation still requires raw input, and a missing/corrupt seal with no raw
+recovery source fails closed. Exact token, path, workspace, context, prompt,
+transcript, and content bindings continue to reject drift. Abrupt subprocess
+death is injected after each durable boundary and after both seals but before
+the first side effect; retry from a fresh process must either resume the same
+operation exactly once or reject without ledger or untracked-artifact drift.
+The journal uses the existing claims ledger and the sealed package uses the
+existing state store; neither is a new durable surface.
+
+Contention replay no longer adds producer-foreign top-level keys. Replayed
+rows are stored in one exact, versioned transport envelope whose nested
+producer row is unchanged and whose transaction/event identity and payload
+digest are validated. The outer ledger chain is verified over the exact stored
+bytes first; shared logical readers then unwrap the envelope and expose the
+producer-native row together with the current outer chain fields. Only replay
+internals may consume raw transport rows. Nested, malformed, wrong-surface,
+wrong-digest, or producer-chain-bearing envelopes fail closed. Independent
+identical producer rows remain distinct, while retrying the same replay
+transaction is idempotent even when an ordinary producer has appended after
+the completed replay sequence. An exact transaction/event/payload sequence may
+occur once anywhere in the winner suffix; partial, reordered, conflicting, or
+ambiguous replay identity refuses before any append. All strict custom readers,
+including fixture and autonomy-evidence streaming readers, use the same
+verified unwrap contract so replayed rows retain their producer schema.
+
+Recovery packages also survive death between staged-manifest durability and
+atomic replacement. Before exact package admission, the recovery owner performs
+one bounded cleanup of only canonical orphan manifest-staging names while
+holding the common Git-dir lifecycle/recovery serialization. Every candidate
+must be a no-follow regular `0600` file within the explicit size and count caps;
+invalid names, modes, types, symlinks, or excess candidates fail closed before
+any unlink. Candidate identities are collected and then all revalidated before
+the unlink phase begins, so a later hostile candidate cannot cause partial
+cleanup of an earlier valid one. Valid candidates are removed as one set and
+the directory is fsynced. Recovery tombstones, replay publication, worktree
+cleanup, and artifact publication use the same common-dir lifecycle lock so
+cleanup cannot race a publisher or consumer. Recovery-package internals remain
+beneath the existing common-dir surface and are not a new ledger.
+
+Fixture evidence reads retain exact producer schemas, stable descriptors, and
+explicit file, line, row, nesting, and aggregate bounds. Native fixture-run
+schema identity is not rewritten to a generic evidence schema. Snapshot hashing
+and hostile-input consumers share the existing bounded streaming primitive,
+and every direct ledger reader/writer or one-level wrapper remains classified by
+the source-derived `(surface, role)` roster without a roles-by-surfaces
+Cartesian approximation. Executor capability authority includes
+`agent_surface.py`, `genesis_lifecycle.py`, `context_budget_gate.py`,
+`runtime_profile.py`, `agent_contract.py`, `agent_compliance.py`,
+`implementation_safety.py`, `agent_genesis.py`, `evidence_trust.py`,
+`canonical_path.py`, `tool_health.py`, `ledger_refs.py`, and
+`planner_dispatch_hook.py` in addition to the existing executor paths. The
+genesis lifecycle is an authorizing result consumer; scheduler/reaper reads
+remain explicitly observational. Enterprise readiness treats
+`readiness_proofs.py` as an authorizing claim consumer, and pre-merge treats
+`merge_authority.py` as a real decision producer. Behavioral target-tree
+mutations must change the relevant authority hash. Contentious replay transport
+itself is common evidence authority because it can change every replayed
+capability row.
+
+RED/GREEN coverage for this freeze includes result-boundary process death,
+inverse lifecycle race orders, raw malformed-input binding, missing sealed
+artifacts, replay through a real fixture ledger, malformed transport envelopes,
+identical-row replay identity, orphan manifest temporaries, outage reaper versus
+prepared/accepted submissions, and behavioral authority mutations. After those
+focused tests pass, rerun the complete submission/lifecycle, state-store/replay,
+fixture/evidence, manifest/snapshot, invariant, compile, registry, format,
+authority, documentation, and diff gates. Run the authority writer only after
+all manual source and plan bytes are frozen.
+
+#### Sixth and final controlled-freeze correction
+
+The fifth-correction replay shorthand is superseded at the transport and
+activation boundaries. Replay transport v2 preserves the producer's exact
+current and previous event identities, binds each envelope to one canonical
+concrete surface path, and keeps the outer storage chain private from logical
+consumers. The producer event ID is recomputed from the nested producer payload
+and producer predecessor before admission. V1 transport cannot prove that
+identity and is rejected. Retry deduplication is by stable producer identity,
+supports one exact common prefix plus a unique tail, reports deduplicated counts
+separately, and refuses ambiguous, reordered, cross-shard, aliased-path, or
+divergent dual-chain input before any surface is written.
+
+Every snapshot producer and immutable Git reader passes the canonical concrete
+claim path into transport verification; a valid August envelope under a
+September glob path is invalid even when the synthetic Git or recovery filename
+cannot resolve a declared surface by itself. Recovery staging retains the
+manifest's exact size, SHA-256, and logical surface instance. After remote
+verification and before any reset, each staged blob is re-read through the
+bounded no-follow descriptor path and compared with those claims. Ledger bytes
+admitted for replay are the same attested byte string that is parsed and held
+for replay. Before that materialization, the combined winner-plus-loser raw
+bytes are charged at a conservative 16x parser/list/dict expansion factor against
+a 256 MiB admission budget; an oversized but otherwise valid replay refuses
+before reset. A server-confirmed accepted-loser path performs no replay and
+therefore streams the same size/SHA attestation without retaining or charging
+parser materialization. Final summary/pattern reads recheck instance, size, and SHA-256 on
+the same streamed bytes, so a validly rechained staging replacement cannot be
+replayed or self-validate against its own mutation.
+
+The five native-chain knowledge-graph ledgers are a deliberate activation
+boundary. A nonempty outer-hashless or mixed ledger makes
+`enterprise_readiness` and `autonomy_unlock` machine-visible
+`operator_blocked` with
+`legacy_kg_canonical_migration_required`. The generic ledger-hash backfill is
+forbidden for these files: adding outer fields changes the knowledge-graph row
+hash input and breaks the historical `prev_row_hash` chain. Clearing the
+blocker requires a separately authorized KG-aware canonical maintenance
+migration that verifies the source and recomputes both the native and outer
+chains. Task 2 neither performs nor infers that migration. The current
+`origin/aria/state` snapshot has none of these five ledgers, so the blocker is
+absent there; this is not live execution proof and does not permit a
+`live_proven` claim.
+
+All direct logical consumers unwrap verified v2 transport while preserving
+their existing malformed-row tolerance where that behavior is diagnostic.
+Knowledge-graph writers hold one transaction across native-tail read and outer
+append; divergent winner and loser KG suffixes require semantic migration and
+fail closed. Claim lifecycle folds and the outage reaper share the complete
+producer-native event-time vocabulary, including `occurred_at`, `ts`,
+`prepared_at`, `claimed_at`, `released_at`, and `at`, so a newer outage or
+requeue cannot be sorted behind an older claim.
+
+These corrections remain Task 2 `code_proven` hardening. They add no product
+API, mutable dashboard, deployment authority, generic KG migration, or live
+activation evidence. Full Task 2 owner, replay, snapshot, lifecycle, evidence,
+compile, invariant, registry, format, authority, documentation, and diff gates
+must be rerun on the frozen bytes before the signed follow-up commit.
+
+#### Seventh and final controlled-freeze correction
+
+The reverse governance reader must not infer “no replay transport” merely
+because its requested tail limit was reached before an older envelope. Returned
+row materialization remains capped by the caller's limit, but the reader walks
+the physical ancestry to BOF looking for a transport claim. If one exists
+anywhere, the complete stored chain is verified and unwrapped through the
+canonical streaming ledger verifier before any producer payload is returned.
+Malformed rows that still carry the reserved transport prefix or the complete
+reserved-key claim also enter that strict path instead of being silently
+skipped. The verifier reads a no-follow stable descriptor in 64 KiB chunks,
+uses nonblocking open plus post-open regular-file validation to reject FIFO
+swaps, caps rows at 1,000,000 and each line at 1 MiB, and retains only a
+caller-limit deque. Reverse discovery applies the same line budget to both
+completed rows and its cross-chunk carry before parsing. This deliberately
+trades bounded I/O for bounded memory on that discovery path: in the absence
+of durable replay-ancestry metadata, stopping early cannot prove that an older
+envelope is absent.
+
+The TDD regression creates an authentic replay envelope, appends more native
+governance rows than the reverse-reader limit, mutates the newest row without
+updating its chain hash, and requires a fail-closed
+`governance_replay_transport_corrupt` result. Existing newest-first,
+kind-filter, and bounded-memory behaviors remain covered. This is still Task 2
+`code_proven` hardening and does not create live evidence or begin Task 3.
+
 ---
 
 #### Superseded extracted Task 2 text (retained for audit)

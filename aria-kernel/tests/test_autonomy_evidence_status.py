@@ -14,6 +14,7 @@ from types import MappingProxyType
 from unittest import mock
 
 import aria_kernel.autonomy_evidence as autonomy_evidence_module
+import aria_kernel.knowledge_graph as knowledge_graph_module
 import aria_kernel.ledger as ledger_module
 import aria_kernel.state_manifest as state_manifest_module
 import aria_kernel.state_snapshot as state_snapshot_module
@@ -65,8 +66,24 @@ EXPECTED_CAPABILITIES = (
 )
 
 KERNEL = "aria-kernel/aria_kernel/"
+EXECUTOR_ACCEPTANCE_AUTHORITY = (
+    f"{KERNEL}agent_surface.py",
+    f"{KERNEL}genesis_lifecycle.py",
+    f"{KERNEL}context_budget_gate.py",
+    f"{KERNEL}runtime_profile.py",
+    f"{KERNEL}agent_contract.py",
+    f"{KERNEL}agent_compliance.py",
+    f"{KERNEL}implementation_safety.py",
+    f"{KERNEL}agent_genesis.py",
+    f"{KERNEL}evidence_trust.py",
+    f"{KERNEL}canonical_path.py",
+    f"{KERNEL}tool_health.py",
+    f"{KERNEL}ledger_refs.py",
+    f"{KERNEL}planner_dispatch_hook.py",
+)
 EXPECTED_COMMON_AUTHORITY = (
     f"{KERNEL}autonomy_evidence.py",
+    f"{KERNEL}contention_replay.py",
     f"{KERNEL}file_lock.py",
     f"{KERNEL}ledger.py",
     f"{KERNEL}state_manifest.py",
@@ -84,6 +101,7 @@ EXPECTED_SPECIFIC_AUTHORITY = {
         f"{KERNEL}autonomy_state.py",
         f"{KERNEL}burn_in.py",
         f"{KERNEL}runtime_artifacts.py",
+        f"{KERNEL}trailer_scan.py",
         f"{KERNEL}tool_health.py",
         f"{KERNEL}upcasters/__init__.py",
         f"{KERNEL}upcasters/cycles.py",
@@ -92,6 +110,7 @@ EXPECTED_SPECIFIC_AUTHORITY = {
     ),
     "executor": (
         f"{KERNEL}agent_invocations.py",
+        *EXECUTOR_ACCEPTANCE_AUTHORITY,
         f"{KERNEL}agent_eval.py",
         f"{KERNEL}bridge_status_ledger.py",
         f"{KERNEL}circuit_breaker.py",
@@ -206,6 +225,7 @@ EXPECTED_PRODUCERS = {
     ),
     "pre_merge_perimeter": (
         f"{KERNEL}auto_merge.py", f"{KERNEL}pre_merge_evidence.py",
+        f"{KERNEL}merge_authority.py",
         f"{KERNEL}plan_convergence.py",
         f"{KERNEL}file_claims.py", f"{KERNEL}operator_feedback_signature.py",
         f"{KERNEL}expert_review_gate.py", f"{KERNEL}plan_coverage.py",
@@ -224,7 +244,8 @@ EXPECTED_PRODUCERS = {
     ),
     "autonomy_unlock": (
         f"{KERNEL}acceptance_reconciler.py", f"{KERNEL}autonomy_unlock.py",
-        f"{KERNEL}autonomy_ladder.py", f"{KERNEL}rollback_bundle.py",
+        f"{KERNEL}autonomy_ladder.py", f"{KERNEL}merge_authority.py",
+        f"{KERNEL}rollback_bundle.py",
         ".github/workflows/aria-auto-cycle.yml",
     ),
 }
@@ -232,11 +253,13 @@ EXPECTED_CONSUMERS = {
     "cycle_runtime": (
         f"{KERNEL}autonomy_state.py", f"{KERNEL}burn_in.py",
         f"{KERNEL}runtime_artifacts.py",
+        f"{KERNEL}trailer_scan.py",
     ),
     "executor": (
         f"{KERNEL}agent_invocations.py", f"{KERNEL}agent_eval.py",
         f"{KERNEL}bridge_status_ledger.py", f"{KERNEL}circuit_breaker.py",
         f"{KERNEL}convergence_drainer.py", f"{KERNEL}evidence_validator.py",
+        f"{KERNEL}genesis_lifecycle.py",
         f"{KERNEL}plan_convergence.py",
     ),
     "finding_funnel": (
@@ -244,7 +267,8 @@ EXPECTED_CONSUMERS = {
         f"{KERNEL}rule_health.py", f"{KERNEL}state_compact.py",
     ),
     "fixture_calibration": (
-        f"{KERNEL}agent_genesis.py", f"{KERNEL}genesis_lifecycle.py",
+        f"{KERNEL}agent_genesis.py", f"{KERNEL}fixture_runner.py",
+        f"{KERNEL}genesis_lifecycle.py",
         f"{KERNEL}readiness.py", f"{KERNEL}shadow_eval_bridge.py",
         f"{KERNEL}tool_registry.py",
     ),
@@ -253,7 +277,8 @@ EXPECTED_CONSUMERS = {
         f"{KERNEL}merge_authority.py",
     ),
     "enterprise_readiness": (
-        f"{KERNEL}auto_merge_runners.py", f"{KERNEL}enterprise_readiness.py",
+        f"{KERNEL}auto_merge_runners.py", f"{KERNEL}readiness_proofs.py",
+        f"{KERNEL}enterprise_readiness.py",
     ),
     "autonomy_unlock": (
         f"{KERNEL}autonomy_ladder.py", f"{KERNEL}autonomy_unlock.py",
@@ -284,6 +309,638 @@ def _python_function_scopes(tree: ast.Module) -> tuple[ast.AST, ...]:
     )
 
 
+def _python_import_aliases(tree: ast.Module, module_name: str) -> dict[str, str]:
+    """Resolve import aliases used by the static authority-surface scanner."""
+    aliases: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                aliases[alias.asname or alias.name] = alias.name
+        elif isinstance(node, ast.ImportFrom):
+            current = module_name.split(".")
+            base = current[:-node.level] if node.level else []
+            imported_parts = tuple(
+                part for part in (node.module or "").split(".") if part
+            )
+            imported_module = ".".join((*base, *imported_parts))
+            for alias in node.names:
+                aliases[alias.asname or alias.name] = (
+                    f"{imported_module}.{alias.name}"
+                )
+    return aliases
+
+
+def _python_call_target(
+    module_name: str,
+    aliases: Mapping[str, str],
+    function: ast.expr,
+) -> str:
+    """Return a stable qualified target for names and arbitrary attr chains."""
+    if isinstance(function, ast.Name):
+        return aliases.get(function.id, f"{module_name}.{function.id}")
+    if isinstance(function, ast.Attribute):
+        attributes = [function.attr]
+        owner = function.value
+        while isinstance(owner, ast.Attribute):
+            attributes.append(owner.attr)
+            owner = owner.value
+        if isinstance(owner, ast.Name):
+            root = aliases.get(owner.id, owner.id)
+            return ".".join((root, *reversed(attributes)))
+        return function.attr
+    return ""
+
+
+def _python_open_role(call: ast.AST) -> str | None:
+    """Classify a literal ``open`` mode without executing source code.
+
+    Pure read modes are consumers. Any mode that can mutate bytes is a
+    producer only: treating ``r+`` as a reader would let a write-capable raw
+    handle hide behind the consumer roster. Dynamic modes are deliberately
+    unknown and therefore grant neither role.
+    """
+    if not isinstance(call, ast.Call):
+        return None
+    positional_mode_index: int | None = None
+    if isinstance(call.func, ast.Attribute) and call.func.attr == "open":
+        positional_mode_index = 0
+    elif isinstance(call.func, ast.Name) and call.func.id == "open":
+        positional_mode_index = 1
+    if positional_mode_index is None:
+        return None
+
+    mode_node: ast.AST | None = next(
+        (
+            keyword.value
+            for keyword in call.keywords
+            if keyword.arg == "mode"
+        ),
+        None,
+    )
+    if mode_node is None and len(call.args) > positional_mode_index:
+        mode_node = call.args[positional_mode_index]
+    if mode_node is None:
+        mode = "r"
+    elif isinstance(mode_node, ast.Constant) and isinstance(mode_node.value, str):
+        mode = mode_node.value
+    else:
+        return None
+
+    if any(marker in mode for marker in ("w", "a", "x", "+")):
+        return "producer"
+    if mode.count("r") == 1 and set(mode) <= {"r", "b", "t"}:
+        return "consumer"
+    return None
+
+
+def _python_open_path_expression(call: ast.Call) -> ast.expr | None:
+    """Return the path operand for builtin ``open`` or ``Path.open``."""
+    if isinstance(call.func, ast.Name) and call.func.id == "open":
+        if call.args:
+            return call.args[0]
+        return next(
+            (
+                keyword.value
+                for keyword in call.keywords
+                if keyword.arg in {"file", "path"}
+            ),
+            None,
+        )
+    if isinstance(call.func, ast.Attribute) and call.func.attr == "open":
+        if isinstance(call.func.value, ast.Name) and call.func.value.id == "builtins":
+            return call.args[0] if call.args else None
+        return call.func.value
+    return None
+
+
+def _module_function_definitions(
+    tree: ast.Module,
+    module_name: str,
+) -> dict[str, ast.FunctionDef | ast.AsyncFunctionDef]:
+    """Top-level functions and class methods addressable by Python callsites."""
+    definitions: dict[str, ast.FunctionDef | ast.AsyncFunctionDef] = {}
+    function_types = (ast.FunctionDef, ast.AsyncFunctionDef)
+    for node in tree.body:
+        if isinstance(node, function_types):
+            definitions[f"{module_name}.{node.name}"] = node
+        elif isinstance(node, ast.ClassDef):
+            for child in node.body:
+                if isinstance(child, function_types):
+                    definitions[f"{module_name}.{node.name}.{child.name}"] = child
+    return definitions
+
+
+class _PythonScanIndex:
+    """Single-pass function/symbol index shared by every scanner phase."""
+
+    def __init__(
+        self,
+        trees: Mapping[str, ast.Module],
+        module_names: Mapping[str, str],
+        *,
+        node_budget: int = 2_000_000,
+    ) -> None:
+        self.scopes: dict[str, list[ast.FunctionDef | ast.AsyncFunctionDef]] = {
+            relative: [] for relative in trees
+        }
+        self.nodes: dict[int, tuple[ast.AST, ...]] = {}
+        self.targets: dict[int, str] = {}
+        self.definitions: dict[
+            str,
+            tuple[
+                str,
+                ast.FunctionDef | ast.AsyncFunctionDef,
+                tuple[ast.AST, ...],
+            ],
+        ] = {}
+        visited = 0
+
+        for relative, tree in trees.items():
+            module_name = module_names[relative]
+            scopes = self.scopes[relative]
+            node_lists: dict[int, list[ast.AST]] = {}
+            target_by_id: dict[int, str] = {}
+
+            class Visitor(ast.NodeVisitor):
+                def __init__(self) -> None:
+                    self.current_function: int | None = None
+                    self.class_names: list[str] = []
+
+                def generic_visit(self, node: ast.AST) -> None:
+                    nonlocal visited
+                    visited += 1
+                    if visited > node_budget:
+                        raise AssertionError(
+                            "surface_scanner_ast_index_node_budget_exceeded",
+                        )
+                    if self.current_function is not None:
+                        node_lists[self.current_function].append(node)
+                    super().generic_visit(node)
+
+                def visit_ClassDef(self, node: ast.ClassDef) -> None:
+                    nonlocal visited
+                    visited += 1
+                    if visited > node_budget:
+                        raise AssertionError(
+                            "surface_scanner_ast_index_node_budget_exceeded",
+                        )
+                    if self.current_function is not None:
+                        node_lists[self.current_function].append(node)
+                    self.class_names.append(node.name)
+                    for child in ast.iter_child_nodes(node):
+                        self.visit(child)
+                    self.class_names.pop()
+
+                def _visit_function(
+                    self,
+                    node: ast.FunctionDef | ast.AsyncFunctionDef,
+                ) -> None:
+                    nonlocal visited
+                    visited += 1
+                    if visited > node_budget:
+                        raise AssertionError(
+                            "surface_scanner_ast_index_node_budget_exceeded",
+                        )
+                    scopes.append(node)
+                    owner = f"{self.class_names[-1]}." if self.class_names else ""
+                    target = f"{module_name}.{owner}{node.name}"
+                    target_by_id[id(node)] = target
+                    node_lists[id(node)] = [node]
+                    previous = self.current_function
+                    self.current_function = id(node)
+                    for child in ast.iter_child_nodes(node):
+                        self.visit(child)
+                    self.current_function = previous
+
+                visit_FunctionDef = _visit_function
+                visit_AsyncFunctionDef = _visit_function
+
+            Visitor().visit(tree)
+            for scope in scopes:
+                nodes = tuple(node_lists[id(scope)])
+                target = target_by_id[id(scope)]
+                self.nodes[id(scope)] = nodes
+                self.targets[id(scope)] = target
+                self.definitions[target] = (relative, scope, nodes)
+        self.visited_node_count = visited
+
+
+def _literal_module_exports(tree: ast.Module) -> frozenset[str]:
+    """Read a literal ``__all__`` without executing the authority module."""
+    exports: list[str] = []
+    for node in tree.body:
+        value: ast.expr | None = None
+        if (
+            isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "__all__" for target in node.targets)
+        ):
+            value = node.value
+        elif (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == "__all__"
+        ):
+            value = node.value
+        if value is None:
+            continue
+        try:
+            literal = ast.literal_eval(value)
+        except (ValueError, TypeError, SyntaxError):
+            continue
+        if isinstance(literal, (list, tuple, set)):
+            exports.extend(item for item in literal if isinstance(item, str))
+    return frozenset(exports)
+
+
+def _source_derived_ledger_readers(
+    tree: ast.Module,
+    module_name: str,
+) -> tuple[frozenset[str], frozenset[str]]:
+    """Classify exported read-only ledger APIs from their source call graph.
+
+    The scanner intentionally derives this set from ``ledger.__all__`` and
+    filesystem effects. A newly exported reader or ``StateTransaction`` load
+    method therefore enters the closed world without updating an allowlist.
+    """
+    definitions = _module_function_definitions(tree, module_name)
+    aliases = _python_import_aliases(tree, module_name)
+    exports = _literal_module_exports(tree)
+    read_sinks = frozenset({"read", "read_bytes", "read_text"})
+    # ``datetime.replace`` is a common pure call in policy validation, so
+    # mutating filesystem effects are pinned to byte/text write operations.
+    write_sinks = frozenset({"write", "write_bytes", "write_text"})
+    calls: dict[str, set[str]] = {}
+    reads: dict[str, bool] = {}
+    writes: dict[str, bool] = {}
+    for target, function in definitions.items():
+        owner = target.rsplit(".", 2)[-2] if target.count(".") > module_name.count(".") + 1 else None
+        targets: set[str] = set()
+        open_roles: set[str] = set()
+        for call in (node for node in ast.walk(function) if isinstance(node, ast.Call)):
+            open_role = _python_open_role(call)
+            if open_role is not None:
+                open_roles.add(open_role)
+            if (
+                owner is not None
+                and isinstance(call.func, ast.Attribute)
+                and isinstance(call.func.value, ast.Name)
+                and call.func.value.id in {"self", "cls"}
+            ):
+                called = f"{module_name}.{owner}.{call.func.attr}"
+            else:
+                called = _python_call_target(module_name, aliases, call.func)
+            if called:
+                targets.add(called)
+        calls[target] = targets
+        leaves = {called.rsplit(".", 1)[-1] for called in targets}
+        reads[target] = bool(leaves & read_sinks) or "consumer" in open_roles
+        writes[target] = bool(leaves & write_sinks) or "producer" in open_roles
+
+    changed = True
+    while changed:
+        changed = False
+        for target, targets in calls.items():
+            next_reads = reads[target] or any(reads.get(called, False) for called in targets)
+            next_writes = writes[target] or any(writes.get(called, False) for called in targets)
+            if next_reads != reads[target] or next_writes != writes[target]:
+                reads[target] = next_reads
+                writes[target] = next_writes
+                changed = True
+
+    exported_readers = {
+        f"{module_name}.{name}"
+        for name in exports
+        if reads.get(f"{module_name}.{name}", False)
+        and not writes.get(f"{module_name}.{name}", False)
+    }
+    exported_reader_methods = {
+        target.rsplit(".", 1)[-1]
+        for target in definitions
+        if target.startswith(f"{module_name}.StateTransaction.")
+        and "StateTransaction" in exports
+        and reads.get(target, False)
+        and not writes.get(target, False)
+    }
+    return frozenset(exported_readers), frozenset(exported_reader_methods)
+
+
+def _source_derived_stream_readers(
+    tree: ast.Module,
+    module_name: str,
+) -> frozenset[str]:
+    """Exported APIs that consume immutable byte streams without filesystem I/O."""
+    exports = _literal_module_exports(tree)
+    return frozenset(
+        target
+        for target, function in _module_function_definitions(
+            tree,
+            module_name,
+        ).items()
+        if target.rsplit(".", 1)[-1] in exports
+        and any(
+            argument.annotation is not None
+            and "Iterable[bytes]"
+            in ast.unparse(argument.annotation).replace(" ", "")
+            for argument in (
+                *function.args.posonlyargs,
+                *function.args.args,
+                *function.args.kwonlyargs,
+            )
+        )
+    )
+
+
+def _source_derived_reader_targets(
+    trees: Mapping[str, ast.Module],
+    module_names: Mapping[str, str],
+    imports: Mapping[str, Mapping[str, str]],
+    seed_targets: frozenset[str],
+    reader_method_names: frozenset[str],
+    scan_index: _PythonScanIndex | None = None,
+) -> frozenset[str]:
+    """Close reader entrypoints over aliases and value-forwarding wrappers."""
+    index = scan_index or _PythonScanIndex(trees, module_names)
+    definitions = index.definitions
+
+    read_targets = set(seed_targets)
+    direct_read_sinks = frozenset({"read", "read_bytes", "read_text"})
+    path_open_read_target = "__aria_static_path_open_read__"
+    node_budget = 2_000_000
+    edge_budget = 1_000_000
+
+    def assigned_names(target: ast.expr) -> set[str]:
+        return {
+            node.id
+            for node in ast.walk(target)
+            if isinstance(node, ast.Name)
+        }
+
+    def return_dependencies(
+        relative: str,
+        function: ast.FunctionDef | ast.AsyncFunctionDef,
+        nodes: tuple[ast.AST, ...],
+    ) -> set[str]:
+        nonlocal node_budget, edge_budget
+        node_budget -= len(nodes)
+        if node_budget < 0:
+            raise AssertionError("surface_scanner_reader_ast_node_budget_exceeded")
+        expression_cache: dict[int, tuple[set[str], set[str]]] = {}
+
+        def expression_inputs(
+            expression: ast.AST | None,
+        ) -> tuple[set[str], set[str]]:
+            nonlocal edge_budget
+            if expression is None:
+                return set(), set()
+            cached = expression_cache.get(id(expression))
+            if cached is not None:
+                return cached
+            expression_nodes = tuple(ast.walk(expression))
+            names = {
+                node.id
+                for node in expression_nodes
+                if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
+            }
+            called: set[str] = set()
+            for call in expression_nodes:
+                if not isinstance(call, ast.Call):
+                    continue
+                target = _python_call_target(
+                    module_names[relative],
+                    imports[relative],
+                    call.func,
+                )
+                if target:
+                    called.add(target)
+                if _python_open_role(call) == "consumer":
+                    called.add(path_open_read_target)
+            edge_budget -= len(names) + len(called)
+            if edge_budget < 0:
+                raise AssertionError("surface_scanner_reader_graph_edge_budget_exceeded")
+            expression_cache[id(expression)] = (names, called)
+            return names, called
+
+        flows: list[tuple[set[str], ast.AST | None]] = []
+        terminals: list[ast.AST | None] = []
+        for node in nodes:
+            if isinstance(node, (ast.Assign, ast.AnnAssign)):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                flows.append((
+                    {
+                        name
+                        for target in targets
+                        for name in assigned_names(target)
+                    },
+                    node.value,
+                ))
+            elif isinstance(node, (ast.For, ast.AsyncFor)):
+                flows.append((assigned_names(node.target), node.iter))
+            elif isinstance(node, (ast.With, ast.AsyncWith)):
+                for item in node.items:
+                    if item.optional_vars is not None:
+                        flows.append((
+                            assigned_names(item.optional_vars),
+                            item.context_expr,
+                        ))
+            elif (
+                isinstance(node, ast.Expr)
+                and isinstance(node.value, ast.Call)
+                and isinstance(node.value.func, ast.Attribute)
+                and isinstance(node.value.func.value, ast.Name)
+                and node.value.func.attr
+                in {"add", "append", "extend", "insert", "setdefault", "update"}
+            ):
+                receiver = node.value.func.value.id
+                for argument in (
+                    *node.value.args,
+                    *(keyword.value for keyword in node.value.keywords),
+                ):
+                    flows.append(({receiver}, argument))
+            elif isinstance(node, (ast.Return, ast.Yield, ast.YieldFrom)):
+                terminals.append(node.value)
+
+        sources: dict[str, set[str]] = {}
+        iteration_budget = max(1, len(flows) * (len(flows) + 1))
+        changed = True
+        while changed:
+            changed = False
+            for names, expression in flows:
+                iteration_budget -= 1
+                if iteration_budget < 0:
+                    raise AssertionError(
+                        "surface_scanner_reader_dataflow_iteration_budget_exceeded",
+                    )
+                input_names, direct_calls = expression_inputs(expression)
+                dependencies = set(direct_calls)
+                for name in input_names:
+                    dependencies.update(sources.get(name, ()))
+                for name in names:
+                    prior = sources.setdefault(name, set())
+                    before = len(prior)
+                    prior.update(dependencies)
+                    changed = changed or len(prior) != before
+
+        dependencies: set[str] = set()
+        for terminal in terminals:
+            input_names, direct_calls = expression_inputs(terminal)
+            dependencies.update(direct_calls)
+            for name in input_names:
+                dependencies.update(sources.get(name, ()))
+        return dependencies
+
+    dependencies = {
+        target: return_dependencies(relative, function, nodes)
+        for target, (relative, function, nodes) in definitions.items()
+    }
+    reverse_dependencies: dict[str, set[str]] = {}
+    for target, called in dependencies.items():
+        for dependency in called:
+            reverse_dependencies.setdefault(dependency, set()).add(target)
+        if any(
+            dependency.rsplit(".", 1)[-1] in direct_read_sinks
+            or dependency.rsplit(".", 1)[-1] in reader_method_names
+            or dependency == path_open_read_target
+            for dependency in called
+        ):
+            read_targets.add(target)
+
+    queue = list(read_targets)
+    while queue:
+        reader = queue.pop()
+        for wrapper in reverse_dependencies.get(reader, ()):
+            if wrapper not in read_targets:
+                read_targets.add(wrapper)
+                queue.append(wrapper)
+    return frozenset(read_targets)
+
+
+def _static_string_path(
+    expression: ast.expr,
+    constants: Mapping[str, str | tuple[str, ...]] | None = None,
+) -> str | None:
+    """Recover the known suffix of ``/`` and ``joinpath`` expressions."""
+    known = constants or {}
+    if isinstance(expression, ast.Constant) and isinstance(expression.value, str):
+        return expression.value
+    if isinstance(expression, ast.Name):
+        value = known.get(expression.id)
+        if isinstance(value, str):
+            return value
+        if isinstance(value, tuple):
+            return "/".join(value)
+        return None
+    if isinstance(expression, ast.Starred):
+        return _static_string_path(expression.value, known)
+    if isinstance(expression, ast.BinOp) and isinstance(expression.op, ast.Div):
+        left = _static_string_path(expression.left, known)
+        right = _static_string_path(expression.right, known)
+        if left and right:
+            return f"{left.rstrip('/')}/{right.lstrip('/')}"
+        return right or left
+    if (
+        isinstance(expression, ast.Call)
+        and isinstance(expression.func, ast.Attribute)
+        and expression.func.attr == "joinpath"
+    ):
+        parts: list[str] = []
+        root = _static_string_path(expression.func.value, known)
+        if root:
+            parts.append(root)
+        for argument in expression.args:
+            part = _static_string_path(argument, known)
+            if part:
+                parts.extend(piece for piece in part.split("/") if piece)
+        return "/".join(parts) or None
+    return None
+
+
+def _source_derived_path_helpers(
+    trees: Mapping[str, ast.Module],
+    module_names: Mapping[str, str],
+    imports: Mapping[str, Mapping[str, str]],
+    surface_resolver: Callable[[str], set[str]],
+    scan_index: _PythonScanIndex | None = None,
+) -> dict[str, set[str]]:
+    """Summarize every path-returning helper, independent of its name."""
+    constants: dict[str, dict[str, str | tuple[str, ...]]] = {}
+    index = scan_index or _PythonScanIndex(trees, module_names)
+    definitions = index.definitions
+    for relative, tree in trees.items():
+        module_constants: dict[str, str | tuple[str, ...]] = {}
+        for node in tree.body:
+            if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                continue
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            value = node.value
+            if value is None:
+                continue
+            try:
+                literal = ast.literal_eval(value)
+            except (ValueError, TypeError, SyntaxError):
+                continue
+            normalized: str | tuple[str, ...] | None = None
+            if isinstance(literal, str):
+                normalized = literal
+            elif isinstance(literal, (tuple, list)) and all(
+                isinstance(item, str) for item in literal
+            ):
+                normalized = tuple(literal)
+            if normalized is not None:
+                for target in targets:
+                    if isinstance(target, ast.Name):
+                        module_constants[target.id] = normalized
+        constants[relative] = module_constants
+
+    helpers: dict[str, set[str]] = {target: set() for target in definitions}
+    dependencies: dict[str, set[str]] = {target: set() for target in definitions}
+    node_budget = 2_000_000
+    edge_budget = 1_000_000
+    for target, (relative, function, nodes) in definitions.items():
+        node_budget -= len(nodes)
+        if node_budget < 0:
+            raise AssertionError("surface_scanner_path_ast_node_budget_exceeded")
+        for returned in (node for node in nodes if isinstance(node, ast.Return)):
+            if returned.value is None:
+                continue
+            path = _static_string_path(returned.value, constants[relative])
+            if path:
+                helpers[target].update(surface_resolver(path))
+            returned_nodes = tuple(ast.walk(returned.value))
+            for call in (
+                node for node in returned_nodes if isinstance(node, ast.Call)
+            ):
+                called = _python_call_target(
+                    module_names[relative],
+                    imports[relative],
+                    call.func,
+                )
+                if called:
+                    dependencies[target].add(called)
+        edge_budget -= len(dependencies[target])
+        if edge_budget < 0:
+            raise AssertionError("surface_scanner_path_graph_edge_budget_exceeded")
+
+    reverse_dependencies: dict[str, set[str]] = {}
+    for wrapper, called in dependencies.items():
+        for helper in called:
+            reverse_dependencies.setdefault(helper, set()).add(wrapper)
+    queue = [target for target, surfaces in helpers.items() if surfaces]
+    propagation_budget = max(1, edge_budget)
+    while queue:
+        helper = queue.pop()
+        for wrapper in reverse_dependencies.get(helper, ()):
+            propagation_budget -= 1
+            if propagation_budget < 0:
+                raise AssertionError(
+                    "surface_scanner_path_propagation_budget_exceeded",
+                )
+            before = len(helpers[wrapper])
+            helpers[wrapper].update(helpers[helper])
+            if len(helpers[wrapper]) != before:
+                queue.append(wrapper)
+    return {target: surfaces for target, surfaces in helpers.items() if surfaces}
+
+
 class PublicEvidenceModelTests(unittest.TestCase):
     def test_surface_scanner_scope_fixture_includes_nested_and_async_functions(
         self,
@@ -304,6 +961,329 @@ async def top_async():
             {node.name for node in _python_function_scopes(fixture)},
             {"outer", "nested", "nested_async", "top_async"},
         )
+
+    def test_surface_scanner_derives_new_exported_readers_aliases_and_wrappers(
+        self,
+    ) -> None:
+        ledger_tree = ast.parse(
+            '''
+__all__ = ["future_rows", "future_append", "StateTransaction"]
+
+def _decode(path):
+    return path.read_text()
+
+def future_rows(path):
+    return _decode(path)
+
+def future_append(path):
+    old = path.read_text()
+    path.write_text(old)
+
+class StateTransaction:
+    def load_future(self, path):
+        return future_rows(path)
+
+    def append_future(self, path):
+        return future_append(path)
+''',
+        )
+        consumer_tree = ast.parse(
+            '''
+from aria_kernel.ledger import future_rows as renamed_reader
+
+def arbitrary_bridge(path):
+    return renamed_reader(path)
+
+def another_layer(path):
+    return arbitrary_bridge(path)
+''',
+        )
+        trees = {"ledger.py": ledger_tree, "consumer.py": consumer_tree}
+        module_names = {
+            "ledger.py": "aria_kernel.ledger",
+            "consumer.py": "aria_kernel.consumer",
+        }
+        imports = {
+            relative: _python_import_aliases(tree, module_names[relative])
+            for relative, tree in trees.items()
+        }
+        seeds, transaction_methods = _source_derived_ledger_readers(
+            ledger_tree,
+            "aria_kernel.ledger",
+        )
+        targets = _source_derived_reader_targets(
+            trees,
+            module_names,
+            imports,
+            seeds,
+            transaction_methods,
+        )
+
+        self.assertIn("aria_kernel.ledger.future_rows", seeds)
+        self.assertNotIn("aria_kernel.ledger.future_append", seeds)
+        self.assertEqual(transaction_methods, frozenset({"load_future"}))
+        self.assertIn("aria_kernel.consumer.arbitrary_bridge", targets)
+        self.assertIn("aria_kernel.consumer.another_layer", targets)
+
+    def test_surface_scanner_resolves_package_relative_module_aliases(self) -> None:
+        tree = ast.parse(
+            """
+from . import ledger
+
+def rows(path):
+    return ledger.load_declared_jsonl(path, expected_surface="cycles")
+""",
+        )
+
+        aliases = _python_import_aliases(tree, "aria_kernel.consumer")
+
+        self.assertEqual(aliases["ledger"], "aria_kernel.ledger")
+        self.assertEqual(
+            _python_call_target(
+                "aria_kernel.consumer",
+                aliases,
+                next(
+                    node.func
+                    for node in ast.walk(tree)
+                    if isinstance(node, ast.Call)
+                ),
+            ),
+            "aria_kernel.ledger.load_declared_jsonl",
+        )
+
+    def test_surface_scanner_follows_read_only_path_open_through_iteration(
+        self,
+    ) -> None:
+        tree = ast.parse(
+            '''
+def read_default(path):
+    rows = []
+    with path.open() as handle:
+        for line in handle:
+            rows.append(line)
+    return rows
+
+def read_text(path):
+    rows = []
+    with path.open("r") as handle:
+        for line in handle:
+            decoded = line
+            rows.append(decoded)
+    return rows
+
+def read_binary(path):
+    rows = []
+    with path.open(mode="rb") as handle:
+        for chunk in handle:
+            rows.append(chunk)
+    return rows
+
+def builtin_default(path):
+    rows = []
+    with open(path) as handle:
+        for line in handle:
+            rows.append(line)
+    return rows
+
+def builtin_text(path):
+    rows = []
+    with open(path, "r") as handle:
+        for line in handle:
+            rows.append(line)
+    return rows
+
+def builtin_binary(path):
+    rows = []
+    with open(path, mode="rb") as handle:
+        for chunk in handle:
+            rows.append(chunk)
+    return rows
+
+def dynamic_mode(path, mode):
+    rows = []
+    with path.open(mode) as handle:
+        for item in handle:
+            rows.append(item)
+    return rows
+
+def append_only(path):
+    rows = []
+    with path.open("a") as handle:
+        for line in handle:
+            rows.append(line)
+    return rows
+
+def overwrite_only(path):
+    rows = []
+    with path.open("w") as handle:
+        for line in handle:
+            rows.append(line)
+    return rows
+''',
+        )
+        trees = {"fixture.py": tree}
+        module_names = {"fixture.py": "aria_kernel.fixture"}
+        imports = {
+            "fixture.py": _python_import_aliases(tree, "aria_kernel.fixture"),
+        }
+
+        targets = _source_derived_reader_targets(
+            trees,
+            module_names,
+            imports,
+            frozenset(),
+            frozenset(),
+        )
+
+        self.assertTrue({
+            "aria_kernel.fixture.read_default",
+            "aria_kernel.fixture.read_text",
+            "aria_kernel.fixture.read_binary",
+            "aria_kernel.fixture.builtin_default",
+            "aria_kernel.fixture.builtin_text",
+            "aria_kernel.fixture.builtin_binary",
+        }.issubset(targets))
+        self.assertNotIn("aria_kernel.fixture.dynamic_mode", targets)
+        self.assertNotIn("aria_kernel.fixture.append_only", targets)
+        self.assertNotIn("aria_kernel.fixture.overwrite_only", targets)
+
+    def test_surface_scanner_classifies_open_modes_without_execution(self) -> None:
+        expected = {
+            'path.open()': "consumer",
+            'path.open("r")': "consumer",
+            'path.open(mode="rb")': "consumer",
+            'open(path)': "consumer",
+            'open(path, "r")': "consumer",
+            'open(path, mode="rb")': "consumer",
+            'path.open("w")': "producer",
+            'path.open(mode="a")': "producer",
+            'path.open("x")': "producer",
+            'path.open("r+")': "producer",
+            'open(path, "w")': "producer",
+            'path.open(mode)': None,
+            'open(path, mode)': None,
+        }
+        observed = {
+            source: _python_open_role(
+                ast.parse(source, mode="eval").body,
+            )
+            for source in expected
+        }
+        self.assertEqual(observed, expected)
+
+    def test_external_outage_reaper_has_no_raw_open_writer(self) -> None:
+        repository = Path(__file__).resolve().parents[2]
+        relative = f"{KERNEL}external_outage_reaper.py"
+        tree = ast.parse(
+            (repository / relative).read_text(encoding="utf-8"),
+            filename=relative,
+        )
+        offenders = [
+            call.lineno
+            for call in ast.walk(tree)
+            if isinstance(call, ast.Call)
+            and _python_open_role(call) == "producer"
+        ]
+        self.assertEqual(
+            offenders,
+            [],
+            "declared claims ledger writes must use governed ledger primitives",
+        )
+
+    def test_surface_scanner_derives_arbitrarily_named_joinpath_helpers(
+        self,
+    ) -> None:
+        tree = ast.parse(
+            '''
+PARTS = ("nested", "governance.jsonl")
+
+def location_factory(root):
+    return root.joinpath(*PARTS)
+
+def alias_factory(root):
+    return location_factory(root)
+''',
+        )
+        trees = {"fixture.py": tree}
+        module_names = {"fixture.py": "aria_kernel.fixture"}
+        imports = {
+            "fixture.py": _python_import_aliases(tree, "aria_kernel.fixture"),
+        }
+        helpers = _source_derived_path_helpers(
+            trees,
+            module_names,
+            imports,
+            lambda path: {"tools_governance"}
+            if path.endswith("governance.jsonl")
+            else set(),
+        )
+
+        self.assertEqual(
+            _static_string_path(
+                ast.parse(
+                    'root.joinpath("nested", "governance.jsonl")',
+                    mode="eval",
+                ).body,
+            ),
+            "nested/governance.jsonl",
+        )
+        self.assertEqual(
+            helpers,
+            {
+                "aria_kernel.fixture.location_factory": {"tools_governance"},
+                "aria_kernel.fixture.alias_factory": {"tools_governance"},
+            },
+        )
+
+    def test_surface_scanner_index_budget_exhaustion_fails_closed(self) -> None:
+        tree = ast.parse("def reader(path):\n    return path.read_text()\n")
+        with self.assertRaisesRegex(
+            AssertionError,
+            "surface_scanner_ast_index_node_budget_exceeded",
+        ):
+            _PythonScanIndex(
+                {"reader.py": tree},
+                {"reader.py": "aria_kernel.reader"},
+                node_budget=1,
+            )
+
+    def test_surface_scanner_indexes_real_ledger_and_trust_once(self) -> None:
+        repository = Path(__file__).resolve().parents[2]
+        relatives = (
+            f"{KERNEL}ledger.py",
+            f"{KERNEL}trust.py",
+        )
+        trees = {
+            relative: ast.parse(
+                (repository / relative).read_text(encoding="utf-8"),
+                filename=relative,
+            )
+            for relative in relatives
+        }
+        module_names = {
+            relative: f"aria_kernel.{Path(relative).stem}"
+            for relative in relatives
+        }
+        imports = {
+            relative: _python_import_aliases(tree, module_names[relative])
+            for relative, tree in trees.items()
+        }
+        index = _PythonScanIndex(trees, module_names, node_budget=100_000)
+        readers, methods = _source_derived_ledger_readers(
+            trees[f"{KERNEL}ledger.py"],
+            "aria_kernel.ledger",
+        )
+        targets = _source_derived_reader_targets(
+            trees,
+            module_names,
+            imports,
+            readers,
+            methods,
+            index,
+        )
+
+        self.assertLess(index.visited_node_count, 100_000)
+        self.assertIn("aria_kernel.trust._governance", targets)
 
     def test_public_model_is_deeply_immutable_and_serializes_fresh_copies(
         self,
@@ -448,9 +1428,14 @@ async def top_async():
             for capability, spec in CAPABILITY_SPECS.items()
             for surface in spec.count_surfaces
         }
-        surface_patterns = {
-            name: state_manifest_module.surface_by_name(name).path_pattern
-            for name in surface_capabilities
+        tracked_surface_names = {
+            *surface_capabilities,
+            "workspace_memory_governance",
+        }
+        all_surfaces = {
+            surface.name: surface
+            for surface in state_manifest_module.iter_surfaces()
+            if surface.name in tracked_surface_names
         }
         writer_primitives = {
             "_append_declared_jsonl_unlocked",
@@ -461,14 +1446,9 @@ async def top_async():
             "rewrite_declared_jsonl",
             "rewrite_jsonl",
         }
-        reader_primitives = {
-            "find_row_by_source_ledger_ref",
-            "load_declared_jsonl",
-            "load_feedback",
-            "load_jsonl",
-            "read_strict_jsonl",
-            "read_runs_rows",
-            "verify_jsonl",
+        global_transport_writers = {
+            f"{KERNEL}contention_replay.py":
+                "contention replay can rewrite every capability ledger",
         }
         observational = {
             ("cycle_runtime", f"{KERNEL}reflection.py", "consumer"):
@@ -487,8 +1467,6 @@ async def top_async():
                 "runner attestation reports readiness without authorizing it",
             ("cycle_runtime", f"{KERNEL}integrity.py", "consumer"):
                 "integrity verification observes cycle chain bytes only",
-            ("executor", f"{KERNEL}migration.py", "producer"):
-                "migration backfills governance history without runtime proof",
             ("executor", f"{KERNEL}shadow_eval_bridge.py", "consumer"):
                 "shadow bridge consumes execution to authorize genesis evidence",
             ("executor", f"{KERNEL}tool_registry.py", "consumer"):
@@ -531,6 +1509,160 @@ async def top_async():
                 "priority scoring observes calibration without authorizing it",
             ("fixture_calibration", f"{KERNEL}reflection.py", "consumer"):
                 "reflection summarizes fixture history for learning telemetry",
+            ("pre_merge_perimeter", f"{KERNEL}reflection.py", "consumer"):
+                "reflection summarizes merge decisions but cannot authorize them",
+        }
+        surface_observational = {
+            ("workspace_memory_governance", f"{KERNEL}trust.py", "consumer"):
+                "trust policy observes workspace governance without authorizing executor proof",
+        }
+        proof_observational_categories = {
+            "operator_adapter": {
+                ("cycle_runtime", "cycles", f"{KERNEL}cli.py", "consumer"),
+                ("cycle_runtime", "cycles", f"{KERNEL}cli.py", "producer"),
+                (
+                    "enterprise_readiness",
+                    "enterprise_readiness_claims",
+                    f"{KERNEL}cli.py",
+                    "consumer",
+                ),
+                (
+                    "executor",
+                    "agent_invocation_results",
+                    f"{KERNEL}cli.py",
+                    "consumer",
+                ),
+                (
+                    "executor",
+                    "agent_invocation_results",
+                    f"{KERNEL}cli.py",
+                    "producer",
+                ),
+                (
+                    "fixture_calibration",
+                    "agent_eval_fixture_runs",
+                    f"{KERNEL}cli.py",
+                    "consumer",
+                ),
+            },
+            "scheduler_orchestration": {
+                (
+                    "executor",
+                    "agent_invocation_results",
+                    f"{KERNEL}autonomy_orchestrator.py",
+                    "consumer",
+                ),
+                (
+                    "executor",
+                    "agent_invocation_results",
+                    f"{KERNEL}planner_dispatch_hook.py",
+                    "consumer",
+                ),
+                (
+                    "pre_merge_perimeter",
+                    "auto_merge_decisions",
+                    f"{KERNEL}autonomy_orchestrator.py",
+                    "consumer",
+                ),
+                (
+                    "pre_merge_perimeter",
+                    "auto_merge_decisions",
+                    f"{KERNEL}cycle.py",
+                    "consumer",
+                ),
+                (
+                    "finding_funnel",
+                    "promotions",
+                    f"{KERNEL}cycle.py",
+                    "producer",
+                ),
+            },
+            "reporting_or_prioritization": {
+                (
+                    "cycle_runtime",
+                    "cycles",
+                    f"{KERNEL}promotion_controller.py",
+                    "consumer",
+                ),
+                (
+                    "cycle_runtime",
+                    "cycles",
+                    f"{KERNEL}report.py",
+                    "consumer",
+                ),
+                (
+                    "executor",
+                    "agent_invocation_results",
+                    f"{KERNEL}reflection.py",
+                    "consumer",
+                ),
+            },
+            "downstream_workflow": {
+                (
+                    "executor",
+                    "agent_invocation_results",
+                    f"{KERNEL}dispatcher_factory.py",
+                    "consumer",
+                ),
+                (
+                    "executor",
+                    "agent_invocation_results",
+                    f"{KERNEL}handoff_ledger.py",
+                    "consumer",
+                ),
+                (
+                    "executor",
+                    "agent_invocation_results",
+                    f"{KERNEL}human_required_adjudication.py",
+                    "consumer",
+                ),
+                (
+                    "executor",
+                    "agent_invocation_results",
+                    f"{KERNEL}plan_round_controller.py",
+                    "consumer",
+                ),
+                (
+                    "executor",
+                    "agent_invocation_results",
+                    f"{KERNEL}review_runner.py",
+                    "consumer",
+                ),
+                (
+                    "executor",
+                    "agent_invocation_results",
+                    f"{KERNEL}specialist_review_runner.py",
+                    "consumer",
+                ),
+            },
+            "cross_capability_observer": {
+                (
+                    "enterprise_readiness",
+                    "enterprise_readiness_claims",
+                    f"{KERNEL}merge_authority.py",
+                    "consumer",
+                ),
+                (
+                    "fixture_calibration",
+                    "agent_eval_fixture_runs",
+                    f"{KERNEL}agent_invocations.py",
+                    "consumer",
+                ),
+            },
+            "recovery_safety": {
+                (
+                    "executor",
+                    "agent_invocation_results",
+                    f"{KERNEL}cycle.py",
+                    "consumer",
+                ),
+                (
+                    "executor",
+                    "agent_invocation_results",
+                    f"{KERNEL}external_outage_reaper.py",
+                    "consumer",
+                ),
+            },
         }
 
         trees: dict[str, ast.Module] = {}
@@ -560,51 +1692,41 @@ async def top_async():
             if parts[-1] == "__init__":
                 parts.pop()
             module_names[relative] = ".".join(parts)
-            aliases: dict[str, str] = {}
-            # Local imports matter: agent_genesis aliases both the reader and
-            # fixture path helper inside the consuming function.
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    for alias in node.names:
-                        aliases[alias.asname or alias.name] = alias.name
-                elif isinstance(node, ast.ImportFrom):
-                    current = module_names[relative].split(".")
-                    base = current[:-node.level] if node.level else []
-                    imported_module = ".".join((*base, *(node.module or "").split(".")))
-                    for alias in node.names:
-                        aliases[alias.asname or alias.name] = (
-                            f"{imported_module}.{alias.name}"
-                        )
-            imports[relative] = aliases
+            # Function-local aliases matter too; ``ast.walk`` intentionally
+            # treats them as module scan aliases without executing imports.
+            imports[relative] = _python_import_aliases(
+                tree,
+                module_names[relative],
+            )
         self.assertTrue(
             {
                 source.relative_to(repository).as_posix()
                 for source in literal_python_sources
             }.issubset(trees),
         )
+        scan_index = _PythonScanIndex(trees, module_names)
 
         def call_target(relative: str, function: ast.expr) -> str:
-            aliases = imports[relative]
-            if isinstance(function, ast.Name):
-                return aliases.get(
-                    function.id,
-                    f"{module_names[relative]}.{function.id}",
-                )
-            if isinstance(function, ast.Attribute):
-                if isinstance(function.value, ast.Name):
-                    owner = aliases.get(function.value.id, function.value.id)
-                    return f"{owner}.{function.attr}"
-                return function.attr
-            return ""
+            return _python_call_target(
+                module_names[relative],
+                imports[relative],
+                function,
+            )
 
-        def literal_surfaces(value: str) -> set[str]:
-            if value in surface_capabilities:
+        def matching_surfaces(
+            value: str,
+            root_kind: str | None = None,
+        ) -> set[str]:
+            if value in all_surfaces:
                 return {value}
             normalized = value.replace("\\", "/").removeprefix("./")
             if not normalized or normalized.startswith("/") or normalized.endswith("/"):
                 return set()
             matches: set[str] = set()
-            for name, pattern in surface_patterns.items():
+            for name, surface in all_surfaces.items():
+                if root_kind is not None and surface.root_kind != root_kind:
+                    continue
+                pattern = surface.path_pattern
                 try:
                     matched = state_manifest_module.surface_path_matches(
                         normalized,
@@ -616,60 +1738,133 @@ async def top_async():
                     matches.add(name)
             return matches
 
-        def string_path(expression: ast.expr) -> str | None:
-            if isinstance(expression, ast.Constant) and isinstance(expression.value, str):
-                return expression.value
-            if isinstance(expression, ast.BinOp) and isinstance(expression.op, ast.Div):
-                left = string_path(expression.left)
-                right = string_path(expression.right)
-                if left and right:
-                    return f"{left.rstrip('/')}/{right.lstrip('/')}"
-                return right or left
-            return None
+        def literal_surfaces(
+            value: str,
+            root_kind: str | None = None,
+        ) -> set[str]:
+            matches = matching_surfaces(value, root_kind)
+            if root_kind is not None or len(matches) < 2:
+                return matches
+            roots = {all_surfaces[name].root_kind for name in matches}
+            # A basename shared by tools/workspace/repo roots is not identity.
+            # It can only become a surface after receiver-root provenance.
+            return set() if len(roots) > 1 else matches
 
-        path_helpers: dict[str, set[str]] = {}
-        for relative, tree in trees.items():
-            for function in _python_function_scopes(tree):
-                if not function.name.endswith("path"):
+        ledger_relative = f"{KERNEL}ledger.py"
+        exported_reader_targets, transaction_reader_methods = (
+            _source_derived_ledger_readers(
+                trees[ledger_relative],
+                module_names[ledger_relative],
+            )
+        )
+        self.assertTrue(
+            {
+                "aria_kernel.ledger.read_jsonl",
+                "aria_kernel.ledger.load_jsonl",
+                "aria_kernel.ledger.load_declared_jsonl",
+            }.issubset(exported_reader_targets),
+        )
+        self.assertTrue(
+            {"load_jsonl", "load_declared_jsonl"}.issubset(
+                transaction_reader_methods,
+            ),
+        )
+        stream_reader_targets = _source_derived_stream_readers(
+            trees[ledger_relative],
+            module_names[ledger_relative],
+        )
+        self.assertIn(
+            "aria_kernel.ledger.verify_jsonl_chunks",
+            stream_reader_targets,
+        )
+        reader_targets = _source_derived_reader_targets(
+            trees,
+            module_names,
+            imports,
+            exported_reader_targets,
+            transaction_reader_methods,
+            scan_index,
+        )
+        path_helpers = _source_derived_path_helpers(
+            trees,
+            module_names,
+            imports,
+            literal_surfaces,
+            scan_index,
+        )
+
+        def scope_root_bindings(
+            relative: str,
+            scope: ast.AST,
+        ) -> dict[str, str]:
+            bindings: dict[str, str] = {}
+            arguments = getattr(scope, "args", None)
+            if arguments is not None:
+                for argument in (*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs):
+                    annotation = ast.unparse(argument.annotation) if argument.annotation else ""
+                    if "WorkspacePaths" in annotation:
+                        bindings[argument.arg] = "workspace"
+                    elif "tools_root" in argument.arg.lower():
+                        bindings[argument.arg] = "tools"
+            for assignment in (
+                node
+                for node in scan_index.nodes[id(scope)]
+                if isinstance(node, ast.Assign)
+            ):
+                if not isinstance(assignment.value, ast.Call):
                     continue
-                surfaces: set[str] = set()
-                for returned in (
-                    node for node in ast.walk(function) if isinstance(node, ast.Return)
-                ):
-                    if returned.value is None:
-                        continue
-                    path_expression = any(
-                        (
-                            isinstance(node, ast.BinOp)
-                            and isinstance(node.op, ast.Div)
-                        )
-                        or (
-                            isinstance(node, ast.Call)
-                            and isinstance(node.func, ast.Attribute)
-                            and node.func.attr == "joinpath"
-                        )
-                        for node in ast.walk(returned.value)
+                called = call_target(relative, assignment.value.func).rsplit(".", 1)[-1]
+                root_kind = (
+                    "workspace" if called == "workspace_paths"
+                    else "tools" if called in {
+                        "ensure_tools_dir",
+                        "ensure_tools_dir_readonly",
+                        "tools_dir",
+                        "tools_index_group_ledgers",
+                    }
+                    else None
+                )
+                if root_kind is not None:
+                    for target in assignment.targets:
+                        if isinstance(target, ast.Name):
+                            bindings[target.id] = root_kind
+            return bindings
+
+        def expression_root_kind(
+            relative: str,
+            expression: ast.expr,
+            root_bindings: Mapping[str, str],
+        ) -> str | None:
+            if isinstance(expression, ast.Name):
+                return root_bindings.get(expression.id)
+            if isinstance(expression, ast.BinOp) and isinstance(expression.op, ast.Div):
+                return expression_root_kind(relative, expression.left, root_bindings)
+            if isinstance(expression, ast.Call):
+                called = call_target(relative, expression.func).rsplit(".", 1)[-1]
+                if called == "workspace_paths":
+                    return "workspace"
+                if called in {
+                    "ensure_tools_dir",
+                    "ensure_tools_dir_readonly",
+                    "tools_dir",
+                    "tools_index_group_ledgers",
+                }:
+                    return "tools"
+                if isinstance(expression.func, ast.Attribute) and expression.func.attr == "joinpath":
+                    return expression_root_kind(
+                        relative,
+                        expression.func.value,
+                        root_bindings,
                     )
-                    if not path_expression:
-                        continue
-                    path = string_path(returned.value)
-                    if path:
-                        surfaces.update(literal_surfaces(path))
-                    for constant in ast.walk(returned.value):
-                        if (
-                            isinstance(constant, ast.Constant)
-                            and isinstance(constant.value, str)
-                        ):
-                            surfaces.update(literal_surfaces(constant.value))
-                if surfaces:
-                    path_helpers[
-                        f"{module_names[relative]}.{function.name}"
-                    ] = surfaces
+            if isinstance(expression, ast.Attribute):
+                return expression_root_kind(relative, expression.value, root_bindings)
+            return None
 
         def expression_surfaces(
             relative: str,
             expression: ast.expr,
             assigned: Mapping[str, set[str]],
+            root_bindings: Mapping[str, str],
         ) -> set[str]:
             if isinstance(expression, ast.Name):
                 return set(assigned.get(expression.id, ()))
@@ -677,137 +1872,322 @@ async def top_async():
                 return literal_surfaces(expression.value)
             if isinstance(expression, ast.Call):
                 return set(path_helpers.get(call_target(relative, expression.func), ()))
-            path = string_path(expression)
-            return literal_surfaces(path) if path else set()
+            if isinstance(expression, ast.Subscript):
+                key = expression.slice
+                if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                    receiver = expression.value
+                    if (
+                        isinstance(receiver, ast.Attribute)
+                        and receiver.attr == "ledgers"
+                        and isinstance(receiver.value, ast.Name)
+                        and root_bindings.get(receiver.value.id) == "workspace"
+                    ):
+                        return literal_surfaces(
+                            f"aria-memory/{key.value}.jsonl",
+                            "workspace",
+                        )
+                    if (
+                        isinstance(receiver, ast.Call)
+                        and call_target(relative, receiver.func).rsplit(".", 1)[-1]
+                        == "tools_index_group_ledgers"
+                    ):
+                        return literal_surfaces(f"{key.value}.jsonl", "tools")
+                    return set()
+            path = _static_string_path(expression)
+            return (
+                literal_surfaces(
+                    path,
+                    expression_root_kind(relative, expression, root_bindings),
+                )
+                if path
+                else set()
+            )
 
-        # Summarize exactly one local wrapper layer. A wrapper can forward a
-        # surface argument (shadow_eval_bridge._rows) or a path argument
-        # (feedback_store/pr_tracking append_jsonl aliases).
+        # Every source-derived reader target participates. A new exported
+        # primitive, alias, or arbitrarily named wrapper cannot evade this
+        # projection merely because its spelling is absent from this test.
         wrappers: dict[str, dict[str, Any]] = {}
         for relative, tree in trees.items():
-            for function in _python_function_scopes(tree):
-                if function.name not in {
-                    "_rows",
-                    "_safe_load_jsonl",
-                    "append_jsonl",
-                    "load_jsonl",
-                    "rewrite_jsonl",
-                }:
+            for function in scan_index.scopes[relative]:
+                function_target = scan_index.targets[id(function)]
+                open_roles = {
+                    role
+                    for call in scan_index.nodes[id(function)]
+                    if isinstance(call, ast.Call)
+                    for role in (_python_open_role(call),)
+                    if role is not None
+                }
+                direct_targets = {
+                    call_target(relative, call.func)
+                    for call in scan_index.nodes[id(function)]
+                    if isinstance(call, ast.Call)
+                }
+                has_direct_ledger_role = any(
+                    target in reader_targets
+                    or target in stream_reader_targets
+                    or target.rsplit(".", 1)[-1] in transaction_reader_methods
+                    or target.rsplit(".", 1)[-1] in writer_primitives
+                    for target in direct_targets
+                )
+                if (
+                    function_target not in reader_targets
+                    and function.name not in writer_primitives
+                    and not open_roles
+                    and not has_direct_ledger_role
+                ):
                     continue
                 parameters = [argument.arg for argument in function.args.args]
+                root_bindings = scope_root_bindings(relative, function)
+                function_assigned: dict[str, set[str]] = {}
+                for assignment in (
+                    node
+                    for node in scan_index.nodes[id(function)]
+                    if isinstance(node, ast.Assign)
+                ):
+                    assigned_surfaces = expression_surfaces(
+                        relative,
+                        assignment.value,
+                        function_assigned,
+                        root_bindings,
+                    )
+                    for assigned_target in assignment.targets:
+                        if (
+                            isinstance(assigned_target, ast.Name)
+                            and assigned_surfaces
+                        ):
+                            function_assigned[assigned_target.id] = (
+                                assigned_surfaces
+                            )
                 summary = {
+                    "parameters": tuple(parameters),
                     "roles": set(),
-                    "fixed": set(),
-                    "surface_params": set(),
-                    "path_params": set(),
+                    "fixed_roles": set(),
+                    "surface_param_roles": set(),
+                    "path_param_roles": set(),
                 }
                 for call in (
-                    node for node in ast.walk(function) if isinstance(node, ast.Call)
+                    node
+                    for node in scan_index.nodes[id(function)]
+                    if isinstance(node, ast.Call)
                 ):
-                    primitive = call_target(relative, call.func).rsplit(".", 1)[-1]
-                    role = (
-                        "producer" if primitive in writer_primitives
-                        else "consumer" if primitive in reader_primitives
-                        else None
-                    )
-                    if role is None:
+                    target = call_target(relative, call.func)
+                    primitive = target.rsplit(".", 1)[-1]
+                    roles: set[str] = set()
+                    if primitive in writer_primitives:
+                        roles.add("producer")
+                    elif (
+                        target in reader_targets
+                        or target in stream_reader_targets
+                        or primitive in transaction_reader_methods
+                    ):
+                        roles.add("consumer")
+                    open_role = _python_open_role(call)
+                    if open_role is not None:
+                        roles.add(open_role)
+                    if not roles:
                         continue
-                    summary["roles"].add(role)
-                    if call.args:
-                        summary["fixed"].update(
-                            expression_surfaces(relative, call.args[0], {}),
+                    summary["roles"].update(roles)
+                    fixed_surfaces: set[str] = set()
+                    open_path = _python_open_path_expression(call)
+                    surface_operand = (
+                        open_path
+                        if open_path is not None
+                        else call.args[0] if call.args else None
+                    )
+                    if surface_operand is not None:
+                        fixed_surfaces.update(
+                            expression_surfaces(
+                                relative,
+                                surface_operand,
+                                function_assigned,
+                                root_bindings,
+                            ),
                         )
-                    if call.args and isinstance(call.args[0], ast.Name):
-                        if call.args[0].id in parameters:
-                            summary["path_params"].add(
-                                parameters.index(call.args[0].id),
+                    if isinstance(surface_operand, ast.Name):
+                        if surface_operand.id in parameters:
+                            parameter_index = parameters.index(surface_operand.id)
+                            summary["path_param_roles"].update(
+                                (parameter_index, role) for role in roles
                             )
                     for keyword in call.keywords:
+                        if keyword.arg == "source":
+                            fixed_surfaces.update(
+                                expression_surfaces(
+                                    relative,
+                                    keyword.value,
+                                    function_assigned,
+                                    root_bindings,
+                                ),
+                            )
+                            if (
+                                isinstance(keyword.value, ast.Name)
+                                and keyword.value.id in parameters
+                            ):
+                                parameter_index = parameters.index(
+                                    keyword.value.id,
+                                )
+                                summary["path_param_roles"].update(
+                                    (parameter_index, role) for role in roles
+                                )
+                            continue
                         if keyword.arg != "expected_surface":
                             continue
                         if (
                             isinstance(keyword.value, ast.Constant)
                             and isinstance(keyword.value.value, str)
                         ):
-                            summary["fixed"].update(
+                            fixed_surfaces.update(
                                 literal_surfaces(keyword.value.value),
                             )
                         elif (
                             isinstance(keyword.value, ast.Name)
                             and keyword.value.id in parameters
                         ):
-                            summary["surface_params"].add(
-                                parameters.index(keyword.value.id),
+                            parameter_index = parameters.index(keyword.value.id)
+                            summary["surface_param_roles"].update(
+                                (parameter_index, role) for role in roles
                             )
+                    summary["fixed_roles"].update(
+                        (surface, role)
+                        for surface in fixed_surfaces
+                        for role in roles
+                    )
                 if summary["roles"]:
-                    wrappers[
-                        f"{module_names[relative]}.{function.name}"
-                    ] = summary
+                    wrappers[function_target] = summary
+
+        def wrapper_argument(
+            call: ast.Call,
+            summary: Mapping[str, Any],
+            index: int,
+        ) -> ast.expr | None:
+            if index < len(call.args):
+                return call.args[index]
+            parameters = summary["parameters"]
+            if index >= len(parameters):
+                return None
+            return next(
+                (
+                    keyword.value
+                    for keyword in call.keywords
+                    if keyword.arg == parameters[index]
+                ),
+                None,
+            )
 
         discovered: set[tuple[str, str, str]] = set()
+        discovered_capability_surfaces: set[tuple[str, str, str, str]] = set()
+        discovered_surfaces: set[tuple[str, str, str]] = set()
+        discovered_global_transport_writers: set[str] = set()
         for relative, tree in trees.items():
-            for scope in _python_function_scopes(tree):
+            for scope in scan_index.scopes[relative]:
                 assigned: dict[str, set[str]] = {}
+                root_bindings = scope_root_bindings(relative, scope)
                 for assignment in (
-                    node for node in ast.walk(scope) if isinstance(node, ast.Assign)
+                    node
+                    for node in scan_index.nodes[id(scope)]
+                    if isinstance(node, ast.Assign)
                 ):
                     surfaces = expression_surfaces(
                         relative,
                         assignment.value,
                         assigned,
+                        root_bindings,
                     )
                     for target in assignment.targets:
                         if isinstance(target, ast.Name) and surfaces:
                             assigned[target.id] = surfaces
                 for call in (
-                    node for node in ast.walk(scope) if isinstance(node, ast.Call)
+                    node
+                    for node in scan_index.nodes[id(scope)]
+                    if isinstance(node, ast.Call)
                 ):
                     target = call_target(relative, call.func)
                     primitive = target.rsplit(".", 1)[-1]
                     roles = set()
                     if primitive in writer_primitives:
                         roles.add("producer")
-                    if primitive in reader_primitives:
+                    elif (
+                        target in reader_targets
+                        or target in stream_reader_targets
+                        or primitive in transaction_reader_methods
+                    ):
                         roles.add("consumer")
+                    open_role = _python_open_role(call)
+                    if open_role is not None:
+                        roles.add(open_role)
                     wrapper = wrappers.get(target)
-                    if wrapper:
-                        roles.update(wrapper["roles"])
-                    if not roles:
+                    all_roles = roles | (wrapper["roles"] if wrapper else set())
+                    if not all_roles:
                         continue
                     surfaces: set[str] = set()
                     if primitive == "load_feedback":
                         surfaces.add("operator_feedback")
-                    if call.args:
+                    open_path = _python_open_path_expression(call)
+                    surface_operand = (
+                        open_path
+                        if open_path is not None
+                        else call.args[0] if call.args else None
+                    )
+                    if surface_operand is not None:
                         surfaces.update(
-                            expression_surfaces(relative, call.args[0], assigned),
+                            expression_surfaces(
+                                relative,
+                                surface_operand,
+                                assigned,
+                                root_bindings,
+                            ),
                         )
                     for keyword in call.keywords:
-                        if keyword.arg in {"expected_surface", "surface"}:
+                        if keyword.arg in {
+                            "expected_surface",
+                            "source",
+                            "surface",
+                        }:
                             surfaces.update(
                                 expression_surfaces(
                                     relative,
                                     keyword.value,
                                     assigned,
+                                    root_bindings,
                                 ),
                             )
+                    surface_roles = {
+                        (surface, role)
+                        for surface in surfaces
+                        for role in roles
+                    }
                     if wrapper:
-                        surfaces.update(wrapper["fixed"])
-                        for index in (
-                            wrapper["surface_params"] | wrapper["path_params"]
-                        ):
-                            if index < len(call.args):
-                                surfaces.update(
-                                    expression_surfaces(
+                        surface_roles.update(wrapper["fixed_roles"])
+                        parameter_roles = (
+                            wrapper["surface_param_roles"]
+                            | wrapper["path_param_roles"]
+                        )
+                        for index, role in parameter_roles:
+                            argument = wrapper_argument(call, wrapper, index)
+                            if argument is not None:
+                                surface_roles.update(
+                                    (surface, role)
+                                    for surface in expression_surfaces(
                                         relative,
-                                        call.args[index],
+                                        argument,
                                         assigned,
-                                    ),
+                                        root_bindings,
+                                    )
                                 )
-                    for surface in surfaces:
+                    if (
+                        "producer" in all_roles
+                        and relative in global_transport_writers
+                    ):
+                        discovered_global_transport_writers.add(relative)
+                    for surface, role in surface_roles:
+                        discovered_surfaces.add((surface, relative, role))
                         capability = surface_capabilities.get(surface)
                         if capability:
-                            discovered.update(
-                                (capability, relative, role) for role in roles
+                            discovered_capability_surfaces.add(
+                                (capability, surface, relative, role),
+                            )
+                            discovered.add(
+                                (capability, relative, role),
                             )
 
         required_discoveries = {
@@ -823,32 +2203,105 @@ async def top_async():
             ("executor", f"{KERNEL}bridge_status_ledger.py", "consumer"),
             ("executor", f"{KERNEL}convergence_drainer.py", "consumer"),
             ("executor", f"{KERNEL}evidence_validator.py", "consumer"),
+            ("executor", f"{KERNEL}genesis_lifecycle.py", "consumer"),
             ("executor", f"{KERNEL}plan_convergence.py", "consumer"),
             ("executor", f"{KERNEL}tool_registry.py", "producer"),
             ("fixture_calibration", f"{KERNEL}agent_genesis.py", "consumer"),
+            ("fixture_calibration", f"{KERNEL}fixture_runner.py", "consumer"),
             ("fixture_calibration", f"{KERNEL}genesis_lifecycle.py", "consumer"),
             ("fixture_calibration", f"{KERNEL}shadow_eval_bridge.py", "consumer"),
             ("enterprise_readiness", f"{KERNEL}auto_merge_runners.py", "consumer"),
+            ("enterprise_readiness", f"{KERNEL}readiness_proofs.py", "consumer"),
             ("autonomy_unlock", f"{KERNEL}autonomy_ladder.py", "consumer"),
+            ("pre_merge_perimeter", f"{KERNEL}merge_authority.py", "producer"),
+            ("pre_merge_perimeter", f"{KERNEL}reflection.py", "consumer"),
         }
         undiscovered = sorted(required_discoveries - discovered)
         if undiscovered:
             self.fail("scanner missed required callsites:\n" + "\n".join(map(str, undiscovered)))
+        required_surface_discoveries = {
+            (
+                "workspace_memory_governance",
+                f"{KERNEL}trust.py",
+                "consumer",
+            ),
+        }
+        undiscovered_surfaces = sorted(
+            required_surface_discoveries - discovered_surfaces,
+        )
+        if undiscovered_surfaces:
+            self.fail(
+                "scanner missed required rooted surface callsites:\n"
+                + "\n".join(map(str, undiscovered_surfaces)),
+            )
+        self.assertEqual(
+            discovered_global_transport_writers,
+            set(global_transport_writers),
+            "every dynamic cross-surface writer must remain explicitly "
+            "classified as global transport",
+        )
+        for path, rationale in global_transport_writers.items():
+            self.assertGreaterEqual(len(rationale), 20)
+            self.assertTrue(
+                all(path in spec.authority_paths for spec in CAPABILITY_SPECS.values()),
+                f"global transport writer is not common authority: {path}",
+            )
 
-        missing = []
-        for capability, relative, role in sorted(discovered):
+        unrostered_proof_callsites: set[tuple[str, str, str, str]] = set()
+        for capability, surface, relative, role in sorted(
+            discovered_capability_surfaces,
+        ):
             spec = CAPABILITY_SPECS[capability]
+            proof_surfaces = {
+                contract.surface for contract in spec.contracts
+            } or set(spec.count_surfaces)
+            if surface not in proof_surfaces:
+                # Count-only telemetry/request surfaces cannot prove the
+                # capability, so their readers/writers are observational by
+                # contract rather than a per-callsite spelling allowlist.
+                continue
             roster = (
                 spec.producer_paths
                 if role == "producer"
                 else spec.authorizing_consumer_paths
             )
-            if relative not in roster and (capability, relative, role) not in observational:
-                missing.append((capability, relative, role))
-        if missing:
-            self.fail("unclassified surface callsites:\n" + "\n".join(map(str, missing)))
+            if relative not in roster:
+                unrostered_proof_callsites.add(
+                    (capability, surface, relative, role),
+                )
+        legacy_observational_proof_callsites = {
+            callsite
+            for callsite in unrostered_proof_callsites
+            if (callsite[0], callsite[2], callsite[3]) in observational
+        }
+        categorized_proof_callsites = set().union(
+            *proof_observational_categories.values(),
+        )
+        self.assertEqual(
+            unrostered_proof_callsites,
+            legacy_observational_proof_callsites | categorized_proof_callsites,
+            "proof-surface callsites must be rostered or explicitly observational",
+        )
+        category_members = [
+            callsite
+            for members in proof_observational_categories.values()
+            for callsite in members
+        ]
+        self.assertEqual(len(category_members), len(set(category_members)))
+        self.assertTrue(
+            all(len(category.replace("_", " ")) >= 15 for category in proof_observational_categories),
+        )
         self.assertTrue(all(len(reason.strip()) >= 20 for reason in observational.values()))
-        self.assertTrue(set(observational).issubset(discovered))
+        stale_observational = sorted(set(observational) - discovered)
+        self.assertFalse(
+            stale_observational,
+            "stale observational classifications:\n"
+            + "\n".join(map(str, stale_observational)),
+        )
+        self.assertTrue(
+            all(len(reason.strip()) >= 20 for reason in surface_observational.values()),
+        )
+        self.assertTrue(set(surface_observational).issubset(discovered_surfaces))
 
     def test_public_contract_models_normalize_adversarial_mutable_inputs(self) -> None:
         versions = {1}
@@ -1033,6 +2486,7 @@ class NativeProofContractTests(unittest.TestCase):
     ) -> None:
         common = {
             "aria-kernel/aria_kernel/autonomy_evidence.py",
+            "aria-kernel/aria_kernel/contention_replay.py",
             "aria-kernel/aria_kernel/file_lock.py",
             "aria-kernel/aria_kernel/ledger.py",
             "aria-kernel/aria_kernel/state_manifest.py",
@@ -1136,6 +2590,29 @@ class NativeProofContractTests(unittest.TestCase):
         self.assertEqual(candidates, ())
         self.assertEqual(counts["terminal"], 0)
         self.assertIn("proof_schema_unsupported:cycles", blockers)
+
+    def test_schema_less_contract_rejects_present_schema_discriminator(self) -> None:
+        valid = {
+            "schema_version": 3,
+            "cycle_id": "cycle-schema-less",
+            "event": "completed",
+            "status": "completed",
+            "git_head_sha_at_cycle": "a" * 40,
+            "ledger_hash": "sha256:" + "1" * 64,
+        }
+        for supplied_schema in ("aria/foreign-cycle/v99", None, ""):
+            with self.subTest(supplied_schema=supplied_schema):
+                row = {**valid, "$schema": supplied_schema}
+                candidates, counts, blockers = _evaluate_native_rows(
+                    "cycle_runtime",
+                    {"cycles": (row,)},
+                )
+                self.assertEqual(candidates, ())
+                self.assertEqual(
+                    counts,
+                    {"rows": 1, "terminal": 0, "admissible": 0},
+                )
+                self.assertIn("proof_schema_unsupported:cycles", blockers)
 
     def test_native_upcaster_rejection_is_a_named_nonproof(self) -> None:
         candidates, counts, blockers = _evaluate_native_rows(
@@ -1354,27 +2831,56 @@ class NativeProofContractTests(unittest.TestCase):
         self.assertEqual(len(candidates), 1)
         self.assertEqual(candidates[0].evidence_target_sha, "a" * 40)
 
-    def test_fixture_terminal_requires_native_suite_row_type(self) -> None:
+    def test_fixture_native_schema_reaches_declared_non_live_target_gate(self) -> None:
         base = {
+            "$schema": "aria/agent-eval-fixture-run/v1",
             "schema_version": 1,
+            "at": "2026-08-23T00:00:00Z",
+            "tool_id": "fixture-adapter",
+            "tool_version": "1.0.0",
+            "tool_manifest_hash": "sha256:" + "1" * 64,
+            "fixture_set_hash": "sha256:" + "2" * 64,
+            "cycle_id": "cycle-1",
+            "fixture_set": "fixtures/fixture-adapter",
+            "case_count": 1,
+            "fixture_lanes": {"real_repo_baseline": 1},
+            "fixture_baseline_passed": True,
+            "semantic_fixture_passed": False,
+            "failed_cases": [],
+            "cases": [{
+                "name": "baseline",
+                "lane": "real_repo_baseline",
+                "path": "fixtures/fixture-adapter/cases/baseline.json",
+                "passed": True,
+                "errors": [],
+                "status": "ok",
+                "duration_ms": 1,
+                "input_hash": "sha256:" + "3" * 64,
+                "output_hash": "sha256:" + "4" * 64,
+                "stderr_hash": "sha256:" + "5" * 64,
+                "exit_code": 0,
+                "timed_out": False,
+                "raw_observations_count": 1,
+                "raw_findings_count": 0,
+                "evidence_validation": {"valid": True},
+            }],
             "execution_run_id": "fixture-run-1",
             "passed": True,
             "actual_status": "pass",
-            "ledger_hash": "sha256:" + "4" * 64,
+            "error_code": None,
+            "evidence_hash": "sha256:" + "6" * 64,
+            "previous_ledger_hash": None,
+            "ledger_hash": "sha256:" + "7" * 64,
         }
-        _, counts_without_type, _ = _evaluate_native_rows(
-            "fixture_calibration",
-            {"agent_eval_fixture_runs": (base,)},
-        )
-        _, counts_with_type, blockers = _evaluate_native_rows(
+        candidates, counts, blockers = _evaluate_native_rows(
             "fixture_calibration",
             {"agent_eval_fixture_runs": ({
                 **base,
                 "row_type": "fixture_run_suite",
             },)},
         )
-        self.assertEqual(counts_without_type["terminal"], 0)
-        self.assertEqual(counts_with_type["terminal"], 1)
+        self.assertEqual(candidates, ())
+        self.assertEqual(counts, {"rows": 1, "terminal": 1, "admissible": 0})
         self.assertEqual(
             blockers,
             ("proof_target_sha_unavailable:agent_eval_fixture_runs",),
@@ -1796,6 +3302,29 @@ class TargetBoundGitProofTests(unittest.TestCase):
             "evaluator_authority_changed:cycle_runtime",
             evidence.blockers,
         )
+
+    def test_executor_acceptance_delegates_change_the_target_tree_hash(self) -> None:
+        previous_sha = self.event_sha
+        previous_hash = _capability_authority_hash(
+            self.repo,
+            "executor",
+            previous_sha,
+        )
+        for ordinal, path in enumerate(EXECUTOR_ACCEPTANCE_AUTHORITY):
+            with self.subTest(path=path):
+                changed_sha = self._commit(
+                    path,
+                    f"ACCEPTANCE_AUTHORITY = {ordinal}\n",
+                    f"mutate executor acceptance authority {ordinal}",
+                )
+                changed_hash = _capability_authority_hash(
+                    self.repo,
+                    "executor",
+                    changed_sha,
+                )
+                self.assertNotEqual(previous_hash, changed_hash)
+                previous_sha = changed_sha
+                previous_hash = changed_hash
 
     def test_unchanged_authority_and_unrelated_docs_descendants_preserve_proof(
         self,
@@ -2323,6 +3852,86 @@ class ReadOnlyStateAdmissionTests(unittest.TestCase):
             self.assertEqual(capability.evidence_refs, ())
             self.assertEqual(capability.counts, {"unavailable": 1})
 
+    def _derive_with_outer_hashless_kg(self, *, mixed: bool):
+        self._publish(with_cycle=False)
+        relative = "knowledge-graph/conventions.jsonl"
+        path = self.tools / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if mixed:
+            append_declared_jsonl(
+                path,
+                {
+                    "kind": "convention",
+                    "name": "outer-chained",
+                    "prev_row_hash": knowledge_graph_module.GENESIS_PREV_HASH,
+                },
+                expected_surface="kg_conventions",
+            )
+            first = json.loads(path.read_text(encoding="utf-8"))
+            rows = [
+                first,
+                {
+                    "kind": "convention",
+                    "name": "legacy-tail",
+                    "prev_row_hash": knowledge_graph_module._row_hash(first),
+                },
+            ]
+        else:
+            first = {
+                "kind": "convention",
+                "name": "legacy-first",
+                "prev_row_hash": knowledge_graph_module.GENESIS_PREV_HASH,
+            }
+            rows = [
+                first,
+                {
+                    "kind": "convention",
+                    "name": "legacy-second",
+                    "prev_row_hash": knowledge_graph_module._row_hash(first),
+                },
+            ]
+        payload = "".join(
+            ledger_module.canonical_json(row) + "\n"
+            for row in rows
+        ).encode("utf-8")
+        path.write_bytes(payload)
+
+        def attest_legacy_kg(snapshot):
+            snapshot["surfaces"]["kg_conventions"] = {
+                "path": relative,
+                "root_kind": "tools",
+                "state_class": "ledger",
+                "storage": "carried",
+                "sha256": hashlib.sha256(payload).hexdigest(),
+                "size_bytes": len(payload),
+                "segments": [relative],
+                "chain_valid": True,
+                "row_count": len(rows),
+                "tail_ledger_hash": (
+                    first.get("ledger_hash")
+                    or knowledge_graph_module._row_hash(rows[-1])
+                ),
+            }
+
+        state_commit, _snapshot_object_id = self._commit_snapshot_mutation(
+            attest_legacy_kg,
+            message="attest legacy knowledge graph",
+            extra_paths=(f"tools/{relative}",),
+        )
+        _git(
+            self.store.root,
+            "push",
+            self.store.remote,
+            f"{state_commit}:refs/heads/{self.store.branch}",
+        )
+        _git(
+            self.store.root,
+            "update-ref",
+            f"refs/remotes/{self.store.remote}/{self.store.branch}",
+            state_commit,
+        )
+        return self._derive()
+
     def test_public_derivation_never_calls_unbounded_workspace_identity(self) -> None:
         self._publish()
         with mock.patch(
@@ -2392,6 +4001,32 @@ class ReadOnlyStateAdmissionTests(unittest.TestCase):
             (self.tools / "repo_identity.json").read_bytes(),
             identity_before,
         )
+        self.assertNotIn(
+            "legacy_kg_canonical_migration_required",
+            status.blockers,
+        )
+
+    def test_legacy_kg_requires_operator_migration_before_activation(self) -> None:
+        status = self._derive_with_outer_hashless_kg(mixed=False)
+
+        self.assertEqual(status.overall_state, "operator_blocked")
+        for capability in ("enterprise_readiness", "autonomy_unlock"):
+            self.assertEqual(status.capabilities[capability].state, "operator_blocked")
+            self.assertIn(
+                "legacy_kg_canonical_migration_required",
+                status.capabilities[capability].blockers,
+            )
+
+    def test_mixed_outer_and_legacy_kg_requires_same_operator_migration(self) -> None:
+        status = self._derive_with_outer_hashless_kg(mixed=True)
+
+        self.assertEqual(status.overall_state, "operator_blocked")
+        for capability in ("enterprise_readiness", "autonomy_unlock"):
+            self.assertEqual(status.capabilities[capability].state, "operator_blocked")
+            self.assertIn(
+                "legacy_kg_canonical_migration_required",
+                status.capabilities[capability].blockers,
+            )
 
     def test_dirty_current_authority_worktree_rejects_public_derivation(self) -> None:
         self._publish()
@@ -2566,6 +4201,62 @@ class ReadOnlyStateAdmissionTests(unittest.TestCase):
             message="attest broken unconsumed ledger",
         )
         with self.assertRaises(LedgerIntegrityError):
+            self._verify_current_snapshot(state_commit, snapshot_object_id)
+
+    def test_immutable_glob_surface_binds_replay_transport_to_claim_path(
+        self,
+    ) -> None:
+        ensure_tools_binding(self.tools, workspace_root=self.repo)
+        august_relative = "cost-attribution/2026-08.jsonl"
+        september_relative = "cost-attribution/2026-09.jsonl"
+        august_path = self.tools / august_relative
+        september_path = self.tools / september_relative
+        producer_payload = {
+            "schema_version": 1,
+            "event": "cost_observed",
+            "month": "2026-08",
+        }
+        producer_event_id = ledger_module._record_hash(producer_payload, None)
+        append_declared_jsonl(
+            august_path,
+            ledger_module._make_replay_transport_row(
+                producer_payload,
+                expected_surface="cost_attribution",
+                surface_instance=august_relative,
+                producer_event_id=producer_event_id,
+                producer_previous_ledger_hash=None,
+                replay_transaction_id="snapshot-instance-binding",
+            ),
+            expected_surface="cost_attribution",
+        )
+        self._publish(with_cycle=False)
+
+        september_path.parent.mkdir(parents=True, exist_ok=True)
+        september_path.write_bytes(august_path.read_bytes())
+        august_path.unlink()
+
+        def move_claim_without_rebinding_envelope(snapshot):
+            surfaces = snapshot["surfaces"]
+            old_key = f"cost_attribution:{august_relative}"
+            new_key = f"cost_attribution:{september_relative}"
+            claim = surfaces.pop(old_key)
+            claim["path"] = september_relative
+            claim["segments"] = [september_relative]
+            surfaces[new_key] = claim
+
+        state_commit, snapshot_object_id = self._commit_snapshot_mutation(
+            move_claim_without_rebinding_envelope,
+            message="move replay envelope across glob instances",
+            extra_paths=(
+                f"tools/{august_relative}",
+                f"tools/{september_relative}",
+            ),
+        )
+
+        with self.assertRaisesRegex(
+            LedgerIntegrityError,
+            "replay_transport_surface_instance_mismatch",
+        ):
             self._verify_current_snapshot(state_commit, snapshot_object_id)
 
     def test_snapshot_top_level_and_projection_metadata_are_exact(self) -> None:
@@ -3896,6 +5587,124 @@ class OperatorPrerequisiteTests(unittest.TestCase):
                 self.assertEqual(
                     capabilities["enterprise_readiness"].state,
                     "operator_blocked",
+                )
+                self.assertIn(
+                    "operator_prerequisite_policy_invalid",
+                    capabilities["enterprise_readiness"].blockers,
+                )
+
+    def test_target_policy_rejects_validly_shaped_semantic_reassignment(self) -> None:
+        def swap_task_ids(policy: dict[str, Any]) -> None:
+            first, second = policy["entries"][:2]
+            first["task_id"], second["task_id"] = (
+                second["task_id"],
+                first["task_id"],
+            )
+
+        def reassign_owner(policy: dict[str, Any]) -> None:
+            policy["entries"][0]["owner_task"] = "task-2"
+
+        def swap_predicate(policy: dict[str, Any]) -> None:
+            policy["entries"][0]["required_predicate"] = policy["entries"][1][
+                "required_predicate"
+            ]
+
+        def change_mode_and_rule(policy: dict[str, Any]) -> None:
+            policy["entries"][1].update({
+                "closure_mode": "task_commit",
+                "closing_sha_rule": "task_commit",
+            })
+
+        def reorder_history(policy: dict[str, Any]) -> None:
+            policy["entries"][5]["historical_fix_shas"].reverse()
+
+        def substitute_full_sha(policy: dict[str, Any]) -> None:
+            policy["entries"][1]["historical_fix_shas"] = ["f" * 40]
+
+        def add_empty_optional_history(policy: dict[str, Any]) -> None:
+            policy["entries"][14]["historical_fix_shas"] = []
+
+        def relocate_review_anchor(policy: dict[str, Any]) -> None:
+            finding_id = "ARIA-HIGH-001"
+            alternate = self.repo / "docs" / "reviews" / "orphan-findings.md"
+            alternate.write_text(
+                alternate.read_text(encoding="utf-8")
+                + f"\n## {finding_id} alternate fixture\n",
+                encoding="utf-8",
+            )
+            policy["entries"][18]["review_anchor"] = (
+                f"docs/reviews/orphan-findings.md#{finding_id}"
+            )
+
+        def remove_required_narrative_presence(policy: dict[str, Any]) -> None:
+            policy["entries"][0].pop("narrative_anchor")
+
+        def relocate_narrative_anchor(policy: dict[str, Any]) -> None:
+            finding_id = "ORPHAN-HIGH-775"
+            alternate = (
+                self.repo
+                / "docs"
+                / "reviews"
+                / "aria"
+                / "2026-08-22-autonomy-closure-plan-audit.md"
+            )
+            alternate.write_text(
+                alternate.read_text(encoding="utf-8")
+                + f"\n## {finding_id} alternate fixture\n",
+                encoding="utf-8",
+            )
+            policy["entries"][0]["narrative_anchor"] = (
+                "docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md"
+                f"#{finding_id}"
+            )
+
+        def add_unexpected_narrative_presence(policy: dict[str, Any]) -> None:
+            policy["entries"][18]["narrative_anchor"] = policy["entries"][18][
+                "review_anchor"
+            ]
+
+        def reorder_regression_refs(policy: dict[str, Any]) -> None:
+            policy["entries"][0]["regression_test_refs"].reverse()
+
+        def substitute_valid_regression_ref(policy: dict[str, Any]) -> None:
+            policy["entries"][1]["regression_test_refs"] = [
+                policy["entries"][2]["regression_test_refs"][0]
+            ]
+
+        for label, mutation in (
+            ("task_id_swap", swap_task_ids),
+            ("owner_reassignment", reassign_owner),
+            ("predicate_reassignment", swap_predicate),
+            ("mode_rule_reassignment", change_mode_and_rule),
+            ("history_reordered", reorder_history),
+            ("history_full_sha_substitution", substitute_full_sha),
+            ("unexpected_empty_history", add_empty_optional_history),
+            ("review_anchor_relocated", relocate_review_anchor),
+            ("narrative_presence_removed", remove_required_narrative_presence),
+            ("narrative_anchor_relocated", relocate_narrative_anchor),
+            ("narrative_presence_added", add_unexpected_narrative_presence),
+            ("regression_refs_reordered", reorder_regression_refs),
+            ("regression_ref_substituted", substitute_valid_regression_ref),
+        ):
+            with self.subTest(label=label):
+                self._commit_policy("OPEN")
+                policy_path = (
+                    self.repo
+                    / "docs"
+                    / "aria"
+                    / "policy"
+                    / "autonomy-closure-findings.json"
+                )
+                policy = json.loads(policy_path.read_text(encoding="utf-8"))
+                mutation(policy)
+                policy_path.write_text(json.dumps(policy), encoding="utf-8")
+                _git(self.repo, "add", ".")
+                _git(self.repo, "commit", "-m", f"semantic policy drift {label}")
+
+                capabilities = _apply_operator_prerequisites(
+                    capabilities=self._capabilities("live_proven"),
+                    repo_root=self.repo,
+                    target_sha=_git(self.repo, "rev-parse", "HEAD"),
                 )
                 self.assertIn(
                     "operator_prerequisite_policy_invalid",

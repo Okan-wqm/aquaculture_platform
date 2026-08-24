@@ -497,6 +497,7 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
     from .workspace import canonical_identity
     from .state_store import (
         StateStoreRefusal,
+        _read_commit_ref,
         build_publishable_snapshot,
         checkout_state_store,
         findings_root,
@@ -504,6 +505,7 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
         publish_state,
         store_environment,
         read_published_snapshot,
+        read_snapshot_at_worktree_head,
         tools_root,
         verify_state_store,
         workspace_root,
@@ -568,6 +570,16 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
             print(json.dumps(verdict, indent=2, sort_keys=True))
             return 0 if verdict["valid"] else 1
 
+        base_head = _read_commit_ref(store.root, "HEAD")
+        if base_head is None:
+            raise StateStoreRefusal(
+                "state_publish_base_head_unavailable: operator publish HEAD is "
+                "not an exact commit"
+            )
+        base = read_snapshot_at_worktree_head(
+            store,
+            expected_head=base_head,
+        )
         snapshot = build_publishable_snapshot(
             store,
             snapshot_id=args.snapshot_id,
@@ -577,12 +589,14 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
             lane="operator",
             repo_hash=repo_hash,
             parent_commit=args.parent_commit,
+            previous=base,
         )
         result = publish_state(
             store,
             snapshot=snapshot,
             cycle_id=args.cycle_id,
             repo_hash=repo_hash,
+            expected_base_head=base_head,
         )
     except StateStoreRefusal as exc:
         print(json.dumps({"published": False, "refusal": str(exc)}, indent=2, sort_keys=True))

@@ -21,12 +21,11 @@ mutates dispatch path → not observation-class). Frozen blocks.
 """
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_declared_jsonl
+from .ledger import append_declared_jsonl, read_jsonl
 from .runtime_profile import enforce_profile_for_write
 from .tool_registry import (
     GovernanceError,
@@ -149,10 +148,7 @@ def list_dispatch_rationales(
     path = _ledger_path(root)
     if not path.exists():
         return []
-    rows = [
-        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    rows = read_jsonl(path, expected_surface="cost_telemetry")
     if request_id is not None:
         rows = [r for r in rows if r.get("request_id") == request_id]
     if role is not None:

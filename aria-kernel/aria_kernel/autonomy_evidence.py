@@ -21,6 +21,7 @@ from typing import Any, Callable, Iterable, Iterator, Literal, Mapping
 
 from .autonomy_state import fold_autonomy_state_rows as _fold_autonomy_state_rows
 from .state_snapshot import (
+    MAX_SNAPSHOT_JSON_BYTES,
     SNAPSHOT_MAX_INPUT_BYTES,
     SNAPSHOT_MAX_LEDGER_LINE_BYTES,
     SNAPSHOT_MAX_LEDGER_ROWS,
@@ -40,54 +41,550 @@ RowUpcaster = Callable[[Mapping[str, Any]], Mapping[str, Any]]
 TerminalPredicate = Callable[[Mapping[str, Any]], bool]
 
 
+_LEGACY_KG_SURFACES = frozenset({
+    "kg_conventions",
+    "kg_anti_patterns",
+    "kg_pressure_source_effectiveness",
+    "kg_duel_ratings",
+    "kg_embeddings",
+})
+_LEGACY_KG_MIGRATION_BLOCKER = "legacy_kg_canonical_migration_required"
+
+
+class _LegacyKgCanonicalMigrationRequired(RuntimeError):
+    """A published KG ledger needs an operator-governed dual-chain migration."""
+
+
 _FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 _LEDGER_HASH = re.compile(r"^sha256:[0-9a-f]{64}$")
 _GIT_OBJECT_ID = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 _OWNER_TASK = re.compile(r"^task-(?:[1-9]|1\d|20a)$")
 _REQUIRED_PREDICATE = re.compile(r"^[a-z][a-z0-9_]+$")
 _REGRESSION_TEST_REF = re.compile(r"(?:^|/)(?:tests?|[^/]*\.(?:spec|test)\.)")
-_EXPECTED_CLOSURE_SCOPE = frozenset({
-    "ORPHAN-HIGH-775",
-    "ORPHAN-CRITICAL-776",
-    "ORPHAN-HIGH-777",
-    "ORPHAN-HIGH-778",
-    "ORPHAN-HIGH-779",
-    "ORPHAN-HIGH-780",
-    "ORPHAN-HIGH-781",
-    "ORPHAN-HIGH-782",
-    "ORPHAN-MEDIUM-783",
-    "ORPHAN-HIGH-784",
-    "ORPHAN-MEDIUM-785",
-    "ORPHAN-HIGH-786",
-    "ORPHAN-HIGH-787",
-    "ORPHAN-HIGH-788",
-    "ORPHAN-MEDIUM-789",
-    "ORPHAN-HIGH-790",
-    "ORPHAN-HIGH-791",
-    "ORPHAN-MEDIUM-792",
-    "ARIA-HIGH-001",
-    "ARIA-HIGH-002",
-    "ARIA-HIGH-003",
-    "ARIA-HIGH-004",
-    "ARIA-HIGH-005",
-    "ARIA-HIGH-006",
-    "ARIA-CRITICAL-007",
-    "ARIA-HIGH-008",
-    "ARIA-CRITICAL-009",
-    "ARIA-HIGH-010",
-    "ARIA-HIGH-011",
-    "ARIA-HIGH-012",
-    "ARIA-HIGH-013",
-    "ARIA-HIGH-014",
-    "ARIA-CRITICAL-015",
-    "ARIA-HIGH-016",
-    "ARIA-HIGH-017",
+_ClosurePolicySemantic = tuple[
+    str,
+    str,
+    str,
+    str,
+    str,
+    tuple[str, ...],
+]
+_EXPECTED_CLOSURE_POLICY_SEMANTICS: Mapping[
+    str,
+    _ClosurePolicySemantic,
+] = MappingProxyType({
+    "ORPHAN-HIGH-775": (
+        "task-1-orphan-775",
+        "task-1",
+        "branch_protection_proof_producer_code_proven",
+        "task_commit",
+        "task_commit",
+        ("84404283f64ef15487fac8e7a7d7aa683feeae94",),
+    ),
+    "ORPHAN-CRITICAL-776": (
+        "task-1-orphan-776",
+        "task-1",
+        "executor_unbound_name_detector_code_proven",
+        "historical_main",
+        "last_historical_fix",
+        ("a16977a968d72a0957b271e3609ff398b6d9c85b",),
+    ),
+    "ORPHAN-HIGH-777": (
+        "task-1-orphan-777",
+        "task-1",
+        "multi_vendor_model_vocabulary_code_proven",
+        "task_commit",
+        "task_commit",
+        (
+            "b2e8ea6241d7b5f6ef5bd212c43cf9f95a4a4585",
+            "d7fa539ea03a52ff2cf5e21a9253d4d7cb84f311",
+        ),
+    ),
+    "ORPHAN-HIGH-778": (
+        "task-1-orphan-778",
+        "task-1",
+        "provider_process_boundary_code_proven",
+        "task_commit",
+        "task_commit",
+        (
+            "260620fbbcf289c75135b635d970f2134256164c",
+            "d7fa539ea03a52ff2cf5e21a9253d4d7cb84f311",
+        ),
+    ),
+    "ORPHAN-HIGH-779": (
+        "task-7",
+        "task-7",
+        "learning_funnel_scheduled_path_live_proven",
+        "task_commit_and_live",
+        "task_commit",
+        ("620683fc9a089790b18bc96b91e0f180fb2c7b63",),
+    ),
+    "ORPHAN-HIGH-780": (
+        "task-1-orphan-780",
+        "task-1",
+        "workflow_launch_failure_ledger_code_proven",
+        "historical_main",
+        "last_historical_fix",
+        (
+            "960b8902b9ec11d5c97dd022c52e38928628f257",
+            "b048624cd76054efb4fa7c7a8e67d2ea3b7f76d9",
+            "2d9f672d74f559c7163a2e649000cbaa79b259fb",
+        ),
+    ),
+    "ORPHAN-HIGH-781": (
+        "task-1-orphan-781",
+        "task-1",
+        "dispatch_model_identity_code_proven",
+        "historical_main",
+        "last_historical_fix",
+        ("a7f375ec18e81e3ebf3a71d078e7d4b5332cb886",),
+    ),
+    "ORPHAN-HIGH-782": (
+        "task-1-orphan-782",
+        "task-1",
+        "calibration_reporter_all_exits_code_proven",
+        "historical_main",
+        "last_historical_fix",
+        ("2e9a6929e6a14717aa1725d9511ae0267b3d288c",),
+    ),
+    "ORPHAN-MEDIUM-783": (
+        "task-1-orphan-783",
+        "task-1",
+        "fixture_phase_result_telemetry_code_proven",
+        "historical_main",
+        "last_historical_fix",
+        ("7a49ebfca19fb175d95cfebac8e9ba8fd19fcacb",),
+    ),
+    "ORPHAN-HIGH-784": (
+        "task-1-orphan-784",
+        "task-1",
+        "same_cycle_judge_weights_code_proven",
+        "historical_main",
+        "last_historical_fix",
+        ("f19264a48ccb67d989c3db01982904497bb5cf52",),
+    ),
+    "ORPHAN-MEDIUM-785": (
+        "task-1-orphan-785",
+        "task-1",
+        "judgment_sampler_recency_window_code_proven",
+        "historical_main",
+        "last_historical_fix",
+        ("16f8ba624729a3d427a3d5ff59f784e4cee4dbca",),
+    ),
+    "ORPHAN-HIGH-786": (
+        "task-1-orphan-786",
+        "task-1",
+        "anchor_sweep_and_drain_topology_code_proven",
+        "historical_main",
+        "last_historical_fix",
+        ("61632372ef765d1dbb0b9cd46673eb98fa2d0815",),
+    ),
+    "ORPHAN-HIGH-787": (
+        "task-1-orphan-787",
+        "task-1",
+        "auto_promote_token_consumer_hmac_code_proven",
+        "historical_main",
+        "last_historical_fix",
+        ("bd605b5cba516d44e5f879a90ade8adbe6d7b26c",),
+    ),
+    "ORPHAN-HIGH-788": (
+        "task-1-orphan-788",
+        "task-1",
+        "readiness_workflow_env_binding_code_proven",
+        "historical_main",
+        "last_historical_fix",
+        ("b19fee8b4fd7ee84caa530aa06b76784557ef044",),
+    ),
+    "ORPHAN-MEDIUM-789": (
+        "task-18",
+        "task-18",
+        "mode_a_signed_readiness_live_proven",
+        "task_commit_and_live",
+        "task_commit",
+        (),
+    ),
+    "ORPHAN-HIGH-790": (
+        "task-1-orphan-790",
+        "task-1",
+        "agent_refusal_vocabulary_code_proven",
+        "historical_main",
+        "last_historical_fix",
+        ("8daedd72ff6c83460b0631a513e5c1585dac75e4",),
+    ),
+    "ORPHAN-HIGH-791": (
+        "task-1-orphan-791",
+        "task-1",
+        "authority_date_utc_normalization_code_proven",
+        "historical_main",
+        "last_historical_fix",
+        ("80f92eb6f15520b505bdf6f3b4e6c486784b094b",),
+    ),
+    "ORPHAN-MEDIUM-792": (
+        "task-3",
+        "task-3",
+        "server_merge_safe_authority_hash_code_proven",
+        "task_commit",
+        "task_commit",
+        (),
+    ),
+    "ARIA-HIGH-001": (
+        "task-2",
+        "task-2",
+        "autonomy_evidence_status_code_proven",
+        "task_commit",
+        "task_commit",
+        (),
+    ),
+    "ARIA-HIGH-002": (
+        "task-4",
+        "task-4",
+        "executor_failure_contract_code_proven",
+        "task_commit",
+        "task_commit",
+        (),
+    ),
+    "ARIA-HIGH-003": (
+        "task-5",
+        "task-5",
+        "three_classified_live_drains",
+        "task_commit_and_live",
+        "task_commit",
+        (),
+    ),
+    "ARIA-HIGH-004": (
+        "task-6",
+        "task-6",
+        "learning_funnel_code_proven",
+        "task_commit",
+        "task_commit",
+        (),
+    ),
+    "ARIA-HIGH-005": (
+        "task-8",
+        "task-8",
+        "pre_merge_snapshot_code_proven",
+        "task_commit",
+        "task_commit",
+        (),
+    ),
+    "ARIA-HIGH-006": (
+        "task-9",
+        "task-9",
+        "branch_and_file_claim_checks_code_proven",
+        "task_commit",
+        "task_commit",
+        (),
+    ),
+    "ARIA-CRITICAL-007": (
+        "task-10",
+        "task-10",
+        "operator_feedback_signature_code_proven",
+        "task_commit",
+        "task_commit",
+        (),
+    ),
+    "ARIA-HIGH-008": (
+        "task-11",
+        "task-11",
+        "budget_and_content_checks_code_proven",
+        "task_commit",
+        "task_commit",
+        (),
+    ),
+    "ARIA-CRITICAL-009": (
+        "task-12",
+        "task-12",
+        "seven_pre_merge_checks_live_proven",
+        "task_commit_and_live",
+        "task_commit",
+        (),
+    ),
+    "ARIA-HIGH-010": (
+        "task-13",
+        "task-13",
+        "rust_observation_shadow_proven",
+        "task_commit",
+        "task_commit",
+        (),
+    ),
+    "ARIA-HIGH-011": (
+        "task-14",
+        "task-14",
+        "migration_observation_shadow_proven",
+        "task_commit",
+        "task_commit",
+        (),
+    ),
+    "ARIA-HIGH-012": (
+        "task-15",
+        "task-15",
+        "infrastructure_observation_shadow_proven",
+        "task_commit",
+        "task_commit",
+        (),
+    ),
+    "ARIA-HIGH-013": (
+        "task-16",
+        "task-16",
+        "workflow_shell_observation_shadow_proven",
+        "task_commit",
+        "task_commit",
+        (),
+    ),
+    "ARIA-HIGH-014": (
+        "task-17",
+        "task-17",
+        "whole_repo_observation_and_vertical_slice_live_proven",
+        "task_commit_and_live",
+        "task_commit",
+        (),
+    ),
+    "ARIA-CRITICAL-015": (
+        "task-19",
+        "task-19",
+        "staged_autonomy_ladder_live_proven",
+        "task_commit_and_live",
+        "task_commit",
+        (),
+    ),
+    "ARIA-HIGH-016": (
+        "task-20a",
+        "task-20a",
+        "closure_verifier_code_proven",
+        "task_commit",
+        "task_commit",
+        (),
+    ),
+    "ARIA-HIGH-017": (
+        "task-5-live-unblock",
+        "task-5",
+        "state_publish_line_cap_code_proven",
+        "task_commit",
+        "task_commit",
+        (),
+    ),
 })
+_ClosurePolicyReferences = tuple[str, str | None, tuple[str, ...]]
+_ORPHAN_REVIEW_ANCHOR_PREFIX = "docs/reviews/orphan-findings.md#"
+_ARIA_REVIEW_ANCHOR_PREFIX = (
+    "docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#"
+)
+_EXPECTED_CLOSURE_POLICY_REFERENCES: Mapping[
+    str,
+    _ClosurePolicyReferences,
+] = MappingProxyType({
+    "ORPHAN-HIGH-775": (
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-HIGH-775",
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-HIGH-775",
+        (
+            "aria-kernel/tests/test_readiness_claim_lane.py",
+            "aria-kernel/tests/test_workflow_enterprise_preflight.py",
+        ),
+    ),
+    "ORPHAN-CRITICAL-776": (
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-CRITICAL-776",
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-CRITICAL-776",
+        ("aria-kernel/tests/test_executor_unbound_names.py",),
+    ),
+    "ORPHAN-HIGH-777": (
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-HIGH-777",
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-HIGH-777",
+        (
+            "aria-kernel/tests/test_glm_model_admission.py",
+            "aria-kernel/tests/test_model_tier_protection.py",
+        ),
+    ),
+    "ORPHAN-HIGH-778": (
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-HIGH-778",
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-HIGH-778",
+        ("aria-kernel/tests/test_provider_redirect.py",),
+    ),
+    "ORPHAN-HIGH-779": (
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-HIGH-779",
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-HIGH-779",
+        (
+            "aria-kernel/tests/test_fixture_dir_state_store_layout.py",
+            "aria-kernel/tests/test_learning_funnel_scheduled_path.py",
+        ),
+    ),
+    "ORPHAN-HIGH-780": (
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-HIGH-780",
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-HIGH-780",
+        (
+            "aria-kernel/tests/test_workflow_kernel_cli_contract.py",
+            "aria-kernel/tests/test_cli_launch_failure_ledger.py",
+        ),
+    ),
+    "ORPHAN-HIGH-781": (
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-HIGH-781",
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-HIGH-781",
+        ("aria-kernel/tests/test_dispatch_model_stamping.py",),
+    ),
+    "ORPHAN-HIGH-782": (
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-HIGH-782",
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-HIGH-782",
+        ("aria-kernel/tests/invariants/v7/test_phase_v7_6_calibration_reporter.py",),
+    ),
+    "ORPHAN-MEDIUM-783": (
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-MEDIUM-783",
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-MEDIUM-783",
+        ("aria-kernel/tests/test_judgment_pipeline_phases.py",),
+    ),
+    "ORPHAN-HIGH-784": (
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-HIGH-784",
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-HIGH-784",
+        ("aria-kernel/tests/test_judgment_pipeline_phases.py",),
+    ),
+    "ORPHAN-MEDIUM-785": (
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-MEDIUM-785",
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-MEDIUM-785",
+        ("aria-kernel/tests/test_sampler_recency_window.py",),
+    ),
+    "ORPHAN-HIGH-786": (
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-HIGH-786",
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-HIGH-786",
+        (
+            "aria-kernel/tests/test_anchor_sweep.py",
+            "aria-kernel/tests/test_x1_drain_topology.py",
+        ),
+    ),
+    "ORPHAN-HIGH-787": (
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-HIGH-787",
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-HIGH-787",
+        (
+            "aria-kernel/tests/invariants/v6/test_phase_v6_4_auto_promotion.py",
+            "aria-kernel/tests/test_auto_promote_token_verification.py",
+        ),
+    ),
+    "ORPHAN-HIGH-788": (
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-HIGH-788",
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-HIGH-788",
+        ("aria-kernel/tests/test_workflow_env_binding.py",),
+    ),
+    "ORPHAN-MEDIUM-789": (
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-MEDIUM-789",
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-MEDIUM-789",
+        (
+            "aria-kernel/tests/test_workflow_mode_a_transport.py",
+            "aria-kernel/tests/test_signed_readiness_snapshot.py",
+        ),
+    ),
+    "ORPHAN-HIGH-790": (
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-HIGH-790",
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-HIGH-790",
+        ("aria-kernel/tests/test_agent_refusal_vocabulary.py",),
+    ),
+    "ORPHAN-HIGH-791": (
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-HIGH-791",
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-HIGH-791",
+        ("tests/invariants/aria-doc-runtime-ssot.spec.ts",),
+    ),
+    "ORPHAN-MEDIUM-792": (
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-MEDIUM-792",
+        _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-MEDIUM-792",
+        (
+            "tools/gates/aria-authority-hash.spec.ts",
+            "tests/invariants/aria-doc-runtime-ssot.spec.ts",
+        ),
+    ),
+    "ARIA-HIGH-001": (
+        _ARIA_REVIEW_ANCHOR_PREFIX + "ARIA-HIGH-001",
+        None,
+        ("aria-kernel/tests/test_autonomy_evidence_status.py",),
+    ),
+    "ARIA-HIGH-002": (
+        _ARIA_REVIEW_ANCHOR_PREFIX + "ARIA-HIGH-002",
+        None,
+        ("aria-kernel/tests/test_executor_failure_classification.py",),
+    ),
+    "ARIA-HIGH-003": (
+        _ARIA_REVIEW_ANCHOR_PREFIX + "ARIA-HIGH-003",
+        None,
+        ("aria-kernel/tests/test_executor_drain_breaker.py",),
+    ),
+    "ARIA-HIGH-004": (
+        _ARIA_REVIEW_ANCHOR_PREFIX + "ARIA-HIGH-004",
+        None,
+        ("aria-kernel/tests/test_promotion_funnel_e2e.py",),
+    ),
+    "ARIA-HIGH-005": (
+        _ARIA_REVIEW_ANCHOR_PREFIX + "ARIA-HIGH-005",
+        None,
+        ("aria-kernel/tests/test_pre_merge_evidence.py",),
+    ),
+    "ARIA-HIGH-006": (
+        _ARIA_REVIEW_ANCHOR_PREFIX + "ARIA-HIGH-006",
+        None,
+        (
+            "aria-kernel/tests/test_file_claim_atomic_acquire.py",
+            "aria-kernel/tests/test_pre_merge_file_claims.py",
+        ),
+    ),
+    "ARIA-CRITICAL-007": (
+        _ARIA_REVIEW_ANCHOR_PREFIX + "ARIA-CRITICAL-007",
+        None,
+        ("aria-kernel/tests/test_operator_feedback_signature.py",),
+    ),
+    "ARIA-HIGH-008": (
+        _ARIA_REVIEW_ANCHOR_PREFIX + "ARIA-HIGH-008",
+        None,
+        ("aria-kernel/tests/test_pre_merge_budget_and_content.py",),
+    ),
+    "ARIA-CRITICAL-009": (
+        _ARIA_REVIEW_ANCHOR_PREFIX + "ARIA-CRITICAL-009",
+        None,
+        ("aria-kernel/tests/test_pre_merge_consensus_and_coverage.py",),
+    ),
+    "ARIA-HIGH-010": (
+        _ARIA_REVIEW_ANCHOR_PREFIX + "ARIA-HIGH-010",
+        None,
+        ("tools/aria-adapters/rust-runtime-safety-adapter.test.ts",),
+    ),
+    "ARIA-HIGH-011": (
+        _ARIA_REVIEW_ANCHOR_PREFIX + "ARIA-HIGH-011",
+        None,
+        ("tools/aria-adapters/sql-migration-safety-adapter.test.ts",),
+    ),
+    "ARIA-HIGH-012": (
+        _ARIA_REVIEW_ANCHOR_PREFIX + "ARIA-HIGH-012",
+        None,
+        ("tools/aria-adapters/infrastructure-policy-adapter.test.ts",),
+    ),
+    "ARIA-HIGH-013": (
+        _ARIA_REVIEW_ANCHOR_PREFIX + "ARIA-HIGH-013",
+        None,
+        ("tools/aria-adapters/workflow-shell-safety-adapter.test.ts",),
+    ),
+    "ARIA-HIGH-014": (
+        _ARIA_REVIEW_ANCHOR_PREFIX + "ARIA-HIGH-014",
+        None,
+        ("aria-kernel/tests/test_vertical_slice_evidence.py",),
+    ),
+    "ARIA-CRITICAL-015": (
+        _ARIA_REVIEW_ANCHOR_PREFIX + "ARIA-CRITICAL-015",
+        None,
+        ("aria-kernel/tests/test_autonomy_stage_progression.py",),
+    ),
+    "ARIA-HIGH-016": (
+        _ARIA_REVIEW_ANCHOR_PREFIX + "ARIA-HIGH-016",
+        None,
+        ("aria-kernel/tests/test_autonomy_closure.py",),
+    ),
+    "ARIA-HIGH-017": (
+        "docs/reviews/aria/2026-08-23-state-publish-line-cap-regression.md"
+        "#ARIA-HIGH-017",
+        None,
+        (
+            "aria-kernel/tests/test_state_snapshot.py",
+            "aria-kernel/tests/test_agent_submit_result_e2e.py",
+        ),
+    ),
+})
+_EXPECTED_CLOSURE_SCOPE = frozenset(_EXPECTED_CLOSURE_POLICY_SEMANTICS)
 _MAX_EVALUATOR_BLOB_BYTES = 2 * 1024 * 1024
 _MAX_AUTHORITY_BLOB_BYTES = 2 * 1024 * 1024
 _MAX_AUTHORITY_CAPABILITY_BYTES = 16 * 1024 * 1024
 _MAX_POLICY_BLOB_BYTES = 2 * 1024 * 1024
-_MAX_SNAPSHOT_JSON_BYTES = 4 * 1024 * 1024
 _MAX_SNAPSHOT_TREE_BYTES = 16 * 1024 * 1024
 _MAX_SNAPSHOT_TREE_ENTRIES = 10_000
 _MAX_SNAPSHOT_SURFACE_BLOB_BYTES = SNAPSHOT_MAX_SURFACE_BLOB_BYTES
@@ -333,6 +830,7 @@ class AutonomyEvidenceStatus:
 _KERNEL = "aria-kernel/aria_kernel/"
 _COMMON_AUTHORITY_PATHS = (
     f"{_KERNEL}autonomy_evidence.py",
+    f"{_KERNEL}contention_replay.py",
     f"{_KERNEL}file_lock.py",
     f"{_KERNEL}ledger.py",
     f"{_KERNEL}state_manifest.py",
@@ -357,6 +855,7 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             f"{_KERNEL}autonomy_state.py",
             f"{_KERNEL}burn_in.py",
             f"{_KERNEL}runtime_artifacts.py",
+            f"{_KERNEL}trailer_scan.py",
             f"{_KERNEL}tool_health.py",
             f"{_KERNEL}upcasters/__init__.py",
             f"{_KERNEL}upcasters/cycles.py",
@@ -375,6 +874,7 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             f"{_KERNEL}autonomy_state.py",
             f"{_KERNEL}burn_in.py",
             f"{_KERNEL}runtime_artifacts.py",
+            f"{_KERNEL}trailer_scan.py",
         ),
         contracts=(EvidenceContract(
             surface="cycles",
@@ -395,6 +895,19 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
     "executor": CapabilitySpec(
         authority_paths=_paths(
             f"{_KERNEL}agent_invocations.py",
+            f"{_KERNEL}agent_surface.py",
+            f"{_KERNEL}genesis_lifecycle.py",
+            f"{_KERNEL}context_budget_gate.py",
+            f"{_KERNEL}runtime_profile.py",
+            f"{_KERNEL}agent_contract.py",
+            f"{_KERNEL}agent_compliance.py",
+            f"{_KERNEL}implementation_safety.py",
+            f"{_KERNEL}agent_genesis.py",
+            f"{_KERNEL}evidence_trust.py",
+            f"{_KERNEL}canonical_path.py",
+            f"{_KERNEL}tool_health.py",
+            f"{_KERNEL}ledger_refs.py",
+            f"{_KERNEL}planner_dispatch_hook.py",
             f"{_KERNEL}agent_eval.py",
             f"{_KERNEL}bridge_status_ledger.py",
             f"{_KERNEL}circuit_breaker.py",
@@ -426,6 +939,7 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             f"{_KERNEL}circuit_breaker.py",
             f"{_KERNEL}convergence_drainer.py",
             f"{_KERNEL}evidence_validator.py",
+            f"{_KERNEL}genesis_lifecycle.py",
             f"{_KERNEL}plan_convergence.py",
         ),
         contracts=(EvidenceContract(
@@ -523,6 +1037,7 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
         ),
         authorizing_consumer_paths=(
             f"{_KERNEL}agent_genesis.py",
+            f"{_KERNEL}fixture_runner.py",
             f"{_KERNEL}genesis_lifecycle.py",
             f"{_KERNEL}readiness.py",
             f"{_KERNEL}shadow_eval_bridge.py",
@@ -531,7 +1046,7 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
         contracts=(EvidenceContract(
             surface="agent_eval_fixture_runs",
             proof_kind="live",
-            schema_id=None,
+            schema_id="aria/agent-eval-fixture-run/v1",
             schema_versions=frozenset({1}),
             identity_field="execution_run_id",
             integrity_hash_field="ledger_hash",
@@ -568,6 +1083,7 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
         producer_paths=(
             f"{_KERNEL}auto_merge.py",
             f"{_KERNEL}pre_merge_evidence.py",
+            f"{_KERNEL}merge_authority.py",
             f"{_KERNEL}plan_convergence.py",
             f"{_KERNEL}file_claims.py",
             f"{_KERNEL}operator_feedback_signature.py",
@@ -619,6 +1135,7 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
         ),
         authorizing_consumer_paths=(
             f"{_KERNEL}auto_merge_runners.py",
+            f"{_KERNEL}readiness_proofs.py",
             f"{_KERNEL}enterprise_readiness.py",
         ),
         contracts=(EvidenceContract(
@@ -650,6 +1167,7 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             f"{_KERNEL}acceptance_reconciler.py",
             f"{_KERNEL}autonomy_unlock.py",
             f"{_KERNEL}autonomy_ladder.py",
+            f"{_KERNEL}merge_authority.py",
             f"{_KERNEL}rollback_bundle.py",
             ".github/workflows/aria-auto-cycle.yml",
         ),
@@ -710,10 +1228,12 @@ def _summarize_native_rows(
                 continue
             schema_version = row.get("schema_version")
             schema_id = row.get("$schema")
+            schema_key_present = "$schema" in row
             if (
                 not isinstance(schema_version, int)
                 or isinstance(schema_version, bool)
                 or schema_version not in contract.schema_versions
+                or (contract.schema_id is None and schema_key_present)
                 or (
                     contract.schema_id is not None
                     and schema_id != contract.schema_id
@@ -1551,6 +2071,41 @@ def _unavailable_status(
     )
 
 
+def _legacy_kg_operator_blocked_status(
+    *,
+    target_sha: str,
+    repo_root: Path,
+) -> AutonomyEvidenceStatus:
+    """Return a non-authorizing status for an outer-hashless KG snapshot.
+
+    A generic ledger-hash backfill rewrites each row and invalidates the KG's
+    native ``prev_row_hash`` chain.  Only an operator-governed canonical
+    migration may recompute both chains, so readiness and unlock stay closed.
+    """
+    unavailable = _unavailable_status(
+        target_sha=target_sha,
+        blocker=_LEGACY_KG_MIGRATION_BLOCKER,
+        repo_root=repo_root,
+    )
+    capabilities = dict(unavailable.capabilities)
+    for capability in ("enterprise_readiness", "autonomy_unlock"):
+        evidence = capabilities[capability]
+        capabilities[capability] = CapabilityEvidence(
+            state="operator_blocked",
+            counts=evidence.counts,
+            blockers=evidence.blockers,
+            evidence_refs=(),
+            proof_cardinality={},
+        )
+    return AutonomyEvidenceStatus(
+        target_sha=target_sha,
+        derived_at=unavailable.derived_at,
+        overall_state="operator_blocked",
+        blockers=unavailable.blockers,
+        capabilities=capabilities,
+    )
+
+
 def _derived_at() -> str:
     from .tool_registry import utc_now
 
@@ -1646,8 +2201,8 @@ def _read_immutable_snapshot_claim(
         payload = _read_git_blob_bounded(
             store_root,
             object_id,
-            max_bytes=_MAX_SNAPSHOT_JSON_BYTES,
-            too_large="state_snapshot_too_large",
+            max_bytes=MAX_SNAPSHOT_JSON_BYTES,
+            too_large="state_snapshot_json_too_large",
             unavailable="state_snapshot_unavailable",
         )
         text = payload.decode("utf-8")
@@ -1824,7 +2379,11 @@ def _verify_snapshot_and_collect_evidence(
     expected_snapshot_object_id: str,
 ) -> _StreamingEvidenceAccumulator:
     """Verify every snapshot surface, parsing only the evidence ledgers."""
-    from .ledger import LedgerReadLimitError, verify_jsonl_chunks
+    from .ledger import (
+        LedgerIntegrityError,
+        LedgerReadLimitError,
+        verify_jsonl_chunks,
+    )
     from .state_manifest import (
         normalize_surface_relative_path,
         surface_by_name,
@@ -2062,6 +2621,8 @@ def _verify_snapshot_and_collect_evidence(
                         else _MAX_SNAPSHOT_LEDGER_ROWS
                     ),
                     grandfather_line_prefixes=grandfather_row_counts.get(key, 0),
+                    expected_surface=surface_name,
+                    expected_surface_instance=claim["path"],
                     on_row=(
                         (lambda row, name=surface_name: accumulator.consume(
                             name,
@@ -2071,6 +2632,15 @@ def _verify_snapshot_and_collect_evidence(
                         else None
                     ),
                 )
+            except LedgerIntegrityError as exc:
+                if (
+                    surface_name in _LEGACY_KG_SURFACES
+                    and "reason=ledger_hash_missing" in str(exc)
+                ):
+                    raise _LegacyKgCanonicalMigrationRequired(
+                        f"{_LEGACY_KG_MIGRATION_BLOCKER}:{surface_name}",
+                    ) from exc
+                raise
             except LedgerReadLimitError as exc:
                 reason = str(exc)
                 prefix = "state_commit" if consumed else "state_snapshot"
@@ -3251,6 +3821,35 @@ def _valid_operator_policy_shape(
             )
         ):
             return False
+        expected_semantic = _EXPECTED_CLOSURE_POLICY_SEMANTICS.get(finding_id)
+        expected_references = _EXPECTED_CLOSURE_POLICY_REFERENCES.get(finding_id)
+        actual_semantic: _ClosurePolicySemantic = (
+            task_id,
+            owner_task,
+            predicate,
+            entry["closure_mode"],
+            entry["closing_sha_rule"],
+            tuple(historical),
+        )
+        if (
+            expected_semantic is None
+            or actual_semantic != expected_semantic
+            or ("historical_fix_shas" in entry) != bool(expected_semantic[-1])
+            or expected_references is None
+            or (
+                entry["review_anchor"],
+                entry.get("narrative_anchor"),
+                tuple(refs),
+            )
+            != expected_references
+            or ("narrative_anchor" in entry) != (expected_references[1] is not None)
+        ):
+            return False
+        if entry["closure_mode"] == "historical_main":
+            if entry["closing_sha_rule"] != "last_historical_fix" or not historical:
+                return False
+        elif entry["closing_sha_rule"] != "task_commit":
+            return False
         if "operator_prerequisite" in entry:
             metadata = entry["operator_prerequisite"]
             if (
@@ -3262,9 +3861,21 @@ def _valid_operator_policy_shape(
                 )
             ):
                 return False
+        expected_operator = (
+            {
+                "capability": "enterprise_readiness",
+                "blocker": "github_app_mode_a_unconfigured",
+            }
+            if finding_id == "ORPHAN-MEDIUM-789"
+            else None
+        )
+        if entry.get("operator_prerequisite") != expected_operator:
+            return False
     return (
         len(entries) == len(_EXPECTED_CLOSURE_SCOPE)
         and finding_ids == _EXPECTED_CLOSURE_SCOPE
+        and frozenset(_EXPECTED_CLOSURE_POLICY_REFERENCES)
+        == _EXPECTED_CLOSURE_SCOPE
     )
 
 
@@ -3445,6 +4056,11 @@ def derive_autonomy_evidence_status(
             snapshot_object_id=before.snapshot_object_id or "",
             repo_root=repository,
             target_sha=evaluated_target,
+        )
+    except _LegacyKgCanonicalMigrationRequired:
+        return _legacy_kg_operator_blocked_status(
+            target_sha=evaluated_target,
+            repo_root=repository,
         )
     except LedgerIntegrityError:
         raise

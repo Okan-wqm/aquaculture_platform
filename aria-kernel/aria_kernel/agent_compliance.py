@@ -70,15 +70,17 @@ from pathlib import Path
 from typing import Any
 
 from .agent_genesis import BANNED_PHRASES
-from .ledger import append_declared_jsonl
+from .ledger import StateTransaction, append_declared_jsonl
 from .runtime_profile import enforce_profile_for_write
 from .tool_registry import (
     GovernanceError,
     append_tools_governance,
     ensure_tools_dir,
     ensure_tools_dir_readonly,
+    tools_dir,
     utc_now,
 )
+from .workspace import governance_event
 
 COMPLIANCE_LEDGER_FILENAME = ("agent-compliance.jsonl",)
 COMPLIANCE_REJECTION_REASON = "compliance_rejected"
@@ -325,7 +327,7 @@ def grade_response(
     }
 
 
-def record_compliance_grade(
+def _prepare_compliance_grade(
     *,
     claim_id: str,
     request: dict[str, Any],
@@ -334,17 +336,7 @@ def record_compliance_grade(
     workspace_root: Path | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Grade + persist + emit the appropriate governance event.
-
-    Hard reject → agent_compliance_violation event + result row 'rejected'
-    + rejection_reason='compliance_rejected'.
-
-    Soft fail (single) → agent_compliance_warning event; not a rejection.
-
-    2+ soft fails → falls through to hard-reject path (kümülatif rule);
-    agent_compliance_violation event emitted with severity='kumulative_soft'
-    detail to disambiguate from a hard-check-driven reject in audit.
-    """
+    """Precompute the grade and any audit event without mutating ledgers."""
     enforce_profile_for_write("agent_compliance", base_dir=base_dir)
     grade = grade_response(
         request=request, response=response,
@@ -358,13 +350,6 @@ def record_compliance_grade(
         "graded_at": utc_now(),
         **grade,
     }
-    root = ensure_tools_dir(base_dir)
-    append_declared_jsonl(
-        _ledger_path(root),
-        row,
-        expected_surface="agent_compliance",
-    )
-
     if grade["rejection"]:
         kind = "agent_compliance_violation"
         kumulative = grade["hard_fail_count"] == 0 and grade["soft_fail_count"] >= SOFT_FAIL_REJECT_THRESHOLD
@@ -392,10 +377,85 @@ def record_compliance_grade(
         kind = None
         details = None
 
-    if kind is not None:
-        append_tools_governance(root, kind, details)
+    return {
+        "row": row,
+        "governance_event": (
+            governance_event(kind=kind, details=details)
+            if kind is not None and details is not None
+            else None
+        ),
+    }
+
+
+def _persist_prepared_compliance_grade(
+    prepared: dict[str, Any],
+    *,
+    base_dir: str | Path | None,
+    transaction: StateTransaction | None = None,
+) -> dict[str, Any]:
+    """Persist a prevalidated grade through an optional encompassing lock."""
+    row = prepared["row"]
+    root = tools_dir(base_dir) if transaction is not None else ensure_tools_dir(base_dir)
+    if transaction is not None:
+        transaction.append_declared_jsonl(
+            _ledger_path(root),
+            row,
+            expected_surface="agent_compliance",
+        )
+    else:
+        append_declared_jsonl(
+            _ledger_path(root),
+            row,
+            expected_surface="agent_compliance",
+        )
+
+    event = prepared.get("governance_event")
+    if isinstance(event, dict):
+        append_tools_governance(
+            root,
+            str(event["kind"]),
+            dict(event["details"]),
+            transaction=transaction,
+            prepared_event=event,
+        )
 
     return row
+
+
+def record_compliance_grade(
+    *,
+    claim_id: str,
+    request: dict[str, Any],
+    response: dict[str, Any],
+    response_path: Path | None = None,
+    workspace_root: Path | None = None,
+    base_dir: str | Path | None = None,
+    transaction: StateTransaction | None = None,
+) -> dict[str, Any]:
+    """Grade + persist + emit the appropriate governance event.
+
+    Hard reject → agent_compliance_violation event + result row 'rejected'
+    + rejection_reason='compliance_rejected'.
+
+    Soft fail (single) → agent_compliance_warning event; not a rejection.
+
+    2+ soft fails → falls through to hard-reject path (kümülatif rule);
+    agent_compliance_violation event emitted with severity='kumulative_soft'
+    detail to disambiguate from a hard-check-driven reject in audit.
+    """
+    prepared = _prepare_compliance_grade(
+        claim_id=claim_id,
+        request=request,
+        response=response,
+        response_path=response_path,
+        workspace_root=workspace_root,
+        base_dir=base_dir,
+    )
+    return _persist_prepared_compliance_grade(
+        prepared,
+        base_dir=base_dir,
+        transaction=transaction,
+    )
 
 
 def list_compliance_grades(

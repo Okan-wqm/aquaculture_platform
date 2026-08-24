@@ -3,14 +3,22 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 import subprocess
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from .evidence_validator import validate_tool_output_evidence
 from .implementation_safety import BashAllowlistMiss, BashDenylistHit, verify_bash_command_allowed
-from .ledger import append_declared_jsonl, append_jsonl as append_chained_jsonl
+from .ledger import (
+    LedgerIntegrityError,
+    LedgerReadLimitError,
+    append_declared_jsonl,
+    append_jsonl as append_chained_jsonl,
+    verify_jsonl_chunks,
+)
+from .state_manifest import surface_for_path
 from .tool_registry import GovernanceError, ensure_tools_dir, get_tool, utc_now
 from .tool_runner import _canonical_json_bytes, _decode_timeout_stream, _parse_tool_output
 
@@ -20,6 +28,38 @@ SEMANTIC_FIXTURE_REQUIRED_TOOLS = {
     "tenant-scoping-adapter",
     "test-gap-adapter",
 }
+
+FIXTURE_RUN_SCHEMA = "aria/agent-eval-fixture-run/v1"
+FIXTURE_RUN_LEDGER_MAX_BYTES = 64 * 1024 * 1024
+FIXTURE_RUN_LEDGER_MAX_LINE_BYTES = 1024 * 1024
+FIXTURE_RUN_LEDGER_MAX_ROWS = 100_000
+_FIXTURE_RUN_READ_CHUNK_BYTES = 1024 * 1024
+_FIXTURE_RUN_SURFACE = "agent_eval_fixture_runs"
+_FIXTURE_RUN_STORED_KEYS = frozenset({
+    "$schema",
+    "schema_version",
+    "row_type",
+    "at",
+    "tool_id",
+    "tool_version",
+    "tool_manifest_hash",
+    "fixture_set_hash",
+    "cycle_id",
+    "fixture_set",
+    "passed",
+    "case_count",
+    "fixture_lanes",
+    "fixture_baseline_passed",
+    "semantic_fixture_passed",
+    "failed_cases",
+    "cases",
+    "execution_run_id",
+    "actual_status",
+    "error_code",
+    "evidence_hash",
+    "previous_ledger_hash",
+    "ledger_hash",
+})
 
 
 def fixture_runs_path(base_dir: str | Path | None = None) -> Path:
@@ -79,6 +119,7 @@ def run_fixture_suite(
         error_code = None
 
     base_summary: dict[str, Any] = {
+        "$schema": FIXTURE_RUN_SCHEMA,
         "schema_version": 1,
         # Plan 023 v3 §A-1 — explicit row_type so reader helpers can
         # discriminate suite rows from append-only legacy backfill rows.
@@ -128,7 +169,15 @@ def _compute_suite_evidence_hash(summary: dict[str, Any]) -> str:
       evidence_hash (self-reference), at (volatile timestamp),
       execution_run_id (orthogonal identity), row_type (file shape).
     """
-    excluded = {"evidence_hash", "at", "execution_run_id", "row_type", "schema_version"}
+    excluded = {
+        "evidence_hash",
+        "at",
+        "execution_run_id",
+        "row_type",
+        "schema_version",
+        "ledger_hash",
+        "previous_ledger_hash",
+    }
     payload = {k: v for k, v in summary.items() if k not in excluded}
     serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return "sha256:" + hashlib.sha256(serialized.encode("utf-8")).hexdigest()
@@ -239,17 +288,252 @@ def load_fixture_runs(
     base_dir: str | os.PathLike[str] | None = None,
 ) -> list[dict[str, Any]]:
     path = fixture_runs_path(base_dir)
-    if not path.exists():
+    if not os.path.lexists(path):
         return []
-    rows = []
-    with path.open("r", encoding="utf-8") as handle:
-        for line in handle:
-            if not line.strip():
-                continue
-            row = json.loads(line)
-            if row.get("tool_id") == tool_id:
-                rows.append(row)
-    return rows
+    return _load_verified_fixture_run_ledger(path, tool_id=tool_id)
+
+
+def _fixture_run_file_identity(value: os.stat_result) -> tuple[int, ...]:
+    return (
+        value.st_dev,
+        value.st_ino,
+        value.st_mode,
+        value.st_size,
+        value.st_mtime_ns,
+        value.st_ctime_ns,
+    )
+
+
+def _assert_fixture_run_surface_owner(path: Path) -> None:
+    try:
+        match = surface_for_path(path)
+    except ValueError as exc:
+        raise LedgerIntegrityError(
+            f"fixture_run_surface_ambiguous:{path.as_posix()}",
+        ) from exc
+    if match is None or match[0].name != _FIXTURE_RUN_SURFACE:
+        actual = match[0].name if match is not None else "undeclared"
+        raise LedgerIntegrityError(
+            "fixture_run_surface_owner_mismatch:"
+            f"expected={_FIXTURE_RUN_SURFACE}:actual={actual}:"
+            f"path={path.as_posix()}",
+        )
+
+
+def _load_verified_fixture_run_ledger(
+    path: Path,
+    *,
+    tool_id: str,
+) -> list[dict[str, Any]]:
+    """Stream one stable regular file through bounded chain verification."""
+    _assert_fixture_run_surface_owner(path)
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    if nofollow is None:
+        raise LedgerIntegrityError("fixture_run_nofollow_unavailable")
+    try:
+        before = os.stat(path, follow_symlinks=False)
+    except OSError as exc:
+        raise LedgerIntegrityError(
+            f"fixture_run_ledger_unavailable:{path.as_posix()}",
+        ) from exc
+    if not stat.S_ISREG(before.st_mode):
+        raise LedgerIntegrityError(
+            f"fixture_run_ledger_not_regular:{path.as_posix()}",
+        )
+    if before.st_size > FIXTURE_RUN_LEDGER_MAX_BYTES:
+        raise LedgerReadLimitError(
+            f"fixture_run_ledger_too_large:{path.as_posix()}",
+        )
+
+    descriptor: int | None = None
+    try:
+        flags = os.O_RDONLY | nofollow
+        flags |= int(getattr(os, "O_CLOEXEC", 0))
+        flags |= int(getattr(os, "O_NONBLOCK", 0))
+        descriptor = os.open(path, flags)
+        opened = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or _fixture_run_file_identity(opened)
+            != _fixture_run_file_identity(before)
+        ):
+            raise LedgerIntegrityError(
+                f"fixture_run_ledger_changed:{path.as_posix()}",
+            )
+
+        observed = 0
+        matching_rows: list[dict[str, Any]] = []
+        row_number = 0
+
+        def chunks() -> Iterator[bytes]:
+            nonlocal observed
+            while True:
+                chunk = os.read(descriptor, _FIXTURE_RUN_READ_CHUNK_BYTES)
+                if not chunk:
+                    break
+                observed += len(chunk)
+                if observed > FIXTURE_RUN_LEDGER_MAX_BYTES:
+                    raise LedgerReadLimitError(
+                        f"fixture_run_ledger_too_large:{path.as_posix()}",
+                    )
+                if observed > opened.st_size:
+                    raise LedgerIntegrityError(
+                        f"fixture_run_ledger_changed:{path.as_posix()}",
+                    )
+                yield chunk
+
+        def admit(row: dict[str, Any]) -> None:
+            nonlocal row_number
+            row_number += 1
+            _validate_fixture_run_row(row, path=path, line=row_number)
+            if row["tool_id"] == tool_id:
+                matching_rows.append(row)
+
+        verify_jsonl_chunks(
+            chunks(),
+            source=path,
+            expected_size=opened.st_size,
+            max_line_bytes=FIXTURE_RUN_LEDGER_MAX_LINE_BYTES,
+            max_rows=FIXTURE_RUN_LEDGER_MAX_ROWS,
+            expected_surface=_FIXTURE_RUN_SURFACE,
+            on_row=admit,
+        )
+
+        after = os.fstat(descriptor)
+        try:
+            current = os.stat(path, follow_symlinks=False)
+        except OSError as exc:
+            raise LedgerIntegrityError(
+                f"fixture_run_ledger_changed:{path.as_posix()}",
+            ) from exc
+        opened_identity = _fixture_run_file_identity(opened)
+        if (
+            observed != opened.st_size
+            or _fixture_run_file_identity(after) != opened_identity
+            or _fixture_run_file_identity(current) != opened_identity
+        ):
+            raise LedgerIntegrityError(
+                f"fixture_run_ledger_changed:{path.as_posix()}",
+            )
+    except (LedgerIntegrityError, LedgerReadLimitError):
+        raise
+    except OSError as exc:
+        raise LedgerIntegrityError(
+            f"fixture_run_ledger_unavailable:{path.as_posix()}",
+        ) from exc
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+    return matching_rows
+
+
+def _fixture_run_schema_error(path: Path, line: int, reason: str) -> None:
+    raise LedgerIntegrityError(
+        f"fixture_run_schema_rejected:{path.as_posix()}:line={line}:reason={reason}",
+    )
+
+
+def _is_sha256(value: Any) -> bool:
+    if not isinstance(value, str) or not value.startswith("sha256:"):
+        return False
+    digest = value.removeprefix("sha256:")
+    return len(digest) == 64 and all(character in "0123456789abcdef" for character in digest)
+
+
+def _validate_fixture_run_row(row: dict[str, Any], *, path: Path, line: int) -> None:
+    keys = frozenset(row)
+    unexpected = sorted(keys - _FIXTURE_RUN_STORED_KEYS)
+    if unexpected:
+        _fixture_run_schema_error(
+            path,
+            line,
+            "unexpected_top_level_fields=" + ",".join(unexpected),
+        )
+    missing = sorted(_FIXTURE_RUN_STORED_KEYS - keys)
+    if missing:
+        _fixture_run_schema_error(
+            path,
+            line,
+            "missing_top_level_fields=" + ",".join(missing),
+        )
+
+    exact = {
+        "$schema": FIXTURE_RUN_SCHEMA,
+        "schema_version": 1,
+        "row_type": "fixture_run_suite",
+    }
+    for field, expected in exact.items():
+        if type(row.get(field)) is not type(expected) or row.get(field) != expected:
+            _fixture_run_schema_error(path, line, f"{field}_invalid")
+
+    for field in (
+        "at",
+        "tool_id",
+        "tool_version",
+        "cycle_id",
+        "fixture_set",
+        "execution_run_id",
+    ):
+        value = row.get(field)
+        if type(value) is not str or not value.strip():
+            _fixture_run_schema_error(path, line, f"{field}_invalid")
+    for field in (
+        "tool_manifest_hash",
+        "fixture_set_hash",
+        "evidence_hash",
+        "ledger_hash",
+    ):
+        if not _is_sha256(row.get(field)):
+            _fixture_run_schema_error(path, line, f"{field}_invalid")
+    previous_hash = row.get("previous_ledger_hash")
+    if previous_hash is not None and not _is_sha256(previous_hash):
+        _fixture_run_schema_error(path, line, "previous_ledger_hash_invalid")
+    for field in (
+        "passed",
+        "fixture_baseline_passed",
+        "semantic_fixture_passed",
+    ):
+        if type(row.get(field)) is not bool:
+            _fixture_run_schema_error(path, line, f"{field}_invalid")
+
+    case_count = row.get("case_count")
+    cases = row.get("cases")
+    if type(case_count) is not int or case_count < 0:
+        _fixture_run_schema_error(path, line, "case_count_invalid")
+    if type(cases) is not list or any(type(case) is not dict for case in cases):
+        _fixture_run_schema_error(path, line, "cases_invalid")
+    if case_count != len(cases):
+        _fixture_run_schema_error(path, line, "case_count_mismatch")
+
+    lanes = row.get("fixture_lanes")
+    if type(lanes) is not dict or any(
+        type(lane) is not str
+        or not lane
+        or type(count) is not int
+        or count < 0
+        for lane, count in lanes.items()
+    ):
+        _fixture_run_schema_error(path, line, "fixture_lanes_invalid")
+    failed_cases = row.get("failed_cases")
+    if type(failed_cases) is not list or any(
+        type(name) is not str or not name
+        for name in failed_cases
+    ):
+        _fixture_run_schema_error(path, line, "failed_cases_invalid")
+
+    actual_status = row.get("actual_status")
+    if actual_status not in {"pass", "fail", "error", "error_no_cases"}:
+        _fixture_run_schema_error(path, line, "actual_status_invalid")
+    if (row["passed"] is True) != (actual_status == "pass"):
+        _fixture_run_schema_error(path, line, "passed_status_mismatch")
+    error_code = row.get("error_code")
+    if error_code is not None and (
+        type(error_code) is not str or not error_code.strip()
+    ):
+        _fixture_run_schema_error(path, line, "error_code_invalid")
+
+    if row["evidence_hash"] != _compute_suite_evidence_hash(row):
+        _fixture_run_schema_error(path, line, "evidence_hash_mismatch")
 
 
 def run_fixture_case(

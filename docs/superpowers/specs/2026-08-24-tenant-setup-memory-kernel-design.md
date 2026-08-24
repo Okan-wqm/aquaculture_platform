@@ -1,7 +1,7 @@
 # Tenant Setup Memory Kernel — Mimari Tasarım
 
 > **Durum:** İnceleme taslağı  
-> **Sürüm:** 0.1.0  
+> **Sürüm:** 0.1.1  
 > **Tarih:** 24 Ağustos 2026  
 > **Repo tabanı:** `main@9eba57decff0a152467922c880ffc83bef455473`  
 > **Kapsam:** Yalnızca Farm Setup bilgisinin tenant'a özel, kalıcı ve güncel AI hafızasına dönüştürülmesi
@@ -140,7 +140,7 @@ Ortak bir intelligence kernel ileride kod seviyesinde paylaşılabilir; fakat te
 
 ```mermaid
 flowchart TD
-  A["Farm Setup mutation"] --> B["Tenant transaction: domain + audit + outbox"]
+  A["Farm Setup mutation"] --> B["Canonical source transaction: domain + audit + outbox"]
   B --> C["Safe Setup Memory Event"]
   C --> D["Setup Memory Ingestor"]
   D --> E["Append-only Event Ledger"]
@@ -161,7 +161,9 @@ flowchart TD
 - Event ledger ve projection tabloları bağımsız modül/schema sınırına sahip olabilir.
 - Trafik, ekip veya regülasyon ihtiyacı doğarsa daha sonra ayrı servise çıkarılabilir.
 
-`farm-service`, Setup verisinin ve safe memory event üretiminin otoritesidir. LLM'nin `farm-service` veritabanına doğrudan erişimi yoktur.
+Farm Setup kullanıcı arayüzü kapsamıdır; tek başına source authority değildir. Her aggregate'ın kanonik sahibi, kendi tenant transaction'ı ve service outbox'ı içinde Safe Setup Memory Event üretir. `farm-service` yalnız Farm-owned aggregate'ların sahibidir. Worker Safe View yalnız HR `employees` kanonik kaynağından, HR tarafından üretilen allowlist event/export ile beslenir; `farm-service` Worker verisini yeniden yazmaz veya canonicalize etmez. Cross-service projection yalnız source authority, event-contract registry ve tenant authorization gate'leri tamamlandığında açılır. Aynı kural Farm dışında kanonik sahibi bulunan diğer Setup aggregate'larına da uygulanır.
+
+LLM'nin `farm-service`, `hr-service` veya başka bir source authority veritabanına doğrudan erişimi yoktur.
 
 ### 8.2 Bileşenler
 
@@ -209,7 +211,7 @@ required: true
 sourceAuthority: farm-service.systems
 updateSemantics: REPLACE
 aliases: [system type, production system]
-contractVersion: 1
+memoryContractVersion: 1
 ```
 
 Bu registry, frontend label listesinden otomatik türetilmez. Kanonik backend entity/DTO/event contract üzerinden yönetilir.
@@ -237,33 +239,36 @@ Bu tablo field-level inventory'nin yerini tutmaz. Uygulamaya geçiş kapısı, o
 
 ### 10.1 Event envelope
 
+Safe Setup Memory Event, repo'nun `libs/event-contracts/src/base-event.ts` içindeki platform `BaseEvent` sözleşmesidir. `eventId`, `eventType`, `timestamp`, `tenantId`, `version`, `aggregateId`, `aggregateType`, `correlationId` ve `userId` platformdaki anlamlarıyla kullanılır. `eventType` PascalCase'tir. `version` yalnız event-schema sürümüdür; Memory Contract Registry sürümü için ayrı, top-level `memoryContractVersion` alanı kullanılır.
+
+Outbox/NATS olayında iç içe `payload`, `metadata` veya `memoryProjection` nesnesi bulunmaz. Her aggregate için strict JSON Schema'lı, top-level allowlist alanlar taşıyan ayrı `SetupMemory{Aggregate}Upserted` ve `SetupMemory{Aggregate}Deleted` event contract'ı tanımlanır.
+
 ```json
 {
   "eventId": "uuid",
-  "eventType": "setup.memory.source.changed.v1",
+  "eventType": "SetupMemorySystemUpserted",
+  "timestamp": "2026-08-24T10:00:00.000Z",
   "tenantId": "uuid",
-  "aggregateType": "System",
+  "version": 1,
   "aggregateId": "uuid",
-  "aggregateVersion": 17,
-  "operation": "UPDATE",
-  "contractVersion": 1,
-  "occurredAt": "2026-08-24T10:00:00.000Z",
-  "actorRef": "verified-user-ref",
+  "aggregateType": "System",
   "correlationId": "uuid",
-  "payloadHash": "sha256",
-  "memoryProjection": {
-    "id": "uuid",
-    "name": "RAS Line 1",
-    "systemType": "RAS",
-    "siteId": "uuid",
-    "departmentId": "uuid"
-  }
+  "userId": "opaque-user-id",
+  "sourceAuthority": "farm-service",
+  "aggregateVersion": 17,
+  "sourceOperation": "UPDATE",
+  "memoryContractVersion": 1,
+  "memoryProjectionHash": "sha256",
+  "name": "RAS Line 1",
+  "systemType": "RAS",
+  "siteId": "uuid",
+  "departmentId": "uuid"
 }
 ```
 
 ### 10.2 Neden full safe projection?
 
-Create/update/replace olayları yalnız field patch değil, contract'ın izin verdiği **tam canonical memory projection** taşır.
+Create/update/replace olayları yalnız field patch değil, contract'ın izin verdiği **tam canonical memory projection** alanlarını top-level olarak taşır.
 
 Bu karar:
 
@@ -272,21 +277,31 @@ Bu karar:
 - Reducer'ın eski alanı yanlışlıkla korumasını engeller.
 - PII ve secret filtrelemesini producer tarafında açık kontrata bağlar.
 
-Raw entity serialize edilmez. `memoryProjection`, explicit allowlist serializer ile aynı tenant transaction içinde oluşturulur. Delete olayında payload yerine canonical identity, son bilinen `payloadHash`, delete nedeni sınıfı ve tombstone bilgisi bulunur.
+Raw entity serialize edilmez. Top-level memory alanları explicit allowlist serializer ile aynı source transaction içinde oluşturulur. Delete event contract'ında canonical identity, son bilinen `memoryProjectionHash`, delete nedeni sınıfı ve tombstone bilgisi bulunur; silinmiş aggregate'ın bütün eski alanları yeniden yayınlanmaz.
 
 ### 10.3 Sürümleme ve sıralama
 
 - `eventId` global olarak benzersiz ve idempotency anahtarıdır.
 - `aggregateVersion` aynı aggregate için monoton artar.
-- Consumer yalnızca beklenen sonraki sürümü uygular.
+- Ingestor kabul edilen her olayı önce immutable inbound ledger'a `eventId` benzersizliğiyle yazar.
+- Reducer event arrival sırasını kullanmaz; her aggregate için `(sourceAuthority, aggregateType, aggregateId, aggregateVersion)` sırasıyla çalışır.
+- Version-gap veya out-of-order olayları discard edilmez; aynı aggregate'ın durable pending setinde tutulur.
+- Eksik sürüm geldiğinde reducer pending event'leri aggregate version sırasıyla uygular.
+- Reconciliation source aggregate'ın `aggregateVersion = N` safe snapshot'ını ürettiğinde reducer checkpoint'i atomik olarak `N`'ye taşır; `<= N` pending olayları no-op/audit, `> N` olayları sırayla uygulanır.
 - Daha eski/duplicate sürüm no-op olarak audit edilir.
-- Sürüm boşluğu olayın uygulanmasını durdurur, aggregate'ı `NEEDS_REVALIDATION` yapar ve reconciliation kuyruğuna alır.
-- Bilinmeyen `contractVersion` dead-letter/quarantine alanına gider; fail-open parse edilmez.
-- Tenant NATS subject'i ile payload içindeki `tenantId` eşleşmezse olay reddedilir ve güvenlik olayı üretilir.
+- Sürüm boşluğu aggregate'ı `NEEDS_REVALIDATION` yapar ve reconciliation kuyruğuna alır.
+- Bilinmeyen `memoryContractVersion` veya `BaseEvent.version` dead-letter/quarantine alanına gider; fail-open parse edilmez.
+- Tenant NATS subject'i ile event içindeki `tenantId` eşleşmezse olay reddedilir ve güvenlik olayı üretilir.
+- `ledgerPosition` yalnız ingestion/audit sırasıdır ve canonical projection hash'ine girmez.
+- Canonical root hash; normalleştirilmiş current facts ve relations'ın `entityType/entityId/fieldPath` ve `sourceType/sourceId/relationType/targetType/targetId` anahtarlarıyla stable sort edilip sürümlü canonical JSON olarak serialize edilmesi üzerinden hesaplanır.
 
 ## 11. Kalıcı veri modeli
 
 İlk sürümde tablolar `ai-service` tarafından yönetilen tenant'a özel schema içinde tutulur. Alternatif paylaşımlı tabloda yalnız `tenant_id` kolonuna güvenilmez. Paylaşımlı fiziksel tablo zorunlu hale gelirse PostgreSQL `FORCE ROW LEVEL SECURITY`, tenant-scoped connection context ve cross-tenant invariant testleri birlikte zorunludur.
+
+Setup Memory ledger, pending events, facts, relations ve snapshots için bütün tenant-scoped database erişimleri mevcut platform primitive'i `runInTenantTransaction(dataSource, 'ai', tenantId, ...)` ve tenant-scoped repository/connection context üzerinden yapılır. Raw repository veya caller-controlled schema/`search_path` kullanılamaz. Bu, mevcut `ai-service` kodunun her yerde helper kullandığı iddiası değil; yeni Memory Kernel için zorunlu hedef kontrattır.
+
+Reconciler gibi cross-tenant infrastructure işleri yalnız explicit ve audit'li system context içinde tenant başına ayrı transaction yürütür. Event `tenantId`, verified service assertion tenant'ı ve active database tenant context eşleşmeden hiçbir okuma/yazma yapılmaz. Redis veya başka cache anahtarları tenant, permission revision ve projection version taşır. Bu kurallar statik invariant ve gerçek PostgreSQL tenant-isolation testleriyle kapılanır.
 
 ### 11.1 `setup_memory_events`
 
@@ -297,15 +312,29 @@ Append-only kabul edilmiş event ledger:
 | `event_id` | Idempotency ve source event kimliği |
 | `tenant_id` | Immutable tenant scope |
 | `aggregate_type`, `aggregate_id` | Source aggregate |
+| `source_authority` | Kanonik producer servis/bounded context |
 | `aggregate_version` | Per-aggregate monoton sürüm |
-| `operation` | CREATE, UPDATE, REPLACE, STATUS_CHANGE, DELETE, BOOTSTRAP |
-| `contract_version` | Parser/reducer contract sürümü |
-| `payload`, `payload_hash` | Yalnız safe memory projection ve canonical hash |
-| `occurred_at`, `ingested_at` | Source ve ingestion zamanı |
-| `actor_ref`, `correlation_id` | Audit/provenance bağlantısı |
-| `ledger_position`, `previous_hash`, `row_hash` | Sıra ve hash-chain kanıtı |
+| `source_operation` | CREATE, UPDATE, REPLACE, STATUS_CHANGE, DELETE, BOOTSTRAP |
+| `event_schema_version`, `memory_contract_version` | BaseEvent ve Memory Contract sürümleri |
+| `event_body`, `memory_projection_hash` | Alınan flat safe event ve canonical memory hash |
+| `timestamp`, `ingested_at` | Source ve ingestion zamanı |
+| `user_id`, `correlation_id` | Opaque actor ve audit/provenance bağlantısı |
+| `ledger_position`, `previous_hash`, `row_hash` | Ingestion sırası ve inbound ledger bütünlük kanıtı; projection root hesabına girmez |
 
-### 11.2 `setup_memory_facts`
+### 11.2 `setup_memory_pending_events`
+
+Out-of-order ve version-gap olaylarının durable bekleme seti:
+
+- `event_id`
+- `source_authority`, `aggregate_type`, `aggregate_id`, `aggregate_version`
+- `waiting_for_version`
+- `reason`: OUT_OF_ORDER, VERSION_GAP, RECONCILIATION_HOLD
+- `received_at`, `released_at`
+- `event_body_hash`
+
+Pending event silinmez; uygulanınca veya reconciliation checkpoint'i nedeniyle no-op olduğunda ledger/audit sonucu bağlanır.
+
+### 11.3 `setup_memory_facts`
 
 Current ve tarihsel typed facts:
 
@@ -321,7 +350,7 @@ Current ve tarihsel typed facts:
 | `valid_from`, `valid_to` | Bitemporal/history desteği |
 | `superseded_by`, `content_hash` | Update zinciri ve bütünlük |
 
-### 11.3 `setup_memory_relations`
+### 11.4 `setup_memory_relations`
 
 Yönlü ve kanıtlı Setup graph edge'leri:
 
@@ -335,10 +364,11 @@ Yönlü ve kanıtlı Setup graph edge'leri:
 
 İlk relation sözlüğü kontrollü enum'dur. Serbest LLM metni relation type olarak kaydedilmez.
 
-### 11.4 `setup_memory_snapshots`
+### 11.5 `setup_memory_snapshots`
 
 - `projection_version`
 - `last_ledger_position`
+- `source_watermarks`
 - `canonical_root_hash`
 - `contract_registry_hash`
 - `coverage_status`: HEALTHY, PARTIAL, STALE, REBUILDING, QUARANTINED
@@ -370,16 +400,18 @@ Setup ekranına kullanıcı tarafından girilmiş bir değer, tenant'ın **beyan
 ### 13.1 İlk yükleme
 
 1. Yetkili bir internal service assertion ile tenant için canonical Setup Export çağrılır.
-2. Export, event publisher ile aynı Contract Registry serializer'larını kullanır.
-3. Kayıtlar `aggregateType`, `aggregateId`, `fieldPath` sırasıyla canonical hale getirilir.
-4. Bootstrap event seti ledger'a idempotent biçimde eklenir.
-5. Reducer clean projection üretir.
-6. Source export hash ile projection canonical root hash karşılaştırılır.
-7. Coverage ve hash kontrolleri geçerse snapshot `HEALTHY` olarak yayınlanır.
+2. Export, repeatable-read source snapshot içinde çalışır ve her `sourceAuthority` için immutable `sourceWatermark` döndürür. Watermark, export kapsamındaki en büyük transaction-bound outbox konumunu veya eşdeğer monoton source cursor'ı temsil eder.
+3. Export, event publisher ile aynı Contract Registry serializer'larını kullanır.
+4. Kayıtlar `aggregateType`, `aggregateId`, `fieldPath` sırasıyla canonical hale getirilir.
+5. Bootstrap projection yalnız export snapshot'ından kurulur ve watermark checkpoint'iyle birlikte saklanır.
+6. Ingestor export sırasında gelen olayları inbound ledger/pending setinde kaybetmeden tutar; bootstrap sonrasında yalnız `sourceWatermark` sonrasındaki olaylar aggregate version sırasıyla uygulanır.
+7. Export hash ve projection hash, aynı Memory Contract Registry sürümüyle üretilmiş aynı canonical memory representation üzerinden hesaplanır; raw source-row hash'iyle karşılaştırılmaz.
+8. Reducer clean projection üretir.
+9. Coverage, watermark ve hash kontrolleri geçerse snapshot `HEALTHY` olarak yayınlanır. Tutarlı cutover kanıtı olmadan `HEALTHY` publish edilemez.
 
 ### 13.2 Sürekli sync
 
-1. Farm Setup write aynı transaction içinde domain row, audit ve outbox memory event'i commit eder.
+1. Kanonik source write kendi tenant transaction'ı içinde domain row, audit ve outbox memory event'i commit eder.
 2. Ingestor strict schema ve tenant boundary kontrolü yapar.
 3. Event ledger'a bir kez yazılır.
 4. Reducer yalnız ilgili aggregate facts/relations'ını yeni sürüme taşır.
@@ -390,7 +422,9 @@ Setup ekranına kullanıcı tarafından girilmiş bir değer, tenant'ın **beyan
 ### 13.3 Reconciliation ve clean rebuild
 
 - Planlı reconciliation canonical export'u yeniden alır.
+- Export repeatable-read snapshot ve per-source `sourceWatermark` üretir; rebuild yalnız bu tutarlı source cut'a göre yapılır.
 - Incremental projection ile sıfırdan reducer replay sonucu karşılaştırılır.
+- Rebuild checkpoint'i `aggregateVersion = N` olan source snapshot'a taşındığında `<= N` pending olayları no-op/audit, `> N` olayları sırayla uygulanır.
 - Canonical root hash farklıysa tenant memory `QUARANTINED` olur.
 - Hatalı build latest snapshot'ın üzerine yazılmaz.
 - Event kaçırılması, source contract drift veya reducer bug'ı çözülmeden AI “güncel Setup biliyorum” iddiasında bulunmaz.
@@ -439,18 +473,21 @@ Kurallar:
 
 - `tenantId` verified gateway/service assertion'dan gelir; prompt veya model parametresi değildir.
 - ExecutionContext oluşturulduktan sonra tenant değiştirilemez.
-- Event subject, payload, database schema ve retrieval context tenant'ı dört ayrı noktada eşleşmelidir.
+- Event subject, event body, database schema ve retrieval context tenant'ı dört ayrı noktada eşleşmelidir.
 - Tenant A event'i Tenant B ledger/projection schema'sına yazılamaz.
 - Tenant A için üretilen retrieval cache anahtarı tenant, caller permission revision ve projection version içermelidir.
 - Ham tenant Setup verisi başka tenant için prompt, eval fixture veya training corpus olmaz.
 
 ### 15.2 PII ve secrets
 
-- Worker için AI'nın öğrenmesi gereken bilgiler iş bağlamıyla sınırlıdır: kanonik çalışan referansı, rol, yetkinlik, site/department assignment ve aktiflik gibi açıkça izinli alanlar.
-- Kişisel telefon, ev adresi, özel e-posta, kimlik numarası, banka verisi ve gereksiz serbest metin varsayılan olarak `REDACTED`'dır.
+- Worker memory v1 allowlist'i yalnız opaque employee reference, role/skill/assignment identifier'ları ve active-state içerir.
+- Ad, kişisel telefon, e-posta, ev adresi, kimlik numarası, banka verisi, serbest not ve kullanıcı tarafından girilen serbest metin v1'de yasaktır ve `REDACTED`'dır.
+- `BaseEvent.userId`, kişisel profil bilgisi değil, audit sisteminde çözümlenebilen opaque actor identifier'dır.
 - Sensor/gateway credential, API secret, token veya decrypted credential hiçbir event, ledger, projection, embedding veya prompt'a girmez.
 - Doküman içeriği otomatik olarak hafızaya kopyalanmaz; ilk sürüm yalnız güvenli document reference ve metadata tutar.
 - Kaynaktaki delete/erasure, memory tombstone ve retention workflow'unu tetikler.
+
+İleride bir Memory Event veya projection alanı PII sınıfına alınırsa event type platform `PII_BEARING_EVENT_TYPES` registry'sine dahil edilir, event contract zorunlu `cryptoShredKeyId` taşır ve ledger/projection/cache/index aynı retention-erasure planına bağlanır. Source erasure; current projection tombstone'unu, cache/index purge'ünü ve tarihsel şifreli event body'nin crypto-shred veya hukuken zorunlu saklama süresi sonu silme işlemini kapsar. Bu prosedürün test kanıtı olmadan Worker gate'i açılamaz.
 
 ### 15.3 Yetki
 
@@ -464,12 +501,13 @@ Kurallar:
 | Hata | Sistem davranışı | Kullanıcıya etkisi |
 |---|---|---|
 | Duplicate event | Idempotent no-op ve metric | Yok |
-| Out-of-order eski event | Uygulanmaz, audit edilir | Yok |
+| Uygulanmış sürümden eski event | No-op olur ve audit edilir | Yok |
+| Out-of-order gelecek event | Durable pending setinde bekler; eksik sürüm/reconciliation tetiklenir | Etkilenen aggregate kesin cevap vermez |
 | Aggregate version gap | Aggregate `NEEDS_REVALIDATION`, reconciliation | Kesin cevap verilmez |
-| Bilinmeyen contract version | Quarantine/dead letter | Etkilenen alan `PARTIAL` |
+| Bilinmeyen BaseEvent veya Memory Contract sürümü | Quarantine/dead letter | Etkilenen alan `PARTIAL` |
 | Reducer exception | Yeni snapshot yayınlanmaz | Son sağlıklı snapshot, freshness uyarısıyla kullanılabilir; kritik freshness aşılırsa cevap durur |
 | Clean rebuild hash mismatch | Tenant memory `QUARANTINED` | Setup cevabı fail-closed |
-| Memory consumer kapalı | Farm Setup CRUD çalışır; lag büyür | AI stale olduğunu açıklar veya cevaplamaz |
+| Memory consumer kapalı | Kanonik Setup CRUD çalışır; lag büyür | AI stale olduğunu açıklar veya cevaplamaz |
 | LLM kapalı | Setup ve memory sync çalışır | Yalnız AI sohbet özelliği etkilenir |
 | Cross-tenant mismatch | Event/retrieval reddedilir, güvenlik alarmı | Veri sızıntısı yerine işlem hatası |
 
@@ -492,7 +530,7 @@ Yüksek cardinality tenant kimliği raw metric label olarak kullanılmaz. Tenant
 Memory Inspector en az şunları gösterir:
 
 - Son sağlıklı sync zamanı.
-- Son farm source event zamanı.
+- Her source authority için son event zamanı.
 - Kapsanan aggregate ve alan yüzdesi.
 - Bekleyen version gap veya quarantine nedeni.
 - Projection version ve canonical root hash.
@@ -549,6 +587,14 @@ Başarı şartı: desteklenmeyen olgusal iddia yoktur; kaynak bulunamadığında
 ## 19. Adım adım rollout kapıları
 
 Bu sıra bilinçli olarak mobile veya ileri operasyon zekâsına atlamaz.
+
+Her gate; sürümlü fixture seti, çalıştırılabilir test komutu, metric tanımı, ölçüm penceresi ve makinece değerlendirilebilir pass/fail oracle'ı içermeden geçilemez.
+
+- `%100 field classification`, CI'ın kanonik DTO/entity/event alanlarından ürettiği sürümlü field-inventory manifest'i üzerinden ölçülür.
+- `HEALTHY`; gerekli source coverage'ın tamamı, açık version gap/dead-letter olmaması, son reconciliation hash eşitliği ve freshness SLO'sunun birlikte sağlanmasıdır.
+- p95 sync latency, source transaction commit zamanından snapshot `published_at` zamanına kadar; gate artifact'ında sabitlenmiş event hacmi, concurrency, tenant sayısı ve ölçüm penceresinde hesaplanır.
+- AI cevapları machine-readable claim record olarak `{claimId, factIds[], relationIds[]}` üretir; validator her olgusal claim için en az bir yetkili kanıt ve güncel snapshot ister.
+- Çekimserlik ve “eski bilgi” hedefleri önceden sabitlenmiş adversarial fixture/eval seti ve insan doğrulamalı incident tanımı üzerinden ölçülür.
 
 ### Kapı 0 — Contract ve mevcut coverage
 
@@ -640,7 +686,9 @@ Tenant Setup Memory Kernel ilk fazı tamamlanmış sayılır ancak aşağıdakil
 
 - On iki Setup sekmesindeki her kanonik alan Memory Contract Registry'de sınıflandırılmıştır.
 - Tüm izinli create/update/replace/status/delete akışları transaction-bound outbox memory event'i üretir.
+- Memory event'leri platform `BaseEvent`, flat-object ve strict JSON Schema kontratlarına uyar.
 - İlk backfill ve incremental sync aynı canonical projection'ı üretir.
+- Backfill cutover'ı repeatable-read export ve per-source watermark ile write kaybetmeden tamamlanır.
 - Ledger replay idempotent, versioned, hash-bound ve deterministic'tir.
 - Delete'ler tombstone olur; eski facts current context'e sızmaz.
 - AI yalnız güncel caller permission'ıyla typed retrieval kullanır.
@@ -679,6 +727,7 @@ Bu alanlar Setup Memory Kernel sağlıklı ve kanıtlanmış olmadan başlatılm
 
 | Sürüm | Tarih | Değişiklik |
 |---|---|---|
+| 0.1.1 | 24 Ağustos 2026 | Platform BaseEvent uyumu, out-of-order durable pending seti, deterministic canonical hash, source watermark cutover, HR Worker ownership, PII erasure ve ölçülebilir gate oracle'ları eklendi |
 | 0.1.0 | 24 Ağustos 2026 | Setup hafızasının sınırı, event-ledger/reducer mimarisi, güvenlik modeli, veri modeli, retrieval ve adım adım rollout kapıları tanımlandı |
 
 Bu sürüm mimari inceleme içindir. Kullanıcı onayı sonrasında aynı belgeye field-level contract inventory eklenir; ayrıntılı kod uygulama planı ayrı bir plan belgesi olarak hazırlanır.

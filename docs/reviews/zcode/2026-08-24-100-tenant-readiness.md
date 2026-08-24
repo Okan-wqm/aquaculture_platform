@@ -28,7 +28,7 @@ rumqttc, tokio-postgres ve async-nats.
 
 > **Amendment set (2026-08-24, kabul edilmiş):** (1) Entitlement Task 0'dan
 > çıkarıldı → paralel Task 8; Task 1–3 entitlement'ı beklemez. (2) Retention tier
-> tablosu LAW-001 hukuk kapısına bağlandı. (3) Sabit worktree SHA'sı güncel HEAD
+> tablosu LEGAL-HIGH-001 hukuk kapısına bağlandı. (3) Sabit worktree SHA'sı güncel HEAD
 > ile değiştirildi; dosya/hedef doğrulamaları eklendi. (4) RETRY ve DLQ-dolu
 > tasarım notları eklendi. (5) GHCR workflow, capacity-check sidecar görünürlüğü,
 > NATS store_dir göçü ve mosquitto queue formülü geri eklendi. (6) 2K msg/s zarfı
@@ -124,7 +124,7 @@ aşıyorsa teklif korunur fakat işlem PENDING_CAPACITY kalır:
 
 ### Saklama sözleşmesi
 
-> **PROPOSED — LAW-001:** Bu tablo, İSG/Su Ürünleri Yönetmeliği'nin minimum saklama
+> **PROPOSED — LEGAL-HIGH-001:** Bu tablo, İSG/Su Ürünleri Yönetmeliği'nin minimum saklama
 > gereksinimlerine karşı hukuk onayı alındıktan sonra yürürlüğe girer. Onay gelmeden
 > FREE/TRIAL/STARTER kısaltmaları ve CUSTOM dönemler aktifleştirilemez.
 
@@ -290,79 +290,79 @@ UPDATE edilmez. Current-state view en yeni transition'ı türetir.
 
 ## Finding Registry
 
-| ID           | Severity | Status | Owner                   | Deadline    |
-| ------------ | -------- | ------ | ----------------------- | ----------- |
-| CRITICAL-001 | CRITICAL | OPEN   | sensor-service          | Faz 1 exit  |
-| CRITICAL-002 | CRITICAL | OPEN   | sensor-service          | Faz 1 exit  |
-| CRITICAL-003 | CRITICAL | OPEN   | sensor-service/data     | Faz 0 exit  |
-| CRITICAL-004 | CRITICAL | OPEN   | sensor-ingestion        | Faz 3 exit  |
-| HIGH-005     | HIGH     | OPEN   | platform-infra          | Faz 0 exit  |
-| HIGH-006     | HIGH     | OPEN   | observability           | Faz 0 exit  |
-| HIGH-007     | HIGH     | OPEN   | platform-event-bus      | Faz 2 exit  |
-| HIGH-008     | HIGH     | OPEN   | sensor-service/security | Faz 1 exit  |
-| HIGH-009     | HIGH     | OPEN   | sensor-service/data     | Faz 4 exit  |
-| HIGH-010     | HIGH     | OPEN   | sensor-service/SRE      | Faz 6 exit  |
-| HIGH-011     | HIGH     | OPEN   | admin-api/billing       | Task 8 exit |
-| LAW-001      | LEGAL    | OPEN   | legal/compliance        | Task 8 exit |
+| ID                  | Severity | Status | Owner                   | Deadline    |
+| ------------------- | -------- | ------ | ----------------------- | ----------- |
+| SENSOR-CRITICAL-086 | CRITICAL | OPEN   | sensor-service          | Faz 1 exit  |
+| SENSOR-CRITICAL-087 | CRITICAL | OPEN   | sensor-service          | Faz 1 exit  |
+| SENSOR-CRITICAL-088 | CRITICAL | OPEN   | sensor-service/data     | Faz 0 exit  |
+| SENSOR-CRITICAL-089 | CRITICAL | OPEN   | sensor-ingestion        | Faz 3 exit  |
+| SENSOR-HIGH-090     | HIGH     | OPEN   | platform-infra          | Faz 0 exit  |
+| SENSOR-HIGH-091     | HIGH     | OPEN   | observability           | Faz 0 exit  |
+| SENSOR-HIGH-092     | HIGH     | OPEN   | platform-event-bus      | Faz 2 exit  |
+| SENSOR-HIGH-093     | HIGH     | OPEN   | sensor-service/security | Faz 1 exit  |
+| SENSOR-HIGH-094     | HIGH     | OPEN   | sensor-service/data     | Faz 4 exit  |
+| SENSOR-HIGH-095     | HIGH     | OPEN   | sensor-service/SRE      | Faz 6 exit  |
+| SENSOR-HIGH-096     | HIGH     | OPEN   | admin-api/billing       | Task 8 exit |
+| LEGAL-HIGH-001      | HIGH     | OPEN   | legal/compliance        | Task 8 exit |
 
-### CRITICAL-001 — MQTT yolu source commit'ten önce PUBACK verebiliyor
+### SENSOR-CRITICAL-086 — MQTT yolu source commit'ten önce PUBACK verebiliyor
 
 Mevcut handler Promise sonucunu beklemez ve mqtt.js callback kapısını
 kullanmamaktadır. Kabul: persistent session, QoS1 ve disposition-after-commit
 contract test ile sabitlenir.
 
-### CRITICAL-002 — Writer buffer kayıp penceresi
+### SENSOR-CRITICAL-087 — Writer buffer kayıp penceresi
 
 enqueue void döner, flush yazmadan splice eder. Kabul: tenant bazlı waiter,
 bounded local retry, DB-side timeout ve source redelivery.
 
-### CRITICAL-003 — Per-tenant storage sözleşmesi aktif reader'larda delinmiş
+### SENSOR-CRITICAL-088 — Per-tenant storage sözleşmesi aktif reader'larda delinmiş
 
 MetricQueryService ve TimeBucketService shared schema hard-code eder. Kabul:
 validated tenant schema ve active-code invariant.
 
-### CRITICAL-004 — Sidecar readiness iddiası canlı binary ile uyuşmuyor
+### SENSOR-CRITICAL-089 — Sidecar readiness iddiası canlı binary ile uyuşmuyor
 
 Binary stub drain çalıştırır ve sink shared hypertable hedefler. Kabul: gerçek
 per-tenant pipeline, PubAck ve honesty invariant.
 
-### HIGH-005 — Host ve broker kapasitesi ilan edilen zarfı taşımıyor
+### SENSOR-HIGH-090 — Host ve broker kapasitesi ilan edilen zarfı taşımıyor
 
 Mevcut compose cap'i host fiziksel kaynağını aşar; NATS file store 2GB'dir.
 Kabul: M/E/R ölçümü, resource ledger ve resize/volume hard gate.
 
-### HIGH-006 — Broker ve teslimat gözlemlenebilirliği eksik
+### SENSOR-HIGH-091 — Broker ve teslimat gözlemlenebilirliği eksik
 
 Prometheus NATS/Mosquitto scrape etmez ve Alertmanager teslimatı kanıtlı değildir.
 Kabul: exporter, rule, receiver receipt ve deadman.
 
-### HIGH-007 — Tek event stream telemetry backlog için güvenli değil
+### SENSOR-HIGH-092 — Tek event stream telemetry backlog için güvenli değil
 
 Telemetry ve domain event'leri aynı stream/cap altındadır. Kabul: route registry,
 ayrı stream ve dual-subscribe migration.
 
-### HIGH-008 — Terminal failure/DLQ/replay zinciri yok
+### SENSOR-HIGH-093 — Terminal failure/DLQ/replay zinciri yok
 
 max_deliver sonu sessiz terminal olabilir. Kabul: app-classified retry,
 PubAck-before-original-ACK DLQ ve rate-limited replay CN.
 
-### HIGH-009 — Retention policy ile export doğrulaması bağlı değil
+### SENSOR-HIGH-094 — Retention policy ile export doğrulaması bağlı değil
 
 Current registry process-local, matrix drift etmiş ve raw drop ledger'a bağlı
 değildir. Kabul: append-only archive event chain ve verify-before-drop invariant.
 
-### HIGH-010 — P90D sonrası RAW verinin kullanılabilir DR yolu kanıtsız
+### SENSOR-HIGH-095 — P90D sonrası RAW verinin kullanılabilir DR yolu kanıtsız
 
 MinIO vardır fakat tenant-isolated Parquet export/restore zinciri yoktur. Kabul:
 tenant-day export, independent verify, scratch restore ve erasure.
 
-### HIGH-011 — Tenant ihtiyacına göre kapasite fiyatlama/provisioning bağı yok
+### SENSOR-HIGH-096 — Tenant ihtiyacına göre kapasite fiyatlama/provisioning bağı yok
 
 Custom quote ve usage meter vardır, telemetri capacity entitlement'ı yoktur.
 Kabul: admin-selected M/R, billing snapshot ve PENDING_CAPACITY saga. (Task 8'e
 taşındı; hiçbir fazın önkoşulu değildir.)
 
-### LAW-001 — Plan-tier retention tablosu yasal onaysız yürürlüğe giremez
+### LEGAL-HIGH-001 — Plan-tier retention tablosu yasal onaysız yürürlüğe giremez
 
 Saklama sözleşmesi tablosu, İSG/Su Ürünleri Yönetmeliği minimum saklama
 gereksinimlerine karşı doğrulanmadan PROPOSED kalır. Kabul: hukuk onayı kanıtı
@@ -485,9 +485,9 @@ git commit -m "feat(sensor): tenant-aware telemetry readers and measured capacit
 Close the shared-schema read path and gate deploys on measured envelope
 numbers before durability and stream work begins.
 
-Closes: docs/reviews/zcode/2026-08-24-100-tenant-readiness.md#critical-003
-Closes: docs/reviews/zcode/2026-08-24-100-tenant-readiness.md#high-005
-Closes: docs/reviews/zcode/2026-08-24-100-tenant-readiness.md#high-006"
+Closes: docs/reviews/zcode/2026-08-24-100-tenant-readiness.md#SENSOR-CRITICAL-088
+Closes: docs/reviews/zcode/2026-08-24-100-tenant-readiness.md#SENSOR-HIGH-090
+Closes: docs/reviews/zcode/2026-08-24-100-tenant-readiness.md#SENSOR-HIGH-091"
 git push -u origin feat/100-tenant-readiness-v3
 ```
 
@@ -657,9 +657,9 @@ git commit -m "feat(sensor): acknowledge telemetry after durable commit
 Make MQTT, metric persistence, JetStream publication and DLQ replay one
 observable at-least-once chain with idempotent business effects.
 
-Closes: docs/reviews/zcode/2026-08-24-100-tenant-readiness.md#critical-001
-Closes: docs/reviews/zcode/2026-08-24-100-tenant-readiness.md#critical-002
-Closes: docs/reviews/zcode/2026-08-24-100-tenant-readiness.md#high-008"
+Closes: docs/reviews/zcode/2026-08-24-100-tenant-readiness.md#SENSOR-CRITICAL-086
+Closes: docs/reviews/zcode/2026-08-24-100-tenant-readiness.md#SENSOR-CRITICAL-087
+Closes: docs/reviews/zcode/2026-08-24-100-tenant-readiness.md#SENSOR-HIGH-093"
 git push
 ```
 
@@ -778,7 +778,7 @@ git commit -m "feat(event-bus): isolate high-rate telemetry stream
 Route telemetry and domain events through one registry and enforce
 least-privilege JetStream lifecycle permissions.
 
-Closes: docs/reviews/zcode/2026-08-24-100-tenant-readiness.md#high-007"
+Closes: docs/reviews/zcode/2026-08-24-100-tenant-readiness.md#SENSOR-HIGH-092"
 git push
 ```
 
@@ -912,7 +912,7 @@ git commit -m "feat(sensor-ingestion): complete tenant-safe sidecar pipeline
 Replace the stub drain with a policy-controlled per-tenant persistence and
 JetStream acknowledgement path.
 
-Closes: docs/reviews/zcode/2026-08-24-100-tenant-readiness.md#critical-004"
+Closes: docs/reviews/zcode/2026-08-24-100-tenant-readiness.md#SENSOR-CRITICAL-089"
 git push
 ```
 
@@ -1028,7 +1028,7 @@ git commit -m "feat(sensor): gate telemetry retention on archive evidence
 Make continuous aggregate provisioning tenant-complete and require an
 append-only verified export chain before any raw chunk drop.
 
-Closes: docs/reviews/zcode/2026-08-24-100-tenant-readiness.md#high-009"
+Closes: docs/reviews/zcode/2026-08-24-100-tenant-readiness.md#SENSOR-HIGH-094"
 git push
 ```
 
@@ -1137,7 +1137,7 @@ git commit -m "test(sensor): prove telemetry capacity and recovery gates
 Record externally generated reconciliation, outage, hardware and restore
 evidence before sidecar or retention promotion.
 
-Closes: docs/reviews/zcode/2026-08-24-100-tenant-readiness.md#high-005"
+Closes: docs/reviews/zcode/2026-08-24-100-tenant-readiness.md#SENSOR-HIGH-090"
 git push
 ```
 
@@ -1247,7 +1247,7 @@ git commit -m "feat(sensor): archive and restore tenant telemetry
 Bind raw retention to independently verified tenant-isolated Parquet and a
 tested rehydration path.
 
-Closes: docs/reviews/zcode/2026-08-24-100-tenant-readiness.md#high-010"
+Closes: docs/reviews/zcode/2026-08-24-100-tenant-readiness.md#SENSOR-HIGH-095"
 git push
 ```
 
@@ -1332,8 +1332,8 @@ git commit -m "chore(sensor): lock 100-tenant readiness boundaries
 Remove the Kafka placeholder and make the measured telemetry architecture,
 retention and sidecar truth enforceable in CI.
 
-Closes: docs/reviews/zcode/2026-08-24-100-tenant-readiness.md#high-007
-Closes: docs/reviews/zcode/2026-08-24-100-tenant-readiness.md#high-009"
+Closes: docs/reviews/zcode/2026-08-24-100-tenant-readiness.md#SENSOR-HIGH-092
+Closes: docs/reviews/zcode/2026-08-24-100-tenant-readiness.md#SENSOR-HIGH-094"
 git push
 ```
 
@@ -1427,13 +1427,13 @@ Admin UI shows the device-count × interval × channel fan-out calculator and
 writes the approved derived M/R values to the quote; the SENSOR_READINGS meter
 reports committed actual row usage as the pricing input.
 
-- [ ] **Step 8.4: Gate tier activation on LAW-001**
+- [ ] **Step 8.4: Gate tier activation on LEGAL-HIGH-001**
 
 Retention tier activation requires the recorded legal sign-off artifact; an
-invariant blocks any tier activation while LAW-001 is OPEN.
+invariant blocks any tier activation while LEGAL-HIGH-001 is OPEN.
 
 **Exit gate:** Capacity reservation live; over-envelope quotes stay
-PENDING_CAPACITY; retention tier table remains PROPOSED until LAW-001 closes.
+PENDING_CAPACITY; retention tier table remains PROPOSED until LEGAL-HIGH-001 closes.
 
 **Rollback:** Disable capacity activation; quotes stay pending; prior
 entitlements keep working until a resize/volume proof activates the new one.

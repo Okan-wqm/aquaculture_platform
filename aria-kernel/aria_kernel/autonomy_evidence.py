@@ -81,6 +81,7 @@ _EXPECTED_CLOSURE_SCOPE = frozenset({
     "ARIA-HIGH-014",
     "ARIA-CRITICAL-015",
     "ARIA-HIGH-016",
+    "ARIA-HIGH-017",
 })
 _MAX_EVALUATOR_BLOB_BYTES = 2 * 1024 * 1024
 _MAX_AUTHORITY_BLOB_BYTES = 2 * 1024 * 1024
@@ -2013,6 +2014,29 @@ def _verify_snapshot_and_collect_evidence(
         claimed_paths=claimed_paths,
     )
 
+    # ARIA-HIGH-017 — rows inherited from the parent tip are exempt from
+    # the per-line cap: the parent is already-published history an
+    # append-only chain cannot shrink. A root commit (no parent) or an
+    # unreadable parent claim keeps the strict cap for every line.
+    grandfather_row_counts: dict[str, int] = {}
+    try:
+        parent_commit = _state_commit_single_parent(store.root, state_commit)
+    except Exception:  # noqa: BLE001 — no single parent means no inheritance
+        parent_commit = None
+    if parent_commit is not None:
+        try:
+            parent_snapshot, _parent_object = _read_immutable_snapshot_claim(
+                store.root,
+                parent_commit,
+            )
+            for _key, _claim in (parent_snapshot.get("surfaces") or {}).items():
+                if isinstance(_claim, dict) and isinstance(
+                    _claim.get("row_count"), int,
+                ):
+                    grandfather_row_counts[_key] = _claim["row_count"]
+        except Exception:  # noqa: BLE001 — unreadable parent claim: strict
+            grandfather_row_counts = {}
+
     for key, claim, object_id, git_path, size, consumed in claims:
         chunks = _iter_git_output_bounded(
             store.root,
@@ -2037,6 +2061,7 @@ def _verify_snapshot_and_collect_evidence(
                         if consumed
                         else _MAX_SNAPSHOT_LEDGER_ROWS
                     ),
+                    grandfather_line_prefixes=grandfather_row_counts.get(key, 0),
                     on_row=(
                         (lambda row, name=surface_name: accumulator.consume(
                             name,

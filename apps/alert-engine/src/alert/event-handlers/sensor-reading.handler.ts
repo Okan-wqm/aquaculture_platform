@@ -40,9 +40,7 @@ function extractReadingsFromEvent(event: SensorReadingEvent): Record<string, num
  * connection checkout to the correct tenant schema.
  */
 @Injectable()
-export class SensorReadingEventHandler
-  implements IEventHandler<SensorReadingEvent>, OnModuleInit
-{
+export class SensorReadingEventHandler implements IEventHandler<SensorReadingEvent>, OnModuleInit {
   private readonly logger = new Logger(SensorReadingEventHandler.name);
 
   constructor(
@@ -76,16 +74,14 @@ export class SensorReadingEventHandler
   // getTenantSchemaName imported from @aquaculture/backend-common
 
   async handle(event: SensorReadingEvent): Promise<void> {
-    this.logger.debug(
-      `Processing sensor reading from ${event.sensorId}`,
-    );
+    this.logger.debug(`Processing sensor reading from ${event.sensorId}`);
 
     // SECURITY: tenantId is required for multi-tenant isolation
     // Empty string fallback could cause cross-tenant data leakage
     if (!event.tenantId) {
       this.logger.error(
         `Missing tenantId for sensor reading from ${event.sensorId}. ` +
-        'Skipping alert evaluation to prevent multi-tenant isolation breach.',
+          'Skipping alert evaluation to prevent multi-tenant isolation breach.',
       );
       return;
     }
@@ -117,6 +113,9 @@ export class SensorReadingEventHandler
         await this.evaluationService.evaluateSensorReading({
           sensorId: event.sensorId,
           tenantId: event.tenantId,
+          // Task 1.4/1.5: the reading's deterministic identity — the alert
+          // engine's idempotency key.
+          sourceEventId: event.eventId,
           readings,
           farmId: event.farmId,
           pondId: event.pondId,
@@ -124,10 +123,15 @@ export class SensorReadingEventHandler
         });
       });
     } catch (error) {
+      // Task 1.5: logged AND rethrown so the event-bus NAKs for
+      // redelivery. Deterministic ids + the (rule_id, source_event_id)
+      // unique key make the redelivery idempotent; poison inputs are
+      // filtered before this point (schema/tenant guards above).
       this.logger.error(
         `Error processing sensor reading: ${(error as Error).message}`,
         (error as Error).stack,
       );
+      throw error;
     }
   }
 }

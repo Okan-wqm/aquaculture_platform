@@ -198,9 +198,17 @@ jobs:
           ARIA_REQUIRE_MODE_A: "true"
           ARIA_GH_APP_INSTALLATION_ID: ${{ secrets.ARIA_GH_APP_INSTALLATION_ID }}
           ARIA_GH_APP_ID: ${{ secrets.ARIA_GH_APP_ID }}
-          ARIA_GH_APP_PRIVATE_KEY_PATH: ${{ secrets.ARIA_GH_APP_PRIVATE_KEY_PATH }}
+          ARIA_GH_APP_PRIVATE_KEY: ${{ secrets.ARIA_GH_APP_PRIVATE_KEY }}
         run: |
           set -euo pipefail
+          # ubuntu-latest has no operator home dir; materialize the PEM
+          # content from the secret into an ephemeral 0600 file so the
+          # kernel's runbook-default key path resolves on a hosted runner.
+          KEY_FILE="$RUNNER_TEMP/gh-app-private-key.pem"
+          umask 077
+          printf '%s\n' "$ARIA_GH_APP_PRIVATE_KEY" > "$KEY_FILE"
+          export ARIA_GH_APP_PRIVATE_KEY_PATH="$KEY_FILE"
+          trap 'rm -f "$KEY_FILE"' EXIT
           PYTHONPATH=aria-kernel python3 -m aria_kernel readiness produce-claim \
             --pr-number "${{ steps.pr.outputs.number }}" \
             --repo "${GITHUB_REPOSITORY}" \

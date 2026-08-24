@@ -28533,6 +28533,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/aria/policy/operator-decisions-2026-08-24-zai-key-mode.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/aria/policy/policy-approval.json",
       "prettier_managed": true
     },

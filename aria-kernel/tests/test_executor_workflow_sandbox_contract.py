@@ -271,3 +271,42 @@ class ExecutorWorkflowSandboxContract(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ZaiKeyModeWiringContract(unittest.TestCase):
+    """Operator decision 2026-08-24 — API-key mode for zai routes only.
+
+    The Claude subscription is cancelled; provider-redirected (zai) routes
+    are authorised to run on their own API key, and the Anthropic key ban
+    stays absolute. This pins the workflow wiring that makes that decision
+    real: the redirect authorisation reference plus the zai token reach the
+    executor step, and no workflow ever references a direct Anthropic key.
+    """
+
+    DECISION_REF = (
+        "docs/aria/policy/operator-decisions-2026-08-24-zai-key-mode.md"
+    )
+
+    def test_executor_step_carries_redirect_authorisation_and_zai_key(self) -> None:
+        text = (_WORKFLOWS / "aria-agent-executor.yml").read_text(encoding="utf-8")
+        step = text.split("- name: Run CI executor", 1)[1].split("- name:", 1)[0]
+        self.assertIn("ARIA_ZAI_API_KEY: ${{ secrets.ARIA_ZAI_API_KEY }}", step)
+        self.assertIn(f"ARIA_PROVIDER_REDIRECT_POLICY_REF: {self.DECISION_REF}", step)
+
+    # The preflight step legitimately NAMES the banned variables while
+    # refusing them; what this contract forbids is WIRING one (an env
+    # assignment from a secret or a literal), never the guard's mention.
+    _ANTHROPIC_KEY_WIRING = re.compile(
+        r"ANTHROPIC_API_KEY\s*:\s*(\$\{\{|secrets\.|sk-)",
+    )
+
+    def test_no_workflow_references_a_direct_anthropic_key(self) -> None:
+        for workflow in _WORKFLOWS.glob("*.yml"):
+            text = workflow.read_text(encoding="utf-8")
+            self.assertIsNone(
+                self._ANTHROPIC_KEY_WIRING.search(text),
+                msg=f"{workflow.name} must not wire a direct Anthropic key",
+            )
+
+    def test_the_decision_document_exists(self) -> None:
+        self.assertTrue((_REPO_ROOT / self.DECISION_REF).exists())

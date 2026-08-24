@@ -460,6 +460,14 @@ jobs:
           CLAUDE_CLI_MOCK: ${{ steps.preflight.outputs.effective_mock }}
           CLAUDE_CLI_MOCK_SOURCE: ${{ steps.preflight.outputs.mock_source }}
           ARIA_CLAUDE_REQUIRE_USAGE: '1'
+          # Operator decision 2026-08-24 (see the referenced policy file):
+          # the Claude subscription is cancelled; provider-redirected (zai)
+          # routes are authorised to run on their own API key while
+          # Anthropic-routed models keep failing closed — the ambient
+          # API-key ban in assert_claude_policy_environment is untouched,
+          # and no direct Anthropic key is ever wired.
+          ARIA_PROVIDER_REDIRECT_POLICY_REF: docs/aria/policy/operator-decisions-2026-08-24-zai-key-mode.md
+          ARIA_ZAI_API_KEY: ${{ secrets.ARIA_ZAI_API_KEY }}
           # Wave 0 §0.7 — executor-lane PRs open through the kernel CLI
           # (pr_manager gate + breaker producer) only; the raw
           # `gh pr create` allowlist row is refused under this flag. The

@@ -11,6 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
 import {
   createBaseEvent,
+  deriveEventId,
   parameterForChannelKey,
   readingFieldForParameter,
   type SensorMetricIngestedEvent,
@@ -336,6 +337,12 @@ export class NatsIngestionConsumerService
       ...createBaseEvent('SensorReading', event.tenantId, {
         aggregateId: sensor.id,
         aggregateType: 'Sensor',
+        // Task 1.4: the child event's identity is a pure function of the
+        // SOURCE event + channel — a redelivered source re-emits the SAME
+        // child id, so JetStream dedup (Nats-Msg-Id = eventId) and
+        // downstream uniqueness keys collapse the duplicate instead of
+        // double-firing alerts.
+        eventId: deriveEventId(`${event.eventId}\u0000${event.channelId}`),
       }),
       eventType: 'SensorReading',
       sensorId: sensor.id,

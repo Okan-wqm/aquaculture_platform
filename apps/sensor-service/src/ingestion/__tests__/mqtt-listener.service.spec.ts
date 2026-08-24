@@ -121,14 +121,12 @@ function createMockMqttClient(): jest.Mocked<MqttClientService> {
 
 function createMockEdgeDeviceService(): jest.Mocked<EdgeDeviceService> {
   return {
-    updateHeartbeat: jest
-      .fn()
-      .mockResolvedValue({
-        id: 'dev-1',
-        tenantId: TENANT_ID,
-        deviceCode: DEVICE_CODE,
-        isOnline: true,
-      }),
+    updateHeartbeat: jest.fn().mockResolvedValue({
+      id: 'dev-1',
+      tenantId: TENANT_ID,
+      deviceCode: DEVICE_CODE,
+      isOnline: true,
+    }),
     findByCode: jest
       .fn()
       .mockResolvedValue({ id: 'dev-1', tenantId: TENANT_ID, deviceCode: DEVICE_CODE }),
@@ -335,6 +333,52 @@ describe('MqttListenerService', () => {
           JSON.stringify({ temperature: 23.5 }),
         ),
       ).rejects.toThrow(/Durable metric write failed/);
+    });
+
+    it('publishes SensorReading with a deterministic eventId derived from the source reading (Task 1.4)', async () => {
+      const { service, sensorTopicCache, dataSource, eventBus } = buildService();
+      sensorTopicCache!.getSensorByTopic.mockResolvedValue(createCachedSensorInfo());
+
+      const sensor = createSensor();
+      const qr = dataSource.createQueryRunner();
+      (qr.manager.findOne as jest.Mock).mockResolvedValue(sensor);
+      const channelRepo = (qr.manager.getRepository as jest.Mock)();
+      channelRepo.find.mockResolvedValue([
+        {
+          id: '66666666-6666-4666-8666-666666666666',
+          sensorId: SENSOR_ID,
+          channelKey: 'temperature',
+          dataPath: null,
+          isEnabled: true,
+          applyCalibration: (v: number) => v,
+          validateValue: () => ({ valid: true, level: 'good' }),
+        },
+      ]);
+
+      const publish = eventBus.publish as jest.Mock;
+      const readingEvents = (): Array<Record<string, unknown>> =>
+        publish.mock.calls
+          .map((c) => c[0] as Record<string, unknown>)
+          .filter((e) => e['eventType'] === 'SensorReading');
+
+      // Same payload (with its own producer ts) handled twice → ONE identity.
+      const payload = JSON.stringify({ temperature: 23.5, ts: 1_730_000_000_000 });
+      await callHandleMessage(service, `sensors/${TENANT_ID}/${SENSOR_ID}/data`, payload);
+      await callHandleMessage(service, `sensors/${TENANT_ID}/${SENSOR_ID}/data`, payload);
+      expect(readingEvents()).toHaveLength(2);
+      expect(readingEvents()[0]!['eventId']).toBe(readingEvents()[1]!['eventId']);
+      expect(readingEvents()[0]!['eventId']).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      );
+
+      // A different payload is a different logical event.
+      await callHandleMessage(
+        service,
+        `sensors/${TENANT_ID}/${SENSOR_ID}/data`,
+        JSON.stringify({ temperature: 24.0, ts: 1_730_000_000_000 }),
+      );
+      expect(readingEvents()).toHaveLength(3);
+      expect(readingEvents()[2]!['eventId']).not.toBe(readingEvents()[0]!['eventId']);
     });
 
     it('should parse aquaculture/{tenantId}/sensors/{sensorId} pattern correctly', async () => {

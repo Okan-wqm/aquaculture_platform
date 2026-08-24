@@ -425,6 +425,30 @@ describe('NatsIngestionConsumerService', () => {
       expect(batch.enqueue).toHaveBeenCalledTimes(1);
       expect(bus.publish).toHaveBeenCalledTimes(1);
     });
+
+    it('derives the child SensorReading eventId deterministically from source event + channel (Task 1.4)', async () => {
+      const OTHER_CHANNEL_ID = '99999999-9999-4999-8999-999999999999';
+      const bus = makeBus();
+      const batch = makeBatch();
+      batch.enqueue.mockResolvedValue({ tenantId: TENANT_ID, committedRows: 1 });
+      const { svc } = makeService({
+        bus,
+        batch,
+        channels: [fakeChannel('temperature'), fakeChannel('ph', { id: OTHER_CHANNEL_ID })],
+      });
+
+      // Same source identity handled twice (a redelivery) → ONE child id.
+      await svc.handle(fakeEvent());
+      await svc.handle(fakeEvent());
+      const ids = bus.publish.mock.calls.map((c) => asRecord(c[0])['eventId']);
+      expect(ids).toHaveLength(2);
+      expect(ids[0]).toBe(ids[1]);
+
+      // A different channel of the same source is a DIFFERENT child event.
+      await svc.handle(fakeEvent({ channelId: OTHER_CHANNEL_ID }));
+      const third = asRecord(bus.publish.mock.calls[2]![0])['eventId'];
+      expect(third).not.toBe(ids[0]);
+    });
   });
 
   describe('typed-event mapper — channelKey dispatch', () => {

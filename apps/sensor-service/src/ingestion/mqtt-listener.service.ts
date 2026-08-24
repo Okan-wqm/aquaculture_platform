@@ -8,8 +8,9 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { createHash } from 'node:crypto';
 import { IEventBus } from '@platform/event-bus';
-import { createBaseEvent } from '@platform/event-contracts';
+import { createBaseEvent, deriveEventId, type EventId } from '@platform/event-contracts';
 import { Repository, DataSource, EntityManager } from 'typeorm';
 
 /**
@@ -157,6 +158,28 @@ interface TenantEdgeStatusPayload {
  * them (SENSOR-CRITICAL-086).
  */
 class DurableWriteError extends Error {}
+
+/**
+ * Stable, key-sorted JSON rendering so the same logical payload always
+ * hashes to the same digest (Task 1.4 seed input).
+ */
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value) ?? 'null';
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJson).join(',')}]`;
+  }
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, v]) => v !== undefined)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`);
+  return `{${entries.join(',')}}`;
+}
+
+function sha256Hex(text: string): string {
+  return createHash('sha256').update(text, 'utf8').digest('hex');
+}
 
 /**
  * MQTT Listener Service
@@ -1766,6 +1789,14 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         ...createBaseEvent('SensorReading', sensor.tenantId, {
           aggregateId: sensor.id,
           aggregateType: 'Sensor',
+          // Task 1.4 legacy-path identity: UUIDv5 over tenant + sensor +
+          // producer ts + canonical payload digest, so a re-emission of the
+          // SAME reading (e.g. after the MQTT ack gate redelivers and the
+          // row already upserted) collapses onto one eventId instead of
+          // double-firing downstream effects. The EDGE-assigned
+          // sourceEventId (Task 1.7) is the durable long-term answer; this
+          // fallback binds to the payload's own ts when present.
+          eventId: this.deriveLegacyReadingEventId(sensor, data, timestamp),
         }),
         timestamp: timestamp.toISOString(),
         sensorId: sensor.id,
@@ -1776,6 +1807,40 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       this.logger.warn(`Failed to publish sensor reading event: ${(error as Error).message}`);
     }
+  }
+
+  /**
+   * Deterministic identity for the legacy MQTT path (plan Task 1.4):
+   * tenant + sensor + producer timestamp + payload SHA-256. The producer
+   * ts prefers the payload's own `ts`/`timestamp`/`producerTs` field; the
+   * receive time is the fallback (documented limitation: a redelivered
+   * legacy payload without its own ts gets a fresh receive-time identity —
+   * the edge-assigned sourceEventId removes that ambiguity).
+   */
+  private deriveLegacyReadingEventId(
+    sensor: Sensor,
+    data: Record<string, unknown>,
+    receivedAt: Date,
+  ): EventId {
+    const producerTs = this.extractProducerTs(data) ?? receivedAt.toISOString();
+    const payloadSha = sha256Hex(canonicalJson(data));
+    return deriveEventId([sensor.tenantId, sensor.id, producerTs, payloadSha].join('\u0000'));
+  }
+
+  private extractProducerTs(data: Record<string, unknown>): string | null {
+    for (const key of ['ts', 'timestamp', 'producerTs']) {
+      const raw = data[key];
+      if (typeof raw === 'number' && Number.isFinite(raw)) {
+        return new Date(raw).toISOString();
+      }
+      if (typeof raw === 'string' && raw.length > 0) {
+        const parsed = new Date(raw);
+        if (!Number.isNaN(parsed.getTime())) {
+          return parsed.toISOString();
+        }
+      }
+    }
+    return null;
   }
 
   /**

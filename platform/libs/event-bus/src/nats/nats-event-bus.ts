@@ -54,6 +54,7 @@ import {
 } from '../subjects/tenant-event-subject';
 
 import { DEFAULT_NATS_URL, DEFAULT_NATS_STREAM_NAME } from './event-bus-config.factory';
+import { buildDlqEnvelope } from './dlq-envelope';
 import type { EventBusModuleOptions } from './nats.module';
 
 export interface CoreNatsConnectionSnapshot {
@@ -164,6 +165,10 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
   // source-of-truth drift this refactor eliminates.
   private readonly natsUrl: string;
   private readonly streamName: string;
+  /** Task 1.6: the dead-letter stream every terminal failure routes into. */
+  private readonly dlqStreamName: string;
+  /** Deliveries before a failing message is dead-lettered (default 5). */
+  private readonly dlqAfterDeliveries: number;
   private readonly streamReplicas: number;
   private readonly clientId: string;
   private reconnectPolicy: NatsReconnectPolicy | null = null;
@@ -186,6 +191,8 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
     this.requireBroker = moduleOptions?.required ?? false;
     this.natsUrl = this.configService.get<string>('NATS_URL', DEFAULT_NATS_URL);
     this.streamName = this.configService.get<string>('NATS_STREAM_NAME', DEFAULT_NATS_STREAM_NAME);
+    this.dlqStreamName = this.configService.get<string>('NATS_DLQ_STREAM_NAME', 'AQUACULTURE_DLQ');
+    this.dlqAfterDeliveries = Number(this.configService.get('NATS_DLQ_AFTER_DELIVERIES', 5));
     // JetStream replica count is a property of the NATS DEPLOYMENT TOPOLOGY
     // (how many nodes the cluster has), NOT of the application environment.
     // Coupling it to NODE_ENV/AQUA_ENV (production ⇒ 3) was an architectural
@@ -338,11 +345,7 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
     // A live @nats-io connection owns its own internal reconnect loop. Do not
     // open a second mTLS connection while it is reconnecting; retain exactly
     // one outer timer so a terminal close still converges on recovery.
-    if (
-      this.connectPromise === null &&
-      this.connection !== null &&
-      !this.connection.isClosed()
-    ) {
+    if (this.connectPromise === null && this.connection !== null && !this.connection.isClosed()) {
       this.scheduleReconnect();
       return;
     }
@@ -1131,6 +1134,43 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
       });
       this.logger.log(`Created stream ${this.streamName}`);
     }
+
+    // Task 1.6 (SENSOR-HIGH-093): the dead-letter stream must exist before
+    // any consumer can terminal-route a poisoned message into it. Same
+    // create-or-update discipline as the main stream (ARCH-031).
+    const dlqConfig = this.getDlqStreamConfig();
+    try {
+      await this.jetStreamManager.streams.info(this.dlqStreamName);
+      await this.jetStreamManager.streams.update(this.dlqStreamName, dlqConfig);
+    } catch {
+      await this.jetStreamManager.streams.add({
+        name: this.dlqStreamName,
+        ...dlqConfig,
+      });
+      this.logger.log(`Created stream ${this.dlqStreamName}`);
+    }
+  }
+
+  /**
+   * Task 1.6 (SENSOR-HIGH-093): AQUACULTURE_DLQ — bounded forensic store
+   * for terminal failures. Discard New on purpose: a FULL DLQ makes the
+   * dead-letter hop fail loudly, so the original message is NAK'd and
+   * retried instead of being silently evicted (Discard Old would destroy
+   * the OLDEST evidence exactly when a tenant floods). Sizing default is a
+   * placeholder floor until the Task 0.4 measurement replaces it.
+   */
+  private getDlqStreamConfig(): Partial<StreamConfig> {
+    return {
+      subjects: ['dlq.>'],
+      retention: RetentionPolicy.Limits,
+      storage: StorageType.File,
+      max_age: 72 * 60 * 60 * 1_000_000_000, // 72h in nanoseconds
+      max_bytes: Number(this.configService.get('NATS_DLQ_MAX_BYTES', 256 * 1024 * 1024)),
+      max_msg_size: 2 * 1024 * 1024,
+      discard: DiscardPolicy.New,
+      duplicate_window: 2 * 60 * 1_000_000_000,
+      num_replicas: 1,
+    };
   }
 
   /**
@@ -1170,7 +1210,11 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
         deliver_policy: options?.startFrom === 'beginning' ? DeliverPolicy.All : DeliverPolicy.New,
         ack_policy: AckPolicy.Explicit,
         ack_wait: (options?.ackWait ?? 30) * 1000000000, // Convert to nanoseconds
-        max_deliver: options?.maxRetries ?? 3,
+        // Task 1.6: unlimited by default — TERMINATION is decided by the
+        // dead-letter route (deliveryCount >= dlqAfterDeliveries → DLQ +
+        // ack), not by a broker-side cap that would silently strand the
+        // message after max_deliver with no trace (SENSOR-HIGH-093).
+        max_deliver: options?.maxRetries ?? -1,
         filter_subject: subject,
       };
 
@@ -1239,11 +1283,13 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
       // message is acked. A swallowed handler error permanently loses
       // the event for that handler. Route failures to retry/DLQ instead.
       let handlerFailed = false;
+      let lastHandlerError: unknown;
       for (const handler of handlers) {
         try {
           await handler.handle(event);
         } catch (handlerError) {
           handlerFailed = true;
+          lastHandlerError = handlerError;
           this.logger.error(
             `Handler error for ${event.eventType} — message will be NAK'd for retry`,
             handlerError,
@@ -1252,21 +1298,68 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
       }
 
       if (handlerFailed) {
-        // v3: deliveryCount replaces v2's deprecated redeliveryCount alias
-        // (identical value) — exponential-backoff math unchanged.
-        const deliveryCount = msg.info?.deliveryCount ?? 0;
-        const backoffMs = Math.min(1000 * Math.pow(2, deliveryCount), 30000);
-        msg.nak(backoffMs);
+        await this.handleMessageFailure(subject, msg, event, 'handler-failure', lastHandlerError);
       } else {
         msg.ack();
       }
     } catch (error) {
       this.logger.error(`Message processing error on ${subject}`, error);
-      // Exponential backoff on NAK: redelivery delay doubles per attempt.
-      // v3 deliveryCount = number of times delivered (v2's deprecated
-      // redeliveryCount alias, same value) — backoff math unchanged.
-      const deliveryCount = msg.info?.deliveryCount ?? 0;
-      const backoffMs = Math.min(1000 * Math.pow(2, deliveryCount), 30000);
+      await this.handleMessageFailure(subject, msg, undefined, 'processing-failure', error);
+    }
+  }
+
+  /**
+   * Task 1.6 (SENSOR-HIGH-093): bounded-redelivery terminal routing.
+   * Under the delivery threshold → NAK with exponential backoff. At/over
+   * it → DEAD-LETTER: the envelope must be durably PubAck'd on the DLQ
+   * stream BEFORE the original is acked; if the dead-letter hop itself
+   * fails, the original is NAK'd — the chain never acks a message into
+   * loss.
+   */
+  private async handleMessageFailure(
+    subject: string,
+    msg: JsMsg,
+    event: { tenantId?: string; eventId?: string; eventType?: string } | undefined,
+    failureClass: string,
+    error: unknown,
+  ): Promise<void> {
+    const deliveryCount = msg.info?.deliveryCount ?? 0;
+    const backoffMs = Math.min(1000 * Math.pow(2, deliveryCount), 30000);
+
+    if (deliveryCount < this.dlqAfterDeliveries || !this.jetStream) {
+      msg.nak(backoffMs);
+      return;
+    }
+
+    try {
+      const payload = msg.string();
+      const { subject: dlqSubject, envelope } = buildDlqEnvelope({
+        tenantId: event?.tenantId,
+        eventType: event?.eventType,
+        eventId: event?.eventId,
+        originalStream: this.streamName,
+        originalSubject: msg.subject,
+        originalSequence: msg.seq,
+        payload,
+        failureClass,
+        error,
+        deliveryCount,
+      });
+      await this.jetStream.publish(dlqSubject, JSON.stringify(envelope), {
+        // Identity-preserving: replay tooling + dedup key off this.
+        msgID: `${this.streamName}.${msg.seq ?? 0}`,
+        timeout: 5_000,
+      });
+      this.logger.error(
+        `Dead-lettered ${envelope.originalSubject} to ${dlqSubject} after ` +
+          `${deliveryCount} deliveries (${failureClass}): ${envelope.errorDigest}`,
+      );
+      msg.ack();
+    } catch (dlqError) {
+      this.logger.error(
+        `DLQ publish FAILED for ${msg.subject} — original NAK'd, not acked into ` +
+          `loss: ${dlqError instanceof Error ? dlqError.message : String(dlqError)}`,
+      );
       msg.nak(backoffMs);
     }
   }

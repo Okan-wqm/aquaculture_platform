@@ -41396,6 +41396,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "platform/libs/event-bus/src/nats/__tests__/nats-event-bus.dlq.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "platform/libs/event-bus/src/nats/__tests__/nats-event-bus.signals.spec.ts",
       "prettier_managed": true
     },
@@ -41403,6 +41409,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "platform/libs/event-bus/src/nats/__tests__/nats-request-reply.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "platform/libs/event-bus/src/nats/dlq-envelope.ts",
       "prettier_managed": true
     },
     {
@@ -45740,6 +45752,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/scripts/seed-finding-registry.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/scripts/telemetry-dlq-replay.ts",
       "prettier_managed": true
     },
     {

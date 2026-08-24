@@ -10,9 +10,14 @@ watchdog red.
 ## Measured facts
 
 - Run 32702963665 died with
-  `TypeError: mint_installation_token() missing 2 required keyword-only arguments: 'cycle_id' and 'workspace_root'`
+
+  ```text
+  TypeError: mint_installation_token() missing 2 required keyword-only arguments: 'cycle_id' and 'workspace_root'
+  ```
+
   — the workflow's inline mint call predated the V9.0-C keyword-only
   signature of `aria_kernel/gh_token_factory.py::mint_installation_token`.
+
 - Even with the signature fixed, the call read `lease.token`, an attribute
   the frozen `InstallationTokenLease` dataclass never had (it carries
   `token_file`); the token string must be read from that file.
@@ -29,7 +34,7 @@ watchdog red.
 - With the correct key, the exact workflow snippet mints a Mode A `ghs_`
   installation token locally (`fallback_active=False`).
 
-## ARIA-MEDIUM-018 — the sweep lane's App-token mint crashes and hosted lanes point at an unreadable key path
+## ARIA-MEDIUM-018 — sweep mint crashes; hosted lanes point at unreadable key paths
 
 The mint step can never succeed on any runner: the call signature is stale,
 the returned attribute does not exist, and the key path secret points at a

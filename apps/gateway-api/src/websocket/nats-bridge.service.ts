@@ -230,7 +230,9 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
         }
       }
     })().catch((error) => {
-      this.logger.error(`NATS EdgeDeviceIoData subscription loop error: ${(error as Error).message}`);
+      this.logger.error(
+        `NATS EdgeDeviceIoData subscription loop error: ${(error as Error).message}`,
+      );
     });
   }
 
@@ -272,7 +274,9 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
         }
       }
     })().catch((error) => {
-      this.logger.error(`NATS EdgeDeviceAlarm subscription loop error: ${(error as Error).message}`);
+      this.logger.error(
+        `NATS EdgeDeviceAlarm subscription loop error: ${(error as Error).message}`,
+      );
     });
   }
 
@@ -298,11 +302,13 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
     }
 
     // Forward to WebSocket gateway
-    const timestamp = event.timestamp instanceof Date
-      ? event.timestamp.toISOString()
-      : String(event.timestamp);
+    const timestamp =
+      event.timestamp instanceof Date ? event.timestamp.toISOString() : String(event.timestamp);
 
     this.sensorGateway.broadcastSensorReading({
+      // Task 1.5: forward the deterministic identity so the client can
+      // deduplicate its reconnect window instead of double-rendering.
+      eventId: event.eventId,
       sensorId: event.sensorId ?? '',
       sensorName: event.sensorName ?? '',
       tenantId: event.tenantId,

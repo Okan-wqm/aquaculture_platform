@@ -112,6 +112,514 @@ const EXPECTED_ARIA_TASK_FINDING_IDS = [
 
 const EXPECTED_CLOSURE_SCOPE = [...SCOPED_ORPHAN_FINDING_IDS, ...EXPECTED_ARIA_TASK_FINDING_IDS];
 
+type ExpectedClosureSemantic = readonly [
+  taskId: string,
+  ownerTask: string,
+  requiredPredicate: string,
+  closureMode: 'historical_main' | 'task_commit' | 'task_commit_and_live',
+  closingShaRule: 'last_historical_fix' | 'task_commit',
+  historicalFixShas: readonly string[],
+];
+
+const EXPECTED_CLOSURE_SEMANTICS = {
+  'ORPHAN-HIGH-775': [
+    'task-1-orphan-775',
+    'task-1',
+    'branch_protection_proof_producer_code_proven',
+    'task_commit',
+    'task_commit',
+    ['84404283f64ef15487fac8e7a7d7aa683feeae94'],
+  ],
+  'ORPHAN-CRITICAL-776': [
+    'task-1-orphan-776',
+    'task-1',
+    'executor_unbound_name_detector_code_proven',
+    'historical_main',
+    'last_historical_fix',
+    ['a16977a968d72a0957b271e3609ff398b6d9c85b'],
+  ],
+  'ORPHAN-HIGH-777': [
+    'task-1-orphan-777',
+    'task-1',
+    'multi_vendor_model_vocabulary_code_proven',
+    'task_commit',
+    'task_commit',
+    ['b2e8ea6241d7b5f6ef5bd212c43cf9f95a4a4585', 'd7fa539ea03a52ff2cf5e21a9253d4d7cb84f311'],
+  ],
+  'ORPHAN-HIGH-778': [
+    'task-1-orphan-778',
+    'task-1',
+    'provider_process_boundary_code_proven',
+    'task_commit',
+    'task_commit',
+    ['260620fbbcf289c75135b635d970f2134256164c', 'd7fa539ea03a52ff2cf5e21a9253d4d7cb84f311'],
+  ],
+  'ORPHAN-HIGH-779': [
+    'task-7',
+    'task-7',
+    'learning_funnel_scheduled_path_live_proven',
+    'task_commit_and_live',
+    'task_commit',
+    ['620683fc9a089790b18bc96b91e0f180fb2c7b63'],
+  ],
+  'ORPHAN-HIGH-780': [
+    'task-1-orphan-780',
+    'task-1',
+    'workflow_launch_failure_ledger_code_proven',
+    'historical_main',
+    'last_historical_fix',
+    [
+      '960b8902b9ec11d5c97dd022c52e38928628f257',
+      'b048624cd76054efb4fa7c7a8e67d2ea3b7f76d9',
+      '2d9f672d74f559c7163a2e649000cbaa79b259fb',
+    ],
+  ],
+  'ORPHAN-HIGH-781': [
+    'task-1-orphan-781',
+    'task-1',
+    'dispatch_model_identity_code_proven',
+    'historical_main',
+    'last_historical_fix',
+    ['a7f375ec18e81e3ebf3a71d078e7d4b5332cb886'],
+  ],
+  'ORPHAN-HIGH-782': [
+    'task-1-orphan-782',
+    'task-1',
+    'calibration_reporter_all_exits_code_proven',
+    'historical_main',
+    'last_historical_fix',
+    ['2e9a6929e6a14717aa1725d9511ae0267b3d288c'],
+  ],
+  'ORPHAN-MEDIUM-783': [
+    'task-1-orphan-783',
+    'task-1',
+    'fixture_phase_result_telemetry_code_proven',
+    'historical_main',
+    'last_historical_fix',
+    ['7a49ebfca19fb175d95cfebac8e9ba8fd19fcacb'],
+  ],
+  'ORPHAN-HIGH-784': [
+    'task-1-orphan-784',
+    'task-1',
+    'same_cycle_judge_weights_code_proven',
+    'historical_main',
+    'last_historical_fix',
+    ['f19264a48ccb67d989c3db01982904497bb5cf52'],
+  ],
+  'ORPHAN-MEDIUM-785': [
+    'task-1-orphan-785',
+    'task-1',
+    'judgment_sampler_recency_window_code_proven',
+    'historical_main',
+    'last_historical_fix',
+    ['16f8ba624729a3d427a3d5ff59f784e4cee4dbca'],
+  ],
+  'ORPHAN-HIGH-786': [
+    'task-1-orphan-786',
+    'task-1',
+    'anchor_sweep_and_drain_topology_code_proven',
+    'historical_main',
+    'last_historical_fix',
+    ['61632372ef765d1dbb0b9cd46673eb98fa2d0815'],
+  ],
+  'ORPHAN-HIGH-787': [
+    'task-1-orphan-787',
+    'task-1',
+    'auto_promote_token_consumer_hmac_code_proven',
+    'historical_main',
+    'last_historical_fix',
+    ['bd605b5cba516d44e5f879a90ade8adbe6d7b26c'],
+  ],
+  'ORPHAN-HIGH-788': [
+    'task-1-orphan-788',
+    'task-1',
+    'readiness_workflow_env_binding_code_proven',
+    'historical_main',
+    'last_historical_fix',
+    ['b19fee8b4fd7ee84caa530aa06b76784557ef044'],
+  ],
+  'ORPHAN-MEDIUM-789': [
+    'task-18',
+    'task-18',
+    'mode_a_signed_readiness_live_proven',
+    'task_commit_and_live',
+    'task_commit',
+    [],
+  ],
+  'ORPHAN-HIGH-790': [
+    'task-1-orphan-790',
+    'task-1',
+    'agent_refusal_vocabulary_code_proven',
+    'historical_main',
+    'last_historical_fix',
+    ['8daedd72ff6c83460b0631a513e5c1585dac75e4'],
+  ],
+  'ORPHAN-HIGH-791': [
+    'task-1-orphan-791',
+    'task-1',
+    'authority_date_utc_normalization_code_proven',
+    'historical_main',
+    'last_historical_fix',
+    ['80f92eb6f15520b505bdf6f3b4e6c486784b094b'],
+  ],
+  'ORPHAN-MEDIUM-792': [
+    'task-3',
+    'task-3',
+    'server_merge_safe_authority_hash_code_proven',
+    'task_commit',
+    'task_commit',
+    [],
+  ],
+  'ARIA-HIGH-001': [
+    'task-2',
+    'task-2',
+    'autonomy_evidence_status_code_proven',
+    'task_commit',
+    'task_commit',
+    [],
+  ],
+  'ARIA-HIGH-002': [
+    'task-4',
+    'task-4',
+    'executor_failure_contract_code_proven',
+    'task_commit',
+    'task_commit',
+    [],
+  ],
+  'ARIA-HIGH-003': [
+    'task-5',
+    'task-5',
+    'three_classified_live_drains',
+    'task_commit_and_live',
+    'task_commit',
+    [],
+  ],
+  'ARIA-HIGH-017': [
+    'task-5-live-unblock',
+    'task-5',
+    'state_publish_line_cap_code_proven',
+    'task_commit',
+    'task_commit',
+    [],
+  ],
+  'ARIA-HIGH-004': [
+    'task-6',
+    'task-6',
+    'learning_funnel_code_proven',
+    'task_commit',
+    'task_commit',
+    [],
+  ],
+  'ARIA-HIGH-005': [
+    'task-8',
+    'task-8',
+    'pre_merge_snapshot_code_proven',
+    'task_commit',
+    'task_commit',
+    [],
+  ],
+  'ARIA-HIGH-006': [
+    'task-9',
+    'task-9',
+    'branch_and_file_claim_checks_code_proven',
+    'task_commit',
+    'task_commit',
+    [],
+  ],
+  'ARIA-CRITICAL-007': [
+    'task-10',
+    'task-10',
+    'operator_feedback_signature_code_proven',
+    'task_commit',
+    'task_commit',
+    [],
+  ],
+  'ARIA-HIGH-008': [
+    'task-11',
+    'task-11',
+    'budget_and_content_checks_code_proven',
+    'task_commit',
+    'task_commit',
+    [],
+  ],
+  'ARIA-CRITICAL-009': [
+    'task-12',
+    'task-12',
+    'seven_pre_merge_checks_live_proven',
+    'task_commit_and_live',
+    'task_commit',
+    [],
+  ],
+  'ARIA-HIGH-010': [
+    'task-13',
+    'task-13',
+    'rust_observation_shadow_proven',
+    'task_commit',
+    'task_commit',
+    [],
+  ],
+  'ARIA-HIGH-011': [
+    'task-14',
+    'task-14',
+    'migration_observation_shadow_proven',
+    'task_commit',
+    'task_commit',
+    [],
+  ],
+  'ARIA-HIGH-012': [
+    'task-15',
+    'task-15',
+    'infrastructure_observation_shadow_proven',
+    'task_commit',
+    'task_commit',
+    [],
+  ],
+  'ARIA-HIGH-013': [
+    'task-16',
+    'task-16',
+    'workflow_shell_observation_shadow_proven',
+    'task_commit',
+    'task_commit',
+    [],
+  ],
+  'ARIA-HIGH-014': [
+    'task-17',
+    'task-17',
+    'whole_repo_observation_and_vertical_slice_live_proven',
+    'task_commit_and_live',
+    'task_commit',
+    [],
+  ],
+  'ARIA-CRITICAL-015': [
+    'task-19',
+    'task-19',
+    'staged_autonomy_ladder_live_proven',
+    'task_commit_and_live',
+    'task_commit',
+    [],
+  ],
+  'ARIA-HIGH-016': [
+    'task-20a',
+    'task-20a',
+    'closure_verifier_code_proven',
+    'task_commit',
+    'task_commit',
+    [],
+  ],
+} as const satisfies Readonly<
+  Record<(typeof EXPECTED_CLOSURE_SCOPE)[number], ExpectedClosureSemantic>
+>;
+
+type ExpectedClosureReferences = readonly [
+  reviewAnchor: string,
+  narrativeAnchor: string | null,
+  regressionTestRefs: readonly string[],
+];
+
+const EXPECTED_CLOSURE_REFERENCES = {
+  'ORPHAN-HIGH-775': [
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-775',
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-775',
+    [
+      'aria-kernel/tests/test_readiness_claim_lane.py',
+      'aria-kernel/tests/test_workflow_enterprise_preflight.py',
+    ],
+  ],
+  'ORPHAN-CRITICAL-776': [
+    'docs/reviews/orphan-findings.md#ORPHAN-CRITICAL-776',
+    'docs/reviews/orphan-findings.md#ORPHAN-CRITICAL-776',
+    ['aria-kernel/tests/test_executor_unbound_names.py'],
+  ],
+  'ORPHAN-HIGH-777': [
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-777',
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-777',
+    [
+      'aria-kernel/tests/test_glm_model_admission.py',
+      'aria-kernel/tests/test_model_tier_protection.py',
+    ],
+  ],
+  'ORPHAN-HIGH-778': [
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-778',
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-778',
+    ['aria-kernel/tests/test_provider_redirect.py'],
+  ],
+  'ORPHAN-HIGH-779': [
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-779',
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-779',
+    [
+      'aria-kernel/tests/test_fixture_dir_state_store_layout.py',
+      'aria-kernel/tests/test_learning_funnel_scheduled_path.py',
+    ],
+  ],
+  'ORPHAN-HIGH-780': [
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-780',
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-780',
+    [
+      'aria-kernel/tests/test_workflow_kernel_cli_contract.py',
+      'aria-kernel/tests/test_cli_launch_failure_ledger.py',
+    ],
+  ],
+  'ORPHAN-HIGH-781': [
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-781',
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-781',
+    ['aria-kernel/tests/test_dispatch_model_stamping.py'],
+  ],
+  'ORPHAN-HIGH-782': [
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-782',
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-782',
+    ['aria-kernel/tests/invariants/v7/test_phase_v7_6_calibration_reporter.py'],
+  ],
+  'ORPHAN-MEDIUM-783': [
+    'docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-783',
+    'docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-783',
+    ['aria-kernel/tests/test_judgment_pipeline_phases.py'],
+  ],
+  'ORPHAN-HIGH-784': [
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-784',
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-784',
+    ['aria-kernel/tests/test_judgment_pipeline_phases.py'],
+  ],
+  'ORPHAN-MEDIUM-785': [
+    'docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-785',
+    'docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-785',
+    ['aria-kernel/tests/test_sampler_recency_window.py'],
+  ],
+  'ORPHAN-HIGH-786': [
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-786',
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-786',
+    ['aria-kernel/tests/test_anchor_sweep.py', 'aria-kernel/tests/test_x1_drain_topology.py'],
+  ],
+  'ORPHAN-HIGH-787': [
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-787',
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-787',
+    [
+      'aria-kernel/tests/invariants/v6/test_phase_v6_4_auto_promotion.py',
+      'aria-kernel/tests/test_auto_promote_token_verification.py',
+    ],
+  ],
+  'ORPHAN-HIGH-788': [
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-788',
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-788',
+    ['aria-kernel/tests/test_workflow_env_binding.py'],
+  ],
+  'ORPHAN-MEDIUM-789': [
+    'docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-789',
+    'docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-789',
+    [
+      'aria-kernel/tests/test_workflow_mode_a_transport.py',
+      'aria-kernel/tests/test_signed_readiness_snapshot.py',
+    ],
+  ],
+  'ORPHAN-HIGH-790': [
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-790',
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-790',
+    ['aria-kernel/tests/test_agent_refusal_vocabulary.py'],
+  ],
+  'ORPHAN-HIGH-791': [
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-791',
+    'docs/reviews/orphan-findings.md#ORPHAN-HIGH-791',
+    ['tests/invariants/aria-doc-runtime-ssot.spec.ts'],
+  ],
+  'ORPHAN-MEDIUM-792': [
+    'docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-792',
+    'docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-792',
+    ['tools/gates/aria-authority-hash.spec.ts', 'tests/invariants/aria-doc-runtime-ssot.spec.ts'],
+  ],
+  'ARIA-HIGH-001': [
+    'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-001',
+    null,
+    ['aria-kernel/tests/test_autonomy_evidence_status.py'],
+  ],
+  'ARIA-HIGH-002': [
+    'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-002',
+    null,
+    ['aria-kernel/tests/test_executor_failure_classification.py'],
+  ],
+  'ARIA-HIGH-003': [
+    'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-003',
+    null,
+    ['aria-kernel/tests/test_executor_drain_breaker.py'],
+  ],
+  'ARIA-HIGH-017': [
+    'docs/reviews/aria/2026-08-23-state-publish-line-cap-regression.md#ARIA-HIGH-017',
+    null,
+    [
+      'aria-kernel/tests/test_state_snapshot.py',
+      'aria-kernel/tests/test_agent_submit_result_e2e.py',
+    ],
+  ],
+  'ARIA-HIGH-004': [
+    'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-004',
+    null,
+    ['aria-kernel/tests/test_promotion_funnel_e2e.py'],
+  ],
+  'ARIA-HIGH-005': [
+    'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-005',
+    null,
+    ['aria-kernel/tests/test_pre_merge_evidence.py'],
+  ],
+  'ARIA-HIGH-006': [
+    'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-006',
+    null,
+    [
+      'aria-kernel/tests/test_file_claim_atomic_acquire.py',
+      'aria-kernel/tests/test_pre_merge_file_claims.py',
+    ],
+  ],
+  'ARIA-CRITICAL-007': [
+    'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-CRITICAL-007',
+    null,
+    ['aria-kernel/tests/test_operator_feedback_signature.py'],
+  ],
+  'ARIA-HIGH-008': [
+    'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-008',
+    null,
+    ['aria-kernel/tests/test_pre_merge_budget_and_content.py'],
+  ],
+  'ARIA-CRITICAL-009': [
+    'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-CRITICAL-009',
+    null,
+    ['aria-kernel/tests/test_pre_merge_consensus_and_coverage.py'],
+  ],
+  'ARIA-HIGH-010': [
+    'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-010',
+    null,
+    ['tools/aria-adapters/rust-runtime-safety-adapter.test.ts'],
+  ],
+  'ARIA-HIGH-011': [
+    'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-011',
+    null,
+    ['tools/aria-adapters/sql-migration-safety-adapter.test.ts'],
+  ],
+  'ARIA-HIGH-012': [
+    'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-012',
+    null,
+    ['tools/aria-adapters/infrastructure-policy-adapter.test.ts'],
+  ],
+  'ARIA-HIGH-013': [
+    'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-013',
+    null,
+    ['tools/aria-adapters/workflow-shell-safety-adapter.test.ts'],
+  ],
+  'ARIA-HIGH-014': [
+    'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-014',
+    null,
+    ['aria-kernel/tests/test_vertical_slice_evidence.py'],
+  ],
+  'ARIA-CRITICAL-015': [
+    'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-CRITICAL-015',
+    null,
+    ['aria-kernel/tests/test_autonomy_stage_progression.py'],
+  ],
+  'ARIA-HIGH-016': [
+    'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-016',
+    null,
+    ['aria-kernel/tests/test_autonomy_closure.py'],
+  ],
+} as const satisfies Readonly<
+  Record<(typeof EXPECTED_CLOSURE_SCOPE)[number], ExpectedClosureReferences>
+>;
+
 interface Finding {
   id: string;
   severity: string;
@@ -571,12 +1079,21 @@ describe('three-store invariants', () => {
     const narrative = readFileSync(resolve(REPO_ROOT, 'docs/reviews/orphan-findings.md'), 'utf8');
     const registryIds = new Set(entries.map((row) => row.id));
     const policyIds = new Set(policy.entries.map((entry) => entry.finding_id));
+    const registryRowsById = new Map<string, Finding[]>();
+    for (const row of entries) {
+      const rows = registryRowsById.get(row.id) ?? [];
+      rows.push(row);
+      registryRowsById.set(row.id, rows);
+    }
 
     expect(policy.$schema).toBe('aria/autonomy-closure-findings/v1');
     expect(policy.schema_version).toBe(1);
     expect(policy.policy_id).toBe('aria-end-to-end-autonomy-closure');
     expect(policy.entries).toHaveLength(EXPECTED_CLOSURE_SCOPE.length);
     expect([...policyIds].sort()).toEqual([...EXPECTED_CLOSURE_SCOPE].sort());
+    expect(Object.keys(EXPECTED_CLOSURE_SEMANTICS).sort()).toEqual(
+      [...EXPECTED_CLOSURE_SCOPE].sort(),
+    );
     expect(new Set(policy.entries.map((entry) => entry.task_id)).size).toBe(policy.entries.length);
     expect(policyIds.size).toBe(policy.entries.length);
     const operatorPrerequisites = policy.entries.filter(
@@ -596,6 +1113,67 @@ describe('three-store invariants', () => {
     ).toBeUndefined();
 
     for (const entry of policy.entries) {
+      const findingId = entry.finding_id as keyof typeof EXPECTED_CLOSURE_SEMANTICS;
+      const expectedSemantic = EXPECTED_CLOSURE_SEMANTICS[findingId];
+      const expectedReferences = EXPECTED_CLOSURE_REFERENCES[findingId];
+      const expectedHistory = expectedSemantic?.[5] ?? [];
+      const expectedPolicyKeys = [
+        'task_id',
+        'finding_id',
+        'owner_task',
+        'required_predicate',
+        'closure_mode',
+        'review_anchor',
+        'closing_sha_rule',
+        'regression_test_refs',
+      ];
+      for (const optionalKey of [
+        'operator_prerequisite',
+        'narrative_anchor',
+        'historical_fix_shas',
+      ] as const) {
+        if (Object.prototype.hasOwnProperty.call(entry, optionalKey)) {
+          expectedPolicyKeys.push(optionalKey);
+        }
+      }
+
+      expect(expectedSemantic).toBeDefined();
+      expect(expectedReferences).toBeDefined();
+      expect(Object.keys(entry).sort()).toEqual(expectedPolicyKeys.sort());
+      expect([
+        entry.task_id,
+        entry.owner_task,
+        entry.required_predicate,
+        entry.closure_mode,
+        entry.closing_sha_rule,
+        entry.historical_fix_shas ?? [],
+      ]).toEqual(expectedSemantic);
+      const hasNarrativeAnchor = Object.prototype.hasOwnProperty.call(entry, 'narrative_anchor');
+      expect([
+        entry.review_anchor,
+        hasNarrativeAnchor ? entry.narrative_anchor : null,
+        entry.regression_test_refs,
+      ]).toEqual(expectedReferences);
+      expect(hasNarrativeAnchor).toBe(expectedReferences[1] !== null);
+      expect(Object.prototype.hasOwnProperty.call(entry, 'historical_fix_shas')).toBe(
+        expectedHistory.length > 0,
+      );
+
+      if (entry.closure_mode === 'historical_main') {
+        expect(entry.closing_sha_rule).toBe('last_historical_fix');
+        expect(expectedHistory.length).toBeGreaterThan(0);
+      } else {
+        expect(entry.closing_sha_rule).toBe('task_commit');
+      }
+      if (entry.finding_id === 'ORPHAN-MEDIUM-789') {
+        expect(entry.operator_prerequisite).toEqual({
+          capability: 'enterprise_readiness',
+          blocker: 'github_app_mode_a_unconfigured',
+        });
+      } else {
+        expect(entry.operator_prerequisite).toBeUndefined();
+      }
+
       expect(entry.finding_id).not.toMatch(/PLACEHOLDER|TBD|TODO/i);
       expect(entry.owner_task).toMatch(/^task-(?:[1-9]|1\d|20a)$/);
       expect(entry.required_predicate).toMatch(/^[a-z][a-z0-9_]+$/);
@@ -612,6 +1190,15 @@ describe('three-store invariants', () => {
       }
 
       expect(registryIds.has(entry.finding_id)).toBe(true);
+      const registryRows = registryRowsById.get(entry.finding_id) ?? [];
+      expect(registryRows).toHaveLength(1);
+      expect(registryRows[0]).toMatchObject({
+        id: entry.finding_id,
+        severity: entry.finding_id.split('-')[1],
+        state: 'OPEN',
+        owner_agent: 'platform-autonomy',
+        closing_commits: [],
+      });
       if (entry.narrative_anchor) {
         expect(narrative).toContain(`## ${entry.finding_id} `);
       }

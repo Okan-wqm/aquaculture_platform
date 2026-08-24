@@ -31,7 +31,7 @@ class EnospcClassificationTests(unittest.TestCase):
 
     def test_enospc_append_names_the_environment(self) -> None:
         full_disk = OSError(errno.ENOSPC, "No space left on device")
-        with patch("aria_kernel.ledger._append_jsonl_unlocked", side_effect=full_disk):
+        with patch("aria_kernel.ledger._append_jsonl_locked_body", side_effect=full_disk):
             with self.assertRaisesRegex(GovernanceError, "environment_failure:disk_full"):
                 append_declared_jsonl(
                     self.tools / "governance.jsonl",
@@ -41,7 +41,7 @@ class EnospcClassificationTests(unittest.TestCase):
 
     def test_other_oserrors_still_surface_as_themselves(self) -> None:
         perm = OSError(errno.EACCES, "Permission denied")
-        with patch("aria_kernel.ledger._append_jsonl_unlocked", side_effect=perm):
+        with patch("aria_kernel.ledger._append_jsonl_locked_body", side_effect=perm):
             with self.assertRaises(OSError) as ctx:
                 append_declared_jsonl(
                     self.tools / "governance.jsonl",

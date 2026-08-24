@@ -39,13 +39,14 @@ worse than no snapshot at all.
 from __future__ import annotations
 
 import contextlib
+import errno
 import hashlib
 import json
 import os
 import shutil
 import stat
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Mapping
@@ -68,6 +69,7 @@ from .state_manifest import (
 )
 
 SNAPSHOT_SCHEMA = "aria/state-snapshot/v1"
+MAX_SNAPSHOT_JSON_BYTES = 4 * 1024 * 1024
 SNAPSHOT_MAX_SURFACE_BLOB_BYTES = 128 * 1024 * 1024
 SNAPSHOT_MAX_INPUT_BYTES = 1280 * 1024 * 1024
 SNAPSHOT_MAX_LEDGER_LINE_BYTES = 1024 * 1024
@@ -96,6 +98,15 @@ STORAGE_POLICY: dict[str, str] = {
 
 class SnapshotError(RuntimeError):
     """Raised when a snapshot cannot be built, signed, or verified."""
+
+
+def serialize_snapshot_json(manifest: Mapping[str, Any]) -> bytes:
+    """Return the exact bounded canonical bytes used for snapshot storage."""
+
+    payload = (canonical_json(manifest) + "\n").encode("utf-8")
+    if len(payload) > MAX_SNAPSHOT_JSON_BYTES:
+        raise SnapshotError("state_snapshot_json_too_large")
+    return payload
 
 
 class _SnapshotRootMissing(SnapshotError):
@@ -130,6 +141,43 @@ class _SnapshotRootAnchor:
     path: Path
     descriptor: int | None
     identity: tuple[int, int, int] | None
+
+
+_SnapshotStatIdentity = tuple[int, int, int, int, int]
+
+
+@dataclass
+class _SurfaceNamespaceCollector:
+    """Full identities observed while projecting one declared surface."""
+
+    leaves: dict[str, _SnapshotStatIdentity] = field(default_factory=dict)
+    directories: dict[str, _SnapshotStatIdentity] = field(default_factory=dict)
+
+    def record_leaf(self, relative: str, value: os.stat_result) -> None:
+        self._record(self.leaves, relative, value)
+
+    def record_directory(self, relative: str, value: os.stat_result) -> None:
+        self._record(self.directories, relative, value)
+
+    @staticmethod
+    def _record(
+        projection: dict[str, _SnapshotStatIdentity],
+        relative: str,
+        value: os.stat_result,
+    ) -> None:
+        identity = _stat_identity(value)
+        previous = projection.get(relative)
+        if previous is not None and previous != identity:
+            raise SnapshotError(f"snapshot_surface_changed:{relative or '.'}")
+        projection[relative] = identity
+
+
+@dataclass(frozen=True)
+class _SnapshotNamespaceProjection:
+    """Canonical pass result compared byte-for-byte before publication."""
+
+    leaves: tuple[tuple[str, str, str, _SnapshotStatIdentity], ...]
+    directories: tuple[tuple[str, str, _SnapshotStatIdentity], ...]
 
 
 _ROOT_FD_UNSET = object()
@@ -186,38 +234,61 @@ def build_snapshot(
         total_size = 0
         entry_count = 0
         discovery_budget = _SnapshotDiscoveryBudget()
-        for surface in declared:
-            root = roots.get(surface.root_kind)
-            if root is None:
-                continue
+        first_projection = _snapshot_namespace_projection(
+            declared=declared,
+            roots=roots,
+            root_anchors=root_anchors,
+            discovery_budget=discovery_budget,
+        )
+        by_name = {surface.name: surface for surface in declared}
+        for surface_name, root_kind, relative, expected_identity in (
+            first_projection.leaves
+        ):
+            surface = by_name[surface_name]
             policy = _storage_policy(surface)
-            if policy == "excluded":
-                continue
-            for name, entry in _surface_entries(
+            root = Path(roots[root_kind])
+            wildcard = "*" in surface.path_pattern
+            name = f"{surface.name}:{relative}" if wildcard else surface.name
+            entry = _surface_entry(
                 surface,
-                Path(root),
-                declared=declared,
-                discovery_budget=discovery_budget,
-                root_fd=root_anchors[surface.root_kind].descriptor,
-                grandfather_row_counts=grandfather_row_counts or {},
-            ):
-                entry_count += 1
-                if entry_count > SNAPSHOT_MAX_SURFACE_ENTRIES:
-                    raise SnapshotError("snapshot_surface_entry_budget_exceeded")
-                owner_key = (surface.root_kind, entry["path"])
-                previous_owner = owners.get(owner_key)
-                if previous_owner is not None and previous_owner != surface.name:
-                    raise SnapshotError(
-                        f"snapshot_surface_ambiguous:{previous_owner}:{surface.name}:"
-                        f"{entry['path']}",
-                    )
-                owners[owner_key] = surface.name
-                total_size += entry["size_bytes"]
-                if total_size > SNAPSHOT_MAX_INPUT_BYTES:
-                    raise SnapshotError("snapshot_input_budget_exceeded")
-                surfaces[name] = entry
-                if policy == "artifact_only":
-                    artifact_only.append(name)
+                relative,
+                root,
+                root_fd=root_anchors[root_kind].descriptor,
+                expected_identity=expected_identity,
+                grandfather_prefix=(grandfather_row_counts or {}).get(name, 0),
+            )
+            entry_count += 1
+            if entry_count > SNAPSHOT_MAX_SURFACE_ENTRIES:
+                raise SnapshotError("snapshot_surface_entry_budget_exceeded")
+            owner_key = (surface.root_kind, entry["path"])
+            previous_owner = owners.get(owner_key)
+            if previous_owner is not None and previous_owner != surface.name:
+                raise SnapshotError(
+                    f"snapshot_surface_ambiguous:{previous_owner}:{surface.name}:"
+                    f"{entry['path']}",
+                )
+            owners[owner_key] = surface.name
+            total_size += entry["size_bytes"]
+            if total_size > SNAPSHOT_MAX_INPUT_BYTES:
+                raise SnapshotError("snapshot_input_budget_exceeded")
+            surfaces[name] = entry
+            if policy == "artifact_only":
+                artifact_only.append(name)
+
+        _validate_snapshot_root_anchors(root_anchors)
+        second_projection = _snapshot_namespace_projection(
+            declared=declared,
+            roots=roots,
+            root_anchors=root_anchors,
+            discovery_budget=discovery_budget,
+        )
+        if first_projection != second_projection:
+            raise SnapshotError("snapshot_surface_changed:namespace_projection")
+        _revalidate_snapshot_directories(
+            second_projection,
+            root_anchors=root_anchors,
+            discovery_budget=discovery_budget,
+        )
 
         manifest: dict[str, Any] = {
             "$schema": SNAPSHOT_SCHEMA,
@@ -238,6 +309,7 @@ def build_snapshot(
             expected_root_kinds=sorted(roots),
             surfaces=declared,
         )
+        serialize_snapshot_json(manifest)
     return manifest
 
 
@@ -463,9 +535,10 @@ def sign_snapshot(
     if not verify_manifest_root(manifest):
         raise SnapshotError("snapshot_manifest_root_mismatch: refusing to sign a stale root")
 
+    manifest_bytes = serialize_snapshot_json(manifest)
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = out_dir / "snapshot.json"
-    manifest_path.write_text(canonical_json(manifest) + "\n", encoding="utf-8")
+    manifest_path.write_bytes(manifest_bytes)
 
     # Re-signing the same store is the NORMAL case — every publish writes a
     # new snapshot where the last one sat. ``ssh-keygen -Y sign`` refuses to
@@ -643,6 +716,249 @@ def _storage_policy(surface: StateSurface) -> str:
         ) from exc
 
 
+def _snapshot_namespace_projection(
+    *,
+    declared: tuple[StateSurface, ...],
+    roots: Mapping[str, Path],
+    root_anchors: Mapping[str, _SnapshotRootAnchor],
+    discovery_budget: _SnapshotDiscoveryBudget,
+) -> _SnapshotNamespaceProjection:
+    """Project every in-scope path and identity without reading file bytes."""
+    leaves: dict[
+        tuple[str, str, str],
+        _SnapshotStatIdentity,
+    ] = {}
+    directories: dict[
+        tuple[str, str],
+        _SnapshotStatIdentity,
+    ] = {}
+    for surface in declared:
+        if surface.root_kind not in roots or _storage_policy(surface) == "excluded":
+            continue
+        root_fd = root_anchors[surface.root_kind].descriptor
+        if root_fd is None:
+            continue
+        collector = _SurfaceNamespaceCollector()
+        matches = _secure_surface_matches(
+            surface,
+            root_fd,
+            discovery_budget=discovery_budget,
+            projection=collector,
+        )
+        for relative, identity in collector.directories.items():
+            key = (surface.root_kind, relative)
+            previous = directories.get(key)
+            if previous is not None and previous != identity:
+                raise SnapshotError(
+                    f"snapshot_surface_changed:{surface.root_kind}:{relative or '.'}",
+                )
+            directories[key] = identity
+        for relative in matches:
+            try:
+                owner = surface_for_relative_path(
+                    relative,
+                    root_kind=surface.root_kind,
+                    surfaces=declared,
+                )
+            except ValueError as exc:
+                raise SnapshotError(
+                    f"snapshot_surface_ambiguous:{relative}",
+                ) from exc
+            if owner is None:
+                raise SnapshotError(f"snapshot_surface_owner_missing:{relative}")
+            if owner.name != surface.name:
+                continue
+            try:
+                identity = collector.leaves[relative]
+            except KeyError as exc:  # pragma: no cover - internal projection invariant
+                raise SnapshotError(
+                    f"snapshot_surface_projection_incomplete:{relative}",
+                ) from exc
+            key = (surface.name, surface.root_kind, relative)
+            previous = leaves.get(key)
+            if previous is not None and previous != identity:
+                raise SnapshotError(f"snapshot_surface_changed:{relative}")
+            leaves[key] = identity
+            if len(leaves) > SNAPSHOT_MAX_SURFACE_ENTRIES:
+                raise SnapshotError("snapshot_surface_entry_budget_exceeded")
+
+    return _SnapshotNamespaceProjection(
+        leaves=tuple(
+            (*key, identity)
+            for key, identity in sorted(leaves.items())
+        ),
+        directories=tuple(
+            (*key, identity)
+            for key, identity in sorted(directories.items())
+        ),
+    )
+
+
+def _revalidate_snapshot_directories(
+    projection: _SnapshotNamespaceProjection,
+    *,
+    root_anchors: Mapping[str, _SnapshotRootAnchor],
+    discovery_budget: _SnapshotDiscoveryBudget,
+) -> None:
+    """DFS over P2's directory trie while retaining ancestry descriptors only."""
+    expected = {
+        (root_kind, relative): identity
+        for root_kind, relative, identity in projection.directories
+    }
+    children: dict[
+        tuple[str, str],
+        list[tuple[str, str, _SnapshotStatIdentity]],
+    ] = {}
+    for (root_kind, relative), identity in expected.items():
+        if not relative:
+            continue
+        parent_relative, _, name = relative.rpartition("/")
+        if (root_kind, parent_relative) not in expected:
+            raise SnapshotError(
+                f"snapshot_surface_changed:{root_kind}:{relative}",
+            )
+        children.setdefault((root_kind, parent_relative), []).append(
+            (name, relative, identity),
+        )
+
+    mutation_errnos = {errno.ENOENT, errno.ENOTDIR, errno.ELOOP}
+
+    def raise_os_error(
+        root_kind: str,
+        relative: str,
+        error: OSError,
+    ) -> None:
+        label = f"{root_kind}:{relative or '.'}"
+        if error.errno in mutation_errnos:
+            raise SnapshotError(f"snapshot_surface_changed:{label}") from error
+        raise SnapshotError(
+            f"snapshot_surface_revalidation_unavailable:{label}:"
+            f"errno={error.errno}",
+        ) from error
+
+    def validate_root(
+        root_kind: str,
+        identity: _SnapshotStatIdentity,
+    ) -> int:
+        discovery_budget.charge()
+        anchor = root_anchors[root_kind]
+        if anchor.descriptor is None:
+            raise SnapshotError(f"snapshot_surface_changed:{root_kind}:.")
+        try:
+            descriptor_state = os.fstat(anchor.descriptor)
+            path_state = os.stat(anchor.path, follow_symlinks=False)
+        except OSError as exc:
+            raise_os_error(root_kind, "", exc)
+        if (
+            not stat.S_ISDIR(descriptor_state.st_mode)
+            or not stat.S_ISDIR(path_state.st_mode)
+            or _stat_identity(descriptor_state) != identity
+            or _stat_identity(path_state) != identity
+        ):
+            raise SnapshotError(f"snapshot_surface_changed:{root_kind}:.")
+        return anchor.descriptor
+
+    def lstat_for_revalidation(
+        parent_fd: int,
+        *,
+        root_kind: str,
+        name: str,
+        relative: str,
+    ) -> os.stat_result | None:
+        try:
+            return _lstat_child(
+                parent_fd,
+                name,
+                surface_name=relative,
+                discovery_budget=discovery_budget,
+            )
+        except SnapshotError as exc:
+            cause = exc.__cause__
+            if isinstance(cause, OSError):
+                raise_os_error(root_kind, relative, cause)
+            raise
+
+    def visit(
+        *,
+        root_kind: str,
+        parent_relative: str,
+        parent_fd: int,
+    ) -> None:
+        for name, relative, identity in sorted(
+            children.get((root_kind, parent_relative), ()),
+        ):
+            before = lstat_for_revalidation(
+                parent_fd,
+                root_kind=root_kind,
+                name=name,
+                relative=relative,
+            )
+            if (
+                before is None
+                or not stat.S_ISDIR(before.st_mode)
+                or _stat_identity(before) != identity
+            ):
+                raise SnapshotError(
+                    f"snapshot_surface_changed:{root_kind}:{relative}",
+                )
+            try:
+                with _open_child_directory(
+                    parent_fd,
+                    name,
+                    before=before,
+                    relative=relative,
+                ) as descriptor:
+                    visit(
+                        root_kind=root_kind,
+                        parent_relative=relative,
+                        parent_fd=descriptor,
+                    )
+                    current_path = lstat_for_revalidation(
+                        parent_fd,
+                        root_kind=root_kind,
+                        name=name,
+                        relative=relative,
+                    )
+                    try:
+                        descriptor_state = os.fstat(descriptor)
+                    except OSError as error:
+                        raise_os_error(root_kind, relative, error)
+                    if (
+                        current_path is None
+                        or not stat.S_ISDIR(current_path.st_mode)
+                        or not stat.S_ISDIR(descriptor_state.st_mode)
+                        or _stat_identity(current_path) != identity
+                        or _stat_identity(descriptor_state) != identity
+                    ):
+                        raise SnapshotError(
+                            f"snapshot_surface_changed:{root_kind}:{relative}",
+                        )
+            except SnapshotError as exc:
+                cause = exc.__cause__
+                if isinstance(cause, OSError):
+                    raise_os_error(root_kind, relative, cause)
+                if str(exc).startswith((
+                    "snapshot_nofollow_unavailable",
+                    "snapshot_surface_changed:",
+                    "snapshot_surface_discovery_budget_exceeded",
+                    "snapshot_surface_revalidation_unavailable:",
+                )):
+                    raise
+                raise SnapshotError(
+                    f"snapshot_surface_changed:{root_kind}:{relative}",
+                ) from exc
+
+    roots = sorted(
+        (root_kind, identity)
+        for (root_kind, relative), identity in expected.items()
+        if not relative
+    )
+    for root_kind, identity in roots:
+        root_fd = validate_root(root_kind, identity)
+        visit(root_kind=root_kind, parent_relative="", parent_fd=root_fd)
+        validate_root(root_kind, identity)
+
+
 def _surface_entries(
     surface: StateSurface,
     root: Path,
@@ -683,10 +999,12 @@ def _surface_entries(
 
     entries: list[tuple[str, dict[str, Any]]] = []
     wildcard = "*" in surface.path_pattern
+    projection = _SurfaceNamespaceCollector()
     for relative in _secure_surface_matches(
         surface,
         root_fd,
         discovery_budget=discovery_budget,
+        projection=projection,
     ):
         try:
             owner = surface_for_relative_path(
@@ -711,6 +1029,7 @@ def _surface_entries(
                 root,
                 root_fd=root_fd,
                 grandfather_prefix=(grandfather_row_counts or {}).get(key, 0),
+                expected_identity=projection.leaves[relative],
             ),
         ))
     return entries
@@ -800,31 +1119,39 @@ def _snapshot_root_anchors(
 
         yield anchors
 
-        for root_kind, anchor in anchors.items():
-            if anchor.descriptor is None:
-                try:
-                    os.stat(anchor.path, follow_symlinks=False)
-                except FileNotFoundError:
-                    continue
-                except OSError as exc:
-                    raise SnapshotError(
-                        f"snapshot_root_changed:{root_kind}",
-                    ) from exc
-                raise SnapshotError(f"snapshot_root_changed:{root_kind}")
+        _validate_snapshot_root_anchors(anchors)
 
+
+
+def _validate_snapshot_root_anchors(
+    anchors: Mapping[str, _SnapshotRootAnchor],
+) -> None:
+    """Preserve the root-path error contract before namespace comparison."""
+    for root_kind, anchor in anchors.items():
+        if anchor.descriptor is None:
             try:
-                anchored = os.fstat(anchor.descriptor)
-                current_path = os.stat(anchor.path, follow_symlinks=False)
+                os.stat(anchor.path, follow_symlinks=False)
+            except FileNotFoundError:
+                continue
             except OSError as exc:
-                raise SnapshotError(f"snapshot_root_changed:{root_kind}") from exc
-            if (
-                anchor.identity is None
-                or not stat.S_ISDIR(anchored.st_mode)
-                or not stat.S_ISDIR(current_path.st_mode)
-                or _root_identity(anchored) != anchor.identity
-                or _root_identity(current_path) != anchor.identity
-            ):
-                raise SnapshotError(f"snapshot_root_changed:{root_kind}")
+                raise SnapshotError(
+                    f"snapshot_root_changed:{root_kind}",
+                ) from exc
+            raise SnapshotError(f"snapshot_root_changed:{root_kind}")
+
+        try:
+            anchored = os.fstat(anchor.descriptor)
+            current_path = os.stat(anchor.path, follow_symlinks=False)
+        except OSError as exc:
+            raise SnapshotError(f"snapshot_root_changed:{root_kind}") from exc
+        if (
+            anchor.identity is None
+            or not stat.S_ISDIR(anchored.st_mode)
+            or not stat.S_ISDIR(current_path.st_mode)
+            or _root_identity(anchored) != anchor.identity
+            or _root_identity(current_path) != anchor.identity
+        ):
+            raise SnapshotError(f"snapshot_root_changed:{root_kind}")
 
 
 def _lstat_child(
@@ -909,8 +1236,11 @@ def _secure_surface_matches(
     root_fd: int,
     *,
     discovery_budget: _SnapshotDiscoveryBudget,
+    projection: _SurfaceNamespaceCollector | None = None,
 ) -> list[str]:
     """Discover one surface without following or enumerating symlink trees."""
+    if projection is None:
+        projection = _SurfaceNamespaceCollector()
     pattern_parts = tuple(surface.path_pattern.split("/"))
     matches: set[str] = set()
 
@@ -924,8 +1254,10 @@ def _secure_surface_matches(
             )
         return relative
 
-    def record(parts: tuple[str, ...]) -> None:
-        matches.add(checked_relative(parts))
+    def record(parts: tuple[str, ...], value: os.stat_result) -> None:
+        relative = checked_relative(parts)
+        matches.add(relative)
+        projection.record_leaf(relative, value)
         if len(matches) > SNAPSHOT_MAX_SURFACE_ENTRIES:
             raise SnapshotError("snapshot_surface_entry_budget_exceeded")
 
@@ -935,6 +1267,17 @@ def _secure_surface_matches(
         pattern_index: int,
     ) -> None:
         discovery_budget.charge()
+        try:
+            directory_state = os.fstat(directory_fd)
+        except OSError as exc:
+            raise SnapshotError(
+                f"snapshot_surface_enumeration_unavailable:{surface.name}",
+            ) from exc
+        if not stat.S_ISDIR(directory_state.st_mode):
+            raise SnapshotError(
+                f"snapshot_surface_ancestry_not_directory:{'/'.join(prefix) or '.'}",
+            )
+        projection.record_directory("/".join(prefix), directory_state)
         component = pattern_parts[pattern_index]
         is_final = pattern_index == len(pattern_parts) - 1
 
@@ -976,7 +1319,7 @@ def _secure_surface_matches(
                     discovery_budget=discovery_budget,
                 )
                 if before is not None:
-                    record((*prefix, component))
+                    record((*prefix, component), before)
                 return
             for entry in _scan_snapshot_directory(
                 directory_fd,
@@ -984,7 +1327,10 @@ def _secure_surface_matches(
                 discovery_budget=discovery_budget,
             ):
                 if fnmatchcase(entry.name, component):
-                    record((*prefix, entry.name))
+                    record(
+                        (*prefix, entry.name),
+                        _entry_lstat(entry, surface_name=surface.name),
+                    )
             return
 
         if "*" not in component:
@@ -1040,6 +1386,7 @@ def _surface_entry(
     *,
     root_fd: int | None = None,
     grandfather_prefix: int = 0,
+    expected_identity: _SnapshotStatIdentity | None = None,
 ) -> dict[str, Any]:
     relative = _normalize_snapshot_relative_path(relative)
     path = root / relative
@@ -1047,6 +1394,7 @@ def _surface_entry(
         root,
         relative,
         root_fd=root_fd,
+        expected_identity=expected_identity,
     ) as (size, chunks):
         if surface.state_class == "ledger":
             try:
@@ -1057,6 +1405,8 @@ def _surface_entry(
                     max_line_bytes=SNAPSHOT_MAX_LEDGER_LINE_BYTES,
                     max_rows=SNAPSHOT_MAX_LEDGER_ROWS,
                     grandfather_line_prefixes=grandfather_prefix,
+                    expected_surface=surface.name,
+                    expected_surface_instance=relative,
                 )
             except LedgerReadLimitError as exc:
                 reason = (
@@ -1114,6 +1464,7 @@ def _bounded_regular_file_chunks(
     *,
     root_fd: int | None = None,
     max_bytes: int | None = None,
+    expected_identity: _SnapshotStatIdentity | None = None,
 ) -> Iterator[tuple[int, Iterable[bytes]]]:
     """Read a bounded regular file through a no-follow root-to-leaf chain."""
     byte_limit = SNAPSHOT_MAX_SURFACE_BLOB_BYTES if max_bytes is None else max_bytes
@@ -1158,9 +1509,16 @@ def _bounded_regular_file_chunks(
             surface_name=relative,
         )
         if before is None:
+            if expected_identity is not None:
+                raise SnapshotError(f"snapshot_surface_changed:{path.as_posix()}")
             raise SnapshotError(f"snapshot_surface_unavailable:{path.as_posix()}")
         if not stat.S_ISREG(before.st_mode):
             raise SnapshotError(f"snapshot_surface_not_regular:{path.as_posix()}")
+        if (
+            expected_identity is not None
+            and _stat_identity(before) != expected_identity
+        ):
+            raise SnapshotError(f"snapshot_surface_changed:{path.as_posix()}")
         if before.st_size > byte_limit:
             raise SnapshotError(f"snapshot_surface_too_large:{path.as_posix()}")
         flags = os.O_RDONLY | os.O_NOFOLLOW

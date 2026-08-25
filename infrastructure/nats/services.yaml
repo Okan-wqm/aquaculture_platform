@@ -60,6 +60,7 @@ services:
       - 'events.*.PasswordResetCompleted'
       - 'events.*.PasswordResetRequested'
       - 'events.*.TenantStatusChanged'
+      - 'events.*.TelemetryCapacityEntitlementChanged'
       - 'events.*.UserAccountLocked'
       - 'events.*.UserAccessTokenInvalidationRequested'
       - 'events.*.UserDeleted'
@@ -449,6 +450,7 @@ services:
       - '$JS.API.>'
       - '_INBOX.>'
     subscribe:
+      - 'events.*.TelemetryCapacityEntitlementChanged'
       - 'request.billing.admin.>'
       - 'request.billing.tenant.>'
       # Faz C (SEC-CRITICAL-001): SCOPED reply inbox for the config-runtime secret

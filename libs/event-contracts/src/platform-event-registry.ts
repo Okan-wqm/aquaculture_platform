@@ -26,6 +26,24 @@ export interface PlatformEventRegistryEntry {
 }
 
 export const PLATFORM_EVENT_REGISTRY = {
+  TelemetryCapacityEntitlementChanged: {
+    type: 'TelemetryCapacityEntitlementChanged',
+    kind: 'event',
+    subject: 'events.{tenantId}.TelemetryCapacityEntitlementChanged',
+    producer: 'admin-api-service',
+    consumers: ['billing-service'],
+    schema:
+      'libs/event-contracts/src/telemetry-capacity-events.ts#TelemetryCapacityEntitlementChangedEvent',
+    fixture: 'libs/event-contracts/fixtures/telemetry-capacity-entitlement-changed.json',
+    acl: {
+      publish: ['admin-api-service'],
+      subscribe: ['billing-service'],
+    },
+    piiClass: 'none',
+    durability: 'outbox',
+    backendOnly: true,
+    retention: 'capacity-entitlement-ledger',
+  },
   TenantProvisioningRequested: {
     type: 'TenantProvisioningRequested',
     kind: 'event',

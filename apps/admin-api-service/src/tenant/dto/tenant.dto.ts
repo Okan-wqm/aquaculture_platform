@@ -14,6 +14,7 @@ import {
   IsNumber,
   Min,
   IsArray,
+  IsISO8601,
 } from 'class-validator';
 
 import { TenantStatus, TenantPlan, TenantTier } from '../entities/tenant.entity';
@@ -134,9 +135,12 @@ export class TenantContactDto {
 
   @IsOptional()
   @IsString()
-  @Matches(/^\+?[1-9]\d{1,14}$|^(\+?\d{1,4}[-.\s]?)?(\(?\d{1,4}\)?.[-.\s]?)?\d{1,4}[-.\s]?\d{1,9}$/, {
-    message: 'Phone must be in E.164 format (e.g., +1234567890) or common phone format',
-  })
+  @Matches(
+    /^\+?[1-9]\d{1,14}$|^(\+?\d{1,4}[-.\s]?)?(\(?\d{1,4}\)?.[-.\s]?)?\d{1,4}[-.\s]?\d{1,9}$/,
+    {
+      message: 'Phone must be in E.164 format (e.g., +1234567890) or common phone format',
+    },
+  )
   @MaxLength(30)
   phone?: string;
 
@@ -225,8 +229,7 @@ export class CreateTenantDto {
   @MinLength(3)
   @MaxLength(50)
   @Matches(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/, {
-    message:
-      'Slug must be lowercase alphanumeric with hyphens, not starting or ending with hyphen',
+    message: 'Slug must be lowercase alphanumeric with hyphens, not starting or ending with hyphen',
   })
   @Transform(({ value }) => value?.toLowerCase().trim())
   slug?: string;
@@ -354,6 +357,34 @@ export class CreateTenantDto {
   @IsOptional()
   @IsUUID('4')
   customPlanId?: string;
+
+  @IsNumber()
+  @Min(1)
+  sustainedIngressMessagesPerSecond!: number;
+
+  @IsNumber()
+  @Min(1)
+  sustainedMetricRowsPerMinute!: number;
+}
+
+export class CreateTelemetryCapacityEnvelopeDto {
+  @IsNumber()
+  @Min(1)
+  sustainedIngressMessagesPerSecond!: number;
+
+  @IsNumber()
+  @Min(1)
+  sustainedMetricRowsPerMinute!: number;
+
+  @IsISO8601({ strict: true })
+  effectiveAt!: string;
+}
+
+export class ReleaseTelemetryCapacityEntitlementDto {
+  @IsString()
+  @MinLength(10)
+  @MaxLength(500)
+  reason!: string;
 }
 
 export enum TenantProvisioningState {
@@ -489,7 +520,7 @@ export class SuspendTenantDto {
 
 export class ListTenantsQueryDto {
   @IsOptional()
-  @Transform(({ value }) => typeof value === 'string' ? value.toUpperCase() : value)
+  @Transform(({ value }) => (typeof value === 'string' ? value.toUpperCase() : value))
   @IsEnum(TenantStatus)
   status?: TenantStatus;
 
@@ -512,13 +543,13 @@ export class ListTenantsQueryDto {
   country?: string;
 
   @IsOptional()
-  @Transform(({ value }) => value !== undefined ? parseInt(value, 10) : undefined)
+  @Transform(({ value }) => (value !== undefined ? parseInt(value, 10) : undefined))
   @IsNumber()
   @Min(1)
   page?: number = 1;
 
   @IsOptional()
-  @Transform(({ value }) => value !== undefined ? parseInt(value, 10) : undefined)
+  @Transform(({ value }) => (value !== undefined ? parseInt(value, 10) : undefined))
   @IsNumber()
   @Min(1)
   limit?: number = 20;
@@ -567,11 +598,13 @@ export class TenantUsageDto {
   maxUsers?: number;
   currentUserCount?: number;
   limits?: TenantLimitsDto;
-  usagePercentage?: {
-    users: number;
-    farms?: number;
-    sensors?: number;
-    alertRules?: number;
-    storage?: number;
-  } | number;
+  usagePercentage?:
+    | {
+        users: number;
+        farms?: number;
+        sensors?: number;
+        alertRules?: number;
+        storage?: number;
+      }
+    | number;
 }

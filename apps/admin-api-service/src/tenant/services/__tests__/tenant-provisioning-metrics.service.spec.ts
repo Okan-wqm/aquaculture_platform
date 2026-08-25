@@ -90,4 +90,26 @@ describe('TenantProvisioningMetricsService', () => {
     expect(dump).toContain('tenant_provisioning_active_runs 2');
     expect(dump).toContain('tenant_provisioning_oldest_active_run_age_seconds 1209600');
   });
+
+  it('exports M/R envelope use and pending admission age separately', async () => {
+    service.recordTelemetryCapacity({
+      ingressUtilizationRatio: 0.7,
+      rowUtilizationRatio: 0.5,
+      pendingReservations: 3,
+      oldestPendingAgeSeconds: 900,
+      oldestOutboxAgeSeconds: 12,
+    });
+
+    const dump = await service.getMetrics();
+
+    expect(dump).toContain(
+      'telemetry_capacity_envelope_utilization_ratio{dimension="ingress_messages_per_second"} 0.7',
+    );
+    expect(dump).toContain(
+      'telemetry_capacity_envelope_utilization_ratio{dimension="metric_rows_per_minute"} 0.5',
+    );
+    expect(dump).toContain('telemetry_capacity_pending_reservations 3');
+    expect(dump).toContain('telemetry_capacity_oldest_pending_age_seconds 900');
+    expect(dump).toContain('telemetry_capacity_oldest_outbox_age_seconds 12');
+  });
 });

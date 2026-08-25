@@ -25,7 +25,9 @@ import { ScheduledPlanChange } from './entities/scheduled-plan-change.entity';
 import { StripeWebhookEventEntity } from './entities/stripe-webhook-event.entity';
 import { SubscriptionModuleItem } from './entities/subscription-module-item.entity';
 import { Subscription } from './entities/subscription.entity';
+import { BillingTelemetryCapacityEntitlement } from './entities/telemetry-capacity-entitlement.entity';
 import { ConfigurationChangedHandler } from './event-handlers/configuration-changed.handler';
+import { TelemetryCapacityEntitlementChangedHandler } from './event-handlers/telemetry-capacity-entitlement-changed.handler';
 import { BillingAdminNatsHandler } from './handlers/billing-admin-nats.handler';
 import { CancelSubscriptionHandler } from './handlers/cancel-subscription.handler';
 import { ChangeSubscriptionPlanHandler } from './handlers/change-subscription-plan.handler';
@@ -45,6 +47,7 @@ import { GetPlansHandler } from './query-handlers/get-plans.handler';
 import { GetSubscriptionHandler } from './query-handlers/get-subscription.handler';
 import { GetTenantBillingHandler } from './query-handlers/get-tenant-billing.handler';
 import { PlanSeedService } from './seed/plan-seed.service';
+import { TelemetryCapacityProjectionService } from './services/telemetry-capacity-projection.service';
 import { MeteringModule } from '../modules/metering/metering.module';
 
 const CommandHandlers = [
@@ -82,6 +85,7 @@ const EventHandlers: never[] = [];
       Plan,
       ScheduledPlanChange,
       StripeWebhookEventEntity,
+      BillingTelemetryCapacityEntitlement,
     ]),
     CqrsModule,
     ScheduleModule,
@@ -125,6 +129,8 @@ const EventHandlers: never[] = [];
     // Faz C: invalidates the DynamicStripeClientProvider snapshot when an
     // operator saves a platform/billing.* config row (subscribes in onModuleInit).
     ConfigurationChangedHandler,
+    TelemetryCapacityEntitlementChangedHandler,
+    TelemetryCapacityProjectionService,
     ...CommandHandlers,
     ...QueryHandlers,
     ...EventHandlers,

@@ -192,6 +192,8 @@ export interface ModuleQuantityConfig {
 
 export interface CreateTenantDto {
   name: string;
+  sustainedIngressMessagesPerSecond: number;
+  sustainedMetricRowsPerMinute: number;
   slug?: string;
   tier?: TenantTier;
   description?: string;

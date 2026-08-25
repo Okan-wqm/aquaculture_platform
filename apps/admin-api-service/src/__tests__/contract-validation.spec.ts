@@ -990,7 +990,7 @@ describe('Frontend-Backend Contract Validation', () => {
     // Bu, beklenmedik endpoint degisikliklerini yakalar.
     const count = backendEndpoints.length;
 
-    expect(count).toBe(603);
+    expect(count).toBe(605);
   });
 
   it('frontend endpoint snapshot should be up to date', () => {

@@ -264,6 +264,38 @@ groups:
 
   - name: aquaculture.telemetry.capacity
     rules:
+      - alert: TelemetryCapacityEnvelopeNearlyFull
+        expr: max by (dimension) (telemetry_capacity_envelope_utilization_ratio) > 0.90
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Telemetry capacity envelope {{ $labels.dimension }} exceeds 90%'
+          description: 'Admission is close to the measured M/R ceiling. Increase capacity only after the external load gate or leave new tenant requests pending.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/tenant-provisioning.md'
+
+      - alert: TelemetryCapacityReservationPending
+        expr: |
+          telemetry_capacity_pending_reservations > 0
+          and telemetry_capacity_oldest_pending_age_seconds > 900
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'A telemetry capacity reservation has been pending for over 15 minutes'
+          description: 'The tenant remains RESERVING and downstream provisioning has not started. Inspect both M and R utilization before revising the envelope.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/tenant-provisioning.md'
+
+      - alert: TelemetryCapacityOutboxDelayed
+        expr: telemetry_capacity_oldest_outbox_age_seconds > 300
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Telemetry entitlement projection event is delayed'
+          description: 'An entitlement transition has remained unpublished for over five minutes; billing projection and tenant activation evidence may diverge.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/tenant-provisioning.md'
+
       - alert: MosquittoMessagesDropped
         expr: increase(broker_publish_messages_dropped[5m]) > 0
         for: 0m

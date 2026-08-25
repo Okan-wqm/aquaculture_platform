@@ -77,6 +77,8 @@ interface TenantFormData {
   domain: string;
   country: string;
   region: string;
+  sustainedIngressMessagesPerSecond: number;
+  sustainedMetricRowsPerMinute: number;
 
   // Step 2: Contact Info
   primaryContact: {
@@ -102,6 +104,8 @@ const initialFormData: TenantFormData = {
   domain: '',
   country: '',
   region: '',
+  sustainedIngressMessagesPerSecond: 20,
+  sustainedMetricRowsPerMinute: 1200,
   primaryContact: {
     name: '',
     email: '',
@@ -708,7 +712,14 @@ const CreateTenantPage: React.FC = () => {
         const slugError = validateSlug(formData.slug.trim());
         const domainError = validateDomain(formData.domain);
         const countryError = validateCountry(formData.country);
-        return formData.name.trim().length >= 2 && !slugError && !domainError && !countryError;
+        return (
+          formData.name.trim().length >= 2 &&
+          formData.sustainedIngressMessagesPerSecond > 0 &&
+          formData.sustainedMetricRowsPerMinute > 0 &&
+          !slugError &&
+          !domainError &&
+          !countryError
+        );
       }
       case 1:
         return (
@@ -768,6 +779,8 @@ const CreateTenantPage: React.FC = () => {
         domain: formData.domain.trim().toLowerCase() || undefined,
         country: formData.country.trim().toUpperCase() || undefined,
         region: formData.region.trim() || undefined,
+        sustainedIngressMessagesPerSecond: formData.sustainedIngressMessagesPerSecond,
+        sustainedMetricRowsPerMinute: formData.sustainedMetricRowsPerMinute,
         primaryContact: {
           name: formData.primaryContact.name,
           email: formData.primaryContact.email,
@@ -1103,6 +1116,35 @@ const CreateTenantPage: React.FC = () => {
                 />
               </div>
 
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Input
+                  label="Sustained MQTT Messages / Second *"
+                  type="number"
+                  value={String(formData.sustainedIngressMessagesPerSecond)}
+                  onChange={(event) =>
+                    updateFormData(
+                      'sustainedIngressMessagesPerSecond',
+                      Number.parseFloat(event.target.value),
+                    )
+                  }
+                  min={1}
+                  helperText="Capacity dimension M reserved before provisioning"
+                />
+                <Input
+                  label="Sustained Metric Rows / Minute *"
+                  type="number"
+                  value={String(formData.sustainedMetricRowsPerMinute)}
+                  onChange={(event) =>
+                    updateFormData(
+                      'sustainedMetricRowsPerMinute',
+                      Number.parseFloat(event.target.value),
+                    )
+                  }
+                  min={1}
+                  helperText="Capacity dimension R; measured separately from MQTT ingress"
+                />
+              </div>
+
               <Input
                 label="Description"
                 value={formData.description}
@@ -1295,6 +1337,14 @@ const CreateTenantPage: React.FC = () => {
                       <dd>
                         {formData.maxStorage === -1 ? 'Unlimited' : `${formData.maxStorage} GB`}
                       </dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt className="text-gray-500">Telemetry M:</dt>
+                      <dd>{formData.sustainedIngressMessagesPerSecond} msg/s</dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt className="text-gray-500">Telemetry R:</dt>
+                      <dd>{formData.sustainedMetricRowsPerMinute} rows/min</dd>
                     </div>
                     {formData.country && (
                       <div className="flex justify-between">

@@ -5,6 +5,14 @@ import {
 } from '@aquaculture/backend-common/metrics';
 import * as client from 'prom-client';
 
+export interface TelemetryCapacityMetricsSnapshot {
+  ingressUtilizationRatio: number;
+  rowUtilizationRatio: number;
+  pendingReservations: number;
+  oldestPendingAgeSeconds: number;
+  oldestOutboxAgeSeconds: number;
+}
+
 /**
  * The provisioning saga's outside surface.
  *
@@ -46,6 +54,10 @@ export class TenantProvisioningMetricsService implements OnModuleInit, OnModuleD
   private readonly stepDuration: client.Histogram<'step' | 'outcome'>;
   private readonly activeRuns: client.Gauge<string>;
   private readonly oldestActiveRunAge: client.Gauge<string>;
+  private readonly capacityUtilization: client.Gauge<'dimension'>;
+  private readonly pendingCapacityReservations: client.Gauge<string>;
+  private readonly oldestPendingCapacityAge: client.Gauge<string>;
+  private readonly oldestCapacityOutboxAge: client.Gauge<string>;
 
   constructor(
     // Injected by class token, typed by the narrow contract this service
@@ -85,12 +97,40 @@ export class TenantProvisioningMetricsService implements OnModuleInit, OnModuleD
       help: 'Age of the oldest provisioning run that has not reached a terminal state',
       registers: [this.registry],
     });
+    this.capacityUtilization = new client.Gauge({
+      name: 'telemetry_capacity_envelope_utilization_ratio',
+      help: 'Committed telemetry capacity divided by the active envelope, by M/R dimension',
+      labelNames: ['dimension'],
+      registers: [this.registry],
+    });
+    this.pendingCapacityReservations = new client.Gauge({
+      name: 'telemetry_capacity_pending_reservations',
+      help: 'Telemetry capacity entitlements whose latest activation state is PENDING_CAPACITY',
+      registers: [this.registry],
+    });
+    this.oldestPendingCapacityAge = new client.Gauge({
+      name: 'telemetry_capacity_oldest_pending_age_seconds',
+      help: 'Age of the oldest telemetry capacity entitlement still pending admission',
+      registers: [this.registry],
+    });
+    this.oldestCapacityOutboxAge = new client.Gauge({
+      name: 'telemetry_capacity_oldest_outbox_age_seconds',
+      help: 'Age of the oldest unpublished telemetry capacity entitlement outbox event',
+      registers: [this.registry],
+    });
 
     // Seed both gauges. A gauge that exports no series until the first
     // observation makes `> 900` match nothing, so the alert for "a run is
     // stuck" would be silent for exactly as long as nothing was observed.
     this.activeRuns.set(0);
     this.oldestActiveRunAge.set(0);
+    this.recordTelemetryCapacity({
+      ingressUtilizationRatio: 0,
+      rowUtilizationRatio: 0,
+      pendingReservations: 0,
+      oldestPendingAgeSeconds: 0,
+      oldestOutboxAgeSeconds: 0,
+    });
   }
 
   onModuleInit(): void {
@@ -117,6 +157,20 @@ export class TenantProvisioningMetricsService implements OnModuleInit, OnModuleD
   recordActiveRuns(count: number, oldestAgeSeconds: number): void {
     this.activeRuns.set(count);
     this.oldestActiveRunAge.set(oldestAgeSeconds);
+  }
+
+  recordTelemetryCapacity(snapshot: TelemetryCapacityMetricsSnapshot): void {
+    this.capacityUtilization.set(
+      { dimension: 'ingress_messages_per_second' },
+      snapshot.ingressUtilizationRatio,
+    );
+    this.capacityUtilization.set(
+      { dimension: 'metric_rows_per_minute' },
+      snapshot.rowUtilizationRatio,
+    );
+    this.pendingCapacityReservations.set(snapshot.pendingReservations);
+    this.oldestPendingCapacityAge.set(snapshot.oldestPendingAgeSeconds);
+    this.oldestCapacityOutboxAge.set(snapshot.oldestOutboxAgeSeconds);
   }
 
   /** Prometheus dump of this registry (tests + debugging). */

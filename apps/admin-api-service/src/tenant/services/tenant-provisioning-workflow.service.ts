@@ -10,6 +10,8 @@ import {
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectDataSource } from '@nestjs/typeorm';
+import { plainToInstance } from 'class-transformer';
+import { validateSync } from 'class-validator';
 import {
   createBaseEvent,
   type BaseEvent,
@@ -38,6 +40,7 @@ import {
 import { Tenant, TenantPlan, TenantSettings, TenantStatus } from '../entities/tenant.entity';
 
 import { AuthTenantProvisioningClientService } from './auth-tenant-provisioning-client.service';
+import { TelemetryCapacityService } from './telemetry-capacity.service';
 import { TenantProvisioningMetricsService } from './tenant-provisioning-metrics.service';
 import { TenantProvisioningService } from './tenant-provisioning.service';
 
@@ -139,6 +142,7 @@ export class TenantProvisioningWorkflowService {
     private readonly authProvisioningClient: AuthTenantProvisioningClientService,
     private readonly billingCommandClient: BillingAdminCommandClientService,
     private readonly metrics: TenantProvisioningMetricsService,
+    private readonly telemetryCapacityService: TelemetryCapacityService,
   ) {}
 
   async createTenantOperation(
@@ -196,6 +200,20 @@ export class TenantProvisioningWorkflowService {
 
       const tenantId = crypto.randomUUID();
       const operationId = crypto.randomUUID();
+      const capacity = await this.telemetryCapacityService.reserveWithinTransaction(
+        {
+          operationId,
+          tenantId,
+          sustainedIngressMessagesPerSecond: payload.sustainedIngressMessagesPerSecond,
+          sustainedMetricRowsPerMinute: payload.sustainedMetricRowsPerMinute,
+          effectiveAt: new Date(),
+        },
+        queryRunner.manager,
+      );
+      const initialState =
+        capacity.activationState === 'RESERVED'
+          ? TenantProvisioningState.QUEUED
+          : TenantProvisioningState.RESERVING;
       const tenantDraft = queryRunner.manager.create(Tenant, {
         ...this.toTenantEntity(payload, actorUserId),
         id: tenantId,
@@ -219,7 +237,7 @@ export class TenantProvisioningWorkflowService {
           requestHash,
           JSON.stringify(payload),
           actorUserId,
-          TenantProvisioningState.QUEUED,
+          initialState,
           operationId,
         ],
       );
@@ -540,6 +558,7 @@ export class TenantProvisioningWorkflowService {
     try {
       await this.requeueStaleRuns();
       await this.refreshActiveRunGauges();
+      await this.refreshTelemetryCapacityGauges();
       const rows = await this.queryRows<IdRow>(
         `SELECT id
            FROM admin.tenant_provisioning_runs
@@ -586,6 +605,95 @@ export class TenantProvisioningWorkflowService {
       // A failed gauge refresh must not stop the queue from being drained:
       // the sweeper's job is to provision, and this is its narration.
       this.logger.warn(`Provisioning gauge refresh failed: ${(error as Error).message}`);
+    }
+  }
+
+  private async refreshTelemetryCapacityGauges(): Promise<void> {
+    try {
+      const rows = await this.queryRows<{
+        ingressUtilizationRatio: string | null;
+        rowUtilizationRatio: string | null;
+        pendingReservations: string;
+        oldestPendingAgeSeconds: string | null;
+        oldestOutboxAgeSeconds: string | null;
+      }>(
+        `WITH latest_activation AS (
+           SELECT DISTINCT ON (event.entitlement_id)
+             event.entitlement_id,
+             event.activation_state
+           FROM admin.telemetry_capacity_activation_events event
+           ORDER BY event.entitlement_id, event.created_at DESC, event.id DESC
+         ), active_envelope AS (
+           SELECT
+             sustained_ingress_messages_per_second AS ingress_limit,
+             sustained_metric_rows_per_minute AS row_limit
+           FROM admin.telemetry_capacity_envelopes
+           WHERE state = 'ACTIVE'
+           ORDER BY version DESC
+           LIMIT 1
+         ), capacity AS (
+           SELECT
+             COALESCE(SUM(CASE
+               WHEN activation.activation_state = 'ACTIVE'
+                 THEN entitlement.sustained_ingress_messages_per_second
+               WHEN activation.activation_state = 'RESERVED'
+                 THEN entitlement.reserved_ingress_delta
+               ELSE 0
+             END), 0) AS committed_ingress,
+             COALESCE(SUM(CASE
+               WHEN activation.activation_state = 'ACTIVE'
+                 THEN entitlement.sustained_metric_rows_per_minute
+               WHEN activation.activation_state = 'RESERVED'
+                 THEN entitlement.reserved_metric_rows_delta
+               ELSE 0
+             END), 0) AS committed_rows,
+             count(*) FILTER (
+               WHERE activation.activation_state = 'PENDING_CAPACITY'
+             ) AS pending_reservations,
+             COALESCE(EXTRACT(EPOCH FROM (
+               now() - min(entitlement.created_at) FILTER (
+                 WHERE activation.activation_state = 'PENDING_CAPACITY'
+               )
+             )), 0) AS oldest_pending_age_seconds
+           FROM admin.telemetry_capacity_entitlements entitlement
+           JOIN latest_activation activation
+             ON activation.entitlement_id = entitlement.entitlement_id
+         )
+         SELECT
+           COALESCE(capacity.committed_ingress / NULLIF(envelope.ingress_limit, 0), 0)::text
+             AS "ingressUtilizationRatio",
+           COALESCE(capacity.committed_rows / NULLIF(envelope.row_limit, 0), 0)::text
+             AS "rowUtilizationRatio",
+           capacity.pending_reservations::text AS "pendingReservations",
+           capacity.oldest_pending_age_seconds::text AS "oldestPendingAgeSeconds",
+           COALESCE((
+             SELECT EXTRACT(EPOCH FROM (now() - min(outbox."createdAt")))
+             FROM admin.admin_outbox outbox
+             WHERE outbox."eventType" = 'TelemetryCapacityEntitlementChanged'
+               AND outbox."publishedAt" IS NULL
+               AND outbox."isDeadLettered" = false
+           ), 0)::text AS "oldestOutboxAgeSeconds"
+         FROM capacity
+         LEFT JOIN active_envelope envelope ON true`,
+      );
+      const row = rows.at(0);
+      const ingressUtilizationRatio =
+        row === undefined ? 0 : Number(row.ingressUtilizationRatio ?? 0);
+      const rowUtilizationRatio = row === undefined ? 0 : Number(row.rowUtilizationRatio ?? 0);
+      const pendingReservations = row === undefined ? 0 : Number(row.pendingReservations);
+      const oldestPendingAgeSeconds =
+        row === undefined ? 0 : Number(row.oldestPendingAgeSeconds ?? 0);
+      const oldestOutboxAgeSeconds =
+        row === undefined ? 0 : Number(row.oldestOutboxAgeSeconds ?? 0);
+      this.metrics.recordTelemetryCapacity({
+        ingressUtilizationRatio,
+        rowUtilizationRatio,
+        pendingReservations,
+        oldestPendingAgeSeconds,
+        oldestOutboxAgeSeconds,
+      });
+    } catch (error) {
+      this.logger.warn(`Telemetry capacity gauge refresh failed: ${(error as Error).message}`);
     }
   }
 
@@ -901,6 +1009,8 @@ export class TenantProvisioningWorkflowService {
       catalogVersionId: data.catalogVersionId,
       quoteId: data.quoteId,
       customPlanId: data.customPlanId,
+      sustainedIngressMessagesPerSecond: data.sustainedIngressMessagesPerSecond,
+      sustainedMetricRowsPerMinute: data.sustainedMetricRowsPerMinute,
     };
   }
 
@@ -1548,6 +1658,7 @@ export class TenantProvisioningWorkflowService {
     tenantId: string,
   ): Promise<void> {
     await this.assertTenantSchemaPhysicallyMatchesLedger(tenantId, 'activate_tenant');
+    await this.telemetryCapacityService.activate(run.id, tenantId);
 
     await this.authProvisioningClient.activateTenant({
       ...this.buildAuthCommandMetadata(
@@ -1567,16 +1678,18 @@ export class TenantProvisioningWorkflowService {
       throw new Error('Provisioning operation payload is not an object');
     }
 
-    const name = typeof value.name === 'string' ? value.name : undefined;
-    const moduleIds = Array.isArray(value.moduleIds)
-      ? value.moduleIds.filter((item): item is string => typeof item === 'string')
-      : [];
-
-    if (!name || moduleIds.length === 0) {
-      throw new Error('Provisioning operation payload is missing tenant name or module IDs');
+    const payload = plainToInstance(CreateTenantDto, value);
+    const errors = validateSync(payload, {
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    });
+    if (errors.length > 0 || !payload.moduleIds || payload.moduleIds.length === 0) {
+      throw new Error(
+        'Provisioning operation payload is missing or has invalid tenant, module, or capacity data',
+      );
     }
 
-    return value as unknown as CreateTenantDto;
+    return payload;
   }
 
   private async claimRun(operationId: string): Promise<TenantProvisioningRunRow | null> {

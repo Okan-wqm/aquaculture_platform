@@ -2201,6 +2201,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1808200000001-TelemetryCapacityAdmission.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/modules/__tests__/modules.controller.spec.ts",
       "prettier_managed": true
     },
@@ -2849,6 +2855,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/tenant/entities/telemetry-capacity.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/tenant/entities/tenant-activity.entity.ts",
       "prettier_managed": true
     },
@@ -2927,6 +2939,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/tenant/services/telemetry-capacity-admission.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/tenant/services/telemetry-capacity.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/tenant/services/telemetry-capacity.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/tenant/services/tenant-activity.service.ts",
       "prettier_managed": true
     },
@@ -2958,6 +2988,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/tenant/services/tenant-provisioning.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/tenant/telemetry-capacity-admin.controller.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/tenant/telemetry-capacity-admin.controller.ts",
       "prettier_managed": true
     },
     {
@@ -6209,7 +6251,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/billing/entities/telemetry-capacity-entitlement.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/billing/event-handlers/configuration-changed.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/billing/event-handlers/telemetry-capacity-entitlement-changed.handler.ts",
       "prettier_managed": true
     },
     {
@@ -6383,6 +6437,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/billing/services/telemetry-capacity-projection.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/billing/services/telemetry-capacity-projection.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/common/guards/jwt-auth.guard.ts",
       "prettier_managed": true
     },
@@ -6544,6 +6610,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/billing-service/src/database/migrations/1801900000000-AddPlanTierFreeEnumValue.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/database/migrations/1801900000001-TelemetryCapacityEntitlementProjection.ts",
       "prettier_managed": true
     },
     {
@@ -39228,6 +39300,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/event-contracts/fixtures/telemetry-capacity-entitlement-changed.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/event-contracts/jest.config.ts",
       "prettier_managed": true
     },
@@ -39277,6 +39355,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/event-contracts/src/__tests__/sensor-reading-parameters.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/__tests__/telemetry-capacity-events.spec.ts",
       "prettier_managed": true
     },
     {
@@ -39588,6 +39672,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/event-contracts/src/schemas/telemetry-capacity-events.schema.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/event-contracts/src/schemas/tenant-events.schema.ts",
       "prettier_managed": true
     },
@@ -39631,6 +39721,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/event-contracts/src/task-events.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/telemetry-capacity-events.ts",
       "prettier_managed": true
     },
     {

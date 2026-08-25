@@ -13,13 +13,14 @@ import { AdminOutboxModule } from '../outbox/admin-outbox.module';
 import { SettingsModule } from '../settings/settings.module';
 import { UsersModule } from '../users/users.module';
 
-import {
-  TenantActivity,
-  TenantNote,
-  TenantBillingInfo,
-} from './entities/tenant-activity.entity';
+import { TenantActivity, TenantNote, TenantBillingInfo } from './entities/tenant-activity.entity';
 import { Tenant, TenantInvitation } from './entities/tenant.entity';
 import { TenantErasureOperation } from './entities/tenant-erasure-operation.entity';
+import {
+  TelemetryCapacityActivationEvent,
+  TelemetryCapacityEntitlement,
+  TelemetryCapacityEnvelope,
+} from './entities/telemetry-capacity.entity';
 import {
   SuspendTenantHandler,
   ActivateTenantHandler,
@@ -48,7 +49,10 @@ import { TenantDetailService } from './services/tenant-detail.service';
 import { TenantProvisioningWorkflowService } from './services/tenant-provisioning-workflow.service';
 import { TenantProvisioningMetricsService } from './services/tenant-provisioning-metrics.service';
 import { TenantProvisioningService } from './services/tenant-provisioning.service';
+import { TelemetryCapacityService } from './services/telemetry-capacity.service';
 import { TenantAdminController, TenantPublicController } from './tenant.controller';
+import { TelemetryCapacityAdminController } from './telemetry-capacity-admin.controller';
+import { SecurityEventService } from '@aquaculture/backend-common/security';
 
 const CommandHandlers = [
   UpdateTenantHandler,
@@ -87,6 +91,9 @@ const QueryHandlers = [
       TenantNote,
       TenantBillingInfo,
       TenantSchema,
+      TelemetryCapacityEnvelope,
+      TelemetryCapacityEntitlement,
+      TelemetryCapacityActivationEvent,
     ]),
     AuditLogModule,
     DatabaseManagementModule,
@@ -96,7 +103,12 @@ const QueryHandlers = [
     AdminOutboxModule,
     TenantErasureTargetModule.forService('admin-api-service'),
   ],
-  controllers: [TenantPublicController, TenantAdminController, TenantOnboardingAckHandler],
+  controllers: [
+    TenantPublicController,
+    TenantAdminController,
+    TelemetryCapacityAdminController,
+    TenantOnboardingAckHandler,
+  ],
   providers: [
     ...CommandHandlers,
     ...QueryHandlers,
@@ -106,6 +118,8 @@ const QueryHandlers = [
     AuthTenantProvisioningClientService,
     TenantActivityService,
     TenantDetailService,
+    TelemetryCapacityService,
+    SecurityEventService,
     ModuleAssignmentService,
     TenantErasureProofHandler,
   ],
@@ -114,6 +128,7 @@ const QueryHandlers = [
     TenantProvisioningWorkflowService,
     TenantActivityService,
     AuthTenantProvisioningClientService,
+    TelemetryCapacityService,
   ],
 })
 export class TenantManagementModule {}

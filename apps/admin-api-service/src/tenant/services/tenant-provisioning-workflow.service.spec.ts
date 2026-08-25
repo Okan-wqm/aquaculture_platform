@@ -8,6 +8,7 @@ import { ModuleAssignmentService } from '../../modules/tenant-management/service
 import { CreateTenantDto, TenantProvisioningState } from '../dto/tenant.dto';
 
 import { AuthTenantProvisioningClientService } from './auth-tenant-provisioning-client.service';
+import { TelemetryCapacityService } from './telemetry-capacity.service';
 import { TenantProvisioningMetricsService } from './tenant-provisioning-metrics.service';
 import { TenantProvisioningService } from './tenant-provisioning.service';
 import { TenantProvisioningWorkflowService } from './tenant-provisioning-workflow.service';
@@ -35,6 +36,8 @@ describe('TenantProvisioningWorkflowService — duplicate pre-check is unlocked 
     ({
       name: 'Acme Aqua Farms',
       moduleIds: ['11111111-1111-1111-1111-111111111111'],
+      sustainedIngressMessagesPerSecond: 20,
+      sustainedMetricRowsPerMinute: 1_200,
       ...overrides,
     }) as CreateTenantDto;
 
@@ -74,6 +77,7 @@ describe('TenantProvisioningWorkflowService — duplicate pre-check is unlocked 
         { provide: ModuleAssignmentService, useValue: {} },
         { provide: AuthTenantProvisioningClientService, useValue: {} },
         { provide: BillingAdminCommandClientService, useValue: {} },
+        { provide: TelemetryCapacityService, useValue: {} },
         {
           provide: TenantProvisioningMetricsService,
           useValue: {
@@ -198,6 +202,7 @@ describe('TenantProvisioningWorkflowService.reconcileTenantSubscription', () => 
         },
         { provide: AuthTenantProvisioningClientService, useValue: {} },
         { provide: BillingAdminCommandClientService, useValue: { provisionTenantSubscription } },
+        { provide: TelemetryCapacityService, useValue: {} },
         {
           provide: TenantProvisioningMetricsService,
           useValue: {
@@ -273,6 +278,7 @@ describe('TenantProvisioningWorkflowService — ledger vs physical reality (ORPH
     service: TenantProvisioningWorkflowService;
     query: jest.Mock;
     activateTenant: jest.Mock;
+    activateTelemetryCapacity: jest.Mock;
     failProvisioning: jest.Mock;
   }
 
@@ -286,6 +292,8 @@ describe('TenantProvisioningWorkflowService — ledger vs physical reality (ORPH
       slug: 'acme-aqua',
       moduleIds: [MODULE_A],
       billingCycle: 'monthly',
+      sustainedIngressMessagesPerSecond: 20,
+      sustainedMetricRowsPerMinute: 1_200,
     },
     actorUserId: 'actor-1',
     state,
@@ -398,6 +406,9 @@ describe('TenantProvisioningWorkflowService — ledger vs physical reality (ORPH
     };
 
     const activateTenant = jest.fn().mockResolvedValue(undefined);
+    const activateTelemetryCapacity = jest.fn().mockResolvedValue({
+      activationState: 'ACTIVE',
+    });
     const failProvisioning = jest.fn().mockResolvedValue(undefined);
 
     const moduleRef = await Test.createTestingModule({
@@ -453,6 +464,10 @@ describe('TenantProvisioningWorkflowService — ledger vs physical reality (ORPH
               .mockResolvedValue({ subscriptionId: 'sub-1', receiptId: 'receipt-1' }),
           },
         },
+        {
+          provide: TelemetryCapacityService,
+          useValue: { activate: activateTelemetryCapacity },
+        },
       ],
     }).compile();
 
@@ -460,6 +475,7 @@ describe('TenantProvisioningWorkflowService — ledger vs physical reality (ORPH
       service: moduleRef.get(TenantProvisioningWorkflowService),
       query,
       activateTenant,
+      activateTelemetryCapacity,
       failProvisioning,
     };
   };
@@ -525,14 +541,16 @@ describe('TenantProvisioningWorkflowService — ledger vs physical reality (ORPH
   });
 
   it('activates when the ledger and the physical schema agree', async () => {
-    const { service, query, activateTenant, failProvisioning } = await createHarness({
-      physicalFacts: [{ schemaExists: true, tableCount: LEDGER_TABLE_COUNT }],
-    });
+    const { service, query, activateTenant, activateTelemetryCapacity, failProvisioning } =
+      await createHarness({
+        physicalFacts: [{ schemaExists: true, tableCount: LEDGER_TABLE_COUNT }],
+      });
 
     await service.processOperation(OPERATION_ID);
 
     expect(stepOutcomes(query).filter((outcome) => outcome.state === 'FAILED')).toEqual([]);
     expect(activateTenant).toHaveBeenCalledTimes(1);
+    expect(activateTelemetryCapacity).toHaveBeenCalledWith(OPERATION_ID, TENANT_ID);
     expect(failProvisioning).not.toHaveBeenCalled();
   });
 

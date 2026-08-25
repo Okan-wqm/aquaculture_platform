@@ -45,6 +45,7 @@ export * from './messaging-event-registry';
 export * from './websocket-envelopes';
 export * from './platform-event-registry';
 export * from './storage-events';
+export * from './telemetry-capacity-events';
 
 // Automation domain events (sensor-service compiler / programming).
 // ORPHAN-EVENT-CONTRACT-015..018 cure.
@@ -92,6 +93,7 @@ import type { SecurityEvent } from './security';
 import type { SensorEvent } from './sensor-events';
 import type { StorageEvent } from './storage-events';
 import type { TaskEvent } from './task-events';
+import type { TelemetryCapacityEvent } from './telemetry-capacity-events';
 import type { TenantEvent } from './tenant-events';
 import type { WaterQualityEvent } from './water-quality-events';
 
@@ -117,4 +119,5 @@ export type AnyPlatformEvent =
   | StorageEvent
   | SecurityEvent
   | ComplianceEvent
-  | AutomationEvent;
+  | AutomationEvent
+  | TelemetryCapacityEvent;

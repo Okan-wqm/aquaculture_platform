@@ -32,6 +32,7 @@ export type {
   AuthState,
   AuthTokens,
   ApiResponse,
+  DeclarativeNavigateResult,
   // Tenant
   TenantTier,
   TenantPlan,
@@ -120,7 +121,13 @@ export {
 export { AuthProvider, useAuthContext } from './contexts/AuthContext';
 // WHY: Export AccessType and AuthUser so consumers (tenant-admin, aquamobil) can
 // type-check accessType values without duplicating the type definition.
-export type { AuthProviderProps, MfaChallengeResult, LoginResult, AccessType, AuthUser } from './contexts/AuthContext';
+export type {
+  AuthProviderProps,
+  MfaChallengeResult,
+  LoginResult,
+  AccessType,
+  AuthUser,
+} from './contexts/AuthContext';
 
 export { TenantProvider, useTenantContext } from './contexts/TenantContext';
 export type { TenantProviderProps } from './contexts/TenantContext';
@@ -132,10 +139,7 @@ export type { TenantProviderProps } from './contexts/TenantContext';
 export { useAuth, useRequireAuth } from './hooks/useAuth';
 export { useTenant } from './hooks/useTenant';
 export { useTenantQuery, useTenantMutation } from './hooks/useTenantQuery';
-export type {
-  TenantQueryOptions,
-  TenantMutationOptions,
-} from './hooks/useTenantQuery';
+export type { TenantQueryOptions, TenantMutationOptions } from './hooks/useTenantQuery';
 export {
   useTenantScopedStorage,
   TENANT_SCOPED_STORAGE_NAMESPACE,
@@ -181,11 +185,7 @@ export {
 // Frontend authorization (Scope C PR-0a) — mirror of backend matrix
 // ============================================================================
 
-export {
-  FRONTEND_MUTATION_ROLES,
-  useCanMutate,
-  type FrontendMutationName,
-} from './authz';
+export { FRONTEND_MUTATION_ROLES, useCanMutate, type FrontendMutationName } from './authz';
 
 export {
   ADMIN_BILLING_HIDDEN_ROUTES,

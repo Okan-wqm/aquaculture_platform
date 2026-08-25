@@ -538,7 +538,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit
+        run: npm ci --prefer-offline --no-audit --ignore-scripts --no-fund
 
       - name: Run migration-immutability-witness gate
         env:

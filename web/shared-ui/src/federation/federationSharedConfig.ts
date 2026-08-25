@@ -40,7 +40,8 @@ export interface SharedDepConfig {
 export const SHARED_VERSIONS = {
   react: '19.2.7',
   'react-dom': '19.2.7',
-  'react-router-dom': '6.30.4',
+  'react-router': '7.18.2',
+  'react-router-dom': '7.18.2',
   '@tanstack/react-query': '5.90.10',
   '@aquaculture/shared-ui': '1.0.0',
   // zustand stays 4.5.7 until the graph lib @xyflow/react widens its hard
@@ -84,6 +85,11 @@ export function getCoreSharedConfig(): Record<string, SharedDepConfig> {
       singleton: true,
       strictVersion: true,
       requiredVersion: SHARED_VERSIONS['react-dom'],
+    },
+    'react-router': {
+      singleton: true,
+      strictVersion: true,
+      requiredVersion: SHARED_VERSIONS['react-router'],
     },
     'react-router-dom': {
       singleton: true,

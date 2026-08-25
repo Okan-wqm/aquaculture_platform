@@ -27,9 +27,9 @@ function renderWaterChemistryPage(route = '/water-chemistry'): ReturnType<typeof
   return render(
     React.createElement(
       MemoryRouter,
-      { initialEntries: [route], future: { v7_startTransition: true, v7_relativeSplatPath: true } },
-      React.createElement(WaterChemistryPage)
-    )
+      { initialEntries: [route] },
+      React.createElement(WaterChemistryPage),
+    ),
   );
 }
 
@@ -64,7 +64,9 @@ describe('WaterChemistryPage Deffeyes (legacy ALK/DIC, single chart)', () => {
 
     vi.useFakeTimers();
     fireEvent.click(screen.getByRole('button', { name: /print report/i }));
-    const frame = document.querySelector<HTMLIFrameElement>('iframe[title="Water Chemistry Report"]');
+    const frame = document.querySelector<HTMLIFrameElement>(
+      'iframe[title="Water Chemistry Report"]',
+    );
     expect(frame).toBeInTheDocument();
     if (frame?.contentWindow) {
       Object.defineProperty(frame.contentWindow, 'focus', { value: vi.fn(), configurable: true });
@@ -106,17 +108,23 @@ describe('WaterChemistryPage Deffeyes (legacy ALK/DIC, single chart)', () => {
 
     vi.useFakeTimers();
     fireEvent.click(screen.getByRole('button', { name: /print report/i }));
-    const frame = document.querySelector<HTMLIFrameElement>('iframe[title="Water Chemistry Report"]');
+    const frame = document.querySelector<HTMLIFrameElement>(
+      'iframe[title="Water Chemistry Report"]',
+    );
     expect(frame).toBeInTheDocument();
     if (frame?.contentWindow) {
       Object.defineProperty(frame.contentWindow, 'focus', { value: vi.fn(), configurable: true });
       Object.defineProperty(frame.contentWindow, 'print', { value: vi.fn(), configurable: true });
     }
-    expect(diagnosticEvents.some(event => event.detail.code === 'report-print-fallback')).toBe(false);
+    expect(diagnosticEvents.some((event) => event.detail.code === 'report-print-fallback')).toBe(
+      false,
+    );
 
     vi.advanceTimersByTime(0);
     vi.advanceTimersByTime(1000);
-    expect(document.querySelector('iframe[title="Water Chemistry Report"]')).not.toBeInTheDocument();
+    expect(
+      document.querySelector('iframe[title="Water Chemistry Report"]'),
+    ).not.toBeInTheDocument();
     vi.useRealTimers();
   });
 });

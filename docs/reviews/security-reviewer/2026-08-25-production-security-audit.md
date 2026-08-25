@@ -1,0 +1,27 @@
+# Production Security Audit — Release Blockers
+
+**Date:** 2026-08-25
+**Scope:** Active DigitalOcean droplet deployment, application trust boundaries, dependency graph, and edge command ingestion.
+**Decision:** NO-GO until every CRITICAL/HIGH finding in this report is either resolved and verified or remains operationally isolated.
+
+## RUST-HIGH-003 — MQTT enforcing mode accepts unsigned legacy commands and malformed timestamps
+
+**Severity:** HIGH
+**State:** IN-PROGRESS
+
+`CommandHandler::handle_message` treats `AdapterOutcome::NotEnvelopeFormat` as permission to parse a legacy `CommandMessage` even when `SignatureMode::Enforcing`. The no-tenant provisioning branch also selects legacy parsing unconditionally. An unsigned legacy payload can therefore bypass the mode that operators selected specifically to require signed envelopes.
+
+The same dispatch path applies the replay window only when `DateTime::parse_from_rfc3339` succeeds. A malformed timestamp skips freshness validation and proceeds to deduplication and command execution.
+
+Evidence:
+
+- `sens-api-gateway/src/commands/mqtt_dispatch.rs:135-185`
+- `sens-api-gateway/src/commands/mqtt_dispatch.rs:210-229`
+- `sens-api-gateway/src/commands/envelope_adapter.rs:101-116`
+
+Required closure:
+
+- Enforcing mode accepts only a verified `CommandEnvelope`; legacy, malformed, and unprovisioned-tenant inputs fail closed before deduplication.
+- Disabled and Permissive modes retain the documented legacy compatibility path.
+- Every legacy timestamp must parse as RFC3339 and fit the configured past/future replay window before deduplication or execution.
+- Executable tests cover every mode and timestamp boundary.

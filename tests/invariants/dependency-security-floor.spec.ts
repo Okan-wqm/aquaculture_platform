@@ -9,6 +9,11 @@ const NX_VERSION = '22.7.8';
 const VITEST_VERSION = '3.2.7';
 const ROUTER_VERSION = '7.18.2';
 const API_EXTRACTOR_VERSION = '7.59.0';
+const E2E_SECURITY_FLOORS = {
+  '@babel/core': '7.29.7',
+  'brace-expansion': '1.1.18',
+  'fast-uri': '3.1.6',
+} as const;
 
 const NX_PACKAGES = [
   'nx',
@@ -448,6 +453,69 @@ describe('JavaScript dependency security floor', () => {
     expect(resolvedVersions(lock, 'brace-expansion')).toEqual(['2.1.4', '5.0.9']);
   });
 
+  test('keeps the standalone E2E graph above its patched CI supply-chain floors', () => {
+    const manifest = readJson<PackageManifest>('e2e/package.json');
+    const lock = readJson<Lockfile>('e2e/package-lock.json');
+
+    const jsYamlDeclaration = manifest.devDependencies?.['js-yaml'];
+    expect(jsYamlDeclaration).toBeDefined();
+    expect({
+      dependency: 'js-yaml',
+      safe: comparable((jsYamlDeclaration as string).replace(/^[~^]/, '')) >= comparable('4.3.1'),
+    }).toEqual({ dependency: 'js-yaml', safe: true });
+
+    const jsYamlFloorsByMajor: Readonly<Record<string, string>> = {
+      '3': '3.15.1',
+      '4': '4.3.1',
+    };
+    const jsYamlVersions = resolvedVersions(lock, 'js-yaml');
+    expect(jsYamlVersions.length).toBeGreaterThan(0);
+    for (const version of jsYamlVersions) {
+      const floor = jsYamlFloorsByMajor[version.split('.')[0] ?? ''];
+      expect({
+        dependency: 'js-yaml',
+        version,
+        safe: floor !== undefined && comparable(version) >= comparable(floor),
+      }).toEqual({ dependency: 'js-yaml', version, safe: true });
+    }
+
+    for (const [dependency, floor] of Object.entries(E2E_SECURITY_FLOORS)) {
+      const versions = resolvedVersions(lock, dependency);
+      expect({ dependency, hasResolution: versions.length > 0 }).toEqual({
+        dependency,
+        hasResolution: true,
+      });
+      for (const version of versions) {
+        expect({ dependency, version, safe: comparable(version) >= comparable(floor) }).toEqual({
+          dependency,
+          version,
+          safe: true,
+        });
+      }
+    }
+  });
+
+  test('routes standalone E2E dependency changes through the affected security gate', () => {
+    expect(readRepoFile('.github/workflows/ci-affected.yml')).toContain("- 'e2e/**'");
+  });
+
+  test.each(['.github/workflows/ci-affected.yml', '.github/workflows/ci-full.yml'])(
+    '%s validates every standalone npm lock before using it as audit evidence',
+    (workflowPath) => {
+      const workflow = YAML.parse(readRepoFile(workflowPath)) as Workflow;
+      const steps =
+        workflow.jobs?.['security-audit']?.steps ?? workflow.jobs?.['security-scan']?.steps ?? [];
+      const standaloneLockCheck = steps.find(
+        (step) => step.name === 'Validate standalone npm locks',
+      );
+
+      expect(standaloneLockCheck?.run?.trim().split(/\r?\n/)).toEqual([
+        'npm --prefix web/apps/aquamobil ci --package-lock-only --ignore-scripts --no-audit --no-fund',
+        'npm --prefix e2e ci --package-lock-only --ignore-scripts --no-audit --no-fund',
+      ]);
+    },
+  );
+
   test.each(['.github/workflows/ci-affected.yml', '.github/workflows/ci-full.yml'])(
     '%s audits production and full dependency graphs without losing either failure',
     (workflowPath) => {
@@ -485,6 +553,19 @@ describe('JavaScript dependency security floor', () => {
           json: 'npm-audit-aquamobil-full.json',
           markdown: 'npm-audit-aquamobil-full.md',
           status: 'AQUAMOBIL_FULL',
+        },
+        {
+          command:
+            'npm --prefix e2e audit --audit-level=moderate --omit=dev --json > npm-audit-e2e-production.json',
+          json: 'npm-audit-e2e-production.json',
+          markdown: 'npm-audit-e2e-production.md',
+          status: 'E2E_PRODUCTION',
+        },
+        {
+          command: 'npm --prefix e2e audit --audit-level=high --json > npm-audit-e2e-full.json',
+          json: 'npm-audit-e2e-full.json',
+          markdown: 'npm-audit-e2e-full.md',
+          status: 'E2E_FULL',
         },
       ] as const;
 

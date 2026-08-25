@@ -34,7 +34,7 @@
  * responsibilities.
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 
@@ -42,10 +42,12 @@ import { parse } from 'yaml';
 
 const repoRoot = resolve(__dirname, '../..');
 const configPath = resolve(repoRoot, '.github/dependabot.yml');
+const edgeWorkflowPath = resolve(repoRoot, '.github/workflows/sens-api-gateway-ci.yml');
 
 /** Lockfile basename → the Dependabot ecosystem that would track it. */
 const LOCKFILE_ECOSYSTEM: Readonly<Record<string, string>> = {
   'package-lock.json': 'npm',
+  'pnpm-lock.yaml': 'npm',
   'Cargo.lock': 'cargo',
 };
 
@@ -55,10 +57,6 @@ const LOCKFILE_ECOSYSTEM: Readonly<Record<string, string>> = {
  * defect.
  */
 const DOCUMENTED_EXCLUSIONS: Readonly<Record<string, string>> = {
-  'e2e/package-lock.json':
-    'Separate lockfile outside the root workspaces globs. Its own entry would raise review load; deferred with the aquamobil one rather than widening coverage and volume in the same change.',
-  'web/apps/aquamobil/package-lock.json':
-    'Nested lockfile inside a workspace member (web/apps/*), so the root entry already resolves its dependencies; this file is a standalone-build artefact and a second entry would produce duplicate PRs.',
   'crates/alarm-core-wasm/Cargo.lock':
     'wasm crate with its own pinned toolchain; bumps are driven by the alarm-core release cadence, not a weekly sweep.',
   'crates/protocol-codec-wasm/Cargo.lock':
@@ -66,17 +64,44 @@ const DOCUMENTED_EXCLUSIONS: Readonly<Record<string, string>> = {
   'sens-api-gateway/Cargo.lock':
     'The edge tree keeps its own deny.toml allowlist and manages its own cadence — stated in the cargo entry of .github/dependabot.yml. RUSTSEC advisories there are handled by cargo-audit + cargo-deny in sens-api-gateway-ci.yml.',
   'sens-api-gateway/fuzz/Cargo.lock':
-    'Fuzz harness inside the edge tree; inherits the sens-api-gateway exclusion.',
+    'Standalone fuzz harness inside the edge tree; vulnerabilities are enforced by the audit job in sens-api-gateway-ci.yml.',
 };
 
 interface DependabotUpdate {
   readonly 'package-ecosystem': string;
   readonly directory?: string;
   readonly directories?: readonly string[];
+  readonly 'open-pull-requests-limit'?: number;
+  readonly 'versioning-strategy'?: string;
+  readonly groups?: Readonly<
+    Record<
+      string,
+      {
+        readonly 'applies-to'?: string;
+        readonly patterns?: readonly string[];
+        readonly 'update-types'?: readonly string[];
+      }
+    >
+  >;
 }
 
 interface DependabotConfig {
   readonly updates?: readonly DependabotUpdate[];
+}
+
+interface WorkflowConfig {
+  readonly jobs?: Readonly<
+    Record<
+      string,
+      {
+        readonly steps?: readonly {
+          readonly name?: string;
+          readonly 'working-directory'?: string;
+          readonly run?: string;
+        }[];
+      }
+    >
+  >;
 }
 
 function config(): DependabotConfig {
@@ -90,6 +115,7 @@ function trackedLockfiles(): string[] {
   return tracked
     .split('\n')
     .filter((path) => names.some((name) => path === name || path.endsWith(`/${name}`)))
+    .filter((path) => existsSync(resolve(repoRoot, path)))
     .sort();
 }
 
@@ -122,6 +148,46 @@ function isCovered(lockfile: string): boolean {
 }
 
 describe('Dependabot lockfile coverage', () => {
+  it('keeps npm as the only JavaScript lockfile authority', () => {
+    const nonCanonical = trackedLockfiles().filter((lockfile) =>
+      lockfile.endsWith('pnpm-lock.yaml'),
+    );
+
+    expect(nonCanonical).toEqual([]);
+  });
+
+  it('audits the standalone edge fuzz lockfile in the required edge gate', () => {
+    const workflow = parse(readFileSync(edgeWorkflowPath, 'utf8')) as WorkflowConfig;
+    const fuzzAudit = workflow.jobs?.audit?.steps?.find(
+      (step) => step.name === 'Audit fuzz lockfile',
+    );
+
+    expect(fuzzAudit).toEqual({
+      name: 'Audit fuzz lockfile',
+      'working-directory': '${{ env.SENS_API_GATEWAY_DIR }}',
+      run: 'cargo audit --file fuzz/Cargo.lock',
+    });
+  });
+
+  it('gives the standalone AquaMobil production lock non-overlapping update ownership', () => {
+    const aquamobil = config().updates?.find(
+      (update) =>
+        update['package-ecosystem'] === 'npm' && update.directory === '/web/apps/aquamobil',
+    );
+
+    expect(aquamobil).toMatchObject({
+      'package-ecosystem': 'npm',
+      directory: '/web/apps/aquamobil',
+      'open-pull-requests-limit': 1,
+      'versioning-strategy': 'lockfile-only',
+      groups: {
+        'aquamobil-lock-refresh': {
+          'update-types': ['minor', 'patch'],
+        },
+      },
+    });
+  });
+
   it('watches every lockfile that is not documented as excluded', () => {
     const unaccounted = trackedLockfiles().filter(
       (lockfile) => !isCovered(lockfile) && DOCUMENTED_EXCLUSIONS[lockfile] === undefined,

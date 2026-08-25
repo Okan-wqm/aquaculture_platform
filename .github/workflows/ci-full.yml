@@ -428,9 +428,14 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts --no-audit --prefer-offline
 
-      # Audit both deployed dependency graphs at moderate and the complete
-      # build graph at high. Capture every result before failing so all source
-      # maps remain available from one run.
+      - name: Validate standalone npm locks
+        run: |
+          npm --prefix web/apps/aquamobil ci --package-lock-only --ignore-scripts --no-audit --no-fund
+          npm --prefix e2e ci --package-lock-only --ignore-scripts --no-audit --no-fund
+
+      # Audit both deployed dependency graphs plus standalone E2E at moderate,
+      # then every complete graph at high. Capture every result before failing
+      # so all source maps remain available from one run.
       - name: Run security audit
         run: |
           set +e
@@ -450,6 +455,14 @@ jobs:
           AQUAMOBIL_FULL_AUDIT_STATUS=$?
           node scripts/ci/audit-source-map.mjs npm-audit-aquamobil-full.json npm-audit-aquamobil-full.md
           AQUAMOBIL_FULL_MAP_STATUS=$?
+          npm --prefix e2e audit --audit-level=moderate --omit=dev --json > npm-audit-e2e-production.json
+          E2E_PRODUCTION_AUDIT_STATUS=$?
+          node scripts/ci/audit-source-map.mjs npm-audit-e2e-production.json npm-audit-e2e-production.md
+          E2E_PRODUCTION_MAP_STATUS=$?
+          npm --prefix e2e audit --audit-level=high --json > npm-audit-e2e-full.json
+          E2E_FULL_AUDIT_STATUS=$?
+          node scripts/ci/audit-source-map.mjs npm-audit-e2e-full.json npm-audit-e2e-full.md
+          E2E_FULL_MAP_STATUS=$?
           set -e
           if [ "$ROOT_PRODUCTION_AUDIT_STATUS" -ne 0 ]; then
             exit "$ROOT_PRODUCTION_AUDIT_STATUS"
@@ -475,6 +488,18 @@ jobs:
           if [ "$AQUAMOBIL_FULL_MAP_STATUS" -ne 0 ]; then
             exit "$AQUAMOBIL_FULL_MAP_STATUS"
           fi
+          if [ "$E2E_PRODUCTION_AUDIT_STATUS" -ne 0 ]; then
+            exit "$E2E_PRODUCTION_AUDIT_STATUS"
+          fi
+          if [ "$E2E_PRODUCTION_MAP_STATUS" -ne 0 ]; then
+            exit "$E2E_PRODUCTION_MAP_STATUS"
+          fi
+          if [ "$E2E_FULL_AUDIT_STATUS" -ne 0 ]; then
+            exit "$E2E_FULL_AUDIT_STATUS"
+          fi
+          if [ "$E2E_FULL_MAP_STATUS" -ne 0 ]; then
+            exit "$E2E_FULL_MAP_STATUS"
+          fi
       - name: Upload npm audit source map
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -489,6 +514,10 @@ jobs:
             npm-audit-aquamobil-production.md
             npm-audit-aquamobil-full.json
             npm-audit-aquamobil-full.md
+            npm-audit-e2e-production.json
+            npm-audit-e2e-production.md
+            npm-audit-e2e-full.json
+            npm-audit-e2e-full.md
           if-no-files-found: error
           retention-days: 14
 

@@ -104,10 +104,11 @@ Remediation evidence (2026-08-25):
   findings remain in the Testcontainers 12-major and optional Vue peer chains.
   They do not ship in either production graph and cannot hide a high/critical
   regression under the new full-graph CI threshold.
-- Both primary workflows capture all four audit and four source-map exit
-  statuses before failing, upload all eight artifacts under `always()`, and
-  fail when an artifact is missing. The migration check installs with lifecycle
-  scripts disabled and funding output suppressed.
+- Both primary workflows capture the root, Aquamobil, and standalone E2E
+  production/full audit statuses plus every source-map status before failing,
+  upload all twelve artifacts under `always()`, and fail when an artifact is
+  missing. The migration check installs with lifecycle scripts disabled and
+  funding output suppressed.
 - The dependency, workflow, federation, Router source, shared-singleton, and
   enterprise debt-plan invariants pass 45/45;
   shared UI passes 413/413 tests with coverage. Focused redirect, MFA,
@@ -117,3 +118,96 @@ Remediation evidence (2026-08-25):
   federated remotes, and standalone Aquamobil (including its service worker).
   Shared UI's emitted declaration graph contains the Router 7 declarative
   navigation augmentation through its public type entrypoint.
+
+## SUPPLY-HIGH-003 — Standalone dependency locks bypass release auditing and retain known high-severity advisories
+
+**Severity:** HIGH
+**State:** IN-PROGRESS
+
+Post-push reconciliation at snapshot
+`fdd1767ebc5dc7efe49253a45180a20cced32a20` expanded the dependency inventory
+beyond the root npm workspace and Aquamobil lock that `SUPPLY-CRITICAL-002`
+covered. The standalone E2E graph reported three high-severity vulnerable
+package families and one low-severity family. They are development-only and do
+not ship in a production image, but they execute repository-controlled input in
+CI. Neither primary workflow audited that lock, `/e2e` had no Dependabot entry,
+and an E2E-only dependency PR did not set `has_changes=true` in CI Affected.
+
+Final independent review also proved that the root npm entry cannot maintain
+Aquamobil's nested production lock: its Dockerfile copies that lock into an
+isolated build and runs `npm ci`, while Dependabot scopes lock ownership to the
+configured manifest directory. The graph was already audited and clean, but it
+had no automated lock-update owner and neither primary workflow proved the
+nested manifest/lock pair was installable before treating its audit as evidence.
+
+Two nested `pnpm-lock.yaml` files created a second package-manager authority
+inside npm workspace members. The stale MCP lock alone reported eight high,
+twenty-nine moderate, and four low advisories even though production and CI use
+the safe root npm graph. The lockfile-coverage invariant recognized only
+`package-lock.json` and `Cargo.lock`, so both pnpm locks were invisible to the
+guard. MCP is disabled by default, no production compose file enables it, and
+the live farm image contains no MCP source or build output; this is therefore a
+supply-chain authority defect rather than an exposed production MCP runtime.
+
+Fresh RustSec data also added `RUSTSEC-2026-0258` for `h2 0.4.13`, which made
+both mandatory root and edge audits fail. The committed fuzz lock separately
+retained `rustls-webpki 0.102.8` with one high, one moderate, and two low
+advisories because its standalone workspace did not inherit the parent
+`rumqttc` patch. The fuzz target does not ship, but a committed high advisory is
+incompatible with a repository-level release attestation.
+
+Required closure:
+
+- Raise the E2E direct and transitive floors to patched releases, prove both
+  production and full audits are clean, add `/e2e` Dependabot coverage, and
+  make both primary workflows preserve and publish its audit/map statuses.
+- Give the standalone Aquamobil production lock explicit resolution-update
+  ownership without competing with root-workspace manifest updates, and make
+  both primary workflows fail on standalone manifest/lock drift.
+- Route E2E-only changes through CI Affected so the new audit can enforce
+  itself.
+- Remove nested pnpm locks, retain root npm as the sole JavaScript dependency
+  authority, and make an executable invariant reject future pnpm lock drift.
+- Update root and edge `h2`, the root `cmov` and `serde_with` resolutions, and
+  make the fuzz workspace inherit the local patched `rumqttc`; prove root,
+  edge, and fuzz audit graphs have no active vulnerability.
+- Keep optional-disabled OpenTelemetry and license-enforcement dependency
+  families out of release profiles until the coordinated `ORPHAN-MEDIUM-140`
+  upgrade and `RUST-CVE-002` claim-validation migration land. They remain
+  explicit residual medium risk, not silently represented as
+  zero-all-advisories.
+
+Remediation evidence (2026-08-25):
+
+- E2E resolves `@babel/core 7.29.7`, `brace-expansion 1.1.18`,
+  `fast-uri 3.1.6`, and `js-yaml 3.15.1/4.3.1`; clean install succeeds and both its
+  production and full audits report zero vulnerabilities.
+- Both primary workflows now validate the Aquamobil and E2E manifest/lock pairs,
+  capture all six audit and six source-map exit statuses, upload all twelve
+  artifacts even on failure, and CI Affected treats `e2e/**` as control-plane
+  input. Dependabot independently watches `/e2e`; an Aquamobil `lockfile-only`
+  entry refreshes the production Docker lock without editing the shared
+  workspace manifest, with one grouped update PR allowed at a time.
+- The duplicate pnpm locks are removed. The lockfile invariant recognizes pnpm
+  files, requires npm to remain the only JavaScript lock authority, verifies
+  the standalone fuzz audit gate, and passes together with the expanded
+  dependency/workflow invariant (23/23 focused assertions). The dependency
+  policy gate also skips tracked paths already removed from the working tree,
+  so intentional authority deletion can be verified before staging.
+- Root and edge resolve `h2 0.4.16`; root also resolves `cmov 0.5.4` and
+  `serde_with`/macros 3.21.0. Fuzz resolves only `rustls-webpki 0.103.13` and
+  `time 0.3.47` through the local `rumqttc` patch. Root, edge, and fuzz audits
+  report zero active vulnerabilities, and edge CI now audits the committed fuzz
+  lock explicitly. Locked checks pass for root `sensor-ingestion` release, the
+  edge `scada-display` release profile, and every fuzz binary.
+- The edge release still carries the explicitly tracked `bincode 1.3.3`
+  unmaintained warning (`RUSTSEC-2025-0141`, migration deadline 2026-09-01),
+  whose replacement requires a coordinated wire-format migration. The
+  non-shipping fuzz graph also reports `spin 0.9.8` as yanked. Neither is an
+  active vulnerability or an unrecorded critical/high release exception.
+- Repository-level Dependabot automated security fixes were disabled at this
+  snapshot. Enabling them while the default branch still reports its pre-merge
+  alert set could create competing PRs, so this patch does not mutate that
+  external setting. Weekly full CI still audits every deployed npm graph
+  fail-closed; enabling automated fixes should be coordinated after this branch
+  merges and GitHub reindexes the remediated locks.

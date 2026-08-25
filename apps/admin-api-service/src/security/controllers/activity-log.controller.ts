@@ -21,12 +21,13 @@ import { IsOptional, IsNumber, IsString, IsIn, IsBoolean, Min, Max, MaxLength } 
 
 import { ActivityLog, ActivityCategory, ActivitySeverity } from '../entities/security.entity';
 import { ActivityLoggingService, ActivityQueryOptions, ActivityStats } from '../services/activity-logging.service';
+import { ACTIVITY_LOG_SORT_FIELDS, ActivityLogSortField } from '../sorting/activity-log-sort';
 
 // ============================================================================
 // DTOs
 // ============================================================================
 
-class QueryActivitiesDto {
+export class QueryActivitiesDto {
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
@@ -94,8 +95,8 @@ class QueryActivitiesDto {
   tags?: string;
 
   @IsOptional()
-  @IsString()
-  sortBy?: string;
+  @IsIn(ACTIVITY_LOG_SORT_FIELDS)
+  sortBy?: ActivityLogSortField;
 
   @IsOptional()
   @IsIn(['ASC', 'DESC'])

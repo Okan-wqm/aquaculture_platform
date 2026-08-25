@@ -11,15 +11,62 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { Transform, Type } from 'class-transformer';
 
-import { IsString, IsOptional, IsObject, IsArray, IsNumber, IsBoolean, IsUUID, MaxLength, ArrayMaxSize } from 'class-validator';
+import { IsString, IsOptional, IsObject, IsArray, IsNumber, IsBoolean, IsUUID, IsIn, MaxLength, ArrayMaxSize } from 'class-validator';
 
-import { ErrorSeverity, ErrorStatus, ErrorContext } from '../entities/error-tracking.entity';
+import { ErrorGroup, ErrorSeverity, ErrorStatus, ErrorContext } from '../entities/error-tracking.entity';
 import { ErrorTrackingService, ErrorReport } from '../services/error-tracking.service';
+import { ERROR_GROUP_SORT_FIELDS, ErrorGroupSortField } from '../sorting/error-group-sort';
 
 // ============================================================================
 // DTOs
 // ============================================================================
+
+export class QueryErrorGroupsDto {
+  @IsOptional()
+  @IsString()
+  status?: ErrorStatus;
+
+  @IsOptional()
+  @IsString()
+  severity?: ErrorSeverity;
+
+  @IsOptional()
+  @IsString()
+  service?: string;
+
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @IsOptional()
+  @IsString()
+  assignedTo?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  isRegression?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  limit?: number;
+
+  @IsOptional()
+  @IsIn(ERROR_GROUP_SORT_FIELDS)
+  sortBy?: ErrorGroupSortField;
+
+  @IsOptional()
+  @IsIn(['ASC', 'DESC'])
+  sortOrder?: 'ASC' | 'DESC';
+}
 
 class ReportErrorDto {
   @IsString()
@@ -243,28 +290,19 @@ export class ErrorTrackingController {
 
   @Get('groups')
   async queryErrorGroups(
-    @Query('status') status?: ErrorStatus,
-    @Query('severity') severity?: ErrorSeverity,
-    @Query('service') service?: string,
-    @Query('search') search?: string,
-    @Query('assignedTo') assignedTo?: string,
-    @Query('isRegression') isRegression?: string,
-    @Query('page') page?: number,
-    @Query('limit') limit?: number,
-    @Query('sortBy') sortBy?: 'occurrenceCount' | 'lastSeenAt' | 'firstSeenAt' | 'userCount',
-    @Query('sortOrder') sortOrder?: 'ASC' | 'DESC',
-  ) {
+    @Query() query: QueryErrorGroupsDto,
+  ): Promise<{ items: ErrorGroup[]; total: number }> {
     return this.errorTrackingService.queryErrorGroups({
-      status,
-      severity,
-      service,
-      search,
-      assignedTo,
-      isRegression: isRegression !== undefined ? isRegression === 'true' : undefined,
-      page: page ? Number(page) : undefined,
-      limit: limit ? Number(limit) : undefined,
-      sortBy,
-      sortOrder,
+      status: query.status,
+      severity: query.severity,
+      service: query.service,
+      search: query.search,
+      assignedTo: query.assignedTo,
+      isRegression: query.isRegression,
+      page: query.page,
+      limit: query.limit,
+      sortBy: query.sortBy,
+      sortOrder: query.sortOrder,
     });
   }
 

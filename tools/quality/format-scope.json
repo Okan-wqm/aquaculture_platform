@@ -2315,6 +2315,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/security/controllers/__tests__/sorting.dto.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/security/controllers/activity-log.controller.ts",
       "prettier_managed": true
     },
@@ -2369,6 +2375,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/security/services/__tests__/activity-logging.service.sorting.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/security/services/__tests__/audit-trail.service.sorting.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/security/services/activity-logging.service.ts",
       "prettier_managed": true
     },
@@ -2394,6 +2412,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/security/services/security-monitoring.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/security/sorting/activity-log-sort.ts",
       "prettier_managed": true
     },
     {
@@ -2705,6 +2729,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/system-management/services/__tests__/error-tracking.service.sorting.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/system-management/services/error-tracking.service.ts",
       "prettier_managed": true
     },
@@ -2730,6 +2760,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/system-management/services/performance-monitoring.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/system-management/sorting/error-group-sort.ts",
       "prettier_managed": true
     },
     {

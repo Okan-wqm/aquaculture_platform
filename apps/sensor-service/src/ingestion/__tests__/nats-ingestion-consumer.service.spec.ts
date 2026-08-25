@@ -137,7 +137,7 @@ describe('NatsIngestionConsumerService', () => {
   describe('IEventHandler contract', () => {
     it('exposes SUBJECT_PATTERN as the eventType', () => {
       const { svc } = makeService();
-      expect(svc.getEventType()).toBe('events.*.SensorMetricIngested');
+      expect(svc.getEventType()).toBe('telemetry.*.SensorMetricIngested');
     });
 
     it('implements IEventHandler<SensorMetricIngestedEvent>', () => {
@@ -154,7 +154,7 @@ describe('NatsIngestionConsumerService', () => {
       const { svc } = makeService({ bus });
       try {
         await svc.onModuleInit();
-        expect(bus.subscribeTo).toHaveBeenCalledWith('events.*.SensorMetricIngested', svc);
+        expect(bus.subscribeTo).toHaveBeenCalledWith('telemetry.*.SensorMetricIngested', svc);
       } finally {
         // onModuleInit started a 60s statsTimer — cleanup so jest does
         // not flag an open handle.
@@ -174,7 +174,7 @@ describe('NatsIngestionConsumerService', () => {
       const { svc } = makeService({ bus });
       await svc.onModuleInit();
       await svc.onModuleDestroy();
-      expect(bus.unsubscribeFrom).toHaveBeenCalledWith('events.*.SensorMetricIngested');
+      expect(bus.unsubscribeFrom).toHaveBeenCalledWith('telemetry.*.SensorMetricIngested');
     });
 
     it('onModuleDestroy is no-op when bus absent', async () => {

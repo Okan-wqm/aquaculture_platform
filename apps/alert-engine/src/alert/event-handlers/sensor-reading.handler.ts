@@ -52,7 +52,7 @@ export class SensorReadingEventHandler implements IEventHandler<SensorReadingEve
   async onModuleInit(): Promise<void> {
     // Subscribe to SensorReading events ACROSS EVERY TENANT.
     //
-    // WHAT — `subscribeWildcard` builds `events.*.SensorReading` (3 segments),
+    // WHAT — `subscribeWildcard` builds `telemetry.*.SensorReading` (3 segments, Task 2 route registry),
     // matching the publisher's `events.{tenantId}.SensorReading` for every
     // tenant + the platform `events.system.SensorReading` channel.
     //

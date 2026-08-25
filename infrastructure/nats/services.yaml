@@ -25,7 +25,12 @@
 #   - sensor.lookup.by-topic               Rust sidecar cache-miss RPC (ADR-029)
 #   - st.language.>                        ST Language IDE bridge
 #   - policy.ingest_backend.>              dynamic policy fan-out (ADR-027/031)
-#   - $JS.API.> + _INBOX.>                 JetStream API + request-reply inboxes
+#   - $JS.API.STREAM.INFO/CREATE/UPDATE.> + $JS.API.CONSUMER.> + _INBOX.>
+#       JetStream boot provisioning + durable pull consumers. The BARE
+#       '$JS.API.>' grant is BANNED (Task 2, SENSOR-HIGH-092): it hands
+#       every service stream/consumer CRUD over EVERY stream, including
+#       AQUACULTURE_DLQ destruction — pull-consumer delivery is not gated
+#       by subscribe ACLs, so the narrowed set loses nothing.
 #
 # The legacy `AQUACULTURE_EVENTS.<Type>.>` grant scheme is BANNED (and
 # structurally rejected by services.schema.json): AQUACULTURE_EVENTS is the
@@ -70,12 +75,18 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - 'request.farm.validateSiteAssignment'
-      - '$JS.API.>'
+      - '$JS.API.STREAM.INFO.>'
+      - '$JS.API.STREAM.CREATE.>'
+      - '$JS.API.STREAM.UPDATE.>'
+      - '$JS.API.CONSUMER.>'
       - '_INBOX.>'
     subscribe:
       - 'request.auth.user.validateTenantMembership'
       - 'request.auth.>'
-      - '$JS.API.>'
+      - '$JS.API.STREAM.INFO.>'
+      - '$JS.API.STREAM.CREATE.>'
+      - '$JS.API.STREAM.UPDATE.>'
+      - '$JS.API.CONSUMER.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -184,7 +195,10 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - 'request.farm.validateSiteAssignment'
-      - '$JS.API.>'
+      - '$JS.API.STREAM.INFO.>'
+      - '$JS.API.STREAM.CREATE.>'
+      - '$JS.API.STREAM.UPDATE.>'
+      - '$JS.API.CONSUMER.>'
       - '_INBOX.>'
     subscribe:
       # ai-service create_task actuation tool (request-reply responder)
@@ -198,7 +212,10 @@ services:
       # Dedicated first-token inbox: generic `_INBOX.>` grants cannot read
       # decrypted marine-provider credential replies.
       - '_INBOXFARMMARINECFG.>'
-      - '$JS.API.>'
+      - '$JS.API.STREAM.INFO.>'
+      - '$JS.API.STREAM.CREATE.>'
+      - '$JS.API.STREAM.UPDATE.>'
+      - '$JS.API.CONSUMER.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -223,6 +240,7 @@ services:
       - 'events.*.SensorDeleted'
       - 'events.*.SensorDeprovisioned'
       - 'events.*.SensorReading'
+      - 'telemetry.*.SensorReading'
       - 'events.*.SensorRegistered'
       - 'events.*.SensorRegistrationCompleted'
       - 'events.*.SensorRegistrationStarted'
@@ -236,13 +254,20 @@ services:
       - 'st.language.>'
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
-      - '$JS.API.>'
+      - '$JS.API.STREAM.INFO.>'
+      - '$JS.API.STREAM.CREATE.>'
+      - '$JS.API.STREAM.UPDATE.>'
+      - '$JS.API.CONSUMER.>'
       - '_INBOX.>'
     subscribe:
       - 'request.sensor.>'
+      - 'telemetry.>'
       - 'sensor.lookup.by-topic'
       - 'st.language.>'
-      - '$JS.API.>'
+      - '$JS.API.STREAM.INFO.>'
+      - '$JS.API.STREAM.CREATE.>'
+      - '$JS.API.STREAM.UPDATE.>'
+      - '$JS.API.CONSUMER.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -256,13 +281,20 @@ services:
     description: Rust ingestion sidecar — MQTT subscribe → COPY → SensorReading event publish
     publish:
       - 'events.*.SensorReading'
+      - 'telemetry.*.SensorReading'
       - 'sensor.lookup.by-topic'
-      - '$JS.API.>'
+      - '$JS.API.STREAM.INFO.>'
+      - '$JS.API.STREAM.CREATE.>'
+      - '$JS.API.STREAM.UPDATE.>'
+      - '$JS.API.CONSUMER.>'
       - '_INBOX.>'
     subscribe:
       - 'policy.ingest_backend.>'
       - '_INBOX.>'
-      - '$JS.API.>'
+      - '$JS.API.STREAM.INFO.>'
+      - '$JS.API.STREAM.CREATE.>'
+      - '$JS.API.STREAM.UPDATE.>'
+      - '$JS.API.CONSUMER.>'
 
   # ---------------------------------------------------------------------------
   # admin-api-service: tenant lifecycle and erasure coordinator
@@ -328,14 +360,20 @@ services:
       - 'policy.ingest_backend.changed'
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
-      - '$JS.API.>'
+      - '$JS.API.STREAM.INFO.>'
+      - '$JS.API.STREAM.CREATE.>'
+      - '$JS.API.STREAM.UPDATE.>'
+      - '$JS.API.CONSUMER.>'
       - '_INBOX.>'
     subscribe:
       - 'events.*.TenantOnboardingAck'
       - 'events.*.TenantOnboardingFailed'
       - 'policy.ingest_backend.snapshot'
       - '_INBOX.>'
-      - '$JS.API.>'
+      - '$JS.API.STREAM.INFO.>'
+      - '$JS.API.STREAM.CREATE.>'
+      - '$JS.API.STREAM.UPDATE.>'
+      - '$JS.API.CONSUMER.>'
 
   # ---------------------------------------------------------------------------
   # gateway-api: public GraphQL edge and request/reply bridge
@@ -352,13 +390,19 @@ services:
       - 'request.ai.chat'
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
-      - '$JS.API.>'
+      - '$JS.API.STREAM.INFO.>'
+      - '$JS.API.STREAM.CREATE.>'
+      - '$JS.API.STREAM.UPDATE.>'
+      - '$JS.API.CONSUMER.>'
       - '_INBOX.>'
     subscribe:
       - 'events.>'
       - 'st.language.>'
       - '_INBOX.>'
-      - '$JS.API.>'
+      - '$JS.API.STREAM.INFO.>'
+      - '$JS.API.STREAM.CREATE.>'
+      - '$JS.API.STREAM.UPDATE.>'
+      - '$JS.API.CONSUMER.>'
 
   # ---------------------------------------------------------------------------
   # notification-service: outbound push/email command handling
@@ -376,12 +420,18 @@ services:
       - 'events.*.NotificationServiceTenantErasureBlocked'
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
-      - '$JS.API.>'
+      - '$JS.API.STREAM.INFO.>'
+      - '$JS.API.STREAM.CREATE.>'
+      - '$JS.API.STREAM.UPDATE.>'
+      - '$JS.API.CONSUMER.>'
       - '_INBOX.>'
     subscribe:
       - 'commands.notification.sendEmail'
       - 'commands.notification.sendPush'
-      - '$JS.API.>'
+      - '$JS.API.STREAM.INFO.>'
+      - '$JS.API.STREAM.CREATE.>'
+      - '$JS.API.STREAM.UPDATE.>'
+      - '$JS.API.CONSUMER.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -403,7 +453,10 @@ services:
       - 'request.farm.getWaterQualityOverview'
       - 'request.farm.getHarvestOverview'
       - 'request.farm.getFeedingOverview'
-      - '$JS.API.>'
+      - '$JS.API.STREAM.INFO.>'
+      - '$JS.API.STREAM.CREATE.>'
+      - '$JS.API.STREAM.UPDATE.>'
+      - '$JS.API.CONSUMER.>'
       - '_INBOX.>'
     subscribe:
       - 'request.ai.chat'
@@ -414,7 +467,10 @@ services:
       # SENSOR-MEDIUM-070: sensor channel-detection responder (analyze→suggest run
       # under the sensor-service service principal). ai-service HANDLES it (subscribe).
       - 'request.ai.sensor.detectChannels'
-      - '$JS.API.>'
+      - '$JS.API.STREAM.INFO.>'
+      - '$JS.API.STREAM.CREATE.>'
+      - '$JS.API.STREAM.UPDATE.>'
+      - '$JS.API.CONSUMER.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -446,7 +502,10 @@ services:
       # billing's own _INBOX.> (already granted).
       - 'config.runtime.get'
       - 'config.runtime.get_secret'
-      - '$JS.API.>'
+      - '$JS.API.STREAM.INFO.>'
+      - '$JS.API.STREAM.CREATE.>'
+      - '$JS.API.STREAM.UPDATE.>'
+      - '$JS.API.CONSUMER.>'
       - '_INBOX.>'
     subscribe:
       - 'request.billing.admin.>'
@@ -455,7 +514,10 @@ services:
       # read — billing is the ONLY CN that subscribes this token, so the decrypted
       # Stripe secret never returns on the platform-wide `_INBOX.>` every cert holds.
       - '_INBOXBILLINGCFG.>'
-      - '$JS.API.>'
+      - '$JS.API.STREAM.INFO.>'
+      - '$JS.API.STREAM.CREATE.>'
+      - '$JS.API.STREAM.UPDATE.>'
+      - '$JS.API.CONSUMER.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -471,15 +533,22 @@ services:
       - 'events.*.AlertResolved'
       - 'events.*.AlertTriggered'
       - 'events.*.SensorReading'
+      - 'telemetry.*.SensorReading'
       - 'events.*.AlertEngineTenantDataErased'
       - 'events.*.AlertEngineTenantDataErasureFailed'
       - 'events.*.AlertEngineTenantErasureBlocked'
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
-      - '$JS.API.>'
+      - '$JS.API.STREAM.INFO.>'
+      - '$JS.API.STREAM.CREATE.>'
+      - '$JS.API.STREAM.UPDATE.>'
+      - '$JS.API.CONSUMER.>'
       - '_INBOX.>'
     subscribe:
-      - '$JS.API.>'
+      - '$JS.API.STREAM.INFO.>'
+      - '$JS.API.STREAM.CREATE.>'
+      - '$JS.API.STREAM.UPDATE.>'
+      - '$JS.API.CONSUMER.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -517,10 +586,16 @@ services:
       - 'commands.notification.sendEmail'
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
-      - '$JS.API.>'
+      - '$JS.API.STREAM.INFO.>'
+      - '$JS.API.STREAM.CREATE.>'
+      - '$JS.API.STREAM.UPDATE.>'
+      - '$JS.API.CONSUMER.>'
       - '_INBOX.>'
     subscribe:
-      - '$JS.API.>'
+      - '$JS.API.STREAM.INFO.>'
+      - '$JS.API.STREAM.CREATE.>'
+      - '$JS.API.STREAM.UPDATE.>'
+      - '$JS.API.CONSUMER.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -571,7 +646,10 @@ services:
       - 'request.farm.getTankRegistry'
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
-      - '$JS.API.>'
+      - '$JS.API.STREAM.INFO.>'
+      - '$JS.API.STREAM.CREATE.>'
+      - '$JS.API.STREAM.UPDATE.>'
+      - '$JS.API.CONSUMER.>'
       - '_INBOX.>'
     subscribe:
       - 'request.messaging.verifyMembership'
@@ -589,7 +667,10 @@ services:
       - 'request.messaging.admin.triggerExport'
       - 'request.messaging.admin.getPersonas'
       - 'events.>'
-      - '$JS.API.>'
+      - '$JS.API.STREAM.INFO.>'
+      - '$JS.API.STREAM.CREATE.>'
+      - '$JS.API.STREAM.UPDATE.>'
+      - '$JS.API.CONSUMER.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -604,10 +685,16 @@ services:
       - 'events.*.HydroponicsServiceTenantErasureBlocked'
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
-      - '$JS.API.>'
+      - '$JS.API.STREAM.INFO.>'
+      - '$JS.API.STREAM.CREATE.>'
+      - '$JS.API.STREAM.UPDATE.>'
+      - '$JS.API.CONSUMER.>'
       - '_INBOX.>'
     subscribe:
-      - '$JS.API.>'
+      - '$JS.API.STREAM.INFO.>'
+      - '$JS.API.STREAM.CREATE.>'
+      - '$JS.API.STREAM.UPDATE.>'
+      - '$JS.API.CONSUMER.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -621,12 +708,18 @@ services:
     publish:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
-      - '$JS.API.>'
+      - '$JS.API.STREAM.INFO.>'
+      - '$JS.API.STREAM.CREATE.>'
+      - '$JS.API.STREAM.UPDATE.>'
+      - '$JS.API.CONSUMER.>'
       - '_INBOX.>'
     subscribe:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
-      - '$JS.API.>'
+      - '$JS.API.STREAM.INFO.>'
+      - '$JS.API.STREAM.CREATE.>'
+      - '$JS.API.STREAM.UPDATE.>'
+      - '$JS.API.CONSUMER.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -653,7 +746,10 @@ services:
       - '_INBOXFARMMARINECFG.>'
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
-      - '$JS.API.>'
+      - '$JS.API.STREAM.INFO.>'
+      - '$JS.API.STREAM.CREATE.>'
+      - '$JS.API.STREAM.UPDATE.>'
+      - '$JS.API.CONSUMER.>'
       - '_INBOX.>'
     subscribe:
       # Faz C (D6): config-runtime request-reply responder subjects. The secret
@@ -662,7 +758,10 @@ services:
       - 'config.runtime.get_secret'
       - 'config.marine_credentials.resolve'
       - 'config.marine_credentials.upsert'
-      - '$JS.API.>'
+      - '$JS.API.STREAM.INFO.>'
+      - '$JS.API.STREAM.CREATE.>'
+      - '$JS.API.STREAM.UPDATE.>'
+      - '$JS.API.CONSUMER.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -681,8 +780,29 @@ services:
       - 'events.*.EventStoreServiceTenantErasureBlocked'
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
-      - '$JS.API.>'
+      - '$JS.API.STREAM.INFO.>'
+      - '$JS.API.STREAM.CREATE.>'
+      - '$JS.API.STREAM.UPDATE.>'
+      - '$JS.API.CONSUMER.>'
       - '_INBOX.>'
     subscribe:
-      - '$JS.API.>'
+      - '$JS.API.STREAM.INFO.>'
+      - '$JS.API.STREAM.CREATE.>'
+      - '$JS.API.STREAM.UPDATE.>'
+      - '$JS.API.CONSUMER.>'
+      - '_INBOX.>'
+
+  # ---------------------------------------------------------------------------
+  # dlq-replayer: operator tool — telemetry-dlq-replay.ts (plan Task 1.6/2)
+  # ---------------------------------------------------------------------------
+  - name: dlq_replayer
+    application: dlq-replayer
+    description: Operator replay tool — republishes dead-lettered TELEMETRY envelopes under their original identity (domain-root replays are refused; a separate admin flow owns those)
+    publish:
+      - 'telemetry.>'
+      - '$JS.API.CONSUMER.>'
+      - '_INBOX.>'
+    subscribe:
+      - 'dlq.>'
+      - '$JS.API.CONSUMER.>'
       - '_INBOX.>'

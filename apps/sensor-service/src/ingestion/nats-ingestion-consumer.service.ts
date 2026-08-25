@@ -75,7 +75,9 @@ export class NatsIngestionConsumerService
    * `deriveSubject`: `events.{tenantId}.{eventType}` — the wildcard
    * captures every tenant.
    */
-  private static readonly SUBJECT_PATTERN = 'events.*.SensorMetricIngested';
+  // Task 2 (SENSOR-HIGH-092): SensorMetricIngested is a high-rate telemetry
+  // type — it lives on the telemetry root / AQUACULTURE_TELEMETRY stream.
+  private static readonly SUBJECT_PATTERN = 'telemetry.*.SensorMetricIngested';
 
   /** Accumulators for bulk-flush observability (logged every minute). */
   private receivedCount = 0;

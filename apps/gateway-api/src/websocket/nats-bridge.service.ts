@@ -150,9 +150,12 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
   private subscribeToSensorEvents(): void {
     if (!this.connection) return;
 
-    // Subscribe to all sensor reading events
-    // sensor-service publishes to subject: events.SensorReading (no trailing tokens)
-    this.subscription = this.connection.subscribe('events.SensorReading');
+    // Task 2 (SENSOR-HIGH-092): SensorReading is a high-rate telemetry type
+    // routed to the telemetry root (AQUACULTURE_TELEMETRY). The previous
+    // 2-segment `events.SensorReading` subject matched NOTHING the sensor
+    // subgraph publishes (3-segment events.{tenant}.SensorReading) — the
+    // bridge was silently blind; the routed wildcard fixes both at once.
+    this.subscription = this.connection.subscribe('telemetry.*.SensorReading');
 
     this.logger.log('Subscribed to sensor reading events');
 

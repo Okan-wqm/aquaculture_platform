@@ -50,7 +50,7 @@ export class SensorTemperatureProjectionListener implements IEventHandler<BaseEv
       );
       return;
     }
-    // subscribeWildcard builds `events.*.SensorReading`, matching the sensor
+    // subscribeWildcard builds `telemetry.*.SensorReading` (Task 2 route registry), matching the sensor
     // subgraph's per-tenant `events.{tenantId}.SensorReading` for every tenant.
     await this.eventBus.subscribeWildcard('SensorReading', this);
     this.logger.log('Subscribed to SensorReading for sensor-temperature projection (cross-tenant)');

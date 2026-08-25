@@ -452,6 +452,40 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
     },
   );
 
+  it('bare $JS.API.> grants are banned — JetStream rights are enumerated per service (Task 2, SENSOR-HIGH-092)', () => {
+    // Pull-consumer delivery is NOT gated by subscribe ACLs, so narrowing
+    // loses nothing — while the bare root handed every service stream and
+    // consumer CRUD over EVERY stream (including AQUACULTURE_DLQ
+    // destruction, i.e. destroying forensic evidence of an intrusion).
+    const offenders: string[] = [];
+    for (const svc of servicesDoc.services) {
+      for (const s of [...svc.publish, ...svc.subscribe]) {
+        if (s === '$JS.API.>') offenders.push(`${svc.name}: ${s}`);
+      }
+    }
+    if (authBlock.includes("'$JS.API.>'")) offenders.push('nats.conf GENERATED block');
+    expect(offenders).toEqual([]);
+  });
+
+  it('high-rate telemetry types carry a telemetry-root publish grant wherever they are published (Task 2)', () => {
+    // SensorReading/SensorMetricIngested route to AQUACULTURE_TELEMETRY;
+    // every identity allowed to publish them on the events root must ALSO
+    // hold the telemetry-root grant, or the routed publish fails with a
+    // Permissions Violation at runtime.
+    const HIGH_RATE = ['SensorReading', 'SensorMetricIngested'];
+    const offenders: string[] = [];
+    for (const svc of servicesDoc.services) {
+      for (const type of HIGH_RATE) {
+        const hasEvents = svc.publish.includes(`events.*.${type}`);
+        const hasTelemetry = svc.publish.includes(`telemetry.*.${type}`);
+        if (hasEvents && !hasTelemetry) {
+          offenders.push(`${svc.name}: events.*.${type} without telemetry.*.${type}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
   it('legacy AQUACULTURE_EVENTS subject grants are banned (stream name ≠ subject prefix)', () => {
     // The schema already rejects the prefix structurally; this assertion
     // exists for the error message (and covers the generated conf, which

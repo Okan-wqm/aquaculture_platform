@@ -55,6 +55,14 @@ import {
 
 import { DEFAULT_NATS_URL, DEFAULT_NATS_STREAM_NAME } from './event-bus-config.factory';
 import { buildDlqEnvelope } from './dlq-envelope';
+import {
+  DEFAULT_TELEMETRY_STREAM_NAME,
+  buildRoutedSubject,
+  buildRoutedTenantWildcardSubject,
+  buildRoutedWildcardSubject,
+  streamNameForSubject,
+  subjectRootForEventType,
+} from './event-route-registry';
 import type { EventBusModuleOptions } from './nats.module';
 
 export interface CoreNatsConnectionSnapshot {
@@ -169,6 +177,8 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
   private readonly dlqStreamName: string;
   /** Deliveries before a failing message is dead-lettered (default 5). */
   private readonly dlqAfterDeliveries: number;
+  /** Task 2: the stream owning the telemetry. subject root. */
+  private readonly telemetryStreamName: string;
   private readonly streamReplicas: number;
   private readonly clientId: string;
   private reconnectPolicy: NatsReconnectPolicy | null = null;
@@ -193,6 +203,10 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
     this.streamName = this.configService.get<string>('NATS_STREAM_NAME', DEFAULT_NATS_STREAM_NAME);
     this.dlqStreamName = this.configService.get<string>('NATS_DLQ_STREAM_NAME', 'AQUACULTURE_DLQ');
     this.dlqAfterDeliveries = Number(this.configService.get('NATS_DLQ_AFTER_DELIVERIES', 5));
+    this.telemetryStreamName = this.configService.get<string>(
+      'NATS_TELEMETRY_STREAM_NAME',
+      DEFAULT_TELEMETRY_STREAM_NAME,
+    );
     // JetStream replica count is a property of the NATS DEPLOYMENT TOPOLOGY
     // (how many nodes the cluster has), NOT of the application environment.
     // Coupling it to NODE_ENV/AQUA_ENV (production ⇒ 3) was an architectural
@@ -852,7 +866,9 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
     if (!event.tenantId) {
       return buildSystemEventSubject(event.eventType);
     }
-    return buildTenantEventSubject(event.tenantId, event.eventType);
+    // Task 2 (SENSOR-HIGH-092): high-rate telemetry types publish onto the
+    // telemetry root → AQUACULTURE_TELEMETRY; domain events keep events.
+    return buildRoutedSubject(event.tenantId, event.eventType);
   }
 
   async publish<TEvent extends IEvent>(event: TEvent, options?: PublishOptions): Promise<void> {
@@ -942,7 +958,8 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
     handler: IEventHandler<TEvent>,
     options?: SubscriptionOptions,
   ): Promise<void> {
-    const subject = buildWildcardEventSubject(eventType);
+    // Task 2: wildcard subscriptions route by the same registry as publish.
+    const subject = buildRoutedWildcardSubject(eventType);
     await this.subscribeTo(subject, handler, options);
   }
 
@@ -974,7 +991,11 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
     tenantId: string,
     handler: IEventHandler<TEvent>,
   ): Promise<void> {
-    const subject = buildTenantEventSubject(tenantId, eventType);
+    // Task 2: per-tenant subscriptions route by the same registry.
+    const subject =
+      subjectRootForEventType(eventType) === 'telemetry'
+        ? buildRoutedTenantWildcardSubject(tenantId).replace('.>', `.${eventType}`)
+        : buildTenantEventSubject(tenantId, eventType);
     await this.subscribeTo(subject, handler);
   }
 
@@ -1149,6 +1170,47 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
       });
       this.logger.log(`Created stream ${this.dlqStreamName}`);
     }
+
+    // Task 2 (SENSOR-HIGH-092): the telemetry stream owns the telemetry.
+    // subject root. Boot provisions it with the same create-or-update
+    // discipline — a missing stream at first publish would fail loudly,
+    // but a missing stream at BOOT is the failure you want to see at boot.
+    const telemetryConfig = this.getTelemetryStreamConfig();
+    try {
+      await this.jetStreamManager.streams.info(this.telemetryStreamName);
+      await this.jetStreamManager.streams.update(this.telemetryStreamName, telemetryConfig);
+    } catch {
+      await this.jetStreamManager.streams.add({
+        name: this.telemetryStreamName,
+        ...telemetryConfig,
+      });
+      this.logger.log(`Created stream ${this.telemetryStreamName}`);
+    }
+  }
+
+  /**
+   * Task 2 (SENSOR-HIGH-092): AQUACULTURE_TELEMETRY — the 60-minute outage
+   * buffer for high-rate telemetry, sized by the locked 2K msg/s envelope
+   * (2.000 × ~600-750 B × 3.600 s × 1.2 headroom ≈ 5.2-6.5 GiB; default
+   * 6 GiB until the Task 0.4 measurement replaces the placeholder).
+   *
+   * Discard New on purpose: when the buffer is full the PUBACK fails and
+   * the sidecar/edge backpressure engages — exactly the designed
+   * behaviour. Discard Old would silently evict the OLDEST buffered
+   * readings, converting a visible outage into silent loss.
+   */
+  private getTelemetryStreamConfig(): Partial<StreamConfig> {
+    return {
+      subjects: ['telemetry.>'],
+      retention: RetentionPolicy.Limits,
+      storage: StorageType.File,
+      max_age: 90 * 60 * 1_000_000_000, // 90 minutes in nanoseconds
+      max_bytes: Number(this.configService.get('NATS_TELEMETRY_MAX_BYTES', 6 * 1024 * 1024 * 1024)),
+      max_msg_size: 1024 * 1024,
+      discard: DiscardPolicy.New,
+      duplicate_window: 2 * 60 * 1_000_000_000,
+      num_replicas: 1,
+    };
   }
 
   /**
@@ -1222,10 +1284,18 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
       // Previous approach deleted and recreated, losing ack position on every restart.
       // With stable consumer names (SERVICE_NAME-based), the same durable consumer
       // survives across restarts and scaled replicas share it for load-balanced delivery.
-      await this.jetStreamManager.consumers.add(this.streamName, consumerConfig);
+      //
+      // Task 2: the durable lives on the stream that OWNS the subject —
+      // telemetry.* subscriptions on AQUACULTURE_TELEMETRY, everything else
+      // on the main events stream.
+      const owningStream = streamNameForSubject(subject, {
+        main: this.streamName,
+        telemetry: this.telemetryStreamName,
+      });
+      await this.jetStreamManager.consumers.add(owningStream, consumerConfig);
 
       // Get the consumer and create a pull subscription
-      const consumer = await this.jetStream.consumers.get(this.streamName, consumerName);
+      const consumer = await this.jetStream.consumers.get(owningStream, consumerName);
 
       // Store consumer reference
       this.consumers.set(subject, consumer);
@@ -1421,13 +1491,14 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
     if (
       topic.startsWith('events.') ||
       topic.startsWith('commands.') ||
-      topic.startsWith('queries.')
+      topic.startsWith('queries.') ||
+      topic.startsWith('telemetry.')
     ) {
       return topic;
     }
 
     throw new Error(
-      `NATS subject must be canonical and start with events., commands., or queries.; ` +
+      `NATS subject must be canonical and start with events., commands., queries., or telemetry.; ` +
         `got ${JSON.stringify(topic)}`,
     );
   }

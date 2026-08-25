@@ -21,7 +21,7 @@ groups:
         # The monitoring infrastructure scrape jobs (cAdvisor, node-exporter, the
         # self/alertmanager scrapes) — distinct from app ServiceDown which is
         # scoped to namespace="aquaculture".
-        expr: up{job=~"cadvisor|node-exporter|prometheus-self|alertmanager"} == 0
+        expr: up{job=~"alertmanager|cadvisor|mosquitto-exporter|nats-exporter|node-exporter|observability-service|prometheus-self"} == 0
         for: 3m
         labels:
           severity: critical

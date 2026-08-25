@@ -243,9 +243,6 @@ volumes:
   minio_data:
   mosquitto_data:
   mosquitto_log:
-  # ORPHAN-090: persistence for the monitoring stack (sizes are the operator's call).
-  prometheus_data:
-  alertmanager_data:
 
 services:
   # ===========================================================================
@@ -965,6 +962,7 @@ services:
       MQTT_AUTH_MODE: http
       MQTT_AUTH_SECRET: ${MQTT_AUTH_SECRET:?MQTT_AUTH_SECRET required}
       MQTT_SENSOR_SERVICE_HASH: ${MQTT_SENSOR_SERVICE_HASH:?MQTT_SENSOR_SERVICE_HASH is required}
+      MQTT_EXPORTER_HASH: ${MQTT_EXPORTER_HASH:?MQTT_EXPORTER_HASH is required}
       MQTT_USERNAME: sensor_service
       MQTT_PASSWORD: ${MQTT_SENSOR_SERVICE_PASSWORD:?MQTT_SENSOR_SERVICE_PASSWORD is required}
       # SEC-C02: No hardcoded default — credential encryption key must be provided externally
@@ -1968,95 +1966,3 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
-
-  # ── Monitoring stack (ORPHAN-090) ──────────────────────────────────────────
-  # The droplet exposed every service /metrics but ran NO scraper, so nothing
-  # collected them. These four containers consume the configs that already live
-  # under infrastructure/monitoring/droplet/ (prometheus.yml + the catalog-
-  # GENERATED file_sd/aqua-services.json + rules/ + alertmanager.yml). They are
-  # ADDITIVE — no existing service is touched — and stay on the internal network
-  # only (no host port published; reach the UI via an ssh tunnel).
-  #
-  # INFRA-OWNER DECISIONS PENDING before this is deployed:
-  #   - Prometheus retention/disk (15d default below; size is the operator's call).
-  #   - Alertmanager receivers: alertmanager.yml needs real SMTP/webhook secrets
-  #     before any alert actually notifies.
-  #   - observability-service /metrics is INTERNAL_API_KEY-gated; its scrape job is
-  #     intentionally NOT enabled until that auth header is wired into prometheus.yml.
-  prometheus:
-    logging: *default-logging
-    image: prom/prometheus:v2.54.1
-    container_name: aqua-prometheus
-    restart: unless-stopped
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--storage.tsdb.retention.time=15d'
-      - '--web.enable-lifecycle'
-    volumes:
-      - ./infrastructure/monitoring/droplet/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./infrastructure/monitoring/droplet/rules:/etc/prometheus/rules:ro
-      - ./infrastructure/monitoring/droplet/file_sd:/etc/prometheus/file_sd:ro
-      - prometheus_data:/prometheus
-    networks:
-      - aqua-internal
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-
-  cadvisor:
-    logging: *default-logging
-    image: gcr.io/cadvisor/cadvisor:v0.49.1
-    container_name: aqua-cadvisor
-    restart: unless-stopped
-    volumes:
-      - /:/rootfs:ro
-      - /var/run:/var/run:ro
-      - /sys:/sys:ro
-      - /var/lib/docker/:/var/lib/docker:ro
-    networks:
-      - aqua-internal
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-
-  node-exporter:
-    logging: *default-logging
-    image: prom/node-exporter:v1.8.2
-    container_name: aqua-node-exporter
-    restart: unless-stopped
-    command:
-      - '--path.rootfs=/host'
-      # Without this collector the probe and supervisor textfiles are written
-      # and never read: the metrics exist on disk, no series ever reaches
-      # Prometheus, and every rule that depends on them is decorative.
-      - '--collector.textfile.directory=/var/lib/node_exporter/textfile'
-    volumes:
-      - /:/host:ro,rslave
-      # Same host path the T0 supervisor and the hourly probe runner write to.
-      - /var/lib/node_exporter/textfile:/var/lib/node_exporter/textfile:ro
-    networks:
-      - aqua-internal
-    deploy:
-      resources:
-        limits:
-          memory: 128M
-
-  alertmanager:
-    logging: *default-logging
-    image: prom/alertmanager:v0.27.0
-    container_name: aqua-alertmanager
-    restart: unless-stopped
-    command:
-      - '--config.file=/etc/alertmanager/alertmanager.yml'
-    volumes:
-      - ./infrastructure/monitoring/droplet/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
-      - alertmanager_data:/alertmanager
-    networks:
-      - aqua-internal
-    deploy:
-      resources:
-        limits:
-          memory: 128M

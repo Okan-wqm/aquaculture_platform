@@ -1,6 +1,9 @@
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
+import { DataSource, QueryRunner } from 'typeorm';
+
+const SENSOR_SCHEMA = 'sensor';
 
 /**
  * Granularity tiers for time-bucketed queries.
@@ -8,10 +11,10 @@ import { DataSource } from 'typeorm';
  * 1735900001000-CreateContinuousAggregates.ts.
  */
 export enum TimeBucketGranularity {
-  RAW    = 'sensor_metrics',
-  MIN_1  = 'metrics_1min',
+  RAW = 'sensor_metrics',
+  MIN_1 = 'metrics_1min',
   HOUR_1 = 'metrics_1hour',
-  DAY_1  = 'metrics_1day',
+  DAY_1 = 'metrics_1day',
 }
 
 /**
@@ -54,20 +57,20 @@ export class TimeBucketService {
    * reach the SQL query. A missing entry throws instead of injecting.
    */
   private static readonly TIER_TABLE_MAP: ReadonlyMap<TimeBucketGranularity, string> = new Map([
-    [TimeBucketGranularity.RAW,    'sensor_metrics'],
-    [TimeBucketGranularity.MIN_1,  'metrics_1min'],
+    [TimeBucketGranularity.RAW, 'sensor_metrics'],
+    [TimeBucketGranularity.MIN_1, 'metrics_1min'],
     [TimeBucketGranularity.HOUR_1, 'metrics_1hour'],
-    [TimeBucketGranularity.DAY_1,  'metrics_1day'],
+    [TimeBucketGranularity.DAY_1, 'metrics_1day'],
   ]);
 
   /** Boundaries for automatic tier selection */
   private static readonly TIER_THRESHOLDS = {
     /** Use raw data for spans up to 2 hours */
-    RAW_MAX_MS:    2  * 60 * 60 * 1000,
+    RAW_MAX_MS: 2 * 60 * 60 * 1000,
     /** Use 1-min aggregates for spans up to 7 days */
-    MIN1_MAX_MS:   7  * 24 * 60 * 60 * 1000,
+    MIN1_MAX_MS: 7 * 24 * 60 * 60 * 1000,
     /** Use 1-hour aggregates for spans up to 90 days */
-    HOUR1_MAX_MS:  90 * 24 * 60 * 60 * 1000,
+    HOUR1_MAX_MS: 90 * 24 * 60 * 60 * 1000,
     // Beyond 90 days → metrics_1day
   };
 
@@ -83,8 +86,8 @@ export class TimeBucketService {
     const spanMs = endTime.getTime() - startTime.getTime();
     const t = TimeBucketService.TIER_THRESHOLDS;
 
-    if (spanMs <= t.RAW_MAX_MS)   return TimeBucketGranularity.RAW;
-    if (spanMs <= t.MIN1_MAX_MS)  return TimeBucketGranularity.MIN_1;
+    if (spanMs <= t.RAW_MAX_MS) return TimeBucketGranularity.RAW;
+    if (spanMs <= t.MIN1_MAX_MS) return TimeBucketGranularity.MIN_1;
     if (spanMs <= t.HOUR1_MAX_MS) return TimeBucketGranularity.HOUR_1;
     return TimeBucketGranularity.DAY_1;
   }
@@ -116,14 +119,36 @@ export class TimeBucketService {
       throw new Error(`Unknown tier: ${tier} — not in TIER_TABLE_MAP whitelist`);
     }
 
-    if (tier === TimeBucketGranularity.RAW) {
-      return this.queryRaw(tenantId, sensorId, channelId, tankId, startTime, endTime, limit);
-    }
+    return runInTenantRead(this.dataSource, SENSOR_SCHEMA, tenantId, (queryRunner) => {
+      if (tier === TimeBucketGranularity.RAW) {
+        return this.queryRaw(
+          queryRunner,
+          tenantId,
+          sensorId,
+          channelId,
+          tankId,
+          startTime,
+          endTime,
+          limit,
+        );
+      }
 
-    return this.queryAggregate(tableName, tenantId, sensorId, channelId, tankId, startTime, endTime, limit);
+      return this.queryAggregate(
+        queryRunner,
+        tableName,
+        tenantId,
+        sensorId,
+        channelId,
+        tankId,
+        startTime,
+        endTime,
+        limit,
+      );
+    });
   }
 
   private async queryRaw(
+    queryRunner: QueryRunner,
     tenantId: string,
     sensorId: string | undefined,
     channelId: string | undefined,
@@ -143,17 +168,27 @@ export class TimeBucketService {
         value AS "maxValue",
         1 AS "sampleCount",
         CASE WHEN quality_code >= 192 THEN 100.0 ELSE 0.0 END AS "qualityPct"
-      FROM sensor.sensor_metrics
+      FROM sensor_metrics
       WHERE tenant_id = $1 AND time >= $2 AND time <= $3
     `;
     let p = 4;
-    if (sensorId)  { sql += ` AND sensor_id  = $${p++}`; params.push(sensorId);  }
-    if (channelId) { sql += ` AND channel_id = $${p++}`; params.push(channelId); }
-    if (tankId)    { sql += ` AND tank_id    = $${p++}`; params.push(tankId);    }
+    if (sensorId) {
+      sql += ` AND sensor_id  = $${p++}`;
+      params.push(sensorId);
+    }
+    if (channelId) {
+      sql += ` AND channel_id = $${p++}`;
+      params.push(channelId);
+    }
+    if (tankId) {
+      sql += ` AND tank_id    = $${p++}`;
+      params.push(tankId);
+    }
     sql += ` ORDER BY time DESC LIMIT $${p}`;
     params.push(Math.min(Math.max(1, limit), 10000));
 
-    return this.dataSource.query(sql, params) as Promise<TimeBucketRow[]>;
+    const rows: TimeBucketRow[] = await queryRunner.query(sql, params);
+    return rows;
   }
 
   /**
@@ -165,6 +200,7 @@ export class TimeBucketService {
    *   only possible values are the 4 entries in TIER_TABLE_MAP.
    */
   private async queryAggregate(
+    queryRunner: QueryRunner,
     safeTableName: string,
     tenantId: string,
     sensorId: string | undefined,
@@ -186,16 +222,26 @@ export class TimeBucketService {
         max_value  AS "maxValue",
         sample_count AS "sampleCount",
         quality_pct  AS "qualityPct"
-      FROM sensor.${safeTableName}
+      FROM ${safeTableName}
       WHERE tenant_id = $1 AND bucket >= $2 AND bucket <= $3
     `;
     let p = 4;
-    if (sensorId)  { sql += ` AND sensor_id  = $${p++}`; params.push(sensorId);  }
-    if (channelId) { sql += ` AND channel_id = $${p++}`; params.push(channelId); }
-    if (tankId)    { sql += ` AND tank_id    = $${p++}`; params.push(tankId);    }
+    if (sensorId) {
+      sql += ` AND sensor_id  = $${p++}`;
+      params.push(sensorId);
+    }
+    if (channelId) {
+      sql += ` AND channel_id = $${p++}`;
+      params.push(channelId);
+    }
+    if (tankId) {
+      sql += ` AND tank_id    = $${p++}`;
+      params.push(tankId);
+    }
     sql += ` ORDER BY bucket DESC LIMIT $${p}`;
     params.push(Math.min(Math.max(1, limit), 10000));
 
-    return this.dataSource.query(sql, params) as Promise<TimeBucketRow[]>;
+    const rows: TimeBucketRow[] = await queryRunner.query(sql, params);
+    return rows;
   }
 }

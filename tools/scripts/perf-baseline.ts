@@ -1,387 +1,502 @@
 #!/usr/bin/env -S node --experimental-strip-types --no-warnings=ExperimentalWarning
-//
-// perf-baseline.ts — sensor-service ingestion baseline load generator (Faz 0 PR-B).
-//
-// WHY this script exists
-//   The Rust hybrid migration plan
-//   (docs/plans/sensor-rust-migration/PLAN.md, ADR-025) gates Faz 2 on a
-//   *measured* baseline of the existing NestJS sensor-service ingestion
-//   path. Without numbers, "5-10x faster on the same budget" is a guess.
-//   This script produces those numbers reproducibly.
-//
-// WHAT it does
-//   1. Connects to an MQTT broker as a configurable number of synthetic
-//      tenants × sensors × channels.
-//   2. Publishes JSON sensor metric payloads at a precise rate with
-//      `producer_ts` (epoch-ms) embedded so ingestion latency can be
-//      measured downstream against `now() - producer_ts` in the DB.
-//   3. Holds the rate for a configurable duration and optionally fires a
-//      short 2x burst, matching the protocol in
-//      docs/perf/baseline-2026-04.md.
-//   4. Pulls the sensor-service Prometheus endpoint before/after the run
-//      so RSS, GC counters, and any custom ingestion histograms land in
-//      the JSON report — without coupling this script to the
-//      sensor-service code at all.
-//
-// WHAT it does NOT do
-//   - Spin up infrastructure. Caller is responsible for postgres + redis +
-//     nats + mqtt-broker + sensor-service all being healthy. The runbook
-//     in docs/perf/baseline-2026-04.md says how.
-//   - Read the database. Latency capture requires a SQL query against
-//     `sensor.sensor_metrics` after the run; the runbook prints it
-//     verbatim and the operator pastes the result into the report.
-//   - Tune the MQTT broker, sensor-service connection pool, or batch
-//     processor. Baseline = stock configuration as it ships in
-//     docker-compose.droplet.yml.
-//
-// USAGE
-//   node --experimental-strip-types tools/scripts/perf-baseline.ts \
-//     --broker mqtt://localhost:1883 \
-//     --tenants 50 --sensors-per-tenant 200 --channels-per-sensor 10 \
-//     --rate 5000 --duration 300 --burst-factor 2 --burst-secs 30 \
-//     --metrics-url http://localhost:3000/metrics \
-//     --output docs/perf/runs/2026-04-baseline-5krps.json
-//
-// Memory: feedback_tooling_language.md — TypeScript via Node 22 type-stripping;
-// no Python, no transpile step, no bundler.
+
+import { createHash, randomUUID } from 'node:crypto';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { argv, env, exit, hrtime, stderr, stdout } from 'node:process';
 
 import { connect, type IClientPublishOptions, type MqttClient } from 'mqtt';
-import { randomUUID } from 'node:crypto';
-import { writeFileSync, mkdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { argv, exit, hrtime, env, stdout } from 'node:process';
 
-// ---------- Argument parsing ----------------------------------------------
+type ProfileName = 'sustained' | 'stress';
+
+interface CapacityProfile {
+  readonly rate: number;
+  readonly duration: number;
+}
+
+const CAPACITY_PROFILES: Readonly<Record<ProfileName, CapacityProfile>> = {
+  sustained: { rate: 2_000, duration: 30 * 60 },
+  stress: { rate: 15_000, duration: 5 * 60 },
+};
+
+const TARGET_PAYLOAD_BYTES = 650;
 
 interface Args {
-    broker: string;
-    tenants: number;
-    sensorsPerTenant: number;
-    channelsPerSensor: number;
-    rate: number;
-    duration: number;
-    burstFactor: number;
-    burstSecs: number;
-    metricsUrl: string | null;
-    output: string;
-    qos: 0 | 1;
-    clientId: string;
+  broker: string;
+  profile: ProfileName;
+  tenants: number;
+  sensorsPerTenant: number;
+  channelsPerSensor: number;
+  rate: number;
+  duration: number;
+  metricsUrl: string | null;
+  output: string;
+  qos: 0 | 1;
+  clientId: string;
+  runId: string;
+  workerCount: number;
+  workerIndex: number;
+  dryRun: boolean;
+}
+
+function failArgument(message: string): never {
+  stderr.write(`[perf-baseline] ${message}\n`);
+  exit(2);
+}
+
+function positiveInteger(map: Map<string, string>, key: string, fallback: number): number {
+  const raw = map.get(key);
+  if (raw === undefined) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    failArgument(`--${key} must be a positive integer, got '${raw}'`);
+  }
+  return parsed;
 }
 
 function parseArgs(): Args {
-    const map = new Map<string, string>();
-    for (let i = 2; i < argv.length; i += 2) {
-        const k = argv[i];
-        const v = argv[i + 1];
-        if (!k?.startsWith('--') || v === undefined) {
-            stderr(`unrecognised arg pair near index ${i}: ${k} ${v}`);
-            exit(2);
-        }
-        map.set(k.slice(2), v);
+  const map = new Map<string, string>();
+  for (let index = 2; index < argv.length; index += 2) {
+    const key = argv[index];
+    const value = argv[index + 1];
+    if (!key?.startsWith('--') || value === undefined) {
+      failArgument(`unrecognised arg pair near index ${index}: ${key} ${value}`);
     }
-    const num = (key: string, fallback: number): number => {
-        const raw = map.get(key);
-        if (!raw) return fallback;
-        const parsed = Number(raw);
-        if (!Number.isFinite(parsed)) {
-            stderr(`--${key} must be a finite number, got '${raw}'`);
-            exit(2);
-        }
-        return parsed;
-    };
-    const qosRaw = num('qos', 1);
-    if (qosRaw !== 0 && qosRaw !== 1) {
-        stderr(`--qos must be 0 or 1 (QoS-2 is not part of the baseline protocol)`);
-        exit(2);
-    }
-    return {
-        broker: map.get('broker') ?? 'mqtt://localhost:1883',
-        tenants: num('tenants', 50),
-        sensorsPerTenant: num('sensors-per-tenant', 200),
-        channelsPerSensor: num('channels-per-sensor', 10),
-        rate: num('rate', 5000),
-        duration: num('duration', 300),
-        burstFactor: num('burst-factor', 2),
-        burstSecs: num('burst-secs', 30),
-        metricsUrl: map.get('metrics-url') ?? null,
-        output: map.get('output') ?? `docs/perf/runs/baseline-${Date.now()}.json`,
-        qos: qosRaw,
-        clientId: map.get('client-id') ?? `perf-baseline-${randomUUID().slice(0, 8)}`,
-    };
-}
+    map.set(key.slice(2), value);
+  }
 
-function stderr(msg: string): void {
-    process.stderr.write(`[perf-baseline] ${msg}\n`);
-}
+  if (map.has('rate') || map.has('duration') || map.has('burst-factor') || map.has('burst-secs')) {
+    failArgument(
+      'profile envelope is locked; use --profile sustained (2K x 30m) or stress (15K x 5m)',
+    );
+  }
 
-// ---------- Topic + payload synthesis -------------------------------------
+  const profileValue = map.get('profile') ?? 'sustained';
+  if (profileValue !== 'sustained' && profileValue !== 'stress') {
+    failArgument(`--profile must be sustained or stress, got '${profileValue}'`);
+  }
+  const profile: ProfileName = profileValue;
+  const envelope = CAPACITY_PROFILES[profile];
+  const qosValue = positiveInteger(map, 'qos', 1);
+  if (qosValue !== 1) {
+    failArgument('official readiness profiles require QoS 1');
+  }
+
+  const workerCount = positiveInteger(map, 'worker-count', 1);
+  const workerIndexRaw = map.get('worker-index') ?? '0';
+  const workerIndex = Number(workerIndexRaw);
+  if (!Number.isSafeInteger(workerIndex) || workerIndex < 0 || workerIndex >= workerCount) {
+    failArgument(`--worker-index must be in [0, ${workerCount - 1}], got '${workerIndexRaw}'`);
+  }
+  if (envelope.rate % workerCount !== 0) {
+    failArgument(`profile rate ${envelope.rate} must divide evenly across ${workerCount} workers`);
+  }
+
+  const runId = map.get('run-id') ?? randomUUID();
+  if (workerCount > 1 && !map.has('run-id')) {
+    failArgument('multi-process runs require the same explicit --run-id on every worker');
+  }
+
+  return {
+    broker: map.get('broker') ?? 'mqtt://localhost:1883',
+    profile,
+    tenants: positiveInteger(map, 'tenants', 100),
+    sensorsPerTenant: positiveInteger(map, 'sensors-per-tenant', 200),
+    channelsPerSensor: positiveInteger(map, 'channels-per-sensor', 10),
+    rate: envelope.rate,
+    duration: envelope.duration,
+    metricsUrl: map.get('metrics-url') ?? null,
+    output:
+      map.get('output') ??
+      `docs/perf/runs/100-tenant-${profile}-worker-${workerIndex}-${Date.now()}.json`,
+    qos: qosValue,
+    clientId:
+      map.get('client-id') ?? `capacity-${profile}-${workerIndex}-${randomUUID().slice(0, 8)}`,
+    runId,
+    workerCount,
+    workerIndex,
+    dryRun: map.get('dry-run') === 'true',
+  };
+}
 
 interface Routing {
-    tenants: string[];
-    sensorIds: string[][];
-    channelIds: string[][][];
+  tenants: string[];
+  sensorIds: string[][];
+  channelIds: string[][][];
 }
 
-// Synthetic tenant/sensor/channel UUID space. Stable across runs so that
-// downstream cache and DB rows are reproducible. UUID-v5-style derivation
-// from a deterministic seed keeps allocation cost off the hot path.
-function buildRouting(args: Args): Routing {
-    const tenants: string[] = [];
-    const sensorIds: string[][] = [];
-    const channelIds: string[][][] = [];
-    for (let t = 0; t < args.tenants; t += 1) {
-        const tenantId = uuidFromSeed(`tenant-${t}`);
-        tenants.push(tenantId);
-        const sensorRow: string[] = [];
-        const channelRow: string[][] = [];
-        for (let s = 0; s < args.sensorsPerTenant; s += 1) {
-            const sensorId = uuidFromSeed(`sensor-${t}-${s}`);
-            sensorRow.push(sensorId);
-            const channels: string[] = [];
-            for (let c = 0; c < args.channelsPerSensor; c += 1) {
-                channels.push(uuidFromSeed(`channel-${t}-${s}-${c}`));
-            }
-            channelRow.push(channels);
-        }
-        sensorIds.push(sensorRow);
-        channelIds.push(channelRow);
-    }
-    return { tenants, sensorIds, channelIds };
-}
-
-// Derive a stable UUID-v4-shaped string from a seed. Not RFC-compliant
-// (the variant nibble is fudged) but identical seed -> identical UUID,
-// which is all this test needs.
 function uuidFromSeed(seed: string): string {
-    let h1 = 0xdeadbeef;
-    let h2 = 0x41c6ce57;
-    for (let i = 0; i < seed.length; i += 1) {
-        const ch = seed.charCodeAt(i);
-        h1 = Math.imul(h1 ^ ch, 2654435761);
-        h2 = Math.imul(h2 ^ ch, 1597334677);
+  const hex = createHash('sha256').update(seed).digest('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(
+    17,
+    20,
+  )}-${hex.slice(20, 32)}`;
+}
+
+function buildRouting(args: Args): Routing {
+  const tenants: string[] = [];
+  const sensorIds: string[][] = [];
+  const channelIds: string[][][] = [];
+  for (let tenantIndex = 0; tenantIndex < args.tenants; tenantIndex += 1) {
+    tenants.push(uuidFromSeed(`tenant-${tenantIndex}`));
+    const sensors: string[] = [];
+    const sensorChannels: string[][] = [];
+    for (let sensorIndex = 0; sensorIndex < args.sensorsPerTenant; sensorIndex += 1) {
+      sensors.push(uuidFromSeed(`sensor-${tenantIndex}-${sensorIndex}`));
+      const channels: string[] = [];
+      for (let channelIndex = 0; channelIndex < args.channelsPerSensor; channelIndex += 1) {
+        channels.push(uuidFromSeed(`channel-${tenantIndex}-${sensorIndex}-${channelIndex}`));
+      }
+      sensorChannels.push(channels);
     }
-    h1 = (h1 ^ (h1 >>> 16)) >>> 0;
-    h2 = (h2 ^ (h2 >>> 13)) >>> 0;
-    const hex = (n: number, w: number) => n.toString(16).padStart(w, '0');
-    const a = hex(h1, 8);
-    const b = hex(h2 & 0xffff, 4);
-    const c = `4${hex((h2 >>> 16) & 0x0fff, 3)}`;
-    const d = `${hex(0x8 + (h1 & 0x3), 1)}${hex((h1 >>> 4) & 0x0fff, 3)}`;
-    const e = `${hex(h1, 8)}${hex(h2, 4)}`.slice(0, 12);
-    return `${a}-${b}-${c}-${d}-${e}`;
+    sensorIds.push(sensors);
+    channelIds.push(sensorChannels);
+  }
+  return { tenants, sensorIds, channelIds };
 }
 
-interface Picked {
-    tenantIdx: number;
-    sensorIdx: number;
-    channelIdx: number;
+function buildSampleRouting(): Routing {
+  return {
+    tenants: [uuidFromSeed('tenant-0')],
+    sensorIds: [[uuidFromSeed('sensor-0-0')]],
+    channelIds: [[[uuidFromSeed('channel-0-0-0')]]],
+  };
 }
 
-function pickRoute(routing: Routing, args: Args, n: number): Picked {
-    // Round-robin distribution keeps the load even across all
-    // tenants/sensors/channels rather than skewing toward a hot key.
-    const tenantIdx = n % args.tenants;
-    const sensorIdx = Math.floor(n / args.tenants) % args.sensorsPerTenant;
-    const channelIdx = Math.floor(n / (args.tenants * args.sensorsPerTenant)) % args.channelsPerSensor;
-    return { tenantIdx, sensorIdx, channelIdx };
+function sourceEventId(runId: string, globalSequence: number): string {
+  const runHex = runId.replaceAll('-', '').slice(0, 16).padEnd(16, '0');
+  const sequenceHex = globalSequence.toString(16).padStart(16, '0');
+  const hex = `${runHex}${sequenceHex}`;
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(
+    17,
+    20,
+  )}-${hex.slice(20, 32)}`;
 }
 
-// ---------- Run loop ------------------------------------------------------
+interface PickedRoute {
+  tenantIndex: number;
+  sensorIndex: number;
+  channelIndex: number;
+}
+
+function pickRoute(routing: Routing, args: Args, globalSequence: number): PickedRoute {
+  return {
+    tenantIndex: globalSequence % routing.tenants.length,
+    sensorIndex: Math.floor(globalSequence / args.tenants) % args.sensorsPerTenant,
+    channelIndex:
+      Math.floor(globalSequence / (args.tenants * args.sensorsPerTenant)) % args.channelsPerSensor,
+  };
+}
+
+interface TelemetryPayload {
+  tenantId: string;
+  sensorId: string;
+  channelId: string;
+  value: number;
+  quality: number;
+  sourceEventId: string;
+  sourceTimestamp: string;
+  sourceSequence: number;
+  padding: string;
+}
+
+interface GeneratedMessage {
+  topic: string;
+  payload: TelemetryPayload;
+  encodedPayload: string;
+  payloadBytes: number;
+  mqttWireBytes: number;
+  tenantIndex: number;
+}
+
+function mqttRemainingLengthBytes(value: number): number {
+  let remaining = value;
+  let bytes = 0;
+  do {
+    bytes += 1;
+    remaining = Math.floor(remaining / 128);
+  } while (remaining > 0);
+  return bytes;
+}
+
+function mqttPublishWireBytes(topic: string, payloadBytes: number, qos: 0 | 1): number {
+  const topicBytes = Buffer.byteLength(topic);
+  const remainingLength = 2 + topicBytes + (qos === 1 ? 2 : 0) + payloadBytes;
+  return 1 + mqttRemainingLengthBytes(remainingLength) + remainingLength;
+}
+
+function generateMessage(routing: Routing, args: Args, localSequence: number): GeneratedMessage {
+  const globalSequence = localSequence * args.workerCount + args.workerIndex;
+  const route = pickRoute(routing, args, globalSequence);
+  const tenantId = routing.tenants[route.tenantIndex]!;
+  const sensorId = routing.sensorIds[route.tenantIndex]![route.sensorIndex]!;
+  const channelId = routing.channelIds[route.tenantIndex]![route.sensorIndex]![route.channelIndex]!;
+  const topic = `sensors/${tenantId}/${sensorId}/data`;
+  const payload: TelemetryPayload = {
+    tenantId,
+    sensorId,
+    channelId,
+    value: 20 + (globalSequence % 100) / 10,
+    quality: 1,
+    sourceEventId: sourceEventId(args.runId, globalSequence),
+    sourceTimestamp: new Date().toISOString(),
+    sourceSequence: globalSequence,
+    padding: '',
+  };
+  let encodedPayload = JSON.stringify(payload);
+  const baseBytes = Buffer.byteLength(encodedPayload);
+  if (baseBytes < TARGET_PAYLOAD_BYTES) {
+    payload.padding = 'x'.repeat(TARGET_PAYLOAD_BYTES - baseBytes);
+    encodedPayload = JSON.stringify(payload);
+  }
+  const payloadBytes = Buffer.byteLength(encodedPayload);
+  return {
+    topic,
+    payload,
+    encodedPayload,
+    payloadBytes,
+    mqttWireBytes: mqttPublishWireBytes(topic, payloadBytes, args.qos),
+    tenantIndex: route.tenantIndex,
+  };
+}
 
 interface Counters {
-    publishedAttempted: number;
-    publishedAck: number;
-    publishedError: number;
-    rateSnapshots: { wallSec: number; sentSinceLast: number }[];
-    startedAtMs: number;
-    finishedAtMs: number;
+  attempted: number;
+  acknowledged: number;
+  rejected: number;
+  payloadBytes: number;
+  mqttWireBytes: number;
+  tenantAttempted: number[];
+  rateSnapshots: Array<{ wallSeconds: number; attemptedSinceLast: number }>;
 }
 
-async function publishAtRate(
-    client: MqttClient,
-    args: Args,
-    routing: Routing,
-    rate: number,
-    durationSec: number,
-    counters: Counters,
-    phaseLabel: string,
+function sleep(milliseconds: number): Promise<void> {
+  return new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds));
+}
+
+async function publishProfile(
+  client: MqttClient,
+  args: Args,
+  routing: Routing,
+  counters: Counters,
 ): Promise<void> {
-    const intervalNs = BigInt(Math.floor(1_000_000_000 / rate));
-    const startNs = hrtime.bigint();
-    const endNs = startNs + BigInt(durationSec) * 1_000_000_000n;
-    let sent = 0;
-    let lastSnapshotNs = startNs;
-    let lastSnapshotSent = 0;
+  const workerRate = args.rate / args.workerCount;
+  const plannedMessages = workerRate * args.duration;
+  const startedAt = hrtime.bigint();
+  let lastSnapshotSecond = 0;
+  let lastSnapshotAttempted = 0;
+  const publishOptions: IClientPublishOptions = { qos: args.qos, retain: false };
 
-    const opts: IClientPublishOptions = { qos: args.qos, retain: false };
+  while (counters.attempted < plannedMessages) {
+    const elapsedNanoseconds = hrtime.bigint() - startedAt;
+    const elapsedSeconds = Number(elapsedNanoseconds) / 1_000_000_000;
+    if (elapsedSeconds >= args.duration) break;
 
-    while (true) {
-        const targetNs = startNs + intervalNs * BigInt(sent);
-        const nowNs = hrtime.bigint();
-        if (targetNs > nowNs) {
-            const sleepMs = Number(targetNs - nowNs) / 1_000_000;
-            // Cooperative pacing — sleep up to ~1ms so the event loop can
-            // drain ack callbacks before we queue more.
-            await sleep(Math.min(sleepMs, 1));
-            continue;
-        }
-        if (nowNs >= endNs) break;
-
-        const route = pickRoute(routing, args, sent);
-        const tenantId = routing.tenants[route.tenantIdx]!;
-        const sensorId = routing.sensorIds[route.tenantIdx]![route.sensorIdx]!;
-        const channelId = routing.channelIds[route.tenantIdx]![route.sensorIdx]![route.channelIdx]!;
-
-        // Topic shape mirrors the existing sensor-service MQTT contract
-        // (apps/sensor-service/src/ingestion/ingestion-mqtt-listener.service.ts):
-        //   sensors/<tenant>/<sensor>/data
-        const topic = `sensors/${tenantId}/${sensorId}/data`;
-
-        const payload = JSON.stringify({
-            tenantId,
-            sensorId,
-            channelId,
-            value: 20 + ((sent % 100) / 10), // synthetic, deterministic
-            quality: 1,
-            producerTs: Date.now(),
-        });
-
-        counters.publishedAttempted += 1;
-        sent += 1;
-
-        client.publish(topic, payload, opts, (err) => {
-            if (err) {
-                counters.publishedError += 1;
-            } else {
-                counters.publishedAck += 1;
-            }
-        });
-
-        // 1-second rate snapshot for the report.
-        if (nowNs - lastSnapshotNs >= 1_000_000_000n) {
-            const wallSec = Number(nowNs - startNs) / 1_000_000_000;
-            counters.rateSnapshots.push({
-                wallSec: Number(wallSec.toFixed(3)),
-                sentSinceLast: sent - lastSnapshotSent,
-            });
-            stdout.write(
-                `[${phaseLabel}] t=${wallSec.toFixed(1)}s sent=${sent} (${sent - lastSnapshotSent}/s) acked=${counters.publishedAck} err=${counters.publishedError}\n`,
-            );
-            lastSnapshotNs = nowNs;
-            lastSnapshotSent = sent;
-        }
+    const shouldHaveAttempted = Math.min(
+      plannedMessages,
+      Math.floor(elapsedSeconds * workerRate) + 1,
+    );
+    while (counters.attempted < shouldHaveAttempted) {
+      const message = generateMessage(routing, args, counters.attempted);
+      counters.attempted += 1;
+      counters.payloadBytes += message.payloadBytes;
+      counters.mqttWireBytes += message.mqttWireBytes;
+      counters.tenantAttempted[message.tenantIndex] =
+        (counters.tenantAttempted[message.tenantIndex] ?? 0) + 1;
+      client.publish(message.topic, message.encodedPayload, publishOptions, (error) => {
+        if (error) counters.rejected += 1;
+        else counters.acknowledged += 1;
+      });
     }
-}
 
-function sleep(ms: number): Promise<void> {
-    return new Promise((res) => setTimeout(res, ms));
+    const wholeSecond = Math.floor(elapsedSeconds);
+    if (wholeSecond > lastSnapshotSecond) {
+      const attemptedSinceLast = counters.attempted - lastSnapshotAttempted;
+      counters.rateSnapshots.push({ wallSeconds: wholeSecond, attemptedSinceLast });
+      stdout.write(
+        `[${args.profile}:${args.workerIndex}] t=${wholeSecond}s ` +
+          `attempted=${counters.attempted} acked=${counters.acknowledged} ` +
+          `rejected=${counters.rejected}\n`,
+      );
+      lastSnapshotSecond = wholeSecond;
+      lastSnapshotAttempted = counters.attempted;
+    }
+    await sleep(1);
+  }
 }
-
-// ---------- Prometheus snapshot ------------------------------------------
 
 interface MetricsSnapshot {
-    fetchedAtMs: number;
-    raw: string | null;
-    error: string | null;
+  fetchedAt: string;
+  raw: string | null;
+  error: string | null;
+}
+
+function emptyObservationTemplate(): object {
+  return {
+    brokerPersistenceBytesDelta: null,
+    jetStreamStoredBytesDelta: null,
+    jetStreamStoredEventsDelta: null,
+    fanOutEventsPerMessage: null,
+    rowsPerMessage: null,
+    postgresHeapBytesDelta: null,
+    postgresIndexBytesDelta: null,
+    postgresWalBytesDelta: null,
+  };
 }
 
 async function snapshotMetrics(url: string | null): Promise<MetricsSnapshot> {
-    const fetchedAtMs = Date.now();
-    if (!url) return { fetchedAtMs, raw: null, error: 'no metrics-url provided' };
-    try {
-        const resp = await fetch(url, { signal: AbortSignal.timeout(5_000) });
-        if (!resp.ok) {
-            return { fetchedAtMs, raw: null, error: `HTTP ${resp.status}` };
-        }
-        return { fetchedAtMs, raw: await resp.text(), error: null };
-    } catch (e) {
-        return { fetchedAtMs, raw: null, error: (e as Error).message };
+  const fetchedAt = new Date().toISOString();
+  if (!url) return { fetchedAt, raw: null, error: 'no metrics-url provided' };
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(5_000) });
+    if (!response.ok) {
+      return { fetchedAt, raw: null, error: `HTTP ${response.status}` };
     }
+    return { fetchedAt, raw: await response.text(), error: null };
+  } catch (error) {
+    return {
+      fetchedAt,
+      raw: null,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
-// ---------- Main ----------------------------------------------------------
+function dryRunContract(args: Args, routing: Routing): object {
+  const sample = generateMessage(routing, args, 0);
+  return {
+    profile: args.profile,
+    candidateSizing: true,
+    tenants: args.tenants,
+    rate: args.rate,
+    duration: args.duration,
+    workerCount: args.workerCount,
+    workerIndex: args.workerIndex,
+    sample: {
+      topic: sample.topic,
+      payloadBytes: sample.payloadBytes,
+      mqttWireBytes: sample.mqttWireBytes,
+      payload: sample.payload,
+    },
+    measurements: {
+      M: { unit: 'mqtt_messages_per_second' },
+      E: { unit: 'child_events_per_second' },
+      R: { unit: 'metric_rows_per_minute' },
+    },
+    observationTemplate: emptyObservationTemplate(),
+  };
+}
 
 async function main(): Promise<void> {
-    const args = parseArgs();
-    stderr(`broker=${args.broker} tenants=${args.tenants} sensors=${args.sensorsPerTenant} channels=${args.channelsPerSensor}`);
-    stderr(`rate=${args.rate}/s duration=${args.duration}s burst=${args.burstFactor}x for ${args.burstSecs}s qos=${args.qos}`);
+  const args = parseArgs();
+  const routing = args.dryRun ? buildSampleRouting() : buildRouting(args);
+  if (args.dryRun) {
+    stdout.write(`${JSON.stringify(dryRunContract(args, routing))}\n`);
+    return;
+  }
 
-    const routing = buildRouting(args);
-    stderr(`routing built — ${routing.tenants.length * args.sensorsPerTenant * args.channelsPerSensor} unique (tenant,sensor,channel) tuples`);
+  stderr.write(
+    `[perf-baseline] candidate profile=${args.profile} total-rate=${args.rate}/s ` +
+      `duration=${args.duration}s tenants=${args.tenants} worker=${args.workerIndex + 1}/${args.workerCount}\n`,
+  );
+  const client = connect(args.broker, {
+    clientId: args.clientId,
+    clean: true,
+    reconnectPeriod: 0,
+    connectTimeout: 5_000,
+    username: env.MQTT_USERNAME,
+    password: env.MQTT_PASSWORD,
+  });
+  await new Promise<void>((resolveConnect, rejectConnect) => {
+    client.once('connect', resolveConnect);
+    client.once('error', rejectConnect);
+  });
 
-    const client = connect(args.broker, {
-        clientId: args.clientId,
-        clean: true,
-        reconnectPeriod: 0,
-        connectTimeout: 5_000,
-        username: env.MQTT_USERNAME,
-        password: env.MQTT_PASSWORD,
-    });
+  const counters: Counters = {
+    attempted: 0,
+    acknowledged: 0,
+    rejected: 0,
+    payloadBytes: 0,
+    mqttWireBytes: 0,
+    tenantAttempted: Array.from({ length: args.tenants }, () => 0),
+    rateSnapshots: [],
+  };
+  const startedAt = new Date();
+  const beforeMetrics = await snapshotMetrics(args.metricsUrl);
+  await publishProfile(client, args, routing, counters);
 
-    await new Promise<void>((res, rej) => {
-        client.once('connect', () => res());
-        client.once('error', (e) => rej(e));
-    });
-    stderr(`connected as ${args.clientId}`);
+  const drainDeadline = Date.now() + 30_000;
+  while (
+    counters.attempted > counters.acknowledged + counters.rejected &&
+    Date.now() < drainDeadline
+  ) {
+    await sleep(100);
+  }
+  await new Promise<void>((resolveEnd) => client.end(false, {}, resolveEnd));
+  const finishedAt = new Date();
+  const afterMetrics = await snapshotMetrics(args.metricsUrl);
+  const unclassified = counters.attempted - counters.acknowledged - counters.rejected;
+  const elapsedSeconds = (finishedAt.getTime() - startedAt.getTime()) / 1_000;
+  const report = {
+    schemaVersion: 1,
+    scriptVersion: '1.0.0',
+    candidateSizing: true,
+    profile: args.profile,
+    runId: args.runId,
+    worker: { index: args.workerIndex, count: args.workerCount },
+    envelope: { totalRate: args.rate, durationSeconds: args.duration, tenants: args.tenants },
+    timing: { startedAt: startedAt.toISOString(), finishedAt: finishedAt.toISOString() },
+    measurements: {
+      M: {
+        unit: 'mqtt_messages_per_second',
+        planned: args.rate,
+        achievedByWorker: counters.attempted / elapsedSeconds,
+        attempted: counters.attempted,
+        acknowledged: counters.acknowledged,
+        rejected: counters.rejected,
+        unclassified,
+        payloadBytes: counters.payloadBytes,
+        mqttWireBytes: counters.mqttWireBytes,
+      },
+      E: {
+        unit: 'child_events_per_second',
+        observed: null,
+        evidenceRequired: 'JetStream child event count and stored-byte delta',
+      },
+      R: {
+        unit: 'metric_rows_per_minute',
+        observed: null,
+        evidenceRequired: 'tenant-local committed metric row delta',
+      },
+    },
+    observationTemplate: emptyObservationTemplate(),
+    tenantDistribution: counters.tenantAttempted.map((attempted, tenantIndex) => ({
+      tenantId: routing.tenants[tenantIndex],
+      attempted,
+    })),
+    rateSnapshots: counters.rateSnapshots,
+    beforeMetrics,
+    afterMetrics,
+    gate: {
+      everyAttemptClassified: unclassified === 0,
+      generatorCompletedEnvelope:
+        counters.attempted === (args.rate / args.workerCount) * args.duration,
+      high005Closable: false,
+      reason: 'candidate sizing only; HIGH-005 closes at Task 6 external load gates',
+    },
+  };
 
-    const counters: Counters = {
-        publishedAttempted: 0,
-        publishedAck: 0,
-        publishedError: 0,
-        rateSnapshots: [],
-        startedAtMs: Date.now(),
-        finishedAtMs: 0,
-    };
-
-    const beforeMetrics = await snapshotMetrics(args.metricsUrl);
-
-    await publishAtRate(client, args, routing, args.rate, args.duration, counters, 'sustained');
-
-    if (args.burstSecs > 0 && args.burstFactor > 1) {
-        const burstRate = Math.round(args.rate * args.burstFactor);
-        stderr(`entering burst phase: ${burstRate}/s for ${args.burstSecs}s`);
-        await publishAtRate(client, args, routing, burstRate, args.burstSecs, counters, 'burst');
-    }
-
-    counters.finishedAtMs = Date.now();
-    const afterMetrics = await snapshotMetrics(args.metricsUrl);
-
-    // Drain — wait for in-flight QoS-1 acks before disconnecting.
-    stderr('draining acks...');
-    const drainStartMs = Date.now();
-    while (
-        counters.publishedAttempted > counters.publishedAck + counters.publishedError &&
-        Date.now() - drainStartMs < 30_000
-    ) {
-        await sleep(100);
-    }
-
-    await new Promise<void>((res) => client.end(false, {}, () => res()));
-    stderr('disconnected');
-
-    const report = {
-        scriptVersion: '0.1.0',
-        args,
-        counters,
-        ratePlanned: args.rate,
-        rateAchievedAvg:
-            counters.publishedAttempted /
-            ((counters.finishedAtMs - counters.startedAtMs) / 1000),
-        beforeMetrics,
-        afterMetrics,
-    };
-
-    const outPath = resolve(process.cwd(), args.output);
-    mkdirSync(dirname(outPath), { recursive: true });
-    writeFileSync(outPath, JSON.stringify(report, null, 2));
-    stderr(`report written -> ${outPath}`);
-    stderr(
-        `summary: attempted=${counters.publishedAttempted} acked=${counters.publishedAck} ` +
-            `err=${counters.publishedError} avg=${report.rateAchievedAvg.toFixed(0)}/s`,
-    );
+  const outputPath = resolve(process.cwd(), args.output);
+  mkdirSync(dirname(outputPath), { recursive: true });
+  writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`);
+  stderr.write(`[perf-baseline] report written -> ${outputPath}\n`);
+  if (!report.gate.everyAttemptClassified || !report.gate.generatorCompletedEnvelope) {
+    throw new Error('capacity profile did not complete with every attempted message classified');
+  }
 }
 
-main().catch((e: unknown) => {
-    stderr(`fatal: ${(e as Error).stack ?? String(e)}`);
-    exit(1);
+main().catch((error: unknown) => {
+  const detail = error instanceof Error ? (error.stack ?? error.message) : String(error);
+  stderr.write(`[perf-baseline] fatal: ${detail}\n`);
+  exit(1);
 });

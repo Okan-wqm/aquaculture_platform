@@ -65,6 +65,7 @@ function createMockConfigService(overrides: Record<string, unknown> = {}): Confi
     MQTT_BACKEND_SERVICE_HASH: undefined,
     MQTT_SENSOR_SERVICE_HASH: undefined,
     MQTT_ALERT_SERVICE_HASH: undefined,
+    MQTT_EXPORTER_HASH: undefined,
     ...overrides,
   };
   return {
@@ -116,10 +117,7 @@ function createService(
 }
 
 // Helper: make the dataSource.query mock return a device for cross-schema lookup
-function stubFindDevice(
-  ds: jest.Mocked<DataSource>,
-  device: EdgeDevice | null,
-): void {
+function stubFindDevice(ds: jest.Mocked<DataSource>, device: EdgeDevice | null): void {
   // First call: schema list
   // Second call: UNION ALL query
   ds.query
@@ -147,10 +145,7 @@ function stubFindDevice(
  * Stub findDeviceAcrossSchemas to always return a given device.
  * Repeated calls will re-use the same data (using mockResolvedValue, not Once).
  */
-function stubFindDeviceRepeated(
-  ds: jest.Mocked<DataSource>,
-  device: EdgeDevice | null,
-): void {
+function stubFindDeviceRepeated(ds: jest.Mocked<DataSource>, device: EdgeDevice | null): void {
   ds.query.mockImplementation((sql: string) => {
     if (typeof sql === 'string' && sql.includes('information_schema.schemata')) {
       return Promise.resolve([{ schema_name: 'tenant_aaaaaaaaaaaaaaaa' }]);
@@ -455,6 +450,20 @@ describe('MqttAuthService', () => {
       const topic = `tenants/${TENANT_A}/sensors/s1/data`;
       const result = await service.checkTopicAccess('alert_service', topic, 2);
       expect(result).toBe(false);
+    });
+
+    it('mqtt_exporter should only read Mosquitto $SYS topics', async () => {
+      const { service } = createService();
+
+      await expect(
+        service.checkTopicAccess('mqtt_exporter', '$SYS/broker/uptime', 1),
+      ).resolves.toBe(true);
+      await expect(
+        service.checkTopicAccess('mqtt_exporter', '$SYS/broker/uptime', 2),
+      ).resolves.toBe(false);
+      await expect(
+        service.checkTopicAccess('mqtt_exporter', `tenants/${TENANT_A}/sensors/s1/data`, 1),
+      ).resolves.toBe(false);
     });
 
     it('unknown service account should be denied', async () => {

@@ -59,6 +59,7 @@ services:
       - ./infrastructure/monitoring/droplet/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./infrastructure/monitoring/droplet/rules:/etc/prometheus/rules:ro
       - ./infrastructure/monitoring/droplet/file_sd:/etc/prometheus/file_sd:ro
+      - ${OBSERVABILITY_PROMETHEUS_CREDENTIAL_FILE:?required}:/run/secrets/observability_internal_api_key:ro
       - prometheus-data:/prometheus
     networks: [monitoring, aqua-internal, aqua-network]
     ports:
@@ -107,10 +108,12 @@ services:
       - '--path.sysfs=/host/sys'
       - '--path.rootfs=/host/root'
       - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+      - '--collector.textfile.directory=/var/lib/node_exporter/textfile'
     volumes:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - /:/host/root:ro,rslave
+      - /var/lib/node_exporter/textfile:/var/lib/node_exporter/textfile:ro
     networks: [monitoring]
     read_only: true
     oom_score_adj: 500
@@ -138,5 +141,45 @@ services:
     oom_score_adj: 500
     mem_limit: 160m
     cpus: 0.40
+    security_opt:
+      - no-new-privileges:true
+
+  nats-exporter:
+    image: natsio/prometheus-nats-exporter:0.20.2
+    container_name: aqua-nats-exporter
+    profiles: [monitoring, monitoring-full]
+    restart: unless-stopped
+    command:
+      - '-varz'
+      - '-connz'
+      - '-healthz'
+      - '-jsz=all'
+      - 'http://nats:8222'
+    networks: [monitoring, aqua-internal]
+    read_only: true
+    oom_score_adj: 500
+    mem_limit: 64m
+    cpus: 0.15
+    security_opt:
+      - no-new-privileges:true
+
+  mosquitto-exporter:
+    image: ghcr.io/d0ugal/mosquitto-exporter:v0.2.48
+    container_name: aqua-mosquitto-exporter
+    profiles: [monitoring, monitoring-full]
+    restart: unless-stopped
+    environment:
+      MOSQUITTO_BROKER_ENDPOINT: tcp://mosquitto:1883
+      MOSQUITTO_USERNAME: mqtt_exporter
+      MOSQUITTO_PASSWORD: ${MQTT_EXPORTER_PASSWORD:?required}
+      MOSQUITTO_CLIENT_ID: aqua-mosquitto-exporter
+      LOG_FORMAT: json
+    networks: [monitoring, aqua-internal]
+    read_only: true
+    tmpfs:
+      - /tmp
+    oom_score_adj: 500
+    mem_limit: 64m
+    cpus: 0.15
     security_opt:
       - no-new-privileges:true

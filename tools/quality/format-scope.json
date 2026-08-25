@@ -23858,6 +23858,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/aggregation/__tests__/time-bucket.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/aggregation/time-bucket.service.ts",
       "prettier_managed": true
     },
@@ -26394,6 +26400,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/sensor/services/__tests__/data-quality.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/sensor/services/__tests__/metric-query.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -44054,6 +44066,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/sensor-metric-reader-tenant-boundary.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/sensor-no-forged-user-payload.spec.ts",
       "prettier_managed": true
     },
@@ -45302,6 +45320,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/gates/npm-audit.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/perf-baseline-contract.spec.ts",
       "prettier_managed": true
     },
     {

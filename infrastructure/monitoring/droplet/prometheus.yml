@@ -32,14 +32,39 @@ scrape_configs:
 
   # Application /metrics — catalog-generated file_sd. The target labels (app,
   # namespace=aquaculture, criticality) are baked into the file_sd, so the
-  # alert rules' `by (app)` + namespace selectors resolve. B1 (OBS-HIGH-001)
-  # made every backend's GET /metrics @Public, so no per-target auth is needed.
+  # alert rules' `by (app)` + namespace selectors resolve. The guarded
+  # observability-service endpoint is dropped here and scraped by the
+  # authenticated job below.
   - job_name: aqua-services
     metrics_path: /metrics
     file_sd_configs:
       - files:
           - /etc/prometheus/file_sd/aqua-services.json
         refresh_interval: 60s
+    relabel_configs:
+      - source_labels: [app]
+        regex: observability-service
+        action: drop
+
+  - job_name: observability-service
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials_file: /run/secrets/observability_internal_api_key
+    static_configs:
+      - targets: ['observability-service:3009']
+        labels:
+          app: observability-service
+          namespace: aquaculture
+          criticality: warning
+
+  - job_name: nats-exporter
+    static_configs:
+      - targets: ['nats-exporter:7777']
+
+  - job_name: mosquitto-exporter
+    static_configs:
+      - targets: ['mosquitto-exporter:9234']
 
   # Host + container metrics for the resource rules (cAdvisor labels containers
   # by `name`; node-exporter for host-level capacity).

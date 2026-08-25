@@ -253,4 +253,27 @@ describe('alerts can actually be delivered', () => {
 
     expect(offenders).toEqual([]);
   });
+
+  it('pages on the Task 0 host, broker and queue capacity signals', () => {
+    const rules = new Map(allRules().map(({ rule }) => [rule.alert, rule.expr ?? '']));
+
+    expect(rules.get('HostFilesystemCapacityHigh')).toMatch(/node_filesystem_avail_bytes/);
+    expect(rules.get('HostInodeCapacityHigh')).toMatch(/node_filesystem_files_free/);
+    expect(rules.get('HostDiskIopsSaturated')).toMatch(/node_disk_io_time_seconds_total/);
+    expect(rules.get('MosquittoMessagesDropped')).toMatch(/broker_publish_messages_dropped/);
+    expect(rules.get('MosquittoStoredQueueHigh')).toMatch(/broker_messages_stored/);
+    expect(rules.get('JetStreamStorageCapacityHigh')).toMatch(
+      /jetstream_server_total_message_bytes/,
+    );
+    expect(rules.get('JetStreamConsumerBacklog')).toMatch(/jetstream_consumer_num_pending/);
+    expect(rules.get('JetStreamAckPendingHigh')).toMatch(/jetstream_consumer_num_ack_pending/);
+  });
+
+  it('treats every newly wired internal scrape as monitoring infrastructure', () => {
+    const targetDown = allRules().find(({ rule }) => rule.alert === 'MonitoringTargetDown');
+
+    expect(targetDown?.rule.expr).toMatch(/observability-service/);
+    expect(targetDown?.rule.expr).toMatch(/nats-exporter/);
+    expect(targetDown?.rule.expr).toMatch(/mosquitto-exporter/);
+  });
 });

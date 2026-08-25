@@ -54,3 +54,44 @@ groups:
           summary: 'High CPU usage on {{ $labels.name }}'
           description: '{{ $labels.name }} is using more than 80% of its CPU limit for 10 minutes.'
           runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/high-cpu-usage.md'
+
+      - alert: HostFilesystemCapacityHigh
+        expr: |
+          1 - (
+            node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"}
+            /
+            node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"}
+          ) > 0.70
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Host filesystem {{ $labels.mountpoint }} exceeds the readiness capacity gate'
+          description: 'Used filesystem capacity has remained above 70% for 10 minutes; new telemetry entitlement activation must stop.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/dataflow-integrity.md'
+
+      - alert: HostInodeCapacityHigh
+        expr: |
+          1 - (
+            node_filesystem_files_free{fstype!~"tmpfs|overlay|squashfs"}
+            /
+            node_filesystem_files{fstype!~"tmpfs|overlay|squashfs"}
+          ) > 0.70
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Host filesystem {{ $labels.mountpoint }} exceeds the inode gate'
+          description: 'Used inode capacity has remained above 70% for 10 minutes; broker persistence can fail before byte capacity is exhausted.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/dataflow-integrity.md'
+
+      - alert: HostDiskIopsSaturated
+        expr: |
+          rate(node_disk_io_time_seconds_total{device!~"loop.*|ram.*"}[5m]) > 0.70
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Host disk {{ $labels.device }} is busy above the readiness gate'
+          description: 'Disk busy time has remained above 70% for 10 minutes; investigate WAL, JetStream and MQTT persistence pressure.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/dataflow-integrity.md'

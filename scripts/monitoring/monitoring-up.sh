@@ -20,9 +20,9 @@ COMPOSE_FILE="$REPO_ROOT/docker-compose.monitoring.yml"
 PROJECT="aqua-monitoring"
 PROFILE="${MONITORING_PROFILE:-monitoring}"
 
-# Tier-1 floors (KiB). Core: ~640M cap + headroom => 1.25 GiB MemAvailable.
+# Tier-1 floors (KiB). Core: ~768M cap + headroom => 1.5 GiB MemAvailable.
 # Full (grafana/loki/alloy): a 16GB-class droplet => 15 GiB MemTotal.
-readonly CORE_FLOOR_KIB=$((1280 * 1024))
+readonly CORE_FLOOR_KIB=$((1536 * 1024))
 readonly FULL_FLOOR_KIB=$((15 * 1024 * 1024))
 
 mem_available_kib() { awk '/^MemAvailable:/ {print $2}' /proc/meminfo; }
@@ -59,6 +59,19 @@ if [ "$PROFILE" = "monitoring-full" ]; then
   : "${MONITORING_FULL_ACK:?monitoring-full requires MONITORING_FULL_ACK=<ticket> for the audit trail}"
   echo "monitoring-full activation acknowledged: $MONITORING_FULL_ACK"
 fi
+
+# Prometheus accepts an Authorization credentials_file, while the
+# observability-service guard accepts the equivalent Bearer header. Persist the
+# credential outside the checkout so a container restart never depends on a
+# secret committed to or rendered inside the repository.
+: "${OBSERVABILITY_INTERNAL_API_KEY:?set OBSERVABILITY_INTERNAL_API_KEY for the guarded scrape}"
+monitoring_state_home="${XDG_STATE_HOME:-$HOME/.local/state}/aqua-monitoring"
+mkdir -p "$monitoring_state_home"
+chmod 700 "$monitoring_state_home"
+OBSERVABILITY_PROMETHEUS_CREDENTIAL_FILE="$monitoring_state_home/observability-api-key"
+umask 077
+printf '%s\n' "$OBSERVABILITY_INTERNAL_API_KEY" > "$OBSERVABILITY_PROMETHEUS_CREDENTIAL_FILE"
+export OBSERVABILITY_PROMETHEUS_CREDENTIAL_FILE
 
 # Render alertmanager webhook endpoints from secrets (idempotent) before up.
 if [ -x "$SCRIPT_DIR/render-configs.sh" ]; then

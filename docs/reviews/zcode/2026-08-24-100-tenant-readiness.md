@@ -90,6 +90,8 @@ Birleşik v4 belge dış worktree’de yazılır. Root worktree’deki bütün u
 
 ### Task 0 — Okuyucu güvenliği, aday kapasite ve monitoring temeli
 
+#### OBS-CRITICAL-003 — Aktif metric reader'lar tenant sınırını atlıyor
+
 - CRITICAL-003 için failing invariant yazılır: aktif sorgularda paylaşılan `sensor.sensor_metrics` ve `sensor.metrics_*` yasaktır.
 - `metric-query` ve `time-bucket` public metotları `tenantId` alır; doğrulanmış schema adı ve tenant context kullanır.
 - Harici host araçları 2K×30 dakika ve 15K×5 dakika çalışacak şekilde hazırlanır. MQTT wire bytes, broker persistence delta, JetStream stored bytes/event, fan-out E/M, rows/message R/M, heap/index/WAL ve tenant dağılımı ölçülür.
@@ -261,7 +263,7 @@ Task 0 sonrasında Task 2–3 ile paralel yürüyebilir; bütün raw drop yollar
 - Tek tenant schema utility invariant’ı korunur.
 - ADR, PROGRESS, retention matrix ve runbook yalnız ölçülmüş artefaktları ifade eder.
 - Tam doğrulama: affected test/lint, type-check, format-check, Rust fmt/clippy/test ve `build:all`.
-- Finding kapanışları: CRITICAL-003 Task 0; HIGH-011 Task 1; CRITICAL-001/002 ve HIGH-008 Task 2; HIGH-007 Task 3; CRITICAL-004 Task 4; HIGH-009 Task 5; HIGH-005/006 Task 6; HIGH-010 Task 7.
+- Finding kapanışları: OBS-CRITICAL-003 (plan CRITICAL-003) Task 0; HIGH-011 Task 1; CRITICAL-001/002 ve HIGH-008 Task 2; HIGH-007 Task 3; CRITICAL-004 Task 4; HIGH-009 Task 5; HIGH-005/006 Task 6; HIGH-010 Task 7.
 - `LEGAL-001` çözülmemişse teknik çalışma tamamlanabilir fakat raw retention aktivasyonu ve hukuk iddialı ticari readiness BLOCKED kalır.
 
 ## 4. Rollout sırası

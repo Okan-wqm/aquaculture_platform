@@ -18,9 +18,8 @@
 # nowhere. Email delivery is what actually exists: the droplet already runs
 # working SMTP credentials for notification-service.
 #
-# So SMTP + recipients are now REQUIRED (they are the delivery), and the
-# webhook URLs are OPTIONAL (substituted when present, left alone with a loud
-# notice when not).
+# SMTP + recipients are the alert delivery and the external heartbeat is the
+# monitoring-stack deadman. All are required before activation.
 #
 # Idempotent: a second run finds no placeholders and changes nothing.
 set -euo pipefail
@@ -37,6 +36,7 @@ test -f "$AM" || { echo "render-configs: no alertmanager.yml at $AM" >&2; exit 1
 : "${SMTP_PASSWORD:?set SMTP_PASSWORD}"
 : "${SMTP_FROM:?set SMTP_FROM (envelope sender)}"
 : "${ALERT_PAGE_EMAIL_TO:?set ALERT_PAGE_EMAIL_TO (who gets critical alerts)}"
+: "${ALERTMANAGER_HEARTBEAT_URL:?set ALERTMANAGER_HEARTBEAT_URL (external deadman endpoint)}"
 SMTP_PORT="${SMTP_PORT:-587}"
 # Role routing later: digest defaults to the same mailbox as page today, but it
 # is a separate variable so splitting them costs one export, not a redesign.
@@ -58,19 +58,13 @@ sed -i \
   -e "s|digest@example.invalid|${ALERT_DIGEST_EMAIL_TO}|g" \
   "$AM"
 
-# --- deadman: optional -------------------------------------------------------
+# --- deadman: required -------------------------------------------------------
 # The heartbeat route is a deadman: an EXTERNAL watcher is supposed to alarm
 # when the pings stop. Email cannot play that role — a mailbox receiving
 # nothing looks exactly like a mailbox nobody sent to — so this stays a webhook
-# and stays unwired until an endpoint exists. Saying so out loud beats leaving
-# a loopback URL that reads like configuration.
-if [ -n "${ALERTMANAGER_HEARTBEAT_URL:-}" ]; then
-  sed -i -e "s|http://127.0.0.1:9099/heartbeat|${ALERTMANAGER_HEARTBEAT_URL}|g" "$AM"
-  echo "render-configs: heartbeat deadman wired."
-else
-  echo "render-configs: NOTICE — no ALERTMANAGER_HEARTBEAT_URL; the deadman is not wired." >&2
-  echo "render-configs: a monitoring stack that stops will not announce itself." >&2
-fi
+# and therefore cannot be replaced by email.
+sed -i -e "s|http://127.0.0.1:9099/heartbeat|${ALERTMANAGER_HEARTBEAT_URL}|g" "$AM"
+echo "render-configs: heartbeat deadman wired."
 
 if grep -q 'example\.invalid\|REPLACE_SMTP' "$AM"; then
   echo "render-configs: FAILED — placeholders survived substitution in $AM" >&2

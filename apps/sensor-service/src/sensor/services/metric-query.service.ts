@@ -1,8 +1,11 @@
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
 import { AggregatedMetric } from '../../database/entities/sensor-metric.entity';
+
+const SENSOR_SCHEMA = 'sensor';
 
 /**
  * Data source types for time-series queries
@@ -64,6 +67,13 @@ export class MetricQueryService {
     private readonly dataSource: DataSource,
   ) {}
 
+  private async queryTenant<T>(tenantId: string, sql: string, params: unknown[]): Promise<T[]> {
+    return runInTenantRead(this.dataSource, SENSOR_SCHEMA, tenantId, async (queryRunner) => {
+      const results: T[] = await queryRunner.query(sql, params);
+      return results;
+    });
+  }
+
   /**
    * Get optimal data source based on time range
    */
@@ -120,7 +130,7 @@ export class MetricQueryService {
         1 AS "sampleCount",
         CASE WHEN quality_code >= 192 THEN 1 ELSE 0 END AS "goodCount",
         CASE WHEN quality_code >= 192 THEN 100.0 ELSE 0.0 END AS "qualityPct"
-      FROM sensor.sensor_metrics
+      FROM sensor_metrics
       WHERE tenant_id = $1
         AND time >= $2
         AND time <= $3
@@ -152,8 +162,7 @@ export class MetricQueryService {
     query += ` ORDER BY time DESC LIMIT $${paramIndex}`;
     params.push(safeLimit);
 
-    const results: AggregatedMetric[] = await this.dataSource.query(query, params);
-    return results;
+    return this.queryTenant<AggregatedMetric>(tenantId, query, params);
   }
 
   /**
@@ -185,7 +194,7 @@ export class MetricQueryService {
         sample_count AS "sampleCount",
         good_count AS "goodCount",
         quality_pct AS "qualityPct"
-      FROM sensor.${dataSource}
+      FROM ${dataSource}
       WHERE tenant_id = $1
         AND bucket >= $2
         AND bucket <= $3
@@ -218,8 +227,7 @@ export class MetricQueryService {
     query += ` ORDER BY bucket DESC LIMIT $${paramIndex}`;
     params.push(safeLimit);
 
-    const results: AggregatedMetric[] = await this.dataSource.query(query, params);
-    return results;
+    return this.queryTenant<AggregatedMetric>(tenantId, query, params);
   }
 
   /**
@@ -245,7 +253,7 @@ export class MetricQueryService {
           WHEN m.value > (c.alert_thresholds->>'warningHigh')::FLOAT THEN 'warning'
           ELSE 'normal'
         END AS "alertStatus"
-      FROM sensor.sensor_metrics m
+      FROM sensor_metrics m
       JOIN sensor_data_channels c ON c.id = m.channel_id
       WHERE m.sensor_id = $1
         AND m.tenant_id = $2
@@ -253,8 +261,7 @@ export class MetricQueryService {
       ORDER BY m.channel_id, m.time DESC
     `;
 
-    const results: CurrentReading[] = await this.dataSource.query(query, [sensorId, tenantId]);
-    return results;
+    return this.queryTenant<CurrentReading>(tenantId, query, [sensorId, tenantId]);
   }
 
   /**
@@ -280,7 +287,7 @@ export class MetricQueryService {
           WHEN m.value > (c.alert_thresholds->>'warningHigh')::FLOAT THEN 'warning'
           ELSE 'normal'
         END AS "alertStatus"
-      FROM sensor.sensor_metrics m
+      FROM sensor_metrics m
       JOIN sensor_data_channels c ON c.id = m.channel_id
       WHERE m.tank_id = $1
         AND m.tenant_id = $2
@@ -288,8 +295,7 @@ export class MetricQueryService {
       ORDER BY m.sensor_id, m.channel_id, m.time DESC
     `;
 
-    const results: CurrentReading[] = await this.dataSource.query(query, [tankId, tenantId]);
-    return results;
+    return this.queryTenant<CurrentReading>(tenantId, query, [tankId, tenantId]);
   }
 
   // IMPORTANT: Default lookback window for getLastReadings(). This bounds
@@ -324,7 +330,7 @@ export class MetricQueryService {
         time,
         value,
         quality_code AS "qualityCode"
-      FROM sensor.sensor_metrics
+      FROM sensor_metrics
       WHERE channel_id = $1
         AND tenant_id = $2
         AND time >= NOW() - make_interval(hours => $3)
@@ -332,9 +338,12 @@ export class MetricQueryService {
       LIMIT $4
     `;
 
-    const results: { time: Date; value: number; qualityCode: number }[] =
-      await this.dataSource.query(query, [channelId, tenantId, safeLookback, safeCount]);
-    return results;
+    return this.queryTenant<{ time: Date; value: number; qualityCode: number }>(tenantId, query, [
+      channelId,
+      tenantId,
+      safeLookback,
+      safeCount,
+    ]);
   }
 
   /**
@@ -372,7 +381,7 @@ export class MetricQueryService {
           STDDEV(value) AS stddev,
           COUNT(*) AS count,
           (COUNT(*) FILTER (WHERE quality_code >= 192)::FLOAT / NULLIF(COUNT(*), 0) * 100) AS "qualityPct"
-        FROM sensor.sensor_metrics
+        FROM sensor_metrics
         WHERE channel_id = $1
           AND tenant_id = $2
           AND time >= $3
@@ -387,7 +396,7 @@ export class MetricQueryService {
           SQRT(AVG(POWER(COALESCE(stddev_value, 0), 2))) AS stddev,
           SUM(sample_count) AS count,
           AVG(quality_pct) AS "qualityPct"
-        FROM sensor.${dataSource}
+        FROM ${dataSource}
         WHERE channel_id = $1
           AND tenant_id = $2
           AND bucket >= $3
@@ -403,7 +412,12 @@ export class MetricQueryService {
       count: number;
       qualityPct: number;
     }
-    const results: ChannelStats[] = await this.dataSource.query(query, [channelId, tenantId, startTime, endTime]);
+    const results = await this.queryTenant<ChannelStats>(tenantId, query, [
+      channelId,
+      tenantId,
+      startTime,
+      endTime,
+    ]);
     return results[0] || { avg: 0, min: 0, max: 0, stddev: 0, count: 0, qualityPct: 0 };
   }
 
@@ -452,7 +466,7 @@ export class MetricQueryService {
         last_value AS "lastValue",
         sample_count AS "sampleCount",
         quality_pct AS "qualityPct"
-      FROM sensor.${dataSource}
+      FROM ${dataSource}
       WHERE channel_id = $1
         AND tenant_id = $2
         AND bucket >= $3
@@ -461,14 +475,12 @@ export class MetricQueryService {
       LIMIT $5
     `;
 
-    const results: AggregatedMetric[] = await this.dataSource.query(query, [
+    return this.queryTenant<AggregatedMetric>(tenantId, query, [
       channelId,
       tenantId,
       startTime,
       endTime,
       maxPoints,
     ]);
-
-    return results;
   }
 }

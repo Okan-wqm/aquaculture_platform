@@ -29,6 +29,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import * as yaml from 'js-yaml';
 
 // Relative import (not the @platform alias): the invariants jest project has no
 // moduleNameMapper for @platform scopes — same convention as the sibling
@@ -40,6 +41,30 @@ const FILE_SD_PATH = path.join(
   REPO_ROOT,
   'infrastructure/monitoring/droplet/file_sd/aqua-services.json',
 );
+const PROMETHEUS_CONFIG_PATH = path.join(
+  REPO_ROOT,
+  'infrastructure/monitoring/droplet/prometheus.yml',
+);
+const MONITORING_COMPOSE_PATH = path.join(REPO_ROOT, 'docker-compose.monitoring.yml');
+const APPLICATION_COMPOSE_PATH = path.join(REPO_ROOT, 'docker-compose.droplet.yml');
+const MONITORING_UP_PATH = path.join(REPO_ROOT, 'scripts/monitoring/monitoring-up.sh');
+
+interface ComposeFile {
+  services?: Record<
+    string,
+    {
+      command?: string[];
+      environment?: Record<string, string>;
+      networks?: string[];
+      ports?: string[];
+      volumes?: string[];
+    }
+  >;
+}
+
+function readCompose(filePath: string): ComposeFile {
+  return yaml.load(fs.readFileSync(filePath, 'utf8')) as ComposeFile;
+}
 
 interface ScrapeTargetGroup {
   targets: string[];
@@ -86,5 +111,76 @@ describe('INVARIANT: Prometheus file_sd scrape targets stay in sync with the ser
       expect(group.labels.app).toBeTruthy();
       expect(group.labels.criticality).toBeTruthy();
     }
+  });
+});
+
+describe('100-tenant monitoring ownership and broker scrape contract', () => {
+  const monitoring = readCompose(MONITORING_COMPOSE_PATH);
+  const application = readCompose(APPLICATION_COMPOSE_PATH);
+  const prometheus = fs.readFileSync(PROMETHEUS_CONFIG_PATH, 'utf8');
+  const monitoringUp = fs.readFileSync(MONITORING_UP_PATH, 'utf8');
+
+  it('keeps every monitoring service in the dedicated compose project only', () => {
+    const ownedServices = [
+      'prometheus',
+      'alertmanager',
+      'node-exporter',
+      'cadvisor',
+      'nats-exporter',
+      'mosquitto-exporter',
+    ];
+
+    for (const serviceName of ownedServices) {
+      expect(monitoring.services?.[serviceName]).toBeDefined();
+      expect(application.services?.[serviceName]).toBeUndefined();
+    }
+  });
+
+  it('scrapes NATS 8222 and Mosquitto $SYS through dedicated internal exporters', () => {
+    const natsExporter = monitoring.services?.['nats-exporter'];
+    const mosquittoExporter = monitoring.services?.['mosquitto-exporter'];
+
+    expect(natsExporter?.command?.join(' ')).toContain('http://nats:8222');
+    expect(natsExporter?.command?.join(' ')).toContain('-jsz=all');
+    expect(natsExporter?.networks).toContain('aqua-internal');
+    expect(natsExporter?.ports).toBeUndefined();
+
+    expect(mosquittoExporter?.environment).toMatchObject({
+      MOSQUITTO_BROKER_ENDPOINT: 'tcp://mosquitto:1883',
+      MOSQUITTO_USERNAME: 'mqtt_exporter',
+    });
+    expect(mosquittoExporter?.environment?.MOSQUITTO_PASSWORD).toContain('MQTT_EXPORTER_PASSWORD');
+    expect(mosquittoExporter?.networks).toContain('aqua-internal');
+    expect(mosquittoExporter?.ports).toBeUndefined();
+
+    expect(prometheus).toContain("targets: ['nats-exporter:7777']");
+    expect(prometheus).toContain("targets: ['mosquitto-exporter:9234']");
+  });
+
+  it('authenticates the guarded observability scrape with a repo-external credential file', () => {
+    const prometheusService = monitoring.services?.prometheus;
+
+    expect(prometheus).toContain("targets: ['observability-service:3009']");
+    expect(prometheus).toContain('credentials_file: /run/secrets/observability_internal_api_key');
+    expect(prometheus).toMatch(
+      /source_labels:\s*\[app\][\s\S]*regex:\s*observability-service[\s\S]*action:\s*drop/,
+    );
+    expect(prometheusService?.volumes).toContain(
+      '${OBSERVABILITY_PROMETHEUS_CREDENTIAL_FILE:?required}:/run/secrets/observability_internal_api_key:ro',
+    );
+    expect(monitoringUp).toContain('OBSERVABILITY_INTERNAL_API_KEY');
+    expect(monitoringUp).toContain('OBSERVABILITY_PROMETHEUS_CREDENTIAL_FILE');
+    expect(monitoringUp).not.toContain('docker-compose.droplet.yml');
+  });
+
+  it('keeps node-exporter wired to the probe and supervisor textfile directory', () => {
+    const nodeExporter = monitoring.services?.['node-exporter'];
+
+    expect(nodeExporter?.command).toContain(
+      '--collector.textfile.directory=/var/lib/node_exporter/textfile',
+    );
+    expect(nodeExporter?.volumes).toContain(
+      '/var/lib/node_exporter/textfile:/var/lib/node_exporter/textfile:ro',
+    );
   });
 });

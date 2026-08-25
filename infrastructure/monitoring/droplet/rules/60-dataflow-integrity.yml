@@ -21,8 +21,8 @@ groups:
           severity: critical
           target_auditor: job-queue-auditor
         annotations:
-          summary: "{{ $labels.app }} outbox oldest pending event exceeds the 10-minute stall SLO"
-          description: "outbox_oldest_pending_age_seconds={{ $value }}s on {{ $labels.app }}; the relay is stalled or dead. SLO source: platform/libs/outbox/src/constants.ts:60."
+          summary: '{{ $labels.app }} outbox oldest pending event exceeds the 10-minute stall SLO'
+          description: 'outbox_oldest_pending_age_seconds={{ $value }}s on {{ $labels.app }}; the relay is stalled or dead. SLO source: platform/libs/outbox/src/constants.ts:60.'
           runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/dataflow-integrity.md'
 
       - alert: OutboxDeadLetterGrowing
@@ -33,8 +33,8 @@ groups:
           severity: warning
           target_auditor: job-queue-auditor
         annotations:
-          summary: "{{ $labels.app }} outbox publish failures accumulating"
-          description: "More than 5 publish failures in 30m on {{ $labels.app }}; check lastError on unpublished rows before they dead-letter."
+          summary: '{{ $labels.app }} outbox publish failures accumulating'
+          description: 'More than 5 publish failures in 30m on {{ $labels.app }}; check lastError on unpublished rows before they dead-letter.'
           runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/dataflow-integrity.md'
 
       - alert: MessagingDlqGrowing
@@ -45,8 +45,8 @@ groups:
           severity: warning
           target_auditor: job-queue-auditor
         annotations:
-          summary: "messaging-service DLQ grew in the last 30 minutes"
-          description: "messaging_dlq_growth_total increased; inspect messaging.messaging_outbox rows with isDeadLettered=true."
+          summary: 'messaging-service DLQ grew in the last 30 minutes'
+          description: 'messaging_dlq_growth_total increased; inspect messaging.messaging_outbox rows with isDeadLettered=true.'
           runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/dataflow-integrity.md'
 
       - alert: NotificationChannelFailing
@@ -57,8 +57,8 @@ groups:
           severity: warning
           target_auditor: realtime-sync-auditor
         annotations:
-          summary: "notification-service 5xx burst"
-          description: "Delivery path erroring; join notification.notification_logs by (channel,status) for the failing channel."
+          summary: 'notification-service 5xx burst'
+          description: 'Delivery path erroring; join notification.notification_logs by (channel,status) for the failing channel.'
           runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/dataflow-integrity.md'
 
   # W-C — the tenant isolation watchdog scans every ten minutes and, until
@@ -261,3 +261,58 @@ groups:
           summary: 'A tenant provisioning run has been unfinished for over an hour'
           description: 'A run is neither SUCCEEDED nor FAILED an hour after it was created. Production held two such runs for months with attempts=3 and no lease, which no metric counted and no alert could express.'
           runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/tenant-provisioning.md'
+
+  - name: aquaculture.telemetry.capacity
+    rules:
+      - alert: MosquittoMessagesDropped
+        expr: increase(broker_publish_messages_dropped[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Mosquitto dropped telemetry messages'
+          description: 'The broker drop counter increased in the last five minutes; every affected source event must be reconciled as an explicit capacity rejection or loss.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/dataflow-integrity.md'
+
+      - alert: MosquittoStoredQueueHigh
+        expr: broker_messages_stored > 100000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Mosquitto persistent queue exceeds 100,000 messages'
+          description: 'Stored MQTT messages have remained above the candidate queue threshold for 10 minutes; compare ingress with commit and drain rates.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/dataflow-integrity.md'
+
+      - alert: JetStreamStorageCapacityHigh
+        expr: |
+          jetstream_server_total_message_bytes
+          /
+          jetstream_server_max_storage > 0.70
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'JetStream file storage exceeds the readiness gate'
+          description: 'JetStream stored bytes have remained above 70% of configured storage for 10 minutes; DiscardNew rejection risk is active.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/dataflow-integrity.md'
+
+      - alert: JetStreamConsumerBacklog
+        expr: jetstream_consumer_num_pending > 10000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'JetStream consumer {{ $labels.consumer_name }} backlog exceeds 10,000'
+          description: 'Pending delivery exceeds the minimum durable capacity envelope; compare handler throughput with admitted E rate.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/dataflow-integrity.md'
+
+      - alert: JetStreamAckPendingHigh
+        expr: jetstream_consumer_num_ack_pending > 10000
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'JetStream consumer {{ $labels.consumer_name }} has excessive unacknowledged delivery'
+          description: 'Ack-pending delivery exceeds the minimum durable envelope and can block recovery or cause redelivery amplification.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/dataflow-integrity.md'

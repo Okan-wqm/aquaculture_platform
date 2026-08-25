@@ -6,9 +6,9 @@
 # loudly instead of quietly mailing a stranger. `amtool check-config` accepts
 # the file as committed, which is what the monitoring-stack CI validates.
 #
-# scripts/monitoring/render-configs.sh substitutes the real SMTP settings and
-# recipients from the droplet environment at activation. Nothing here is
-# committed with a real address or password.
+# scripts/monitoring/render-configs.sh substitutes the real SMTP settings,
+# recipients and external deadman endpoint at activation. Nothing here is
+# committed with a real address, endpoint or password.
 #
 # WHY EMAIL AND NOT A WEBHOOK: the original design routed to three external
 # paging endpoints that were never procured, and render-configs.sh hard-failed

@@ -31,6 +31,7 @@ const GOOD_ENV = {
   SMTP_PASSWORD: 'not-a-real-password',
   SMTP_FROM: 'alerts@example.com',
   ALERT_PAGE_EMAIL_TO: 'ops@example.com',
+  ALERTMANAGER_HEARTBEAT_URL: 'https://dead.example.com/ping',
 };
 
 function render(env: Record<string, string>): { status: number; stderr: string; config: string } {
@@ -90,6 +91,7 @@ void test('refuses to run without the delivery settings, rather than rendering h
     'SMTP_PASSWORD',
     'SMTP_FROM',
     'ALERT_PAGE_EMAIL_TO',
+    'ALERTMANAGER_HEARTBEAT_URL',
   ]) {
     // Reflect.deleteProperty, not `delete env[key]`: no-dynamic-delete is an
     // error-level rule here, and the reflective form says the same thing
@@ -111,21 +113,8 @@ void test('rejects a recipient that is still a placeholder', () => {
   assert.equal(status, 1);
 });
 
-void test('says out loud that the deadman is unwired instead of leaving a loopback that reads like config', () => {
+void test('wires the deadman to the required external endpoint', () => {
   const { stderr, config } = render(GOOD_ENV);
-
-  assert.match(stderr, /deadman is not wired/);
-  // The heartbeat webhook is deliberately left alone — a mailbox receiving
-  // nothing looks exactly like a mailbox nobody sent to, so email cannot play
-  // the deadman's role.
-  assert.match(config, /127\.0\.0\.1:9099\/heartbeat/);
-});
-
-void test('wires the deadman when an endpoint is supplied', () => {
-  const { stderr, config } = render({
-    ...GOOD_ENV,
-    ALERTMANAGER_HEARTBEAT_URL: 'https://dead.example.com/ping',
-  });
 
   assert.match(stderr, /heartbeat deadman wired/);
   assert.doesNotMatch(config, /127\.0\.0\.1:9099\/heartbeat/);

@@ -1,7 +1,7 @@
 {
   "$schema": "aria/agent-response/v1",
-  "agent_id": "ci-executor:gha-32800394101",
-  "claim_id": "claim_271a3ba8806b8dc8",
+  "agent_id": "ci-executor:gha-32805160410",
+  "claim_id": "claim_3d051c28c2159f82",
   "details": {
     "agent_dispatch_model": "fable",
     "agent_subagent_type": "aria-consensus-arbiter",

@@ -236,6 +236,9 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'migrations',
       'sensor_audit_logs',
       'sensor_outbox',
+      // Task 4 (SENSOR-HIGH-094): append-only archive ledger — cross-tenant
+      // by design (the verify-before-drop gate reads across tenants).
+      'telemetry_archive_events',
       'vfd_register_mappings',
       'edge_device_directory',
       'scada_alarms',

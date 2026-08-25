@@ -23886,6 +23886,39 @@
       "prettier_managed": true
     },
     {
+      "class": "archive_immutable",
+      "content_sha256": "b28a98ba0fc3e85fe3e4fbab2cc185d35cefd7c21b3ee9915db6c09614f1041e",
+      "hash_policy": "sha256",
+      "owner": "archive-owner",
+      "path": "apps/sensor-service/src/archive/__tests__/telemetry-retention-orchestrator.service.spec.ts",
+      "prettier_managed": false,
+      "reason": "historical archive content is hash-pinned evidence",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "ff86781f8178e88556272f24f7b4bb66d18d383ef1cff7ae34fe33f81efcc85e",
+      "hash_policy": "sha256",
+      "owner": "archive-owner",
+      "path": "apps/sensor-service/src/archive/entities/telemetry-archive-event.entity.ts",
+      "prettier_managed": false,
+      "reason": "historical archive content is hash-pinned evidence",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "2f28c6a48ad98c94fa9ca3f1becfa27eaaf2e456c6a171aecc0b1a64f236414b",
+      "hash_policy": "sha256",
+      "owner": "archive-owner",
+      "path": "apps/sensor-service/src/archive/telemetry-retention-orchestrator.service.ts",
+      "prettier_managed": false,
+      "reason": "historical archive content is hash-pinned evidence",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/automation/automation.module.ts",
@@ -24780,6 +24813,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/database/migrations/1816000000000-BackfillSensorReadingsIntoTenantMetrics.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1817000000000-CreateTelemetryArchiveLedger.ts",
       "prettier_managed": true
     },
     {

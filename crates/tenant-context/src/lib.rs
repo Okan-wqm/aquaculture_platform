@@ -94,9 +94,14 @@ impl TenantId {
 
 /// PostgreSQL schema name derived from a [`TenantId`].
 ///
-/// ADR-011 establishes the convention `tenant_<32-hex>` (UUID with
-/// hyphens stripped, lower-case). The newtype carries that exact
-/// shape — anything else cannot exist in a `SchemaName` value.
+/// The platform SSoT (`getTenantSchemaName` in
+/// libs/backend-common/src/database/tenant-schema.utils.ts) fixes the
+/// convention `tenant_<16-hex>` — the FIRST 16 hex chars of the
+/// de-hyphenated, lower-cased UUID. This crate previously derived the
+/// full 32-hex form, which produced schema names NO platform scanner
+/// (listTenantSchemas, schema-drift validator, erasure workers) could
+/// see: schemas the platform believes do not exist (Task 3,
+/// SENSOR-CRITICAL-089).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub struct SchemaName(String);
 
@@ -106,24 +111,28 @@ impl SchemaName {
     /// validated UUID.
     #[must_use]
     pub fn from_tenant_id(tenant: TenantId) -> Self {
-        // `Uuid::simple` formats as 32 hex chars without hyphens,
-        // lowercase. ADR-011 fixes the prefix `tenant_`.
-        let mut s = String::with_capacity(7 + 32);
+        // `Uuid::simple` formats as 32 lowercase hex chars without
+        // hyphens; the platform takes the FIRST 16. Cross-language
+        // parity is pinned by the shared golden-vector fixture
+        // (crates/tenant-context/tests/schema-golden) that BOTH this
+        // crate and the TS SSoT test against.
+        let full = tenant.0.simple().to_string();
+        let mut s = String::with_capacity(7 + 16);
         s.push_str("tenant_");
-        s.push_str(&tenant.0.simple().to_string());
+        s.push_str(&full[..16]);
         Self(s)
     }
 
-    /// Parse an arbitrary string against the strict ADR-011 shape:
-    /// `^tenant_[0-9a-f]{32}$`. Used at trust boundaries where the
-    /// candidate is operator- or device-supplied.
+    /// Parse an arbitrary string against the strict platform shape:
+    /// `^tenant_[0-9a-f]{16}$` (the TS SSoT regex). Used at trust
+    /// boundaries where the candidate is operator- or device-supplied.
     ///
     /// # Errors
     /// Returns [`TenantContextError::InvalidSchemaName`] if the input
     /// does not match the whitelist exactly. The bad value is NOT
     /// echoed back so audit logs cannot be poisoned.
     pub fn try_parse(candidate: &str) -> Result<Self, TenantContextError> {
-        if candidate.len() != 7 + 32 {
+        if candidate.len() != 7 + 16 {
             return Err(TenantContextError::InvalidSchemaName);
         }
         if !candidate.starts_with("tenant_") {
@@ -309,26 +318,27 @@ mod tests {
     }
 
     #[test]
-    fn schema_name_shape_matches_adr011() {
+    fn schema_name_shape_matches_platform_ssot() {
         let id = TenantId::try_parse("550e8400-e29b-41d4-a716-446655440000").unwrap();
         let s = SchemaName::from_tenant_id(id);
-        assert_eq!(s.as_str(), "tenant_550e8400e29b41d4a716446655440000");
-        assert_eq!(s.as_str().len(), 7 + 32);
+        // TS SSoT: tenant_ + first 16 hex of the de-hyphenated UUID.
+        assert_eq!(s.as_str(), "tenant_550e8400e29b41d4");
+        assert_eq!(s.as_str().len(), 7 + 16);
     }
 
     #[test]
     fn schema_name_try_parse_round_trips() {
-        let raw = "tenant_550e8400e29b41d4a716446655440000";
+        let raw = "tenant_550e8400e29b41d4";
         let parsed = SchemaName::try_parse(raw).unwrap();
         assert_eq!(parsed.as_str(), raw);
     }
 
     #[test]
     fn schema_name_try_parse_rejects_uppercase_hex() {
-        // ADR-011 fixes lowercase. Uppercase MUST be rejected (a real
+        // The platform fixes lowercase. Uppercase MUST be rejected (a real
         // attacker tactic is to substitute homograph chars; locking
         // the alphabet eliminates the class).
-        let raw = "tenant_550E8400E29B41D4A716446655440000";
+        let raw = "tenant_550E8400E29B41D4";
         assert_eq!(
             SchemaName::try_parse(raw).unwrap_err(),
             TenantContextError::InvalidSchemaName,
@@ -337,7 +347,18 @@ mod tests {
 
     #[test]
     fn schema_name_try_parse_rejects_wrong_prefix() {
-        let raw = "TENANT_550e8400e29b41d4a716446655440000";
+        let raw = "TENANT_550e8400e29b41d4";
+        assert_eq!(
+            SchemaName::try_parse(raw).unwrap_err(),
+            TenantContextError::InvalidSchemaName,
+        );
+    }
+
+    #[test]
+    fn schema_name_rejects_legacy_32_hex_shape() {
+        // The pre-Task-3 shape (full 32 hex) must now FAIL parse: schemas
+        // in that form are invisible to every platform scanner.
+        let raw = "tenant_550e8400e29b41d4a716446655440000";
         assert_eq!(
             SchemaName::try_parse(raw).unwrap_err(),
             TenantContextError::InvalidSchemaName,

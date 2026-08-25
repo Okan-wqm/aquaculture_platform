@@ -27544,6 +27544,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "crates/tenant-context/tests/schema-golden.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "database/scripts/assign-module-to-tenant.ts",
       "prettier_managed": true
     },
@@ -44295,6 +44301,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/tenant-schema-cache-module-registered.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/tenant-schema-golden.spec.ts",
       "prettier_managed": true
     },
     {

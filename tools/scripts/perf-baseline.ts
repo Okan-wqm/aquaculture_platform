@@ -408,7 +408,7 @@ async function main(): Promise<void> {
     password: env.MQTT_PASSWORD,
   });
   await new Promise<void>((resolveConnect, rejectConnect) => {
-    client.once('connect', resolveConnect);
+    client.once('connect', () => resolveConnect());
     client.once('error', rejectConnect);
   });
 
@@ -432,7 +432,12 @@ async function main(): Promise<void> {
   ) {
     await sleep(100);
   }
-  await new Promise<void>((resolveEnd) => client.end(false, {}, resolveEnd));
+  await new Promise<void>((resolveEnd, rejectEnd) => {
+    client.end(false, {}, (error) => {
+      if (error) rejectEnd(error);
+      else resolveEnd();
+    });
+  });
   const finishedAt = new Date();
   const afterMetrics = await snapshotMetrics(args.metricsUrl);
   const unclassified = counters.attempted - counters.acknowledged - counters.rejected;

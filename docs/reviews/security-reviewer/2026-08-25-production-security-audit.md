@@ -28,7 +28,7 @@ Required closure:
 
 ## ADMIN-HIGH-005 — Admin sort fields are interpolated into TypeORM SQL identifiers
 
-**Severity:** HIGH  
+**Severity:** HIGH
 **State:** IN-PROGRESS
 
 Three admin service query builders construct `ORDER BY` identifiers with caller-controlled `sortBy` strings. The activity and audit HTTP DTOs accept any string, while the error controller's string-literal union disappears at runtime. Direct service callers can also bypass controller validation. TypeORM parameters cannot bind SQL identifiers, so these values cross into query syntax rather than data parameters.

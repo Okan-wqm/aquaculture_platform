@@ -159,7 +159,8 @@ export class SensorTopicCacheService implements OnModuleInit {
     try {
       // Get all topics associated with this sensor
       const topicsKey = `${this.SENSOR_TOPICS_PREFIX}${sensorId}`;
-      const sensorTopics = await this.redisService.getJson<Array<{ topic: string; tenantId: string }>>(topicsKey);
+      const sensorTopics =
+        await this.redisService.getJson<Array<{ topic: string; tenantId: string }>>(topicsKey);
 
       if (sensorTopics && sensorTopics.length > 0) {
         for (const entry of sensorTopics) {
@@ -172,7 +173,7 @@ export class SensorTopicCacheService implements OnModuleInit {
           const indexKey = `${this.TOPIC_INDEX_PREFIX}${entry.topic}`;
           const tenantIds = await this.redisService.getJson<string[]>(indexKey);
           if (tenantIds) {
-            const updated = tenantIds.filter(id => id !== entry.tenantId);
+            const updated = tenantIds.filter((id) => id !== entry.tenantId);
             if (updated.length > 0) {
               await this.redisService.setJson(indexKey, updated, this.CACHE_TTL_SECONDS);
             } else {
@@ -187,7 +188,9 @@ export class SensorTopicCacheService implements OnModuleInit {
 
       this.logger.debug(`Invalidated cache for sensor ${sensorId}`);
     } catch (error) {
-      this.logger.error(`Error invalidating cache for sensor ${sensorId}: ${(error as Error).message}`);
+      this.logger.error(
+        `Error invalidating cache for sensor ${sensorId}: ${(error as Error).message}`,
+      );
     }
   }
 
@@ -200,25 +203,34 @@ export class SensorTopicCacheService implements OnModuleInit {
    */
   async invalidateTenant(tenantId: string): Promise<void> {
     try {
-      /** SEC-M16: Scan only this tenant's cache keys using the tenant-scoped prefix */
-      const pattern = `${this.CACHE_KEY_PREFIX}${tenantId}:topic:*`;
-      const keys = await this.redisService.keys(pattern);
-
-      for (const key of keys) {
-        await this.redisService.del(key);
-      }
-
-      // Clear local cache entries for this tenant
-      for (const [topic, entry] of this.localCache.entries()) {
-        if (entry.sensor?.tenantId === tenantId) {
-          this.localCache.delete(topic);
-        }
-      }
-
-      this.logger.log(`Invalidated cache for tenant ${tenantId} (${keys.length} keys removed)`);
+      await this.eraseTenantCache(tenantId);
     } catch (error) {
-      this.logger.error(`Error invalidating cache for tenant ${tenantId}: ${(error as Error).message}`);
+      this.logger.error(
+        `Error invalidating cache for tenant ${tenantId}: ${(error as Error).message}`,
+      );
     }
+  }
+
+  /**
+   * Fail-closed cache erasure used by the legal tenant-erasure transaction.
+   * Unlike routine invalidation, an unavailable Redis backend must abort the
+   * erasure proof instead of allowing stale MQTT routing data to survive it.
+   */
+  async eraseTenantCache(tenantId: string): Promise<void> {
+    const pattern = `${this.CACHE_KEY_PREFIX}${tenantId}:topic:*`;
+    const keys = await this.redisService.keys(pattern);
+
+    for (const key of keys) {
+      await this.redisService.del(key);
+    }
+
+    for (const [topic, entry] of this.localCache.entries()) {
+      if (entry.sensor !== null && entry.sensor.tenantId === tenantId) {
+        this.localCache.delete(topic);
+      }
+    }
+
+    this.logger.log(`Invalidated cache for tenant ${tenantId} (${keys.length} keys removed)`);
   }
 
   /**
@@ -235,10 +247,13 @@ export class SensorTopicCacheService implements OnModuleInit {
       for (const schema_name of tenantSchemas) {
         try {
           // Check if sensors table exists
-          const tableCheck = await this.dataSource.query(`
+          const tableCheck = await this.dataSource.query(
+            `
             SELECT 1 FROM information_schema.tables
             WHERE table_schema = $1 AND table_name = 'sensors'
-          `, [schema_name]);
+          `,
+            [schema_name],
+          );
 
           if (tableCheck.length === 0) continue;
 
@@ -251,7 +266,9 @@ export class SensorTopicCacheService implements OnModuleInit {
           `);
 
           for (const sensor of sensors) {
-            const topic = (sensor.protocolConfiguration as Record<string, unknown>)?.['topic'] as string;
+            const topic = (sensor.protocolConfiguration as Record<string, unknown>)?.[
+              'topic'
+            ] as string;
             if (topic) {
               const cachedInfo: CachedSensorInfo = {
                 id: sensor.id,
@@ -268,12 +285,16 @@ export class SensorTopicCacheService implements OnModuleInit {
             }
           }
         } catch (schemaError) {
-          this.logger.debug(`Error warming cache for schema ${schema_name}: ${(schemaError as Error).message}`);
+          this.logger.debug(
+            `Error warming cache for schema ${schema_name}: ${(schemaError as Error).message}`,
+          );
         }
       }
 
       const duration = Date.now() - startTime;
-      this.logger.log(`Cache warmed up: ${sensorCount} sensors from ${tenantSchemas.length} schemas in ${duration}ms`);
+      this.logger.log(
+        `Cache warmed up: ${sensorCount} sensors from ${tenantSchemas.length} schemas in ${duration}ms`,
+      );
     } catch (error) {
       this.logger.error(`Error warming up cache: ${(error as Error).message}`);
     }
@@ -290,10 +311,13 @@ export class SensorTopicCacheService implements OnModuleInit {
       for (const schema_name of tenantSchemas) {
         try {
           // Check if sensors table exists
-          const tableCheck = await this.dataSource.query(`
+          const tableCheck = await this.dataSource.query(
+            `
             SELECT 1 FROM information_schema.tables
             WHERE table_schema = $1 AND table_name = 'sensors'
-          `, [schema_name]);
+          `,
+            [schema_name],
+          );
 
           if (tableCheck.length === 0) continue;
 
@@ -306,12 +330,15 @@ export class SensorTopicCacheService implements OnModuleInit {
             tenantId: string;
             protocol_configuration: Record<string, unknown>;
             metadata: Record<string, unknown>;
-          }> = await this.dataSource.query(`
+          }> = await this.dataSource.query(
+            `
             SELECT id, name, type, tenant_id AS "tenantId", protocol_configuration, metadata
             FROM ${quoteIdentifier(schema_name)}.sensors
             WHERE protocol_configuration->>'topic' = $1
             LIMIT 1
-          `, [topic]);
+          `,
+            [topic],
+          );
 
           const sensor = sensors[0];
           if (sensor) {
@@ -350,7 +377,9 @@ export class SensorTopicCacheService implements OnModuleInit {
             }
           }
         } catch (schemaError) {
-          this.logger.debug(`Error searching schema ${schema_name}: ${(schemaError as Error).message}`);
+          this.logger.debug(
+            `Error searching schema ${schema_name}: ${(schemaError as Error).message}`,
+          );
         }
       }
 
@@ -368,7 +397,10 @@ export class SensorTopicCacheService implements OnModuleInit {
    * cache poisoning. A topic index maps normalized topics to the set of tenantIds that
    * have sensors on that topic, enabling cross-tenant MQTT resolution without leaking data.
    */
-  private async cacheResult(normalizedTopic: string, sensor: CachedSensorInfo | null): Promise<void> {
+  private async cacheResult(
+    normalizedTopic: string,
+    sensor: CachedSensorInfo | null,
+  ): Promise<void> {
     if (!sensor) {
       // For negative caching, store in local cache only (short TTL, no tenant scope needed)
       this.setLocalCache(normalizedTopic, null);
@@ -390,7 +422,7 @@ export class SensorTopicCacheService implements OnModuleInit {
        *  Maps normalizedTopic -> tenantId[] so getSensorByTopic can resolve
        *  which tenants have sensors for a given MQTT topic. */
       const indexKey = `${this.TOPIC_INDEX_PREFIX}${normalizedTopic}`;
-      const existingTenants = await this.redisService.getJson<string[]>(indexKey) || [];
+      const existingTenants = (await this.redisService.getJson<string[]>(indexKey)) || [];
       if (!existingTenants.includes(sensor.tenantId)) {
         existingTenants.push(sensor.tenantId);
         await this.redisService.setJson(indexKey, existingTenants, this.CACHE_TTL_SECONDS);
@@ -398,9 +430,11 @@ export class SensorTopicCacheService implements OnModuleInit {
 
       // Store reverse lookup for invalidation (sensor -> topics+tenants)
       const topicsKey = `${this.SENSOR_TOPICS_PREFIX}${sensor.id}`;
-      const existingTopics = await this.redisService.getJson<Array<{ topic: string; tenantId: string }>>(topicsKey) || [];
+      const existingTopics =
+        (await this.redisService.getJson<Array<{ topic: string; tenantId: string }>>(topicsKey)) ||
+        [];
       const alreadyStored = existingTopics.some(
-        e => e.topic === normalizedTopic && e.tenantId === sensor.tenantId,
+        (e) => e.topic === normalizedTopic && e.tenantId === sensor.tenantId,
       );
       if (!alreadyStored) {
         existingTopics.push({ topic: normalizedTopic, tenantId: sensor.tenantId });

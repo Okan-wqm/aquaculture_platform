@@ -2,10 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource, FindManyOptions, FindOptionsWhere } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
-import {
-  AlertEvaluationService,
-  SensorReadingData,
-} from '../alert-evaluation.service';
+import { AlertEvaluationService, SensorReadingData } from '../alert-evaluation.service';
 import {
   AlertRule,
   AlertOperator,
@@ -78,6 +75,7 @@ const farmARule: AlertRule = createFarmARule();
 
 function readingFor(farmId: string): SensorReadingData {
   return {
+    sourceEventId: `sensor-reading-${farmId}`,
     sensorId: 'sensor-1',
     tenantId: TENANT_ID,
     farmId,
@@ -104,9 +102,24 @@ describe('AlertEvaluationService — rule cache + scope isolation (PE-16)', () =
 
       return [farmARule].filter((rule) => {
         if (where?.tenantId !== undefined && rule.tenantId !== where.tenantId) return false;
-        if (where?.farmId !== undefined && rule.farmId !== undefined && rule.farmId !== where.farmId) return false;
-        if (where?.pondId !== undefined && rule.pondId !== undefined && rule.pondId !== where.pondId) return false;
-        if (where?.sensorId !== undefined && rule.sensorId !== undefined && rule.sensorId !== where.sensorId) return false;
+        if (
+          where?.farmId !== undefined &&
+          rule.farmId !== undefined &&
+          rule.farmId !== where.farmId
+        )
+          return false;
+        if (
+          where?.pondId !== undefined &&
+          rule.pondId !== undefined &&
+          rule.pondId !== where.pondId
+        )
+          return false;
+        if (
+          where?.sensorId !== undefined &&
+          rule.sensorId !== undefined &&
+          rule.sensorId !== where.sensorId
+        )
+          return false;
         return true;
       });
     });
@@ -151,7 +164,10 @@ describe('AlertEvaluationService — rule cache + scope isolation (PE-16)', () =
         },
         { provide: OutboxPublisher, useValue: outbox },
         { provide: RedisService, useValue: redisMock },
-        { provide: EscalationManagerService, useValue: { startEscalation: jest.fn().mockResolvedValue(null) } },
+        {
+          provide: EscalationManagerService,
+          useValue: { startEscalation: jest.fn().mockResolvedValue(null) },
+        },
       ],
     }).compile();
 

@@ -203,6 +203,12 @@ export interface ServiceTypeOrmOptions {
   defaultPoolIdleTimeoutMs?: number;
 
   /**
+   * Service-specific pool acquisition deadline. Continuous ingress services
+   * use this to fail early enough to preserve their upstream ACK budget.
+   */
+  defaultPoolConnectionTimeoutMs?: number;
+
+  /**
    * TypeORM EventSubscriber classes (e.g. AuditSubscriber). Optional
    * because most services do not register subscribers; passing it through
    * as a factory option keeps the call site explicit instead of leaking
@@ -288,7 +294,7 @@ export function createServiceTypeOrmConfig(
   const migrationsRun =
     opts.migrationsRunFromEnv != null
       ? opts.migrationsRunFromEnv(configService)
-      : opts.migrationsRun ?? false;
+      : (opts.migrationsRun ?? false);
   const nodeEnv = process.env['NODE_ENV'];
   // SSOT resolution (PR#363 design): authority comes from the shared
   // strict-parse resolver — a malformed DB_MIGRATE_AUTHORITATIVE value
@@ -331,7 +337,7 @@ export function createServiceTypeOrmConfig(
   );
   const poolConnectionTimeoutMs = configService.get<number>(
     'DATABASE_POOL_CONNECTION_TIMEOUT_MS',
-    DEFAULT_POOL_CONNECTION_TIMEOUT_MS,
+    opts.defaultPoolConnectionTimeoutMs ?? DEFAULT_POOL_CONNECTION_TIMEOUT_MS,
   );
 
   const logging = resolveDatabaseLogging(configService);

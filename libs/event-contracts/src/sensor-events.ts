@@ -180,6 +180,31 @@ export interface SensorMetricIngestedEvent extends BaseEvent {
   pondId?: string;
 }
 
+/** Durable evidence for MQTT bytes that cannot enter the telemetry pipeline. */
+export interface MqttPayloadQuarantinedEvent extends BaseEvent {
+  eventType: 'MqttPayloadQuarantined';
+  topic: string;
+  payloadDigest: string;
+  reason: string;
+  payloadBase64: string;
+}
+
+/**
+ * Durable failure record emitted only after five persisted processing attempts.
+ * The original canonical event remains JSON text so the envelope stays flat and
+ * the replay worker can validate it before publishing with its original eventId.
+ */
+export interface MqttIngestDeadLetteredEvent
+  extends Omit<MqttPayloadQuarantinedEvent, 'eventType'> {
+  eventType: 'MqttIngestDeadLettered';
+  sourceEventId: string;
+  sourceTimestamp: string;
+  sourceSequence?: string;
+  processingAttempts: number;
+  originalSubject: string;
+  originalEventJson: string;
+}
+
 /**
  * Sensor Registered Event
  */
@@ -412,6 +437,8 @@ export interface ScadaDeployFailedEvent extends BaseEvent {
 export type SensorEvent =
   | SensorReadingEvent
   | SensorMetricIngestedEvent
+  | MqttPayloadQuarantinedEvent
+  | MqttIngestDeadLetteredEvent
   | SensorRegisteredEvent
   | SensorCalibratedEvent
   | SensorOfflineEvent

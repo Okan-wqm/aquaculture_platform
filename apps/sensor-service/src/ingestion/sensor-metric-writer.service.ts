@@ -4,9 +4,24 @@ import {
 } from '@aquaculture/backend-common/database';
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, EntityManager } from 'typeorm';
+import { DataSource } from 'typeorm';
 
 import { SensorMetricInput } from '../database/entities/sensor-metric.entity';
+
+export interface WriteOutcome {
+  status: 'COMMITTED' | 'POISON';
+  reason?: string;
+}
+
+export interface MetricQueryExecutor {
+  query(query: string, parameters?: unknown[]): Promise<unknown>;
+}
+
+interface BufferedMetric {
+  metric: SensorMetricInput;
+  resolve: (outcome: WriteOutcome) => void;
+  reject: (error: Error) => void;
+}
 
 /**
  * Sensor Metric Writer Service
@@ -60,14 +75,14 @@ import { SensorMetricInput } from '../database/entities/sensor-metric.entity';
 export class SensorMetricWriterService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SensorMetricWriterService.name);
 
-  private readonly buffer: SensorMetricInput[] = [];
+  private readonly buffer: BufferedMetric[] = [];
   private flushTimer: ReturnType<typeof setInterval> | null = null;
 
   private static readonly FLUSH_INTERVAL_MS = 500;
   private static readonly MAX_BUFFER_SIZE = 500;
-  private static readonly PARAMS_PER_ROW = 19;
+  private static readonly PARAMS_PER_ROW = 21;
   private static readonly MAX_PG_PARAMS = 65535;
-  // floor(65535 / 19) ≈ 3449, capped to 1000 for plan-cache friendliness.
+  // floor(65535 / 21) = 3120, capped to 1000 for plan-cache friendliness.
   private static readonly SAFE_CHUNK = Math.min(
     Math.floor(SensorMetricWriterService.MAX_PG_PARAMS / SensorMetricWriterService.PARAMS_PER_ROW),
     1000,
@@ -107,8 +122,10 @@ export class SensorMetricWriterService implements OnModuleInit, OnModuleDestroy 
    * Enqueue a metric for buffered batch insertion. If the buffer reaches
    * MAX_BUFFER_SIZE the flush is triggered immediately.
    */
-  enqueue(metric: SensorMetricInput): void {
-    this.buffer.push(metric);
+  enqueue(metric: SensorMetricInput): Promise<WriteOutcome> {
+    const ticket = new Promise<WriteOutcome>((resolve, reject) => {
+      this.buffer.push({ metric, resolve, reject });
+    });
     if (this.buffer.length >= SensorMetricWriterService.MAX_BUFFER_SIZE) {
       this.flush().catch((err) =>
         this.logger.error(
@@ -116,20 +133,57 @@ export class SensorMetricWriterService implements OnModuleInit, OnModuleDestroy 
         ),
       );
     }
+    return ticket;
   }
 
   /** Enqueue multiple metrics at once for buffered insertion. */
-  enqueueBatch(metrics: SensorMetricInput[]): void {
-    for (const m of metrics) {
-      this.enqueue(m);
-    }
+  enqueueBatch(metrics: SensorMetricInput[]): Promise<WriteOutcome[]> {
+    return Promise.all(metrics.map((metric) => this.enqueue(metric)));
   }
 
-  /** Drain the buffer and write all accumulated metrics. */
+  /**
+   * Drain one immutable buffer snapshot. Each tenant's tickets settle from
+   * that tenant's own write, so an unavailable tenant cannot make successfully
+   * committed neighbours look failed to their MQTT/NATS callers.
+   */
   async flush(): Promise<void> {
     if (this.buffer.length === 0) return;
     const batch = this.buffer.splice(0, this.buffer.length);
-    await this.writeImmediate(batch);
+    const valid = new Map<string, BufferedMetric[]>();
+
+    for (const item of batch) {
+      const invalidReason = this.validationFailure(item.metric);
+      if (invalidReason !== null) {
+        this.logInvalidMetric(item.metric, invalidReason);
+        item.resolve({ status: 'POISON', reason: invalidReason });
+        continue;
+      }
+      const tenantItems = valid.get(item.metric.tenantId);
+      if (tenantItems) tenantItems.push(item);
+      else valid.set(item.metric.tenantId, [item]);
+    }
+
+    const failures: string[] = [];
+    for (const [tenantId, items] of valid) {
+      try {
+        await this.insertForTenant(
+          tenantId,
+          items.map(({ metric }) => metric),
+          (sql, params) => this.dataSource.query(sql, params),
+        );
+        for (const item of items) item.resolve({ status: 'COMMITTED' });
+      } catch (error) {
+        const cause = error instanceof Error ? error : new Error(String(error));
+        for (const item of items) item.reject(cause);
+        failures.push(`${this.tenantLabel(tenantId)}: ${cause.message}`);
+      }
+    }
+
+    if (failures.length > 0) {
+      throw new Error(
+        `sensor_metrics write failed for ${failures.length} tenant(s): ${failures.join('; ')}`,
+      );
+    }
   }
 
   /**
@@ -176,7 +230,7 @@ export class SensorMetricWriterService implements OnModuleInit, OnModuleDestroy 
    * in one transaction — do NOT change this atomicity: any failure propagates so
    * the whole transaction rolls back.
    */
-  async writeManaged(metrics: SensorMetricInput[], manager: EntityManager): Promise<void> {
+  async writeManaged(metrics: SensorMetricInput[], manager: MetricQueryExecutor): Promise<void> {
     const valid = this.filterValid(metrics);
     if (valid.length === 0) return;
     for (const [tenantId, rows] of this.groupByTenant(valid)) {
@@ -252,15 +306,30 @@ export class SensorMetricWriterService implements OnModuleInit, OnModuleDestroy 
          time, sensor_id, channel_id, tenant_id,
          site_id, department_id, system_id, equipment_id, tank_id, pond_id, farm_id,
          raw_value, value, quality_code, quality_bits,
-         source_protocol, source_timestamp, ingestion_latency_ms, batch_id
+         source_protocol, source_event_id, source_timestamp, source_sequence,
+         ingestion_latency_ms, batch_id
        ) VALUES ${rows.join(',\n')}
        ON CONFLICT (time, sensor_id, channel_id) DO UPDATE SET
          value        = EXCLUDED.value,
          raw_value    = EXCLUDED.raw_value,
-         quality_code = EXCLUDED.quality_code`;
+         quality_code = EXCLUDED.quality_code,
+         quality_bits = EXCLUDED.quality_bits,
+         source_event_id = EXCLUDED.source_event_id,
+         source_timestamp = EXCLUDED.source_timestamp,
+         source_sequence = EXCLUDED.source_sequence
+       WHERE sensor_metrics.source_event_id IS DISTINCT FROM EXCLUDED.source_event_id
+         AND (
+           COALESCE(EXCLUDED.source_timestamp, '-infinity'::timestamptz),
+           COALESCE(EXCLUDED.source_sequence, '-9223372036854775808'::bigint),
+           COALESCE(EXCLUDED.source_event_id, '')
+         ) > (
+           COALESCE(sensor_metrics.source_timestamp, '-infinity'::timestamptz),
+           COALESCE(sensor_metrics.source_sequence, '-9223372036854775808'::bigint),
+           COALESCE(sensor_metrics.source_event_id, '')
+         )`;
   }
 
-  /** The single 19-column-per-row parameter marshalling for `sensor.sensor_metrics`. */
+  /** The single 21-column-per-row parameter marshalling for tenant sensor metrics. */
   marshalParams(metrics: SensorMetricInput[]): unknown[] {
     const params: unknown[] = [];
     for (const m of metrics) {
@@ -281,7 +350,9 @@ export class SensorMetricWriterService implements OnModuleInit, OnModuleDestroy 
         Number.isInteger(m.qualityCode) ? m.qualityCode : 192,
         Number.isInteger(m.qualityBits) ? m.qualityBits : 0,
         m.sourceProtocol ? m.sourceProtocol.replace(/[^a-zA-Z0-9_-]/g, '') : null,
+        m.sourceEventId || null,
         m.sourceTimestamp?.toISOString() || null,
+        m.sourceSequence || null,
         m.sourceTimestamp ? Date.now() - m.sourceTimestamp.getTime() : null,
         m.batchId || null,
       );
@@ -292,25 +363,42 @@ export class SensorMetricWriterService implements OnModuleInit, OnModuleDestroy 
   private filterValid(metrics: SensorMetricInput[]): SensorMetricInput[] {
     const valid: SensorMetricInput[] = [];
     for (const m of metrics) {
-      if (!this.isValidUUID(m.sensorId)) {
-        this.logger.warn(`Invalid sensor UUID dropped: ${m.sensorId}`);
-        continue;
-      }
-      if (!this.isValidUUID(m.channelId)) {
-        this.logger.warn(`Invalid channel UUID dropped: ${m.channelId}`);
-        continue;
-      }
-      if (!this.isValidUUID(m.tenantId)) {
-        this.logger.warn(`Invalid tenant UUID dropped: ${m.tenantId}`);
-        continue;
-      }
-      if (!Number.isFinite(m.rawValue) || !Number.isFinite(m.value)) {
-        this.logger.warn(`Non-finite metric dropped — rawValue: ${m.rawValue}, value: ${m.value}`);
+      const reason = this.validationFailure(m);
+      if (reason !== null) {
+        this.logInvalidMetric(m, reason);
         continue;
       }
       valid.push(m);
     }
     return valid;
+  }
+
+  private validationFailure(metric: SensorMetricInput): string | null {
+    if (!this.isValidUUID(metric.sensorId)) return 'INVALID_SENSOR_ID';
+    if (!this.isValidUUID(metric.channelId)) return 'INVALID_CHANNEL_ID';
+    if (!this.isValidUUID(metric.tenantId)) return 'INVALID_TENANT_ID';
+    if (!Number.isFinite(metric.rawValue) || !Number.isFinite(metric.value)) {
+      return 'NON_FINITE_VALUE';
+    }
+    return null;
+  }
+
+  private logInvalidMetric(metric: SensorMetricInput, reason: string): void {
+    if (reason === 'INVALID_SENSOR_ID') {
+      this.logger.warn(`Invalid sensor UUID dropped: ${metric.sensorId}`);
+      return;
+    }
+    if (reason === 'INVALID_CHANNEL_ID') {
+      this.logger.warn(`Invalid channel UUID dropped: ${metric.channelId}`);
+      return;
+    }
+    if (reason === 'INVALID_TENANT_ID') {
+      this.logger.warn(`Invalid tenant UUID dropped: ${metric.tenantId}`);
+      return;
+    }
+    this.logger.warn(
+      `Non-finite metric dropped — rawValue: ${metric.rawValue}, value: ${metric.value}`,
+    );
   }
 
   private isValidUUID(str: string | null | undefined): boolean {

@@ -22,6 +22,7 @@ import { NatsIngestionConsumerService } from './nats-ingestion-consumer.service'
 import { SensorCacheInvalidationHandler } from './sensor-cache-invalidation.handler';
 import { SensorLookupResponderService } from './sensor-lookup-responder.service';
 import { SensorMetaCacheService } from './sensor-meta-cache.service';
+import { SensorIngestDurabilityService } from './sensor-ingest-durability.service';
 import { SensorTopicCacheService } from './sensor-topic-cache.service';
 
 @Module({
@@ -47,6 +48,7 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
   providers: [
     DataIngestionService,
     MqttListenerService,
+    SensorIngestDurabilityService,
     DataProcessorService,
     SensorTopicCacheService,
     // Faz 3 follow-on — extracted sensor + channel cache so the
@@ -77,6 +79,7 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
     SensorMetricWriterService,
     DataIngestionService,
     MqttListenerService,
+    SensorIngestDurabilityService,
     DataProcessorService,
     SensorTopicCacheService,
     SensorMetaCacheService,
@@ -85,5 +88,4 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
     SensorLookupResponderService,
   ],
 })
- 
 export class IngestionModule {}

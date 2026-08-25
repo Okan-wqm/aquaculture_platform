@@ -4212,6 +4212,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/alert-engine/src/database/migrations/1816000000002-AddSensorEventIdempotency.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/alert-engine/src/escalation/__tests__/acknowledgment-tracker.service.spec.ts",
       "prettier_managed": true
     },
@@ -7165,6 +7171,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/db-migrate/src/__tests__/nats-stream-provisioner.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/db-migrate/src/__tests__/orphan-type-reclamation.spec.ts",
       "prettier_managed": true
     },
@@ -7214,6 +7226,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/db-migrate/src/migration-orchestrator.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/db-migrate/src/nats-stream-provisioner.ts",
       "prettier_managed": true
     },
     {
@@ -18314,6 +18332,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/gateway-api/src/websocket/nats-bridge.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/gateway-api/src/websocket/nats-bridge.service.ts",
       "prettier_managed": true
     },
@@ -24296,6 +24320,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/compliance/__tests__/sensor-tenant-erasure.hook.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/compliance/sensor-tenant-erasure.hook.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/compliance/sensor-tenant-erasure.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/config/__tests__/sensor-service-profile.service.spec.ts",
       "prettier_managed": true
     },
@@ -24429,6 +24471,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/database/entities/sensor.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/__tests__/durable-sensor-ingest-ledger.migration.spec.ts",
       "prettier_managed": true
     },
     {
@@ -24840,6 +24888,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/database/migrations/1816000000000-BackfillSensorReadingsIntoTenantMetrics.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1816000000001-AddDurableSensorIngestLedger.ts",
       "prettier_managed": true
     },
     {
@@ -25265,6 +25319,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/ingestion/__tests__/sensor-ingest-durability.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/ingestion/__tests__/sensor-lookup-responder.service.spec.ts",
       "prettier_managed": true
     },
@@ -25278,6 +25338,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/ingestion/__tests__/sensor-metric-writer.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/ingestion/__tests__/sensor-topic-cache.erasure.spec.ts",
       "prettier_managed": true
     },
     {
@@ -25314,6 +25380,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/ingestion/sensor-cache-invalidation.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/ingestion/sensor-ingest-durability.service.ts",
       "prettier_managed": true
     },
     {
@@ -26562,6 +26634,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/shared-mqtt/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/shared-mqtt/mqtt-client.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -41468,6 +41546,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "platform/libs/event-bus/src/nats/__tests__/stream-route.registry.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "platform/libs/event-bus/src/nats/event-bus-config.factory.ts",
       "prettier_managed": true
     },
@@ -41487,6 +41571,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "platform/libs/event-bus/src/nats/nats.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "platform/libs/event-bus/src/nats/stream-route.registry.ts",
       "prettier_managed": true
     },
     {
@@ -43905,6 +43995,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/nats-config-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/nats-file-store-capacity.spec.ts",
       "prettier_managed": true
     },
     {

@@ -166,6 +166,13 @@ x-nats-config-env: &nats-config-env
   NATS_TLS_KEY: /etc/ssl/nats-clients/config_service-key.pem
   NATS_TLS_ENABLED: 'true'
 
+x-nats-stream-provisioner-env: &nats-stream-provisioner-env
+  NATS_URL: tls://nats:4222
+  NATS_TLS_CA: /etc/ssl/nats-ca.pem
+  NATS_TLS_CERT: /etc/ssl/nats-clients/nats_stream_provisioner-cert.pem
+  NATS_TLS_KEY: /etc/ssl/nats-clients/nats_stream_provisioner-key.pem
+  NATS_TLS_ENABLED: 'true'
+
 x-nats-ca-mount: &nats-ca-mount ./certs/nats/ca-cert.pem:/etc/ssl/nats-ca.pem:ro
 # SECURITY (HIGH-002 / V4): cert-is-identity is an isolation boundary only if
 # each runtime can read its own private key and no other identity's key. Never
@@ -200,6 +207,8 @@ x-nats-observability-cert-mount: &nats-observability-cert-mount ./certs/nats/cli
 x-nats-observability-key-mount: &nats-observability-key-mount ./certs/nats/clients/observability_service-key.pem:/etc/ssl/nats-clients/observability_service-key.pem:ro
 x-nats-config-cert-mount: &nats-config-cert-mount ./certs/nats/clients/config_service-cert.pem:/etc/ssl/nats-clients/config_service-cert.pem:ro
 x-nats-config-key-mount: &nats-config-key-mount ./certs/nats/clients/config_service-key.pem:/etc/ssl/nats-clients/config_service-key.pem:ro
+x-nats-stream-provisioner-cert-mount: &nats-stream-provisioner-cert-mount ./certs/nats/clients/nats_stream_provisioner-cert.pem:/etc/ssl/nats-clients/nats_stream_provisioner-cert.pem:ro
+x-nats-stream-provisioner-key-mount: &nats-stream-provisioner-key-mount ./certs/nats/clients/nats_stream_provisioner-key.pem:/etc/ssl/nats-clients/nats_stream_provisioner-key.pem:ro
 x-jwt-public-key-mount: &jwt-public-key-mount ./certs/jwt/public.pem:/etc/ssl/jwt/public.pem:ro
 x-jwt-private-key-mount: &jwt-private-key-mount ./certs/jwt/private.pem:/etc/ssl/jwt/private.pem:ro
 
@@ -403,6 +412,7 @@ services:
     container_name: aqua-db-migrate
     restart: 'no'
     environment:
+      <<: *nats-stream-provisioner-env
       NODE_ENV: production
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
@@ -446,6 +456,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      nats:
+        condition: service_healthy
+    volumes:
+      - *nats-ca-mount
+      - *nats-stream-provisioner-cert-mount
+      - *nats-stream-provisioner-key-mount
     networks:
       - aqua-internal
     deploy:
@@ -965,6 +981,8 @@ services:
       MQTT_EXPORTER_HASH: ${MQTT_EXPORTER_HASH:?MQTT_EXPORTER_HASH is required}
       MQTT_USERNAME: sensor_service
       MQTT_PASSWORD: ${MQTT_SENSOR_SERVICE_PASSWORD:?MQTT_SENSOR_SERVICE_PASSWORD is required}
+      MQTT_CLIENT_ID: ${MQTT_CLIENT_ID:-aqua-sensor-service-ingress-production}
+      MQTT_DURABLE_INGRESS_ENABLED: 'true'
       # SEC-C02: No hardcoded default — credential encryption key must be provided externally
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?CREDENTIAL_ENCRYPTION_KEY is required}
       MQTT_BROKER_HOST: app.suderra.com

@@ -368,6 +368,8 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
       MQTT_ENABLED: 'true'
+      MQTT_CLIENT_ID: ${MQTT_CLIENT_ID:-aqua-sensor-service-ingress}
+      MQTT_DURABLE_INGRESS_ENABLED: 'true'
       # ARCH-019: Use container name (aqua-mosquitto) not host.docker.internal
       # Requires simulator stack to be on the same Docker network (aqua-network)
       # Start simulators: docker compose -f infrastructure/simulators/docker-compose.simulators.yml up -d

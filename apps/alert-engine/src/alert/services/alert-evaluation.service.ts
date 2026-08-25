@@ -27,6 +27,7 @@ import { RedisService } from '@aquaculture/backend-common/redis';
  * Sensor reading data structure
  */
 export interface SensorReadingData {
+  sourceEventId: string;
   sensorId: string;
   tenantId: string;
   readings: Record<string, number>;
@@ -66,44 +67,35 @@ export class AlertEvaluationService {
    * Evaluate sensor reading against all applicable rules
    */
   async evaluateSensorReading(reading: SensorReadingData): Promise<void> {
-    try {
-      // Find applicable rules for this reading
-      const rules = await this.findApplicableRules(
-        reading.tenantId,
-        reading.sensorId,
-        reading.farmId,
-        reading.pondId,
-      );
+    // Find applicable rules for this reading
+    const rules = await this.findApplicableRules(
+      reading.tenantId,
+      reading.sensorId,
+      reading.farmId,
+      reading.pondId,
+    );
 
-      this.logger.debug(
-        `Found ${rules.length} applicable rules for sensor ${reading.sensorId}`,
-      );
+    this.logger.debug(`Found ${rules.length} applicable rules for sensor ${reading.sensorId}`);
 
-      // PE-04: Evaluate all conditions synchronously first (no I/O), then
-      // fire all cooldown checks + alert triggers in parallel.
-      const triggered = rules
-        .map(rule => ({
-          rule,
-          condition: this.checkConditions(rule.conditions, reading.readings),
-        }))
-        .filter((r): r is { rule: AlertRule; condition: AlertCondition } => r.condition !== null);
+    // PE-04: Evaluate all conditions synchronously first (no I/O), then
+    // fire all cooldown checks + alert triggers in parallel.
+    const triggered = rules
+      .map((rule) => ({
+        rule,
+        condition: this.checkConditions(rule.conditions, reading.readings),
+      }))
+      .filter((r): r is { rule: AlertRule; condition: AlertCondition } => r.condition !== null);
 
-      if (triggered.length > 0) {
-        await Promise.all(
-          triggered.map(({ rule, condition }) =>
-            this.atomicCheckCooldownAndTrigger(rule, reading, condition),
-          ),
-        );
-      } else {
-        // No conditions matched -- sensor is back in normal range.
-        // Auto-resolve any active incidents for this sensor (INFO/LOW only).
-        await this.autoResolveIfNormal(reading);
-      }
-    } catch (error) {
-      this.logger.error(
-        `Error evaluating sensor reading: ${(error as Error).message}`,
-        (error as Error).stack,
+    if (triggered.length > 0) {
+      await Promise.all(
+        triggered.map(({ rule, condition }) =>
+          this.atomicCheckCooldownAndTrigger(rule, reading, condition),
+        ),
       );
+    } else {
+      // No conditions matched -- sensor is back in normal range.
+      // Auto-resolve any active incidents for this sensor (INFO/LOW only).
+      await this.autoResolveIfNormal(reading);
     }
   }
 
@@ -131,34 +123,27 @@ export class AlertEvaluationService {
         return JSON.parse(cached) as AlertRule[];
       }
     } catch (err) {
-      this.logger.debug(`Redis cache read failed for rules, falling back to DB: ${(err as Error).message}`);
+      this.logger.debug(
+        `Redis cache read failed for rules, falling back to DB: ${(err as Error).message}`,
+      );
     }
 
     const query = this.ruleRepository
       .createQueryBuilder('rule')
       .where('rule.tenantId = :tenantId', { tenantId })
       .andWhere('rule.isActive = true')
-      .andWhere(
-        '(rule.sensorId IS NULL OR rule.sensorId = :sensorId)',
-        { sensorId },
-      );
+      .andWhere('(rule.sensorId IS NULL OR rule.sensorId = :sensorId)', { sensorId });
 
     // Always apply farm/pond filters to prevent cross-scope rule leakage.
     // When farmId is undefined, only return rules that are not scoped to any farm.
     if (farmId) {
-      query.andWhere(
-        '(rule.farmId IS NULL OR rule.farmId = :farmId)',
-        { farmId },
-      );
+      query.andWhere('(rule.farmId IS NULL OR rule.farmId = :farmId)', { farmId });
     } else {
       query.andWhere('rule.farmId IS NULL');
     }
 
     if (pondId) {
-      query.andWhere(
-        '(rule.pondId IS NULL OR rule.pondId = :pondId)',
-        { pondId },
-      );
+      query.andWhere('(rule.pondId IS NULL OR rule.pondId = :pondId)', { pondId });
     } else {
       query.andWhere('rule.pondId IS NULL');
     }
@@ -188,7 +173,9 @@ export class AlertEvaluationService {
       await this.redisService.deletePattern(`alert:rules:${tenantId}:*`);
       this.logger.debug(`Invalidated rule cache for tenant ${tenantId}`);
     } catch (err) {
-      this.logger.warn(`Failed to invalidate rule cache for tenant ${tenantId}: ${(err as Error).message}`);
+      this.logger.warn(
+        `Failed to invalidate rule cache for tenant ${tenantId}: ${(err as Error).message}`,
+      );
     }
   }
 
@@ -279,12 +266,15 @@ export class AlertEvaluationService {
       const cooldownKey = `cooldown:${reading.tenantId}:${rule.id}`;
       const wasSet = await this.redisService.setNx(
         cooldownKey,
-        '1',
+        reading.sourceEventId,
         rule.cooldownMinutes * 60,
       );
       if (!wasSet) {
-        this.logger.debug(`Alert for rule ${rule.id} is in cooldown period`);
-        return;
+        const cooldownOwner = await this.redisService.get(cooldownKey);
+        if (cooldownOwner !== reading.sourceEventId) {
+          this.logger.debug(`Alert for rule ${rule.id} is in cooldown period`);
+          return;
+        }
       }
     }
 
@@ -293,6 +283,7 @@ export class AlertEvaluationService {
     const message = `Alert: ${rule.name} - ${condition.parameter} is ${this.formatOperator(condition.operator)} ${condition.threshold}. Current value: ${currentValue}`;
 
     const history = this.historyRepository.create({
+      sourceEventId: reading.sourceEventId,
       ruleId: rule.id,
       ruleName: rule.name,
       tenantId: reading.tenantId,
@@ -324,30 +315,41 @@ export class AlertEvaluationService {
     // incident persisted but the operator never notified of, e.g., a
     // dissolved-oxygen crash. No try/catch wraps the enqueue: a failed
     // enqueue MUST propagate so the transaction rolls back.
-    const newIncident = await this.dataSource.transaction(async (manager) => {
-      const savedHistory = await manager.save(AlertHistory, history);
+    let newIncident: AlertIncident | null;
+    try {
+      newIncident = await this.dataSource.transaction(async (manager) => {
+        const savedHistory = await manager.save(AlertHistory, history);
 
-      // Create or update an AlertIncident to feed the escalation pipeline.
-      const created = await this.ensureIncident(
-        manager,
-        rule,
-        reading,
-        condition,
-        savedHistory,
-        message,
-      );
+        // Create or update an AlertIncident to feed the escalation pipeline.
+        const created = await this.ensureIncident(
+          manager,
+          rule,
+          reading,
+          condition,
+          savedHistory,
+          message,
+        );
 
-      const event = this.buildAlertTriggeredEvent(
-        rule,
-        reading,
-        condition,
-        savedHistory.id,
-        message,
-      );
-      await this.outboxPublisher.enqueue(event, manager);
+        const event = this.buildAlertTriggeredEvent(
+          rule,
+          reading,
+          condition,
+          savedHistory.id,
+          message,
+        );
+        await this.outboxPublisher.enqueue(event, manager);
 
-      return created;
-    });
+        return created;
+      });
+    } catch (error) {
+      if (this.isSourceEventDuplicate(error)) {
+        this.logger.debug(
+          `SensorReading ${reading.sourceEventId} already affected alert rule ${rule.id}`,
+        );
+        return;
+      }
+      throw error;
+    }
 
     // Start the escalation pipeline only for freshly-created incidents, and
     // only AFTER the trigger has durably committed. Escalation manages its
@@ -362,6 +364,12 @@ export class AlertEvaluationService {
           );
         });
     }
+  }
+
+  private isSourceEventDuplicate(error: unknown): boolean {
+    if (typeof error !== 'object' || error === null) return false;
+    if (!('code' in error) || !('constraint' in error)) return false;
+    return error.code === '23505' && error.constraint === 'UQ_alert_history_source_event_rule';
   }
 
   /**
@@ -402,7 +410,7 @@ export class AlertEvaluationService {
       await manager.save(AlertIncident, existingIncident);
       this.logger.debug(
         `Updated existing incident ${existingIncident.id} for rule ${rule.id} ` +
-        `(occurrences: ${existingIncident.occurrenceCount})`,
+          `(occurrences: ${existingIncident.occurrenceCount})`,
       );
       // No new incident → no fresh escalation pipeline to start post-commit.
       return null;
@@ -562,66 +570,53 @@ export class AlertEvaluationService {
    * whose severity is INFO or LOW.
    */
   private async autoResolveIfNormal(reading: SensorReadingData): Promise<void> {
-    try {
-      const activeStatuses: IncidentStatus[] = [
-        IncidentStatus.NEW,
-        IncidentStatus.ACKNOWLEDGED,
-        IncidentStatus.INVESTIGATING,
-      ];
+    const activeStatuses: IncidentStatus[] = [
+      IncidentStatus.NEW,
+      IncidentStatus.ACKNOWLEDGED,
+      IncidentStatus.INVESTIGATING,
+    ];
 
-      const activeIncidents = await this.incidentRepository.find({
-        where: {
-          sensorId: reading.sensorId,
-          tenantId: reading.tenantId,
-          status: In(activeStatuses),
-        },
+    const activeIncidents = await this.incidentRepository.find({
+      where: {
+        sensorId: reading.sensorId,
+        tenantId: reading.tenantId,
+        status: In(activeStatuses),
+      },
+    });
+
+    for (const incident of activeIncidents) {
+      if (!this.isAutoResolvable(incident.severity)) {
+        continue;
+      }
+
+      const resolvedAt = new Date();
+      incident.status = IncidentStatus.RESOLVED;
+      incident.resolvedAt = resolvedAt;
+      incident.resolvedBy = 'SYSTEM_AUTO_RESOLVE';
+      incident.resolutionNotes =
+        'Automatically resolved: sensor readings returned to normal range.';
+
+      incident.addTimelineEvent({
+        type: TimelineEventType.RESOLVED,
+        description: 'Auto-resolved: all sensor readings within normal thresholds.',
       });
 
-      for (const incident of activeIncidents) {
-        if (!this.isAutoResolvable(incident.severity)) {
-          continue;
-        }
+      // LIFE-SAFETY (ALERT-CRITICAL-001): the incident-resolution state
+      // write and the AlertResolved event commit atomically via the
+      // transactional outbox. A swallowed publish after commit (the
+      // previous behaviour) could leave downstream services (notification,
+      // audit) believing an incident was still open. No try/catch wraps the
+      // enqueue — a failed enqueue rolls back the resolution. Each incident
+      // gets its own transaction so one failure does not unwind siblings.
+      const event = this.buildAlertResolvedEvent(reading.tenantId, incident.id, resolvedAt);
+      await this.dataSource.transaction(async (manager) => {
+        await manager.save(AlertIncident, incident);
+        await this.outboxPublisher.enqueue(event, manager);
+      });
 
-        const resolvedAt = new Date();
-        incident.status = IncidentStatus.RESOLVED;
-        incident.resolvedAt = resolvedAt;
-        incident.resolvedBy = 'SYSTEM_AUTO_RESOLVE';
-        incident.resolutionNotes =
-          'Automatically resolved: sensor readings returned to normal range.';
-
-        incident.addTimelineEvent({
-          type: TimelineEventType.RESOLVED,
-          description:
-            'Auto-resolved: all sensor readings within normal thresholds.',
-        });
-
-        // LIFE-SAFETY (ALERT-CRITICAL-001): the incident-resolution state
-        // write and the AlertResolved event commit atomically via the
-        // transactional outbox. A swallowed publish after commit (the
-        // previous behaviour) could leave downstream services (notification,
-        // audit) believing an incident was still open. No try/catch wraps the
-        // enqueue — a failed enqueue rolls back the resolution. Each incident
-        // gets its own transaction so one failure does not unwind siblings.
-        const event = this.buildAlertResolvedEvent(
-          reading.tenantId,
-          incident.id,
-          resolvedAt,
-        );
-        await this.dataSource.transaction(async (manager) => {
-          await manager.save(AlertIncident, incident);
-          await this.outboxPublisher.enqueue(event, manager);
-        });
-
-        this.logger.log(
-          `Auto-resolved incident ${incident.id} (severity: ${incident.severity}) ` +
+      this.logger.log(
+        `Auto-resolved incident ${incident.id} (severity: ${incident.severity}) ` +
           `for sensor ${reading.sensorId}`,
-        );
-      }
-    } catch (error) {
-      this.logger.error(
-        `Failed to auto-resolve incidents for sensor ${reading.sensorId}: ` +
-        `${(error as Error).message}`,
-        (error as Error).stack,
       );
     }
   }

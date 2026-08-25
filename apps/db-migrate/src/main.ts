@@ -85,6 +85,7 @@ import {
   type RunSchemaOptions,
   type RunSchemaResult,
 } from './migration-orchestrator';
+import { provisionNatsStreams } from './nats-stream-provisioner';
 import { reclaimPostFanoutOrphanTypes } from './orphan-type-reclamation';
 import { runPlatformBootstrap, resolvePlatformBootstrapSqlDir } from './platform-bootstrap.service';
 import { SCHEMA_REGISTRY, type SchemaPostMigrationHardening } from './schema-registry';
@@ -243,10 +244,7 @@ async function runSchemaPostMigrationHardening(
       // pass below. Merging the SSoT ledgers with any config excludes keeps the
       // sweep from ever touching them.
       const ledgerExcludes = getInfrastructureAuditLedgers(schema);
-      const mergedExcludes = [
-        ...(rlsOptions.excludeTables ?? []),
-        ...ledgerExcludes,
-      ];
+      const mergedExcludes = [...(rlsOptions.excludeTables ?? []), ...ledgerExcludes];
       await applyTenantRlsToSchema(queryRunner, {
         schemaOverride: schema,
         logger: helperLogger,
@@ -1478,7 +1476,8 @@ async function main(): Promise<number> {
     } catch (err: unknown) {
       log({
         level: 'warn',
-        message: 'Post-fan-out orphan-type reclamation failed (non-fatal) — orphan type left for a later release',
+        message:
+          'Post-fan-out orphan-type reclamation failed (non-fatal) — orphan type left for a later release',
         context: 'DbMigrateOrphanTypeReclamation',
         error: err instanceof Error ? err.message : String(err),
       });
@@ -1507,6 +1506,24 @@ async function main(): Promise<number> {
         message: 'Release ledger expected/applied migration heads diverge — aborting deploy',
         expectedHeads,
         appliedHeads,
+      });
+      return 1;
+    }
+
+    try {
+      await provisionNatsStreams();
+      log({
+        level: 'info',
+        message: 'NATS stream reconciliation complete',
+        context: 'NatsStreamProvisioner',
+      });
+    } catch (err: unknown) {
+      log({
+        level: 'error',
+        message: 'NATS stream reconciliation failed — aborting deploy',
+        context: 'NatsStreamProvisioner',
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
       });
       return 1;
     }

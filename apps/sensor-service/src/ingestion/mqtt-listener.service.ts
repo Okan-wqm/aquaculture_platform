@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import {
   Injectable,
   Logger,
@@ -8,8 +10,18 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { IEventBus } from '@platform/event-bus';
-import { createBaseEvent } from '@platform/event-contracts';
+import { TenantErasureTombstoneError } from '@aquaculture/backend-common/compliance';
+import { IEvent, IEventBus } from '@platform/event-bus';
+import {
+  createBaseEvent,
+  createDeterministicEventId,
+  MqttIngestDeadLetteredEvent,
+  MqttPayloadQuarantinedEvent,
+  parameterForChannelKey,
+  readingFieldForParameter,
+  SensorReadingEvent,
+  SensorReadingField,
+} from '@platform/event-contracts';
 import { Repository, DataSource, EntityManager } from 'typeorm';
 
 /**
@@ -47,12 +59,13 @@ import {
   tenantManagerRepo,
   TenantScopedRepository,
 } from '@aquaculture/backend-common/database';
-import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
+import { MqttClientService, MqttMessageHandler } from '../shared-mqtt/mqtt-client.service';
 import { SensorServiceProfileService } from '../config/sensor-service-profile.service';
 import { VfdEdgeProvisioningService } from '../vfd/services/vfd-edge-provisioning.service';
 import { VfdEdgeReadService } from '../vfd/services/vfd-edge-read.service';
 import { VfdEdgeWriteService } from '../vfd/services/vfd-edge-write.service';
 import { SensorTopicCacheService, CachedSensorInfo } from './sensor-topic-cache.service';
+import { SensorIngestDurabilityService } from './sensor-ingest-durability.service';
 import { SensorMetricWriterService } from './sensor-metric-writer.service';
 
 /**
@@ -64,6 +77,67 @@ interface ParsedTopic {
   tenantId: string;
   sensorId?: string;
   location?: string;
+}
+
+interface DurableMqttSource {
+  sourceEventId: string;
+  sourceTimestamp: Date;
+  sourceSequence?: string;
+  readings: Record<string, unknown>;
+}
+
+interface DurableSensorIngestContext extends DurableMqttSource {
+  topic: string;
+  payloadDigest: string;
+  childEvent: SensorReadingEvent;
+  childSubject: string;
+}
+
+const RETRYABLE_INGRESS_ERROR_CODES = new Set([
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'ETIMEDOUT',
+  'ENETUNREACH',
+  'EHOSTUNREACH',
+  '55P03',
+  '57014',
+  '57P01',
+  '57P02',
+  '57P03',
+  '40001',
+  '40P01',
+  '53300',
+  '53400',
+]);
+
+class RetryableMqttIngressError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RetryableMqttIngressError';
+  }
+}
+
+function mqttIngressErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function mqttIngressErrorCode(error: unknown): string | null {
+  if (typeof error !== 'object' || error === null || !('code' in error)) {
+    return null;
+  }
+  const code = error.code;
+  return typeof code === 'string' ? code : null;
+}
+
+function isRetryableMqttIngressError(error: unknown): boolean {
+  if (error instanceof RetryableMqttIngressError) {
+    return true;
+  }
+  const code = mqttIngressErrorCode(error);
+  if (code === null) {
+    return false;
+  }
+  return RETRYABLE_INGRESS_ERROR_CODES.has(code) || code.startsWith('08');
 }
 
 /**
@@ -158,7 +232,7 @@ interface TenantEdgeStatusPayload {
 @Injectable()
 export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MqttListenerService.name);
-  private readonly messageHandler: (topic: string, message: Buffer) => void;
+  private readonly messageHandler: MqttMessageHandler;
 
   // Channel lookup cache: sensorId -> { channels, expiresAt }
   private readonly channelCache = new Map<
@@ -199,6 +273,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly metricWriter: SensorMetricWriterService,
+    private readonly ingestDurability: SensorIngestDurabilityService,
     @Optional()
     @Inject('EVENT_BUS')
     private readonly eventBus: IEventBus | null,
@@ -258,14 +333,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       this.configService.get('LEGACY_EDGE_TOPICS_ENABLED', 'true') === 'true';
 
     // Bind message handler to this instance
-    this.messageHandler = (topic: string, message: Buffer) => {
-      this.handleMessage(topic, message).catch((error: Error) => {
-        this.logger.error(
-          `Unhandled error in message handler for topic ${topic}: ${error.message}`,
-          error.stack,
-        );
-      });
-    };
+    this.messageHandler = (topic: string, message: Buffer) => this.handleMessage(topic, message);
   }
 
   async onModuleInit(): Promise<void> {
@@ -320,6 +388,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         );
       });
     }, this.LAST_SEEN_FLUSH_INTERVAL_MS);
+    this.lastSeenFlushTimer.unref();
 
     this.logger.log('MQTT Listener initialized');
   }
@@ -453,18 +522,77 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
+      const durableIngressEnabled =
+        this.configService.get('MQTT_DURABLE_INGRESS_ENABLED', 'true') === 'true';
+      const payloadDigest = createHash('sha256').update(message).digest('hex');
+
       // Parse message payload
       const data = this.parsePayload(payload, sensor);
 
       if (!data) {
         this.logger.warn(`Failed to parse payload for topic ${topic}`);
+        if (durableIngressEnabled) {
+          const quarantineBase = createBaseEvent<MqttPayloadQuarantinedEvent>(
+            'MqttPayloadQuarantined',
+            sensor.tenantId,
+            {
+              aggregateId: sensor.id,
+              aggregateType: 'Sensor',
+            },
+          );
+          const quarantineEvent: MqttPayloadQuarantinedEvent = {
+            ...quarantineBase,
+            eventId: createDeterministicEventId(`quarantine:${payloadDigest}`, topic),
+            topic,
+            payloadDigest,
+            reason: 'MALFORMED_PAYLOAD',
+            payloadBase64: message.toString('base64'),
+          };
+          await this.ingestDurability.publishQuarantine(quarantineEvent);
+        }
         return;
       }
 
       const now = new Date();
 
+      if (durableIngressEnabled) {
+        const source = this.parseDurableMqttSource(data);
+        if (source === null) {
+          const quarantineBase = createBaseEvent<MqttPayloadQuarantinedEvent>(
+            'MqttPayloadQuarantined',
+            sensor.tenantId,
+            {
+              aggregateId: sensor.id,
+              aggregateType: 'Sensor',
+            },
+          );
+          const quarantineEvent: MqttPayloadQuarantinedEvent = {
+            ...quarantineBase,
+            eventId: createDeterministicEventId(`quarantine:${payloadDigest}`, topic),
+            topic,
+            payloadDigest,
+            reason: 'MISSING_STABLE_SOURCE_IDENTITY_OR_PRODUCER_TIME',
+            payloadBase64: message.toString('base64'),
+          };
+          await this.ingestDurability.publishQuarantine(quarantineEvent);
+          return;
+        }
+
+        const childEvent = this.buildDurableSensorReadingEvent(sensor, source);
+        const context: DurableSensorIngestContext = {
+          ...source,
+          topic,
+          payloadDigest,
+          childEvent,
+          childSubject: `telemetry.${sensor.tenantId}.SensorReading`,
+        };
+        await this.processDurableSensorReading(sensor, context, message);
+        this.lastSeenPending.set(sensor.id, now);
+        return;
+      }
+
       // Save reading
-      await this.saveReading(sensor, data);
+      await this.saveReading(sensor, data, null);
 
       // Debounce lastSeenAt update (flushed every 30 seconds)
       this.lastSeenPending.set(sensor.id, now);
@@ -472,8 +600,190 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       // Publish real-time event for WebSocket clients
       await this.publishSensorReadingEvent(sensor, data, now);
     } catch (error) {
-      this.logger.error(`Error handling MQTT message: ${(error as Error).message}`);
+      this.logger.error(`Error handling MQTT message: ${mqttIngressErrorMessage(error)}`);
+      throw error instanceof Error ? error : new Error(String(error));
     }
+  }
+
+  private buildDurableSensorReadingEvent(
+    sensor: Sensor,
+    source: DurableMqttSource,
+  ): SensorReadingEvent {
+    const readingFields = this.buildCanonicalReadingFields(source.readings);
+    return {
+      ...createBaseEvent<SensorReadingEvent>('SensorReading', sensor.tenantId, {
+        aggregateId: sensor.id,
+        aggregateType: 'Sensor',
+        version: 3,
+      }),
+      ...readingFields,
+      eventId: createDeterministicEventId(source.sourceEventId, 'SensorReading:0'),
+      timestamp: source.sourceTimestamp.toISOString(),
+      sensorId: sensor.id,
+    };
+  }
+
+  private buildCanonicalReadingFields(
+    readings: Record<string, unknown>,
+  ): Partial<Record<SensorReadingField, number>> {
+    const readingFields: Partial<Record<SensorReadingField, number>> = {};
+    for (const [channelKey, rawValue] of Object.entries(readings)) {
+      const parameter = parameterForChannelKey(channelKey);
+      if (parameter === undefined || typeof rawValue !== 'number' || !Number.isFinite(rawValue)) {
+        continue;
+      }
+      readingFields[readingFieldForParameter(parameter)] = rawValue;
+    }
+    return readingFields;
+  }
+
+  private async processDurableSensorReading(
+    sensor: Sensor,
+    context: DurableSensorIngestContext,
+    message: Buffer,
+  ): Promise<void> {
+    try {
+      await this.saveReading(sensor, context.readings, context);
+      return;
+    } catch (error) {
+      if (error instanceof TenantErasureTombstoneError) {
+        this.logger.warn(`ACK-dropping MQTT redelivery for erased tenant ${sensor.tenantId}`);
+        return;
+      }
+      if (isRetryableMqttIngressError(error)) {
+        throw error;
+      }
+      if (error instanceof Error && error.message.startsWith('SOURCE_EVENT_ID_COLLISION')) {
+        const quarantineEvent = this.buildQuarantineEvent(
+          sensor,
+          context,
+          message,
+          'SOURCE_EVENT_ID_COLLISION',
+        );
+        await this.ingestDurability.publishQuarantine(quarantineEvent);
+        return;
+      }
+
+      const errorMessage = mqttIngressErrorMessage(error).slice(0, 512);
+      const processingAttempts = await runInTenantTransaction(
+        this.dataSource,
+        'sensor',
+        sensor.tenantId,
+        (queryRunner) =>
+          this.ingestDurability.recordUnknownFailureManaged(queryRunner.manager, {
+            tenantId: sensor.tenantId,
+            sourceEventId: context.sourceEventId,
+            payloadDigest: context.payloadDigest,
+            topic: context.topic,
+            sourceTimestamp: context.sourceTimestamp,
+            ...(context.sourceSequence === undefined
+              ? {}
+              : { sourceSequence: context.sourceSequence }),
+            errorMessage,
+          }),
+      );
+      if (processingAttempts < 5) {
+        throw error instanceof Error ? error : new Error(String(error));
+      }
+
+      const deadLetterEvent: MqttIngestDeadLetteredEvent = {
+        ...createBaseEvent<MqttIngestDeadLetteredEvent>('MqttIngestDeadLettered', sensor.tenantId, {
+          aggregateId: sensor.id,
+          aggregateType: 'Sensor',
+        }),
+        eventId: createDeterministicEventId(
+          `dlq:${context.sourceEventId}:${context.payloadDigest}`,
+          context.topic,
+        ),
+        topic: context.topic,
+        payloadDigest: context.payloadDigest,
+        reason: 'UNKNOWN_PROCESSING_FAILURE',
+        payloadBase64: message.toString('base64'),
+        sourceEventId: context.sourceEventId,
+        sourceTimestamp: context.sourceTimestamp.toISOString(),
+        ...(context.sourceSequence === undefined ? {} : { sourceSequence: context.sourceSequence }),
+        processingAttempts,
+        originalSubject: context.childSubject,
+        originalEventJson: JSON.stringify(context.childEvent),
+      };
+      await runInTenantTransaction(this.dataSource, 'sensor', sensor.tenantId, (queryRunner) =>
+        this.ingestDurability.publishDeadLetterManaged(
+          queryRunner.manager,
+          context.sourceEventId,
+          deadLetterEvent,
+        ),
+      );
+    }
+  }
+
+  private buildQuarantineEvent(
+    sensor: Sensor,
+    context: DurableSensorIngestContext,
+    message: Buffer,
+    reason: string,
+  ): MqttPayloadQuarantinedEvent {
+    return {
+      ...createBaseEvent<MqttPayloadQuarantinedEvent>('MqttPayloadQuarantined', sensor.tenantId, {
+        aggregateId: sensor.id,
+        aggregateType: 'Sensor',
+      }),
+      eventId: createDeterministicEventId(`quarantine:${context.payloadDigest}`, context.topic),
+      topic: context.topic,
+      payloadDigest: context.payloadDigest,
+      reason,
+      payloadBase64: message.toString('base64'),
+    };
+  }
+
+  private parseDurableMqttSource(data: Record<string, unknown>): DurableMqttSource | null {
+    const sourceEventId = data['sourceEventId'];
+    const sourceTimestampValue = data['sourceTimestamp'];
+    if (
+      typeof sourceEventId !== 'string' ||
+      sourceEventId.length === 0 ||
+      sourceEventId.length > 160 ||
+      typeof sourceTimestampValue !== 'string'
+    ) {
+      return null;
+    }
+    const sourceTimestamp = new Date(sourceTimestampValue);
+    if (!Number.isFinite(sourceTimestamp.getTime())) return null;
+
+    const sequenceValue = data['sourceSequence'];
+    let sourceSequence: string | undefined;
+    if (sequenceValue !== undefined) {
+      if (
+        typeof sequenceValue === 'number' &&
+        Number.isSafeInteger(sequenceValue) &&
+        sequenceValue >= 0
+      ) {
+        sourceSequence = String(sequenceValue);
+      } else if (typeof sequenceValue === 'string' && /^\d{1,19}$/.test(sequenceValue)) {
+        if (BigInt(sequenceValue) > 9223372036854775807n) return null;
+        sourceSequence = sequenceValue;
+      } else {
+        return null;
+      }
+    }
+
+    const nestedReadings = data['readings'];
+    const readings =
+      typeof nestedReadings === 'object' &&
+      nestedReadings !== null &&
+      !Array.isArray(nestedReadings)
+        ? Object.fromEntries(Object.entries(nestedReadings))
+        : Object.fromEntries(
+            Object.entries(data).filter(
+              ([key]) =>
+                key !== 'sourceEventId' && key !== 'sourceTimestamp' && key !== 'sourceSequence',
+            ),
+          );
+    return {
+      sourceEventId,
+      sourceTimestamp,
+      ...(sourceSequence !== undefined ? { sourceSequence } : {}),
+      readings,
+    };
   }
 
   // ==================== Edge Device Handlers ====================
@@ -1743,16 +2053,17 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     }
 
     try {
-      await this.eventBus.publish({
-        ...createBaseEvent('SensorReading', sensor.tenantId, {
+      const event: SensorReadingEvent = {
+        ...createBaseEvent<SensorReadingEvent>('SensorReading', sensor.tenantId, {
           aggregateId: sensor.id,
           aggregateType: 'Sensor',
+          version: 3,
         }),
+        ...this.buildCanonicalReadingFields(data),
         timestamp: timestamp.toISOString(),
         sensorId: sensor.id,
-        readings: data,
-        version: 1,
-      });
+      };
+      await this.eventBus.publish(event);
       this.logger.debug(`Published SensorReading event for sensor ${sensor.id}`);
     } catch (error) {
       this.logger.warn(`Failed to publish sensor reading event: ${(error as Error).message}`);
@@ -2069,13 +2380,17 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    * Save sensor reading to database using narrow table format
    * Each channel value becomes a separate row in sensor_metrics
    */
-  private async saveReading(sensor: Sensor, data: Record<string, unknown>): Promise<void> {
+  private async saveReading(
+    sensor: Sensor,
+    data: Record<string, unknown>,
+    context: DurableSensorIngestContext | null,
+  ): Promise<void> {
     await runInTenantTransaction(
       this.dataSource,
       'sensor',
       sensor.tenantId,
       async (queryRunner) => {
-        const now = new Date();
+        const metricTime = context === null ? new Date() : context.sourceTimestamp;
         const channels = await this.getChannelsCached(sensor.id, queryRunner.manager);
         const metrics: SensorMetricInput[] = [];
 
@@ -2107,7 +2422,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           }
 
           metrics.push({
-            time: now,
+            time: metricTime,
             sensorId: sensor.id,
             channelId: channel.id,
             tenantId: sensor.tenantId,
@@ -2123,17 +2438,47 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
             qualityCode,
             qualityBits,
             sourceProtocol: 'mqtt',
-            sourceTimestamp: now,
+            sourceTimestamp: metricTime,
+            ...(context === null
+              ? {}
+              : {
+                  sourceEventId: context.sourceEventId,
+                  ...(context.sourceSequence === undefined
+                    ? {}
+                    : { sourceSequence: context.sourceSequence }),
+                }),
           });
         }
 
-        if (metrics.length > 0) {
+        if (context !== null) {
+          await this.ingestDurability.recordManaged(queryRunner.manager, {
+            tenantId: sensor.tenantId,
+            sourceEventId: context.sourceEventId,
+            payloadDigest: context.payloadDigest,
+            topic: context.topic,
+            sourceTimestamp: context.sourceTimestamp,
+            ...(context.sourceSequence !== undefined
+              ? { sourceSequence: context.sourceSequence }
+              : {}),
+            metrics,
+            dispatches: [{ subject: context.childSubject, event: context.childEvent }],
+          });
+        } else if (metrics.length > 0) {
           await this.metricWriter.writeManaged(metrics, queryRunner.manager);
         }
 
         this.logger.debug(`Saved ${metrics.length} metrics for sensor ${sensor.id}`);
       },
     );
+    if (context !== null) {
+      try {
+        await runInTenantTransaction(this.dataSource, 'sensor', sensor.tenantId, (queryRunner) =>
+          this.ingestDurability.publishPendingManaged(queryRunner.manager, context.sourceEventId),
+        );
+      } catch (error) {
+        throw new RetryableMqttIngressError(mqttIngressErrorMessage(error));
+      }
+    }
   }
 
   /**

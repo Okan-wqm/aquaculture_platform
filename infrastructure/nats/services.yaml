@@ -25,7 +25,7 @@
 #   - sensor.lookup.by-topic               Rust sidecar cache-miss RPC (ADR-029)
 #   - st.language.>                        ST Language IDE bridge
 #   - policy.ingest_backend.>              dynamic policy fan-out (ADR-027/031)
-#   - $JS.API.> + _INBOX.>                 JetStream API + request-reply inboxes
+#   - scoped $JS.API.* + _INBOX.>          JetStream API + request-reply inboxes
 #
 # The legacy `AQUACULTURE_EVENTS.<Type>.>` grant scheme is BANNED (and
 # structurally rejected by services.schema.json): AQUACULTURE_EVENTS is the
@@ -37,8 +37,9 @@
 # # Consumption model (why subscribe lists are short)
 #
 #   Domain-event consumption goes through JetStream PULL consumers
-#   (NatsEventBus.createSubscription): the client only needs $JS.API.> +
-#   _INBOX.> — per-subject subscribe grants are NOT consulted for pull
+#   (NatsEventBus.createSubscription): the client only needs explicit account,
+#   stream-info, consumer-create/info/fetch API grants plus _INBOX.> —
+#   per-subject subscribe grants are NOT consulted for pull
 #   consumers. Subject-level subscribe grants are therefore listed ONLY for
 #   CORE NATS subscriptions: @MessagePattern/@EventPattern handlers
 #   (request.*, events.> bridges), st.language.>, policy snapshots and the
@@ -71,12 +72,15 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - 'request.farm.validateSiteAssignment'
-      - '$JS.API.>'
+      - '$JS.API.INFO'
+      - '$JS.API.STREAM.INFO.*'
+      - '$JS.API.CONSUMER.INFO.>'
+      - '$JS.API.CONSUMER.CREATE.>'
+      - '$JS.API.CONSUMER.MSG.NEXT.>'
       - '_INBOX.>'
     subscribe:
       - 'request.auth.user.validateTenantMembership'
       - 'request.auth.>'
-      - '$JS.API.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -185,7 +189,11 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - 'request.farm.validateSiteAssignment'
-      - '$JS.API.>'
+      - '$JS.API.INFO'
+      - '$JS.API.STREAM.INFO.*'
+      - '$JS.API.CONSUMER.INFO.>'
+      - '$JS.API.CONSUMER.CREATE.>'
+      - '$JS.API.CONSUMER.MSG.NEXT.>'
       - '_INBOX.>'
     subscribe:
       # ai-service create_task actuation tool (request-reply responder)
@@ -199,7 +207,6 @@ services:
       # Dedicated first-token inbox: generic `_INBOX.>` grants cannot read
       # decrypted marine-provider credential replies.
       - '_INBOXFARMMARINECFG.>'
-      - '$JS.API.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -230,6 +237,11 @@ services:
       - 'events.*.SensorServiceTenantDataErased'
       - 'events.*.SensorServiceTenantDataErasureFailed'
       - 'events.*.SensorServiceTenantErasureBlocked'
+      - 'events.*.MqttPayloadQuarantined'
+      - 'events.*.MqttIngestDeadLettered'
+      - 'telemetry.*.SensorReading'
+      - 'dlq.mqtt'
+      - 'quarantine.mqtt'
       # SENSOR-MEDIUM-070: channel-detection delegates to ai-service over NATS
       # (request-reply) under the sensor-service service principal — replaces the
       # forged x-user-payload HTTP call. sensor-service is the CALLER (publish).
@@ -237,13 +249,22 @@ services:
       - 'st.language.>'
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
-      - '$JS.API.>'
+      - '$JS.API.INFO'
+      - '$JS.API.STREAM.INFO.*'
+      - '$JS.API.CONSUMER.INFO.>'
+      - '$JS.API.CONSUMER.CREATE.>'
+      - '$JS.API.CONSUMER.MSG.NEXT.>'
+      - '$JS.API.STREAM.PURGE.AQUACULTURE_TELEMETRY'
+      - '$JS.API.STREAM.MSG.GET.AQUACULTURE_DLQ'
+      - '$JS.API.STREAM.MSG.DELETE.AQUACULTURE_DLQ'
+      - '$JS.API.STREAM.MSG.GET.AQUACULTURE_QUARANTINE'
+      - '$JS.API.STREAM.MSG.DELETE.AQUACULTURE_QUARANTINE'
       - '_INBOX.>'
     subscribe:
       - 'request.sensor.>'
       - 'sensor.lookup.by-topic'
+      - 'dlq.mqtt'
       - 'st.language.>'
-      - '$JS.API.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -257,13 +278,17 @@ services:
     description: Rust ingestion sidecar — MQTT subscribe → COPY → SensorReading event publish
     publish:
       - 'events.*.SensorReading'
+      - 'telemetry.*.SensorReading'
       - 'sensor.lookup.by-topic'
-      - '$JS.API.>'
+      - '$JS.API.INFO'
+      - '$JS.API.STREAM.INFO.*'
+      - '$JS.API.CONSUMER.INFO.>'
+      - '$JS.API.CONSUMER.CREATE.>'
+      - '$JS.API.CONSUMER.MSG.NEXT.>'
       - '_INBOX.>'
     subscribe:
       - 'policy.ingest_backend.>'
       - '_INBOX.>'
-      - '$JS.API.>'
 
   # ---------------------------------------------------------------------------
   # admin-api-service: tenant lifecycle and erasure coordinator
@@ -289,6 +314,7 @@ services:
       - 'events.*.AdminApiServiceTenantDataErasureFailed'
       - 'events.*.AdminApiServiceTenantErasureBlocked'
       - 'events.*.TenantErasureDryRunSchemaDeletionRejected'
+      - 'events.*.TelemetryCapacityEntitlementChanged'
       - 'request.messaging.admin.complianceStats'
       - 'request.messaging.admin.getLegalHolds'
       - 'request.messaging.admin.createLegalHold'
@@ -329,14 +355,17 @@ services:
       - 'policy.ingest_backend.changed'
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
-      - '$JS.API.>'
+      - '$JS.API.INFO'
+      - '$JS.API.STREAM.INFO.*'
+      - '$JS.API.CONSUMER.INFO.>'
+      - '$JS.API.CONSUMER.CREATE.>'
+      - '$JS.API.CONSUMER.MSG.NEXT.>'
       - '_INBOX.>'
     subscribe:
       - 'events.*.TenantOnboardingAck'
       - 'events.*.TenantOnboardingFailed'
       - 'policy.ingest_backend.snapshot'
       - '_INBOX.>'
-      - '$JS.API.>'
 
   # ---------------------------------------------------------------------------
   # gateway-api: public GraphQL edge and request/reply bridge
@@ -353,13 +382,17 @@ services:
       - 'request.ai.chat'
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
-      - '$JS.API.>'
+      - '$JS.API.INFO'
+      - '$JS.API.STREAM.INFO.*'
+      - '$JS.API.CONSUMER.INFO.>'
+      - '$JS.API.CONSUMER.CREATE.>'
+      - '$JS.API.CONSUMER.MSG.NEXT.>'
       - '_INBOX.>'
     subscribe:
       - 'events.>'
+      - 'telemetry.*.SensorReading'
       - 'st.language.>'
       - '_INBOX.>'
-      - '$JS.API.>'
 
   # ---------------------------------------------------------------------------
   # notification-service: outbound push/email command handling
@@ -377,12 +410,15 @@ services:
       - 'events.*.NotificationServiceTenantErasureBlocked'
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
-      - '$JS.API.>'
+      - '$JS.API.INFO'
+      - '$JS.API.STREAM.INFO.*'
+      - '$JS.API.CONSUMER.INFO.>'
+      - '$JS.API.CONSUMER.CREATE.>'
+      - '$JS.API.CONSUMER.MSG.NEXT.>'
       - '_INBOX.>'
     subscribe:
       - 'commands.notification.sendEmail'
       - 'commands.notification.sendPush'
-      - '$JS.API.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -404,7 +440,11 @@ services:
       - 'request.farm.getWaterQualityOverview'
       - 'request.farm.getHarvestOverview'
       - 'request.farm.getFeedingOverview'
-      - '$JS.API.>'
+      - '$JS.API.INFO'
+      - '$JS.API.STREAM.INFO.*'
+      - '$JS.API.CONSUMER.INFO.>'
+      - '$JS.API.CONSUMER.CREATE.>'
+      - '$JS.API.CONSUMER.MSG.NEXT.>'
       - '_INBOX.>'
     subscribe:
       - 'request.ai.chat'
@@ -415,7 +455,6 @@ services:
       # SENSOR-MEDIUM-070: sensor channel-detection responder (analyze→suggest run
       # under the sensor-service service principal). ai-service HANDLES it (subscribe).
       - 'request.ai.sensor.detectChannels'
-      - '$JS.API.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -447,7 +486,11 @@ services:
       # billing's own _INBOX.> (already granted).
       - 'config.runtime.get'
       - 'config.runtime.get_secret'
-      - '$JS.API.>'
+      - '$JS.API.INFO'
+      - '$JS.API.STREAM.INFO.*'
+      - '$JS.API.CONSUMER.INFO.>'
+      - '$JS.API.CONSUMER.CREATE.>'
+      - '$JS.API.CONSUMER.MSG.NEXT.>'
       - '_INBOX.>'
     subscribe:
       - 'events.*.TelemetryCapacityEntitlementChanged'
@@ -457,7 +500,6 @@ services:
       # read — billing is the ONLY CN that subscribes this token, so the decrypted
       # Stripe secret never returns on the platform-wide `_INBOX.>` every cert holds.
       - '_INBOXBILLINGCFG.>'
-      - '$JS.API.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -478,10 +520,13 @@ services:
       - 'events.*.AlertEngineTenantErasureBlocked'
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
-      - '$JS.API.>'
+      - '$JS.API.INFO'
+      - '$JS.API.STREAM.INFO.*'
+      - '$JS.API.CONSUMER.INFO.>'
+      - '$JS.API.CONSUMER.CREATE.>'
+      - '$JS.API.CONSUMER.MSG.NEXT.>'
       - '_INBOX.>'
     subscribe:
-      - '$JS.API.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -519,10 +564,13 @@ services:
       - 'commands.notification.sendEmail'
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
-      - '$JS.API.>'
+      - '$JS.API.INFO'
+      - '$JS.API.STREAM.INFO.*'
+      - '$JS.API.CONSUMER.INFO.>'
+      - '$JS.API.CONSUMER.CREATE.>'
+      - '$JS.API.CONSUMER.MSG.NEXT.>'
       - '_INBOX.>'
     subscribe:
-      - '$JS.API.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -573,7 +621,11 @@ services:
       - 'request.farm.getTankRegistry'
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
-      - '$JS.API.>'
+      - '$JS.API.INFO'
+      - '$JS.API.STREAM.INFO.*'
+      - '$JS.API.CONSUMER.INFO.>'
+      - '$JS.API.CONSUMER.CREATE.>'
+      - '$JS.API.CONSUMER.MSG.NEXT.>'
       - '_INBOX.>'
     subscribe:
       - 'request.messaging.verifyMembership'
@@ -591,7 +643,6 @@ services:
       - 'request.messaging.admin.triggerExport'
       - 'request.messaging.admin.getPersonas'
       - 'events.>'
-      - '$JS.API.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -606,10 +657,13 @@ services:
       - 'events.*.HydroponicsServiceTenantErasureBlocked'
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
-      - '$JS.API.>'
+      - '$JS.API.INFO'
+      - '$JS.API.STREAM.INFO.*'
+      - '$JS.API.CONSUMER.INFO.>'
+      - '$JS.API.CONSUMER.CREATE.>'
+      - '$JS.API.CONSUMER.MSG.NEXT.>'
       - '_INBOX.>'
     subscribe:
-      - '$JS.API.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -623,12 +677,15 @@ services:
     publish:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
-      - '$JS.API.>'
+      - '$JS.API.INFO'
+      - '$JS.API.STREAM.INFO.*'
+      - '$JS.API.CONSUMER.INFO.>'
+      - '$JS.API.CONSUMER.CREATE.>'
+      - '$JS.API.CONSUMER.MSG.NEXT.>'
       - '_INBOX.>'
     subscribe:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
-      - '$JS.API.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -636,7 +693,7 @@ services:
   # ---------------------------------------------------------------------------
   # Onboarded to the event backbone 2026-07-12 (DB-INFRA-HIGH-003) solely to be
   # a GDPR tenant-erasure target: it consumes TenantErasureRequested via a
-  # JetStream pull consumer ($JS.API.> + _INBOX.>) and publishes the erasure
+  # JetStream pull consumer (scoped $JS.API.* + _INBOX.>) and publishes erasure
   # proof events via its own outbox worker (own cert). No domain events.
   - name: config_service
     application: config-service
@@ -655,7 +712,11 @@ services:
       - '_INBOXFARMMARINECFG.>'
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
-      - '$JS.API.>'
+      - '$JS.API.INFO'
+      - '$JS.API.STREAM.INFO.*'
+      - '$JS.API.CONSUMER.INFO.>'
+      - '$JS.API.CONSUMER.CREATE.>'
+      - '$JS.API.CONSUMER.MSG.NEXT.>'
       - '_INBOX.>'
     subscribe:
       # Faz C (D6): config-runtime request-reply responder subjects. The secret
@@ -664,7 +725,6 @@ services:
       - 'config.runtime.get_secret'
       - 'config.marine_credentials.resolve'
       - 'config.marine_credentials.upsert'
-      - '$JS.API.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -683,8 +743,26 @@ services:
       - 'events.*.EventStoreServiceTenantErasureBlocked'
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
-      - '$JS.API.>'
+      - '$JS.API.INFO'
+      - '$JS.API.STREAM.INFO.*'
+      - '$JS.API.CONSUMER.INFO.>'
+      - '$JS.API.CONSUMER.CREATE.>'
+      - '$JS.API.CONSUMER.MSG.NEXT.>'
       - '_INBOX.>'
     subscribe:
-      - '$JS.API.>'
+      - '_INBOX.>'
+
+  # ---------------------------------------------------------------------------
+  # db-migrate: one-shot deployment owner for canonical JetStream topology
+  # ---------------------------------------------------------------------------
+  - name: nats_stream_provisioner
+    application: db-migrate
+    description: Deployment-only JetStream stream create, update and drift reconciliation authority
+    publish:
+      - '$JS.API.INFO'
+      - '$JS.API.STREAM.CREATE.*'
+      - '$JS.API.STREAM.INFO.*'
+      - '$JS.API.STREAM.UPDATE.*'
+      - '_INBOX.>'
+    subscribe:
       - '_INBOX.>'

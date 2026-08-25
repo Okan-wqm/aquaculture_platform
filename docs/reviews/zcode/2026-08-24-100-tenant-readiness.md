@@ -130,6 +130,29 @@ Plan aliası `HIGH-011` olan bu bulgunun kök nedeni, tenant provisioning’in �
 
 ### Task 2 — PUBACK, writer, receipt/dispatch, DLQ ve erasure
 
+#### SENSOR-CRITICAL-086 — MQTT PUBACK kalıcı commit ve child PubAck zincirinden önce verilebiliyor
+
+Plan aliası `CRITICAL-001` olan bulgunun kök nedeni, mqtt.js `message` eventinin
+iş tamamlanma sınırı olarak kullanılması ve broker ACK'inin veritabanı/NATS
+dayanıklılık sonucuna bağlanmamasıdır. Kapanış; `handleMessage` callback kapısı,
+kararlı session kimliği, mutlak işlem bütçesi ve başarısızlıkta persistent-session
+redelivery zincirini birlikte gerektirir.
+
+#### SENSOR-CRITICAL-087 — Metric commit ile downstream iş olayı arasında crash penceresi var
+
+Plan aliası `CRITICAL-002` olan bulgunun kök nedeni, metric yazımı ile fan-out
+yayınının ayrı ve kanıtsız işlemler olmasıdır. Kapanış; tenant-local receipt,
+deterministik child dispatch, metric upsert ile aynı transaction ve bütün pending
+dispatch PubAck'lerinin kalıcı kaydını birlikte gerektirir.
+
+#### SENSOR-HIGH-088 — Poison/retry/DLQ ve tenant erasure yolları kaynak ACK'ini güvenle yönetmiyor
+
+Plan aliası `HIGH-008` olan bulgunun kök nedeni, kararlı üretici kimliği olmayan
+verinin sınıflandırılmaması, retry sayısının kalıcı olmaması ve DLQ/replay/erasure
+adımlarının PubAck ile fence edilmemesidir. Kapanış; ayrı quarantine ve DLQ
+stream'leri, beş gerçek deneme, DLQ PubAck-sonrası kaynak ACK, replay sıralaması ve
+erasure tombstone davranışını birlikte gerektirir.
+
 - MQTT ingress deployment-stable zorunlu client ID, `clean:false`, QoS1 ve singleton session owner kullanır.
 - `client.handleMessage(packet, callback)` override edilir. Callback yalnız receipt+metric+dispatch commit’i ve bütün child PubAck’lerinden sonra bir kez çağrılır.
 - RETRY veya 10 saniyelik absolute deadline durumunda callback çağrılmaz; bağlantı kontrollü kapatılarak persistent session redelivery tetiklenir.
@@ -151,6 +174,14 @@ Plan aliası `HIGH-011` olan bu bulgunun kök nedeni, tenant provisioning’in �
 **Alarmlar:** callback deadline, writer queue, pool, redelivery, broker/edge queue, DLQ depth/oldest, replay ve unique-conflict.
 
 ### Task 3 — Telemetry stream ve ACL
+
+#### PLAT-HIGH-004 — Telemetry, domain-event retention ve geniş JetStream ACL yüzeyiyle karışıyor
+
+Plan aliası `HIGH-007` olan bulgunun kök nedeni, subject kökünün stream seçimini
+tek bir registry'den türetmemesi ve uygulama kimliklerinin stream-yönetim
+yetkisine sahip olmasıdır. Kapanış; ayrı telemetry/DLQ/quarantine stream'leri,
+fail-closed route çözümü, yalnız provisioner CN'e stream yönetimi ve ölçülmüş
+file-store/consumer kapılarını birlikte gerektirir.
 
 - Tek route registry `events|telemetry → stream` eşlemesini setup, publish, subscribe ve wildcard yollarında kullanır.
 - `SensorReading` ve desteklenen legacy `SensorMetricIngested` `telemetry.<tenant>.*` köküne taşınır.

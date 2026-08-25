@@ -1,10 +1,4 @@
-import {
-  Entity,
-  Column,
-  PrimaryGeneratedColumn,
-  CreateDateColumn,
-  Index,
-} from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, Index } from 'typeorm';
 import { ObjectType, Field, ID, GraphQLISODateTime } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 import { AlertSeverity } from '../../database/entities/alert-rule.entity';
@@ -20,10 +14,17 @@ import { AlertSeverity } from '../../database/entities/alert-rule.entity';
 // (ruleId equality + triggeredAt range with DESC ordering).
 @Index(['ruleId', 'triggeredAt'], { spatial: false, unique: false })
 @Index(['severity', 'acknowledged'])
+@Index('UQ_alert_history_source_event_rule', ['sourceEventId', 'ruleId'], {
+  unique: true,
+  where: '"source_event_id" IS NOT NULL',
+})
 export class AlertHistory {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
   id!: string;
+
+  @Column({ name: 'source_event_id', type: 'uuid', nullable: true })
+  sourceEventId?: string;
 
   @Field()
   @Column({ name: 'rule_id' })

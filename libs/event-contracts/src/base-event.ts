@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 /**
  * Branded type for event IDs. Can ONLY be produced by `createBaseEvent()`.
  *
@@ -14,6 +16,24 @@
  * required fields (timestamp format, aggregateId, version, etc.).
  */
 export type EventId = string & { readonly __brand: unique symbol };
+
+/**
+ * Deterministic UUIDv5-shaped event identity for durable child dispatches.
+ * The producer source identity is not itself assumed to be a UUID; hashing
+ * keeps arbitrary stable edge IDs inside the canonical branded event type.
+ */
+export function createDeterministicEventId(sourceEventId: string, discriminator: string): EventId {
+  if (sourceEventId.length === 0 || discriminator.length === 0) {
+    throw new Error('Deterministic event identity requires sourceEventId and discriminator');
+  }
+  const hex = createHash('sha256')
+    .update(sourceEventId)
+    .update('\0')
+    .update(discriminator)
+    .digest('hex');
+  const variant = ((Number.parseInt(hex.charAt(16), 16) & 0x3) | 0x8).toString(16);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}` as EventId;
+}
 
 /**
  * Base Event Contract - All events must implement these properties

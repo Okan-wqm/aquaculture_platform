@@ -140,6 +140,11 @@ services:
     restart: 'no'
     environment:
       NODE_ENV: production
+      NATS_URL: tls://nats:4222
+      NATS_TLS_CA: /etc/ssl/nats/ca-cert.pem
+      NATS_TLS_CERT: /etc/ssl/nats/clients/nats_stream_provisioner-cert.pem
+      NATS_TLS_KEY: /etc/ssl/nats/clients/nats_stream_provisioner-key.pem
+      NATS_TLS_ENABLED: 'true'
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}
@@ -150,6 +155,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      nats:
+        condition: service_healthy
+    volumes:
+      - ./certs/nats/ca-cert.pem:/etc/ssl/nats/ca-cert.pem:ro
+      - ./certs/nats/clients/nats_stream_provisioner-cert.pem:/etc/ssl/nats/clients/nats_stream_provisioner-cert.pem:ro
+      - ./certs/nats/clients/nats_stream_provisioner-key.pem:/etc/ssl/nats/clients/nats_stream_provisioner-key.pem:ro
     networks:
       - aqua-internal
 

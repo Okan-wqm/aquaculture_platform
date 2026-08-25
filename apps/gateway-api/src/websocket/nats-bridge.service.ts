@@ -4,12 +4,11 @@ import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
 // StringCodec was REMOVED — publish a string directly and decode via
 // msg.string(). The wire bytes stay UTF-8, so this is byte-for-byte
 // compatible with the v2 sensor-service producer during a rolling deploy.
-import type { ConnectionOptions, NatsConnection, Subscription } from '@nats-io/nats-core';
+import type { NatsConnection, Subscription } from '@nats-io/nats-core';
 import { connect } from '@nats-io/transport-node';
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createDefaultRegistry, EventUpcasterRegistry } from '@platform/event-contracts';
-import * as fs from 'fs';
 
 import { SensorReadingsGateway } from './sensor-readings.gateway';
 
@@ -25,6 +24,11 @@ const READING_FIELD_MAP: Record<string, string> = {
   readingTurbidity: 'turbidity',
   readingWaterLevel: 'waterLevel',
 };
+
+export const SENSOR_READING_EVENT_SUBJECTS = [
+  'events.*.SensorReading',
+  'telemetry.*.SensorReading',
+] as const;
 
 /**
  * Flat NATS event structure matching sensor-service publisher format (v2).
@@ -61,7 +65,7 @@ interface NatsEvent {
 export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(NatsBridgeService.name);
   private connection: NatsConnection | null = null;
-  private subscription: Subscription | null = null;
+  private readonly sensorSubscriptions: Subscription[] = [];
   /** ARCH-C01: Raw NATS doesn't use NatsEventBus — apply upcasters manually */
   private readonly upcasterRegistry: EventUpcasterRegistry = createDefaultRegistry();
 
@@ -87,44 +91,7 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
 
   private async connect(): Promise<void> {
     /** SEC-H01: Use shared NATS connection factory for consistent auth across all services. */
-    const baseOptions = buildNatsConnectionOptions('gateway-api-websocket-bridge');
-
-    const connectionOptions: ConnectionOptions = {
-      ...baseOptions,
-    };
-
-    // SECURITY: Add TLS configuration if enabled
-    const tlsEnabled = this.configService.get<string>('NATS_TLS_ENABLED', 'false') === 'true';
-    if (tlsEnabled) {
-      const tlsCaPath = this.configService.get<string>('NATS_TLS_CA');
-      const tlsCertPath = this.configService.get<string>('NATS_TLS_CERT');
-      const tlsKeyPath = this.configService.get<string>('NATS_TLS_KEY');
-
-      connectionOptions.tls = {
-        ...(tlsCaPath ? { ca: fs.readFileSync(tlsCaPath, 'utf8') } : {}),
-        ...(tlsCertPath ? { cert: fs.readFileSync(tlsCertPath, 'utf8') } : {}),
-        ...(tlsKeyPath ? { key: fs.readFileSync(tlsKeyPath, 'utf8') } : {}),
-      };
-      this.logger.log('NATS TLS enabled for WebSocket bridge');
-    }
-
-    // SECURITY: Add authentication if configured
-    const authToken = this.configService.get<string>('NATS_AUTH_TOKEN');
-    const authUser = this.configService.get<string>('NATS_AUTH_USER');
-    const authPass = this.configService.get<string>('NATS_AUTH_PASS');
-
-    if (authToken) {
-      connectionOptions.token = authToken;
-    } else if (authUser && authPass) {
-      connectionOptions.user = authUser;
-      connectionOptions.pass = authPass;
-    }
-
-    // SECURITY: Production warnings
-    const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
-    if (isProduction && !tlsEnabled) {
-      this.logger.warn('⚠️  NATS TLS is disabled in production!');
-    }
+    const connectionOptions = buildNatsConnectionOptions('gateway-api-websocket-bridge');
 
     try {
       this.connection = await connect(connectionOptions);
@@ -150,16 +117,15 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
   private subscribeToSensorEvents(): void {
     if (!this.connection) return;
 
-    // Subscribe to all sensor reading events
-    // sensor-service publishes to subject: events.SensorReading (no trailing tokens)
-    this.subscription = this.connection.subscribe('events.SensorReading');
+    for (const subject of SENSOR_READING_EVENT_SUBJECTS) {
+      const subscription = this.connection.subscribe(subject);
+      this.sensorSubscriptions.push(subscription);
+      this.processSensorSubscription(subscription);
+    }
+    this.logger.log('Subscribed to legacy and telemetry sensor reading events');
+  }
 
-    this.logger.log('Subscribed to sensor reading events');
-
-    // Process incoming messages
-    const subscription = this.subscription;
-    if (!subscription) return;
-
+  private processSensorSubscription(subscription: Subscription): void {
     // SECURITY: Attach .catch() to prevent unhandled rejection on iterator error.
     // Without this, any thrown error becomes an unhandled rejection and the
     // subscription loop terminates silently -- all WebSocket clients stop
@@ -170,9 +136,12 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
           // v3: msg.string() replaces StringCodec.decode(msg.data) — same UTF-8 bytes.
           const data = msg.string();
           // ARCH-C01: Apply upcasters for v1→v2 migration (raw NATS, no NatsEventBus)
-          const raw = JSON.parse(data);
-          // upcast returns Record<string, unknown>; validated by isValidNatsEvent below
-          const event = this.upcasterRegistry.upcast(raw) as unknown as NatsEvent;
+          const raw: unknown = JSON.parse(data);
+          if (!this.isStringKeyedRecord(raw)) {
+            this.logger.warn('NATS message is not an event object, dropping');
+            continue;
+          }
+          const event = this.upcasterRegistry.upcast(raw);
 
           // Runtime schema validation: ensure required fields are present
           // JSON.parse + `as NatsEvent` is only a type cast, not validation.
@@ -230,7 +199,9 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
         }
       }
     })().catch((error) => {
-      this.logger.error(`NATS EdgeDeviceIoData subscription loop error: ${(error as Error).message}`);
+      this.logger.error(
+        `NATS EdgeDeviceIoData subscription loop error: ${(error as Error).message}`,
+      );
     });
   }
 
@@ -272,7 +243,9 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
         }
       }
     })().catch((error) => {
-      this.logger.error(`NATS EdgeDeviceAlarm subscription loop error: ${(error as Error).message}`);
+      this.logger.error(
+        `NATS EdgeDeviceAlarm subscription loop error: ${(error as Error).message}`,
+      );
     });
   }
 
@@ -298,9 +271,8 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
     }
 
     // Forward to WebSocket gateway
-    const timestamp = event.timestamp instanceof Date
-      ? event.timestamp.toISOString()
-      : String(event.timestamp);
+    const timestamp =
+      event.timestamp instanceof Date ? event.timestamp.toISOString() : String(event.timestamp);
 
     this.sensorGateway.broadcastSensorReading({
       sensorId: event.sensorId ?? '',
@@ -325,12 +297,7 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
             this.logger.warn('NATS disconnected');
             break;
           case 'reconnect':
-            this.logger.log('NATS reconnected - re-subscribing to events');
-            // Re-subscribe after reconnect; the previous subscription's
-            // async iterator terminates on disconnect.
-            this.subscribeToSensorEvents();
-            this.subscribeToEdgeIoEvents();
-            this.subscribeToEdgeAlarmEvents();
+            this.logger.log('NATS reconnected');
             break;
           case 'error':
             this.logger.error(`NATS error: ${String(status.error)}`);
@@ -343,9 +310,10 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async disconnect(): Promise<void> {
-    if (this.subscription) {
-      this.subscription.unsubscribe();
+    for (const subscription of this.sensorSubscriptions) {
+      subscription.unsubscribe();
     }
+    this.sensorSubscriptions.length = 0;
 
     if (this.connection) {
       await this.connection.drain();
@@ -358,14 +326,21 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
    * JSON.parse + `as NatsEvent` is only a type cast, not runtime validation.
    * Validates flat event structure matching sensor-service publisher format.
    */
-  private isValidNatsEvent(event: NatsEvent): boolean {
+  private isValidNatsEvent(event: unknown): event is NatsEvent {
     return (
       typeof event === 'object' &&
       event !== null &&
+      'eventType' in event &&
       typeof event.eventType === 'string' &&
+      'tenantId' in event &&
       typeof event.tenantId === 'string' &&
+      'timestamp' in event &&
       (typeof event.timestamp === 'string' || event.timestamp instanceof Date)
     );
+  }
+
+  private isStringKeyedRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
   }
 
   /**

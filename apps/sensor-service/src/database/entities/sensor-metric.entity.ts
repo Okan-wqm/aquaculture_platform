@@ -1,12 +1,5 @@
 import { ObjectType, Field, ID, Float, Int, registerEnumType } from '@nestjs/graphql';
-import {
-  Entity,
-  Column,
-  Index,
-  PrimaryColumn,
-  ManyToOne,
-  JoinColumn,
-} from 'typeorm';
+import { Entity, Column, Index, PrimaryColumn, ManyToOne, JoinColumn } from 'typeorm';
 
 import { SensorDataChannel } from './sensor-data-channel.entity';
 import { Sensor } from './sensor.entity';
@@ -261,12 +254,22 @@ export class SensorMetric {
   @Column({ name: 'source_protocol', length: 20, nullable: true })
   sourceProtocol?: string;
 
+  /** Stable producer-generated identity; MQTT packet IDs are session-local. */
+  @Field({ nullable: true })
+  @Column({ name: 'source_event_id', length: 160, nullable: true })
+  sourceEventId?: string;
+
   /**
    * Original timestamp from the device (may differ from server time)
    */
   @Field({ nullable: true })
   @Column({ type: 'timestamptz', name: 'source_timestamp', nullable: true })
   sourceTimestamp?: Date;
+
+  /** Optional monotonic producer sequence, represented as a bigint-safe string. */
+  @Field({ nullable: true })
+  @Column({ type: 'bigint', name: 'source_sequence', nullable: true })
+  sourceSequence?: string;
 
   /**
    * Latency between device timestamp and server ingestion (milliseconds)
@@ -345,7 +348,9 @@ export interface SensorMetricInput {
   qualityCode?: number;
   qualityBits?: number;
   sourceProtocol?: string;
+  sourceEventId?: string;
   sourceTimestamp?: Date;
+  sourceSequence?: string;
   siteId?: string;
   departmentId?: string;
   systemId?: string;

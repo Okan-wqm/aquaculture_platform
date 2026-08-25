@@ -50,10 +50,21 @@ export class SensorTemperatureProjectionListener implements IEventHandler<BaseEv
       );
       return;
     }
-    // subscribeWildcard builds `events.*.SensorReading`, matching the sensor
-    // subgraph's per-tenant `events.{tenantId}.SensorReading` for every tenant.
-    await this.eventBus.subscribeWildcard('SensorReading', this);
-    this.logger.log('Subscribed to SensorReading for sensor-temperature projection (cross-tenant)');
+    const durableOptions = {
+      startFrom: 'beginning' as const,
+      maxRetries: -1,
+    };
+    await this.eventBus.subscribeWildcard('SensorReading', this, {
+      ...durableOptions,
+      consumerVersion: 'sensor-temperature-v2-legacy',
+    });
+    await this.eventBus.subscribeTo('telemetry.*.SensorReading', this, {
+      ...durableOptions,
+      consumerVersion: 'sensor-temperature-v2-telemetry',
+    });
+    this.logger.log(
+      'Subscribed to legacy and telemetry SensorReading streams for sensor-temperature projection',
+    );
   }
 
   getEventType(): string {

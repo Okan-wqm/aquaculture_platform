@@ -425,6 +425,16 @@ export class MqttAuthService implements OnModuleInit {
     this.negativeLookupCache.delete(`mqtt_client_id:${username}`);
   }
 
+  /** Remove every cached MQTT identity associated with an erased tenant. */
+  invalidateTenant(tenantId: string): void {
+    for (const [username, entry] of this.tenantIdCache) {
+      if (entry.tenantId === tenantId) {
+        this.tenantIdCache.delete(username);
+      }
+    }
+    this.negativeLookupCache.clear();
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // Cross-Schema Device Lookup
   // ═══════════════════════════════════════════════════════════════════════════

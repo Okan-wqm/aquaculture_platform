@@ -10,6 +10,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
 import { TenantErasureTargetModule } from '@aquaculture/backend-common/compliance';
+import { SensorTenantErasureHook } from './compliance/sensor-tenant-erasure.hook';
+import { SensorTenantErasureModule } from './compliance/sensor-tenant-erasure.module';
 import {
   createServiceTypeOrmConfig,
   isSchemaDdlOwnedByDbMigrate,
@@ -17,7 +19,12 @@ import {
   getRlsExcludeTablesForService,
   SourceSchemaBootstrapService,
 } from '@aquaculture/backend-common/database';
-import { RolesGuard, ServiceIdentityGuard, TenantGuard, TenantPermissionGuard } from '@aquaculture/backend-common/guards';
+import {
+  RolesGuard,
+  ServiceIdentityGuard,
+  TenantGuard,
+  TenantPermissionGuard,
+} from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import { MetricsMiddleware } from '@aquaculture/backend-common/metrics';
 import {
@@ -184,6 +191,7 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
           defaultPoolSize: 50,
           defaultPoolMin: 10,
           defaultPoolIdleTimeoutMs: 300_000,
+          defaultPoolConnectionTimeoutMs: 2_000,
           subscribers: [AuditSubscriber],
           entities: [
             // SensorOutbox must be in TypeORM metadata: this service passes an
@@ -341,7 +349,10 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
       useFactory: buildEventBusConfig,
     }),
     SensorOutboxModule,
-    TenantErasureTargetModule.forService('sensor-service'),
+    TenantErasureTargetModule.forService('sensor-service', {
+      imports: [SensorTenantErasureModule],
+      postErasureHooks: [SensorTenantErasureHook],
+    }),
 
     // SECURITY (CRITICAL-001): RS256 asymmetric verification via the shared
     // PlatformJwtModule. sensor-service is a token CONSUMER, not an issuer.

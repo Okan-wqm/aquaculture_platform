@@ -38,7 +38,9 @@ function createMetric(overrides: Partial<SensorMetricInput> = {}): SensorMetricI
     qualityCode: 192,
     qualityBits: 0,
     sourceProtocol: 'mqtt',
+    sourceEventId: 'edge:11111111-1111-4111-8111-111111111111:1700000000',
     sourceTimestamp: new Date('2026-03-14T12:00:00.000Z'),
+    sourceSequence: '1700000000',
     ...overrides,
   };
 }
@@ -53,10 +55,14 @@ describe('SensorMetricWriterService (SENSOR-MEDIUM-068)', () => {
       expect(sql).toContain(`INSERT INTO "${SCHEMA_A}".sensor_metrics`);
       expect(sql).toContain('ON CONFLICT (time, sensor_id, channel_id) DO UPDATE');
       expect(sql).toContain('value        = EXCLUDED.value');
-      // 2 rows × 19 params → $1 … $38.
-      expect(sql).toContain('$19');
-      expect(sql).toContain('$38');
-      expect(sql).not.toContain('$39');
+      expect(sql).toContain('source_event_id');
+      expect(sql).toContain('source_sequence');
+      expect(sql).toContain('IS DISTINCT FROM EXCLUDED.source_event_id');
+      expect(sql).toContain("COALESCE(EXCLUDED.source_sequence, '-9223372036854775808'::bigint)");
+      // 2 rows × 21 params → $1 … $42.
+      expect(sql).toContain('$21');
+      expect(sql).toContain('$42');
+      expect(sql).not.toContain('$43');
     });
 
     it('never emits a shared-schema metric INSERT', () => {
@@ -75,16 +81,19 @@ describe('SensorMetricWriterService (SENSOR-MEDIUM-068)', () => {
   });
 
   describe('marshalParams', () => {
-    it('emits exactly 19 params per row in the column order', () => {
+    it('emits exactly 21 params per row including stable producer identity and order', () => {
       const { service } = createService();
       const params = service.marshalParams([createMetric()]);
-      expect(params).toHaveLength(19);
+      expect(params).toHaveLength(21);
       expect(params[0]).toBe('2026-03-14T12:00:00.000Z'); // time
       expect(params[1]).toBe('11111111-1111-4111-8111-111111111111'); // sensor_id
       expect(params[3]).toBe(TENANT_A); // tenant_id
       expect(params[11]).toBe(24.5); // raw_value
       expect(params[12]).toBe(24.5); // value
       expect(params[15]).toBe('mqtt'); // source_protocol
+      expect(params[16]).toBe('edge:11111111-1111-4111-8111-111111111111:1700000000');
+      expect(params[17]).toBe('2026-03-14T12:00:00.000Z');
+      expect(params[18]).toBe('1700000000');
     });
   });
 
@@ -95,7 +104,7 @@ describe('SensorMetricWriterService (SENSOR-MEDIUM-068)', () => {
       expect(query).toHaveBeenCalledTimes(1);
       const [sql, params] = query.mock.calls[0]!;
       expect(sql).toContain(`INSERT INTO "${SCHEMA_A}".sensor_metrics`);
-      expect(params).toHaveLength(19);
+      expect(params).toHaveLength(21);
     });
 
     it('fans a MIXED-tenant batch out to each tenant schema', async () => {
@@ -178,19 +187,48 @@ describe('SensorMetricWriterService (SENSOR-MEDIUM-068)', () => {
   describe('enqueue + flush (buffered path)', () => {
     it('coalesces enqueued metrics and writes them on flush', async () => {
       const { service, query } = createService();
-      service.enqueue(createMetric());
-      service.enqueue(createMetric({ time: new Date('2026-03-14T12:00:01.000Z') }));
+      const first = service.enqueue(createMetric());
+      const second = service.enqueue(
+        createMetric({
+          time: new Date('2026-03-14T12:00:01.000Z'),
+          sourceEventId: 'edge:11111111-1111-4111-8111-111111111111:1700000001',
+          sourceSequence: '1700000001',
+        }),
+      );
       expect(query).not.toHaveBeenCalled(); // buffered, not yet flushed
       await service.flush();
       expect(query).toHaveBeenCalledTimes(1);
       const [, params] = query.mock.calls[0]!;
-      expect(params).toHaveLength(38); // 2 rows × 19, same tenant → one INSERT
+      expect(params).toHaveLength(42); // 2 rows × 21, same tenant → one INSERT
+      await expect(first).resolves.toEqual({ status: 'COMMITTED' });
+      await expect(second).resolves.toEqual({ status: 'COMMITTED' });
     });
 
     it('flush is a no-op on an empty buffer', async () => {
       const { service, query } = createService();
       await service.flush();
       expect(query).not.toHaveBeenCalled();
+    });
+
+    it("settles each tenant's flush ticket independently when another tenant fails", async () => {
+      const { service, query } = createService();
+      query.mockImplementation((sql: string) =>
+        String(sql).includes(SCHEMA_A)
+          ? Promise.reject(new Error('tenant A unavailable'))
+          : Promise.resolve(undefined),
+      );
+
+      const tenantA = service.enqueue(createMetric({ tenantId: TENANT_A }));
+      const tenantB = service.enqueue(
+        createMetric({
+          tenantId: TENANT_B,
+          sourceEventId: 'edge:22222222-2222-4222-8222-222222222222:1700000000',
+        }),
+      );
+
+      await expect(service.flush()).rejects.toThrow('tenant A unavailable');
+      await expect(tenantA).rejects.toThrow('tenant A unavailable');
+      await expect(tenantB).resolves.toEqual({ status: 'COMMITTED' });
     });
   });
 });

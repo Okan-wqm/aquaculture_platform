@@ -1,5 +1,6 @@
 import {
   createBaseEvent,
+  createDeterministicEventId,
   toEventIso,
   type BaseEvent,
   type EventId,
@@ -42,6 +43,20 @@ describe('createBaseEvent — canonical contract invariants', () => {
       expect(a.eventId).not.toBe(b.eventId);
     });
 
+    it('derives a stable UUID child id from producer identity and discriminator', () => {
+      const first = createDeterministicEventId('edge:device-1:42', 'SensorReading:0');
+      const repeat = createDeterministicEventId('edge:device-1:42', 'SensorReading:0');
+      const sibling = createDeterministicEventId('edge:device-1:42', 'SensorReading:1');
+
+      expect(first).toBe(repeat);
+      expect(first).not.toBe(sibling);
+      expect(first).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      );
+      const _branded: EventId = first;
+      expect(typeof _branded).toBe('string');
+    });
+
     it('eventId matches the canonical UUID v4 shape', () => {
       const event = createBaseEvent<TestEvent>('TestEvent', 'tenant-1');
       expect(event.eventId).toMatch(
@@ -68,9 +83,7 @@ describe('createBaseEvent — canonical contract invariants', () => {
 
     it('timestamp matches strict ISO 8601 with millisecond precision', () => {
       const event = createBaseEvent<TestEvent>('TestEvent', 'tenant-1');
-      expect(event.timestamp).toMatch(
-        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
-      );
+      expect(event.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
     });
 
     it('timestamp is parseable by Date.parse without ambiguity', () => {

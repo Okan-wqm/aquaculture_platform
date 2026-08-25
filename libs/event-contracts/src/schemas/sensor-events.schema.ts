@@ -1,9 +1,5 @@
 import type { JSONSchemaType } from 'ajv';
-import {
-  BASE_EVENT_PROPERTIES,
-  BASE_EVENT_REQUIRED,
-  UUID_PATTERN,
-} from './common.schema';
+import { BASE_EVENT_PROPERTIES, BASE_EVENT_REQUIRED, UUID_PATTERN } from './common.schema';
 
 /**
  * @module SensorEventSchemas
@@ -86,6 +82,34 @@ interface WireSensorMetricIngested {
   pondId?: string;
 }
 
+interface WireMqttPayloadQuarantined {
+  eventId: string;
+  eventType: 'MqttPayloadQuarantined';
+  timestamp: string;
+  tenantId: string;
+  version: number;
+  aggregateId?: string;
+  aggregateType?: string;
+  correlationId?: string;
+  causationId?: string;
+  userId?: string;
+  retryCount?: number;
+  topic: string;
+  payloadDigest: string;
+  reason: string;
+  payloadBase64: string;
+}
+
+interface WireMqttIngestDeadLettered extends Omit<WireMqttPayloadQuarantined, 'eventType'> {
+  eventType: 'MqttIngestDeadLettered';
+  sourceEventId: string;
+  sourceTimestamp: string;
+  sourceSequence?: string;
+  processingAttempts: number;
+  originalSubject: string;
+  originalEventJson: string;
+}
+
 const PRODUCER_TS_MIN_MS = 1_704_067_200_000; // 2024-01-01T00:00:00Z
 const PRODUCER_TS_MAX_MS = 4_102_444_800_000; // 2100-01-01T00:00:00Z
 
@@ -123,6 +147,55 @@ const SENSOR_METRIC_INGESTED_SCHEMA: JSONSchemaType<WireSensorMetricIngested> = 
   additionalProperties: false,
 } as JSONSchemaType<WireSensorMetricIngested>;
 
+const MQTT_PAYLOAD_QUARANTINED_SCHEMA: JSONSchemaType<WireMqttPayloadQuarantined> = {
+  type: 'object',
+  properties: {
+    ...BASE_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'MqttPayloadQuarantined' } as const,
+    topic: { type: 'string', minLength: 1, maxLength: 512 } as const,
+    payloadDigest: { type: 'string', pattern: '^[0-9a-f]{64}$' } as const,
+    reason: { type: 'string', minLength: 1, maxLength: 160 } as const,
+    payloadBase64: { type: 'string', minLength: 1, maxLength: 350_000 } as const,
+  },
+  required: [...BASE_EVENT_REQUIRED, 'topic', 'payloadDigest', 'reason', 'payloadBase64'],
+  additionalProperties: false,
+} as JSONSchemaType<WireMqttPayloadQuarantined>;
+
+const MQTT_INGEST_DEAD_LETTERED_SCHEMA: JSONSchemaType<WireMqttIngestDeadLettered> = {
+  type: 'object',
+  properties: {
+    ...BASE_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'MqttIngestDeadLettered' } as const,
+    topic: { type: 'string', minLength: 1, maxLength: 512 } as const,
+    payloadDigest: { type: 'string', pattern: '^[0-9a-f]{64}$' } as const,
+    reason: { type: 'string', minLength: 1, maxLength: 160 } as const,
+    payloadBase64: { type: 'string', minLength: 1, maxLength: 350_000 } as const,
+    sourceEventId: { type: 'string', minLength: 1, maxLength: 160 } as const,
+    sourceTimestamp: { type: 'string', format: 'date-time' } as const,
+    sourceSequence: {
+      type: 'string',
+      pattern: '^\\d{1,19}$',
+      nullable: true,
+    } as const,
+    processingAttempts: { type: 'integer', minimum: 5 } as const,
+    originalSubject: { type: 'string', minLength: 1, maxLength: 512 } as const,
+    originalEventJson: { type: 'string', minLength: 2, maxLength: 350_000 } as const,
+  },
+  required: [
+    ...BASE_EVENT_REQUIRED,
+    'topic',
+    'payloadDigest',
+    'reason',
+    'payloadBase64',
+    'sourceEventId',
+    'sourceTimestamp',
+    'processingAttempts',
+    'originalSubject',
+    'originalEventJson',
+  ],
+  additionalProperties: false,
+} as JSONSchemaType<WireMqttIngestDeadLettered>;
+
 /**
  * Map of every sensor event type the validator knows about. Today
  * `SensorMetricIngested` is the only entry — the typed
@@ -137,6 +210,8 @@ const SENSOR_METRIC_INGESTED_SCHEMA: JSONSchemaType<WireSensorMetricIngested> = 
  */
 export const SENSOR_EVENT_SCHEMAS = {
   SensorMetricIngested: SENSOR_METRIC_INGESTED_SCHEMA,
+  MqttPayloadQuarantined: MQTT_PAYLOAD_QUARANTINED_SCHEMA,
+  MqttIngestDeadLettered: MQTT_INGEST_DEAD_LETTERED_SCHEMA,
 } as const;
 
 export type SensorEventType = keyof typeof SENSOR_EVENT_SCHEMAS;

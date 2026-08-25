@@ -52,6 +52,27 @@ describe('SensorTemperatureProjectionListener', () => {
     runInTenantTransaction.mockClear();
   });
 
+  it('registers distinct v2 durables for legacy and telemetry streams', async () => {
+    const eventBus = {
+      subscribeWildcard: jest.fn().mockResolvedValue(undefined),
+      subscribeTo: jest.fn().mockResolvedValue(undefined),
+    };
+    const subscribed = new SensorTemperatureProjectionListener({} as DataSource, eventBus as never);
+
+    await subscribed.onModuleInit();
+
+    expect(eventBus.subscribeWildcard).toHaveBeenCalledWith(
+      'SensorReading',
+      subscribed,
+      expect.objectContaining({ consumerVersion: 'sensor-temperature-v2-legacy' }),
+    );
+    expect(eventBus.subscribeTo).toHaveBeenCalledWith(
+      'telemetry.*.SensorReading',
+      subscribed,
+      expect.objectContaining({ consumerVersion: 'sensor-temperature-v2-telemetry' }),
+    );
+  });
+
   it('upserts the latest temperature for the sensor (newest-wins guard in SQL)', async () => {
     await listener.handle(makeEvent({}));
     expect(runInTenantTransaction).toHaveBeenCalledTimes(1);

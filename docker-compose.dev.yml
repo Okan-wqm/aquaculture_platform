@@ -340,6 +340,8 @@ services:
       # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
       JWT_SECRET: '${JWT_SECRET:?JWT_SECRET is required}'
       MQTT_ENABLED: 'true'
+      MQTT_CLIENT_ID: ${MQTT_CLIENT_ID:-aqua-sensor-service-ingress-dev}
+      MQTT_DURABLE_INGRESS_ENABLED: 'true'
       MQTT_BROKER_URL: mqtt://host.docker.internal:1883
     healthcheck:
       test: ['CMD', 'curl', '--fail', '--silent', 'http://127.0.0.1:3000/health/live']

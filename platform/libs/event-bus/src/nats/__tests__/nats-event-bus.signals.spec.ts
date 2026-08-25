@@ -86,6 +86,7 @@ function successfulManager(): Awaited<ReturnType<typeof jetstreamManager>> {
   return Object.assign({} as Awaited<ReturnType<typeof jetstreamManager>>, {
     streams: {
       info: jest.fn().mockResolvedValue({}),
+      add: jest.fn().mockResolvedValue(undefined),
       update: jest.fn().mockResolvedValue(undefined),
     },
   });
@@ -225,13 +226,7 @@ describe('NatsEventBus boot invariant signals', () => {
   it('clamps JetStream stream replicas to 1 on a standalone server and warns', async () => {
     process.env['NODE_ENV'] = 'production';
     const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
-    const streamsAdd = jest.fn().mockResolvedValue(undefined);
-    const manager = Object.assign({} as Awaited<ReturnType<typeof jetstreamManager>>, {
-      streams: {
-        info: jest.fn().mockRejectedValue(new Error('stream not found')),
-        add: streamsAdd,
-      },
-    });
+    const manager = successfulManager();
     // Standalone server: ServerInfo carries no `cluster` name.
     jest
       .mocked(connect)
@@ -241,7 +236,8 @@ describe('NatsEventBus boot invariant signals', () => {
 
     await new NatsEventBus(config({ NATS_STREAM_REPLICAS: '3' })).onModuleInit();
 
-    expect(streamsAdd).toHaveBeenCalledWith(expect.objectContaining({ num_replicas: 1 }));
+    expect(manager.streams.info).toHaveBeenCalledTimes(4);
+    expect(manager.streams.add).not.toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('clamping JetStream stream'),
       expect.objectContaining({ effectiveReplicas: 1 }),
@@ -250,13 +246,7 @@ describe('NatsEventBus boot invariant signals', () => {
 
   it('keeps the requested replicas on a clustered server', async () => {
     process.env['NODE_ENV'] = 'production';
-    const streamsAdd = jest.fn().mockResolvedValue(undefined);
-    const manager = Object.assign({} as Awaited<ReturnType<typeof jetstreamManager>>, {
-      streams: {
-        info: jest.fn().mockRejectedValue(new Error('stream not found')),
-        add: streamsAdd,
-      },
-    });
+    const manager = successfulManager();
     // Clustered server: ServerInfo reports a cluster name.
     jest
       .mocked(connect)
@@ -268,7 +258,22 @@ describe('NatsEventBus boot invariant signals', () => {
 
     await new NatsEventBus(config({ NATS_STREAM_REPLICAS: '3' })).onModuleInit();
 
-    expect(streamsAdd).toHaveBeenCalledWith(expect.objectContaining({ num_replicas: 3 }));
+    expect(manager.streams.info).toHaveBeenCalledTimes(4);
+    expect(manager.streams.add).not.toHaveBeenCalled();
+  });
+
+  it('verifies provisioned streams without granting applications stream mutation', async () => {
+    process.env['NODE_ENV'] = 'production';
+    const manager = successfulManager();
+    jest.mocked(connect).mockResolvedValue(successfulConnection());
+    jest.mocked(jetstream).mockReturnValue({} as ReturnType<typeof jetstream>);
+    jest.mocked(jetstreamManager).mockResolvedValue(manager);
+
+    await new NatsEventBus(config()).onModuleInit();
+
+    expect(manager.streams.info).toHaveBeenCalledTimes(4);
+    expect(manager.streams.add).not.toHaveBeenCalled();
+    expect(manager.streams.update).not.toHaveBeenCalled();
   });
 
   it('emits nats_auth_mode_mtls only after a successful connect', async () => {

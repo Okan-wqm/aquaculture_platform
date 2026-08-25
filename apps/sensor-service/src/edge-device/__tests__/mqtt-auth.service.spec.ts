@@ -560,5 +560,27 @@ describe('MqttAuthService', () => {
       // invalidateTenantCache should not throw
       expect(() => service.invalidateTenantCache('edge-test')).not.toThrow();
     });
+
+    it('invalidates every cached MQTT identity owned by an erased tenant', async () => {
+      const { service, dataSource } = createService();
+      stubFindDeviceRepeated(dataSource, makeDevice({ tenantId: TENANT_A }));
+      await expect(
+        service.checkTopicAccess(
+          MQTT_CLIENT,
+          `tenants/${TENANT_A}/devices/${MQTT_CLIENT}/telemetry`,
+          2,
+        ),
+      ).resolves.toBe(true);
+      dataSource.query.mockClear();
+
+      service.invalidateTenant(TENANT_A);
+      await service.checkTopicAccess(
+        MQTT_CLIENT,
+        `tenants/${TENANT_A}/devices/${MQTT_CLIENT}/telemetry`,
+        2,
+      );
+
+      expect(dataSource.query).toHaveBeenCalled();
+    });
   });
 });

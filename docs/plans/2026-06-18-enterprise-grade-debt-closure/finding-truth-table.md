@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `40c239a706362230ccc8bfaaa491fb3222140580efebb25e8dfeab17430a052c`
+Registry tip: `024bbc6b4323ff169c0c7777d0ff4fed2271b8819c29fd2ed1d6db10c3fb78f4`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -145,6 +145,14 @@ its historical main-reachable fix provenance, so it is
 ARIA control-plane gaps as `real-open`; Tasks 10, 12, and 19 own their live
 proof predicates.
 
+Updated 2026-08-25 (100-tenant telemetry durability):
+`SENSOR-CRITICAL-086/087` are IN-PROGRESS while their Task 2 implementation is
+validated on the feature branch. The MQTT `handleMessage` gate, atomic
+receipt/metric/dispatch transaction, and acknowledged child-event publishing
+have focused regression coverage; both rows remain
+`already-fixed-needs-close` until the closing commit is main-reachable and the
+registry close ceremony records it.
+
 Allowed truth buckets:
 
 - `real-open`
@@ -206,6 +214,8 @@ Allowed truth buckets:
 | `ARIA-CRITICAL-009`     | OPEN           | Task 12      | platform-autonomy          | real-open                 |
 | `ARIA-CRITICAL-015`     | OPEN           | Task 19      | platform-autonomy          | real-open                 |
 | `OBS-CRITICAL-003`      | OPEN           | Task 0       | sensor-expert              | already-fixed-needs-close |
+| `SENSOR-CRITICAL-086`   | IN-PROGRESS    | Task 2       | sensor-expert              | already-fixed-needs-close |
+| `SENSOR-CRITICAL-087`   | IN-PROGRESS    | Task 2       | sensor-expert              | already-fixed-needs-close |
 
 ## Mutation Rules
 

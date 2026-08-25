@@ -14,15 +14,11 @@ import {
   jetstreamManager,
   AckPolicy,
   DeliverPolicy,
-  RetentionPolicy,
-  StorageType,
-  DiscardPolicy,
   type JetStreamClient,
   type JetStreamManager,
   type ConsumerConfig,
   type Consumer,
   type JsMsg,
-  type StreamConfig,
 } from '@nats-io/jetstream';
 import type { ConnectionOptions, NatsConnection } from '@nats-io/nats-core';
 import { connect } from '@nats-io/transport-node';
@@ -42,9 +38,12 @@ import {
   IEvent,
   IEventHandler,
   EventBusHealth,
+  EventPublishAck,
+  IAcknowledgedEventPublisher,
   SubscriptionOptions,
   PublishOptions,
   EventMetadata,
+  ITenantEventMessageEraser,
 } from '../interfaces/event-bus.interface';
 import {
   buildSystemEventSubject,
@@ -55,6 +54,11 @@ import {
 
 import { DEFAULT_NATS_URL, DEFAULT_NATS_STREAM_NAME } from './event-bus-config.factory';
 import type { EventBusModuleOptions } from './nats.module';
+import {
+  buildCanonicalStreamRoutes,
+  resolveStreamRoute,
+  StreamRoute,
+} from './stream-route.registry';
 
 export interface CoreNatsConnectionSnapshot {
   readonly connection: NatsConnection | null;
@@ -130,7 +134,14 @@ function isIEvent(value: unknown): value is IEvent {
  * Designed for 10K+ tenant scale with proper isolation
  */
 @Injectable()
-export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
+export class NatsEventBus
+  implements
+    IEventBus,
+    IAcknowledgedEventPublisher,
+    ITenantEventMessageEraser,
+    OnModuleInit,
+    OnModuleDestroy
+{
   private readonly logger = new Logger(NatsEventBus.name);
   private connection: NatsConnection | null = null;
   private jetStream: JetStreamClient | null = null;
@@ -164,6 +175,7 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
   // source-of-truth drift this refactor eliminates.
   private readonly natsUrl: string;
   private readonly streamName: string;
+  private readonly streamRoutes: readonly StreamRoute[];
   private readonly streamReplicas: number;
   private readonly clientId: string;
   private reconnectPolicy: NatsReconnectPolicy | null = null;
@@ -186,6 +198,15 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
     this.requireBroker = moduleOptions?.required ?? false;
     this.natsUrl = this.configService.get<string>('NATS_URL', DEFAULT_NATS_URL);
     this.streamName = this.configService.get<string>('NATS_STREAM_NAME', DEFAULT_NATS_STREAM_NAME);
+    this.streamRoutes = buildCanonicalStreamRoutes({
+      eventsStreamName: this.streamName,
+      telemetryEventsPerSecond: Number(
+        this.configService.get<string | number>('NATS_TELEMETRY_EVENTS_PER_SECOND', 2_000),
+      ),
+      telemetryStoredEventP99Bytes: Number(
+        this.configService.get<string | number>('NATS_TELEMETRY_STORED_EVENT_P99_BYTES', 1_024),
+      ),
+    });
     // JetStream replica count is a property of the NATS DEPLOYMENT TOPOLOGY
     // (how many nodes the cluster has), NOT of the application environment.
     // Coupling it to NODE_ENV/AQUA_ENV (production ⇒ 3) was an architectural
@@ -338,11 +359,7 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
     // A live @nats-io connection owns its own internal reconnect loop. Do not
     // open a second mTLS connection while it is reconnecting; retain exactly
     // one outer timer so a terminal close still converges on recovery.
-    if (
-      this.connectPromise === null &&
-      this.connection !== null &&
-      !this.connection.isClosed()
-    ) {
+    if (this.connectPromise === null && this.connection !== null && !this.connection.isClosed()) {
       this.scheduleReconnect();
       return;
     }
@@ -865,6 +882,13 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
     event: TEvent,
     _options?: PublishOptions,
   ): Promise<void> {
+    await this.publishToWithAck(topic, event);
+  }
+
+  async publishToWithAck<TEvent extends IEvent>(
+    topic: string,
+    event: TEvent,
+  ): Promise<EventPublishAck> {
     if (!this.jetStream) {
       throw new Error('NATS JetStream not connected');
     }
@@ -887,14 +911,62 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
       // idempotency guarantee the outbox worker relies on for retries.
       // v3: publish() accepts a string directly (UTF-8 encoded by the lib) —
       // no StringCodec.encode(). Byte-identical wire to the v2 producer.
-      await this.jetStream.publish(subject, payload, {
+      const ack = await this.jetStream.publish(subject, payload, {
         msgID: event.eventId,
       });
 
       this.logger.debug(`Published event ${event.eventType} to ${subject}`);
+      return {
+        stream: ack.stream,
+        sequence: ack.seq,
+        duplicate: ack.duplicate,
+      };
     } catch (error) {
       this.logger.error(`Failed to publish event ${event.eventType}`, error);
       throw error;
+    }
+  }
+
+  async eraseTenantMessages(tenantId: string): Promise<void> {
+    if (!this.jetStreamManager) {
+      throw new Error('NATS JetStream manager not connected');
+    }
+    const telemetryStream = resolveStreamRoute(
+      this.streamRoutes,
+      `telemetry.${tenantId}.SensorReading`,
+    ).streamName;
+    await this.jetStreamManager.streams.purge(telemetryStream, {
+      filter: `telemetry.${tenantId}.>`,
+    });
+
+    for (const subject of ['dlq.mqtt', 'quarantine.mqtt']) {
+      const streamName = resolveStreamRoute(this.streamRoutes, subject).streamName;
+      await this.eraseTenantMessagesFromSharedStream(streamName, tenantId);
+    }
+  }
+
+  private async eraseTenantMessagesFromSharedStream(
+    streamName: string,
+    tenantId: string,
+  ): Promise<void> {
+    if (!this.jetStreamManager) {
+      throw new Error('NATS JetStream manager not connected');
+    }
+    const info = await this.jetStreamManager.streams.info(streamName);
+    if (info.state.messages === 0) {
+      return;
+    }
+    for (let sequence = info.state.first_seq; sequence <= info.state.last_seq; sequence += 1) {
+      const message = await this.jetStreamManager.streams.getMessage(streamName, {
+        seq: sequence,
+      });
+      if (message === null) {
+        continue;
+      }
+      const payload = message.json<unknown>();
+      if (isRecord(payload) && payload['tenantId'] === tenantId) {
+        await this.jetStreamManager.streams.deleteMessage(streamName, message.seq, true);
+      }
     }
   }
 
@@ -1104,53 +1176,17 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
     return desired;
   }
 
-  /**
-   * Setup the NATS JetStream stream.
-   * Creates the stream if missing, or updates existing stream config to enforce
-   * current limits and prevent drift from server-side nats.conf changes.
-   */
+  /** Verify that the dedicated cert-bound provisioner created every route. */
   private async setupStream(): Promise<void> {
     if (!this.jetStreamManager) {
       return;
     }
 
-    const streamConfig = this.getStreamConfig(this.resolveEffectiveReplicas(this.streamReplicas));
-
-    try {
-      // ARCH-031: Always update existing stream config to enforce current limits.
-      // Prevents drift when nats.conf max_file_store or application limits change.
-      await this.jetStreamManager.streams.info(this.streamName);
-      this.logger.log(`Stream ${this.streamName} already exists — updating config`);
-      await this.jetStreamManager.streams.update(this.streamName, streamConfig);
-      this.logger.log(`Updated stream ${this.streamName} configuration`);
-    } catch {
-      // Stream doesn't exist — create it
-      await this.jetStreamManager.streams.add({
-        name: this.streamName,
-        ...streamConfig,
-      });
-      this.logger.log(`Created stream ${this.streamName}`);
+    this.resolveEffectiveReplicas(this.streamReplicas);
+    for (const route of this.streamRoutes) {
+      await this.jetStreamManager.streams.info(route.streamName);
+      this.logger.log(`Verified provisioned stream ${route.streamName}`);
     }
-  }
-
-  /**
-   * ARCH-031: Shared JetStream stream configuration.
-   * max_bytes MUST be less than nats.conf max_file_store (2GB) to leave headroom
-   * for metadata and potential additional streams.
-   */
-  private getStreamConfig(replicas: number): Partial<StreamConfig> {
-    return {
-      subjects: ['events.>', 'commands.>', 'queries.>'],
-      retention: RetentionPolicy.Limits,
-      storage: StorageType.File,
-      max_age: 7 * 24 * 60 * 60 * 1_000_000_000, // 7 days in nanoseconds
-      max_bytes: 1536 * 1024 * 1024, // 1.5GB — must be < nats.conf max_file_store (2GB)
-      max_msg_size: 1024 * 1024, // 1MB per message
-      max_msgs: 1_000_000, // 1M messages safety net
-      discard: DiscardPolicy.Old,
-      duplicate_window: 2 * 60 * 1_000_000_000, // 2 minutes for deduplication
-      num_replicas: replicas,
-    };
   }
 
   /**
@@ -1162,6 +1198,7 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
     }
 
     const consumerName = this.generateConsumerName(subject, options?.consumerVersion);
+    const streamName = resolveStreamRoute(this.streamRoutes, subject).streamName;
 
     try {
       // Create or get a pull-based consumer
@@ -1171,6 +1208,7 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
         ack_policy: AckPolicy.Explicit,
         ack_wait: (options?.ackWait ?? 30) * 1000000000, // Convert to nanoseconds
         max_deliver: options?.maxRetries ?? 3,
+        max_ack_pending: options?.maxInflight ?? 10_000,
         filter_subject: subject,
       };
 
@@ -1178,10 +1216,10 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
       // Previous approach deleted and recreated, losing ack position on every restart.
       // With stable consumer names (SERVICE_NAME-based), the same durable consumer
       // survives across restarts and scaled replicas share it for load-balanced delivery.
-      await this.jetStreamManager.consumers.add(this.streamName, consumerConfig);
+      await this.jetStreamManager.consumers.add(streamName, consumerConfig);
 
       // Get the consumer and create a pull subscription
-      const consumer = await this.jetStream.consumers.get(this.streamName, consumerName);
+      const consumer = await this.jetStream.consumers.get(streamName, consumerName);
 
       // Store consumer reference
       this.consumers.set(subject, consumer);
@@ -1325,18 +1363,8 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
    * Normalize subject to match stream configuration
    */
   private normalizeSubject(topic: string): string {
-    if (
-      topic.startsWith('events.') ||
-      topic.startsWith('commands.') ||
-      topic.startsWith('queries.')
-    ) {
-      return topic;
-    }
-
-    throw new Error(
-      `NATS subject must be canonical and start with events., commands., or queries.; ` +
-        `got ${JSON.stringify(topic)}`,
-    );
+    resolveStreamRoute(this.streamRoutes, topic);
+    return topic;
   }
 
   /**

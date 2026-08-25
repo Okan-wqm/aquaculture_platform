@@ -103,4 +103,15 @@ describe('createServiceTypeOrmConfig authoritative DDL guard', () => {
     expect(out.migrationsRun).toBe(true);
     expect(out.synchronize).toBe(false);
   });
+
+  it('lets a latency-critical service lower the pool acquisition deadline', () => {
+    const out = createServiceTypeOrmConfig(new ConfigService(), {
+      serviceName: 'sensor',
+      schema: 'sensor',
+      migrations: [],
+      defaultPoolConnectionTimeoutMs: 2_000,
+    });
+
+    expect(out.extra).toMatchObject({ connectionTimeoutMillis: 2_000 });
+  });
 });

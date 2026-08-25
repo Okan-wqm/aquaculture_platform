@@ -61,6 +61,7 @@ describe('NatsEventBus compliance subscription policy', () => {
         deliver_policy: DeliverPolicy.All,
         ack_wait: 60_000_000_000,
         max_deliver: -1,
+        max_ack_pending: 10_000,
         filter_subject: 'events.*.TenantErasureRequested',
       }),
     );
@@ -95,5 +96,42 @@ describe('NatsEventBus compliance subscription policy', () => {
       }),
     ).rejects.toThrow('consumerVersion must match');
     expect(add).not.toHaveBeenCalled();
+  });
+
+  it('purges tenant telemetry and deletes only matching DLQ/quarantine messages', async () => {
+    const purge = jest.fn().mockResolvedValue({ success: true, purged: 2 });
+    const deleteMessage = jest.fn().mockResolvedValue(true);
+    const info = jest.fn().mockImplementation((stream: string) =>
+      Promise.resolve({
+        state:
+          stream === 'AQUACULTURE_TELEMETRY'
+            ? { first_seq: 0, last_seq: 0 }
+            : { first_seq: 1, last_seq: 2 },
+      }),
+    );
+    const getMessage = jest.fn().mockImplementation((stream: string, query: { seq: number }) => {
+      const tenantId =
+        query.seq === 1
+          ? 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+          : 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+      return Promise.resolve({
+        seq: query.seq,
+        json: () => ({ tenantId, stream }),
+      });
+    });
+    const bus = new NatsEventBus(config());
+    Reflect.set(bus, 'jetStreamManager', {
+      streams: { info, purge, getMessage, deleteMessage },
+    });
+
+    await bus.eraseTenantMessages('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+
+    expect(purge).toHaveBeenCalledWith('AQUACULTURE_TELEMETRY', {
+      filter: 'telemetry.aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.>',
+    });
+    expect(deleteMessage).toHaveBeenCalledWith('AQUACULTURE_DLQ', 1, true);
+    expect(deleteMessage).toHaveBeenCalledWith('AQUACULTURE_QUARANTINE', 1, true);
+    expect(deleteMessage).not.toHaveBeenCalledWith('AQUACULTURE_DLQ', 2, true);
+    expect(deleteMessage).not.toHaveBeenCalledWith('AQUACULTURE_QUARANTINE', 2, true);
   });
 });

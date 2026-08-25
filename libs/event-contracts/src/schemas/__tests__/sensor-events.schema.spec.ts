@@ -13,10 +13,7 @@
  *   - Returns a one-line error string suitable for a warn log.
  */
 
-import {
-  validateSensorEvent,
-  type SensorEventValidationResult,
-} from '../validator';
+import { validateSensorEvent, type SensorEventValidationResult } from '../validator';
 
 const TENANT_ID = '11111111-1111-1111-1111-111111111111';
 const SENSOR_ID = '22222222-2222-2222-2222-222222222222';
@@ -96,10 +93,7 @@ describe('validateSensorEvent — SensorMetricIngested', () => {
     });
 
     it('rejects payload that is not a JSON object', () => {
-      const result = validateSensorEvent(
-        'SensorMetricIngested',
-        'a string' as unknown,
-      );
+      const result = validateSensorEvent('SensorMetricIngested', 'a string' as unknown);
       const { errors } = expectInvalid(result);
       expect(errors).toContain('JSON object');
     });
@@ -136,14 +130,11 @@ describe('validateSensorEvent — SensorMetricIngested', () => {
   });
 
   describe('rejection — value bounds', () => {
-    it.each([-1, 4, 1.5])(
-      'rejects qualityCode = %s (must be integer 0..=3)',
-      (q) => {
-        const ev = { ...baseEvent(), qualityCode: q };
-        const result = validateSensorEvent('SensorMetricIngested', ev);
-        expectInvalid(result);
-      },
-    );
+    it.each([-1, 4, 1.5])('rejects qualityCode = %s (must be integer 0..=3)', (q) => {
+      const ev = { ...baseEvent(), qualityCode: q };
+      const result = validateSensorEvent('SensorMetricIngested', ev);
+      expectInvalid(result);
+    });
 
     it('rejects producerTs before 2024-01-01', () => {
       const ev = { ...baseEvent(), producerTs: 1_703_999_999_999 };
@@ -184,11 +175,70 @@ describe('validateSensorEvent — SensorMetricIngested', () => {
   describe('error string contract', () => {
     it('returns a single-line error suitable for a warn log', () => {
       const ev = { ...baseEvent(), qualityCode: 99 };
-      const { errors } = expectInvalid(
-        validateSensorEvent('SensorMetricIngested', ev),
-      );
+      const { errors } = expectInvalid(validateSensorEvent('SensorMetricIngested', ev));
       // No newlines — keeps log pipelines tidy.
       expect(errors).not.toContain('\n');
     });
+  });
+});
+
+describe('validateSensorEvent — MQTT durable ingress outcomes', () => {
+  const quarantineEvent = {
+    eventId: EVENT_ID,
+    eventType: 'MqttPayloadQuarantined',
+    timestamp: '2026-08-25T12:00:00.000Z',
+    tenantId: TENANT_ID,
+    version: 1,
+    topic: `sensors/${TENANT_ID}/${SENSOR_ID}/data`,
+    payloadDigest: 'a'.repeat(64),
+    reason: 'MISSING_STABLE_SOURCE_IDENTITY_OR_PRODUCER_TIME',
+    payloadBase64: 'eyJ0ZW1wZXJhdHVyZSI6MjN9',
+  };
+
+  it('accepts the flat quarantine evidence shape', () => {
+    expectValid(validateSensorEvent('MqttPayloadQuarantined', quarantineEvent));
+  });
+
+  it('rejects quarantine evidence without the original bytes', () => {
+    const event = { ...quarantineEvent };
+    delete (event as Partial<typeof quarantineEvent>).payloadBase64;
+    expectInvalid(validateSensorEvent('MqttPayloadQuarantined', event));
+  });
+
+  it('accepts a dead letter carrying a stable replay event as JSON text', () => {
+    expectValid(
+      validateSensorEvent('MqttIngestDeadLettered', {
+        ...quarantineEvent,
+        eventType: 'MqttIngestDeadLettered',
+        reason: 'UNKNOWN_PROCESSING_FAILURE',
+        sourceEventId: 'edge:device-1:1700000000',
+        sourceTimestamp: '2026-08-25T11:59:59.000Z',
+        processingAttempts: 5,
+        originalSubject: `telemetry.${TENANT_ID}.SensorReading`,
+        originalEventJson: JSON.stringify({
+          eventId: EVENT_ID,
+          eventType: 'SensorReading',
+          timestamp: '2026-08-25T11:59:59.000Z',
+          tenantId: TENANT_ID,
+          version: 3,
+          sensorId: SENSOR_ID,
+          readingTemperature: 23,
+        }),
+      }),
+    );
+  });
+
+  it('rejects a dead letter before five real processing attempts', () => {
+    expectInvalid(
+      validateSensorEvent('MqttIngestDeadLettered', {
+        ...quarantineEvent,
+        eventType: 'MqttIngestDeadLettered',
+        sourceEventId: 'edge:device-1:1700000000',
+        sourceTimestamp: '2026-08-25T11:59:59.000Z',
+        processingAttempts: 4,
+        originalSubject: `telemetry.${TENANT_ID}.SensorReading`,
+        originalEventJson: '{}',
+      }),
+    );
   });
 });

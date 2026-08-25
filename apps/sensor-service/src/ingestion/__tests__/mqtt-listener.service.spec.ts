@@ -22,6 +22,7 @@ import { DeviceEvent } from '../../edge-device/entities/device-event.entity';
 import { DeviceIoConfig } from '../../edge-device/entities/device-io-config.entity';
 import { EdgeDeviceService } from '../../edge-device/edge-device.service';
 import { MqttClientService } from '../../shared-mqtt/mqtt-client.service';
+import { TenantErasureTombstoneError } from '@aquaculture/backend-common/compliance';
 import { SensorTopicCacheService, CachedSensorInfo } from '../sensor-topic-cache.service';
 import { MqttListenerService } from '../mqtt-listener.service';
 
@@ -39,6 +40,7 @@ function createMockConfigService(overrides: Record<string, string> = {}): Config
     MQTT_ENABLED: 'true',
     LEGACY_EDGE_TOPICS_ENABLED: 'true',
     LEGACY_SENSOR_READINGS_ENABLED: 'false',
+    MQTT_DURABLE_INGRESS_ENABLED: 'false',
     NODE_ENV: 'test',
     ...overrides,
   };
@@ -121,15 +123,24 @@ function createMockMqttClient(): jest.Mocked<MqttClientService> {
 
 function createMockEdgeDeviceService(): jest.Mocked<EdgeDeviceService> {
   return {
-    updateHeartbeat: jest.fn().mockResolvedValue({ id: 'dev-1', tenantId: TENANT_ID, deviceCode: DEVICE_CODE, isOnline: true }),
-    findByCode: jest.fn().mockResolvedValue({ id: 'dev-1', tenantId: TENANT_ID, deviceCode: DEVICE_CODE }),
+    updateHeartbeat: jest.fn().mockResolvedValue({
+      id: 'dev-1',
+      tenantId: TENANT_ID,
+      deviceCode: DEVICE_CODE,
+      isOnline: true,
+    }),
+    findByCode: jest
+      .fn()
+      .mockResolvedValue({ id: 'dev-1', tenantId: TENANT_ID, deviceCode: DEVICE_CODE }),
     // SEC-M01 added findByCodeOnly to handleEdgeDeviceMessage as a
     // legacy-tenant-enforcement gate (mqtt-listener.service.ts:453).
     // The legacy edge/ handlers return early when this lookup misses,
     // so every edge/+/{heartbeat,birth,death,response} test must see
     // a device here. Without this mock the entire "Edge device handlers"
     // suite silently swallows its events (ORPHAN-014).
-    findByCodeOnly: jest.fn().mockResolvedValue({ id: 'dev-1', tenantId: TENANT_ID, deviceCode: DEVICE_CODE }),
+    findByCodeOnly: jest
+      .fn()
+      .mockResolvedValue({ id: 'dev-1', tenantId: TENANT_ID, deviceCode: DEVICE_CODE }),
     updateDevice: jest.fn().mockResolvedValue(undefined),
     handlePingResponse: jest.fn(),
     handleScanHardwareResponse: jest.fn(),
@@ -159,7 +170,10 @@ function createSensor(overrides: Partial<Sensor> = {}): Sensor {
     type: 'temperature',
     tenantId: TENANT_ID,
     status: SensorStatus.ACTIVE,
-    protocolConfiguration: { topic: `sensors/${TENANT_ID}/${SENSOR_ID}/data`, payloadFormat: 'json' },
+    protocolConfiguration: {
+      topic: `sensors/${TENANT_ID}/${SENSOR_ID}/data`,
+      payloadFormat: 'json',
+    },
     metadata: {},
     siteId: null,
     departmentId: null,
@@ -184,29 +198,44 @@ function createCachedSensorInfo(overrides: Partial<CachedSensorInfo> = {}): Cach
   };
 }
 
-function buildService(overrides: {
-  configOverrides?: Record<string, string>;
-  edgeDeviceService?: EdgeDeviceService | null;
-  sensorTopicCache?: SensorTopicCacheService | null;
-  mqttClient?: MqttClientService | null;
-  eventBus?: any;
-  scadaDeployLogService?: { updateStatus: jest.Mock } | null;
-} = {}) {
+function buildService(
+  overrides: {
+    configOverrides?: Record<string, string>;
+    edgeDeviceService?: EdgeDeviceService | null;
+    sensorTopicCache?: SensorTopicCacheService | null;
+    mqttClient?: MqttClientService | null;
+    eventBus?: any;
+    ingestDurability?: {
+      recordManaged: jest.Mock;
+      recordUnknownFailureManaged: jest.Mock;
+      publishPendingManaged: jest.Mock;
+      publishQuarantine: jest.Mock;
+      publishDeadLetterManaged: jest.Mock;
+    };
+    scadaDeployLogService?: { updateStatus: jest.Mock } | null;
+  } = {},
+) {
   const configService = createMockConfigService(overrides.configOverrides);
   const sensorRepo = createMockSensorRepository();
   const dataSource = createMockDataSource();
-  const edgeDeviceService = overrides.edgeDeviceService !== undefined
-    ? overrides.edgeDeviceService
-    : createMockEdgeDeviceService();
-  const sensorTopicCache = overrides.sensorTopicCache !== undefined
-    ? overrides.sensorTopicCache
-    : createMockSensorTopicCache();
-  const mqttClient = overrides.mqttClient !== undefined
-    ? overrides.mqttClient
-    : createMockMqttClient();
-  const eventBus = overrides.eventBus !== undefined
-    ? overrides.eventBus
-    : createMockEventBus();
+  const edgeDeviceService =
+    overrides.edgeDeviceService !== undefined
+      ? overrides.edgeDeviceService
+      : createMockEdgeDeviceService();
+  const sensorTopicCache =
+    overrides.sensorTopicCache !== undefined
+      ? overrides.sensorTopicCache
+      : createMockSensorTopicCache();
+  const mqttClient =
+    overrides.mqttClient !== undefined ? overrides.mqttClient : createMockMqttClient();
+  const eventBus = overrides.eventBus !== undefined ? overrides.eventBus : createMockEventBus();
+  const ingestDurability = overrides.ingestDurability ?? {
+    recordManaged: jest.fn().mockResolvedValue('COMMITTED'),
+    recordUnknownFailureManaged: jest.fn().mockResolvedValue(1),
+    publishPendingManaged: jest.fn().mockResolvedValue(undefined),
+    publishQuarantine: jest.fn().mockResolvedValue(undefined),
+    publishDeadLetterManaged: jest.fn().mockResolvedValue(undefined),
+  };
 
   // Construct service directly (bypass DI)
   const service = new (MqttListenerService as any)(
@@ -216,8 +245,9 @@ function buildService(overrides: {
     {
       writeImmediate: jest.fn().mockResolvedValue(undefined),
       writeManaged: jest.fn().mockResolvedValue(undefined),
-      enqueue: jest.fn(),
+      enqueue: jest.fn().mockResolvedValue({ status: 'COMMITTED' }),
     }, // metricWriter (SensorMetricWriterService)
+    ingestDurability,
     eventBus,
     edgeDeviceService,
     sensorTopicCache,
@@ -236,6 +266,7 @@ function buildService(overrides: {
     sensorTopicCache: sensorTopicCache as jest.Mocked<SensorTopicCacheService> | null,
     mqttClient: mqttClient as jest.Mocked<MqttClientService> | null,
     eventBus,
+    ingestDurability,
   };
 }
 
@@ -243,7 +274,11 @@ function buildService(overrides: {
  * Invoke the private handleMessage method via the bound messageHandler
  * stored in the constructor.
  */
-async function callHandleMessage(service: MqttListenerService, topic: string, payload: string | Buffer): Promise<void> {
+async function callHandleMessage(
+  service: MqttListenerService,
+  topic: string,
+  payload: string | Buffer,
+): Promise<void> {
   const handler = (service as any).messageHandler as (topic: string, message: Buffer) => void;
   const buffer = Buffer.isBuffer(payload) ? payload : Buffer.from(payload);
   // The handler calls handleMessage internally and swallows rejections via .catch
@@ -271,9 +306,15 @@ describe('MqttListenerService', () => {
       const qr = dataSource.createQueryRunner();
       (qr.manager.findOne as jest.Mock).mockResolvedValue(sensor);
 
-      await callHandleMessage(service, `sensors/${TENANT_ID}/${SENSOR_ID}/data`, JSON.stringify({ temperature: 23.5 }));
+      await callHandleMessage(
+        service,
+        `sensors/${TENANT_ID}/${SENSOR_ID}/data`,
+        JSON.stringify({ temperature: 23.5 }),
+      );
 
-      expect(sensorTopicCache!.getSensorByTopic).toHaveBeenCalledWith(`sensors/${TENANT_ID}/${SENSOR_ID}/data`);
+      expect(sensorTopicCache!.getSensorByTopic).toHaveBeenCalledWith(
+        `sensors/${TENANT_ID}/${SENSOR_ID}/data`,
+      );
     });
 
     it('should parse aquaculture/{tenantId}/sensors/{sensorId} pattern correctly', async () => {
@@ -325,8 +366,180 @@ describe('MqttListenerService', () => {
   // ==================== 2. Payload Validation ====================
 
   describe('Payload validation', () => {
+    it('quarantines legacy sensor payloads before ACK when stable producer identity is absent', async () => {
+      const { service, sensorTopicCache, dataSource, ingestDurability } = buildService({
+        configOverrides: { MQTT_DURABLE_INGRESS_ENABLED: 'true' },
+      });
+      sensorTopicCache!.getSensorByTopic.mockResolvedValue(createCachedSensorInfo());
+      const qr = dataSource.createQueryRunner();
+      (qr.manager.findOne as jest.Mock).mockResolvedValue(createSensor());
+
+      await callHandleMessage(
+        service,
+        `sensors/${TENANT_ID}/${SENSOR_ID}/data`,
+        JSON.stringify({ temperature: 23.5 }),
+      );
+
+      expect(ingestDurability.publishQuarantine).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'MqttPayloadQuarantined',
+          reason: 'MISSING_STABLE_SOURCE_IDENTITY_OR_PRODUCER_TIME',
+        }),
+      );
+      expect(ingestDurability.recordManaged).not.toHaveBeenCalled();
+    });
+
+    it('commits a stable source receipt then publishes its pending deterministic child', async () => {
+      const { service, sensorTopicCache, dataSource, ingestDurability } = buildService({
+        configOverrides: { MQTT_DURABLE_INGRESS_ENABLED: 'true' },
+      });
+      sensorTopicCache!.getSensorByTopic.mockResolvedValue(createCachedSensorInfo());
+      const qr = dataSource.createQueryRunner();
+      (qr.manager.findOne as jest.Mock).mockResolvedValue(createSensor());
+
+      await callHandleMessage(
+        service,
+        `sensors/${TENANT_ID}/${SENSOR_ID}/data`,
+        JSON.stringify({
+          sourceEventId: 'edge:device-1:42',
+          sourceTimestamp: '2026-08-25T12:00:00.000Z',
+          sourceSequence: 42,
+          readings: { temperature: 23.5 },
+        }),
+      );
+
+      expect(ingestDurability.recordManaged).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          tenantId: TENANT_ID,
+          sourceEventId: 'edge:device-1:42',
+          sourceSequence: '42',
+          dispatches: [
+            expect.objectContaining({
+              subject: `telemetry.${TENANT_ID}.SensorReading`,
+              event: expect.objectContaining({
+                eventType: 'SensorReading',
+                readingTemperature: 23.5,
+              }),
+            }),
+          ],
+        }),
+      );
+      expect(ingestDurability.publishPendingManaged).toHaveBeenCalledWith(
+        expect.anything(),
+        'edge:device-1:42',
+      );
+    });
+
+    it('dead-letters the fifth unknown processing failure before allowing MQTT ACK', async () => {
+      const ingestDurability = {
+        recordManaged: jest.fn().mockRejectedValue(new Error('calibration failed')),
+        recordUnknownFailureManaged: jest.fn().mockResolvedValue(5),
+        publishPendingManaged: jest.fn().mockResolvedValue(undefined),
+        publishQuarantine: jest.fn().mockResolvedValue(undefined),
+        publishDeadLetterManaged: jest.fn().mockResolvedValue(undefined),
+      };
+      const { service, sensorTopicCache, dataSource } = buildService({
+        configOverrides: { MQTT_DURABLE_INGRESS_ENABLED: 'true' },
+        ingestDurability,
+      });
+      sensorTopicCache!.getSensorByTopic.mockResolvedValue(createCachedSensorInfo());
+      const qr = dataSource.createQueryRunner();
+      (qr.manager.findOne as jest.Mock).mockResolvedValue(createSensor());
+
+      await expect(
+        callHandleMessage(
+          service,
+          `sensors/${TENANT_ID}/${SENSOR_ID}/data`,
+          JSON.stringify({
+            sourceEventId: 'edge:device-1:42',
+            sourceTimestamp: '2026-08-25T12:00:00.000Z',
+            readings: { temperature: 23.5 },
+          }),
+        ),
+      ).resolves.toBeUndefined();
+
+      expect(ingestDurability.recordUnknownFailureManaged).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ sourceEventId: 'edge:device-1:42' }),
+      );
+      expect(ingestDurability.publishDeadLetterManaged).toHaveBeenCalledWith(
+        expect.anything(),
+        'edge:device-1:42',
+        expect.objectContaining({
+          eventType: 'MqttIngestDeadLettered',
+          sourceEventId: 'edge:device-1:42',
+          processingAttempts: 5,
+          originalEventJson: expect.stringContaining('SensorReading'),
+        }),
+      );
+    });
+
+    it('withholds ACK for retryable infrastructure errors without consuming a poison attempt', async () => {
+      const databaseError = Object.assign(new Error('connection reset'), { code: 'ECONNRESET' });
+      const ingestDurability = {
+        recordManaged: jest.fn().mockRejectedValue(databaseError),
+        recordUnknownFailureManaged: jest.fn().mockResolvedValue(1),
+        publishPendingManaged: jest.fn().mockResolvedValue(undefined),
+        publishQuarantine: jest.fn().mockResolvedValue(undefined),
+        publishDeadLetterManaged: jest.fn().mockResolvedValue(undefined),
+      };
+      const { service, sensorTopicCache, dataSource } = buildService({
+        configOverrides: { MQTT_DURABLE_INGRESS_ENABLED: 'true' },
+        ingestDurability,
+      });
+      sensorTopicCache!.getSensorByTopic.mockResolvedValue(createCachedSensorInfo());
+      const qr = dataSource.createQueryRunner();
+      (qr.manager.findOne as jest.Mock).mockResolvedValue(createSensor());
+
+      await expect(
+        callHandleMessage(
+          service,
+          `sensors/${TENANT_ID}/${SENSOR_ID}/data`,
+          JSON.stringify({
+            sourceEventId: 'edge:device-1:43',
+            sourceTimestamp: '2026-08-25T12:00:00.000Z',
+            readings: { temperature: 23.5 },
+          }),
+        ),
+      ).rejects.toThrow('connection reset');
+      expect(ingestDurability.recordUnknownFailureManaged).not.toHaveBeenCalled();
+      expect(ingestDurability.publishDeadLetterManaged).not.toHaveBeenCalled();
+    });
+
+    it('ACK-drops post-erasure redelivery without recreating tenant state', async () => {
+      const ingestDurability = {
+        recordManaged: jest.fn().mockRejectedValue(new TenantErasureTombstoneError()),
+        recordUnknownFailureManaged: jest.fn().mockResolvedValue(1),
+        publishPendingManaged: jest.fn().mockResolvedValue(undefined),
+        publishQuarantine: jest.fn().mockResolvedValue(undefined),
+        publishDeadLetterManaged: jest.fn().mockResolvedValue(undefined),
+      };
+      const { service, sensorTopicCache, dataSource } = buildService({
+        configOverrides: { MQTT_DURABLE_INGRESS_ENABLED: 'true' },
+        ingestDurability,
+      });
+      sensorTopicCache!.getSensorByTopic.mockResolvedValue(createCachedSensorInfo());
+      const qr = dataSource.createQueryRunner();
+      (qr.manager.findOne as jest.Mock).mockResolvedValue(createSensor());
+
+      await expect(
+        callHandleMessage(
+          service,
+          `sensors/${TENANT_ID}/${SENSOR_ID}/data`,
+          JSON.stringify({
+            sourceEventId: 'edge:device-1:44',
+            sourceTimestamp: '2026-08-25T12:00:00.000Z',
+            readings: { temperature: 23.5 },
+          }),
+        ),
+      ).resolves.toBeUndefined();
+      expect(ingestDurability.recordUnknownFailureManaged).not.toHaveBeenCalled();
+      expect(ingestDurability.publishDeadLetterManaged).not.toHaveBeenCalled();
+    });
+
     it('should process valid JSON payload', async () => {
-      const { service, sensorTopicCache, dataSource } = buildService();
+      const { service, sensorTopicCache, dataSource, eventBus } = buildService();
       const sensor = createSensor();
       const cachedInfo = createCachedSensorInfo();
       sensorTopicCache!.getSensorByTopic.mockResolvedValue(cachedInfo);
@@ -343,6 +556,15 @@ describe('MqttListenerService', () => {
       // If sensor is found, saveReading is called (channels are empty so no metrics inserted)
       // No error should be thrown
       expect(sensorTopicCache!.getSensorByTopic).toHaveBeenCalled();
+      expect(eventBus.publish).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'SensorReading',
+          readingTemperature: 23.5,
+        }),
+      );
+      expect(eventBus.publish).not.toHaveBeenCalledWith(
+        expect.objectContaining({ readings: expect.anything() }),
+      );
     });
 
     it('should log warning and skip on invalid JSON payload', async () => {
@@ -357,11 +579,7 @@ describe('MqttListenerService', () => {
       // Invalid JSON
       const loggerSpy = jest.spyOn((service as any).logger, 'warn');
 
-      await callHandleMessage(
-        service,
-        `sensors/${TENANT_ID}/${SENSOR_ID}/data`,
-        '{not valid json',
-      );
+      await callHandleMessage(service, `sensors/${TENANT_ID}/${SENSOR_ID}/data`, '{not valid json');
 
       expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to parse payload'));
     });
@@ -375,9 +593,7 @@ describe('MqttListenerService', () => {
 
       await callHandleMessage(service, `sensors/${TENANT_ID}/${SENSOR_ID}/data`, largePayload);
 
-      expect(loggerSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Payload too large'),
-      );
+      expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('Payload too large'));
     });
 
     it('should skip empty payload (parsePayload returns null for invalid JSON)', async () => {
@@ -391,11 +607,7 @@ describe('MqttListenerService', () => {
 
       const loggerSpy = jest.spyOn((service as any).logger, 'warn');
 
-      await callHandleMessage(
-        service,
-        `sensors/${TENANT_ID}/${SENSOR_ID}/data`,
-        '',
-      );
+      await callHandleMessage(service, `sensors/${TENANT_ID}/${SENSOR_ID}/data`, '');
 
       expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to parse'));
     });
@@ -436,9 +648,7 @@ describe('MqttListenerService', () => {
       );
 
       // Should log deprecation warning
-      expect(loggerSpy).toHaveBeenCalledWith(
-        expect.stringContaining('[DEPRECATED]'),
-      );
+      expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('[DEPRECATED]'));
 
       // Should still process the message
       expect(edgeDeviceService!.updateHeartbeat).toHaveBeenCalled();
@@ -502,9 +712,7 @@ describe('MqttListenerService', () => {
         JSON.stringify({ value: 1 }),
       );
 
-      expect(loggerSpy).toHaveBeenCalledWith(
-        expect.stringContaining('No sensor found for topic'),
-      );
+      expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('No sensor found for topic'));
     });
 
     it('should fall back to legacy cross-schema search when cache service is unavailable', async () => {
@@ -709,11 +917,7 @@ describe('MqttListenerService', () => {
           configOverrides: { LEGACY_EDGE_TOPICS_ENABLED: 'true' },
         });
 
-        await callHandleMessage(
-          service,
-          `edge/${DEVICE_CODE}/death`,
-          JSON.stringify({}),
-        );
+        await callHandleMessage(service, `edge/${DEVICE_CODE}/death`, JSON.stringify({}));
 
         expect(edgeDeviceService!.updateHeartbeat).toHaveBeenCalledWith(
           expect.objectContaining({
@@ -769,11 +973,7 @@ describe('MqttListenerService', () => {
 
         const loggerSpy = jest.spyOn((service as any).logger, 'warn');
 
-        await callHandleMessage(
-          service,
-          'edge/only',
-          JSON.stringify({}),
-        );
+        await callHandleMessage(service, 'edge/only', JSON.stringify({}));
 
         expect(loggerSpy).toHaveBeenCalledWith(
           expect.stringContaining('Invalid edge device topic format'),
@@ -788,11 +988,7 @@ describe('MqttListenerService', () => {
 
         const loggerSpy = jest.spyOn((service as any).logger, 'error');
 
-        await callHandleMessage(
-          service,
-          `edge/${DEVICE_CODE}/heartbeat`,
-          'not-json',
-        );
+        await callHandleMessage(service, `edge/${DEVICE_CODE}/heartbeat`, 'not-json');
 
         expect(loggerSpy).toHaveBeenCalledWith(
           expect.stringContaining('Failed to parse edge device message'),
@@ -827,7 +1023,7 @@ describe('MqttListenerService', () => {
             deviceCode: DEVICE_CODE,
             tenantId: TENANT_ID,
             isOnline: true,
-            cpuUsage: 16,  // Math.round(15.5)
+            cpuUsage: 16, // Math.round(15.5)
             memoryUsage: 25,
             storageUsage: 40,
             temperatureCelsius: 45.2,
@@ -960,7 +1156,9 @@ describe('MqttListenerService', () => {
           `tenants/${TENANT_ID}/devices/${DEVICE_CODE}/alarms`,
           JSON.stringify({
             timestamp: '2026-03-14T12:00:00Z',
-            alarms: [{ tag: 'temp_inlet', type: 'HIGH', priority: 'high', value: 99, setpoint: 80 }],
+            alarms: [
+              { tag: 'temp_inlet', type: 'HIGH', priority: 'high', value: 99, setpoint: 80 },
+            ],
           }),
         );
 
@@ -1006,9 +1204,7 @@ describe('MqttListenerService', () => {
           JSON.stringify({ tags }),
         );
 
-        expect(loggerSpy).toHaveBeenCalledWith(
-          expect.stringContaining('has 257 tags'),
-        );
+        expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('has 257 tags'));
       });
 
       it('should reject io_data with missing/invalid tags structure', async () => {
@@ -1021,9 +1217,7 @@ describe('MqttListenerService', () => {
           JSON.stringify({ no_tags: 'here' }),
         );
 
-        expect(loggerSpy).toHaveBeenCalledWith(
-          expect.stringContaining('invalid structure'),
-        );
+        expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('invalid structure'));
       });
 
       it('should handle tenants/{tid}/devices/{code}/alarms', async () => {
@@ -1039,7 +1233,14 @@ describe('MqttListenerService', () => {
           JSON.stringify({
             timestamp: '2026-03-14T12:00:00Z',
             alarms: [
-              { tag: 'temp_inlet', type: 'HH', priority: 'critical', state: 'active', value: 32.5, setpoint: 30.0 },
+              {
+                tag: 'temp_inlet',
+                type: 'HH',
+                priority: 'critical',
+                state: 'active',
+                value: 32.5,
+                setpoint: 30.0,
+              },
             ],
           }),
         );
@@ -1138,11 +1339,7 @@ describe('MqttListenerService', () => {
         const { service } = buildService();
         const loggerSpy = jest.spyOn((service as any).logger, 'warn');
 
-        await callHandleMessage(
-          service,
-          'tenants/abc/only',
-          JSON.stringify({}),
-        );
+        await callHandleMessage(service, 'tenants/abc/only', JSON.stringify({}));
 
         expect(loggerSpy).toHaveBeenCalledWith(
           expect.stringContaining('Invalid tenant-prefixed topic format'),

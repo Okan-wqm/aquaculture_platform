@@ -70,10 +70,23 @@ export interface IEventPublisher {
   /**
    * Publish to a specific topic/subject
    */
-  publishTo<TEvent extends IEvent>(
-    topic: string,
-    event: TEvent,
-  ): Promise<void>;
+  publishTo<TEvent extends IEvent>(topic: string, event: TEvent): Promise<void>;
+}
+
+export interface EventPublishAck {
+  stream: string;
+  sequence: number;
+  duplicate: boolean;
+}
+
+/** Narrow contract for commit→JetStream chains that must persist the PubAck. */
+export interface IAcknowledgedEventPublisher {
+  publishToWithAck<TEvent extends IEvent>(topic: string, event: TEvent): Promise<EventPublishAck>;
+}
+
+/** Privileged erasure capability; implemented only by the NATS transport. */
+export interface ITenantEventMessageEraser {
+  eraseTenantMessages(tenantId: string): Promise<void>;
 }
 
 /**
@@ -183,11 +196,7 @@ export interface IRequestReply {
    * / Encode / Decode) so operator alarms can route by shelf
    * without parsing log strings.
    */
-  requestTyped<Req, Res>(
-    subject: string,
-    request: Req,
-    options: RequestReplyOptions,
-  ): Promise<Res>;
+  requestTyped<Req, Res>(subject: string, request: Req, options: RequestReplyOptions): Promise<Res>;
 
   /**
    * Register a responder for `subject`. Each incoming message is

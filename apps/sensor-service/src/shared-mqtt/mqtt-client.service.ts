@@ -1,17 +1,69 @@
-import {
-  Injectable,
-  Logger,
-  OnModuleInit,
-  OnModuleDestroy,
-} from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as mqtt from 'mqtt';
-import { MqttClient } from 'mqtt';
+import { IPublishPacket, MqttClient } from 'mqtt';
+
+interface MqttIngressOptionsInput {
+  clientId: string | undefined;
+  username: string | undefined;
+  password: string | undefined;
+}
+
+export interface DurableAckClient {
+  handleMessage: (packet: IPublishPacket, callback: (error?: Error) => void) => void;
+  end: (force: boolean) => unknown;
+}
+
+export function buildMqttIngressOptions(input: MqttIngressOptionsInput): mqtt.IClientOptions {
+  const clientId = input.clientId?.trim();
+  if (!clientId) {
+    throw new Error(
+      'MQTT_CLIENT_ID is required and must remain stable across sensor-service restarts',
+    );
+  }
+
+  const options: mqtt.IClientOptions = {
+    clientId,
+    clean: false,
+    keepalive: 60,
+    reconnectPeriod: 0,
+    connectTimeout: 30000,
+    resubscribe: false,
+  };
+  if (input.username) {
+    options.username = input.username;
+    options.password = input.password;
+  }
+  return options;
+}
+
+/**
+ * mqtt.js sends QoS1 PUBACK only after this callback. A failed durable action
+ * deliberately never calls it; the owner closes the persistent session so the
+ * broker redelivers the same PUBLISH after reconnect.
+ */
+export function installDurableAckGate(
+  client: DurableAckClient,
+  dispatch: (packet: IPublishPacket) => Promise<void>,
+  requestRedelivery: (error: Error) => void,
+): void {
+  client.handleMessage = (packet, callback): void => {
+    dispatch(packet).then(
+      () => callback(),
+      (cause: unknown) =>
+        requestRedelivery(cause instanceof Error ? cause : new Error(String(cause))),
+    );
+  };
+}
 
 /**
  * MQTT subscription callback type
  */
-export type MqttMessageHandler = (topic: string, message: Buffer) => void | Promise<void>;
+export type MqttMessageHandler = (
+  topic: string,
+  message: Buffer,
+  packet: IPublishPacket,
+) => void | Promise<void>;
 
 /**
  * MQTT Connection State
@@ -55,6 +107,9 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
   private subscribedTopics: Set<string> = new Set();
   private circuitResetTimeout: NodeJS.Timeout | null = null;
   private readonly circuitResetDelayMs = 300000; // 5 minutes circuit breaker reset
+  private static readonly ACK_DEADLINE_MS = 10_000;
+  private static readonly INLINE_RETRY_CUTOFF_MS = 3_000;
+  private static readonly INLINE_RETRY_MIN_BUDGET_MS = 7_000;
   private isShuttingDown = false;
   private connectCallbacks: Array<() => void | Promise<void>> = [];
 
@@ -72,11 +127,15 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
     // go-auth calls back to our /mqtt/auth endpoint during CONNECT,
     // so the HTTP server must be listening before we attempt MQTT connection.
     const startupDelayMs = 5000;
-    this.logger.log(`Delaying MQTT connection by ${startupDelayMs}ms to ensure HTTP server is ready`);
+    this.logger.log(
+      `Delaying MQTT connection by ${startupDelayMs}ms to ensure HTTP server is ready`,
+    );
     setTimeout(() => {
       if (this.isShuttingDown) return;
       this.connect().catch((error) => {
-        this.logger.warn(`MQTT broker unavailable at startup: ${error.message}. Will retry in background.`);
+        this.logger.warn(
+          `MQTT broker unavailable at startup: ${error.message}. Will retry in background.`,
+        );
         this.scheduleReconnect();
       });
     }, startupDelayMs);
@@ -122,26 +181,20 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
     const brokerUrl = this.configService.get<string>('MQTT_BROKER_URL', 'mqtt://localhost:1883');
     const username = this.configService.get<string>('MQTT_USERNAME');
     const password = this.configService.get<string>('MQTT_PASSWORD');
-    const clientId = `aqua-sensor-service-${process.pid}-${Date.now()}`;
+    const clientId = this.configService.get<string>('MQTT_CLIENT_ID');
 
     this.logger.log(`Connecting to MQTT broker: ${brokerUrl}`);
     this.connectionState = MqttConnectionState.CONNECTING;
 
-    const options: mqtt.IClientOptions = {
-      clientId,
-      clean: true,
-      keepalive: 60,
-      reconnectPeriod: 0, // Disable auto-reconnect, we handle it manually
-      connectTimeout: 30000,
-    };
-
-    if (username) {
-      options.username = username;
-      options.password = password;
-    }
+    const options = buildMqttIngressOptions({ clientId, username, password });
 
     return new Promise((resolve, reject) => {
       this.client = mqtt.connect(brokerUrl, options);
+      installDurableAckGate(
+        this.client,
+        (packet) => this.dispatchWithAckDeadline(packet),
+        (error) => this.requestPersistentRedelivery(error),
+      );
 
       this.client.on('connect', () => {
         this.connectionState = MqttConnectionState.CONNECTED;
@@ -186,13 +239,58 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
           this.scheduleReconnect();
         }
       });
-
-      this.client.on('message', (topic, message) => {
-        if (!this.isShuttingDown) {
-          this.handleMessage(topic, message);
-        }
-      });
     });
+  }
+
+  private async dispatchWithAckDeadline(packet: IPublishPacket): Promise<void> {
+    if (this.isShuttingDown) throw new Error('MQTT ingress is shutting down');
+    const startedAt = Date.now();
+    try {
+      await this.dispatchBeforeDeadline(packet, MqttClientService.ACK_DEADLINE_MS);
+    } catch (firstError) {
+      const elapsed = Date.now() - startedAt;
+      const remaining = MqttClientService.ACK_DEADLINE_MS - elapsed;
+      if (
+        elapsed > MqttClientService.INLINE_RETRY_CUTOFF_MS ||
+        remaining < MqttClientService.INLINE_RETRY_MIN_BUDGET_MS
+      ) {
+        throw firstError;
+      }
+      await this.dispatchBeforeDeadline(packet, remaining);
+    }
+  }
+
+  private async dispatchBeforeDeadline(packet: IPublishPacket, budgetMs: number): Promise<void> {
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        this.dispatchPacket(packet),
+        new Promise<never>((_resolve, reject) => {
+          deadline = setTimeout(
+            () => reject(new Error('MQTT durable callback exceeded the 10 second ACK deadline')),
+            budgetMs,
+          );
+        }),
+      ]);
+    } finally {
+      if (deadline !== undefined) clearTimeout(deadline);
+    }
+  }
+
+  private async dispatchPacket(packet: IPublishPacket): Promise<void> {
+    const handlers = [...this.messageHandlers];
+    const payload = Buffer.isBuffer(packet.payload) ? packet.payload : Buffer.from(packet.payload);
+    for (const handler of handlers) {
+      await handler(packet.topic.toString(), payload, packet);
+    }
+  }
+
+  private requestPersistentRedelivery(error: Error): void {
+    this.logger.error(
+      `MQTT durable processing failed; withholding PUBACK and closing persistent session: ${error.message}`,
+      error.stack,
+    );
+    this.client?.end(true);
   }
 
   /**
@@ -206,7 +304,9 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
     this.reconnectAttempts++;
 
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      this.logger.error(`Max reconnect attempts (${this.maxReconnectAttempts}) reached. Opening circuit breaker.`);
+      this.logger.error(
+        `Max reconnect attempts (${this.maxReconnectAttempts}) reached. Opening circuit breaker.`,
+      );
       this.openCircuitBreaker();
       return;
     }
@@ -219,7 +319,9 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
     const jitter = Math.random() * 0.3 * exponentialDelay; // 0-30% jitter
     const delay = Math.floor(exponentialDelay + jitter);
 
-    this.logger.log(`Scheduling reconnect attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms`);
+    this.logger.log(
+      `Scheduling reconnect attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms`,
+    );
     this.connectionState = MqttConnectionState.RECONNECTING;
 
     setTimeout(() => {
@@ -284,9 +386,7 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
     const callbacks = [...this.connectCallbacks];
     this.connectCallbacks = [];
     for (const cb of callbacks) {
-      Promise.resolve(cb()).catch((err) =>
-        this.logger.error(`Connect callback error: ${err}`),
-      );
+      Promise.resolve(cb()).catch((err) => this.logger.error(`Connect callback error: ${err}`));
     }
   }
 
@@ -410,24 +510,6 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
     const index = this.messageHandlers.indexOf(handler);
     if (index !== -1) {
       this.messageHandlers.splice(index, 1);
-    }
-  }
-
-  /**
-   * Handle incoming MQTT message - dispatch to all registered handlers
-   */
-  private handleMessage(topic: string, message: Buffer): void {
-    for (const handler of this.messageHandlers) {
-      try {
-        const result = handler(topic, message);
-        if (result instanceof Promise) {
-          result.catch((error: Error) => {
-            this.logger.error(`Error in message handler for topic ${topic}: ${error.message}`, error.stack);
-          });
-        }
-      } catch (error) {
-        this.logger.error(`Sync error in message handler for topic ${topic}: ${(error as Error).message}`);
-      }
     }
   }
 

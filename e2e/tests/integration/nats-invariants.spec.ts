@@ -367,13 +367,12 @@ function extractRpcUsage(appDir: string, constants: Map<string, string>): RpcUsa
 /**
  * apps/<dir> → services.yaml identity. The mapping is derived from the SSoT
  * `application` field so a runtime can never silently share another runtime's
- * certificate. db-migrate is the only explicit non-NATS application.
+ * certificate.
  */
 const APP_TO_SERVICE: Record<string, string | null> = {
   ...Object.fromEntries(
     loadServicesYaml().services.map((service) => [service.application, service.name]),
   ),
-  'db-migrate': null,
 };
 
 describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subject scheme)', () => {
@@ -470,6 +469,30 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
           'events.{tenantId|system}.{EventType}. A grant in the legacy scheme is dead ' +
           'weight that silently denies the real publish (ORPHAN-HIGH-317).',
       );
+    }
+  });
+
+  it('reserves stream mutation for the dedicated certificate identity', () => {
+    const provisioner = serviceByName.get('nats_stream_provisioner');
+    if (!provisioner) {
+      throw new Error('services.yaml is missing the dedicated nats_stream_provisioner identity');
+    }
+
+    expect(provisioner.application).toBe('db-migrate');
+    expect(provisioner.publish).toEqual(
+      expect.arrayContaining([
+        '$JS.API.STREAM.CREATE.*',
+        '$JS.API.STREAM.INFO.*',
+        '$JS.API.STREAM.UPDATE.*',
+      ]),
+    );
+
+    for (const service of servicesDoc.services) {
+      expect([...service.publish, ...service.subscribe]).not.toContain('$JS.API.>');
+      if (service.name !== provisioner.name) {
+        expect(service.publish).not.toContain('$JS.API.STREAM.CREATE.*');
+        expect(service.publish).not.toContain('$JS.API.STREAM.UPDATE.*');
+      }
     }
   });
 

@@ -7,7 +7,7 @@
  * - Events with invalid UUID format are rejected
  * - requestContextStorage.run() is called with the correct schemaName
  * - AlertEvaluationService.evaluateSensorReading runs inside the context
- * - Evaluation errors are caught and do not crash the handler
+ * - Evaluation errors propagate so JetStream withholds ACK and redelivers
  *
  * @module Alert/Tests
  */
@@ -63,15 +63,13 @@ const mockEvaluationService = {
 const mockEventBus = {
   subscribe: jest.fn().mockResolvedValue(undefined),
   subscribeWildcard: jest.fn().mockResolvedValue(undefined),
+  subscribeTo: jest.fn().mockResolvedValue(undefined),
   subscribeForTenant: jest.fn().mockResolvedValue(undefined),
   publish: jest.fn().mockResolvedValue(undefined),
 };
 
 function createHandler(): SensorReadingEventHandler {
-  return new SensorReadingEventHandler(
-    mockEvaluationService as any,
-    mockEventBus as any,
-  );
+  return new SensorReadingEventHandler(mockEvaluationService, mockEventBus);
 }
 
 // ===========================================================================
@@ -80,6 +78,23 @@ function createHandler(): SensorReadingEventHandler {
 describe('SensorReadingEventHandler', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  it('registers distinct v2 durables for legacy and telemetry streams', async () => {
+    const handler = createHandler();
+
+    await handler.onModuleInit();
+
+    expect(mockEventBus.subscribeWildcard).toHaveBeenCalledWith(
+      'SensorReading',
+      handler,
+      expect.objectContaining({ consumerVersion: 'sensor-reading-v2-legacy' }),
+    );
+    expect(mockEventBus.subscribeTo).toHaveBeenCalledWith(
+      'telemetry.*.SensorReading',
+      handler,
+      expect.objectContaining({ consumerVersion: 'sensor-reading-v2-telemetry' }),
+    );
   });
 
   // -------------------------------------------------------------------------
@@ -133,9 +148,7 @@ describe('SensorReadingEventHandler', () => {
           readings: { temperature: 25 },
         } as any);
 
-        expect(
-          mockEvaluationService.evaluateSensorReading,
-        ).not.toHaveBeenCalled();
+        expect(mockEvaluationService.evaluateSensorReading).not.toHaveBeenCalled();
       },
     );
   });
@@ -239,6 +252,7 @@ describe('SensorReadingEventHandler', () => {
         expect.objectContaining({
           sensorId: 'sensor-1',
           tenantId: TEST_TENANT_ID,
+          sourceEventId: 'evt-7',
           readings: { temperature: 25, ph: 7.2 },
           farmId: 'farm-1',
           pondId: 'pond-1',
@@ -252,11 +266,9 @@ describe('SensorReadingEventHandler', () => {
       // Track whether evaluateSensorReading is called during mockRun's callback
       let evaluatedInsideRun = false;
       mockRun.mockImplementation((_ctx: any, fn: () => any) => {
-        mockEvaluationService.evaluateSensorReading.mockImplementation(
-          async () => {
-            evaluatedInsideRun = true;
-          },
-        );
+        mockEvaluationService.evaluateSensorReading.mockImplementation(async () => {
+          evaluatedInsideRun = true;
+        });
         return fn();
       });
 
@@ -277,14 +289,13 @@ describe('SensorReadingEventHandler', () => {
   // 5. Handle evaluation errors gracefully
   // -------------------------------------------------------------------------
   describe('error handling', () => {
-    it('should handle evaluation errors gracefully (no re-throw)', async () => {
+    it('should rethrow evaluation errors so JetStream does not ACK the event', async () => {
       const handler = createHandler();
 
       mockEvaluationService.evaluateSensorReading.mockRejectedValueOnce(
         new Error('DB connection lost'),
       );
 
-      // Should NOT throw — errors are caught and logged
       await expect(
         handler.handle({
           eventId: 'evt-9',
@@ -294,10 +305,10 @@ describe('SensorReadingEventHandler', () => {
           sensorId: 'sensor-1',
           readings: { temperature: 25 },
         } as any),
-      ).resolves.toBeUndefined();
+      ).rejects.toThrow('DB connection lost');
     });
 
-    it('should handle requestContextStorage.run errors gracefully', async () => {
+    it('should rethrow requestContextStorage failures so JetStream redelivers', async () => {
       const handler = createHandler();
 
       mockRun.mockRejectedValueOnce(new Error('AsyncLocalStorage failure'));
@@ -311,7 +322,7 @@ describe('SensorReadingEventHandler', () => {
           sensorId: 'sensor-1',
           readings: { temperature: 25 },
         } as any),
-      ).resolves.toBeUndefined();
+      ).rejects.toThrow('AsyncLocalStorage failure');
     });
   });
 });

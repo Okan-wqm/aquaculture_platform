@@ -6,6 +6,9 @@ import { getTenantSchemaName, isValidUUID } from '@aquaculture/backend-common/da
 import { requestContextStorage, RequestContext } from '@aquaculture/backend-common/logging';
 import { AlertEvaluationService } from '../services/alert-evaluation.service';
 
+type SensorReadingEvaluator = Pick<AlertEvaluationService, 'evaluateSensorReading'>;
+type SensorReadingSubscriptionBus = Pick<IEventBus, 'subscribeWildcard' | 'subscribeTo'>;
+
 // UUID validation imported from @aquaculture/backend-common (isValidUUID)
 
 /**
@@ -40,15 +43,14 @@ function extractReadingsFromEvent(event: SensorReadingEvent): Record<string, num
  * connection checkout to the correct tenant schema.
  */
 @Injectable()
-export class SensorReadingEventHandler
-  implements IEventHandler<SensorReadingEvent>, OnModuleInit
-{
+export class SensorReadingEventHandler implements IEventHandler<SensorReadingEvent>, OnModuleInit {
   private readonly logger = new Logger(SensorReadingEventHandler.name);
 
   constructor(
-    private readonly evaluationService: AlertEvaluationService,
+    @Inject(AlertEvaluationService)
+    private readonly evaluationService: SensorReadingEvaluator,
     @Inject('EVENT_BUS')
-    private readonly eventBus: IEventBus,
+    private readonly eventBus: SensorReadingSubscriptionBus,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -65,8 +67,19 @@ export class SensorReadingEventHandler
     // the call site, and a future refactor that switches the alert engine to
     // per-tenant routing only has to flip this single line to
     // `subscribeForTenant(eventType, tenantId, this)`.
-    await this.eventBus.subscribeWildcard('SensorReading', this);
-    this.logger.log('Subscribed to SensorReading events (cross-tenant wildcard)');
+    const durableOptions = {
+      startFrom: 'beginning' as const,
+      maxRetries: -1,
+    };
+    await this.eventBus.subscribeWildcard('SensorReading', this, {
+      ...durableOptions,
+      consumerVersion: 'sensor-reading-v2-legacy',
+    });
+    await this.eventBus.subscribeTo('telemetry.*.SensorReading', this, {
+      ...durableOptions,
+      consumerVersion: 'sensor-reading-v2-telemetry',
+    });
+    this.logger.log('Subscribed to legacy and telemetry SensorReading streams');
   }
 
   getEventType(): string {
@@ -76,16 +89,14 @@ export class SensorReadingEventHandler
   // getTenantSchemaName imported from @aquaculture/backend-common
 
   async handle(event: SensorReadingEvent): Promise<void> {
-    this.logger.debug(
-      `Processing sensor reading from ${event.sensorId}`,
-    );
+    this.logger.debug(`Processing sensor reading from ${event.sensorId}`);
 
     // SECURITY: tenantId is required for multi-tenant isolation
     // Empty string fallback could cause cross-tenant data leakage
     if (!event.tenantId) {
       this.logger.error(
         `Missing tenantId for sensor reading from ${event.sensorId}. ` +
-        'Skipping alert evaluation to prevent multi-tenant isolation breach.',
+          'Skipping alert evaluation to prevent multi-tenant isolation breach.',
       );
       return;
     }
@@ -115,6 +126,7 @@ export class SensorReadingEventHandler
 
       await requestContextStorage.run(context, async () => {
         await this.evaluationService.evaluateSensorReading({
+          sourceEventId: event.eventId,
           sensorId: event.sensorId,
           tenantId: event.tenantId,
           readings,
@@ -128,6 +140,7 @@ export class SensorReadingEventHandler
         `Error processing sensor reading: ${(error as Error).message}`,
         (error as Error).stack,
       );
+      throw error;
     }
   }
 }

@@ -10,6 +10,7 @@ export * from './nats/nats-event-bus';
 export * from './nats/nats.module';
 export * from './nats/event-bus-config.factory';
 export * from './nats/nats-request-reply';
+export * from './nats/stream-route.registry';
 export * from './subjects/tenant-event-subject';
 
 // Decorators

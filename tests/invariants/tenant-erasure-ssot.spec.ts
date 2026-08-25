@@ -220,7 +220,9 @@ describe('INVARIANT (COMPLIANCE-CRITICAL-001): final TenantErased is orchestrato
     for (const [service, modulePath] of Object.entries(serviceModules)) {
       const src = repoFile(modulePath);
       expect(src).toContain("from '@aquaculture/backend-common/compliance'");
-      expect(src).toContain(`TenantErasureTargetModule.forService('${service}')`);
+      expect(src).toMatch(
+        new RegExp(`TenantErasureTargetModule\\.forService\\('${service}'(?:,|\\))`, 'u'),
+      );
     }
   });
 
@@ -268,9 +270,7 @@ describe('INVARIANT (COMPLIANCE-CRITICAL-001): final TenantErased is orchestrato
 
     expect(moduleSrc).toContain('LegalHoldModule.forRoot()');
     expect(moduleSrc).toMatch(/legalHoldService:\s*LegalHoldService/);
-    expect(executorSrc).toMatch(
-      /readonly legalHoldService:\s*TenantErasureTargetLegalHold/,
-    );
+    expect(executorSrc).toMatch(/readonly legalHoldService:\s*TenantErasureTargetLegalHold/);
     expect(executorSrc).toMatch(
       /interface TenantErasureTargetLegalHold[\s\S]{0,160}assertNoHold\(tenantId: string, scope: 'tenant'\): Promise<void>/,
     );

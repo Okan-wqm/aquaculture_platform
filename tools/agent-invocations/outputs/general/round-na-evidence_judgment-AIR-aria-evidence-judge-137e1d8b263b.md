@@ -1,10 +1,10 @@
 {
   "$schema": "aria/agent-response/v1",
   "agent_id": "ci-executor:gha-32800394101",
-  "claim_id": "claim_271a3ba8806b8dc8",
+  "claim_id": "claim_df159917bff34f5d",
   "details": {
-    "agent_dispatch_model": "fable",
-    "agent_subagent_type": "aria-consensus-arbiter",
+    "agent_dispatch_model": "opus",
+    "agent_subagent_type": "aria-evidence-judge",
     "agent_text": "Your organization has disabled Claude subscription access for Claude Code \u00b7 Use an Anthropic API key instead, or ask your admin to enable access",
     "claude_cli_usage": {
       "cache_creation": {
@@ -29,13 +29,13 @@
     }
   },
   "evidence_refs": [],
-  "request_id": "AIR-aria-consensus-arbiter-2323e3a4729e",
-  "role": "consensus_arbitration",
+  "request_id": "AIR-aria-evidence-judge-137e1d8b263b",
+  "role": "evidence_judgment",
   "satisfaction_matrix": [
     {
       "evidence": "Your organization has disabled Claude subscription access for Claude Code \u00b7 Use an Anthropic API key instead, or ask your admin to enable access",
       "evidence_refs": [],
-      "id": "consensus",
+      "id": "verdict",
       "verdict": "satisfied"
     }
   ],

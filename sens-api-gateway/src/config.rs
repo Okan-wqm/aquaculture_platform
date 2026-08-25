@@ -620,8 +620,13 @@ impl Default for HealthServerConfig {
 // that silently isn't running would hide data-loss from operators.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OfflineQueueConfig {
-    /// Master toggle.
-    #[serde(default)]
+    /// Master toggle. DEFAULT TRUE since Task 1.7 of the 100-tenant
+    /// readiness plan: the edge is the outermost durability layer of the
+    /// ack-after-commit chain, so shipping with it off re-introduces
+    /// drop-on-disconnect by default. Operators can still opt out
+    /// explicitly (`offline_queue.enabled: false`) for constrained
+    /// deployments.
+    #[serde(default = "default_offline_enabled")]
     pub enabled: bool,
 
     /// Optional path override. None → `${SUDERRA_DATA_DIR}/offline_queue.db`.
@@ -639,6 +644,54 @@ pub struct OfflineQueueConfig {
     /// Maximum disk footprint in bytes. 0 = no limit (not recommended).
     #[serde(default = "default_offline_max_disk_bytes")]
     pub max_disk_bytes: u64,
+
+    /// Task 1.7: provisioned ingress ENTITLEMENT (messages/second). When
+    /// set, row and disk caps are DERIVED instead of using the static
+    /// defaults: rows = msgs_per_sec × 3600 (a 60-minute outage buffer),
+    /// disk = rows × capacity_avg_msg_bytes × 1.2 (headroom for SQLCipher
+    /// + index overhead). This is the edge-side half of the platform
+    /// formula "entitlement × 60 minutes × measured bytes × 1.2"; the
+    /// avg-bytes placeholder is replaced by the Task 0.4 measurement.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capacity_msgs_per_sec: Option<u64>,
+
+    /// Average telemetry message size in bytes used by the capacity
+    /// formula (placeholder 1 KiB until the Task 0.4 measurement).
+    #[serde(default = "default_capacity_avg_msg_bytes")]
+    pub capacity_avg_msg_bytes: u64,
+}
+
+impl OfflineQueueConfig {
+    /// Effective row cap: the entitlement-derived 60-minute buffer when
+    /// provisioned, else the static `max_size`.
+    pub fn effective_max_size(&self) -> usize {
+        match self.capacity_msgs_per_sec {
+            Some(msgs_per_sec) => msgs_per_sec.saturating_mul(3600) as usize,
+            None => self.max_size,
+        }
+    }
+
+    /// Effective disk cap: entitlement-derived buffer × avg bytes × 1.2
+    /// when provisioned, else the static `max_disk_bytes`.
+    pub fn effective_max_disk_bytes(&self) -> u64 {
+        match self.capacity_msgs_per_sec {
+            Some(msgs_per_sec) => {
+                let rows = msgs_per_sec.saturating_mul(3600);
+                rows.saturating_mul(self.capacity_avg_msg_bytes)
+                    .saturating_mul(12)
+                    / 10
+            }
+            None => self.max_disk_bytes,
+        }
+    }
+}
+
+fn default_offline_enabled() -> bool {
+    true
+}
+
+fn default_capacity_avg_msg_bytes() -> u64 {
+    1024
 }
 
 fn default_offline_max_size() -> usize {
@@ -656,11 +709,13 @@ fn default_offline_max_disk_bytes() -> u64 {
 impl Default for OfflineQueueConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: default_offline_enabled(),
             db_path_override: None,
             max_size: default_offline_max_size(),
             max_age_secs: default_offline_max_age_secs(),
             max_disk_bytes: default_offline_max_disk_bytes(),
+            capacity_msgs_per_sec: None,
+            capacity_avg_msg_bytes: default_capacity_avg_msg_bytes(),
         }
     }
 }
@@ -4183,6 +4238,37 @@ impl AgentConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ====================================================================
+    // Task 1.7 (100-tenant readiness plan) — offline queue default + caps
+    // ====================================================================
+
+    #[test]
+    fn offline_queue_defaults_to_enabled() {
+        // The edge is the outermost durability layer: shipping disabled
+        // re-introduces drop-on-disconnect by default.
+        assert!(OfflineQueueConfig::default().enabled);
+    }
+
+    #[test]
+    fn offline_queue_capacity_formula_derives_caps_from_entitlement() {
+        // entitlement × 60 minutes × measured bytes × 1.2:
+        // 2 msg/s → 7_200 rows; 7_200 × 750 B × 1.2 = 6_480_000 bytes.
+        let cfg = OfflineQueueConfig {
+            capacity_msgs_per_sec: Some(2),
+            capacity_avg_msg_bytes: 750,
+            ..OfflineQueueConfig::default()
+        };
+        assert_eq!(cfg.effective_max_size(), 7_200);
+        assert_eq!(cfg.effective_max_disk_bytes(), 6_480_000);
+    }
+
+    #[test]
+    fn offline_queue_static_caps_win_without_entitlement() {
+        let cfg = OfflineQueueConfig::default();
+        assert_eq!(cfg.effective_max_size(), cfg.max_size);
+        assert_eq!(cfg.effective_max_disk_bytes(), cfg.max_disk_bytes);
+    }
 
     // ====================================================================
     // Batch 192 Faz 4 — ScriptingConfig.tasks schema round-trip

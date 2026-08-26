@@ -38303,6 +38303,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/graphql/subgraph-security.preset.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/guards/__tests__/mobile-feature.guard.spec.ts",
       "prettier_managed": true
     },

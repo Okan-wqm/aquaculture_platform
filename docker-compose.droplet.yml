@@ -950,6 +950,10 @@ services:
       SERVICE_NAME: sensor-service
       NODE_ENV: production
       SENSOR_SERVICE_PORT: 3000
+      # SEC-MEDIUM-070 (2026-08-23 scan №15): same proxy-trust fix as
+      # admin-api — otherwise the provisioning/installer rate limits share
+      # one global bucket keyed on the nginx container IP.
+      TRUST_PROXY: '1'
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
@@ -1085,6 +1089,11 @@ services:
       SERVICE_NAME: admin-api-service
       NODE_ENV: production
       PORT: 3000
+      # SEC-MEDIUM-069 (2026-08-23 scan №14): nginx is the trusted proxy hop —
+      # without trust-proxy, every request's req.ip is the nginx container IP
+      # and the shared PASSWORD_RESET throttle (3/h, byIp) keys ONE global
+      # bucket: 3 requests lock password reset platform-wide.
+      TRUST_PROXY: '1'
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       ADMIN_CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}

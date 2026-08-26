@@ -24,7 +24,7 @@ evidence never reached the `aria/state` branch.
   kernel behaved as configured; the configuration anchored the deadline to
   the wrong clock.
 
-## ARIA-HIGH-019 — the seal deadline is anchored to the nightly step's start, so a slow restore pushes the seal past the job ceiling
+## ARIA-HIGH-019 — seal deadline anchored to the step start, not job launch
 
 Any run whose pre-step setup exceeds the 10-minute margin (measured: every
 fresh-store bootstrap; tonight's was 17m41s) seals AFTER the platform

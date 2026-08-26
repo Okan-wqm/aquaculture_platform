@@ -39,16 +39,10 @@ import {
 } from '@nestjs/swagger';
 import { FileUploadSecurityService, MinioClientService } from '@platform/storage';
 import { Request } from 'express';
-import {
-  ApiStandardErrors,
-  ApiNotFoundError,
-} from '@platform/shared';
+import { ApiStandardErrors, ApiNotFoundError } from '@platform/shared';
 
 import { AuthenticatedRequest } from '../guards/auth.guard';
-import {
-  UploadBatchDocumentDto,
-  BatchDocumentCategory,
-} from './dto/upload-batch-document.dto';
+import { UploadBatchDocumentDto, BatchDocumentCategory } from './dto/upload-batch-document.dto';
 import {
   UploadChemicalDocumentDto,
   ChemicalDocumentType,
@@ -60,15 +54,15 @@ import {
  * which can be spoofed to upload malicious files (e.g., HTML with JS, PHP scripts).
  */
 const FILE_MAGIC_BYTES: { ext: string; signatures: Buffer[] }[] = [
-  { ext: 'pdf',  signatures: [Buffer.from([0x25, 0x50, 0x44, 0x46])] }, // %PDF
-  { ext: 'png',  signatures: [Buffer.from([0x89, 0x50, 0x4E, 0x47])] }, // .PNG
-  { ext: 'jpg',  signatures: [Buffer.from([0xFF, 0xD8, 0xFF])] },       // JPEG SOI
-  { ext: 'jpeg', signatures: [Buffer.from([0xFF, 0xD8, 0xFF])] },
+  { ext: 'pdf', signatures: [Buffer.from([0x25, 0x50, 0x44, 0x46])] }, // %PDF
+  { ext: 'png', signatures: [Buffer.from([0x89, 0x50, 0x4e, 0x47])] }, // .PNG
+  { ext: 'jpg', signatures: [Buffer.from([0xff, 0xd8, 0xff])] }, // JPEG SOI
+  { ext: 'jpeg', signatures: [Buffer.from([0xff, 0xd8, 0xff])] },
   // DOC/DOCX/XLS/XLSX are OLE2 or ZIP-based (OOXML)
-  { ext: 'doc',  signatures: [Buffer.from([0xD0, 0xCF, 0x11, 0xE0])] }, // OLE2 Compound
-  { ext: 'xls',  signatures: [Buffer.from([0xD0, 0xCF, 0x11, 0xE0])] },
-  { ext: 'docx', signatures: [Buffer.from([0x50, 0x4B, 0x03, 0x04])] }, // ZIP (OOXML)
-  { ext: 'xlsx', signatures: [Buffer.from([0x50, 0x4B, 0x03, 0x04])] },
+  { ext: 'doc', signatures: [Buffer.from([0xd0, 0xcf, 0x11, 0xe0])] }, // OLE2 Compound
+  { ext: 'xls', signatures: [Buffer.from([0xd0, 0xcf, 0x11, 0xe0])] },
+  { ext: 'docx', signatures: [Buffer.from([0x50, 0x4b, 0x03, 0x04])] }, // ZIP (OOXML)
+  { ext: 'xlsx', signatures: [Buffer.from([0x50, 0x4b, 0x03, 0x04])] },
 ];
 
 /**
@@ -165,7 +159,8 @@ export class UploadController {
    */
   constructor(
     @Inject(MinioClientService) private readonly minioClient: MinioClientService,
-    @Inject(FileUploadSecurityService) private readonly fileUploadSecurity: FileUploadSecurityService,
+    @Inject(FileUploadSecurityService)
+    private readonly fileUploadSecurity: FileUploadSecurityService,
   ) {}
 
   /**
@@ -173,8 +168,17 @@ export class UploadController {
    * POST /upload/chemical-document
    */
   @Post('chemical-document')
-  @UseInterceptors(FileInterceptor('file'))
-  @ApiOperation({ summary: 'Upload a document for a chemical', description: 'Accepts PDF, DOC, DOCX, XLS, XLSX, PNG, JPG, JPEG files up to 10 MB.' })
+  @UseInterceptors(
+    // SEC-MEDIUM-071 (2026-08-23 scan №16): parser-level cap — memoryStorage
+    // buffers the WHOLE body before ParseFilePipe's MaxFileSizeValidator
+    // runs, so without multer limits each request buffers up to the nginx
+    // ceiling (50m) in gateway RAM.
+    FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024, files: 1, parts: 5 } }),
+  )
+  @ApiOperation({
+    summary: 'Upload a document for a chemical',
+    description: 'Accepts PDF, DOC, DOCX, XLS, XLSX, PNG, JPG, JPEG files up to 10 MB.',
+  })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -182,9 +186,21 @@ export class UploadController {
       required: ['file', 'chemicalId', 'documentName', 'documentType'],
       properties: {
         file: { type: 'string', format: 'binary', description: 'File to upload (max 10 MB)' },
-        chemicalId: { type: 'string', format: 'uuid', description: 'UUID of the chemical this document belongs to' },
-        documentName: { type: 'string', maxLength: 255, description: 'Display name for the document' },
-        documentType: { type: 'string', enum: ['msds', 'label', 'protocol', 'certificate', 'other'], description: 'Category of the chemical document' },
+        chemicalId: {
+          type: 'string',
+          format: 'uuid',
+          description: 'UUID of the chemical this document belongs to',
+        },
+        documentName: {
+          type: 'string',
+          maxLength: 255,
+          description: 'Display name for the document',
+        },
+        documentType: {
+          type: 'string',
+          enum: ['msds', 'label', 'protocol', 'certificate', 'other'],
+          description: 'Category of the chemical document',
+        },
       },
     },
   })
@@ -195,7 +211,10 @@ export class UploadController {
         documentId: { type: 'string', format: 'uuid' },
         documentName: { type: 'string' },
         documentType: { type: 'string' },
-        path: { type: 'string', description: 'Storage path — use with /upload/presigned-url to get a download link' },
+        path: {
+          type: 'string',
+          description: 'Storage path — use with /upload/presigned-url to get a download link',
+        },
         etag: { type: 'string' },
         size: { type: 'number' },
         contentType: { type: 'string' },
@@ -323,10 +342,28 @@ export class UploadController {
    */
   @Delete('chemical-document/:chemicalId/:documentId/:filename')
   @ApiOperation({ summary: 'Delete a chemical document' })
-  @ApiParam({ name: 'chemicalId', type: 'string', format: 'uuid', description: 'UUID of the chemical' })
-  @ApiParam({ name: 'documentId', type: 'string', format: 'uuid', description: 'UUID of the document to delete' })
-  @ApiParam({ name: 'filename', type: 'string', description: 'Filename as returned by the upload endpoint' })
-  @ApiOkResponse({ schema: { properties: { success: { type: 'boolean', example: true }, message: { type: 'string' } } } })
+  @ApiParam({
+    name: 'chemicalId',
+    type: 'string',
+    format: 'uuid',
+    description: 'UUID of the chemical',
+  })
+  @ApiParam({
+    name: 'documentId',
+    type: 'string',
+    format: 'uuid',
+    description: 'UUID of the document to delete',
+  })
+  @ApiParam({
+    name: 'filename',
+    type: 'string',
+    description: 'Filename as returned by the upload endpoint',
+  })
+  @ApiOkResponse({
+    schema: {
+      properties: { success: { type: 'boolean', example: true }, message: { type: 'string' } },
+    },
+  })
   @ApiStandardErrors()
   @ApiNotFoundError('Document')
   async deleteChemicalDocument(
@@ -354,18 +391,11 @@ export class UploadController {
       throw new BadRequestException('Invalid filename: must match the document ID');
     }
 
-    this.logger.log(
-      `Deleting document ${documentId} from chemical ${chemicalId}`,
-    );
+    this.logger.log(`Deleting document ${documentId} from chemical ${chemicalId}`);
 
     try {
       // Build the file path
-      const path = this.minioClient.generateFilePath(
-        tenantId,
-        'chemicals',
-        chemicalId,
-        filename,
-      );
+      const path = this.minioClient.generateFilePath(tenantId, 'chemicals', chemicalId, filename);
 
       // Check if file exists
       const exists = await this.minioClient.fileExists(path);
@@ -376,9 +406,7 @@ export class UploadController {
       // Delete from MinIO
       await this.minioClient.deleteFile(path);
 
-      this.logger.log(
-        `Successfully deleted document ${documentId} from chemical ${chemicalId}`,
-      );
+      this.logger.log(`Successfully deleted document ${documentId} from chemical ${chemicalId}`);
 
       return {
         success: true,
@@ -401,8 +429,14 @@ export class UploadController {
    * POST /upload/batch-document
    */
   @Post('batch-document')
-  @UseInterceptors(FileInterceptor('file'))
-  @ApiOperation({ summary: 'Upload a document for a batch', description: 'Accepts PDF, DOC, DOCX, PNG, JPG, JPEG files up to 15 MB.' })
+  @UseInterceptors(
+    // SEC-MEDIUM-071 (2026-08-23 scan №16): parser-level cap, see chemical-document.
+    FileInterceptor('file', { limits: { fileSize: 15 * 1024 * 1024, files: 1, parts: 5 } }),
+  )
+  @ApiOperation({
+    summary: 'Upload a document for a batch',
+    description: 'Accepts PDF, DOC, DOCX, PNG, JPG, JPEG files up to 15 MB.',
+  })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -413,11 +447,27 @@ export class UploadController {
         documentName: { type: 'string', description: 'Display name for the document' },
         documentCategory: {
           type: 'string',
-          enum: ['health_certificate', 'import_document', 'origin_certificate', 'quarantine_permit', 'transport_document', 'veterinary_certificate', 'customs_declaration', 'other'],
+          enum: [
+            'health_certificate',
+            'import_document',
+            'origin_certificate',
+            'quarantine_permit',
+            'transport_document',
+            'veterinary_certificate',
+            'customs_declaration',
+            'other',
+          ],
           description: 'Category of the batch document',
         },
-        documentNumber: { type: 'string', description: 'Optional reference number for the document' },
-        batchId: { type: 'string', format: 'uuid', description: 'Optional batch UUID — document is stored in temp location if omitted' },
+        documentNumber: {
+          type: 'string',
+          description: 'Optional reference number for the document',
+        },
+        batchId: {
+          type: 'string',
+          format: 'uuid',
+          description: 'Optional batch UUID — document is stored in temp location if omitted',
+        },
       },
     },
   })
@@ -429,7 +479,10 @@ export class UploadController {
         documentName: { type: 'string' },
         documentCategory: { type: 'string' },
         documentNumber: { type: 'string' },
-        path: { type: 'string', description: 'Storage path — use with /upload/presigned-url to get a download link' },
+        path: {
+          type: 'string',
+          description: 'Storage path — use with /upload/presigned-url to get a download link',
+        },
         etag: { type: 'string' },
         size: { type: 'number' },
         contentType: { type: 'string' },
@@ -473,9 +526,7 @@ export class UploadController {
       );
     }
 
-    this.logger.log(
-      `Uploading batch document: ${body.documentName} (${body.documentCategory})`,
-    );
+    this.logger.log(`Uploading batch document: ${body.documentName} (${body.documentCategory})`);
 
     // Generate unique document ID
     const documentId = randomUUID();
@@ -529,9 +580,7 @@ export class UploadController {
 
       const now = new Date().toISOString();
 
-      this.logger.log(
-        `Successfully uploaded batch document ${documentId}`,
-      );
+      this.logger.log(`Successfully uploaded batch document ${documentId}`);
 
       return {
         documentId,
@@ -555,9 +604,7 @@ export class UploadController {
       if (error instanceof BadRequestException) {
         throw error;
       }
-      this.logger.error(
-        `Failed to upload batch document: ${toError(error).message}`,
-      );
+      this.logger.error(`Failed to upload batch document: ${toError(error).message}`);
       throw new InternalServerErrorException('Document storage temporarily unavailable');
     }
   }
@@ -568,10 +615,27 @@ export class UploadController {
    */
   @Delete('batch-document/:entityId/:documentId/:filename')
   @ApiOperation({ summary: 'Delete a batch document' })
-  @ApiParam({ name: 'entityId', type: 'string', description: 'Batch UUID or temp entity ID from the upload response path' })
-  @ApiParam({ name: 'documentId', type: 'string', format: 'uuid', description: 'UUID of the document to delete' })
-  @ApiParam({ name: 'filename', type: 'string', description: 'Filename as returned by the upload endpoint' })
-  @ApiOkResponse({ schema: { properties: { success: { type: 'boolean', example: true }, message: { type: 'string' } } } })
+  @ApiParam({
+    name: 'entityId',
+    type: 'string',
+    description: 'Batch UUID or temp entity ID from the upload response path',
+  })
+  @ApiParam({
+    name: 'documentId',
+    type: 'string',
+    format: 'uuid',
+    description: 'UUID of the document to delete',
+  })
+  @ApiParam({
+    name: 'filename',
+    type: 'string',
+    description: 'Filename as returned by the upload endpoint',
+  })
+  @ApiOkResponse({
+    schema: {
+      properties: { success: { type: 'boolean', example: true }, message: { type: 'string' } },
+    },
+  })
   @ApiStandardErrors()
   @ApiNotFoundError('Document')
   async deleteBatchDocument(
@@ -599,9 +663,7 @@ export class UploadController {
       throw new BadRequestException('Invalid filename: must match the document ID');
     }
 
-    this.logger.log(
-      `Deleting batch document ${documentId}`,
-    );
+    this.logger.log(`Deleting batch document ${documentId}`);
 
     try {
       // Build the file path
@@ -621,9 +683,7 @@ export class UploadController {
       // Delete from MinIO
       await this.minioClient.deleteFile(path);
 
-      this.logger.log(
-        `Successfully deleted batch document ${documentId}`,
-      );
+      this.logger.log(`Successfully deleted batch document ${documentId}`);
 
       return {
         success: true,
@@ -634,9 +694,7 @@ export class UploadController {
         throw error;
       }
 
-      this.logger.error(
-        `Failed to delete batch document ${documentId}: ${toError(error).message}`,
-      );
+      this.logger.error(`Failed to delete batch document ${documentId}: ${toError(error).message}`);
       throw new InternalServerErrorException('Document storage temporarily unavailable');
     }
   }
@@ -658,8 +716,18 @@ export class UploadController {
       type: 'object',
       required: ['path'],
       properties: {
-        path: { type: 'string', description: 'Storage path as returned by the upload endpoint (format: {tenantId}/{entityType}/{entityId}/{filename})' },
-        expirySeconds: { type: 'number', minimum: 1, maximum: 86400, default: 3600, description: 'URL validity duration in seconds (default: 3600, max: 86400)' },
+        path: {
+          type: 'string',
+          description:
+            'Storage path as returned by the upload endpoint (format: {tenantId}/{entityType}/{entityId}/{filename})',
+        },
+        expirySeconds: {
+          type: 'number',
+          minimum: 1,
+          maximum: 86400,
+          default: 3600,
+          description: 'URL validity duration in seconds (default: 3600, max: 86400)',
+        },
       },
     },
   })
@@ -668,7 +736,11 @@ export class UploadController {
     schema: {
       properties: {
         url: { type: 'string', format: 'uri', description: 'Time-limited presigned download URL' },
-        expiresAt: { type: 'string', format: 'date-time', description: 'UTC timestamp when the URL expires' },
+        expiresAt: {
+          type: 'string',
+          format: 'date-time',
+          description: 'UTC timestamp when the URL expires',
+        },
       },
     },
   })
@@ -720,7 +792,9 @@ export class UploadController {
     // SECURITY: Validate path structure matches {tenantId}/{entityType}/{entityId}/{filename}
     const pathPattern = /^[\w-]+\/[\w-]+\/[\w-]+\/[\w._-]+$/;
     if (!pathPattern.test(normalizedPath)) {
-      throw new BadRequestException('Invalid path: must match {tenantId}/{entityType}/{entityId}/{filename}');
+      throw new BadRequestException(
+        'Invalid path: must match {tenantId}/{entityType}/{entityId}/{filename}',
+      );
     }
 
     // Ensure the path belongs to the tenant (security check)

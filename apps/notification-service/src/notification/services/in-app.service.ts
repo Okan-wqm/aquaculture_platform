@@ -68,16 +68,11 @@ export class InAppNotificationService {
       .orderBy('log.created_at', 'DESC');
 
     if (unreadOnly) {
-      queryBuilder.andWhere(
-        "(log.metadata->>'read' IS NULL OR log.metadata->>'read' = 'false')",
-      );
+      queryBuilder.andWhere("(log.metadata->>'read' IS NULL OR log.metadata->>'read' = 'false')");
     }
 
-    if (limit && limit > 0) {
-      queryBuilder.take(limit);
-    } else {
-      queryBuilder.take(50); // Default limit
-    }
+    // SEC-LOW-091 (2026-08-23 scan №36): clamp — .take() accepts any number.
+    queryBuilder.take(Math.min(Math.max(limit ?? 50, 1), 500));
 
     return await queryBuilder.getMany();
   }
@@ -91,9 +86,7 @@ export class InAppNotificationService {
       .where('log.channel = :channel', { channel: NotificationChannel.IN_APP })
       .andWhere('log.recipient = :userId', { userId })
       .andWhere('log.tenant_id = :tenantId', { tenantId })
-      .andWhere(
-        "(log.metadata->>'read' IS NULL OR log.metadata->>'read' = 'false')",
-      )
+      .andWhere("(log.metadata->>'read' IS NULL OR log.metadata->>'read' = 'false')")
       .getCount();
   }
 
@@ -114,9 +107,7 @@ export class InAppNotificationService {
     });
 
     if (!notification) {
-      this.logger.warn(
-        `Notification ${id} not found for user ${userId.substring(0, 8)}...`,
-      );
+      this.logger.warn(`Notification ${id} not found for user ${userId.substring(0, 8)}...`);
       return false;
     }
 
@@ -144,9 +135,7 @@ export class InAppNotificationService {
       .where('channel = :channel', { channel: NotificationChannel.IN_APP })
       .andWhere('recipient = :userId', { userId })
       .andWhere('tenant_id = :tenantId', { tenantId })
-      .andWhere(
-        "(metadata->>'read' IS NULL OR metadata->>'read' = 'false')",
-      )
+      .andWhere("(metadata->>'read' IS NULL OR metadata->>'read' = 'false')")
       .execute();
 
     this.logger.debug(

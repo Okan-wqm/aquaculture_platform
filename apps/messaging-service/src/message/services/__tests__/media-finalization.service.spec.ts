@@ -5,11 +5,7 @@
  */
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
-import {
-  S3Client,
-  GetObjectCommand,
-  PutObjectCommand,
-} from '@aws-sdk/client-s3';
+import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { Readable } from 'stream';
 import sharp from 'sharp';
 import { MediaFinalizationService } from '../media-finalization.service';
@@ -137,9 +133,29 @@ describe('MediaFinalizationService', () => {
         return {};
       });
 
+    await expect(service.finalizeAttachment(imageKey, 'image/jpeg', null)).rejects.toThrow(
+      /unreadable/,
+    );
+  });
+
+  it('FAILS CLOSED when the image exceeds the pixel cap (SEC-MEDIUM-074 decode-bomb gate)', async () => {
+    // 50,000,000 px > MAX_IMAGE_PIXELS (40,000,000) — a header-only claim;
+    // the gate must reject BEFORE any strip/decode work happens.
+    probeImage.mockResolvedValueOnce({ width: 10_000, height: 5_000 });
+
+    const original = await jpegWithExifAndGps();
+    sendSpy = jest
+      .spyOn(S3Client.prototype, 'send')
+      .mockImplementation(async (command: unknown) => {
+        if (command instanceof GetObjectCommand) {
+          return { Body: streamOf(original) };
+        }
+        return {};
+      });
+
     await expect(
-      service.finalizeAttachment(imageKey, 'image/jpeg', null),
-    ).rejects.toThrow(/unreadable/);
+      service.finalizeAttachment('tenant/1/msg/boom.png', 'image/png', null),
+    ).rejects.toThrow(/pixel cap/);
   });
 
   it('classifies raster image MIMEs (jpeg/png/webp/gif) as strippable', () => {

@@ -3,7 +3,7 @@
     "generatedFrom": "platform/libs/service-catalog/src/index.ts",
     "generator": "scripts/service-catalog/generate-artifacts.ts",
     "generatorVersion": 3,
-    "catalogHash": "fb5f7cd193213dc13e07513e7f2ed0998d7607fab06eeec8ed6ff09adbc6c19c",
+    "catalogHash": "8027644ca4306b03addaa61af0ad6f98f86878881855420029578c7c31c85ff4",
     "note": "do not edit by hand"
   },
   "activeDropletComposeServices": [
@@ -373,6 +373,8 @@
     "SENTINEL_HUB_ENCRYPTION_KEY",
     "SERVICE_IDENTITY_KEYRING",
     "SUPER_ADMIN_PASSWORD",
+    "TELEMETRY_ARCHIVE_ERASURE_DB_PASSWORD",
+    "TELEMETRY_ARCHIVE_RESTORE_DB_PASSWORD",
     "WEBHOOK_ENCRYPTION_KEY"
   ],
   "dbSchemas": [

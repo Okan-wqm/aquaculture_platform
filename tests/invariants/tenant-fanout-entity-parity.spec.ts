@@ -94,6 +94,11 @@ const CROSS_TENANT_FILENAME_PATTERNS: readonly RegExp[] = [
   // Structurally cannot be per-tenant: it resolves WHICH tenant a device belongs
   // to on the pre-auth provisioning/MQTT path, before any tenant is known.
   /edge-device-directory\.entity\.ts$/i,
+  // SENSOR-HIGH-100: the archive lifecycle is a cross-tenant control-plane
+  // ledger. Each row carries tenant_id, while tenant telemetry itself remains
+  // isolated in tenant_<16hex>. Cloning this ledger would split the lifecycle
+  // authority and make erasure/reconciliation incomplete.
+  /telemetry-archive-event\.entity\.ts$/i,
   // NOTE (SENSOR-HIGH-085): sensor-metric.entity.ts is deliberately NOT listed.
   // Telemetry is per-tenant — each tenant's sensor_metrics hypertable lives in
   // that tenant's schema (delivered by migration 1815000000000). The earlier
@@ -116,13 +121,9 @@ const TENANT_OWNED_FILENAME_OVERRIDES = new Set<string>([
  */
 function extractTableName(src: string): string | null {
   // Match @Entity( ... ) with brace/quote balancing
-  const m = /(^|[^A-Za-z_])@Entity\s*\(\s*(?:['"]([a-z_][a-z0-9_]*)['"])/m.exec(
-    src,
-  );
+  const m = /(^|[^A-Za-z_])@Entity\s*\(\s*(?:['"]([a-z_][a-z0-9_]*)['"])/m.exec(src);
   if (m && m[2]) return m[2];
-  const objForm = /@Entity\s*\(\s*\{\s*name\s*:\s*['"]([a-z_][a-z0-9_]*)['"]/m.exec(
-    src,
-  );
+  const objForm = /@Entity\s*\(\s*\{\s*name\s*:\s*['"]([a-z_][a-z0-9_]*)['"]/m.exec(src);
   if (objForm && objForm[1]) return objForm[1];
   return null;
 }

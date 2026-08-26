@@ -370,6 +370,7 @@ services:
       MQTT_ENABLED: 'true'
       MQTT_CLIENT_ID: ${MQTT_CLIENT_ID:-aqua-sensor-service-ingress}
       MQTT_DURABLE_INGRESS_ENABLED: 'true'
+      TELEMETRY_ARCHIVE_ENABLED: 'false'
       # ARCH-019: Use container name (aqua-mosquitto) not host.docker.internal
       # Requires simulator stack to be on the same Docker network (aqua-network)
       # Start simulators: docker compose -f infrastructure/simulators/docker-compose.simulators.yml up -d

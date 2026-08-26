@@ -85,6 +85,14 @@ const SERVICE_ROLES: ReadonlyArray<{ readonly role: string; readonly passEnv: st
   { role: 'farm_service', passEnv: 'FARM_SERVICE_DB_PASS' },
   { role: 'sensor_service', passEnv: 'SENSOR_SERVICE_DB_PASS' },
   { role: 'sensor_ingestion', passEnv: 'SENSOR_INGESTION_DB_PASS' },
+  {
+    role: 'telemetry_archive_restore_login',
+    passEnv: 'TELEMETRY_ARCHIVE_RESTORE_DB_PASSWORD',
+  },
+  {
+    role: 'telemetry_archive_erasure_login',
+    passEnv: 'TELEMETRY_ARCHIVE_ERASURE_DB_PASSWORD',
+  },
   { role: 'billing_service', passEnv: 'BILLING_SERVICE_DB_PASS' },
   { role: 'hr_service', passEnv: 'HR_SERVICE_DB_PASS' },
   { role: 'alert_service', passEnv: 'ALERT_SERVICE_DB_PASS' },

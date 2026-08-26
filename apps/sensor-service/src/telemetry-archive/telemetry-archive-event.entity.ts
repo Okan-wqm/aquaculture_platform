@@ -60,6 +60,21 @@ export class TelemetryArchiveEvent {
   @Column({ name: 'error_message', type: 'text', nullable: true })
   errorMessage!: string | null;
 
+  @Column({ name: 'bucket_name', type: 'text', nullable: true })
+  bucketName!: string | null;
+
+  @Column({ name: 'object_version_id', type: 'text', nullable: true })
+  objectVersionId!: string | null;
+
+  @Column({ name: 'archive_format', type: 'varchar', length: 10, nullable: true })
+  archiveFormat!: string | null;
+
+  @Column({ name: 'min_time', type: 'timestamptz', nullable: true })
+  minTime!: Date | null;
+
+  @Column({ name: 'max_time', type: 'timestamptz', nullable: true })
+  maxTime!: Date | null;
+
   @CreateDateColumn({ name: 'recorded_at', type: 'timestamptz' })
   recordedAt!: Date;
 }

@@ -514,6 +514,8 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
       'CREDENTIAL_ENCRYPTION_KEY',
       'MQTT_SENSOR_INGESTION_HASH',
       'MQTT_EXPORTER_HASH',
+      'TELEMETRY_ARCHIVE_RESTORE_DB_PASSWORD',
+      'TELEMETRY_ARCHIVE_ERASURE_DB_PASSWORD',
     ],
     gatewaySubgraph: subgraph(
       'sensor',

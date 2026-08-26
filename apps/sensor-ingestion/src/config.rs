@@ -30,6 +30,9 @@ pub const CONFIG_PATH_ENV: &str = "SENSOR_INGESTION_CONFIG";
 pub const POSTGRES_PASSWORD_ENV: &str = "SENSOR_INGESTION_POSTGRES_PASSWORD";
 pub const MQTT_USERNAME_ENV: &str = "SENSOR_INGESTION_MQTT_USERNAME";
 pub const MQTT_PASSWORD_ENV: &str = "SENSOR_INGESTION_MQTT_PASSWORD";
+pub const NATS_TLS_CA_ENV: &str = "NATS_TLS_CA";
+pub const NATS_TLS_CERT_ENV: &str = "NATS_TLS_CERT";
+pub const NATS_TLS_KEY_ENV: &str = "NATS_TLS_KEY";
 
 /// Top-level config struct. Each section maps to one of the workspace
 /// crates the binary wires together.
@@ -347,7 +350,35 @@ impl Config {
             std::env::var(MQTT_USERNAME_ENV).ok(),
             std::env::var(MQTT_PASSWORD_ENV).ok(),
         );
+        apply_nats_tls_override(
+            &mut config,
+            std::env::var(NATS_TLS_CA_ENV).ok(),
+            std::env::var(NATS_TLS_CERT_ENV).ok(),
+            std::env::var(NATS_TLS_KEY_ENV).ok(),
+        )?;
         Ok(config)
+    }
+}
+
+fn apply_nats_tls_override(
+    config: &mut Config,
+    ca_path: Option<String>,
+    cert_path: Option<String>,
+    key_path: Option<String>,
+) -> Result<(), ConfigError> {
+    let ca_path = ca_path.filter(|value| !value.is_empty());
+    let cert_path = cert_path.filter(|value| !value.is_empty());
+    let key_path = key_path.filter(|value| !value.is_empty());
+
+    match (ca_path, cert_path, key_path, config.nats.as_mut()) {
+        (None, None, None, _) => Ok(()),
+        (Some(ca), Some(cert), Some(key), Some(nats)) => {
+            nats.server_ca_cert_pem = PathBuf::from(ca);
+            nats.client_cert_pem = PathBuf::from(cert);
+            nats.client_key_pem = PathBuf::from(key);
+            Ok(())
+        }
+        _ => Err(ConfigError::IncompleteNatsTlsEnvironment),
     }
 }
 
@@ -393,10 +424,11 @@ fn resolve_config_path() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use std::io::Write;
+    use std::path::PathBuf;
 
     use tempfile::NamedTempFile;
 
-    use super::{Config, RuntimeConfig, apply_postgres_password_override};
+    use super::{Config, RuntimeConfig, apply_nats_tls_override, apply_postgres_password_override};
 
     fn write_config(toml: &str) -> NamedTempFile {
         let mut f = NamedTempFile::new().unwrap();
@@ -449,6 +481,74 @@ mod tests {
         apply_postgres_password_override(&mut config, Some("runtime-secret".to_owned()));
 
         assert_eq!(config.postgres.unwrap().password, "runtime-secret");
+    }
+
+    #[test]
+    fn nats_tls_environment_contract_overrides_mounted_config_paths() {
+        let toml = r#"
+            [observability]
+            service_name = "sensor-ingestion"
+            service_version = "0.1.0"
+
+            [nats]
+            server_url = "tls://nats:4222"
+            server_ca_cert_pem = "/wrong/ca.pem"
+            client_cert_pem = "/wrong/client.crt"
+            client_key_pem = "/wrong/client.key"
+            connect_timeout = 15
+        "#;
+        let mut config: Config = toml::from_str(toml).unwrap();
+
+        apply_nats_tls_override(
+            &mut config,
+            Some("/etc/ssl/nats-ca.pem".to_owned()),
+            Some("/etc/ssl/nats-clients/sensor-ingestion-cert.pem".to_owned()),
+            Some("/etc/ssl/nats-clients/sensor-ingestion-key.pem".to_owned()),
+        )
+        .unwrap();
+
+        let nats = config.nats.unwrap();
+        assert_eq!(
+            nats.server_ca_cert_pem,
+            PathBuf::from("/etc/ssl/nats-ca.pem")
+        );
+        assert_eq!(
+            nats.client_cert_pem,
+            PathBuf::from("/etc/ssl/nats-clients/sensor-ingestion-cert.pem")
+        );
+        assert_eq!(
+            nats.client_key_pem,
+            PathBuf::from("/etc/ssl/nats-clients/sensor-ingestion-key.pem")
+        );
+    }
+
+    #[test]
+    fn nats_tls_environment_contract_rejects_partial_identity() {
+        let toml = r#"
+            [observability]
+            service_name = "sensor-ingestion"
+            service_version = "0.1.0"
+
+            [nats]
+            server_url = "tls://nats:4222"
+            server_ca_cert_pem = "/etc/ssl/nats-ca.pem"
+            client_cert_pem = "/etc/ssl/nats-clients/sensor-ingestion-cert.pem"
+            client_key_pem = "/etc/ssl/nats-clients/sensor-ingestion-key.pem"
+            connect_timeout = 15
+        "#;
+        let mut config: Config = toml::from_str(toml).unwrap();
+
+        let result = apply_nats_tls_override(
+            &mut config,
+            Some("/etc/ssl/nats-ca.pem".to_owned()),
+            Some("/etc/ssl/nats-clients/sensor-ingestion-cert.pem".to_owned()),
+            None,
+        );
+
+        assert!(matches!(
+            result,
+            Err(super::ConfigError::IncompleteNatsTlsEnvironment)
+        ));
     }
 
     #[test]

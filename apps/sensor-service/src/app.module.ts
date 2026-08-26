@@ -92,6 +92,7 @@ import { createTenantSchemaMiddleware } from '@aquaculture/backend-common/middle
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('sensor');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('sensor');
 const SensorSchemaVersionGate = createSchemaVersionGate('sensor');
+const telemetryArchiveEnabled = process.env['TELEMETRY_ARCHIVE_ENABLED'] === 'true';
 /**
  * PR#363 port — runtime DDL authority gate. In authoritative deployments
  * the per-tenant RLS sweep belongs to aqua-db-migrate's tenant fan-out
@@ -149,6 +150,7 @@ import { CredentialVaultModule } from './infrastructure/vault/credential-vault.m
 import { AuditModule } from './infrastructure/audit/audit.module';
 import { AuditLog } from './infrastructure/audit/audit-log.entity';
 import { TelemetryArchiveEvent } from './telemetry-archive/telemetry-archive-event.entity';
+import { TelemetryArchiveModule } from './telemetry-archive/telemetry-archive.module';
 import { AuditSubscriber } from './infrastructure/audit/audit.subscriber';
 import { LoRaDevice } from './edge-device/entities/lora-device.entity';
 import { TenantProvisioningKey } from './edge-device/entities/tenant-provisioning-key.entity';
@@ -435,6 +437,7 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
     // the >1h read tiers depend on) and owns their refresh/retention policies
     // (SENSOR-MEDIUM-066/068, OPEN-ADR-030-CAGG).
     TimescaleModule,
+    ...(telemetryArchiveEnabled ? [TelemetryArchiveModule] : []),
 
     // SCADA operator runtime: the /scada WebSocket gateway (tag subscribe /
     // write / alarm ack), tag manager, alarm engine, DAQ storage. Without

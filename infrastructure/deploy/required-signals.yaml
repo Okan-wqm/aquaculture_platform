@@ -2,7 +2,7 @@
 # source: platform/libs/service-catalog/src/index.ts
 # generator: scripts/service-catalog/generate-artifacts.ts
 # generatorVersion: 3
-# catalogHash: fb5f7cd193213dc13e07513e7f2ed0998d7607fab06eeec8ed6ff09adbc6c19c
+# catalogHash: 8027644ca4306b03addaa61af0ad6f98f86878881855420029578c7c31c85ff4
 # do not edit by hand
 schema_version: 2
 # window_seconds is the MAX time a service has to emit each required boot signal

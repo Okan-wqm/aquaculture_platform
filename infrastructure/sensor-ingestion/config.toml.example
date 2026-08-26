@@ -35,9 +35,9 @@ password = "REPLACE_FROM_SECRETS"
 # ADR-014/015: cert-CN-only auth. server_url MUST be tls:// — the
 # nats-client crate refuses any other scheme at construction time.
 server_url = "tls://nats:4222"
-server_ca_cert_pem = "/etc/sensor-ingestion/certs/nats-ca.pem"
-client_cert_pem = "/etc/sensor-ingestion/certs/sensor-ingestion.crt"
-client_key_pem = "/etc/sensor-ingestion/certs/sensor-ingestion.key"
+server_ca_cert_pem = "/etc/ssl/nats-ca.pem"
+client_cert_pem = "/etc/ssl/nats-clients/sensor-ingestion-cert.pem"
+client_key_pem = "/etc/ssl/nats-clients/sensor-ingestion-key.pem"
 connect_timeout = 15
 
 [postgres]

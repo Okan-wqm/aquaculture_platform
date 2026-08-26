@@ -17,6 +17,35 @@ BEGIN
     CREATE ROLE db_migrate NOLOGIN;
   END IF;
 
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'telemetry_archive_restore'
+  ) THEN
+    CREATE ROLE telemetry_archive_restore NOLOGIN;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'telemetry_archive_erasure'
+  ) THEN
+    CREATE ROLE telemetry_archive_erasure NOLOGIN;
+  END IF;
+  GRANT telemetry_archive_restore TO telemetry_archive_restore_login;
+  GRANT telemetry_archive_erasure TO telemetry_archive_erasure_login;
+  EXECUTE format(
+    'REVOKE CREATE ON DATABASE %I FROM telemetry_archive_restore',
+    current_database()
+  );
+  EXECUTE format(
+    'REVOKE CREATE ON DATABASE %I FROM telemetry_archive_erasure',
+    current_database()
+  );
+  EXECUTE format(
+    'REVOKE CREATE ON DATABASE %I FROM telemetry_archive_restore_login',
+    current_database()
+  );
+  EXECUTE format(
+    'REVOKE CREATE ON DATABASE %I FROM telemetry_archive_erasure_login',
+    current_database()
+  );
+
   FOR spec IN
     SELECT *
     FROM jsonb_to_recordset(

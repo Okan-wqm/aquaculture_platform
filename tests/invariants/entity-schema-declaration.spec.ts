@@ -141,6 +141,9 @@ const CROSS_TENANT_FILENAME_PATTERNS: readonly RegExp[] = [
   // Structurally cannot be per-tenant: it resolves WHICH tenant a device belongs
   // to on the pre-auth provisioning/MQTT path, before any tenant is known.
   /edge-device-directory\.entity\.ts$/i,
+  // SENSOR-HIGH-100: append-only archive lifecycle + erasure evidence is a
+  // cross-tenant control-plane ledger pinned to sensor, not a tenant clone.
+  /telemetry-archive-event\.entity\.ts$/i,
   // NOTE (SENSOR-HIGH-085): sensor-metric.entity.ts is deliberately NOT listed.
   // Telemetry is per-tenant — each tenant's sensor_metrics hypertable lives in
   // that tenant's schema (delivered by migration 1815000000000). The earlier
@@ -164,10 +167,9 @@ interface Violation {
 function listEntityFiles(): string[] {
   let out: string;
   try {
-    out = execSync(
-      `git -C ${REPO_ROOT} grep -lE '@Entity\\(' -- 'apps/*/src/**/*.entity.ts'`,
-      { encoding: 'utf8' },
-    );
+    out = execSync(`git -C ${REPO_ROOT} grep -lE '@Entity\\(' -- 'apps/*/src/**/*.entity.ts'`, {
+      encoding: 'utf8',
+    });
   } catch (err) {
     const e = err as { status?: number };
     if (e.status === 1) return [];
@@ -191,9 +193,7 @@ function isCrossTenantFilename(relativePath: string): boolean {
  * Walk every @Entity( call site in the source and report (start, end, args).
  * Uses brace-matching so multi-line decorator args are captured correctly.
  */
-function findEntityCalls(
-  src: string,
-): Array<{ start: number; end: number; args: string }> {
+function findEntityCalls(src: string): Array<{ start: number; end: number; args: string }> {
   const calls: Array<{ start: number; end: number; args: string }> = [];
   const callRe = /(^|[^A-Za-z_])@Entity\s*\(/g;
   let match: RegExpExecArray | null;
@@ -271,9 +271,7 @@ describe('INVARIANT — entity-schema-declaration (ADR-011)', () => {
         if (args === '') continue;
 
         const hasSchema = /\bschema\s*:/.test(args);
-        const schemaMatch = args.match(
-          /\bschema\s*:\s*['"]([a-z_][a-z0-9_]*)['"]/i,
-        );
+        const schemaMatch = args.match(/\bschema\s*:\s*['"]([a-z_][a-z0-9_]*)['"]/i);
         const declaredSchema = schemaMatch?.[1] ?? null;
 
         if (shouldDeclareSchema && !hasSchema) {
@@ -306,11 +304,7 @@ describe('INVARIANT — entity-schema-declaration (ADR-011)', () => {
           if (adminApiAllowed) continue;
         }
 
-        if (
-          shouldDeclareSchema &&
-          declaredSchema !== null &&
-          declaredSchema !== expectedSchema
-        ) {
+        if (shouldDeclareSchema && declaredSchema !== null && declaredSchema !== expectedSchema) {
           violations.push({
             file: relativePath,
             reason: `service '${service}' entity declares schema: '${declaredSchema}' but service-schema-map expects '${expectedSchema}'`,

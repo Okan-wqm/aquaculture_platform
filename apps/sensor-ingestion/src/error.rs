@@ -31,4 +31,11 @@ pub enum ConfigError {
         #[source]
         source: toml::de::Error,
     },
+
+    /// A deployment supplied only part of the cert-is-identity environment
+    /// contract, or supplied it without a configured NATS client.
+    #[error(
+        "NATS_TLS_CA, NATS_TLS_CERT, and NATS_TLS_KEY must be supplied together with a [nats] section"
+    )]
+    IncompleteNatsTlsEnvironment,
 }

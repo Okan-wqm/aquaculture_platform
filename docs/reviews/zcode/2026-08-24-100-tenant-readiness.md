@@ -295,6 +295,41 @@ Task 0 sonrasında Task 2–3 ile paralel yürüyebilir; bütün raw drop yollar
 
 ### Task 7 — Tenant-izole cold storage ve restore
 
+#### SENSOR-HIGH-100 — Cold storage tenant, kimlik ve restore sınırlarını yapısal olarak zorlamıyor
+
+Cold-storage çekirdeği her tenant için ayrı ve deterministik bucket adı, versioned
+bucket policy'sinde ayrı exporter/verifier/restore/erasure kimlikleri, gerçek RAW
+Parquet codec'i, `REPEATABLE READ READ ONLY` snapshot + WAL LSN kaynağı ve yalnız
+`telemetry_archive_restore` rolüyle TTL'li `restore_*` şemasına yazan scratch
+restore yüzeyi kullanır. Manifestin range/count/min/max/schema/snapshot/LSN/key/hash
+alanları ledger'ın v2 append yolunda birlikte kalıcılaştırılır; eski append yolu
+EXPORTED/VERIFIED geçişini manifest v2 işareti olmadan reddeder. Presign süresi
+900 saniyeye sabittir ve URL'nin kendisi yerine SHA-256 izi revocation ledger
+portuna yazılır. Bağımsız verifier tam object `VersionId`, SHA-256, satır/bounds ve
+Parquet içindeki `raw-v1`/schema-version metadata'sını karşılaştırır; mismatch
+ledger'da `FAILED` olur. S3 toplu silmenin HTTP 200 içindeki tekil hataları başarı
+sayılmaz; restore rolü TTL metadata'sını değiştiremez. Legal-hold kontrolü ortak
+`compliance.legal_holds` kaynağını kullanır. Ayrı DB capability şifreleri deploy
+bootstrap ve required-secret kataloğuna bağlıdır. Bu SQL zinciri temiz gerçek
+PostgreSQL scratch DB'de derlenmiş; canonical hold veto'su ve scratch ACL'leri
+çalıştırılarak doğrulanmıştır.
+
+Bu teknik kapı henüz Task 7'nin tamamlandığı anlamına gelmez. Uzun export/restore
+işleri hâlâ senkron NATS request-reply içinde çalışır; durable job queue, lease,
+restart recovery, bounded worker/throttle ve stale `EXPORT_STARTED`/orphan object
+reconciler yoktur. Canonical tenant-erasure akışı da arşiv silme receipt/evidence
+digest'ini kendi proof zincirine bağlamamaktadır; feature flag kapalıyken preserved
+bucket erasure kontrol düzleminin daima açık kalması ayrıca çözülmelidir. Bu nedenle
+asenkron dayanıklılık ve erasure gate'i **BLOCKED** kalır; mevcut best-effort exact
+version telafisi tek başına yeterli değildir.
+
+Bu teknik kapı gerçek restore kanıtının da yerine geçmez. Synthetic P90D–P365D ve
+
+> P365D Parquet nesneleriyle count/hash ve percentile/waveform parity artefaktı
+> henüz üretilmediyse Task 7 gate'i ve retention pilotu bloklu kalır. Başlangıç
+> backlog scheduler'ının haftalara yayılan throttle kanıtı da dış operasyon
+> artefaktında gösterilmelidir; kodun varlığı kapasite iddiası değildir.
+
 - Her tenant için ayrı bucket/policy kullanılır; prefix-only izolasyon yasaktır.
 - Exporter, verifier ve restore ayrı kimliklerdir; presign TTL 15 dakikadır.
 - Export `REPEATABLE READ READ ONLY`, deterministik PK sırası, transaction snapshot ve WAL LSN kullanır.
@@ -320,7 +355,7 @@ Task 0 sonrasında Task 2–3 ile paralel yürüyebilir; bütün raw drop yollar
 - Tek tenant schema utility invariant’ı korunur.
 - ADR, PROGRESS, retention matrix ve runbook yalnız ölçülmüş artefaktları ifade eder.
 - Tam doğrulama: affected test/lint, type-check, format-check, Rust fmt/clippy/test ve `build:all`.
-- Finding kapanışları: OBS-CRITICAL-003 (plan CRITICAL-003) Task 0; TENANTCOST-HIGH-011 (plan HIGH-011) Task 1; SENSOR-CRITICAL-086/087 ve SENSOR-HIGH-088 (plan CRITICAL-001/002 ve HIGH-008) Task 2; PLAT-HIGH-004 (plan HIGH-007) Task 3; SENSOR-CRITICAL-097 (plan CRITICAL-004) Task 4; SENSOR-HIGH-098 (plan HIGH-009) Task 5; SENSOR-HIGH-099 kod kapısı ve dış-host PASS artefaktı (plan HIGH-005/006) Task 6; HIGH-010 Task 7.
+- Finding kapanışları: OBS-CRITICAL-003 (plan CRITICAL-003) Task 0; TENANTCOST-HIGH-011 (plan HIGH-011) Task 1; SENSOR-CRITICAL-086/087 ve SENSOR-HIGH-088 (plan CRITICAL-001/002 ve HIGH-008) Task 2; PLAT-HIGH-004 (plan HIGH-007) Task 3; SENSOR-CRITICAL-097 (plan CRITICAL-004) Task 4; SENSOR-HIGH-098 (plan HIGH-009) Task 5; SENSOR-HIGH-099 kod kapısı ve dış-host PASS artefaktı (plan HIGH-005/006) Task 6; SENSOR-HIGH-100 kod kapısı ve uzun-aralık restore/throttle PASS artefaktı (plan HIGH-010) Task 7.
 - `LEGAL-001` çözülmemişse teknik çalışma tamamlanabilir fakat raw retention aktivasyonu ve hukuk iddialı ticari readiness BLOCKED kalır.
 
 ## 4. Rollout sırası

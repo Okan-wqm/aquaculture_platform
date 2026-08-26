@@ -138,6 +138,8 @@ REQUIRED_ENV_SECRET_SPECS=(
   "SERVICE_IDENTITY_SIGNING_KID" "generate_service_identity_signing_kid"
   "CONFIG_ENCRYPTION_KEY" "generate_hex_32_secret"
   "AI_TENANT_SECRET_ENCRYPTION_KEY" "generate_hex_32_secret"
+  "TELEMETRY_ARCHIVE_RESTORE_DB_PASSWORD" "generate_base64_32_secret"
+  "TELEMETRY_ARCHIVE_ERASURE_DB_PASSWORD" "generate_base64_32_secret"
   "SENTINEL_HUB_ENCRYPTION_KEY" "require_preprovisioned_sentinel_hub_key"
 )
 

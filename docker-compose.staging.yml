@@ -165,6 +165,7 @@ services:
     image: ghcr.io/okan-wqm/aquaculture_platform/sensor-service:${IMAGE_TAG:-staging}
     container_name: aqua-sensor-staging
     environment:
+      TELEMETRY_ARCHIVE_ENABLED: 'false'
       NODE_OPTIONS: '--max-old-space-size=192'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://staging.suderra.com}
       # Staging uses its own MQTT broker endpoint — sensor-service calls

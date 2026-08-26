@@ -47,6 +47,10 @@ const REVIEWED_SOURCE_SCHEMA_DDL: ReadonlySet<string> = new Set([
   // edge_devices table via the SAME source-template + tenant fan-out pattern
   // (canonical `sensor` copy + every `tenant_*` copy).
   '1809000000000-AddEdgeDeviceConfigAckTracking.ts',
+  // SENSOR-HIGH-100: append-only archive lifecycle control-plane ledger. This
+  // table is intentionally source-schema-only and is registered under the
+  // sensor module's infrastructureTables; raw metrics remain per-tenant.
+  '1816000000002-TelemetryArchiveLifecycle.ts',
   // SENSOR-HIGH-083: per-tenant calibration_events table + nullable
   // calibration_interval_days column on sensor_data_channels, both created in the
   // canonical `sensor` source schema and fanned out into every `tenant_*` schema

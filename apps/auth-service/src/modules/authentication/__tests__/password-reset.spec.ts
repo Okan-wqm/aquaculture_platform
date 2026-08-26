@@ -23,6 +23,7 @@ import { Invitation } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
+import { WebAuthnCredential } from '../entities/webauthn-credential.entity';
 import { AuthenticationService } from '../services/authentication.service';
 import { DurableAccessTokenInvalidationService } from '../services/durable-access-token-invalidation.service';
 import { DurableUserTokenInvalidationService } from '../services/durable-user-token-invalidation.service';
@@ -169,6 +170,9 @@ const mockTransactionManager = {
     if (entity === Tenant) return mockTenantRepository;
     return {};
   }),
+  // SEC-CRITICAL-002 (№38b): resetPassword deletes WebAuthn credentials
+  // inside the transaction via manager.delete
+  delete: jest.fn().mockResolvedValue({ affected: 0 }),
 };
 
 const mockDataSource = {
@@ -556,6 +560,27 @@ describe('AuthenticationService - Password Reset Flow', () => {
       const intent = mockDurableUserTokenInvalidation.enqueue.mock.calls[0]?.[1];
       expect(mockDurableUserTokenInvalidation.applyImmediately).toHaveBeenCalledWith(intent);
       expect(mockSessionManager.revokeAllSessions).toHaveBeenCalledWith('user-uuid-123');
+    });
+
+    it('should delete all WebAuthn credentials after password reset (SEC-CRITICAL-002 №38b)', async () => {
+      const user = createMockUser({
+        passwordResetToken: tokenHash,
+        passwordResetExpires: new Date(Date.now() + 60 * 60 * 1000),
+      });
+      (mockQueryBuilder.getOne as jest.Mock).mockResolvedValue(user);
+      mockUserRepository.save.mockResolvedValue(user);
+      mockRefreshTokenRepository.update.mockResolvedValue({ affected: 0 });
+      mockRefreshTokenRepository.create.mockReturnValue({ id: 'rt-1' });
+      mockRefreshTokenRepository.save.mockResolvedValue({ id: 'rt-1' });
+      mockUserModuleAssignmentRepository.find.mockResolvedValue([]);
+
+      await service.resetPassword(plainToken, 'NewPass123!');
+
+      // A biometric credential planted with a stolen token must NOT survive
+      // the victim rotating their password.
+      expect(mockTransactionManager.delete).toHaveBeenCalledWith(WebAuthnCredential, {
+        userId: 'user-uuid-123',
+      });
     });
 
     it('fails closed before commit when password-reset invalidation cannot be enqueued', async () => {

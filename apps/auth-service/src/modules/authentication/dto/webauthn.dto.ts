@@ -1,5 +1,24 @@
-import { InputType, Field, ObjectType } from '@nestjs/graphql';
-import { IsString, IsNotEmpty, IsOptional, MaxLength } from 'class-validator';
+import { InputType, Field, ObjectType, Int } from '@nestjs/graphql';
+import {
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  IsInt,
+  IsIn,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
+
+/** Authenticator transports the browser can report (WebAuthn L3). */
+export const WEBAUTHN_TRANSPORTS = [
+  'usb',
+  'nfc',
+  'ble',
+  'internal',
+  'hybrid',
+  'smart-card',
+] as const;
+export type WebAuthnTransport = (typeof WEBAUTHN_TRANSPORTS)[number];
 
 // ============================================================================
 // WebAuthn Input DTOs
@@ -14,6 +33,17 @@ export class WebAuthnRegistrationChallengeInput {
   deviceName?: string;
 }
 
+/**
+ * Registration payload mirrors the browser's RegistrationResponseJSON.
+ *
+ * SEC-CRITICAL-001/002 (2026-08-23 scan): the public key is NO LONGER
+ * client-supplied. `verifyRegistrationResponse` derives the COSE key from
+ * the attestation object (proof-of-possession); clients that never proved
+ * possession cannot plant a key.
+ *
+ * BREAKING CHANGE: `publicKey` and `origin` inputs were removed;
+ * `attestationObject` + `publicKeyAlgorithm` + `currentPassword` are new.
+ */
 @InputType()
 export class WebAuthnRegisterCredentialInput {
   @Field({ description: 'Base64url-encoded credential ID from navigator.credentials.create()' })
@@ -21,25 +51,51 @@ export class WebAuthnRegisterCredentialInput {
   @IsNotEmpty()
   credentialId!: string;
 
-  @Field({ description: 'Base64url-encoded raw public key (COSE format)' })
+  @Field({
+    description:
+      'Base64url-encoded attestation object (contains the signed authenticator data and the COSE public key)',
+  })
   @IsString()
   @IsNotEmpty()
-  publicKey!: string;
+  attestationObject!: string;
 
   @Field({ description: 'Base64url-encoded attestation client data JSON' })
   @IsString()
   @IsNotEmpty()
   clientDataJSON!: string;
 
+  @Field(() => Int, {
+    description: 'COSE algorithm identifier the authenticator chose (e.g. -7 ES256, -257 RS256)',
+  })
+  @IsInt()
+  publicKeyAlgorithm!: number;
+
+  @Field({
+    nullable: true,
+    description: 'Base64url-encoded authenticator data (present on some platforms)',
+  })
+  @IsOptional()
+  @IsString()
+  authenticatorData?: string;
+
   @Field({ description: 'Challenge string that was used during registration' })
   @IsString()
   @IsNotEmpty()
   challenge!: string;
 
-  @Field({ description: 'Origin of the request (e.g., https://example.com)' })
+  /**
+   * SEC-CRITICAL-002: registration requires proof of account ownership.
+   * A stolen access token alone must never be enough to plant a
+   * biometric backdoor credential.
+   */
+  @Field({
+    description:
+      'Current account password (re-authentication required to add a biometric credential)',
+  })
   @IsString()
   @IsNotEmpty()
-  origin!: string;
+  @MaxLength(128)
+  currentPassword!: string;
 
   @Field({ nullable: true, description: 'Device name for this credential' })
   @IsOptional()
@@ -47,9 +103,13 @@ export class WebAuthnRegisterCredentialInput {
   @MaxLength(100)
   deviceName?: string;
 
-  @Field(() => [String], { nullable: true, description: 'Supported transports (usb, nfc, ble, internal)' })
+  @Field(() => [String], {
+    nullable: true,
+    description: 'Supported transports (usb, nfc, ble, internal, hybrid, smart-card)',
+  })
   @IsOptional()
-  transports?: string[];
+  @IsIn(WEBAUTHN_TRANSPORTS, { each: true })
+  transports?: WebAuthnTransport[];
 }
 
 @InputType()
@@ -60,6 +120,11 @@ export class WebAuthnLoginChallengeInput {
   email!: string;
 }
 
+/**
+ * BREAKING CHANGE (SEC-CRITICAL-001): `origin` removed — the origin is
+ * verified server-side against WEBAUTHN_ALLOWED_ORIGINS from the signed
+ * clientDataJSON, never from a client-declared field.
+ */
 @InputType()
 export class WebAuthnVerifyLoginInput {
   @Field({ description: 'Base64url-encoded credential ID' })
@@ -82,15 +147,16 @@ export class WebAuthnVerifyLoginInput {
   @IsNotEmpty()
   signature!: string;
 
+  @Field({ description: 'Base64url-encoded user handle (what the authenticator stored)' })
+  @IsOptional()
+  @IsString()
+  userHandle?: string;
+
   @Field({ description: 'Challenge string from the login challenge' })
   @IsString()
   @IsNotEmpty()
+  @MinLength(16)
   challenge!: string;
-
-  @Field({ description: 'Origin of the request' })
-  @IsString()
-  @IsNotEmpty()
-  origin!: string;
 }
 
 // ============================================================================

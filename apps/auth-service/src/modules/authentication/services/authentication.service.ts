@@ -59,6 +59,7 @@ import {
 import { Invitation, InvitationStatus } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { User } from '../entities/user.entity';
+import { WebAuthnCredential } from '../entities/webauthn-credential.entity';
 
 import { MfaService } from './mfa.service';
 import { DurableAccessTokenInvalidationService } from './durable-access-token-invalidation.service';
@@ -1694,6 +1695,14 @@ export class AuthenticationService {
         actionToken.consumedAt = new Date();
         await actionTokenRepository.save(actionToken);
       }
+
+      // SEC-CRITICAL-002 (2026-08-23 scan №38): a password reset invalidates
+      // every second factor bound to the previous credential set. WebAuthn
+      // credentials deleted here cannot survive the victim rotating their
+      // password, closing the "biometric backdoor outlives reset" chain.
+      // Same transaction as the password write — no window where the new
+      // password is live while old biometric credentials still authenticate.
+      await manager.delete(WebAuthnCredential, { userId: user.id });
 
       const invalidatedAt = new Date();
       await refreshTokenRepository.update(

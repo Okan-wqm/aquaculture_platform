@@ -208,6 +208,17 @@ return tonumber(ARGV[1])
   }
 
   /**
+   * Atomically return a key's value and delete it (Redis GETDEL, 6.2+).
+   *
+   * Single-use token consumption (WebAuthn challenges, one-time codes):
+   * a separate GET + DEL pair lets two concurrent ceremonies both observe
+   * the stored value — GETDEL makes single-use structurally guaranteed.
+   */
+  async getdel(key: string): Promise<string | null> {
+    return this.client.getdel(this.prefixKey(key));
+  }
+
+  /**
    * Check if key exists
    */
   async exists(key: string): Promise<boolean> {

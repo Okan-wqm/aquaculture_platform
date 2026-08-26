@@ -34826,6 +34826,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/security/2026-08-23-vuln-scan-findings.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/sensor-expert/2026-04-04-full-codebase-audit.md",
       "prettier_managed": true
     },
@@ -35379,6 +35385,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/security/2026-04-12-hardening-gap-report.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/security/2026-08-23-security-vulnerability-scan-report.md",
       "prettier_managed": true
     },
     {

@@ -23909,6 +23909,50 @@
     },
     {
       "class": "archive_immutable",
+      "content_sha256": "3be3c1c57db22e09586321ad86336d29444f82bc1ed65eebcea83bd70afc1afd",
+      "hash_policy": "sha256",
+      "owner": "archive-owner",
+      "path": "apps/sensor-service/src/archive/parquet/__tests__/telemetry-archive-codec.spec.ts",
+      "prettier_managed": false,
+      "reason": "historical archive content is hash-pinned evidence",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "785e45fe750022153fb8674d281d2aa3763246fd6ca6f89610976a40d2aabb6b",
+      "hash_policy": "sha256",
+      "owner": "archive-owner",
+      "path": "apps/sensor-service/src/archive/parquet/telemetry-archive-codec.ts",
+      "prettier_managed": false,
+      "reason": "historical archive content is hash-pinned evidence",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "5c69881a43e14e96a477e1a8f6bd852658ac9a1876a9a70b5140cda6b7276374",
+      "hash_policy": "sha256",
+      "owner": "archive-owner",
+      "path": "apps/sensor-service/src/archive/parquet/telemetry-parquet-exporter.service.ts",
+      "prettier_managed": false,
+      "reason": "historical archive content is hash-pinned evidence",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "e15748176c1e95baed750707772457df70dc598d5f9463b2e13abdb433861c8f",
+      "hash_policy": "sha256",
+      "owner": "archive-owner",
+      "path": "apps/sensor-service/src/archive/parquet/telemetry-parquet-verifier.service.ts",
+      "prettier_managed": false,
+      "reason": "historical archive content is hash-pinned evidence",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "archive_immutable",
       "content_sha256": "2f28c6a48ad98c94fa9ca3f1becfa27eaaf2e456c6a171aecc0b1a64f236414b",
       "hash_policy": "sha256",
       "owner": "archive-owner",
@@ -41321,7 +41365,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "3f6ec77ad67e1a0af5ea3ec950802711cf8288833fb6ec441ed0d4ded272c430",
+      "content_sha256": "14a50402b15a4b35fda03fc54635c3fc53d0bf4a1eccef1b8d074659a26bfa83",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",

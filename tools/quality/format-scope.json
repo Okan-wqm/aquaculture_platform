@@ -26632,12 +26632,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/sensor-service/src/stream-processing/kafka-streams.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/sensor-service/src/stream-processing/real-time-analyzer.service.ts",
       "prettier_managed": true
     },
@@ -44360,6 +44354,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/stripe-calls-via-canonical-client.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/telemetry-architecture-contract.spec.ts",
       "prettier_managed": true
     },
     {

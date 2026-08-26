@@ -3,6 +3,8 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, LessThan, LessThanOrEqual, IsNull } from 'typeorm';
 
+import { clampLimit } from '../../shared/sort-field.util';
+
 import {
   BackgroundJob,
   JobExecutionLog,
@@ -285,7 +287,12 @@ export class JobQueueService {
         const pendingDeps = await this.jobRepo.count({
           where: {
             id: In(job.dependencies),
-            status: In([JobStatus.PENDING, JobStatus.RUNNING, JobStatus.SCHEDULED, JobStatus.RETRYING]),
+            status: In([
+              JobStatus.PENDING,
+              JobStatus.RUNNING,
+              JobStatus.SCHEDULED,
+              JobStatus.RETRYING,
+            ]),
           },
         });
         if (pendingDeps > 0) continue;
@@ -536,7 +543,8 @@ export class JobQueueService {
     query.orderBy('j.createdAt', 'DESC');
 
     const page = params.page || 1;
-    const limit = params.limit || 20;
+    // SEC-MEDIUM №17 (2026-08-23 scan): clamp before .take()
+    const limit = clampLimit(params.limit, 20);
     query.skip((page - 1) * limit).take(limit);
 
     const [items, total] = await query.getManyAndCount();
@@ -645,26 +653,27 @@ export class JobQueueService {
     const now = new Date();
     const hourAgo = new Date(now.getTime() - 60 * 60 * 1000);
 
-    const [pending, running, completed, failed, throughputResult, avgTimeResult] = await Promise.all([
-      this.jobRepo.count({ where: { queueName, status: JobStatus.PENDING } }),
-      this.jobRepo.count({ where: { queueName, status: JobStatus.RUNNING } }),
-      this.jobRepo.count({ where: { queueName, status: JobStatus.COMPLETED } }),
-      this.jobRepo.count({ where: { queueName, status: JobStatus.FAILED } }),
-      this.jobRepo
-        .createQueryBuilder('j')
-        .select('COUNT(*)', 'count')
-        .where('j.queueName = :queueName', { queueName })
-        .andWhere('j.status = :status', { status: JobStatus.COMPLETED })
-        .andWhere('j.completedAt >= :hourAgo', { hourAgo })
-        .getRawOne(),
-      this.jobRepo
-        .createQueryBuilder('j')
-        .select('AVG(j.durationMs)', 'avg')
-        .where('j.queueName = :queueName', { queueName })
-        .andWhere('j.status = :status', { status: JobStatus.COMPLETED })
-        .andWhere('j.durationMs IS NOT NULL')
-        .getRawOne(),
-    ]);
+    const [pending, running, completed, failed, throughputResult, avgTimeResult] =
+      await Promise.all([
+        this.jobRepo.count({ where: { queueName, status: JobStatus.PENDING } }),
+        this.jobRepo.count({ where: { queueName, status: JobStatus.RUNNING } }),
+        this.jobRepo.count({ where: { queueName, status: JobStatus.COMPLETED } }),
+        this.jobRepo.count({ where: { queueName, status: JobStatus.FAILED } }),
+        this.jobRepo
+          .createQueryBuilder('j')
+          .select('COUNT(*)', 'count')
+          .where('j.queueName = :queueName', { queueName })
+          .andWhere('j.status = :status', { status: JobStatus.COMPLETED })
+          .andWhere('j.completedAt >= :hourAgo', { hourAgo })
+          .getRawOne(),
+        this.jobRepo
+          .createQueryBuilder('j')
+          .select('AVG(j.durationMs)', 'avg')
+          .where('j.queueName = :queueName', { queueName })
+          .andWhere('j.status = :status', { status: JobStatus.COMPLETED })
+          .andWhere('j.durationMs IS NOT NULL')
+          .getRawOne(),
+      ]);
 
     return {
       queueName,

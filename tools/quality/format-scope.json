@@ -2525,6 +2525,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/shared/__tests__/sort-field.util.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/shared/authenticated-request.ts",
       "prettier_managed": true
     },
@@ -2550,6 +2556,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/shared/response.interceptor.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/shared/sort-field.util.ts",
       "prettier_managed": true
     },
     {

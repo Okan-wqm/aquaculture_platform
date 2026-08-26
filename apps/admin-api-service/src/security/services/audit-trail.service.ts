@@ -14,9 +14,11 @@ import {
   ActivityLog,
   ActivityCategory,
   ActivitySeverity,
+  ACTIVITY_LOG_SORT_FIELDS,
   RetentionPolicyEntity,
   ComplianceType,
 } from '../entities/security.entity';
+import { resolveSortField } from '../../shared/sort-field.util';
 
 // ============================================================================
 // Interfaces
@@ -254,10 +256,13 @@ export class AuditTrailService {
     // Action filter (pattern matching)
     if (actions && actions.length > 0) {
       const actionConditions = actions.map((a, i) => `log.action LIKE :action${i}`);
-      const actionParams = actions.reduce((acc, a, i) => {
-        acc[`action${i}`] = `%${a}%`;
-        return acc;
-      }, {} as Record<string, string>);
+      const actionParams = actions.reduce(
+        (acc, a, i) => {
+          acc[`action${i}`] = `%${a}%`;
+          return acc;
+        },
+        {} as Record<string, string>,
+      );
       qb.andWhere(`(${actionConditions.join(' OR ')})`, actionParams);
     }
 
@@ -280,7 +285,9 @@ export class AuditTrailService {
     }
 
     // Sorting and pagination
-    qb.orderBy(`log.${sortBy}`, sortOrder);
+    // SEC-HIGH №1 (2026-08-23 scan): orderBy interpolates verbatim — the
+    // column MUST come from the ActivityLog allowlist, never raw input.
+    qb.orderBy(`log.${resolveSortField(sortBy, ACTIVITY_LOG_SORT_FIELDS, 'createdAt')}`, sortOrder);
     qb.skip((page - 1) * limit);
     qb.take(limit);
 
@@ -304,115 +311,115 @@ export class AuditTrailService {
         ? { tenantId, createdAt: Between(startDate, endDate) }
         : { createdAt: Between(startDate, endDate) };
 
-    // Total events
-    const totalEvents = await this.activityRepository.count({
-      where: baseWhere,
-    });
+      // Total events
+      const totalEvents = await this.activityRepository.count({
+        where: baseWhere,
+      });
 
-    // Unique users
-    const uniqueUsersResult = await this.activityRepository
-      .createQueryBuilder('log')
-      .select('COUNT(DISTINCT log.userId)', 'count')
-      .where('log.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
-      .andWhere(tenantId ? 'log.tenantId = :tenantId' : '1=1', { tenantId })
-      .getRawOne();
-    const uniqueUsers = parseInt(uniqueUsersResult?.count || '0', 10);
+      // Unique users
+      const uniqueUsersResult = await this.activityRepository
+        .createQueryBuilder('log')
+        .select('COUNT(DISTINCT log.userId)', 'count')
+        .where('log.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
+        .andWhere(tenantId ? 'log.tenantId = :tenantId' : '1=1', { tenantId })
+        .getRawOne();
+      const uniqueUsers = parseInt(uniqueUsersResult?.count || '0', 10);
 
-    // Unique IPs
-    const uniqueIPsResult = await this.activityRepository
-      .createQueryBuilder('log')
-      .select('COUNT(DISTINCT log.ipAddress)', 'count')
-      .where('log.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
-      .andWhere(tenantId ? 'log.tenantId = :tenantId' : '1=1', { tenantId })
-      .getRawOne();
-    const uniqueIPs = parseInt(uniqueIPsResult?.count || '0', 10);
+      // Unique IPs
+      const uniqueIPsResult = await this.activityRepository
+        .createQueryBuilder('log')
+        .select('COUNT(DISTINCT log.ipAddress)', 'count')
+        .where('log.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
+        .andWhere(tenantId ? 'log.tenantId = :tenantId' : '1=1', { tenantId })
+        .getRawOne();
+      const uniqueIPs = parseInt(uniqueIPsResult?.count || '0', 10);
 
-    // By category
-    const categoryStats = await this.activityRepository
-      .createQueryBuilder('log')
-      .select('log.category', 'category')
-      .addSelect('COUNT(*)', 'count')
-      .where('log.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
-      .andWhere(tenantId ? 'log.tenantId = :tenantId' : '1=1', { tenantId })
-      .groupBy('log.category')
-      .getRawMany();
+      // By category
+      const categoryStats = await this.activityRepository
+        .createQueryBuilder('log')
+        .select('log.category', 'category')
+        .addSelect('COUNT(*)', 'count')
+        .where('log.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
+        .andWhere(tenantId ? 'log.tenantId = :tenantId' : '1=1', { tenantId })
+        .groupBy('log.category')
+        .getRawMany();
 
-    const byCategory: Record<string, number> = {};
-    categoryStats.forEach((s) => {
-      byCategory[s.category] = parseInt(s.count, 10);
-    });
+      const byCategory: Record<string, number> = {};
+      categoryStats.forEach((s) => {
+        byCategory[s.category] = parseInt(s.count, 10);
+      });
 
-    // By severity
-    const severityStats = await this.activityRepository
-      .createQueryBuilder('log')
-      .select('log.severity', 'severity')
-      .addSelect('COUNT(*)', 'count')
-      .where('log.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
-      .andWhere(tenantId ? 'log.tenantId = :tenantId' : '1=1', { tenantId })
-      .groupBy('log.severity')
-      .getRawMany();
+      // By severity
+      const severityStats = await this.activityRepository
+        .createQueryBuilder('log')
+        .select('log.severity', 'severity')
+        .addSelect('COUNT(*)', 'count')
+        .where('log.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
+        .andWhere(tenantId ? 'log.tenantId = :tenantId' : '1=1', { tenantId })
+        .groupBy('log.severity')
+        .getRawMany();
 
-    const bySeverity: Record<string, number> = {};
-    severityStats.forEach((s) => {
-      bySeverity[s.severity] = parseInt(s.count, 10);
-    });
+      const bySeverity: Record<string, number> = {};
+      severityStats.forEach((s) => {
+        bySeverity[s.severity] = parseInt(s.count, 10);
+      });
 
-    // Critical and failed events
-    const criticalEvents = await this.activityRepository.count({
-      where: { ...baseWhere, severity: 'critical' as ActivitySeverity },
-    });
+      // Critical and failed events
+      const criticalEvents = await this.activityRepository.count({
+        where: { ...baseWhere, severity: 'critical' as ActivitySeverity },
+      });
 
-    const failedEvents = await this.activityRepository.count({
-      where: { ...baseWhere, success: false },
-    });
+      const failedEvents = await this.activityRepository.count({
+        where: { ...baseWhere, success: false },
+      });
 
-    // Top actions
-    const topActions = await this.activityRepository
-      .createQueryBuilder('log')
-      .select('log.action', 'action')
-      .addSelect('COUNT(*)', 'count')
-      .where('log.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
-      .andWhere(tenantId ? 'log.tenantId = :tenantId' : '1=1', { tenantId })
-      .groupBy('log.action')
-      .orderBy('count', 'DESC')
-      .limit(10)
-      .getRawMany();
+      // Top actions
+      const topActions = await this.activityRepository
+        .createQueryBuilder('log')
+        .select('log.action', 'action')
+        .addSelect('COUNT(*)', 'count')
+        .where('log.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
+        .andWhere(tenantId ? 'log.tenantId = :tenantId' : '1=1', { tenantId })
+        .groupBy('log.action')
+        .orderBy('count', 'DESC')
+        .limit(10)
+        .getRawMany();
 
-    // Top entity types
-    const topEntities = await this.activityRepository
-      .createQueryBuilder('log')
-      .select('log.entityType', 'type')
-      .addSelect('COUNT(*)', 'count')
-      .where('log.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
-      .andWhere(tenantId ? 'log.tenantId = :tenantId' : '1=1', { tenantId })
-      .andWhere('log.entityType IS NOT NULL')
-      .groupBy('log.entityType')
-      .orderBy('count', 'DESC')
-      .limit(10)
-      .getRawMany();
+      // Top entity types
+      const topEntities = await this.activityRepository
+        .createQueryBuilder('log')
+        .select('log.entityType', 'type')
+        .addSelect('COUNT(*)', 'count')
+        .where('log.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
+        .andWhere(tenantId ? 'log.tenantId = :tenantId' : '1=1', { tenantId })
+        .andWhere('log.entityType IS NOT NULL')
+        .groupBy('log.entityType')
+        .orderBy('count', 'DESC')
+        .limit(10)
+        .getRawMany();
 
-    // Detect anomalies
-    const anomalies = await this.detectAnomalies(tenantId, startDate, endDate);
+      // Detect anomalies
+      const anomalies = await this.detectAnomalies(tenantId, startDate, endDate);
 
-    return {
-      period: { start: startDate, end: endDate },
-      totalEvents,
-      uniqueUsers,
-      uniqueIPs,
-      byCategory,
-      bySeverity,
-      criticalEvents,
-      failedEvents,
-      topActions: topActions.map((a) => ({
-        action: a.action,
-        count: parseInt(a.count, 10),
-      })),
-      topEntities: topEntities.map((e) => ({
-        type: e.type,
-        count: parseInt(e.count, 10),
-      })),
-      anomalies,
-    };
+      return {
+        period: { start: startDate, end: endDate },
+        totalEvents,
+        uniqueUsers,
+        uniqueIPs,
+        byCategory,
+        bySeverity,
+        criticalEvents,
+        failedEvents,
+        topActions: topActions.map((a) => ({
+          action: a.action,
+          count: parseInt(a.count, 10),
+        })),
+        topEntities: topEntities.map((e) => ({
+          type: e.type,
+          count: parseInt(e.count, 10),
+        })),
+        anomalies,
+      };
     } catch (error) {
       // Return empty summary on error to prevent 500
       this.logger.error('Error fetching audit summary:', error);
@@ -516,7 +523,16 @@ export class AuditTrailService {
     filename: string;
     mimeType: string;
   }> {
-    const { format, tenantId, userId, category, startDate, endDate, includeMetadata, includeChanges } = options;
+    const {
+      format,
+      tenantId,
+      userId,
+      category,
+      startDate,
+      endDate,
+      includeMetadata,
+      includeChanges,
+    } = options;
 
     const where: Record<string, unknown> = {
       createdAt: Between(startDate, endDate),
@@ -964,9 +980,7 @@ export class AuditTrailService {
     if (conditions.failureOnly && activity.success) return false;
 
     if (conditions.ipPatterns?.length) {
-      const matches = conditions.ipPatterns.some((p) =>
-        new RegExp(p).test(activity.ipAddress),
-      );
+      const matches = conditions.ipPatterns.some((p) => new RegExp(p).test(activity.ipAddress));
       if (!matches) return false;
     }
 

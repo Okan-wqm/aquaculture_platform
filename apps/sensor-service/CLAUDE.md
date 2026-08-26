@@ -15,7 +15,7 @@ Adding an audit-shaped entity: decide the classification from the DATA, then mak
 
 ## Cross-tenant set
 
-<!-- infra-tables:sensor -->`migrations`, `sensor_audit_logs`, `sensor_outbox`, `vfd_register_mappings`, `edge_device_directory`, `scada_alarms`, `scada_alarm_chronicle`, `scada_tag_history`, `vfd_command_audit_logs`, `tenant_erasure_target_proofs`<!-- /infra-tables -->
+<!-- infra-tables:sensor -->`migrations`, `sensor_audit_logs`, `sensor_outbox`, `vfd_register_mappings`, `edge_device_directory`, `scada_alarms`, `scada_alarm_chronicle`, `scada_tag_history`, `vfd_command_audit_logs`, `telemetry_archive_events`, `tenant_erasure_target_proofs`<!-- /infra-tables -->
 
 Proven against `MODULE_SCHEMAS` by `tests/invariants/nested-steering-parity.spec.ts` — edit the registry, never this copy. Two entries there are non-obvious:
 

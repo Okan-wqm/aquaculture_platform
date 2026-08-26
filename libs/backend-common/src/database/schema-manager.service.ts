@@ -242,6 +242,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'scada_alarm_chronicle',
       'scada_tag_history',
       'vfd_command_audit_logs',
+      'telemetry_archive_events',
       ...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES,
     ],
     referenceDataTables: ['sensor_protocols', 'sensor_type_definitions', 'industry_templates'],

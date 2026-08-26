@@ -5,6 +5,7 @@ import { ContinuousAggregateService } from './continuous-aggregate.service';
 import { HypertableService } from './hypertable.service';
 import { RetentionPolicyService } from './retention-policy.service';
 import { TimeBucketService } from '../aggregation/time-bucket.service';
+import { TelemetryArchiveLifecycleService } from '../telemetry-archive/telemetry-archive-lifecycle.service';
 
 /**
  * TimescaleDB Module
@@ -25,14 +26,15 @@ import { TimeBucketService } from '../aggregation/time-bucket.service';
     HypertableService,
     ContinuousAggregateService,
     RetentionPolicyService,
+    TelemetryArchiveLifecycleService,
     TimeBucketService,
   ],
   exports: [
     HypertableService,
     ContinuousAggregateService,
     RetentionPolicyService,
+    TelemetryArchiveLifecycleService,
     TimeBucketService,
   ],
 })
- 
 export class TimescaleModule {}

@@ -240,6 +240,15 @@ yüzeyini birlikte gerektirir.
 
 ### Task 5 — Ledger retention ve cagg güvenliği
 
+#### SENSOR-HIGH-098 — Raw retention yaşam döngüsü ve tenant-cagg sınırları fail-closed değil
+
+Plan aliası `HIGH-009` olan bulgunun kök nedeni, raw telemetry export/drop
+geçişlerinin immutable bir kanıta bağlanmaması, retention yüzeyinin caller-supplied
+relation kabul etmesi ve cagg sorgularının tenant schema filtresini zorunlu
+kılmamasıdır. Kapanış; append-only lifecycle fonksiyonu, runtime rolünden doğrudan
+mutasyonun kaldırılması, `LEGAL-001` çift kapısı, tenant-scoped cagg/retention ve
+ölçülmüş chunk adaylarını birlikte gerektirir.
+
 Task 0 sonrasında Task 2–3 ile paralel yürüyebilir; bütün raw drop yolları kapalı kalır.
 
 - Platform `sensor.telemetry_archive_events` append-only lifecycle ledger’ı `EXPORT_STARTED→EXPORTED→VERIFIED→DROPPED` geçişlerini DB fonksiyonuyla doğrular.
@@ -307,7 +316,7 @@ Task 0 sonrasında Task 2–3 ile paralel yürüyebilir; bütün raw drop yollar
 - Tek tenant schema utility invariant’ı korunur.
 - ADR, PROGRESS, retention matrix ve runbook yalnız ölçülmüş artefaktları ifade eder.
 - Tam doğrulama: affected test/lint, type-check, format-check, Rust fmt/clippy/test ve `build:all`.
-- Finding kapanışları: OBS-CRITICAL-003 (plan CRITICAL-003) Task 0; TENANTCOST-HIGH-011 (plan HIGH-011) Task 1; SENSOR-CRITICAL-086/087 ve SENSOR-HIGH-088 (plan CRITICAL-001/002 ve HIGH-008) Task 2; PLAT-HIGH-004 (plan HIGH-007) Task 3; SENSOR-CRITICAL-097 (plan CRITICAL-004) Task 4; HIGH-009 Task 5; HIGH-005/006 Task 6; HIGH-010 Task 7.
+- Finding kapanışları: OBS-CRITICAL-003 (plan CRITICAL-003) Task 0; TENANTCOST-HIGH-011 (plan HIGH-011) Task 1; SENSOR-CRITICAL-086/087 ve SENSOR-HIGH-088 (plan CRITICAL-001/002 ve HIGH-008) Task 2; PLAT-HIGH-004 (plan HIGH-007) Task 3; SENSOR-CRITICAL-097 (plan CRITICAL-004) Task 4; SENSOR-HIGH-098 (plan HIGH-009) Task 5; HIGH-005/006 Task 6; HIGH-010 Task 7.
 - `LEGAL-001` çözülmemişse teknik çalışma tamamlanabilir fakat raw retention aktivasyonu ve hukuk iddialı ticari readiness BLOCKED kalır.
 
 ## 4. Rollout sırası

@@ -22,10 +22,10 @@
  *     are inlined into the DELETE statement — callers must pass
  *     SAFE_IDENT_RE-valid names (validated at registration time).
  *   - timestampColumn: the column holding the "age" the policy
- *     compares against NOW() - retentionDays. Typically
+ *     compares against a calculated cutoff. Typically
  *     `occurred_at` / `created_at`.
- *   - retentionDays: integer ≥ 1. Upper bound is policy-driven
- *     (SOC2 CC4.1 12-month + buffer = 395; SOC2 CC8.1 = 7y = 2556).
+ *   - retentionDays: integer ≥ 1 for fixed day-count policies, or
+ *     retentionPeriod: ISO-8601 calendar period for calendar semantics.
  *   - legalHoldClause: optional SQL predicate that SUPPRESSES delete
  *     on matching rows. Used for row-level legal hold (e.g.
  *     `revoked_at IS NULL AND id NOT IN (SELECT ... FROM legal_holds)`).
@@ -43,7 +43,7 @@
 /** SAFE_IDENT_RE subset — duplicated locally to avoid importing sql-fragments. */
 const SAFE_IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-export interface RetentionPolicy {
+interface RetentionPolicyBase {
   /** Policy id for logs + tests; MUST be unique within the registry. */
   readonly id: string;
   /** PG schema holding the target table. SAFE_IDENT_RE validated. */
@@ -52,8 +52,6 @@ export interface RetentionPolicy {
   readonly tableName: string;
   /** Timestamp column for age comparison. SAFE_IDENT_RE validated. */
   readonly timestampColumn: string;
-  /** Integer days of retention. ≥ 1. */
-  readonly retentionDays: number;
   /**
    * Optional SQL predicate appended to the DELETE's WHERE clause.
    * Rows matching this predicate are PRESERVED (`legal_hold_clause`
@@ -77,11 +75,25 @@ export interface RetentionPolicy {
   readonly ownerTag: string;
 }
 
+export type RetentionPolicy = RetentionPolicyBase &
+  (
+    | {
+        /** Fixed integer days of retention. ≥ 1. */
+        readonly retentionDays: number;
+        readonly retentionPeriod?: never;
+      }
+    | {
+        /** ISO-8601 date-only calendar period, for example P90D or P5Y. */
+        readonly retentionPeriod: string;
+        readonly retentionDays?: never;
+      }
+  );
+
 const registeredPolicies = new Map<string, RetentionPolicy>();
 
 /**
  * Register a retention policy. Validates identifier safety + positive
- * retentionDays + unique id. Call at module-init time.
+ * retention duration + unique id. Call at module-init time.
  */
 export function registerRetentionPolicy(policy: RetentionPolicy): void {
   if (!SAFE_IDENT_RE.test(policy.schema)) {
@@ -90,18 +102,20 @@ export function registerRetentionPolicy(policy: RetentionPolicy): void {
     );
   }
   if (!SAFE_IDENT_RE.test(policy.tableName)) {
-    throw new RangeError(
-      `[retention] invalid tableName '${policy.tableName}'`,
-    );
+    throw new RangeError(`[retention] invalid tableName '${policy.tableName}'`);
   }
   if (!SAFE_IDENT_RE.test(policy.timestampColumn)) {
-    throw new RangeError(
-      `[retention] invalid timestampColumn '${policy.timestampColumn}'`,
-    );
+    throw new RangeError(`[retention] invalid timestampColumn '${policy.timestampColumn}'`);
   }
-  if (!Number.isInteger(policy.retentionDays) || policy.retentionDays < 1) {
+  if (policy.retentionDays !== undefined) {
+    if (!Number.isInteger(policy.retentionDays) || policy.retentionDays < 1) {
+      throw new RangeError(
+        `[retention] retentionDays must be an integer ≥ 1 (got ${policy.retentionDays})`,
+      );
+    }
+  } else if (!/^P(?=\d+[YMD])(?:\d+Y)?(?:\d+M)?(?:\d+D)?$/.test(policy.retentionPeriod)) {
     throw new RangeError(
-      `[retention] retentionDays must be an integer ≥ 1 (got ${policy.retentionDays})`,
+      `[retention] retentionPeriod must be an ISO-8601 date-only calendar period (got ${policy.retentionPeriod})`,
     );
   }
   if (!policy.id || typeof policy.id !== 'string') {

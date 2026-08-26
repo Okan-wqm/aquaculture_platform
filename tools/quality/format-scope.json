@@ -24540,6 +24540,12 @@
       "prettier_managed": true
     },
     {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/__tests__/telemetry-archive-lifecycle.migration.spec.ts",
+      "prettier_managed": true
+    },
+    {
       "class": "archive_immutable",
       "content_sha256": "09e0be0f32623cdd480948158da14291a33d74b3cc2d17e5307632143edd0b24",
       "hash_policy": "sha256",
@@ -24942,6 +24948,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/database/migrations/1816000000001-AddDurableSensorIngestLedger.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1816000000002-TelemetryArchiveLifecycle.ts",
       "prettier_managed": true
     },
     {
@@ -26741,7 +26753,37 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/telemetry-archive/__tests__/telemetry-archive-lifecycle.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/telemetry-archive/telemetry-archive-event.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/telemetry-archive/telemetry-archive-lifecycle.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/timescale/__tests__/continuous-aggregate.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/timescale/__tests__/hypertable.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/timescale/__tests__/retention-policy.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -44343,6 +44385,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/sensor-single-write-path.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/sensor-telemetry-retention-contract.spec.ts",
       "prettier_managed": true
     },
     {

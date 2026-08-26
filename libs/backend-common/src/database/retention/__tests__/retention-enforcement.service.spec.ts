@@ -1,10 +1,8 @@
-import type { DataSource } from 'typeorm';
-
 import {
-  clearRetentionPolicyRegistry,
-  registerRetentionPolicy,
-} from '../retention-policy';
-import { RetentionEnforcementService } from '../retention-enforcement.service';
+  RetentionEnforcementService,
+  type RetentionQueryExecutor,
+} from '../retention-enforcement.service';
+import { clearRetentionPolicyRegistry, registerRetentionPolicy } from '../retention-policy';
 
 function makeDs(
   behavior: {
@@ -12,19 +10,19 @@ function makeDs(
     throwOn?: RegExp;
     calls?: Array<{ sql: string; params?: unknown[] }>;
   } = {},
-): DataSource {
+): RetentionQueryExecutor {
   const calls = behavior.calls ?? [];
   return {
-    query: jest.fn(async (sql: string, params?: unknown[]) => {
+    query: jest.fn((sql: string, params?: unknown[]): Promise<unknown[]> => {
       calls.push({ sql, params });
       if (behavior.throwOn && behavior.throwOn.test(sql)) {
-        throw new Error(`DS query failed for sql matching ${behavior.throwOn}`);
+        return Promise.reject(new Error(`DS query failed for sql matching ${behavior.throwOn}`));
       }
       // Emulate RETURNING 1 — return an array whose length is the
       // deletion count.
-      return behavior.rowsPerQuery ?? [];
+      return Promise.resolve(behavior.rowsPerQuery ?? []);
     }),
-  } as unknown as DataSource;
+  };
 }
 
 describe('RetentionEnforcementService', () => {
@@ -61,16 +59,12 @@ describe('RetentionEnforcementService', () => {
       deleted: 7,
     });
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.sql).toContain(
-      'DELETE FROM "observability"."migration_events"',
-    );
-    expect(calls[0]!.sql).toContain('"occurred_at" < $1');
-    expect(calls[0]!.sql).toContain('RETURNING 1');
+    expect(calls[0]?.sql).toContain('DELETE FROM "observability"."migration_events"');
+    expect(calls[0]?.sql).toContain('"occurred_at" < $1');
+    expect(calls[0]?.sql).toContain('RETURNING 1');
     // Cutoff = 2026-04-21 - 395d
-    const expectedCutoff = new Date(
-      now.getTime() - 395 * 86_400_000,
-    ).toISOString();
-    expect(calls[0]!.params).toEqual([expectedCutoff]);
+    const expectedCutoff = new Date(now.getTime() - 395 * 86_400_000).toISOString();
+    expect(calls[0]?.params).toEqual([expectedCutoff]);
   });
 
   it('legal-hold predicate AND-NOT wraps into WHERE; hold rows preserved', async () => {
@@ -87,9 +81,7 @@ describe('RetentionEnforcementService', () => {
     const ds = makeDs({ rowsPerQuery: [], calls });
     const svc = new RetentionEnforcementService(ds);
     await svc.enforceAllOnce(new Date('2026-04-21T12:00:00.000Z'));
-    expect(calls[0]!.sql).toContain(
-      'AND NOT (revoked_at IS NULL AND expires_at > NOW())',
-    );
+    expect(calls[0]?.sql).toContain('AND NOT (revoked_at IS NULL AND expires_at > NOW())');
   });
 
   it('policy-level failure does NOT halt subsequent policies', async () => {
@@ -200,6 +192,24 @@ describe('RetentionEnforcementService', () => {
     const svc = new RetentionEnforcementService(ds);
     const now = new Date('2026-04-21T00:00:00.000Z');
     await svc.enforceAllOnce(now);
-    expect(calls[0]!.params?.[0]).toBe('2026-04-14T00:00:00.000Z');
+    expect(calls[0]?.params?.[0]).toBe('2026-04-14T00:00:00.000Z');
+  });
+
+  it('uses calendar subtraction for P5Y instead of approximating years as days', async () => {
+    registerRetentionPolicy({
+      id: 'calendar.5y',
+      ownerTag: 'test',
+      schema: 'observability',
+      tableName: 'migration_events',
+      timestampColumn: 'occurred_at',
+      retentionPeriod: 'P5Y',
+    });
+    const calls: Array<{ sql: string; params?: unknown[] }> = [];
+    const ds = makeDs({ rowsPerQuery: [], calls });
+    const svc = new RetentionEnforcementService(ds);
+
+    await svc.enforceAllOnce(new Date('2024-02-29T12:34:56.000Z'));
+
+    expect(calls[0]?.params?.[0]).toBe('2019-02-28T12:34:56.000Z');
   });
 });

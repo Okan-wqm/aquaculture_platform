@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `024bbc6b4323ff169c0c7777d0ff4fed2271b8819c29fd2ed1d6db10c3fb78f4`
+Registry tip: `381805730277dd32017a4c39866c45be2a5f0d3af3ac1cc6cc95bbfa41d58499`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -153,6 +153,13 @@ have focused regression coverage; both rows remain
 `already-fixed-needs-close` until the closing commit is main-reachable and the
 registry close ceremony records it.
 
+Updated 2026-08-26 (Rust ingestion pilot): `SENSOR-CRITICAL-097` is
+IN-PROGRESS after Task 4 established manual MQTT ACK, commit/PubAck ordering,
+single-owner epoch fencing, least-privileged database access, and pilot deploy
+surfaces on the feature branch. It remains `already-fixed-needs-close` until
+the closing commit is main-reachable and the registry close ceremony records
+it.
+
 Allowed truth buckets:
 
 - `real-open`
@@ -216,6 +223,7 @@ Allowed truth buckets:
 | `OBS-CRITICAL-003`      | OPEN           | Task 0       | sensor-expert              | already-fixed-needs-close |
 | `SENSOR-CRITICAL-086`   | IN-PROGRESS    | Task 2       | sensor-expert              | already-fixed-needs-close |
 | `SENSOR-CRITICAL-087`   | IN-PROGRESS    | Task 2       | sensor-expert              | already-fixed-needs-close |
+| `SENSOR-CRITICAL-097`   | IN-PROGRESS    | Task 4       | sensor-expert              | already-fixed-needs-close |
 
 ## Mutation Rules
 

@@ -1,4 +1,8 @@
-import { listTenantSchemas, validateTenantSchemaName } from '@aquaculture/backend-common/database';
+import {
+  getTenantSchemaName,
+  listTenantSchemas,
+  validateTenantSchemaName,
+} from '@aquaculture/backend-common/database';
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -48,6 +52,24 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
     'metrics_1hour',
     'metrics_1day',
   ] as const;
+
+  private static readonly REFRESH_HORIZON_MS: Readonly<Record<string, number>> = {
+    metrics_1min: 24 * 60 * 60 * 1000,
+    metrics_1hour: 7 * 24 * 60 * 60 * 1000,
+    metrics_1day: 30 * 24 * 60 * 60 * 1000,
+  };
+
+  private static readonly REFRESH_HORIZON_LABEL: Readonly<Record<string, string>> = {
+    metrics_1min: '24 hours',
+    metrics_1hour: '7 days',
+    metrics_1day: '30 days',
+  };
+
+  private static readonly BUCKET_WIDTH_MS: Readonly<Record<string, number>> = {
+    metrics_1min: 60 * 1000,
+    metrics_1hour: 60 * 60 * 1000,
+    metrics_1day: 24 * 60 * 60 * 1000,
+  };
 
   /** Advisory-lock key prefix; one lock per tenant so replicas do not race. */
   private static readonly LOCK_PREFIX = 'sensor-continuous-aggregate-bootstrap:';
@@ -109,22 +131,26 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
         return;
       }
 
+      const configuredBatchSize = this.configService.get<number>(
+        'SENSOR_CAGG_RECONCILE_BATCH_SIZE',
+        25,
+      );
+      const batchSize = Math.max(1, Math.floor(configuredBatchSize));
+      const reconciliationBatch = tenantSchemas.slice(0, batchSize);
       const failures: string[] = [];
       let ensured = 0;
-      for (const schema of tenantSchemas) {
+      for (const schema of reconciliationBatch) {
         try {
           if (await this.ensureAggregatesForTenant(queryRunner, schema)) {
             ensured++;
           }
         } catch (error) {
-          failures.push(
-            `${schema}: ${error instanceof Error ? error.message : String(error)}`,
-          );
+          failures.push(`${schema}: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
 
       this.logger.log(
-        `Continuous aggregates ensured for ${ensured}/${tenantSchemas.length} tenant schema(s)`,
+        `Continuous aggregates ensured for ${ensured}/${reconciliationBatch.length} tenant schema(s)`,
       );
 
       if (failures.length > 0) {
@@ -133,6 +159,21 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
             failures.join('; '),
         );
       }
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  /** Autocommit post-step used by tenant provisioning before ACTIVE capacity. */
+  async ensureTenantAggregates(tenantId: string): Promise<void> {
+    const schema = getTenantSchemaName(tenantId);
+    const queryRunner = this.dataSource.createQueryRunner();
+    try {
+      await queryRunner.connect();
+      if (!(await this.checkTimescaleDB(queryRunner))) {
+        throw new Error('TimescaleDB extension is required to provision tenant aggregates');
+      }
+      await this.ensureAggregatesForTenant(queryRunner, schema);
     } finally {
       await queryRunner.release();
     }
@@ -165,9 +206,8 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
 
     try {
       await queryRunner.query(`SET search_path TO "${schema}", public`);
-      const schemaRows: Array<{ current_schema: string }> = await queryRunner.query(
-        `SELECT current_schema()`,
-      );
+      const schemaRows: Array<{ current_schema: string }> =
+        await queryRunner.query(`SELECT current_schema()`);
       if (schemaRows[0]?.current_schema !== schema) {
         throw new Error(
           `Failed to pin search_path to "${schema}" for continuous-aggregate creation ` +
@@ -232,7 +272,7 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
       {
         label: 'metrics_1min refresh policy',
         sql: `SELECT add_continuous_aggregate_policy('metrics_1min',
-          start_offset => INTERVAL '3 minutes',
+          start_offset => INTERVAL '24 hours',
           end_offset => INTERVAL '1 minute',
           schedule_interval => INTERVAL '1 minute',
           if_not_exists => TRUE)`,
@@ -275,7 +315,7 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
       {
         label: 'metrics_1hour refresh policy',
         sql: `SELECT add_continuous_aggregate_policy('metrics_1hour',
-          start_offset => INTERVAL '3 hours',
+          start_offset => INTERVAL '7 days',
           end_offset => INTERVAL '1 hour',
           schedule_interval => INTERVAL '1 hour',
           if_not_exists => TRUE)`,
@@ -318,7 +358,7 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
       {
         label: 'metrics_1day refresh policy',
         sql: `SELECT add_continuous_aggregate_policy('metrics_1day',
-          start_offset => INTERVAL '3 days',
+          start_offset => INTERVAL '30 days',
           end_offset => INTERVAL '1 day',
           schedule_interval => INTERVAL '1 day',
           if_not_exists => TRUE)`,
@@ -345,17 +385,21 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
   /**
    * Returns the last completed refresh time for each known aggregate.
    */
-  async getRefreshStatus(): Promise<Array<{
-    viewName: string;
-    lastRefresh: Date | null;
-    behindBy: string | null;
-  }>> {
+  async getRefreshStatus(tenantId: string): Promise<
+    Array<{
+      viewName: string;
+      lastRefresh: Date | null;
+      behindBy: string | null;
+    }>
+  > {
+    const schema = getTenantSchemaName(tenantId);
     const rows: Array<{ view_name: string; last_run_started_at: Date | null }> =
       await this.dataSource.query(
         `SELECT view_name, last_run_started_at
          FROM timescaledb_information.continuous_aggregate_stats
-         WHERE view_name = ANY($1)`,
-        [ContinuousAggregateService.KNOWN_AGGREGATES],
+         WHERE view_schema = $1
+           AND view_name = ANY($2)`,
+        [schema, [...ContinuousAggregateService.KNOWN_AGGREGATES]],
       );
 
     const byName = new Map(rows.map((r) => [r.view_name, r]));
@@ -377,24 +421,69 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
    * over the specified window.  Use sparingly — prefer the scheduled policy
    * for routine refreshes.
    */
-  async refresh(
-    viewName: string,
-    startTime: Date,
-    endTime: Date,
-  ): Promise<void> {
+  async refresh(tenantId: string, viewName: string, startTime: Date, endTime: Date): Promise<void> {
     // Validate against known views to prevent SQL injection
     const knownViews: readonly string[] = ContinuousAggregateService.KNOWN_AGGREGATES;
     if (!knownViews.includes(viewName)) {
       throw new Error(`Unknown continuous aggregate: ${viewName}`);
     }
+    if (startTime >= endTime) {
+      throw new Error('Continuous aggregate refresh start must precede end');
+    }
+    const horizonMs = ContinuousAggregateService.REFRESH_HORIZON_MS[viewName];
+    if (horizonMs === undefined || endTime.getTime() - startTime.getTime() > horizonMs) {
+      const horizonLabel = ContinuousAggregateService.REFRESH_HORIZON_LABEL[viewName] ?? 'unknown';
+      throw new Error(`${viewName} refresh window exceeds its ${horizonLabel} source horizon`);
+    }
+
+    const schema = getTenantSchemaName(tenantId);
+    const qualifiedView = `${schema}.${viewName}`;
 
     this.logger.log(
-      `Manual refresh of ${viewName} from ${startTime.toISOString()} to ${endTime.toISOString()}`,
+      `Manual refresh of ${qualifiedView} from ${startTime.toISOString()} to ${endTime.toISOString()}`,
     );
 
-    await this.dataSource.query(
-      `CALL refresh_continuous_aggregate($1, $2, $3)`,
-      [viewName, startTime, endTime],
+    await this.dataSource.query(`CALL refresh_continuous_aggregate($1, $2, $3)`, [
+      qualifiedView,
+      startTime,
+      endTime,
+    ]);
+  }
+
+  async reconcileCounts(
+    tenantId: string,
+    viewName: string,
+    startTime: Date,
+    endTime: Date,
+    lateWatermark: Date,
+  ): Promise<{ rawCount: string; aggregateCount: string; matches: boolean }> {
+    const bucketWidthMs = ContinuousAggregateService.BUCKET_WIDTH_MS[viewName];
+    if (bucketWidthMs === undefined) {
+      throw new Error(`Unknown continuous aggregate: ${viewName}`);
+    }
+    if (startTime >= endTime) {
+      throw new Error('Reconciliation range start must precede end');
+    }
+    if (startTime.getTime() % bucketWidthMs !== 0 || endTime.getTime() % bucketWidthMs !== 0) {
+      throw new Error(`${viewName} reconciliation range has invalid bucket boundary alignment`);
+    }
+    if (endTime > lateWatermark) {
+      throw new Error('Reconciliation range extends beyond the late watermark');
+    }
+
+    const schema = validateTenantSchemaName(getTenantSchemaName(tenantId));
+    const rows: Array<{ raw_count: string; aggregate_count: string }> = await this.dataSource.query(
+      `SELECT
+           (SELECT COUNT(*)::bigint
+              FROM "${schema}"."sensor_metrics"
+             WHERE "time" >= $1 AND "time" < $2) AS raw_count,
+           (SELECT COALESCE(SUM(sample_count), 0)::bigint
+              FROM "${schema}"."${viewName}"
+             WHERE bucket >= $1 AND bucket < $2) AS aggregate_count`,
+      [startTime, endTime],
     );
+    const rawCount = rows[0]?.raw_count ?? '0';
+    const aggregateCount = rows[0]?.aggregate_count ?? '0';
+    return { rawCount, aggregateCount, matches: rawCount === aggregateCount };
   }
 }

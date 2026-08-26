@@ -148,6 +148,7 @@ import { PlcTelemetry } from './plc-control/entities/plc-telemetry.entity';
 import { CredentialVaultModule } from './infrastructure/vault/credential-vault.module';
 import { AuditModule } from './infrastructure/audit/audit.module';
 import { AuditLog } from './infrastructure/audit/audit-log.entity';
+import { TelemetryArchiveEvent } from './telemetry-archive/telemetry-archive-event.entity';
 import { AuditSubscriber } from './infrastructure/audit/audit.subscriber';
 import { LoRaDevice } from './edge-device/entities/lora-device.entity';
 import { TenantProvisioningKey } from './edge-device/entities/tenant-provisioning-key.entity';
@@ -247,6 +248,7 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
             VfdParameterAuditLog,
             VfdAutomationRule,
             AuditLog,
+            TelemetryArchiveEvent,
           ],
           // ORPHAN-HIGH-001 cure (sensor-service leg): switched to glob
           // pattern so every migration in the directory is registered.

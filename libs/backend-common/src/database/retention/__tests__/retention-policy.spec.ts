@@ -22,6 +22,32 @@ describe('RetentionPolicyRegistry', () => {
     expect(getRetentionPolicy('test.90d')?.retentionDays).toBe(90);
   });
 
+  it('registers an ISO-8601 calendar-period policy', () => {
+    registerRetentionPolicy({
+      id: 'test.5y',
+      ownerTag: 'test',
+      schema: 'observability',
+      tableName: 'migration_events',
+      timestampColumn: 'occurred_at',
+      retentionPeriod: 'P5Y',
+    });
+
+    expect(getRetentionPolicy('test.5y')?.retentionPeriod).toBe('P5Y');
+  });
+
+  it('rejects invalid calendar periods', () => {
+    expect(() =>
+      registerRetentionPolicy({
+        id: 'bad.period',
+        ownerTag: 'test',
+        schema: 'observability',
+        tableName: 'migration_events',
+        timestampColumn: 'occurred_at',
+        retentionPeriod: '5 years',
+      }),
+    ).toThrow(/ISO-8601/);
+  });
+
   it('rejects unsafe schema identifier', () => {
     expect(() =>
       registerRetentionPolicy({

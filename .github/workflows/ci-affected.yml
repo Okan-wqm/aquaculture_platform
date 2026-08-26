@@ -29,6 +29,7 @@ jobs:
     outputs:
       docs_changed: ${{ steps.changes.outputs.docs }}
       has_changes: ${{ steps.check.outputs.has_changes }}
+      deploy_changes: ${{ steps.check.outputs.deploy_changes }}
       infra_image_changed: ${{ steps.changes.outputs.infra_image }}
       is_pr: ${{ github.event_name == 'pull_request' }}
     steps:
@@ -106,10 +107,6 @@ jobs:
               - 'eslint.config.mjs'
               - 'tsconfig.base.json'
               - 'tests/**'
-              # Standalone E2E owns an independent lockfile. Its Dependabot PRs
-              # must enter the security-audit job even when no workspace source
-              # changed, otherwise the E2E audit contract cannot enforce itself.
-              - 'e2e/**'
               # Root manifest + lockfile. Any change here rewires the
               # workspace graph OR the dependency tree — both invalidate
               # every downstream build. Missing these from the filter
@@ -120,17 +117,29 @@ jobs:
               - '.npmrc'
               - 'package.json'
               - 'package-lock.json'
+            # Standalone E2E owns an independent lockfile. Its Dependabot PRs
+            # must enter the security-audit job even when no workspace source
+            # changed, otherwise the E2E audit contract cannot enforce itself.
+            audit_only:
+              - 'e2e/**'
       - id: check
         run: |
+          deploy_changes=false
           if [ "${{ steps.changes.outputs.apps }}" = "true" ] || \
              [ "${{ steps.changes.outputs.libs }}" = "true" ] || \
              [ "${{ steps.changes.outputs.web }}" = "true" ] || \
              [ "${{ steps.changes.outputs.infra_image }}" = "true" ] || \
              [ "${{ steps.changes.outputs.deploy-config }}" = "true" ]; then
-            echo "has_changes=true" >> $GITHUB_OUTPUT
-          else
-            echo "has_changes=false" >> $GITHUB_OUTPUT
+            deploy_changes=true
           fi
+
+          has_changes="$deploy_changes"
+          if [ "${{ steps.changes.outputs.audit_only }}" = "true" ]; then
+            has_changes=true
+          fi
+
+          echo "has_changes=$has_changes" >> "$GITHUB_OUTPUT"
+          echo "deploy_changes=$deploy_changes" >> "$GITHUB_OUTPUT"
 
   # ---------------------------------------------------------------------------
   # Shared setup: install + cache (reusable via needs + cache restore)
@@ -950,7 +959,7 @@ jobs:
     if: >-
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
-      needs.detect-changes.outputs.has_changes == 'true' &&
+      needs.detect-changes.outputs.deploy_changes == 'true' &&
       needs.install.result == 'success' &&
       needs.lint.result == 'success' &&
       needs.type-check.result == 'success' &&
@@ -978,7 +987,7 @@ jobs:
     if: >-
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
-      needs.detect-changes.outputs.has_changes == 'true' &&
+      needs.detect-changes.outputs.deploy_changes == 'true' &&
       needs.install.result == 'success' &&
       needs.lint.result == 'success' &&
       needs.type-check.result == 'success' &&
@@ -1240,6 +1249,29 @@ jobs:
         uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable
         with:
           toolchain: 1.88.0
+      - name: Install cargo-audit (precompiled)
+        uses: taiki-e/install-action@6c6fd71fe4fb72c3697d269963d0e15df8adedad # v2.85.10
+        with:
+          tool: cargo-audit
+      - name: Audit root lockfile
+        run: cargo audit --deny warnings
+      - name: Audit gateway lockfile
+        working-directory: sens-api-gateway
+        run: |
+          cargo audit --deny warnings \
+            --ignore RUSTSEC-2023-0071 \
+            --ignore RUSTSEC-2025-0141 \
+            --ignore RUSTSEC-2024-0388 \
+            --ignore RUSTSEC-2023-0089 \
+            --ignore RUSTSEC-2026-0173 \
+            --ignore RUSTSEC-2024-0436
+      - name: Audit fuzz lockfile
+        working-directory: sens-api-gateway
+        run: cargo audit --file fuzz/Cargo.lock
+      - name: Audit alarm-core WASM lockfile
+        run: cargo audit --file crates/alarm-core-wasm/Cargo.lock --deny warnings
+      - name: Audit protocol-codec WASM lockfile
+        run: cargo audit --file crates/protocol-codec-wasm/Cargo.lock --deny warnings
       - name: Install TPM build dependencies
         uses: ./.github/actions/install-tpm-build-dependencies
       - name: Cargo check locked curated CI features

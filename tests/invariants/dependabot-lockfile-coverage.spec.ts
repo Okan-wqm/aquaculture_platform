@@ -43,6 +43,9 @@ import { parse } from 'yaml';
 const repoRoot = resolve(__dirname, '../..');
 const configPath = resolve(repoRoot, '.github/dependabot.yml');
 const edgeWorkflowPath = resolve(repoRoot, '.github/workflows/sens-api-gateway-ci.yml');
+const requiredWorkflowPath = resolve(repoRoot, '.github/workflows/ci-affected.yml');
+const rustWorkflowPath = resolve(repoRoot, '.github/workflows/rust-ci.yml');
+const ignoreSyncPath = resolve(repoRoot, 'scripts/ci/check-advisory-ignore-sync.ts');
 
 /** Lockfile basename → the Dependabot ecosystem that would track it. */
 const LOCKFILE_ECOSYSTEM: Readonly<Record<string, string>> = {
@@ -90,12 +93,16 @@ interface DependabotConfig {
 }
 
 interface WorkflowConfig {
+  readonly on?: Readonly<Record<'push' | 'pull_request', { readonly paths?: readonly string[] }>>;
   readonly jobs?: Readonly<
     Record<
       string,
       {
+        readonly needs?: readonly string[];
         readonly steps?: readonly {
           readonly name?: string;
+          readonly uses?: string;
+          readonly with?: Record<string, string>;
           readonly 'working-directory'?: string;
           readonly run?: string;
         }[];
@@ -156,17 +163,59 @@ describe('Dependabot lockfile coverage', () => {
     expect(nonCanonical).toEqual([]);
   });
 
-  it('audits the standalone edge fuzz lockfile in the required edge gate', () => {
-    const workflow = parse(readFileSync(edgeWorkflowPath, 'utf8')) as WorkflowConfig;
-    const fuzzAudit = workflow.jobs?.audit?.steps?.find(
-      (step) => step.name === 'Audit fuzz lockfile',
-    );
+  it('audits every independently resolved Rust lock in the required Sens gate', () => {
+    const workflow = parse(readFileSync(requiredWorkflowPath, 'utf8')) as WorkflowConfig;
+    const job = workflow.jobs?.['sens-api-gateway-rust'];
+    const steps = job?.steps ?? [];
 
-    expect(fuzzAudit).toEqual({
-      name: 'Audit fuzz lockfile',
-      'working-directory': '${{ env.SENS_API_GATEWAY_DIR }}',
+    expect(steps.find((step) => step.name === 'Install cargo-audit (precompiled)')).toMatchObject({
+      uses: 'taiki-e/install-action@6c6fd71fe4fb72c3697d269963d0e15df8adedad',
+      with: { tool: 'cargo-audit' },
+    });
+    expect(steps.find((step) => step.name === 'Audit root lockfile')?.run).toBe(
+      'cargo audit --deny warnings',
+    );
+    expect(steps.find((step) => step.name === 'Audit fuzz lockfile')).toMatchObject({
+      'working-directory': 'sens-api-gateway',
       run: 'cargo audit --file fuzz/Cargo.lock',
     });
+    expect(steps.find((step) => step.name === 'Audit alarm-core WASM lockfile')?.run).toBe(
+      'cargo audit --file crates/alarm-core-wasm/Cargo.lock --deny warnings',
+    );
+    expect(steps.find((step) => step.name === 'Audit protocol-codec WASM lockfile')?.run).toBe(
+      'cargo audit --file crates/protocol-codec-wasm/Cargo.lock --deny warnings',
+    );
+
+    const summary = workflow.jobs?.['sens-enterprise-summary'];
+    expect(summary?.needs).toContain('sens-api-gateway-rust');
+    expect(summary?.steps?.map((step) => step.run ?? '').join('\n')).toContain(
+      'needs.sens-api-gateway-rust.result',
+    );
+  });
+
+  it('keeps required edge audit policy aligned with the optional edge workflow', () => {
+    const required = parse(readFileSync(requiredWorkflowPath, 'utf8')) as WorkflowConfig;
+    const optional = parse(readFileSync(edgeWorkflowPath, 'utf8')) as WorkflowConfig;
+    const requiredSteps = required.jobs?.['sens-api-gateway-rust']?.steps ?? [];
+    const optionalSteps = optional.jobs?.audit?.steps ?? [];
+
+    for (const name of ['Audit gateway lockfile', 'Audit fuzz lockfile']) {
+      const requiredStep = requiredSteps.find((step) => step.name === name);
+      const optionalStep = optionalSteps.find((step) => step.name === name);
+      expect(requiredStep?.run).toBe(optionalStep?.run);
+      expect(requiredStep?.['working-directory']).toBe('sens-api-gateway');
+      expect(optionalStep?.['working-directory']).toBe('${{ env.SENS_API_GATEWAY_DIR }}');
+    }
+  });
+
+  it('reruns advisory lock-step governance when the required edge audit changes', () => {
+    const syncSource = readFileSync(ignoreSyncPath, 'utf8');
+    const rustWorkflow = parse(readFileSync(rustWorkflowPath, 'utf8')) as WorkflowConfig;
+
+    expect(syncSource).toContain("'.github/workflows/ci-affected.yml'");
+    for (const eventName of ['push', 'pull_request'] as const) {
+      expect(rustWorkflow.on?.[eventName]?.paths).toContain('.github/workflows/ci-affected.yml');
+    }
   });
 
   it('gives the standalone AquaMobil production lock non-overlapping update ownership', () => {

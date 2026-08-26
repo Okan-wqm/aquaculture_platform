@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 
 import * as YAML from 'yaml';
@@ -102,7 +103,10 @@ interface Workflow {
   jobs?: Record<
     string,
     {
+      if?: string;
+      outputs?: Record<string, string>;
       steps?: Array<{
+        id?: string;
         name?: string;
         if?: string;
         run?: string;
@@ -114,6 +118,32 @@ interface Workflow {
 
 function readRepoFile(relativePath: string): string {
   return readFileSync(resolve(REPO_ROOT, relativePath), 'utf8');
+}
+
+function executeChangeClassifier(
+  script: string,
+  values: Readonly<Record<string, 'true' | 'false'>>,
+): Readonly<Record<string, string>> {
+  const directory = mkdtempSync(resolve(tmpdir(), 'aqua-change-classifier-'));
+  const outputPath = resolve(directory, 'github-output');
+  const rendered = script.replace(
+    /\$\{\{ steps\.changes\.outputs\.([a-z_-]+) \}\}/g,
+    (_match, name: string) => values[name] ?? 'false',
+  );
+  try {
+    execFileSync('bash', ['-c', `set -euo pipefail\n${rendered}`], {
+      cwd: REPO_ROOT,
+      env: { ...process.env, GITHUB_OUTPUT: outputPath },
+    });
+    return Object.fromEntries(
+      readFileSync(outputPath, 'utf8')
+        .trim()
+        .split(/\r?\n/)
+        .map((line) => line.split('=', 2) as [string, string]),
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 }
 
 function readJson<T>(relativePath: string): T {
@@ -495,8 +525,36 @@ describe('JavaScript dependency security floor', () => {
     }
   });
 
-  test('routes standalone E2E dependency changes through the affected security gate', () => {
-    expect(readRepoFile('.github/workflows/ci-affected.yml')).toContain("- 'e2e/**'");
+  test('keeps E2E-only changes inside CI without granting deploy authority', () => {
+    const workflow = YAML.parse(readRepoFile('.github/workflows/ci-affected.yml')) as Workflow;
+    const detect = workflow.jobs?.['detect-changes'];
+    const filtersSource = detect?.steps?.find((step) => step.id === 'changes')?.with?.filters;
+    const filters = YAML.parse(String(filtersSource ?? '')) as Record<string, string[]>;
+    const classifier = detect?.steps?.find((step) => step.id === 'check')?.run ?? '';
+
+    expect(filters.audit_only).toEqual(['e2e/**']);
+    expect(filters['deploy-config']).not.toContain('e2e/**');
+    expect(detect?.outputs).toMatchObject({
+      has_changes: '${{ steps.check.outputs.has_changes }}',
+      deploy_changes: '${{ steps.check.outputs.deploy_changes }}',
+    });
+    expect(executeChangeClassifier(classifier, { audit_only: 'true' })).toEqual({
+      has_changes: 'true',
+      deploy_changes: 'false',
+    });
+    expect(executeChangeClassifier(classifier, { apps: 'true' })).toEqual({
+      has_changes: 'true',
+      deploy_changes: 'true',
+    });
+
+    for (const jobName of ['deploy-staging', 'deploy-production']) {
+      const condition = workflow.jobs?.[jobName]?.if ?? '';
+      expect(condition).toContain("needs.detect-changes.outputs.deploy_changes == 'true'");
+      expect(condition).not.toContain('outputs.has_changes');
+    }
+    expect(workflow.jobs?.['security-audit']?.if).toContain(
+      "needs.detect-changes.outputs.has_changes == 'true'",
+    );
   });
 
   test.each(['.github/workflows/ci-affected.yml', '.github/workflows/ci-full.yml'])(

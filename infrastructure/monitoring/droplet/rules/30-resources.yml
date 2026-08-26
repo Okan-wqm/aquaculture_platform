@@ -19,7 +19,7 @@ groups:
             container_memory_working_set_bytes{name=~"aqua-.+"}
             /
             container_spec_memory_limit_bytes{name=~"aqua-.+"}
-            > 0.85
+            > 0.75
           ) and (
             container_spec_memory_limit_bytes{name=~"aqua-.+"} > 0
           )
@@ -28,7 +28,7 @@ groups:
           severity: warning
         annotations:
           summary: 'High memory usage on {{ $labels.name }}'
-          description: '{{ $labels.name }} is using more than 85% of its memory limit for 10 minutes.'
+          description: '{{ $labels.name }} is using more than 75% of its memory limit for 10 minutes; telemetry readiness admission must stop.'
           runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/high-memory-usage.md'
 
       - alert: HighCpuUsage
@@ -43,7 +43,7 @@ groups:
               /
               container_spec_cpu_period{name=~"aqua-.+"}
             )
-            > 0.8
+            > 0.70
           ) and (
             container_spec_cpu_quota{name=~"aqua-.+"} > 0
           )
@@ -52,7 +52,7 @@ groups:
           severity: warning
         annotations:
           summary: 'High CPU usage on {{ $labels.name }}'
-          description: '{{ $labels.name }} is using more than 80% of its CPU limit for 10 minutes.'
+          description: '{{ $labels.name }} is using more than 70% of its CPU limit for 10 minutes; telemetry readiness admission must stop.'
           runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/high-cpu-usage.md'
 
       - alert: HostFilesystemCapacityHigh

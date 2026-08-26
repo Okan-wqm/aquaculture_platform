@@ -45709,6 +45709,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/gates/telemetry-readiness-gate.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/gates/tier-claim-lint.ts",
       "prettier_managed": true
     },
@@ -45962,6 +45968,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/scripts/emit-subgraph-sdl.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/scripts/evaluate-telemetry-readiness.ts",
       "prettier_managed": true
     },
     {

@@ -273,6 +273,10 @@ Task 0 sonrasında Task 2–3 ile paralel yürüyebilir; bütün raw drop yollar
 
 ### Task 6 — Harici yük, arıza matrisi ve donanım kararları
 
+#### SENSOR-HIGH-099 — Eksik harici kanıtla telemetry readiness sonucu üretilebiliyor
+
+`tools/scripts/evaluate-telemetry-readiness.ts`, yalnız dış hostta en az iki worker ve 100 ACTIVE entitlement ile üretilmiş tam kanıt paketini kabul eder. Sustained, recovery, stress, sekiz arıza senaryosu, kaynak/child ID set hashleri, tenant-minute reconciliation, donanım p95 değerleri, compression izolasyonu, WAL-G scratch restore ve aynı host/image/config üzerindeki üç Rust pilot koşusundan herhangi biri eksikse sonuç `FAIL` olur. Bu kod kapısı ölçümün yerini tutmaz: korumalı dış-host koşuları henüz PASS artefaktı üretmediyse kapasite aktivasyonu ve HIGH-005/HIGH-006 readiness kapanışı bloklu kalır.
+
 - 100 ACTIVE entitlement tenant ile harici, çok süreçli 2K×30 dakika test çalışır.
 - Artefakt source IDs, M/E/R, rows/message, child IDs, DLQ, iş etkileri ve tenant-minute reconciliation içerir.
 - PG 5 dakika kill, sensor-service/NATS/Mosquitto restart, 30 dakika outage, 60 dakika buffer, DLQ replay ve queue’da veri varken tenant erasure test edilir.
@@ -316,7 +320,7 @@ Task 0 sonrasında Task 2–3 ile paralel yürüyebilir; bütün raw drop yollar
 - Tek tenant schema utility invariant’ı korunur.
 - ADR, PROGRESS, retention matrix ve runbook yalnız ölçülmüş artefaktları ifade eder.
 - Tam doğrulama: affected test/lint, type-check, format-check, Rust fmt/clippy/test ve `build:all`.
-- Finding kapanışları: OBS-CRITICAL-003 (plan CRITICAL-003) Task 0; TENANTCOST-HIGH-011 (plan HIGH-011) Task 1; SENSOR-CRITICAL-086/087 ve SENSOR-HIGH-088 (plan CRITICAL-001/002 ve HIGH-008) Task 2; PLAT-HIGH-004 (plan HIGH-007) Task 3; SENSOR-CRITICAL-097 (plan CRITICAL-004) Task 4; SENSOR-HIGH-098 (plan HIGH-009) Task 5; HIGH-005/006 Task 6; HIGH-010 Task 7.
+- Finding kapanışları: OBS-CRITICAL-003 (plan CRITICAL-003) Task 0; TENANTCOST-HIGH-011 (plan HIGH-011) Task 1; SENSOR-CRITICAL-086/087 ve SENSOR-HIGH-088 (plan CRITICAL-001/002 ve HIGH-008) Task 2; PLAT-HIGH-004 (plan HIGH-007) Task 3; SENSOR-CRITICAL-097 (plan CRITICAL-004) Task 4; SENSOR-HIGH-098 (plan HIGH-009) Task 5; SENSOR-HIGH-099 kod kapısı ve dış-host PASS artefaktı (plan HIGH-005/006) Task 6; HIGH-010 Task 7.
 - `LEGAL-001` çözülmemişse teknik çalışma tamamlanabilir fakat raw retention aktivasyonu ve hukuk iddialı ticari readiness BLOCKED kalır.
 
 ## 4. Rollout sırası

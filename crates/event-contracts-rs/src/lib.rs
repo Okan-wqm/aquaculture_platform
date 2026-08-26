@@ -39,8 +39,30 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 use uuid::Uuid;
+
+mod rfc3339_millis {
+    use chrono::{DateTime, SecondsFormat, Utc};
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(
+        value: &DateTime<Utc>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&value.to_rfc3339_opts(SecondsFormat::Millis, true))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<DateTime<Utc>, D::Error> {
+        let value = String::deserialize(deserializer)?;
+        DateTime::parse_from_rfc3339(&value)
+            .map(|parsed| parsed.with_timezone(&Utc))
+            .map_err(serde::de::Error::custom)
+    }
+}
 
 /// Crate version for diagnostic / drift-detection telemetry.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -53,6 +75,9 @@ pub enum EventIdError {
     /// The supplied string is not a valid UUID.
     #[error("event id is not a valid UUID")]
     InvalidUuid,
+    /// Stable source identity and child discriminator must both be present.
+    #[error("deterministic event id requires non-empty source and discriminator")]
+    MissingDeterministicComponent,
 }
 
 /// Opaque event identifier. Producible only by [`EventId::generate`]
@@ -79,6 +104,31 @@ impl EventId {
         Uuid::try_parse(s)
             .map(Self)
             .map_err(|_| EventIdError::InvalidUuid)
+    }
+
+    /// Derive the same UUIDv5-shaped stable child id as the TypeScript
+    /// `createDeterministicEventId` factory. This is SHA-256 over
+    /// `sourceEventId`, a NUL separator, and the child discriminator; the
+    /// UUID version/variant bits are then normalised without truncating the
+    /// producer identity before hashing.
+    pub fn deterministic(source_event_id: &str, discriminator: &str) -> Result<Self, EventIdError> {
+        if source_event_id.is_empty() || discriminator.is_empty() {
+            return Err(EventIdError::MissingDeterministicComponent);
+        }
+        let digest = Sha256::new()
+            .chain_update(source_event_id.as_bytes())
+            .chain_update([0])
+            .chain_update(discriminator.as_bytes())
+            .finalize();
+        let mut bytes = [0_u8; 16];
+        for (index, (output, input)) in bytes.iter_mut().zip(digest.iter()).enumerate() {
+            *output = match index {
+                6 => (*input & 0x0f) | 0x50,
+                8 => (*input & 0x3f) | 0x80,
+                _ => *input,
+            };
+        }
+        Ok(Self(Uuid::from_bytes(bytes)))
     }
 
     /// Borrow the inner UUID. Use sparingly — prefer the typed
@@ -131,6 +181,31 @@ impl Serialize for SensorReadingEventType {
     }
 }
 
+/// Canonical parameter vocabulary shared with the TypeScript
+/// `SensorReadingParameter` union.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SensorReadingParameter {
+    /// Water temperature.
+    Temperature,
+    /// Acidity / alkalinity.
+    Ph,
+    /// Dissolved oxygen.
+    DissolvedOxygen,
+    /// Salinity.
+    Salinity,
+    /// Ammonia.
+    Ammonia,
+    /// Nitrite.
+    Nitrite,
+    /// Nitrate.
+    Nitrate,
+    /// Turbidity.
+    Turbidity,
+    /// Water level.
+    WaterLevel,
+}
+
 impl<'de> Deserialize<'de> for SensorReadingEventType {
     fn deserialize<D: Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
         let s = String::deserialize(de)?;
@@ -160,6 +235,7 @@ pub struct SensorReadingEvent {
     /// Discriminator — always `"SensorReading"` on the wire.
     pub event_type: SensorReadingEventType,
     /// ISO 8601 UTC timestamp.
+    #[serde(with = "rfc3339_millis")]
     pub timestamp: DateTime<Utc>,
     /// Tenant id at the top level for NATS subject routing
     /// (matches TS BaseEvent contract).
@@ -196,6 +272,12 @@ pub struct SensorReadingEvent {
     /// Optional pond scope.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub pond_id: Option<Uuid>,
+    /// Canonical parameter represented by this single-channel event.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub parameter: Option<SensorReadingParameter>,
+    /// Explicit unit for the reading value.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub unit: Option<String>,
 
     /// Temperature in Celsius.
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -232,10 +314,13 @@ impl SensorReadingEvent {
     /// fields default to `None`.
     #[must_use]
     pub fn new(tenant_id: Uuid, sensor_id: Uuid) -> Self {
+        let now = Utc::now();
+        let timestamp = now
+            - chrono::Duration::nanoseconds(i64::from(now.timestamp_subsec_nanos() % 1_000_000));
         Self {
             event_id: EventId::generate(),
             event_type: SensorReadingEventType,
-            timestamp: Utc::now(),
+            timestamp,
             tenant_id,
             version: 1,
             aggregate_id: Some(sensor_id),
@@ -247,6 +332,8 @@ impl SensorReadingEvent {
             sensor_id,
             farm_id: None,
             pond_id: None,
+            parameter: None,
+            unit: None,
             reading_temperature: None,
             reading_ph: None,
             reading_dissolved_oxygen: None,
@@ -491,6 +578,28 @@ mod tests {
     #[test]
     fn event_id_generate_unique_per_call() {
         assert_ne!(EventId::generate(), EventId::generate());
+    }
+
+    #[test]
+    fn deterministic_event_id_matches_typescript_factory() {
+        let id = EventId::deterministic("edge-a:1735689600000:42", "SensorReading:0").unwrap();
+        assert_eq!(id.to_string(), "fd8392a1-6076-5288-b415-1b8cc0b3256e");
+        assert_eq!(
+            id,
+            EventId::deterministic("edge-a:1735689600000:42", "SensorReading:0",).unwrap()
+        );
+    }
+
+    #[test]
+    fn deterministic_event_id_rejects_empty_components() {
+        assert_eq!(
+            EventId::deterministic("", "SensorReading:0"),
+            Err(EventIdError::MissingDeterministicComponent)
+        );
+        assert_eq!(
+            EventId::deterministic("edge-a:1", ""),
+            Err(EventIdError::MissingDeterministicComponent)
+        );
     }
 
     #[test]

@@ -509,7 +509,12 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     // Matches compose start_period: 90s.
     startupBudgetSeconds: 90,
     requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
-    requiredEnv: ['SENSOR_SERVICE_DB_PASS', 'CREDENTIAL_ENCRYPTION_KEY'],
+    requiredEnv: [
+      'SENSOR_SERVICE_DB_PASS',
+      'CREDENTIAL_ENCRYPTION_KEY',
+      'MQTT_SENSOR_INGESTION_HASH',
+      'MQTT_EXPORTER_HASH',
+    ],
     gatewaySubgraph: subgraph(
       'sensor',
       'sensor-service',
@@ -522,17 +527,21 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     nxProject: 'sensor-ingestion',
     imageTarget: 'sensor-ingestion',
     buildKind: 'rust-sidecar',
-    deploymentStatus: 'inactive',
-    deployTarget: 'unsupported',
-    deployProfiles: [],
-    criticality: 'ignored',
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    deployProfiles: ['rust-sidecar'],
+    criticality: 'warning',
     classification: 'internal-service',
-    // Inactive sidecar (not deployed to droplet) — nominal budget; the
-    // validator only enforces > 0 for active services.
+    dbRoles: { runtime: 'sensor_ingestion' },
     startupBudgetSeconds: 30,
-    privilegeMode: 'none',
-    requiredSignals: [],
-    requiredEnv: [],
+    privilegeMode: 'dml-only',
+    requiredSignals: ['nats_auth_mode_mtls'],
+    requiredEnv: [
+      'SENSOR_INGESTION_DB_PASS',
+      'SENSOR_INGESTION_MQTT_USERNAME',
+      'SENSOR_INGESTION_MQTT_PASSWORD',
+      'MQTT_SENSOR_INGESTION_HASH',
+    ],
   }),
   buildEntry({
     serviceId: 'hr-service',
@@ -1044,7 +1053,7 @@ export function serviceCatalogById(): Map<string, ServiceCatalogEntry> {
 
 export function activeDropletServices(): readonly ServiceCatalogEntry[] {
   return PLATFORM_SERVICE_CATALOG.filter(
-    (entry) => entry.deploymentStatus === 'active' && entry.deployProfiles.includes('droplet'),
+    (entry) => entry.deploymentStatus === 'active' && entry.deployTarget === 'droplet',
   );
 }
 
@@ -1303,7 +1312,7 @@ export function readinessSlaSeconds(
     .filter(
       (entry) =>
         entry.deploymentStatus === 'active' &&
-        entry.deployProfiles.includes('droplet') &&
+        entry.deployTarget === 'droplet' &&
         entry.criticality === 'critical',
     )
     .map((entry) => entry.startupBudgetSeconds);
@@ -1454,7 +1463,7 @@ export function validateServiceCatalog(
     // budget would let a new service ship with no startup contract.
     if (
       entry.deploymentStatus === 'active' &&
-      entry.deployProfiles.includes('droplet') &&
+      entry.deployTarget === 'droplet' &&
       !(entry.startupBudgetSeconds > 0)
     ) {
       errors.push({

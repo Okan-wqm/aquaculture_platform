@@ -25,6 +25,12 @@ pub const DEFAULT_CONFIG_PATH: &str = "/etc/sensor-ingestion/config.toml";
 /// Env var consulted when no `--config` argv is given.
 pub const CONFIG_PATH_ENV: &str = "SENSOR_INGESTION_CONFIG";
 
+/// Secret-only override. The production compose passes the dedicated database
+/// role password here so credentials never need to exist in the mounted TOML.
+pub const POSTGRES_PASSWORD_ENV: &str = "SENSOR_INGESTION_POSTGRES_PASSWORD";
+pub const MQTT_USERNAME_ENV: &str = "SENSOR_INGESTION_MQTT_USERNAME";
+pub const MQTT_PASSWORD_ENV: &str = "SENSOR_INGESTION_MQTT_PASSWORD";
+
 /// Top-level config struct. Each section maps to one of the workspace
 /// crates the binary wires together.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -152,6 +158,12 @@ pub struct MqttConfig {
     /// baseline).
     #[serde(default = "default_qos")]
     pub qos: u8,
+    /// Dedicated broker username for the internal HTTP-auth listener.
+    #[serde(default)]
+    pub username: Option<String>,
+    /// Broker credential. Production overrides the mounted placeholder via env.
+    #[serde(default)]
+    pub password: Option<String>,
     /// PEM-encoded broker CA certificate. REQUIRED when `broker_url`
     /// uses the `mqtts://` scheme. System roots are NEVER consulted —
     /// the platform CA is the only trust anchor. Optional for plain
@@ -325,10 +337,40 @@ impl Config {
             path: path.to_path_buf(),
             source,
         })?;
-        toml::from_str(&raw).map_err(|source| ConfigError::ParseToml {
+        let mut config: Self = toml::from_str(&raw).map_err(|source| ConfigError::ParseToml {
             path: path.to_path_buf(),
             source,
-        })
+        })?;
+        apply_postgres_password_override(&mut config, std::env::var(POSTGRES_PASSWORD_ENV).ok());
+        apply_mqtt_credentials_override(
+            &mut config,
+            std::env::var(MQTT_USERNAME_ENV).ok(),
+            std::env::var(MQTT_PASSWORD_ENV).ok(),
+        );
+        Ok(config)
+    }
+}
+
+fn apply_mqtt_credentials_override(
+    config: &mut Config,
+    username: Option<String>,
+    password: Option<String>,
+) {
+    if let Some(mqtt) = &mut config.mqtt {
+        if let Some(username) = username.filter(|value| !value.is_empty()) {
+            mqtt.username = Some(username);
+        }
+        if let Some(password) = password.filter(|value| !value.is_empty()) {
+            mqtt.password = Some(password);
+        }
+    }
+}
+
+fn apply_postgres_password_override(config: &mut Config, password: Option<String>) {
+    if let (Some(postgres), Some(password)) = (&mut config.postgres, password)
+        && !password.is_empty()
+    {
+        postgres.password = password;
     }
 }
 
@@ -354,7 +396,7 @@ mod tests {
 
     use tempfile::NamedTempFile;
 
-    use super::{Config, RuntimeConfig};
+    use super::{Config, RuntimeConfig, apply_postgres_password_override};
 
     fn write_config(toml: &str) -> NamedTempFile {
         let mut f = NamedTempFile::new().unwrap();
@@ -385,6 +427,28 @@ mod tests {
         assert_eq!(r.worker_threads, 2);
         assert_eq!(r.max_blocking_threads, 8);
         assert_eq!(r.thread_stack_kb, 256);
+    }
+
+    #[test]
+    fn postgres_password_secret_override_replaces_mounted_placeholder() {
+        let toml = r#"
+            [observability]
+            service_name = "sensor-ingestion"
+            service_version = "0.1.0"
+
+            [postgres]
+            host = "postgres"
+            port = 5432
+            db_name = "aquaculture"
+            user = "sensor_ingestion"
+            password = "REPLACE_FROM_SECRETS"
+            ca_cert_pem = "/etc/postgres/ca.pem"
+            pool_size = 4
+        "#;
+        let mut config: Config = toml::from_str(toml).unwrap();
+        apply_postgres_password_override(&mut config, Some("runtime-secret".to_owned()));
+
+        assert_eq!(config.postgres.unwrap().password, "runtime-secret");
     }
 
     #[test]
@@ -480,6 +544,8 @@ mod tests {
             client_id: "x".to_owned(),
             topic_filters: vec!["sensors/#".to_owned()],
             qos: 1,
+            username: None,
+            password: None,
             server_ca_cert_pem: None,
             client_cert_pem: None,
             client_key_pem: None,

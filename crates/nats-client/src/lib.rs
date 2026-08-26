@@ -93,6 +93,10 @@ pub enum NatsClientError {
     #[error("NATS publish error")]
     Publish(#[source] async_nats::PublishError),
 
+    /// JetStream did not persist the message or return its server PubAck.
+    #[error("NATS JetStream publish acknowledgement error")]
+    JetStreamPublish(#[source] Box<dyn std::error::Error + Send + Sync>),
+
     /// Subscribe-side errors (broker rejected the subject filter,
     /// resource limit hit).
     #[error("NATS subscribe error")]
@@ -160,6 +164,18 @@ mod duration_secs {
 #[derive(Debug, Clone)]
 pub struct NatsClient {
     inner: async_nats::Client,
+}
+
+/// Server-confirmed JetStream persistence coordinates. Callers persist these
+/// next to their dispatch intent before acknowledging an upstream delivery.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JetStreamPubAck {
+    /// Stream that accepted the message.
+    pub stream: String,
+    /// Stream-global sequence assigned by the server.
+    pub sequence: u64,
+    /// True when JetStream deduplicated an existing `Nats-Msg-Id`.
+    pub duplicate: bool,
 }
 
 impl NatsClient {
@@ -242,6 +258,30 @@ impl NatsClient {
             .publish_with_headers(subject.into(), headers, payload)
             .await
             .map_err(NatsClientError::Publish)
+    }
+
+    /// Publish through JetStream and await the server persistence PubAck. Core
+    /// NATS acceptance is deliberately insufficient for the ingestion ACK
+    /// chain because it does not prove the stream stored the child event.
+    pub async fn publish_jetstream_with_headers(
+        &self,
+        subject: impl Into<async_nats::Subject> + Send,
+        headers: async_nats::HeaderMap,
+        payload: Bytes,
+    ) -> Result<JetStreamPubAck, NatsClientError> {
+        let context = async_nats::jetstream::new(self.inner.clone());
+        let subject = subject.into();
+        let ack = context
+            .publish_with_headers(subject, headers, payload)
+            .await
+            .map_err(|error| NatsClientError::JetStreamPublish(Box::new(error)))?
+            .await
+            .map_err(|error| NatsClientError::JetStreamPublish(Box::new(error)))?;
+        Ok(JetStreamPubAck {
+            stream: ack.stream,
+            sequence: ack.sequence,
+            duplicate: ack.duplicate,
+        })
     }
 
     /// Subscribe to a subject (or wildcard). The returned subscriber
@@ -342,7 +382,7 @@ mod tests {
 
     use tempfile::NamedTempFile;
 
-    use super::{MtlsConfig, NatsClient, NatsClientError, validate_url_scheme};
+    use super::{JetStreamPubAck, MtlsConfig, NatsClient, NatsClientError, validate_url_scheme};
 
     fn dummy_pem_file() -> NamedTempFile {
         let f = NamedTempFile::new().unwrap();
@@ -408,6 +448,18 @@ mod tests {
         }"#;
         let cfg: MtlsConfig = serde_json::from_str(json).unwrap();
         assert_eq!(cfg.connect_timeout, Duration::from_secs(10));
+    }
+
+    #[test]
+    fn jetstream_puback_preserves_server_coordinates() {
+        let ack = JetStreamPubAck {
+            stream: "AQUACULTURE_TELEMETRY".to_owned(),
+            sequence: 42,
+            duplicate: true,
+        };
+        assert_eq!(ack.stream, "AQUACULTURE_TELEMETRY");
+        assert_eq!(ack.sequence, 42);
+        assert!(ack.duplicate);
     }
 
     #[tokio::test]

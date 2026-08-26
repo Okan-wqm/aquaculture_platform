@@ -1,15 +1,6 @@
-import {
-  Column,
-  Entity,
-  PrimaryColumn,
-  UpdateDateColumn,
-  VersionColumn,
-} from 'typeorm';
+import { Column, Entity, PrimaryColumn, UpdateDateColumn, VersionColumn } from 'typeorm';
 
-import type {
-  IngestBackendKind,
-  IngestBackendSnapshot,
-} from '@platform/event-contracts';
+import type { IngestBackendKind, IngestBackendSnapshot } from '@platform/event-contracts';
 
 /**
  * Singleton row storing the current per-tenant IngestBackend

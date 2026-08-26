@@ -90,9 +90,13 @@ if [ -z "${ACTIVE_COMPOSE_PROFILES}" ] && [ -f "${DEPLOY_ENV_FILE}" ]; then
 fi
 case ",${ACTIVE_COMPOSE_PROFILES// /,}," in
   *",rust-sidecar,"*)
-    echo "::error::COMPOSE_PROFILES includes rust-sidecar, but sensor-ingestion is not in the production immutable image matrix."
-    echo "  Refusing production deploy. Add sensor-ingestion to APPLICATION_IMAGE_SERVICES and the deploy image matrix before enabling this profile."
-    exit 1
+    case " ${APPLICATION_IMAGE_SERVICES} " in
+      *" sensor-ingestion "*) ;;
+      *)
+        echo "::error::rust-sidecar profile requires sensor-ingestion in the immutable image matrix."
+        exit 1
+        ;;
+    esac
     ;;
 esac
 

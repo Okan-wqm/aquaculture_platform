@@ -1,15 +1,19 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
-import { IngestBackendPolicyStateEntity } from './entities/ingest-backend-policy-state.entity';
-import { IngestBackendPolicyService } from './services/ingest-backend-policy.service';
-import { PolicySnapshotResponder } from './services/policy-snapshot.responder';
+import { SecurityEventService } from '@aquaculture/backend-common/security';
+
+import { AuditLogModule } from '../audit/audit.module';
+
+import { IngressOwnerPolicyEntity } from './entities/ingress-owner-policy.entity';
+import { IngressOwnerPolicyService } from './services/ingress-owner-policy.service';
+import { OwnerPolicySnapshotResponder } from './services/owner-policy-snapshot.responder';
+import { IngressOwnerPolicyController } from './ingress-owner-policy.controller';
 
 /**
- * ADR-031 ingest-backend policy module. Owns the single-row
- * SoT for per-tenant IngestBackend routing + the NATS wire
- * surfaces (responder for `policy.ingest_backend.snapshot`,
- * publisher for `policy.ingest_backend.changed`).
+ * Versioned ingress-owner policy module. The append-only ledger is the sole
+ * runtime authority for Node/Rust ownership and the sole responder on the
+ * owner-policy snapshot subject.
  *
  * EventBusModule is NOT imported here — the admin-api app.module
  * already registers it globally via forRootAsync(), so
@@ -19,8 +23,9 @@ import { PolicySnapshotResponder } from './services/policy-snapshot.responder';
  * invariant from ADR-015.
  */
 @Module({
-  imports: [TypeOrmModule.forFeature([IngestBackendPolicyStateEntity])],
-  providers: [IngestBackendPolicyService, PolicySnapshotResponder],
-  exports: [IngestBackendPolicyService],
+  imports: [AuditLogModule, TypeOrmModule.forFeature([IngressOwnerPolicyEntity])],
+  controllers: [IngressOwnerPolicyController],
+  providers: [IngressOwnerPolicyService, OwnerPolicySnapshotResponder, SecurityEventService],
+  exports: [IngressOwnerPolicyService],
 })
 export class IngestBackendPolicyModule {}

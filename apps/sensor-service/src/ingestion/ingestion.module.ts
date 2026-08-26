@@ -23,6 +23,7 @@ import { SensorCacheInvalidationHandler } from './sensor-cache-invalidation.hand
 import { SensorLookupResponderService } from './sensor-lookup-responder.service';
 import { SensorMetaCacheService } from './sensor-meta-cache.service';
 import { SensorIngestDurabilityService } from './sensor-ingest-durability.service';
+import { IngressOwnerPolicyConsumerService } from './ingress-owner-policy-consumer.service';
 import { SensorTopicCacheService } from './sensor-topic-cache.service';
 
 @Module({
@@ -74,6 +75,7 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
     // would never fill — every message would pay the
     // payload-only-data path.
     SensorLookupResponderService,
+    IngressOwnerPolicyConsumerService,
   ],
   exports: [
     SensorMetricWriterService,
@@ -86,6 +88,7 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
     NatsIngestionConsumerService,
     SensorCacheInvalidationHandler,
     SensorLookupResponderService,
+    IngressOwnerPolicyConsumerService,
   ],
 })
 export class IngestionModule {}

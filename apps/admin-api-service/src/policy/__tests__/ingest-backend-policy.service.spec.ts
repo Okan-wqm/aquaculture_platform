@@ -41,7 +41,7 @@ describe('applyChangeToRow — pure state-transition table', () => {
   it('set_global flips the default without touching overrides', () => {
     const current = seedRow({
       defaultBackend: 'node',
-      overrides: { 'aaaa': 'rust' },
+      overrides: { aaaa: 'rust' },
     });
     const next = applyChangeToRow(current, {
       action: 'set_global',
@@ -195,13 +195,9 @@ describe('IngestBackendPolicyService — applyChange', () => {
     // Published event lands on the canonical subject with the
     // original change payload + actor + reason.
     expect(eventBus.publishCore).toHaveBeenCalledTimes(1);
-    const [publishedSubject, publishedPayload] = (
-      eventBus.publishCore as jest.Mock
-    ).mock.calls[0];
+    const [publishedSubject, publishedPayload] = (eventBus.publishCore as jest.Mock).mock.calls[0];
     expect(publishedSubject).toBe(INGEST_BACKEND_POLICY_SUBJECTS.changed);
-    const decoded = JSON.parse(
-      new TextDecoder().decode(publishedPayload as Uint8Array),
-    );
+    const decoded = JSON.parse(new TextDecoder().decode(publishedPayload as Uint8Array));
     expect(decoded.eventType).toBe('IngestBackendPolicyChanged');
     expect(decoded.change).toEqual(change);
     expect(decoded.actorId).toBe(actorUuid);
@@ -212,22 +208,20 @@ describe('IngestBackendPolicyService — applyChange', () => {
     const current = seedRow();
     const repo = {
       findOne: jest.fn().mockResolvedValue(current),
-      save: jest.fn().mockRejectedValue(
-        new OptimisticLockVersionMismatchError(
-          'IngestBackendPolicyStateEntity',
-          1,
-          1,
+      save: jest
+        .fn()
+        .mockRejectedValue(
+          new OptimisticLockVersionMismatchError('IngestBackendPolicyStateEntity', 1, 1),
         ),
-      ),
     } as unknown as Repository<IngestBackendPolicyStateEntity>;
     const eventBus = {
       publishCore: jest.fn(),
     } as unknown as NatsEventBus;
     const svc = new IngestBackendPolicyService(repo, eventBus);
 
-    await expect(
-      svc.applyChange({ action: 'set_global', backend: 'rust' }),
-    ).rejects.toBeInstanceOf(ConflictException);
+    await expect(svc.applyChange({ action: 'set_global', backend: 'rust' })).rejects.toBeInstanceOf(
+      ConflictException,
+    );
     // AND no event was published — the lost-race path must NOT
     // fire a spurious changed event.
     expect(eventBus.publishCore).not.toHaveBeenCalled();

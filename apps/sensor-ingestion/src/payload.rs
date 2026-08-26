@@ -180,6 +180,10 @@ pub struct SensorReading {
     pub quality: QualityCode,
     /// Producer-side wall clock at sample time (ms since UNIX epoch).
     pub producer_ts: i64,
+    /// Stable producer-generated identity used for receipt deduplication.
+    pub source_event_id: String,
+    /// Optional producer-monotonic sequence used as an ordering tie-breaker.
+    pub source_sequence: Option<i64>,
     /// Provenance tag for `raw_value`: did it come from the wire or
     /// was it upcast from V1? See [`PayloadSource`].
     pub source: PayloadSource,
@@ -265,6 +269,10 @@ pub enum PayloadError {
     /// Neither tenant id is echoed — both are sensitive.
     #[error("topic tenantId does not match payload tenantId")]
     TenantMismatch,
+
+    /// `sourceEventId` was empty, oversized, or contained control bytes.
+    #[error("sourceEventId is not a valid stable producer identity")]
+    InvalidSourceEventId,
 }
 
 /// Wire shape of the JSON payload. `deny_unknown_fields` closes the
@@ -296,6 +304,10 @@ struct WirePayload {
     quality: Option<u8>,
     #[serde(rename = "producerTs")]
     producer_ts: Option<i64>,
+    #[serde(rename = "sourceEventId")]
+    source_event_id: Option<String>,
+    #[serde(rename = "sourceSequence")]
+    source_sequence: Option<i64>,
     /// ADR-028 discriminator. `None` or `Some(1)` = V1 (legacy shape,
     /// no `raw_value`); `Some(2)` = V2 (mandatory `raw_value`). A
     /// value outside `{1, 2}` is rejected as an unsupported version
@@ -394,6 +406,16 @@ pub fn validate(bytes: &[u8], topic_tenant: TenantId) -> Result<SensorReading, P
         }
     };
 
+    let source_event_id = wire.source_event_id.ok_or(PayloadError::MissingField {
+        name: "sourceEventId",
+    })?;
+    if source_event_id.is_empty()
+        || source_event_id.len() > 160
+        || source_event_id.chars().any(char::is_control)
+    {
+        return Err(PayloadError::InvalidSourceEventId);
+    }
+
     Ok(SensorReading {
         tenant_id,
         sensor_id,
@@ -402,6 +424,8 @@ pub fn validate(bytes: &[u8], topic_tenant: TenantId) -> Result<SensorReading, P
         raw_value,
         quality,
         producer_ts,
+        source_event_id,
+        source_sequence: wire.source_sequence,
         source,
     })
 }
@@ -419,6 +443,7 @@ mod tests {
     const TENANT_B_STR: &str = "11111111-2222-3333-4444-555555555555";
     const SENSOR_STR: &str = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
     const CHANNEL_STR: &str = "12345678-1234-1234-1234-123456789abc";
+    const SOURCE_EVENT_ID: &str = "edge-a:1735689600000:42";
 
     fn tenant_a() -> TenantId {
         TenantId::try_parse(TENANT_A_STR).unwrap()
@@ -430,7 +455,7 @@ mod tests {
 
     fn happy_payload() -> Vec<u8> {
         format!(
-            r#"{{"tenantId":"{TENANT_A_STR}","sensorId":"{SENSOR_STR}","channelId":"{CHANNEL_STR}","value":42.5,"quality":1,"producerTs":1735689600000}}"#
+            r#"{{"tenantId":"{TENANT_A_STR}","sensorId":"{SENSOR_STR}","channelId":"{CHANNEL_STR}","sourceEventId":"{SOURCE_EVENT_ID}","sourceSequence":42,"value":42.5,"quality":1,"producerTs":1735689600000}}"#
         )
         .into_bytes()
     }
@@ -445,10 +470,38 @@ mod tests {
         assert!((r.value - 42.5).abs() < f64::EPSILON);
         assert_eq!(r.quality.get(), 1);
         assert_eq!(r.producer_ts, 1_735_689_600_000);
+        assert_eq!(r.source_event_id, SOURCE_EVENT_ID);
+        assert_eq!(r.source_sequence, Some(42));
         // ADR-028: a V1 payload (no payloadVersion field, no rawValue)
         // is upcast — raw_value equals value, source tagged.
         assert!((r.raw_value - 42.5).abs() < f64::EPSILON);
         assert_eq!(r.source, PayloadSource::UpcastedFromV1);
+    }
+
+    #[test]
+    fn missing_stable_source_identity_is_quarantinable() {
+        let bytes = format!(
+            r#"{{"tenantId":"{TENANT_A_STR}","sensorId":"{SENSOR_STR}","channelId":"{CHANNEL_STR}","value":42.5,"quality":1,"producerTs":1735689600000}}"#
+        )
+        .into_bytes();
+        assert_eq!(
+            validate(&bytes, tenant_a()).unwrap_err(),
+            PayloadError::MissingField {
+                name: "sourceEventId"
+            }
+        );
+    }
+
+    #[test]
+    fn blank_source_identity_is_rejected() {
+        let bytes = format!(
+            r#"{{"tenantId":"{TENANT_A_STR}","sensorId":"{SENSOR_STR}","channelId":"{CHANNEL_STR}","sourceEventId":"","value":42.5,"quality":1,"producerTs":1735689600000}}"#
+        )
+        .into_bytes();
+        assert_eq!(
+            validate(&bytes, tenant_a()).unwrap_err(),
+            PayloadError::InvalidSourceEventId
+        );
     }
 
     #[test]
@@ -457,7 +510,7 @@ mod tests {
         // follows the same upcast path as one that omits the field.
         // Both result in raw_value = value + UpcastedFromV1 source.
         let bytes = format!(
-            r#"{{"tenantId":"{TENANT_A_STR}","sensorId":"{SENSOR_STR}","channelId":"{CHANNEL_STR}","value":10.0,"quality":2,"producerTs":1735689600000,"payloadVersion":1}}"#
+            r#"{{"tenantId":"{TENANT_A_STR}","sensorId":"{SENSOR_STR}","channelId":"{CHANNEL_STR}","sourceEventId":"{SOURCE_EVENT_ID}","value":10.0,"quality":2,"producerTs":1735689600000,"payloadVersion":1}}"#
         ).into_bytes();
         let r = validate(&bytes, tenant_a()).unwrap();
         assert!((r.raw_value - 10.0).abs() < f64::EPSILON);
@@ -472,7 +525,7 @@ mod tests {
         // both values preserved, NOT the old fallback where raw_value
         // silently equalled value.
         let bytes = format!(
-            r#"{{"tenantId":"{TENANT_A_STR}","sensorId":"{SENSOR_STR}","channelId":"{CHANNEL_STR}","value":7.4,"rawValue":0.532,"quality":1,"producerTs":1735689600000,"payloadVersion":2}}"#
+            r#"{{"tenantId":"{TENANT_A_STR}","sensorId":"{SENSOR_STR}","channelId":"{CHANNEL_STR}","sourceEventId":"{SOURCE_EVENT_ID}","value":7.4,"rawValue":0.532,"quality":1,"producerTs":1735689600000,"payloadVersion":2}}"#
         ).into_bytes();
         let r = validate(&bytes, tenant_a()).unwrap();
         assert!((r.value - 7.4).abs() < f64::EPSILON);
@@ -552,7 +605,7 @@ mod tests {
         // that starts honouring rawValue on V1 — this test anchors
         // the documented contract.
         let bytes = format!(
-            r#"{{"tenantId":"{TENANT_A_STR}","sensorId":"{SENSOR_STR}","channelId":"{CHANNEL_STR}","value":10.0,"rawValue":99.9,"quality":1,"producerTs":1735689600000}}"#
+            r#"{{"tenantId":"{TENANT_A_STR}","sensorId":"{SENSOR_STR}","channelId":"{CHANNEL_STR}","sourceEventId":"{SOURCE_EVENT_ID}","value":10.0,"rawValue":99.9,"quality":1,"producerTs":1735689600000}}"#
         ).into_bytes();
         let r = validate(&bytes, tenant_a()).unwrap();
         assert!((r.value - 10.0).abs() < f64::EPSILON);
@@ -759,7 +812,7 @@ mod tests {
             24,
         ] {
             let bytes = format!(
-                r#"{{"tenantId":"{TENANT_A_STR}","sensorId":"{SENSOR_STR}","channelId":"{CHANNEL_STR}","value":1.0,"quality":{code},"producerTs":1735689600000}}"#
+                r#"{{"tenantId":"{TENANT_A_STR}","sensorId":"{SENSOR_STR}","channelId":"{CHANNEL_STR}","sourceEventId":"{SOURCE_EVENT_ID}","value":1.0,"quality":{code},"producerTs":1735689600000}}"#
             )
             .into_bytes();
             let reading = validate(&bytes, tenant_a()).expect("OPC-UA code must be accepted");
@@ -849,7 +902,7 @@ mod tests {
     #[test]
     fn happy_at_lower_bound_ts() {
         let bytes = format!(
-            r#"{{"tenantId":"{TENANT_A_STR}","sensorId":"{SENSOR_STR}","channelId":"{CHANNEL_STR}","value":1.0,"quality":0,"producerTs":{PRODUCER_TS_MIN_MS}}}"#
+            r#"{{"tenantId":"{TENANT_A_STR}","sensorId":"{SENSOR_STR}","channelId":"{CHANNEL_STR}","sourceEventId":"{SOURCE_EVENT_ID}","value":1.0,"quality":0,"producerTs":{PRODUCER_TS_MIN_MS}}}"#
         )
         .into_bytes();
         let r = validate(&bytes, tenant_a()).unwrap();
@@ -859,7 +912,7 @@ mod tests {
     #[test]
     fn happy_at_upper_bound_ts_and_quality() {
         let bytes = format!(
-            r#"{{"tenantId":"{TENANT_A_STR}","sensorId":"{SENSOR_STR}","channelId":"{CHANNEL_STR}","value":-273.15,"quality":{QUALITY_GOOD_MIN},"producerTs":{PRODUCER_TS_MAX_MS}}}"#
+            r#"{{"tenantId":"{TENANT_A_STR}","sensorId":"{SENSOR_STR}","channelId":"{CHANNEL_STR}","sourceEventId":"{SOURCE_EVENT_ID}","value":-273.15,"quality":{QUALITY_GOOD_MIN},"producerTs":{PRODUCER_TS_MAX_MS}}}"#
         )
         .into_bytes();
         let r = validate(&bytes, tenant_a()).unwrap();

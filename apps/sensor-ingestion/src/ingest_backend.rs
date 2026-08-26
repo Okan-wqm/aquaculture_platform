@@ -32,6 +32,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwap;
 use serde::{Deserialize, Serialize};
@@ -48,6 +49,172 @@ pub trait IngestBackendPolicy: Send + Sync + std::fmt::Debug {
     /// Decide which backend processes the supplied tenant's stream.
     /// Hot-path call — implementations MUST avoid I/O and locks.
     fn backend_for(&self, tenant: TenantId) -> IngestBackend;
+}
+
+/// Versioned owner named by the handoff control plane.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum IngressOwner {
+    /// Existing NestJS MQTT ingress.
+    Nestjs,
+    /// Rust sensor-ingestion sidecar.
+    Rust,
+}
+
+/// Handoff phase. Only `ACTIVE` authorizes an owner decision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum IngressOwnerPolicyState {
+    /// Prospective owner is warming dependencies and may not ingest.
+    Preparing,
+    /// Named owner exclusively owns new admission.
+    Active,
+    /// Prior owner is draining committed source identities.
+    Draining,
+}
+
+/// Per-tenant, monotonically-versioned handoff policy.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct IngressOwnerPolicy {
+    /// Tenant whose session copy is governed by this row.
+    pub tenant_id: TenantId,
+    /// Strictly increasing control-plane version.
+    pub version: u64,
+    /// Exclusive ingress owner.
+    pub owner: IngressOwner,
+    /// Opaque epoch/barrier identity written by the handoff coordinator.
+    pub effective_epoch: String,
+    /// Preparation, ownership, or drain phase.
+    pub state: IngressOwnerPolicyState,
+}
+
+/// Hot-path decision. Unknown and transitional policies deliberately do not
+/// collapse into `NOT_OWNER`, because acknowledging them could lose data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OwnershipDecision {
+    /// Rust is the ACTIVE owner and may commit the source delivery.
+    Process,
+    /// NestJS is the ACTIVE owner; this session copy may be ACK-dropped.
+    NotOwnerActive,
+    /// No current ACTIVE policy is known; source must remain unacknowledged.
+    Indeterminate,
+}
+
+/// Result of applying an owner-policy message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PolicyApplyOutcome {
+    /// Newer policy became visible atomically.
+    Applied,
+    /// Exact same version and payload was replayed.
+    Duplicate,
+    /// Older version, or conflicting reuse of the current version, was rejected.
+    Stale,
+}
+
+/// Lock-free per-tenant owner policy registry. There is intentionally no global
+/// default: an unknown tenant cannot be proven safe to ACK on either backend.
+const OWNER_POLICY_SNAPSHOT_LEASE: Duration = Duration::from_secs(5);
+
+#[derive(Debug, Clone)]
+struct OwnerPolicySnapshot {
+    policies: HashMap<TenantId, IngressOwnerPolicy>,
+    observed_at: Instant,
+}
+
+#[derive(Debug)]
+pub struct VersionedOwnerPolicies {
+    current: ArcSwap<OwnerPolicySnapshot>,
+}
+
+impl Default for VersionedOwnerPolicies {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl VersionedOwnerPolicies {
+    /// Construct an empty, fail-closed policy set.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            current: ArcSwap::from_pointee(OwnerPolicySnapshot {
+                policies: HashMap::new(),
+                observed_at: Instant::now(),
+            }),
+        }
+    }
+
+    /// Apply only a strictly newer policy; exact replay is idempotent.
+    pub fn apply(&self, policy: IngressOwnerPolicy) -> PolicyApplyOutcome {
+        let current = self.current.load();
+        if let Some(existing) = current.policies.get(&policy.tenant_id) {
+            if existing == &policy {
+                return PolicyApplyOutcome::Duplicate;
+            }
+            if policy.version <= existing.version {
+                return PolicyApplyOutcome::Stale;
+            }
+        }
+        let mut next = (**current).clone();
+        next.policies.insert(policy.tenant_id, policy);
+        self.current.store(Arc::new(next));
+        PolicyApplyOutcome::Applied
+    }
+
+    /// Reconcile a complete authoritative snapshot while retaining any newer
+    /// core update that raced the request/reply round trip. Tenants omitted by
+    /// the authoritative snapshot are removed.
+    pub fn reconcile_snapshot(&self, policies: Vec<IngressOwnerPolicy>) {
+        self.reconcile_snapshot_at(policies, Instant::now());
+    }
+
+    fn reconcile_snapshot_at(&self, policies: Vec<IngressOwnerPolicy>, observed_at: Instant) {
+        let mut replacement: HashMap<TenantId, IngressOwnerPolicy> = HashMap::new();
+        for policy in policies {
+            match replacement.get(&policy.tenant_id) {
+                Some(existing) if existing.version >= policy.version => {}
+                _ => {
+                    replacement.insert(policy.tenant_id, policy);
+                }
+            }
+        }
+        let current = self.current.load();
+        for (tenant_id, current_policy) in &current.policies {
+            if let Some(authoritative) = replacement.get(tenant_id) {
+                if current_policy.version > authoritative.version {
+                    replacement.insert(*tenant_id, current_policy.clone());
+                }
+            }
+        }
+        self.current.store(Arc::new(OwnerPolicySnapshot {
+            policies: replacement,
+            observed_at,
+        }));
+    }
+
+    /// Decide ownership from one atomic snapshot read.
+    #[must_use]
+    pub fn decision_for(&self, tenant_id: TenantId) -> OwnershipDecision {
+        self.decision_at(tenant_id, Instant::now())
+    }
+
+    fn decision_at(&self, tenant_id: TenantId, now: Instant) -> OwnershipDecision {
+        let current = self.current.load();
+        if now.saturating_duration_since(current.observed_at) > OWNER_POLICY_SNAPSHOT_LEASE {
+            return OwnershipDecision::Indeterminate;
+        }
+        let Some(policy) = current.policies.get(&tenant_id) else {
+            return OwnershipDecision::Indeterminate;
+        };
+        if policy.state != IngressOwnerPolicyState::Active {
+            return OwnershipDecision::Indeterminate;
+        }
+        match policy.owner {
+            IngressOwner::Rust => OwnershipDecision::Process,
+            IngressOwner::Nestjs => OwnershipDecision::NotOwnerActive,
+        }
+    }
 }
 
 /// TOML-driven backend policy — retained for tests that want a
@@ -340,6 +507,7 @@ pub enum IngestBackendChange {
 mod tests {
     use std::collections::HashMap;
     use std::sync::Arc;
+    use std::time::{Duration, Instant};
 
     use uuid::Uuid;
 
@@ -688,5 +856,106 @@ mod tests {
             h.await.expect("reader task panicked");
         }
         writer.await.expect("writer task panicked");
+    }
+
+    #[test]
+    fn versioned_owner_policy_is_fail_closed_until_active() {
+        let tenant = fixed_tenant(0x31);
+        let policies = super::VersionedOwnerPolicies::new();
+        assert_eq!(
+            policies.decision_for(tenant),
+            super::OwnershipDecision::Indeterminate
+        );
+
+        assert_eq!(
+            policies.apply(super::IngressOwnerPolicy {
+                tenant_id: tenant,
+                version: 1,
+                owner: super::IngressOwner::Rust,
+                effective_epoch: "2026-08-25T00:00:00.000Z".to_owned(),
+                state: super::IngressOwnerPolicyState::Preparing,
+            }),
+            super::PolicyApplyOutcome::Applied
+        );
+        assert_eq!(
+            policies.decision_for(tenant),
+            super::OwnershipDecision::Indeterminate
+        );
+    }
+
+    #[test]
+    fn versioned_owner_policy_rejects_stale_and_ack_drops_only_active_other_owner() {
+        let tenant = fixed_tenant(0x32);
+        let policies = super::VersionedOwnerPolicies::new();
+        let active_node = super::IngressOwnerPolicy {
+            tenant_id: tenant,
+            version: 7,
+            owner: super::IngressOwner::Nestjs,
+            effective_epoch: "2026-08-25T00:00:00.000Z".to_owned(),
+            state: super::IngressOwnerPolicyState::Active,
+        };
+        assert_eq!(
+            policies.apply(active_node.clone()),
+            super::PolicyApplyOutcome::Applied
+        );
+        assert_eq!(
+            policies.decision_for(tenant),
+            super::OwnershipDecision::NotOwnerActive
+        );
+        assert_eq!(
+            policies.apply(super::IngressOwnerPolicy {
+                version: 6,
+                owner: super::IngressOwner::Rust,
+                ..active_node
+            }),
+            super::PolicyApplyOutcome::Stale
+        );
+        assert_eq!(
+            policies.decision_for(tenant),
+            super::OwnershipDecision::NotOwnerActive
+        );
+    }
+
+    #[test]
+    fn versioned_owner_policy_snapshot_lease_expires_fail_closed() {
+        let tenant = fixed_tenant(0x33);
+        let policies = super::VersionedOwnerPolicies::new();
+        let observed_at = Instant::now();
+        let active_rust = super::IngressOwnerPolicy {
+            tenant_id: tenant,
+            version: 1,
+            owner: super::IngressOwner::Rust,
+            effective_epoch: "2026-08-25T00:00:00.000Z".to_owned(),
+            state: super::IngressOwnerPolicyState::Active,
+        };
+        policies.reconcile_snapshot_at(vec![active_rust.clone()], observed_at);
+
+        assert_eq!(
+            policies.decision_at(tenant, observed_at + Duration::from_millis(4_999)),
+            super::OwnershipDecision::Process
+        );
+        assert_eq!(
+            policies.apply(super::IngressOwnerPolicy {
+                version: 2,
+                ..active_rust.clone()
+            }),
+            super::PolicyApplyOutcome::Applied
+        );
+        assert_eq!(
+            policies.decision_at(tenant, observed_at + Duration::from_millis(5_001)),
+            super::OwnershipDecision::Indeterminate
+        );
+
+        policies.reconcile_snapshot_at(
+            vec![super::IngressOwnerPolicy {
+                version: 2,
+                ..active_rust
+            }],
+            observed_at + Duration::from_millis(5_001),
+        );
+        assert_eq!(
+            policies.decision_at(tenant, observed_at + Duration::from_millis(5_002)),
+            super::OwnershipDecision::Process
+        );
     }
 }

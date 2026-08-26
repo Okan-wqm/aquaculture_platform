@@ -105,6 +105,7 @@ export class MqttAuthService implements OnModuleInit {
     const serviceHashes: [string, string | undefined][] = [
       ['backend_service', this.configService.get<string>('MQTT_BACKEND_SERVICE_HASH')],
       ['sensor_service', this.configService.get<string>('MQTT_SENSOR_SERVICE_HASH')],
+      ['sensor_ingestion', this.configService.get<string>('MQTT_SENSOR_INGESTION_HASH')],
       ['alert_service', this.configService.get<string>('MQTT_ALERT_SERVICE_HASH')],
       ['mqtt_exporter', this.configService.get<string>('MQTT_EXPORTER_HASH')],
     ];
@@ -320,6 +321,7 @@ export class MqttAuthService implements OnModuleInit {
         return false;
 
       case 'sensor_service':
+      case 'sensor_ingestion':
         // sensor_service: read/write on tenant-scoped sensor and device topics
         if (isTenantTopic) return true;
         // Wildcard subscription patterns (acc=1 subscribe, acc=3 subscribe+publish)

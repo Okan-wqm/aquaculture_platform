@@ -22,7 +22,6 @@ import type { Msg } from '@nats-io/nats-core';
 import { ConfigService } from '@nestjs/config';
 
 import { SensorLookupResponderService } from '../sensor-lookup-responder.service';
-import { SensorMetaCacheService } from '../sensor-meta-cache.service';
 import { Sensor } from '../../database/entities/sensor.entity';
 import { SensorDataChannel } from '../../database/entities/sensor-data-channel.entity';
 
@@ -42,10 +41,7 @@ function fakeSensor(overrides: Partial<Sensor> = {}): Sensor {
   } as unknown as Sensor;
 }
 
-function fakeChannel(
-  id: string,
-  overrides: Partial<SensorDataChannel> = {},
-): SensorDataChannel {
+function fakeChannel(id: string, overrides: Partial<SensorDataChannel> = {}): SensorDataChannel {
   return {
     id,
     sensorId: SENSOR_ID,
@@ -76,17 +72,14 @@ function makeCache(opts?: {
     // Explicit `in opts` check so that `sensor: null` in the test
     // overrides the default fakeSensor() — the `??` shortcut would
     // mask the null and wrong-test the responder's not-found path.
-    const resolved =
-      opts && 'sensor' in opts ? (opts.sensor ?? null) : fakeSensor();
+    const resolved = opts && 'sensor' in opts ? (opts.sensor ?? null) : fakeSensor();
     getSensor.mockResolvedValue(resolved);
   }
   const getChannels = jest.fn();
   if (opts?.channelsThrows) {
     getChannels.mockRejectedValue(opts.channelsThrows);
   } else {
-    getChannels.mockResolvedValue(
-      opts?.channels ?? [fakeChannel(CHANNEL_ID_A)],
-    );
+    getChannels.mockResolvedValue(opts?.channels ?? [fakeChannel(CHANNEL_ID_A)]);
   }
   return {
     getSensor,
@@ -121,10 +114,7 @@ function makeService(cache: CacheStub): SensorLookupResponderService {
   const config = {
     get: jest.fn().mockReturnValue('nats://localhost:4222'),
   } as unknown as ConfigService;
-  return new SensorLookupResponderService(
-    cache as unknown as SensorMetaCacheService,
-    config,
-  );
+  return new SensorLookupResponderService(cache, config);
 }
 
 describe('SensorLookupResponderService', () => {
@@ -135,9 +125,7 @@ describe('SensorLookupResponderService', () => {
       // drift on either side breaks the responder pair silently in
       // production but is caught by THIS assertion + the mirror test
       // `subject_is_canonical` on the Rust side.
-      expect(SensorLookupResponderService.SUBJECT).toBe(
-        'sensor.lookup.by-topic',
-      );
+      expect(SensorLookupResponderService.SUBJECT).toBe('sensor.lookup.by-topic');
     });
   });
 
@@ -163,6 +151,10 @@ describe('SensorLookupResponderService', () => {
         sensorId: SENSOR_ID,
         tenantId: TENANT_ID,
         channelIds: [CHANNEL_ID_A, CHANNEL_ID_B],
+        channelKeys: {
+          [CHANNEL_ID_A]: 'temperature',
+          [CHANNEL_ID_B]: 'temperature',
+        },
       });
       // Belt-and-braces: the substrings `"farmId"` / `"pondId"` MUST
       // NOT appear anywhere in the wire body when the sensor has no
@@ -191,6 +183,7 @@ describe('SensorLookupResponderService', () => {
         sensorId: SENSOR_ID,
         tenantId: TENANT_ID,
         channelIds: [CHANNEL_ID_A],
+        channelKeys: { [CHANNEL_ID_A]: 'temperature' },
         farmId: FARM_ID,
         pondId: POND_ID,
       });
@@ -214,14 +207,10 @@ describe('SensorLookupResponderService', () => {
       const parsed = JSON.parse(reply) as Record<string, unknown>;
       // Object.prototype.hasOwnProperty.call avoids any prototype-chain
       // surprise — pure structural check on the parsed object.
-      expect(Object.prototype.hasOwnProperty.call(parsed, 'farmId')).toBe(
-        false,
-      );
-      expect(Object.prototype.hasOwnProperty.call(parsed, 'pondId')).toBe(
-        false,
-      );
+      expect(Object.prototype.hasOwnProperty.call(parsed, 'farmId')).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(parsed, 'pondId')).toBe(false);
       expect(Object.keys(parsed).sort()).toEqual(
-        ['channelIds', 'sensorId', 'tenantId'].sort(),
+        ['channelIds', 'channelKeys', 'sensorId', 'tenantId'].sort(),
       );
     });
 
@@ -235,7 +224,7 @@ describe('SensorLookupResponderService', () => {
       // Pin the exact key set — a future field rename would fail here
       // BEFORE it could deploy alongside a Rust-side mismatch.
       expect(Object.keys(parsed).sort()).toEqual(
-        ['channelIds', 'sensorId', 'tenantId'].sort(),
+        ['channelIds', 'channelKeys', 'sensorId', 'tenantId'].sort(),
       );
     });
   });
@@ -260,9 +249,7 @@ describe('SensorLookupResponderService', () => {
       // Spy on Logger.prototype.warn to confirm the warn fired (the
       // log message itself is non-load-bearing; the security-team
       // alarm fires off the structured field set, not the text).
-      const warnSpy = jest
-        .spyOn(svc['logger'], 'warn')
-        .mockImplementation(() => undefined);
+      const warnSpy = jest.spyOn(svc['logger'], 'warn').mockImplementation(() => undefined);
       const msg = makeMsg({ tenantId: TENANT_ID, sensorId: SENSOR_ID });
       await svc.handleLookupRequest(msg);
       expect(msg._replies).toEqual(['null']);

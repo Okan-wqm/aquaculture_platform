@@ -67,6 +67,7 @@ import { VfdEdgeWriteService } from '../vfd/services/vfd-edge-write.service';
 import { SensorTopicCacheService, CachedSensorInfo } from './sensor-topic-cache.service';
 import { SensorIngestDurabilityService } from './sensor-ingest-durability.service';
 import { SensorMetricWriterService } from './sensor-metric-writer.service';
+import { IngressOwnerPolicyConsumerService } from './ingress-owner-policy-consumer.service';
 
 /**
  * MQTT Topic Pattern for tenant-aware sensor data
@@ -327,6 +328,9 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     @Optional()
     @Inject(VfdEdgeReadService)
     private readonly vfdEdgeReadService: VfdEdgeReadService | null = null,
+    @Optional()
+    @Inject(IngressOwnerPolicyConsumerService)
+    private readonly ingressOwnerPolicy: IngressOwnerPolicyConsumerService | null = null,
   ) {
     // Legacy edge/ topic flag (default: true for backward compatibility)
     this.legacyEdgeTopicsEnabled =
@@ -513,6 +517,19 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
       // Parse topic to extract identifiers
       const parsedTopic = this.parseTopic(topic);
+
+      if (parsedTopic !== null && this.ingressOwnerPolicy !== null) {
+        const ownerDecision = this.ingressOwnerPolicy.decide(parsedTopic.tenantId);
+        if (ownerDecision === 'NOT_OWNER') {
+          this.logger.debug(`ACK-dropping non-owner MQTT copy for tenant ${parsedTopic.tenantId}`);
+          return;
+        }
+        if (ownerDecision === 'INDETERMINATE') {
+          throw new Error(
+            `MQTT ingress owner is unknown or transitional for tenant ${parsedTopic.tenantId}`,
+          );
+        }
+      }
 
       // Try to find sensor by topic pattern
       const sensor = await this.findSensorByTopic(topic, parsedTopic);

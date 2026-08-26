@@ -873,6 +873,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'database_metrics',
       'slow_query_logs',
       'ingest_backend_policy_state',
+      'ingress_owner_policies',
       'announcements',
       'job_queues',
       'system_versions',

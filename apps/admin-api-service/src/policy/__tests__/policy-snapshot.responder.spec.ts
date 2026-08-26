@@ -1,7 +1,4 @@
-import {
-  IngestBackendSnapshotRequest,
-  IngestBackendSnapshot,
-} from '@platform/event-contracts';
+import { IngestBackendSnapshotRequest, IngestBackendSnapshot } from '@platform/event-contracts';
 import { NatsRequestReply, RequestReplyContext } from '@platform/event-bus';
 
 import { IngestBackendPolicyService } from '../services/ingest-backend-policy.service';
@@ -63,9 +60,12 @@ describe('PolicySnapshotResponder', () => {
     } as unknown as NatsRequestReply;
 
     const responder = new PolicySnapshotResponder(requestReply, policyService);
-    const reply = await responder.handleSnapshotRequest({}, {
-      subject: 'policy.ingest_backend.snapshot',
-    });
+    const reply = await responder.handleSnapshotRequest(
+      {},
+      {
+        subject: 'policy.ingest_backend.snapshot',
+      },
+    );
     expect(reply).toEqual(snapshot);
   });
 

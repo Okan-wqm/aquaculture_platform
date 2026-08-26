@@ -53,9 +53,15 @@ describe('service criticality profile contract', () => {
     expect(mismatches).toEqual([]);
   });
 
-  it('keeps sensor-ingestion out of active droplet criticality until sidecar deploy evidence exists', () => {
+  it('registers the promoted sensor-ingestion pilot under the rust-sidecar profile', () => {
     const entry = manifestByName.get('sensor-ingestion');
 
-    expect(entry).toBeUndefined();
+    expect(entry).toEqual(
+      expect.objectContaining({
+        name: 'sensor-ingestion',
+        level: 'warning',
+        profiles: ['rust-sidecar'],
+      }),
+    );
   });
 });

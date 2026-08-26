@@ -46,6 +46,7 @@ DECLARE
     'auth_service',
     'farm_service',
     'sensor_service',
+    'sensor_ingestion',
     'hr_service',
     'messaging_service',
     'hydroponics_service',
@@ -299,6 +300,12 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA sensor        TO se
 GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA sensor     TO sensor_service;
 ALTER DEFAULT PRIVILEGES IN SCHEMA sensor        GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES    TO sensor_service;
 ALTER DEFAULT PRIVILEGES IN SCHEMA sensor        GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO sensor_service;
+
+-- Rust ingress gets no source-schema ownership or DDL. Tenant-local grants are
+-- asserted by tenant-schema-privileges after each provision/reconcile.
+GRANT CONNECT, TEMP ON DATABASE ${POSTGRES_DB} TO sensor_ingestion;
+REVOKE CREATE ON DATABASE ${POSTGRES_DB} FROM sensor_ingestion;
+REVOKE ALL ON SCHEMA sensor FROM sensor_ingestion;
 
 GRANT USAGE                 ON SCHEMA billing       TO billing_service;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA billing       TO billing_service;

@@ -2,7 +2,7 @@
 # source: platform/libs/service-catalog/src/index.ts
 # generator: scripts/service-catalog/generate-artifacts.ts
 # generatorVersion: 3
-# catalogHash: b314e8353e82369711981b1beff7d5e51b4624753693371e9dc0ea08f5178a2a
+# catalogHash: fb5f7cd193213dc13e07513e7f2ed0998d7607fab06eeec8ed6ff09adbc6c19c
 # do not edit by hand
 schema_version: 1
 defaults:
@@ -35,6 +35,10 @@ services:
   - name: sensor-service
     level: critical
     reason: "generated from sensor-service criticality in platform service catalog"
+  - name: sensor-ingestion
+    level: warning
+    profiles: [rust-sidecar]
+    reason: "generated from sensor-ingestion criticality in platform service catalog"
   - name: hr-service
     level: warning
     reason: "generated from hr-service criticality in platform service catalog"

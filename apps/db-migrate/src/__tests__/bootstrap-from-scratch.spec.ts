@@ -83,6 +83,7 @@ import { DataSource, type MigrationInterface } from 'typeorm';
 import {
   runPlatformBootstrap,
   resolvePlatformBootstrapSqlDir,
+  SERVICE_ROLE_PASSWORD_ENVS,
 } from '../platform-bootstrap.service';
 
 // Constructor type for the @Entity / migration classes this spec loads
@@ -150,24 +151,6 @@ const DATABASE_NAME = 'aquaculture';
 const DATABASE_USER = 'aquaculture';
 const DATABASE_PASSWORD = 'aquaculture-test';
 const DB_MIGRATE_DDL_AUTHORITY_ENV = 'DB_MIGRATE_DDL_AUTHORITY';
-const SERVICE_ROLE_PASSWORD_ENVS = [
-  'AUTH_SERVICE_DB_PASS',
-  'FARM_SERVICE_DB_PASS',
-  'SENSOR_SERVICE_DB_PASS',
-  'BILLING_SERVICE_DB_PASS',
-  'HR_SERVICE_DB_PASS',
-  'ALERT_SERVICE_DB_PASS',
-  'ADMIN_SERVICE_DB_PASS',
-  'GATEWAY_SERVICE_DB_PASS',
-  'NOTIFICATION_SERVICE_DB_PASS',
-  'HYDROPONICS_SERVICE_DB_PASS',
-  'AI_SERVICE_DB_PASS',
-  'MESSAGING_SERVICE_DB_PASS',
-  'OBSERVABILITY_SERVICE_DB_PASS',
-  'EVENT_STORE_SERVICE_DB_PASS',
-  'CONFIG_SERVICE_DB_PASS',
-] as const;
-
 // Repo root, derived from this file's location:
 //   apps/db-migrate/src/__tests__/bootstrap-from-scratch.spec.ts -> ../../../..
 // (mirrors how the sibling platform-bootstrap.integration.spec.ts resolves it).

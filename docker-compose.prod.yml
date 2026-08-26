@@ -439,47 +439,6 @@ services:
       timeout: 10s
       retries: 3
 
-  # Rust ingestion sidecar — ADR-025 / ADR-027 — INTENTIONALLY NOT DEPLOYED IN PROD.
-  #
-  # HONESTY GATE (sensor-ingestion-honest-deployment invariant): the Faz-3
-  # orchestrator wiring did NOT survive the train merge — `apps/sensor-ingestion/
-  # src/main.rs` `drain_mqtt_stream` is still a `tracing::trace!("mqtt msg (stub
-  # drain)")` no-op with no PostgresSink / publisher loop, so the binary compiles
-  # and per-module unit tests pass while the deployed sidecar would DROP every MQTT
-  # message. Advertising it here as a "co-equal producer of
-  # events.{tenantId}.SensorReading" was false redundancy.
-  #
-  # This service is therefore commented out of prod until the drain is wired
-  # (drain → topic::parse → cache → payload::validate → batch → PostgresSink::copy
-  # → NatsEventPublisher). Owned by the sensor-rust-migration initiative; see
-  # docs/plans/sensor-rust-migration/PROGRESS.md (Faz-3 row reopened). Re-enabling
-  # before the stub is replaced is blocked by the invariant.
-  #
-  # sensor-ingestion:
-  #   image: ghcr.io/okan-wqm/aquaculture_platform/sensor-ingestion:${TAG:-latest}
-  #   container_name: aqua-sensor-ingestion
-  #   restart: unless-stopped
-  #   user: '65532:65532'
-  #   environment:
-  #     RUST_LOG: ${SENSOR_INGESTION_LOG:-info}
-  #     SENSOR_INGESTION_CONFIG: /etc/sensor-ingestion/config.toml
-  #   volumes:
-  #     - ./infrastructure/sensor-ingestion/config.toml:/etc/sensor-ingestion/config.toml:ro
-  #     - ./certs/sensor-ingestion:/etc/sensor-ingestion/certs:ro
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #   networks:
-  #     - aqua-internal
-  #   deploy:
-  #     resources:
-  #       limits:
-  #         memory: 256M
-  #         cpus: '0.35'
-  #       reservations:
-  #         memory: 192M
-  #         cpus: '0.25'
-
   hr-service:
     image: ghcr.io/okan-wqm/aquaculture_platform/hr-service:${TAG:-latest}
     container_name: aqua-hr

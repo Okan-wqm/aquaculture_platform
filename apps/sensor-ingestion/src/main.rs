@@ -11,22 +11,9 @@
 //!   gates the rollout; both backends share the same MQTT broker and
 //!   the same TimescaleDB.
 //!
-//! WHAT lives here at this stage:
-//!   - Config loader (TOML file + env-var override).
-//!   - Custom-tuned tokio runtime per the plan
-//!     (`docs/plans/sensor-rust-migration/PLAN.md` § Faz 2 Tokio
-//!     Runtime Tuning): worker_threads = 2, blocking pool 8, no
-//!     spawn_blocking on hot path, LIFO slot enabled.
-//!   - Observability init via the workspace `observability` crate.
-//!   - Stub main loop that logs "started" and waits for SIGTERM.
-//!
-//! WHAT lands in subsequent commits on this same PR:
-//!   - MQTT subscribe loop (rumqttc).
-//!   - Topic parse + tenant resolution (papaya cache).
-//!   - Payload validate (protocol-codec PDU decoders + topic↔payload
-//!     tenantId enforcement).
-//!   - Batch aggregator + tokio-postgres COPY pipeline.
-//!   - NATS event publish (event-contracts-rs once codegen lands).
+//! The production path is a strict durability chain: validate owner and source
+//! identity, commit the tenant receipt + metric + dispatch intent, obtain every
+//! JetStream PubAck, persist those PubAcks, and only then acknowledge MQTT.
 
 #![cfg_attr(not(test), forbid(unsafe_code))]
 #![cfg_attr(not(test), deny(missing_docs))]
@@ -47,8 +34,15 @@ use anyhow::Context;
 
 use sensor_ingestion::cache::{self, DEFAULT_TOTAL_CAPACITY, TopicCache};
 use sensor_ingestion::config::Config;
+use sensor_ingestion::events::{NatsDispatchPublisher, NatsQuarantinePublisher};
 use sensor_ingestion::mqtt::{self, MqttMessageStream};
+use sensor_ingestion::persistence::{DurableIngressStore, PostgresSink};
+use sensor_ingestion::pipeline::{
+    CachedSensorMetadataResolver, IngressPipeline, MqttDisposition, SensorMetadataResolver,
+};
 use sensor_ingestion::runtime::build_runtime;
+use sensor_ingestion::sensor_lookup::SensorLookupClient;
+use tokio_util::sync::CancellationToken;
 
 // Bootstrap exists in a window where `tracing` is not yet installed
 // and there is no other reporting channel. Allow `eprintln!` for the
@@ -131,27 +125,65 @@ async fn async_main(cfg: Config) -> anyhow::Result<()> {
         cache.is_empty(),
         "cache must be empty after self-smoke teardown"
     );
-    // If the config names an MQTT broker, start the subscriber task
-    // so the entire chain is exercised end-to-end. Downstream stages
-    // (topic parser, payload validator, batch aggregator, COPY
-    // pipeline) are wired onto this receiver in subsequent commits
-    // on this PR; until they land we log-and-drop so the module is
-    // live at runtime and the dead-code lint cannot hide a typo.
-    let mqtt_stream = if let Some(mqtt_cfg) = cfg.mqtt.clone() {
-        tracing::info!(
-            broker = %mqtt_cfg.broker_url,
-            filters = ?mqtt_cfg.topic_filters,
-            "starting mqtt subscriber"
-        );
-        Some(
-            mqtt::start(mqtt_cfg)
-                .await
-                .context("starting mqtt subscriber")?,
-        )
-    } else {
-        tracing::info!("mqtt config absent; skipping subscriber (stub mode)");
-        None
-    };
+    let cancellation = CancellationToken::new();
+    let (mqtt_stream, pipeline, quarantine, owner_policy_task) =
+        if let Some(mqtt_cfg) = cfg.mqtt.clone() {
+            let nats_cfg = cfg
+                .nats
+                .as_ref()
+                .context("mqtt ingress requires an mTLS NATS configuration")?;
+            let postgres_cfg = cfg
+                .postgres
+                .as_ref()
+                .context("mqtt ingress requires a PostgreSQL configuration")?;
+            let nats = Arc::new(
+                nats_client::NatsClient::connect(nats_cfg)
+                    .await
+                    .context("connecting certificate-authenticated NATS")?,
+            );
+            let postgres = Arc::new(
+                PostgresSink::connect(postgres_cfg)
+                    .await
+                    .context("connecting durable tenant ingest store")?,
+            );
+            let owners = sensor_ingestion::policy::bootstrap_owner_policies(
+                &nats,
+                std::time::Duration::from_secs(cfg.ingest_backend.snapshot_request_timeout_secs),
+                cfg.ingest_backend.snapshot_request_retries,
+            )
+            .await;
+            let owner_task = sensor_ingestion::policy::spawn_owner_policy_subscriber(
+                Arc::clone(&nats),
+                Arc::clone(&owners),
+                cancellation.clone(),
+            );
+            let lookup = Arc::new(SensorLookupClient::new(Arc::clone(&nats)));
+            let resolver: Arc<dyn SensorMetadataResolver> = Arc::new(
+                CachedSensorMetadataResolver::new(Arc::clone(&cache), lookup),
+            );
+            let store: Arc<dyn DurableIngressStore> = postgres;
+            let publisher = Arc::new(NatsDispatchPublisher::from_client(Arc::clone(&nats)));
+            let pipeline = Arc::new(IngressPipeline::new(owners, resolver, store, publisher));
+            let quarantine = Arc::new(NatsQuarantinePublisher::from_client(nats));
+            tracing::info!(
+                broker = %mqtt_cfg.broker_url,
+                filters = ?mqtt_cfg.topic_filters,
+                "starting durable mqtt subscriber"
+            );
+            (
+                Some(
+                    mqtt::start(mqtt_cfg)
+                        .await
+                        .context("starting mqtt subscriber")?,
+                ),
+                Some(pipeline),
+                Some(quarantine),
+                Some(owner_task),
+            )
+        } else {
+            tracing::info!("mqtt config absent; running control-plane-free idle mode");
+            (None, None, None, None)
+        };
 
     // Split the stream into an Arc<Mutex<Option<...>>> so both the
     // drain task and the signal-handler path can reach it. The signal
@@ -160,23 +192,24 @@ async fn async_main(cfg: Config) -> anyhow::Result<()> {
     let stream_slot = std::sync::Arc::new(tokio::sync::Mutex::new(mqtt_stream));
     let drain_slot = stream_slot.clone();
     let shutdown_slot = stream_slot;
-    // Hand the cache to the drain path so the topic-cache module is
-    // exercised at runtime end-to-end. When the topic parser + cache-
-    // miss handler land in subsequent commits the same `Arc` shifts
-    // from the placeholder log-line to the real lookup callsite.
     let drain_cache = Arc::clone(&cache);
 
     tokio::select! {
         () = wait_for_shutdown_signal() => {
             tracing::info!("shutdown signal received, closing mqtt subscriber");
+            cancellation.cancel();
             let taken = shutdown_slot.lock().await.take();
             if let Some(s) = taken {
                 s.shutdown().await;
             }
         }
-        () = drain_mqtt_stream(drain_slot, drain_cache) => {
+        () = drain_mqtt_stream(drain_slot, drain_cache, pipeline, quarantine) => {
             tracing::info!("mqtt stream closed");
+            cancellation.cancel();
         }
+    }
+    if let Some(task) = owner_policy_task {
+        let _ = task.await;
     }
     // Surface the post-shutdown cache footprint in the log so an
     // operator can correlate cache fill with broker traffic. The
@@ -190,17 +223,13 @@ async fn async_main(cfg: Config) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Pull messages off the MQTT stream and drop them. A placeholder for
-/// the real pipeline; exists so the module is actually exercised at
-/// runtime and the compiler does not treat it as dead code. The
-/// `cache` argument is held across the loop so the topic-cache
-/// allocation lives for the whole drain session — when the real
-/// `topic::parse → cache.get → upstream lookup → cache.insert` wiring
-/// lands on this PR, the parameter signature is already in place and
-/// callers do not need to be re-routed.
+/// Drain one singleton persistent MQTT session. The 10-second deadline covers
+/// validation, tenant commit, all JetStream PubAcks and quarantine persistence.
 async fn drain_mqtt_stream(
     stream: std::sync::Arc<tokio::sync::Mutex<Option<MqttMessageStream>>>,
     cache: Arc<TopicCache>,
+    pipeline: Option<Arc<IngressPipeline>>,
+    quarantine: Option<Arc<NatsQuarantinePublisher>>,
 ) {
     let mut guard = stream.lock().await;
     let Some(s) = guard.as_mut() else {
@@ -208,6 +237,10 @@ async fn drain_mqtt_stream(
         // owns this future cannot race the SIGTERM arm.
         drop(guard);
         std::future::pending::<()>().await;
+        return;
+    };
+    let (Some(pipeline), Some(quarantine)) = (pipeline, quarantine) else {
+        tracing::error!("mqtt stream exists without its required durable dependencies");
         return;
     };
     let mut count = 0u64;
@@ -224,17 +257,44 @@ async fn drain_mqtt_stream(
         } else {
             None
         };
-        tracing::trace!(
-            topic = %msg.topic,
-            bytes = msg.payload.len(),
-            age_micros,
-            cache_len = ?cache_len,
-            "mqtt msg (stub drain)"
-        );
-        // The real pipeline replaces this in the next commit:
-        // topic::parse -> cache.get(tenant, sensor) -> on miss issue
-        // upstream lookup and cache.insert -> payload::validate ->
-        // batch aggregator -> COPY -> NATS publish.
+        tracing::trace!(topic = %msg.topic, bytes = msg.payload.len(), age_micros, cache_len = ?cache_len, "mqtt delivery admitted");
+        let deadline =
+            tokio::time::Instant::from_std(msg.received_at + std::time::Duration::from_secs(10));
+        let disposition =
+            tokio::time::timeout_at(deadline, pipeline.process(&msg.topic, &msg.payload))
+                .await
+                .unwrap_or(MqttDisposition::Retry);
+        match disposition {
+            MqttDisposition::Committed
+            | MqttDisposition::NotOwner
+            | MqttDisposition::ErasedTenant => {
+                if let Err(error) = msg.acknowledge().await {
+                    tracing::error!(error = %error, "mqtt PUBACK failed");
+                    return;
+                }
+            }
+            MqttDisposition::Poison => {
+                let quarantined = tokio::time::timeout_at(
+                    deadline,
+                    quarantine.publish(&msg.topic, &msg.payload, "POISON_INPUT"),
+                )
+                .await;
+                if !matches!(quarantined, Ok(Ok(_))) {
+                    tracing::error!("quarantine PubAck failed; source remains unacknowledged");
+                    let _ = msg.retry_without_ack().await;
+                    return;
+                }
+                if let Err(error) = msg.acknowledge().await {
+                    tracing::error!(error = %error, "mqtt PUBACK after quarantine failed");
+                    return;
+                }
+            }
+            MqttDisposition::Retry => {
+                tracing::warn!("retryable MQTT delivery left unacknowledged; reconnecting session");
+                let _ = msg.retry_without_ack().await;
+                return;
+            }
+        }
     }
     tracing::info!(count, cache_len = cache.len(), "mqtt drain complete");
 }

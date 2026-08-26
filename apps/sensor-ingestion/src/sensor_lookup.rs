@@ -8,20 +8,13 @@
 //!   populated it — the drain only used `cache.get()` for a hit/miss
 //!   log. This module is the cache-fill side: on every drain miss the
 //!   sidecar fires a `sensor.lookup.by-topic` request to sensor-service,
-//!   which replies with `{ sensorId, tenantId, channelIds }` (or `null`
+//!   which replies with `{ sensorId, tenantId, channelIds, channelKeys }` (or `null`
 //!   for a not-found sensor). The response is decoded into
 //!   [`SensorMeta`] and inserted into the cache.
 //!
-//! WHY fire-and-forget on the hot path:
-//!   The drain MUST not block on the request-reply round trip — a
-//!   single 1ms NATS RTT at the 50K msg/sn target torpedoes the
-//!   `< 10ms` p99 budget. The current message therefore proceeds with
-//!   whatever the payload carries (the validator already pinned tenant
-//!   binding inside the payload itself). The cache fill helps every
-//!   SUBSEQUENT message for the same `(tenant, sensor)` pair — that
-//!   is the architectural payoff. [`spawn_lookup_and_populate_cache`]
-//!   spawns a tokio task and returns immediately so the caller stays
-//!   on the hot path.
+//! The durable pipeline awaits a bounded lookup on a cold miss because the
+//! canonical channel key is required before it can mint the child event. The
+//! fire-and-forget helper remains useful for proactive cache warming.
 //!
 //! WHY a not-found responder reply is `Ok(None)` (not `Err`):
 //!   "sensor does not exist" is a legitimate steady-state outcome that
@@ -41,10 +34,8 @@
 //!   share. Both sides break loud if either drifts.
 //!
 //! WHAT this module does NOT do:
-//!   - It does NOT change drain semantics. The current message still
-//!     processes with payload-only data. The fill helps the next batch.
 //!   - It does NOT reach for calibration coefficients or alert
-//!     thresholds; the wire shape is `{ sensorId, tenantId, channelIds }`
+//!     thresholds; the wire shape is `{ sensorId, tenantId, channelIds, channelKeys }`
 //!     only — that is what the responder authoritatively has from
 //!     `SensorMetaCacheService.getSensor` + `getChannels` today.
 //!   - It does NOT take responsibility for invalidation; cache
@@ -474,7 +465,11 @@ mod tests {
             "channelIds": [
                 "33333333-3333-3333-3333-333333333333",
                 "44444444-4444-4444-4444-444444444444"
-            ]
+            ],
+            "channelKeys": {
+                "33333333-3333-3333-3333-333333333333": "temperature",
+                "44444444-4444-4444-4444-444444444444": "ph"
+            }
         }"#;
         let decoded: Option<SensorMeta> = serde_json::from_str(body).expect("decode some");
         let meta = decoded.expect("body has fields, must be Some");
@@ -487,6 +482,7 @@ mod tests {
             &Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap()
         );
         assert_eq!(meta.channel_ids.len(), 2);
+        assert_eq!(meta.channel_keys.len(), 2);
         assert_eq!(
             meta.channel_ids[0],
             Uuid::parse_str("33333333-3333-3333-3333-333333333333").unwrap()
@@ -596,7 +592,10 @@ mod tests {
         let body = r#"{
             "sensorId": "55555555-5555-5555-5555-555555555555",
             "tenantId": "66666666-6666-6666-6666-666666666666",
-            "channelIds": ["77777777-7777-7777-7777-777777777777"]
+            "channelIds": ["77777777-7777-7777-7777-777777777777"],
+            "channelKeys": {
+                "77777777-7777-7777-7777-777777777777": "dissolved_oxygen"
+            }
         }"#;
         let meta: SensorMeta = serde_json::from_str(body).unwrap();
         let cache = Arc::new(TopicCache::new(64));
@@ -605,6 +604,12 @@ mod tests {
         cache.insert(meta);
         let hit = cache.get(tenant, sensor).expect("cache must hit");
         assert_eq!(hit.channel_ids.len(), 1);
+        assert_eq!(
+            hit.channel_keys
+                .get(&Uuid::parse_str("77777777-7777-7777-7777-777777777777").unwrap())
+                .map(String::as_str),
+            Some("dissolved_oxygen")
+        );
         assert_eq!(
             hit.channel_ids[0],
             Uuid::parse_str("77777777-7777-7777-7777-777777777777").unwrap()

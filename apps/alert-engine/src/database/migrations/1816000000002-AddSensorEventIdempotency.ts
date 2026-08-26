@@ -6,12 +6,12 @@ export class AddSensorEventIdempotency1816000000002 implements MigrationInterfac
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
-            ALTER TABLE "alert"."alert_history"
+            ALTER TABLE "alert_history"
             ADD COLUMN IF NOT EXISTS "source_event_id" uuid
         `);
     await queryRunner.query(`
             CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "UQ_alert_history_source_event_rule"
-            ON "alert"."alert_history" ("source_event_id", "rule_id")
+            ON "alert_history" ("source_event_id", "rule_id")
             WHERE "source_event_id" IS NOT NULL
         `);
   }

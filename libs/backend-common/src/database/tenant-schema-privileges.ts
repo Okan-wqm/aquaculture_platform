@@ -97,6 +97,12 @@ export function ownerRoleForTenantAwareSchema(sourceSchema: string): string {
   return `${sourceSchema}_schema_owner`;
 }
 
+export function runtimeRolesForTenantAwareSchema(sourceSchema: string): readonly string[] {
+  assertSafeIdentifier(sourceSchema, 'source schema');
+  const serviceRole = `${sourceSchema}_service`;
+  return sourceSchema === 'sensor' ? [serviceRole, 'sensor_ingestion'] : [serviceRole];
+}
+
 /** The per-tenant table set a source schema owns (tables ∪ referenceDataTables). */
 export function tenantTablesForSourceSchema(sourceSchema: string): string[] {
   const entry = MODULE_SCHEMAS.find((m) => m.sourceSchema === sourceSchema);
@@ -125,10 +131,9 @@ async function existingTenantTables(
   executor: TenantSchemaPrivilegeExecutor,
   tenantSchema: string,
 ): Promise<Set<string>> {
-  const rows = (await executor.query(
-    `SELECT tablename FROM pg_tables WHERE schemaname = $1`,
-    [tenantSchema],
-  )) as ExistingTableRow[];
+  const rows = (await executor.query(`SELECT tablename FROM pg_tables WHERE schemaname = $1`, [
+    tenantSchema,
+  ])) as ExistingTableRow[];
   return new Set(rows.map((r) => r.tablename));
 }
 
@@ -164,13 +169,16 @@ export async function assertTenantSchemaPrivileges(
 
   const ownerRole = ownerRoleForTenantAwareSchema(options.sourceSchema);
   const serviceRole = `${options.sourceSchema}_service`;
+  const runtimeRoles = runtimeRolesForTenantAwareSchema(options.sourceSchema);
   assertSafeIdentifier(ownerRole, 'owner role');
   assertSafeIdentifier(serviceRole, 'service role');
 
   const registered = tenantTablesForSourceSchema(options.sourceSchema);
   const existing = await existingTenantTables(executor, options.tenantSchema);
 
-  await executor.query(`GRANT USAGE ON SCHEMA "${options.tenantSchema}" TO "${serviceRole}"`);
+  for (const runtimeRole of runtimeRoles) {
+    await executor.query(`GRANT USAGE ON SCHEMA "${options.tenantSchema}" TO "${runtimeRole}"`);
+  }
 
   const alignedTables: string[] = [];
   const absentTables: string[] = [];
@@ -184,19 +192,23 @@ export async function assertTenantSchemaPrivileges(
     await executor.query(
       `ALTER TABLE "${options.tenantSchema}"."${table}" OWNER TO "${ownerRole}"`,
     );
-    await executor.query(
-      `GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "${options.tenantSchema}"."${table}" ` +
-        `TO "${serviceRole}"`,
-    );
+    for (const runtimeRole of runtimeRoles) {
+      await executor.query(
+        `GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "${options.tenantSchema}"."${table}" ` +
+          `TO "${runtimeRole}"`,
+      );
+    }
     for (const seq of await ownedSequences(executor, options.tenantSchema, table)) {
       assertSafeIdentifier(seq, 'sequence name');
       await executor.query(
         `ALTER SEQUENCE "${options.tenantSchema}"."${seq}" OWNER TO "${ownerRole}"`,
       );
-      await executor.query(
-        `GRANT USAGE, SELECT, UPDATE ON SEQUENCE "${options.tenantSchema}"."${seq}" ` +
-          `TO "${serviceRole}"`,
-      );
+      for (const runtimeRole of runtimeRoles) {
+        await executor.query(
+          `GRANT USAGE, SELECT, UPDATE ON SEQUENCE "${options.tenantSchema}"."${seq}" ` +
+            `TO "${runtimeRole}"`,
+        );
+      }
       alignedSequences.push(seq);
     }
     alignedTables.push(table);
@@ -244,7 +256,7 @@ export async function verifyTenantSchemaPrivileges(
   for (const sourceSchema of sourceSchemas) {
     assertSafeIdentifier(sourceSchema, 'source schema');
     const ownerRole = ownerRoleForTenantAwareSchema(sourceSchema);
-    const serviceRole = `${sourceSchema}_service`;
+    const runtimeRoles = runtimeRolesForTenantAwareSchema(sourceSchema);
     const registered = tenantTablesForSourceSchema(sourceSchema);
     const present = registered.filter((t) => existing.has(t));
     // The per-source tenant migration ledger is service-read-only by design.
@@ -256,8 +268,9 @@ export async function verifyTenantSchemaPrivileges(
       continue;
     }
 
-    const rows = (await executor.query(
-      `SELECT t.tablename,
+    for (const runtimeRole of runtimeRoles) {
+      const rows = (await executor.query(
+        `SELECT t.tablename,
               t.tableowner,
               has_table_privilege($2, format('%I.%I', t.schemaname, t.tablename), 'SELECT') AS has_select,
               has_table_privilege($2, format('%I.%I', t.schemaname, t.tablename), 'INSERT') AS has_insert,
@@ -265,27 +278,28 @@ export async function verifyTenantSchemaPrivileges(
               has_table_privilege($2, format('%I.%I', t.schemaname, t.tablename), 'DELETE') AS has_delete
          FROM pg_tables t
         WHERE t.schemaname = $1 AND t.tablename = ANY($3)`,
-      [tenantSchema, serviceRole, present],
-    )) as PrivilegeCheckRow[];
+        [tenantSchema, runtimeRole, present],
+      )) as PrivilegeCheckRow[];
 
-    for (const row of rows) {
-      if (row.tableowner !== ownerRole) {
-        violations.push({
-          table: row.tablename,
-          sourceSchema,
-          kind: 'owner',
-          detail: `owner is "${row.tableowner}", expected "${ownerRole}"`,
-        });
-      }
-      if (!row.has_select || !row.has_insert || !row.has_update || !row.has_delete) {
-        violations.push({
-          table: row.tablename,
-          sourceSchema,
-          kind: 'privilege',
-          detail:
-            `"${serviceRole}" is missing DML (S:${row.has_select} I:${row.has_insert} ` +
-            `U:${row.has_update} D:${row.has_delete})`,
-        });
+      for (const row of rows) {
+        if (row.tableowner !== ownerRole) {
+          violations.push({
+            table: row.tablename,
+            sourceSchema,
+            kind: 'owner',
+            detail: `owner is "${row.tableowner}", expected "${ownerRole}"`,
+          });
+        }
+        if (!row.has_select || !row.has_insert || !row.has_update || !row.has_delete) {
+          violations.push({
+            table: row.tablename,
+            sourceSchema,
+            kind: 'privilege',
+            detail:
+              `"${runtimeRole}" is missing DML (S:${row.has_select} I:${row.has_insert} ` +
+              `U:${row.has_update} D:${row.has_delete})`,
+          });
+        }
       }
     }
   }

@@ -55,6 +55,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::config::IngestBackendConfig;
 use crate::ingest_backend::{DynamicBackendPolicy, IngestBackendChange, IngestBackendSnapshot};
+use crate::ingest_backend::{IngressOwnerPolicy, PolicyApplyOutcome, VersionedOwnerPolicies};
 
 /// Canonical request-reply subject the Rust sidecar consults at
 /// cold-start. Pinned by the `subject_literal_is_canonical` test so
@@ -70,6 +71,16 @@ pub const SNAPSHOT_SUBJECT: &str = "policy.ingest_backend.snapshot";
 /// orthogonal fan-outs (e.g. `policy.ingest_backend.health`) without
 /// a subscriber-side code change.
 pub const CHANGE_SUBJECT_FILTER: &str = "policy.ingest_backend.>";
+
+/// Versioned per-tenant owner-policy updates. This stream is the only source
+/// that can authorize an MQTT ACK-drop by a non-owner sidecar session.
+pub const OWNER_POLICY_SUBJECT_FILTER: &str = "policy.ingress_owner.changed.*";
+
+/// Cold-start request-reply snapshot for versioned owner policies.
+pub const OWNER_POLICY_SNAPSHOT_SUBJECT: &str = "policy.ingress_owner.snapshot";
+
+const OWNER_POLICY_RECONCILIATION_INTERVAL: Duration = Duration::from_secs(2);
+const OWNER_POLICY_SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Metric: bootstrap succeeded against a live NATS snapshot reply.
 pub const BOOTSTRAP_SOURCE_NATS_METRIC: &str =
@@ -97,6 +108,36 @@ pub const CHANGE_DECODE_FAILED_METRIC: &str = "sensor_ingestion_policy_change_de
 /// identity already does.
 #[derive(Debug, Serialize)]
 struct SnapshotRequest {}
+
+/// Fetch the current owner-policy set. Any transport/decode failure returns an
+/// empty registry, which is fail-closed because unknown tenants are RETRY.
+pub async fn bootstrap_owner_policies(
+    nats: &nats_client::NatsClient,
+    timeout: Duration,
+    retries: u8,
+) -> Arc<VersionedOwnerPolicies> {
+    let policies = Arc::new(VersionedOwnerPolicies::new());
+    for attempt in 0..retries {
+        let snapshot = nats_client::request_typed::<SnapshotRequest, Vec<IngressOwnerPolicy>>(
+            nats,
+            OWNER_POLICY_SNAPSHOT_SUBJECT,
+            &SnapshotRequest {},
+            timeout,
+        )
+        .await;
+        match snapshot {
+            Ok(rows) => {
+                policies.reconcile_snapshot(rows);
+                return policies;
+            }
+            Err(error) => {
+                tracing::warn!(attempt = attempt + 1, error = %error, "owner policy snapshot failed");
+            }
+        }
+    }
+    tracing::error!("owner policy snapshot unavailable; all tenants remain fail-closed");
+    policies
+}
 
 /// Which step of the fallback chain produced the snapshot the
 /// caller is now holding. Exposed so [`bootstrap_policy`]'s caller
@@ -365,6 +406,86 @@ pub fn spawn_policy_subscriber(
             }
         }
     })
+}
+
+/// Subscribe to versioned per-tenant ingress-owner policies. Malformed,
+/// conflicting, and stale messages leave the current policy unchanged.
+#[must_use]
+pub fn spawn_owner_policy_subscriber(
+    nats: Arc<nats_client::NatsClient>,
+    policies: Arc<VersionedOwnerPolicies>,
+    cancel: CancellationToken,
+) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut sub = match nats.subscribe(OWNER_POLICY_SUBJECT_FILTER).await {
+            Ok(subscriber) => subscriber,
+            Err(error) => {
+                tracing::error!(
+                    subject = OWNER_POLICY_SUBJECT_FILTER,
+                    error = %error,
+                    "owner policy subscriber failed to start"
+                );
+                return;
+            }
+        };
+        reconcile_owner_policy_snapshot(&nats, &policies).await;
+        let mut reconciliation = tokio::time::interval_at(
+            tokio::time::Instant::now() + OWNER_POLICY_RECONCILIATION_INTERVAL,
+            OWNER_POLICY_RECONCILIATION_INTERVAL,
+        );
+        reconciliation.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            tokio::select! {
+                () = cancel.cancelled() => break,
+                _ = reconciliation.tick() => {
+                    reconcile_owner_policy_snapshot(&nats, &policies).await;
+                }
+                message = sub.next() => {
+                    let Some(message) = message else {
+                        tracing::error!("owner policy subscriber ended unexpectedly");
+                        break;
+                    };
+                    apply_owner_policy_message(&message.payload, &policies);
+                }
+            }
+        }
+    })
+}
+
+async fn reconcile_owner_policy_snapshot(
+    nats: &nats_client::NatsClient,
+    policies: &VersionedOwnerPolicies,
+) {
+    match nats_client::request_typed::<SnapshotRequest, Vec<IngressOwnerPolicy>>(
+        nats,
+        OWNER_POLICY_SNAPSHOT_SUBJECT,
+        &SnapshotRequest {},
+        OWNER_POLICY_SNAPSHOT_TIMEOUT,
+    )
+    .await
+    {
+        Ok(snapshot) => policies.reconcile_snapshot(snapshot),
+        Err(error) => {
+            policies.reconcile_snapshot(Vec::new());
+            tracing::error!(error = %error, "owner policy reconciliation failed closed");
+        }
+    }
+}
+
+fn apply_owner_policy_message(payload: &[u8], policies: &VersionedOwnerPolicies) {
+    let policy = match serde_json::from_slice::<IngressOwnerPolicy>(payload) {
+        Ok(policy) => policy,
+        Err(error) => {
+            tracing::warn!(error = %error, "invalid ingress owner policy rejected");
+            return;
+        }
+    };
+    match policies.apply(policy) {
+        PolicyApplyOutcome::Applied | PolicyApplyOutcome::Duplicate => {}
+        PolicyApplyOutcome::Stale => {
+            tracing::warn!("stale or conflicting ingress owner policy rejected");
+        }
+    }
 }
 
 /// Decode + apply + persist one change-event message. Extracted as

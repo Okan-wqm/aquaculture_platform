@@ -243,6 +243,8 @@ mod tests {
             raw_value: 24.5,
             quality: QualityCode::try_new(QUALITY_GOOD_MIN).expect("192 is the GOOD band"),
             producer_ts: Utc::now().timestamp_millis(),
+            source_event_id: "edge-test:1".to_owned(),
+            source_sequence: Some(1),
             source: crate::payload::PayloadSource::UpcastedFromV1,
         }
     }

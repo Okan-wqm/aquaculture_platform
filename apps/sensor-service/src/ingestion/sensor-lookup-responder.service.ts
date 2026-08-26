@@ -6,12 +6,7 @@ import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
 // either way, so this stays byte-for-byte compatible with the Rust sidecar.
 import type { Msg, NatsConnection, Subscription } from '@nats-io/nats-core';
 import { connect } from '@nats-io/transport-node';
-import {
-  Injectable,
-  Logger,
-  OnModuleDestroy,
-  OnModuleInit,
-} from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { SensorMetaCacheService } from './sensor-meta-cache.service';
@@ -65,9 +60,7 @@ import { SensorMetaCacheService } from './sensor-meta-cache.service';
  *   wrong shape impossible" pattern.
  */
 @Injectable()
-export class SensorLookupResponderService
-  implements OnModuleInit, OnModuleDestroy
-{
+export class SensorLookupResponderService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SensorLookupResponderService.name);
 
   /**
@@ -93,13 +86,11 @@ export class SensorLookupResponderService
   private readonly natsUrl: string;
 
   constructor(
-    private readonly cacheService: SensorMetaCacheService,
+    @Inject(SensorMetaCacheService)
+    private readonly cacheService: Pick<SensorMetaCacheService, 'getSensor' | 'getChannels'>,
     private readonly configService: ConfigService,
   ) {
-    this.natsUrl = this.configService.get<string>(
-      'NATS_URL',
-      'nats://localhost:4222',
-    );
+    this.natsUrl = this.configService.get<string>('NATS_URL', 'nats://localhost:4222');
   }
 
   async onModuleInit(): Promise<void> {
@@ -127,9 +118,7 @@ export class SensorLookupResponderService
       try {
         await this.connection.drain();
       } catch (error) {
-        this.logger.warn(
-          `NATS drain failed at shutdown: ${(error as Error).message}`,
-        );
+        this.logger.warn(`NATS drain failed at shutdown: ${(error as Error).message}`);
       }
       this.connection = null;
     }
@@ -163,10 +152,8 @@ export class SensorLookupResponderService
       return;
     }
 
-    const tenantId =
-      typeof request.tenantId === 'string' ? request.tenantId : null;
-    const sensorId =
-      typeof request.sensorId === 'string' ? request.sensorId : null;
+    const tenantId = typeof request.tenantId === 'string' ? request.tenantId : null;
+    const sensorId = typeof request.sensorId === 'string' ? request.sensorId : null;
     if (!tenantId || !sensorId) {
       this.logger.warn(
         'sensor.lookup.by-topic request missing tenantId or sensorId; replying null',
@@ -182,9 +169,7 @@ export class SensorLookupResponderService
       // Cache / repo failure: do not leak the error class to the
       // sidecar; reply null so the cache stays cold for this key
       // and the operator alarms on the structured log.
-      this.logger.error(
-        `getSensor failed for sensorId=${sensorId}: ${(error as Error).message}`,
-      );
+      this.logger.error(`getSensor failed for sensorId=${sensorId}: ${(error as Error).message}`);
       this.respondNull(msg);
       return;
     }
@@ -219,9 +204,7 @@ export class SensorLookupResponderService
     try {
       channels = await this.cacheService.getChannels(sensorId);
     } catch (error) {
-      this.logger.error(
-        `getChannels failed for sensorId=${sensorId}: ${(error as Error).message}`,
-      );
+      this.logger.error(`getChannels failed for sensorId=${sensorId}: ${(error as Error).message}`);
       this.respondNull(msg);
       return;
     }
@@ -251,12 +234,14 @@ export class SensorLookupResponderService
       sensorId: string;
       tenantId: string;
       channelIds: string[];
+      channelKeys: Record<string, string>;
       farmId?: string;
       pondId?: string;
     } = {
       sensorId: sensor.id,
       tenantId: sensor.tenantId,
       channelIds: channels.map((c) => c.id),
+      channelKeys: Object.fromEntries(channels.map((channel) => [channel.id, channel.channelKey])),
     };
     if (sensor.farmId) {
       reply.farmId = sensor.farmId;
@@ -273,22 +258,15 @@ export class SensorLookupResponderService
     // below — the intervening logger.log() call resets TS property narrowing on
     // the `NatsConnection | null` field.
     const connection = await connect({
-      ...buildNatsConnectionOptions(
-        `sensor-service-lookup-responder-${process.pid}`,
-      ),
+      ...buildNatsConnectionOptions(`sensor-service-lookup-responder-${process.pid}`),
       maxReconnectAttempts: -1,
     });
     this.connection = connection;
-    this.logger.log(
-      `Connected to NATS for sensor.lookup.by-topic responder (url=${this.natsUrl})`,
-    );
+    this.logger.log(`Connected to NATS for sensor.lookup.by-topic responder (url=${this.natsUrl})`);
 
-    const sub = connection.subscribe(
-      SensorLookupResponderService.SUBJECT,
-      {
-        queue: SensorLookupResponderService.QUEUE_GROUP,
-      },
-    );
+    const sub = connection.subscribe(SensorLookupResponderService.SUBJECT, {
+      queue: SensorLookupResponderService.QUEUE_GROUP,
+    });
     this.subscriptions.push(sub);
     this.logger.log(
       `Subscribed to ${SensorLookupResponderService.SUBJECT} (queue=${SensorLookupResponderService.QUEUE_GROUP})`,

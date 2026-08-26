@@ -24,7 +24,8 @@
 #   - request.{service}.{...}              NestJS request-reply RPC (core NATS)
 #   - sensor.lookup.by-topic               Rust sidecar cache-miss RPC (ADR-029)
 #   - st.language.>                        ST Language IDE bridge
-#   - policy.ingest_backend.>              dynamic policy fan-out (ADR-027/031)
+#   - policy.ingest_backend.>              legacy dynamic policy fan-out (ADR-027/031)
+#   - policy.ingress_owner.>               versioned exclusive ingress ownership
 #   - scoped $JS.API.* + _INBOX.>          JetStream API + request-reply inboxes
 #
 # The legacy `AQUACULTURE_EVENTS.<Type>.>` grant scheme is BANNED (and
@@ -249,6 +250,7 @@ services:
       - 'st.language.>'
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
+      - 'policy.ingress_owner.snapshot'
       - '$JS.API.INFO'
       - '$JS.API.STREAM.INFO.*'
       - '$JS.API.CONSUMER.INFO.>'
@@ -265,6 +267,7 @@ services:
       - 'sensor.lookup.by-topic'
       - 'dlq.mqtt'
       - 'st.language.>'
+      - 'policy.ingress_owner.changed.*'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -280,6 +283,8 @@ services:
       - 'events.*.SensorReading'
       - 'telemetry.*.SensorReading'
       - 'sensor.lookup.by-topic'
+      - 'policy.ingress_owner.snapshot'
+      - 'quarantine.mqtt'
       - '$JS.API.INFO'
       - '$JS.API.STREAM.INFO.*'
       - '$JS.API.CONSUMER.INFO.>'
@@ -287,7 +292,7 @@ services:
       - '$JS.API.CONSUMER.MSG.NEXT.>'
       - '_INBOX.>'
     subscribe:
-      - 'policy.ingest_backend.>'
+      - 'policy.ingress_owner.changed.*'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -353,6 +358,7 @@ services:
       - 'request.auth.tenant.RemoveModule'
       - 'request.auth.tenant.RollbackProvisioning'
       - 'policy.ingest_backend.changed'
+      - 'policy.ingress_owner.changed.*'
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.INFO'
@@ -365,6 +371,7 @@ services:
       - 'events.*.TenantOnboardingAck'
       - 'events.*.TenantOnboardingFailed'
       - 'policy.ingest_backend.snapshot'
+      - 'policy.ingress_owner.snapshot'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------

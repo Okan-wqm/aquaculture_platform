@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  OnModuleDestroy,
-  OnModuleInit,
-} from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 
 import {
   NatsRequestReply,
@@ -33,9 +28,7 @@ import { IngestBackendPolicyService } from './ingest-backend-policy.service';
  *     broker connection closes.
  */
 @Injectable()
-export class PolicySnapshotResponder
-  implements OnModuleInit, OnModuleDestroy
-{
+export class PolicySnapshotResponder implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PolicySnapshotResponder.name);
   private handle: RequestReplyResponderHandle | null = null;
 
@@ -48,12 +41,8 @@ export class PolicySnapshotResponder
     this.handle = await this.requestReply.respond<
       IngestBackendSnapshotRequest,
       IngestBackendSnapshot
-    >(INGEST_BACKEND_POLICY_SUBJECTS.snapshot, (req, ctx) =>
-      this.handleSnapshotRequest(req, ctx),
-    );
-    this.logger.log(
-      `policy-snapshot responder online: ${INGEST_BACKEND_POLICY_SUBJECTS.snapshot}`,
-    );
+    >(INGEST_BACKEND_POLICY_SUBJECTS.snapshot, (req, ctx) => this.handleSnapshotRequest(req, ctx));
+    this.logger.log(`policy-snapshot responder online: ${INGEST_BACKEND_POLICY_SUBJECTS.snapshot}`);
   }
 
   async onModuleDestroy(): Promise<void> {

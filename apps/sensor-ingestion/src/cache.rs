@@ -145,6 +145,10 @@ pub struct SensorMeta {
     /// event and the cache layer invalidates the entry. The vector is
     /// short (typically 1-8 entries) and immutable after construction.
     pub channel_ids: Vec<Uuid>,
+    /// Channel UUID to canonical device channel key. This is the metadata
+    /// required to emit a typed `SensorReading` without a second writer.
+    #[serde(default)]
+    pub channel_keys: std::collections::HashMap<Uuid, String>,
     /// Optional farm scope returned by sensor-service when the upstream
     /// resolver has a warm tenant/sensor mapping. Older responders omit
     /// this field; default keeps backward compatibility.
@@ -454,6 +458,7 @@ pub fn self_smoke_check(cache: &TopicCache) {
         sensor_id: sensor_a,
         tenant_id: tenant,
         channel_ids: Vec::new(),
+        channel_keys: std::collections::HashMap::new(),
         farm_id: None,
         pond_id: None,
     });
@@ -461,6 +466,7 @@ pub fn self_smoke_check(cache: &TopicCache) {
         sensor_id: sensor_b,
         tenant_id: tenant,
         channel_ids: Vec::new(),
+        channel_keys: std::collections::HashMap::new(),
         farm_id: None,
         pond_id: None,
     });
@@ -514,6 +520,7 @@ mod tests {
             sensor_id: sensor,
             tenant_id: tenant,
             channel_ids: vec![Uuid::nil()],
+            channel_keys: std::collections::HashMap::new(),
             farm_id: None,
             pond_id: None,
         }

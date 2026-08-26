@@ -329,5 +329,14 @@ BEGIN
     EXECUTE format('GRANT EXECUTE ON FUNCTION public.audit_immutability_guard() TO %I', service_role);
   END LOOP;
 
+  ALTER ROLE sensor_ingestion
+    NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+  EXECUTE format('GRANT CONNECT, TEMP ON DATABASE %I TO sensor_ingestion', current_database());
+  EXECUTE format('REVOKE CREATE ON DATABASE %I FROM sensor_ingestion', current_database());
+  REVOKE ALL ON SCHEMA sensor FROM sensor_ingestion;
+  REVOKE ALL ON SCHEMA shared FROM sensor_ingestion;
+  REVOKE ALL ON SCHEMA compliance FROM sensor_ingestion;
+  REVOKE ALL ON SCHEMA platform FROM sensor_ingestion;
+
 END
 $least_privilege_runtime_boundary$;

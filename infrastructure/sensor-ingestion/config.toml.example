@@ -24,13 +24,12 @@ thread_stack_kb = 256
 # All three cert paths below are REQUIRED when scheme is mqtts:// (the
 # subscriber's start path validates them at boot, never at first
 # publish; see apps/sensor-ingestion/src/mqtt.rs).
-broker_url = "mqtts://mosquitto:8883"
+broker_url = "mqtt://mosquitto:1883"
 client_id = "sensor-ingestion-1"
 topic_filters = ["sensors/#", "tenants/+/devices/+/io_data"]
 qos = 1
-server_ca_cert_pem = "/etc/sensor-ingestion/certs/mqtt-ca.pem"
-client_cert_pem = "/etc/sensor-ingestion/certs/mqtt-client.crt"
-client_key_pem = "/etc/sensor-ingestion/certs/mqtt-client.key"
+username = "REPLACE_FROM_SECRETS"
+password = "REPLACE_FROM_SECRETS"
 
 [nats]
 # ADR-014/015: cert-CN-only auth. server_url MUST be tls:// — the

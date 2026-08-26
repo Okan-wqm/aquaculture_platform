@@ -24,11 +24,6 @@ tenant-context = { path = "../../crates/tenant-context", version = "0.1.0" }
 nats-client = { path = "../../crates/nats-client", version = "0.1.0" }
 observability = { path = "../../crates/observability", version = "0.1.0" }
 event-contracts-rs = { path = "../../crates/event-contracts-rs", version = "0.1.0" }
-# ADR-029 Transactional Outbox — integrates at the write_tenant_batch
-# transaction boundary so every SensorReading COPY writes its
-# corresponding SensorMetricIngested event atomically. A separate
-# OutboxDispatcher task claims pending rows + publishes to NATS.
-outbox-rs = { path = "../../crates/outbox-rs", version = "0.1.0" }
 
 # Async runtime + IO.
 tokio = { workspace = true, features = ["full"] }
@@ -44,6 +39,8 @@ toml = "0.8"
 # Identity + time.
 uuid = { workspace = true }
 chrono = { workspace = true }
+sha2 = { workspace = true }
+base64 = "0.22"
 
 # MQTT — same crate the edge agent uses (rumqttc 0.25 = pure Rust + rustls).
 rumqttc = { version = "0.25", features = ["use-rustls"] }

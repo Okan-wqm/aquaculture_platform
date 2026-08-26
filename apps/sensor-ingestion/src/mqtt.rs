@@ -30,7 +30,7 @@ use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use rumqttc::{
-    AsyncClient, Event, EventLoop, MqttOptions, Packet, QoS, TlsConfiguration, Transport,
+    AsyncClient, Event, EventLoop, MqttOptions, Packet, Publish, QoS, TlsConfiguration, Transport,
 };
 // RUST-CVE-001: PemObject trait supplies pem_slice_iter/from_pem_slice on
 // the DER newtypes — the first-party replacement for rustls-pemfile.
@@ -68,6 +68,14 @@ pub enum MqttError {
     /// changes inflight semantics dramatically.
     #[error("qos must be 0 or 1 (QoS-2 not supported); got {0}")]
     UnsupportedQos(u8),
+
+    /// Durable QoS1 sessions require a deployment-stable client id.
+    #[error("mqtt client_id must be non-empty for a persistent session")]
+    MissingClientId,
+
+    /// A manual acknowledgement could not be queued to rumqttc.
+    #[error("mqtt manual acknowledgement failed")]
+    Ack(#[source] rumqttc::ClientError),
 
     /// rumqttc's subscribe call failed.
     #[error("subscribe failed for filter '{filter}'")]
@@ -114,6 +122,35 @@ pub struct RawMqttMessage {
     pub payload: Bytes,
     /// Wall-clock instant the rumqttc task observed the message.
     pub received_at: Instant,
+    ack: MqttAckToken,
+}
+
+/// Capability token for exactly one broker delivery. Keeping the original
+/// `Publish` packet (including its packet id) prevents callers from confusing
+/// MQTT packet identity with the durable source event identity.
+#[derive(Debug, Clone)]
+struct MqttAckToken {
+    client: AsyncClient,
+    publish: Publish,
+}
+
+impl RawMqttMessage {
+    /// Send PUBACK only after the caller has completed its durable commit and
+    /// every required JetStream publish acknowledgement.
+    pub async fn acknowledge(&self) -> Result<(), MqttError> {
+        self.ack
+            .client
+            .ack(&self.ack.publish)
+            .await
+            .map_err(MqttError::Ack)
+    }
+
+    /// Close the persistent session without acknowledging this delivery. The
+    /// broker retains it and redelivers when the deployment-stable client id
+    /// reconnects.
+    pub async fn retry_without_ack(&self) -> Result<(), MqttError> {
+        self.ack.client.disconnect().await.map_err(MqttError::Ack)
+    }
 }
 
 /// Receiver + EventLoop join handle handed to the caller.
@@ -153,8 +190,11 @@ pub fn validate_config(cfg: &MqttConfig) -> Result<(), MqttError> {
     if cfg.topic_filters.is_empty() {
         return Err(MqttError::NoTopicFilters);
     }
-    if cfg.qos > 1 {
+    if cfg.qos != 1 {
         return Err(MqttError::UnsupportedQos(cfg.qos));
+    }
+    if cfg.client_id.trim().is_empty() {
+        return Err(MqttError::MissingClientId);
     }
     parse_broker_url(&cfg.broker_url)?;
     if cfg.tls_required()
@@ -172,9 +212,7 @@ pub fn validate_config(cfg: &MqttConfig) -> Result<(), MqttError> {
 pub async fn start(cfg: MqttConfig) -> Result<MqttMessageStream, MqttError> {
     validate_config(&cfg)?;
     let parsed_url = parse_broker_url(&cfg.broker_url)?;
-
-    let mut opts = MqttOptions::new(&cfg.client_id, parsed_url.host, parsed_url.port);
-    opts.set_keep_alive(Duration::from_secs(30));
+    let mut opts = build_mqtt_options(&cfg)?;
 
     if parsed_url.tls {
         // Build a rustls ClientConfig with the platform CA pinned and
@@ -203,8 +241,21 @@ pub async fn start(cfg: MqttConfig) -> Result<MqttMessageStream, MqttError> {
             })?;
     }
 
-    let handle = tokio::spawn(run_event_loop(event_loop, tx));
+    let handle = tokio::spawn(run_event_loop(event_loop, tx, client));
     Ok(MqttMessageStream { rx, handle })
+}
+
+fn build_mqtt_options(cfg: &MqttConfig) -> Result<MqttOptions, MqttError> {
+    validate_config(cfg)?;
+    let parsed_url = parse_broker_url(&cfg.broker_url)?;
+    let mut opts = MqttOptions::new(&cfg.client_id, parsed_url.host, parsed_url.port);
+    if let (Some(username), Some(password)) = (&cfg.username, &cfg.password) {
+        opts.set_credentials(username, password);
+    }
+    opts.set_keep_alive(Duration::from_secs(30));
+    opts.set_clean_session(false);
+    opts.set_manual_acks(true);
+    Ok(opts)
 }
 
 /// Build the `rustls::ClientConfig` that backs `Transport::Rustls`.
@@ -299,14 +350,22 @@ async fn build_rustls_client_config(
 }
 
 /// rumqttc EventLoop driver.
-async fn run_event_loop(mut event_loop: EventLoop, tx: mpsc::Sender<RawMqttMessage>) {
+async fn run_event_loop(
+    mut event_loop: EventLoop,
+    tx: mpsc::Sender<RawMqttMessage>,
+    client: AsyncClient,
+) {
     loop {
         match event_loop.poll().await {
             Ok(Event::Incoming(Packet::Publish(p))) => {
                 let msg = RawMqttMessage {
-                    topic: p.topic,
-                    payload: p.payload,
+                    topic: p.topic.clone(),
+                    payload: p.payload.clone(),
                     received_at: Instant::now(),
+                    ack: MqttAckToken {
+                        client: client.clone(),
+                        publish: p,
+                    },
                 };
                 if tx.send(msg).await.is_err() {
                     tracing::info!("mqtt receiver dropped; shutting down event loop");
@@ -404,6 +463,8 @@ mod tests {
             client_id: "test".to_owned(),
             topic_filters: filters.into_iter().map(String::from).collect(),
             qos,
+            username: None,
+            password: None,
             server_ca_cert_pem: None,
             client_cert_pem: None,
             client_key_pem: None,
@@ -534,6 +595,34 @@ mod tests {
             Err(MqttError::UnsupportedQos(q)) => assert_eq!(q, 2),
             other => panic!("expected UnsupportedQos, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn validate_config_rejects_qos0_for_durable_ingress() {
+        let c = cfg("mqtt://b:1883", vec!["sensors/#"], 0);
+        match validate_config(&c) {
+            Err(MqttError::UnsupportedQos(q)) => assert_eq!(q, 0),
+            other => panic!("expected UnsupportedQos, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn validate_config_rejects_empty_persistent_client_id() {
+        let mut c = cfg("mqtt://b:1883", vec!["sensors/#"], 1);
+        c.client_id.clear();
+        assert!(matches!(
+            validate_config(&c),
+            Err(MqttError::MissingClientId)
+        ));
+    }
+
+    #[test]
+    fn durable_session_options_are_manual_ack_and_persistent() {
+        let options =
+            super::build_mqtt_options(&cfg("mqtt://b:1883", vec!["sensors/#"], 1)).unwrap();
+        assert!(options.manual_acks());
+        assert!(!options.clean_session());
+        assert_eq!(options.client_id(), "test");
     }
 
     #[test]

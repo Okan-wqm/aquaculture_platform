@@ -4,6 +4,7 @@ import {
   IngestBackendPolicyChange,
   IngestBackendPolicyChangedEvent,
   IngestBackendSnapshot,
+  IngressOwnerPolicy,
 } from '../ingest-backend-policy';
 
 /**
@@ -25,14 +26,12 @@ describe('ingest-backend-policy — subject literals', () => {
     // routing — the Rust sidecar pins the same literals in
     // apps/sensor-ingestion/src/policy.rs (SNAPSHOT_SUBJECT,
     // CHANGE_SUBJECT_FILTER) via its own unit test.
-    expect(INGEST_BACKEND_POLICY_SUBJECTS.snapshot).toBe(
-      'policy.ingest_backend.snapshot',
-    );
-    expect(INGEST_BACKEND_POLICY_SUBJECTS.changed).toBe(
-      'policy.ingest_backend.changed',
-    );
-    expect(INGEST_BACKEND_POLICY_SUBJECTS.subjectFilter).toBe(
-      'policy.ingest_backend.>',
+    expect(INGEST_BACKEND_POLICY_SUBJECTS.snapshot).toBe('policy.ingest_backend.snapshot');
+    expect(INGEST_BACKEND_POLICY_SUBJECTS.changed).toBe('policy.ingest_backend.changed');
+    expect(INGEST_BACKEND_POLICY_SUBJECTS.subjectFilter).toBe('policy.ingest_backend.>');
+    expect(INGEST_BACKEND_POLICY_SUBJECTS.ownerSnapshot).toBe('policy.ingress_owner.snapshot');
+    expect(INGEST_BACKEND_POLICY_SUBJECTS.ownerSubjectFilter).toBe(
+      'policy.ingress_owner.changed.*',
     );
   });
 
@@ -41,14 +40,28 @@ describe('ingest-backend-policy — subject literals', () => {
     // regression that narrowed the filter to exactly the
     // `changed` subject would silently miss future sibling
     // subjects.
-    expect(INGEST_BACKEND_POLICY_SUBJECTS.subjectFilter.endsWith('>')).toBe(
-      true,
-    );
+    expect(INGEST_BACKEND_POLICY_SUBJECTS.subjectFilter.endsWith('>')).toBe(true);
     expect(
       INGEST_BACKEND_POLICY_SUBJECTS.changed.startsWith(
         INGEST_BACKEND_POLICY_SUBJECTS.subjectFilter.slice(0, -1),
       ),
     ).toBe(true);
+  });
+});
+
+describe('ingress-owner-policy — versioned handoff wire shape', () => {
+  it('matches the Rust fail-closed policy shape byte-for-byte', () => {
+    const policy: IngressOwnerPolicy = {
+      tenantId: '11111111-1111-1111-1111-111111111111',
+      version: 7,
+      owner: 'RUST',
+      effectiveEpoch: 'epoch-2026-08-25-01',
+      state: 'ACTIVE',
+    };
+
+    expect(JSON.stringify(policy)).toBe(
+      '{"tenantId":"11111111-1111-1111-1111-111111111111","version":7,"owner":"RUST","effectiveEpoch":"epoch-2026-08-25-01","state":"ACTIVE"}',
+    );
   });
 });
 

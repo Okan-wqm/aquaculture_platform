@@ -287,6 +287,7 @@ services:
       AUTH_SERVICE_DB_PASS: ${AUTH_SERVICE_DB_PASS:-}
       FARM_SERVICE_DB_PASS: ${FARM_SERVICE_DB_PASS:-}
       SENSOR_SERVICE_DB_PASS: ${SENSOR_SERVICE_DB_PASS:-}
+      SENSOR_INGESTION_DB_PASS: ${SENSOR_INGESTION_DB_PASS:-}
       BILLING_SERVICE_DB_PASS: ${BILLING_SERVICE_DB_PASS:-}
       HR_SERVICE_DB_PASS: ${HR_SERVICE_DB_PASS:-}
       ALERT_SERVICE_DB_PASS: ${ALERT_SERVICE_DB_PASS:-}
@@ -441,6 +442,7 @@ services:
       AUTH_SERVICE_DB_PASS: ${AUTH_SERVICE_DB_PASS:-}
       FARM_SERVICE_DB_PASS: ${FARM_SERVICE_DB_PASS:-}
       SENSOR_SERVICE_DB_PASS: ${SENSOR_SERVICE_DB_PASS:-}
+      SENSOR_INGESTION_DB_PASS: ${SENSOR_INGESTION_DB_PASS:-}
       BILLING_SERVICE_DB_PASS: ${BILLING_SERVICE_DB_PASS:-}
       HR_SERVICE_DB_PASS: ${HR_SERVICE_DB_PASS:-}
       ALERT_SERVICE_DB_PASS: ${ALERT_SERVICE_DB_PASS:-}
@@ -978,6 +980,7 @@ services:
       MQTT_AUTH_MODE: http
       MQTT_AUTH_SECRET: ${MQTT_AUTH_SECRET:?MQTT_AUTH_SECRET required}
       MQTT_SENSOR_SERVICE_HASH: ${MQTT_SENSOR_SERVICE_HASH:?MQTT_SENSOR_SERVICE_HASH is required}
+      MQTT_SENSOR_INGESTION_HASH: ${MQTT_SENSOR_INGESTION_HASH:?MQTT_SENSOR_INGESTION_HASH is required}
       MQTT_EXPORTER_HASH: ${MQTT_EXPORTER_HASH:?MQTT_EXPORTER_HASH is required}
       MQTT_USERNAME: sensor_service
       MQTT_PASSWORD: ${MQTT_SENSOR_SERVICE_PASSWORD:?MQTT_SENSOR_SERVICE_PASSWORD is required}
@@ -1036,6 +1039,45 @@ services:
       timeout: 10s
       retries: 3
       start_period: 90s
+
+  sensor-ingestion:
+    profiles: ['rust-sidecar']
+    logging: *default-logging
+    image: ghcr.io/okan-wqm/aquaculture_platform/sensor-ingestion:${TAG:?TAG required}
+    container_name: aqua-sensor-ingestion
+    restart: unless-stopped
+    user: '65532:65532'
+    environment:
+      RUST_LOG: ${SENSOR_INGESTION_LOG:-info}
+      SENSOR_INGESTION_CONFIG: /etc/sensor-ingestion/config.toml
+      SENSOR_INGESTION_POSTGRES_PASSWORD: ${SENSOR_INGESTION_DB_PASS:?SENSOR_INGESTION_DB_PASS required}
+      SENSOR_INGESTION_MQTT_USERNAME: ${SENSOR_INGESTION_MQTT_USERNAME:?SENSOR_INGESTION_MQTT_USERNAME required}
+      SENSOR_INGESTION_MQTT_PASSWORD: ${SENSOR_INGESTION_MQTT_PASSWORD:?SENSOR_INGESTION_MQTT_PASSWORD required}
+    volumes:
+      - ./infrastructure/sensor-ingestion/config.toml.example:/etc/sensor-ingestion/config.toml:ro
+      - ./certs/nats/ca-cert.pem:/etc/sensor-ingestion/certs/nats-ca.pem:ro
+      - ./certs/nats/clients/sensor-ingestion-cert.pem:/etc/sensor-ingestion/certs/sensor-ingestion.crt:ro
+      - ./certs/nats/clients/sensor-ingestion-key.pem:/etc/sensor-ingestion/certs/sensor-ingestion.key:ro
+      - ./certs/postgres/ca-cert.pem:/etc/sensor-ingestion/certs/postgres-ca.pem:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
+    networks:
+      - aqua-internal
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.35'
+        reservations:
+          memory: 192M
+          cpus: '0.25'
 
   admin-api-service:
     logging: *default-logging

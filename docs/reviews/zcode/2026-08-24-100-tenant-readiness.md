@@ -212,6 +212,15 @@ file-store/consumer kapılarını birlikte gerektirir.
 
 ### Task 4 — Rust sidecar restorasyonu ve tek pilot
 
+#### SENSOR-CRITICAL-097 — Rust pilotunda tek-owner handoff ve durable ACK zinciri eksik
+
+Plan aliası `CRITICAL-004` olan bulgunun kök nedeni, Rust sidecar'ın aktif deploy
+envanterinde yer almaması, MQTT ACK'inin tenant commit ile canonical JetStream
+PubAck'lerine bağlanmaması ve Node/Rust sahipliğinin sürümlü bir epoch bariyeriyle
+fence edilmemesidir. Kapanış; fail-closed policy lease'i, tek aktif responder,
+append-only handoff geçmişi, tenant-scoped DB yetkisi ve gerçek pilot deployment
+yüzeyini birlikte gerektirir.
+
 - TS↔Rust golden fixture `tenant_<16hex>` üretimini kilitler; bilinmeyen veya hatalı schema fail-closed olur.
 - rumqttc manual ACK açılır. Pipeline MQTT validate → tenant receipt/batch → tenant transaction → commit → deterministic JetStream publish/PubAck → MQTT ACK şeklindedir.
 - Her PG bağlantısında bir kez `pg_temp._sensor_metrics_stage ... ON COMMIT PRESERVE ROWS` oluşturulur.
@@ -298,7 +307,7 @@ Task 0 sonrasında Task 2–3 ile paralel yürüyebilir; bütün raw drop yollar
 - Tek tenant schema utility invariant’ı korunur.
 - ADR, PROGRESS, retention matrix ve runbook yalnız ölçülmüş artefaktları ifade eder.
 - Tam doğrulama: affected test/lint, type-check, format-check, Rust fmt/clippy/test ve `build:all`.
-- Finding kapanışları: OBS-CRITICAL-003 (plan CRITICAL-003) Task 0; TENANTCOST-HIGH-011 (plan HIGH-011) Task 1; CRITICAL-001/002 ve HIGH-008 Task 2; HIGH-007 Task 3; CRITICAL-004 Task 4; HIGH-009 Task 5; HIGH-005/006 Task 6; HIGH-010 Task 7.
+- Finding kapanışları: OBS-CRITICAL-003 (plan CRITICAL-003) Task 0; TENANTCOST-HIGH-011 (plan HIGH-011) Task 1; SENSOR-CRITICAL-086/087 ve SENSOR-HIGH-088 (plan CRITICAL-001/002 ve HIGH-008) Task 2; PLAT-HIGH-004 (plan HIGH-007) Task 3; SENSOR-CRITICAL-097 (plan CRITICAL-004) Task 4; HIGH-009 Task 5; HIGH-005/006 Task 6; HIGH-010 Task 7.
 - `LEGAL-001` çözülmemişse teknik çalışma tamamlanabilir fakat raw retention aktivasyonu ve hukuk iddialı ticari readiness BLOCKED kalır.
 
 ## 4. Rollout sırası

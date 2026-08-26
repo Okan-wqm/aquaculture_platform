@@ -53,10 +53,7 @@ import { UsersModule } from './users/users.module';
 
 const AdminSchemaVersionGate = createSchemaVersionGate('admin');
 
-const getRequiredStorageConfig = (
-  configService: ConfigService,
-  key: string,
-): string => {
+const getRequiredStorageConfig = (configService: ConfigService, key: string): string => {
   const value = configService.get<string>(key);
   if (value === undefined || value.trim().length === 0) {
     throw new Error(`Missing required object storage configuration: ${key}`);
@@ -117,8 +114,7 @@ const getAdminStoragePort = (configService: ConfigService): number => {
           migrations: [__dirname + '/migrations/[0-9]*{.ts,.js}'],
           // Single-writer deploy contract: aqua-db-migrate owns production
           // migrations. Local/E2E can still opt in explicitly.
-          migrationsRunFromEnv: (cfg) =>
-            cfg.get('DATABASE_MIGRATIONS_RUN', 'false') === 'true',
+          migrationsRunFromEnv: (cfg) => cfg.get('DATABASE_MIGRATIONS_RUN', 'false') === 'true',
         }),
     }),
     /**
@@ -142,10 +138,14 @@ const getAdminStoragePort = (configService: ConfigService): number => {
           type: 'postgres',
           host: configService.get<string>('DATABASE_HOST', 'localhost'),
           port: configService.get<number>('DATABASE_PORT', 5432),
-          username: configService.get<string>('DATABASE_READONLY_USER',
-            configService.get<string>('DATABASE_USER', 'postgres')),
-          password: configService.get<string>('DATABASE_READONLY_PASSWORD',
-            dbPassword || 'postgres'),
+          username: configService.get<string>(
+            'DATABASE_READONLY_USER',
+            configService.get<string>('DATABASE_USER', 'postgres'),
+          ),
+          password: configService.get<string>(
+            'DATABASE_READONLY_PASSWORD',
+            dbPassword || 'postgres',
+          ),
           database: configService.get<string>('DATABASE_NAME', 'aquaculture'),
           schema: configService.get<string>('DATABASE_SCHEMA', 'admin'),
           // SECURITY: No entities — this DataSource is for raw queries only
@@ -219,9 +219,8 @@ const getAdminStoragePort = (configService: ConfigService): number => {
     UsersModule,
     SystemModulesModule,
     SettingsModule,
-    // ADR-031 ingest-backend policy: admin-api owns the SoT +
-    // publishes `policy.ingest_backend.changed` + responds to
-    // `policy.ingest_backend.snapshot`.
+    // Versioned ingress-owner policy: append-only SoT, authenticated admin
+    // mutations, and the single NATS snapshot/change surface used by Node/Rust.
     IngestBackendPolicyModule,
     BillingModule,
     AnalyticsModule,
@@ -276,8 +275,11 @@ const getAdminStoragePort = (configService: ConfigService): number => {
     // NestJS falls back to reflect-metadata class resolution which fails in Docker Alpine.
     {
       provide: PlatformAdminGuard,
-      useFactory: (reflector: Reflector, configService: ConfigService, jwtService: JwtService): PlatformAdminGuard =>
-        new PlatformAdminGuard(reflector, configService, jwtService),
+      useFactory: (
+        reflector: Reflector,
+        configService: ConfigService,
+        jwtService: JwtService,
+      ): PlatformAdminGuard => new PlatformAdminGuard(reflector, configService, jwtService),
       inject: [Reflector, ConfigService, JwtService],
     },
     {

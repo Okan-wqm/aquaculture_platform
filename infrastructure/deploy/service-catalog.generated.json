@@ -3,7 +3,7 @@
     "generatedFrom": "platform/libs/service-catalog/src/index.ts",
     "generator": "scripts/service-catalog/generate-artifacts.ts",
     "generatorVersion": 3,
-    "catalogHash": "b314e8353e82369711981b1beff7d5e51b4624753693371e9dc0ea08f5178a2a",
+    "catalogHash": "fb5f7cd193213dc13e07513e7f2ed0998d7607fab06eeec8ed6ff09adbc6c19c",
     "note": "do not edit by hand"
   },
   "activeDropletComposeServices": [
@@ -16,6 +16,7 @@
     "auth-service",
     "farm-service",
     "sensor-service",
+    "sensor-ingestion",
     "hr-service",
     "hydroponics-service",
     "messaging-service",
@@ -52,6 +53,7 @@
     "auth-service",
     "farm-service",
     "sensor-service",
+    "sensor-ingestion",
     "hr-service",
     "hydroponics-service",
     "messaging-service",
@@ -117,6 +119,7 @@
       "auth-service",
       "farm-service",
       "sensor-service",
+      "sensor-ingestion",
       "hr-service",
       "hydroponics-service",
       "messaging-service",
@@ -155,7 +158,8 @@
       "MESSAGING",
       "NOTIFICATION",
       "OBSERVABILITY",
-      "SENSOR"
+      "SENSOR",
+      "SENSOR_INGESTION"
     ],
     "nxFrontendProjects": [
       "admin-panel",
@@ -326,6 +330,7 @@
   ],
   "requiredRuntimeEnv": [
     "MINIO_USER",
+    "SENSOR_INGESTION_MQTT_USERNAME",
     "SERVICE_IDENTITY_SIGNING_KID",
     "SPACES_ENDPOINT",
     "SPACES_REGION",
@@ -352,6 +357,8 @@
     "MFA_ENCRYPTION_KEY",
     "MINIO_PASSWORD",
     "MQTT_AUTH_SECRET",
+    "MQTT_EXPORTER_HASH",
+    "MQTT_SENSOR_INGESTION_HASH",
     "MQTT_SENSOR_SERVICE_HASH",
     "MQTT_SENSOR_SERVICE_PASSWORD",
     "NOTIFICATION_SERVICE_DB_PASS",
@@ -360,6 +367,8 @@
     "PASSWORD_PEPPER",
     "POSTGRES_PASSWORD",
     "REDIS_PASSWORD",
+    "SENSOR_INGESTION_DB_PASS",
+    "SENSOR_INGESTION_MQTT_PASSWORD",
     "SENSOR_SERVICE_DB_PASS",
     "SENTINEL_HUB_ENCRYPTION_KEY",
     "SERVICE_IDENTITY_KEYRING",

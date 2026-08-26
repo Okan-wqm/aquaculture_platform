@@ -205,7 +205,7 @@ describe('platform service catalog parity', () => {
     expect(generatedTargets).toEqual([...imageBuildTargets()].sort());
     expect(generatedTargets).toContain('event-store-service');
     expect(generatedTargets).toContain('mosquitto');
-    expect(generatedTargets).not.toContain('sensor-ingestion');
+    expect(generatedTargets).toContain('sensor-ingestion');
   });
 
   it('classifies event-store as an internal ledger, not a gateway subgraph', () => {

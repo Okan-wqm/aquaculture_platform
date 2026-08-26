@@ -38,6 +38,7 @@ pub mod ingest_backend;
 pub mod mqtt;
 pub mod payload;
 pub mod persistence;
+pub mod pipeline;
 pub mod policy;
 pub mod runtime;
 pub mod sensor_lookup;

@@ -37,6 +37,12 @@ describe('platform service catalog executable views', () => {
     expect(gatewaySubgraphs().map((entry) => entry.nxProject)).not.toContain('event-store-service');
   });
 
+  it('keeps profile-gated sidecars in the active droplet deployment model', () => {
+    expect(activeDropletComposeServices()).toContain('sensor-ingestion');
+    expect(imageBuildTargets()).toContain('sensor-ingestion');
+    expect(packageBuildProjects()).not.toContain('sensor-ingestion');
+  });
+
   it('models config-service visibility separately from Apollo participation', () => {
     const configService = PLATFORM_SERVICE_CATALOG.find(
       (entry) => entry.serviceId === 'config-service',

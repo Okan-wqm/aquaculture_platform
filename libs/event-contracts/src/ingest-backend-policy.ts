@@ -41,6 +41,22 @@ import { BaseEvent } from './base-event';
  */
 export type IngestBackendKind = 'node' | 'rust';
 
+export type IngressOwner = 'NESTJS' | 'RUST';
+
+export type IngressOwnerPolicyState = 'PREPARING' | 'ACTIVE' | 'DRAINING';
+
+/**
+ * Exclusive, versioned per-tenant MQTT owner decision. Unknown or transitional
+ * state is intentionally not represented as an implicit default on consumers.
+ */
+export interface IngressOwnerPolicy {
+  tenantId: string;
+  version: number;
+  owner: IngressOwner;
+  effectiveEpoch: string;
+  state: IngressOwnerPolicyState;
+}
+
 /**
  * Immutable snapshot of the per-tenant IngestBackend routing
  * decision at a point in time.
@@ -78,10 +94,7 @@ export interface IngestBackendSnapshot {
  * snake_case matches the Rust `#[serde(tag = "action", rename_all
  * = "snake_case")]` attribute on `IngestBackendChange`.
  */
-export type IngestBackendPolicyAction =
-  | 'set_global'
-  | 'set_tenant'
-  | 'remove_tenant';
+export type IngestBackendPolicyAction = 'set_global' | 'set_tenant' | 'remove_tenant';
 
 /**
  * Base shape for every change variant. The `action` discriminator
@@ -179,6 +192,15 @@ export const INGEST_BACKEND_POLICY_SUBJECTS = {
    * `changed` subject + any sibling subject under the namespace.
    */
   subjectFilter: 'policy.ingest_backend.>',
+
+  /** Request-reply snapshot of every current per-tenant owner row. */
+  ownerSnapshot: 'policy.ingress_owner.snapshot',
+
+  /** Prefix for a tenant-specific, versioned owner update. */
+  ownerChangedPrefix: 'policy.ingress_owner.changed',
+
+  /** Versioned owner updates, one tenant token below the root. */
+  ownerSubjectFilter: 'policy.ingress_owner.changed.*',
 } as const;
 
 /**

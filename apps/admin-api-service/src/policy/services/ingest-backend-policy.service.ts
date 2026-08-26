@@ -137,19 +137,13 @@ export class IngestBackendPolicyService {
     reason: string | undefined,
   ): void {
     const probe: IngestBackendPolicyChangedEvent = {
-      ...createBaseEvent<IngestBackendPolicyChangedEvent>(
-        'IngestBackendPolicyChanged',
-        'admin',
-      ),
+      ...createBaseEvent<IngestBackendPolicyChangedEvent>('IngestBackendPolicyChanged', 'admin'),
       eventType: 'IngestBackendPolicyChanged',
       change,
       reason,
       actorId,
     };
-    const validation = validateIngestBackendPolicyEvent(
-      'IngestBackendPolicyChanged',
-      probe,
-    );
+    const validation = validateIngestBackendPolicyEvent('IngestBackendPolicyChanged', probe);
     if (!validation.valid) {
       throw new InternalServerErrorException(
         `IngestBackendPolicyChanged payload failed schema validation: ${validation.errors}`,
@@ -189,10 +183,7 @@ export class IngestBackendPolicyService {
     // the DB save — by the time publishChangedEvent runs we know
     // the event shape conforms to the ADR-031 schema.
     const event: IngestBackendPolicyChangedEvent = {
-      ...createBaseEvent<IngestBackendPolicyChangedEvent>(
-        'IngestBackendPolicyChanged',
-        'admin',
-      ),
+      ...createBaseEvent<IngestBackendPolicyChangedEvent>('IngestBackendPolicyChanged', 'admin'),
       eventType: 'IngestBackendPolicyChanged',
       change,
       reason,
@@ -205,10 +196,7 @@ export class IngestBackendPolicyService {
     const payload = new TextEncoder().encode(JSON.stringify(event));
 
     try {
-      await this.eventBus.publishCore(
-        INGEST_BACKEND_POLICY_SUBJECTS.changed,
-        payload,
-      );
+      await this.eventBus.publishCore(INGEST_BACKEND_POLICY_SUBJECTS.changed, payload);
       this.logger.log(
         `published ${INGEST_BACKEND_POLICY_SUBJECTS.changed} action=${change.action}`,
       );
@@ -270,9 +258,7 @@ export function applyChangeToRow(
       // cast turns the drift into a build failure.
       const _exhaustive: never = change;
       throw new InternalServerErrorException(
-        `unhandled IngestBackendPolicyChange action: ${JSON.stringify(
-          _exhaustive,
-        )}`,
+        `unhandled IngestBackendPolicyChange action: ${JSON.stringify(_exhaustive)}`,
       );
     }
   }
@@ -283,8 +269,6 @@ function assertKnownBackend(backend: IngestBackendKind): void {
   if (backend !== 'node' && backend !== 'rust') {
     // Type system already guards the happy path; runtime guard
     // defends against callers that bypassed the typed contract.
-    throw new InternalServerErrorException(
-      `unknown IngestBackendKind: ${backend as string}`,
-    );
+    throw new InternalServerErrorException(`unknown IngestBackendKind: ${backend as string}`);
   }
 }

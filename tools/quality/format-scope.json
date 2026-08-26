@@ -2207,6 +2207,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1808200000002-IngressOwnerPolicy.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/modules/__tests__/modules.controller.spec.ts",
       "prettier_managed": true
     },
@@ -2279,13 +2285,43 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/policy/__tests__/ingress-owner-policy.controller.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/policy/__tests__/ingress-owner-policy.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/policy/__tests__/policy-snapshot.responder.spec.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/policy/dto/append-ingress-owner-policy.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/policy/entities/ingest-backend-policy-state.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/policy/entities/ingress-owner-policy.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/policy/ingress-owner-policy.controller.ts",
       "prettier_managed": true
     },
     {
@@ -2298,6 +2334,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/policy/services/ingest-backend-policy.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/policy/services/ingress-owner-policy.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/policy/services/owner-policy-snapshot.responder.ts",
       "prettier_managed": true
     },
     {
@@ -17750,7 +17798,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "72be9ac562df3253d1a03492308dddfc2b7a7f155e5b23f9896e79ccababf524",
+      "content_sha256": "215542d2920261b7c15c4374908edcfc20731a1ac71a33c03e9cc3cb05b70d74",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "apps/gateway-api/src/config/federated-subgraphs.generated.ts",
@@ -25301,6 +25349,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/ingestion/__tests__/ingress-owner-policy-consumer.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/ingestion/__tests__/mqtt-listener.service.spec.ts",
       "prettier_managed": true
     },
@@ -25362,6 +25416,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/ingestion/ingestion.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/ingestion/ingress-owner-policy-consumer.service.ts",
       "prettier_managed": true
     },
     {
@@ -36394,7 +36454,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "4a731f65eaa914d5d3510b1e2689de38891b995b918db1bbfca6be78ccfc08c7",
+      "content_sha256": "3d4572d0abf4ed14024248f66841c8865ecd542eef5abc0242bd1e7e5791fafe",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/apollo-router/codegen-schema.generated.json",
@@ -36417,7 +36477,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "3bfc58c215d93231343c73a379408bef0ea55ef7d0f6853f047239fabb9e5c6e",
+      "content_sha256": "c66a741e2ef48334269c4d013c14264d9829b19134de3be835e5e0dc2b1371dc",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/deploy/service-catalog.generated.json",
@@ -37417,6 +37477,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/database/__tests__/tenant-migration-ledger-privileges.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/__tests__/tenant-schema-runtime-roles.spec.ts",
       "prettier_managed": true
     },
     {

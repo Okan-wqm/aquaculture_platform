@@ -12,23 +12,15 @@
 //!   UPDATE SET value/raw_value/quality_code = EXCLUDED.*`. PostgreSQL
 //!   `COPY` does not support `ON CONFLICT`, so COPY-ing straight into
 //!   the hypertable would silently break the "re-publish updates the
-//!   row" semantic. So per batch we `CREATE TEMP TABLE
-//!   _sensor_metrics_stage (... ON COMMIT DROP)`, binary-COPY into it,
-//!   then `INSERT ... SELECT ... ON CONFLICT DO UPDATE` into the
-//!   hypertable and commit (the temp stage auto-drops). A session-local
-//!   temp stage is self-cleaning: no persistent stage table, no
-//!   cross-batch residue, no clear-stage DELETE. Atomic per tenant per
-//!   batch via `BEGIN ... COMMIT`.
+//!   row" semantic. Each connection creates `pg_temp._sensor_metrics_stage`
+//!   once with `ON COMMIT PRESERVE ROWS`; each tenant transaction truncates,
+//!   COPYs, then schema-qualified upserts from that private stage.
 //!
-//! WHY a single cross-tenant `sensor` schema (SENSOR-MEDIUM-068):
-//!   sensor_metrics is ONE cross-tenant TimescaleDB hypertable in the
-//!   `sensor` schema, isolated by its mandatory tenant_id column (the
-//!   same model as scada_* / edge_device_directory) — NOT a per-tenant
-//!   clone. Every row carries its own tenant_id; the target identifiers
-//!   (`sensor.sensor_metrics`, the temp stage) are compile-time string
-//!   constants, so SQL identifier injection is structurally impossible.
-//!   Readings are still grouped by tenant so one tenant's failure does
-//!   not abort another tenant's commit.
+//! WHY tenant-local targets:
+//!   `tenant_<16hex>` is the sole sensor data source of truth. Schema names
+//!   come only from [`SchemaName`], while the transaction pins
+//!   `app.current_tenant` and `search_path=pg_catalog`. Receipt, metric and
+//!   dispatch rows therefore commit in one tenant boundary.
 //!
 //! WHY mTLS via tokio-postgres-rustls:
 //!   `tokio-postgres` is TLS-agnostic by default (`NoTls`). The
@@ -39,6 +31,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use deadpool_postgres::{ManagerConfig, Pool, RecyclingMethod, Runtime};
@@ -51,8 +44,10 @@ use thiserror::Error;
 use tokio_postgres::types::{ToSql, Type as PgType};
 use tracing::instrument;
 
+use crate::events::DurableDispatch;
 use crate::payload::SensorReading;
-use tenant_context::TenantId;
+use nats_client::JetStreamPubAck;
+use tenant_context::SchemaName;
 
 /// Errors raised by [`BatchSink`] implementations.
 #[derive(Debug, Error)]
@@ -97,6 +92,22 @@ pub enum SinkError {
     /// down).
     #[error("postgres pool lease failed")]
     PoolGet(#[source] deadpool_postgres::PoolError),
+
+    /// A database lease was not available inside the ingress budget.
+    #[error("postgres pool lease exceeded the 2 second ingress budget")]
+    PoolAcquireTimeout,
+
+    /// One producer identity was reused for different payload bytes.
+    #[error("stable source event identity was reused for different payload bytes")]
+    SourceIdentityCollision,
+
+    /// Tenant has a committed erasure proof and cannot be recreated.
+    #[error("tenant data has already been erased")]
+    ErasedTenant,
+
+    /// A durable receipt or dispatch row violated its state contract.
+    #[error("durable ingest ledger contains an invalid state")]
+    InvalidLedgerState,
 
     /// A postgres query / COPY frame / transaction step failed.
     #[error("postgres operation failed")]
@@ -219,6 +230,60 @@ pub struct PostgresSink {
     pool: Pool,
 }
 
+/// All source data and the deterministic child event committed in one tenant
+/// transaction before any external acknowledgement can occur.
+#[derive(Debug, Clone)]
+pub struct DurableCommitInput {
+    /// Validated metric row.
+    pub reading: SensorReading,
+    /// MQTT topic retained for audit and replay diagnosis.
+    pub mqtt_topic: String,
+    /// Lowercase SHA-256 of the exact MQTT payload bytes.
+    pub payload_digest: String,
+    /// Canonical deterministic child event.
+    pub dispatch: DurableDispatch,
+}
+
+/// Result of the tenant commit. Duplicate receipts still return pending child
+/// events so a crash after commit resumes dispatch instead of acknowledging.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DurableCommitOutcome {
+    /// First successful commit for the source identity.
+    Committed(Vec<DurableDispatch>),
+    /// Same source identity and digest already committed.
+    Duplicate(Vec<DurableDispatch>),
+}
+
+impl DurableCommitOutcome {
+    /// Borrow the dispatch rows that must all receive JetStream PubAcks.
+    #[must_use]
+    pub fn pending_dispatches(&self) -> &[DurableDispatch] {
+        match self {
+            Self::Committed(dispatches) | Self::Duplicate(dispatches) => dispatches,
+        }
+    }
+}
+
+/// Storage contract consumed by the ACK-gating pipeline.
+#[async_trait]
+pub trait DurableIngressStore: Send + Sync + std::fmt::Debug {
+    /// Commit receipt, metric and child dispatch intent atomically.
+    async fn commit(&self, input: DurableCommitInput) -> Result<DurableCommitOutcome, SinkError>;
+    /// Persist one server PubAck.
+    async fn mark_acked(
+        &self,
+        tenant_id: tenant_context::TenantId,
+        child_event_id: uuid::Uuid,
+        ack: &JetStreamPubAck,
+    ) -> Result<(), SinkError>;
+    /// Record a retryable publish failure while keeping the row pending.
+    async fn mark_publish_failed(
+        &self,
+        tenant_id: tenant_context::TenantId,
+        child_event_id: uuid::Uuid,
+    ) -> Result<(), SinkError>;
+}
+
 impl PostgresSink {
     /// Build the rustls `ClientConfig` with the platform CA pinned
     /// (no system roots), then construct the deadpool-postgres pool
@@ -289,6 +354,129 @@ impl PostgresSink {
     }
 }
 
+async fn configure_tenant_transaction(
+    tx: &tokio_postgres::Transaction<'_>,
+    tenant_id: tenant_context::TenantId,
+) -> Result<(), SinkError> {
+    tx.query_one(
+        "SELECT set_config('app.current_tenant', $1, true)",
+        &[&tenant_id.as_uuid().to_string()],
+    )
+    .await
+    .map_err(SinkError::Postgres)?;
+    tx.batch_execute(
+        "SET LOCAL search_path = pg_catalog; \
+         SET LOCAL lock_timeout = '1s'; \
+         SET LOCAL statement_timeout = '5s'",
+    )
+    .await
+    .map_err(SinkError::Postgres)
+}
+
+async fn assert_tenant_not_erased(
+    tx: &tokio_postgres::Transaction<'_>,
+    tenant_id: tenant_context::TenantId,
+) -> Result<(), SinkError> {
+    let tenant = tenant_id.as_uuid().to_string();
+    let lock_material = serde_json::to_string(&serde_json::json!([
+        "tenant-erasure-fence-v1",
+        "sensor-service",
+        tenant
+    ]))
+    .map_err(|_| SinkError::InvalidLedgerState)?;
+    tx.query_one(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        &[&lock_material],
+    )
+    .await
+    .map_err(SinkError::Postgres)?;
+    let erased = tx
+        .query_opt(
+            "SELECT true AS erased \
+             FROM sensor.tenant_erasure_target_proofs \
+             WHERE tenant_id = $1 AND dry_run = false LIMIT 1",
+            &[tenant_id.as_uuid()],
+        )
+        .await
+        .map_err(SinkError::Postgres)?
+        .is_some();
+    if erased {
+        Err(SinkError::ErasedTenant)
+    } else {
+        Ok(())
+    }
+}
+
+async fn copy_readings(
+    tx: &tokio_postgres::Transaction<'_>,
+    readings: &[SensorReading],
+) -> Result<(), SinkError> {
+    let copy_sink = tx
+        .copy_in(&build_copy_in_sql())
+        .await
+        .map_err(SinkError::Postgres)?;
+    let writer = tokio_postgres::binary_copy::BinaryCopyInWriter::new(
+        copy_sink,
+        &[
+            PgType::TIMESTAMPTZ,
+            PgType::UUID,
+            PgType::UUID,
+            PgType::FLOAT8,
+            PgType::FLOAT8,
+            PgType::INT2,
+            PgType::TEXT,
+            PgType::INT8,
+        ],
+    );
+    tokio::pin!(writer);
+    for reading in readings {
+        let timestamp = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(reading.producer_ts)
+            .ok_or_else(|| SinkError::InvalidRow {
+                reason: "producer_ts outside chrono range".to_owned(),
+            })?;
+        let quality = i16::from(reading.quality.get());
+        let row: [&(dyn ToSql + Sync); 8] = [
+            &timestamp,
+            &reading.sensor_id,
+            &reading.channel_id,
+            &reading.value,
+            &reading.raw_value,
+            &quality,
+            &reading.source_event_id,
+            &reading.source_sequence,
+        ];
+        writer
+            .as_mut()
+            .write(&row)
+            .await
+            .map_err(SinkError::Postgres)?;
+    }
+    writer.finish().await.map_err(SinkError::Postgres)?;
+    Ok(())
+}
+
+async fn load_pending_dispatches(
+    tx: &tokio_postgres::Transaction<'_>,
+    schema: &SchemaName,
+    tenant_id: tenant_context::TenantId,
+    source_event_id: &str,
+) -> Result<Vec<DurableDispatch>, SinkError> {
+    let rows = tx
+        .query(&build_pending_dispatch_sql(schema), &[&source_event_id])
+        .await
+        .map_err(SinkError::Postgres)?;
+    rows.into_iter()
+        .map(|row| {
+            Ok(DurableDispatch {
+                child_event_id: row.try_get("child_event_id").map_err(SinkError::Postgres)?,
+                tenant_id,
+                subject: row.try_get("subject").map_err(SinkError::Postgres)?,
+                payload: row.try_get("payload").map_err(SinkError::Postgres)?,
+            })
+        })
+        .collect()
+}
+
 #[async_trait]
 impl BatchSink for PostgresSink {
     #[instrument(skip(self, batch), fields(rows = batch.len()))]
@@ -300,7 +488,7 @@ impl BatchSink for PostgresSink {
         // tenant. Tenants in the same batch are independent so a
         // failure on tenant A does not abort tenant B's commit.
         let by_tenant = group_by_tenant(batch);
-        for (_tenant, readings) in by_tenant {
+        for (_schema, readings) in by_tenant {
             self.write_tenant_batch(readings).await?;
         }
         Ok(())
@@ -308,32 +496,228 @@ impl BatchSink for PostgresSink {
 }
 
 impl PostgresSink {
+    async fn acquire(&self) -> Result<deadpool_postgres::Object, SinkError> {
+        tokio::time::timeout(Duration::from_secs(2), self.pool.get())
+            .await
+            .map_err(|_| SinkError::PoolAcquireTimeout)?
+            .map_err(SinkError::PoolGet)
+    }
+
+    /// Atomically record the receipt, metric and dispatch intent in the
+    /// validated tenant schema. No NATS I/O occurs while this transaction is
+    /// open; the caller publishes only from the returned committed ledger rows.
+    pub async fn commit_ingress(
+        &self,
+        input: DurableCommitInput,
+    ) -> Result<DurableCommitOutcome, SinkError> {
+        let tenant_id = input.reading.tenant_id;
+        if input.dispatch.tenant_id != tenant_id {
+            return Err(SinkError::InvalidLedgerState);
+        }
+        let schema = SchemaName::from_tenant_id(tenant_id);
+        let mut conn = self.acquire().await?;
+        conn.batch_execute(STAGE_DDL)
+            .await
+            .map_err(SinkError::Postgres)?;
+        let tx = conn.transaction().await.map_err(SinkError::Postgres)?;
+        configure_tenant_transaction(&tx, tenant_id).await?;
+        assert_tenant_not_erased(&tx, tenant_id).await?;
+
+        let timestamp =
+            chrono::DateTime::<chrono::Utc>::from_timestamp_millis(input.reading.producer_ts)
+                .ok_or_else(|| SinkError::InvalidRow {
+                    reason: "producer_ts outside chrono range".to_owned(),
+                })?;
+        let inserted = tx
+            .query(
+                &build_receipt_insert_sql(&schema),
+                &[
+                    &input.reading.source_event_id,
+                    &input.payload_digest,
+                    &input.mqtt_topic,
+                    &timestamp,
+                    &input.reading.source_sequence,
+                ],
+            )
+            .await
+            .map_err(SinkError::Postgres)?;
+
+        let duplicate = inserted.is_empty();
+        if duplicate {
+            let row = tx
+                .query_opt(
+                    &format!(
+                        "SELECT payload_digest, commit_status FROM {schema}.sensor_ingest_receipts \
+                         WHERE source_event_id = $1 FOR UPDATE"
+                    ),
+                    &[&input.reading.source_event_id],
+                )
+                .await
+                .map_err(SinkError::Postgres)?
+                .ok_or(SinkError::InvalidLedgerState)?;
+            let digest: String = row.try_get("payload_digest").map_err(SinkError::Postgres)?;
+            let status: String = row.try_get("commit_status").map_err(SinkError::Postgres)?;
+            if digest != input.payload_digest {
+                return Err(SinkError::SourceIdentityCollision);
+            }
+            if status != "COMMITTED" {
+                return Err(SinkError::InvalidLedgerState);
+            }
+        } else {
+            tx.batch_execute("TRUNCATE pg_temp._sensor_metrics_stage")
+                .await
+                .map_err(SinkError::Postgres)?;
+            copy_readings(&tx, std::slice::from_ref(&input.reading)).await?;
+            tx.batch_execute(&build_upsert_sql(&schema))
+                .await
+                .map_err(SinkError::Postgres)?;
+            tx.execute(
+                &format!(
+                    "INSERT INTO {schema}.sensor_event_dispatch \
+                     (child_event_id, source_event_id, subject, payload) \
+                     VALUES ($1, $2, $3, $4::jsonb) \
+                     ON CONFLICT (child_event_id) DO NOTHING"
+                ),
+                &[
+                    &input.dispatch.child_event_id,
+                    &input.reading.source_event_id,
+                    &input.dispatch.subject,
+                    &input.dispatch.payload,
+                ],
+            )
+            .await
+            .map_err(SinkError::Postgres)?;
+        }
+
+        let pending =
+            load_pending_dispatches(&tx, &schema, tenant_id, &input.reading.source_event_id)
+                .await?;
+        tx.commit().await.map_err(SinkError::Postgres)?;
+        if duplicate {
+            Ok(DurableCommitOutcome::Duplicate(pending))
+        } else {
+            Ok(DurableCommitOutcome::Committed(pending))
+        }
+    }
+
+    /// Persist a server-confirmed JetStream PubAck in the same tenant ledger.
+    /// This method is idempotent for redelivery after an ACKED update commit.
+    pub async fn mark_dispatch_acked(
+        &self,
+        tenant_id: tenant_context::TenantId,
+        child_event_id: uuid::Uuid,
+        ack: &JetStreamPubAck,
+    ) -> Result<(), SinkError> {
+        let schema = SchemaName::from_tenant_id(tenant_id);
+        let mut conn = self.acquire().await?;
+        let tx = conn.transaction().await.map_err(SinkError::Postgres)?;
+        configure_tenant_transaction(&tx, tenant_id).await?;
+        let sequence = i64::try_from(ack.sequence).map_err(|_| SinkError::InvalidLedgerState)?;
+        let changed = tx
+            .execute(
+                &build_dispatch_ack_sql(&schema),
+                &[&child_event_id, &ack.stream, &sequence],
+            )
+            .await
+            .map_err(SinkError::Postgres)?;
+        if changed == 0 {
+            let row = tx
+                .query_opt(
+                    &format!(
+                        "SELECT dispatch_status, puback_stream, puback_sequence \
+                         FROM {schema}.sensor_event_dispatch WHERE child_event_id = $1"
+                    ),
+                    &[&child_event_id],
+                )
+                .await
+                .map_err(SinkError::Postgres)?
+                .ok_or(SinkError::InvalidLedgerState)?;
+            let status: String = row
+                .try_get("dispatch_status")
+                .map_err(SinkError::Postgres)?;
+            let stream: Option<String> =
+                row.try_get("puback_stream").map_err(SinkError::Postgres)?;
+            let stored_sequence: Option<i64> = row
+                .try_get("puback_sequence")
+                .map_err(SinkError::Postgres)?;
+            if status != "ACKED"
+                || stream.as_deref() != Some(ack.stream.as_str())
+                || stored_sequence != Some(sequence)
+            {
+                return Err(SinkError::InvalidLedgerState);
+            }
+        }
+        tx.commit().await.map_err(SinkError::Postgres)
+    }
+
+    async fn mark_dispatch_publish_failed(
+        &self,
+        tenant_id: tenant_context::TenantId,
+        child_event_id: uuid::Uuid,
+    ) -> Result<(), SinkError> {
+        let schema = SchemaName::from_tenant_id(tenant_id);
+        let mut conn = self.acquire().await?;
+        let tx = conn.transaction().await.map_err(SinkError::Postgres)?;
+        configure_tenant_transaction(&tx, tenant_id).await?;
+        let changed = tx
+            .execute(
+                &format!(
+                    "UPDATE {schema}.sensor_event_dispatch \
+                     SET attempt_count = attempt_count + 1, \
+                         next_attempt_at = now() + interval '1 second', \
+                         last_error = 'JETSTREAM_PUBLISH_FAILED' \
+                     WHERE child_event_id = $1 AND dispatch_status = 'PENDING'"
+                ),
+                &[&child_event_id],
+            )
+            .await
+            .map_err(SinkError::Postgres)?;
+        if changed != 1 {
+            return Err(SinkError::InvalidLedgerState);
+        }
+        tx.commit().await.map_err(SinkError::Postgres)
+    }
+
     async fn write_tenant_batch(&self, readings: Vec<SensorReading>) -> Result<(), SinkError> {
         if readings.is_empty() {
             return Ok(());
         }
-        let mut conn = self.pool.get().await.map_err(SinkError::PoolGet)?;
-        let tx = conn.transaction().await.map_err(SinkError::Postgres)?;
-
-        // Private per-transaction staging table (ON COMMIT DROP) — see module docs.
-        tx.batch_execute(STAGE_DDL)
+        let Some(first) = readings.first() else {
+            return Ok(());
+        };
+        let tenant_id = first.tenant_id;
+        let schema = SchemaName::from_tenant_id(tenant_id);
+        let mut conn = self.acquire().await?;
+        conn.batch_execute(STAGE_DDL)
             .await
             .map_err(SinkError::Postgres)?;
+        let tx = conn.transaction().await.map_err(SinkError::Postgres)?;
+        tx.query_one(
+            "SELECT set_config('app.current_tenant', $1, true)",
+            &[&tenant_id.as_uuid().to_string()],
+        )
+        .await
+        .map_err(SinkError::Postgres)?;
+        tx.batch_execute(
+            "SET LOCAL search_path = pg_catalog; TRUNCATE pg_temp._sensor_metrics_stage",
+        )
+        .await
+        .map_err(SinkError::Postgres)?;
 
         let copy_sql = build_copy_in_sql();
         let copy_sink = tx.copy_in(&copy_sql).await.map_err(SinkError::Postgres)?;
-        // Column types match the `(time, sensor_id, channel_id, tenant_id,
-        // value, raw_value, quality_code)` order in build_copy_in_sql.
+        // Column types match build_copy_in_sql.
         let writer = tokio_postgres::binary_copy::BinaryCopyInWriter::new(
             copy_sink,
             &[
                 PgType::TIMESTAMPTZ,
                 PgType::UUID,
                 PgType::UUID,
-                PgType::UUID,
                 PgType::FLOAT8,
                 PgType::FLOAT8,
                 PgType::INT2,
+                PgType::TEXT,
+                PgType::INT8,
             ],
         );
         tokio::pin!(writer);
@@ -353,16 +737,17 @@ impl PostgresSink {
                 });
             };
             let value = r.value;
-            let raw_value = r.value;
+            let raw_value = r.raw_value;
             let quality = i16::from(r.quality.get());
-            let row: [&(dyn ToSql + Sync); 7] = [
+            let row: [&(dyn ToSql + Sync); 8] = [
                 &ts,
                 r.sensor_id.as_uuid_ref(),
                 r.channel_id.as_uuid_ref(),
-                r.tenant_id.as_uuid(),
                 &value,
                 &raw_value,
                 &quality,
+                &r.source_event_id,
+                &r.source_sequence,
             ];
             writer
                 .as_mut()
@@ -379,12 +764,38 @@ impl PostgresSink {
 
         // Upsert from the temp stage into the shared hypertable, then commit
         // (the ON COMMIT DROP stage is discarded automatically — no clear DML).
-        let upsert_sql = build_upsert_sql();
+        let upsert_sql = build_upsert_sql(&schema);
         tx.batch_execute(&upsert_sql)
             .await
             .map_err(SinkError::Postgres)?;
         tx.commit().await.map_err(SinkError::Postgres)?;
         Ok(())
+    }
+}
+
+#[async_trait]
+impl DurableIngressStore for PostgresSink {
+    async fn commit(&self, input: DurableCommitInput) -> Result<DurableCommitOutcome, SinkError> {
+        self.commit_ingress(input).await
+    }
+
+    async fn mark_acked(
+        &self,
+        tenant_id: tenant_context::TenantId,
+        child_event_id: uuid::Uuid,
+        ack: &JetStreamPubAck,
+    ) -> Result<(), SinkError> {
+        self.mark_dispatch_acked(tenant_id, child_event_id, ack)
+            .await
+    }
+
+    async fn mark_publish_failed(
+        &self,
+        tenant_id: tenant_context::TenantId,
+        child_event_id: uuid::Uuid,
+    ) -> Result<(), SinkError> {
+        self.mark_dispatch_publish_failed(tenant_id, child_event_id)
+            .await
     }
 }
 
@@ -400,53 +811,94 @@ impl UuidExt for uuid::Uuid {
     }
 }
 
-fn group_by_tenant(batch: Vec<SensorReading>) -> HashMap<TenantId, Vec<SensorReading>> {
-    let mut groups: HashMap<TenantId, Vec<SensorReading>> = HashMap::new();
+fn group_by_tenant(batch: Vec<SensorReading>) -> HashMap<SchemaName, Vec<SensorReading>> {
+    let mut groups: HashMap<SchemaName, Vec<SensorReading>> = HashMap::new();
     for r in batch {
-        groups.entry(r.tenant_id).or_default().push(r);
+        groups
+            .entry(SchemaName::from_tenant_id(r.tenant_id))
+            .or_default()
+            .push(r);
     }
     groups
 }
 
-/// DDL for the private per-transaction staging table. `ON COMMIT DROP` makes
-/// each transaction's stage session-local and self-cleaning: no persistent
-/// per-tenant stage table, no cross-batch residue, no clear-stage DELETE. It
-/// carries `tenant_id` because the single cross-tenant hypertable requires it.
-pub const STAGE_DDL: &str = "CREATE TEMP TABLE _sensor_metrics_stage (\
+/// DDL for the connection-local staging table. It is created once per leased
+/// session and explicitly truncated at each transaction boundary.
+pub const STAGE_DDL: &str = "CREATE TEMP TABLE IF NOT EXISTS _sensor_metrics_stage (\
     time timestamptz NOT NULL, \
     sensor_id uuid NOT NULL, \
     channel_id uuid NOT NULL, \
-    tenant_id uuid NOT NULL, \
     value double precision NOT NULL, \
     raw_value double precision NOT NULL, \
-    quality_code smallint NOT NULL\
-) ON COMMIT DROP";
+    quality_code smallint NOT NULL, \
+    source_event_id text NOT NULL, \
+    source_sequence bigint\
+) ON COMMIT PRESERVE ROWS";
 
 /// `COPY ... FROM STDIN BINARY` into the per-transaction temp stage. Pure
 /// function so the SQL shape can be unit-tested without postgres. The stage
 /// identifier is a compile-time constant — no schema string is interpolated.
 #[must_use]
 pub fn build_copy_in_sql() -> String {
-    "COPY _sensor_metrics_stage \
-     (time, sensor_id, channel_id, tenant_id, value, raw_value, quality_code) \
+    "COPY pg_temp._sensor_metrics_stage \
+     (time, sensor_id, channel_id, value, raw_value, quality_code, source_event_id, source_sequence) \
      FROM STDIN WITH (FORMAT BINARY)"
         .to_owned()
 }
 
-/// Upsert from the temp stage into the single cross-tenant
-/// `sensor.sensor_metrics` hypertable. Preserves the NestJS contract:
-/// re-publish updates value/raw_value/quality_code on conflict.
+/// Upsert from the temp stage into the validated tenant hypertable. Older
+/// redeliveries cannot overwrite a newer producer tuple.
 #[must_use]
-pub fn build_upsert_sql() -> String {
-    "INSERT INTO sensor.sensor_metrics \
-     (time, sensor_id, channel_id, tenant_id, value, raw_value, quality_code) \
-     SELECT time, sensor_id, channel_id, tenant_id, value, raw_value, quality_code \
-       FROM _sensor_metrics_stage \
+pub fn build_upsert_sql(schema: &SchemaName) -> String {
+    format!(
+        "INSERT INTO {schema}.sensor_metrics \
+     (time, sensor_id, channel_id, value, raw_value, quality_code, source_event_id, source_sequence) \
+     SELECT time, sensor_id, channel_id, value, raw_value, quality_code, source_event_id, source_sequence \
+       FROM pg_temp._sensor_metrics_stage \
      ON CONFLICT (time, sensor_id, channel_id) DO UPDATE \
        SET value = EXCLUDED.value, \
            raw_value = EXCLUDED.raw_value, \
-           quality_code = EXCLUDED.quality_code"
-        .to_owned()
+           quality_code = EXCLUDED.quality_code, \
+           source_event_id = EXCLUDED.source_event_id, \
+           source_sequence = EXCLUDED.source_sequence \
+     WHERE (EXCLUDED.time, COALESCE(EXCLUDED.source_sequence, -9223372036854775808), EXCLUDED.source_event_id) \
+         > ({schema}.sensor_metrics.time, COALESCE({schema}.sensor_metrics.source_sequence, -9223372036854775808), {schema}.sensor_metrics.source_event_id)"
+    )
+}
+
+/// Tenant-qualified receipt insertion used by both initial delivery and
+/// redelivery collision detection.
+#[must_use]
+pub fn build_receipt_insert_sql(schema: &SchemaName) -> String {
+    format!(
+        "INSERT INTO {schema}.sensor_ingest_receipts \
+         (source_event_id, payload_digest, mqtt_topic, source_timestamp, source_sequence) \
+         VALUES ($1, $2, $3, $4, $5) \
+         ON CONFLICT (source_event_id) DO NOTHING RETURNING source_event_id"
+    )
+}
+
+/// Tenant-qualified pending-dispatch query. The row lock serializes two
+/// redeliveries of the same persistent MQTT session after a crash.
+#[must_use]
+pub fn build_pending_dispatch_sql(schema: &SchemaName) -> String {
+    format!(
+        "SELECT child_event_id, subject, payload \
+         FROM {schema}.sensor_event_dispatch \
+         WHERE source_event_id = $1 AND dispatch_status = 'PENDING' \
+         ORDER BY created_at, child_event_id FOR UPDATE"
+    )
+}
+
+/// Tenant-qualified idempotent PubAck persistence.
+#[must_use]
+pub fn build_dispatch_ack_sql(schema: &SchemaName) -> String {
+    format!(
+        "UPDATE {schema}.sensor_event_dispatch \
+         SET dispatch_status = 'ACKED', puback_stream = $2, puback_sequence = $3, \
+             attempt_count = attempt_count + 1, last_error = NULL, acked_at = now() \
+         WHERE child_event_id = $1 AND dispatch_status = 'PENDING'"
+    )
 }
 
 #[cfg(test)]
@@ -475,6 +927,8 @@ mod tests {
             raw_value: 24.5,
             quality: QualityCode::try_new(QUALITY_GOOD_MIN).expect("192 is the GOOD band"),
             producer_ts: Utc::now().timestamp_millis(),
+            source_event_id: "edge-test:1".to_owned(),
+            source_sequence: Some(1),
             source: PayloadSource::UpcastedFromV1,
         }
     }
@@ -497,36 +951,57 @@ mod tests {
     }
 
     #[test]
-    fn copy_in_sql_targets_temp_stage_with_tenant_id() {
+    fn copy_in_sql_targets_pg_temp_stage_with_source_identity() {
         let sql = super::build_copy_in_sql();
-        assert!(sql.contains("_sensor_metrics_stage"));
+        assert!(sql.contains("pg_temp._sensor_metrics_stage"));
         assert!(sql.contains("FORMAT BINARY"));
         assert!(
             sql.contains(
-                "(time, sensor_id, channel_id, tenant_id, value, raw_value, quality_code)"
+                "(time, sensor_id, channel_id, value, raw_value, quality_code, source_event_id, source_sequence)"
             )
         );
     }
 
     #[test]
-    fn upsert_sql_targets_cross_tenant_hypertable_and_preserves_on_conflict() {
-        let sql = super::build_upsert_sql();
-        // Single cross-tenant hypertable; tenant_id is carried per row.
-        assert!(sql.contains("INSERT INTO sensor.sensor_metrics"));
-        assert!(sql.contains("tenant_id"));
-        // Mirrors the NestJS path's INSERT ... ON CONFLICT DO UPDATE
-        // SET value/raw_value/quality_code = EXCLUDED.* contract.
+    fn upsert_sql_targets_validated_tenant_schema_and_preserves_newer_source() {
+        let schema =
+            tenant_context::SchemaName::from_tenant_id(TenantId::from_uuid(fixed_uuid(0xAA)));
+        let sql = super::build_upsert_sql(&schema);
+        assert!(sql.contains(&format!("INSERT INTO {schema}.sensor_metrics")));
+        assert!(!sql.contains("sensor.sensor_metrics"));
         assert!(sql.contains("ON CONFLICT (time, sensor_id, channel_id) DO UPDATE"));
         assert!(sql.contains("SET value = EXCLUDED.value"));
         assert!(sql.contains("raw_value = EXCLUDED.raw_value"));
         assert!(sql.contains("quality_code = EXCLUDED.quality_code"));
+        assert!(sql.contains("source_event_id = EXCLUDED.source_event_id"));
+        assert!(sql.contains("EXCLUDED.source_sequence"));
+        assert!(sql.contains("sensor_metrics.source_event_id"));
     }
 
     #[test]
-    fn stage_ddl_is_temp_and_self_dropping() {
-        assert!(super::STAGE_DDL.contains("CREATE TEMP TABLE _sensor_metrics_stage"));
-        assert!(super::STAGE_DDL.contains("tenant_id uuid NOT NULL"));
-        assert!(super::STAGE_DDL.contains("ON COMMIT DROP"));
+    fn stage_ddl_is_connection_local_and_preserved_between_transactions() {
+        assert!(super::STAGE_DDL.contains("CREATE TEMP TABLE IF NOT EXISTS"));
+        assert!(!super::STAGE_DDL.contains("tenant_id uuid"));
+        assert!(super::STAGE_DDL.contains("source_event_id"));
+        assert!(super::STAGE_DDL.contains("ON COMMIT PRESERVE ROWS"));
+    }
+
+    #[test]
+    fn durable_ledger_sql_is_tenant_qualified_and_fail_closed() {
+        let schema =
+            tenant_context::SchemaName::from_tenant_id(TenantId::from_uuid(fixed_uuid(0xAA)));
+        let receipt = super::build_receipt_insert_sql(&schema);
+        let pending = super::build_pending_dispatch_sql(&schema);
+        let ack = super::build_dispatch_ack_sql(&schema);
+
+        assert!(receipt.contains(&format!("INSERT INTO {schema}.sensor_ingest_receipts")));
+        assert!(receipt.contains("ON CONFLICT (source_event_id) DO NOTHING"));
+        assert!(pending.contains(&format!("FROM {schema}.sensor_event_dispatch")));
+        assert!(pending.contains("dispatch_status = 'PENDING'"));
+        assert!(ack.contains(&format!("UPDATE {schema}.sensor_event_dispatch")));
+        assert!(ack.contains("puback_stream = $2"));
+        assert!(ack.contains("dispatch_status = 'PENDING'"));
+        assert!(!receipt.contains("sensor.sensor_ingest_receipts"));
     }
 
     #[test]
@@ -541,12 +1016,16 @@ mod tests {
             raw_value: 1.0,
             quality: QualityCode::try_new(QUALITY_GOOD_MIN).expect("192 is the GOOD band"),
             producer_ts: Utc::now().timestamp_millis(),
+            source_event_id: format!("edge-test:{}", tenant.as_uuid()),
+            source_sequence: Some(1),
             source: PayloadSource::UpcastedFromV1,
         };
         let batch = vec![mk(tenant_a), mk(tenant_b), mk(tenant_a), mk(tenant_a)];
         let groups = super::group_by_tenant(batch);
-        assert_eq!(groups.get(&tenant_a).map(Vec::len), Some(3));
-        assert_eq!(groups.get(&tenant_b).map(Vec::len), Some(1));
+        let schema_a = tenant_context::SchemaName::from_tenant_id(tenant_a);
+        let schema_b = tenant_context::SchemaName::from_tenant_id(tenant_b);
+        assert_eq!(groups.get(&schema_a).map(Vec::len), Some(3));
+        assert_eq!(groups.get(&schema_b).map(Vec::len), Some(1));
     }
 
     #[tokio::test]

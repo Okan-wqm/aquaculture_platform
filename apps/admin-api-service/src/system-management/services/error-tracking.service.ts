@@ -15,6 +15,7 @@ import {
   ErrorContext,
 } from '../entities/error-tracking.entity';
 import { clampLimit, resolveSortField } from '../../shared/sort-field.util';
+import { safeRegex } from '@aquaculture/backend-common/security';
 
 /** Sortable ErrorGroup columns (SEC-HIGH №1 — 2026-08-23 scan). */
 const ERROR_GROUP_SORT_FIELDS = [
@@ -571,8 +572,10 @@ export class ErrorTrackingService {
 
     // Check message pattern
     if (conditions.messagePattern) {
-      const regex = new RegExp(conditions.messagePattern, 'i');
-      if (!regex.test(group.message)) {
+      // SEC-LOW №11 (2026-08-23 scan): user pattern through the shared
+      // ReDoS gate — unsafe/invalid patterns fail closed (no match).
+      const regex = safeRegex(conditions.messagePattern, 'i');
+      if (!regex || !regex.test(group.message)) {
         return false;
       }
     }

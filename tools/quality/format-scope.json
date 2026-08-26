@@ -38951,6 +38951,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/security/__tests__/safe-regex.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/security/__tests__/security-event-subject-contract.spec.ts",
       "prettier_managed": true
     },
@@ -39054,6 +39060,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/security/README.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/security/safe-regex/index.ts",
       "prettier_managed": true
     },
     {

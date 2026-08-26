@@ -19,6 +19,7 @@ import {
   ComplianceType,
 } from '../entities/security.entity';
 import { resolveSortField } from '../../shared/sort-field.util';
+import { safeRegex } from '@aquaculture/backend-common/security';
 
 // ============================================================================
 // Interfaces
@@ -980,7 +981,11 @@ export class AuditTrailService {
     if (conditions.failureOnly && activity.success) return false;
 
     if (conditions.ipPatterns?.length) {
-      const matches = conditions.ipPatterns.some((p) => new RegExp(p).test(activity.ipAddress));
+      // SEC-LOW №11 (2026-08-23 scan): shared ReDoS gate; unsafe patterns
+      // fail closed.
+      const matches = conditions.ipPatterns.some(
+        (p) => safeRegex(p)?.test(activity.ipAddress) === true,
+      );
       if (!matches) return false;
     }
 

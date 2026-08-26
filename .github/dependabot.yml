@@ -41,13 +41,16 @@ updates:
   # Cargo.toml in the monorepo. sensor-ingestion + the shared crates
   # under crates/** inherit this automation; the sens-api-gateway
   # edge tree keeps its own deny.toml allowlist and manages its own
-  # cadence, so directory: / (monorepo root Cargo.toml virtual
-  # workspace) is the single entry here. Rust advisories (RUSTSEC)
+  # cadence, so it is excluded from this authority. The monorepo root and
+  # standalone production WASM locks are updated together. Rust advisories (RUSTSEC)
   # are handled by cargo-audit in rust-ci.yml + .cargo/audit.toml;
   # dependabot handles non-advisory version bumps to keep Cargo.lock
   # from drifting into unsupported releases.
   - package-ecosystem: cargo
-    directory: /
+    directories:
+      - /
+      - /crates/alarm-core-wasm
+      - /crates/protocol-codec-wasm
     schedule:
       interval: weekly
       day: monday
@@ -80,12 +83,9 @@ updates:
   # dependency tree that carries almost all of this repository's open
   # advisories was the one tree Dependabot was not watching.
   #
-  # `directory: /` is the whole workspace, not just the root manifest: npm
-  # workspaces resolve into the single root package-lock.json, and Dependabot
-  # follows that lockfile into every member. The standalone E2E lockfile is
-  # watched by its own entry below. AquaMobil's production Docker build consumes
-  # a second lockfile, so a lockfile-only entry owns that exact resolution graph
-  # without competing with root-workspace manifest updates.
+  # The `directories` authority covers the root workspace and AquaMobil's
+  # standalone production lock atomically. The standalone E2E lockfile remains
+  # independently watched below.
   #
   # Limit and grouping are deliberately conservative. This ecosystem is far
   # larger than the other two, and the first run after enabling always lands
@@ -99,13 +99,16 @@ updates:
   # --audit-level=high` in ci-full's security-scan remains the gate that
   # decides whether the tree is acceptable, not the presence of a PR.
   - package-ecosystem: npm
-    directory: /
+    directories:
+      - /
+      - /web/apps/aquamobil
     schedule:
       interval: weekly
       day: monday
       time: '06:00'
       timezone: Europe/Istanbul
     open-pull-requests-limit: 5
+    versioning-strategy: increase
     commit-message:
       prefix: 'chore(deps)'
       include: scope
@@ -114,10 +117,8 @@ updates:
     reviewers:
       - Okan-wqm
     groups:
-      npm-minor-patch:
-        update-types:
-          - minor
-          - patch
+      npm-by-dependency:
+        group-by: dependency-name
 
   # ── npm (standalone E2E graph) ────────────────────────────────────
   # e2e/ is intentionally outside the root npm workspace and owns an independent
@@ -140,34 +141,6 @@ updates:
       - Okan-wqm
     groups:
       e2e-minor-patch:
-        update-types:
-          - minor
-          - patch
-
-  # ── npm (AquaMobil standalone production lock) ───────────────────
-  # The root workspace entry updates the root lock, but Dockerfile.aquamobil
-  # performs an isolated npm ci from this nested lock. Refresh only resolutions
-  # already allowed by its manifest, so this entry never edits the shared
-  # workspace manifest or competes with the root updater. CI validates both
-  # locks whenever either graph changes and audits this deployed graph weekly.
-  - package-ecosystem: npm
-    directory: /web/apps/aquamobil
-    schedule:
-      interval: weekly
-      day: monday
-      time: '06:15'
-      timezone: Europe/Istanbul
-    open-pull-requests-limit: 1
-    versioning-strategy: lockfile-only
-    commit-message:
-      prefix: 'chore(deps-aquamobil-lock)'
-      include: scope
-    labels:
-      - dependencies
-    reviewers:
-      - Okan-wqm
-    groups:
-      aquamobil-lock-refresh:
         update-types:
           - minor
           - patch

@@ -60,14 +60,10 @@ const LOCKFILE_ECOSYSTEM: Readonly<Record<string, string>> = {
  * defect.
  */
 const DOCUMENTED_EXCLUSIONS: Readonly<Record<string, string>> = {
-  'crates/alarm-core-wasm/Cargo.lock':
-    'wasm crate with its own pinned toolchain; bumps are driven by the alarm-core release cadence, not a weekly sweep.',
-  'crates/protocol-codec-wasm/Cargo.lock':
-    'wasm crate with its own pinned toolchain; same cadence argument as alarm-core-wasm.',
   'sens-api-gateway/Cargo.lock':
-    'The edge tree keeps its own deny.toml allowlist and manages its own cadence — stated in the cargo entry of .github/dependabot.yml. RUSTSEC advisories there are handled by cargo-audit + cargo-deny in sens-api-gateway-ci.yml.',
+    'The edge tree keeps its own deny.toml allowlist and cadence; RUSTSEC advisories are enforced by the required sens-api-gateway-rust audit authority.',
   'sens-api-gateway/fuzz/Cargo.lock':
-    'Standalone fuzz harness inside the edge tree; vulnerabilities are enforced by the audit job in sens-api-gateway-ci.yml.',
+    'Standalone fuzz harness inside the edge tree; vulnerabilities are enforced by the required sens-api-gateway-rust audit authority.',
 };
 
 interface DependabotUpdate {
@@ -81,6 +77,7 @@ interface DependabotUpdate {
       string,
       {
         readonly 'applies-to'?: string;
+        readonly 'group-by'?: string;
         readonly patterns?: readonly string[];
         readonly 'update-types'?: readonly string[];
       }
@@ -218,23 +215,33 @@ describe('Dependabot lockfile coverage', () => {
     }
   });
 
-  it('gives the standalone AquaMobil production lock non-overlapping update ownership', () => {
-    const aquamobil = config().updates?.find(
-      (update) =>
-        update['package-ecosystem'] === 'npm' && update.directory === '/web/apps/aquamobil',
-    );
-
-    expect(aquamobil).toMatchObject({
-      'package-ecosystem': 'npm',
-      directory: '/web/apps/aquamobil',
-      'open-pull-requests-limit': 1,
-      'versioning-strategy': 'lockfile-only',
-      groups: {
-        'aquamobil-lock-refresh': {
-          'update-types': ['minor', 'patch'],
-        },
-      },
+  it('gives root and AquaMobil one atomic npm update authority', () => {
+    const authorities = (config().updates ?? []).filter((update) => {
+      if (update['package-ecosystem'] !== 'npm') return false;
+      const directories = update.directories ?? [update.directory ?? '/'];
+      return directories.some((directory) => ['/', '/web/apps/aquamobil'].includes(directory));
     });
+
+    expect(authorities).toHaveLength(1);
+    const authority = authorities[0];
+    expect(authority?.directory).toBeUndefined();
+    expect(authority?.directories).toEqual(['/', '/web/apps/aquamobil']);
+    expect(authority?.['versioning-strategy']).toBe('increase');
+    expect(Object.values(authority?.groups ?? {})).toContainEqual({
+      'group-by': 'dependency-name',
+    });
+  });
+
+  it('gives root and production WASM locks one Cargo update authority', () => {
+    const cargo = config().updates?.filter((update) => update['package-ecosystem'] === 'cargo');
+
+    expect(cargo).toHaveLength(1);
+    expect(cargo?.[0]?.directory).toBeUndefined();
+    expect(cargo?.[0]?.directories).toEqual([
+      '/',
+      '/crates/alarm-core-wasm',
+      '/crates/protocol-codec-wasm',
+    ]);
   });
 
   it('watches every lockfile that is not documented as excluded', () => {

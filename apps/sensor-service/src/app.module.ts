@@ -10,6 +10,12 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
 import { TenantErasureTargetModule } from '@aquaculture/backend-common/compliance';
+
+import {
+  MqttAuthCacheInvalidationHook,
+  PublishedOutboxPurgeHook,
+  SensorErasureModule,
+} from './compliance/erasure/erasure.module';
 import {
   createServiceTypeOrmConfig,
   isSchemaDdlOwnedByDbMigrate,
@@ -341,7 +347,13 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
       useFactory: buildEventBusConfig,
     }),
     SensorOutboxModule,
-    TenantErasureTargetModule.forService('sensor-service'),
+    TenantErasureTargetModule.forService('sensor-service', {
+      // Task 1.8: purge the tenant's PUBLISHED outbox rows + drop the MQTT
+      // auth cache entries mapping to the erased tenant, atomically with
+      // the erasure.
+      imports: [SensorErasureModule],
+      postErasureHooks: [PublishedOutboxPurgeHook, MqttAuthCacheInvalidationHook],
+    }),
 
     // SECURITY (CRITICAL-001): RS256 asymmetric verification via the shared
     // PlatformJwtModule. sensor-service is a token CONSUMER, not an issuer.

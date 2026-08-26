@@ -392,6 +392,23 @@ export class MqttAuthService implements OnModuleInit {
   /**
    * Invalidate the tenant cache for a device (call when device is revoked/decommissioned).
    */
+  /**
+   * Task 1.8 (erasure): drop EVERY cache entry mapping to one tenant.
+   * Returns the number of dropped entries so the erasure hook can log
+   * the blast radius. Process-local by necessity — see the hook's doc.
+   */
+  invalidateEntriesForTenant(tenantId: string): number {
+    let dropped = 0;
+    for (const [username, entry] of this.tenantIdCache) {
+      if (entry.tenantId === tenantId) {
+        this.tenantIdCache.delete(username);
+        this.negativeLookupCache.delete(`mqtt_client_id:${username}`);
+        dropped++;
+      }
+    }
+    return dropped;
+  }
+
   invalidateTenantCache(username: string): void {
     this.tenantIdCache.delete(username);
     // Also clear any negative entry so a just-provisioned/revoked device is

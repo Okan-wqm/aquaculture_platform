@@ -335,6 +335,30 @@ describe('MqttListenerService', () => {
       ).rejects.toThrow(/Durable metric write failed/);
     });
 
+    it('ACK-drops messages for an erased tenant without recreating data (Task 1.8 tombstone)', async () => {
+      const { service, sensorTopicCache, dataSource, metricWriter } = buildService();
+      sensorTopicCache!.getSensorByTopic.mockResolvedValue(createCachedSensorInfo());
+      const sensor = createSensor();
+      const qr = dataSource.createQueryRunner();
+      (qr.manager.findOne as jest.Mock).mockResolvedValue(sensor);
+      metricWriter.writeManaged.mockResolvedValue(undefined);
+
+      // Tombstone: buildService's `new`-based harness leaves it null; inject
+      // a stub through the prototype-level property the gate reads.
+      const tombstone = { isErased: jest.fn().mockReturnValue(true) };
+      Object.defineProperty(service, 'tombstone', { value: tombstone, writable: true });
+
+      await callHandleMessage(
+        service,
+        `sensors/${TENANT_ID}/${SENSOR_ID}/data`,
+        JSON.stringify({ temperature: 23.5 }),
+      );
+
+      expect(tombstone.isErased).toHaveBeenCalledWith(TENANT_ID);
+      // Neither the metric write nor the event publish happened.
+      expect(metricWriter.writeManaged).not.toHaveBeenCalled();
+    });
+
     it('publishes SensorReading with a deterministic eventId derived from the source reading (Task 1.4)', async () => {
       const { service, sensorTopicCache, dataSource, eventBus } = buildService();
       sensorTopicCache!.getSensorByTopic.mockResolvedValue(createCachedSensorInfo());

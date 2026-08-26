@@ -50,6 +50,8 @@ import {
 } from '@aquaculture/backend-common/database';
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 import { SensorServiceProfileService } from '../config/sensor-service-profile.service';
+
+import { ErasedTenantTombstoneService } from '../compliance/erasure/erased-tenant-tombstone.service';
 import { VfdEdgeProvisioningService } from '../vfd/services/vfd-edge-provisioning.service';
 import { VfdEdgeReadService } from '../vfd/services/vfd-edge-read.service';
 import { VfdEdgeWriteService } from '../vfd/services/vfd-edge-write.service';
@@ -285,6 +287,10 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     @Optional()
     @Inject(VfdEdgeReadService)
     private readonly vfdEdgeReadService: VfdEdgeReadService | null = null,
+    // Task 1.8: erased-tenant tombstone — trailing optional so the
+    // `new`-based unit-test harness (positional args) stays untouched.
+    @Optional()
+    private readonly tombstone: ErasedTenantTombstoneService | null = null,
   ) {
     // Legacy edge/ topic flag (default: true for backward compatibility)
     this.legacyEdgeTopicsEnabled =
@@ -479,6 +485,16 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
       if (!sensor) {
         this.logger.debug(`No sensor found for topic: ${topic}`);
+        return;
+      }
+
+      // Task 1.8 (erasure tombstone): an erased tenant's late messages are
+      // ACK-dropped — persisting them would recreate the just-erased
+      // schema's data and enqueue a fresh outbox row (Swiss-cheese erasure).
+      if (this.tombstone?.isErased(sensor.tenantId)) {
+        this.logger.warn(
+          `ACK-drop for erased tenant on topic ${topic} — message discarded without persistence`,
+        );
         return;
       }
 

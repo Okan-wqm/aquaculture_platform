@@ -11,7 +11,8 @@
       "inputs": [
         "{workspaceRoot}/crates/protocol-codec/src/**/*.rs",
         "{workspaceRoot}/crates/protocol-codec-wasm/src/**/*.rs",
-        "{workspaceRoot}/crates/protocol-codec-wasm/Cargo.toml"
+        "{workspaceRoot}/crates/protocol-codec-wasm/Cargo.toml",
+        "{workspaceRoot}/crates/protocol-codec-wasm/Cargo.lock"
       ],
       "outputs": ["{projectRoot}/src/generated"],
       "options": {

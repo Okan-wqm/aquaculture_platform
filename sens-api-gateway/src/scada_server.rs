@@ -1071,6 +1071,40 @@ async fn scada_ws_handler(
         return (StatusCode::FORBIDDEN, "Invalid Origin").into_response();
     }
 
+    // SEC-MEDIUM-061 (2026-08-23 scan №6): token authentication for OT-NIC
+    // deployments. Origin is a client-controlled header — on the documented
+    // production pattern (SUDERRA_SCADA_BIND=OT-NIC-IP), any host on the OT
+    // LAN passes the RFC1918 check and can drive actuators, recalibrate
+    // sensors, ack alarms, and trigger emergency stop. When
+    // SUDERRA_SCADA_AUTH_TOKEN is set, the upgrade additionally requires a
+    // matching Bearer token (constant-time compare). Unset ⇒ loopback
+    // default posture (Origin check only — the existing defense).
+    if let Ok(expected_token) = std::env::var("SUDERRA_SCADA_AUTH_TOKEN") {
+        if !expected_token.is_empty() {
+            let provided = headers
+                .get(header::AUTHORIZATION)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.strip_prefix("Bearer "));
+            let authorized = match provided {
+                Some(token) => {
+                    use subtle::ConstantTimeEq;
+                    token.as_bytes().ct_eq(expected_token.as_bytes()).into()
+                }
+                None => false,
+            };
+            if !authorized {
+                warn!(
+                    "SCADA WebSocket rejected: invalid or missing Bearer token (SUDERRA_SCADA_AUTH_TOKEN is set)"
+                );
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    "Bearer token required (SUDERRA_SCADA_AUTH_TOKEN is configured)",
+                )
+                    .into_response();
+            }
+        }
+    }
+
     ws.max_message_size(64 * 1024) // 64 KB max incoming message
         .on_upgrade(move |socket| handle_scada_ws(socket, state))
         .into_response()

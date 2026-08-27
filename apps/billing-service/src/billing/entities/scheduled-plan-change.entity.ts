@@ -63,9 +63,11 @@ export class ScheduledPlanChange {
 
   // ── Current plan (snapshot at scheduling time) ──────────────────────────
 
-  @Field()
-  @Column({ type: 'uuid' })
-  currentPlanId!: string;
+  /** Nullable per the saga migration (1802100000000): plan-change operations
+   * can exist without a resolved current-plan FK (pre-saga rows, lateral
+   * moves) — currentPlanName is the NOT NULL display anchor instead. */
+  @Column({ type: 'uuid', nullable: true })
+  currentPlanId!: string | null;
 
   // DBR-MEDIUM-002 cure: FK to billing.plans for the snapshot at
   // scheduling time. RESTRICT keeps audit history intact — deleting

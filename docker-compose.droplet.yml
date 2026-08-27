@@ -238,6 +238,8 @@ networks:
 
 volumes:
   postgres_data:
+  redis_auth_data:
+    name: aqua_redis_auth_data
   redis_data:
   nats_data:
   minio_data:
@@ -542,6 +544,41 @@ services:
       timeout: 5s
       retries: 5
 
+  # SEC-HIGH-108 (2026-08-23 scan №53): dedicated noeviction Redis for the
+  # authorization namespace (jti blacklist, user epoch, rate-limit counters).
+  # On the shared allkeys-lru instance, memory pressure could EVICT a jti
+  # revocation marker — resurrecting a revoked access token. Revocation state
+  # is small (bounded by active-token count × TTL) and must never be evicted:
+  # noeviction makes Redis reject writes under pressure instead of silently
+  # dropping a security decision.
+  redis-auth:
+    logging: *default-logging
+    image: redis:7-alpine
+    container_name: aqua-redis-auth
+    restart: unless-stopped
+    command: >-
+      redis-server
+      --requirepass ${REDIS_AUTH_PASSWORD:?REDIS_AUTH_PASSWORD required}
+      --maxmemory 64mb
+      --maxmemory-policy noeviction
+      --appendonly yes
+      --appendfsync everysec
+      --save 900 1
+    volumes:
+      - redis_auth_data:/data
+    networks:
+      - aqua-internal
+    deploy:
+      resources:
+        limits:
+          memory: 96M
+          cpus: '0.15'
+    healthcheck:
+      test: ['CMD-SHELL', 'REDISCLI_AUTH=${REDIS_AUTH_PASSWORD} redis-cli ping']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
   nats:
     logging: *default-logging
     # Pinned 2026-04-05. To update: verify changelog at https://github.com/nats-io/nats-server/releases, test in staging first.
@@ -666,6 +703,8 @@ services:
       DATABASE_PASSWORD: ${GATEWAY_SERVICE_DB_PASS:?GATEWAY_SERVICE_DB_PASS required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+      # SEC-HIGH-108 (№53): authorization namespace on the noeviction instance
+      REDIS_AUTH_URL: redis://:${REDIS_AUTH_PASSWORD:?REDIS_AUTH_PASSWORD required}@redis-auth:6379
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-gateway-env
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
@@ -804,6 +843,8 @@ services:
       # DATABASE_QUERY_LOGGING_ALLOW_IN_PRODUCTION — see resolveDatabaseLogging).
       DATABASE_LOGGING: ${DATABASE_LOGGING:-false}
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+      # SEC-HIGH-108 (№53): authorization namespace on the noeviction instance
+      REDIS_AUTH_URL: redis://:${REDIS_AUTH_PASSWORD:?REDIS_AUTH_PASSWORD required}@redis-auth:6379
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-auth-env
       JWT_PRIVATE_KEY_PATH: /etc/ssl/jwt/private.pem

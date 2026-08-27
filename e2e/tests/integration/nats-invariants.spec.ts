@@ -343,6 +343,15 @@ function extractRpcUsage(appDir: string, constants: Map<string, string>): RpcUsa
   const resolveRef = (ref: string): string | undefined => {
     const literal = /^'([^']+)'$/.exec(ref);
     if (literal) return literal[1];
+    // SEC-MEDIUM-103 (2026-08-23 scan №48): resolve NESTED member access —
+    // sendAuthCommand(AUTH_PUBLIC_COMMAND_SUBJECTS.RESET_PASSWORD, ...)
+    // indirections the flat OBJECT.CONST regex below could not see, which is
+    // exactly how the public password-reset subjects escaped RPC coverage.
+    const nested = /^[A-Za-z0-9_$]+\.([A-Z][A-Z0-9_]+)\.([A-Z][A-Z0-9_]+)$/.exec(ref);
+    if (nested) {
+      const container = constants.get(`${nested[1]}.${nested[2]}`);
+      if (container) return container;
+    }
     const constRef =
       /^[A-Za-z0-9_$]+\.([A-Z][A-Z0-9_]+)$/.exec(ref) ?? /^([A-Z][A-Z0-9_]+)$/.exec(ref);
     if (constRef) return constants.get(constRef[1]);

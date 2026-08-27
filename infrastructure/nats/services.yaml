@@ -280,6 +280,8 @@ services:
   - $JS.API.STREAM.UPDATE.>
   - $JS.API.CONSUMER.>
   - _INBOX.>
+  - request.auth.public.requestPasswordReset
+  - request.auth.public.resetPassword
   subscribe:
   - events.*.TenantOnboardingAck
   - events.*.TenantOnboardingFailed

@@ -1,7 +1,17 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const WASM_BINDGEN_VERSION = '0.2.127';
@@ -13,6 +23,8 @@ const CONTRACTS = [
     manifest: 'crates/alarm-core-wasm/Cargo.toml',
     lock: 'crates/alarm-core-wasm/Cargo.lock',
     script: 'libs/alarm-core/scripts/build-wasm.sh',
+    generated: 'libs/alarm-core/src/generated',
+    wasm: 'target/wasm32-unknown-unknown/release/alarm_core_wasm.wasm',
   },
   {
     name: 'protocol-codec',
@@ -20,6 +32,8 @@ const CONTRACTS = [
     manifest: 'crates/protocol-codec-wasm/Cargo.toml',
     lock: 'crates/protocol-codec-wasm/Cargo.lock',
     script: 'libs/protocol-codec/scripts/build-wasm.sh',
+    generated: 'libs/protocol-codec/src/generated',
+    wasm: 'target/wasm32-unknown-unknown/release/protocol_codec_wasm.wasm',
   },
 ] as const;
 
@@ -176,56 +190,201 @@ function lockSatisfiesContract(lock: string): boolean {
   );
 }
 
+interface ToolInvocation {
+  readonly args: readonly string[];
+  readonly workingDirectory: string;
+}
+
 interface ScriptExecution {
-  readonly cargoArgs: readonly string[] | undefined;
-  readonly cargoWorkingDirectory: string | undefined;
+  readonly cargoInvocations: readonly ToolInvocation[];
+  readonly copiedScriptMatches: boolean;
+  readonly error: string | undefined;
+  readonly executedScriptPath: string;
+  readonly fixtureGenerated: boolean;
+  readonly fixtureOldSentinelExists: boolean;
+  readonly fixtureRoot: string;
+  readonly repositoryGeneratedDigestAfter: string;
+  readonly repositoryGeneratedDigestBefore: string;
+  readonly signal: NodeJS.Signals | null;
   readonly status: number | null;
   readonly stderr: string;
+  readonly wasmBindgenInvocations: readonly ToolInvocation[];
 }
 
 function writeExecutable(path: string, body: string): void {
-  writeFileSync(path, `#!/usr/bin/env bash\nset -euo pipefail\n${body}\n`, { mode: 0o700 });
+  writeFileSync(path, `#!/bin/bash\nset -euo pipefail\n${body}\n`, { mode: 0o700 });
+}
+
+function digestDirectory(path: string): string {
+  const hash = createHash('sha256');
+
+  function visit(directory: string): void {
+    const entries = readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
+      left.name.localeCompare(right.name),
+    );
+    for (const entry of entries) {
+      const entryPath = join(directory, entry.name);
+      hash.update(relative(path, entryPath));
+      hash.update('\0');
+      if (entry.isDirectory()) {
+        hash.update('directory\0');
+        visit(entryPath);
+      } else {
+        hash.update('file\0');
+        hash.update(readFileSync(entryPath));
+        hash.update('\0');
+      }
+    }
+  }
+
+  visit(path);
+  return hash.digest('hex');
+}
+
+function parseInvocationLog(path: string): readonly ToolInvocation[] {
+  if (!existsSync(path)) return [];
+
+  const fields = readFileSync(path).toString('utf8').split('\0');
+  if (fields.at(-1) === '') fields.pop();
+  const invocations: ToolInvocation[] = [];
+  let offset = 0;
+
+  while (offset < fields.length) {
+    const workingDirectory = fields[offset];
+    const argumentCountText = fields[offset + 1];
+    const argumentCount = Number(argumentCountText);
+    if (
+      workingDirectory === undefined ||
+      argumentCountText === undefined ||
+      !Number.isSafeInteger(argumentCount) ||
+      argumentCount < 0 ||
+      offset + 2 + argumentCount > fields.length
+    ) {
+      throw new Error(`Malformed tool invocation log at ${path}`);
+    }
+
+    invocations.push({
+      workingDirectory,
+      args: fields.slice(offset + 2, offset + 2 + argumentCount),
+    });
+    offset += 2 + argumentCount;
+  }
+
+  return invocations;
 }
 
 function executeBuildScript(
   contract: (typeof CONTRACTS)[number],
   cliVersion: string | undefined,
 ): ScriptExecution {
-  const fakeBin = mkdtempSync(join(tmpdir(), 'aqua-wasm-build-contract-'));
-  const cargoLog = join(fakeBin, 'cargo');
+  const fixtureRoot = mkdtempSync(join(tmpdir(), 'aqua-wasm-build-contract-'));
+  const fakeBin = join(fixtureRoot, 'bin');
+  const cargoLog = join(fixtureRoot, 'cargo-invocations');
+  const wasmBindgenLog = join(fixtureRoot, 'wasm-bindgen-invocations');
+  const executedScriptPath = resolve(fixtureRoot, contract.script);
+  const fixtureCrateDirectory = dirname(resolve(fixtureRoot, contract.manifest));
+  const fixtureGeneratedDirectory = resolve(fixtureRoot, contract.generated);
+  const fixtureOldSentinel = join(fixtureGeneratedDirectory, 'must-be-removed');
+  const fixtureGenerated = join(fixtureGeneratedDirectory, 'generated-by-test');
+  const repositoryGeneratedDirectory = resolve(REPO_ROOT, contract.generated);
+  const repositoryGeneratedDigestBefore = digestDirectory(repositoryGeneratedDirectory);
+
   try {
+    mkdirSync(dirname(executedScriptPath), { recursive: true });
+    mkdirSync(fixtureCrateDirectory, { recursive: true });
+    mkdirSync(fixtureGeneratedDirectory, { recursive: true });
+    mkdirSync(dirname(resolve(fixtureRoot, contract.wasm)), { recursive: true });
+    mkdirSync(fakeBin, { recursive: true });
+    writeFileSync(executedScriptPath, readFileSync(resolve(REPO_ROOT, contract.script)), {
+      mode: 0o700,
+    });
+    writeFileSync(fixtureOldSentinel, 'the copied script must remove this file\n');
+    writeFileSync(resolve(fixtureRoot, contract.wasm), 'fixture wasm input\n');
+
+    for (const tool of ['dirname', 'pwd'] as const) {
+      symlinkSync(`/usr/bin/${tool}`, join(fakeBin, tool));
+    }
+    for (const tool of ['mkdir', 'rm'] as const) {
+      writeExecutable(
+        join(fakeBin, tool),
+        `for argument in "$@"; do
+  case "$argument" in
+    -*) ;;
+    "$FIXTURE_ROOT"/*) ;;
+    *) printf '%s\\n' 'refusing ${tool} outside the test fixture' >&2; exit 98 ;;
+  esac
+done
+exec /usr/bin/${tool} "$@"`,
+      );
+    }
+
     if (cliVersion !== undefined) {
       writeExecutable(
         join(fakeBin, 'wasm-bindgen'),
-        `if [ "\${1:-}" = "--version" ]; then\n  printf '%s\\n' 'wasm-bindgen ${cliVersion}'\n  exit 0\nfi\nexit 97`,
+        `if [ "\${1:-}" = "--version" ]; then
+  printf '%s\\n' 'wasm-bindgen ${cliVersion}'
+  exit 0
+fi
+printf '%s\\0%s\\0' "$PWD" "$#" >> "$WASM_BINDGEN_LOG"
+printf '%s\\0' "$@" >> "$WASM_BINDGEN_LOG"
+out_dir=''
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = '--out-dir' ]; then
+    out_dir="\${2:-}"
+    shift 2
+  else
+    shift
+  fi
+done
+if [ -z "$out_dir" ]; then
+  exit 97
+fi
+case "$out_dir" in
+  "$FIXTURE_ROOT"/*) ;;
+  *) printf '%s\\n' 'refusing generation outside the test fixture' >&2; exit 98 ;;
+esac
+/usr/bin/mkdir -p "$out_dir"
+printf '%s\\n' 'generated entirely inside the test fixture' > "$out_dir/generated-by-test"`,
       );
     }
     writeExecutable(
       join(fakeBin, 'cargo'),
-      `printf '%s\\n' "$PWD" > "\${CARGO_LOG}.cwd"\nprintf '%s\\n' "$@" > "\${CARGO_LOG}.args"\nexit 73`,
+      `printf '%s\\0%s\\0' "$PWD" "$#" >> "$CARGO_LOG"
+printf '%s\\0' "$@" >> "$CARGO_LOG"`,
     );
 
-    const result = spawnSync('/bin/bash', [resolve(REPO_ROOT, contract.script)], {
-      cwd: REPO_ROOT,
+    const result = spawnSync('/bin/bash', [executedScriptPath], {
+      cwd: fixtureRoot,
       encoding: 'utf8',
       env: {
-        ...process.env,
         CARGO_LOG: cargoLog,
-        PATH: `${fakeBin}:/usr/bin:/bin`,
+        FIXTURE_ROOT: fixtureRoot,
+        LC_ALL: 'C',
+        PATH: fakeBin,
+        WASM_BINDGEN_LOG: wasmBindgenLog,
       },
+      killSignal: 'SIGKILL',
+      timeout: 5_000,
     });
     return {
       status: result.status,
       stderr: result.stderr,
-      cargoArgs: existsSync(`${cargoLog}.args`)
-        ? readFileSync(`${cargoLog}.args`, 'utf8').trim().split(/\r?\n/)
-        : undefined,
-      cargoWorkingDirectory: existsSync(`${cargoLog}.cwd`)
-        ? readFileSync(`${cargoLog}.cwd`, 'utf8').trim()
-        : undefined,
+      executedScriptPath,
+      fixtureRoot,
+      copiedScriptMatches: readFileSync(executedScriptPath).equals(
+        readFileSync(resolve(REPO_ROOT, contract.script)),
+      ),
+      cargoInvocations: parseInvocationLog(cargoLog),
+      wasmBindgenInvocations: parseInvocationLog(wasmBindgenLog),
+      fixtureGenerated: existsSync(fixtureGenerated),
+      fixtureOldSentinelExists: existsSync(fixtureOldSentinel),
+      repositoryGeneratedDigestBefore,
+      repositoryGeneratedDigestAfter: digestDirectory(repositoryGeneratedDirectory),
+      signal: result.signal,
+      error: result.error?.message,
     };
   } finally {
-    rmSync(fakeBin, { recursive: true, force: true });
+    rmSync(fixtureRoot, { recursive: true, force: true });
   }
 }
 
@@ -318,38 +477,69 @@ version = "0.2.100"
 });
 
 describe('standalone WASM build script behavior', () => {
+  test.each(CONTRACTS)('$name executes only a temporary script copy', (contract) => {
+    const execution = executeBuildScript(contract, WASM_BINDGEN_VERSION);
+
+    expect(execution.executedScriptPath.startsWith(`${REPO_ROOT}/`)).toBe(false);
+    expect(execution.executedScriptPath).toBe(resolve(execution.fixtureRoot, contract.script));
+    expect(execution.copiedScriptMatches).toBe(true);
+    expect(execution.repositoryGeneratedDigestAfter).toBe(
+      execution.repositoryGeneratedDigestBefore,
+    );
+    expect(execution.fixtureOldSentinelExists).toBe(false);
+    expect(execution.fixtureGenerated).toBe(true);
+    expect(execution.error).toBeUndefined();
+    expect(execution.signal).toBeNull();
+  });
+
   test.each(CONTRACTS)('$name rejects a missing binding CLI before cargo', (contract) => {
     const execution = executeBuildScript(contract, undefined);
 
-    expect(execution.status).not.toBe(0);
+    expect(execution.status).toBe(1);
     expect(execution.stderr).toContain(
       `error: wasm-bindgen CLI not found. Install: cargo install wasm-bindgen-cli --version ${WASM_BINDGEN_VERSION} --locked`,
     );
-    expect(execution.cargoArgs).toBeUndefined();
+    expect(execution.cargoInvocations).toEqual([]);
+    expect(execution.error).toBeUndefined();
+    expect(execution.signal).toBeNull();
   });
 
   test.each(CONTRACTS)('$name rejects a mismatched binding CLI before cargo', (contract) => {
     const execution = executeBuildScript(contract, '0.2.126');
 
-    expect(execution.status).not.toBe(0);
+    expect(execution.status).toBe(1);
     expect(execution.stderr).toContain(
       `error: expected wasm-bindgen ${WASM_BINDGEN_VERSION}, got wasm-bindgen 0.2.126`,
     );
-    expect(execution.cargoArgs).toBeUndefined();
+    expect(execution.cargoInvocations).toEqual([]);
+    expect(execution.error).toBeUndefined();
+    expect(execution.signal).toBeNull();
   });
 
   test.each(CONTRACTS)('$name sends the exact locked build to cargo', (contract) => {
     const execution = executeBuildScript(contract, WASM_BINDGEN_VERSION);
 
-    expect(execution.status).toBe(73);
-    expect(execution.cargoArgs).toEqual([
-      'build',
-      '--locked',
-      '--target',
-      'wasm32-unknown-unknown',
-      '--release',
+    expect(execution.status).toBe(0);
+    expect(execution.cargoInvocations).toEqual([
+      {
+        workingDirectory: dirname(resolve(execution.fixtureRoot, contract.manifest)),
+        args: ['build', '--locked', '--target', 'wasm32-unknown-unknown', '--release'],
+      },
     ]);
-    expect(execution.cargoWorkingDirectory).toBe(dirname(resolve(REPO_ROOT, contract.manifest)));
+    expect(execution.wasmBindgenInvocations).toEqual([
+      {
+        workingDirectory: execution.fixtureRoot,
+        args: [
+          '--target',
+          'nodejs',
+          '--out-dir',
+          resolve(execution.fixtureRoot, contract.generated),
+          resolve(execution.fixtureRoot, contract.wasm),
+        ],
+      },
+    ]);
+    expect(execution.error).toBeUndefined();
+    expect(execution.signal).toBeNull();
   });
 });
 

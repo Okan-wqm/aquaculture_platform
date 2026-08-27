@@ -2,6 +2,7 @@ import * as os from 'os';
 
 import { emitBootInvariantSignal } from '@aquaculture/backend-common/constants';
 import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
+import { validateEventBySubject } from '@platform/event-contracts';
 // NATS v3 (@nats-io/* 3.x). v2 monolithic `nats` package split into
 // transport-node (Node connect), nats-core (connection + Msg primitives),
 // and jetstream (JS client/manager + policy enums). StringCodec/JSONCodec
@@ -1347,6 +1348,27 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
     try {
       // v3: msg.string() replaces StringCodec.decode(msg.data) — same UTF-8 bytes.
       const event = this.deserializeEvent(msg.string());
+
+      // SEC-HIGH-100 (2026-08-23 scan №45): trust-boundary schema validation,
+      // anchored to the SERVER-STAMPED subject (never the payload's
+      // self-declared eventType). Events without a compiled schema pass
+      // through (see validateEventBySubject docblock); malformed known
+      // events dead-letter instead of reaching handlers.
+      const validation = validateEventBySubject(subject, event);
+      if (!validation.valid) {
+        this.logger.warn(
+          `Schema validation failed for ${subject}: ${validation.errors} — dead-lettering`,
+        );
+        await this.handleMessageFailure(
+          subject,
+          msg,
+          event,
+          'schema-validation-failure',
+          new Error(validation.errors),
+        );
+        return;
+      }
+
       const handlers = this.handlers.get(subject) ?? [];
 
       // SECURITY: Handler failures must NOT be swallowed while the

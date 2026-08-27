@@ -1,5 +1,6 @@
 // Base event contract and shared types
 export * from './base-event';
+export * from './schemas/validator';
 
 // Cross-service shared enums (DBR-HIGH-003 cure — single source of truth
 // for values that are persisted to the DB and round-tripped via events).

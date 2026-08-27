@@ -452,6 +452,30 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
     },
   );
 
+  it('universal _INBOX.> SUBSCRIBE grants are banned — reply inboxes are per-service scoped (SEC-HIGH-098, 2026-08-23 scan №43)', () => {
+    for (const svc of servicesDoc.services) {
+      const sub = svc.subscribe ?? [];
+      const universal = sub.filter((entry) => entry === '_INBOX.>');
+      if (universal.length > 0) {
+        throw new Error(
+          `${svc.name}: subscribe list still carries the universal _INBOX.> grant — ` +
+            `a compromised cert on ANY service receives every other service's ` +
+            `request-reply replies. Replace with _INBOX${(svc.name ?? 'UNKNOWN').toUpperCase()}.> ` +
+            `(the connection factory sets the matching inboxPrefix).`,
+        );
+      }
+      // Every service MUST have its own scoped inbox in subscribe (it needs to
+      // receive ITS OWN replies).
+      const expected = `_INBOX${(svc.name ?? 'UNKNOWN').toUpperCase().replace(/-/g, '_')}.>`;
+      if (!sub.includes(expected)) {
+        throw new Error(
+          `${svc.name}: subscribe list is missing its own scoped inbox ${expected} — ` +
+            `the service cannot receive request-reply responses.`,
+        );
+      }
+    }
+  });
+
   it('bare $JS.API.> grants are banned — JetStream rights are enumerated per service (Task 2, SENSOR-HIGH-092)', () => {
     // Pull-consumer delivery is NOT gated by subscribe ACLs, so narrowing
     // loses nothing — while the bare root handed every service stream and

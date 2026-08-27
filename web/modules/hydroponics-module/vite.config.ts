@@ -1,8 +1,9 @@
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { federation } from '@module-federation/vite';
 import { resolve } from 'path';
 import { getCoreSharedConfig } from '../../shared-ui/src/federation/federationSharedConfig';
+import createVitestTestPolicy from '@aquaculture/testing/vitest';
 
 /**
  * Vite Configuration - Hydroponics Module Microfrontend
@@ -40,5 +41,11 @@ export default defineConfig({
   base: '/remotes/hydroponics-module/',
   build: {
     target: 'esnext',
+  },
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./src/test-setup.ts'],
+    ...createVitestTestPolicy(),
   },
 });

@@ -41276,7 +41276,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "1b9dca0c7b6d3412318e03513cbf2898a6a501145a2c93334f8a91b6f3ea7b2c",
+      "content_sha256": "35e96e4c31d1c88a03e1237a2b6c6c36dd2aafde375151c9ee9daeadc005f0ac",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -51336,6 +51336,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/hydroponics-module/src/pages/solution/tabs/WaterAnalysisTab.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/hydroponics-module/src/test-setup.ts",
       "prettier_managed": true
     },
     {

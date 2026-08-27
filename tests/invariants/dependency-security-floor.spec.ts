@@ -37,6 +37,7 @@ const VITEST_WORKSPACES = [
   'web/modules/dashboard/package.json',
   'web/modules/farm-module/package.json',
   'web/modules/hr-module/package.json',
+  'web/modules/hydroponics-module/package.json',
   'web/modules/messaging-module/package.json',
   'web/modules/sensor-module/package.json',
   'web/modules/tenant-admin/package.json',
@@ -73,6 +74,7 @@ const FEDERATION_CONSUMERS = [
 const DTS_CONSUMERS = ['libs/node-components/package.json', 'web/shared-ui/package.json'] as const;
 
 interface PackageManifest {
+  scripts?: Record<string, string>;
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
   optionalDependencies?: Record<string, string>;
@@ -343,6 +345,31 @@ describe('JavaScript dependency security floor', () => {
         vitest: `^${VITEST_VERSION}`,
       });
     }
+  });
+
+  test('keeps the Hydroponics Router regression on the shared jsdom runner', () => {
+    const manifest = readJson<PackageManifest>('web/modules/hydroponics-module/package.json');
+    const vite = readRepoFile('web/modules/hydroponics-module/vite.config.ts');
+    const project = readJson<{
+      targets?: Record<string, { dependsOn?: string[] }>;
+    }>('web/modules/hydroponics-module/project.json');
+
+    expect(manifest.scripts).toMatchObject({
+      test: 'vitest run',
+      'test:watch': 'vitest',
+    });
+    expect(manifest.devDependencies).toMatchObject({
+      '@testing-library/dom': '^10.4.1',
+      '@testing-library/jest-dom': '^6.2.0',
+      '@testing-library/react': '^16.3.2',
+      '@testing-library/user-event': '^14.5.2',
+      jsdom: '^24.0.0',
+      vitest: '^3.2.7',
+    });
+    expect(vite).toContain("import { defineConfig } from 'vitest/config';");
+    expect(vite).toContain("environment: 'jsdom'");
+    expect(vite).toContain('...createVitestTestPolicy()');
+    expect(project.targets?.test?.dependsOn).toEqual(['shared-ui:build']);
   });
 
   test('pins DOMPurify in the sensor manifest and root override', () => {

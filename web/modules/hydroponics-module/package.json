@@ -7,7 +7,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@aquaculture/shared-ui": "file:../../shared-ui",
@@ -21,6 +23,10 @@
   },
   "devDependencies": {
     "@module-federation/vite": "^1.20.8",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.2.0",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.5.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.2.0",
@@ -28,6 +34,8 @@
     "tailwindcss": "4.3.1",
     "typescript": "5.9.3",
     "vite": "^7.3.5",
+    "vitest": "^3.2.7",
+    "jsdom": "^24.0.0",
     "@tailwindcss/postcss": "4.3.1"
   }
 }

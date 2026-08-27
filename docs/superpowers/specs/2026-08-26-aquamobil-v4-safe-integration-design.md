@@ -19,13 +19,22 @@ required verification is green.
 
 ## 2. Evidence at Design Time
 
-The design is anchored to these immutable commits:
+The design is anchored to these immutable commits. The first row is the design-review snapshot,
+not the later Order 0 branch base:
 
-| Ref                                    | Commit                                     |
-| -------------------------------------- | ------------------------------------------ |
-| `origin/main`                          | `4002868c535a2d8676aad6eadd5f4bbd57d4625b` |
-| `origin/feature/aquamobil-v4-redesign` | `542c8e0bb7ff3afbeee0496f277f8926526cc41a` |
-| merge base                             | `8d8d54365ada11d45b43374af76e9814c5958ff0` |
+| Evidence identity  | Commit                                     |
+| ------------------ | ------------------------------------------ |
+| `designMainCommit` | `4002868c535a2d8676aad6eadd5f4bbd57d4625b` |
+| `sourceCommit`     | `542c8e0bb7ff3afbeee0496f277f8926526cc41a` |
+| `mergeBase`        | `8d8d54365ada11d45b43374af76e9814c5958ff0` |
+
+Order 0 starts only after planning PR #1333 is merged and main-reachable. Its
+`order0BaseMainCommit` is generated from the exact fetched `origin/main` used to create the
+coordinator worktree; it must descend from both `designMainCommit` and #1333's observed resulting
+main commit. Bootstrap evidence records #1333's dynamically resolved head and merge identities,
+normalized API digest, the exact Git blobs of all seven plan/spec documents as read from fetched
+`origin/main`, the live source ref and PR #1107 identity, and the recomputed design/source merge
+base. The fixed design snapshot is never relabeled as the later bootstrap base.
 
 At this point the source branch is 219 commits behind and 35 commits ahead of `main`. Its unique
 history consists of 33 non-merge commits and two merge commits. The merge-base diff changes 480
@@ -139,11 +148,105 @@ branch checks, hooks, signatures, and review requirements are never bypassed.
 The append-only preflight records the exact main commit at worktree creation; it is not rewritten
 merely because an independent lane advances main. Before review and merge, the coordinator compares
 all changes since that base with the slice-owned and shared-authority path sets. A zero-overlap
-branch may proceed only through required checks on the latest merge-queue candidate. Any overlap
-blocks the PR until current main is merged into the slice with normal history, the semantic diff is
-reviewed again, and the complete affected/security gates pass. A later PR that invalidates an
-already reconciled slice requires a new plan-pinned remediation boundary; immutable evidence is
-never edited to pretend the conflict did not occur.
+branch may proceed only when every required context succeeds for the current ordinary GitHub
+`pull_request` test-merge candidate. Any overlap blocks the PR until current main is merged into the
+slice with normal history, the semantic diff is reviewed again, and the complete
+affected/security gates pass. A later PR that invalidates an already reconciled slice requires a
+new plan-pinned remediation boundary; immutable evidence is never edited to pretend the conflict
+did not occur.
+
+For every open PR, evidence distinguishes base `B`, API head `H`,
+checked-out test-merge commit `C`, candidate tree `T`, and ordered parents `[B, H]`. The four
+app-bound required contexts resolve to three workflow run/attempts: CI Affected's terminal
+`merge-gate` produces the run-owned artifact shared by `merge-gate` and
+`sens-enterprise-summary`; CI Full's `build-status` and ARIA's `aria-merge-authority` each produce
+one more. Each mandatory artifact binds `N/B/H/C/T/[B,H]`, its producer job/check, run/attempt,
+workflow repository/file/ref/SHA/blob, and checkout-local coordination-tool Git blob, and is pinned
+by `.github/manifests/main-required-status-checks.json`. The three emitted artifacts share only the
+canonical lineage and `canonicalLineageSha256`; their producer tuples are distinct. After validating
+all four checks and all three artifacts, the prospective verifier alone computes
+`checkArtifactSetSha256`, the canonical whole-set digest used by review and authorization; no
+independent emitter can know or serialize it.
+CI-Affected's `merge-gate` check is the producer, while `sens-enterprise-summary` is a different
+check in that same run/attempt naming `merge-gate` as producer. Full and ARIA each have context check
+equal to producer check. Each candidate-controlled terminal job has exactly `contents: read`, no
+`actions: read`, no `GH_TOKEN`, and no in-run API lookup. The emitter receives `github.job` plus the
+five official `job.check_run_id`, `job.workflow_file_path`, `job.workflow_ref`, `job.workflow_sha`,
+and `job.workflow_repository` context fields, rejects a missing/empty/renamed field, and derives the
+workflow blob from the checked-out Git object. The trusted protected-main coordinator later
+cross-checks all five fields through the exhaustive Jobs/checks API view and the derived blob
+through Git. Checkout/upload remain SHA-pinned, checkout depth is two, and emitter/upload have the
+same `pull_request` guard so non-PR lanes are unchanged. Missing, nullable, stale,
+producer-confused, cross-lineage, or head-only evidence fails closed. Push and manual runs use a
+separate discriminated attestation and cannot satisfy this PR contract.
+
+Every GitHub collection used to decide existence, latest selection, cardinality, or uniqueness is
+exhaustive. The trusted collector follows every RFC 8288 `Link` header until no `rel="next"`
+remains; `per_page=100` is only an optimization. It canonicalizes the complete multipage set,
+validates `total_count` when the endpoint supplies it, and rejects duplicate identities across page
+boundaries. This contract covers check runs, workflow runs, workflow jobs, run artifacts, PR comments, pull
+requests, rulesets, tag/ref matches, and every other program list. A default first-page response is
+never evidence authority.
+
+Review is a program-local gate, not a claim about GitHub branch-protection approval. The repository
+has no eligible non-author collaborator who can submit a GitHub `APPROVED` review. Instead, an
+independent agent produces a canonical report bound to exact `N/B/H/C/T/[B,H]` and the current
+check/artifact-set digest. Review input, report, authorization, and prospective evidence also carry
+one exact closed PR kind matching the branch/path registry; cross-kind report reuse fails. The
+operator's structured authorization payload contains that complete
+report plus its SHA-256; the comment envelope/attestation stays separate to avoid self-reference.
+Historical marker comments remain append-only, but exactly one well-formed comment may match the
+complete current lineage/report/set digest. Zero or multiple matches, a malformed current collision,
+or any rerun/check ID/run-attempt change without a new report/comment fails. The verifier fetches the
+payload from GitHub and validates canonical bytes; it never reconstructs a report from a digest. The
+payload embeds the full four-check and three-run/artifact attestations as well as the report, making
+pre-merge recovery complete after local loss. Authorization and post-merge recovery envelopes have a
+tested canonical UTF-8 ceiling of 60000 bytes; overflow blocks merge pending a schema/archive
+revision.
+
+Review input, full report, authorization, full prospective bundle, and full post-merge bundle are
+stored beneath a symlink-safe, mode-locked and fsynced Git common-dir spool at
+`.git/aquamobil-v4-program-evidence/v1/pr-<N>/`, independent of worktrees and recoverable after host
+restart from the canonical remote payload. Each rerun creates an append-only generation keyed by the
+whole-set digest, with separate immutable `review/manifest.json`, `authorization/manifest.json`,
+`prospective/manifest.json`, and `postmerge/manifest.json`. Each file is published by opening a
+same-directory scratch file with `O_NOFOLLOW|O_CREAT|O_EXCL` and mode `0600`, writing/fsyncing/closing,
+then `link(temp, final)` as an atomic no-replace operation; `EEXIST` fails. The directory is fsynced,
+the temp is unlinked, and the directory is fsynced again. No pre-check/rename may overwrite a final
+path, and only exact recovery may validate and reap crash-left temps. Phase manifests exclude
+themselves and their external attestation, avoiding a self-hash. Post-merge reconciliation requires candidate
+`T == resultingMain^{tree}` and posts a full canonical recovery payload whose comment attestation is
+again separate. Recovery enumerates current postmerge markers, rejects zero, malformed, or
+different-payload current collisions, and deterministically attests the lowest numeric matching
+comment ID. Higher IDs are inert audit copies only when their canonical payload/envelope bytes are
+identical; a pre-post API check reuses that lowest ID after a post-before-crash retry, and the stable
+attestation hashes the selected single-comment response rather than the mutable list.
+
+Every implementation boundary uses one closed `ProtectedProgramBoundaryEvidence`; finding-close
+records embed the same protected boundary while keeping domain/manual runs separate. Its durable
+recovery field contains the full boundary post-merge payload/comment attestation and forbids a
+prior-generic reference. Generic
+bootstrap, reconciliation, feeding auxiliary, closeout terminal/tooling/report/archive/receipt PRs
+use closed `ProgramPrEvidence` and `ProgramPrKind`. Each generic PR includes the immediately preceding
+generic PR's verified record in its candidate at the append-only `program-prs/pr-<N>.json` path; its
+prospective gate proves that path/digest in `C/T`, and its post-merge tree proof makes the record
+main-reachable before a following generic review may start. Implementation and finding-close
+post-merge evidence instead becomes durable in their slice/closure reconciliation. Boundary
+worktree/remote branch/generation cleanup waits for that reconciliation on main. A generic PR's own
+resources remain until the next generic merge makes its tracked full record main-reachable; that
+next merge cleans the predecessor but retains itself.
+Any remote recovery that can race successor cleanup must re-fetch protected main after recovery. If
+the full tracked predecessor record has appeared, the recovery path verifies it and atomically
+deletes or confirms absent only the exact recovered generation under the same remote-round-trip and
+main-reachability proofs; check-then-cleanup-then-recover interleavings are mandatory negative and
+recovery tests, never an excuse to leak or recreate authority. Normal successor cleanup uses that
+same idempotent absence rule only for bootstrap, so recovery-first and cleanup-first races both
+complete; every non-bootstrap absent generation remains fail-closed.
+The terminal receipt cannot commit its own result into itself, so its verified common-dir spool plus
+full GitHub recovery comment is the sole external terminal anchor; all prior generic records must be
+main-reachable first. This finite exception prevents an infinite evidence-only PR chain.
+The closed names are `feeding-auxiliary-verification` and `closeout-terminal-evidence`; they have
+different registered branches and path allowlists and cannot substitute for one another.
 
 ## 5. Appearance and Deployment Architecture
 
@@ -576,6 +679,34 @@ Every slice must pass:
 5. zero unresolved high or critical finding reachable from the affected production dependency graph;
 6. protected PR checks and review without bypass.
 
+The protected-PR evidence gate uses
+`--require-current-pr-test-merge-candidate`. It reads the required-check manifest and live strict
+branch protection, then requires the three mandatory run-owned artifacts for the four contexts to
+agree on the current PR, `B/H/C/T`, and ordered parents. GitHub Actions reports the branch head as
+`H` while the runner checks out `C`; these are separate closed-schema fields and must never be
+conflated. After merge, reconciliation requires `resultingMainCommit^{tree} == T` and preserves the
+program-local independent-review/operator-authorization evidence for the exact reviewed lineage.
+
+Order 0 has one bootstrap-only dirty-tree exception, but never stages early. Because it changes the
+ARIA merge-authority workflow, it first runs the repository's canonical
+`npm run aria:authority-hash:write`, includes the resulting `docs/aria/CURRENT_STATE.md` in Task 1,
+then generates and checks the final format scope. Only after those two generated authorities are
+final does it create a validated private directory under the Git common directory and point
+`GIT_INDEX_FILE` at a nonexistent `index` path inside it. The tool `read-tree`s the exact Order 0
+base tree, adds every and only the Task 1 intended tracked path—including
+`docs/aria/CURRENT_STATE.md`—to that scratch index, and proves each worktree byte equals its
+temp-index blob with no unowned dirt while the real index stays byte- and tree-identical. Two
+production builds and the Vite module manifest bind the temp tree and generator blobs; the ignored
+manifest is not part of that tree. Final staging reruns the authority writer and proves it is a
+no-op, then invokes the mandatory `.husky/pre-commit` hook and proves the hook neither changes nor
+newly stages the already-generated authority file. The final staged tree must equal
+`manifest.source.tree`, and committed `HEAD^{tree}` must equal that same tree. Before commit/push, a
+synthetic commit over the exact staged tree runs `nx affected --target=test` and
+`nx affected --target=lint` from a clean detached scratch worktree against the exact base. An
+absent/stale/late-generated authority file, hook-created staging, a pre-created empty index,
+missing/extra path, real-index mutation, manifest/staged/HEAD tree drift, or either Nx failure blocks
+Order 0. A prefix/realpath-validated EXIT trap removes only the exact temp index directory.
+
 V0 adds a canonical standalone `test` script that runs `vitest run --config vitest.config.ts`; later
 slices invoke it through the AquaMobil package. The existing whole-app ESLint baseline is not
 represented as green: affected lint and touched-file lint are the merge evidence until the owning
@@ -622,21 +753,48 @@ provenance source. Closeout requires all of the following:
   deletion, and a fresh clone can fetch the tag and rerun the source-exclusion checks;
 - the provenance tag and its normalized evidence are merged through a protected closeout PR before
   any authorized source action;
-- closing PR #1107 and deleting the source branch are separate explicit user approvals; only the
-  approved subset is performed, in close-then-delete order when both are approved;
-- deletion additionally requires an active exact-ref ruleset with no bypass actors that prevents
-  source-branch updates and recreation while leaving deletion permitted, followed by a fresh proof
-  that the frozen ref still equals the approved source SHA; no force or force-with-lease push is
-  permitted, failure to prove the freeze retains the branch, and a successful deletion leaves the
-  exact-ref recreation restriction active and recorded in the receipt;
-- after any approved close and/or delete action, a separate protected post-action receipt records
-  the approvals, actions that actually succeeded, observed PR and source-ref states, command-output
-  digests, source-freeze control evidence, and fresh-clone signed-provenance proof without weakening
-  the terminal ledger checks. A durable two-phase intent/result journal is written around each
-  remote action and retained until that receipt is protected-main-verified, so interruption or a
-  later action failure cannot erase an earlier success;
-- when neither remote action is approved, no post-action receipt is fabricated and the clean,
-  detached coordinator worktree remains at the exact final-report main commit for later resumption.
+- closing PR #1107 and deleting the source branch are separate explicit user approvals. Approval for
+  either action must also disclose and authorize installation and persistent retention of the exact
+  active, no-bypass source-ref freeze: creation and update are restricted while deletion remains
+  permitted. The freeze is durably journaled, installed, and proven effective before any source
+  action intent is written; the frozen ref is then reread as
+  `542c8e0bb7ff3afbeee0496f277f8926526cc41a`. Failure of freeze or exact-tip proof runs no close or
+  delete command. If both actions are approved the only order is freeze, close, delete. With
+  close-only approval the freeze remains active around the retained source branch; after every
+  attempted-action outcome the freeze remains active until a separately authorized future process
+  removes it. No force or force-with-lease push is permitted;
+- after any approved close and/or delete action, a destructive-action receipt records the approvals,
+  actions that actually succeeded, observed PR and source-ref states, command-output digests,
+  source-freeze control evidence, and fresh-clone signed-provenance proof without weakening the
+  terminal ledger checks. A durable two-phase intent/result journal is written around freeze and
+  each remote action and retained until that receipt is protected-main-verified, so interruption or
+  a later action failure cannot erase an earlier success. The actionable receipt exists only for a
+  closed at-least-one-approved union; it always contains exactly one typed freeze control step and a
+  non-null active-proven or not-proven freeze result. A not-proven result makes every source-action
+  intent and command unreachable. These requirements apply to close-only as well as deletion;
+- before receipt/coordinator cleanup, every earlier generic `program-prs/pr-<N>.json` record is
+  protected-main-reachable and the receipt's own full post-merge payload round-trips through its
+  canonical GitHub recovery comment and verified Git common-dir spool. The receipt's own record is
+  intentionally the external terminal anchor because no commit can contain evidence of its own
+  resulting main commit;
+- cleanup then requires an explicit exact-target operator authorization, removes only the registered
+  clean active worktree, deletes only its merged non-main/non-source remote program branch, and
+  removes only the exact verified spool generation after another remote round trip. Main, the source
+  branch, provenance refs, PR roots, other generations, ambiguous/unmerged PRs, and unverified
+  evidence are rejected;
+- whether both approvals are false or at least one is true, a protected generic
+  `closeout-receipt` finalizer carries the archive PR's full preceding generic record and completes
+  the finite chain. The both-false path creates no destructive journal, freeze, source command,
+  destructive-action receipt, or post-action live-reference artifact; it records only the closed
+  no-action disposition needed by the program finalizer. Immediately before that disposition and
+  report are generated, the merged trusted coordinator regenerates the same-path initial
+  live-reference evidence from an exhaustive current remote observation: the source ref must be
+  PRESENT at `542c8e0bb7ff3afbeee0496f277f8926526cc41a`, and PR #1107 must be OPEN, non-draft, and
+  retain the exact head/ref/SHA/base identity. Candidate CI binds the resulting blob offline, while
+  prospective authorization, postmerge recovery, the finalizer-main workflow, and cleanup each make
+  a fresh trusted remote reread. Drift at any boundary blocks the next mutation or success claim.
+  The finalizer's verified postmerge spool and canonical GitHub recovery comment are the sole
+  terminal anchor on every path.
 
 Because the implementation is reconstructed on current `main`, the source tip will not become a Git
 ancestor of `main`. It must therefore be reported as **semantically superseded**, never as strictly
@@ -649,6 +807,12 @@ branch deletion is never used as a substitute for durable provenance.
 ## 12. Planning Handoff
 
 After this design is reviewed, the implementation plan must expand each slice into file-level,
-test-first tasks with exact commands and commit boundaries. Execution uses isolated worktrees,
-subagent review at slice boundaries, verification-before-completion, and protected push/PR
-workflows. No implementation task begins before that plan is approved.
+test-first tasks with exact commands and commit boundaries. Order 0 may begin only after a literal
+bootstrap gate fetches `refs/pull/1333/head` into a dedicated private local ref, proves it equals the
+API-reported full head SHA even when the branch was deleted or the merge was squashed, proves #1333
+merged into fetched `origin/main`, and proves all seven plan/spec blobs are exactly the versions on
+that planning result. The private ref has an exact create/use/delete lifecycle and can never share a
+namespace with immutable source/provenance refs. Execution uses isolated worktrees,
+independent-agent review bound to the current PR test-merge candidate, explicit operator
+authorization, verification-before-completion, and protected push/PR workflows. No implementation
+task begins before the plan and its Order 0 evidence contract are satisfied.

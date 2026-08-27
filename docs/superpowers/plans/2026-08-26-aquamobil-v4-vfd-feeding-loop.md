@@ -25,6 +25,10 @@ Docker
 
 ## Non-Negotiable Execution Contract
 
+- Consume the program plan's machine-checked Step 0 result. Immutable
+  `designMainCommit=4002868c535a2d8676aad6eadd5f4bbd57d4625b` is only the design snapshot;
+  generated `order0BaseMainCommit` is the fetched post-#1333 protected-main ancestor containing all
+  seven reviewed planning blobs and Order 0. Every F3/F4/F5/V6 preflight base descends from it.
 - Use `origin/feature/aquamobil-v4-redesign` only as read-only provenance. `git show` is permitted;
   merging, rebasing, cherry-picking, source-file transplanting, or creating ancestry markers is not.
 - F3 starts only after the feeding-foundation finding-close PR and its separate closure
@@ -96,6 +100,14 @@ Docker
 - The 22 exact allocation titles below each have one and only one final uppercase `Closes:`
   candidate: the corresponding Task 1 through Task 22 commit. No earlier/later task, squash body,
   finding-close commit, or duplicate commit may claim the same title or ID.
+- Every protected implementation, reconciliation, or finding-close PR uses the program-local
+  independent-agent report plus explicit `Okan-wqm` administrator authorization issue comment bound
+  to the same current `N/B/H/C/tree`, reviewer identity, and report SHA-256. This is separate from
+  GitHub branch-protection review state. Four manifest-pinned contexts resolve to exactly three
+  mandatory artifacts: CI-Affected `merge-gate` produces the artifact shared with
+  `sens-enterprise-summary`, while CI Full `build-status` and ARIA `aria-merge-authority` each
+  produce one. Exact flag `--require-current-pr-test-merge-candidate` and a final identity reread are
+  mandatory; any drift requires a new report, comment, and complete gate.
 
 ### Read-only provenance map
 
@@ -109,8 +121,9 @@ Docker
 | F0 and F1 prerequisite behavior | `826690623`, `0aabe5a5e` | Confirm weighing, equipment, and assignment contracts already merged                 |
 | Storage-ledger authority        | `550a72311`              | Preserve `StockMovementService.recordMovement` as the fail-closed feed-stock writer  |
 
-The archaeology anchors remain `origin/main@4002868c535a2d8676aad6eadd5f4bbd57d4625b`,
-`origin/feature/aquamobil-v4-redesign@542c8e0bb7ff3afbeee0496f277f8926526cc41a`, and merge base
+The archaeology `designMainCommit` remains `4002868c535a2d8676aad6eadd5f4bbd57d4625b`, separately from
+the generated post-#1333 `order0BaseMainCommit`; the other anchors remain
+`origin/feature/aquamobil-v4-redesign@542c8e0bb7ff3afbeee0496f277f8926526cc41a` and merge base
 `8d8d54365ada11d45b43374af76e9814c5958ff0`; at planning refresh the source is 219 commits behind and
 35 commits ahead. Before each slice, record current `origin/main` separately; the anchors do not
 authorize stale code or migrations.
@@ -301,36 +314,10 @@ export AQUAMOBIL_BUILD_ID="$vfd_preflight_build_id"
 export AQUAMOBIL_AUDIT_MODULE_MANIFEST="$VFD_PREFLIGHT_DIR/aquamobil-vite-rollup-modules.json"
 npm --prefix web/apps/aquamobil run build
 test -s "$VFD_PREFLIGHT_DIR/aquamobil-vite-rollup-modules.json"
-set +e
-npm audit --json > "$VFD_PREFLIGHT_DIR/audit-root-full.json"
-vfd_root_full_status=$?
-npm audit --omit=dev --json > "$VFD_PREFLIGHT_DIR/audit-root-runtime.json"
-vfd_root_runtime_status=$?
-npm --prefix web/apps/aquamobil audit --json > "$VFD_PREFLIGHT_DIR/audit-mobile-full.json"
-vfd_mobile_full_status=$?
-npm --prefix web/apps/aquamobil audit --omit=dev --json \
-  > "$VFD_PREFLIGHT_DIR/audit-mobile-runtime.json"
-vfd_mobile_runtime_status=$?
-set -e
-printf '%s\n' \
-  "$vfd_root_full_status" \
-  "$vfd_root_runtime_status" \
-  "$vfd_mobile_full_status" \
-  "$vfd_mobile_runtime_status" \
-  > "$VFD_PREFLIGHT_DIR/audit-exit-statuses.txt"
-
 refresh_vfd_coordinator
 cd "$VFD_ACTIVE_WORKTREE"
-node "$COORDINATOR_WORKTREE/scripts/ci/audit-source-map.mjs" \
-  --capture-explain-set \
-  --root-audit-full "$VFD_PREFLIGHT_DIR/audit-root-full.json" \
-  --root-audit-runtime "$VFD_PREFLIGHT_DIR/audit-root-runtime.json" \
-  --aquamobil-audit-full "$VFD_PREFLIGHT_DIR/audit-mobile-full.json" \
-  --aquamobil-audit-runtime "$VFD_PREFLIGHT_DIR/audit-mobile-runtime.json" \
-  --root-install . \
-  --aquamobil-install web/apps/aquamobil \
-  --write-audit-set-json "$VFD_PREFLIGHT_DIR/audit-set.json" \
-  --write-explain-set-json "$VFD_PREFLIGHT_DIR/npm-explain-set.json"
+node "$COORDINATOR_WORKTREE/scripts/ci/capture-aquamobil-v4-audit-inputs.mjs" \
+  --output-root "$VFD_PREFLIGHT_DIR"
 refresh_vfd_coordinator
 cd "$VFD_ACTIVE_WORKTREE"
 node "$COORDINATOR_WORKTREE/scripts/ci/audit-source-map.mjs" \
@@ -369,8 +356,131 @@ test -z "$(git diff --name-only | rg '^docs/superpowers/evidence/aquamobil-v4/' 
 The first commit of F3, F4, F5, or V6 stages its own captured preflight. Every later task checks
 that file byte-for-byte with the coordinator capture tool and leaves it unchanged. The audit mapper
 accepts only the canonical four-audit set and package-keyed explain set from both lock authorities.
+The capture executable records exact argv/cwd/status/document digests for all four audits, accepts
+exit `1` only when parsed advisory metadata explains it, and fails on every operational status,
+signal, malformed output, or explain mismatch.
 Browser reachability comes only from the real production Vite/Rollup module manifest emitted by the
 AquaMobil build; no standalone executable-tool graph is whole-application bundle evidence.
+
+### Mandatory VFD Protected Boundary Gate
+
+After the final push for F3, F4, F5, or V6, set `VFD_SLICE` and run this block from its canonical
+worktree. It creates the exact generation-aware review input for the current lineage.
+
+```bash
+set -euo pipefail
+: "${VFD_SLICE:?set F3, F4, F5, or V6}"
+COORDINATOR_WORKTREE=/var/aqua-saas/.worktrees/aquamobil-v4-coordinator
+case "$VFD_SLICE" in
+  F3)
+    VFD_BOUNDARY_ID=vfd-attestation
+    VFD_EXPECTED_BRANCH=feat/feeding-f3-vfd-attestation
+    ;;
+  F4)
+    VFD_BOUNDARY_ID=calibration-physics
+    VFD_EXPECTED_BRANCH=feat/feeding-f4-calibration-physics
+    ;;
+  F5)
+    VFD_BOUNDARY_ID=loop-completion
+    VFD_EXPECTED_BRANCH=feat/feeding-f5-loop-completion
+    ;;
+  V6)
+    VFD_BOUNDARY_ID=vfd-operations
+    VFD_EXPECTED_BRANCH=feat/aquamobil-v6-vfd-operations
+    ;;
+  *) exit 2 ;;
+esac
+VFD_ACTIVE_WORKTREE="$(git rev-parse --show-toplevel)"
+test "$(git branch --show-current)" = "$VFD_EXPECTED_BRANCH"
+git -C /var/aqua-saas fetch origin +refs/heads/main:refs/remotes/origin/main
+test -z "$(git -C "$COORDINATOR_WORKTREE" status --porcelain)"
+git -C "$COORDINATOR_WORKTREE" switch --detach origin/main
+test -z "$(git -C "$COORDINATOR_WORKTREE" branch --show-current)"
+test "$(git -C "$COORDINATOR_WORKTREE" rev-parse HEAD)" = \
+  "$(git -C /var/aqua-saas rev-parse origin/main)"
+cd "$VFD_ACTIVE_WORKTREE"
+vfd_pr_number="$(gh pr view --repo Okan-wqm/aquaculture_platform --json number --jq '.number')"
+gh pr checks "$vfd_pr_number" --repo Okan-wqm/aquaculture_platform --watch --fail-fast
+gh pr view "$vfd_pr_number" --repo Okan-wqm/aquaculture_platform \
+  --json state,baseRefName,headRefName,headRefOid \
+  --jq --arg head "$VFD_EXPECTED_BRANCH" \
+  'select(.state == "OPEN" and .baseRefName == "main" and .headRefName == $head and (.headRefOid | test("^[0-9a-f]{40}$")))'
+PROGRAM_GIT_COMMON_DIR="$(git -C /var/aqua-saas \
+  rev-parse --path-format=absolute --git-common-dir)"
+VFD_PR_ROOT="$PROGRAM_GIT_COMMON_DIR/aquamobil-v4-program-evidence/v1/pr-$vfd_pr_number"
+VFD_REVIEWER_OUTPUT="artifacts/aquamobil-v4/reviews/pr-$vfd_pr_number.json"
+VFD_PR_GENERATION="$(node \
+  "$COORDINATOR_WORKTREE/tools/aquamobil-v4/capture-github-evidence.mjs" \
+  --initialize-program-pr-spool "$VFD_PR_ROOT" \
+  --write-independent-review-input \
+  --pull-request "$vfd_pr_number" \
+  --repository Okan-wqm/aquaculture_platform \
+  --pr-kind implementation-boundary \
+  --expected-head "$VFD_EXPECTED_BRANCH" \
+  --slice "$VFD_SLICE" \
+  --boundary "$VFD_BOUNDARY_ID" \
+  --verify-base-advance \
+  --require-current-pr-test-merge-candidate \
+  --print-program-pr-generation)"
+[[ "${VFD_PR_GENERATION##*/}" =~ ^[0-9a-f]{64}$ ]]
+```
+
+Pause for an independent agent to read `$VFD_PR_GENERATION/review/review-input.json` and write the
+closed report to `$VFD_REVIEWER_OUTPUT`; then run:
+
+```bash
+node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/capture-github-evidence.mjs" \
+  --ingest-independent-review-report "$VFD_REVIEWER_OUTPUT" \
+  --program-pr-generation "$VFD_PR_GENERATION"
+node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/capture-github-evidence.mjs" \
+  --write-authorization-comment-envelope \
+  --program-pr-generation "$VFD_PR_GENERATION"
+gh pr comment "$vfd_pr_number" --repo Okan-wqm/aquaculture_platform \
+  --body-file "$VFD_PR_GENERATION/authorization/authorization-comment-envelope.md"
+node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/capture-github-evidence.mjs" \
+  --verify-prospective-program-pr "$vfd_pr_number" \
+  --repository Okan-wqm/aquaculture_platform \
+  --pr-kind implementation-boundary \
+  --expected-head "$VFD_EXPECTED_BRANCH" \
+  --verify-base-advance \
+  --require-current-pr-test-merge-candidate \
+  --program-pr-generation "$VFD_PR_GENERATION" \
+  --write-prospective-spool
+```
+
+Expected: the four exact required contexts resolve to three mandatory current-candidate artifacts.
+They share only `N/B/H/C/T/[B,H]` and `canonicalLineageSha256`; their run/attempt/producer-check/
+workflow-repository/path/ref/SHA/blob/tool-blob tuples are distinct and no source payload contains
+`checkArtifactSetSha256`. The prospective verifier computes that set digest. The independent report
+and exactly one current administrator comment bind the same exact kind/lineage/full set; the comment
+embeds the report plus four checks and three run/artifact bodies and stays within 60000 canonical
+UTF-8 bytes. Any base/head/candidate,
+check, artifact, report, or comment drift blocks merge and requires a new report/comment after the
+complete rerun.
+
+The authorization payload also carries base-advance/PR-API/capture-tool facts and the exact
+prior-reference discriminant, so its remote body is a complete premerge recovery source. The three
+existing workflow terminal jobs are the only emitters and use exact `contents: read` with no
+`actions: read`, no token, depth-two SHA-pinned checkout/upload, identical PR-only guards,
+`github.job`, and the exact official `job.check_run_id/job.workflow_file_path/job.workflow_ref/
+job.workflow_sha/job.workflow_repository`. They derive workflow blobs from Git and make no API or
+network call; the trusted coordinator exhaustively cross-checks Jobs/API and Git-blob state.
+Missing, empty, renamed, hard-coded, or `github.workflow*` fallback fields fail. Every GitHub list
+used by capture/recovery—pull requests, check runs, workflow runs, workflow jobs, run artifacts,
+comments, rulesets, and tag/ref matches—follows every RFC 8288 `Link` page, canonicalizes the
+complete set, validates
+`total_count` when present, and rejects loops, missing pages, and cross-page duplicates;
+`per_page=100` is only an optimization and page one is never authority. Common-dir generations use self-excluding
+review/authorization/prospective/postmerge phase manifests and exclusive temp-write/fsync/
+`link(temp,final)` publication.
+After merge, run the master plan's exact post-merge spool/recovery-comment round trip and tree proof;
+retain boundary resources until slice reconciliation embeds its full
+`ProtectedProgramBoundaryEvidence` and is main-reachable. Every VFD slice/closure reconciliation
+materializes the immediately preceding full generic `ProgramPrEvidence` at numeric
+`program-prs/pr-<N>.json` in its candidate,
+cleans that predecessor only after merge, and retains itself for the next generic PR. A
+post-before-crash retry deterministically reuses the lowest numeric byte-identical postmerge comment;
+zero, malformed/different current collisions, or a higher-ID selection fail.
 
 ### Task 0: Allocate registry-backed implementation findings
 
@@ -1316,8 +1426,10 @@ Task 5 is the final commit in the one F3 implementation boundary. Rerun the four
 audit/explain-set, production Vite/Rollup manifest, mapper, immutable-preflight check, and direct
 ledger-verifier sequence from **Canonical Coordinator and Slice Preflight** into
 `artifacts/aquamobil-v4/F3/dependency-final`; do not rewrite the preflight. Verify the one protected
-F3 PR through the coordinator, merge it, and let only the program's fresh F3 reconciliation branch
-capture `vfd-attestation` and regenerate the ledger. F4 cannot start until that reconciliation's
+F3 PR by setting `VFD_SLICE=F3` and running the Mandatory VFD Protected Boundary Gate, then merge.
+Run program plan Task 3 Steps 3-4's exact F3 reconciliation worktree, coordinator-absolute capture,
+commit, independent-report/administrator-comment, and current-candidate prospective-verifier
+sequence to capture `vfd-attestation` and regenerate the ledger. F4 cannot start until that reconciliation's
 exact protected-main commit is proven by its slice-entry checkpoint.
 
 ---
@@ -2951,8 +3063,10 @@ Task 14 is the final commit in the one F4 implementation boundary. Rerun the fou
 audit/explain-set, production Vite/Rollup manifest, mapper, immutable-preflight check, and direct
 ledger-verifier sequence from **Canonical Coordinator and Slice Preflight** into
 `artifacts/aquamobil-v4/F4/dependency-final`; do not rewrite the preflight. Verify the one protected
-F4 PR through the coordinator, merge it, and let only the program's fresh F4 reconciliation branch
-capture `calibration-physics` and regenerate the ledger. F5 cannot start until that reconciliation's
+F4 PR by setting `VFD_SLICE=F4` and running the Mandatory VFD Protected Boundary Gate, then merge.
+Run program plan Task 3 Steps 3-4's exact F4 reconciliation worktree, coordinator-absolute capture,
+commit, independent-report/administrator-comment, and current-candidate prospective-verifier
+sequence to capture `calibration-physics` and regenerate the ledger. F5 cannot start until that reconciliation's
 exact protected-main commit is proven by its slice-entry checkpoint.
 
 ---
@@ -3749,8 +3863,10 @@ Task 19 is the final commit in the one F5 implementation boundary. Rerun the fou
 audit/explain-set, production Vite/Rollup manifest, mapper, immutable-preflight check, and direct
 ledger-verifier sequence from **Canonical Coordinator and Slice Preflight** into
 `artifacts/aquamobil-v4/F5/dependency-final`; do not rewrite the preflight. Verify the one protected
-F5 PR through the coordinator, merge it, and let only the program's fresh F5 reconciliation branch
-capture `loop-completion` and regenerate the ledger. V6 waits for that exact reconciliation commit
+F5 PR by setting `VFD_SLICE=F5` and running the Mandatory VFD Protected Boundary Gate, then merge.
+Run program plan Task 3 Steps 3-4's exact F5 reconciliation worktree, coordinator-absolute capture,
+commit, independent-report/administrator-comment, and current-candidate prospective-verifier
+sequence to capture `loop-completion` and regenerate the ledger. V6 waits for that exact reconciliation commit
 and the independent UI finding-close reconciliation.
 
 ---
@@ -4337,6 +4453,11 @@ reachability argument. Do not run an audit fixer. The canonical mapper uses both
 Vite/Rollup module manifest; no positional mapper mode or caller-supplied reachability claim is
 accepted.
 
+The V6 dependency-evidence artifact is domain evidence only. It cannot replace any of the three
+exact `aquamobil-v4-pr-candidate-<run_id>-<run_attempt>` artifacts. Those source artifacts share
+only current `N/B/H/C/T/[B,H]` plus `canonicalLineageSha256`; each retains its distinct run/attempt,
+producer-check, workflow-repository/path/ref/SHA/blob, and capture-tool-blob tuple.
+
 - [ ] **Step 4: Inspect final scope and push the existing reviewed commits**
 
 ```bash
@@ -4352,10 +4473,11 @@ git push origin HEAD
 Expected: only reviewed V6 commits are ahead of `origin/main`, the worktree is clean after any
 generated no-drift checks, and remote history contains each normally pushed commit.
 
-Task 23 completes the one V6 implementation boundary. Verify the one protected V6 PR with the
-coordinator, merge it, and let only the program's fresh V6 reconciliation branch capture
-`vfd-operations` and regenerate the ledger. Task 24 cannot create its closure worktree until F3, F4,
-F5, and V6 reconciliation artifacts and their exact reconciliation commits are all
+Task 23 completes the one V6 implementation boundary. Set `VFD_SLICE=V6`, run the Mandatory VFD
+Protected Boundary Gate, and merge. Run program plan Task 3 Steps 3-4's exact V6 reconciliation
+worktree, coordinator-absolute capture, commit, independent-report/administrator-comment, and
+current-candidate prospective-verifier sequence to capture `vfd-operations` and regenerate the
+ledger. Task 24 cannot create its closure worktree until F3, F4, F5, and V6 reconciliation artifacts and their exact reconciliation commits are all
 protected-main-reachable.
 
 ### Task 24: Close all 22 HIGH findings through a separate protected PR
@@ -4392,7 +4514,9 @@ The protected implementation inventory is exactly:
 
 Each merge record contains exactly its one boundary attestation. The coordinator refuses closure
 creation until all four merge records, their creation commits, reviewed PRs, full resulting-main
-SHAs, distinct reviewers, required runs, and V6's final Task 23 artifact are valid and
+SHAs, independent-agent review and administrator-comment digests, four exact required checks,
+exactly three mandatory current-candidate artifacts per boundary, and V6's separately typed final
+Task 23 domain artifact are valid and
 protected-main-reachable.
 
 ```bash
@@ -4521,8 +4645,9 @@ Use `apply_patch` to mark exactly those 22 review headings `RESOLVED` and record
 SHA plus its protected implementation PR URL. Create `docs/compliance/evidence/<FINDING-ID>.md` from
 the repository template for each mapped ID. Every attestation names the actual full implementation
 SHA, protected PR, authenticated author, distinct reviewer, finding-specific production and test
-paths, the verification run that exercised that boundary, and an ongoing invariant. Template values,
-short SHAs, a closure-merge SHA substituted for the implementation SHA, self-review, reused generic
+paths, the verification run that exercised that boundary, and an ongoing invariant. The reviewer is
+the independent-agent identity preserved in `programLocalReview`, not a GitHub approval. Template
+values, short SHAs, a closure-merge SHA substituted for the implementation SHA, reviewer/author identity reuse, reused generic
 evidence, or an ID outside the exact map fails this step.
 
 - [ ] **Step 4: Verify, commit, push, and protect only the finding-closure surface**
@@ -4569,16 +4694,17 @@ git commit -m "chore(review): close AquaMobil VFD feeding findings"
 git push --set-upstream origin chore/aquamobil-v4-vfd-findings-close
 ```
 
-Open a protected PR to `main`, require all status checks and a distinct approving reviewer, then run
-the coordinator-owned prospective verifier before merge:
+Open a protected PR to `main`, require all status checks, obtain the program plan's canonical
+independent-agent report and explicit administrator authorization comment, then run the
+coordinator-owned prospective verifier before merge:
 
 ```bash
 VFD_CLOSURE_WORKTREE=/var/aqua-saas/.worktrees/aquamobil-v4-vfd-findings-close
 VFD_CLOSURE_PR_NUMBER="$(gh pr view --repo Okan-wqm/aquaculture_platform --json number --jq '.number')"
 gh pr checks "$VFD_CLOSURE_PR_NUMBER" --repo Okan-wqm/aquaculture_platform --watch --fail-fast
 gh pr view "$VFD_CLOSURE_PR_NUMBER" --repo Okan-wqm/aquaculture_platform \
-  --json state,reviewDecision,baseRefName,headRefName \
-  --jq 'select(.state == "OPEN" and .reviewDecision == "APPROVED" and .baseRefName == "main" and .headRefName == "chore/aquamobil-v4-vfd-findings-close")'
+  --json state,baseRefName,headRefName,headRefOid \
+  --jq 'select(.state == "OPEN" and .baseRefName == "main" and .headRefName == "chore/aquamobil-v4-vfd-findings-close" and (.headRefOid | test("^[0-9a-f]{40}$")))'
 COORDINATOR_WORKTREE=/var/aqua-saas/.worktrees/aquamobil-v4-coordinator
 git -C /var/aqua-saas fetch origin +refs/heads/main:refs/remotes/origin/main
 test -z "$(git -C "$COORDINATOR_WORKTREE" status --porcelain)"
@@ -4587,18 +4713,21 @@ test -z "$(git -C "$COORDINATOR_WORKTREE" branch --show-current)"
 test "$(git -C "$COORDINATOR_WORKTREE" rev-parse HEAD)" = \
   "$(git -C /var/aqua-saas rev-parse origin/main)"
 cd "$VFD_CLOSURE_WORKTREE"
-node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/capture-github-evidence.mjs" \
-  --verify-prospective-closure-pr "$VFD_CLOSURE_PR_NUMBER" \
-  --repository Okan-wqm/aquaculture_platform \
-  --verify-base-advance \
-  --require-latest-merge-queue-candidate \
-  --forbid-duplicate-closing-trailers
+PROGRAM_PR_NUMBER="$VFD_CLOSURE_PR_NUMBER"
+PROGRAM_PR_KIND=finding-close
+PROGRAM_EXPECTED_HEAD=chore/aquamobil-v4-vfd-findings-close
+: "${PROGRAM_REVIEWER_OUTPUT:?set independent agent canonical report output path}"
 ```
+
+Run the master plan's exact generation-aware non-bootstrap lifecycle. Its finding-close registry
+alias adds the exact VFD closure-map and duplicate-trailer checks. After merge, write and round-trip
+the full boundary recovery record and retain its resources until closure reconciliation is
+main-reachable.
 
 Merge without bypass. The closure PR records state and attestations; it never repeats an
 implementation trailer or becomes a fixing commit.
 
-- [ ] **Step 5: Verify protected main, clean the closure worktree, and hand off reconciliation**
+- [ ] **Step 5: Verify protected main, retain the closure worktree, and hand off reconciliation**
 
 ```bash
 set -euo pipefail
@@ -4612,8 +4741,9 @@ test "$(git -C "$COORDINATOR_WORKTREE" rev-parse HEAD)" = \
 VFD_CLOSURE_WORKTREE="$(node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" \
   print-path --closure vfd-feeding-loop-high-findings)"
 mapfile -t vfd_closure_pr_numbers < <(
-  gh pr list --repo Okan-wqm/aquaculture_platform --state merged --base main \
-    --head chore/aquamobil-v4-vfd-findings-close --json number --jq '.[].number'
+  node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/capture-github-evidence.mjs" \
+    --list-pull-requests-exhaustive --repository Okan-wqm/aquaculture_platform \
+    --state merged --base main --head chore/aquamobil-v4-vfd-findings-close | jq -r '.[].number'
 )
 test "${#vfd_closure_pr_numbers[@]}" -eq 1
 VFD_CLOSURE_PR_NUMBER="${vfd_closure_pr_numbers[0]}"
@@ -4632,19 +4762,25 @@ node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/verify-ledger.mjs" \
   --merge-resolutions docs/superpowers/evidence/aquamobil-v4/merge-resolutions.json \
   --verify-main-ancestors origin/main
 cd "$COORDINATOR_WORKTREE"
-node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" cleanup \
+node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" retain-after-postmerge \
   --closure vfd-feeding-loop-high-findings \
   --repository Okan-wqm/aquaculture_platform \
   --main-ref origin/main
-test ! -e "$VFD_CLOSURE_WORKTREE"
+test -d "$VFD_CLOSURE_WORKTREE"
 ```
 
-Task 24 ends after that cleanup. Only the integration program may create the separate serialized
-closure-reconciliation worktree and PR. That program-owned PR creates the one append-only
+Task 24 ends after that retained-boundary proof. Run program plan Task 4 Steps 2-3's exact
+`create-closure-reconciliation --closure vfd-feeding-loop-high-findings`, coordinator-absolute
+capture/write, prior-generic full-record materialization/staging, commit,
+independent-report/administrator-comment, and
+`--verify-prospective-program-pr --pr-kind closure-reconciliation
+--require-current-pr-test-merge-candidate` sequence. That program-owned PR creates the one append-only
 `docs/superpowers/evidence/aquamobil-v4/closures/vfd-feeding-loop-high-findings.json`, regenerates
 the central ledger through its reconciler, and supplies the Task 23 workflow attestation. The
-integration closeout cannot start until that reconciliation is independently reviewed, merged,
-fetched, and verified through the coordinator-absolute ledger verifier.
+integration closeout cannot start until that reconciliation passes the program-local gate, merges,
+round-trips its full post-merge recovery payload, is fetched, and verifies through the
+coordinator-absolute ledger verifier. That merge makes the finding-close boundary and prior generic
+record main-durable and authorizes their exact cleanup while retaining the new reconciliation.
 
 ---
 

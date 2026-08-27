@@ -21,6 +21,10 @@ an old controlled document retains its complete shell generation until it reload
 
 ## Global Constraints
 
+- Consume the program plan's machine-checked Step 0 result: immutable
+  `designMainCommit=4002868c535a2d8676aad6eadd5f4bbd57d4625b` is only the design snapshot;
+  generated `order0BaseMainCommit` is the fetched post-#1333 protected-main ancestor that contains
+  all seven reviewed planning blobs and Order 0. Every delivery preflight base must descend from it.
 - Execute I1 and V0 before product slice V1. Execute the UI convergence tasks only after V5.
 - Enter I1, V0, and UI convergence only through the exact linked worktree created by
   `tools/aquamobil-v4/worktree.mjs` from a forced, freshly fetched protected `origin/main`. Each
@@ -47,7 +51,7 @@ an old controlled document retains its complete shell generation until it reload
   Re-measure against the slice base; a mismatch blocks execution until the plan records the new
   reviewed values.
 - A PR whose implementation commits carry `Closes:` trailers must preserve those exact uppercase
-  trailers on a main-reachable commit. Use commit-preserving merge/rebase, or configure the squash
+  trailers on a main-reachable commit. Use a commit-preserving merge, or configure the squash
   body with every exact trailer and inspect the prospective message before merge. A merge mode that
   drops trailers is blocked because the post-merge registry ceremony cannot truthfully close them.
 - Read root `CLAUDE.md` before every task and again before every commit. Before Task 3, also read
@@ -66,6 +70,15 @@ an old controlled document retains its complete shell generation until it reload
   npm run quality:format-scope:check
   git diff --cached --check
   ```
+
+- A delivery task that modifies `.github/workflows/ci-affected.yml`,
+  `.github/workflows/ci-full.yml`, `.github/workflows/aria-merge-authority.yml`, or
+  `.github/manifests/main-required-status-checks.json` must preserve Order 0's mandatory terminal-job
+  checkout/emitter/upload wiring and manifest path pins. The four required contexts resolve to
+  exactly three artifacts: CI-Affected `merge-gate` produces the artifact shared by `merge-gate` and
+  `sens-enterprise-summary`; CI Full `build-status` and ARIA `aria-merge-authority` each produce one.
+  `.github/workflows/aquamobil-delivery.yml` remains a reusable domain lane, never a fourth candidate
+  evidence workflow.
 
 - Vendor Geist and Geist Mono only from Fontsource variable packages `5.3.0`, whose npm integrity
   values are respectively
@@ -118,25 +131,170 @@ delivery_pr_number="$(gh pr view --repo Okan-wqm/aquaculture_platform \
 gh pr checks "$delivery_pr_number" \
   --repo Okan-wqm/aquaculture_platform --watch --fail-fast
 gh pr view "$delivery_pr_number" --repo Okan-wqm/aquaculture_platform \
-  --json state,reviewDecision,baseRefName,headRefName \
-  --jq 'select(.state == "OPEN" and .reviewDecision == "APPROVED" and .baseRefName == "main")'
+  --json state,baseRefName,headRefName,headRefOid \
+  --jq 'select(.state == "OPEN" and .baseRefName == "main" and (.headRefOid | test("^[0-9a-f]{40}$")))'
+PROGRAM_GIT_COMMON_DIR="$(git -C /var/aqua-saas \
+  rev-parse --path-format=absolute --git-common-dir)"
+test "$PROGRAM_GIT_COMMON_DIR" = /var/aqua-saas/.git
+DELIVERY_PR_ROOT="$PROGRAM_GIT_COMMON_DIR/aquamobil-v4-program-evidence/v1/pr-$delivery_pr_number"
+DELIVERY_REVIEWER_OUTPUT="artifacts/aquamobil-v4/reviews/pr-$delivery_pr_number.json"
+DELIVERY_PR_GENERATION="$(node \
+  "$COORDINATOR_WORKTREE/tools/aquamobil-v4/capture-github-evidence.mjs" \
+  --initialize-program-pr-spool "$DELIVERY_PR_ROOT" \
+  --write-independent-review-input \
+  --pull-request "$delivery_pr_number" \
+  --repository Okan-wqm/aquaculture_platform \
+  --pr-kind implementation-boundary \
+  --expected-head "$DELIVERY_BRANCH" \
+  --slice "$DELIVERY_SLICE" \
+  --boundary "$DELIVERY_BOUNDARY" \
+  --verify-base-advance \
+  --require-current-pr-test-merge-candidate \
+  --print-program-pr-generation)"
+[[ "$DELIVERY_PR_GENERATION" == "$DELIVERY_PR_ROOT"/generations/* ]]
+DELIVERY_SET_DIGEST="${DELIVERY_PR_GENERATION##*/}"
+[[ "$DELIVERY_SET_DIGEST" =~ ^[0-9a-f]{64}$ ]]
+```
+
+Stop for an independent agent. It reads exactly
+`$DELIVERY_PR_GENERATION/review/review-input.json` and
+writes canonical `ProgramIndependentReviewReport` to `$DELIVERY_REVIEWER_OUTPUT`. Resume with:
+
+```bash
+test -s "$DELIVERY_REVIEWER_OUTPUT"
+node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/capture-github-evidence.mjs" \
+  --ingest-independent-review-report "$DELIVERY_REVIEWER_OUTPUT" \
+  --program-pr-generation "$DELIVERY_PR_GENERATION"
+node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/capture-github-evidence.mjs" \
+  --write-authorization-comment-envelope \
+  --program-pr-generation "$DELIVERY_PR_GENERATION"
+gh pr comment "$delivery_pr_number" --repo Okan-wqm/aquaculture_platform \
+  --body-file "$DELIVERY_PR_GENERATION/authorization/authorization-comment-envelope.md"
 node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/capture-github-evidence.mjs" \
   --verify-prospective-pr "$delivery_pr_number" \
   --repository Okan-wqm/aquaculture_platform \
   --slice "$DELIVERY_SLICE" \
   --boundary "$DELIVERY_BOUNDARY" \
   --verify-base-advance \
-  --require-latest-merge-queue-candidate \
+  --require-current-pr-test-merge-candidate \
+  --program-pr-generation "$DELIVERY_PR_GENERATION" \
+  --write-prospective-spool \
   --require-registry-trailers
 ```
 
 The coordinator derives the exact `baseMainCommit..reviewedBaseMainCommit` path set and intersects
 it with the preflight's owned and shared-authority paths. Zero overlap can pass only when all
-required workflows attest the latest merge-queue candidate. Any overlap blocks merge: normally merge
-current `origin/main` into the implementation branch, never rebase or force-push, re-review the
-complete semantic diff, rerun the slice's affected/full/audit/security gates, obtain a distinct
-approval after that merge, and rerun this gate. The two finding-close PRs run the equivalent
-base-advance and latest-candidate checks in their prospective-closure blocks below.
+four required contexts attest the current ordinary `pull_request` test-merge candidate through
+exactly the three mandatory artifacts. The emitters share only `N/B/H/C/T/[B,H]` and
+`canonicalLineageSha256`; their producer tuples remain distinct. The prospective verifier computes
+top-level `checkArtifactSetSha256` from all four checks and three verified attestations, and the full
+report/check/run bodies are embedded in the administrator payload for remote recovery. Historical
+comments remain append-only, but exactly one may match the complete current lineage/report/set;
+same-candidate reruns require a new report/comment. This is not GitHub review state.
+Any overlap blocks merge: normally merge current `origin/main` into the implementation branch,
+never rebase or force-push, independently review the complete semantic diff, rerun the slice's
+affected/full/audit/security gates, obtain a new report and authorization comment after that merge,
+and rerun this gate. Any base/head/candidate/check/report/comment drift blocks merge. The two
+finding-close PRs run the identical contract in their prospective-closure blocks below.
+
+Immediately after the protected merge, start a fresh shell and resolve every identity again:
+
+```bash
+set -euo pipefail
+: "${DELIVERY_BRANCH:?re-enter exact merged delivery branch}"
+COORDINATOR_WORKTREE=/var/aqua-saas/.worktrees/aquamobil-v4-coordinator
+git -C /var/aqua-saas fetch origin +refs/heads/main:refs/remotes/origin/main
+git -C "$COORDINATOR_WORKTREE" switch --detach origin/main
+mapfile -t DELIVERY_PROGRAM_PRS < <(node \
+  "$COORDINATOR_WORKTREE/tools/aquamobil-v4/capture-github-evidence.mjs" \
+  --list-pull-requests-exhaustive --repository Okan-wqm/aquaculture_platform \
+  --state merged --base main --head "$DELIVERY_BRANCH" | jq -r '.[].number')
+test "${#DELIVERY_PROGRAM_PRS[@]}" -eq 1
+DELIVERY_PROGRAM_PR_NUMBER="${DELIVERY_PROGRAM_PRS[0]}"
+DELIVERY_PROGRAM_MAIN="$(gh pr view "$DELIVERY_PROGRAM_PR_NUMBER" \
+  --repo Okan-wqm/aquaculture_platform --json state,mergeCommit \
+  --jq 'select(.state == "MERGED") | .mergeCommit.oid')"
+[[ "$DELIVERY_PROGRAM_MAIN" =~ ^[0-9a-f]{40}$ ]]
+PROGRAM_GIT_COMMON_DIR="$(git -C /var/aqua-saas \
+  rev-parse --path-format=absolute --git-common-dir)"
+DELIVERY_PR_ROOT="$PROGRAM_GIT_COMMON_DIR/aquamobil-v4-program-evidence/v1/pr-$DELIVERY_PROGRAM_PR_NUMBER"
+DELIVERY_PR_GENERATION="$(node \
+  "$COORDINATOR_WORKTREE/tools/aquamobil-v4/capture-github-evidence.mjs" \
+  --resolve-program-pr-generation "$DELIVERY_PR_ROOT" \
+  --pull-request "$DELIVERY_PROGRAM_PR_NUMBER" \
+  --repository Okan-wqm/aquaculture_platform \
+  --pr-kind implementation-boundary \
+  --from-current-authorization-comment)"
+node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/reconcile-ledger.mjs" \
+  --reconcile-program-pr "$DELIVERY_PROGRAM_PR_NUMBER" \
+  --repository Okan-wqm/aquaculture_platform \
+  --pr-kind implementation-boundary \
+  --resulting-main "$DELIVERY_PROGRAM_MAIN" \
+  --program-pr-generation "$DELIVERY_PR_GENERATION" \
+  --write-postmerge-spool
+DELIVERY_POSTMERGE_COMMENT_ACTION="$(node \
+  "$COORDINATOR_WORKTREE/tools/aquamobil-v4/reconcile-ledger.mjs" \
+  --write-postmerge-recovery-comment-envelope \
+  --select-canonical-postmerge-recovery-comment \
+  --pull-request "$DELIVERY_PROGRAM_PR_NUMBER" \
+  --repository Okan-wqm/aquaculture_platform \
+  --program-pr-generation "$DELIVERY_PR_GENERATION" \
+  --print-postmerge-comment-action)"
+case "$DELIVERY_POSTMERGE_COMMENT_ACTION" in
+  post)
+    gh pr comment "$DELIVERY_PROGRAM_PR_NUMBER" --repo Okan-wqm/aquaculture_platform \
+      --body-file "$DELIVERY_PR_GENERATION/postmerge/postmerge-comment-envelope.md"
+    ;;
+  reuse-lowest-id)
+    :
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/reconcile-ledger.mjs" \
+  --verify-postmerge-recovery-comment \
+  --program-pr-generation "$DELIVERY_PR_GENERATION" \
+  --recover-spool-from-github-if-missing \
+  --require-result-tree-equals-candidate-tree
+```
+
+The slice reconciliation embeds the full resulting `ProtectedProgramBoundaryEvidence`, including
+durable recovery; domain/manual delivery runs remain separate. Retain this boundary worktree,
+remote branch, and exact generation until that reconciliation merges and is main-reachable. Only
+then run the program plan's exact-target cleanup authorization and remove those three resources.
+Post-before-crash retry reuses the lowest numeric byte-identical postmerge comment ID; zero,
+malformed/different current collisions, or selecting a higher duplicate fail.
+
+All delivery slice and closure reconciliations are generic `ProgramPrKind` PRs. Before staging each,
+run the master plan's exact `--materialize-previous-generic-program-pr` block and add the resulting
+numeric `program-prs/pr-<N>.json`; its prospective verifier must prove that full
+`ProgramPrEvidence` record byte-exact in
+current `C/T`. After merge, write/round-trip the full post-merge recovery payload and prove
+`T == resultingMain^{tree}`. That merge cleans the prior generic and any now-durable delivery
+boundary, but retains its own generic worktree/remote branch/generation until the following generic
+merge. The three source artifacts never contain `checkArtifactSetSha256`; they share only canonical
+lineage, with distinct producer tuples, and the prospective verifier computes the set digest later.
+Authorization comments embed the full report plus four checks, three workflow-run/artifact
+attestations, base-advance/PR-API/capture-tool facts, and the exact prior-reference discriminant;
+they accept exactly one current lineage/report/set match and reject malformed collisions,
+same-candidate reruns without reauthorization, envelopes over 60000 canonical UTF-8 bytes, or kind/
+branch/path mismatch. Git common-dir generation writes use exclusive no-replace links and phase
+manifests for review/authorization/prospective/postmerge that exclude themselves; a rename-over-final
+or digest-only recovery is forbidden.
+The only producers remain the terminal jobs in the three existing required workflows: each has
+exact `contents: read` and no `actions: read`, fetch depth two, SHA-pinned checkout/upload, no token,
+matching PR-only emitter/upload guards, and receives `github.job` plus exact official
+`job.check_run_id/job.workflow_file_path/job.workflow_ref/job.workflow_sha/
+job.workflow_repository`. It derives the workflow blob from Git and performs no GitHub API or
+network call; only the trusted coordinator exhaustively cross-checks Jobs/API and Git-blob state.
+Missing, empty, renamed, hard-coded, or `github.workflow*` fallback fields fail. No fourth evidence
+workflow is created. Every GitHub list used by capture/recovery—pull requests, check runs, workflow
+runs, workflow jobs, run artifacts, comments, rulesets, tags, and any later list—follows every RFC
+8288 `Link` page,
+canonicalizes the complete set, validates `total_count` when present, and rejects page loops,
+missing pages, or cross-page duplicates; `per_page=100` is only an optimization and a first page is
+never authority.
 
 ---
 
@@ -456,6 +614,11 @@ skip while the output is true fails the aggregate. In `ci-full.yml`, call the sa
 unconditionally as job `aquamobil-delivery`, add it to `build-status.needs`, and include its result
 in the aggregate loop.
 
+While editing those terminal jobs and the required-check manifest, preserve the Order 0 pinned
+checkout, PR-candidate emitter, exact-name mandatory upload, workflow/tool path pins, and the shared
+CI-Affected artifact mapping. This delivery lane adds no required context and no fourth candidate
+artifact.
+
 Use only these required third-party action revisions in the reusable workflow:
 
 ```yaml
@@ -613,7 +776,9 @@ certificate directory. The host Let's Encrypt tree remains read-only because `li
 require its `archive/` targets, but a deploy preflight proves only the selected full chain/key are
 usable and the peer live directory is absent.
 
-The staging workflow performs render-to-`.next`, selected certificate readability, SAN, expiry, key
+The affected required-workflow/manifest edits preserve Order 0's terminal candidate emitter/upload
+and exact four-context/three-artifact pins byte-for-contract; this task changes only their delivery
+dependencies. The staging workflow performs render-to-`.next`, selected certificate readability, SAN, expiry, key
 parse/match, peer-directory absence, and pinned-image `nginx -t` before atomically publishing the
 runtime config and running full Compose. Failure leaves the previously published runtime config and
 running nginx untouched. Production owns the same sequence in `scripts/deploy/droplet-up.sh`;
@@ -1106,9 +1271,10 @@ git push
 ```
 
 Expected: the same I1 boundary contains both reviewed security commits. After its protected PR
-merges, execute the program's serialized I1 reconciliation and clean the exact I1 worktree through
-the coordinator. V0 does not start until the I1 `merge.json` reconciliation is a protected-main
-ancestor and the delivery workflow is green.
+merges, retain the I1 worktree, execute the program's serialized I1 reconciliation, and clean that
+exact boundary worktree through the coordinator only after the `merge.json` record is
+protected-main-reachable. V0 does not start until that reconciliation is a protected-main ancestor
+and the delivery workflow is green.
 
 ---
 
@@ -1337,6 +1503,10 @@ the resolved input/output pair, scans all six build-capable workflows plus the D
 rejects any CI build whose ID is not the full checked-out SHA. The closeout plan extends the same
 invariant when its workflow is added.
 
+Edits to CI Full and CI-Affected preserve their Order 0 terminal candidate checkout/emitter/upload
+steps and the manifest's four-context/three-artifact mapping; build-ID propagation neither replaces
+nor creates candidate evidence.
+
 - [ ] **Step 3: Write the emitted-asset contract test**
 
 The build test requires:
@@ -1554,6 +1724,8 @@ assertion waits for React before reading the first observed state.
 Extend the reusable delivery workflow and its invariant so the first Playwright invocation is
 preceded by the standalone E2E `npm ci` and the exact Chromium install command shown below. The E2E
 directory is not a root npm workspace; a root install never substitutes for its lock authority.
+Preserve the CI Full and CI-Affected terminal candidate emitter/upload steps unchanged while adding
+these dependencies; the reusable delivery workflow remains domain evidence only.
 
 Run the appearance build contract, first-paint browser spec, and delivery smoke:
 
@@ -2161,7 +2333,8 @@ npm --prefix e2e run test:mobile-edge
 
 - [ ] **Step 2: Classify affected production advisories**
 
-Order 0 is already a protected-main predecessor and owns both files read above. Its Vite plugin
+The generated post-#1333 `order0BaseMainCommit` is already a protected-main predecessor and Order 0
+owns both files read above. Its Vite plugin
 interprets `AQUAMOBIL_AUDIT_MODULE_MANIFEST` as a repository-root-relative path below ignored
 `artifacts/`, independently of the `npm --prefix` child working directory, and writes the real
 production Rollup `chunk.modules` manifest during `generateBundle`. The invariant introduced by
@@ -2321,9 +2494,10 @@ Use `apply_patch` to change each matching review heading to `RESOLVED` and recor
 SHA plus merged PR URL. For each newly allocated HIGH row in the map, create the repository-template
 attestation under `docs/compliance/evidence/`, with the filename exactly the uppercase finding ID
 plus `.md`. The document carries the actual ID, opened/resolved dates, full closing SHA,
-implementation/test/control paths, PR author, and a distinct approving reviewer read from the
-protected merged PR. A filename or value containing template text, a placeholder identity, a short
-SHA, or a self-review fails the checkpoint. `SEC-MEDIUM-052` does not manufacture a HIGH
+implementation/test/control paths, PR author, and the distinct independent-agent reviewer identity
+preserved in that boundary's `programLocalReview`. A filename or value containing template text, a
+placeholder identity, a short SHA, or reviewer/author identity reuse fails the checkpoint.
+`SEC-MEDIUM-052` does not manufacture a HIGH
 attestation.
 
 ```bash
@@ -2347,8 +2521,9 @@ git commit -m "chore(review): close AquaMobil I1 and V0 findings"
 git push --set-upstream origin chore/aquamobil-v0-findings-close
 ```
 
-Open a protected PR and obtain a distinct approval. Before merge, prove its current checks, state,
-base, exact head, and non-duplicating trailer set:
+Open a protected PR, obtain the exact independent-agent report and explicit administrator
+authorization comment defined by the program plan, then prove its current checks, state, base,
+exact head/candidate, three candidate artifacts, and non-duplicating trailer set:
 
 ```bash
 CLOSURE_NAME=v0-high-findings
@@ -2368,20 +2543,23 @@ closure_pr_number="$(gh pr view --repo Okan-wqm/aquaculture_platform \
 gh pr checks "$closure_pr_number" \
   --repo Okan-wqm/aquaculture_platform --watch --fail-fast
 gh pr view "$closure_pr_number" --repo Okan-wqm/aquaculture_platform \
-  --json state,reviewDecision,baseRefName,headRefName \
-  --jq 'select(.state == "OPEN" and .reviewDecision == "APPROVED" and .baseRefName == "main" and .headRefName == "chore/aquamobil-v0-findings-close")'
-node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/capture-github-evidence.mjs" \
-  --verify-prospective-closure-pr "$closure_pr_number" \
-  --repository Okan-wqm/aquaculture_platform \
-  --verify-base-advance \
-  --require-latest-merge-queue-candidate \
-  --forbid-duplicate-closing-trailers
+  --json state,baseRefName,headRefName,headRefOid \
+  --jq 'select(.state == "OPEN" and .baseRefName == "main" and .headRefName == "chore/aquamobil-v0-findings-close" and (.headRefOid | test("^[0-9a-f]{40}$")))'
+PROGRAM_PR_NUMBER="$closure_pr_number"
+PROGRAM_PR_KIND=finding-close
+PROGRAM_EXPECTED_HEAD=chore/aquamobil-v0-findings-close
+: "${PROGRAM_REVIEWER_OUTPUT:?set independent agent canonical report output path}"
 ```
+
+Execute the program plan's exact coordinator-absolute, generation-aware non-bootstrap lifecycle.
+The closed finding-close registry adds the closure-map and duplicate-trailer checks.
 
 Merge without bypass. After fetching main, require all seven mapped rows to be `RESOLVED`, every
 recorded closing SHA to remain an `origin/main` ancestor, the registry hash chain and attestation
-gate to pass, and the exact closure evidence to be present on `origin/main`. Clean the canonical
-worktree only through the refreshed coordinator:
+gate to pass, and the exact closure evidence to be present on `origin/main`. Run the program plan's
+full post-merge spool/recovery round trip, retain the finding-close worktree/remote branch/generation,
+and clean them only after the separate closure reconciliation embeds this boundary and is
+main-reachable:
 
 ```bash
 CLOSURE_NAME=v0-high-findings
@@ -2393,13 +2571,8 @@ git -C "$COORDINATOR_WORKTREE" switch --detach origin/main
 test -z "$(git -C "$COORDINATOR_WORKTREE" branch --show-current)"
 test "$(git -C "$COORDINATOR_WORKTREE" rev-parse HEAD)" = \
   "$(git -C /var/aqua-saas rev-parse origin/main)"
-cd "$COORDINATOR_WORKTREE"
-node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" cleanup \
-  --closure "$CLOSURE_NAME" \
-  --repository Okan-wqm/aquaculture_platform \
-  --main-ref origin/main
-test ! -e "$(node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" \
-  print-path --closure "$CLOSURE_NAME")"
+PROGRAM_PR_KIND=finding-close
+PROGRAM_EXPECTED_HEAD=chore/aquamobil-v0-findings-close
 ```
 
 Finally run program Task 4's serialized `v0-high-findings` closure reconciliation. V1 cannot start
@@ -2799,7 +2972,8 @@ npm run findings:verify
 Use `apply_patch` to mark only that review heading `RESOLVED` and create its attestation under
 `docs/compliance/evidence/`, named exactly by the uppercase ID. Fill it with the actual full closing
 SHA, merged PR, zero-invariant/package/Docker evidence, authenticated author, and a distinct
-approving reviewer; template values, short SHAs, and self-review fail.
+independent-agent reviewer identity preserved in `programLocalReview`; template values, short SHAs,
+and reviewer/author identity reuse fail.
 
 - [ ] **Step 3: Push, merge, and verify the closure PR**
 
@@ -2821,8 +2995,9 @@ git commit -m "chore(review): close AquaMobil UI convergence finding"
 git push --set-upstream origin chore/aquamobil-v4-ui-convergence-finding-close
 ```
 
-Open the protected closure PR and obtain a distinct approval. Before merge, prove its current
-checks, state, base, exact head, and non-duplicating trailer set:
+Open the protected closure PR, obtain the exact independent-agent report and explicit administrator
+authorization comment defined by the program plan, then prove its current checks, state, base,
+exact head/candidate, three candidate artifacts, and non-duplicating trailer set:
 
 ```bash
 CLOSURE_NAME=ui-convergence-high-findings
@@ -2842,19 +3017,21 @@ closure_pr_number="$(gh pr view --repo Okan-wqm/aquaculture_platform \
 gh pr checks "$closure_pr_number" \
   --repo Okan-wqm/aquaculture_platform --watch --fail-fast
 gh pr view "$closure_pr_number" --repo Okan-wqm/aquaculture_platform \
-  --json state,reviewDecision,baseRefName,headRefName \
-  --jq 'select(.state == "OPEN" and .reviewDecision == "APPROVED" and .baseRefName == "main" and .headRefName == "chore/aquamobil-v4-ui-convergence-finding-close")'
-node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/capture-github-evidence.mjs" \
-  --verify-prospective-closure-pr "$closure_pr_number" \
-  --repository Okan-wqm/aquaculture_platform \
-  --verify-base-advance \
-  --require-latest-merge-queue-candidate \
-  --forbid-duplicate-closing-trailers
+  --json state,baseRefName,headRefName,headRefOid \
+  --jq 'select(.state == "OPEN" and .baseRefName == "main" and .headRefName == "chore/aquamobil-v4-ui-convergence-finding-close" and (.headRefOid | test("^[0-9a-f]{40}$")))'
+PROGRAM_PR_NUMBER="$closure_pr_number"
+PROGRAM_PR_KIND=finding-close
+PROGRAM_EXPECTED_HEAD=chore/aquamobil-v4-ui-convergence-finding-close
+: "${PROGRAM_REVIEWER_OUTPUT:?set independent agent canonical report output path}"
 ```
+
+Execute the program plan's exact coordinator-absolute, generation-aware non-bootstrap lifecycle.
+The closed finding-close registry adds the closure-map and duplicate-trailer checks.
 
 Merge without bypass. Fetch `origin/main`, then prove the mapped row is `RESOLVED`, its full closing
 SHA is an ancestor, the review and attestation name the same ID/SHA, and the registry chain and
-attestation coverage pass. Clean the canonical worktree only through the refreshed coordinator:
+attestation coverage pass. Run the program plan's full post-merge spool/recovery round trip and
+retain this boundary until the separate closure reconciliation is main-reachable:
 
 ```bash
 CLOSURE_NAME=ui-convergence-high-findings
@@ -2866,13 +3043,8 @@ git -C "$COORDINATOR_WORKTREE" switch --detach origin/main
 test -z "$(git -C "$COORDINATOR_WORKTREE" branch --show-current)"
 test "$(git -C "$COORDINATOR_WORKTREE" rev-parse HEAD)" = \
   "$(git -C /var/aqua-saas rev-parse origin/main)"
-cd "$COORDINATOR_WORKTREE"
-node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" cleanup \
-  --closure "$CLOSURE_NAME" \
-  --repository Okan-wqm/aquaculture_platform \
-  --main-ref origin/main
-test ! -e "$(node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" \
-  print-path --closure "$CLOSURE_NAME")"
+PROGRAM_PR_KIND=finding-close
+PROGRAM_EXPECTED_HEAD=chore/aquamobil-v4-ui-convergence-finding-close
 ```
 
 Finally run program Task 4's serialized `ui-convergence-high-findings` closure reconciliation. Only

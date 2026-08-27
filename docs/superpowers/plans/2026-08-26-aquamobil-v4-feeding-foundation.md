@@ -26,6 +26,10 @@ London-style collaborators.
 
 ## Global Constraints
 
+- Consume the program plan's machine-checked Step 0 result. Immutable
+  `designMainCommit=4002868c535a2d8676aad6eadd5f4bbd57d4625b` is only the design snapshot;
+  generated `order0BaseMainCommit` is the fetched post-#1333 protected-main ancestor containing all
+  seven reviewed planning blobs and Order 0. Every F0/F1a/F2/F1b preflight base descends from it.
 - Read root `CLAUDE.md`, `apps/farm-service/CLAUDE.md`, `apps/sensor-service/CLAUDE.md`, and
   `apps/gateway-api/CLAUDE.md` before touching their respective surfaces. Re-read root `CLAUDE.md`
   before every commit.
@@ -140,15 +144,20 @@ exit zero.
 - Tasks 12–13 run on `feat/feeding-f2-event-language`, created only after both F1a and I1 slice
   reconciliations are protected-main ancestors.
 - Tasks 14–16 run on `feat/feeding-f1b-assignment-api`, created only from merged F2 main.
-- Every PR uses protected review and either a merge commit or one squash integration commit. Do not
-  use a rebase-only merge because it does not leave one auditable PR boundary for exact affected
-  paths. When squashing, copy every exact finding trailer from that slice into the complete squash
-  commit body.
+- Every PR uses protected checks plus the program-local independent-agent report and explicit
+  `Okan-wqm` administrator authorization-comment gate, and either a merge commit or one squash
+  integration commit. This is not GitHub branch-protection review state. Do not use a rebase-only
+  merge because it does not leave one auditable PR boundary for exact affected paths. When
+  squashing, copy every exact finding trailer from that slice into the complete squash commit body.
 - An implementation branch may create or retain only its own append-only
   `docs/superpowers/evidence/aquamobil-v4/slices/<SliceId>/preflight.json`. It never edits
   `execution-ledger.json`, `merge-resolutions.json`, another slice directory, or a `merge.json`.
 - After each named implementation boundary merges, the coordinator captures its GitHub PR, full
-  protected-main commit, repository workflow runs, and generated artifacts. Once the exact ordered
+  protected-main commit, four manifest-pinned required checks, exactly three mandatory current-PR
+  candidate run/attempt artifacts, independent report/administrator-comment/API digests, and
+  separately typed domain/generated artifacts. The CI-Affected artifact is shared only by
+  `merge-gate` and `sens-enterprise-summary`; CI Full `build-status` and ARIA
+  `aria-merge-authority` each own one. Once the exact ordered
   boundary set for that slice is complete, a distinct serialized reconciliation branch writes the
   immutable `slices/<SliceId>/merge.json` with `implementationBoundaries` and regenerates
   `execution-ledger.json` only through `reconcile-ledger.mjs --slice <SliceId> --write ...`. Product
@@ -167,7 +176,7 @@ exit zero.
   A dependent slice starts only after the prior slice's reconciliation PR is protected-main
   reachable and the coordinator-owned ledger verifier passes with protected-main ancestry enabled.
 
-- Order 0's clean detached coordinator persists at
+- The generated post-#1333 Order 0 main result is an ancestor of every slice base. Its clean detached coordinator persists at
   `/var/aqua-saas/.worktrees/aquamobil-v4-coordinator`. Every lifecycle, capture, audit, reconcile,
   or ledger-verification action starts in a new shell with the complete refresh preamble printed in
   the steps below. Lifecycle commands run from that coordinator; output-writing commands first
@@ -181,13 +190,139 @@ exit zero.
   npm-backed repository command. Record both pre-install lock hashes, prove them unchanged after
   installation, and never symlink a dependency directory from the original checkout.
 
-- Before requesting each implementation PR review, run the canonical four-audit capture,
-  package-keyed explain-set capture, production Vite/Rollup module-manifest build, and reachability
-  procedure from Task 17 Steps 8–9. For that pre-merge run, derive the exact path set with
+- Before requesting each implementation PR review, run program plan Task 2 Step 2's exact
+  coordinator-absolute `capture-aquamobil-v4-audit-inputs.mjs`, mapper, production
+  Vite/Rollup-manifest, and `capture-slice-audit.mjs` commands for the active slice. Task 17 Steps
+  8–9 commit the corresponding final verification set. For that pre-merge run, derive the exact path set with
   `git diff --name-only "$(git merge-base HEAD origin/main)" HEAD`; attach the ephemeral reports and
   preserved audit status to the PR, and record every decision in the boundary workflow evidence
   consumed by its immutable merge record. Any unclassified or affected-and-runtime-reachable
   high/critical advisory blocks the PR. Never mutate dependency state during classification.
+
+Those audit, migration, deployment, and hardware artifacts are domain evidence. None can substitute
+for the three exact `aquamobil-v4-pr-candidate-<run_id>-<run_attempt>` artifacts. The source payloads
+share only `N/B/H/C/T/[B,H]` and `canonicalLineageSha256`; their run/attempt/producer-check/workflow-
+repository/path/ref/SHA/blob/tool-blob tuples are distinct, and none carries the prospective-only
+`checkArtifactSetSha256`.
+
+### Mandatory Feeding Protected Boundary Gate
+
+Run this block after every final push and immediately before each of the eight implementation
+merges. Set the three variables to the literal tuple named by the branch-boundary list. The block
+creates the exact generation-aware review input; any lineage, check, run, or artifact change selects
+a new generation and invalidates the prior report/comment.
+
+```bash
+set -euo pipefail
+: "${FEEDING_SLICE:?set F0, F1a, F2, or F1b}"
+: "${FEEDING_BOUNDARY:?set the exact registry boundary ID}"
+: "${FEEDING_BRANCH:?set the exact protected PR head branch}"
+case "$FEEDING_SLICE:$FEEDING_BOUNDARY:$FEEDING_BRANCH" in
+  F0:weighing-authority-expand:feat/feeding-f0-weighing-authority | \
+  F0:batch-protocol-reader-contract:refactor/feeding-f0-batch-protocol-reader-contract | \
+  F0:batch-protocol-physical-contract:refactor/feeding-f0-batch-protocol-column-drop | \
+  F1a:compatibility-and-feeder-model-expand:feat/feeding-f1a-compatibility-and-feeder-model-expand | \
+  F1a:array-reader-contract:refactor/feeding-f1a-array-reader-contract | \
+  F1a:legacy-scalar-physical-contract:refactor/feeding-f1a-legacy-scalar-physical-contract | \
+  F2:event-language-and-acl:feat/feeding-f2-event-language | \
+  F1b:assignment-api-and-gateway:feat/feeding-f1b-assignment-api) ;;
+  *) exit 2 ;;
+esac
+COORDINATOR_WORKTREE=/var/aqua-saas/.worktrees/aquamobil-v4-coordinator
+ACTIVE_FEEDING_WORKTREE="$(git rev-parse --show-toplevel)"
+test "$(git branch --show-current)" = "$FEEDING_BRANCH"
+git -C /var/aqua-saas fetch origin +refs/heads/main:refs/remotes/origin/main
+test -z "$(git -C "$COORDINATOR_WORKTREE" status --porcelain)"
+git -C "$COORDINATOR_WORKTREE" switch --detach origin/main
+test -z "$(git -C "$COORDINATOR_WORKTREE" branch --show-current)"
+test "$(git -C "$COORDINATOR_WORKTREE" rev-parse HEAD)" = \
+  "$(git -C /var/aqua-saas rev-parse origin/main)"
+cd "$ACTIVE_FEEDING_WORKTREE"
+feeding_pr_number="$(gh pr view --repo Okan-wqm/aquaculture_platform --json number --jq '.number')"
+gh pr checks "$feeding_pr_number" --repo Okan-wqm/aquaculture_platform --watch --fail-fast
+gh pr view "$feeding_pr_number" --repo Okan-wqm/aquaculture_platform \
+  --json state,baseRefName,headRefName,headRefOid \
+  --jq --arg head "$FEEDING_BRANCH" \
+  'select(.state == "OPEN" and .baseRefName == "main" and .headRefName == $head and (.headRefOid | test("^[0-9a-f]{40}$")))'
+PROGRAM_GIT_COMMON_DIR="$(git -C /var/aqua-saas \
+  rev-parse --path-format=absolute --git-common-dir)"
+test "$PROGRAM_GIT_COMMON_DIR" = /var/aqua-saas/.git
+FEEDING_PR_ROOT="$PROGRAM_GIT_COMMON_DIR/aquamobil-v4-program-evidence/v1/pr-$feeding_pr_number"
+FEEDING_REVIEWER_OUTPUT="artifacts/aquamobil-v4/reviews/pr-$feeding_pr_number.json"
+FEEDING_PR_GENERATION="$(node \
+  "$COORDINATOR_WORKTREE/tools/aquamobil-v4/capture-github-evidence.mjs" \
+  --initialize-program-pr-spool "$FEEDING_PR_ROOT" \
+  --write-independent-review-input \
+  --pull-request "$feeding_pr_number" \
+  --repository Okan-wqm/aquaculture_platform \
+  --pr-kind implementation-boundary \
+  --expected-head "$FEEDING_BRANCH" \
+  --slice "$FEEDING_SLICE" \
+  --boundary "$FEEDING_BOUNDARY" \
+  --verify-base-advance \
+  --require-current-pr-test-merge-candidate \
+  --print-program-pr-generation)"
+[[ "${FEEDING_PR_GENERATION##*/}" =~ ^[0-9a-f]{64}$ ]]
+```
+
+Pause for the independent agent to read
+`$FEEDING_PR_GENERATION/review/review-input.json` and write `ProgramIndependentReviewReport` to
+`$FEEDING_REVIEWER_OUTPUT`. Then run:
+
+```bash
+node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/capture-github-evidence.mjs" \
+  --ingest-independent-review-report "$FEEDING_REVIEWER_OUTPUT" \
+  --program-pr-generation "$FEEDING_PR_GENERATION"
+node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/capture-github-evidence.mjs" \
+  --write-authorization-comment-envelope \
+  --program-pr-generation "$FEEDING_PR_GENERATION"
+gh pr comment "$feeding_pr_number" --repo Okan-wqm/aquaculture_platform \
+  --body-file "$FEEDING_PR_GENERATION/authorization/authorization-comment-envelope.md"
+node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/capture-github-evidence.mjs" \
+  --verify-prospective-program-pr "$feeding_pr_number" \
+  --repository Okan-wqm/aquaculture_platform \
+  --pr-kind implementation-boundary \
+  --expected-head "$FEEDING_BRANCH" \
+  --verify-base-advance \
+  --require-current-pr-test-merge-candidate \
+  --program-pr-generation "$FEEDING_PR_GENERATION" \
+  --write-prospective-spool
+```
+
+Expected: four exact context/app checks map to three distinct current-candidate artifacts. The
+prospective verifier alone computes `checkArtifactSetSha256`; the report and exactly one current
+administrator comment bind the same full lineage/kind/set and survive the final identity reread. A
+base advance with overlap requires a normal main merge, complete semantic/test/audit/security rerun,
+new report, and new comment; rebase, force-push, head-only evidence, or any drift blocks merge.
+Authorization embeds the full report, four checks, three run/artifact attestations,
+base-advance/PR-API/capture-tool facts, and the exact prior-reference discriminant, stays within
+60000 canonical UTF-8 bytes, and supports remote recovery. Common-dir writes use self-excluding
+review/authorization/prospective/postmerge phase manifests and exclusive
+temp-write/fsync/`link(temp,final)` no-replace publication. The three existing workflow terminal
+jobs alone emit with exact `contents: read` and no `actions: read`, no token, depth-two SHA-pinned
+checkout/upload, identical PR-only guards, `github.job`, and exact official
+`job.check_run_id/job.workflow_file_path/job.workflow_ref/job.workflow_sha/
+job.workflow_repository`. They derive workflow blobs from Git and perform no API/network call; the
+trusted coordinator exhaustively cross-checks Jobs/API and Git-blob state. Missing, empty, renamed,
+hard-coded, or `github.workflow*` fallback fields fail. Every GitHub list used by
+capture/recovery—pull requests, check runs, workflow runs, workflow jobs, run artifacts, comments,
+rulesets, and tag/ref matches—follows every RFC 8288 `Link` page, canonicalizes the complete set,
+validates `total_count` when
+present, and rejects loops, missing pages, and cross-page duplicates; `per_page=100` is only an
+optimization and page one is never authority.
+
+Immediately after every protected merge, resolve the generation from the exact current
+authorization comment and run the master plan's complete post-merge spool/recovery-comment API
+round trip plus `T == resultingMain^{tree}` proof. Retain each implementation worktree, remote
+branch, and generation until its slice reconciliation embeds the full
+`ProtectedProgramBoundaryEvidence` durable boundary and is
+main-reachable; only then use exact-target cleanup. Every slice, feeding auxiliary, and closure
+reconciliation generic PR materializes/stages the immediately preceding full numeric
+`ProgramPrEvidence` at `program-prs/pr-<N>.json`, proves it in `C/T`, cleans that predecessor only
+after merge, and retains
+itself for the following generic PR. A post-before-crash retry deterministically reuses the lowest
+numeric byte-identical postmerge comment; zero, malformed/different current collisions, or a
+higher-ID selection fail.
 
 The feeding plan consumes, but never hand-edits, the program's exact `SliceAudit`,
 `ImplementationBoundaryEvidence`, merge-record, and generated-ledger schemas. The verifier requires
@@ -298,8 +433,11 @@ allocate a duplicate.
 
 - [ ] **Step 3a: Capture and verify the sole F0 implementation preflight**
 
-Run the program plan's exact four-audit, canonical explain-set capture for slice F0 into
-`artifacts/aquamobil-v4/F0`, preserving all audit exit statuses. Then run:
+Run program plan Task 2 Step 2's exact coordinator-absolute
+`scripts/ci/capture-aquamobil-v4-audit-inputs.mjs --output-root
+artifacts/aquamobil-v4/F0`, production manifest build, `audit-source-map.mjs`, and
+`capture-slice-audit.mjs` command sequence, preserving all four audit argv/status/document records
+and the package-keyed explain set. Then run:
 
 ```bash
 F0_ACTIVE_WORKTREE=/var/aqua-saas/.worktrees/aquamobil-v4-f0-weighing-authority-expand
@@ -1822,15 +1960,18 @@ Expected: hooks pass and no source-branch event object is copied inline.
 
 - [ ] **Step 10: Merge and deploy the F0 expansion before contraction**
 
-Run the F0-focused portions of Task 17 Steps 3–9 against the exact expansion-branch base and `HEAD`,
-including production dependency classification. Push any evidence-only commit, open a protected PR
-from `feat/feeding-f0-weighing-authority` to `main`, require review and all checks, and merge it
+Run Task 17 Steps 3–9's complete commands against the exact expansion-branch base and `HEAD`,
+including production dependency classification. Push any evidence-only commit, then set
+`FEEDING_SLICE=F0`, `FEEDING_BOUNDARY=weighing-authority-expand`, and
+`FEEDING_BRANCH=feat/feeding-f0-weighing-authority` and run the Mandatory Feeding Protected Boundary
+Gate before merging
 using the strategy defined in the branch-boundary section. Have the coordinator capture the
 immutable `weighing-authority-expand` boundary inputs for the later F0 merge record, without writing
 `merge.json` or the central ledger yet, then deploy that exact main SHA to every farm-service
 instance.
 
-After capture and deployment, remove only the clean coordinator-pinned implementation worktree:
+After capture and deployment, retain the clean coordinator-pinned implementation worktree until
+its slice reconciliation record is main-reachable:
 
 ```bash
 SLICE_ID=F0
@@ -1847,12 +1988,12 @@ cd "$COORDINATOR_WORKTREE"
 BOUNDARY_WORKTREE="$(node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" \
   print-path --slice "$SLICE_ID" --boundary "$BOUNDARY_ID")"
 test "$BOUNDARY_WORKTREE" = /var/aqua-saas/.worktrees/aquamobil-v4-f0-weighing-authority-expand
-node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" cleanup \
+node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" retain-after-postmerge \
   --slice "$SLICE_ID" \
   --boundary "$BOUNDARY_ID" \
   --repository Okan-wqm/aquaculture_platform \
   --main-ref origin/main
-test ! -e "$BOUNDARY_WORKTREE"
+test -d "$BOUNDARY_WORKTREE"
 ```
 
 Expected: the expansion PR and coordinator-captured boundary SHA are `origin/main`-reachable,
@@ -2162,15 +2303,18 @@ only the public/application contraction.
 
 - [ ] **Step 7: Merge and deploy the contracted application before any column DDL**
 
-Run the F0 application-focused Task 17 domain, AST, PostgreSQL-retained-column, generator, affected,
-and dependency gates. Open a protected PR from `refactor/feeding-f0-batch-protocol-reader-contract`
-to `main`, require review, and merge. Record its protected PR/full main SHA as boundary
+Run Task 17 Steps 3–9's complete commands, including the F0 application AST,
+PostgreSQL-retained-column, generator, affected, and dependency checks. Set `FEEDING_SLICE=F0`,
+`FEEDING_BOUNDARY=batch-protocol-reader-contract`, and
+`FEEDING_BRANCH=refactor/feeding-f0-batch-protocol-reader-contract`, then run the Mandatory Feeding
+Protected Boundary Gate before merge. Record its protected PR/full main SHA as boundary
 `batch-protocol-reader-contract` for the later immutable F0 merge record, without editing central
 evidence. Deploy that exact SHA to every farm-service instance, prove no older farm-service image
 remains, rerun the retained-column PostgreSQL test against the deployment schema, and attach rollout
 evidence.
 
-Then clean the exact implementation worktree:
+Then retain the exact implementation worktree until its slice reconciliation record is
+main-reachable:
 
 ```bash
 SLICE_ID=F0
@@ -2187,12 +2331,12 @@ cd "$COORDINATOR_WORKTREE"
 BOUNDARY_WORKTREE="$(node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" \
   print-path --slice "$SLICE_ID" --boundary "$BOUNDARY_ID")"
 test "$BOUNDARY_WORKTREE" = /var/aqua-saas/.worktrees/aquamobil-v4-f0-batch-protocol-reader-contract
-node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" cleanup \
+node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" retain-after-postmerge \
   --slice "$SLICE_ID" \
   --boundary "$BOUNDARY_ID" \
   --repository Okan-wqm/aquaculture_platform \
   --main-ref origin/main
-test ! -e "$BOUNDARY_WORKTREE"
+test -d "$BOUNDARY_WORKTREE"
 ```
 
 Expected: the contracted app is live everywhere, the physical column and all original values are
@@ -2351,10 +2495,13 @@ Expected: hooks pass and only migration/evidence paths are staged.
 
 - [ ] **Step 6: Merge and deploy the physical drop**
 
-Run Task 17's F0 migration/PostgreSQL/invariant/dependency gates, merge the protected PR from
-`refactor/feeding-f0-batch-protocol-column-drop`, and capture it as
+Run Task 17 Steps 3–9's complete commands, including F0 migration/PostgreSQL/invariant/dependency
+checks. Set `FEEDING_SLICE=F0`, `FEEDING_BOUNDARY=batch-protocol-physical-contract`, and
+`FEEDING_BRANCH=refactor/feeding-f0-batch-protocol-column-drop`, then run the Mandatory Feeding
+Protected Boundary Gate, merge, and capture it as
 `batch-protocol-physical-contract`. Deploy the physical boundary and verify the column is absent in
-every tenant schema, then clean the exact implementation worktree:
+every tenant schema, then retain the exact implementation worktree until its slice reconciliation
+record is main-reachable:
 
 ```bash
 SLICE_ID=F0
@@ -2371,17 +2518,20 @@ cd "$COORDINATOR_WORKTREE"
 BOUNDARY_WORKTREE="$(node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" \
   print-path --slice "$SLICE_ID" --boundary "$BOUNDARY_ID")"
 test "$BOUNDARY_WORKTREE" = /var/aqua-saas/.worktrees/aquamobil-v4-f0-batch-protocol-physical-contract
-node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" cleanup \
+node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" retain-after-postmerge \
   --slice "$SLICE_ID" \
   --boundary "$BOUNDARY_ID" \
   --repository Okan-wqm/aquaculture_platform \
   --main-ref origin/main
-test ! -e "$BOUNDARY_WORKTREE"
+test -d "$BOUNDARY_WORKTREE"
 ```
 
-After all three exact F0 boundary attestations exist, create the distinct serialized F0
-reconciliation branch, write `slices/F0/merge.json`, regenerate the central ledger only with
-`reconcile-ledger.mjs --slice F0 --write`, and merge that reconciliation PR. F1a cannot begin before
+After all three exact F0 boundary attestations exist, run program plan Task 3 Steps 3-4's exact
+`create-reconciliation --slice F0`, coordinator-absolute `reconcile-ledger.mjs --slice F0 --write`,
+commit, independent-report/administrator-comment, and
+`--verify-prospective-program-pr --pr-kind slice-reconciliation
+--require-current-pr-test-merge-candidate` sequence. It writes `slices/F0/merge.json` and
+regenerates the central ledger. F1a cannot begin before
 the reconciliation main SHA is reachable and provenance verification passes.
 
 Expected: three ordered F0 main SHAs—expansion, application contraction, and column drop—are
@@ -2496,8 +2646,9 @@ node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/verify-ledger.mjs" \
 
 Expected: all three ordered F0 boundaries are protected-main ancestors, the immutable F0
 `implementationBoundaries` array matches the pinned ID set, and the serialized F0 reconciliation is
-on main. Run the program plan's exact preflight audit/explain capture for F1a, then write/check only
-`slices/F1a/preflight.json` with `capture-slice-audit.mjs`; no central or foreign-slice evidence
+on main. Run program plan Task 2 Step 2's exact coordinator-absolute audit-input capture, production
+manifest build, mapper, and `capture-slice-audit.mjs --slice F1a` sequence with output root
+`artifacts/aquamobil-v4/F1a`, then write/check only `slices/F1a/preflight.json`; no central or foreign-slice evidence
 path may change.
 
 - [ ] **Step 1: Write RED catalog and compatibility-boundary tests**
@@ -2740,8 +2891,10 @@ preserve the scalar through the trigger.
 After the RED tests fail, remove only the legacy property/fallback/write. Do not generate a
 migration, edit `FARM_MIGRATIONS`, or drop/disable the trigger. Run the focused unit and retained
 column PostgreSQL tests, then commit the exact app-only paths without the physical-drop finding
-trailer. Merge the protected PR, have the coordinator capture it as `array-reader-contract`, and
-deploy that exact application SHA everywhere before continuing.
+trailer. Set `FEEDING_SLICE=F1a`, `FEEDING_BOUNDARY=array-reader-contract`, and
+`FEEDING_BRANCH=refactor/feeding-f1a-array-reader-contract`, run the Mandatory Feeding Protected
+Boundary Gate, merge, have the coordinator capture it, and deploy that exact application SHA
+everywhere before continuing.
 
 ```bash
 npx nx test farm-service --runInBand --testPathPatterns='(sub-equipment-compatibility\.util|sub-equipment\.response)\.spec\.ts'
@@ -2767,7 +2920,8 @@ Expected: every running binary reads/writes only `compatibleEquipmentTypeCodes`;
 trigger/function, and values remain present and coherent. Rollback to the additive binary is still
 possible. No migration path appears in the PR.
 
-After coordinator capture and deployment, clean the exact reader-contract worktree:
+After coordinator capture and deployment, retain the exact reader-contract worktree until its slice
+reconciliation record is main-reachable:
 
 ```bash
 SLICE_ID=F1a
@@ -2784,12 +2938,12 @@ cd "$COORDINATOR_WORKTREE"
 BOUNDARY_WORKTREE="$(node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" \
   print-path --slice "$SLICE_ID" --boundary "$BOUNDARY_ID")"
 test "$BOUNDARY_WORKTREE" = /var/aqua-saas/.worktrees/aquamobil-v4-f1a-array-reader-contract
-node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" cleanup \
+node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" retain-after-postmerge \
   --slice "$SLICE_ID" \
   --boundary "$BOUNDARY_ID" \
   --repository Okan-wqm/aquaculture_platform \
   --main-ref origin/main
-test ! -e "$BOUNDARY_WORKTREE"
+test -d "$BOUNDARY_WORKTREE"
 ```
 
 - [ ] **Step 3: Enter the physical-only boundary and reattest the complete fleet**
@@ -2897,9 +3051,12 @@ git commit -m "$(printf 'refactor(farm): drop scalar hardware compatibility\n\nT
 git push
 ```
 
-Merge the independently reviewed protected PR and have the coordinator capture it as
-`legacy-scalar-physical-contract`. Deploy it and prove the scalar/trigger are absent while exact
-array reads remain green. Then clean the exact physical-contract worktree:
+Set `FEEDING_SLICE=F1a`, `FEEDING_BOUNDARY=legacy-scalar-physical-contract`, and
+`FEEDING_BRANCH=refactor/feeding-f1a-legacy-scalar-physical-contract`, then run the Mandatory Feeding
+Protected Boundary Gate. Merge and have the coordinator capture it. Deploy it and prove the
+scalar/trigger are absent while exact
+array reads remain green. Then retain the exact physical-contract worktree until its slice
+reconciliation record is main-reachable:
 
 ```bash
 SLICE_ID=F1a
@@ -2916,18 +3073,20 @@ cd "$COORDINATOR_WORKTREE"
 BOUNDARY_WORKTREE="$(node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" \
   print-path --slice "$SLICE_ID" --boundary "$BOUNDARY_ID")"
 test "$BOUNDARY_WORKTREE" = /var/aqua-saas/.worktrees/aquamobil-v4-f1a-legacy-scalar-physical-contract
-node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" cleanup \
+node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" retain-after-postmerge \
   --slice "$SLICE_ID" \
   --boundary "$BOUNDARY_ID" \
   --repository Okan-wqm/aquaculture_platform \
   --main-ref origin/main
-test ! -e "$BOUNDARY_WORKTREE"
+test -d "$BOUNDARY_WORKTREE"
 ```
 
-With all three exact F1a boundary IDs now captured, create a distinct serialized reconciliation
-branch; write immutable `slices/F1a/merge.json` with the ordered `implementationBoundaries` array
-and regenerate the central ledger only through `reconcile-ledger.mjs --slice F1a --write`. Merge
-that reconciliation PR before F2 begins.
+With all three exact F1a boundary IDs now captured, run program plan Task 3 Steps 3-4's exact
+`create-reconciliation --slice F1a`, coordinator-absolute capture/write, commit,
+independent-report/administrator-comment, and current-candidate prospective-verifier sequence. It
+writes immutable `slices/F1a/merge.json` with the ordered `implementationBoundaries` array and
+regenerates the central ledger only through `reconcile-ledger.mjs --slice F1a --write`. Merge that
+reconciliation PR before F2 begins.
 
 ### Task 10: Add Tenant-Routed Feeder Assignment Entities and Database Share Enforcement
 
@@ -3274,15 +3433,18 @@ Task 10 finding.
 
 - [ ] **Step 8: Merge and deploy the complete F1a additive boundary**
 
-Run the F1a-focused Task 17 domain, PostgreSQL, invariant, generated-artifact, affected, and
-production dependency gates. Open one protected PR from the coordinator-pinned F1a additive branch
-to `main`, require review and all checks, and merge it. The coordinator captures the PR, full main
+Run Task 17 Steps 3–9's complete domain, PostgreSQL, invariant, generated-artifact, affected, and
+production dependency commands. Set `FEEDING_SLICE=F1a`,
+`FEEDING_BOUNDARY=compatibility-and-feeder-model-expand`, and
+`FEEDING_BRANCH=feat/feeding-f1a-compatibility-and-feeder-model-expand`, then run the Mandatory
+Feeding Protected Boundary Gate and merge. The coordinator captures the PR, full main
 SHA, workflow runs, and generated hardware/feeder migration artifacts as
 `compatibility-and-feeder-model-expand`; neither the implementation branch nor this boundary writes
 `merge.json` or the central ledger. Deploy that exact SHA everywhere, exercise both old/new
 compatibility write shapes, and record per-tenant scalar/array parity before Task 9 starts.
 
-After capture and deployment, clean the coordinator-pinned additive worktree:
+After capture and deployment, retain the coordinator-pinned additive worktree until its slice
+reconciliation record is main-reachable:
 
 ```bash
 SLICE_ID=F1a
@@ -3299,12 +3461,12 @@ cd "$COORDINATOR_WORKTREE"
 BOUNDARY_WORKTREE="$(node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" \
   print-path --slice "$SLICE_ID" --boundary "$BOUNDARY_ID")"
 test "$BOUNDARY_WORKTREE" = /var/aqua-saas/.worktrees/aquamobil-v4-f1a-compatibility-and-feeder-model-expand
-node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" cleanup \
+node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" retain-after-postmerge \
   --slice "$SLICE_ID" \
   --boundary "$BOUNDARY_ID" \
   --repository Okan-wqm/aquaculture_platform \
   --main-ref origin/main
-test ! -e "$BOUNDARY_WORKTREE"
+test -d "$BOUNDARY_WORKTREE"
 ```
 
 Expected: the additive boundary is reachable from `origin/main`, both hardware and feeder-share
@@ -3426,8 +3588,9 @@ node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/verify-ledger.mjs" \
   --verify-main-ancestors origin/main
 ```
 
-Run the program plan's exact preflight audit/explain capture, then write/check only
-`slices/F2/preflight.json`. Expected: the branch starts after both the serialized F1a and I1 slice
+Run program plan Task 2 Step 2's exact coordinator-absolute audit-input capture, production manifest
+build, mapper, and `capture-slice-audit.mjs --slice F2` sequence with output root
+`artifacts/aquamobil-v4/F2`, then write/check only `slices/F2/preflight.json`. Expected: the branch starts after both the serialized F1a and I1 slice
 reconciliations, all earlier feeding owner evidence and I1's closed image authority verify, no F1b
 producer exists, and no central/foreign-slice evidence changes.
 
@@ -3763,10 +3926,13 @@ inline duplicate.
 
 - [ ] **Step 7: Merge the independently reviewed F2 slice**
 
-Run the F2-focused Task 17 contract, version-history, upcaster-absence, generated NATS, static/live
-ACL, affected, and production dependency gates. Open a protected PR from
-`feat/feeding-f2-event-language` to `main`, require review and all checks, and merge it. Have the
-coordinator capture it as `event-language-and-acl`, then clean its exact worktree:
+Run Task 17 Steps 3–9's complete contract, version-history, upcaster-absence, generated NATS,
+static/live ACL, affected, and production dependency commands. Set `FEEDING_SLICE=F2`,
+`FEEDING_BOUNDARY=event-language-and-acl`, and
+`FEEDING_BRANCH=feat/feeding-f2-event-language`, then run the Mandatory Feeding Protected Boundary
+Gate and merge. Have the
+coordinator capture it as `event-language-and-acl`, then retain its exact worktree until its slice
+reconciliation record is main-reachable:
 
 ```bash
 SLICE_ID=F2
@@ -3783,16 +3949,18 @@ cd "$COORDINATOR_WORKTREE"
 BOUNDARY_WORKTREE="$(node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" \
   print-path --slice "$SLICE_ID" --boundary "$BOUNDARY_ID")"
 test "$BOUNDARY_WORKTREE" = /var/aqua-saas/.worktrees/aquamobil-v4-f2
-node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" cleanup \
+node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" retain-after-postmerge \
   --slice "$SLICE_ID" \
   --boundary "$BOUNDARY_ID" \
   --repository Okan-wqm/aquaculture_platform \
   --main-ref origin/main
-test ! -e "$BOUNDARY_WORKTREE"
+test -d "$BOUNDARY_WORKTREE"
 ```
 
-Because that is F2's complete pinned boundary set, use a distinct serialized reconciliation branch
-to write immutable `slices/F2/merge.json` and regenerate the central ledger only through
+Because that is F2's complete pinned boundary set, run program plan Task 3 Steps 3-4's exact
+`create-reconciliation --slice F2`, coordinator-absolute capture/write, commit,
+independent-report/administrator-comment, and current-candidate prospective-verifier sequence. It
+writes immutable `slices/F2/merge.json` and regenerates the central ledger only through
 `reconcile-ledger.mjs --slice F2 --write`; merge that reconciliation PR before F1b starts.
 
 Expected: the F2 implementation and reconciliation main SHAs are reachable from `origin/main`, its
@@ -3950,8 +4118,9 @@ node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/verify-ledger.mjs" \
   --verify-main-ancestors origin/main
 ```
 
-Run the program plan's exact preflight audit/explain capture, then write/check only
-`slices/F1b/preflight.json`. Expected: the branch starts after the serialized F2 reconciliation;
+Run program plan Task 2 Step 2's exact coordinator-absolute audit-input capture, production manifest
+build, mapper, and `capture-slice-audit.mjs --slice F1b` sequence with output root
+`artifacts/aquamobil-v4/F1b`, then write/check only `slices/F1b/preflight.json`. Expected: the branch starts after the serialized F2 reconciliation;
 F0/F1a/F2 owner evidence verifies; the version 1 validator plus generated cert-CN grants exist; and
 no central or foreign-slice evidence changes.
 
@@ -4577,10 +4746,13 @@ finding.
 
 - [ ] **Step 12: Merge the independently reviewed F1b slice**
 
-Run the F1b-focused Task 17 domain, PostgreSQL, validator, GraphQL generation/composition,
-subject/payload tenant-routing, affected, and production dependency gates. Open a protected PR from
-`feat/feeding-f1b-assignment-api` to `main`, require review and all checks, and merge it. Have the
-coordinator capture it as `assignment-api-and-gateway`, then clean its exact worktree:
+Run Task 17 Steps 3–9's complete domain, PostgreSQL, validator, GraphQL generation/composition,
+subject/payload tenant-routing, affected, and production dependency commands. Set
+`FEEDING_SLICE=F1b`, `FEEDING_BOUNDARY=assignment-api-and-gateway`, and
+`FEEDING_BRANCH=feat/feeding-f1b-assignment-api`, then run the Mandatory Feeding Protected Boundary
+Gate and merge. Have the
+coordinator capture it as `assignment-api-and-gateway`, then retain its exact worktree until its
+slice reconciliation record is main-reachable:
 
 ```bash
 SLICE_ID=F1b
@@ -4597,16 +4769,18 @@ cd "$COORDINATOR_WORKTREE"
 BOUNDARY_WORKTREE="$(node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" \
   print-path --slice "$SLICE_ID" --boundary "$BOUNDARY_ID")"
 test "$BOUNDARY_WORKTREE" = /var/aqua-saas/.worktrees/aquamobil-v4-f1b
-node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" cleanup \
+node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" retain-after-postmerge \
   --slice "$SLICE_ID" \
   --boundary "$BOUNDARY_ID" \
   --repository Okan-wqm/aquaculture_platform \
   --main-ref origin/main
-test ! -e "$BOUNDARY_WORKTREE"
+test -d "$BOUNDARY_WORKTREE"
 ```
 
-Because this completes F1b's pinned boundary set, use a distinct serialized reconciliation branch to
-write immutable `slices/F1b/merge.json` and regenerate the central ledger only through
+Because this completes F1b's pinned boundary set, run program plan Task 3 Steps 3-4's exact
+`create-reconciliation --slice F1b`, coordinator-absolute capture/write, commit,
+independent-report/administrator-comment, and current-candidate prospective-verifier sequence. It
+writes immutable `slices/F1b/merge.json` and regenerates the central ledger only through
 `reconcile-ledger.mjs --slice F1b --write`; merge that reconciliation PR before Task 17.
 
 Expected: the F1b main SHA is reachable from `origin/main`, all eight protected feeding boundaries
@@ -4640,6 +4814,8 @@ its post-merge verification branch.
 - Create: `docs/evidence/aquamobil-v4-feeding/dependency-audit/aquamobil-vite-rollup-modules.json`
 - Create: `docs/evidence/aquamobil-v4-feeding/dependency-audit/dependency-reachability.md`
 - Create: `docs/evidence/aquamobil-v4-feeding/dependency-audit/SHA256SUMS`
+- Create in the auxiliary candidate:
+  `docs/superpowers/evidence/aquamobil-v4/program-prs/pr-<PREVIOUS_GENERIC_PR_NUMBER>.json`
 - Modify: `docs/reviews/_registry/findings.jsonl`
 - Modify generated: `tools/quality/format-scope.json`
 
@@ -4664,10 +4840,12 @@ its post-merge verification branch.
 
 - [ ] **Step 1: Start a clean post-merge branch and validate eight per-owner boundaries**
 
-Fetch the protected branch only after F0, F1a, F2, and F1b have each passed review and merged. Read
+Fetch the protected branch only after F0, F1a, F2, and F1b have each passed the program-local gate
+and merged. Read
 the full main SHAs from each immutable `slices/<SliceId>/merge.json`; do not ask an operator to type
 them. The validator requires the exact boundary-ID tuple pinned above, verifies each complete GitHub
-PR/workflow/artifact attestation, proves the same ordered array appears in generated
+PR attestation, four required checks, exactly three non-null current-candidate run/artifact
+attestations, and independent-review/administrator-comment evidence; it proves the same ordered array appears in generated
 `ownerEvidence[SliceId]` for every approved-owner row, and rejects any short, non-main, duplicate,
 missing, extra, or out-of-order boundary. It reads but never writes generated central evidence.
 
@@ -4710,7 +4888,7 @@ TESTED_MAIN_SHA="$(git rev-parse HEAD)"
 export TESTED_MAIN_SHA
 boundary_sha() {
   jq -er --arg boundary_id "$2" \
-    '.implementationBoundaries | map(select(.boundaryId == $boundary_id)) | select(length == 1) | .[0][("result" + "ingMainCommit")]' \
+    '.implementationBoundaries | map(select(.boundaryId == $boundary_id)) | select(length == 1) | .[0].protectedBoundary[("result" + "ingMainCommit")]' \
     "$1"
 }
 F0_MERGE=docs/superpowers/evidence/aquamobil-v4/slices/F0/merge.json
@@ -4773,6 +4951,8 @@ for (const mergePath of mergePaths) {
 }
 const isAncestor = (older, newer) =>
   spawnSync('git', ['merge-base', '--is-ancestor', older, newer]).status === 0;
+const commitTree = (commit) =>
+  spawnSync('git', ['rev-parse', `${commit}^{tree}`], { encoding: 'utf8' }).stdout.trim();
 const fullSha = (value) => /^[0-9a-f]{40}$/.test(value ?? '');
 const stable = (value) => JSON.stringify(value);
 const orderedBoundaries = [];
@@ -4790,8 +4970,12 @@ for (const [slice, expectedIds] of expectedBySlice) {
     throw new Error(`${slice} boundary IDs are missing, extra, duplicate, or out of order`);
   }
   for (const boundary of boundaries) {
-    const sha = boundary[mainResultKey];
-    const pullRequest = boundary.pullRequest;
+    const protectedBoundary = boundary.protectedBoundary;
+    if (typeof protectedBoundary !== 'object' || protectedBoundary === null) {
+      throw new Error(`${slice}/${boundary.boundaryId} lacks protected boundary evidence`);
+    }
+    const sha = protectedBoundary[mainResultKey];
+    const pullRequest = protectedBoundary.pullRequest;
     if (!fullSha(sha) || !isAncestor(sha, 'origin/main')) {
       throw new Error(`${slice}/${boundary.boundaryId} is not a full protected-main SHA`);
     }
@@ -4801,26 +4985,263 @@ for (const [slice, expectedIds] of expectedBySlice) {
       pullRequest.state !== 'MERGED' ||
       pullRequest.baseRefName !== 'main' ||
       pullRequest[mainResultKey] !== sha ||
+      protectedBoundary.resultingMainTree !== commitTree(sha) ||
+      !/^[0-9a-f]{64}$/.test(pullRequest.apiResponseSha256 ?? '') ||
       !/^https:\/\//.test(pullRequest.url ?? '')
     ) {
       throw new Error(`${slice}/${boundary.boundaryId} lacks exact protected-PR evidence`);
     }
+    const review = protectedBoundary.programLocalReview;
+    const authorization = review?.payload;
+    const report = authorization?.canonicalReport;
+    const durableRecovery = protectedBoundary.durableRecovery;
+    const recoveryPayload = durableRecovery?.payload;
+    const prospective = recoveryPayload?.prospective;
+    const B = protectedBoundary.reviewedBaseMainCommit;
+    const H = protectedBoundary.reviewedHeadCommit;
+    const C = protectedBoundary.testedMergeCandidateCommit;
+    const T = protectedBoundary.testedMergeCandidateTree;
     if (
-      !Array.isArray(boundary.workflowRuns) ||
-      boundary.workflowRuns.length === 0 ||
-      boundary.workflowRuns.some(
-        (run) =>
-          run.kind !== 'github-workflow-run' ||
-          run.repository !== repository ||
-          run.conclusion !== 'success' ||
-          !fullSha(run.headSha) ||
-          !/^https:\/\//.test(run.url ?? ''),
+      !fullSha(B) ||
+      !fullSha(H) ||
+      !fullSha(C) ||
+      !fullSha(T) ||
+      stable(protectedBoundary.testedMergeCandidateParents) !== stable([B, H]) ||
+      review?.kind !== 'aquamobil-v4-program-local-review' ||
+      authorization?.schemaVersion !== 1 ||
+      authorization.marker !== 'aquamobil-v4-program-authorization:v1' ||
+      authorization?.prKind !== 'implementation-boundary' ||
+      authorization.operatorDecision !== 'authorize-current-program-candidate' ||
+      authorization.repository !== repository ||
+      authorization.pullRequestNumber !== pullRequest.number ||
+      'previousGenericProgramPr' in authorization ||
+      authorization.baseCommit !== B ||
+      authorization.headCommit !== H ||
+      authorization.candidateCommit !== C ||
+      authorization.candidateTree !== T ||
+      stable(authorization.candidateParents) !== stable([B, H]) ||
+      stable(authorization.requiredChecks) !== stable(protectedBoundary.requiredChecks) ||
+      stable(authorization.workflowRuns) !== stable(protectedBoundary.workflowRuns) ||
+      stable(authorization.baseAdvance) !== stable(protectedBoundary.baseAdvance) ||
+      authorization.pullRequestApiSha256 !== prospective?.pullRequestApiSha256 ||
+      stable(authorization.captureTool) !== stable(protectedBoundary.captureTool) ||
+      recoveryPayload?.prKind !== 'implementation-boundary' ||
+      'previousGenericProgramPr' in recoveryPayload ||
+      recoveryPayload.resultingMainCommit !== sha ||
+      recoveryPayload.resultingMainTree !== protectedBoundary.resultingMainTree ||
+      !/^[0-9a-f]{64}$/.test(recoveryPayload.mergeApiSha256 ?? '') ||
+      prospective?.prKind !== 'implementation-boundary' ||
+      'previousGenericProgramPr' in prospective ||
+      prospective.repository !== repository ||
+      prospective.pullRequestNumber !== pullRequest.number ||
+      prospective.baseCommit !== B ||
+      prospective.headCommit !== H ||
+      prospective.candidateCommit !== C ||
+      prospective.candidateTree !== T ||
+      stable(prospective.candidateParents) !== stable([B, H]) ||
+      stable(prospective.baseAdvance) !== stable(protectedBoundary.baseAdvance) ||
+      stable(prospective?.requiredChecks) !== stable(protectedBoundary.requiredChecks) ||
+      stable(prospective?.workflowRuns) !== stable(protectedBoundary.workflowRuns) ||
+      prospective?.checkArtifactSetSha256 !== protectedBoundary.checkArtifactSetSha256 ||
+      stable(prospective?.programLocalReview) !== stable(review) ||
+      stable(prospective.captureTool) !== stable(protectedBoundary.captureTool) ||
+      durableRecovery.recoveryComment?.author !== 'Okan-wqm' ||
+      durableRecovery.recoveryComment?.authorPermission !== 'admin' ||
+      !/^[0-9a-f]{64}$/.test(durableRecovery.recoveryComment?.payloadSha256 ?? '') ||
+      !/^[0-9a-f]{64}$/.test(durableRecovery.recoveryComment?.envelopeBodySha256 ?? '') ||
+      !/^[0-9a-f]{64}$/.test(durableRecovery.recoveryComment?.apiResponseSha256 ?? '') ||
+      report?.prKind !== 'implementation-boundary' ||
+      report.schemaVersion !== 1 ||
+      report.kind !== 'aquamobil-v4-independent-agent-review' ||
+      report.repository !== repository ||
+      report.pullRequestNumber !== pullRequest.number ||
+      report.baseCommit !== B ||
+      report.headCommit !== H ||
+      report.candidateCommit !== C ||
+      report.candidateTree !== T ||
+      stable(report.candidateParents) !== stable([B, H]) ||
+      report.verdict !== 'approved' ||
+      !Array.isArray(report.reviewedPaths) ||
+      report.reviewedPaths.length === 0 ||
+      !Array.isArray(report.findings) ||
+      report.findings.length !== 0 ||
+      report.reviewer?.kind !== 'independent-agent' ||
+      typeof report.reviewer.identity !== 'string' ||
+      report.reviewer.identity.length === 0 ||
+      !/^[0-9a-f]{64}$/.test(authorization.reportSha256 ?? '') ||
+      !/^[0-9a-f]{64}$/.test(protectedBoundary.checkArtifactSetSha256 ?? '') ||
+      authorization.checkArtifactSetSha256 !== protectedBoundary.checkArtifactSetSha256 ||
+      report.checkArtifactSetSha256 !== protectedBoundary.checkArtifactSetSha256 ||
+      review.authorizationComment?.author !== 'Okan-wqm' ||
+      review.authorizationComment?.authorPermission !== 'admin' ||
+      !/^[0-9a-f]{64}$/.test(review.authorizationComment?.payloadSha256 ?? '') ||
+      !/^[0-9a-f]{64}$/.test(review.authorizationComment?.envelopeBodySha256 ?? '') ||
+      !/^[0-9a-f]{64}$/.test(review.authorizationComment?.apiResponseSha256 ?? '') ||
+      !/^[0-9a-f]{64}$/.test(
+        review.authorizationComment?.collaboratorPermissionApiSha256 ?? '',
       )
     ) {
-      throw new Error(`${slice}/${boundary.boundaryId} lacks successful workflow evidence`);
+      throw new Error(`${slice}/${boundary.boundaryId} lacks exact program-local review evidence`);
     }
-    if (!Array.isArray(boundary.generatedArtifacts) || boundary.generatedArtifacts.length === 0) {
-      throw new Error(`${slice}/${boundary.boundaryId} lacks generated-artifact evidence`);
+    const checks = protectedBoundary.requiredChecks;
+    const expectedContexts = [
+      'merge-gate',
+      'sens-enterprise-summary',
+      'build-status',
+      'aria-merge-authority',
+    ];
+    if (
+      !Array.isArray(checks) ||
+      checks.length !== 4 ||
+      stable(checks.map((check) => check.context)) !== stable(expectedContexts) ||
+      checks.some(
+        (check) =>
+          check.appId !== 15368 ||
+          check.conclusion !== 'success' ||
+          check.apiHeadSha !== H ||
+          !/^[0-9a-f]{64}$/.test(check.apiResponseSha256 ?? ''),
+      )
+    ) {
+      throw new Error(`${slice}/${boundary.boundaryId} lacks four exact required checks on H`);
+    }
+    const workflowRuns = protectedBoundary.workflowRuns;
+    const expectedWorkflows = [
+      '.github/workflows/ci-affected.yml',
+      '.github/workflows/ci-full.yml',
+      '.github/workflows/aria-merge-authority.yml',
+    ];
+    if (
+      !Array.isArray(workflowRuns) ||
+      workflowRuns.length !== 3 ||
+      new Set(workflowRuns.map((run) => `${run.runId}/${run.runAttempt}`)).size !== 3 ||
+      stable(workflowRuns.map((run) => run.workflowPath)) !== stable(expectedWorkflows) ||
+      workflowRuns.some((run) => {
+        const artifact = run.artifact;
+        const payload = artifact?.payload;
+        return (
+          run.kind !== 'github-pull-request-test-merge-workflow-run' ||
+          run.repository !== repository ||
+          run.event !== 'pull_request' ||
+          run.conclusion !== 'success' ||
+          run.apiHeadSha !== H ||
+          run.checkedOutCandidateSha !== C ||
+          run.checkedOutCandidateTree !== T ||
+          !fullSha(run.workflowBlobSha) ||
+          !/^[0-9a-f]{64}$/.test(run.apiResponseSha256 ?? '') ||
+          !/^https:\/\//.test(run.url ?? '') ||
+          !Number.isInteger(artifact?.id) ||
+          artifact?.name !== `aquamobil-v4-pr-candidate-${run.runId}-${run.runAttempt}` ||
+          !/^sha256:[0-9a-f]{64}$/.test(artifact?.digest ?? '') ||
+          !/^[0-9a-f]{64}$/.test(artifact?.payloadSha256 ?? '') ||
+          payload?.schemaVersion !== 1 ||
+          payload?.kind !== 'aquamobil-v4-pull-request-test-merge' ||
+          payload.repository !== repository ||
+          payload.pullRequestNumber !== pullRequest.number ||
+          payload.event !== 'pull_request' ||
+          payload.eventRef !== `refs/pull/${pullRequest.number}/merge` ||
+          payload.base?.ref !== 'main' ||
+          payload.base?.sha !== B ||
+          payload.head?.ref !== pullRequest.headRefName ||
+          payload.head?.sha !== H ||
+          payload.candidate?.sha !== C ||
+          payload.candidate?.tree !== T ||
+          stable(payload.candidate?.orderedParents) !== stable([B, H]) ||
+          payload.checkoutSha !== C ||
+          payload.workflowRunId !== run.runId ||
+          payload.runAttempt !== run.runAttempt ||
+          'producerCheckRunId' in payload ||
+          'checkArtifactSetSha256' in payload ||
+          !/^[0-9a-f]{64}$/.test(payload.canonicalLineageSha256 ?? '') ||
+          payload.job?.id !== run.producerJobId ||
+          payload.job?.check_run_id !== run.producerCheckRunId ||
+          payload.job?.workflow_file_path !== run.workflowPath ||
+          payload.job?.workflow_ref !== run.workflowRef ||
+          payload.job?.workflow_sha !== run.workflowSha ||
+          payload.job?.workflow_repository !== run.workflowRepository ||
+          payload.job?.blob_sha !== run.workflowBlobSha ||
+          run.workflowRepository !== repository ||
+          !fullSha(run.workflowSha) ||
+          payload.coordinationTools?.length !== 1 ||
+          payload.coordinationTools[0]?.path !==
+            'tools/aquamobil-v4/capture-github-evidence.mjs' ||
+          !fullSha(payload.coordinationTools[0]?.blobSha)
+        );
+      })
+    ) {
+      throw new Error(`${slice}/${boundary.boundaryId} lacks three exact candidate artifacts`);
+    }
+    const producerTuples = workflowRuns.map((run) => {
+      const payload = run.artifact.payload;
+      return stable([
+        run.runId,
+        run.runAttempt,
+        run.producerCheckRunId,
+        run.workflowRepository,
+        run.workflowPath,
+        run.workflowRef,
+        run.workflowSha,
+        run.workflowBlobSha,
+        payload.coordinationTools[0].blobSha,
+      ]);
+    });
+    if (
+      new Set(producerTuples).size !== 3 ||
+      new Set(workflowRuns.map((run) => run.artifact.payload.canonicalLineageSha256)).size !== 1
+    ) {
+      throw new Error(`${slice}/${boundary.boundaryId} has aliased producers or split lineage`);
+    }
+    const ciAffected = workflowRuns.find(
+      (run) => run.workflowPath === '.github/workflows/ci-affected.yml',
+    );
+    const ciFull = workflowRuns.find((run) => run.workflowPath === '.github/workflows/ci-full.yml');
+    const aria = workflowRuns.find(
+      (run) => run.workflowPath === '.github/workflows/aria-merge-authority.yml',
+    );
+    const mergeGate = checks.find((check) => check.context === 'merge-gate');
+    const summary = checks.find((check) => check.context === 'sens-enterprise-summary');
+    const build = checks.find((check) => check.context === 'build-status');
+    const ariaContext = checks.find((check) => check.context === 'aria-merge-authority');
+    if (
+      !ciAffected ||
+      !ciFull ||
+      !aria ||
+      mergeGate?.checkRunId !== ciAffected.producerCheckRunId ||
+      mergeGate?.producerCheckRunId !== ciAffected.producerCheckRunId ||
+      mergeGate?.producerJobId !== 'merge-gate' ||
+      mergeGate?.workflowRunId !== ciAffected.runId ||
+      mergeGate?.runAttempt !== ciAffected.runAttempt ||
+      summary?.checkRunId === ciAffected.producerCheckRunId ||
+      summary?.producerCheckRunId !== ciAffected.producerCheckRunId ||
+      summary?.producerJobId !== 'merge-gate' ||
+      summary?.workflowRunId !== ciAffected.runId ||
+      summary?.runAttempt !== ciAffected.runAttempt ||
+      build?.checkRunId !== ciFull.producerCheckRunId ||
+      build?.producerCheckRunId !== ciFull.producerCheckRunId ||
+      build?.producerJobId !== 'build-status' ||
+      build?.workflowRunId !== ciFull.runId ||
+      build?.runAttempt !== ciFull.runAttempt ||
+      ariaContext?.checkRunId !== aria.producerCheckRunId ||
+      ariaContext?.producerCheckRunId !== aria.producerCheckRunId ||
+      ariaContext?.producerJobId !== 'aria-merge-authority' ||
+      ariaContext?.workflowRunId !== aria.runId ||
+      ariaContext?.runAttempt !== aria.runAttempt
+    ) {
+      throw new Error(`${slice}/${boundary.boundaryId} has invalid CI-Affected context aliasing`);
+    }
+    if (
+      !Array.isArray(boundary.generatedArtifacts) ||
+      boundary.generatedArtifacts.length === 0 ||
+      boundary.generatedArtifacts.some(
+        (artifact) =>
+          typeof artifact.path !== 'string' ||
+          artifact.path.length === 0 ||
+          typeof artifact.generator !== 'string' ||
+          typeof artifact.checkCommand !== 'string' ||
+          !fullSha(artifact.resultingCommit) ||
+          !/^[0-9a-f]{64}$/.test(artifact.contentSha256 ?? ''),
+      )
+    ) {
+      throw new Error(`${slice}/${boundary.boundaryId} lacks separate generated-domain evidence`);
     }
     orderedBoundaries.push([slice, boundary.boundaryId, sha]);
   }
@@ -5203,39 +5624,6 @@ export AQUAMOBIL_AUDIT_MODULE_MANIFEST="$FEEDING_BUNDLE_MANIFEST"
 npm --prefix web/apps/aquamobil run build
 test -s "$FEEDING_BUNDLE_MANIFEST"
 unset AQUAMOBIL_AUDIT_MODULE_MANIFEST
-set +e
-npm audit --json > "$FEEDING_GATE_DIR/audit-root-full.json"
-root_full_status="$?"
-npm audit --omit=dev --json > "$FEEDING_GATE_DIR/audit-root-runtime.json"
-root_runtime_status="$?"
-npm --prefix web/apps/aquamobil audit --json > "$FEEDING_GATE_DIR/audit-aquamobil-full.json"
-aquamobil_full_status="$?"
-npm --prefix web/apps/aquamobil audit --omit=dev --json > "$FEEDING_GATE_DIR/audit-aquamobil-runtime.json"
-aquamobil_runtime_status="$?"
-set -e
-printf '%s\n' \
-  "$root_full_status" \
-  "$root_runtime_status" \
-  "$aquamobil_full_status" \
-  "$aquamobil_runtime_status" \
-  > "$FEEDING_GATE_DIR/audit-exit-statuses.txt"
-node --input-type=module - \
-  "$FEEDING_GATE_DIR/audit-root-full.json" \
-  "$FEEDING_GATE_DIR/audit-root-runtime.json" \
-  "$FEEDING_GATE_DIR/audit-aquamobil-full.json" \
-  "$FEEDING_GATE_DIR/audit-aquamobil-runtime.json" <<'NODE'
-import fs from 'node:fs';
-
-for (const auditPath of process.argv.slice(2)) {
-  const audit = JSON.parse(fs.readFileSync(auditPath, 'utf8'));
-  if (audit.error) {
-    throw new Error(`${auditPath}: npm audit operational failure: ${audit.error.summary ?? 'unknown'}`);
-  }
-  if (!audit.metadata || !audit.metadata.vulnerabilities || !audit.vulnerabilities) {
-    throw new Error(`${auditPath}: npm audit JSON is missing vulnerability metadata`);
-  }
-}
-NODE
 ACTIVE_VERIFICATION_WORKTREE="$(git rev-parse --show-toplevel)"
 COORDINATOR_WORKTREE=/var/aqua-saas/.worktrees/aquamobil-v4-coordinator
 test -d "$COORDINATOR_WORKTREE"
@@ -5247,16 +5635,8 @@ test "$(git -C "$COORDINATOR_WORKTREE" rev-parse HEAD)" = \
   "$(git -C /var/aqua-saas rev-parse origin/main)"
 cd "$COORDINATOR_WORKTREE"
 cd "$ACTIVE_VERIFICATION_WORKTREE"
-node "$COORDINATOR_WORKTREE/scripts/ci/audit-source-map.mjs" \
-  --capture-explain-set \
-  --root-audit-full "$FEEDING_GATE_DIR/audit-root-full.json" \
-  --root-audit-runtime "$FEEDING_GATE_DIR/audit-root-runtime.json" \
-  --aquamobil-audit-full "$FEEDING_GATE_DIR/audit-aquamobil-full.json" \
-  --aquamobil-audit-runtime "$FEEDING_GATE_DIR/audit-aquamobil-runtime.json" \
-  --root-install . \
-  --aquamobil-install web/apps/aquamobil \
-  --write-audit-set-json "$FEEDING_GATE_DIR/audit-set.json" \
-  --write-explain-set-json "$FEEDING_GATE_DIR/npm-explain-set.json"
+node "$COORDINATOR_WORKTREE/scripts/ci/capture-aquamobil-v4-audit-inputs.mjs" \
+  --output-root "$FEEDING_GATE_DIR"
 node "$COORDINATOR_WORKTREE/scripts/ci/audit-source-map.mjs" \
   --audit-set-json "$FEEDING_GATE_DIR/audit-set.json" \
   --explain-set-json "$FEEDING_GATE_DIR/npm-explain-set.json" \
@@ -5302,6 +5682,8 @@ written by the bootstrap-owned capture command in Step 2; never insert assumed v
   ignored artifacts or the scratch directory, are the audit authority.
 
 ```ts
+type FullSha = string & { readonly __fullSha: unique symbol }; // runtime: ^[0-9a-f]{40}$
+
 type FeedingDependencyReachabilityEvidence = readonly {
   readonly packageName: string;
   readonly installedVersion: string;
@@ -5326,11 +5708,11 @@ interface FeedingFindingClosureAttestation {
   readonly severity: 'HIGH';
   readonly owner: 'F0' | 'F1a' | 'F2' | 'F1b';
   readonly boundary: string;
-  readonly boundaryMainCommit: string;
-  readonly closingCommit: string;
+  readonly boundaryMainCommit: FullSha;
+  readonly closingCommit: FullSha;
   readonly closingCommitBodySha256: string;
   readonly protectedPullRequestUrl: string;
-  readonly protectedPullRequestCommit: string;
+  readonly protectedPullRequestCommit: FullSha;
   readonly ownerBoundaryEvidenceSha256: string;
   readonly reviewSectionSha256: string;
   readonly verificationEvidenceSha256: string;
@@ -5541,8 +5923,8 @@ for (const registryRow of rows) {
     throw new Error(`${registryRow.id} lacks one immutable implementation boundary`);
   }
   const [boundaryEvidence] = boundaryMatches;
-  const boundaryMainCommit = boundaryEvidence[mainResultKey];
-  const link = boundaryEvidence.pullRequest;
+  const boundaryMainCommit = boundaryEvidence.protectedBoundary[mainResultKey];
+  const link = boundaryEvidence.protectedBoundary.pullRequest;
   if (
     attestation.title !== registryRow.title ||
     attestation.severity !== 'HIGH' ||
@@ -5669,12 +6051,60 @@ or tenant PII appears in committed evidence.
 Run:
 
 ```bash
+set -euo pipefail
+COORDINATOR_WORKTREE=/var/aqua-saas/.worktrees/aquamobil-v4-coordinator
+git -C /var/aqua-saas fetch origin +refs/heads/main:refs/remotes/origin/main
+test -z "$(git -C "$COORDINATOR_WORKTREE" status --porcelain)"
+git -C "$COORDINATOR_WORKTREE" switch --detach origin/main
+test -z "$(git -C "$COORDINATOR_WORKTREE" branch --show-current)"
+test "$(git -C "$COORDINATOR_WORKTREE" rev-parse HEAD)" = \
+  "$(git -C /var/aqua-saas rev-parse origin/main)"
+VERIFICATION_BRANCH="$(node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" \
+  print-branch --verification feeding-foundation)"
+VERIFICATION_WORKTREE="$(node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" \
+  print-path --verification feeding-foundation)"
+test "$VERIFICATION_WORKTREE" = \
+  /var/aqua-saas/.worktrees/aquamobil-v4-feeding-foundation-verification
+cd "$VERIFICATION_WORKTREE"
+test "$(git branch --show-current)" = "$VERIFICATION_BRANCH"
+PROGRAM_PR_KIND=feeding-auxiliary-verification
+PROGRAM_EXPECTED_HEAD="$VERIFICATION_BRANCH"
+PREVIOUS_GENERIC_PR_NUMBER="$(node \
+  "$COORDINATOR_WORKTREE/tools/aquamobil-v4/reconcile-ledger.mjs" \
+  --print-immediately-previous-generic-program-pr --for-pr-kind "$PROGRAM_PR_KIND" \
+  --expected-head "$PROGRAM_EXPECTED_HEAD" --repository Okan-wqm/aquaculture_platform \
+  --main-ref origin/main)"
+[[ "$PREVIOUS_GENERIC_PR_NUMBER" =~ ^[0-9]+$ ]]
+PROGRAM_GIT_COMMON_DIR="$(git -C /var/aqua-saas rev-parse --path-format=absolute --git-common-dir)"
+test "$PROGRAM_GIT_COMMON_DIR" = /var/aqua-saas/.git
+PREVIOUS_PROGRAM_PR_ROOT="$PROGRAM_GIT_COMMON_DIR/aquamobil-v4-program-evidence/v1/pr-$PREVIOUS_GENERIC_PR_NUMBER"
+PREVIOUS_PROGRAM_PR_GENERATION="$(node \
+  "$COORDINATOR_WORKTREE/tools/aquamobil-v4/capture-github-evidence.mjs" \
+  --resolve-program-pr-generation "$PREVIOUS_PROGRAM_PR_ROOT" \
+  --pull-request "$PREVIOUS_GENERIC_PR_NUMBER" --repository Okan-wqm/aquaculture_platform \
+  --from-postmerge-recovery-comment)"
+[[ "$PREVIOUS_PROGRAM_PR_GENERATION" == "$PREVIOUS_PROGRAM_PR_ROOT"/generations/* ]]
+[[ "${PREVIOUS_PROGRAM_PR_GENERATION##*/}" =~ ^[0-9a-f]{64}$ ]]
+test -d "$PREVIOUS_PROGRAM_PR_GENERATION"
+test ! -L "$PREVIOUS_PROGRAM_PR_GENERATION"
+PREVIOUS_PROGRAM_PR_PATH="docs/superpowers/evidence/aquamobil-v4/program-prs/pr-$PREVIOUS_GENERIC_PR_NUMBER.json"
+node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/reconcile-ledger.mjs" \
+  --materialize-previous-generic-program-pr \
+  --program-pr-generation "$PREVIOUS_PROGRAM_PR_GENERATION" --write "$PREVIOUS_PROGRAM_PR_PATH"
+test -f "$PREVIOUS_PROGRAM_PR_PATH"
+test ! -L "$PREVIOUS_PROGRAM_PR_PATH"
+PREVIOUS_PROGRAM_PR_SHA256="$(sha256sum "$PREVIOUS_PROGRAM_PR_PATH" | cut -d' ' -f1)"
+[[ "$PREVIOUS_PROGRAM_PR_SHA256" =~ ^[0-9a-f]{64}$ ]]
+node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/reconcile-ledger.mjs" \
+  --verify-previous-generic-program-pr-in-candidate --path "$PREVIOUS_PROGRAM_PR_PATH" \
+  --record-sha256 "$PREVIOUS_PROGRAM_PR_SHA256"
 git add \
   docs/evidence/aquamobil-v4-feeding/foundation-verification.md \
   docs/evidence/aquamobil-v4-feeding/dependency-reachability.json \
   docs/evidence/aquamobil-v4-feeding/finding-closure-map.json \
   docs/evidence/aquamobil-v4-feeding/finding-closure-attestations.json \
-  docs/evidence/aquamobil-v4-feeding/dependency-audit
+  docs/evidence/aquamobil-v4-feeding/dependency-audit \
+  "$PREVIOUS_PROGRAM_PR_PATH"
 npm run quality:format-scope:generate
 git add -- tools/quality/format-scope.json
 npm run quality:format-scope:check
@@ -5682,7 +6112,7 @@ STAGED_FILES="$(git diff --cached --name-only | paste -sd, -)"
 test -n "$STAGED_FILES"
 npx nx affected --target=test --files="$STAGED_FILES"
 npx nx affected --target=lint --files="$STAGED_FILES"
-test -z "$(git diff --cached --name-only | rg -v '^(docs/evidence/aquamobil-v4-feeding/|tools/quality/format-scope\.json$)')"
+test -z "$(git diff --cached --name-only | rg -v '^(docs/evidence/aquamobil-v4-feeding/|docs/superpowers/evidence/aquamobil-v4/program-prs/pr-[0-9]+\.json$|tools/quality/format-scope\.json$)')"
 (cd "$EVIDENCE_DIR" && sha256sum -c dependency-audit/SHA256SUMS)
 git diff --cached --check
 npm run quality:format-scope:generate
@@ -5701,11 +6131,9 @@ verification_pr_number="$(gh pr view "$VERIFICATION_PR_URL" \
   --repo Okan-wqm/aquaculture_platform --json number --jq '.number')"
 gh pr checks "$verification_pr_number" \
   --repo Okan-wqm/aquaculture_platform --watch --fail-fast
-test "$(gh pr view "$verification_pr_number" \
-  --repo Okan-wqm/aquaculture_platform \
-  --json state,reviewDecision,baseRefName,headRefName \
-  --jq '[.state, .reviewDecision, .baseRefName, .headRefName] | @tsv')" = \
-  $'OPEN\tAPPROVED\tmain\tchore/aquamobil-v4-feeding-foundation-verification'
+gh pr view "$verification_pr_number" --repo Okan-wqm/aquaculture_platform \
+  --json state,baseRefName,headRefName,headRefOid \
+  --jq 'select(.state == "OPEN" and .baseRefName == "main" and .headRefName == "chore/aquamobil-v4-feeding-foundation-verification" and (.headRefOid | test("^[0-9a-f]{40}$")))'
 ACTIVE_VERIFICATION_WORKTREE="$(git rev-parse --show-toplevel)"
 COORDINATOR_WORKTREE=/var/aqua-saas/.worktrees/aquamobil-v4-coordinator
 git -C /var/aqua-saas fetch origin +refs/heads/main:refs/remotes/origin/main
@@ -5715,24 +6143,28 @@ test -z "$(git -C "$COORDINATOR_WORKTREE" branch --show-current)"
 test "$(git -C "$COORDINATOR_WORKTREE" rev-parse HEAD)" = \
   "$(git -C /var/aqua-saas rev-parse origin/main)"
 cd "$ACTIVE_VERIFICATION_WORKTREE"
-node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/capture-github-evidence.mjs" \
-  --verify-prospective-program-pr "$verification_pr_number" \
-  --repository Okan-wqm/aquaculture_platform \
-  --pr-kind auxiliary-verification \
-  --expected-head "$VERIFICATION_BRANCH" \
-  --verify-base-advance \
-  --require-latest-merge-queue-candidate
+PROGRAM_PR_NUMBER="$verification_pr_number"
+PROGRAM_PR_KIND=feeding-auxiliary-verification
+PROGRAM_EXPECTED_HEAD="$VERIFICATION_BRANCH"
+: "${PROGRAM_REVIEWER_OUTPUT:?set independent agent canonical report output path}"
 ```
 
-Only after the exact auxiliary-verification prospective gate passes may the approved PR merge
-without bypassing protection. Any base advance that overlaps the evidence authority blocks merge;
-merge current `origin/main` normally into the branch, rerun the complete evidence/audit/hash suite,
-obtain a distinct approval, and rerun the latest-candidate gate. CI may attach a duplicate evidence
+Run the program plan's exact generation-aware review-input → independent report → admin
+authorization → prospective lifecycle. Only after the exact `feeding-auxiliary-verification`
+prospective gate passes may the PR merge without bypassing protection. Any
+base advance that overlaps the evidence authority blocks merge; merge current `origin/main`
+normally into the branch, rerun the complete evidence/audit/hash suite, obtain a new report and
+authorization comment, and rerun the current-candidate gate. CI may attach a duplicate evidence
 bundle for convenience, but the reviewed commit must contain all four raw audit documents and
 statuses, the canonical audit/explain sets, production Vite/Rollup module manifest, exact path
 arrays, mapper outputs, reachability decisions, closure attestations, and verified hash manifest.
 Record the full main SHA reported for that merged PR as `VERIFICATION_MAIN_SHA`; do not infer it
 from a local short log.
+
+In a new shell, run the full post-merge generation resolver, spool/recovery-comment round trip and
+tree proof. The merge makes `PREVIOUS_PROGRAM_PR_PATH` main-reachable, so clean that predecessor;
+retain this auxiliary generic worktree/branch/generation until the next generic merge carries its
+full record.
 
 Expected: the pushed branch contains only the declared evidence tree plus the exact generator-owned
 `tools/quality/format-scope.json`, the format-scope check and every durable hash verification pass,
@@ -5776,11 +6208,11 @@ VERIFICATION_WORKTREE="$(node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree
   print-path --verification "$VERIFICATION_NAME")"
 test "$VERIFICATION_BRANCH" = chore/aquamobil-v4-feeding-foundation-verification
 test "$VERIFICATION_WORKTREE" = /var/aqua-saas/.worktrees/aquamobil-v4-feeding-foundation-verification
-node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" cleanup \
+node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" retain-after-postmerge \
   --verification "$VERIFICATION_NAME" \
   --repository Okan-wqm/aquaculture_platform \
   --main-ref origin/main
-test ! -e "$VERIFICATION_WORKTREE"
+test -d "$VERIFICATION_WORKTREE"
 node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" create-finding-closure \
   --closure feeding-foundation-high-findings \
   --main-ref origin/main
@@ -5862,15 +6294,16 @@ git push --set-upstream origin "$CLOSURE_BRANCH"
 Expected: exactly fifteen HIGH registry rows transition to `RESOLVED`, every row has exactly one
 attested full-SHA closer, only `docs/reviews/_registry/findings.jsonl` is staged, all generated and
 immutable evidence remains byte-identical to the branch base, and the closure branch is pushed
-immediately. Open a protected PR from `$CLOSURE_BRANCH` to `main`, require review and all checks,
-then run the bootstrap-owned prospective closure verifier before merging without bypassing
+immediately. Open a protected PR from `$CLOSURE_BRANCH` to `main`, run all checks plus the exact
+independent-report/administrator-comment sequence, then run the Order 0 prospective closure verifier
+before merging without bypassing
 protection:
 
 ```bash
 CLOSURE_PR_NUMBER="$(gh pr view --json number --jq '.number')"
 gh pr checks "$CLOSURE_PR_NUMBER" --watch --fail-fast
-gh pr view "$CLOSURE_PR_NUMBER" --json state,reviewDecision,baseRefName \
-  --jq 'select(.state == "OPEN" and .reviewDecision == "APPROVED" and .baseRefName == "main")'
+gh pr view "$CLOSURE_PR_NUMBER" --json state,baseRefName,headRefName,headRefOid \
+  --jq 'select(.state == "OPEN" and .baseRefName == "main" and (.headRefOid | test("^[0-9a-f]{40}$")))'
 ACTIVE_CLOSURE_WORKTREE="$(git rev-parse --show-toplevel)"
 COORDINATOR_WORKTREE=/var/aqua-saas/.worktrees/aquamobil-v4-coordinator
 test -d "$COORDINATOR_WORKTREE"
@@ -5882,13 +6315,16 @@ test "$(git -C "$COORDINATOR_WORKTREE" rev-parse HEAD)" = \
   "$(git -C /var/aqua-saas rev-parse origin/main)"
 cd "$COORDINATOR_WORKTREE"
 cd "$ACTIVE_CLOSURE_WORKTREE"
-node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/capture-github-evidence.mjs" \
-  --verify-prospective-closure-pr "$CLOSURE_PR_NUMBER" \
-  --repository Okan-wqm/aquaculture_platform \
-  --verify-base-advance \
-  --require-latest-merge-queue-candidate \
-  --forbid-duplicate-closing-trailers
+PROGRAM_PR_NUMBER="$CLOSURE_PR_NUMBER"
+PROGRAM_PR_KIND=finding-close
+PROGRAM_EXPECTED_HEAD=chore/aquamobil-v4-feeding-findings-close
+: "${PROGRAM_REVIEWER_OUTPUT:?set independent agent canonical report output path}"
 ```
+
+Run the exact generation-aware non-bootstrap lifecycle. The closed finding-close alias additionally
+enforces the feeding closure map and duplicate-trailer prohibition. After merge, persist and
+round-trip the full boundary post-merge recovery record, then retain its resources until closure
+reconciliation is main-reachable.
 
 - [ ] **Step 12: Verify the merged closure from `origin/main`**
 
@@ -5929,11 +6365,11 @@ cd "$COORDINATOR_WORKTREE"
 CLOSURE_WORKTREE="$(node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" print-path \
   --closure feeding-foundation-high-findings)"
 test "$CLOSURE_WORKTREE" = /var/aqua-saas/.worktrees/aquamobil-v4-feeding-findings-close
-node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" cleanup \
+node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" retain-after-postmerge \
   --closure feeding-foundation-high-findings \
   --repository Okan-wqm/aquaculture_platform \
   --main-ref origin/main
-test ! -e "$CLOSURE_WORKTREE"
+test -d "$CLOSURE_WORKTREE"
 ```
 
 Expected: exactly fifteen HIGH rows are visible from `origin/main`, every row is `RESOLVED` with
@@ -5942,13 +6378,19 @@ verification PR, its hash manifest verifies, and the four immutable merge record
 ledger are unchanged by closure. This does not run the ledger's program-wide terminal check because
 F3–F5, V6, and other AquaMobil V4 slices remain owned by their respective plans.
 
-Only after this unchanged-authority check passes, the coordinator runs the program plan's separate
-serialized reconciliation for closure `feeding-foundation-high-findings`. That reconciliation PR
-alone writes immutable
+Only after this unchanged-authority check passes, run program plan Task 4 Steps 2-3's exact
+`create-closure-reconciliation --closure feeding-foundation-high-findings`, coordinator-absolute
+capture/write, exact prior-generic full-record materialization/staging, commit,
+independent-report/administrator-comment, and
+`--verify-prospective-program-pr --pr-kind closure-reconciliation
+--require-current-pr-test-merge-candidate` sequence. That reconciliation PR alone writes immutable
 `docs/superpowers/evidence/aquamobil-v4/closures/feeding-foundation-high-findings.json` and
 regenerates `execution-ledger.json` with
 `reconcile-ledger.mjs --closure feeding-foundation-high-findings --write`. F3 cannot begin until
-that protected reconciliation is merged and provenance verification passes.
+that protected reconciliation is merged, its full post-merge recovery comment round-trips, and
+provenance verification passes. That merge makes the retained auxiliary record and finding-close
+boundary main-durable, allowing exact cleanup of those predecessor resources while retaining the
+new reconciliation for the next generic PR.
 
 ## Completion Criteria
 

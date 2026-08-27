@@ -22,6 +22,10 @@ Library, GraphQL Code Generator, Tailwind CSS, Nx, npm 10
 
 ## Global Constraints
 
+- Consume the program plan's machine-checked Step 0 result. Immutable
+  `designMainCommit=4002868c535a2d8676aad6eadd5f4bbd57d4625b` is only the design snapshot;
+  generated `order0BaseMainCommit` is the fetched post-#1333 protected-main ancestor containing all
+  seven reviewed planning blobs and Order 0. Every V1-V5 preflight base descends from it.
 - Start V1 only after I1 and V0 from
   `docs/superpowers/plans/2026-08-26-aquamobil-v4-delivery-appearance.md`, the V0 finding-close PR,
   and all three program reconciliations are merged. This plan consumes V0's semantic tokens,
@@ -93,6 +97,16 @@ Library, GraphQL Code Generator, Tailwind CSS, Nx, npm 10
   pushed to that slice branch only. A high or critical advisory reachable from a dependency path
   affected by the slice blocks its PR. Aggregate audit counts and a non-zero audit status alone are
   not reachability classifications.
+- Immediately before each protected implementation, reconciliation, or finding-close merge, run the
+  program plan's exact prospective verifier with
+  `--require-current-pr-test-merge-candidate` and the canonical independent-agent report. The
+  program-local gate requires an `Okan-wqm` administrator authorization issue comment bound to the
+  same current `N/B/H/C/tree`, reviewer identity, and report SHA-256; it is separate from GitHub
+  branch-protection review state. Four manifest-pinned contexts must resolve to exactly three
+  mandatory run/attempt artifacts: one CI-Affected artifact shared by `merge-gate` and
+  `sens-enterprise-summary`, one CI Full `build-status` artifact, and one ARIA
+  `aria-merge-authority` artifact. Any base/head/candidate/check/report/comment drift requires a new
+  report, comment, and complete gate.
 - Every task that commits has `tools/quality/format-scope.json` as a conditional generated `Modify`
   path. First stage every task-owned create/modify/delete path, then run the exact block below
   immediately before each `git commit`; an earlier generator call in a task is only a preview and
@@ -237,6 +251,109 @@ high/critical runtime or release-build path also blocks review even when an audi
 baseline. Do not edit the preflight after its first commit, attach transient local files as
 evidence, write any conclusion into the central ledger, run an audit fixer, or mutate either
 lockfile.
+
+This slice dependency artifact is domain evidence only. It cannot replace any of the three exact
+`aquamobil-v4-pr-candidate-<run_id>-<run_attempt>` artifacts or satisfy a required context. Those
+three source payloads share only `N/B/H/C/T/[B,H]` plus `canonicalLineageSha256`; each has a distinct
+run/attempt/producer-check/workflow-repository/path/ref/SHA/blob/tool-blob tuple and never carries
+`checkArtifactSetSha256`. The prospective verifier computes that whole-set digest only after
+validating the four checks and all three attestations.
+
+## Mandatory Product PR Evidence Lifecycle
+
+Immediately before each V1-V5 protected merge, bind its exact registry row and run the full
+generation-aware program gate:
+
+```bash
+set -euo pipefail
+: "${PRODUCT_SLICE:?set V1, V2, V3, V4, or V5}"
+case "$PRODUCT_SLICE" in
+  V1) PRODUCT_BOUNDARY=shell; PRODUCT_BRANCH=feat/aquamobil-v1-shell ;;
+  V2) PRODUCT_BOUNDARY=field-workflows; PRODUCT_BRANCH=feat/aquamobil-v2-field-workflows ;;
+  V3) PRODUCT_BOUNDARY=messaging-surfaces; PRODUCT_BRANCH=feat/aquamobil-v3-messaging-surfaces ;;
+  V4) PRODUCT_BOUNDARY=report-surfaces; PRODUCT_BRANCH=feat/aquamobil-v4-report-surfaces ;;
+  V5) PRODUCT_BOUNDARY=tablet-board; PRODUCT_BRANCH=feat/aquamobil-v5-tablet-board ;;
+  *) exit 2 ;;
+esac
+COORDINATOR_WORKTREE=/var/aqua-saas/.worktrees/aquamobil-v4-coordinator
+git -C /var/aqua-saas fetch origin +refs/heads/main:refs/remotes/origin/main
+test -z "$(git -C "$COORDINATOR_WORKTREE" status --porcelain)"
+git -C "$COORDINATOR_WORKTREE" switch --detach origin/main
+test "$(git branch --show-current)" = "$PRODUCT_BRANCH"
+PRODUCT_PR_NUMBER="$(gh pr view --repo Okan-wqm/aquaculture_platform \
+  --json number --jq '.number')"
+gh pr checks "$PRODUCT_PR_NUMBER" --repo Okan-wqm/aquaculture_platform --watch --fail-fast
+PROGRAM_GIT_COMMON_DIR="$(git -C /var/aqua-saas \
+  rev-parse --path-format=absolute --git-common-dir)"
+test "$PROGRAM_GIT_COMMON_DIR" = /var/aqua-saas/.git
+PRODUCT_PR_ROOT="$PROGRAM_GIT_COMMON_DIR/aquamobil-v4-program-evidence/v1/pr-$PRODUCT_PR_NUMBER"
+PRODUCT_REVIEWER_OUTPUT="artifacts/aquamobil-v4/reviews/pr-$PRODUCT_PR_NUMBER.json"
+PRODUCT_PR_GENERATION="$(node \
+  "$COORDINATOR_WORKTREE/tools/aquamobil-v4/capture-github-evidence.mjs" \
+  --initialize-program-pr-spool "$PRODUCT_PR_ROOT" \
+  --write-independent-review-input \
+  --pull-request "$PRODUCT_PR_NUMBER" \
+  --repository Okan-wqm/aquaculture_platform \
+  --pr-kind implementation-boundary \
+  --expected-head "$PRODUCT_BRANCH" \
+  --slice "$PRODUCT_SLICE" \
+  --boundary "$PRODUCT_BOUNDARY" \
+  --verify-base-advance \
+  --require-current-pr-test-merge-candidate \
+  --print-program-pr-generation)"
+[[ "${PRODUCT_PR_GENERATION##*/}" =~ ^[0-9a-f]{64}$ ]]
+```
+
+Pause for an independent agent to read
+`$PRODUCT_PR_GENERATION/review/review-input.json` and write the closed
+`ProgramIndependentReviewReport` to `$PRODUCT_REVIEWER_OUTPUT`. Then:
+
+```bash
+node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/capture-github-evidence.mjs" \
+  --ingest-independent-review-report "$PRODUCT_REVIEWER_OUTPUT" \
+  --program-pr-generation "$PRODUCT_PR_GENERATION"
+node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/capture-github-evidence.mjs" \
+  --write-authorization-comment-envelope \
+  --program-pr-generation "$PRODUCT_PR_GENERATION"
+gh pr comment "$PRODUCT_PR_NUMBER" --repo Okan-wqm/aquaculture_platform \
+  --body-file "$PRODUCT_PR_GENERATION/authorization/authorization-comment-envelope.md"
+node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/capture-github-evidence.mjs" \
+  --verify-prospective-program-pr "$PRODUCT_PR_NUMBER" \
+  --repository Okan-wqm/aquaculture_platform \
+  --pr-kind implementation-boundary \
+  --expected-head "$PRODUCT_BRANCH" \
+  --verify-base-advance \
+  --require-current-pr-test-merge-candidate \
+  --program-pr-generation "$PRODUCT_PR_GENERATION" \
+  --write-prospective-spool
+```
+
+The authorization payload embeds the exact-kind report, four checks, three complete workflow
+run/artifact attestations, base-advance/PR-API/capture-tool facts, and the exact prior-reference
+discriminant and is at most 60000 canonical UTF-8 bytes. Exactly one append-only marker
+may match the current `N/B/H/C/T/[B,H]/report/set`; malformed current collisions or reruns without a
+new report/comment fail. The three existing workflow terminal jobs alone emit evidence with exact
+`contents: read` and no `actions: read`, depth-two SHA-pinned checkout/upload, no token, identical PR
+guards, `github.job`, and exact official `job.check_run_id/job.workflow_file_path/job.workflow_ref/
+job.workflow_sha/job.workflow_repository`. Each derives its workflow blob from Git and makes no API
+or network call; the trusted coordinator exhaustively cross-checks Jobs/API and Git-blob state.
+Missing, empty, renamed, hard-coded, or `github.workflow*` fallback fields fail. Every GitHub list
+used by capture/recovery—pull requests, check runs, workflow runs, workflow jobs, run artifacts,
+comments, rulesets, and tag/ref matches—follows every RFC 8288 `Link` page, canonicalizes the
+complete set, validates
+`total_count` when present, and rejects loops, missing pages, and cross-page duplicates;
+`per_page=100` is only an optimization and page one is never authority. Common-dir generation files use the exclusive
+temp-write/fsync/`link(temp,final)` no-replace protocol and self-excluding
+review/authorization/prospective/postmerge phase manifests.
+
+After each protected merge, run the master plan's exact fresh-shell generation resolver,
+post-merge spool, full recovery-comment/API round trip, and `T == resultingMain^{tree}` proof. Retain
+the boundary worktree/remote branch/generation until its slice reconciliation embeds the full
+`ProtectedProgramBoundaryEvidence` and is main-reachable. Every product slice/closure reconciliation
+first materializes the immediately preceding generic full record at numeric `program-prs/pr-<N>.json`,
+binds it in `C/T`, and after merge cleans that predecessor while retaining itself for the next
+generic PR. The master post-before-crash rule reuses the lowest numeric byte-identical matching
+postmerge comment; zero, malformed/different current collisions, or a higher-ID selection fail.
 
 ## Source Behavior Map
 
@@ -2286,7 +2403,8 @@ node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/capture-slice-audit.mjs" \
 Expected: the coordinator created V3 only after V2 reconciliation, so its immutable preflight and
 branch HEAD bind the same creation-time V2-reconciled main base, which remains an ancestor of
 current `origin/main`. Later zero-overlap advances proceed only through the prospective-PR and
-latest merge-queue checks. Otherwise stop before editing messaging presentation.
+current PR test-merge candidate gate and exact four-context/three-artifact agreement. Otherwise stop
+before editing messaging presentation.
 
 - [ ] **Step 1: Audit current-main behavior before touching presentation**
 
@@ -2755,7 +2873,8 @@ node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/verify-ledger.mjs" \
 Expected: the coordinator created V4 only after V2 reconciliation, so its immutable preflight and
 branch HEAD bind the same creation-time V2-reconciled main base, which remains an ancestor of
 current `origin/main`. Later zero-overlap advances proceed only through the prospective-PR and
-latest merge-queue checks. Otherwise stop before changing report routes or regenerating the client.
+current PR test-merge candidate gate and exact four-context/three-artifact agreement. Otherwise stop
+before changing report routes or regenerating the client.
 
 - [ ] **Step 1: Audit the active report contract and route overlap**
 
@@ -3639,8 +3758,8 @@ node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/verify-ledger.mjs" \
 Expected: `origin/main` contains the protected implementation and reconciliation records for V3 and
 V4, with V2 main-reachable through both. The V5 preflight and branch HEAD bind the same immutable
 creation-time base, which remains an ancestor of current `origin/main`; later zero-overlap advances
-proceed only through the prospective-PR and latest merge-queue checks. Otherwise stop before adding
-the responsive seam.
+proceed only through the prospective-PR current test-merge candidate gate and exact
+four-context/three-artifact agreement. Otherwise stop before adding the responsive seam.
 
 - [ ] **Step 1: Audit the shell, hook, and Tailwind overlap**
 
@@ -4408,7 +4527,9 @@ and creates no commit.
 
 - Consumes: protected `origin/main` after all V1–V5 implementation and reconciliation PRs, their
   immutable records, generated artifacts, canonical AquaMobil commands, and the exclusion boundaries
-  for delivery/appearance and VFD/V6 work.
+  for delivery/appearance and VFD/V6 work. Each boundary record contains four exact required-check
+  attestations, exactly three non-null PR-candidate run/artifact attestations agreeing on its
+  `N/B/H/C/tree/[B,H]`, and the preserved independent report/administrator-comment/API digests.
 - Produces: read-only final verification evidence consumed by Task 18. It creates no branch content,
   release claim, appearance/PWA change, VFD surface, or convergence decision.
 
@@ -4439,8 +4560,9 @@ git status --short
 ```
 
 Expected: all five immutable records and their source-owner dispositions verify on exact protected
-main, and the coordinator remains clean. A missing record, nonancestor boundary, unresolved overlap,
-or stale coordinator blocks final verification.
+main, each boundary has the exact three candidate artifacts and program-local review evidence, and
+the coordinator remains clean. A missing record, nonancestor boundary, artifact/context mismatch,
+unresolved overlap, review drift, or stale coordinator blocks final verification.
 
 - [ ] **Step 2: Prove generated and request-contract integrity**
 
@@ -4610,8 +4732,9 @@ npm run findings:verify
 records are protected-main-reachable and each immutable `merge.json` contains its one plan-pinned
 `implementationBoundaries[]` entry. Each boundary must carry a protected HTTPS PR URL and full
 resulting main SHA whose GitHub attestation names this repository, merged state, matching head/base,
-and a distinct approving reviewer. Missing reconciliation, foreign evidence, or branch-head-only
-evidence blocks closure.
+the four exact required checks, three mandatory current-candidate artifacts, and a distinct
+independent-agent review plus administrator authorization-comment attestation. Missing
+reconciliation, foreign evidence, review/comment drift, or branch-head-only evidence blocks closure.
 
 - [ ] **Step 2: Generate the five-entry closure map from immutable boundary evidence**
 
@@ -4657,7 +4780,9 @@ Use `apply_patch` to mark exactly the five review headings `RESOLVED`, add their
 and merged PR URLs. Create one repository-template attestation under `docs/compliance/evidence/` per
 uppercase ID, with the filename exactly `<UPPERCASE-ID>.md`. Each attestation names the actual full
 SHA, protected PR, authenticated author, distinct reviewer, slice-specific tests, and ongoing
-invariant; template values, short SHAs, self-review, and copied evidence across slices fail. Task
+invariant; the reviewer is the independent-agent identity preserved in `programLocalReview`, not a
+GitHub approval. Template values, short SHAs, reviewer/author identity reuse, and copied evidence
+across slices fail. Task
 17's run is supplied to the later program-owned closure reconciliation, never appended manually to
 the generated ledger.
 
@@ -4702,8 +4827,9 @@ git commit -m "chore(review): close AquaMobil product findings"
 git push --set-upstream origin "$PRODUCT_CLOSURE_BRANCH"
 ```
 
-Open the protected closure PR and obtain a distinct approval. Before merge, prove its current
-checks, state, base, head, and exact non-duplicating trailer set:
+Open the protected closure PR, obtain the program plan's canonical independent-agent report and
+explicit administrator authorization comment, then prove its current checks, state, base,
+head/candidate, three candidate artifacts, and exact non-duplicating trailer set:
 
 ```bash
 COORDINATOR_WORKTREE=/var/aqua-saas/.worktrees/aquamobil-v4-coordinator
@@ -4722,19 +4848,21 @@ product_closure_pr_number="$(gh pr view --repo Okan-wqm/aquaculture_platform \
 gh pr checks "$product_closure_pr_number" \
   --repo Okan-wqm/aquaculture_platform --watch --fail-fast
 gh pr view "$product_closure_pr_number" --repo Okan-wqm/aquaculture_platform \
-  --json state,reviewDecision,baseRefName,headRefName \
-  --jq 'select(.state == "OPEN" and .reviewDecision == "APPROVED" and .baseRefName == "main" and .headRefName == "chore/aquamobil-v4-product-findings-close")'
-node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/capture-github-evidence.mjs" \
-  --verify-prospective-closure-pr "$product_closure_pr_number" \
-  --repository Okan-wqm/aquaculture_platform \
-  --verify-base-advance \
-  --require-latest-merge-queue-candidate \
-  --forbid-duplicate-closing-trailers
+  --json state,baseRefName,headRefName,headRefOid \
+  --jq 'select(.state == "OPEN" and .baseRefName == "main" and .headRefName == "chore/aquamobil-v4-product-findings-close" and (.headRefOid | test("^[0-9a-f]{40}$")))'
+PROGRAM_PR_NUMBER="$product_closure_pr_number"
+PROGRAM_PR_KIND=finding-close
+PROGRAM_EXPECTED_HEAD=chore/aquamobil-v4-product-findings-close
+: "${PROGRAM_REVIEWER_OUTPUT:?set independent agent canonical report output path}"
 ```
 
-Merge without bypass. Fetch `origin/main` and re-run the registry, attestation, ledger, five-map,
-and main-ancestor checks against files read from `origin/main`. Then remove only the clean linked
-worktree through the coordinator:
+Execute the master plan's exact coordinator-absolute, generation-aware non-bootstrap lifecycle. The
+finding-close registry adds the exact product closure-map and duplicate-trailer checks.
+
+Merge without bypass. Fetch `origin/main`, run the full post-merge spool/recovery-comment round trip
+and tree proof, and re-run the registry, attestation, ledger, five-map, and main-ancestor checks
+against files read from `origin/main`. Retain this boundary until closure reconciliation is
+main-reachable:
 
 ```bash
 COORDINATOR_WORKTREE=/var/aqua-saas/.worktrees/aquamobil-v4-coordinator
@@ -4745,19 +4873,20 @@ git -C "$COORDINATOR_WORKTREE" switch --detach origin/main
 test -z "$(git -C "$COORDINATOR_WORKTREE" branch --show-current)"
 test "$(git -C "$COORDINATOR_WORKTREE" rev-parse HEAD)" = \
   "$(git -C /var/aqua-saas rev-parse origin/main)"
-cd "$COORDINATOR_WORKTREE"
-node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" cleanup \
-  --closure product-high-findings \
-  --repository Okan-wqm/aquaculture_platform \
-  --main-ref origin/main
-test ! -e "$(node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/worktree.mjs" \
-  print-path --closure product-high-findings)"
+PROGRAM_PR_KIND=finding-close
+PROGRAM_EXPECTED_HEAD=chore/aquamobil-v4-product-findings-close
 ```
 
-Only after cleanup, run the integration program's serialized product-closure reconciliation. That
-fresh branch creates only
+Run the integration program Task 4 Steps 2-3 exact
+`create-closure-reconciliation --closure product-high-findings` lifecycle. Before its commit,
+materialize/stage the immediately preceding generic full `ProgramPrEvidence`; then run the exact
+`closure-reconciliation` review-input/report/authorization/prospective and post-merge recovery
+protocol. That fresh branch creates only
 `docs/superpowers/evidence/aquamobil-v4/closures/product-high-findings.json` and regenerates the
 central ledger from immutable slice/closure inputs; it records the protected closure PR attestation,
-resulting main commit, five `closingCommitsByFinding` entries, and Task 17 workflow attestation. UI
-convergence cannot start until this reconciliation PR is reviewed, merged, and an `origin/main`
-ancestor.
+resulting main commit, five `closingCommitsByFinding` entries, Task 17's separately discriminated
+main-run attestation, three PR candidate artifacts, and independent-review/comment/API digests. Its
+merge makes the predecessor generic and finding-close boundary durable, authorizing their exact
+cleanup, while the current generic stays retained. UI
+convergence cannot start until this reconciliation PR passes that program-local gate, merges, and is
+an `origin/main` ancestor.

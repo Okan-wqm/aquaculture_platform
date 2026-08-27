@@ -81,17 +81,18 @@ process.stdout.write(
   `aria-suite-changed: ${files.length} ARIA-surface file(s) changed since ${base}; running the kernel suite.\n`,
 );
 
-const result = spawnSync(
-  'python3',
-  ['-m', 'unittest', 'discover', 'aria-kernel', '-p', '*test*.py'],
-  {
-    stdio: 'inherit',
-    env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1', PYTHONPATH: 'aria-kernel' },
-  },
-);
+// The suite runs through scripts/ci/aria-suite-run.sh — the single definition
+// that runs BOTH halves (unittest discovery for TestCase modules, pytest for
+// pytest-style modules unittest cannot collect). The inline unittest command
+// that used to live here silently ran zero tests from the pytest-style
+// modules (34 tests invisible to the pre-push gate).
+const result = spawnSync('bash', ['scripts/ci/aria-suite-run.sh'], {
+  stdio: 'inherit',
+  env: { ...process.env },
+});
 
 if (result.error) {
-  process.stderr.write(`aria-suite-changed: could not run python3: ${result.error.message}\n`);
+  process.stderr.write(`aria-suite-changed: could not run the suite: ${result.error.message}\n`);
   process.exit(1);
 }
 process.exit(result.status ?? 1);

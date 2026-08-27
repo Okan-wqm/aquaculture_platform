@@ -40,7 +40,8 @@ jobs:
       # install it used to do by hand here now lives in the composite action
       # above, so every kernel-running job provisions the same way.
       - uses: ./.github/actions/setup-aria-kernel
-      - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel:. python3 -m unittest discover aria-kernel -p '*test*.py'
+      # Single definition of the whole suite (unittest + pytest-style halves)
+      - run: bash scripts/ci/aria-suite-run.sh
       # Plan ARIA-V5 §3e Phase 2 — pedagogy lint in --strict mode
       # (allowlist ignored; permanently enforcing). Fast PR feedback.
       - name: Run pedagogy lint (Plan ARIA-V5 §3e)

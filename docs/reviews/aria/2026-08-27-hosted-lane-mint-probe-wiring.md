@@ -32,6 +32,16 @@ probe reads an absent env (GH_TOKEN never exported to the assemble step).
   suite reach discovery: `pytest` is also declared now, because three
   test modules import it at module scope and `unittest discover` fails
   at import on any host without it.
+- Declaring the dependency only removed the import error: unittest
+  discovery collects TestCase classes only, so the three pytest-style
+  modules contributed ZERO executed tests — 34 tests measured invisible
+  to every lane and to the pre-push gate (`pytest --collect-only`:
+  34; `unittest <module>`: "NO TESTS RAN"). The suite now runs through
+  `scripts/ci/aria-suite-run.sh`, the single definition that runs the
+  unittest half AND pytest over exactly the modules that import pytest
+  at module scope (discovered by grep, not a hand-kept list). All four
+  former call sites (aria-kernel, aria-kernel-fast, `npm run
+aria:test:unit`, the pre-push gate) now delegate to it.
 - `aria-readiness-claim.yml` assemble step mints the installation token
   and exports it as `GH_TOKEN` for the branch-protection probe.
 

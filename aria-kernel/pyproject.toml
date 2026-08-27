@@ -10,6 +10,14 @@ dependencies = [
     # for parsing GHA workflow files + daily-report front-matter.
     # Light, single-purpose; runtime cost zero (only imported by tests).
     "pyyaml>=6.0",
+    # gh_token_factory Mode A imports ``jwt`` lazily for the GitHub App
+    # installation-token mint. Undeclared, it only worked on machines that
+    # happened to have PyJWT (the operator droplet); every hosted-runner
+    # lane that mints (finding-state-sweep, aria-readiness-claim) died with
+    # "Mode A requires PyJWT; not installed" — measured on run 32943402324.
+    # Declaring it here is the single SSoT path the setup-aria-kernel
+    # action installs from.
+    "pyjwt[crypto]>=2.8",
 ]
 
 [project.scripts]

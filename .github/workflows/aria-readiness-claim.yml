@@ -209,6 +209,22 @@ jobs:
           printf '%s\n' "$ARIA_GH_APP_PRIVATE_KEY" > "$KEY_FILE"
           export ARIA_GH_APP_PRIVATE_KEY_PATH="$KEY_FILE"
           trap 'rm -f "$KEY_FILE"' EXIT
+          # The branch-protection probe inside produce-claim shells out to
+          # `gh api .../protection` and reads GH_TOKEN from the environment;
+          # this step previously exported none, so the probe always failed
+          # closed with gh_token_absent (run 33022651661). Mint the
+          # installation token (PyJWT is a declared kernel dependency) and
+          # hand it to the probe.
+          PROBE_TOKEN="$(PYTHONPATH=aria-kernel python3 -c "
+          from pathlib import Path
+          from aria_kernel.gh_token_factory import mint_installation_token
+          lease = mint_installation_token(
+              cycle_id='readiness-claim-${{ steps.pr.outputs.run_id }}',
+              workspace_root='.',
+          )
+          print(Path(lease.token_file).read_text(encoding='utf-8').strip())
+          ")"
+          export GH_TOKEN="${PROBE_TOKEN}"
           PYTHONPATH=aria-kernel python3 -m aria_kernel readiness produce-claim \
             --pr-number "${{ steps.pr.outputs.number }}" \
             --repo "${GITHUB_REPOSITORY}" \

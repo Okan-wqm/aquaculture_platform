@@ -202,6 +202,16 @@ export class AgentRunnerService {
     if (existingConversation?.messages) {
       for (const msg of existingConversation.messages) {
         if (msg.role === 'user' || msg.role === 'assistant') {
+          // SEC-LOW-088 (2026-08-23 scan №33): replayed history is untrusted
+          // context (stored strings can carry tenant-editable data). An entry
+          // failing the filter is DROPPED, not passed through — the model
+          // never sees the payload.
+          if (!this.aiSafety.scanUntrustedContext(msg.content, request.tenantId)) {
+            this.logger.warn(
+              `AI safety dropped a history entry from conversation ${conversationId} (indirect-injection patterns)`,
+            );
+            continue;
+          }
           messages.push({
             role: msg.role,
             content: [{ type: 'text', text: msg.content }],
@@ -465,10 +475,21 @@ export class AgentRunnerService {
           result: result.data,
         });
 
+        // SEC-LOW-088 (2026-08-23 scan №33): tool output is untrusted context
+        // (tenant data like tank/sensor names rides inside) — a payload
+        // failing the filter is replaced wholesale, keeping the tool loop
+        // alive without handing the payload to the model.
+        let toolContent = result.success ? JSON.stringify(result.data) : `Error: ${result.error}`;
+        if (!this.aiSafety.scanUntrustedContext(toolContent, request.tenantId)) {
+          this.logger.warn(
+            `AI safety replaced tool result of ${toolUse.name} (indirect-injection patterns)`,
+          );
+          toolContent = '[Tool output removed by the safety filter]';
+        }
         toolResults.push({
           type: 'tool_result',
           toolUseId: toolUse.id,
-          content: result.success ? JSON.stringify(result.data) : `Error: ${result.error}`,
+          content: toolContent,
           isError: !result.success,
         });
       }

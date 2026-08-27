@@ -150,6 +150,7 @@ describe('AgentRunnerService held actuation (MOB-HIGH-001)', () => {
         {
           provide: AiSafetyMiddleware,
           useValue: {
+            scanUntrustedContext: jest.fn().mockReturnValue(true),
             preProcess: jest.fn().mockReturnValue({ allowed: true }),
             postProcess: jest.fn((text: string) => ({ outputText: text, piiRedacted: false })),
             validateToolCall: jest.fn().mockResolvedValue({ allowed: true }),

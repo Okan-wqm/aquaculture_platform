@@ -3466,6 +3466,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/safety/__tests__/ai-safety-scan-context.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/safety/ai-safety.middleware.ts",
       "prettier_managed": true
     },

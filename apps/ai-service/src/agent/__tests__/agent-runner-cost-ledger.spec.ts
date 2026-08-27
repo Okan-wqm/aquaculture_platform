@@ -154,6 +154,7 @@ describe('AgentRunnerService cost ledger + budget accounting (ORPHAN-MEDIUM-380)
         {
           provide: AiSafetyMiddleware,
           useValue: {
+            scanUntrustedContext: jest.fn().mockReturnValue(true),
             preProcess: jest.fn().mockReturnValue({
               allowed: true,
               inputFilter: {

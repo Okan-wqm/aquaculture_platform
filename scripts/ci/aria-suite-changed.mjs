@@ -14,11 +14,11 @@
  * suite. CLAUDE.md's "never commit with red tests" was enforced by intention
  * only. ORPHAN-HIGH-510.
  *
- * WHY SCOPED, AND HOW. The suite is ~215s. Unconditionally on every push it
- * would be the kind of gate people learn to bypass, which is worse than no gate.
- * So it fires only when the commits THIS push adds touch a surface the suite
- * asserts on. The trigger set is wider than `aria-kernel/` because the suite is:
- * it reads `.github/workflows` (workflow contracts, SHA pinning, sandbox
+ * WHY SCOPED, AND HOW. The suite executes more than 5,000 tests. Running it on
+ * every push would create pressure to bypass the gate, which is worse than no
+ * gate. So it fires only when the commits THIS push adds touch a surface the
+ * suite asserts on. The trigger set is wider than `aria-kernel/` because the
+ * suite reads `.github/workflows` (workflow contracts, SHA pinning, sandbox
  * containment) and `.github/actions` (composite actions those workflows use),
  * and both of those are how RC-9 broke it without touching a line of Python.
  *
@@ -34,7 +34,15 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 
 /** Paths whose change can break something the ARIA kernel suite asserts. */
-const ARIA_SURFACES = ['aria-kernel', 'tools/aria-poc', '.github/workflows', '.github/actions'];
+const ARIA_SURFACES = [
+  'aria-kernel',
+  'tools/aria-poc',
+  '.github/workflows',
+  '.github/actions',
+  'scripts/ci/aria-suite-changed.mjs',
+  'scripts/ci/aria-suite-run.sh',
+  'package.json',
+];
 
 function git(args) {
   return execFileSync('git', args, { encoding: 'utf8' }).trim();
@@ -81,11 +89,8 @@ process.stdout.write(
   `aria-suite-changed: ${files.length} ARIA-surface file(s) changed since ${base}; running the kernel suite.\n`,
 );
 
-// The suite runs through scripts/ci/aria-suite-run.sh — the single definition
-// that runs BOTH halves (unittest discovery for TestCase modules, pytest for
-// pytest-style modules unittest cannot collect). The inline unittest command
-// that used to live here silently ran zero tests from the pytest-style
-// modules (34 tests invisible to the pre-push gate).
+// The suite runs through scripts/ci/aria-suite-run.sh — the single semantic
+// partition authority for TestCase tests and pytest-native tests.
 const result = spawnSync('bash', ['scripts/ci/aria-suite-run.sh'], {
   stdio: 'inherit',
   env: { ...process.env },

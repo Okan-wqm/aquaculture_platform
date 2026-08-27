@@ -37,11 +37,13 @@ probe reads an absent env (GH_TOKEN never exported to the assemble step).
   modules contributed ZERO executed tests — 34 tests measured invisible
   to every lane and to the pre-push gate (`pytest --collect-only`:
   34; `unittest <module>`: "NO TESTS RAN"). The suite now runs through
-  `scripts/ci/aria-suite-run.sh`, the single definition that runs the
-  unittest half AND pytest over exactly the modules that import pytest
-  at module scope (discovered by grep, not a hand-kept list). All four
-  former call sites (aria-kernel, aria-kernel-fast, `npm run
-aria:test:unit`, the pre-push gate) now delegate to it.
+  `scripts/ci/aria-suite-run.sh`, the single definition that runs
+  `unittest.TestCase` items through unittest and pytest-native items through a
+  full-tree pytest collection. The pytest plugin deselects `TestCase`
+  descendants by class ancestry, so no source-import heuristic, filename
+  allowlist, or unittest/pytest double execution remains. All four former call
+  sites (aria-kernel, aria-kernel-fast, `npm run aria:test:unit`, the pre-push
+  gate) now delegate to it.
 - `aria-readiness-claim.yml` assemble step mints the installation token
   and exports it as `GH_TOKEN` for the branch-protection probe.
 

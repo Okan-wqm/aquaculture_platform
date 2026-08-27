@@ -15,6 +15,7 @@ on:
   pull_request:
     paths:
       - "aria-kernel/**"
+      - "scripts/ci/aria-suite-run.sh"
       - "docs/aria/**"
       - "docs/adr/**"
       - ".github/workflows/aria-kernel*.yml"
@@ -40,7 +41,7 @@ jobs:
       # install it used to do by hand here now lives in the composite action
       # above, so every kernel-running job provisions the same way.
       - uses: ./.github/actions/setup-aria-kernel
-      # Single definition of the whole suite (unittest + pytest-style halves)
+      # Single semantic partition authority for the whole Python suite.
       - run: bash scripts/ci/aria-suite-run.sh
       # Plan ARIA-V5 §3e Phase 2 — pedagogy lint in --strict mode
       # (allowlist ignored; permanently enforcing). Fast PR feedback.

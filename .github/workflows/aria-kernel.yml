@@ -17,6 +17,7 @@ on:
   pull_request:
     paths:
       - "aria-kernel/**"
+      - "scripts/ci/aria-suite-run.sh"
       - "docs/aria/**"
       - ".github/workflows/aria-kernel.yml"
       # Plan ARIA-V2 §3.6 — tools/aria-poc + tools/shared are now
@@ -59,7 +60,7 @@ jobs:
       # package directly writes aria_kernel.egg-info into the checkout,
       # which violates the post-run clean-worktree contract.
       - name: Run aria-kernel unit + invariant tests
-        # Single definition of the whole suite (unittest + pytest-style halves)
+        # Single semantic partition authority for the whole Python suite.
         run: bash scripts/ci/aria-suite-run.sh
       # Plan ARIA-V2 §3.6 + CRITICAL-013 — tests under tools/aria-poc/invariants
       # and tools/shared/invariants are first-class invariants (I-19..I-22, I-39).

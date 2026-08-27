@@ -350,6 +350,50 @@ describe('AuthenticationService refresh-token reuse containment', () => {
     expect(securityEvents.publishSuspiciousActivity).toHaveBeenCalledTimes(1);
   });
 
+  // ─── SEC-MEDIUM-113 (2026-08-23 scan №58): rotation grace window ─────
+
+  it('grace: a JUST-rotated token re-mints once instead of triggering containment', async () => {
+    exactToken = Object.assign(new RefreshToken(), suspectToken, {
+      id: '55555555-5555-5555-8555-555555555555',
+      revokedAt: new Date(Date.now() - 1_000),
+      revokedReason: 'Token refreshed',
+    });
+    tokenService.generateTokens.mockResolvedValue({ accessToken: 'fresh' });
+
+    const result = await service.refreshToken(V2_TRANSPORT);
+
+    expect(result.accessToken).toBe('fresh');
+    // The grace claim flipped the reason — the one-shot semantic
+    expect(refreshUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ revokedReason: 'Token refreshed' }),
+      expect.objectContaining({ revokedReason: 'Token refreshed (grace)' }),
+    );
+    // NO containment effects fired for a benign two-tab race
+    expect(durableUserInvalidation.enqueue).not.toHaveBeenCalled();
+    expect(sessionManager.revokeAllSessions).not.toHaveBeenCalled();
+  });
+
+  it('grace is one-shot: a second presentation of the same row contains', async () => {
+    exactToken = Object.assign(new RefreshToken(), suspectToken, {
+      id: '66666666-6666-6666-8666-666666666666',
+      revokedAt: new Date(Date.now() - 1_000),
+      revokedReason: 'Token refreshed (grace)',
+    });
+
+    await expect(service.refreshToken(V2_TRANSPORT)).rejects.toThrow(UnauthorizedException);
+
+    expect(durableUserInvalidation.enqueue).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ reason: 'refresh_token_reuse' }),
+    );
+  });
+
+  it('an OLD rotation (outside the window) still contains immediately', async () => {
+    // revokedAt 2026-06-10 fixture default — far outside the 60s window
+    await expect(service.refreshToken(V2_TRANSPORT)).rejects.toThrow(UnauthorizedException);
+    expect(tokenService.generateTokens).not.toHaveBeenCalled();
+  });
+
   it('does not contain an expired revoked token', async () => {
     exactToken = Object.assign(new RefreshToken(), suspectToken, {
       expiresAt: new Date('2020-01-01T00:00:00.000Z'),

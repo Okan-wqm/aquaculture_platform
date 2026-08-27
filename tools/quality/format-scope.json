@@ -39443,6 +39443,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/websocket/__tests__/tenant-socket-guards.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/websocket/build-ws-cors-config.ts",
       "prettier_managed": true
     },
@@ -39450,6 +39456,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/websocket/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/websocket/tenant-socket-guards.ts",
       "prettier_managed": true
     },
     {

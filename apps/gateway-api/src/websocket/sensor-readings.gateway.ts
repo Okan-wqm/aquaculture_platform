@@ -25,6 +25,7 @@ import { DEVICE_CODE_REGEX, UUID_REGEX } from '@aquaculture/backend-common/const
 import { buildWsCorsConfig } from '@aquaculture/backend-common/websocket';
 
 import { DeviceOwnershipService } from './services/device-ownership.service';
+import { TenantConnectionLimiter, WsTokenRevalidator } from '@aquaculture/backend-common/websocket';
 
 /** Inbound sensor reading event from the NATS bridge. */
 interface SensorReadingEvent {
@@ -106,6 +107,10 @@ export class SensorReadingsGateway
     private readonly jwtService: JwtService,
     private readonly deviceOwnershipService: DeviceOwnershipService,
     private readonly configService: ConfigService,
+    // SEC-MEDIUM-073/082 (2026-08-23 scan №26/№18): connection ceiling +
+    // hard revocation re-check (subscription caps alone didn't bound sockets).
+    private readonly connectionLimiter: TenantConnectionLimiter,
+    private readonly tokenRevalidator: WsTokenRevalidator,
     @Optional()
     @Inject(SENSOR_AUTH_SERVICE)
     private readonly sensorAuthService?: ISensorAuthorizationService,
@@ -159,6 +164,26 @@ export class SensorReadingsGateway
         }
       }
 
+      // SEC-MEDIUM-073 (№26): per-tenant ceiling.
+      if (!this.connectionLimiter.register(tenantId, client.id)) {
+        this.logger.warn(`Tenant ${tenantId} exceeded its WS connection ceiling`);
+        client.emit('error', { message: 'Too many connections for this tenant' });
+        client.disconnect();
+        return;
+      }
+
+      // SEC-MEDIUM-082 (№18): periodic revocation re-check.
+      this.tokenRevalidator.register(client.id, {
+        tenantId,
+        userId: typeof payload.sub === 'string' ? payload.sub : 'unknown',
+        jti: typeof payload.jti === 'string' ? payload.jti : '',
+        issuedAt: typeof payload.iat === 'number' ? payload.iat : undefined,
+        disconnect: (reason) => {
+          this.logger.warn(`Sensor socket ${client.id} disconnected: ${reason}`);
+          client.disconnect(true);
+        },
+      });
+
       this.clients.set(client.id, {
         socket: client,
         tenantId,
@@ -175,6 +200,11 @@ export class SensorReadingsGateway
   }
 
   handleDisconnect(client: Socket): void {
+    const entry = this.clients.get(client.id);
+    this.tokenRevalidator.unregister(client.id);
+    if (entry) {
+      this.connectionLimiter.release(entry.tenantId, client.id);
+    }
     this.clients.delete(client.id);
     this.logger.log(`Client ${client.id} disconnected`);
   }

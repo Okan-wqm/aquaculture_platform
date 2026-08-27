@@ -3323,6 +3323,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/cost/__tests__/token-budget-reserve.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/cost/__tests__/turn-ledger.service.spec.ts",
       "prettier_managed": true
     },

@@ -47,6 +47,8 @@ describe('AgentRunnerService cost ledger + budget accounting (ORPHAN-MEDIUM-380)
     service: AgentRunnerService;
     recordTurn: jest.Mock;
     addUsage: jest.Mock;
+    reserveBudget: jest.Mock;
+    settleReservation: jest.Mock;
     updateTokenCount: jest.Mock;
   }
 
@@ -58,6 +60,9 @@ describe('AgentRunnerService cost ledger + budget accounting (ORPHAN-MEDIUM-380)
   }): Promise<Harness> => {
     const recordTurn = jest.fn().mockResolvedValue(options.ledgerPersisted ?? true);
     const addUsage = jest.fn().mockResolvedValue(0);
+    // SEC-MEDIUM-075: budget accounting now flows through reserve/settle
+    const reserveBudget = jest.fn().mockResolvedValue(undefined);
+    const settleReservation = jest.fn().mockResolvedValue(undefined);
     const updateTokenCount = jest.fn().mockResolvedValue(undefined);
     const chat = jest.fn();
     for (const response of options.providerResponses) {
@@ -115,6 +120,8 @@ describe('AgentRunnerService cost ledger + budget accounting (ORPHAN-MEDIUM-380)
         {
           provide: TokenBudgetService,
           useValue: {
+            reserveBudget,
+            settleReservation,
             checkBudget: jest.fn().mockResolvedValue({
               allowed: true,
               used: 0,
@@ -182,6 +189,8 @@ describe('AgentRunnerService cost ledger + budget accounting (ORPHAN-MEDIUM-380)
       service: moduleRef.get(AgentRunnerService),
       recordTurn,
       addUsage,
+      reserveBudget,
+      settleReservation,
       updateTokenCount,
     };
   };
@@ -200,7 +209,8 @@ describe('AgentRunnerService cost ledger + budget accounting (ORPHAN-MEDIUM-380)
     const response = await harness.service.chat(chatRequest);
 
     // total = input + output + cacheCreation (NOT cacheRead)
-    expect(harness.addUsage).toHaveBeenCalledWith(tenantId, 170);
+    // SEC-MEDIUM-075: billed figure rides settleReservation (actual usage)
+    expect(harness.settleReservation).toHaveBeenCalledWith(tenantId, expect.any(Number), 170);
     expect(harness.updateTokenCount).toHaveBeenCalledWith(
       conversationId,
       tenantId,
@@ -240,8 +250,11 @@ describe('AgentRunnerService cost ledger + budget accounting (ORPHAN-MEDIUM-380)
       usage: { input: 300, output: 60, cacheRead: 30, cacheCreation: 40 },
       flaggedCategories: [],
     });
-    // Budget across both loop iterations: 300 + 60 + 40 (cacheCreation billed)
-    expect(harness.addUsage).toHaveBeenCalledWith(tenantId, 400);
+    // Budget across both loop iterations settles PER CALL (SEC-MEDIUM-075):
+    // turn 1 = 100+40+10 = 150, turn 2 = 200+20+30 = 250; cacheCreation is
+    // billed, cacheRead is not — the semantics the aggregate assertion pinned.
+    expect(harness.settleReservation).toHaveBeenNthCalledWith(1, tenantId, expect.any(Number), 150);
+    expect(harness.settleReservation).toHaveBeenNthCalledWith(2, tenantId, expect.any(Number), 250);
   });
 
   it('carries safety flags into the ledger row', async () => {
@@ -270,6 +283,6 @@ describe('AgentRunnerService cost ledger + budget accounting (ORPHAN-MEDIUM-380)
 
     expect(harness.recordTurn).toHaveBeenCalledTimes(1);
     expect(response.message).toBe('All tanks nominal.');
-    expect(harness.addUsage).toHaveBeenCalledWith(tenantId, 15);
+    expect(harness.settleReservation).toHaveBeenCalledWith(tenantId, expect.any(Number), 15);
   });
 });

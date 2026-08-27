@@ -184,9 +184,9 @@ Every GitHub collection used to decide existence, latest selection, cardinality,
 exhaustive. The trusted collector follows every RFC 8288 `Link` header until no `rel="next"`
 remains; `per_page=100` is only an optimization. It canonicalizes the complete multipage set,
 validates `total_count` when the endpoint supplies it, and rejects duplicate identities across page
-boundaries. This contract covers check runs, workflow runs, workflow jobs, run artifacts, PR comments, pull
-requests, rulesets, tag/ref matches, and every other program list. A default first-page response is
-never evidence authority.
+boundaries. This contract covers check runs, workflow runs, workflow jobs, run artifacts, PR
+comments, pull requests, rulesets, tag/ref matches, and every other program list. A default
+first-page response is never evidence authority.
 
 Review is a program-local gate, not a claim about GitHub branch-protection approval. The repository
 has no eligible non-author collaborator who can submit a GitHub `APPROVED` review. Instead, an

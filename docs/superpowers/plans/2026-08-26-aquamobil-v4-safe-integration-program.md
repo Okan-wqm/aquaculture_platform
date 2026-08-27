@@ -68,7 +68,8 @@ Actions
   closeout-terminal-evidence, and all later closeout PRs use Order 0's generic
   `--verify-prospective-program-pr` mode with those same two required flags. A finding-close entry
   point is a strict alias over that same prospective/spool/postmerge verifier with
-  `PROGRAM_PR_KIND=finding-close`; it is not a separate or weaker closure mode. Order 0 itself has the only narrowly
+  `PROGRAM_PR_KIND=finding-close`; it is not a separate or weaker closure mode. Order 0 itself has
+  the only narrowly
   tested `--bootstrap-order0-pr` self-binding exception because the tool does not yet exist on
   protected main. A check result for a PR head, a prior test-merge candidate, or a base that advanced
   after review never authorizes merge.
@@ -1349,8 +1350,8 @@ this same prospective/spool/post-merge protocol, not weaker evidence formats.
 The Git common directory owns durable evidence at
 `.git/aquamobil-v4-program-evidence/v1/pr-<N>/`. Each changed candidate/check/artifact set creates an
 append-only `generations/<checkArtifactSetSha256>/` child with distinct `review/`, `authorization/`,
-`prospective/`, and `postmerge/` phase directories, so a rerun never overwrites a prior authorization and every
-immutable `manifest.json` has one phase. The tools resolve the root with
+`prospective/`, and `postmerge/` phase directories, so a rerun never overwrites a prior
+authorization and every immutable `manifest.json` has one phase. The tools resolve the root with
 `git rev-parse --path-format=absolute --git-common-dir`; `lstat` every ancestor and leaf, reject
 symlinks/non-directories/wrong owner or mode, create the root and PR directory mode `0700`, create
 each same-directory scratch file mode `0600` with `open(O_NOFOLLOW|O_CREAT|O_EXCL)`, canonicalize
@@ -1487,8 +1488,8 @@ node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/capture-github-evidence.mjs" \
 
 The by-kind enforcement requires literal null for every kind except `closeout-receipt`. For that
 finalizer, the trusted detached coordinator resolves the candidate disposition and selected
-live-reference blob, recomputes all content/API digests, exhaustively rereads the source ref and PR
-#1107, and copies one canonical `closeoutFinalizerObservation` through review, report,
+live-reference blob, recomputes all content/API digests, exhaustively rereads the source ref and
+PR #1107, and copies one canonical `closeoutFinalizerObservation` through review, report,
 authorization, and prospective evidence. False/false requires source PRESENT at the immutable SHA
 and PR #1107 OPEN/non-draft with its exact head/ref/SHA/base identity. Required-workflow candidate
 emitters remain tokenless and API-free. The prospective check is rerun immediately before merge;
@@ -1588,8 +1589,9 @@ generic PR names exactly the immediately preceding generic PR selected by the sc
 file is the full portable `ProgramPrEvidence`—payload plus verified recovery-comment attestation—and
 never contains a host-local spool path. `GenericProgramPrPostmergePayload` copies that exact prior
 reference.
-After the new PR merges, `T == resultingMain^{tree}` makes the predecessor record main-reachable. No following generic PR may
-start review or authorization until that post-merge proof succeeds. `closeout-receipt` carries the
+After the new PR merges, `T == resultingMain^{tree}` makes the predecessor record main-reachable. No
+following generic PR may start review or authorization until that post-merge proof succeeds.
+`closeout-receipt` carries the
 archive and therefore every earlier generic record through this rule, but cannot commit its own
 post-merge result into itself. Its verified common-dir spool plus full canonical GitHub recovery
 comment is the one terminal external anchor, preventing an infinite meta-reconciliation chain.
@@ -1990,9 +1992,10 @@ requires exact flag
 `--require-current-pr-test-merge-candidate`; any other spelling is an error.
 
 Modify only the three existing required workflows; do not add a workflow. Each producer job has
-exact job-level `permissions: { contents: read }`; `actions: read` is forbidden. Both the SHA-pinned checkout and
-emitter/upload are guarded by the identical `if: github.event_name == 'pull_request'`, so existing
-push/manual lanes remain untouched. Checkout uses `fetch-depth: 2` and `persist-credentials: false`.
+exact job-level `permissions: { contents: read }`; `actions: read` is forbidden. Both the SHA-pinned
+checkout and emitter/upload are guarded by the identical
+`if: github.event_name == 'pull_request'`, so existing push/manual lanes remain untouched. Checkout
+uses `fetch-depth: 2` and `persist-credentials: false`.
 Neither the emitter nor upload receives `GH_TOKEN` or any other token. The producer matrix is closed:
 
 | Workflow                                     | Producer job/context   | Explicit `--job-workflow-file-path`          |
@@ -2112,10 +2115,10 @@ semantics, all four check attestations, the three artifact/API digests, and the 
 reviewer, administrator comment ID/URL/body digest, comment-author permission-response digest, and
 PR API digest. Fixtures also pin full authorization recovery after deleting the local spool and
 expiring source artifacts; separate review/authorization/prospective/postmerge manifests excluding
-themselves;
-exclusive-link publication; the current authorization-comment cardinality rule; exact-kind equality; boundary/
-generic discriminated payloads; and the previous-generic record in candidate `C/T`. Stale `H`, `B`,
-or `C`, an edited/deleted comment, a different report digest, a second current matching authorization comment,
+themselves; exclusive-link publication; the current authorization-comment cardinality rule;
+exact-kind equality; boundary/ generic discriminated payloads; and the previous-generic record in
+candidate `C/T`. Stale `H`, `B`, or `C`, an edited/deleted comment, a different report digest, a
+second current matching authorization comment,
 60001-byte envelope, source artifact carrying the set digest, self-hashing manifest, `rename()` over
 an immutable final, two writers racing `link(temp,final)`, `EEXIST`, symlink leaf/ancestor,
 crash-left temp without exact remote recovery, mismatched generation, missing prior tracked blob,

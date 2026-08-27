@@ -342,8 +342,8 @@ used by capture/recovery—pull requests, check runs, workflow runs, workflow jo
 comments, rulesets, and tag/ref matches—follows every RFC 8288 `Link` page, canonicalizes the
 complete set, validates
 `total_count` when present, and rejects loops, missing pages, and cross-page duplicates;
-`per_page=100` is only an optimization and page one is never authority. Common-dir generation files use the exclusive
-temp-write/fsync/`link(temp,final)` no-replace protocol and self-excluding
+`per_page=100` is only an optimization and page one is never authority. Common-dir generation files
+use the exclusive temp-write/fsync/`link(temp,final)` no-replace protocol and self-excluding
 review/authorization/prospective/postmerge phase manifests.
 
 After each protected merge, run the master plan's exact fresh-shell generation resolver,

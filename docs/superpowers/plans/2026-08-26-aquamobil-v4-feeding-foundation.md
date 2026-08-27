@@ -176,7 +176,8 @@ exit zero.
   A dependent slice starts only after the prior slice's reconciliation PR is protected-main
   reachable and the coordinator-owned ledger verifier passes with protected-main ancestry enabled.
 
-- The generated post-#1333 Order 0 main result is an ancestor of every slice base. Its clean detached coordinator persists at
+- The generated post-#1333 Order 0 main result is an ancestor of every slice base. Its clean detached
+  coordinator persists at
   `/var/aqua-saas/.worktrees/aquamobil-v4-coordinator`. Every lifecycle, capture, audit, reconcile,
   or ledger-verification action starts in a new shell with the complete refresh preamble printed in
   the steps below. Lifecycle commands run from that coordinator; output-writing commands first
@@ -193,7 +194,8 @@ exit zero.
 - Before requesting each implementation PR review, run program plan Task 2 Step 2's exact
   coordinator-absolute `capture-aquamobil-v4-audit-inputs.mjs`, mapper, production
   Vite/Rollup-manifest, and `capture-slice-audit.mjs` commands for the active slice. Task 17 Steps
-  8–9 commit the corresponding final verification set. For that pre-merge run, derive the exact path set with
+  8–9 commit the corresponding final verification set. For that pre-merge run, derive the exact
+  path set with
   `git diff --name-only "$(git merge-base HEAD origin/main)" HEAD`; attach the ephemeral reports and
   preserved audit status to the PR, and record every decision in the boundary workflow evidence
   consumed by its immutable merge record. Any unclassified or affected-and-runtime-reachable
@@ -2648,8 +2650,8 @@ Expected: all three ordered F0 boundaries are protected-main ancestors, the immu
 `implementationBoundaries` array matches the pinned ID set, and the serialized F0 reconciliation is
 on main. Run program plan Task 2 Step 2's exact coordinator-absolute audit-input capture, production
 manifest build, mapper, and `capture-slice-audit.mjs --slice F1a` sequence with output root
-`artifacts/aquamobil-v4/F1a`, then write/check only `slices/F1a/preflight.json`; no central or foreign-slice evidence
-path may change.
+`artifacts/aquamobil-v4/F1a`, then write/check only `slices/F1a/preflight.json`; no central or
+foreign-slice evidence path may change.
 
 - [ ] **Step 1: Write RED catalog and compatibility-boundary tests**
 
@@ -3590,8 +3592,9 @@ node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/verify-ledger.mjs" \
 
 Run program plan Task 2 Step 2's exact coordinator-absolute audit-input capture, production manifest
 build, mapper, and `capture-slice-audit.mjs --slice F2` sequence with output root
-`artifacts/aquamobil-v4/F2`, then write/check only `slices/F2/preflight.json`. Expected: the branch starts after both the serialized F1a and I1 slice
-reconciliations, all earlier feeding owner evidence and I1's closed image authority verify, no F1b
+`artifacts/aquamobil-v4/F2`, then write/check only `slices/F2/preflight.json`. Expected: the branch
+starts after both the serialized F1a and I1 slice reconciliations, all earlier feeding owner evidence
+and I1's closed image authority verify, no F1b
 producer exists, and no central/foreign-slice evidence changes.
 
 - [ ] **Step 1: Audit anchored history before assigning an event version**
@@ -4120,8 +4123,9 @@ node "$COORDINATOR_WORKTREE/tools/aquamobil-v4/verify-ledger.mjs" \
 
 Run program plan Task 2 Step 2's exact coordinator-absolute audit-input capture, production manifest
 build, mapper, and `capture-slice-audit.mjs --slice F1b` sequence with output root
-`artifacts/aquamobil-v4/F1b`, then write/check only `slices/F1b/preflight.json`. Expected: the branch starts after the serialized F2 reconciliation;
-F0/F1a/F2 owner evidence verifies; the version 1 validator plus generated cert-CN grants exist; and
+`artifacts/aquamobil-v4/F1b`, then write/check only `slices/F1b/preflight.json`. Expected: the branch
+starts after the serialized F2 reconciliation; F0/F1a/F2 owner evidence verifies; the version 1
+validator plus generated cert-CN grants exist; and
 no central or foreign-slice evidence changes.
 
 - [ ] **Step 1: Write RED DTO validation tests**
@@ -4845,8 +4849,9 @@ and merged. Read
 the full main SHAs from each immutable `slices/<SliceId>/merge.json`; do not ask an operator to type
 them. The validator requires the exact boundary-ID tuple pinned above, verifies each complete GitHub
 PR attestation, four required checks, exactly three non-null current-candidate run/artifact
-attestations, and independent-review/administrator-comment evidence; it proves the same ordered array appears in generated
-`ownerEvidence[SliceId]` for every approved-owner row, and rejects any short, non-main, duplicate,
+attestations, and independent-review/administrator-comment evidence; it proves the same ordered
+array appears in generated `ownerEvidence[SliceId]` for every approved-owner row, and rejects any
+short, non-main, duplicate,
 missing, extra, or out-of-order boundary. It reads but never writes generated central evidence.
 
 Run:

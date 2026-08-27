@@ -3866,8 +3866,8 @@ ledger-verifier sequence from **Canonical Coordinator and Slice Preflight** into
 F5 PR by setting `VFD_SLICE=F5` and running the Mandatory VFD Protected Boundary Gate, then merge.
 Run program plan Task 3 Steps 3-4's exact F5 reconciliation worktree, coordinator-absolute capture,
 commit, independent-report/administrator-comment, and current-candidate prospective-verifier
-sequence to capture `loop-completion` and regenerate the ledger. V6 waits for that exact reconciliation commit
-and the independent UI finding-close reconciliation.
+sequence to capture `loop-completion` and regenerate the ledger. V6 waits for that exact
+reconciliation commit and the independent UI finding-close reconciliation.
 
 ---
 
@@ -4477,8 +4477,8 @@ Task 23 completes the one V6 implementation boundary. Set `VFD_SLICE=V6`, run th
 Protected Boundary Gate, and merge. Run program plan Task 3 Steps 3-4's exact V6 reconciliation
 worktree, coordinator-absolute capture, commit, independent-report/administrator-comment, and
 current-candidate prospective-verifier sequence to capture `vfd-operations` and regenerate the
-ledger. Task 24 cannot create its closure worktree until F3, F4, F5, and V6 reconciliation artifacts and their exact reconciliation commits are all
-protected-main-reachable.
+ledger. Task 24 cannot create its closure worktree until F3, F4, F5, and V6 reconciliation artifacts
+and their exact reconciliation commits are all protected-main-reachable.
 
 ### Task 24: Close all 22 HIGH findings through a separate protected PR
 
@@ -4647,8 +4647,8 @@ the repository template for each mapped ID. Every attestation names the actual f
 SHA, protected PR, authenticated author, distinct reviewer, finding-specific production and test
 paths, the verification run that exercised that boundary, and an ongoing invariant. The reviewer is
 the independent-agent identity preserved in `programLocalReview`, not a GitHub approval. Template
-values, short SHAs, a closure-merge SHA substituted for the implementation SHA, reviewer/author identity reuse, reused generic
-evidence, or an ID outside the exact map fails this step.
+values, short SHAs, a closure-merge SHA substituted for the implementation SHA, reviewer/author
+identity reuse, reused generic evidence, or an ID outside the exact map fails this step.
 
 - [ ] **Step 4: Verify, commit, push, and protect only the finding-closure surface**
 

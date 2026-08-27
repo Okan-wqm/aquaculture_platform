@@ -778,8 +778,9 @@ usable and the peer live directory is absent.
 
 The affected required-workflow/manifest edits preserve Order 0's terminal candidate emitter/upload
 and exact four-context/three-artifact pins byte-for-contract; this task changes only their delivery
-dependencies. The staging workflow performs render-to-`.next`, selected certificate readability, SAN, expiry, key
-parse/match, peer-directory absence, and pinned-image `nginx -t` before atomically publishing the
+dependencies. The staging workflow performs render-to-`.next`, selected certificate readability,
+SAN, expiry, key parse/match, peer-directory absence, and pinned-image `nginx -t` before atomically
+publishing the
 runtime config and running full Compose. Failure leaves the previously published runtime config and
 running nginx untouched. Production owns the same sequence in `scripts/deploy/droplet-up.sh`;
 `deploy-digitalocean.yml` remains only its caller. Update `docs/runbooks/staging-environment.md`

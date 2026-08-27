@@ -2177,7 +2177,8 @@ freeze, a tip move between freeze proof and the close intent (with proof that cl
 tip move between freeze proof and delete intent, freeze installation/effective-query
 failures, duplicate or bypassed rulesets, update/creation rejection, normal deletion allowance,
 recreation rejection after deletion, a two-writer journal race with one `EEXIST` loser, receipt-main
-validation failure, cleanup refusal, and a successful resume. Tests also prove the control-plane installation never appears in
+validation failure, cleanup refusal, and a successful resume. Tests also prove the control-plane
+installation never appears in
 requested/successful source actions, force/lease-force arguments are rejected, and successful
 deletion leaves the exact ruleset ACTIVE. The no-action fixture proves the finalizer still runs and
 that no journal, action receipt, or post-action reference is created.

@@ -29,8 +29,11 @@ export class RecordPaymentHandler implements ICommandHandler<RecordPaymentComman
     return await this.dataSource.transaction(async (manager) => {
       // Idempotency: if a stripePaymentIntentId is provided, check for an existing payment
       if (input.stripePaymentIntentId) {
+        // SEC-LOW-085-adjacent (2026-08-23 scan №30): tenant-scoped — a bare
+        // pi_ reference from another tenant must never return that tenant's
+        // Payment as this mutation's result.
         const existing = await manager.findOne(Payment, {
-          where: { stripePaymentIntentId: input.stripePaymentIntentId },
+          where: { stripePaymentIntentId: input.stripePaymentIntentId, tenantId },
         });
         if (existing) {
           this.logger.log(

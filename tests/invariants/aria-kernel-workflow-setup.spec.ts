@@ -86,6 +86,23 @@ describe('aria-kernel workflow provisioning', () => {
     expect(workflowFiles.length).toBeGreaterThan(5);
   });
 
+  it('anchors the auto-cycle job clock immediately after checkout and before kernel setup', () => {
+    const workflow = yaml.load(
+      readFileSync(join(WORKFLOW_DIR, 'aria-auto-cycle.yml'), 'utf8'),
+    ) as Workflow | null;
+    const steps = workflow?.jobs?.cycle?.steps ?? [];
+    const checkoutIndex = steps.findIndex((step) => step.uses?.startsWith('actions/checkout@'));
+    const anchorIndexes = steps.flatMap((step, index) =>
+      step.name === 'Anchor the job launch epoch' ? [index] : [],
+    );
+    const setupIndex = steps.findIndex(usesSetupAction);
+
+    expect(checkoutIndex).toBeGreaterThanOrEqual(0);
+    expect(anchorIndexes).toHaveLength(1);
+    expect(anchorIndexes[0]).toBe(checkoutIndex + 1);
+    expect(setupIndex).toBe(checkoutIndex + 2);
+  });
+
   it('provisions the kernel before any job step that runs kernel code', () => {
     const violations: string[] = [];
 

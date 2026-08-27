@@ -20,7 +20,7 @@ mystery cancellations across PRs #1329 and #1331.
 - Local suite measurement: `Ran 5048 tests in 5747.674s` (~96 min wall on
   the memory-contended droplet; hosted runners are faster but not 4x).
 
-## ARIA-MEDIUM-020 — kernel CI lane timeouts are shorter than the suite they run, so every PR's kernel lanes cancel
+## ARIA-MEDIUM-020 — kernel CI lane timeouts shorter than the suite they run
 
 Any PR touching an ARIA surface gets `unittest`/`aria-kernel` cancelled by
 their own job timeouts; the lanes can never go green, the scheduled-workflow

@@ -153,6 +153,18 @@ jobs:
           # before it.
           clean: true
 
+      # ARIA-HIGH-019 — anchor the job's wall-clock at the earliest possible
+      # step. The nightly step used to compute its seal deadline from its OWN
+      # start time, assuming ~5m of setup before it; a fresh-store restore of
+      # the aria/state branch measures 17m41s (run 32771477211), which spent
+      # the whole close-out margin before the first cycle phase and pushed the
+      # seal 8 minutes past the 360m platform ceiling — the job was cancelled
+      # between seal and publish. The nightly step now derives the deadline
+      # from THIS epoch, so the margin belongs to the close-out steps no
+      # matter how long setup took.
+      - name: Anchor the job launch epoch
+        run: echo "ARIA_JOB_LAUNCH_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
+
       - uses: ./.github/actions/setup-aria-kernel
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -666,19 +678,21 @@ jobs:
           fi
           # Smoke-run 31645296013 — a spawn that cannot finish before the
           # job dies must not start. Export the ABSOLUTE deadline this job
-          # runs under (its own timeout-minutes, minus 5 minutes for the
+          # runs under (its own timeout-minutes, minus 10 minutes for the
           # post-steps: handoff snapshot, state verify, publish) so
           # claude_runtime clamps every spawn's timeout to the remaining
           # wall-clock instead of letting the last spawn be cut mid-flight
           # and the whole night quarantine.
-          # 10-minute margin: ~5m of setup steps already spent before this
-          # step (the epoch is computed here, not at job start) + ~5m for
-          # the close-out steps after it. Single mode-independent value —
-          # the job cap is the 360-minute platform ceiling for every mode
-          # (operator decision 2026-08-13).
+          # ARIA-HIGH-019 — the epoch is anchored at the job-launch step
+          # near the top of this job ($ARIA_JOB_LAUNCH_EPOCH), NOT here: a
+          # fresh-store restore measured 17m41s before this step (run
+          # 32771477211), which consumed the margin computed from the step
+          # clock and sealed the cycle 8 minutes past the platform ceiling.
+          # Anchoring here is only the local-dispatch fallback (env unset).
           JOB_TIMEOUT_MINUTES=360
-          export ARIA_JOB_DEADLINE_EPOCH=$(( $(date +%s) + JOB_TIMEOUT_MINUTES * 60 - 600 ))
-          echo "spawn deadline: $(date -u -d @${ARIA_JOB_DEADLINE_EPOCH} +%H:%M:%SZ) (job cap ${JOB_TIMEOUT_MINUTES}m - 10m margin)"
+          ANCHOR_EPOCH="${ARIA_JOB_LAUNCH_EPOCH:-$(date +%s)}"
+          export ARIA_JOB_DEADLINE_EPOCH=$(( ANCHOR_EPOCH + JOB_TIMEOUT_MINUTES * 60 - 600 ))
+          echo "spawn deadline: $(date -u -d @${ARIA_JOB_DEADLINE_EPOCH} +%H:%M:%SZ) (job cap ${JOB_TIMEOUT_MINUTES}m - 10m margin, anchored $( [ -n "${ARIA_JOB_LAUNCH_EPOCH:-}" ] && echo at-job-launch || echo at-step ))"
           PYTHONPATH=aria-kernel python3 -m aria_kernel autonomy run \
             --workspace-root "$GITHUB_WORKSPACE" \
             --tools-dir "$ARIA_TOOLS_DIR" \

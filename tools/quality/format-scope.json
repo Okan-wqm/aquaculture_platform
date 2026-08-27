@@ -33273,6 +33273,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/aria/2026-08-27-executor-evidence-target-mismatch.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/aria/2026-08-27-hosted-lane-mint-probe-wiring.md",
       "prettier_managed": true
     },

@@ -30,6 +30,8 @@ gates exist to provide.
 ## Fix
 
 Raise the budgets to fit the measured suite with headroom:
-`aria-kernel-fast` 15 → 45 minutes, `aria-kernel` 20 → 60 minutes. Both
-remain far below the 360-minute platform ceiling and only bound the suite
-they run.
+`aria-kernel-fast` 15 → 60 minutes (45 was measured insufficient — the
+fast lane's hosted runner needed more than 45m7s, run 33056211926),
+`aria-kernel` 20 → 60 minutes (the full lane finished its suite in 33m
+once allowed to, run 33056211686). Both remain far below the 360-minute
+platform ceiling and only bound the suite they run.

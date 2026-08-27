@@ -18,6 +18,8 @@ import {
   SourceSchemaBootstrapService,
   TenantSchemaSyncService,
   TenantSchemaCacheModule,
+  RlsModule,
+  getRlsExcludeTablesForService,
 } from '@aquaculture/backend-common/database';
 import { TenantExecutionContextModule } from '@aquaculture/backend-common/context';
 import {
@@ -348,6 +350,20 @@ interface ApolloGraphQLContext {
     // (no stale-negative-cache block for freshly provisioned tenants).
     TenantSchemaCacheModule,
     SchemaDriftModule.forRoot({ serviceName: 'hr' }),
+
+    // SEC-LOW-078 (2026-08-23 scan №23): RLS parity with farm/sensor/
+    // messaging/hydroponics/alert/ai — hr was the ONLY schema-per-tenant
+    // service without the row-level-security bootstrap (isolation was
+    // search_path-only, single layer). Registered AFTER
+    // TenantConnectionBootstrap per the documented provider chain; GUC
+    // injection rides the same AsyncLocalStorage tenant context the
+    // bootstrap already establishes for every request-path query.
+    RlsModule.forPoolService({
+      serviceName: 'hr',
+      autoApply: false,
+      syncTenantSchemas: true,
+      excludeTables: getRlsExcludeTablesForService('hr'),
+    }),
   ],
   providers: [
     // Migration runner — see const declaration near top of file.

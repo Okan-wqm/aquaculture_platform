@@ -27,7 +27,11 @@ probe reads an absent env (GH_TOKEN never exported to the assemble step).
 
 - `aria-kernel/pyproject.toml` declares `pyjwt[crypto]>=2.8` — the single
   SSoT path the `setup-aria-kernel` action installs from, so every
-  kernel-importing lane gets it automatically.
+  kernel-importing lane gets it automatically. Same defect class,
+  measured on run 33056211686 once the raised timeout let the hosted
+  suite reach discovery: `pytest` is also declared now, because three
+  test modules import it at module scope and `unittest discover` fails
+  at import on any host without it.
 - `aria-readiness-claim.yml` assemble step mints the installation token
   and exports it as `GH_TOKEN` for the branch-protection probe.
 

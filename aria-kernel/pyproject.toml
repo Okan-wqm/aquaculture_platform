@@ -18,6 +18,13 @@ dependencies = [
     # Declaring it here is the single SSoT path the setup-aria-kernel
     # action installs from.
     "pyjwt[crypto]>=2.8",
+    # Same defect class, measured on run 33056211686 once the kernel lane's
+    # timeout let the suite reach discovery: test_external_outage_reaper,
+    # test_knowledge_graph_replay and test_replay_logical_consumers import
+    # pytest at module scope, so ``unittest discover`` fails at IMPORT on
+    # any host without pytest (every hosted lane). The operator droplet has
+    # it system-wide, which is why local suite runs passed.
+    "pytest>=8.0",
 ]
 
 [project.scripts]

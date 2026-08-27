@@ -56,11 +56,14 @@ name: aria-auto-cycle
 
 on:
   schedule:
-    # 01:13 UTC nightly — before aria-agent-executor's 02:29 drain so any
-    # queue rows this cycle leaves behind get a same-night second drain pass.
+    # 17:13 UTC = 19:13 Oslo (CEST) — operator decision 2026-08-27: the cycle
+    # runs INSIDE the operator's evening work window (7pm Norway), not at
+    # night, so the operator can watch the run and intervene while awake.
+    # Still before aria-agent-executor's drain so queue rows this cycle
+    # leaves behind get a second drain pass the same evening.
     # 13 past, not :00 — GitHub fires top-of-hour crons up to ~75min late
     # under shared-infra load (measured 2026-08-18: 01:00 fired 02:13).
-    - cron: '13 1 * * *'
+    - cron: '13 17 * * *'
   workflow_dispatch:
     inputs:
       mode:

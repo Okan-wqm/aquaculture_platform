@@ -518,8 +518,19 @@ describe('ARIA live runtime/documentation SSoT', () => {
       "compile(p.read_text(encoding='utf-8'), str(p), 'exec')",
     );
     expect(pkg.scripts['aria:compile']).not.toContain('compileall');
-    expect(pkg.scripts['aria:test:unit']).toContain(
+    // The suite entrypoint delegates to scripts/ci/aria-suite-run.sh — the
+    // single definition that runs the unittest half AND the pytest half
+    // (unittest discovery collects TestCase classes only; the pytest-style
+    // modules contributed zero executed tests under the old inline command).
+    // These pins keep the delegation honest: entrypoint shape here, both
+    // halves + the grep discovery in the script itself.
+    expect(pkg.scripts['aria:test:unit']).toBe('bash scripts/ci/aria-suite-run.sh');
+    expect(read('scripts/ci/aria-suite-run.sh')).toContain(
       "python3 -m unittest discover aria-kernel -p '*test*.py'",
+    );
+    expect(read('scripts/ci/aria-suite-run.sh')).toContain('python3 -m pytest -q');
+    expect(read('scripts/ci/aria-suite-run.sh')).toContain(
+      "grep -lE '^import pytest|^from pytest'",
     );
     expect(pkg.scripts['aria:docs:ssot']).toBe(
       'jest --config tests/invariants/jest.config.ts --selectProjects layer-3 --runTestsByPath tests/invariants/aria-doc-runtime-ssot.spec.ts',

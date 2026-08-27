@@ -133,7 +133,17 @@ impl super::CommandHandler {
                     &rbac_store,
                 ) {
                     envelope_adapter::AdapterOutcome::NotEnvelopeFormat => {
-                        // Legacy path — CommandMessage parse.
+                        // SEC-HIGH-057 (2026-08-23 scan №2): Enforcing mode
+                        // REJECTS non-envelope payloads — the entire point of
+                        // the mode is that only signed envelopes execute.
+                        if signature_mode == crate::command_envelope::envelope::SignatureMode::Enforcing {
+                            warn!(
+                                "ENFORCING: rejected non-envelope payload on {} (unsigned legacy path forbidden)",
+                                message.topic
+                            );
+                            return Ok(());
+                        }
+                        // Disabled/Permissive: legacy path — CommandMessage parse.
                         match serde_json::from_slice(&message.payload) {
                             Ok(cmd) => cmd,
                             Err(e) => {
@@ -207,16 +217,28 @@ impl super::CommandHandler {
                     state_guard.config.runtime.max_command_skew_secs as i64,
                 )
             };
-            if let Ok(cmd_time) = chrono::DateTime::parse_from_rfc3339(&command.timestamp) {
-                let age = chrono::Utc::now().signed_duration_since(cmd_time);
-                if age.num_seconds() > max_age_secs || age.num_seconds() < -max_skew_secs {
+            // SEC-HIGH-057 (№2): unparseable timestamp previously SILENTLY
+            // SKIPPED the replay age check — hard-fail instead.
+            match chrono::DateTime::parse_from_rfc3339(&command.timestamp) {
+                Ok(cmd_time) => {
+                    let age = chrono::Utc::now().signed_duration_since(cmd_time);
+                    if age.num_seconds() > max_age_secs || age.num_seconds() < -max_skew_secs {
+                        warn!(
+                            "Rejecting stale/future command: {} age={}s (id: {}, max_age={}s, max_skew={}s)",
+                            command.command,
+                            age.num_seconds(),
+                            command.command_id,
+                            max_age_secs,
+                            max_skew_secs
+                        );
+                        return Ok(());
+                    }
+                }
+                Err(_) => {
                     warn!(
-                        "Rejecting stale/future command: {} age={}s (id: {}, max_age={}s, max_skew={}s)",
-                        command.command,
-                        age.num_seconds(),
-                        command.command_id,
-                        max_age_secs,
-                        max_skew_secs
+                        "Rejecting command with unparseable timestamp '{}': replay window cannot be enforced (id: {})",
+                        command.timestamp,
+                        command.command_id
                     );
                     return Ok(());
                 }

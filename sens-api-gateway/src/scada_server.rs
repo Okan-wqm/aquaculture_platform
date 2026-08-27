@@ -795,13 +795,36 @@ impl PinLockoutState {
 
 /// Verify a PIN against the package's pin_hash using SHA-256 with constant-time comparison
 fn verify_pin(input: &str, pin_hash: &str) -> bool {
-    use sha2::{Digest, Sha256};
     use subtle::ConstantTimeEq;
+
+    // SEC-LOW-065 (2026-08-23 scan №10): argon2id — single-iteration
+    // unsalted SHA-256 let a numeric PIN be brute-forced in milliseconds.
+    // Stored pin_hash values carry a format tag: "$argon2id$..." → argon2
+    // verify; anything else (legacy hex SHA-256) verifies then the caller
+    // transparently upgrades on next write (see hash_pin).
+    if pin_hash.starts_with("$argon2id$") {
+        return match argon2::verify(pin_hash, input.as_bytes()) {
+            Ok(valid) => valid,
+            Err(_) => false,
+        };
+    }
+
+    // Legacy SHA-256 fallback (constant-time compare preserved)
+    use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(input.as_bytes());
     let result = format!("{:x}", hasher.finalize());
-    // Constant-time comparison prevents timing side-channel attacks
     result.as_bytes().ct_eq(pin_hash.as_bytes()).into()
+}
+
+/// SEC-LOW-065 (№10): hash a PIN with argon2id for storage.
+pub fn hash_pin(input: &str) -> Result<String, String> {
+    use argon2::password_hash::{PasswordHasher, SaltString, rand_core::OsRng};
+    let salt = SaltString::generate(&mut OsRng);
+    argon2::Argon2::default()
+        .hash_password(input.as_bytes(), &salt)
+        .map(|h| h.to_string())
+        .map_err(|e| format!("argon2 hash failed: {e}"))
 }
 
 // ============================================================================

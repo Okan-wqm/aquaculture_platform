@@ -35,6 +35,15 @@ interface SecurityEventCommon extends BaseEvent {
   ip?: string;
   /** Client User-Agent header */
   userAgent?: string;
+  /**
+   * SEC-MEDIUM-104 (2026-08-23 scan №49): publishing service identity.
+   * The security-event plane is publishable by every service CN — without
+   * attribution, a compromised service injects untraceable fake security
+   * telemetry (fake SUSPICIOUS_ACTIVITY floods to mask a real one,
+   * metric inflation). The publisher sets this from its own SERVICE_NAME
+   * env (never trusts the event payload for it).
+   */
+  sourceService?: string;
 }
 
 /**

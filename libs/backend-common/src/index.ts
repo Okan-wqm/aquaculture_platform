@@ -131,3 +131,4 @@ export * from './monitoring';
 export * from './websocket';
 export * from './monetary';
 export * from './sensor';
+export * from './event-dedup';

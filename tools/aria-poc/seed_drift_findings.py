@@ -173,6 +173,73 @@ def findings_out_dir(repo_root: Path, out_dir: str | None) -> Path:
     return base / (out_dir or "aria-findings")
 
 
+def mint_candidates(
+    repo_root: Path, candidates: list[dict[str, Any]],
+    *, base_dir: Path | None = None,
+) -> tuple[list[dict[str, Any]], list[str], list[dict[str, str]]]:
+    """ORPHAN-702 — every drift goes through the ONE mint path.
+
+    Chain-id dedupe keeps one durable record per drift across nights;
+    claim_type=spine_drift by definition; severity from blast radius;
+    a drift the kernel refuses is DISCLOSED as unmintable, never
+    hand-written around the gate.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "aria-kernel"))
+    from aria_kernel.finding import (
+        _evidence_chain_id,
+        emit_finding,
+        find_by_evidence_chain_id,
+    )
+    from aria_kernel.tool_registry import GovernanceError
+
+    minted: list[dict[str, Any]] = []
+    already: list[str] = []
+    unmintable: list[dict[str, str]] = []
+    for drift in candidates:
+        sides = [
+            _evidence_ref(drift.get(key)) for key in ("ts", "sql", "ui", "source")
+        ]
+        evidences = [
+            {"ref": side["reference"], "summary": f"{side.get('declared_name') or 'side'} values: {str(side.get('declared_values'))[:80]}"}
+            for side in sides if side is not None
+        ]
+        concept = str(drift.get("concept") or "unknown")
+        if len(evidences) < 2:
+            unmintable.append({"concept": concept, "reason": "fewer_than_two_evidence_sides"})
+            continue
+        chain_id = _evidence_chain_id([
+            {"ref": e["ref"], "summary": e.get("summary", "")} for e in evidences
+        ])
+        if find_by_evidence_chain_id(repo_root, chain_id) is not None:
+            already.append(concept)
+            continue
+        summary = (
+            f"{drift['drift_class']}: '{concept}' value sets diverge across "
+            f"{len(evidences)} surfaces (cross_service={bool(drift.get('cross_service'))})"
+        )
+        facts = [
+            f"missing in ts/ui: {sorted(drift.get('missing_in_ts') or drift.get('missing_in_ui') or [])[:8]}",
+            f"missing in sql: {sorted(drift.get('missing_in_sql') or [])[:8]}",
+        ]
+        try:
+            record = emit_finding(
+                repo_root=repo_root,
+                base_dir=base_dir,
+                claim_type="spine_drift",
+                claim_summary=summary,
+                severity="HIGH" if drift.get("cross_service") else "MEDIUM",
+                evidences=evidences,
+                facts=facts,
+                scope_files=sorted({e["ref"].split(":")[0] for e in evidences}),
+                originating_skill="seed:drift-scan",
+            )
+        except GovernanceError as exc:
+            unmintable.append({"concept": concept, "reason": str(exc)[:160]})
+            continue
+        minted.append(record)
+    return minted, already, unmintable
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo-root", default=".", help="Repository root (default: cwd)")
@@ -200,18 +267,25 @@ def main(argv: list[str] | None = None) -> int:
     total_sql = len(drifts_doc.get("drifts_above_threshold") or [])
     total_ui = len(drifts_doc.get("frontend_dropdown_drifts") or [])
     candidates = select_candidates(drifts_doc, limit=args.limit)
-    findings = [
-        render_finding(drift, finding_id=f"F-{FINDING_ID_BASE + idx}", head_sha=head_sha)
-        for idx, drift in enumerate(candidates)
-    ]
-    write_findings(out_dir, findings)
+
+    # ORPHAN-702 — the seeder graduates to the ONE mint path. It used to
+    # write its own F-NNN.json files OVER the same ids every night: no
+    # events, no lifecycle, invisible to replay — the second finding
+    # format İ1 forbids. Now every drift goes through emit_finding:
+    # chain-id dedupe keeps one durable record per drift across nights,
+    # claim_type=spine_drift (a DB/TS/UI backbone divergence is that type
+    # by definition), severity from blast radius, and the kernel's own
+    # index refresh keeps cycle_guard's OPEN count working unchanged.
+    minted, already, unmintable = mint_candidates(repo_root, candidates)
 
     print(f"[seed] scan: {total_sql} sql-drifts + {total_ui} ui-drifts above threshold")
-    print(f"[seed] seeded {len(findings)} OPEN findings into {out_dir} (limit {args.limit})")
-    for finding in findings:
-        print(f"[seed]   {finding['id']}: {finding['title']}")
-    if not findings:
-        print("[seed] pool is empty at HEAD — honest zero; index written with no OPEN rows")
+    print(f"[seed] minted {len(minted)} findings via emit_finding; {len(already)} already recorded; {len(unmintable)} unmintable (limit {args.limit})")
+    for record in minted:
+        print(f"[seed]   {record['finding_id']}: {record['claim_summary'][:100]}")
+    for row in unmintable:
+        print(f"[seed]   UNMINTABLE {row['concept']}: {row['reason']}")
+    if not minted and not already:
+        print("[seed] pool is empty at HEAD — honest zero")
     return 0
 
 

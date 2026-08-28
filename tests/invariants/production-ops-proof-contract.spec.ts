@@ -43,6 +43,19 @@ describe('production operations proof contract', () => {
     expect(workflow).toContain("candidate.status === 'completed'");
     expect(workflow).not.toContain('per_page: 1,');
 
+    // A cancelled run that never created a job is the concurrency group
+    // evicting a duplicate, not a verdict on the lane. Measured 2026-08-19:
+    // aria-auto-cycle ran 02:09-05:54 GREEN while a second schedule firing sat
+    // pending behind the shared self-hosted group and was cancelled at 03:25 —
+    // the evicted run completed first, won the newest-completed slot, and a
+    // healthy lane was reported as an incident. Pinned: the watchdog probes
+    // jobs before accepting a cancelled run as the verdict, and it probes only
+    // cancelled ones. A lane where every run is an eviction has genuinely never
+    // executed and must still alarm — that is why the loop can end with no run.
+    expect(workflow).toContain('listJobsForWorkflowRun');
+    expect(workflow).toContain("candidate.conclusion !== 'cancelled'");
+    expect(workflow).toContain('jobs.data.total_count > 0');
+
     // Green is not proof of work. The backup lane completes success while its
     // DR capability is not activated — honestly, and doing nothing. Where the
     // manifest names an evidence-artifact prefix, the watchdog must require

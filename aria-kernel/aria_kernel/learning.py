@@ -51,6 +51,15 @@ LEARNING_HOOK_ORDER = (
     "impact_graph_compute",
     "skill_or_agent_genesis",
     "service_auditor_targeting",
+    # Y8 (ORPHAN-709 follow-through) — the sweep was REGISTERED in the hook
+    # table but absent from this ORDER, and _run_learning_hooks selects by
+    # order membership: registered-but-never-selected is the exact
+    # dead-hook class this repository keeps closing. Caught by the first
+    # post-merge verification run (sweep left zero trace); the parity pin
+    # in test_y8_genesis_panel_gate now makes the mismatch impossible.
+    # Placed AFTER service_auditor_targeting: that pair's adjacency is its
+    # own pinned contract (LearningWiringTests).
+    "genesis_panel_sweep",
     "agent_fitness_score",
 )
 PRE_CYCLE_LEARNING_HOOKS = (
@@ -95,6 +104,11 @@ def _run_learning_hooks(
         ("impact_graph_compute", lambda: _impact_graph_compute(cycle_id=cycle_id, paths=paths, tools_root=root)),
         ("skill_or_agent_genesis", lambda: _skill_or_agent_genesis(cycle_id=cycle_id, paths=paths, tools_root=root)),
         ("service_auditor_targeting", lambda: _service_auditor_targeting(cycle_id=cycle_id, paths=paths, tools_root=root)),
+        # Y8 (ORPHAN-709) — gaps blocked on genesis adjudication route to the
+        # agent panel instead of vanishing from the actionable filter above.
+        # Registry position matches LEARNING_HOOK_ORDER (execution order is
+        # the registry's; phase2a pins the two lists equal).
+        ("genesis_panel_sweep", lambda: _genesis_panel_sweep(cycle_id=cycle_id, paths=paths, tools_root=root)),
         ("agent_fitness_score", lambda: agent_fitness_score(cycle_id=cycle_id, base_dir=root)),
     )
     selected = set(hook_names)
@@ -298,6 +312,30 @@ def _impact_graph_compute(
     }, item_failures)
 
 
+def _genesis_panel_sweep(
+    *,
+    cycle_id: str,
+    paths: WorkspacePaths,
+    tools_root: Path | None,
+) -> dict[str, Any]:
+    """Y8 (ORPHAN-709) — parked gaps become panel questions.
+
+    The actionable filter above rightly skips blocked gaps; pre-Y8 that
+    skip was a black hole (16 gaps parked on per-gap operator approval,
+    skill_genesis forever no_requests). This hook hands each
+    genesis-token-blocked gap to sweep_candidate_gaps_for_adjudication,
+    which mints ONE idempotent genesis_candidate escalation the existing
+    adjudication sweep panels.
+    """
+    if tools_root is None:
+        return _skipped(cycle_id, "tools_root_required")
+    from .agent_genesis import sweep_candidate_gaps_for_adjudication
+
+    return sweep_candidate_gaps_for_adjudication(
+        base_dir=tools_root, cycle_id=cycle_id, repo_root=paths.repo_root,
+    )
+
+
 def _skill_or_agent_genesis(
     *,
     cycle_id: str,
@@ -384,11 +422,19 @@ def _emit_genesis_for_gap(
             {"cycle_id": cycle_id, "gap_id": gap.get("gap_id"), "capability_gap_key": gap.get("capability_gap_key")},
         )
         return row
-    if gap_type == "skill_gap":
+    if gap_type in ("skill_gap", "unobserved_surface"):
         # Plan 026R §E.9 — skill_gap routes to skill_genesis, NOT
         # agent_genesis. Pre-§E.9 every non-extension gap fell to
         # the request_agent_genesis branch; a skill_gap silently
         # spawned an agent_genesis request (wrong target).
+        #
+        # H-3 — unobserved_surface joins it, and for a sharper reason. A root
+        # no adapter can parse is missing a READER, not a REVIEWER: minting
+        # a review agent leaves declared_scope untouched, so the next night
+        # measures the identical blindness and the gap can never close.
+        # request_skill_genesis is the surface that authors tool adapters
+        # (the same one the F-012 adapter seeds feed), so it is the only
+        # genesis on this router that can move observed_ratio.
         from .skill_genesis import request_skill_genesis
         row = request_skill_genesis(
             capability_gap_key=str(gap.get("capability_gap_key") or ""),
@@ -399,7 +445,15 @@ def _emit_genesis_for_gap(
         append_tools_governance(
             tools_root,
             "skill_genesis_request_emitted",
-            {"cycle_id": cycle_id, "gap_id": gap.get("gap_id"), "capability_gap_key": gap.get("capability_gap_key")},
+            {
+                "cycle_id": cycle_id,
+                "gap_id": gap.get("gap_id"),
+                "capability_gap_key": gap.get("capability_gap_key"),
+                # WHY the type is on the event: both branches land in one
+                # ledger kind, and "we asked for an adapter because we are
+                # blind here" reads differently from "we asked for a skill".
+                "gap_type": gap_type,
+            },
         )
         return row
     row = request_agent_genesis(gap, base_dir=tools_root, cycle_id=cycle_id)

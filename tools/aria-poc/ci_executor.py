@@ -57,6 +57,7 @@ from claude_runtime import (
     ClaudePolicyViolation,
     ClaudeRunResult,
     ClaudeUsageUnavailable,
+    ProviderRedirectUnavailable,
     UsageRecording,
     extract_final_message,
     extract_usage,
@@ -65,6 +66,12 @@ from claude_runtime import (
     preflight_claude_auth,
     run_claude_exec,
     run_with_model_fallback,
+)
+from dispatch_failure import (
+    DispatchFailure,
+    classify_dispatch_failure,
+    emit_dispatch_result_summary,
+    resolve_dispatch_route,
 )
 
 try:
@@ -452,7 +459,9 @@ def _canonicalize_cross_review(
     return mutated
 
 
-def _pre_submit_validate_envelope(envelope: dict[str, Any], role: str) -> list[str]:
+def _pre_submit_validate_envelope(
+    envelope: dict[str, Any], role: str, request: dict[str, Any] | None = None,
+) -> list[str]:
     """Plan ARIA-V8.1 Phase 3 — fail-fast canonical schema gate.
 
     Validates the agent's response envelope against the same canonical
@@ -467,6 +476,46 @@ def _pre_submit_validate_envelope(envelope: dict[str, Any], role: str) -> list[s
     than a generic "plan content must be a JSON object" warning.
     """
     errors: list[str] = []
+    if role in ("evidence_judgment", "adversarial_judgment"):
+        # Y5 (ORPHAN-706) — the judge output contract, enforced BEFORE the
+        # result is sealed. The second sealed night accepted 12 judge
+        # results with no readable verdict block; each became an accepted
+        # row the bridge could never fold ("expected verdict ..., got
+        # None"), burning bridge retries toward permanent_fail. The check
+        # is the KERNEL's own (`judgment_bridge.validate_judge_response`)
+        # so the executor and the bridge can never disagree about what a
+        # valid judge response is.
+        #
+        # Restart follow-through: the first healed drain refused two
+        # PERFECTLY-IDENTIFIED judge envelopes with
+        # missing_tool_run_or_finding_id — the caller's ``request`` here is
+        # the TRIMMED claim payload, which never carried the judgment
+        # identity fields; the full ledger row does (the submit-time bridge
+        # reads that row, which is why folding worked while this gate
+        # refused). Read the SAME row the bridge reads, so gate and bridge
+        # judge one truth.
+        from aria_kernel.judgment_bridge import validate_judge_response
+
+        gate_request = dict(request or {})
+        if not (gate_request.get("tool_id") and gate_request.get("run_id") and gate_request.get("finding_id")):
+            request_id = str(gate_request.get("request_id") or envelope.get("request_id") or "")
+            tools_dir_raw = os.environ.get("ARIA_TOOLS_DIR")
+            if request_id and tools_dir_raw:
+                try:
+                    from aria_kernel.agent_invocations import _find_request_by_id
+                    from aria_kernel.tool_registry import ensure_tools_dir as _etd
+
+                    full_row = _find_request_by_id(_etd(tools_dir_raw), request_id)
+                except Exception:
+                    full_row = None
+                if full_row:
+                    for key in ("tool_id", "run_id", "finding_id", "judgment_group_id"):
+                        if not gate_request.get(key) and full_row.get(key):
+                            gate_request[key] = full_row[key]
+        return validate_judge_response(
+            request=gate_request,
+            response={**envelope, "role": role},
+        )
     if role in ("primary_plan", "challenger_plan"):
         plan_content = envelope.get("plan_content")
         if not isinstance(plan_content, dict):
@@ -1048,14 +1097,29 @@ def invoke_claude_cli(
                 "satisfaction_matrix": matrix,
                 "evidence_refs": [],
                 "details": {
+                    # Y5 (ORPHAN-706) — the mock envelope satisfies the SAME
+                    # judge contract the pre-submit gate enforces (verdict in
+                    # the closed set + resolvable ids), exactly like the eval
+                    # fixtures do. The old "uncertain" placeholder was an
+                    # envelope the bridge could never fold — the measured
+                    # defect class this contract exists to keep out. Mock
+                    # mode is env-gated and never on in production lanes;
+                    # the ci-mock fallbacks only fire when the request row
+                    # itself carries no judgment identity (test fixtures).
+                    "agent_subagent_type": subagent_type,
                     "verdict": {
-                        "verdict": "uncertain",
+                        "verdict": "false_positive",
                         "confidence": 0.5,
                         "judge_id": subagent_type,
                         "model": "mock",
+                        "tool_id": str((request_envelope or {}).get("tool_id") or "ci-mock"),
+                        "run_id": str((request_envelope or {}).get("run_id") or "ci-mock"),
+                        "finding_id": str((request_envelope or {}).get("finding_id") or "ci-mock"),
                         "rationale": "MOCK MODE — CI executor placeholder; real Claude Code CLI invocation not configured",
                         "evidence_refs": [],
-                        "judgment_group_id": "ci-mock",
+                        "judgment_group_id": str(
+                            (request_envelope or {}).get("judgment_group_id") or "ci-mock"
+                        ),
                         "severity": "low",
                     },
                 },
@@ -1113,6 +1177,42 @@ def invoke_claude_cli(
     # unknown agent → most expensive tier.
     from aria_kernel.agent_runtime_profile import read_agent_runtime_profile
     agent_profile = read_agent_runtime_profile(subagent_type)
+    # ARIA-HIGH-002 — resolve the dispatch route BEFORE the claim is taken:
+    # the trusted request envelope names the agent/role, the frontmatter SSoT
+    # resolves the model, the redirect SSoT resolves the provider, and a
+    # drain can key its circuit on that route without claiming work. The
+    # provider/model fallback policy itself stays owned by claude_runtime.
+    _route_request: dict[str, Any] = {"role": role, "target_agent": subagent_type}
+    if isinstance(request_envelope, dict):
+        _route_request["target_agent"] = str(
+            request_envelope.get("target_agent") or subagent_type,
+        )
+    _dispatch_route = resolve_dispatch_route(
+        request=_route_request,
+        repo_root=Path(__file__).resolve().parents[2],
+    )
+    _summary_emitted = False
+
+    def _emit_dispatch_summary(
+        *, outcome: str, failure: DispatchFailure | None, exit_code: int | None,
+    ) -> None:
+        """Exactly one sanitized classified summary per terminal path."""
+        nonlocal _summary_emitted
+        if _summary_emitted:
+            return
+        _summary_emitted = True
+        try:
+            emit_dispatch_result_summary(
+                route=_dispatch_route,
+                request_id=request_id,
+                outcome=outcome,
+                failure=failure,
+                exit_code=exit_code,
+            )
+        except (OSError, ValueError) as summary_exc:
+            # The summary is telemetry; a dispatch outcome must never fail
+            # because the telemetry channel did. Name it on stderr instead.
+            sys.stderr.write(f"dispatch_summary_unwritable: {summary_exc}\n")
     try:
         # Model dispatch with the fable→opus fallback policy (credit + refusal),
         # applied by the claude_runtime SSoT helper. The executor supplies the
@@ -1237,15 +1337,43 @@ def invoke_claude_cli(
                         )
                 except (subprocess.TimeoutExpired, OSError) as _hr_exc:
                     sys.stderr.write(f"human-required record (refusal) failed: {_hr_exc}\n")
+            # ARIA-HIGH-002 — a model refusal is not a build failure: the
+            # summary says "refused", the escalation path stays as-is.
+            _emit_dispatch_summary(
+                outcome="refused", failure=None, exit_code=completed.returncode,
+            )
             raise ClaudeCliUnavailable(
                 "model_safety_refusal_unresolved: request "
                 f"{request_id} refused by {agent_profile.model} "
                 f"(category={completed.refusal.get('category')!r}); "
                 "escalated to HUMAN_REQUIRED"
             )
-    except (ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation, ClaudeUsageUnavailable) as exc:
-        contract = "tools/aria-poc/ci_executor_contract_proven.md"
-        raise ClaudeCliUnavailable(f"{exc}; see {contract}") from exc
+    except (
+        ClaudeAuthUnavailable,
+        ClaudeCliUnavailable,
+        ClaudePolicyViolation,
+        ClaudeUsageUnavailable,
+        ClaudeAuthFailure,
+        ClaudeCreditExhausted,
+        ProviderRedirectUnavailable,
+        subprocess.TimeoutExpired,
+    ) as exc:
+        # ARIA-HIGH-002 — every terminal perimeter path writes exactly one
+        # sanitized classified summary before the exception travels on. The
+        # classification names the ORIGINAL condition; the translation below
+        # preserves the existing contract-reference wrapping unchanged.
+        _emit_dispatch_summary(
+            outcome="failed",
+            failure=classify_dispatch_failure(exception=exc, phase="spawn"),
+            exit_code=None,
+        )
+        if isinstance(
+            exc,
+            (ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation, ClaudeUsageUnavailable),
+        ):
+            contract = "tools/aria-poc/ci_executor_contract_proven.md"
+            raise ClaudeCliUnavailable(f"{exc}; see {contract}") from exc
+        raise
     # Plan ARIA-V7 §2g v2 + V7.10 envelope-extraction fix.
     #
     # WHY: claude -p stream-json emits JSONL events
@@ -1278,6 +1406,7 @@ def invoke_claude_cli(
             role=role,
             subagent_type=subagent_type,
             must_satisfy=must_satisfy or [],
+            dispatch_model=agent_profile.model,
         )
         output_path.parent.mkdir(parents=True, exist_ok=True)
         _write_sanitized_envelope(output_path, envelope)
@@ -1302,6 +1431,11 @@ def invoke_claude_cli(
                 role=role,
                 request_id=request_id,
             )
+    _emit_dispatch_summary(
+        outcome="succeeded" if completed.returncode == 0 else "failed",
+        failure=classify_dispatch_failure(result=completed, phase="runtime"),
+        exit_code=completed.returncode,
+    )
     return completed.returncode
 
 
@@ -1504,6 +1638,7 @@ def _build_envelope_from_claude_output(
     role: str,
     subagent_type: str,
     must_satisfy: list[dict[str, Any]],
+    dispatch_model: str | None = None,
 ) -> dict[str, Any]:
     """Convert ``claude -p stream-json`` JSONL into a kernel-valid envelope.
 
@@ -1580,6 +1715,16 @@ def _build_envelope_from_claude_output(
     # and a setdefault would let the agent's own payload spoof another
     # judge's identity into the per-judge precision ledger.
     details["agent_subagent_type"] = subagent_type
+    # ORPHAN-HIGH-781 — the dispatch-resolved model, same doctrine as
+    # agent_subagent_type above: FORCE-set from the runtime profile the
+    # executor resolved at invocation time. The judge's own
+    # verdict.model self-report remains in the payload as data, but the
+    # kernel's anchor distinct-model count must not trust a string the
+    # judged agent wrote about itself — a misreported model silently
+    # satisfies or violates ANCHOR_MIN_DISTINCT_MODELS, which is exactly
+    # the guarantee that field exists to provide.
+    if dispatch_model:
+        details["agent_dispatch_model"] = dispatch_model
     details.setdefault("agent_text", _safe_agent_text_excerpt(agent_text))
     usage = extract_usage(parse_claude_jsonl(raw_stdout))
     if usage is not None:
@@ -1758,29 +1903,25 @@ def _on_disk_anchors(
     requests_path = tools_dir / "agent-invocations" / "requests.jsonl"
     claim_hash: str | None = None
     request_hash: str | None = None
+    # Late import keeps standalone/mock executor startup behavior unchanged.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "aria-kernel"))
+    from aria_kernel.ledger import load_declared_jsonl
+
     if claims_path.exists():
-        for raw in claims_path.read_text(encoding="utf-8").splitlines():
-            raw = raw.strip()
-            if not raw:
-                continue
-            try:
-                row = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
+        for row in load_declared_jsonl(
+            claims_path,
+            expected_surface="agent_invocation_claims",
+        ):
             if (
                 row.get("claim_id") == claim_id
                 and row.get("event") == "claimed"
             ):
                 claim_hash = row.get("ledger_hash")
     if requests_path.exists():
-        for raw in requests_path.read_text(encoding="utf-8").splitlines():
-            raw = raw.strip()
-            if not raw:
-                continue
-            try:
-                row = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
+        for row in load_declared_jsonl(
+            requests_path,
+            expected_surface="agent_invocation_requests",
+        ):
             if row.get("request_id") == request_id:
                 request_hash = row.get("ledger_hash")
     return claim_hash, request_hash
@@ -2335,21 +2476,42 @@ def main(argv: list[str] | None = None) -> int:
                 _write_sanitized_envelope(expected_output_path, _envelope_for_validation)
             except OSError as _exc:
                 _stage(f"canonicalize_write_failed: {_exc}")
+        _role_for_validation = str(request_envelope.get("role") or "")
         validation_errors = _pre_submit_validate_envelope(
             _envelope_for_validation,
-            role=str(request_envelope.get("role") or ""),
+            role=_role_for_validation,
+            request=request_envelope,
         )
         if validation_errors:
             _stage(f"pre_submit_validation_FAILED errors={validation_errors}")
             sys.stderr.write(
                 f"plan_content_pre_submit_rejected: {','.join(validation_errors)}\n"
             )
+            # Y5 (ORPHAN-706) — a judge contract violation is a HARNESS-class
+            # release (the malformed output says nothing about the request;
+            # re-judging usually succeeds), with the field-level errors in
+            # the log line above so the operator sees WHICH field was wrong.
+            # Plan-content violations keep their request-fault pricing.
+            if _role_for_validation in ("evidence_judgment", "adversarial_judgment"):
+                _release_reason = "judge_verdict_contract_violation"
+            else:
+                _release_reason = f"plan_content_invalid:{','.join(validation_errors)[:160]}"
             _release_claim(
                 tools_dir=tools_dir, repo=repo, claim_id=claim_id,
                 agent_id=agent_id, lease_token=lease_token,
-                reason=f"plan_content_invalid:{','.join(validation_errors)[:160]}",
+                reason=_release_reason,
             )
-            return 1
+            # ORPHAN-HIGH-737 — a REFUSED envelope is this executor doing its
+            # job, not failing it: the contract caught a malformed agent
+            # output, the claim is released above, the request stays pending
+            # with its Y1 retry budget, and the reason is in the ledger. The
+            # two sibling refusal arms already say so in their own comments
+            # ("refusal is a legitimate terminal — not a build failure",
+            # "a budget signal, NOT a build failure"); this one returned 1
+            # and, through the drain's `0 if failed == 0 else 1`, painted a
+            # 10-of-11 night RED — the honest-partial-red class ORPHAN-716
+            # closed for the meta-watchdog, still open here.
+            return 0
         _stage("pre_submit_validation_passed")
 
     _stage("submit_step_begin claim=" + claim_id)

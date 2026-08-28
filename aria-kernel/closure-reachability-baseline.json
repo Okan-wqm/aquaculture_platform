@@ -1,0 +1,15 @@
+{
+  "pinned": {
+    "ORPHAN-CRITICAL-725:dispatch_one_pending_planner_request": {
+      "owner": "claude",
+      "pinned_at": "2026-08-20",
+      "reason": "ORPHAN-766 first-day pin: closures whose named producer had no production caller when the gate landed (ORPHAN-750 cricket template \u2014 named, not silenced; the baseline never ratchets up)"
+    },
+    "ORPHAN-CRITICAL-725:run_convergence_drainer": {
+      "owner": "claude",
+      "pinned_at": "2026-08-20",
+      "reason": "ORPHAN-766 first-day pin: closures whose named producer had no production caller when the gate landed (ORPHAN-750 cricket template \u2014 named, not silenced; the baseline never ratchets up)"
+    }
+  },
+  "schema_version": 1
+}

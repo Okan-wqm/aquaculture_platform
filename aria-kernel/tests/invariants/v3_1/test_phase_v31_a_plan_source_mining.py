@@ -32,6 +32,10 @@ Invariants:
   = 'git_diff'.
 * I-V31-A-08 — governance event 'plan_candidate_conversion_skipped'
   emitted per skipped candidate.
+* I-V31-A-09 — the hard-refuse/soft-fall branch is DERIVED from
+  ACTION_PERMISSIONS['pr_merge'] (ORPHAN-HIGH-728), and the soft-fall
+  emits 'plan_source_v7_fallback_engaged' so the substitution is visible
+  to the reviewer of the PR a proposal-class profile may open.
 """
 from __future__ import annotations
 
@@ -281,6 +285,80 @@ class V9PressureSourceProviderTests(unittest.TestCase):
         self.assertIn(
             "v9_4_source_conversion_failed_for_all_candidates",
             str(ctx.exception),
+        )
+
+    def test_i_v31_a_09_fallback_hardness_is_read_from_the_action_table(self) -> None:
+        """I-V31-A-09 (ORPHAN-HIGH-728) — WHICH profiles hard-refuse a
+        substituted plan source comes from `ACTION_PERMISSIONS["pr_merge"]`,
+        not from the literal `"autonomous"`.
+
+        The distinction the branch encodes is landing authority, not name: a
+        profile that can merge its own work has no reviewer between it and
+        `main`, so it must refuse a plan it did not select. A profile that can
+        only PROPOSE falls through, and the substitution reaches a human on
+        the pull request — which only works if the fall is DECLARED, so the
+        governance row is part of the contract too.
+
+        Proven by moving the cell: granting `strict` `pr_merge` in the table
+        alone must flip strict from soft-fall to refusal, with no edit here or
+        in `plan_source`.
+        """
+        from aria_kernel.cycle_phases import V9PressureSourceProvider
+        from aria_kernel.runtime_profile import ACTION_PERMISSIONS
+        from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+
+        ensure_tools_dir(self.base)
+        provider = V9PressureSourceProvider()
+
+        def _synthesize(profile: str):
+            with patch(
+                "aria_kernel.plan_synthesizer.rank_candidate_sources",
+                return_value=[{"candidate_id": "a", "source_type": "orphan_finding"}],
+            ), patch(
+                "aria_kernel.plan_synthesizer.convert_candidate_to_plan_content",
+                return_value=None,
+            ), patch(
+                "aria_kernel.plan_synthesizer.synthesize_plan_content_from_cycle",
+                return_value={
+                    "schema_version": 1,
+                    "title": "v7-diff",
+                    "summary": "auto-discovered",
+                    "problem_statement": "p",
+                    "proposed_changes": [],
+                    "risks": [],
+                    "acceptance_criteria": [],
+                },
+            ):
+                return provider.synthesize(
+                    cycle_id="cyc-derived",
+                    workspace_root=self.tmp,
+                    base_dir=self.base,
+                    profile=profile,
+                )
+
+        # Proposal-class today: soft-fall, and the fall is on the record.
+        self.assertIsNotNone(_synthesize("strict"))
+        rows = [
+            json.loads(line)
+            for line in (self.base / "governance.jsonl").read_text(
+                encoding="utf-8",
+            ).splitlines() if line.strip()
+        ]
+        declared = [
+            row for row in rows
+            if row.get("kind") == "plan_source_v7_fallback_engaged"
+        ]
+        self.assertEqual(len(declared), 1, "a silent substitution is the defect")
+        self.assertEqual(declared[0]["details"]["profile"], "strict")
+
+        # Move the cell; the branch must follow it.
+        widened = dict(ACTION_PERMISSIONS)
+        widened["pr_merge"] = frozenset({"strict", "autonomous"})
+        with patch("aria_kernel.runtime_profile.ACTION_PERMISSIONS", widened):
+            with self.assertRaises(GovernanceError) as ctx:
+                _synthesize("strict")
+        self.assertIn(
+            "v9_4_source_conversion_failed_for_all_candidates", str(ctx.exception),
         )
 
     def test_i_v31_a_07_v7_fallback_sets_git_diff_pressure_source(self) -> None:

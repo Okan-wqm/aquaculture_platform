@@ -47,6 +47,22 @@ class JudgeFanoutTests(unittest.TestCase):
         ids = [m["request_id"] for m in result["minted"]]
         self.assertEqual(len(ids), len(set(ids)))
 
+    def test_minted_requests_carry_the_finding_fingerprint(self) -> None:
+        # ORPHAN-HIGH-765 — the verdict bridge sources identity from the
+        # mint (D1), so the minted request row must carry the fingerprint
+        # the sampler already knows. Without it the verdict row's
+        # fingerprint depended on the judge volunteering a field no prompt
+        # ever asked for — 7 of 8 live verdict rows carried it empty.
+        from aria_kernel.agent_invocations import list_agent_invocation_requests
+
+        sample = {"cycle_id": "c1", "items": [_item(1)]}
+        result = dispatch_judges_for_sample(sample=sample, base_dir=self.tools)
+        self.assertEqual(result["minted_count"], 2)
+        rows = list_agent_invocation_requests(base_dir=self.tools)
+        self.assertEqual(len(rows), 2)
+        for row in rows:
+            self.assertEqual(row.get("finding_fingerprint"), "fp1")
+
     def test_idempotent_across_reruns(self) -> None:
         sample = {"cycle_id": "c1", "items": [_item(1)]}
         first = dispatch_judges_for_sample(sample=sample, base_dir=self.tools)
@@ -60,7 +76,9 @@ class JudgeFanoutTests(unittest.TestCase):
         # group must NOT be skipped wholesale — the missing adversarial judge
         # must be minted, or consensus (needs >=2) starves this finding forever.
         item = _item(1)
-        group = f"judge:{item['tool_id']}:{item['run_id']}:{item['finding_id']}"
+        # Y2 (ORPHAN-704) — the group key is finding-keyed, run-free: the old
+        # run-folded key made every nightly run re-mint the same finding.
+        group = f"judge:{item['tool_id']}:{item['finding_fingerprint']}"
         create_agent_invocation_request(
             target_agent="aria-evidence-judge", role="evidence_judgment",
             suggested_prompt="seed", must_satisfy=[{"id": "v", "criterion": "c"}],

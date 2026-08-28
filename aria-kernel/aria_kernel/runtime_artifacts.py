@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -264,6 +265,40 @@ def read_runs_for_cycle(
     ]
 
 
+# ORPHAN-HIGH-798 — per-process artifact payload cache. resolve_finding_
+# from_artifact is called once per raw-finding candidate row in the sampler;
+# without a cache, every call re-reads a 7.84MB artifact file from disk,
+# re-hashes it, and re-parses the JSON — measured worst case: 1,158 rows
+# sharing one artifact = ~9.1GB of redundant I/O in a single sampler pass.
+# Keyed by (resolved path, sha256); bounded at 64 entries (the sampler
+# touches ~40 distinct runs per pass) with FIFO eviction via OrderedDict.
+_ARTIFACT_CACHE: OrderedDict[tuple[str, str], dict[str, Any] | None] = OrderedDict()
+_ARTIFACT_CACHE_MAX = 64
+
+
+def _cached_artifact_payload(
+    path: Path,
+    expected_sha256: str,
+) -> dict[str, Any] | None:
+    cache_key = (str(path), expected_sha256)
+    if cache_key in _ARTIFACT_CACHE:
+        _ARTIFACT_CACHE.move_to_end(cache_key)
+        return _ARTIFACT_CACHE[cache_key]
+    raw = path.read_bytes()
+    if _sha256_bytes(raw) != expected_sha256:
+        result = None
+    else:
+        try:
+            parsed = json.loads(raw.decode("utf-8"))
+            result = parsed if isinstance(parsed, dict) else None
+        except (ValueError, UnicodeDecodeError):
+            result = None
+    _ARTIFACT_CACHE[cache_key] = result
+    if len(_ARTIFACT_CACHE) > _ARTIFACT_CACHE_MAX:
+        _ARTIFACT_CACHE.popitem(last=False)
+    return result
+
+
 def resolve_artifact_payload(
     artifact_ref: Any,
     *,
@@ -278,11 +313,7 @@ def resolve_artifact_payload(
     path = _resolve_uri(ensure_tools_dir(base_dir), ref.uri)
     if not path.exists() or not path.is_file():
         return None
-    raw = path.read_bytes()
-    if _sha256_bytes(raw) != ref.sha256:
-        return None
-    payload = json.loads(raw.decode("utf-8"))
-    return payload if isinstance(payload, dict) else None
+    return _cached_artifact_payload(path, ref.sha256)
 
 
 def resolve_finding_from_artifact(

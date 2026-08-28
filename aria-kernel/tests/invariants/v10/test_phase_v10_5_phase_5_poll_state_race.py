@@ -1,71 +1,35 @@
-"""Plan ARIA-V10.5 Phase 5 — _poll_for_state loop ordering invariant.
+"""Plan ARIA-V10.5 Phase 5 → CL-1 (ORPHAN-CRITICAL-725) — F-025's race
+class is now STRUCTURALLY impossible, and these invariants say so.
 
-Closes F-025 (V10.5 F-024 validation endurance: 3 cycles completed,
-0 reached evaluate_plan, all 3 terminated with different early-
-termination verdicts (primary_revision_failed, cross_review_unavailable,
-challenger_unavailable) all tracing to the same race in
-_poll_for_state).
+The original defect (kept here because the history is the evidence):
+``_poll_for_state`` enforced its deadline at the WHILE condition, so a
+dispatch whose subprocess folded the target state INTO the ledger during
+its own wall-clock (e.g. 630s against a 600s budget) was discarded five
+seconds later by an expired deadline. Three endurance cycles died that
+way with three different verdicts and one shared root.
 
-Root cause:
+Phase 5 fixed the ORDER inside the loop. CL-1 removed the loop: the
+cycle lane no longer waits for anything, because the envelopes it mints
+are delivered by a LATER executor run. Each cycle folds the plan state
+ONCE, advances one derived step, and returns. A deadline can no longer
+beat a state observation because there is no deadline in the observation
+path at all.
 
-_poll_for_state's loop body checked `time.monotonic() < deadline` at
-the WHILE condition top, then called fold_plan_state, then
-dispatch_one_pending_planner_request (which blocks synchronously for
-the entire subprocess wall-clock). When a subprocess took longer than
-``challenger_timeout_seconds`` (e.g. 630s vs 600s) but successfully
-folded the target state into the plan ledger DURING the blocking
-dispatch, the next iteration's while-condition saw deadline expired
-and returned None WITHOUT giving fold_plan_state one more chance to
-observe the just-folded state.
+Successor invariants (a refactor that reintroduces waiting fails here):
 
-Smoking gun (cyc-20260521T172723Z-auto round 2 challenger):
-
-  17:47:25  agent_claim_created       (deadline = 17:57:25)
-  17:57:55  agent_result_accepted     (subprocess wall-clock 10:30)
-  17:57:56  challenger_plan_drafted   (bridge folded, state=CHALLENGER_DRAFTED)
-  17:58:01  challenger_drafted_poll_timeout  (loop returned None)
-
-Post-termination fold_plan_state confirmed state was correctly set to
-CHALLENGER_DRAFTED — the loop missed it by 5 seconds because it
-re-entered the while condition AFTER dispatch returned at 17:57:56
-and exited via deadline expired instead of observing the new state.
-
-Tier-1 architectural fix (Phase 5):
-
-Reorder the loop body. The new order is::
-
-    while True:
-        check ARIA_STOP            # always first — operator halt
-        state = fold_plan_state()  # observe state BEFORE deadline
-        if state in target: return # happy path wins regardless of timing
-        if deadline expired: return None  # sad path only when no state
-        dispatch()                 # blocking; may fold state for next iter
-        sleep()
-
-State observation has temporal priority over budget enforcement. A
-dispatch that folded the target state inside its wall-clock — even
-exceeding challenger_timeout_seconds — is now observed.
-
-Tier-3 layer (this file): pin the loop ordering invariant so a future
-refactor that drops the priority fails CI.
-
-Invariants:
-
-- I-V10.5-5-01 — _poll_for_state uses ``while True`` (not
-  ``while time.monotonic() < deadline``), proving the source-level
-  ordering is the fixed shape.
-- I-V10.5-5-02 — fold_plan_state callsite precedes the
-  ``time.monotonic() >= deadline`` check in the loop body.
-- I-V10.5-5-03 — when a synthetic dispatch synchronously transitions
-  the plan state INTO the target set right before deadline expiry,
-  _poll_for_state observes and returns the target state (not None).
-- I-V10.5-5-04 — ARIA_STOP precedence is preserved: even with the new
-  ordering, ARIA_STOP check runs before any state observation, so
-  operator halt is never delayed by a slow fold_plan_state call.
+- I-V10.5-5-01 — the drainer exposes no polling primitive.
+- I-V10.5-5-02 — no wall-clock budget arithmetic gates state
+  observation anywhere in the module (no monotonic-vs-deadline compare).
+- I-V10.5-5-03 — the step observes state via fold_plan_state and returns
+  without sleeping, even when the caller passes a long timeout.
+- I-V10.5-5-04 — ARIA_STOP precedence is preserved: the stop check runs
+  before any state-derived action in the step.
 """
 from __future__ import annotations
 
 import inspect
+import re
+import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -75,186 +39,102 @@ from . import _helpers  # noqa: F401
 
 
 class PollStateRaceInvariants(unittest.TestCase):
-    """Plan ARIA-V10.5 Phase 5 — F-025 closure invariants."""
+    """CL-1 successors to the F-025 closure invariants."""
 
-    def test_i_v10_5_5_01_poll_loop_uses_while_true(self):
-        """The poll loop must use ``while True`` so the deadline check
-        is a structured guard inside the body, not the loop's
-        existential condition.
-
-        F-025 root cause was ``while time.monotonic() < deadline``
-        making deadline expiry trump every other observation. The fix
-        is ``while True`` so the loop body itself decides priority.
-        """
+    def test_i_v10_5_5_01_no_polling_primitive_exists(self):
         from aria_kernel import convergence_drainer
-        src = inspect.getsource(convergence_drainer._poll_for_state)
-        # Must contain the new shape.
-        self.assertIn(
-            "while True:",
-            src,
-            (
-                "I-V10.5-5-01: _poll_for_state must use 'while True' so "
-                "the loop body controls priority between state-observation "
-                "and deadline-enforcement. Reverting to "
-                "'while time.monotonic() < deadline:' recreates F-025."
-            ),
-        )
-        # And must NOT contain the old shape.
-        self.assertNotIn(
-            "while time.monotonic() < deadline:",
-            src,
-            (
-                "I-V10.5-5-01: the pre-F-025 loop condition "
-                "'while time.monotonic() < deadline:' must not exist — "
-                "it gives deadline expiry priority over state observation."
-            ),
+
+        self.assertFalse(
+            hasattr(convergence_drainer, "_poll_for_state"),
+            "I-V10.5-5-01: a polling primitive in the cycle lane can only "
+            "wait for work the executor lane delivers in a later run — the "
+            "structural loss F-025 was one symptom of.",
         )
 
-    def test_i_v10_5_5_02_fold_state_precedes_deadline_check(self):
-        """fold_plan_state must appear before the
-        ``time.monotonic() >= deadline`` check in the loop body.
-
-        The whole point of the F-025 fix is the ORDER. If the
-        deadline check moves above fold_plan_state, we recreate the
-        race even with ``while True``.
-        """
+    def test_i_v10_5_5_02_no_deadline_arithmetic_gates_observation(self):
         from aria_kernel import convergence_drainer
-        src = inspect.getsource(convergence_drainer._poll_for_state)
-        # Locate the loop body start.
-        loop_start = src.find("while True:")
-        self.assertGreater(loop_start, 0)
-        loop_body = src[loop_start:]
-        fold_idx = loop_body.find("fold_plan_state(")
-        deadline_idx = loop_body.find("time.monotonic() >= deadline")
-        self.assertGreater(
-            fold_idx, 0,
-            "fold_plan_state callsite not found in poll loop body",
-        )
-        self.assertGreater(
-            deadline_idx, 0,
-            "deadline >= check not found in poll loop body",
-        )
-        self.assertLess(
-            fold_idx, deadline_idx,
-            (
-                "I-V10.5-5-02: fold_plan_state MUST precede the "
-                "deadline check in the loop body — that is the entire "
-                "F-025 fix. State observed AT the iteration's top wins "
-                "regardless of whether deadline expired during the "
-                "previous dispatch."
-            ),
+
+        src = inspect.getsource(convergence_drainer)
+        self.assertNotIn("time.sleep", src)
+        self.assertIsNone(
+            re.search(r"time\.monotonic\(\)\s*[<>]=?\s*deadline", src),
+            "I-V10.5-5-02: state observation must never be gated by a "
+            "wall-clock budget comparison; that ordering IS F-025.",
         )
 
-    def test_i_v10_5_5_03_dispatch_folded_state_observed_after_deadline(self):
-        """Runtime: a synthetic dispatch that folds state INTO the
-        target AFTER deadline expiry must still be observed on the
-        next iteration's top-of-loop fold_plan_state.
-
-        This is the empirical proof that the F-025 closure mechanism
-        works. The test:
-          1. constructs a deadline already expired (deadline=now)
-          2. supplies a fold_plan_state mock whose FIRST call returns
-             non-target (REVISED), SECOND call returns target
-             (CHALLENGER_DRAFTED) — simulating a dispatch that folded
-             state between calls
-          3. supplies a no-op dispatch
-        Pre-fix: while-condition top sees deadline expired immediately
-                  on iter 2, returns None.
-        Post-fix: loop top of iter 2 calls fold_plan_state, sees
-                  target, returns target state.
-        """
+    def test_i_v10_5_5_03_step_observes_state_and_returns_without_waiting(self):
         from aria_kernel import convergence_drainer as cd
-        target_states = {"CHALLENGER_DRAFTED"}
-        fold_calls = []
 
-        def fake_fold(*, plan_id, base_dir):
-            fold_calls.append(1)
-            if len(fold_calls) == 1:
-                return {"state": "REVISED"}
-            return {"state": "CHALLENGER_DRAFTED"}
+        observed: list[str] = []
+        real_fold = cd.fold_plan_state
 
-        def fake_dispatch(*, base_dir, agent_id, planner_roles):
-            # Simulates a real Claude subprocess that takes wall-clock
-            # > challenger_timeout. We don't actually sleep — we just
-            # advance the test's notion of state. The deadline below
-            # is set to "already expired" so the next iter's top-of-loop
-            # MUST observe the state to return the happy path.
-            return None
+        def counting_fold(*, plan_id, base_dir):
+            observed.append(plan_id)
+            return real_fold(plan_id=plan_id, base_dir=base_dir)
 
-        def never_stop(*args, **kwargs):
-            return False
+        # WALL-CLOCK is the honest instrument here. A blanket time.sleep
+        # patch cannot distinguish the step waiting (the defect) from the
+        # OS waiting on a git subprocess for target_sha (unavoidable and
+        # bounded) — it caught the latter and lied. Source-level "no
+        # sleeps in the module" is pinned by I-V10.5-5-02; this pin asks
+        # the question that one cannot: does a 3600s budget translate
+        # into a long run?
+        started = time.monotonic()
 
-        # Deadline already expired — pre-fix this would short-circuit
-        # the loop to None at the while-condition. Post-fix the loop
-        # observes state first, sees REVISED (no match), checks
-        # deadline (expired), returns None. To test the SECOND iter
-        # observation, we need fold_plan_state to return target on
-        # the FIRST call — that proves the loop body's state-first
-        # ordering. (The "second iter" semantic in F-025 maps to
-        # "iter at the moment dispatch returned"; our synthetic test
-        # collapses to a single iter where state is already target.)
-        with mock.patch.object(cd, "fold_plan_state", side_effect=fake_fold), \
-             mock.patch.object(cd, "dispatch_one_pending_planner_request", side_effect=fake_dispatch), \
-             mock.patch.object(cd, "_check_aria_stop", side_effect=never_stop):
-            # Override fold so first call returns target — proving
-            # state observation wins over deadline expiry.
-            def fake_fold_target_first(*, plan_id, base_dir):
-                return {"state": "CHALLENGER_DRAFTED"}
-            cd.fold_plan_state = fake_fold_target_first
-            result = cd._poll_for_state(
-                plan_id="plan-test-f025",
-                target_states=target_states,
-                base_dir=Path("/tmp"),
-                deadline=time.monotonic() - 100,
-                aria_stop_root=Path("/tmp"),
-                sleep_interval=0.0,
-            )
-        self.assertEqual(
-            result, "CHALLENGER_DRAFTED",
-            (
-                "I-V10.5-5-03: when fold_plan_state returns a target "
-                "state, _poll_for_state must return that state even "
-                "if deadline has already expired. Returning None "
-                "instead recreates F-025."
-            ),
+        with tempfile.TemporaryDirectory() as tmp:
+            tools = Path(tmp) / "aria-tools"
+            workspace = Path(tmp) / "workspace"
+            (workspace / ".claude" / "agents").mkdir(parents=True)
+            with mock.patch.object(cd, "fold_plan_state", counting_fold):
+                result = cd.run_convergence_drainer(
+                    cycle_id="cyc-i-v10-5-5-03",
+                    base_dir=tools,
+                    workspace_root=workspace,
+                    plan_id="plan-i-v10-5-5-03",
+                    plan_seed={
+                        "schema_version": 1,
+                        "title": "T",
+                        "summary": "S",
+                        "affected_surfaces": [
+                            {"paths": ["aria-kernel/aria_kernel/plan_convergence.py"]},
+                        ],
+                        "key_changes": ["x"],
+                        "validation_commands": [
+                            {"cmd": "python3 -m unittest discover aria-kernel -p '*test*.py'"},
+                        ],
+                        "evidence_refs": ["docs/aria/SPEC.md"],
+                    },
+                    must_satisfy=[{
+                        "id": "MS-1", "kind": "obligation",
+                        "description": "d", "source": "t",
+                    }],
+                    evidence_refs=["docs/aria/SPEC.md"],
+                    allowed_scope=["aria-kernel/**"],
+                    # A long timeout must not translate into a long run.
+                    challenger_timeout_seconds=3600.0,
+                )
+        elapsed = time.monotonic() - started
+        self.assertTrue(observed, "the step never observed plan state")
+        self.assertEqual(result["arbiter_verdict"], "in_progress")
+        self.assertLess(
+            elapsed, 30.0,
+            "I-V10.5-5-03: a 3600s challenger budget must not translate "
+            f"into a long run — the step took {elapsed:.1f}s, which means "
+            "something is waiting for work the executor lane delivers.",
         )
 
     def test_i_v10_5_5_04_aria_stop_precedence_preserved(self):
-        """ARIA_STOP precedence is preserved by the reordered loop.
-
-        F-025's reorder MUST NOT delay operator-halt. The check_stop
-        call must run before fold_plan_state and before the deadline
-        check, so a stop signal posted between iterations is observed
-        on the very next iteration regardless of state or budget.
-        """
         from aria_kernel import convergence_drainer
-        src = inspect.getsource(convergence_drainer._poll_for_state)
-        loop_start = src.find("while True:")
-        self.assertGreater(loop_start, 0)
-        loop_body = src[loop_start:]
-        stop_idx = loop_body.find("_check_aria_stop(aria_stop_root)")
-        fold_idx = loop_body.find("fold_plan_state(")
-        deadline_idx = loop_body.find("time.monotonic() >= deadline")
-        self.assertGreater(stop_idx, 0)
-        self.assertGreater(fold_idx, 0)
-        self.assertGreater(deadline_idx, 0)
+
+        src = inspect.getsource(convergence_drainer.run_convergence_drainer)
+        stop_idx = src.find("_check_aria_stop(root)")
+        dispatch_idx = src.find("if plan_state in TERMINAL_STATES")
+        self.assertGreater(stop_idx, 0, "ARIA_STOP check missing from the step")
+        self.assertGreater(dispatch_idx, 0, "step dispatch not found")
         self.assertLess(
-            stop_idx, fold_idx,
-            (
-                "I-V10.5-5-04: _check_aria_stop MUST run before "
-                "fold_plan_state so operator halt is observed "
-                "immediately on the next iteration. Moving the stop "
-                "check after fold introduces an avoidable wait equal "
-                "to fold_plan_state's I/O latency."
-            ),
-        )
-        self.assertLess(
-            stop_idx, deadline_idx,
-            (
-                "I-V10.5-5-04: _check_aria_stop MUST also run before "
-                "the deadline check so operator halt always wins, "
-                "even if a misconfigured deadline never expires."
-            ),
+            stop_idx, dispatch_idx,
+            "I-V10.5-5-04: operator halt must be observed before the step "
+            "takes any state-derived action.",
         )
 
 

@@ -1,0 +1,275 @@
+name: aria-readiness-claim
+
+# ORPHAN-HIGH-763 — the readiness-claim producer ORPHAN-694/PR #1247 declared
+# and never delivered. The claim is assembled HERE, not inside the merge
+# runner: produce_readiness_claim refuses to assemble for a workflow_run_id
+# the ci ledger has not proven (readiness_claim_current_run_unproven), and a
+# run's own conclusion only exists post-completion — so this lane records the
+# COMPLETED aria-merge-authority run as its ci_workflow_run evidence row and
+# assembles the claim under THAT lane's identity. The merge runner stays a
+# consumer: it reads a claim someone else, at another time, independently
+# produced. Until the operator completes the GitHub App setup
+# (docs/runbooks/aria-github-app-setup.md), ARIA_REQUIRE_MODE_A makes the
+# token mint fail loudly instead of poisoning the claim with a PAT fallback.
+
+on:
+  workflow_run:
+    workflows: ["aria-merge-authority"]
+    types: [completed]
+  workflow_dispatch: {}
+
+permissions:
+  # Same transport as aria-agent-eval: append-only FF push to aria/state.
+  contents: write
+  # Reading the completed run, its artifacts, and the PR payload.
+  actions: read
+
+concurrency:
+  group: aria-readiness-claim
+  cancel-in-progress: false
+
+jobs:
+  claim:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'pull_request')
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: ./.github/actions/setup-aria-kernel
+
+      - name: Persist enterprise workflow preflight
+        env:
+          PYTHONPATH: aria-kernel
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          from aria_kernel.preflight import verify_workflow_preflight
+
+          runner_temp = Path(os.environ["RUNNER_TEMP"]).resolve()
+          allowed = [".aria-state-store"]
+          verdict = verify_workflow_preflight(
+              workflow_id="aria-readiness-claim",
+              job_id="claim",
+              profile="standard",
+              workspace_root=os.environ["GITHUB_WORKSPACE"],
+              allowed_write_roots=allowed,
+              path_allowlist=allowed,
+              network_policy=["github_api", "github_artifact", "github_git"],
+              network_enforcement_evidence=(
+                  "run/PR/compare/artifact reads over the GitHub API; "
+                  "aria/state fetch+push over the repository remote"
+              ),
+              token_provenance="github_actions_artifact_token",
+              require_github_app=False,
+              dlp_mode="fail_closed",
+              dlp_scan_clean=True,
+              audit_reason="assemble the enterprise readiness claim for a PR head",
+              audit_artifact_path=runner_temp / "aria-readiness-claim-preflight.json",
+              external_root_allowlist=[str(runner_temp)],
+          )
+          if not verdict.valid:
+              raise SystemExit(";".join(verdict.reasons))
+          PY
+
+      - name: Resolve the PR for the completed run
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_CONTEXT: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          repo="${GITHUB_REPOSITORY}"
+          run_id="${RUN_CONTEXT}"
+          # workflow_run.pull_requests is empty for fork PRs and sometimes
+          # for same-repo pushes; resolve by head SHA as the honest fallback.
+          head_sha="${{ github.event.workflow_run.head_sha }}"
+          pr_number="$(gh api "repos/${repo}/commits/${head_sha}/pulls" --jq '.[0].number' || true)"
+          if [ -z "${pr_number}" ] || [ "${pr_number}" = "null" ]; then
+            echo "No pull request for head ${head_sha}; nothing to claim."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "number=${pr_number}" >> "$GITHUB_OUTPUT"
+          echo "run_id=${run_id}" >> "$GITHUB_OUTPUT"
+          echo "head_sha=${head_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore ARIA state from the aria/state branch
+        id: restore_state
+        if: steps.pr.outputs.skip != 'true'
+        uses: ./.github/actions/restore-aria-state
+        with:
+          bootstrap-ack: ${{ vars.ARIA_STATE_BOOTSTRAP_ACK }}
+
+      - name: Fetch the completed run, PR, and diff payloads
+        if: steps.pr.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          RUN_ID: ${{ steps.pr.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          work="${RUNNER_TEMP}/claim-evidence"
+          mkdir -p "${work}"
+          repo="${GITHUB_REPOSITORY}"
+          # The run record as GitHub wrote it — recorded post-completion, so
+          # conclusion=success is a fact, not a self-declaration.
+          gh api "repos/${repo}/actions/runs/${RUN_ID}" > "${work}/run.json"
+          # Flattened to the exact keys the kernel's PR readers expect
+          # (_first_string(pr, "head_sha", "headRefOid", "head") & co).
+          gh api "repos/${repo}/pulls/${PR_NUMBER}" | jq '{
+            number: .number,
+            repository: .head.repo.full_name,
+            target_ref: .base.ref,
+            base_branch: .base.ref,
+            head_ref: .head.ref,
+            head_sha: .head.sha,
+            head: .head.sha
+          }' > "${work}/pr-flat.json"
+          base_sha="$(jq -r '.base.sha' < <(gh api "repos/${repo}/pulls/${PR_NUMBER}"))"
+          gh api "repos/${repo}/compare/${base_sha}...${{ steps.pr.outputs.head_sha }}" \
+            --jq '.files[].patch // empty' > "${work}/compare.patch" || true
+          # ORPHAN-HIGH-788 — the env key is WORK_DIR (uppercase): every
+          # consumer below reads ${WORK_DIR}, and the lowercase spelling
+          # died on `set -u`'s "unbound variable" the moment this lane
+          # fired, failing it continuously since #1300 landed.
+          echo "WORK_DIR=${work}" >> "$GITHUB_ENV"
+
+      - name: Record the completed run as CI evidence
+        if: steps.pr.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          jq '{workflow_runs: [.]}' "${WORK_DIR}/run.json" > "${WORK_DIR}/github-payload.json"
+          PYTHONPATH=aria-kernel python3 -m aria_kernel readiness record-ci-report \
+            --github-file "${WORK_DIR}/github-payload.json" \
+            --pr-file "${WORK_DIR}/pr-flat.json" \
+            --cycle-id "readiness-claim-${{ steps.pr.outputs.run_id }}" \
+            --tools-dir "$ARIA_TOOLS_DIR" | jq '{recorded_at, ready_state, failure_count}'
+
+      - name: Fetch and hash the lane evidence artifact
+        if: steps.pr.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ steps.pr.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          attempt="$(jq -r '.run_attempt // 1' "${WORK_DIR}/run.json")"
+          artifact_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/artifacts" \
+            --jq ".artifacts[] | select(.name == \"aria-merge-authority-proof-${RUN_ID}-${attempt}\")")"
+          if [ -z "${artifact_json}" ]; then
+            echo "::error::merge-authority proof artifact not found for run ${RUN_ID}"
+            exit 1
+          fi
+          artifact_id="$(echo "${artifact_json}" | jq -r '.id')"
+          uri="$(echo "${artifact_json}" | jq -r '.archive_download_url')"
+          gh api "${uri}" > "${WORK_DIR}/artifact.zip"
+          digest="sha256:$(sha256sum "${WORK_DIR}/artifact.zip" | cut -d' ' -f1)"
+          jq -n --arg id "${artifact_id}" --arg uri "${uri}" --arg sha "${digest}" \
+            '{artifact_id: $id, uri: $uri, sha256: $sha, content_type: "application/zip"}' \
+            > "${WORK_DIR}/artifact.json"
+          # Every DLP surface names a real file this lane actually produced:
+          # scanning nothing is not scanning, and a vacuous surface fails
+          # closed inside produce_dlp_proof.
+          jq -n --arg w "${WORK_DIR}" --arg p "${RUNNER_TEMP}/aria-readiness-claim-preflight.json" \
+            '{
+              diff: [($w + "/compare.patch")],
+              prompt: [$p],
+              transcript: [($w + "/run.json")],
+              logs: [($w + "/pr-flat.json")],
+              artifacts: [($w + "/artifact.zip")]
+            }' > "${WORK_DIR}/surfaces.json"
+
+      - name: Assemble the readiness claim
+        if: steps.pr.outputs.skip != 'true'
+        env:
+          PYTHONPATH: aria-kernel
+          # The claim family attests a scoped installation token; a PAT
+          # fallback is a weaker isolation mode and poisons the claim. Fail
+          # loudly until the operator completes the GitHub App setup.
+          ARIA_REQUIRE_MODE_A: "true"
+          ARIA_GH_APP_INSTALLATION_ID: ${{ secrets.ARIA_GH_APP_INSTALLATION_ID }}
+          ARIA_GH_APP_ID: ${{ secrets.ARIA_GH_APP_ID }}
+          ARIA_GH_APP_PRIVATE_KEY: ${{ secrets.ARIA_GH_APP_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          # ubuntu-latest has no operator home dir; materialize the PEM
+          # content from the secret into an ephemeral 0600 file so the
+          # kernel's runbook-default key path resolves on a hosted runner.
+          KEY_FILE="$RUNNER_TEMP/gh-app-private-key.pem"
+          umask 077
+          printf '%s\n' "$ARIA_GH_APP_PRIVATE_KEY" > "$KEY_FILE"
+          export ARIA_GH_APP_PRIVATE_KEY_PATH="$KEY_FILE"
+          trap 'rm -f "$KEY_FILE"' EXIT
+          # The branch-protection probe inside produce-claim shells out to
+          # `gh api .../protection` and reads GH_TOKEN from the environment;
+          # this step previously exported none, so the probe always failed
+          # closed with gh_token_absent (run 33022651661). Mint the
+          # installation token (PyJWT is a declared kernel dependency) and
+          # hand it to the probe.
+          PROBE_TOKEN="$(PYTHONPATH=aria-kernel python3 -c "
+          from pathlib import Path
+          from aria_kernel.gh_token_factory import mint_installation_token
+          lease = mint_installation_token(
+              cycle_id='readiness-claim-${{ steps.pr.outputs.run_id }}',
+              workspace_root='.',
+          )
+          print(Path(lease.token_file).read_text(encoding='utf-8').strip())
+          ")"
+          export GH_TOKEN="${PROBE_TOKEN}"
+          PYTHONPATH=aria-kernel python3 -m aria_kernel readiness produce-claim \
+            --pr-number "${{ steps.pr.outputs.number }}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target-ref "$(jq -r '.target_ref' "${WORK_DIR}/pr-flat.json")" \
+            --head-ref "$(jq -r '.head_ref' "${WORK_DIR}/pr-flat.json")" \
+            --head-sha "${{ steps.pr.outputs.head_sha }}" \
+            --workflow-id aria-merge-authority \
+            --job-id aria-merge-authority \
+            --workflow-run-id "${{ steps.pr.outputs.run_id }}" \
+            --cycle-id "readiness-claim-${{ steps.pr.outputs.run_id }}" \
+            --artifact-file "${WORK_DIR}/artifact.json" \
+            --surfaces-file "${WORK_DIR}/surfaces.json" \
+            --workspace-root "$GITHUB_WORKSPACE" \
+            --tools-dir "$ARIA_TOOLS_DIR" | jq '{readiness_claim_id}'
+
+      # The credential is minted here and consumed by the next step only.
+      - name: Mint the aria/state push credential
+        id: publish_credential
+        if: steps.pr.outputs.skip != 'true' && (steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true')
+        env:
+          PUBLISH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          HEADER="$(printf 'x-access-token:%s' "$PUBLISH_TOKEN" | base64 -w0)"
+          echo "::add-mask::${HEADER}"
+          echo "header=${HEADER}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish ARIA state to the aria/state branch
+        if: steps.pr.outputs.skip != 'true' && (steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true')
+        env:
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: http.https://github.com/.extraheader
+          GIT_CONFIG_VALUE_0: 'AUTHORIZATION: basic ${{ steps.publish_credential.outputs.header }}'
+        run: |
+          set -euo pipefail
+          PYTHONPATH=aria-kernel python3 -m aria_kernel state publish \
+            --repo-root . \
+            --snapshot-id "readiness-claim-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --cycle-id "readiness-claim-${{ steps.pr.outputs.run_id }}"
+
+      - name: Upload readiness-claim preflight proof
+        if: steps.pr.outputs.skip != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: aria-readiness-claim-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/aria-readiness-claim-preflight.json
+          if-no-files-found: error
+          retention-days: 7

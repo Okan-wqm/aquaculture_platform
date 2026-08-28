@@ -1,4 +1,5 @@
 import { BaseEvent, PlanTier } from './base-event';
+import { BillingPlanTier } from './billing/billing-plan-tier';
 
 /**
  * Typed subscription feature flags.
@@ -103,6 +104,44 @@ export interface SubscriptionPlanChangedEvent extends BaseEvent {
   currency: string;
   isUpgrade: boolean;
   effectiveDate: string;
+}
+
+/**
+ * Subscription Plan Change Scheduled Event
+ * Published when a plan change is accepted and journaled into the
+ * scheduled_plan_changes operation saga (the durable journal that owns
+ * both immediate and future plan changes). applyAfter is the wall-clock
+ * moment the change becomes effective.
+ */
+export interface SubscriptionPlanChangeScheduledEvent extends BaseEvent {
+  eventType: 'SubscriptionPlanChangeScheduled';
+  operationId: string;
+  subscriptionId: string;
+  previousTier: BillingPlanTier;
+  newTier: BillingPlanTier;
+  previousPlanName: string;
+  newPlanName: string;
+  newPlanId: string;
+  applyAfter: string;
+}
+
+/**
+ * Subscription Plan Change Reconciliation Required Event
+ * Published when a journaled plan-change operation exhausts its safe retry
+ * path and lands in the RECONCILIATION_REQUIRED terminal state — an operator
+ * must resolve the operation by hand (Stripe and the subscription may have
+ * diverged).
+ *
+ * reasonCode mirrors the saga's lastAttemptErrorCode column (varchar(64)):
+ * an open, length-bounded string today — the closed vocabulary lands with
+ * the saga service that produces it, not ahead of it.
+ */
+export interface SubscriptionPlanChangeReconciliationRequiredEvent extends BaseEvent {
+  eventType: 'SubscriptionPlanChangeReconciliationRequired';
+  operationId: string;
+  subscriptionId: string;
+  reasonCode: string;
+  detectedAt: string;
 }
 
 /**
@@ -246,4 +285,6 @@ export type BillingEvent =
   | PaymentRefundedEvent
   | InvoiceOverdueEvent
   | SubscriptionPastDueEvent
-  | SubscriptionExpiredEvent;
+  | SubscriptionExpiredEvent
+  | SubscriptionPlanChangeScheduledEvent
+  | SubscriptionPlanChangeReconciliationRequiredEvent;

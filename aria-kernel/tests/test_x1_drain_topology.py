@@ -34,7 +34,18 @@ class DrainTopologyPins(unittest.TestCase):
             ("primary_plan", "challenger_plan", "cross_review"),
         )
 
-    def test_executor_fallback_covers_every_dispatchable_role(self) -> None:
+    def test_quota_arc_covers_every_dispatchable_role(self) -> None:
+        # Y4 (ORPHAN-705) — DELIBERATE REWRITE of the X1 pin. The four-role
+        # priority prefix was itself a starvation topology: every role it
+        # omitted queued behind judge volume at ~9 drains/night. The arc
+        # names every role explicitly; the QUOTA ROUND guarantees each
+        # waiting role one slot per run, so the arc order only distributes
+        # surplus. ORPHAN-HIGH-786 moved judges from last to directly after
+        # the planning core: judges-last spent the fallback budget before
+        # reaching positions 13-14 and starved the readiness-critical lane
+        # (anchor promotion needs judge verdict pairs); judges-before-
+        # arbitration matches the same-night data dependency (arbiters
+        # judge the splits judges produce).
         import sys
 
         sys.path.insert(0, str(_REPO / "aria-kernel"))
@@ -42,19 +53,26 @@ class DrainTopologyPins(unittest.TestCase):
         from aria_kernel.agent_surface import DISPATCHABLE_ROLES
         import ci_executor_drain
 
-        priority = tuple(ci_executor_drain._PRIORITY_ROLES)
-        # priority roles must be real dispatchable roles
-        for role in priority:
-            self.assertIn(role, DISPATCHABLE_ROLES)
-        # and the pass list must END with the catch-all None so every
-        # remaining role (judges, adjudication, future additions) drains
-        passes = list(priority) + [None]
-        self.assertIsNone(passes[-1])
-        # judge + adjudication roles are NOT in priority — they ride the
-        # fallback; pin membership so a rename breaks loudly
-        for role in ("evidence_judgment", "adversarial_judgment", "human_required_adjudication"):
-            self.assertIn(role, DISPATCHABLE_ROLES)
-            self.assertNotIn(role, priority)
+        arc = tuple(ci_executor_drain._ROLE_QUOTA_ORDER)
+        # Every dispatchable role has an explicit place in the arc — a role
+        # added to the vocabulary without a consumer is the judged_judges=0
+        # defect class. maintenance_utility is minted by the autonomy
+        # orchestrator without joining DISPATCHABLE_ROLES; it rides the arc
+        # by name.
+        for role in DISPATCHABLE_ROLES:
+            if role in ("primary_authoring", "challenger_authoring"):
+                # drafter roles are consumed by the skill-genesis lane,
+                # not the executor drain
+                continue
+            self.assertIn(role, arc)
+        self.assertIn("maintenance_utility", arc)
+        # Planning lane opens the arc; judges sit right behind it, ahead of
+        # the arbitration that depends on their verdicts.
+        self.assertEqual(arc[0], "implementation")
+        self.assertEqual(arc[4:6], ("evidence_judgment", "adversarial_judgment"))
+        self.assertLess(arc.index("evidence_judgment"), arc.index("consensus_arbitration"))
+        # The old narrow prefix is GONE — resurrecting it must break here.
+        self.assertFalse(hasattr(ci_executor_drain, "_PRIORITY_ROLES"))
 
     def test_cost_override_keeps_per_run_breaker(self) -> None:
         override = json.loads((_REPO / "aria-config" / "genesis_policy.json").read_text())

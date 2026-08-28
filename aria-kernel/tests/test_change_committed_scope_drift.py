@@ -55,7 +55,11 @@ class ScopeDriftGateTests(unittest.TestCase):
         )
         self.assertEqual(row["event"], "change_committed")
 
-    def test_subset_scope_accepts(self) -> None:
+    def test_subset_scope_accepts_with_declared_dispositions(self) -> None:
+        # ORPHAN-721 deliberately rewrote this pin: a subset commit is
+        # accepted ONLY with a declared disposition per untouched intended
+        # file — the bare-subset spelling this test used to bless was the
+        # silent-under-implementation hole.
         change_id = _plan_change(
             self.base, intended=["docs/a.md", "docs/b.md", "docs/c.md"],
         )
@@ -63,9 +67,14 @@ class ScopeDriftGateTests(unittest.TestCase):
             change_id=change_id,
             commit_sha="1" * 40,
             actual_affected_files=["docs/a.md"],
+            uncovered_intended_dispositions={
+                "docs/b.md": "reviewed; section already correct",
+                "docs/c.md": "reviewed; superseded by docs/a.md edit",
+            },
             base_dir=self.base,
         )
         self.assertEqual(row["event"], "change_committed")
+        self.assertFalse(row["implementation_complete"])
 
     def test_superset_scope_drift_raises(self) -> None:
         change_id = _plan_change(self.base, intended=["docs/a.md"], suffix=f"-{self.id().split('.')[-1][:8]}")

@@ -5,7 +5,7 @@
     "the workflow reads them from this file rather than carrying its own copy.",
     "",
     "The hours are derived from the schedules they watch, not chosen freely:",
-    "the producer runs at 01:00 and the executor at 05:16 daily, so one missed night is",
+    "the producer runs at 01:13 and the executor at 02:29 daily, so one missed night is",
     "within tolerance and two is not. A threshold tighter than the cadence would page on",
     "a single retry; one looser than two cadences would let a silent week pass."
   ],

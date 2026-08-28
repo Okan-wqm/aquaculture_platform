@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .governance_reader import read_governance_rows
-from .ledger import append_declared_jsonl, load_jsonl_verified
+from .ledger import append_declared_jsonl, load_jsonl_verified, read_jsonl
 from .snapshot import file_counts_from_payload
 from .tool_health import runs_path
 from .tool_registry import ensure_tools_dir, utc_now
@@ -107,10 +107,10 @@ def run_reflection(
         "tool_run_count": len(runs),
         "ok_run_count": sum(1 for run in runs if run.get("status") == "ok"),
         "failed_run_count": sum(1 for run in runs if run.get("status") != "ok"),
-        "operator_facing_findings": sum(len(run.get("emitted_findings", [])) for run in runs),
-        "operator_facing_observations": sum(len(run.get("emitted_observations", [])) for run in runs),
+        "operator_facing_findings": sum(_emitted_count(run, "findings") for run in runs),
+        "operator_facing_observations": sum(_emitted_count(run, "observations") for run in runs),
         "suppressed_shadow_findings": sum(run.get("runner", {}).get("raw_findings_count", 0) for run in runs)
-        - sum(len(run.get("emitted_findings", [])) for run in runs),
+        - sum(_emitted_count(run, "findings") for run in runs),
         "invalid_evidence_count": _invalid_evidence_count(runs),
         "snapshot_outside_path_count": _snapshot_outside_path_count(runs),
         "tool_runtime": tool_runtime,
@@ -159,6 +159,12 @@ def run_reflection(
         # while three separate defects starved it, and every one was found by
         # a human noticing. This section is the machine noticing.
         "dataflow_health": _compute_dataflow_health(root),
+        # Y5 (ORPHAN-706) — the bridge's role×transition matrix. Twelve
+        # judge results failed to fold ("verdict None") and ten burned to
+        # permanent_fail with no report line anywhere; the truth lived only
+        # in agent-result-bridge-status.jsonl. This is that ledger's first
+        # reader.
+        "bridge_health": _compute_bridge_health(root),
         "next_cycle_plan": [
             {
                 "pressure_id": item.get("pressure_id"),
@@ -744,14 +750,19 @@ def _judged_judges_series(root: Path) -> list[int]:
 
 def _labelled_tool_series(root: Path) -> list[int]:
     # Same eligibility as goldset.propose_goldsets_for_labelled_tools: a
-    # tool counts once it has any labelled ground truth.
-    from .feedback_store import load_feedback
+    # tool counts once it has any labelled ground truth. JJ-1 — the SAME
+    # predicate, not a hand-copied source_type tuple. The copy that used to
+    # stand here still admitted 2-judge consensus after the producer stopped
+    # accepting it, so this sentinel would have reported labelled_tool_count
+    # healthy while the goldset producer starved: the "sentinel that thinks
+    # it measures and doesn't" failure this very file warns about above.
+    from .feedback_store import is_ground_truth_row, load_feedback
 
     labelled = {
         str(row.get("tool_id"))
         for row in load_feedback(base_dir=root)
         if row.get("verdict") in ("true_positive", "false_positive")
-        and row.get("source_type") in ("human", "ai_consensus", None)
+        and is_ground_truth_row(row)
     }
     return [len(labelled)]
 
@@ -835,8 +846,11 @@ def _phase_digest_summary(tools_root: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     try:
-        rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
-    except (OSError, json.JSONDecodeError):
+        rows = read_jsonl(
+            path,
+            expected_surface="observability_cycle_metrics",
+        )
+    except OSError:
         return {}
     if not rows:
         return {}
@@ -887,9 +901,58 @@ def _render_watchdog_section(reflection: dict[str, Any]) -> list[str]:
         "",
         "## Watchdog Sweep",
         "",
-        f"- detectors ran: {sweep.get('detectors_ran', 0)}",
-        f"- findings emitted: {sweep.get('findings_emitted', 0)} (deduped: {sweep.get('deduped', 0)})",
+        f"- candidates: {sweep.get('candidates', 0)}",
+        f"- emitted: {sweep.get('emitted', 0)} (suppressed: {sweep.get('suppressed', 0)})",
     ]
+
+
+def _compute_bridge_health(root: Path) -> dict[str, Any]:
+    """Y5 (ORPHAN-706) — fold agent-result-bridge-status.jsonl to a
+    role×transition matrix plus the distinct error signatures behind the
+    non-ok transitions. Missing ledger → empty dict (young store)."""
+    path = root / "agent-invocations" / "agent-result-bridge-status.jsonl"
+    if not path.exists():
+        return {}
+    matrix: dict[str, dict[str, int]] = {}
+    error_signatures: dict[str, int] = {}
+    try:
+        rows = read_jsonl(
+            path,
+            expected_surface="agent_result_bridge_status",
+        )
+    except OSError:
+        return {}
+    for row in rows:
+        role = str(row.get("role") or "unknown")
+        transition = str(row.get("transition") or "unknown")
+        matrix.setdefault(role, {})[transition] = matrix.get(role, {}).get(transition, 0) + 1
+        if transition in ("pending_retry", "permanent_fail"):
+            detail = str(row.get("error_detail") or "")[:80]
+            if detail:
+                error_signatures[detail] = error_signatures.get(detail, 0) + 1
+    return {"matrix": matrix, "error_signatures": error_signatures}
+
+
+def _render_bridge_health_section(reflection: dict[str, Any]) -> list[str]:
+    """Y5 — non-ok bridge transitions become report lines; an all-ok (or
+    empty) ledger renders nothing, per the empty-heading rule below."""
+    health = reflection.get("bridge_health") or {}
+    matrix = health.get("matrix") or {}
+    troubled = {
+        role: counts for role, counts in sorted(matrix.items())
+        if any(t in counts for t in ("pending_retry", "permanent_fail"))
+    }
+    if not troubled:
+        return []
+    lines = ["", "## Bridge Health", ""]
+    for role, counts in troubled.items():
+        rendered = ", ".join(f"{t}: {n}" for t, n in sorted(counts.items()))
+        lines.append(f"- {role} — {rendered}")
+    for signature, count in sorted(
+        (health.get("error_signatures") or {}).items(), key=lambda kv: -kv[1],
+    )[:5]:
+        lines.append(f"- `{signature}` ×{count}")
+    return lines
 
 
 def _render_dataflow_health_section(reflection: dict[str, Any]) -> list[str]:
@@ -1410,6 +1473,7 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
         ],
         *_render_experiment_night_section(reflection),
         *_render_watchdog_section(reflection),
+        *_render_bridge_health_section(reflection),
         "",
         "## Tool Health",
         "",
@@ -1509,6 +1573,25 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
+def _emitted_count(run: dict[str, Any], kind: str) -> int:
+    """ORPHAN-HIGH-798 — int-tolerant emitted count across row generations.
+
+    Pre-798 rows carry inline arrays (`emitted_findings: [...]`); post-798
+    rows carry `emitted_counts: {"findings": N}` (the arrays moved to the
+    artifact payload; the row keeps only the count). Both must read the
+    same number.
+    """
+    counts = run.get("emitted_counts")
+    if isinstance(counts, dict):
+        return int(counts.get(kind, 0))
+    legacy = run.get(f"emitted_{kind}")
+    if isinstance(legacy, list):
+        return len(legacy)
+    if isinstance(legacy, int):
+        return legacy
+    return 0
+
+
 def _coverage(root: Path, cycle_id: str) -> dict[str, Any]:
     path = root / "discovery" / cycle_id / "COMPLETION_PROOF.json"
     if not path.exists():
@@ -1545,8 +1628,8 @@ def _tool_runtime_table(
         tool_id = str(run.get("tool_id") or "")
         raw_findings = int(run.get("runner", {}).get("raw_findings_count") or 0)
         raw_observations = int(run.get("runner", {}).get("raw_observations_count") or 0)
-        emitted_findings = len(run.get("emitted_findings", [])) if isinstance(run.get("emitted_findings"), list) else 0
-        emitted_observations = len(run.get("emitted_observations", [])) if isinstance(run.get("emitted_observations"), list) else 0
+        emitted_findings = _emitted_count(run, "findings")
+        emitted_observations = _emitted_count(run, "observations")
         previous = _previous_tool_run(all_runs, tool_id, cycle_id)
         previous_raw = int(previous.get("runner", {}).get("raw_findings_count") or 0) if previous else 0
         rows.append(

@@ -1,10 +1,21 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { describe, expect, it } from '@jest/globals';
+import yaml from 'js-yaml';
 
-import { ariaAuthorityHash } from '../../tools/gates/aria-authority-hash';
+import { ariaAuthorityHash, checkAriaAuthorityHash } from '../../tools/gates/aria-authority-hash';
 
 const REPO_ROOT = (() => {
   try {
@@ -29,6 +40,11 @@ function gitSucceeds(args: string[]): boolean {
   } catch {
     return false;
   }
+}
+
+function writeExecutable(path: string, body: string): void {
+  writeFileSync(path, `#!/bin/sh\n${body}`, 'utf8');
+  chmodSync(path, 0o755);
 }
 
 const LIVE_DOCS = [
@@ -62,9 +78,24 @@ const LIVE_WORKFLOWS = [
   '.github/workflows/aria-daily-report.yml',
   '.github/workflows/aria-kernel.yml',
   '.github/workflows/aria-kernel-fast.yml',
-  '.github/workflows/aria-kernel-full.yml',
   '.github/workflows/aria-operational-proof.yml',
 ];
+
+const ARIA_SUITE_RUNNER = 'scripts/ci/aria-suite-run.sh';
+const ARIA_SUITE_SELECTOR = 'scripts/ci/aria-suite-changed.mjs';
+const ARIA_PYTEST_NATIVE_PLUGIN = 'aria_kernel.pytest_native_only';
+
+type WorkflowStep = { run?: string };
+type PullRequestWorkflow = {
+  on?: { pull_request?: { paths?: string[] } };
+  jobs?: Record<
+    string,
+    {
+      'timeout-minutes'?: number;
+      steps?: WorkflowStep[];
+    }
+  >;
+};
 
 const ARCHITECTURE_SECTIONS = [
   'Authority Chain / Yetki Zinciri',
@@ -121,15 +152,38 @@ function planMarkerCount(body: string): number {
 }
 
 describe('ARIA live runtime/documentation SSoT', () => {
+  it('BEHAVIOUR labels itself as dated measurement and points to machine truth', () => {
+    const behaviour = read('docs/aria/BEHAVIOUR.md');
+    expect(behaviour).toMatch(/\*\*Status:\*\* measured \d{4}-\d{2}-\d{2}/);
+    expect(behaviour).toContain('aria-kernel autonomy status --evidence');
+    expect(behaviour).toContain('docs/aria/CURRENT_STATE.md');
+    expect(behaviour).toContain('dated measurement');
+  });
+
   it('CURRENT_STATE declares the live authority chain and executable anchors', () => {
     const current = read('docs/aria/CURRENT_STATE.md');
-    expect(current).toContain('Date: 2026-06-21');
+    // ORPHAN-MEDIUM-768 — the writer stamps hash AND date in the same write,
+    // so the Date line must exist and stay ISO-shaped.
+    // ORPHAN-MEDIUM-792 — that is all it must do: the date is descriptive
+    // metadata, not an authorization predicate. A server-side merge runs no
+    // local writer and may land on the next UTC day while the authority
+    // content is byte-identical to what was stamped, and holding the date
+    // accountable to the newest authority-commit day rejected exactly those
+    // valid pins. Validity is the content hash asserted below;
+    // tools/gates/aria-authority-hash.spec.ts pins the merge regression.
+    const declaredDate = current.match(/^Date: (\d{4}-\d{2}-\d{2})$/m)?.[1];
+    expect(declaredDate).toBeTruthy();
     const target = current.match(/Target ref: `([^`]+)`/)?.[1];
     expect(target).toBe('origin/main');
-    const verifiedHash = current.match(
-      /Last verified ARIA authority hash: `([a-f0-9]{64})`/,
-    )?.[1];
+    const verifiedHash = current.match(/Last verified ARIA authority hash: `([a-f0-9]{64})`/)?.[1];
     expect(verifiedHash).toBeTruthy();
+    // ORPHAN-MEDIUM-792 — one verdict producer: the same pure checker the
+    // CLI `--check` consumes decides validity here, so the invariant and the
+    // gate can never disagree about what a valid pin is.
+    const verdict = checkAriaAuthorityHash(REPO_ROOT);
+    expect(verdict.valid).toBe(true);
+    expect(verdict.reason).toBe('current');
+    expect(verifiedHash).toBe(verdict.computed);
     expect(verifiedHash).toBe(ariaAuthorityHash());
     expect(current).not.toContain('Last verified commit');
     expect(current).toContain('## Authority Chain');
@@ -162,14 +216,13 @@ describe('ARIA live runtime/documentation SSoT', () => {
 
   it('CURRENT_STATE file.py::symbol anchors resolve through Python AST', () => {
     const current = read('docs/aria/CURRENT_STATE.md');
-    const anchors = [...current.matchAll(/([\w./-]+\.py)::([A-Za-z_]\w*)/g)]
-      .map((match) => {
-        const [, file, symbol] = match;
-        if (!file || !symbol) {
-          throw new Error(`Malformed ARIA anchor match: ${match[0] ?? '<empty>'}`);
-        }
-        return { file, symbol };
-      });
+    const anchors = [...current.matchAll(/([\w./-]+\.py)::([A-Za-z_]\w*)/g)].map((match) => {
+      const [, file, symbol] = match;
+      if (!file || !symbol) {
+        throw new Error(`Malformed ARIA anchor match: ${match[0] ?? '<empty>'}`);
+      }
+      return { file, symbol };
+    });
     expect(anchors.length).toBeGreaterThan(0);
     const script = [
       'import ast, sys',
@@ -241,7 +294,9 @@ describe('ARIA live runtime/documentation SSoT', () => {
     const architecture = read(ARCHITECTURE_DOC);
     expect(architecture).toContain('ARIA-CURRENT-STATE-NOTICE');
     expect(architecture).toContain('Authority: explanatory-architecture');
-    expect(architecture).toContain('Current authority: `docs/aria/CURRENT_STATE.md` + executable contracts');
+    expect(architecture).toContain(
+      'Current authority: `docs/aria/CURRENT_STATE.md` + executable contracts',
+    );
     for (const anchor of [
       'Executable code and machine-checked contracts are normative',
       'Claude Code CLI',
@@ -259,7 +314,12 @@ describe('ARIA live runtime/documentation SSoT', () => {
       expect(sectionBody).toContain('### Diagram / Diyagram');
     }
     expect(architecture.match(/```mermaid/g)?.length ?? 0).toBeGreaterThanOrEqual(12);
-    for (const diagramKind of ['flowchart TD', 'flowchart LR', 'stateDiagram-v2', 'sequenceDiagram']) {
+    for (const diagramKind of [
+      'flowchart TD',
+      'flowchart LR',
+      'stateDiagram-v2',
+      'sequenceDiagram',
+    ]) {
       expect(architecture).toContain(diagramKind);
     }
     for (const anchor of [
@@ -289,7 +349,9 @@ describe('ARIA live runtime/documentation SSoT', () => {
     const body = read(ENTERPRISE_AUTONOMY_DOC);
     expect(body).toContain('ARIA-CURRENT-STATE-NOTICE');
     expect(body).toContain('Authority: enterprise-autonomy-ssot');
-    expect(body).toContain('Current authority: `docs/aria/CURRENT_STATE.md` + executable contracts');
+    expect(body).toContain(
+      'Current authority: `docs/aria/CURRENT_STATE.md` + executable contracts',
+    );
     expect(body).toContain('Runtime entrypoint: `autonomy burn-in observe`');
     expect(body).toContain(BURN_IN_SCHEMA);
     expect(body).toContain('## EN');
@@ -344,15 +406,11 @@ describe('ARIA live runtime/documentation SSoT', () => {
   });
 
   it('observe burn-in report schema is the machine contract for enterprise acceptance', () => {
-    const generated = execFileSync(
-      'python3',
-      ['-m', 'aria_kernel.docs_ssot', 'burn-in-schema'],
-      {
-        cwd: REPO_ROOT,
-        encoding: 'utf8',
-        env: { ...process.env, PYTHONPATH: 'aria-kernel' },
-      },
-    );
+    const generated = execFileSync('python3', ['-m', 'aria_kernel.docs_ssot', 'burn-in-schema'], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+      env: { ...process.env, PYTHONPATH: 'aria-kernel' },
+    });
     expect(read(BURN_IN_SCHEMA)).toBe(generated);
     const schema = JSON.parse(read(BURN_IN_SCHEMA)) as {
       additionalProperties: boolean;
@@ -420,7 +478,9 @@ describe('ARIA live runtime/documentation SSoT', () => {
     expect(contract).toContain('claude_cli_version_minimum: claude-code 2.1.197');
     expect(contract).toContain('verification_mode: runtime-preflight');
     expect(contract).toContain('managed Claude Code login');
-    expect(contract).not.toMatch(/PENDING-CLAUDE-CONTRACT-TESTS|claude_cli_version_minimum:\s*PENDING|verified_by_operator_handle:\s*PENDING|verified_at_iso8601:\s*PENDING/);
+    expect(contract).not.toMatch(
+      /PENDING-CLAUDE-CONTRACT-TESTS|claude_cli_version_minimum:\s*PENDING|verified_by_operator_handle:\s*PENDING|verified_at_iso8601:\s*PENDING/,
+    );
   });
 
   it('snowball curation is SSoT-bound and rejects duplicate runtime ownership', () => {
@@ -449,13 +509,13 @@ describe('ARIA live runtime/documentation SSoT', () => {
     expect(executor).toContain('ref: main');
     expect(executor).toContain('REQUIRED_CLAUDE_VERSION="2.1.197"');
     expect(executor).toContain('claude --version');
+    // ORPHAN-MEDIUM-769 — aria-kernel-full.yml was deleted (a strict subset
+    // of aria-kernel.yml, never a required context) and aria-kernel-fast.yml
+    // became PR-only, so the push-on-main contract belongs to aria-kernel.yml
+    // alone.
     expect(read('.github/workflows/aria-kernel.yml')).toMatch(/branches:\s*\n\s*- main/);
-    expect(read('.github/workflows/aria-kernel-fast.yml')).toMatch(/branches:\s*\n\s*- main/);
-    expect(read('.github/workflows/aria-kernel-full.yml')).toMatch(/branches:\s*\n\s*- main/);
     const kernelWorkflow = read('.github/workflows/aria-kernel.yml');
-    const kernelFullWorkflow = read('.github/workflows/aria-kernel-full.yml');
     expect(kernelWorkflow).toContain('node-version: "22"');
-    expect(kernelFullWorkflow).toContain('node-version: "22"');
     // The dependency contract moved, and got stricter. It used to be pinned
     // as literal text inside these two workflows; the same text existed in
     // nine other jobs and was ABSENT from five that ran kernel code anyway
@@ -467,7 +527,7 @@ describe('ARIA live runtime/documentation SSoT', () => {
     const setupAction = read('.github/actions/setup-aria-kernel/action.yml');
     expect(setupAction).toContain('tomllib.load');
     expect(setupAction).toContain('aria-kernel/pyproject.toml');
-    for (const workflow of [kernelWorkflow, kernelFullWorkflow]) {
+    for (const workflow of [kernelWorkflow]) {
       expect(workflow).toContain('uses: ./.github/actions/setup-aria-kernel');
       // Still banned, everywhere: installing the package would add a second
       // source for `import aria_kernel` and make the explicit pyproject
@@ -484,14 +544,175 @@ describe('ARIA live runtime/documentation SSoT', () => {
     expect(kernelWorkflow).toContain('Verify post-run clean worktree');
   });
 
+  it('runs the complete ARIA Python suite through one semantic partition', () => {
+    const probeDir = mkdtempSync(join(tmpdir(), 'aria-suite-run-'));
+    const invocationLog = join(probeDir, 'python-invocations');
+    try {
+      writeExecutable(
+        join(probeDir, 'python3'),
+        [
+          '{',
+          "  printf 'BEGIN\\n'",
+          '  printf \'PYTHONDONTWRITEBYTECODE=%s\\n\' "$PYTHONDONTWRITEBYTECODE"',
+          '  printf \'PYTHONPATH=%s\\n\' "$PYTHONPATH"',
+          '  printf \'ARG=%s\\n\' "$@"',
+          "  printf 'END\\n'",
+          '} >> "$ARIA_SUITE_PROBE"',
+        ].join('\n'),
+      );
+
+      execFileSync('bash', [ARIA_SUITE_RUNNER], {
+        cwd: REPO_ROOT,
+        env: {
+          ...process.env,
+          ARIA_SUITE_PROBE: invocationLog,
+          PATH: `${probeDir}:${process.env.PATH ?? ''}`,
+          PYTHONPATH: 'caller-pythonpath',
+        },
+      });
+
+      expect(readFileSync(invocationLog, 'utf8').trim().split('\n')).toEqual([
+        'BEGIN',
+        'PYTHONDONTWRITEBYTECODE=1',
+        'PYTHONPATH=aria-kernel:.:caller-pythonpath',
+        'ARG=-m',
+        'ARG=unittest',
+        'ARG=discover',
+        'ARG=aria-kernel',
+        'ARG=-p',
+        'ARG=*test*.py',
+        'END',
+        'BEGIN',
+        'PYTHONDONTWRITEBYTECODE=1',
+        'PYTHONPATH=aria-kernel:.:caller-pythonpath',
+        'ARG=-m',
+        'ARG=pytest',
+        'ARG=-q',
+        'ARG=-p',
+        `ARG=${ARIA_PYTEST_NATIVE_PLUGIN}`,
+        'ARG=aria-kernel',
+        'END',
+      ]);
+      expect(read(ARIA_SUITE_RUNNER)).not.toMatch(/\bgrep\b|PYTEST_STYLE_MODULES/);
+    } finally {
+      rmSync(probeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('preserves the legacy *test*.py collection contract in pytest configuration', () => {
+    const pythonFiles = JSON.parse(
+      execFileSync(
+        'python3',
+        [
+          '-c',
+          [
+            'import json, pathlib, sys, tomllib',
+            'config = tomllib.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))',
+            'print(json.dumps(config.get("tool", {}).get("pytest", {}).get("ini_options", {}).get("python_files")))',
+          ].join('\n'),
+          join(REPO_ROOT, 'aria-kernel/pyproject.toml'),
+        ],
+        { encoding: 'utf8' },
+      ),
+    ) as unknown;
+
+    expect(pythonFiles).toEqual(['*test*.py']);
+  });
+
+  it('triggers both ARIA PR workflows when the canonical suite runner changes', () => {
+    for (const rel of [
+      '.github/workflows/aria-kernel.yml',
+      '.github/workflows/aria-kernel-fast.yml',
+    ]) {
+      const workflow = yaml.load(read(rel)) as PullRequestWorkflow;
+      expect(workflow.on?.pull_request?.paths).toContain(ARIA_SUITE_RUNNER);
+
+      const jobs = Object.values(workflow.jobs ?? {});
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]?.['timeout-minutes']).toBe(60);
+      const suiteSteps = (jobs[0]?.steps ?? []).filter(
+        (step) => step.run === `bash ${ARIA_SUITE_RUNNER}`,
+      );
+      expect(suiteSteps).toHaveLength(1);
+    }
+  });
+
+  it('budgets the operational proof for the package-bound suite and burn-in', () => {
+    const workflow = yaml.load(
+      read('.github/workflows/aria-operational-proof.yml'),
+    ) as PullRequestWorkflow;
+    const jobs = Object.values(workflow.jobs ?? {});
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.['timeout-minutes']).toBe(90);
+    expect(
+      (jobs[0]?.steps ?? []).filter((step) => step.run === 'npm run aria:test:unit'),
+    ).toHaveLength(1);
+
+    const pkg = JSON.parse(read('package.json')) as { scripts: Record<string, string> };
+    expect(pkg.scripts['aria:test:unit']).toBe(`bash ${ARIA_SUITE_RUNNER}`);
+  });
+
+  it('treats the ARIA suite selector and both entrypoints as pre-push surfaces', () => {
+    const probeDir = mkdtempSync(join(tmpdir(), 'aria-suite-changed-'));
+    const diffLog = join(probeDir, 'git-diff-args');
+    const bashLog = join(probeDir, 'bash-args');
+    try {
+      writeExecutable(
+        join(probeDir, 'git'),
+        [
+          'if [ "$1" = "rev-parse" ] && [ "$2" = "--abbrev-ref" ]; then',
+          "  printf 'probe-branch\\n'",
+          '  exit 0',
+          'fi',
+          'if [ "$1" = "rev-parse" ] && [ "$2" = "--verify" ]; then',
+          '  exit 0',
+          'fi',
+          'if [ "$1" = "diff" ]; then',
+          '  printf \'%s\\n\' "$@" > "$ARIA_DIFF_PROBE"',
+          `  printf '${ARIA_SUITE_SELECTOR}\\n'`,
+          '  exit 0',
+          'fi',
+          'exit 2',
+        ].join('\n'),
+      );
+      writeExecutable(join(probeDir, 'bash'), 'printf \'%s\\n\' "$@" > "$ARIA_BASH_PROBE"');
+
+      execFileSync(process.execPath, ['scripts/ci/aria-suite-changed.mjs'], {
+        cwd: REPO_ROOT,
+        env: {
+          ...process.env,
+          ARIA_BASH_PROBE: bashLog,
+          ARIA_DIFF_PROBE: diffLog,
+          PATH: `${probeDir}:${process.env.PATH ?? ''}`,
+        },
+      });
+
+      const diffArgs = readFileSync(diffLog, 'utf8').trim().split('\n');
+      expect(diffArgs).toContain(ARIA_SUITE_SELECTOR);
+      expect(diffArgs).toContain(ARIA_SUITE_RUNNER);
+      expect(diffArgs).toContain('package.json');
+      expect(readFileSync(bashLog, 'utf8').trim()).toBe(ARIA_SUITE_RUNNER);
+    } finally {
+      rmSync(probeDir, { recursive: true, force: true });
+    }
+  });
+
   it('package scripts expose the clean ARIA validation entrypoints', () => {
     const pkg = JSON.parse(read('package.json')) as { scripts: Record<string, string> };
-    expect(pkg.scripts['aria:compile']).toContain("compile(p.read_text(encoding='utf-8'), str(p), 'exec')");
+    expect(pkg.scripts['aria:compile']).toContain(
+      "compile(p.read_text(encoding='utf-8'), str(p), 'exec')",
+    );
     expect(pkg.scripts['aria:compile']).not.toContain('compileall');
-    expect(pkg.scripts['aria:test:unit']).toContain("python3 -m unittest discover aria-kernel -p '*test*.py'");
-    expect(pkg.scripts['aria:docs:ssot']).toBe('jest --config tests/invariants/jest.config.ts --selectProjects layer-3 --runTestsByPath tests/invariants/aria-doc-runtime-ssot.spec.ts');
-    expect(pkg.scripts['aria:burnin:observe']).toBe('PYTHONPATH=aria-kernel python3 -m aria_kernel autonomy burn-in observe');
-    expect(pkg.scripts['aria:ci:all']).toBe('npm run aria:compile && npm run aria:test:unit && npm run invariants:fast');
+    expect(pkg.scripts['aria:test:unit']).toBe(`bash ${ARIA_SUITE_RUNNER}`);
+    expect(pkg.scripts['aria:docs:ssot']).toBe(
+      'jest --config tests/invariants/jest.config.ts --selectProjects layer-3 --runTestsByPath tests/invariants/aria-doc-runtime-ssot.spec.ts',
+    );
+    expect(pkg.scripts['aria:burnin:observe']).toBe(
+      'PYTHONPATH=aria-kernel python3 -m aria_kernel autonomy burn-in observe',
+    );
+    expect(pkg.scripts['aria:ci:all']).toBe(
+      'npm run aria:compile && npm run aria:test:unit && npm run invariants:fast',
+    );
   });
 
   it('CODEOWNERS covers the ARIA control-plane authority chain', () => {
@@ -517,6 +738,12 @@ describe('ARIA live runtime/documentation SSoT', () => {
       'aria-tools/autonomy_state.jsonl',
       'aria-tools/daemons/lease.json',
       'aria-tools/quarantine/finding.jsonl',
+      // ORPHAN-HIGH-793 — the writers attestation is a DELIBERATE
+      // host-local SIBLING of the store directory (state_store.py keeps
+      // it outside the store so store invariants stay blind to it), and
+      // the nightly's workspace-clean gate tripped on it for exactly as
+      // long as git refused to ignore it: three dead nights.
+      '.aria-state-store.writers.jsonl',
     ]) {
       expect(gitSucceeds(['check-ignore', '--no-index', '-q', '--', rel])).toBe(true);
     }

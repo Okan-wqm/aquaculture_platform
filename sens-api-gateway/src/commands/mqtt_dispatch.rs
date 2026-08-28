@@ -136,7 +136,9 @@ impl super::CommandHandler {
                         // SEC-HIGH-057 (2026-08-23 scan №2): Enforcing mode
                         // REJECTS non-envelope payloads — the entire point of
                         // the mode is that only signed envelopes execute.
-                        if signature_mode == crate::command_envelope::envelope::SignatureMode::Enforcing {
+                        if signature_mode
+                            == crate::command_envelope::envelope::SignatureMode::Enforcing
+                        {
                             warn!(
                                 "ENFORCING: rejected non-envelope payload on {} (unsigned legacy path forbidden)",
                                 message.topic
@@ -237,8 +239,7 @@ impl super::CommandHandler {
                 Err(_) => {
                     warn!(
                         "Rejecting command with unparseable timestamp '{}': replay window cannot be enforced (id: {})",
-                        command.timestamp,
-                        command.command_id
+                        command.timestamp, command.command_id
                     );
                     return Ok(());
                 }

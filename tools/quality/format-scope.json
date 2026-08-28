@@ -6053,6 +6053,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/billing/__tests__/telemetry-capacity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/billing/billing-decimal.resolver.ts",
       "prettier_managed": true
     },
@@ -6251,6 +6257,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/billing/entities/telemetry-capacity-entitlement.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/billing/event-handlers/configuration-changed.handler.ts",
       "prettier_managed": true
     },
@@ -6425,6 +6437,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/billing/services/telemetry-capacity.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/common/guards/jwt-auth.guard.ts",
       "prettier_managed": true
     },
@@ -6592,6 +6610,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/billing-service/src/database/migrations/1802100000000-AddPlanChangeOperationSaga.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/database/migrations/1802200000000-CreateTelemetryCapacityEntitlements.ts",
       "prettier_managed": true
     },
     {
@@ -35030,6 +35054,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/zcode/2026-08-28-telemetry-capacity-entitlement.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/runbooks/2026-04-14-teardown-rollout.md",
       "prettier_managed": true
     },
@@ -39642,6 +39672,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/event-contracts/src/billing/plan-catalog.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/billing/telemetry-capacity.ts",
       "prettier_managed": true
     },
     {

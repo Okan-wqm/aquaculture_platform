@@ -23,6 +23,8 @@ import { Payment } from './entities/payment.entity';
 import { Plan } from './entities/plan.entity';
 import { ScheduledPlanChange } from './entities/scheduled-plan-change.entity';
 import { StripeWebhookEventEntity } from './entities/stripe-webhook-event.entity';
+import { TelemetryCapacityEntitlementEntity } from './entities/telemetry-capacity-entitlement.entity';
+import { TelemetryCapacityService } from './services/telemetry-capacity.service';
 import { SubscriptionModuleItem } from './entities/subscription-module-item.entity';
 import { Subscription } from './entities/subscription.entity';
 import { ConfigurationChangedHandler } from './event-handlers/configuration-changed.handler';
@@ -82,6 +84,7 @@ const EventHandlers: never[] = [];
       Plan,
       ScheduledPlanChange,
       StripeWebhookEventEntity,
+      TelemetryCapacityEntitlementEntity,
     ]),
     CqrsModule,
     ScheduleModule,
@@ -122,6 +125,9 @@ const EventHandlers: never[] = [];
     BillingSchedulerService,
     StripeWebhookService,
     PlanSeedService,
+    // Task 8 (100-tenant readiness): telemetry capacity envelope
+    // reservations — PENDING_CAPACITY/ACTIVE/SUPERSEDED/RELEASED machine.
+    TelemetryCapacityService,
     // Faz C: invalidates the DynamicStripeClientProvider snapshot when an
     // operator saves a platform/billing.* config row (subscribes in onModuleInit).
     ConfigurationChangedHandler,

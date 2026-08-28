@@ -271,7 +271,7 @@ function sha1Digest(bytes: Uint8Array): Uint8Array {
       w[i] = view.getUint32(offset + i * 4, false);
     }
     for (let i = 16; i < 80; i++) {
-      w[i] = rotl(w[i - 3]! ^ w[i - 8]! ^ w[i - 14]! ^ w[i - 16]!, 1);
+      w[i] = rotl((w[i - 3] ?? 0) ^ (w[i - 8] ?? 0) ^ (w[i - 14] ?? 0) ^ (w[i - 16] ?? 0), 1);
     }
 
     let a = h0;
@@ -296,7 +296,7 @@ function sha1Digest(bytes: Uint8Array): Uint8Array {
         f = b ^ c ^ d;
         k = 0xca62c1d6;
       }
-      const temp = (rotl(a, 5) + f + e + k + w[i]!) >>> 0;
+      const temp = (rotl(a, 5) + f + e + k + (w[i] ?? 0)) >>> 0;
       e = d;
       d = c;
       c = rotl(b, 30);
@@ -361,8 +361,8 @@ export function deriveEventId(seed: string, namespace: string = AQUA_EVENT_ID_NA
   const digest = sha1Digest(input);
 
   // RFC 4122 §4.3: version 5, RFC variant.
-  digest[6] = (digest[6]! & 0x0f) | 0x50;
-  digest[8] = (digest[8]! & 0x3f) | 0x80;
+  digest[6] = ((digest[6] ?? 0) & 0x0f) | 0x50;
+  digest[8] = ((digest[8] ?? 0) & 0x3f) | 0x80;
 
   const hex = Array.from(digest.subarray(0, 16), (byte) => byte.toString(16).padStart(2, '0')).join(
     '',

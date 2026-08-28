@@ -121,6 +121,9 @@ describe('ChangeSubscriptionPlanHandler', () => {
       create: jest.fn().mockImplementation((entity) => entity),
       save: jest.fn().mockImplementation((c) => Promise.resolve({ ...c, id: 'spc-001' })),
     };
+    // Expose the same mock for cross-test assertions without re-fetching
+    // it through the transaction manager.
+    mockScheduledChangeRepoForAssertions = mockScheduledChangeRepo;
 
     mockManager = {
       getRepository: jest.fn().mockImplementation((entity) => {
@@ -192,10 +195,9 @@ describe('ChangeSubscriptionPlanHandler', () => {
       new ChangeSubscriptionPlanCommand(tenantId, { newPlanId: plan.id }, userId),
     );
 
-    const repo = mockManager.getRepository?.(ScheduledPlanChange) as
-      | { save: { mock: { calls: unknown[][] } } }
-      | undefined;
-    const saved = repo?.save.mock.calls
+    // The scheduled-change repository mock the transaction manager hands
+    // back — assert on it directly rather than re-fetching it.
+    const saved = mockScheduledChangeRepoForAssertions.save.mock.calls
       .map((call) => call[0])
       .find((row) => (row as { status?: string })?.status === 'APPLIED');
     expect(saved).toBeDefined();

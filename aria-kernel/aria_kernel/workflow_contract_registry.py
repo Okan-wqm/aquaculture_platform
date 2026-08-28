@@ -248,7 +248,8 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 clean_worktree_policy="pre_and_post",
                 external_root_allowlist=("RUNNER_TEMP",),
                 # MOCK-mode burn-in (dry-run cycles, minutes-scale); the live
-                # YAML's 35-minute job timeout satisfies this floor.
+                # YAML's measured 90-minute combined suite + burn-in budget
+                # satisfies this burn-in floor.
                 burn_in_timeout_floor_minutes=30,
             ),
         ),

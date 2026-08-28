@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `77f7e884a306606762fd1515f06d81a9c85fa7c7c1de12dbe2758f5f00aeebba`
+Registry tip: `c472fd1e007cef248b777b4a018d098d0375bafdfdf947a0ce1169ffec29112c`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -144,12 +144,6 @@ its historical main-reachable fix provenance, so it is
 `already-fixed-needs-close`. The closure-plan audit also registered three new
 ARIA control-plane gaps as `real-open`; Tasks 10, 12, and 19 own their live
 proof predicates.
-
-Updated 2026-08-25 (production dependency hardening):
-`SUPPLY-CRITICAL-002` is `already-fixed-needs-close` because the stable root and
-Aquamobil locks, executable security invariants, clean production audits, and
-frontend production builds prove the remediation; the signed finding-linked
-commit and post-merge registry close ceremony remain.
 
 Allowed truth buckets:
 

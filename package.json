@@ -113,7 +113,7 @@
     "invariants:fast": "jest --config tests/invariants/jest.config.ts --maxWorkers=3 --selectProjects layer-1 layer-3 registry",
     "invariants:full": "jest --config tests/invariants/jest.config.ts --maxWorkers=3",
     "aria:compile": "PYTHONPATH=aria-kernel python3 -c \"from pathlib import Path; [compile(p.read_text(encoding='utf-8'), str(p), 'exec') for p in Path('aria-kernel').rglob('*.py') if '__pycache__' not in p.parts]\"",
-    "aria:test:unit": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m unittest discover aria-kernel -p '*test*.py'",
+    "aria:test:unit": "bash scripts/ci/aria-suite-run.sh",
     "aria:docs:ssot": "jest --config tests/invariants/jest.config.ts --selectProjects layer-3 --runTestsByPath tests/invariants/aria-doc-runtime-ssot.spec.ts",
     "aria:acceptance": "PYTHONDONTWRITEBYTECODE=1 python3 tools/aria-acceptance/harness.py",
     "aria:burnin:observe": "PYTHONPATH=aria-kernel python3 -m aria_kernel autonomy burn-in observe",

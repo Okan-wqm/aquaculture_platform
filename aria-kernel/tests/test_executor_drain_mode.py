@@ -169,6 +169,12 @@ class DrainPendingTests(unittest.TestCase):
         # The quota round must hand every WAITING role one slot before any
         # role gets a second — so the younger maintenance envelope outranks
         # the older judges' second slot, and judges still drain afterwards.
+        # ORPHAN-HIGH-786 moved the judge roles earlier in the arc (they
+        # were LAST, and the fallback budget died before reaching them),
+        # so the quota round now serves the judge lane first — but the
+        # PROPERTY this test pins is unchanged: the second judge envelope
+        # (a surplus slot) still drains only AFTER adjudication and
+        # maintenance have each received their guaranteed one.
         queue = [
             {"request_id": "AIR-judge-old-1", "target_agent": "aria-evidence-judge", "role": "evidence_judgment"},
             {"request_id": "AIR-judge-old-2", "target_agent": "aria-evidence-judge", "role": "evidence_judgment"},
@@ -185,12 +191,15 @@ class DrainPendingTests(unittest.TestCase):
         )
         self.assertEqual(rc, 0)
         order = [rid for rid, _ in calls["dispatch"]]
-        # Quota round (arc order): adjudication, then maintenance, then ONE
-        # judge; the second judge only drains in the fallback.
+        # Quota round (arc order): ONE judge (judges lead the arc since
+        # ORPHAN-HIGH-786), then adjudication, then maintenance; the second
+        # judge is a surplus slot and only drains in the fallback.
         self.assertEqual(
             order,
-            ["AIR-adj", "AIR-mu", "AIR-judge-old-1", "AIR-judge-old-2"],
+            ["AIR-judge-old-1", "AIR-adj", "AIR-mu", "AIR-judge-old-2"],
         )
+        self.assertLess(order.index("AIR-adj"), order.index("AIR-judge-old-2"))
+        self.assertLess(order.index("AIR-mu"), order.index("AIR-judge-old-2"))
 
     def test_max_requests_cap_is_real(self) -> None:
         queue = [

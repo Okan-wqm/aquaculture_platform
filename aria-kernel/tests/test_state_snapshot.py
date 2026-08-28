@@ -28,7 +28,10 @@ WHAT IS ASSERTED HERE, and why each one is not obvious:
 
 from __future__ import annotations
 
+from dataclasses import replace
+import errno
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -36,6 +39,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import aria_kernel.state_snapshot as state_snapshot_module
+import aria_kernel.ledger as ledger_module
 from aria_kernel.state_manifest import iter_surfaces
 from aria_kernel.state_snapshot import (
     SIGNATURE_NAMESPACE,
@@ -45,6 +50,7 @@ from aria_kernel.state_snapshot import (
     compute_manifest_root,
     sign_snapshot,
     snapshot_continuity,
+    validate_snapshot_manifest,
     verify_manifest_root,
     verify_snapshot_signature,
 )
@@ -96,6 +102,9 @@ class SnapshotBuildTests(unittest.TestCase):
         params.update(kwargs)
         return build_snapshot(**params)
 
+    def _surface(self, name: str):
+        return next(surface for surface in iter_surfaces() if surface.name == name)
+
     def test_a_snapshot_records_present_surfaces_with_chain_tips(self) -> None:
         manifest = self._build()
         self.assertEqual(manifest["$schema"], "aria/state-snapshot/v1")
@@ -106,23 +115,544 @@ class SnapshotBuildTests(unittest.TestCase):
         self.assertEqual(beliefs["segments"], ["memory/beliefs.jsonl"])
         self.assertTrue(verify_manifest_root(manifest))
 
-    def test_a_broken_chain_is_recorded_not_given_plausible_counts(self) -> None:
-        """Attesting a tip for a chain that does not verify is worse than none.
+    def test_snapshot_json_budget_uses_exact_written_bytes(self) -> None:
+        limit = 4 * 1024 * 1024
+        baseline = self._build(lane="x")
+        baseline_bytes = (
+            state_snapshot_module.canonical_json(baseline) + "\n"
+        ).encode("utf-8")
+        exact_lane = "x" + ("p" * (limit - len(baseline_bytes)))
 
-        The builder routes through the kernel's one strict reader, so a
-        tampered ledger cannot yield a count-and-tip that looks like
-        evidence of a state that never existed.
-        """
+        exact = self._build(lane=exact_lane)
+        exact_bytes = (
+            state_snapshot_module.canonical_json(exact) + "\n"
+        ).encode("utf-8")
+        self.assertEqual(len(exact_bytes), limit)
+
+        with self.assertRaisesRegex(
+            SnapshotError,
+            "state_snapshot_json_too_large",
+        ):
+            self._build(lane=exact_lane + "p")
+        self.assertEqual(
+            state_snapshot_module.MAX_SNAPSHOT_JSON_BYTES,
+            limit,
+        )
+
+    def test_a_broken_chain_is_rejected_instead_of_snapshotted(self) -> None:
         path = self.tools / "memory" / "beliefs.jsonl"
         path.write_text(
             path.read_text(encoding="utf-8").replace("B-snap", "B-forged"),
             encoding="utf-8",
         )
-        entry = self._build()["surfaces"]["memory_beliefs"]
-        self.assertFalse(entry["chain_valid"])
-        self.assertIsNone(entry["row_count"])
-        self.assertIsNone(entry["tail_ledger_hash"])
-        self.assertTrue(entry["sha256"], "the bytes are still identified")
+        with self.assertRaisesRegex(SnapshotError, "snapshot_ledger_invalid"):
+            self._build()
+
+    def test_matching_symlink_directory_and_fifo_are_rejected_not_omitted(self) -> None:
+        path = self.tools / "memory" / "beliefs.jsonl"
+        original = path.read_bytes()
+        path.unlink()
+        external = self.tmp / "external.jsonl"
+        external.write_bytes(original)
+        path.symlink_to(external)
+        with self.assertRaisesRegex(SnapshotError, "snapshot_surface_not_regular"):
+            self._build()
+
+        path.unlink()
+        path.mkdir()
+        with self.assertRaisesRegex(SnapshotError, "snapshot_surface_not_regular"):
+            self._build()
+
+        path.rmdir()
+        if os.name == "posix":
+            os.mkfifo(path)
+            with self.assertRaisesRegex(SnapshotError, "snapshot_surface_not_regular"):
+                self._build()
+
+    def test_glob_surface_nonregular_match_is_rejected(self) -> None:
+        path = self.tools / "dispatch" / "not-a-ledger.jsonl"
+        path.mkdir(parents=True)
+        with self.assertRaisesRegex(SnapshotError, "snapshot_surface_not_regular"):
+            self._build()
+
+    def test_glob_snapshot_binds_replay_transport_to_concrete_path(self) -> None:
+        august = "cost-attribution/2026-08.jsonl"
+        september = "cost-attribution/2026-09.jsonl"
+        payload = {"schema_version": 1, "event": "cost_observed"}
+        append_declared_fixture(
+            self.tools / september,
+            ledger_module._make_replay_transport_row(
+                payload,
+                expected_surface="cost_attribution",
+                surface_instance=august,
+                producer_event_id=ledger_module._record_hash(payload, None),
+                producer_previous_ledger_hash=None,
+                replay_transaction_id="snapshot-producer-instance-binding",
+            ),
+            expected_surface="cost_attribution",
+        )
+
+        with mock.patch.object(
+            ledger_module,
+            "_surface_instance_for_path",
+            return_value=None,
+        ), self.assertRaisesRegex(SnapshotError, "snapshot_ledger_invalid"):
+            self._build()
+
+    def test_glob_parent_symlink_is_rejected_before_external_discovery_or_read(self) -> None:
+        source = self.tools / "memory" / "beliefs.jsonl"
+        external = self.tmp / "external-ledgers"
+        external.mkdir()
+        outside = external / "outside.jsonl"
+        outside.write_bytes(source.read_bytes())
+        source.unlink()
+        seeded = self.tools / "operator-feedback-seeding"
+        seeded.mkdir()
+        (seeded / "escape").symlink_to(external, target_is_directory=True)
+
+        real_scandir = os.scandir
+        real_read = os.read
+        external_identity = (external.stat().st_dev, external.stat().st_ino)
+        outside_identity = (outside.stat().st_dev, outside.stat().st_ino)
+
+        def guarded_scandir(target):
+            if isinstance(target, int):
+                opened = os.fstat(target)
+                identity = (opened.st_dev, opened.st_ino)
+            else:
+                opened = os.stat(target)
+                identity = (opened.st_dev, opened.st_ino)
+            if identity == external_identity:
+                raise AssertionError("snapshot discovery entered the external tree")
+            return real_scandir(target)
+
+        def guarded_read(descriptor, size):
+            opened = os.fstat(descriptor)
+            if (opened.st_dev, opened.st_ino) == outside_identity:
+                raise AssertionError("snapshot read external bytes")
+            return real_read(descriptor, size)
+
+        with mock.patch.object(
+            state_snapshot_module.os,
+            "scandir",
+            side_effect=guarded_scandir,
+        ), mock.patch.object(
+            state_snapshot_module.os,
+            "read",
+            side_effect=guarded_read,
+        ), self.assertRaisesRegex(
+            SnapshotError,
+            "snapshot_surface_ancestry_not_directory",
+        ):
+            self._build()
+
+    def test_snapshot_discovery_has_an_explicit_aggregate_work_budget(self) -> None:
+        with mock.patch.object(
+            state_snapshot_module,
+            "SNAPSHOT_MAX_DISCOVERY_WORK",
+            0,
+            create=True,
+        ), self.assertRaisesRegex(
+            SnapshotError,
+            "snapshot_surface_discovery_budget_exceeded",
+        ):
+            self._build()
+
+    def test_exact_surface_created_after_pass_one_is_rejected(self) -> None:
+        requests = self._surface("agent_invocation_requests")
+        beliefs = self._surface("memory_beliefs")
+        requests_path = self.tools / "agent-invocations" / "requests.jsonl"
+        original_surface_entry = state_snapshot_module._surface_entry
+        created = False
+
+        def create_after_first_read(*args, **kwargs):
+            nonlocal created
+            entry = original_surface_entry(*args, **kwargs)
+            if not created:
+                append_declared_fixture(
+                    requests_path,
+                    {"schema_version": 1, "request_id": "req-created-after-p1"},
+                    expected_surface="agent_invocation_requests",
+                )
+                created = True
+            return entry
+
+        with mock.patch.object(
+            state_snapshot_module,
+            "iter_surfaces",
+            return_value=(requests, beliefs),
+        ), mock.patch.object(
+            state_snapshot_module,
+            "_surface_entry",
+            side_effect=create_after_first_read,
+        ), self.assertRaisesRegex(
+            SnapshotError,
+            "snapshot_surface_changed",
+        ):
+            self._build()
+        self.assertTrue(created, "fixture must create the exact surface after pass one")
+
+    def test_nested_glob_add_remove_and_rename_after_pass_one_are_rejected(self) -> None:
+        artifact = self._surface("agent_output_artifacts")
+        original_surface_entry = state_snapshot_module._surface_entry
+
+        for operation in ("add", "remove", "rename"):
+            with self.subTest(operation=operation):
+                operation_root = self.tools / "agent-invocations" / "outputs" / operation
+                case_dir = operation_root / "nested"
+                case_dir.mkdir(parents=True)
+                source = case_dir / "result.md"
+                source.write_text("original", encoding="utf-8")
+                source_relative = source.relative_to(self.tools).as_posix()
+                mutated = False
+
+                def mutate_after_read(*args, **kwargs):
+                    nonlocal mutated
+                    entry = original_surface_entry(*args, **kwargs)
+                    if not mutated and args[1] == source_relative:
+                        if operation == "add":
+                            (case_dir / "added.md").write_text("added", encoding="utf-8")
+                        elif operation == "remove":
+                            source.unlink()
+                        else:
+                            source.rename(case_dir / "renamed.md")
+                        mutated = True
+                    return entry
+
+                try:
+                    with mock.patch.object(
+                        state_snapshot_module,
+                        "iter_surfaces",
+                        return_value=(artifact,),
+                    ), mock.patch.object(
+                        state_snapshot_module,
+                        "_surface_entry",
+                        side_effect=mutate_after_read,
+                    ), self.assertRaisesRegex(
+                        SnapshotError,
+                        "snapshot_surface_changed",
+                    ):
+                        self._build()
+                    self.assertTrue(mutated, "fixture must mutate a discovered glob leaf")
+                finally:
+                    shutil.rmtree(operation_root, ignore_errors=True)
+
+    def test_leaf_replace_between_projection_and_open_is_rejected(self) -> None:
+        artifact = self._surface("agent_output_artifacts")
+        target = self.tools / "agent-invocations" / "outputs" / "replace" / "result.md"
+        target.parent.mkdir(parents=True)
+        target.write_text("old", encoding="utf-8")
+        replacement = self.tmp / "replacement.md"
+        replacement.write_text("new", encoding="utf-8")
+        original_surface_entry = state_snapshot_module._surface_entry
+        replaced = False
+
+        def replace_before_open(*args, **kwargs):
+            nonlocal replaced
+            if not replaced:
+                os.replace(replacement, target)
+                replaced = True
+            return original_surface_entry(*args, **kwargs)
+
+        with mock.patch.object(
+            state_snapshot_module,
+            "iter_surfaces",
+            return_value=(artifact,),
+        ), mock.patch.object(
+            state_snapshot_module,
+            "_surface_entry",
+            side_effect=replace_before_open,
+        ), self.assertRaisesRegex(
+            SnapshotError,
+            "snapshot_surface_changed",
+        ):
+            self._build()
+        self.assertTrue(replaced, "fixture must replace the projected leaf before open")
+
+    def test_post_pass_two_nested_directory_mutation_is_rejected(self) -> None:
+        artifact = self._surface("agent_output_artifacts")
+        nested = self.tools / "agent-invocations" / "outputs" / "post-p2" / "nested"
+        nested.mkdir(parents=True)
+        (nested / "result.md").write_text("stable", encoding="utf-8")
+        original_matches = state_snapshot_module._secure_surface_matches
+        calls = 0
+
+        def mutate_after_second_projection(*args, **kwargs):
+            nonlocal calls
+            matches = original_matches(*args, **kwargs)
+            calls += 1
+            if calls == 2:
+                (nested / "nonmatching.tmp").write_text("changed", encoding="utf-8")
+            return matches
+
+        with mock.patch.object(
+            state_snapshot_module,
+            "iter_surfaces",
+            return_value=(artifact,),
+        ), mock.patch.object(
+            state_snapshot_module,
+            "_secure_surface_matches",
+            side_effect=mutate_after_second_projection,
+        ), self.assertRaisesRegex(
+            SnapshotError,
+            "snapshot_surface_changed",
+        ):
+            self._build()
+
+    def test_two_pass_projection_is_stable_and_deterministic(self) -> None:
+        artifact = self._surface("agent_output_artifacts")
+        nested = self.tools / "agent-invocations" / "outputs" / "stable" / "nested"
+        nested.mkdir(parents=True)
+        (nested / "b.md").write_text("b", encoding="utf-8")
+        (nested / "a.md").write_text("a", encoding="utf-8")
+
+        with mock.patch.object(
+            state_snapshot_module,
+            "iter_surfaces",
+            return_value=(artifact,),
+        ):
+            first = self._build()
+            second = self._build()
+        self.assertEqual(first, second)
+
+    def test_pass_two_spends_the_same_aggregate_discovery_budget(self) -> None:
+        beliefs = self._surface("memory_beliefs")
+        with mock.patch.object(
+            state_snapshot_module,
+            "iter_surfaces",
+            return_value=(beliefs,),
+        ), mock.patch.object(
+            state_snapshot_module,
+            "SNAPSHOT_MAX_DISCOVERY_WORK",
+            4,
+        ), self.assertRaisesRegex(
+            SnapshotError,
+            "snapshot_surface_discovery_budget_exceeded",
+        ):
+            self._build()
+
+    def test_final_directory_revalidation_keeps_live_fds_depth_bounded(self) -> None:
+        artifact = self._surface("agent_output_artifacts")
+        broad = self.tools / "agent-invocations" / "outputs" / "broad"
+        for index in range(256):
+            leaf = broad / f"branch-{index:03d}" / "result.md"
+            leaf.parent.mkdir(parents=True)
+            leaf.write_text(str(index), encoding="utf-8")
+
+        real_open = os.open
+        real_close = os.close
+        live: set[int] = set()
+        max_live = 0
+
+        def tracked_open(*args, **kwargs):
+            nonlocal max_live
+            descriptor = real_open(*args, **kwargs)
+            live.add(descriptor)
+            max_live = max(max_live, len(live))
+            return descriptor
+
+        def tracked_close(descriptor: int) -> None:
+            live.discard(descriptor)
+            real_close(descriptor)
+
+        with mock.patch.object(
+            state_snapshot_module,
+            "iter_surfaces",
+            return_value=(artifact,),
+        ), mock.patch.object(
+            state_snapshot_module.os,
+            "open",
+            side_effect=tracked_open,
+        ), mock.patch.object(
+            state_snapshot_module.os,
+            "close",
+            side_effect=tracked_close,
+        ), mock.patch.object(
+            state_snapshot_module,
+            "_require_nofollow_dirfd_support",
+            return_value=None,
+        ):
+            self._build()
+
+        self.assertEqual(live, set(), "snapshot leaked a descriptor")
+        self.assertLessEqual(
+            max_live,
+            state_snapshot_module.MAX_SURFACE_PATH_COMPONENTS + 8,
+            "final revalidation retained one descriptor per sibling directory",
+        )
+
+    def test_final_directory_fd_exhaustion_is_named_as_unavailable(self) -> None:
+        artifact = self._surface("agent_output_artifacts")
+        leaf = self.tools / "agent-invocations" / "outputs" / "emfile" / "result.md"
+        leaf.parent.mkdir(parents=True)
+        leaf.write_text("fixture", encoding="utf-8")
+        real_matches = state_snapshot_module._secure_surface_matches
+        real_open = os.open
+        projections = 0
+        final_revalidation = False
+
+        def mark_second_projection(*args, **kwargs):
+            nonlocal projections, final_revalidation
+            matches = real_matches(*args, **kwargs)
+            projections += 1
+            if projections == 2:
+                final_revalidation = True
+            return matches
+
+        def exhaust_only_during_final(*args, **kwargs):
+            if final_revalidation and kwargs.get("dir_fd") is not None:
+                raise OSError(errno.EMFILE, "too many open files")
+            return real_open(*args, **kwargs)
+
+        with mock.patch.object(
+            state_snapshot_module,
+            "iter_surfaces",
+            return_value=(artifact,),
+        ), mock.patch.object(
+            state_snapshot_module,
+            "_secure_surface_matches",
+            side_effect=mark_second_projection,
+        ), mock.patch.object(
+            state_snapshot_module.os,
+            "open",
+            side_effect=exhaust_only_during_final,
+        ), mock.patch.object(
+            state_snapshot_module,
+            "_require_nofollow_dirfd_support",
+            return_value=None,
+        ), self.assertRaisesRegex(
+            SnapshotError,
+            r"snapshot_surface_revalidation_unavailable:.*errno=24",
+        ):
+            self._build()
+
+    def test_root_inode_stability_does_not_hide_child_content_mutation(self) -> None:
+        artifact = self._surface("agent_output_artifacts")
+        target = self.tools / "agent-invocations" / "outputs" / "same-root" / "result.md"
+        target.parent.mkdir(parents=True)
+        target.write_text("alpha", encoding="utf-8")
+        root_before = os.stat(self.tools, follow_symlinks=False)
+        root_identity = (root_before.st_dev, root_before.st_ino, root_before.st_mode)
+        original_surface_entry = state_snapshot_module._surface_entry
+        mutated = False
+
+        def mutate_child_after_read(*args, **kwargs):
+            nonlocal mutated
+            entry = original_surface_entry(*args, **kwargs)
+            if not mutated:
+                target.write_text("omega", encoding="utf-8")
+                mutated = True
+                root_after = os.stat(self.tools, follow_symlinks=False)
+                self.assertEqual(
+                    (root_after.st_dev, root_after.st_ino, root_after.st_mode),
+                    root_identity,
+                    "the root anchor stays on the same inode while its child changes",
+                )
+            return entry
+
+        with mock.patch.object(
+            state_snapshot_module,
+            "iter_surfaces",
+            return_value=(artifact,),
+        ), mock.patch.object(
+            state_snapshot_module,
+            "_surface_entry",
+            side_effect=mutate_child_after_read,
+        ), self.assertRaisesRegex(
+            SnapshotError,
+            "snapshot_surface_changed",
+        ):
+            self._build()
+        self.assertTrue(mutated, "fixture must mutate a child without replacing the root")
+
+    def test_snapshot_path_normalization_errors_are_named(self) -> None:
+        path = self.tools / "dispatch" / "artifacts"
+        for _ in range(128):
+            path /= "d"
+        path.mkdir(parents=True)
+        (path / "result.json").write_text("{}", encoding="utf-8")
+        with self.assertRaisesRegex(SnapshotError, "snapshot_surface_path_invalid"):
+            self._build()
+
+    def test_root_swap_during_build_is_rejected_not_mixed_into_one_manifest(self) -> None:
+        replacement = self.tmp / "replacement-tools"
+        shutil.copytree(self.tools, replacement)
+        append_declared_fixture(
+            replacement / "cycles.jsonl",
+            {"schema_version": 1, "cycle_id": "replacement-root"},
+            expected_surface="cycles",
+        )
+        displaced = self.tmp / "displaced-tools"
+        original_surface_entry = state_snapshot_module._surface_entry
+        swapped = False
+
+        def swap_after_first_read(*args, **kwargs):
+            nonlocal swapped
+            entry = original_surface_entry(*args, **kwargs)
+            if not swapped:
+                self.tools.rename(displaced)
+                replacement.rename(self.tools)
+                swapped = True
+            return entry
+
+        with mock.patch.object(
+            state_snapshot_module,
+            "_surface_entry",
+            side_effect=swap_after_first_read,
+        ), self.assertRaisesRegex(SnapshotError, "snapshot_root_changed"):
+            self._build()
+        self.assertTrue(swapped, "fixture must swap after a real surface read")
+
+    def test_manifest_validation_caps_claim_count_before_iteration(self) -> None:
+        manifest = self._build()
+        with mock.patch.object(
+            state_snapshot_module,
+            "SNAPSHOT_MAX_SURFACE_ENTRIES",
+            0,
+        ), self.assertRaisesRegex(
+            SnapshotError,
+            "surface_claim_budget_exceeded",
+        ):
+            validate_snapshot_manifest(manifest)
+
+    def test_snapshot_surface_reads_are_bounded_and_streaming(self) -> None:
+        registry = self.tools / "registry.json"
+        registry.write_bytes(b"x" * 9)
+        with mock.patch.object(
+            state_snapshot_module,
+            "SNAPSHOT_MAX_SURFACE_BLOB_BYTES",
+            8,
+            create=True,
+        ), self.assertRaisesRegex(SnapshotError, "snapshot_surface_too_large"):
+            self._build()
+
+        registry.unlink()
+        with mock.patch.object(
+            state_snapshot_module,
+            "file_hash",
+            side_effect=AssertionError("legacy whole-buffer hash is forbidden"),
+            create=True,
+        ), mock.patch.object(
+            state_snapshot_module,
+            "load_jsonl_verified",
+            side_effect=AssertionError("legacy whole-buffer ledger load is forbidden"),
+            create=True,
+        ):
+            manifest = self._build()
+        self.assertIn("memory_beliefs", manifest["surfaces"])
+
+    def test_one_actual_path_cannot_be_owned_by_two_snapshot_surfaces(self) -> None:
+        beliefs = next(
+            surface for surface in iter_surfaces()
+            if surface.name == "memory_beliefs"
+        )
+        duplicate = replace(beliefs, name="duplicate_memory_beliefs")
+        with mock.patch.object(
+            state_snapshot_module,
+            "iter_surfaces",
+            return_value=(beliefs, duplicate),
+        ), self.assertRaisesRegex(SnapshotError, "snapshot_surface_ambiguous"):
+            self._build()
 
     def test_no_lock_surface_is_ever_carried(self) -> None:
         (self.tools / "locks").mkdir(parents=True, exist_ok=True)

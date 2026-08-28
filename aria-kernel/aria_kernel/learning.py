@@ -422,11 +422,19 @@ def _emit_genesis_for_gap(
             {"cycle_id": cycle_id, "gap_id": gap.get("gap_id"), "capability_gap_key": gap.get("capability_gap_key")},
         )
         return row
-    if gap_type == "skill_gap":
+    if gap_type in ("skill_gap", "unobserved_surface"):
         # Plan 026R §E.9 — skill_gap routes to skill_genesis, NOT
         # agent_genesis. Pre-§E.9 every non-extension gap fell to
         # the request_agent_genesis branch; a skill_gap silently
         # spawned an agent_genesis request (wrong target).
+        #
+        # H-3 — unobserved_surface joins it, and for a sharper reason. A root
+        # no adapter can parse is missing a READER, not a REVIEWER: minting
+        # a review agent leaves declared_scope untouched, so the next night
+        # measures the identical blindness and the gap can never close.
+        # request_skill_genesis is the surface that authors tool adapters
+        # (the same one the F-012 adapter seeds feed), so it is the only
+        # genesis on this router that can move observed_ratio.
         from .skill_genesis import request_skill_genesis
         row = request_skill_genesis(
             capability_gap_key=str(gap.get("capability_gap_key") or ""),
@@ -437,7 +445,15 @@ def _emit_genesis_for_gap(
         append_tools_governance(
             tools_root,
             "skill_genesis_request_emitted",
-            {"cycle_id": cycle_id, "gap_id": gap.get("gap_id"), "capability_gap_key": gap.get("capability_gap_key")},
+            {
+                "cycle_id": cycle_id,
+                "gap_id": gap.get("gap_id"),
+                "capability_gap_key": gap.get("capability_gap_key"),
+                # WHY the type is on the event: both branches land in one
+                # ledger kind, and "we asked for an adapter because we are
+                # blind here" reads differently from "we asked for a skill".
+                "gap_type": gap_type,
+            },
         )
         return row
     row = request_agent_genesis(gap, base_dir=tools_root, cycle_id=cycle_id)

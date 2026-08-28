@@ -36,7 +36,7 @@ class CliShadowSampleTests(unittest.TestCase):
             "strict",
             operator_approval_ref="test:plan-023-d1",
             base_dir=self.tools,
-            set_by="test-fixture",
+            set_by="operator",
         )
 
     def tearDown(self) -> None:

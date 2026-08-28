@@ -481,6 +481,7 @@ def restore_and_replay(
     from .state_snapshot import build_snapshot
     from .state_store import (
         StateStoreError,
+        _read_commit_ref,
         open_state_store,
         read_published_snapshot,
         read_snapshot_at_worktree_head,
@@ -502,7 +503,15 @@ def restore_and_replay(
         # passing the tip makes `append_only_suffix` refuse with
         # `replay_prefix_diverged`. That refusal is the guard working; getting
         # the base right is what stops it being asked the wrong question.
-        base = read_snapshot_at_worktree_head(store)
+        base_head = _read_commit_ref(store.root, "HEAD")
+        if base_head is None:
+            raise StateStoreError(
+                "recovery_base_head_unavailable: worktree HEAD is not an exact commit"
+            )
+        base = read_snapshot_at_worktree_head(
+            store,
+            expected_head=base_head,
+        )
         local = build_snapshot(
             snapshot_id=f"recovery-local-{cycle_id}",
             cycle_id=cycle_id,
@@ -510,7 +519,11 @@ def restore_and_replay(
             roots=roots,
         )
         replayed = rebase_store_onto_remote(
-            store, base=base, local=local, repo_hash=repo_hash
+            store,
+            base=base,
+            local=local,
+            repo_hash=repo_hash,
+            expected_base=base_head,
         )
     except (StateStoreError, GovernanceError) as exc:
         # A recovery that cannot complete must not report that it did. The

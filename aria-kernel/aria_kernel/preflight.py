@@ -44,6 +44,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+# ORPHAN-HIGH-728 — profile authority is READ from the table, never
+# restated. Every `profile == "autonomous"` / `profile in (...)` in this
+# module was a second copy of it, and copies of that mapping are what
+# shipped a nightly lane running a profile the table said could not open a
+# pull request. `pr_merge` names the merge-class profiles (the ones that can
+# land without a human, and so must satisfy branch protection and signing
+# preconditions); `PROFILES_WITH_ACTION_AUTHORITY` names every profile that
+# can act at all, which is the right audience for environment facts.
+from .runtime_profile import ACTION_PERMISSIONS, PROFILES_WITH_ACTION_AUTHORITY
 from .workflow_contract_registry import (
     WORKFLOW_CONTRACTS,
     WorkflowJobContract,
@@ -339,6 +348,7 @@ def verify_preflight(
         immutable_paths_count = 0
         bash_allowlist_count = 0
 
+    merge_authority_profiles = ACTION_PERMISSIONS["pr_merge"]
     # FAZ 5d — environment facts, measured for EVERY run profile. The
     # nightly producer runs `standard` and used to skip preflight entirely,
     # so a host with no sandbox or no node deps produced a green-looking run
@@ -359,16 +369,16 @@ def verify_preflight(
     # named reason instead of downstream noise.
     free_disk_gb = _free_disk_gb(workspace_root)
     disk_ok = free_disk_gb is None or free_disk_gb >= MIN_FREE_DISK_GB
-    if profile in ("autonomous", "strict", "standard"):
+    if profile in PROFILES_WITH_ACTION_AUTHORITY:
         if not sandbox_backend_present:
             reasons.append("sandbox_backend_absent")
-            if profile == "autonomous":
+            if profile in merge_authority_profiles:
                 failure_classes.append("autonomous_profile_preconditions_not_met")
             else:
                 failure_classes.append("environment_preconditions_not_met")
         if not node_modules_present:
             reasons.append("node_modules_absent")
-            if profile != "autonomous":
+            if profile not in merge_authority_profiles:
                 failure_classes.append("environment_preconditions_not_met")
         if not disk_ok:
             reasons.append(
@@ -376,7 +386,7 @@ def verify_preflight(
             )
             failure_classes.append("environment_preconditions_not_met")
 
-    if profile == "autonomous":
+    if profile in merge_authority_profiles:
         if not gh_token_present:
             reasons.append("gh_token_absent")
             failure_classes.append("autonomous_profile_preconditions_not_met")
@@ -402,8 +412,9 @@ def verify_preflight(
                 reasons.extend([f"branch_protection: {r}" for r in bp_reasons])
                 failure_classes.append("autonomous_profile_preconditions_not_met")
 
-    # strict profile: log warnings via reasons but don't fail the verdict
-    valid = (profile != "autonomous") or (len(failure_classes) == 0)
+    # Proposal-class profiles: log warnings via reasons but don't fail the
+    # verdict. Only merge-class authority hard-fails on its own preconditions.
+    valid = (profile not in merge_authority_profiles) or (len(failure_classes) == 0)
 
     return PreflightVerdict(
         valid=valid,
@@ -589,8 +600,23 @@ def verify_workflow_preflight(
             failure_classes.append("path_allowlist_violation")
 
     worktree_clean = _git_worktree_clean(workspace)
+    worktree_dirty_paths: tuple[str, ...] = ()
     if worktree_clean is False:
+        # ORPHAN-HIGH-793 — a gate that refuses must NAME its subject. The
+        # nightly died on `workspace_worktree_not_clean` three runs in a row
+        # without a single path in the log: on a persistent self-hosted
+        # runner the dirt is evidence (which lane left it? did an agent
+        # write outside the designed set?), and evidence that is not
+        # printed is evidence that does not exist. Capped so a polluted
+        # tree cannot flood the reason line.
+        worktree_dirty_paths = tuple(
+            _git_worktree_offending_paths(workspace)[:10]
+        )
         reasons.append("workspace_worktree_not_clean")
+        if worktree_dirty_paths:
+            reasons.append(
+                "workspace_worktree_dirty_paths:" + ";".join(worktree_dirty_paths)
+            )
         failure_classes.append("workflow_preflight_contract")
 
     for root in roots:
@@ -661,8 +687,31 @@ def _env_truthy(name: str) -> bool:
 
 
 def _git_worktree_clean(workspace: Path) -> bool | None:
+    """Is the worktree clean, IGNORING files the cycle legitimately writes.
+
+    A cycle that runs for 30+ minutes modifies tracked files as part of its
+    normal operation (CURRENT_STATE.md authority hash, format-scope.json,
+    JUDGE-DIGEST.md, generated reports, aria-tools state). The mid-run
+    "resolved profile" preflight then sees these as dirt and rejects the
+    very run that produced them — a gate that punishes the mechanism it
+    guards. The check is scoped: files the cycle is DESIGNED to write are
+    excluded; everything else (hand-edited source, unexpected artifact)
+    still trips the gate. No .git → None (unknown), preserved exactly.
+    """
     if not (workspace / ".git").exists():
         return None
+    return not _git_worktree_offending_paths(workspace)
+
+
+def _git_worktree_offending_paths(workspace: Path) -> list[str]:
+    """Paths that dirty the worktree beyond the cycle's designed write set.
+
+    Returns [] when clean. A workspace with no .git is NOT "clean" — the
+    caller's bool|None contract maps it to None (unknown); this helper
+    signals it by returning [] only for a real repo that is clean, so the
+    wrapper below preserves the None-vs-False distinction. ORPHAN-HIGH-793
+    split this out so the refusal can name its subject.
+    """
     completed = subprocess.run(
         ["git", "status", "--porcelain", "--untracked-files=all"],
         cwd=workspace,
@@ -671,8 +720,26 @@ def _git_worktree_clean(workspace: Path) -> bool | None:
         check=False,
     )
     if completed.returncode != 0:
-        return False
-    return not completed.stdout.strip()
+        return ["<git-status-failed>"]
+    _CYCLE_WRITE_PREFIXES = (
+        "docs/aria/CURRENT_STATE.md",
+        "docs/aria/generated/",
+        "tools/quality/format-scope.json",
+        "aria-tools/",
+    )
+    offending: list[str] = []
+    for line in completed.stdout.strip().splitlines():
+        # Porcelain v1 is "XY <path>"; rather than slicing a fixed offset
+        # (fragile against status-column variants), drop the status
+        # tokens and take everything after the first whitespace run —
+        # paths with leading spaces are not a thing git emits here.
+        parts = line.split(None, 1)
+        path = parts[1].strip() if len(parts) == 2 else ""
+        if not path:
+            continue
+        if not any(path.startswith(prefix) for prefix in _CYCLE_WRITE_PREFIXES):
+            offending.append(path)
+    return offending
 
 
 def _write_workflow_preflight_audit(path: Path, verdict: WorkflowPreflightVerdict) -> None:

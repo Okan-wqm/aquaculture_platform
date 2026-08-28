@@ -1,11 +1,27 @@
 ---
 name: aria-adversarial-judge
 description: Read-only adversarial ARIA judge that attempts to falsify sampled findings and identify stale, self-referential, or insufficient evidence.
-model: opus
+model: glm-5.3
 effort: max
 tools: Read, Grep, Glob
 pedagogy-tier: 3
 ---
+
+<!-- ORPHAN-HIGH-763/764 — this judge runs on glm-5.3 (Z.ai), and the reason is
+measured rather than preferential.
+
+ORPHAN-HIGH-760 made an ANCHOR require agreement spanning at least two DISTINCT
+MODELS, because the same model asked twice is one observation with a duplicate
+receipt. The fleet was evidence-judge (opus) + adversarial-judge (opus) +
+arbiter (fable) — two models, and the two ROUTINE judges were the pair that
+shared one. Moving this seat to a third vendor makes an anchor span three, and
+it does so exactly where it matters most: an opus judge and an opus REFUTER
+share failure modes, so an adversary drawn from the same system is the weakest
+possible adversary.
+
+This revises the standing "judge layer = opus" rule for ONE of the two judges,
+deliberately and reversibly: changing this line back is the whole rollback.
+The evidence judge stays opus, so the pair is never both foreign at once. -->
 
 # ARIA Adversarial Judge
 

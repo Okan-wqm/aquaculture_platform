@@ -12,6 +12,12 @@ from typing import Any
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+
+def _full_git_sha(value: str) -> str:
+    if len(value) != 40 or any(character not in "0123456789abcdef" for character in value):
+        raise argparse.ArgumentTypeError("target SHA must be 40 lowercase hexadecimal characters")
+    return value
+
 from aria_kernel.cycle import run_cycle
 from aria_kernel.agent_invocations import (
     DEFAULT_HEARTBEAT_EXTEND_SECONDS,
@@ -58,6 +64,7 @@ from aria_kernel.mission import (
     list_open_missions,
     open_mission,
     rebuild_mission_index,
+    set_closure_contract,
     transition_mission,
 )
 from aria_kernel.plan_round_controller import advance_plan_rounds
@@ -135,6 +142,7 @@ from aria_kernel.runtime_artifacts import (
 from aria_kernel.runtime_profile import (
     PROFILES,
     get_profile,
+    get_scheduler_profile_ceiling,
     list_profile_history,
     set_profile,
 )
@@ -489,6 +497,7 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
     from .workspace import canonical_identity
     from .state_store import (
         StateStoreRefusal,
+        _read_commit_ref,
         build_publishable_snapshot,
         checkout_state_store,
         findings_root,
@@ -496,10 +505,22 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
         publish_state,
         store_environment,
         read_published_snapshot,
+        read_snapshot_at_worktree_head,
         tools_root,
         verify_state_store,
         workspace_root,
     )
+
+    # ORPHAN-HIGH-798 compact half — shrink bloated ledgers in-place.
+    if getattr(args, "state_command", None) == "compact":
+        from .state_compact import compact_state
+        result = compact_state(
+            base_dir=getattr(args, "tools_dir", None) or os.environ.get("ARIA_TOOLS_DIR"),
+            retain_days=getattr(args, "retain_days", 7),
+            dry_run=getattr(args, "dry_run", False),
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
 
     # Every refusal in this command is a VERDICT, not a crash — an
     # unacknowledged bootstrap and an unproven ancestry both mean "the
@@ -549,6 +570,16 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
             print(json.dumps(verdict, indent=2, sort_keys=True))
             return 0 if verdict["valid"] else 1
 
+        base_head = _read_commit_ref(store.root, "HEAD")
+        if base_head is None:
+            raise StateStoreRefusal(
+                "state_publish_base_head_unavailable: operator publish HEAD is "
+                "not an exact commit"
+            )
+        base = read_snapshot_at_worktree_head(
+            store,
+            expected_head=base_head,
+        )
         snapshot = build_publishable_snapshot(
             store,
             snapshot_id=args.snapshot_id,
@@ -558,12 +589,14 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
             lane="operator",
             repo_hash=repo_hash,
             parent_commit=args.parent_commit,
+            previous=base,
         )
         result = publish_state(
             store,
             snapshot=snapshot,
             cycle_id=args.cycle_id,
             repo_hash=repo_hash,
+            expected_base_head=base_head,
         )
     except StateStoreRefusal as exc:
         print(json.dumps({"published": False, "refusal": str(exc)}, indent=2, sort_keys=True))
@@ -572,9 +605,54 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _record_launch_failure(argv: list[str] | None) -> None:
+    """ORPHAN-HIGH-780 — an argv the CLI rejects kills the night BEFORE any
+    cycle row exists, so the death never enters the burn-in denominator:
+    the ledger gap between cyc-20260819T022108Z and cyc-20260821T024646Z
+    is two ORPHAN-754 nights that consumed calendar time as if they never
+    happened. Recording the launch failure in the bound store makes every
+    stop a recorded stop — the mission's own rule.
+
+    Tools root comes from the ARIA_TOOLS_DIR lane binding, not from argv:
+    when argparse refuses the argv there is no parsed --tools-dir to read,
+    and the walk-up default would bind to whatever tree is on the ancestor
+    chain. Unbound (operator shell) stays unrecorded — there is no store
+    to be honest to.
+
+    Best-effort BY DESIGN: the recorder must not become a second failure
+    mode on a night that is already dying. A refusal (e.g. the frozen
+    profile's no-write containment) or an unwritable store is printed to
+    stderr and swallowed; governance events are observation-class, so
+    observe and standard nights — the lanes that feed burn-in — record.
+    """
+    tools_dir = os.environ.get("ARIA_TOOLS_DIR")
+    if not tools_dir:
+        return
+    try:
+        from .tool_registry import append_tools_governance
+
+        append_tools_governance(
+            tools_dir,
+            "cycle_launch_failed",
+            {
+                "argv": list(argv) if argv is not None else sys.argv[1:],
+                "exit_code": 2,
+                "recorded_via": "cli.main",
+            },
+        )
+    except Exception as exc:  # noqa: BLE001 — post-mortem telemetry, see docstring
+        print(f"cycle_launch_failed could not be recorded: {exc}", file=sys.stderr)
+
+
 def main(argv: list[str] | None = None) -> int:
     try:
         return _main(argv)
+    except SystemExit as exc:
+        # argparse exits 2 on a usage error — a caller/callee disagreement
+        # that killed the night before the kernel could record anything.
+        if exc.code == 2:
+            _record_launch_failure(argv)
+        raise
     except (GovernanceError, RuntimeError) as exc:
         message = str(exc)
         if message in ERROR_EXIT_CODES:
@@ -682,6 +760,14 @@ def build_parser() -> argparse.ArgumentParser:
     # tree instead of two that each know half the story.
     state_parser = add_subparser(sub, "state")
     state_sub = state_parser.add_subparsers(dest="state_command", required=True)
+    state_compact = add_subparser(
+        state_sub, "compact",
+        help="Shrink bloated state ledgers (runs, raw-findings, beliefs, learning-events).",
+    )
+    state_compact.add_argument("--retain-days", type=int, default=7,
+                               help="Keep rows newer than this many days (default 7).")
+    state_compact.add_argument("--dry-run", action="store_true",
+                               help="Report what would be compacted without writing.")
     state_snapshot = add_subparser(
         state_sub, "snapshot",
         help="Build (and optionally sign) a state snapshot manifest.",
@@ -886,6 +972,24 @@ def build_parser() -> argparse.ArgumentParser:
     tool_promote.add_argument("--target-status", required=True, choices=("SHADOW", "ACTIVE"))
     tool_promote.add_argument("--reason", required=True, type=_validate_reason)
     tool_promote.add_argument("--operator-approval-ref", default=None)
+    # JJ-2b (ORPHAN-HIGH-732) — the panel authority's command surface. The
+    # ref is a RESOLVED human-required adjudication id, and the kernel
+    # RESOLVES it (promotion_veto.resolve_panel_approval): a ref that names
+    # no panel-resolved tool_promotion record for this tool refuses here
+    # exactly as it refuses inside the cycle, so the CLI is not a softer
+    # door into the same authority. promote_tool arms a 24h operator veto
+    # window instead of transitioning.
+    tool_promote.add_argument(
+        "--panel-approval-ref", default=None,
+        help="request_id of a RESOLVED agent-panel tool_promotion adjudication",
+    )
+
+    # JJ-2b — the operator's one move, and only if he disagrees. Silence for
+    # 24h activates the promotion; this verb is how that silence is broken.
+    tool_veto = add_subparser(tool_sub, "veto-promotion")
+    tool_veto.add_argument("--tool-id", required=True)
+    tool_veto.add_argument("--reason", required=True, type=_validate_reason)
+    tool_veto.add_argument("--operator-ref", default=None)
 
     # FAZ 5a — the merge gate's attestation ledger finally gets a producer
     # verb. verify_runner_attestation was MANDATORY at merge and NOTHING
@@ -1057,6 +1161,18 @@ def build_parser() -> argparse.ArgumentParser:
     profile_set.add_argument("--profile", required=True, choices=list(PROFILES))
     profile_set.add_argument("--operator-approval-ref", required=True)
     profile_set.add_argument("--set-by", default="operator")
+    # ORPHAN-HIGH-728 — the operator gesture ADR-033/ADR-041 reserve for a
+    # human, given a verb. Omitted means "leave the grant where it is": a
+    # flag that silently reset the ceiling on every profile change would make
+    # the grant a thing operators have to re-assert instead of a thing they
+    # recorded once.
+    profile_set.add_argument(
+        "--scheduler-ceiling", default=None, choices=list(PROFILES),
+        help=(
+            "maximum profile an UNATTENDED lane may resolve for itself "
+            "(default standard; omit to leave the recorded ceiling unchanged)"
+        ),
+    )
     profile_get = add_subparser(profile_sub, "get")
     profile_history = add_subparser(profile_sub, "history")
 
@@ -1426,8 +1542,29 @@ def build_parser() -> argparse.ArgumentParser:
     mission_open.add_argument("--source-id", required=True)
     mission_open.add_argument("--repo-hash", required=True)
     mission_open.add_argument("--title", required=True)
+    # ORPHAN-MEDIUM-730 — REQUIRED, exactly as at every other producer: the
+    # operator mints under the same closure contract the seeder does, so the
+    # CLI cannot be the one door that still admits a mission nothing can move.
+    mission_open.add_argument("--next-action", required=True)
+    mission_open.add_argument(
+        "--wake-file",
+        required=True,
+        help="Path to a JSON wake_condition object ({kind, key, not_before?}).",
+    )
     mission_open.add_argument("--capability", default=None)
     mission_open.add_argument("--priority", type=int, default=None)
+    mission_contract = add_subparser(
+        mission_sub, "set-contract",
+        help="Install next_action + wake_condition on a mission opened before the mint required them.",
+    )
+    mission_contract.add_argument("--mission-id", required=True)
+    mission_contract.add_argument("--next-action", required=True)
+    mission_contract.add_argument("--step-id", required=True)
+    mission_contract.add_argument(
+        "--wake-file",
+        required=True,
+        help="Path to a JSON wake_condition object ({kind, key, not_before?}).",
+    )
     mission_transition = add_subparser(mission_sub, "transition")
     mission_transition.add_argument("--mission-id", required=True)
     mission_transition.add_argument("--to-state", required=True)
@@ -1435,11 +1572,27 @@ def build_parser() -> argparse.ArgumentParser:
     mission_transition.add_argument("--step-id", required=True)
     mission_transition.add_argument("--target-sha", default="")
     mission_transition.add_argument("--retry-rung", default=None)
-    mission_transition.add_argument("--next-action", default=None)
+    # ORPHAN-MEDIUM-730 — these two stay argparse-OPTIONAL because their
+    # requirement depends on the destination: a non-terminal move must carry
+    # both, a terminal move must carry neither (a finished mission owes no
+    # next action). argparse cannot express "required unless --to-state is
+    # terminal", and re-deriving the terminal set here would put a second
+    # copy of `mission.TERMINAL_STATES` in the CLI — the exact split that
+    # lets two doors disagree. `transition_mission` refuses both wrong
+    # shapes, so the operator gets the refusal from the module that owns the
+    # rule; the CLI cannot open a door the kernel closed.
+    mission_transition.add_argument(
+        "--next-action",
+        default=None,
+        help="Required for a non-terminal --to-state; refused for a terminal one.",
+    )
     mission_transition.add_argument(
         "--wake-file",
         default=None,
-        help="Path to a JSON wake_condition object ({kind, key, not_before?}).",
+        help=(
+            "Path to a JSON wake_condition object ({kind, key, not_before?}). "
+            "Required for a non-terminal --to-state; refused for a terminal one."
+        ),
     )
     mission_transition.add_argument("--evidence-ref", action="append", default=None)
     # Wave 2 PR 1.6 — the scheduler. `--dry-run` reads the decision WITHOUT
@@ -1498,6 +1651,62 @@ def build_parser() -> argparse.ArgumentParser:
     readiness_bp.add_argument("--head-ref", required=True)
     readiness_bp.add_argument("--head-sha", required=True)
     readiness_bp.add_argument("--readiness-claim-id", default=None)
+    # ORPHAN-HIGH-763 — the two lane-side verbs the claim chain was missing.
+    # `produce-claim` had NO command entry at all (half of why the F5-g
+    # assembler had zero production callers), and `record-ci-report` exposes
+    # the existing ci.py ingestion so a lane can record its OWN completed run
+    # as the ci_workflow_run evidence row the claim guard demands — recorded
+    # post-completion from the GitHub API payload, never self-declared
+    # mid-run.
+    readiness_ci = add_subparser(
+        readiness_sub,
+        "record-ci-report",
+        help="Ingest a completed run + PR payload as ci/ ledger rows (workflow-runs, failures, report).",
+    )
+    readiness_ci.add_argument(
+        "--github-file", required=True,
+        help="JSON file with the completed run payload under workflow_runs (GitHub Actions API shape).",
+    )
+    readiness_ci.add_argument(
+        "--pr-file", required=True,
+        help="JSON file with the PR payload (number, head_sha/headRefOid, base/head refs).",
+    )
+    readiness_ci.add_argument("--cycle-id", default=None)
+    readiness_claim = add_subparser(
+        readiness_sub,
+        "produce-claim",
+        help="Assemble and record the enterprise readiness claim for one PR head.",
+    )
+    readiness_claim.add_argument("--pr-number", type=int, required=True)
+    readiness_claim.add_argument("--repo", required=True)
+    readiness_claim.add_argument("--target-ref", required=True)
+    readiness_claim.add_argument("--head-ref", required=True)
+    readiness_claim.add_argument("--head-sha", required=True)
+    readiness_claim.add_argument("--workflow-id", required=True)
+    readiness_claim.add_argument("--job-id", required=True)
+    readiness_claim.add_argument("--workflow-run-id", required=True)
+    readiness_claim.add_argument("--cycle-id", required=True)
+    readiness_claim.add_argument(
+        "--artifact-file", required=True,
+        help="JSON file: {artifact_id, uri, sha256, content_type} of the lane's uploaded evidence artifact.",
+    )
+    readiness_claim.add_argument(
+        "--surfaces-file", required=True,
+        help="JSON file: DLP surface name -> list of file paths (diff/prompt/transcript/logs/artifacts).",
+    )
+    readiness_claim.add_argument("--workspace-root", required=True)
+    readiness_claim.add_argument("--owner", default=None)
+    # ORPHAN-HIGH-766 — closure-reachability gate (ratcheted). --write pins
+    # or shrinks the baseline; without it the command is check-only and
+    # exits nonzero on NEW unreachable closures.
+    closure_reach = add_subparser(
+        sub,
+        "closure-reachability",
+        help="Verify that findings closed by adding a producer added a REACHED producer.",
+    )
+    closure_reach.add_argument("--write", action="store_true")
+    closure_reach.add_argument("--owner", default="operator")
+    closure_reach.add_argument("--reason", default="ratchet update")
 
     inv_parser = add_subparser(sub, "agent-invocations")
     inv_sub = inv_parser.add_subparsers(dest="agent_invocation_command", required=True)
@@ -1887,6 +2096,49 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run the suppression-scanner against a unified-diff file.",
     )
     a_scan.add_argument("--diff-file", required=True)
+    # ORPHAN-CRITICAL-727 — the reachable apply gate. `pr create` refuses an
+    # action that is not ready_for_pr with a validation_gate_ref, and the only
+    # promoter (apply_engine.gate_apply_action) had no command surface at all,
+    # so the implementer lane could be told to open a PR and had no way to
+    # earn one. Bound into the implementer's Bash allowlist next to the
+    # `pr create` row (implementation_safety.ALLOWED_BASH_COMMANDS).
+    a_gate = add_subparser(apply_sub,
+        "gate",
+        help=(
+            "Run the candidate validation for a staged proposal, compare it "
+            "against the staged baseline, and promote the apply action to "
+            "ready_for_pr (exit 1 when the gate blocks)."
+        ),
+    )
+    a_gate.add_argument("--proposal-id", required=True)
+    a_gate.add_argument(
+        "--change-id",
+        required=True,
+        help=(
+            "The change_id the staging opened for this proposal; the gate "
+            "refuses a change_id the staged action does not name."
+        ),
+    )
+    a_gate.add_argument(
+        "--runner-identity",
+        default=None,
+        help=(
+            "Who executed the validation. Defaults to the GitHub run "
+            "(ci-executor:gha-<run_id>) on the executor lane, else a "
+            "kernel-scoped identity."
+        ),
+    )
+    a_gate.add_argument("--cycle-id", default=None)
+    a_gate.add_argument(
+        "--workspace-root",
+        default=None,
+        help=(
+            "Where the implementation branch is checked out. Defaults to the "
+            "path the staging recorded; its sibling `pr create` has always "
+            "taken one, and without it the gate could only run on the machine "
+            "staging ran on (ORPHAN-CRITICAL-728)."
+        ),
+    )
 
     # Plan 019 Phase 3 — pr sub-command surface delegating to pr_manager.
     # Why argparser-only: pr_manager.py already carries the load-bearing
@@ -2120,21 +2372,10 @@ def build_parser() -> argparse.ArgumentParser:
              "transition still produces an audit row (closes C-2 "
              "SOC2 gap; matches set_profile() control-plane contract).",
     )
-    # Plan ARIA-V3.1-E (E1) + B-9 — distinct V9 implementer poll
-    # budget. Separate from --challenger-timeout-seconds (which
-    # gates the convergence_drainer round-poll wait); the V9
-    # implementation phase has its own wall-clock budget
-    # (CONVERGED → PR-merge typically <30min).
-    auto_run.add_argument(
-        "--implementer-poll-seconds", type=float, default=1800.0,
-        help="V9 implementer phase wall-clock budget in seconds "
-             "(default 1800s = 30 min). Distinct from "
-             "--challenger-timeout-seconds (which gates the inner "
-             "convergence_drainer round-poll). Used by the V3.1-B "
-             "AutonomousV9ImplementationRunner to bound the "
-             "CONVERGED→PR-merge polling window. Closes HIGH-13 "
-             "poll-budget conflation.",
-    )
+    # K6 (ORPHAN-CRITICAL-727) — the `--implementer-poll-seconds` budget that
+    # stood here is gone with the poll it bounded. The V9 implementation phase
+    # mints its envelope and returns; the executor lane delivers in a later
+    # run, so there is no wall-clock window for this lane to bound.
     auto_run.add_argument(
         "--output", choices=["summary", "full"], default="summary",
         help="Print bounded v2 summary by default; full requires --artifact.",
@@ -2179,6 +2420,17 @@ def build_parser() -> argparse.ArgumentParser:
     auto_status = add_subparser(
         autonomy_sub, "status",
         help="Print the canonical AutonomyState derived from autonomy_state.jsonl.",
+    )
+    auto_status.add_argument(
+        "--evidence",
+        action="store_true",
+        help="Derive immutable target-bound autonomy evidence status.",
+    )
+    auto_status.add_argument(
+        "--target-sha",
+        type=_full_git_sha,
+        default=None,
+        help="Full target commit SHA (valid only with --evidence; defaults to HEAD).",
     )
     auto_project_queue = add_subparser(autonomy_sub, "project-queue")
     auto_project_queue.add_argument("--limit", type=int, default=None)
@@ -2848,6 +3100,54 @@ def _main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
 
+    if args.command == "readiness" and args.readiness_command == "record-ci-report":
+        from .ci import record_ci_report
+
+        github = json.loads(Path(args.github_file).read_text(encoding="utf-8"))
+        pr = json.loads(Path(args.pr_file).read_text(encoding="utf-8"))
+        result = record_ci_report(
+            pr=pr, github=github, cycle_id=args.cycle_id, base_dir=args.tools_dir,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "readiness" and args.readiness_command == "produce-claim":
+        from .readiness_proofs import produce_readiness_claim
+
+        artifact = json.loads(Path(args.artifact_file).read_text(encoding="utf-8"))
+        surfaces = json.loads(Path(args.surfaces_file).read_text(encoding="utf-8"))
+        result = produce_readiness_claim(
+            pr_number=args.pr_number,
+            repo=args.repo,
+            target_ref=args.target_ref,
+            head_ref=args.head_ref,
+            head_sha=args.head_sha,
+            workflow_id=args.workflow_id,
+            job_id=args.job_id,
+            workflow_run_id=args.workflow_run_id,
+            cycle_id=args.cycle_id,
+            artifact=artifact,
+            surface_paths=surfaces,
+            workspace_root=args.workspace_root,
+            owner=args.owner,
+            base_dir=args.tools_dir,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "closure-reachability":
+        from .closure_reachability import scan_closure_reachability, write_baseline
+
+        if args.write:
+            payload = write_baseline(".", owner=args.owner, reason=args.reason)
+            print(json.dumps(payload, indent=2, sort_keys=True))
+            return 0
+        report = scan_closure_reachability(".")
+        print(json.dumps(report.as_dict(), indent=2, sort_keys=True))
+        # A pinned baseline entry that became reachable is good news, not a
+        # failure — the shrink lands with the next --write.
+        return 1 if report.violations else 0
+
     if args.command == "state":
         return _handle_state_command(args)
 
@@ -2970,6 +3270,17 @@ def _main(argv: list[str] | None = None) -> int:
             args.target_status,
             reason=args.reason,
             operator_approval_ref=args.operator_approval_ref,
+            panel_approval_ref=args.panel_approval_ref,
+            base_dir=args.tools_dir,
+        ), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "tool" and args.tool_command == "veto-promotion":
+        from aria_kernel.promotion_veto import veto_promotion
+        print(json.dumps(veto_promotion(
+            tool_id=args.tool_id,
+            reason=args.reason,
+            operator_ref=args.operator_ref,
             base_dir=args.tools_dir,
         ), indent=2, sort_keys=True))
         return 0
@@ -3242,11 +3553,21 @@ def _main(argv: list[str] | None = None) -> int:
             operator_approval_ref=args.operator_approval_ref,
             base_dir=args.tools_dir,
             set_by=args.set_by,
+            scheduler_ceiling=args.scheduler_ceiling,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
     if args.command == "profile" and args.profile_command == "get":
-        print(json.dumps({"active_profile": get_profile(base_dir=args.tools_dir)}, indent=2, sort_keys=True))
+        # ORPHAN-HIGH-728 — the ceiling is reported beside the active profile
+        # because they are one answer to "how much may ARIA do": an operator
+        # reading only `active_profile` cannot tell whether tonight's lane is
+        # standard because the ladder is short or because they capped it.
+        print(json.dumps({
+            "active_profile": get_profile(base_dir=args.tools_dir),
+            "scheduler_profile_ceiling": get_scheduler_profile_ceiling(
+                base_dir=args.tools_dir,
+            ),
+        }, indent=2, sort_keys=True))
         return 0
     if args.command == "profile" and args.profile_command == "history":
         print(json.dumps(list_profile_history(base_dir=args.tools_dir), indent=2, sort_keys=True))
@@ -3830,8 +4151,22 @@ def _main(argv: list[str] | None = None) -> int:
                 source_id=args.source_id,
                 repo_hash=args.repo_hash,
                 title=args.title,
+                next_action=args.next_action,
+                wake_condition=json.loads(
+                    Path(args.wake_file).read_text(encoding="utf-8")
+                ),
                 capability=args.capability,
                 priority=args.priority,
+                base_dir=args.tools_dir,
+            )
+        elif args.mission_command == "set-contract":
+            result = set_closure_contract(
+                mission_id=args.mission_id,
+                next_action=args.next_action,
+                wake_condition=json.loads(
+                    Path(args.wake_file).read_text(encoding="utf-8")
+                ),
+                step_id=args.step_id,
                 base_dir=args.tools_dir,
             )
         elif args.mission_command == "transition":
@@ -4406,6 +4741,23 @@ def _main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(plan, indent=2, sort_keys=True))
         return 0
+
+    if args.command == "apply" and args.apply_command == "gate":
+        from aria_kernel.apply_engine import run_apply_gate
+
+        row = run_apply_gate(
+            proposal_id=args.proposal_id,
+            change_id=args.change_id,
+            base_dir=args.tools_dir,
+            runner_identity=args.runner_identity,
+            cycle_id=args.cycle_id,
+            workspace_root=args.workspace_root,
+        )
+        print(json.dumps(row, indent=2, sort_keys=True))
+        # Exit code carries the verdict, like `apply scan-diff` above: the
+        # implementer runs this from Bash and must not proceed to `pr create`
+        # on a blocked gate.
+        return 0 if row.get("status") == "ready_for_pr" else 1
 
     if args.command == "apply" and args.apply_command == "scan-diff":
         from aria_kernel.suppression_scanner import scan_unified_diff_text
@@ -5231,10 +5583,9 @@ def _main(argv: list[str] | None = None) -> int:
             daemon_id=args.daemon_id,
             cycle_deadline_seconds=args.cycle_deadline_seconds,
             challenger_timeout_seconds=args.challenger_timeout_seconds,
-            # Plan ARIA-V3.1-E — explicit profile + distinct
-            # implementer poll budget threaded to the orchestrator.
+            # Plan ARIA-V3.1-E — explicit profile threaded to the
+            # orchestrator (the poll budget beside it died with K6's poll).
             profile=profile,
-            implementer_poll_seconds=args.implementer_poll_seconds,
             # Plan ARIA-V3.1-D2 — production MemoryHook +
             # CostTelemetryHook factories. observe/frozen profiles
             # get NoOp variants; standard/strict/autonomous get the
@@ -5244,14 +5595,18 @@ def _main(argv: list[str] | None = None) -> int:
             # Plan ARIA-V10.5 Phase 7 — F-027 closure. Wire the V9
             # implementation runner per profile so the orchestrator's
             # post-CONVERGED phase actually mints aria-implementer
-            # subprocess. observe/standard/frozen → NoOp (V8 backward-
-            # compat); strict → policy_strict_no_implementation refusal;
-            # autonomous → production AutonomousV9ImplementationRunner
-            # (mint_signing_key + mint_installation_token + issue_
-            # implementation_envelope + poll + record_outcome + cleanup).
-            # Pre-F-027 the CLI never installed this factory's return
-            # value so the orchestrator always fell back to NoOp; the
-            # V9 implementation phase was structurally unreachable.
+            # subprocess. Pre-F-027 the CLI never installed this
+            # factory's return value so the orchestrator always fell
+            # back to NoOp; the V9 implementation phase was
+            # structurally unreachable.
+            #
+            # ORPHAN-HIGH-728 — the mapping is no longer restated here.
+            # The factory reads `runtime_profile.ACTION_PERMISSIONS`:
+            # a profile holding `pr_create` (strict, autonomous) gets
+            # AutonomousV9ImplementationRunner, everything else NoOp.
+            # This comment used to enumerate a third `strict →
+            # policy_strict_no_implementation` arm that contradicted the
+            # profile table it was describing.
             v9_implementation_runner=select_v9_implementation_runner(profile=profile),
             max_budget_usd_per_cycle=args.max_budget_usd_per_cycle,
         )
@@ -5385,6 +5740,18 @@ def _main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "autonomy" and args.autonomy_command == "status":
+        if args.target_sha is not None and not args.evidence:
+            parser.error("autonomy status --target-sha requires --evidence")
+        if args.evidence:
+            from .autonomy_evidence import derive_autonomy_evidence_status
+
+            status = derive_autonomy_evidence_status(
+                base_dir=args.tools_dir,
+                repo_root=Path.cwd(),
+                target_sha=args.target_sha,
+            )
+            print(json.dumps(status.to_dict(), indent=2, sort_keys=True))
+            return 0
         # Plan 026R §F.3 — canonical state via the reducer.
         from .autonomy_state import AutonomyStateReducer
         state = AutonomyStateReducer.derive_current(args.tools_dir)

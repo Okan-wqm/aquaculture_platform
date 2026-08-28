@@ -37,9 +37,15 @@ class DrainTopologyPins(unittest.TestCase):
     def test_quota_arc_covers_every_dispatchable_role(self) -> None:
         # Y4 (ORPHAN-705) — DELIBERATE REWRITE of the X1 pin. The four-role
         # priority prefix was itself a starvation topology: every role it
-        # omitted queued behind judge volume at ~9 drains/night. The arc now
-        # names every role explicitly (quota round guarantees each waiting
-        # role one slot per run), judges LAST by design, planning lane first.
+        # omitted queued behind judge volume at ~9 drains/night. The arc
+        # names every role explicitly; the QUOTA ROUND guarantees each
+        # waiting role one slot per run, so the arc order only distributes
+        # surplus. ORPHAN-HIGH-786 moved judges from last to directly after
+        # the planning core: judges-last spent the fallback budget before
+        # reaching positions 13-14 and starved the readiness-critical lane
+        # (anchor promotion needs judge verdict pairs); judges-before-
+        # arbitration matches the same-night data dependency (arbiters
+        # judge the splits judges produce).
         import sys
 
         sys.path.insert(0, str(_REPO / "aria-kernel"))
@@ -60,9 +66,11 @@ class DrainTopologyPins(unittest.TestCase):
                 continue
             self.assertIn(role, arc)
         self.assertIn("maintenance_utility", arc)
-        # Planning lane opens the arc; judges close it.
+        # Planning lane opens the arc; judges sit right behind it, ahead of
+        # the arbitration that depends on their verdicts.
         self.assertEqual(arc[0], "implementation")
-        self.assertEqual(arc[-2:], ("evidence_judgment", "adversarial_judgment"))
+        self.assertEqual(arc[4:6], ("evidence_judgment", "adversarial_judgment"))
+        self.assertLess(arc.index("evidence_judgment"), arc.index("consensus_arbitration"))
         # The old narrow prefix is GONE — resurrecting it must break here.
         self.assertFalse(hasattr(ci_executor_drain, "_PRIORITY_ROLES"))
 

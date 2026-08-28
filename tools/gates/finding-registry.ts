@@ -23,6 +23,9 @@
  *                         — governed import/replay path for a stub whose id
  *                           is already externally fixed. It uses the same
  *                           exclusive registry mutation lock as `add`.
+ *   import-narrative <json-path>
+ *                         — import one exact ORPHAN heading into the
+ *                           structured registry as a new OPEN row.
  *   close <id> <sha>     — mutate a finding to state=RESOLVED, set
  *                           closed_at, and APPEND the short SHA to
  *                           closing_commits[]. The SHA must be
@@ -80,6 +83,7 @@ import {
   atomicWriteRegistryFile,
   claimedSequences,
   nextFindingId,
+  ORPHAN_MD_HEADING_REGEX,
   orphanMarkdownReservedIds,
   RegistryLockError,
   type RegistryLockLease,
@@ -116,9 +120,20 @@ export interface RegistryPaths {
   readonly schemaPath: string;
 }
 
+export interface NarrativeImportPaths extends RegistryPaths {
+  readonly narrativePath: string;
+  readonly narrativeReviewFile: string;
+}
+
 const DEFAULT_REGISTRY_PATHS: RegistryPaths = {
   registryPath: REGISTRY_PATH,
   schemaPath: SCHEMA_PATH,
+};
+
+const DEFAULT_NARRATIVE_IMPORT_PATHS: NarrativeImportPaths = {
+  ...DEFAULT_REGISTRY_PATHS,
+  narrativePath: ORPHAN_FINDINGS_MD_PATH,
+  narrativeReviewFile: 'docs/reviews/orphan-findings.md',
 };
 
 interface FindingIdReservation {
@@ -459,18 +474,18 @@ function cmdVerify(): number {
   const entries = loadRegistry();
   const result = verify(entries);
   if (!result.ok) {
-    process.stderr.write(`FAIL: ${result.reason}\n`);
+    process.stderr.write(`FAIL: ${result.reason}\n\n`);
     return 1;
   }
-  process.stdout.write(`OK: registry chain valid (${result.entries} entries).\n`);
+  process.stdout.write(`OK: registry chain valid (${result.entries} entries).\n\n`);
   const tip = entries.length === 0 ? ZERO_HASH : (entries[entries.length - 1]?.content_hash ?? '');
-  if (tip) process.stdout.write(`Chain tip: ${tip}\n`);
+  if (tip) process.stdout.write(`Chain tip: ${tip}\n\n`);
   return 0;
 }
 
 function readFindingStub(stubPath: string): Partial<Finding> | null {
   if (!existsSync(stubPath)) {
-    process.stderr.write(`Stub file not found: ${stubPath}\n`);
+    process.stderr.write(`Stub file not found: ${stubPath}\n\n`);
     return null;
   }
   const stubRaw = readFileSync(stubPath, 'utf8');
@@ -488,7 +503,7 @@ function buildFinding(stub: Partial<Finding>, id: string): Finding | null {
   ];
   for (const field of required) {
     if (stub[field] === undefined || stub[field] === null) {
-      process.stderr.write(`Stub missing required field: ${field}\n`);
+      process.stderr.write(`Stub missing required field: ${field}\n\n`);
       return null;
     }
   }
@@ -525,7 +540,7 @@ function validateAndAppendFinding(
   beforeRegistryWrite?: () => void,
 ): number {
   if (entries.some((entry) => entry.id === newEntry.id)) {
-    process.stderr.write(`Duplicate id: ${newEntry.id} already exists in registry.\n`);
+    process.stderr.write(`Duplicate id: ${newEntry.id} already exists in registry.\n\n`);
     return 1;
   }
 
@@ -539,7 +554,9 @@ function validateAndAppendFinding(
   if (!validate(newEntry)) {
     process.stderr.write('Stub failed schema validation:\n');
     for (const err of validate.errors ?? []) {
-      process.stderr.write(`  ${err.instancePath || '<root>'}: ${err.message} (${err.keyword})\n`);
+      process.stderr.write(
+        `  ${err.instancePath || '<root>'}: ${err.message} (${err.keyword})\n\n`,
+      );
     }
     return 1;
   }
@@ -562,14 +579,14 @@ function validateAndAppendFinding(
 
   const post = verify(entries);
   if (!post.ok) {
-    process.stderr.write(`Post-add integrity check FAILED: ${post.reason}\n`);
+    process.stderr.write(`Post-add integrity check FAILED: ${post.reason}\n\n`);
     return 1;
   }
 
   beforeRegistryWrite?.();
   writeRegistry(entries, lease, paths.registryPath);
-  process.stdout.write(`Added: ${newEntry.id} at position ${entries.length - 1}\n`);
-  process.stdout.write(`Chain tip: ${newEntry.content_hash}\n`);
+  process.stdout.write(`Added: ${newEntry.id} at position ${entries.length - 1}\n\n`);
+  process.stdout.write(`Chain tip: ${newEntry.content_hash}\n\n`);
   return 0;
 }
 
@@ -726,7 +743,7 @@ export function appendAllocatedFinding(
   try {
     id = nextFindingId(domain, stub.severity, existingIds);
   } catch (error) {
-    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n\n`);
     return 2;
   }
   const newEntry = buildFinding(stub, id);
@@ -763,7 +780,7 @@ export function appendExplicitFinding(
 
   const idParts = /^([A-Z][A-Z0-9]*)-([A-Z0-9]+)-([0-9]{3})$/.exec(stub.id);
   if (!idParts?.[1] || !idParts[2] || !idParts[3]) {
-    process.stderr.write(`Explicit finding id has an invalid allocation shape: ${stub.id}\n`);
+    process.stderr.write(`Explicit finding id has an invalid allocation shape: ${stub.id}\n\n`);
     return 2;
   }
   // ORPHAN-HIGH-457 — the same stores AND the same sequence extraction the
@@ -784,7 +801,7 @@ export function appendExplicitFinding(
     return 1;
   }
   if (Number.parseInt(idParts[3], 10) < 1) {
-    process.stderr.write(`Explicit finding id suffix must be between 001 and 999: ${stub.id}\n`);
+    process.stderr.write(`Explicit finding id suffix must be between 001 and 999: ${stub.id}\n\n`);
     return 2;
   }
   if (
@@ -806,6 +823,112 @@ export function appendExplicitFinding(
         authority,
         reservationLedger,
         idParts[1] as string,
+        stub.id as string,
+        paths.registryPath,
+        lease,
+      );
+    }
+  });
+}
+
+export function appendNarrativeFinding(
+  stubPath: string,
+  lease: RegistryLockLease,
+  paths: NarrativeImportPaths = DEFAULT_NARRATIVE_IMPORT_PATHS,
+  authority?: FindingAllocationAuthority,
+): number {
+  if (
+    lease.resourcePath !== paths.registryPath ||
+    (authority !== undefined && lease.lockPath !== authority.lockPath)
+  ) {
+    throw new RegistryLockError(
+      'LOCK_OWNERSHIP_LOST',
+      'Narrative import requires a lease for both the target registry and its allocation authority.',
+    );
+  }
+
+  const stub = readFindingStub(stubPath);
+  if (!stub) return 2;
+  if (typeof stub.id !== 'string' || stub.id.length === 0) {
+    process.stderr.write('Narrative import stub missing required field: id\n');
+    return 2;
+  }
+
+  const idParts = /^ORPHAN-(CRITICAL|HIGH|MEDIUM|LOW)-([0-9]{3})$/.exec(stub.id);
+  if (!idParts?.[1] || !idParts[2]) {
+    process.stderr.write(`Narrative import requires an ORPHAN severity-qualified id: ${stub.id}\n`);
+    return 2;
+  }
+  if (stub.severity !== idParts[1]) {
+    process.stderr.write(
+      `Narrative finding id classifier ${idParts[1]} does not match severity ${String(stub.severity)}: ${stub.id}\n`,
+    );
+    return 2;
+  }
+
+  const entries = loadRegistry(paths.registryPath);
+  const structuredIds = entries.map((entry) => entry.id);
+  if (authority) structuredIds.push(...idsFromActiveRegistries(authority));
+  if (claimedSequences('ORPHAN', structuredIds).has(Number.parseInt(idParts[2], 10))) {
+    process.stderr.write(
+      `Duplicate id: ${stub.id} — sequence ${idParts[2]} is already claimed by the registry or a sibling worktree registry.\n`,
+    );
+    return 1;
+  }
+
+  if (!existsSync(paths.narrativePath)) {
+    process.stderr.write(`Narrative findings file not found: ${paths.narrativePath}\n`);
+    return 1;
+  }
+  const matchingHeadings: string[] = [];
+  const sequenceHeadings: string[] = [];
+  for (const line of readFileSync(paths.narrativePath, 'utf8').split('\n')) {
+    const heading = ORPHAN_MD_HEADING_REGEX.exec(line);
+    if (!heading?.[1] || heading[2] !== idParts[2]) continue;
+    sequenceHeadings.push(line);
+    if (heading[1] === stub.id) matchingHeadings.push(line);
+  }
+  if (matchingHeadings.length !== 1 || sequenceHeadings.length !== 1) {
+    const reason =
+      matchingHeadings.length > 1
+        ? `${stub.id} occurs ${matchingHeadings.length} times`
+        : sequenceHeadings.length > 0
+          ? `sequence ${idParts[2]} belongs to ${sequenceHeadings.join(', ')}`
+          : `${stub.id} has no heading`;
+    process.stderr.write(`Narrative import refused: ${reason} in ${paths.narrativePath}.\n`);
+    return 1;
+  }
+
+  if (stub.review_file !== paths.narrativeReviewFile) {
+    process.stderr.write(
+      `Narrative import review_file must be ${paths.narrativeReviewFile}: ${String(stub.review_file)}\n`,
+    );
+    return 1;
+  }
+  const expectedEvidenceAnchor = `${paths.narrativeReviewFile}#${stub.id}`;
+  if (!stub.evidence?.includes(expectedEvidenceAnchor)) {
+    process.stderr.write(`Narrative import evidence must resolve to ${expectedEvidenceAnchor}.\n`);
+    return 1;
+  }
+
+  const historicalHeading = matchingHeadings[0] as string;
+  const historicalNote = `Historical narrative heading: ${historicalHeading.slice(3)}`;
+  const importedStub: Partial<Finding> = {
+    ...stub,
+    state: 'OPEN',
+    closed_at: null,
+    closing_commits: [],
+    notes: stub.notes ? `${stub.notes}\n${historicalNote}` : historicalNote,
+  };
+  const newEntry = buildFinding(importedStub, stub.id);
+  if (!newEntry) return 2;
+  const reservationLedger = authority ? loadReservationLedger(authority.reservationPath) : null;
+  return validateAndAppendFinding(newEntry, entries, lease, paths, () => {
+    if (authority && reservationLedger) {
+      reserveFindingId(
+        authority,
+        reservationLedger,
+        'ORPHAN',
         stub.id as string,
         paths.registryPath,
         lease,
@@ -836,7 +959,7 @@ function cmdClose(id: string, shortSha: string, lease: RegistryLockLease): numbe
     // process.stderr.write (not console.error): no-console is an
     // error-level lint rule; the file's legacy console.* calls are
     // baseline-grandfathered but new lines must use the stream API.
-    process.stderr.write(`close refused: ${reachability.reason}\n`);
+    process.stderr.write(`close refused: ${reachability.reason}\n\n`);
     return 1;
   }
 
@@ -855,7 +978,7 @@ function cmdClose(id: string, shortSha: string, lease: RegistryLockLease): numbe
 
   const traceability = commitHasFindingCloseTrailer(REPO_ROOT, shortSha, id);
   if (!traceability.ok) {
-    process.stderr.write(`close refused: ${traceability.reason}\n`);
+    process.stderr.write(`close refused: ${traceability.reason}\n\n`);
     return 1;
   }
 
@@ -883,6 +1006,62 @@ function cmdClose(id: string, shortSha: string, lease: RegistryLockLease): numbe
   console.log(`Closed: ${id} at position ${index} → state=RESOLVED, +commit ${shortSha}`);
   const tip = entries.length === 0 ? ZERO_HASH : (entries[entries.length - 1]?.content_hash ?? '');
   console.log(`Chain tip: ${tip}`);
+  return 0;
+}
+
+/**
+ * `reopen <id>` — the inverse admission `close` needs but lacked: a finding
+ * registered state=RESOLVED at birth (a registration error — the close
+ * ceremony cannot run pre-merge because `close` refuses branch-local SHAs by
+ * design, PROC-HIGH-001) had no sanctioned path back to the honest OPEN
+ * state. Reopen is deliberately NARROW: it only clears the close fields on a
+ * row that has NO closing_commits (a row closed through the ceremony keeps
+ * its history — reopening THAT is a state-machine override, a different and
+ * heavier decision), restitches the chain exactly like close, and refuses to
+ * write if verification fails.
+ */
+function cmdReopen(id: string, lease: RegistryLockLease): number {
+  const entries = loadRegistry();
+  const index = entries.findIndex((e) => e.id === id);
+  if (index === -1) {
+    process.stderr.write(`Finding not found: ${id}\n`);
+    return 1;
+  }
+  const entry = entries[index];
+  if (!entry) {
+    process.stderr.write(`Finding at index ${index} is undefined — registry corruption?\n`);
+    return 1;
+  }
+  if (entry.state !== 'RESOLVED') {
+    process.stdout.write(`No-op: ${id} is already ${entry.state}.\n`);
+    return 0;
+  }
+  if (entry.closing_commits.length > 0) {
+    process.stderr.write(
+      `reopen refused: ${id} carries closing_commits (${entry.closing_commits.join(', ')}) — ` +
+        'it was closed through the ceremony; reopening a ceremonially-closed finding is an ' +
+        'override decision, not a registration repair.\n',
+    );
+    return 1;
+  }
+
+  entry.state = 'OPEN';
+  entry.closed_at = null;
+  entry.notes =
+    String(entry.notes ?? '') +
+    ' [governed reopen: was registered RESOLVED at birth in error — the close ceremony runs post-merge via `close` with the main-reachable fix SHA.]';
+  rechain(entries, index);
+  const post = verify(entries);
+  if (!post.ok) {
+    process.stderr.write(`Post-reopen integrity check FAILED: ${post.reason}\n`);
+    return 1;
+  }
+  writeRegistry(entries, lease);
+  process.stdout.write(
+    `Reopened: ${id} at position ${index} → state=OPEN (close fields cleared).\n`,
+  );
+  const tip = entries.length === 0 ? ZERO_HASH : (entries[entries.length - 1]?.content_hash ?? '');
+  process.stdout.write(`Chain tip: ${tip}\n`);
   return 0;
 }
 
@@ -1332,11 +1511,14 @@ function main(): void {
   const [, , sub, ...args] = process.argv;
   if (!sub) {
     console.error(
-      'Usage: finding-registry <verify|add|add-explicit|close|sweep|export|list|rechain-from|dedupe> [args]',
+      'Usage: finding-registry <verify|add|add-explicit|import-narrative|close|sweep|export|list|rechain-from|dedupe> [args]',
     );
     console.error('  verify');
     console.error('  add <domain> <stub.json>  — atomically allocate id + append');
     console.error('  add-explicit <stub.json>  — governed replay/import with fixed id');
+    process.stderr.write(
+      '  import-narrative <stub.json>  — import one exact ORPHAN heading as OPEN\n',
+    );
     console.error('  close <finding-id> <short-sha>');
     console.error('  sweep [--dry-run] [--stale-after=<days>]');
     console.error('  export <json-array|csv>');
@@ -1370,6 +1552,17 @@ function main(): void {
     exitCode = runRegistryMutation((lease, authority) =>
       appendExplicitFinding(resolve(stubPath), lease, DEFAULT_REGISTRY_PATHS, authority),
     );
+  } else if (sub === 'import-narrative') {
+    const stubPath = args[0];
+    if (!stubPath) {
+      process.stderr.write(
+        'import-narrative requires a stub: finding-registry import-narrative <stub.json>\n',
+      );
+      process.exit(2);
+    }
+    exitCode = runRegistryMutation((lease, authority) =>
+      appendNarrativeFinding(resolve(stubPath), lease, DEFAULT_NARRATIVE_IMPORT_PATHS, authority),
+    );
   } else if (sub === 'close') {
     const id = args[0];
     const sha = args[1];
@@ -1378,6 +1571,13 @@ function main(): void {
       process.exit(2);
     }
     exitCode = runRegistryMutation((lease) => cmdClose(id, sha, lease));
+  } else if (sub === 'reopen') {
+    const id = args[0];
+    if (!id) {
+      process.stderr.write('reopen requires id: finding-registry reopen <id>\n');
+      process.exit(2);
+    }
+    exitCode = runRegistryMutation((lease) => cmdReopen(id, lease));
   } else if (sub === 'export') {
     const format = args[0];
     if (!format) {
@@ -1411,7 +1611,7 @@ function runRegistryMutation(
     });
   } catch (error) {
     if (error instanceof RegistryLockError) {
-      process.stderr.write(`Registry mutation refused [${error.code}]: ${error.message}\n`);
+      process.stderr.write(`Registry mutation refused [${error.code}]: ${error.message}\n\n`);
       return 1;
     }
     process.stderr.write(

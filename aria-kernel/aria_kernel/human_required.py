@@ -151,6 +151,121 @@ RESOLVED_BY_VALUES: frozenset[str] = frozenset({
     RESOLVED_BY_OPERATOR, RESOLVED_BY_AGENT_PANEL,
 })
 
+# THE PANEL'S DECISION VOCABULARY — declared here, with the record schema.
+#
+# WHAT these are: the three outcomes ``human_required_adjudication.fold_adjudication``
+# can reach. WHY they live in this module rather than in the fold: the record
+# written below is what a LATER cycle reads back as proof, so the writer, the
+# reader and the fold have to name the same strings. They were declared in the
+# fold and the record never carried them at all, which is precisely how a
+# refusal became indistinguishable from an approval on disk (see
+# ``resolve_panel_adjudication_proof``). i1 — the fold imports these names; it
+# does not keep a second spelling of "refused".
+OUTCOME_RESOLVED: str = "resolved"
+OUTCOME_REFUSED: str = "refused"
+OUTCOME_STILL_ESCALATED: str = "still_escalated"
+
+# The outcomes that may CLOSE a record. ``still_escalated`` is deliberately
+# absent: "the panel could not answer" is not a decision, and a record closed
+# as if it were would be an answer nobody gave.
+PANEL_DECIDED_OUTCOMES: frozenset[str] = frozenset({
+    OUTCOME_RESOLVED, OUTCOME_REFUSED,
+})
+
+
+def resolve_panel_adjudication_proof(
+    *,
+    adjudication_ref: str,
+    expected_kind: str,
+    context_match: dict[str, str],
+    error_prefix: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Kernel-computed proof that a panel really adjudicated ``adjudication_ref``.
+
+    ONE resolver for every "a panel approved this" claim in the kernel.
+    ``adjudication_ref`` names a HUMAN_REQUIRED record; the proof is derived
+    from the record FILE, never from what the caller says about it:
+    existence, ``status=resolved``, ``resolved_by=agent_panel``,
+    ``panel_outcome=resolved``, the expected context kind, and every
+    ``context_match`` key are each a hard refusal.
+
+    WHY ``panel_outcome`` IS A CLAUSE AND NOT A DETAIL
+      A panel that REFUSES a promotion closes the record with exactly the
+      same ``status``/``resolved_by`` pair as a panel that approves one —
+      the refusal branch in ``human_required_adjudication`` resolves the
+      record so the sweep stops re-asking. Before this clause the only
+      difference on disk was ``resolution_note`` free text, which nothing
+      read, so replaying a REFUSED ref through
+      ``promote_tool(..., panel_approval_ref=...)`` armed the veto window
+      and activated the adapter the panel had just rejected. Proving that
+      an adjudication HAPPENED is not proving WHAT IT DECIDED; this
+      resolver now demands the decision, and the writer
+      (:func:`resolve_human_required`) cannot close a panel record without
+      stating one.
+
+    WHY IT IS SHARED (i1): the genesis lane
+    (``genesis_lifecycle._resolve_panel_adjudication_proof``) proved the ref
+    against the ledger; the tool-promotion lane checked only that the string
+    was non-empty, so ``promote_tool(..., panel_approval_ref="anything")``
+    armed a veto window and a later cycle activated the adapter on a
+    workspace that had never held an adjudication at all. A second resolver
+    would have been a second place to forget; this is the first one, moved
+    where both lanes can reach it.
+
+    Refusal is a GovernanceError, never a False: an unprovable panel
+    approval is a governance event, and callers that own an ineligibility
+    vocabulary (``promotion_veto``) re-raise it under their own class.
+    """
+    if not str(adjudication_ref or "").strip():
+        raise GovernanceError(f"{error_prefix}_proof_requires_adjudication_ref")
+    root = ensure_tools_dir(base_dir)
+    path = _human_required_path(root, adjudication_ref)
+    if not path.exists():
+        raise GovernanceError(
+            f"{error_prefix}_adjudication_not_found:{adjudication_ref}"
+        )
+    record = json.loads(path.read_text(encoding="utf-8"))
+    context = record.get("context") or {}
+    if str(context.get("kind") or "") != expected_kind:
+        raise GovernanceError(
+            f"{error_prefix}_adjudication_wrong_kind:{context.get('kind')!r}"
+        )
+    if (
+        record.get("status") != "resolved"
+        or record.get("resolved_by") != RESOLVED_BY_AGENT_PANEL
+    ):
+        raise GovernanceError(
+            f"{error_prefix}_adjudication_not_panel_resolved:"
+            f"status={record.get('status')!r},resolved_by={record.get('resolved_by')!r}"
+        )
+    # The DECISION, not merely the fact that one was taken. An absent
+    # ``panel_outcome`` fails closed on purpose: a record written before the
+    # field existed never recorded what the panel answered, so it can prove
+    # an approval only by assumption — and this whole resolver exists to stop
+    # authority resting on assumptions.
+    panel_outcome = str(record.get("panel_outcome") or "")
+    if panel_outcome != OUTCOME_RESOLVED:
+        raise GovernanceError(
+            f"{error_prefix}_adjudication_not_approved:"
+            f"panel_outcome={panel_outcome!r}"
+        )
+    for key, expected in context_match.items():
+        recorded = str(context.get(key) or "")
+        if not expected or recorded != expected:
+            raise GovernanceError(
+                f"{error_prefix}_adjudication_{key}_mismatch:"
+                f"{recorded!r}!={expected!r}"
+            )
+    return {
+        "adjudication_ref": adjudication_ref,
+        "context_kind": expected_kind,
+        "panel_outcome": panel_outcome,
+        "resolved_at": record.get("resolved_at"),
+        "resolution_note": str(record.get("resolution_note") or "")[:300],
+        **{key: str(context.get(key) or "") for key in context_match},
+    }
+
 
 def resolve_human_required(
     *,
@@ -158,6 +273,7 @@ def resolve_human_required(
     resolution_note: str,
     verdict: str | None = None,
     resolved_by: str = RESOLVED_BY_OPERATOR,
+    panel_outcome: str | None = None,
     base_dir: str | Path | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
@@ -180,6 +296,22 @@ def resolve_human_required(
         judgment in as human ground truth would have them grading
         themselves and would silently corrupt calibration — so the
         combination is refused, not merely discouraged.
+      * a panel MUST supply ``panel_outcome``. The panel resolves a record
+        on BOTH answers — an approval and a refusal both close it, because
+        a closed record is what stops the sweep re-asking the same question
+        every night. Recording only that a panel answered therefore made
+        the two indistinguishable on disk, and
+        :func:`resolve_panel_adjudication_proof` read the survivor of that
+        ambiguity as an approval: a refused promotion could be replayed
+        into an ACTIVE adapter. The decision is now a required, structured
+        field rather than a sentence in ``resolution_note`` that nothing
+        parses, and the callers pass ``PanelVerdict.outcome`` itself, so no
+        branch can stamp a decision the fold did not reach.
+
+    Symmetrically, ``panel_outcome`` is REFUSED when the operator resolves:
+    an operator closing an escalation is exercising his own authority, not
+    reporting a panel's, and a record carrying both would be two claims of
+    authority in one row.
     """
     if not isinstance(resolution_note, str) or not resolution_note.strip():
         raise GovernanceError("resolution_note is required")
@@ -190,6 +322,17 @@ def resolve_human_required(
     if resolved_by != RESOLVED_BY_OPERATOR and verdict is not None:
         raise GovernanceError(
             "human_required_agent_panel_cannot_supply_ground_truth_verdict"
+        )
+    if resolved_by == RESOLVED_BY_AGENT_PANEL:
+        if panel_outcome not in PANEL_DECIDED_OUTCOMES:
+            raise GovernanceError(
+                "human_required_agent_panel_resolution_requires_decided_outcome:"
+                f"{panel_outcome!r} not in {sorted(PANEL_DECIDED_OUTCOMES)}"
+            )
+    elif panel_outcome is not None:
+        raise GovernanceError(
+            "human_required_panel_outcome_requires_agent_panel_resolver:"
+            f"resolved_by={resolved_by!r}"
         )
     root = ensure_tools_dir(base_dir)
     path = _human_required_path(root, request_id)
@@ -203,9 +346,16 @@ def resolve_human_required(
     record["resolved_at"] = ts.strftime("%Y-%m-%dT%H:%M:%SZ")
     record["resolution_note"] = resolution_note
     record["resolved_by"] = resolved_by
+    if panel_outcome is not None:
+        record["panel_outcome"] = panel_outcome
 
     if verdict is not None:
-        from .feedback_store import FEEDBACK_VERDICTS, record_operator_feedback
+        from .belief_escalation import belief_panel_finding_id
+        from .feedback_store import (
+            FEEDBACK_VERDICTS,
+            JUDGMENT_SUBJECT_BELIEF,
+            record_operator_feedback,
+        )
         if verdict not in FEEDBACK_VERDICTS:
             raise GovernanceError(f"verdict must be one of {FEEDBACK_VERDICTS}")
         ctx = record.get("context") or {}
@@ -240,12 +390,23 @@ def resolve_human_required(
             record_operator_feedback(
                 tool_id=str(ctx.get("source_tool_id") or "unknown"),
                 run_id=request_id,
-                finding_id=f"belief-escalation:{belief_id}",
+                # ONE spelling of this ledger identity, not two. The panel
+                # arm (JJ-3) writes the same (run_id, finding_id) key and its
+                # idempotency check depends on it — an f-string here and a
+                # helper there is two spellings of one identity waiting to
+                # drift apart, and the drift would let the same belief be
+                # adjudicated twice.
+                finding_id=belief_panel_finding_id(belief_id),
                 verdict=verdict,
                 severity="medium",
                 note=f"operator adjudication of belief escalation {request_id}",
                 affected_belief_ids=[belief_id],
                 source_type="human",
+                # JJ-3 (ORPHAN-HIGH-755) - this settles a BELIEF, not a
+                # finding this adapter emitted. Declared on the row so the
+                # adapter-precision lanes exclude it structurally instead of
+                # each reader re-deciding from finding_id spelling.
+                judgment_subject=JUDGMENT_SUBJECT_BELIEF,
                 base_dir=root,
             )
             record["operator_verdict"] = verdict
@@ -258,6 +419,9 @@ def resolve_human_required(
             "request_id": request_id,
             "resolved_at": record["resolved_at"],
             "resolved_by": resolved_by,
+            # The audit ledger could not tell an approval from a refusal
+            # either; both appeared as one `human_required_resolved` row.
+            "panel_outcome": panel_outcome,
         },
     )
     return record

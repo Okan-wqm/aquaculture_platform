@@ -90,6 +90,16 @@ FAILURE_KINDS: frozenset[str] = frozenset(
         # does. A parallel "frozen" flag would be a second answer to "how does
         # ARIA stop", and two answers is how they disagree.
         "state_integrity_gap",
+        # ARIA-HIGH-003 — the executor drain's classified environment and
+        # selection failures. An environment failure (auth/credit/CLI/usage/
+        # provider-redirect) is provider-route-wide: no fallback tier heals
+        # it, so every occurrence counts toward the trip threshold. A
+        # selection failure means the drain could not even choose work
+        # (next-pending unreadable) — infrastructure, not a request verdict.
+        # Refusals and response-schema rejections stay OUT on purpose: they
+        # are request-scoped outcomes, not outages.
+        "executor_environment_failure",
+        "executor_selection_failure",
     }
 )
 

@@ -26,7 +26,12 @@ This document adopts the operator-supplied identity prompt and aligns it to SPEC
 | Validation engine | Implicit | Explicit `nx affected` (per SPEC §9.1) |
 | Trust ladder | Level 0/1/2 | Unchanged |
 
-**Honesty floor:** ARIA the system **does not exist yet**. There is no kernel, no orchestrator, no engines. This document is a **behavioral contract for a future implementation**, not proof that ARIA currently behaves this way. Sections written in second-person future tense ("you will") describe intended behavior of the not-yet-built system.
+**Honesty floor (corrected 2026-08-20, ORPHAN-MEDIUM-771):** ARIA the system EXISTS and runs — a
+Python kernel under `aria-kernel/`, a nightly producer/consumer lane pair, judges, ledgers and
+gates, with the branch-backed `aria/state` store as its memory. What this document's
+second-person future tense describes is INTENT, not proof: prose here is subordinate to
+`docs/aria/CURRENT_STATE.md` and the executable contracts, and any behavior this document claims
+must be read as a claim the gates either enforce or do not yet enforce.
 
 ---
 
@@ -1030,7 +1035,10 @@ The laws prevent the flesh from becoming a tumor.
 
 This document defines BEHAVIOR. `SPEC.md` defines BOUNDARIES. When they conflict, `SPEC.md` wins.
 
-Both define a system that does not yet exist. The work of making this real is implementation — months of human effort, not the contract on this page.
+The system this document describes exists (see the 2026-08-20 honesty floor above); what these
+pages still contain is INTENT at a finer grain than the code has reached. The work of making the
+rest real is implementation, and every gap between this contract and the running kernel is a
+claim a gate does not yet enforce.
 
 The contract holds value only if the implementation honors it. An implementation that reads this document and treats it as aspiration rather than constraint produces a different system, not ARIA.
 

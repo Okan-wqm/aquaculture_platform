@@ -98,7 +98,21 @@ def promote_consensus_findings(
         if row.get("verdict") != "true_positive":
             continue
         fingerprint = str(row.get("finding_fingerprint") or "")
-        if not fingerprint or fingerprint in already:
+        if not fingerprint:
+            # ORPHAN-HIGH-765 — visible, not silent. A consensus row whose
+            # judges minted before fingerprint threading can never promote,
+            # and an invisible skip is indistinguishable from "nothing to
+            # promote" — the exact silence that hid 24,788 raw findings
+            # promoting to zero for months while the circuit looked wired.
+            skipped.append({
+                "finding_fingerprint": "",
+                "reason": "missing_finding_fingerprint",
+                "finding_id": row.get("finding_id"),
+                "run_id": row.get("run_id"),
+                "judgment_group_id": row.get("judgment_group_id"),
+            })
+            continue
+        if fingerprint in already:
             continue
         refs = _repo_file_refs(row, repo_path)
         if not refs:

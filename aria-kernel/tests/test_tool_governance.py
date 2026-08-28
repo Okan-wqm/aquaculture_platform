@@ -27,12 +27,23 @@ from aria_kernel.feedback_store import record_operator_feedback
 FAKE_RUNNER = Path(__file__).resolve().parent / "_helpers" / "fake_tool_runner.py"
 
 
+# ORPHAN-MEDIUM-738 — the happy-path budget measures the CONTRACT, not the
+# host. At 1000ms a healthy fixture tool could exceed its budget purely
+# because the machine was busy (observed at load average 10-13: a full
+# suite plus parallel agents), turning "a valid run records ok" into a
+# coin flip. 30s is still a bound — a tool that needs longer is genuinely
+# broken — while the budget-EXCEEDED path keeps its own dedicated test
+# with a deliberate 40x margin (sleep 1s against timeout_ms=25), so the
+# refusal stays proven by a case that cannot be explained by load.
+_HAPPY_PATH_TIMEOUT_MS = 30_000
+
+
 def runner(argv=None, **overrides):
     config = {
         "type": "subprocess",
         "argv": fake_tool_argv(valid_tool_output()) if argv is None else argv,
         "cwd": ".",
-        "timeout_ms": 1000,
+        "timeout_ms": _HAPPY_PATH_TIMEOUT_MS,
         "stdin_json": True,
     }
     config.update(overrides)
@@ -303,8 +314,8 @@ class ToolGovernanceTests(unittest.TestCase):
         run = self.latest_run()
         self.assertEqual(run["status"], "ok")
         self.assertEqual(run["run_id"], "runner-ok")
-        self.assertEqual(len(run["emitted_observations"]), 1)
-        self.assertEqual(len(run["emitted_findings"]), 1)
+        self.assertEqual(run["emitted_counts"]["observations"], 1)
+        self.assertEqual(run["emitted_counts"]["findings"], 1)
         self.assertTrue(run["input_hash"].startswith("sha256:"))
         self.assertTrue(run["output_hash"].startswith("sha256:"))
 
@@ -477,8 +488,8 @@ class ToolGovernanceTests(unittest.TestCase):
             base_dir=self.tools_dir,
         )
         run = self.latest_run()
-        self.assertEqual(run["emitted_observations"], [])
-        self.assertEqual(run["emitted_findings"], [])
+        self.assertEqual(run["emitted_counts"]["observations"], 0)
+        self.assertEqual(run["emitted_counts"]["findings"], 0)
 
         self.tools_dir = Path(self.tmp.name) / "aria-tools-calibrate"
         register_active_for_test(valid_tool(status="CALIBRATE"), base_dir=self.tools_dir)
@@ -490,8 +501,8 @@ class ToolGovernanceTests(unittest.TestCase):
             base_dir=self.tools_dir,
         )
         run = self.latest_run()
-        self.assertEqual(run["emitted_observations"], [])
-        self.assertEqual(run["emitted_findings"], [])
+        self.assertEqual(run["emitted_counts"]["observations"], 0)
+        self.assertEqual(run["emitted_counts"]["findings"], 0)
 
     def test_tool_runner_refuses_quarantined_tool(self):
         register_active_for_test(valid_tool(status="QUARANTINED"), base_dir=self.tools_dir)

@@ -12,9 +12,13 @@ from .fitness import list_fitness_reports
 from .ledger import append_declared_jsonl, load_jsonl
 from .runs_reader import read_runs_rows
 from .memory import list_memory
+from .observation_coverage import (
+    evaluate_observation_coverage,
+    unobserved_nights_before_gap,
+)
 from .pressure import effective_workspace_pressures
 from .tool_health import runs_path
-from .tool_registry import ensure_tools_dir, utc_now
+from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
 # Plan 026R §E.9 — closed-enum of capability_gap types emitted by
@@ -34,12 +38,18 @@ from .tool_registry import ensure_tools_dir, utc_now
 #   the gap fits a skill-shaped intervention).
 # * policy_gap — dependency-policy gap (dependency_currency dim)
 # * adapter_gap — fitness/adapter gap (default low-fitness signal)
+# * unobserved_surface — H-3. A repo root that NO adapter can read, measured
+#   blind for `unobserved_nights_before_gap` consecutive nights by
+#   observation_coverage. Routes to adapter authoring, NOT agent genesis: a
+#   review agent handed a root no tool can parse is still blind, so that
+#   routing would mint a gap that can never close.
 CAPABILITY_GAP_TYPES: frozenset[str] = frozenset({
     "agent_gap",
     "existing_agent_extension",
     "skill_gap",
     "policy_gap",
     "adapter_gap",
+    "unobserved_surface",
 })
 
 
@@ -52,9 +62,18 @@ def detect_capability_gaps(
     root = ensure_tools_dir(base_dir)
     index_hash = latest_agent_network_hash(base_dir=root)
     gaps = []
+    # What ARIA could see of its own repository TONIGHT. `None` means the
+    # measurement could not be taken, which is not the same as "nothing is
+    # blind" and must never be recorded as if it were — a night that proved
+    # nothing cannot extend a claim that something has been blind for N.
+    blind_tonight: list[str] | None = None
     if paths is not None:
         gaps.extend(_gaps_from_unowned_pressures(cycle_id, paths, root, index_hash))
         gaps.extend(_gaps_from_coverage_gaps(cycle_id, paths, root, index_hash, base_dir))
+        unobserved_gaps, blind_tonight = _gaps_from_unobserved_surface(
+            cycle_id, paths, root, index_hash,
+        )
+        gaps.extend(unobserved_gaps)
     gaps.extend(_gaps_from_adapter_registry(cycle_id, paths, root, index_hash))
     gaps.extend(_gaps_from_shadow_runs(cycle_id, root, base_dir))
     gaps.extend(_gaps_from_unknowns(cycle_id, base_dir))
@@ -73,6 +92,11 @@ def detect_capability_gaps(
         "recorded_at": utc_now(),
         "cycle_id": cycle_id,
         "gap_count": len(ordered),
+        # Tonight's blindness, recorded whether or not it minted anything —
+        # this field IS the consecutive-nights evidence the next cycle reads.
+        # Without it the streak could only ever count gaps that already
+        # exist, and the first N-1 nights would leave no trace at all.
+        "unobserved_roots": blind_tonight,
         "gaps": ordered,
     }
     return append_declared_jsonl(root / "capability-gaps" / "gaps.jsonl", row, expected_surface="capability_gaps")
@@ -88,6 +112,13 @@ def list_capability_gaps(*, base_dir: str | Path | None = None) -> list[dict[str
 # agent_genesis.sweep_candidate_gaps_for_adjudication instead of parking on
 # the operator; the learning hook feeds it, the panel adjudicates it.
 GENESIS_ADJUDICATION_BLOCK_TOKEN = "genesis_adjudication_required"
+
+# H-3 — evidence paths an unobserved_surface gap cites, and how many file
+# types it names before the payload stops being readable. The cap bounds the
+# ledger row; the full list stays on the RootCoverage the gap was minted from.
+ADAPTER_MANIFEST_DIR = "tools/aria-adapters"
+OBSERVATION_POLICY_REL = "aria-config/observation_map.json"
+UNPARSED_TYPES_IN_PAYLOAD = 12
 
 
 def latest_capability_gaps(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
@@ -337,13 +368,148 @@ def _gaps_from_coverage_gaps(
     return gaps
 
 
+def _gaps_from_unobserved_surface(
+    cycle_id: str,
+    paths: Any,
+    root: Path,
+    index_hash: str | None,
+) -> tuple[list[dict[str, Any]], list[str] | None]:
+    """H-3 — ARIA files its own blindness.
+
+    `observation_coverage` measures which repo roots fall inside some
+    adapter's declared_scope. A root that no adapter can read produces no
+    findings, and a lane that produces no findings looks exactly like a lane
+    with nothing wrong in it; that is the whole reason this gap type exists.
+
+    Returns the gaps AND tonight's blind-root names, because the caller has
+    to record the measurement even on the nights that mint nothing — the
+    record is the evidence the streak is built from.
+
+    Three rules, each one a refusal:
+
+    * ONE NIGHT MINTS NOTHING. A single blind measurement is a snapshot (a
+      manifest mid-edit, a root that landed at 23:00). The gap needs
+      `unobserved_nights_before_gap` consecutive nights.
+    * A NIGHT THAT MEASURED NOTHING BREAKS THE STREAK. Unknown is not
+      blindness, exactly as unknown is not green: the claim is "proven
+      unseen for N nights", and a night that proved nothing did not prove it.
+    * TWO CYCLES IN ONE NIGHT ARE ONE NIGHT. The streak counts distinct UTC
+      dates, so a re-run cannot buy a night of evidence.
+    """
+    try:
+        verdict = evaluate_observation_coverage(paths.repo_root)
+    except Exception:
+        # An unreadable tree is unknown, never an assertion of sight — and
+        # never a reason to take the whole learning hook down with it.
+        return [], None
+    if verdict.verdict == "unknown":
+        return [], None
+
+    blind = [row for row in verdict.roots if row.verdict == "unobserved"]
+    tonight = [row.root for row in blind]
+    required = unobserved_nights_before_gap(paths.repo_root)
+    nights = _consecutive_blind_nights(list_capability_gaps(base_dir=root), tonight)
+
+    gaps: list[dict[str, Any]] = []
+    for row in blind:
+        streak = nights.get(row.root, 1)
+        if streak < required:
+            continue
+        unparsed = list(row.unparsed_file_types)[:UNPARSED_TYPES_IN_PAYLOAD]
+        unreadable = ", ".join(unparsed) if unparsed else "no unparsable type — declared_scope alone"
+        gaps.append(
+            _gap(
+                cycle_id=cycle_id,
+                gap_type="unobserved_surface",
+                source_id=row.root,
+                title=(
+                    f"No adapter can read {row.root}/ — {row.files} files "
+                    f"blind for {streak} consecutive nights ({unreadable})"
+                ),
+                evidence_refs=[row.root, ADAPTER_MANIFEST_DIR, OBSERVATION_POLICY_REL],
+                # Deliberately empty: relating this to an existing review
+                # agent would recommend extending it, and extending a
+                # reviewer does not give anything a parser for these files.
+                related_agents=[],
+                # Blindness that survives more nights is worth more than
+                # blindness measured the minimum number of times, so the
+                # score grows with the evidence rather than sitting still.
+                score=min(90, 70 + streak),
+                blocked_by=[],
+                capability_gap_key=f"observation:{row.root}",
+                primary_source="observation-coverage",
+                source_types=["observation-coverage"],
+                index_hash_at_decision=index_hash,
+                recommended_action="author_new_aria_adapter",
+                details={
+                    "root": row.root,
+                    "files": row.files,
+                    "unparsed_file_types": unparsed,
+                    "consecutive_blind_nights": streak,
+                    "nights_required": required,
+                    "observed_ratio": round(verdict.observed_ratio, 4),
+                },
+            ),
+        )
+    return gaps, tonight
+
+
+def _consecutive_blind_nights(
+    history: list[dict[str, Any]],
+    tonight: list[str],
+) -> dict[str, int]:
+    """Per-root count of consecutive nights ending tonight that measured the
+    root blind, read back out of the gap ledger's own `unobserved_roots`.
+
+    Newest-first tail scan, the same streak shape the spine gate and the
+    oscillation guard use. Nights are UTC dates, not rows, so two cycles on
+    one night count once. A row that cannot name its night, or that recorded
+    no measurement at all, ENDS the scan: consecutiveness cannot be claimed
+    across a night nobody looked.
+    """
+    streaks = {name: 1 for name in tonight}
+    live = set(tonight)
+    counted = {utc_now()[:10]}
+    for row in reversed(history):
+        if not live:
+            break
+        night = str(row.get("recorded_at") or "")[:10]
+        if len(night) != 10:
+            break
+        if night in counted:
+            continue
+        blind = row.get("unobserved_roots")
+        if not isinstance(blind, list):
+            break
+        counted.add(night)
+        names = {str(name) for name in blind}
+        for name in sorted(live):
+            if name in names:
+                streaks[name] += 1
+            else:
+                live.discard(name)
+    return streaks
+
+
+
+def _emitted_count(run: dict, kind: str) -> int:
+    """ORPHAN-HIGH-798 — int-tolerant emitted count (see reflection.py)."""
+    counts = run.get("emitted_counts")
+    if isinstance(counts, dict):
+        return int(counts.get(kind, 0))
+    legacy = run.get(f"emitted_{kind}")
+    if isinstance(legacy, list):
+        return len(legacy)
+    if isinstance(legacy, int):
+        return legacy
+    return 0
 def _gaps_from_shadow_runs(cycle_id: str, root: Path, base_dir: str | Path | None) -> list[dict[str, Any]]:
     gaps = []
     for run in list(read_runs_rows(runs_path(root), base_dir=root)):
         if run.get("cycle_id") != cycle_id or run.get("status") != "ok":
             continue
         raw_count = int(run.get("runner", {}).get("raw_findings_count") or 0)
-        emitted = run.get("emitted_findings", [])
+        emitted = _emitted_count(run, "findings")
         if raw_count < 3 or emitted:
             continue
         paths = [str(path) for path in run.get("read_paths", [])[:20]]
@@ -447,9 +613,21 @@ def _gap(
     primary_source: str,
     source_types: list[str],
     index_hash_at_decision: str | None,
+    recommended_action: str | None = None,
+    details: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    # The closed enum is enforced HERE, at the only place a gap is born,
+    # rather than trusted at each callsite. An unregistered type would sail
+    # past the router's explicit branches into the default one and be
+    # silently mis-routed — the exact drift the parity invariant exists to
+    # forbid, arriving through the one door that invariant cannot watch.
+    if gap_type not in CAPABILITY_GAP_TYPES:
+        raise GovernanceError(
+            f"unregistered capability gap_type {gap_type!r}; "
+            f"valid: {sorted(CAPABILITY_GAP_TYPES)}"
+        )
     digest = hashlib.sha256(f"{cycle_id}:{gap_type}:{source_id}".encode("utf-8")).hexdigest()[:12]
-    return {
+    row: dict[str, Any] = {
         "schema_version": 1,
         "gap_id": f"gap-{digest}",
         "cycle_id": cycle_id,
@@ -461,14 +639,30 @@ def _gap(
         "title": title,
         "evidence_refs": evidence_refs,
         "related_existing_agents": related_agents,
-        "recommended_action": "extend_existing_agent" if related_agents else "draft_new_aria_agent",
+        "recommended_action": recommended_action or (
+            "extend_existing_agent" if related_agents else "draft_new_aria_agent"
+        ),
         "candidate_validation_commands": ["PYTHONPATH=aria-kernel python3 -m unittest discover aria-kernel -p '*test*.py'"],
         "score": score,
         "blocked_by": blocked_by,
         "index_hash_at_decision": index_hash_at_decision,
     }
+    if details is not None:
+        row["details"] = details
+    return row
 
 
 def _source_rank(source: str) -> int:
-    order = {"registry": 0, "coverage": 1, "pressure": 2, "shadow-run": 3, "unknown": 4, "low-fitness": 5}
+    # Second half of the source vocabulary: every `primary_source` minted
+    # above MUST appear here too, or dedup ranks it 99 and a real gap loses
+    # its key to whatever else claimed the key first.
+    order = {
+        "registry": 0,
+        "coverage": 1,
+        "observation-coverage": 2,
+        "pressure": 3,
+        "shadow-run": 4,
+        "unknown": 5,
+        "low-fitness": 6,
+    }
     return order.get(source, 99)

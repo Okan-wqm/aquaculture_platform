@@ -29,6 +29,7 @@ from typing import Any
 
 from .agent_surface import JUDGE_ROLES, SUPPORTING_ROLES
 from .feedback_store import (
+    CONSENSUS_UNCERTAINTY_REASONS,
     CONSENSUS_MIN_CONFIDENCE,
     FEEDBACK_SEVERITIES,
     FEEDBACK_VERDICTS,
@@ -116,7 +117,23 @@ def validate_judge_response(
         return ["judge_verdict:absent"]
     verdict = verdict_block.get("verdict")
     if verdict not in FEEDBACK_VERDICTS:
-        errors.append(f"judge_verdict.verdict:invalid:{verdict!r}")
+        # ORPHAN-CRITICAL-735 — the arbiter's contract says "return
+        # details.consensus, OR the uncertainty reason when the consensus
+        # gate cannot be met", and the deterministic engine it mirrors
+        # emits exactly that non-verdict outcome. The live arbiter obeyed
+        # and this contract burned the claim as invalid:None — fourth
+        # mint-vs-law instance. Uncertainty is a VALID arbitration
+        # outcome, for the arbiter alone, with a reason from the closed
+        # vocabulary; binary judges stay bound to binary verdicts.
+        reason = verdict_block.get("uncertainty_reason")
+        if (
+            role == "consensus_arbitration"
+            and verdict is None
+            and reason in CONSENSUS_UNCERTAINTY_REASONS
+        ):
+            pass
+        else:
+            errors.append(f"judge_verdict.verdict:invalid:{verdict!r}")
     tool_id = request.get("tool_id") or verdict_block.get("tool_id")
     run_id = request.get("run_id") or verdict_block.get("run_id")
     finding_id = request.get("finding_id") or verdict_block.get("finding_id")
@@ -163,6 +180,28 @@ def record_judge_verdict_from_response(
     details = response.get("details") or {}
     if not isinstance(details, dict):
         details = {}
+
+    # ORPHAN-CRITICAL-735 — the arbiter's legitimate non-verdict outcome
+    # folds through the SAME producer, ledger and idempotent escalation_id
+    # as the deterministic engine, so one sweep drains both lanes into one
+    # HUMAN_REQUIRED record. It is NOT a feedback verdict: an uncertain
+    # arbitration must never write an ai_judge row.
+    if role == "consensus_arbitration":
+        arb_block = _verdict_field(details)
+        arb_reason = arb_block.get("uncertainty_reason")
+        if arb_block.get("verdict") is None and arb_reason in CONSENSUS_UNCERTAINTY_REASONS:
+            from .feedback_store import record_consensus_uncertainty
+
+            row = record_consensus_uncertainty(
+                tool_id=str(request.get("tool_id") or arb_block.get("tool_id") or ""),
+                run_id=str(request.get("run_id") or arb_block.get("run_id") or ""),
+                finding_id=str(request.get("finding_id") or arb_block.get("finding_id") or ""),
+                group_id=str(request.get("judgment_group_id") or arb_block.get("group_id") or ""),
+                reason=str(arb_reason),
+                cycle_id=request.get("cycle_id"),
+                base_dir=base_dir,
+            )
+            return {"kind": "consensus_uncertainty", **row}
     verdict_block = _verdict_field(details)
 
     tool_id = request.get("tool_id") or verdict_block.get("tool_id")
@@ -227,7 +266,15 @@ def record_judge_verdict_from_response(
         note=note,
         source_type="ai_judge",
         judge_id=str(judge_id),
-        model=verdict_block.get("model"),
+        # ORPHAN-HIGH-781 — mint-first doctrine, same as judgment_group_id
+        # and finding_fingerprint above: the model the DISPATCHER resolved
+        # (`details.agent_dispatch_model`, force-stamped by ci_executor from
+        # the runtime profile) outranks the judge's own verdict.model
+        # self-report. The anchor distinct-model count must not trust a
+        # string the judged agent wrote about itself; the self-report
+        # survives only as the fallback for mock/legacy envelopes that
+        # predate the stamp.
+        model=details.get("agent_dispatch_model") or verdict_block.get("model"),
         prompt_hash=verdict_block.get("prompt_hash"),
         confidence=float(confidence) if confidence is not None else None,
         rationale=str(note),
@@ -238,7 +285,13 @@ def record_judge_verdict_from_response(
         # verdicts across two groups-of-one, so the real disagreement on
         # anthropic.provider.ts:3 never met itself and never escalated.
         judgment_group_id=request.get("judgment_group_id") or verdict_block.get("judgment_group_id"),
-        finding_fingerprint=verdict_block.get("finding_fingerprint"),
+        # ORPHAN-HIGH-765 — the fingerprint follows the SAME D1 doctrine as
+        # the group id above: mint first, envelope only as fallback. On live
+        # state 7 of 8 ai_judge rows carried an empty fingerprint because
+        # the mint never carried it and no prompt asks the judge to echo it,
+        # so every consensus row settled from those rows inherited the empty
+        # key — and promote_consensus_findings silently skipped it forever.
+        finding_fingerprint=request.get("finding_fingerprint") or verdict_block.get("finding_fingerprint"),
         base_dir=base_dir,
     )
     return row

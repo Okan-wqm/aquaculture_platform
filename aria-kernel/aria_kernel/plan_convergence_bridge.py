@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from .agent_surface import PLANNER_BRIDGE_ROLES
+from .tool_registry import GovernanceError
 
 # Plan ARIA-V9.0-B — assert_never is the canonical exhaustiveness
 # tool. Python 3.11+ ships it under typing; earlier targets fall back

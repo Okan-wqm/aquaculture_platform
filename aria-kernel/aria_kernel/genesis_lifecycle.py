@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import json
 from pathlib import Path
 from typing import Any, Literal
 
@@ -312,44 +311,29 @@ def _resolve_panel_adjudication_proof(
     """Y8 (ORPHAN-709) — kernel-computed panel-approval proof.
 
     ``adjudication_ref`` names the genesis_candidate escalation record the
-    panel resolved. The proof is derived from the record file, never from
+    panel APPROVED. The proof is derived from the record file, never from
     caller-supplied evidence: existence, resolved status, agent_panel
-    resolver, genesis_candidate kind, and a matching capability_gap_key are
-    each a hard refusal.
-    """
-    from .human_required import _human_required_path
+    resolver, an approving ``panel_outcome``, genesis_candidate kind, and a
+    matching capability_gap_key are each a hard refusal.
 
-    if not adjudication_ref.strip():
-        raise GovernanceError("genesis_panel_proof_requires_adjudication_ref")
-    root = ensure_tools_dir(base_dir)
-    path = _human_required_path(root, adjudication_ref)
-    if not path.exists():
-        raise GovernanceError(
-            f"genesis_panel_adjudication_not_found:{adjudication_ref}"
-        )
-    record = json.loads(path.read_text(encoding="utf-8"))
-    context = record.get("context") or {}
-    if str(context.get("kind") or "") != "genesis_candidate":
-        raise GovernanceError(
-            f"genesis_panel_adjudication_wrong_kind:{context.get('kind')!r}"
-        )
-    if record.get("status") != "resolved" or record.get("resolved_by") != "agent_panel":
-        raise GovernanceError(
-            "genesis_panel_adjudication_not_panel_resolved:"
-            f"status={record.get('status')!r},resolved_by={record.get('resolved_by')!r}"
-        )
-    recorded_key = str(context.get("capability_gap_key") or "")
-    if not capability_gap_key or recorded_key != capability_gap_key:
-        raise GovernanceError(
-            "genesis_panel_adjudication_gap_key_mismatch:"
-            f"{recorded_key!r}!={capability_gap_key!r}"
-        )
-    return {
-        "adjudication_ref": adjudication_ref,
-        "capability_gap_key": recorded_key,
-        "resolved_at": record.get("resolved_at"),
-        "resolution_note": str(record.get("resolution_note") or "")[:300],
-    }
+    The outcome clause is what separates "the panel answered" from "the
+    panel said yes" — the refuse branch of the fold resolves the record just
+    as the approve branch does, so every other clause here holds for a
+    REJECTED candidate.
+
+    The checks themselves live in ``human_required.resolve_panel_adjudication_proof``
+    — this lane's shape, generalised so the tool-promotion lane (JJ-2b) is
+    the SAME resolver rather than a second one that forgets a clause.
+    """
+    from .human_required import resolve_panel_adjudication_proof
+
+    return resolve_panel_adjudication_proof(
+        adjudication_ref=adjudication_ref,
+        expected_kind="genesis_candidate",
+        context_match={"capability_gap_key": capability_gap_key},
+        error_prefix="genesis_panel",
+        base_dir=base_dir,
+    )
 
 
 def record_transition(

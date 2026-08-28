@@ -47,6 +47,24 @@ export const ARIA_AUTHORITY_HASH_SENTINEL =
 export const ARIA_AUTHORITY_HASH_LINE =
   /Last verified ARIA authority hash: `(?:[a-f0-9]{64}|ARIA_AUTHORITY_HASH_SENTINEL)`/;
 
+/**
+ * ORPHAN-MEDIUM-768 — the Date line is normalized alongside the hash line, and
+ * `--write` stamps BOTH. Before this, the writer refreshed only the 64 hex
+ * characters, so a doc whose body was months stale could carry a fresh hash and
+ * a frozen date — machine-fresh cover on stale content.
+ *
+ * ORPHAN-MEDIUM-792 — the Date line is descriptive metadata, never an
+ * authorization predicate. Server-side merges run no local writer and may land
+ * on the next UTC day with the authority content byte-identical to what was
+ * stamped; holding the date accountable to the newest authority-commit day
+ * rejected exactly those valid pins. Validity is the content hash alone, and
+ * `checkAriaAuthorityHash` is the single verdict producer both the CLI and the
+ * invariant consume.
+ */
+export const ARIA_AUTHORITY_DATE_SENTINEL = 'Date: ARIA_AUTHORITY_DATE_SENTINEL';
+
+export const ARIA_AUTHORITY_DATE_LINE = /^Date: \d{4}-\d{2}-\d{2}$/m;
+
 export function ariaRepoRoot(): string {
   try {
     return execFileSync('git', ['rev-parse', '--show-toplevel'], {
@@ -107,7 +125,9 @@ export function normalizedAriaAuthorityContent(
 ): string {
   const body = readFileSync(join(repoRoot, rel), 'utf8');
   if (rel !== CURRENT_STATE_PATH) return body;
-  return body.replace(ARIA_AUTHORITY_HASH_LINE, ARIA_AUTHORITY_HASH_SENTINEL);
+  return body
+    .replace(ARIA_AUTHORITY_HASH_LINE, ARIA_AUTHORITY_HASH_SENTINEL)
+    .replace(ARIA_AUTHORITY_DATE_LINE, ARIA_AUTHORITY_DATE_SENTINEL);
 }
 
 export function ariaAuthorityHash(repoRoot: string = ariaRepoRoot()): string {
@@ -127,6 +147,39 @@ export function recordedAriaAuthorityHash(repoRoot: string = ariaRepoRoot()): st
   return body.match(/Last verified ARIA authority hash: `([a-f0-9]{64})`/)?.[1] ?? null;
 }
 
+/**
+ * ORPHAN-MEDIUM-792 — the pure verdict over the checked-out authority tree.
+ *
+ * `valid` is exactly "the declared pin equals the digest recomputed from the
+ * tracked authority surface"; nothing about commit time or calendar days
+ * participates. A server-side squash merge that lands a day after the
+ * contributor stamped the pin keeps `valid: true` when the content is
+ * unchanged, and any merge driver that lands a pin describing older content
+ * is `authority_hash_stale` regardless of dates. `--check` and the
+ * documentation SSoT invariant both consume this function so the two can
+ * never disagree about what a valid pin is.
+ */
+export interface AriaAuthorityHashVerdict {
+  readonly valid: boolean;
+  readonly declared: string | null;
+  readonly computed: string;
+  readonly reason: 'current' | 'authority_hash_stale';
+}
+
+export function checkAriaAuthorityHash(
+  repoRoot: string = ariaRepoRoot(),
+): AriaAuthorityHashVerdict {
+  const declared = recordedAriaAuthorityHash(repoRoot);
+  const computed = ariaAuthorityHash(repoRoot);
+  const valid = declared === computed;
+  return {
+    valid,
+    declared,
+    computed,
+    reason: valid ? 'current' : 'authority_hash_stale',
+  };
+}
+
 export function writeAriaAuthorityHash(repoRoot: string = ariaRepoRoot()): {
   from: string | null;
   to: string;
@@ -139,17 +192,41 @@ export function writeAriaAuthorityHash(repoRoot: string = ariaRepoRoot()): {
   }
   const from = recordedAriaAuthorityHash(repoRoot);
   const to = ariaAuthorityHash(repoRoot);
-  if (from === to) return { from, to, changed: false };
-  writeFileSync(
-    path,
-    body.replace(ARIA_AUTHORITY_HASH_LINE, `Last verified ARIA authority hash: \`${to}\``),
-    'utf8',
-  );
-  return { from, to, changed: true };
+  // ORPHAN-MEDIUM-768 — the date travels WITH the hash, always. A no-op hash
+  // write with a stale date is still a changed document: the verification
+  // claim being renewed is "this body, on this date".
+  const today = new Date().toISOString().slice(0, 10);
+  const stamped = body
+    .replace(ARIA_AUTHORITY_HASH_LINE, `Last verified ARIA authority hash: \`${to}\``)
+    .replace(ARIA_AUTHORITY_DATE_LINE, `Date: ${today}`);
+  const changed = stamped !== body;
+  if (changed) writeFileSync(path, stamped, 'utf8');
+  return { from, to, changed };
 }
 
 function main(argv: string[]): number {
   const repoRoot = ariaRepoRoot();
+  // WHY --check: the tool could print the digest and it could write it, but it
+  // could not ANSWER "is the declared pin current?" without the caller doing
+  // the string comparison itself. That left the question to CI, which answers
+  // it thirty minutes later. --check answers in a second and exits non-zero
+  // naming both digests, so a hook can stand on it.
+  if (argv.includes('--check')) {
+    const verdict = checkAriaAuthorityHash(repoRoot);
+    if (verdict.valid) {
+      process.stdout.write(`aria authority hash: current (${verdict.computed})\n`);
+      return 0;
+    }
+    process.stderr.write(
+      'aria authority hash: STALE pin.\n' +
+        `  declared in docs/aria/CURRENT_STATE.md: ${verdict.declared ?? '(none)'}\n` +
+        `  computed from the authority surface:    ${verdict.computed}\n` +
+        '  A merge commit runs no pre-commit, so `git merge origin/main` can move\n' +
+        '  the surface and leave the pin behind. Fix it here, not in CI:\n' +
+        '    npm run aria:authority-hash:write && git add docs/aria/CURRENT_STATE.md\n',
+    );
+    return 1;
+  }
   if (!argv.includes('--write')) {
     process.stdout.write(`${ariaAuthorityHash(repoRoot)}\n`);
     return 0;

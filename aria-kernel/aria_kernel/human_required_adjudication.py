@@ -54,6 +54,16 @@ from .agent_invocations import (
     derive_request_state,
 )
 from .agent_surface import allowed_targets_for_role
+from .belief_escalation import BELIEF_ESCALATION_KIND
+from .human_required import (
+    OUTCOME_REFUSED,
+    OUTCOME_RESOLVED,
+    OUTCOME_STILL_ESCALATED,
+    RESOLVED_BY_AGENT_PANEL,
+    _human_required_path,
+    list_human_required,
+    resolve_human_required,
+)
 from .independence_check import RoundDispatch, verify_principal_disjointness
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
@@ -73,10 +83,11 @@ ADJUDICATOR_VERDICTS: frozenset[str] = frozenset({
     RESOLVE_VERDICT, REFUSE_VERDICT, INSUFFICIENT_VERDICT,
 })
 
-# Panel outcomes.
-OUTCOME_RESOLVED: str = "resolved"
-OUTCOME_REFUSED: str = "refused"
-OUTCOME_STILL_ESCALATED: str = "still_escalated"
+# Panel outcomes — re-exported, NOT re-declared. The canonical strings live
+# in ``human_required`` beside the record schema, because the record is where
+# an outcome has to survive until a later cycle reads it back as proof. Two
+# declarations would be two things to keep in step, and the resolver would
+# have no way to know it was comparing against the same "refused".
 
 # Y7 (ORPHAN-708) — a clearing verdict on an OPERATIONAL death gains an
 # EFFECT. Pre-Y7, OUTCOME_RESOLVED only closed the triage record: the dead
@@ -134,7 +145,41 @@ ADJUDICABLE_CONTEXT_KINDS: frozenset[str] = frozenset({
     # item. Fail-closed identity requirements live in
     # escalation_adjudicability below.
     "genesis_candidate",
+    # JJ-2b (ORPHAN-HIGH-732) — admitted together with ITS producer
+    # (promotion_panel.sweep_promotable_adapters_for_adjudication): an
+    # adapter that passed every readiness gate stops waiting for a signed
+    # operator ref. The panel's resolve quorum is the approval; the
+    # operator keeps a 24h VETO he does not have to exercise. NOTE the
+    # sibling kind `tool_promotion_kernel_scope` is deliberately ABSENT
+    # from this set — an adapter scoped into aria-kernel/** must stay with
+    # the operator, and an unadmitted kind is irreducible by construction.
+    "tool_promotion",
+    # JJ-3 (ORPHAN-HIGH-755) — admitted together with ITS producer
+    # (belief_escalation.escalate_stuck_contradictions, already wired into
+    # the cycle): a belief that has stood contradicted for three cycles is a
+    # disagreement between ARIA's memory and its scanners, and adjudicating
+    # it moves ONE belief's confidence — it merges nothing and grants no
+    # authority. The kind carries a fail-closed identity requirement
+    # (context.belief_id) in escalation_adjudicability below, because the
+    # correction is written against that belief and a correction with no
+    # subject is not a panel question.
+    BELIEF_ESCALATION_KIND,
 })
+
+# JJ-3 — the kinds whose quorum-REFUSE is an affirmative HANDOFF to a human
+# rather than a rejection that closes the question.
+#
+# For tool_promotion and genesis_candidate a refusal SETTLES the proposal
+# (don't promote, don't mint) and the closed record is what stops the sweep
+# re-asking every night. For these kinds it settles nothing: an operational
+# death the panel will not dispose of, and a belief contradiction the panel
+# will not adjudicate, both leave real work undone — and
+# `record_human_required` is idempotent on the record FILE, so a closed
+# record would silence that contradiction permanently. They stay open,
+# CRITICAL, and loud on the SLA ladder.
+REFUSE_HANDS_TO_OPERATOR_KINDS: frozenset[str] = frozenset(
+    OPERATIONAL_DISPOSITION_KINDS | {BELIEF_ESCALATION_KIND},
+)
 
 # Risk-policy lanes a panel may not clear.
 IRREDUCIBLE_RISK_LANES: frozenset[str] = frozenset({"L3", "blocked"})
@@ -214,6 +259,15 @@ def escalation_adjudicability(record: dict[str, Any]) -> AdjudicabilityVerdict:
         # Unknown kinds are irreducible: a new escalation source must be
         # reviewed and explicitly admitted, never admitted by omission.
         return AdjudicabilityVerdict(False, f"context_kind_not_admitted:{kind}")
+    if kind == "tool_promotion":
+        # JJ-2b — a promotion question without its subject is not a panel
+        # question: the executor resolves the tool kernel-side from this
+        # field, so a record that cannot name the tool must never clear.
+        if not str(context.get("tool_id") or "").strip():
+            return AdjudicabilityVerdict(False, "tool_promotion_missing:tool_id")
+        refs = context.get("evidence_refs")
+        if not isinstance(refs, list) or not refs:
+            return AdjudicabilityVerdict(False, "tool_promotion_missing:evidence_refs")
     if kind == "genesis_candidate":
         # Y8 — a genesis question without its identity chain is not a
         # panel question: the lifecycle proof resolver needs the gap key,
@@ -224,6 +278,15 @@ def escalation_adjudicability(record: dict[str, Any]) -> AdjudicabilityVerdict:
         refs = context.get("evidence_refs")
         if not isinstance(refs, list) or not refs:
             return AdjudicabilityVerdict(False, "genesis_candidate_missing:evidence_refs")
+    if kind == BELIEF_ESCALATION_KIND:
+        # JJ-3 — the correction this panel authorises is written against ONE
+        # belief (`affected_belief_ids=[belief_id]`). An escalation that
+        # cannot name its belief is not a panel question: there is nothing
+        # for a resolve quorum to move, and clearing it would file a
+        # correction that reached no belief. It stays with the operator, who
+        # can read the prose a panel cannot act on.
+        if not str(context.get("belief_id") or "").strip():
+            return AdjudicabilityVerdict(False, "belief_escalation_missing:belief_id")
     changed_files = context.get("changed_files")
     if changed_files is not None:
         if not isinstance(changed_files, list) or not changed_files:
@@ -527,8 +590,6 @@ def fold_adjudication(
 
 
 def _load_escalation_record(root: Path, request_id: str) -> dict[str, Any] | None:
-    from .human_required import _human_required_path
-
     path = _human_required_path(root, request_id)
     if not path.exists():
         return None
@@ -559,8 +620,6 @@ def _stamp_escalated_to_operator(
     escalate_operator stamp; the sweep skips it thereafter and the SLA tier
     ladder is the visibility backstop. This is what keeps the remaining
     HUMAN_REQUIRED set rare AND loud."""
-    from .human_required import _human_required_path
-
     record = dict(record)
     record["severity"] = "CRITICAL"
     record["panel_disposition"] = DISPOSITION_ESCALATE_OPERATOR
@@ -664,6 +723,16 @@ def adjudicate_human_required(
       NO ``verdict``, so it cannot write agent judgment into the human
       ground-truth ledger that judge calibration scores against;
       ``resolve_human_required`` refuses that combination outright.
+
+    WHAT THE RECORD CARRIES OUT OF HERE
+      Every branch below closes the record with ``panel_outcome=
+      verdict.outcome`` — the fold's own answer, never a literal chosen per
+      branch. Both answers close the record (a closed record is what stops
+      the sweep re-asking a settled question), so until the decision was
+      written down an approval and a refusal were the same row on disk apart
+      from ``resolution_note`` prose that no reader parsed, and
+      ``human_required.resolve_panel_adjudication_proof`` read the survivor
+      of that ambiguity as an approval.
     """
     root = ensure_tools_dir(base_dir)
     verdict = fold_adjudication(
@@ -675,10 +744,44 @@ def adjudicate_human_required(
 
     # Y7 — quorum-refuse on an operational kind is the panel affirmatively
     # handing the item to a human: stamp it loud (CRITICAL + SLA ladder)
-    # instead of letting it fold to refused-and-forgotten.
-    if verdict.outcome == OUTCOME_REFUSED and operational and record:
+    # instead of letting it fold to refused-and-forgotten. JJ-3 admitted
+    # belief_escalation to the same arm through the shared set: a belief
+    # contradiction the panel will not adjudicate is likewise unfinished
+    # work, and closing it would silence that contradiction forever.
+    if (
+        verdict.outcome == OUTCOME_REFUSED
+        and kind in REFUSE_HANDS_TO_OPERATOR_KINDS
+        and record
+    ):
         _stamp_escalated_to_operator(
             root, escalation_request_id, record, reason="quorum_refuse",
+        )
+        return verdict
+    if verdict.outcome == OUTCOME_REFUSED and kind == "tool_promotion" and record:
+        # JJ-2b — a refuse quorum is a REJECTION of the promotion, not a
+        # handoff: the adapter stays SHADOW and the closed record is what
+        # stops the sweep re-asking the same question every night. The
+        # rejection is STAMPED on that record, because closing it is the one
+        # thing this branch has in common with the approval branch below.
+        resolve_human_required(
+            request_id=escalation_request_id,
+            resolution_note=(
+                f"promotion refused by independent agent panel "
+                f"({verdict.refuse_votes}/{verdict.quorum_required} refuse)"
+            ),
+            resolved_by=RESOLVED_BY_AGENT_PANEL,
+            # Derived from the fold, never spelled per branch: a refuse
+            # branch physically cannot stamp "resolved" when it does not
+            # name the value at all.
+            panel_outcome=verdict.outcome,
+            base_dir=root,
+        )
+        append_tools_governance(
+            root, "tool_promotion_refused",
+            {
+                "escalation_request_id": escalation_request_id,
+                "tool_id": (record.get("context") or {}).get("tool_id"),
+            },
         )
         return verdict
     if verdict.outcome == OUTCOME_REFUSED and kind == "genesis_candidate" and record:
@@ -686,8 +789,6 @@ def adjudicate_human_required(
         # handoff: the panel judged the capability not worth minting. The
         # record closes with the verdict on it; the resolved record is what
         # keeps the sweep from re-asking the same question every night.
-        from .human_required import RESOLVED_BY_AGENT_PANEL, resolve_human_required
-
         resolve_human_required(
             request_id=escalation_request_id,
             resolution_note=(
@@ -695,6 +796,10 @@ def adjudicate_human_required(
                 f"({verdict.refuse_votes}/{verdict.quorum_required} refuse)"
             ),
             resolved_by=RESOLVED_BY_AGENT_PANEL,
+            # Derived from the fold, never spelled per branch: a refuse
+            # branch physically cannot stamp "resolved" when it does not
+            # name the value at all.
+            panel_outcome=verdict.outcome,
             base_dir=root,
         )
         append_tools_governance(
@@ -707,7 +812,43 @@ def adjudicate_human_required(
         return verdict
     if not verdict.clears_escalation:
         return verdict
-    from .human_required import RESOLVED_BY_AGENT_PANEL, resolve_human_required
+    if kind == "tool_promotion" and record:
+        # JJ-2b — the panel's resolve quorum ARMS the veto window. Order
+        # mirrors Y8: resolve the record first (the panel has answered),
+        # then execute; an execution failure honestly re-opens the record
+        # so the next cycle re-folds instead of wedging silently.
+        resolve_human_required(
+            request_id=escalation_request_id,
+            resolution_note=(
+                f"promotion approved by independent agent panel "
+                f"({verdict.resolve_votes}/{verdict.quorum_required} resolve); "
+                f"operator veto window armed"
+            ),
+            resolved_by=RESOLVED_BY_AGENT_PANEL,
+            # Derived from the fold, never spelled per branch: a refuse
+            # branch physically cannot stamp "resolved" when it does not
+            # name the value at all.
+            panel_outcome=verdict.outcome,
+            base_dir=root,
+        )
+        try:
+            from .promotion_panel import execute_tool_promotion_panel_approval
+
+            execute_tool_promotion_panel_approval(
+                escalation_id=escalation_request_id, record=record, base_dir=root,
+            )
+        except Exception as exc:
+            reopened = dict(_load_escalation_record(root, escalation_request_id) or record)
+            reopened["status"] = "open"
+            reopened["promotion_execution_failure"] = str(exc)[:300]
+            _human_required_path(root, escalation_request_id).write_text(
+                json.dumps(reopened, indent=2, sort_keys=True) + "\n", encoding="utf-8",
+            )
+            append_tools_governance(
+                root, "tool_promotion_panel_execution_failed",
+                {"escalation_request_id": escalation_request_id, "error": str(exc)[:300]},
+            )
+        return verdict
 
     if kind == "genesis_candidate" and record:
         # Y8 (ORPHAN-709) — the panel's resolve quorum IS the genesis
@@ -722,6 +863,10 @@ def adjudicate_human_required(
                 f"({verdict.resolve_votes}/{verdict.quorum_required} resolve)"
             ),
             resolved_by=RESOLVED_BY_AGENT_PANEL,
+            # Derived from the fold, never spelled per branch: a refuse
+            # branch physically cannot stamp "resolved" when it does not
+            # name the value at all.
+            panel_outcome=verdict.outcome,
             base_dir=root,
         )
         try:
@@ -731,8 +876,6 @@ def adjudicate_human_required(
                 escalation_id=escalation_request_id, record=record, base_dir=root,
             )
         except Exception as exc:
-            from .human_required import _human_required_path
-
             reopened = dict(_load_escalation_record(root, escalation_request_id) or record)
             reopened["status"] = "open"
             reopened["genesis_execution_failure"] = str(exc)[:300]
@@ -741,6 +884,67 @@ def adjudicate_human_required(
             )
             append_tools_governance(
                 root, "genesis_panel_execution_failed",
+                {"escalation_request_id": escalation_request_id, "error": str(exc)[:300]},
+            )
+        return verdict
+
+    if kind == BELIEF_ESCALATION_KIND and record:
+        # JJ-3 (ORPHAN-HIGH-755) — the panel's resolve quorum IS the belief
+        # adjudication. Order mirrors Y8/JJ-2b: resolve the record first
+        # (the shared proof resolver the executor calls demands a RESOLVED,
+        # agent-panel, panel_outcome=resolved record), execute second; an
+        # execution failure honestly re-opens the record so the next cycle
+        # re-folds instead of wedging silently.
+        #
+        # NO `verdict=` is passed. That parameter writes `source_type="human"`
+        # into the ground-truth ledger and `resolve_human_required` refuses it
+        # for any non-operator resolver — the correction below is written by
+        # the executor as `ai_consensus`, which is the whole point of the
+        # boundary.
+        resolve_human_required(
+            request_id=escalation_request_id,
+            resolution_note=(
+                f"belief escalation adjudicated by independent agent panel "
+                f"({verdict.resolve_votes}/{verdict.quorum_required} resolve)"
+            ),
+            resolved_by=RESOLVED_BY_AGENT_PANEL,
+            panel_outcome=verdict.outcome,
+            base_dir=root,
+        )
+        try:
+            from .belief_escalation import execute_belief_panel_correction
+
+            execute_belief_panel_correction(
+                escalation_id=escalation_request_id,
+                record=record,
+                # AGREEMENT and ATTENDANCE, read off the fold rather than
+                # asserted: only the resolve voters stood behind the
+                # correction, and a dissenter still voted. The row is
+                # ground-truth-bearing only when those are equal and >= 3,
+                # so a split panel corrects the belief and settles nothing.
+                judge_count=verdict.resolve_votes,
+                judges_voted=len(verdict.opinions),
+                # G-2 (ORPHAN-HIGH-760) — a panel that writes ground truth
+                # must say WHICH PRINCIPALS sat on it. Only the resolve
+                # voters: a dissenter attended, and attendance is already
+                # carried by judges_voted; it did not stand behind the
+                # correction and must not lend it diversity.
+                panel_agent_ids=tuple(
+                    opinion.agent_id
+                    for opinion in verdict.opinions
+                    if opinion.verdict == RESOLVE_VERDICT
+                ),
+                base_dir=root,
+            )
+        except Exception as exc:
+            reopened = dict(_load_escalation_record(root, escalation_request_id) or record)
+            reopened["status"] = "open"
+            reopened["belief_correction_failure"] = str(exc)[:300]
+            _human_required_path(root, escalation_request_id).write_text(
+                json.dumps(reopened, indent=2, sort_keys=True) + "\n", encoding="utf-8",
+            )
+            append_tools_governance(
+                root, "belief_panel_correction_failed",
                 {"escalation_request_id": escalation_request_id, "error": str(exc)[:300]},
             )
         return verdict
@@ -771,6 +975,7 @@ def adjudicate_human_required(
             f"independence verified{disposition_note}"
         ),
         resolved_by=RESOLVED_BY_AGENT_PANEL,
+        panel_outcome=verdict.outcome,
         base_dir=root,
     )
     return verdict
@@ -870,8 +1075,6 @@ def sweep_human_required_adjudications(
     skipped: list[dict[str, str]] = []
 
     try:
-        from .human_required import list_human_required
-
         escalations = list_human_required(base_dir=root)
     except Exception as exc:  # pragma: no cover — defensive, see docstring
         return {"status": "failed", "error": str(exc)[:300]}
@@ -973,6 +1176,7 @@ __all__ = [
     "OUTCOME_RESOLVED",
     "OUTCOME_STILL_ESCALATED",
     "PANEL_DISPOSITIONS",
+    "REFUSE_HANDS_TO_OPERATOR_KINDS",
     "REFUSE_VERDICT",
     "RESOLVE_VERDICT",
     "AdjudicabilityVerdict",

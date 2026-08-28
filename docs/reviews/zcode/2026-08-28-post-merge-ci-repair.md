@@ -88,3 +88,15 @@ set builds clean; `cargo update -p h2 --precise 0.4.16`.
 - SENSOR-CRITICAL-086..089 stay OPEN until the post-merge close ceremony
   records main-reachable closing commits (PROC-HIGH-001); their
   truth-table rows say exactly that.
+
+## Addendum — derived-artifact regen round (38177a490) + event anomaly
+
+The 38177a490 push (nats.conf regen, apollo-router artifacts, markdown
+wrap, cargo fmt) was accepted by origin but GitHub produced NO
+pull_request workflow runs for its SHA — zero check-runs 5+ hours after
+the push, while other branches' pull_request runs kept flowing. A PR
+close/reopen also produced nothing. The three dispatch-capable heavy
+workflows (CI-Full, SENS API Gateway CI, Rust CI) were started manually
+against the same SHA, and this follow-up note re-pushes the branch so a
+fresh synchronize event re-triggers the pull_request-only gates
+(CI-Affected, Quality Gates, NATS SSoT, codegen, Apollo).

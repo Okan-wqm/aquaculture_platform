@@ -17,6 +17,7 @@ import {
   filterFilesBySnapshot,
   normalizeWorkspacePath,
   readWorkspaceFile,
+  requireScanRoots,
   resolveInsideWorkspace,
   workspacePathExists,
 } from './adapter-fs';
@@ -59,8 +60,6 @@ interface AriaOutput {
   readonly metadata: Record<string, unknown>;
 }
 
-const DEFAULT_ROOTS = ['web/shell', 'web/modules', 'web/apps'];
-
 // Libraries whose static import welds them into the initial chunk. The list
 // is deliberately conservative: every entry is unambiguously heavyweight.
 const HEAVY_MODULES = new Set([
@@ -81,7 +80,7 @@ export function analyzeBundleBudgets(
   input: AdapterInput,
   workspaceRoot = process.cwd(),
 ): AriaOutput {
-  const roots = input.roots ?? DEFAULT_ROOTS;
+  const roots = requireScanRoots('bundle-budget-adapter', input.roots);
   const observations: AdapterObservation[] = [];
   const findings: AdapterFinding[] = [];
   const readPaths: string[] = [];

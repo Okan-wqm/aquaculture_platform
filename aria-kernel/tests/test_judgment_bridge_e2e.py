@@ -105,7 +105,13 @@ class JudgmentBridgeE2ETests(unittest.TestCase):
             "transcript_artifact_ref": transcript.resolve().as_posix(),
         }
 
-    def _claim_judge(self, *, target_agent: str, role: str) -> tuple[dict, dict]:
+    def _claim_judge(
+        self,
+        *,
+        target_agent: str,
+        role: str,
+        finding_fingerprint: str | None = None,
+    ) -> tuple[dict, dict]:
         # Plan 024 §B-2 — must_satisfy + allowed_scope required so the
         # strict path's _strict_request_view does not reject at claim
         # time. allowed_scope=["**"] permits src.txt at the seeded repo
@@ -121,6 +127,7 @@ class JudgmentBridgeE2ETests(unittest.TestCase):
             allowed_scope=["**"],
             convergence_id="conv-c5c6-001",
             target_sha=self.target_sha,
+            finding_fingerprint=finding_fingerprint,
             base_dir=self.tools,
         )
         # Inject the legacy request fields the bridge needs.
@@ -222,6 +229,50 @@ class JudgmentBridgeE2ETests(unittest.TestCase):
         gov = (self.tools / "governance.jsonl").read_text(encoding="utf-8").splitlines()
         kinds = {json.loads(line).get("kind") for line in gov if line.strip()}
         self.assertIn("agent_consensus_computed", kinds)
+
+    def test_verdict_fingerprint_comes_from_the_mint_not_the_envelope(self) -> None:
+        # ORPHAN-HIGH-765 — live state carried 7 of 8 ai_judge verdict rows
+        # with an EMPTY finding_fingerprint because the mint never carried
+        # it and no prompt asks the judge to echo it, so every consensus row
+        # settled from those rows inherited the empty key and promotion
+        # skipped it forever. The fingerprint now threads mint → request →
+        # verdict row, mirroring the D1 doctrine the group id already
+        # follows: identity comes from what was asked, never from what the
+        # agent volunteers. The envelope helper deliberately carries NO
+        # finding_fingerprint — the row must still land with the mint's.
+        ev_request, ev_claim = self._claim_judge(
+            target_agent="aria-evidence-judge",
+            role="evidence_judgment",
+            finding_fingerprint="fp-mint-001",
+        )
+        ev_out = Path(ev_request["expected_output_path"])
+        ev_out.parent.mkdir(parents=True, exist_ok=True)
+        _judge_envelope_at(
+            out_path=ev_out,
+            request_id=ev_request["request_id"],
+            claim_id=ev_claim["claim_id"],
+            judge_agent="aria-evidence-judge-worker",
+            role="evidence_judgment",
+            verdict="true_positive",
+            confidence=0.92,
+        )
+        ev_result = submit_claim_result(
+            claim_id=ev_claim["claim_id"],
+            agent_id=ev_claim["agent_id"],
+            lease_token=ev_claim["lease_token"],
+            output_path=ev_out,
+            workspace_root=self.repo,
+            base_dir=self.tools,
+            **self._binding_kwargs(ev_request, ev_out),
+        )
+        self.assertEqual(ev_result["status"], "accepted", ev_result)
+
+        ai_rows = [
+            r for r in load_feedback(tool_id="demo-adapter", base_dir=self.tools)
+            if r.get("source_type") == "ai_judge"
+        ]
+        self.assertEqual(len(ai_rows), 1)
+        self.assertEqual(ai_rows[0]["finding_fingerprint"], "fp-mint-001")
 
     def test_judges_disagree_yields_uncertainty(self) -> None:
         ev_req, ev_claim = self._claim_judge(

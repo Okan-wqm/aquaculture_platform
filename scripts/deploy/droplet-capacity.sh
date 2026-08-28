@@ -157,6 +157,22 @@ capacity_record_unavailable_encoded() {
   CAPACITY_UNAVAILABLE_RECORDS=$((CAPACITY_UNAVAILABLE_RECORDS + 1))
 }
 
+# A scope worth measuring is one that can actually consume disk. `df` reports
+# zero total bytes for pseudo-filesystems (procfs, sysfs); every real mount —
+# ext4, overlay, even tmpfs — reports its size. An unreadable `df` is treated
+# as NOT disk-backed on purpose: the alternative is walking a filesystem we
+# could not identify, which is how this lane started failing in the first
+# place, and a skipped scope is recorded out loud rather than dropped.
+capacity_scope_is_disk_backed() {
+  local scope_path="$1"
+  local total_bytes
+  total_bytes="$(df -PB1 -- "${scope_path}" 2>/dev/null | awk 'NR==2 {print $2}')"
+  case "${total_bytes}" in
+    '' | *[!0-9]*) return 1 ;;
+  esac
+  [ "${total_bytes}" -gt 0 ]
+}
+
 capacity_record_unavailable() {
   local error_file="$1"
   local reason="$2"
@@ -268,6 +284,27 @@ capacity_discover_children() {
     entry_index < ${#discovered_entries[@]} &&
       entry_index < CAPACITY_DU_MAX_CHILDREN_PER_DIRECTORY;
     entry_index++)); do
+    # `find -xdev` refuses to DESCEND past a mount point but still LISTS the
+    # mount point itself, so /proc and /sys arrive here as capacity scopes.
+    # `du` then walks procfs and exits non-zero the moment a process it is
+    # reading exits — measured 2026-08-19 on this host: `du -sx /proc` -> 1,
+    # "cannot access '/proc/<pid>'", while the same command over /run, /dev
+    # and /dev/shm returns 0. The lane was therefore structurally flaky, and
+    # what it was trying to measure is meaningless: a pseudo-filesystem
+    # occupies no disk.
+    #
+    # The discriminator is a property, not a name list. A filesystem that
+    # reports ZERO total bytes cannot hold anything that fills a disk, and
+    # that is exactly what procfs and sysfs report (measured: /proc 0,
+    # /sys 0, /dev 4143394816, / 165295407104). Naming the filesystems
+    # instead would go stale the first time the host mounts one nobody
+    # listed.
+    if ! capacity_scope_is_disk_backed "${discovered_entries[entry_index]}"; then
+      capacity_record_unavailable \
+        "${error_file}" scope_not_disk_backed 0 \
+        "${discovered_entries[entry_index]}"
+      continue
+    fi
     printf '%s\0' "${discovered_entries[entry_index]}" >> "${output_file}"
   done
 

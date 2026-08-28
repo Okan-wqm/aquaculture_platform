@@ -41,6 +41,7 @@ import {
   filterFilesBySnapshot,
   normalizeWorkspacePath,
   readWorkspaceFile,
+  requireScanRoots,
   resolveInsideWorkspace,
   workspacePathExists,
 } from './adapter-fs';
@@ -87,7 +88,6 @@ interface AriaOutput {
   readonly metadata: Record<string, unknown>;
 }
 
-const DEFAULT_ROOTS = ['aria-kernel/aria_kernel'];
 const DEFAULT_POLICY_DIR = 'aria-kernel/aria_kernel/data';
 const DEFAULT_CLI_PATH = 'aria-kernel/aria_kernel/cli.py';
 
@@ -143,7 +143,7 @@ export function analyzeKernelDeadWire(
   input: AdapterInput,
   workspaceRoot = process.cwd(),
 ): AriaOutput {
-  const roots = input.roots ?? DEFAULT_ROOTS;
+  const roots = requireScanRoots('kernel-dead-wire-adapter', input.roots);
   const observations: AdapterObservation[] = [];
   const findings: AdapterFinding[] = [];
   const readPaths: string[] = [];

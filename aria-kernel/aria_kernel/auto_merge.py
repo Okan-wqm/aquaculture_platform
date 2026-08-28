@@ -326,6 +326,30 @@ def evaluate_auto_merge(
     elif check_result["not_success"]:
         reasons.append("required checks not successful: " + ", ".join(check_result["not_success"]))
 
+    # 2026-08-18 operator directive (ORPHAN-717) — the FULL battery, not
+    # just branch protection's short required list. Main requires only two
+    # checks; lint/format/typecheck run as non-required check runs, and the
+    # required-only gate above merged a PR whose optional lint was RED
+    # (operator-measured on the Y-union train). Every check run on the head
+    # SHA must be completed and non-red before auto-merge — this is what
+    # makes CI's whole battery (prettier, lint, build, invariants)
+    # load-bearing for an ARIA merge instead of decorative.
+    all_runs = _all_check_runs_result(github, head_sha)
+    if not all_runs["readable"]:
+        reasons.append("full check-run battery unreadable")
+    elif not all_runs["total"]:
+        reasons.append("no check runs found for head SHA — full battery cannot be proven green")
+    else:
+        if all_runs["pending"]:
+            reasons.append(
+                "check runs still pending: " + ", ".join(all_runs["pending"])
+            )
+        if all_runs["red"]:
+            reasons.append(
+                "check runs red (including non-required): "
+                + ", ".join(all_runs["red"])
+            )
+
     review_result = _review_result(pr, github)
     if not review_result["readable"]:
         reasons.append("review state unreadable")
@@ -355,6 +379,7 @@ def evaluate_auto_merge(
         "risk": risk,
         "required_checks": required,
         "check_result": check_result,
+        "all_check_runs": all_runs,
         "review_result": review_result,
         "conversation_result": conversation_result,
         "policy": {
@@ -442,6 +467,31 @@ def record_pr_lifecycle(
     )
 
 
+# The three universal dimensions and the command substrings that prove
+# them. Commands come from validation.run_validation_commands' closed
+# allowlist, so the substrings match structured commands, not free text.
+_HYGIENE_DIMENSIONS: dict[str, tuple[str, ...]] = {
+    "format": ("format:check",),
+    "typecheck": ("type-check",),
+    "test": ("--target=test", "npm run test"),
+}
+
+
+def _hygiene_battery_result(runs: list[dict[str, Any]]) -> dict[str, Any]:
+    satisfied: dict[str, str] = {}
+    for run in runs:
+        if not isinstance(run, dict) or run.get("status") != "ok":
+            continue
+        cmd = str(run.get("cmd") or "")
+        for dimension, needles in _HYGIENE_DIMENSIONS.items():
+            if dimension not in satisfied and any(n in cmd for n in needles):
+                satisfied[dimension] = str(run.get("validation_run_id") or "")
+    return {
+        "satisfied": satisfied,
+        "missing": [d for d in _HYGIENE_DIMENSIONS if d not in satisfied],
+    }
+
+
 def _evaluate_triple_gate(
     *,
     pr_number: int,
@@ -510,10 +560,47 @@ def _evaluate_triple_gate(
                 f"triple_gate_validation_run_unverified: "
                 f"{run_id}: {exc}"
             )
+    # Gate 5 (ORPHAN-721) — implementation completeness, defense in depth.
+    # The writer refuses undeclared shortfalls at emit time; this re-check
+    # covers rows written before the contract (or by a bypassed writer):
+    # a committed row whose uncovered_intended files lack dispositions is
+    # not a complete implementation and must not merge as one.
+    if committed is not None:
+        legacy_uncovered = committed.get("uncovered_intended")
+        if legacy_uncovered is None:
+            planned_files = set()
+            from .change_ledger import _find_planned
+            planned_row = _find_planned(tools_root, change_id)
+            if planned_row is not None:
+                planned_files = set(planned_row.get("intended_affected_files") or [])
+            legacy_uncovered = sorted(
+                planned_files - set(committed.get("actual_affected_files") or [])
+            )
+        declared = committed.get("uncovered_intended_dispositions") or {}
+        undeclared = [
+            f for f in legacy_uncovered if not str(declared.get(f, "")).strip()
+        ]
+        if undeclared:
+            reasons.append(
+                "triple_gate_implementation_incomplete: intended files "
+                f"untouched with no declared disposition: {undeclared}"
+            )
+
+    # Gate 4 (2026-08-18 operator directive, ORPHAN-717) — universal
+    # hygiene battery. The risk-type matrix proves the DOMAIN tests ran;
+    # nothing proved the repo's own hygiene commands did. CI cannot carry
+    # this alone: ~16 projects are unit-test-quarantined on CI (the SSoT is
+    # scripts/ci/affected-target-policy.json), so a CI-green PR does not
+    # prove local tests pass. Every autonomous merge must therefore carry
+    # verified exit-0 validation_runs for format, typecheck and tests.
+    hygiene = _hygiene_battery_result(runs)
+    for dimension in hygiene["missing"]:
+        reasons.append(f"triple_gate_hygiene_run_missing:{dimension}")
     return {
         "passed": not reasons,
         "change_id": change_id,
         "reasons": reasons,
+        "hygiene": hygiene,
     }
 
 
@@ -1016,6 +1103,64 @@ def _required_checks_result(github: dict[str, Any], required: list[str], head_sh
     missing = [name for name in required if name not in by_name]
     not_success = [name for name in required if name in by_name and not _check_success(by_name[name])]
     return {"readable": True, "missing": missing, "not_success": not_success}
+
+
+# Conclusions that do not block the full battery: neutral is informational
+# and skipped is a conditional job that chose not to run. Everything else
+# non-success (failure, cancelled, timed_out, action_required, stale) is red.
+_NONBLOCKING_CONCLUSIONS = frozenset({"success", "neutral", "skipped"})
+
+
+def _all_check_runs_result(github: dict[str, Any], head_sha: str | None) -> dict[str, Any]:
+    """ORPHAN-717 — every check run on the head SHA, required or not.
+
+    Same payload parse as ``_required_checks_result`` but iterating ALL
+    runs: any run still pending or concluded red blocks. Legacy commit
+    statuses (``state`` field) map: success→green, pending→pending,
+    anything else→red.
+    """
+    checks_payload = github.get("checks", github.get("check_runs", {}))
+    if isinstance(checks_payload, list):
+        readable = True
+        runs = checks_payload
+    elif isinstance(checks_payload, dict):
+        readable = checks_payload.get("readable", True) is True
+        runs = checks_payload.get("runs", checks_payload.get("check_runs", checks_payload.get("statuses", [])))
+    else:
+        readable = False
+        runs = []
+    if not readable:
+        return {"readable": False, "total": 0, "pending": [], "red": []}
+    pending: list[str] = []
+    red: list[str] = []
+    total = 0
+    for run in runs if isinstance(runs, list) else []:
+        if not isinstance(run, dict):
+            continue
+        run_head = run.get("head_sha") or run.get("sha")
+        if run_head and head_sha and run_head != head_sha:
+            continue
+        total += 1
+        name = str(run.get("name") or run.get("context") or "unnamed-check")
+        state = str(run.get("state", "")).lower()
+        status = str(run.get("status", "")).lower()
+        conclusion = str(run.get("conclusion", "")).lower()
+        if state:
+            if state == "success":
+                continue
+            (pending if state == "pending" else red).append(name)
+            continue
+        if status and status != "completed":
+            pending.append(name)
+            continue
+        if conclusion not in _NONBLOCKING_CONCLUSIONS:
+            red.append(name)
+    return {
+        "readable": True,
+        "total": total,
+        "pending": sorted(pending),
+        "red": sorted(red),
+    }
 
 
 def _review_result(pr: dict[str, Any], github: dict[str, Any]) -> dict[str, Any]:

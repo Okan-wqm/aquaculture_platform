@@ -34,6 +34,7 @@ from aria_kernel.github_adapters import RecordingGitHubAdapter
 from aria_kernel.ledger import load_jsonl
 from aria_kernel.mission import (
     MAINLINE_STATES,
+    OPERATOR_HELD_STATES,
     RETRY_LADDER,
     assert_cycle_closure,
     bind_mission,
@@ -106,11 +107,19 @@ class ReconcileTestBase(unittest.TestCase):
         branch: str | None = None,
     ) -> str:
         mission_id = mission_id_for("finding", source_id, REPO_HASH)
+        # ORPHAN-MEDIUM-730 — the mint refuses a mission with no forward
+        # pointer, so the fixture derives one from the finding it opens. This
+        # module's own `_apply` already required both halves at the callsite
+        # ("a reconciler that omitted them would manufacture the very
+        # half-done plans the closure gate exists to catch"); the mint now
+        # holds the same line.
         open_mission(
             source_kind="finding",
             source_id=source_id,
             repo_hash=REPO_HASH,
             title=f"close {source_id}",
+            next_action=f"close {source_id}",
+            wake_condition={"kind": "evidence", "key": f"finding:{source_id}"},
             base_dir=self.base,
         )
         self._walk_to(mission_id, state)
@@ -714,6 +723,36 @@ class PhaseRunnerTests(ReconcileTestBase):
         payload = cycle_module._phase_mission_reconcile(context)
         self.assertEqual(payload["transitions"], [])
         self.assertEqual(self._state(mission_id), "IMPLEMENTING")
+
+
+class OperatorHoldTests(unittest.TestCase):
+    """The unattended sweep may not take back work a human took over.
+
+    ORPHAN-MEDIUM-730 stopped the machine from OVERWRITING the forward pointer
+    of a mission parked in `OPERATOR_HELD_STATES`. The obvious way around that
+    refusal is not to overwrite the sentence but to move the mission out of
+    the hold and write a fresh one — and reconciliation is the only unattended
+    writer that transitions missions at all. It cannot today, because its two
+    replan sets name only the states where ARIA itself holds resources; this
+    pins that, because the sets are a plain frozenset a widening edit could
+    add "HUMAN_REQUIRED" to without any test noticing.
+    """
+
+    def test_the_replan_sets_never_reach_into_an_operator_hold(self) -> None:
+        from aria_kernel.mission_reconcile import (
+            CLOSED_UNMERGED_REPLAN_STATES,
+            LOST_BRANCH_REPLAN_STATES,
+        )
+
+        for name, states in (
+            ("closed_unmerged", CLOSED_UNMERGED_REPLAN_STATES),
+            ("lost_branch", LOST_BRANCH_REPLAN_STATES),
+        ):
+            with self.subTest(sweep=name):
+                self.assertFalse(
+                    states & OPERATOR_HELD_STATES,
+                    msg=f"{name} would replan a mission a human parked",
+                )
 
 
 if __name__ == "__main__":

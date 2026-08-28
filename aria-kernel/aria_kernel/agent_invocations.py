@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import secrets
+import stat
 import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -14,18 +16,23 @@ from .agent_surface import (
     allowed_targets_for_role,
 )
 from .bridge_exceptions import BridgeContractViolation
-from .file_lock import with_exclusive_lock
 from .genesis_lifecycle import verify_shadow_eval_proof
 from .ledger import (
-    _append_jsonl_unlocked,
-    _assert_declared_surface,
+    StateTransaction,
     append_declared_jsonl,
     append_jsonl,
     load_declared_jsonl,
     state_transaction,
 )
 from .runtime_profile import enforce_profile_for_action
-from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
+from .tool_registry import (
+    GovernanceError,
+    append_tools_governance,
+    ensure_tools_dir,
+    tools_dir,
+    utc_now,
+)
+from .workspace import governance_event
 
 
 ROLES = INVOCATION_ROLES
@@ -37,6 +44,7 @@ DEFAULT_LEASE_SECONDS = 1800
 DEFAULT_HEARTBEAT_EXTEND_SECONDS = 1800
 DEFAULT_MAX_REQUEUES = 2
 LEASE_TOKEN_BYTES = 24
+MAX_SUBMISSION_ARTIFACT_BYTES = 16 * 1024 * 1024
 
 # Derived states for a request when the queue layer is queried via
 # derive_request_state(). The legacy `state` field on requests.jsonl rows
@@ -813,20 +821,6 @@ def verify_invocation_context_binding(
     return {"context": context, "prompt": prompt}
 
 
-def _append_declared_jsonl_unlocked(
-    path: Path,
-    record: dict[str, Any],
-    *,
-    expected_surface: str,
-) -> dict[str, Any]:
-    _assert_declared_surface(
-        path,
-        expected_surface=expected_surface,
-        enforce_write_profile=True,
-    )
-    return _append_jsonl_unlocked(path.resolve(), record)
-
-
 def create_agent_invocation_request(
     *,
     target_agent: str,
@@ -845,6 +839,13 @@ def create_agent_invocation_request(
     tool_id: str | None = None,
     run_id: str | None = None,
     judgment_group_id: str | None = None,
+    # ORPHAN-HIGH-765 — the verdict bridge reads the finding fingerprint
+    # from the MINT (D1 doctrine: identity comes from what was asked, never
+    # from what the agent volunteers), so the request must carry what the
+    # sampler already knows. Additive optional: historical rows lack the
+    # field and readers fall back to the envelope, then to empty — never to
+    # a guess.
+    finding_fingerprint: str | None = None,
     enforce_context_budget: bool = False,
     context_repo_root: str | Path | None = None,
     context_window_tokens_override: int | None = None,
@@ -871,6 +872,13 @@ def create_agent_invocation_request(
     # re-mint of the same dead id stays idempotent), mirroring the X4
     # panel reopen_of pattern. The dead row itself is never resurrected.
     remint_of: str | None = None,
+    # ORPHAN-CRITICAL-727 — the staged PR ids an implementation envelope
+    # carries {proposal_id, change_id, branch}. Structured on the row, not
+    # only prose in the prompt, because the executor and any later auditor
+    # must be able to join a request to the proposal/change rows it was
+    # minted against without parsing a prompt. Additive + optional: every
+    # other role mints with None and legacy rows read as None.
+    implementation_ids: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     # Plan ARIA-V5 §3c v2 (B1 fix) — ``plan_revision_hash`` binds the
     # envelope to a specific plan revision so I-V5.1-03 can assert
@@ -1060,6 +1068,7 @@ def create_agent_invocation_request(
         # legacy format is unmintable by construction; absent field =
         # historical row, rendered v1 for replay-hash fidelity only.
         "prompt_render_version": PROMPT_RENDER_VERSION,
+        "implementation_ids": dict(implementation_ids) if implementation_ids else None,
     }
     # PLAN Wave 3 — the Twin-lite slice for the files this request points at.
     # This is the map's ONE reader: what the agent gets instead of walking
@@ -1122,6 +1131,8 @@ def create_agent_invocation_request(
         row["run_id"] = run_id
     if judgment_group_id is not None:
         row["judgment_group_id"] = judgment_group_id
+    if finding_fingerprint is not None:
+        row["finding_fingerprint"] = finding_fingerprint
     rendered_prompt = render_invocation_prompt(row)
     context = build_invocation_context(
         request_id=request_id,
@@ -1195,6 +1206,7 @@ def record_transcript(
     fixture_run_id: str | None = None,
     artifact_ref: str | None = None,
     base_dir: str | Path | None = None,
+    transaction: StateTransaction | None = None,
 ) -> dict[str, Any]:
     """Persist a transcript anchor for ledger-bound real/shadow eval proof."""
     if not invocation_id or not str(invocation_id).strip():
@@ -1209,7 +1221,7 @@ def record_transcript(
             transcript_hash=str(transcript_hash),
             workspace_root=None,
         )
-    root = ensure_tools_dir(base_dir)
+    root = tools_dir(base_dir) if transaction is not None else ensure_tools_dir(base_dir)
     row = {
         "schema_version": 1,
         "row_id": f"transcript:{invocation_id}",
@@ -1223,8 +1235,15 @@ def record_transcript(
         "fixture_run_id": fixture_run_id,
         "artifact_ref": artifact_ref,
     }
+    transcript_path = root / "agent-invocations" / "transcripts.jsonl"
+    if transaction is not None:
+        return transaction.append_declared_jsonl(
+            transcript_path,
+            row,
+            expected_surface="agent_invocation_transcripts",
+        )
     return append_declared_jsonl(
-        root / "agent-invocations" / "transcripts.jsonl",
+        transcript_path,
         row,
         expected_surface="agent_invocation_transcripts",
     )
@@ -1560,6 +1579,275 @@ def resolve_output_artifact_path(root: Path, value: str | Path) -> Path:
     return p if p.is_absolute() else root / p
 
 
+def _read_stable_submission_artifact(path: Path) -> bytes:
+    """Read one bounded regular-file snapshot without following symlinks."""
+    descriptor: int | None = None
+    try:
+        nofollow = getattr(os, "O_NOFOLLOW", None)
+        if nofollow is None:
+            raise OSError("submission_artifact_nofollow_unavailable")
+        descriptor = os.open(
+            path,
+            os.O_RDONLY
+            | nofollow
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NONBLOCK", 0),
+        )
+        before = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_size > MAX_SUBMISSION_ARTIFACT_BYTES
+        ):
+            raise OSError("submission_artifact_not_bounded_regular_file")
+        content = bytearray()
+        total = 0
+        while True:
+            chunk = os.read(descriptor, 1024 * 1024)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > MAX_SUBMISSION_ARTIFACT_BYTES:
+                raise OSError("submission_artifact_too_large_during_read")
+            content.extend(chunk)
+        after = os.fstat(descriptor)
+        before_identity = (
+            before.st_dev,
+            before.st_ino,
+            before.st_mode,
+            before.st_size,
+            before.st_mtime_ns,
+            before.st_ctime_ns,
+        )
+        after_identity = (
+            after.st_dev,
+            after.st_ino,
+            after.st_mode,
+            after.st_size,
+            after.st_mtime_ns,
+            after.st_ctime_ns,
+        )
+        if before_identity != after_identity or total != before.st_size:
+            raise OSError("submission_artifact_changed_during_read")
+        return bytes(content)
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+
+def _read_optional_submission_artifact(path: Path) -> bytes | None:
+    """Read a raw source when present; only a genuine absence is optional."""
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError:
+        return None
+    if stat.S_ISLNK(metadata.st_mode):
+        # Preserve O_NOFOLLOW's fail-closed error instead of treating a
+        # dangling replacement symlink as an absent raw source.
+        return _read_stable_submission_artifact(path)
+    try:
+        return _read_stable_submission_artifact(path)
+    except FileNotFoundError:
+        # The regular source was removed between lstat and open. A sealed,
+        # journal-bound copy may still make recovery possible.
+        return None
+
+
+def _write_all(descriptor: int, content: bytes) -> None:
+    offset = 0
+    while offset < len(content):
+        written = os.write(descriptor, content[offset:])
+        if written <= 0:
+            raise OSError("submission_artifact_short_write")
+        offset += written
+
+
+def _assert_submission_artifact_path_safe(root: Path, target: Path) -> None:
+    """Reject symlinked/non-directory store components without following them."""
+    resolved_root = root.resolve()
+    try:
+        relative = target.relative_to(resolved_root)
+    except ValueError as exc:
+        raise GovernanceError("submission_artifact_path_outside_store") from exc
+    current = resolved_root
+    parts = relative.parts
+    for index, part in enumerate(parts):
+        current /= part
+        try:
+            metadata = current.lstat()
+        except FileNotFoundError:
+            break
+        if stat.S_ISLNK(metadata.st_mode):
+            raise GovernanceError(
+                f"submission_artifact_path_symlink: {current}"
+            )
+        is_leaf = index == len(parts) - 1
+        if not is_leaf and not stat.S_ISDIR(metadata.st_mode):
+            raise GovernanceError(
+                f"submission_artifact_parent_not_directory: {current}"
+            )
+        if is_leaf and not stat.S_ISREG(metadata.st_mode):
+            raise GovernanceError(
+                f"submission_artifact_target_not_regular: {current}"
+            )
+
+
+def _ensure_submission_artifact_directory(
+    root: Path,
+    *,
+    artifact_kind: str,
+) -> Path:
+    """Create the content-addressed directory one verified component at a time."""
+    current = root.resolve()
+    for part in (
+        "agent-invocations",
+        "outputs",
+        "content-addressed",
+        artifact_kind,
+    ):
+        current /= part
+        try:
+            current.mkdir()
+        except FileExistsError:
+            pass
+        try:
+            metadata = current.lstat()
+        except OSError as exc:
+            raise GovernanceError(
+                f"submission_artifact_directory_unreadable: {current}: {exc}"
+            ) from exc
+        if stat.S_ISLNK(metadata.st_mode):
+            raise GovernanceError(
+                f"submission_artifact_path_symlink: {current}"
+            )
+        if not stat.S_ISDIR(metadata.st_mode):
+            raise GovernanceError(
+                f"submission_artifact_parent_not_directory: {current}"
+            )
+    return current
+
+
+def _seal_submission_artifact(
+    root: Path,
+    *,
+    artifact_kind: str,
+    content: bytes,
+    content_hash: str,
+) -> Path:
+    """Persist immutable bytes at a store-relative content-addressed path."""
+    observed_hash = "sha256:" + hashlib.sha256(content).hexdigest()
+    if observed_hash != content_hash:
+        raise GovernanceError("submission_artifact_content_hash_mismatch")
+    target = _submission_artifact_target(
+        root,
+        artifact_kind=artifact_kind,
+        content_hash=content_hash,
+    )
+    target_dir = _ensure_submission_artifact_directory(
+        root,
+        artifact_kind=artifact_kind,
+    )
+    _assert_submission_artifact_path_safe(root, target)
+    try:
+        target.lstat()
+    except FileNotFoundError:
+        target_exists = False
+    else:
+        target_exists = True
+    if target_exists:
+        try:
+            existing = _read_stable_submission_artifact(target)
+        except OSError as exc:
+            raise GovernanceError(
+                f"submission_artifact_existing_unreadable: {exc}"
+            ) from exc
+        if existing != content:
+            existing_hash = "sha256:" + hashlib.sha256(existing).hexdigest()
+            if existing_hash == content_hash:
+                raise GovernanceError("submission_artifact_digest_collision")
+            # A process can die while writing the declared digest target.
+            # Under the enclosing agent-invocations transaction, a target
+            # whose bytes do not match its filename is an incomplete write,
+            # not a valid immutable artifact; repair it deterministically.
+            target.unlink()
+        else:
+            return target
+
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(
+            target,
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_CLOEXEC", 0),
+            0o444,
+        )
+        _write_all(descriptor, content)
+        os.fsync(descriptor)
+        os.close(descriptor)
+        descriptor = None
+        dir_descriptor = os.open(
+            target_dir,
+            os.O_RDONLY
+            | getattr(os, "O_DIRECTORY", 0)
+            | getattr(os, "O_CLOEXEC", 0),
+        )
+        try:
+            os.fsync(dir_descriptor)
+        finally:
+            os.close(dir_descriptor)
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+    return target
+
+
+def _submission_artifact_target(
+    root: Path,
+    *,
+    artifact_kind: str,
+    content_hash: str,
+) -> Path:
+    if not _is_sha256_digest(content_hash):
+        raise GovernanceError("submission_artifact_content_hash_invalid")
+    if artifact_kind not in {"responses", "transcripts"}:
+        raise GovernanceError("submission_artifact_kind_invalid")
+    digest = content_hash.removeprefix("sha256:")
+    target = (
+        root.resolve()
+        / "agent-invocations"
+        / "outputs"
+        / "content-addressed"
+        / artifact_kind
+        / f"{digest}.md"
+    )
+    _assert_submission_artifact_path_safe(root, target)
+    return target
+
+
+def _portable_submission_ref(
+    *,
+    root: Path,
+    workspace_root: str | Path,
+    path: str | Path,
+    fallback_hash: str | None = None,
+) -> str:
+    """Represent a caller path without embedding a machine-specific root."""
+    resolved = Path(path).resolve()
+    for prefix, base in (
+        ("store", root.resolve()),
+        ("workspace", Path(workspace_root).resolve()),
+    ):
+        try:
+            return f"{prefix}:{resolved.relative_to(base).as_posix()}"
+        except ValueError:
+            continue
+    if fallback_hash:
+        return f"content:{fallback_hash}"
+    return f"external-name:{resolved.name}"
+
+
 def _resolve_for_compare(path: str | Path | None) -> Path:
     if path is None:
         raise GovernanceError("output path is required")
@@ -1741,15 +2029,35 @@ def _claim_rows_for(rows: list[dict[str, Any]], request_id: str) -> list[dict[st
     return [row for row in rows if row.get("request_id") == request_id]
 
 
-_EVENT_TS_FIELDS = ("claimed_at", "heartbeat_at", "released_at", "stale_at", "at")
+_CLAIM_EVENT_TIME_FIELDS = (
+    "occurred_at",
+    "ts",
+    "prepared_at",
+    "claimed_at",
+    "heartbeat_at",
+    "released_at",
+    "stale_at",
+    "at",
+)
+
+
+def _claim_event_time(row: dict[str, Any]) -> tuple[datetime, str | None]:
+    """Return one claim event's producer-native time and stored spelling.
+
+    Claim producers predate a common timestamp key.  Every lifecycle fold
+    must therefore use this complete ordered vocabulary; otherwise an outage
+    row with ``occurred_at`` sorts behind an older claim with ``claimed_at``.
+    """
+    for key in _CLAIM_EVENT_TIME_FIELDS:
+        raw = row.get(key)
+        parsed = _parse_iso(raw if isinstance(raw, str) else None)
+        if parsed is not None:
+            return parsed, raw
+    return datetime.fromtimestamp(0, tz=timezone.utc), None
 
 
 def _event_ts(row: dict[str, Any]) -> datetime:
-    for key in _EVENT_TS_FIELDS:
-        ts = _parse_iso(row.get(key))
-        if ts is not None:
-            return ts
-    return datetime.fromtimestamp(0, tz=timezone.utc)
+    return _claim_event_time(row)[0]
 
 
 def _latest_claim_row(rows: list[dict[str, Any]], request_id: str) -> dict[str, Any] | None:
@@ -1780,30 +2088,38 @@ def derive_request_state(
     request_id: str,
     base_dir: str | Path | None = None,
     now: datetime | None = None,
+    _ledgers: tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]] | None = None,
 ) -> str:
     """Derive the Plan 016 lifecycle state from request + claims + results ledgers.
 
     Pure function over append-only ledgers, so two callers always see the
     same state given the same files. Returns one of `DERIVED_STATES`.
+
+    ``_ledgers`` is the batch API's injection point (see
+    `derive_request_states`) — private on purpose: callers that derive many
+    requests must use the batch form, not reload three ledgers per call.
     """
     root = ensure_tools_dir(base_dir)
-    requests = load_declared_jsonl(
-        root / "agent-invocations" / "requests.jsonl",
-        expected_surface="agent_invocation_requests",
-    )
+    if _ledgers is not None:
+        requests, results, claims = _ledgers
+    else:
+        requests = load_declared_jsonl(
+            root / "agent-invocations" / "requests.jsonl",
+            expected_surface="agent_invocation_requests",
+        )
+        results = load_declared_jsonl(
+            root / "agent-invocations" / "results.jsonl",
+            expected_surface="agent_invocation_results",
+        )
+        claims = load_declared_jsonl(
+            _claims_path(root),
+            expected_surface="agent_invocation_claims",
+        )
     request = next((row for row in requests if row.get("request_id") == request_id), None)
     if request is None:
         raise GovernanceError(f"unknown request_id: {request_id}")
     if request.get("state") == "cancelled":
         return "CANCELLED"
-    results = load_declared_jsonl(
-        root / "agent-invocations" / "results.jsonl",
-        expected_surface="agent_invocation_results",
-    )
-    claims = load_declared_jsonl(
-        _claims_path(root),
-        expected_surface="agent_invocation_claims",
-    )
 
     # Results dominate (terminal states first). Rows arrive CANONICAL from
     # _result_rows_for (legacy completed/partial spellings normalized at
@@ -1849,6 +2165,28 @@ def derive_request_state(
     latest_for_outage = _latest_claim_row(claims, request_id)
     if latest_for_outage is not None and latest_for_outage.get("event") == "api_backoff_exhausted":
         return "EXTERNAL_OUTAGE"
+
+    # A durable prepared journal owns a commit-pending operation. Its lease
+    # may expire while recovery is appending missing effects, but the request
+    # must not derive STALE when the reaper is required to leave it alone.
+    prepared = next(
+        (
+            row
+            for row in reversed(claims)
+            if row.get("request_id") == request_id
+            and row.get("event") == _SUBMISSION_JOURNAL_EVENT
+        ),
+        None,
+    )
+    if prepared is not None:
+        prepared_claim_id = prepared.get("claim_id")
+        if any(
+            row.get("event") == "heartbeat"
+            and row.get("claim_id") == prepared_claim_id
+            for row in claims
+        ):
+            return "RUNNING"
+        return "CLAIMED"
 
     # Otherwise inspect the latest claim's state.
     latest = _latest_claim_row(claims, request_id)
@@ -2214,6 +2552,101 @@ def _record_anchor_stale(
     )
 
 
+def derive_request_states(
+    *,
+    base_dir: str | Path | None = None,
+    now: datetime | None = None,
+) -> dict[str, str]:
+    """ORPHAN-HIGH-794 — derive EVERY request's state with ONE ledger load.
+
+    The single-request form reloads all three ledgers (requests, results,
+    claims) on every call. Callers that derive N requests — the anchor
+    sweep over a 698-row backlog, the judge pending-count — churned N×3
+    full-file loads in a tight loop: gigabytes of allocations inside the
+    memory window where the OOM killer ended the nightly (2026-08-22
+    11:40, runner unit killed mid-cycle). The batch form loads once and
+    feeds the same authoritative fold; states are identical by
+    construction and pinned by an equivalence test.
+    """
+    root = ensure_tools_dir(base_dir)
+    ledgers = (
+        load_declared_jsonl(
+            root / "agent-invocations" / "requests.jsonl",
+            expected_surface="agent_invocation_requests",
+        ),
+        load_declared_jsonl(
+            root / "agent-invocations" / "results.jsonl",
+            expected_surface="agent_invocation_results",
+        ),
+        load_declared_jsonl(
+            _claims_path(root),
+            expected_surface="agent_invocation_claims",
+        ),
+    )
+    return {
+        str(row["request_id"]): derive_request_state(
+            request_id=str(row["request_id"]),
+            base_dir=base_dir,
+            now=now,
+            _ledgers=ledgers,
+        )
+        for row in ledgers[0]
+        if row.get("request_id")
+    }
+
+
+def sweep_expired_anchors(
+    *,
+    base_dir: str | Path | None = None,
+    now: datetime | None = None,
+) -> dict[str, int]:
+    """ORPHAN-HIGH-786 — proactively retire age-expired requests.
+
+    Expiry is terminal but was only ever discovered LAZILY: `_record_anchor_stale`
+    fired when a claim was attempted against an already-dead envelope, so the
+    backlog read pending while being dead, `pending_judge_counts` fed the mint
+    gate inflated numbers, and minting continued into the hole the drain could
+    never fill within the TTL. The sweep makes the ledger tell the truth on
+    its own schedule: run before minting, the backlog cap counts only envelopes
+    that are still alive to claim.
+
+    Age-only BY DESIGN: the unreachable arm of `_anchor_refusal_reason` needs
+    repo evaluation and stays claim-time's job (ORPHAN-CRITICAL-495 — a
+    sweep that evaluated git reachability would be a selection boundary
+    pretending not to be one); the expiry arm needs only `created_at`, which
+    is on every row. Idempotent by construction: ANCHOR_STALE is terminal and
+    `derive_request_state` skips terminal requests, so a second sweep finds
+    nothing.
+    """
+    root = ensure_tools_dir(base_dir)
+    reference = now or _utc_now_dt()
+    max_age_seconds = _anchor_max_age_seconds(root)
+    swept = 0
+    by_role: dict[str, int] = {}
+    # ORPHAN-HIGH-794 — one batch derivation for the whole backlog: the
+    # per-request form here was 698×3 full-ledger loads in the OOM window.
+    states = derive_request_states(base_dir=root, now=reference)
+    for row in list_agent_invocation_requests(base_dir=root):
+        request_id = str(row.get("request_id") or "")
+        if not request_id:
+            continue
+        state = states.get(request_id, "PENDING")
+        if state not in ("PENDING", "REQUEUED"):
+            continue
+        created = _parse_iso(row.get("created_at"))
+        if created is None:
+            # Undatable rows keep the claim-time refusal path; a sweep that
+            # guessed an age would be the silent-narrowing class.
+            continue
+        if (reference - created).total_seconds() <= max_age_seconds:
+            continue
+        _record_anchor_stale(root, row, "anchor_expired", now=reference)
+        swept += 1
+        role = str(row.get("role") or "unknown")
+        by_role[role] = by_role.get(role, 0) + 1
+    return {"swept": swept, "by_role": by_role}
+
+
 def next_pending_request(
     *,
     role: str | None = None,
@@ -2395,7 +2828,7 @@ def claim_request(
     # worker wins the race; the loser sees the same
     # claim_request_state_not_claimable error a serial caller would.
     claims_path = _claims_path(root)
-    with with_exclusive_lock(claims_path):
+    with state_transaction([claims_path]) as transaction:
         state = derive_request_state(request_id=request_id, base_dir=root)
         if state not in {"PENDING", "REQUEUED"}:
             raise GovernanceError(
@@ -2446,9 +2879,7 @@ def claim_request(
             "claimed_at": _iso(now),
             "lease_expires_at": _iso(expires),
         }
-        # Plan 026R §A.1 — caller already holds with_exclusive_lock(claims_path)
-        # at line 604; use the unlocked helper to avoid POSIX flock re-acquisition.
-        persisted_claim_row = _append_declared_jsonl_unlocked(
+        persisted_claim_row = transaction.append_declared_jsonl(
             claims_path,
             row,
             expected_surface="agent_invocation_claims",
@@ -2528,62 +2959,51 @@ def heartbeat_claim(
 ) -> dict[str, Any]:
     """Extend a lease by `extend_seconds`. Validates lease_token + agent_id."""
     root = ensure_tools_dir(base_dir)
-    claims = load_declared_jsonl(
-        _claims_path(root),
-        expected_surface="agent_invocation_claims",
-    )
-    claim_event = next(
-        (row for row in claims if row.get("claim_id") == claim_id and row.get("event") == "claimed"),
-        None,
-    )
-    if claim_event is None:
-        raise GovernanceError(f"claim {claim_id} not found")
-    if claim_event.get("agent_id") != agent_id:
-        raise GovernanceError(
-            f"claim {claim_id} owned by {claim_event.get('agent_id')!r}, not {agent_id!r}"
+    claims_path = _claims_path(root)
+    results_path = root / "agent-invocations" / "results.jsonl"
+    with state_transaction([claims_path, results_path]) as transaction:
+        claims = transaction.load_declared_jsonl(
+            claims_path,
+            expected_surface="agent_invocation_claims",
         )
-    if claim_event.get("lease_token_hash") != _hash_lease_token(lease_token):
-        raise GovernanceError(f"claim {claim_id} lease_token mismatch")
-    # Reject heartbeat if the request was already released or marked human_required.
-    later_events = [
-        row for row in claims
-        if row.get("claim_id") == claim_id and row.get("event") in {"released", "stale", "human_required"}
-    ]
-    if later_events:
-        raise GovernanceError(
-            f"claim {claim_id} already terminal ({later_events[-1].get('event')})"
+        results = transaction.load_declared_jsonl(
+            results_path,
+            expected_surface="agent_invocation_results",
         )
-    # Plan 023 v3 §A-4 — explicit lease-expiry time check. Pre-fix the
-    # heartbeat path checked terminal events ONLY (released / stale /
-    # human_required), not lease_expires_at vs the wall clock. An
-    # expired lease whose reaper sweep hadn't fired yet still accepted
-    # heartbeat (and submit, fixed in submit_claim_result below). The
-    # reaper provides eventual consistency; this is the real-time gate.
-    now = _utc_now_dt()
-    # Plan 024 §H-3 — _latest_lease_expiry now raises on parse failure
-    # / missing field / no claim row, so the previous `is not None`
-    # guard is no longer needed. The function either returns a
-    # datetime (compared below) or surfaces a structured GovernanceError
-    # the caller does not need to translate.
-    latest_expires = _latest_lease_expiry(claims, claim_id)
-    if latest_expires < now:
-        raise GovernanceError(
-            f"lease_expired: claim_id={claim_id!r} lease_expires_at="
-            f"{_iso(latest_expires)} is past current time {_iso(now)}; "
-            f"the reaper sweep has not landed yet but the lease cannot "
-            f"be extended after expiry"
+        _validate_claim_identity(
+            claims,
+            claim_id=claim_id,
+            agent_id=agent_id,
+            lease_token=lease_token,
         )
-    expires = now + timedelta(seconds=extend_seconds)
-    row = {
-        "schema_version": 1,
-        "event": "heartbeat",
-        "claim_id": claim_id,
-        "request_id": claim_event["request_id"],
-        "agent_id": agent_id,
-        "heartbeat_at": _iso(now),
-        "lease_expires_at": _iso(expires),
-    }
-    append_declared_jsonl(_claims_path(root), row, expected_surface="agent_invocation_claims")
+        _assert_lifecycle_mutation_allowed(
+            claims=claims,
+            results=results,
+            claim_id=claim_id,
+        )
+        now = _utc_now_dt()
+        claim_event, _latest_expires = _validate_claim_submission_authority(
+            claims,
+            claim_id=claim_id,
+            agent_id=agent_id,
+            lease_token=lease_token,
+            now=now,
+        )
+        expires = now + timedelta(seconds=extend_seconds)
+        row = {
+            "schema_version": 1,
+            "event": "heartbeat",
+            "claim_id": claim_id,
+            "request_id": claim_event["request_id"],
+            "agent_id": agent_id,
+            "heartbeat_at": _iso(now),
+            "lease_expires_at": _iso(expires),
+        }
+        transaction.append_declared_jsonl(
+            claims_path,
+            row,
+            expected_surface="agent_invocation_claims",
+        )
     return row
 
 
@@ -2631,6 +3051,110 @@ def _latest_lease_expiry(claims: list[dict[str, Any]], claim_id: str) -> Any:
     )
 
 
+def _validate_claim_identity(
+    claims: list[dict[str, Any]],
+    *,
+    claim_id: str,
+    agent_id: str,
+    lease_token: str,
+) -> dict[str, Any]:
+    """Authenticate the immutable owner/token binding of a claim."""
+    claim_event = next(
+        (
+            row
+            for row in claims
+            if row.get("claim_id") == claim_id and row.get("event") == "claimed"
+        ),
+        None,
+    )
+    if claim_event is None:
+        raise GovernanceError(f"claim {claim_id} not found")
+    if claim_event.get("agent_id") != agent_id:
+        raise GovernanceError(
+            f"claim {claim_id} owned by {claim_event.get('agent_id')!r}, "
+            f"not {agent_id!r}"
+        )
+    if claim_event.get("lease_token_hash") != _hash_lease_token(lease_token):
+        raise GovernanceError(f"claim {claim_id} lease_token mismatch")
+    return claim_event
+
+
+def _claim_terminal_event(
+    claims: list[dict[str, Any]],
+    claim_id: str,
+) -> dict[str, Any] | None:
+    terminal = [
+        row
+        for row in claims
+        if row.get("claim_id") == claim_id
+        and row.get("event") in {"released", "stale", "human_required"}
+    ]
+    return terminal[-1] if terminal else None
+
+
+def _claim_has_prepared_submission(
+    claims: list[dict[str, Any]],
+    claim_id: str,
+) -> bool:
+    return any(
+        row.get("claim_id") == claim_id
+        and row.get("event") == _SUBMISSION_JOURNAL_EVENT
+        for row in claims
+    )
+
+
+def _claim_has_result(
+    results: list[dict[str, Any]],
+    claim_id: str,
+) -> bool:
+    return any(row.get("claim_id") == claim_id for row in results)
+
+
+def _assert_lifecycle_mutation_allowed(
+    *,
+    claims: list[dict[str, Any]],
+    results: list[dict[str, Any]],
+    claim_id: str,
+) -> None:
+    if _claim_has_result(results, claim_id):
+        raise GovernanceError(f"claim {claim_id} result already terminal")
+    if _claim_has_prepared_submission(claims, claim_id):
+        raise GovernanceError(
+            f"claim {claim_id} result submission commit pending"
+        )
+
+
+def _validate_claim_submission_authority(
+    claims: list[dict[str, Any]],
+    *,
+    claim_id: str,
+    agent_id: str,
+    lease_token: str,
+    now: datetime,
+) -> tuple[dict[str, Any], datetime]:
+    """Return the live authoritative claim row and expiry or fail closed."""
+    claim_event = _validate_claim_identity(
+        claims,
+        claim_id=claim_id,
+        agent_id=agent_id,
+        lease_token=lease_token,
+    )
+    terminal = _claim_terminal_event(claims, claim_id)
+    if terminal is not None:
+        raise GovernanceError(
+            f"claim {claim_id} already terminal ({terminal.get('event')})"
+        )
+    latest_expiry = _latest_lease_expiry(claims, claim_id)
+    if latest_expiry < now:
+        raise GovernanceError(
+            f"lease_expired: claim_id={claim_id!r} lease_expires_at="
+            f"{_iso(latest_expiry)} is past current time {_iso(now)}; "
+            "the reaper sweep has not landed yet but the submission cannot "
+            "be accepted after expiry"
+        )
+    return claim_event, latest_expiry
+
+
 def release_claim(
     *,
     claim_id: str,
@@ -2664,60 +3188,82 @@ def release_claim(
     if not lease_token or not lease_token.strip():
         raise GovernanceError("lease_token is required for release_claim")
     root = ensure_tools_dir(base_dir)
-    claims = load_declared_jsonl(
-        _claims_path(root),
-        expected_surface="agent_invocation_claims",
-    )
-    claim_event = next(
-        (row for row in claims if row.get("claim_id") == claim_id and row.get("event") == "claimed"),
-        None,
-    )
-    if claim_event is None:
-        raise GovernanceError(f"claim {claim_id} not found")
-    if claim_event.get("agent_id") != agent_id:
-        raise GovernanceError(
-            f"claim {claim_id} owned by {claim_event.get('agent_id')!r}, not {agent_id!r}"
-        )
-    if claim_event.get("lease_token_hash") != _hash_lease_token(lease_token):
-        raise GovernanceError(
-            f"release_claim_lease_token_mismatch: claim {claim_id} "
-            f"lease_token does not match (mirrors heartbeat / submit "
-            f"contract)"
-        )
+    claims_path = _claims_path(root)
+    results_path = root / "agent-invocations" / "results.jsonl"
     now = _utc_now_dt()
-    request_id = claim_event["request_id"]
-    row = {
-        "schema_version": 1,
-        "event": "released",
-        "claim_id": claim_id,
-        "request_id": request_id,
-        "agent_id": agent_id,
-        "reason": reason,
-        "released_at": _iso(now),
-    }
-    append_declared_jsonl(_claims_path(root), row, expected_surface="agent_invocation_claims")
-    # Escalation at write time follows the same fault-ownership rule the
-    # derive side uses: a harness-fault release re-queues without burning the
-    # request's budget and can never be the release that escalates.
-    if _is_harness_fault_reason(reason):
-        requeue_count = _request_fault_requeue_count(claims, request_id)
-        requeue_event_kind = "requeued"
-    else:
-        requeue_count = _request_fault_requeue_count(claims, request_id) + 1
-        requeue_event_kind = "requeued" if requeue_count <= DEFAULT_MAX_REQUEUES else "human_required"
-    append_declared_jsonl(
-        _claims_path(root),
-        {
+    with state_transaction([claims_path, results_path]) as transaction:
+        claims = transaction.load_declared_jsonl(
+            claims_path,
+            expected_surface="agent_invocation_claims",
+        )
+        results = transaction.load_declared_jsonl(
+            results_path,
+            expected_surface="agent_invocation_results",
+        )
+        try:
+            claim_event = _validate_claim_identity(
+                claims,
+                claim_id=claim_id,
+                agent_id=agent_id,
+                lease_token=lease_token,
+            )
+        except GovernanceError as exc:
+            if "lease_token mismatch" in str(exc):
+                raise GovernanceError(
+                    f"release_claim_lease_token_mismatch: claim {claim_id} "
+                    "lease_token does not match (mirrors heartbeat / submit "
+                    "contract)"
+                ) from exc
+            raise
+        _assert_lifecycle_mutation_allowed(
+            claims=claims,
+            results=results,
+            claim_id=claim_id,
+        )
+        terminal = _claim_terminal_event(claims, claim_id)
+        if terminal is not None:
+            raise GovernanceError(
+                f"claim {claim_id} already terminal ({terminal.get('event')})"
+            )
+        request_id = claim_event["request_id"]
+        row = {
             "schema_version": 1,
-            "event": requeue_event_kind,
+            "event": "released",
             "claim_id": claim_id,
             "request_id": request_id,
-            "at": _iso(now),
-            "requeue_count": requeue_count,
+            "agent_id": agent_id,
             "reason": reason,
-        },
-        expected_surface="agent_invocation_claims",
-    )
+            "released_at": _iso(now),
+        }
+        transaction.append_declared_jsonl(
+            claims_path,
+            row,
+            expected_surface="agent_invocation_claims",
+        )
+        # Escalation follows the same fault-ownership rule as derivation.
+        if _is_harness_fault_reason(reason):
+            requeue_count = _request_fault_requeue_count(claims, request_id)
+            requeue_event_kind = "requeued"
+        else:
+            requeue_count = _request_fault_requeue_count(claims, request_id) + 1
+            requeue_event_kind = (
+                "requeued"
+                if requeue_count <= DEFAULT_MAX_REQUEUES
+                else "human_required"
+            )
+        transaction.append_declared_jsonl(
+            claims_path,
+            {
+                "schema_version": 1,
+                "event": requeue_event_kind,
+                "claim_id": claim_id,
+                "request_id": request_id,
+                "at": _iso(now),
+                "requeue_count": requeue_count,
+                "reason": reason,
+            },
+            expected_surface="agent_invocation_claims",
+        )
     append_tools_governance(
         root,
         f"agent_{requeue_event_kind}",
@@ -2812,6 +3358,1002 @@ def _invoke_bridges_for_result(
     return bridged
 
 
+_SUBMISSION_JOURNAL_EVENT = "result_submission_prepared"
+_LEDGER_CHAIN_FIELDS = frozenset({"previous_ledger_hash", "ledger_hash"})
+
+
+def _submission_operation_id(claim_id: str, envelope_evidence_hash: str) -> str:
+    canonical = f"{claim_id}\0{envelope_evidence_hash}".encode("utf-8")
+    return "submit_" + hashlib.sha256(canonical).hexdigest()
+
+
+def _json_clone(value: Any) -> Any:
+    """Copy a prepared ledger payload through its actual durable encoding."""
+    return json.loads(
+        json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    )
+
+
+def _submission_input_binding(
+    *,
+    root: Path,
+    claim_id: str,
+    request_id: str,
+    agent_id: str,
+    lease_token_hash: str,
+    submitted_hash: str,
+    output: Path,
+    output_content_hash: str,
+    workspace_root: str | Path,
+    request_target_sha: str | None,
+    context_hash: str | None,
+    prompt_hash: str | None,
+    transcript_hash: str | None,
+    transcript_artifact_ref: str | None,
+) -> dict[str, Any]:
+    """Portable byte-level caller binding for commit-pending recovery."""
+    transcript_ref: str | None = None
+    if transcript_artifact_ref:
+        transcript_path = Path(transcript_artifact_ref)
+        if not transcript_path.is_absolute():
+            transcript_path = Path(workspace_root).resolve() / transcript_path
+        transcript_ref = _portable_submission_ref(
+            root=root,
+            workspace_root=workspace_root,
+            path=transcript_path,
+            fallback_hash=transcript_hash,
+        )
+    return {
+        "claim_id": claim_id,
+        "request_id": request_id,
+        "agent_id": agent_id,
+        "lease_token_hash": lease_token_hash,
+        "envelope_evidence_hash": submitted_hash,
+        "output_path": _portable_submission_ref(
+            root=root,
+            workspace_root=workspace_root,
+            path=output,
+            fallback_hash=output_content_hash,
+        ),
+        "output_content_hash": output_content_hash,
+        "workspace_target_sha": request_target_sha,
+        "context_hash": context_hash,
+        "prompt_hash": prompt_hash,
+        "transcript_hash": transcript_hash,
+        "transcript_artifact_ref": transcript_ref,
+    }
+
+
+def _normalize_submission_compliance_paths(
+    compliance: dict[str, Any],
+    *,
+    root: Path,
+    workspace_root: str | Path,
+    output_content_hash: str,
+) -> None:
+    """Remove host roots from durable output-path compliance evidence."""
+    row = compliance.get("row")
+    if not isinstance(row, dict):
+        return
+    checks = row.get("check_results")
+    if not isinstance(checks, dict):
+        return
+    path_check = checks.get("output_path_match")
+    if not isinstance(path_check, dict):
+        return
+    evidence = path_check.get("evidence")
+    if not isinstance(evidence, dict):
+        return
+    for key in ("expected", "actual"):
+        value = evidence.get(key)
+        if isinstance(value, str) and value:
+            evidence[key] = _portable_submission_ref(
+                root=root,
+                workspace_root=workspace_root,
+                path=value,
+                fallback_hash=(output_content_hash if key == "actual" else None),
+            )
+
+
+def _governance_event_for_submission(
+    event: dict[str, Any],
+    *,
+    operation_id: str,
+    effect_name: str,
+) -> dict[str, Any]:
+    details = dict(event.get("details") or {})
+    details["submission_operation_id"] = operation_id
+    details["submission_effect"] = effect_name
+    prepared = governance_event(kind=str(event.get("kind") or ""), details=details)
+    prepared["submission_operation_id"] = operation_id
+    prepared["submission_effect"] = effect_name
+    return prepared
+
+
+def _prepare_submission_journal(
+    *,
+    prepared: dict[str, Any],
+    operation_id: str,
+    input_binding: dict[str, Any],
+    claim_id: str,
+    request_id: str,
+    agent_id: str,
+    submitted_hash: str,
+    request: dict[str, Any],
+) -> dict[str, Any]:
+    """Freeze stable side-effect payloads before the first side append."""
+    result_row = _json_clone(prepared["row"])
+    result_row["submission_operation_id"] = operation_id
+    result_row["submission_effect"] = "result"
+    terminal_governance = _governance_event_for_submission(
+        prepared["governance_event"],
+        operation_id=operation_id,
+        effect_name="terminal_governance",
+    )
+
+    compliance: dict[str, Any] | None = None
+    raw_compliance = prepared.get("compliance")
+    if isinstance(raw_compliance, dict):
+        compliance = _json_clone(raw_compliance)
+        compliance_row = compliance.get("row")
+        if not isinstance(compliance_row, dict):
+            raise GovernanceError("submit_claim_result_compliance_payload_malformed")
+        compliance_row["submission_operation_id"] = operation_id
+        compliance_row["submission_effect"] = "compliance"
+        compliance_event = compliance.get("governance_event")
+        if isinstance(compliance_event, dict):
+            compliance["governance_event"] = _governance_event_for_submission(
+                compliance_event,
+                operation_id=operation_id,
+                effect_name="compliance_governance",
+            )
+
+    transcript_row: dict[str, Any] | None = None
+    if prepared.get("status") == "accepted":
+        artifact = prepared.get("verified_transcript_artifact")
+        if not isinstance(artifact, Path):
+            raise GovernanceError("submit_claim_result_transcript_artifact_unprepared")
+        transcript_row = {
+            "schema_version": 1,
+            "row_id": f"transcript:{claim_id}",
+            "row_type": "transcript",
+            "recorded_at": str(result_row.get("submitted_at") or utc_now()),
+            "invocation_id": claim_id,
+            "claim_id": claim_id,
+            "request_id": request_id,
+            "target_agent": str(request.get("target_agent") or agent_id),
+            "transcript_hash": result_row.get("transcript_hash"),
+            "fixture_run_id": None,
+            # agent_eval's native portable contract accepts a content hash;
+            # the sealed store-relative path remains on the prepared result.
+            "artifact_ref": result_row.get("transcript_hash"),
+            "submission_operation_id": operation_id,
+            "submission_effect": "transcript",
+        }
+
+    prepared_payload = {
+        "status": str(prepared.get("status") or ""),
+        "reasons": list(prepared.get("reasons") or []),
+        "result_row": result_row,
+        "transcript_row": transcript_row,
+        "compliance": compliance,
+        "terminal_governance_event": terminal_governance,
+    }
+    return {
+        "$schema": "aria/agent-result-submission-operation/v1",
+        "schema_version": 1,
+        "row_id": f"submission-operation:{operation_id}",
+        "row_type": "result_submission_operation",
+        "event": _SUBMISSION_JOURNAL_EVENT,
+        "operation_id": operation_id,
+        "submission_operation_id": operation_id,
+        "submission_effect": "journal",
+        "claim_id": claim_id,
+        "request_id": request_id,
+        "agent_id": agent_id,
+        "envelope_evidence_hash": submitted_hash,
+        "prepared_at": str(result_row.get("submitted_at") or utc_now()),
+        "input_binding": _json_clone(input_binding),
+        "prepared_payload_hash": _sha256_payload(prepared_payload),
+        "prepared": prepared_payload,
+    }
+
+
+def _submission_journal_row(
+    claims: list[dict[str, Any]],
+    *,
+    claim_id: str,
+) -> dict[str, Any] | None:
+    journals = [
+        row
+        for row in claims
+        if row.get("claim_id") == claim_id
+        and row.get("event") == _SUBMISSION_JOURNAL_EVENT
+    ]
+    if not journals:
+        return None
+    if len(journals) != 1:
+        raise GovernanceError(
+            "submit_claim_result_duplicate_prepared_operations: "
+            f"claim_id={claim_id} count={len(journals)}"
+        )
+    return journals[0]
+
+
+def _load_submission_journal(
+    claims: list[dict[str, Any]],
+    *,
+    claim_id: str,
+    request_id: str,
+    agent_id: str,
+    operation_id: str,
+    submitted_hash: str,
+    input_binding: dict[str, Any],
+    require_input_binding: bool = True,
+) -> dict[str, Any] | None:
+    journal = _submission_journal_row(claims, claim_id=claim_id)
+    if journal is None:
+        return None
+    if (
+        journal.get("claim_id") != claim_id
+        or journal.get("request_id") != request_id
+        or journal.get("agent_id") != agent_id
+        or journal.get("operation_id") != operation_id
+        or journal.get("envelope_evidence_hash") != submitted_hash
+    ):
+        raise GovernanceError(
+            "submit_claim_result_prepared_operation_drift: "
+            f"claim_id={claim_id} operation_id={operation_id}"
+        )
+    if require_input_binding and journal.get("input_binding") != input_binding:
+        raise GovernanceError(
+            "submit_claim_result_prepared_operation_drift: "
+            f"claim_id={claim_id} operation_id={operation_id}"
+        )
+    prepared = journal.get("prepared")
+    if not isinstance(prepared, dict):
+        raise GovernanceError("submit_claim_result_prepared_payload_malformed")
+    if journal.get("prepared_payload_hash") != _sha256_payload(prepared):
+        raise GovernanceError("submit_claim_result_prepared_payload_hash_mismatch")
+    result_row = prepared.get("result_row")
+    if (
+        not isinstance(result_row, dict)
+        or result_row.get("claim_id") != claim_id
+        or result_row.get("envelope_evidence_hash") != submitted_hash
+        or result_row.get("submission_operation_id") != operation_id
+    ):
+        raise GovernanceError("submit_claim_result_prepared_result_binding_mismatch")
+    return prepared
+
+
+def _logical_ledger_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in row.items()
+        if key not in _LEDGER_CHAIN_FIELDS
+    }
+
+
+def _matching_operation_row(
+    transaction: StateTransaction,
+    path: Path,
+    *,
+    expected_surface: str,
+    operation_id: str,
+    prepared_row: dict[str, Any],
+    effect_name: str,
+) -> dict[str, Any] | None:
+    matches = [
+        row
+        for row in transaction.load_declared_jsonl(
+            path,
+            expected_surface=expected_surface,
+        )
+        if row.get("submission_operation_id") == operation_id
+        and row.get("submission_effect") == effect_name
+    ]
+    if len(matches) > 1:
+        raise GovernanceError(
+            "submit_claim_result_duplicate_operation_effect: "
+            f"operation_id={operation_id} effect={effect_name} count={len(matches)}"
+        )
+    if not matches:
+        return None
+    existing = matches[0]
+    if _logical_ledger_row(existing) != prepared_row:
+        raise GovernanceError(
+            "submit_claim_result_operation_effect_drift: "
+            f"operation_id={operation_id} effect={effect_name}"
+        )
+    return existing
+
+
+def _append_governance_effect_once(
+    *,
+    transaction: StateTransaction,
+    root: Path,
+    governance_path: Path,
+    operation_id: str,
+    event: dict[str, Any],
+    effect_name: str,
+) -> dict[str, Any]:
+    existing = _matching_operation_row(
+        transaction,
+        governance_path,
+        expected_surface="tools_governance",
+        operation_id=operation_id,
+        prepared_row=event,
+        effect_name=effect_name,
+    )
+    if existing is not None:
+        return existing
+    return append_tools_governance(
+        root,
+        str(event["kind"]),
+        dict(event["details"]),
+        transaction=transaction,
+        prepared_event=event,
+    )
+
+
+def _verify_prepared_artifact(
+    *,
+    root: Path,
+    artifact_ref: Any,
+    expected_hash: Any,
+    artifact_kind: str,
+) -> bytes:
+    if not isinstance(artifact_ref, str) or not artifact_ref:
+        raise GovernanceError(
+            f"submission_prepared_{artifact_kind}_artifact_ref_invalid"
+        )
+    if not isinstance(expected_hash, str) or not _is_sha256_digest(expected_hash):
+        raise GovernanceError(
+            f"submission_prepared_{artifact_kind}_hash_invalid"
+        )
+    kind_directory = {
+        "response": "responses",
+        "transcript": "transcripts",
+    }.get(artifact_kind)
+    if kind_directory is None:
+        raise GovernanceError("submission_prepared_artifact_kind_invalid")
+    portable_ref = Path(artifact_ref)
+    if portable_ref.is_absolute():
+        raise GovernanceError(
+            f"submission_prepared_{artifact_kind}_artifact_ref_not_portable"
+        )
+    artifact = root / portable_ref
+    expected_artifact = _submission_artifact_target(
+        root,
+        artifact_kind=kind_directory,
+        content_hash=expected_hash,
+    )
+    if artifact != expected_artifact:
+        raise GovernanceError(
+            f"submission_prepared_{artifact_kind}_artifact_ref_drift"
+        )
+    try:
+        content = _read_stable_submission_artifact(artifact)
+    except FileNotFoundError as exc:
+        raise GovernanceError(
+            f"submission_prepared_{artifact_kind}_artifact_missing"
+        ) from exc
+    except OSError as exc:
+        raise GovernanceError(
+            f"submission_prepared_{artifact_kind}_artifact_unreadable: {exc}"
+        ) from exc
+    observed = "sha256:" + hashlib.sha256(content).hexdigest()
+    if observed != expected_hash:
+        raise GovernanceError(
+            f"submission_prepared_{artifact_kind}_artifact_hash_mismatch"
+        )
+    return content
+
+
+def _recoverable_prepared_artifact(
+    *,
+    root: Path,
+    artifact_ref: Any,
+    expected_hash: Any,
+    artifact_kind: str,
+) -> tuple[bytes | None, GovernanceError | None]:
+    """Read a seal, distinguishing repairable absence/corruption from drift."""
+    try:
+        return (
+            _verify_prepared_artifact(
+                root=root,
+                artifact_ref=artifact_ref,
+                expected_hash=expected_hash,
+                artifact_kind=artifact_kind,
+            ),
+            None,
+        )
+    except GovernanceError as exc:
+        message = str(exc)
+        if message in {
+            f"submission_prepared_{artifact_kind}_artifact_missing",
+            f"submission_prepared_{artifact_kind}_artifact_hash_mismatch",
+        }:
+            return None, exc
+        raise
+
+
+def _verify_prepared_submission_artifacts(
+    *,
+    root: Path,
+    prepared: dict[str, Any],
+) -> None:
+    result_row = prepared.get("result_row")
+    if not isinstance(result_row, dict):
+        raise GovernanceError("submit_claim_result_prepared_result_malformed")
+    _verify_prepared_artifact(
+        root=root,
+        artifact_ref=result_row.get("output_path"),
+        expected_hash=result_row.get("output_hash"),
+        artifact_kind="response",
+    )
+    if prepared.get("status") == "accepted":
+        _verify_prepared_artifact(
+            root=root,
+            artifact_ref=result_row.get("transcript_artifact_ref"),
+            expected_hash=result_row.get("transcript_hash"),
+            artifact_kind="transcript",
+        )
+
+
+def _seal_pending_submission_artifacts(
+    *,
+    root: Path,
+    prepared: dict[str, Any],
+    output_bytes: bytes,
+    output_content_hash: str,
+    workspace_root: str | Path,
+    transcript_hash: str | None,
+    transcript_artifact_ref: str | None,
+    transcript_effect_exists: bool,
+    prepared_candidate: dict[str, Any] | None,
+) -> None:
+    result_row = prepared.get("result_row")
+    if not isinstance(result_row, dict):
+        raise GovernanceError("submit_claim_result_prepared_result_malformed")
+    if result_row.get("output_hash") != output_content_hash:
+        raise GovernanceError("submission_prepared_response_artifact_hash_drift")
+    sealed_output = _seal_submission_artifact(
+        root,
+        artifact_kind="responses",
+        content=output_bytes,
+        content_hash=output_content_hash,
+    )
+    if store_relative_artifact_path(root, sealed_output) != result_row.get(
+        "output_path"
+    ):
+        raise GovernanceError("submission_prepared_response_artifact_ref_drift")
+    if prepared.get("status") != "accepted":
+        return
+    expected_transcript_hash = result_row.get("transcript_hash")
+    if not isinstance(expected_transcript_hash, str):
+        raise GovernanceError("submission_prepared_transcript_hash_invalid")
+    sealed_transcript_bytes, sealed_transcript_error = (
+        _recoverable_prepared_artifact(
+            root=root,
+            artifact_ref=result_row.get("transcript_artifact_ref"),
+            expected_hash=expected_transcript_hash,
+            artifact_kind="transcript",
+        )
+    )
+    if transcript_effect_exists:
+        if sealed_transcript_error is not None:
+            raise sealed_transcript_error
+
+    raw_transcript_bytes: bytes | None = None
+    if prepared_candidate is None:
+        if not transcript_hash or not transcript_artifact_ref:
+            raise GovernanceError(
+                "submit_claim_result_transcript_artifact_binding_missing"
+            )
+        raw_transcript = Path(transcript_artifact_ref)
+        if not raw_transcript.is_absolute():
+            raw_transcript = Path(workspace_root).resolve() / raw_transcript
+        try:
+            raw_transcript_bytes = _read_optional_submission_artifact(
+                raw_transcript
+            )
+        except OSError as exc:
+            raise GovernanceError(
+                f"transcript_artifact_ref_unreadable: {exc}"
+            ) from exc
+        if raw_transcript_bytes is not None:
+            observed_transcript_hash = (
+                "sha256:" + hashlib.sha256(raw_transcript_bytes).hexdigest()
+            )
+            if observed_transcript_hash != expected_transcript_hash:
+                raise GovernanceError(
+                    "submit_claim_result_prepared_operation_drift: "
+                    "raw transcript content changed"
+                )
+            if observed_transcript_hash == output_content_hash:
+                raise GovernanceError(
+                    "transcript_artifact_must_not_be_output_envelope"
+                )
+
+    if sealed_transcript_bytes is not None:
+        return
+    if transcript_effect_exists:
+        # The row already declares transcript persistence. Never reconstruct
+        # terminal evidence from a mutable source after that boundary.
+        if sealed_transcript_error is not None:
+            raise sealed_transcript_error
+        raise GovernanceError("submission_prepared_transcript_artifact_missing")
+
+    transcript_bytes = (
+        prepared_candidate.get("verified_transcript_artifact_bytes")
+        if isinstance(prepared_candidate, dict)
+        else None
+    )
+    if not isinstance(transcript_bytes, bytes):
+        if raw_transcript_bytes is not None:
+            transcript_bytes = raw_transcript_bytes
+        elif not transcript_hash or not transcript_artifact_ref:
+            raise GovernanceError(
+                "submit_claim_result_transcript_artifact_bytes_unprepared"
+            )
+        else:
+            if sealed_transcript_error is not None:
+                raise sealed_transcript_error
+            transcript_target, transcript_bytes = (
+                _prepare_submission_transcript_artifact(
+                    root=root,
+                    artifact_ref=transcript_artifact_ref,
+                    transcript_hash=transcript_hash,
+                    output_content_hash=output_content_hash,
+                    workspace_root=workspace_root,
+                )
+            )
+            if store_relative_artifact_path(
+                root,
+                transcript_target,
+            ) != result_row.get("transcript_artifact_ref"):
+                raise GovernanceError(
+                    "submission_prepared_transcript_artifact_ref_drift"
+                )
+    sealed_transcript = _seal_submission_artifact(
+        root,
+        artifact_kind="transcripts",
+        content=transcript_bytes,
+        content_hash=expected_transcript_hash,
+    )
+    if store_relative_artifact_path(root, sealed_transcript) != result_row.get(
+        "transcript_artifact_ref"
+    ):
+        raise GovernanceError("submission_prepared_transcript_artifact_ref_drift")
+
+
+def _persist_submission_side_effects(
+    *,
+    transaction: StateTransaction,
+    root: Path,
+    prepared: dict[str, Any],
+    operation_id: str,
+    transcripts_path: Path,
+    compliance_path: Path,
+    governance_path: Path,
+) -> None:
+    """Append only missing, byte-equivalent side effects in canonical order."""
+    _verify_prepared_submission_artifacts(root=root, prepared=prepared)
+    transcript_row = prepared.get("transcript_row")
+    if isinstance(transcript_row, dict):
+        existing_transcript = _matching_operation_row(
+            transaction,
+            transcripts_path,
+            expected_surface="agent_invocation_transcripts",
+            operation_id=operation_id,
+            prepared_row=transcript_row,
+            effect_name="transcript",
+        )
+        if existing_transcript is None:
+            result_row = prepared.get("result_row")
+            sealed_transcript_ref = (
+                result_row.get("transcript_artifact_ref")
+                if isinstance(result_row, dict)
+                else None
+            )
+            if not isinstance(sealed_transcript_ref, str):
+                raise GovernanceError(
+                    "submit_claim_result_transcript_artifact_unprepared"
+                )
+            _verify_prepared_artifact(
+                root=root,
+                artifact_ref=sealed_transcript_ref,
+                expected_hash=transcript_row.get("transcript_hash"),
+                artifact_kind="transcript",
+            )
+            transaction.append_declared_jsonl(
+                transcripts_path,
+                transcript_row,
+                expected_surface="agent_invocation_transcripts",
+            )
+
+    compliance = prepared.get("compliance")
+    if isinstance(compliance, dict):
+        compliance_row = compliance.get("row")
+        if not isinstance(compliance_row, dict):
+            raise GovernanceError("submit_claim_result_compliance_payload_malformed")
+        existing_compliance = _matching_operation_row(
+            transaction,
+            compliance_path,
+            expected_surface="agent_compliance",
+            operation_id=operation_id,
+            prepared_row=compliance_row,
+            effect_name="compliance",
+        )
+        if existing_compliance is None:
+            transaction.append_declared_jsonl(
+                compliance_path,
+                compliance_row,
+                expected_surface="agent_compliance",
+            )
+        compliance_event = compliance.get("governance_event")
+        if isinstance(compliance_event, dict):
+            _append_governance_effect_once(
+                transaction=transaction,
+                root=root,
+                governance_path=governance_path,
+                operation_id=operation_id,
+                event=compliance_event,
+                effect_name="compliance_governance",
+            )
+
+    terminal_event = prepared.get("terminal_governance_event")
+    if not isinstance(terminal_event, dict):
+        raise GovernanceError("submit_claim_result_terminal_governance_malformed")
+    _append_governance_effect_once(
+        transaction=transaction,
+        root=root,
+        governance_path=governance_path,
+        operation_id=operation_id,
+        event=terminal_event,
+        effect_name="terminal_governance",
+    )
+
+
+def _assert_submission_side_effects_complete(
+    *,
+    transaction: StateTransaction,
+    prepared: dict[str, Any],
+    operation_id: str,
+    transcripts_path: Path,
+    compliance_path: Path,
+    governance_path: Path,
+) -> None:
+    """A journal-bound terminal result authorizes only complete side evidence."""
+    effects: list[tuple[str, Path, str, dict[str, Any]]] = []
+    transcript_row = prepared.get("transcript_row")
+    if isinstance(transcript_row, dict):
+        effects.append(
+            (
+                "transcript",
+                transcripts_path,
+                "agent_invocation_transcripts",
+                transcript_row,
+            )
+        )
+    compliance = prepared.get("compliance")
+    if isinstance(compliance, dict):
+        compliance_row = compliance.get("row")
+        if not isinstance(compliance_row, dict):
+            raise GovernanceError("submit_claim_result_compliance_payload_malformed")
+        effects.append(
+            ("compliance", compliance_path, "agent_compliance", compliance_row)
+        )
+        compliance_event = compliance.get("governance_event")
+        if isinstance(compliance_event, dict):
+            effects.append(
+                (
+                    "compliance_governance",
+                    governance_path,
+                    "tools_governance",
+                    compliance_event,
+                )
+            )
+    terminal_event = prepared.get("terminal_governance_event")
+    if not isinstance(terminal_event, dict):
+        raise GovernanceError("submit_claim_result_terminal_governance_malformed")
+    effects.append(
+        (
+            "terminal_governance",
+            governance_path,
+            "tools_governance",
+            terminal_event,
+        )
+    )
+    for effect_name, path, surface, prepared_row in effects:
+        if _matching_operation_row(
+            transaction,
+            path,
+            expected_surface=surface,
+            operation_id=operation_id,
+            prepared_row=prepared_row,
+            effect_name=effect_name,
+        ) is None:
+            raise GovernanceError(
+                "submit_claim_result_terminal_side_effect_missing: "
+                f"operation_id={operation_id} effect={effect_name}"
+            )
+
+
+def _prepared_claim_rejection(
+    *,
+    claim_id: str,
+    request_id: str,
+    agent_id: str,
+    output_path: str,
+    output_content_hash: str,
+    reasons: list[str],
+    submitted_hash: str,
+    compliance: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "status": "rejected",
+        "reasons": reasons,
+        "row": _build_rejection_row(
+            claim_id=claim_id,
+            request_id=request_id,
+            agent_id=agent_id,
+            output_path=output_path,
+            output_hash=output_content_hash,
+            reasons=reasons,
+            envelope_evidence_hash=submitted_hash,
+        ),
+        "governance_event": governance_event(
+            kind="agent_result_rejected",
+            details={
+                "claim_id": claim_id,
+                "request_id": request_id,
+                "agent_id": agent_id,
+                "rejection_reasons_count": len(reasons),
+                "envelope_evidence_hash": submitted_hash,
+            },
+        ),
+        "compliance": compliance,
+    }
+
+
+def _prepare_submission_transcript_artifact(
+    *,
+    root: Path,
+    artifact_ref: str | Path,
+    transcript_hash: str,
+    output_content_hash: str,
+    workspace_root: str | Path,
+) -> tuple[Path, bytes]:
+    if not _is_sha256_digest(transcript_hash):
+        raise GovernanceError("transcript_hash_must_be_sha256")
+    artifact = Path(artifact_ref)
+    if not artifact.is_absolute():
+        artifact = Path(workspace_root).resolve() / artifact
+    try:
+        transcript_bytes = _read_stable_submission_artifact(artifact)
+    except OSError as exc:
+        raise GovernanceError(
+            f"transcript_artifact_ref_unreadable: {exc}"
+        ) from exc
+    observed = "sha256:" + hashlib.sha256(transcript_bytes).hexdigest()
+    if observed != transcript_hash:
+        raise GovernanceError("transcript_artifact_hash_mismatch")
+    if observed == output_content_hash:
+        raise GovernanceError("transcript_artifact_must_not_be_output_envelope")
+    return (
+        _submission_artifact_target(
+            root,
+            artifact_kind="transcripts",
+            content_hash=transcript_hash,
+        ),
+        transcript_bytes,
+    )
+
+
+def _prepare_claim_submission(
+    *,
+    root: Path,
+    claim_id: str,
+    request_id: str,
+    agent_id: str,
+    request: dict[str, Any],
+    envelope: dict[str, Any] | None,
+    envelope_unreadable_error: str | None,
+    submitted_hash: str,
+    output: Path,
+    sealed_output: Path,
+    output_content_hash: str,
+    workspace_root: str | Path,
+    context_hash: str | None,
+    prompt_hash: str | None,
+    transcript_hash: str | None,
+    transcript_artifact_ref: str | None,
+) -> dict[str, Any]:
+    """Validate and construct every write payload before locking/mutating."""
+    from .agent_contract import enforce_separation_of_duties, validate_response
+    from .agent_compliance import (
+        COMPLIANCE_REJECTION_REASON,
+        _prepare_compliance_grade,
+    )
+    from .evidence_validator import validate_agent_response_evidence
+    from .runtime_profile import enforce_profile_for_write
+
+    # Every terminal branch emits a governance row. Perform the profile
+    # admission before the encompassing transaction so it cannot fail after
+    # any result/compliance/transcript mutation.
+    enforce_profile_for_write("tool_governance", base_dir=root)
+
+    if envelope_unreadable_error is not None or envelope is None:
+        return _prepared_claim_rejection(
+            claim_id=claim_id,
+            request_id=request_id,
+            agent_id=agent_id,
+            output_path=store_relative_artifact_path(root, sealed_output),
+            output_content_hash=output_content_hash,
+            reasons=[f"envelope_unreadable: {envelope_unreadable_error}"],
+            submitted_hash=submitted_hash,
+        )
+
+    strict_request = _strict_request_view(request)
+    reasons: list[str] = []
+    try:
+        validate_response(
+            envelope,
+            request=strict_request,
+            lease={"claim_id": claim_id, "agent_id": agent_id},
+        )
+    except GovernanceError as exc:
+        reasons.append(f"response_schema: {exc}")
+    try:
+        enforce_separation_of_duties(
+            request=strict_request,
+            submitter_agent_id=agent_id,
+        )
+    except GovernanceError as exc:
+        reasons.append(f"separation_of_duties: {exc}")
+    try:
+        from .implementation_safety import (
+            SecretLeakDetected,
+            verify_no_secret_in_envelope,
+        )
+
+        verify_no_secret_in_envelope(envelope)
+    except SecretLeakDetected as exc:
+        reasons.append(f"secret_in_envelope: {exc}")
+    revalidation = validate_agent_response_evidence(
+        response=envelope,
+        workspace_root=workspace_root,
+        request=strict_request,
+    )
+    if not revalidation["valid"]:
+        reasons.extend(f"evidence: {error}" for error in revalidation["errors"])
+    if reasons:
+        return _prepared_claim_rejection(
+            claim_id=claim_id,
+            request_id=request_id,
+            agent_id=agent_id,
+            output_path=store_relative_artifact_path(root, sealed_output),
+            output_content_hash=output_content_hash,
+            reasons=reasons,
+            submitted_hash=submitted_hash,
+        )
+
+    compliance = _prepare_compliance_grade(
+        claim_id=claim_id,
+        request=request,
+        response=envelope,
+        response_path=output,
+        workspace_root=Path(workspace_root).resolve() if workspace_root else None,
+        base_dir=root,
+    )
+    _normalize_submission_compliance_paths(
+        compliance,
+        root=root,
+        workspace_root=workspace_root,
+        output_content_hash=output_content_hash,
+    )
+    compliance_row = compliance["row"]
+    if compliance_row.get("rejection"):
+        rejection_reasons = [
+            f"compliance: {COMPLIANCE_REJECTION_REASON} "
+            f"(hard_fail={compliance_row.get('hard_fail_count', 0)}, "
+            f"soft_fail={compliance_row.get('soft_fail_count', 0)})"
+        ]
+        return _prepared_claim_rejection(
+            claim_id=claim_id,
+            request_id=request_id,
+            agent_id=agent_id,
+            output_path=store_relative_artifact_path(root, sealed_output),
+            output_content_hash=output_content_hash,
+            reasons=rejection_reasons,
+            submitted_hash=submitted_hash,
+            compliance=compliance,
+        )
+
+    request_context_hash = str(request.get("context_hash") or "")
+    request_prompt_hash = str(request.get("prompt_hash") or "")
+    if not request_context_hash or not request_prompt_hash:
+        raise GovernanceError("submit_claim_result_request_missing_context_prompt_binding")
+    if context_hash != request_context_hash:
+        raise GovernanceError("submit_claim_result_context_hash_binding_mismatch")
+    if prompt_hash != request_prompt_hash:
+        raise GovernanceError("submit_claim_result_prompt_hash_binding_mismatch")
+    if not transcript_hash:
+        raise GovernanceError("submit_claim_result_transcript_hash_required")
+    if not transcript_artifact_ref:
+        raise GovernanceError("submit_claim_result_transcript_artifact_ref_required")
+    (
+        verified_transcript_artifact,
+        verified_transcript_artifact_bytes,
+    ) = _prepare_submission_transcript_artifact(
+        root=root,
+        artifact_ref=transcript_artifact_ref,
+        transcript_hash=str(transcript_hash),
+        output_content_hash=output_content_hash,
+        workspace_root=workspace_root,
+    )
+    verify_invocation_context_binding(
+        request_id=request_id,
+        context_hash=str(context_hash),
+        prompt_hash=str(prompt_hash),
+        base_dir=root,
+    )
+    output_hash = output_content_hash
+    from .bridge_status_ledger import bridge_status_for_role
+
+    envelope_role = envelope.get("role")
+    row = {
+        "$schema": "aria/agent-claim-result/v1",
+        "schema_version": 1,
+        "row_id": f"result:{claim_id}",
+        "row_type": "result",
+        "claim_id": claim_id,
+        "request_id": request_id,
+        "agent_id": agent_id,
+        "role": envelope_role,
+        "status": "accepted",
+        "output_path": store_relative_artifact_path(root, sealed_output),
+        "output_hash": output_hash,
+        "content_hash": output_hash,
+        "envelope_evidence_hash": submitted_hash,
+        "invocation_id": claim_id,
+        "context_hash": context_hash,
+        "prompt_hash": prompt_hash,
+        "transcript_hash": transcript_hash,
+        "transcript_artifact_ref": store_relative_artifact_path(
+            root,
+            verified_transcript_artifact,
+        ),
+        # Bind accepted evidence to the trusted request tree before the row is
+        # journaled and hashed. The submitted envelope is never an authority
+        # for this SHA.
+        "target_sha": str(request.get("target_sha") or ""),
+        "bridge_status": bridge_status_for_role(envelope_role),
+        "checked_evidence_count": len(revalidation["checked_refs"]),
+        "submitted_at": utc_now(),
+    }
+    return {
+        "status": "accepted",
+        "reasons": [],
+        "row": row,
+        "governance_event": governance_event(
+            kind="agent_result_accepted",
+            details={
+                "claim_id": claim_id,
+                "request_id": request_id,
+                "agent_id": agent_id,
+                "output_hash": output_hash,
+                "envelope_evidence_hash": submitted_hash,
+            },
+        ),
+        "compliance": compliance,
+        "verified_transcript_artifact": verified_transcript_artifact,
+        "verified_transcript_artifact_bytes": verified_transcript_artifact_bytes,
+    }
+
+
 def submit_claim_result(
     *,
     claim_id: str,
@@ -2837,8 +4379,7 @@ def submit_claim_result(
 
     Returns: {"status": "accepted"|"rejected", "reasons": [...], "row": <persisted result row>}
     """
-    from .agent_contract import enforce_separation_of_duties, envelope_hash, validate_response  # local to avoid import cycle on cold start
-    from .evidence_validator import validate_agent_response_evidence
+    from .agent_contract import envelope_hash  # local to avoid cold-start cycle
 
     if not lease_token or not lease_token.strip():
         raise GovernanceError("lease_token is required")
@@ -2848,72 +4389,165 @@ def submit_claim_result(
         raise GovernanceError("submit_claim_result_prompt_hash_must_be_sha256")
     if transcript_hash is not None and not _is_sha256_digest(str(transcript_hash)):
         raise GovernanceError("submit_claim_result_transcript_hash_must_be_sha256")
-    output = Path(output_path)
-    if not output.exists() or not output.is_file():
-        raise GovernanceError(f"output_path does not exist: {output_path}")
-
     root = ensure_tools_dir(base_dir)
+    output = Path(output_path)
+    claims_path = _claims_path(root)
     claims = load_declared_jsonl(
-        _claims_path(root),
+        claims_path,
         expected_surface="agent_invocation_claims",
     )
-    claim_event = next(
-        (row for row in claims if row.get("claim_id") == claim_id and row.get("event") == "claimed"),
-        None,
+    claim_event = _validate_claim_identity(
+        claims,
+        claim_id=claim_id,
+        agent_id=agent_id,
+        lease_token=lease_token,
     )
-    if claim_event is None:
-        raise GovernanceError(f"claim {claim_id} not found")
-    if claim_event.get("agent_id") != agent_id:
-        raise GovernanceError(
-            f"claim {claim_id} owned by {claim_event.get('agent_id')!r}, not {agent_id!r}"
-        )
-    if claim_event.get("lease_token_hash") != _hash_lease_token(lease_token):
-        raise GovernanceError(f"claim {claim_id} lease_token mismatch")
-    terminal = [
-        row for row in claims
-        if row.get("claim_id") == claim_id and row.get("event") in {"released", "stale", "human_required"}
-    ]
-    if terminal:
-        raise GovernanceError(
-            f"claim {claim_id} already terminal ({terminal[-1].get('event')})"
-        )
-    # Plan 023 v3 §A-4 — same explicit lease-expiry check on submit.
-    # Pre-fix submit_claim_result accepted past-expiry leases (no
-    # reaper sweep yet) and produced an ACCEPTED row even though the
-    # claim should have been rejected as expired.
-    now_for_lease = _utc_now_dt()
-    # Plan 024 §H-3 — fail-closed expiry resolution; see helper docstring.
-    latest_expires_for_submit = _latest_lease_expiry(claims, claim_id)
-    if latest_expires_for_submit < now_for_lease:
-        raise GovernanceError(
-            f"lease_expired: claim_id={claim_id!r} lease_expires_at="
-            f"{_iso(latest_expires_for_submit)} is past current time "
-            f"{_iso(now_for_lease)}; the reaper sweep has not landed "
-            f"yet but the submission cannot be accepted after expiry"
-        )
 
     request_id = claim_event["request_id"]
     request = _find_request(root, request_id)
     results_path = root / "agent-invocations" / "results.jsonl"
+    transcripts_path = root / "agent-invocations" / "transcripts.jsonl"
+    compliance_path = root / "agent-compliance.jsonl"
+    governance_path = root / "governance.jsonl"
+    initial_results = [
+        row
+        for row in load_declared_jsonl(
+            results_path,
+            expected_surface="agent_invocation_results",
+        )
+        if row.get("claim_id") == claim_id
+    ]
 
-    # Plan 025 §A.1 — read+parse envelope BEFORE the idempotency check.
-    # Why HERE: the idempotency check is now lock-bound + envelope-hash
-    # dedup. Computing the hash requires a parsed envelope; the parse
-    # MUST happen before the lock so the lock window stays minimal and
-    # the unreadable-envelope path keeps its non-idempotent rejection
-    # (no row to compare against; no hash means no drift detect possible
-    # — rejecting unconditionally is the only correct behaviour, and the
-    # rejection persistence still goes inside the lock below for
-    # results.jsonl mutual-exclusion).
+    # A durable journal can outlive mutable executor scratch files. Bind the
+    # retry's identity/path/hash arguments to that journal first, then prefer
+    # its fsynced content-addressed response. A raw source remains mandatory
+    # for fresh submissions and is checked for drift whenever it still exists.
+    journal_row = _submission_journal_row(claims, claim_id=claim_id)
+    initial_prepared: dict[str, Any] | None = None
+    terminal_raw_drift: dict[str, str] | None = None
+    if journal_row is not None:
+        stored_binding = journal_row.get("input_binding")
+        if not isinstance(stored_binding, dict):
+            raise GovernanceError("submit_claim_result_prepared_binding_malformed")
+        submitted_hash = journal_row.get("envelope_evidence_hash")
+        if not isinstance(submitted_hash, str) or not (
+            _is_sha256_digest(submitted_hash)
+            or submitted_hash == "sha256:envelope_unreadable"
+        ):
+            raise GovernanceError("submit_claim_result_prepared_hash_malformed")
+        output_content_hash = stored_binding.get("output_content_hash")
+        if not isinstance(output_content_hash, str) or not _is_sha256_digest(
+            output_content_hash
+        ):
+            raise GovernanceError(
+                "submit_claim_result_prepared_output_hash_malformed"
+            )
+        operation_id = _submission_operation_id(claim_id, submitted_hash)
+        input_binding = _submission_input_binding(
+            root=root,
+            claim_id=claim_id,
+            request_id=request_id,
+            agent_id=agent_id,
+            lease_token_hash=_hash_lease_token(lease_token),
+            submitted_hash=submitted_hash,
+            output=output,
+            output_content_hash=output_content_hash,
+            workspace_root=workspace_root,
+            request_target_sha=(
+                str(request.get("target_sha"))
+                if request.get("target_sha")
+                else None
+            ),
+            context_hash=context_hash,
+            prompt_hash=prompt_hash,
+            transcript_hash=transcript_hash,
+            transcript_artifact_ref=transcript_artifact_ref,
+        )
+        initial_prepared = _load_submission_journal(
+            claims,
+            claim_id=claim_id,
+            request_id=request_id,
+            agent_id=agent_id,
+            operation_id=operation_id,
+            submitted_hash=submitted_hash,
+            input_binding=input_binding,
+        )
+        if initial_prepared is None:  # pragma: no cover - row found above
+            raise GovernanceError("submit_claim_result_prepared_payload_missing")
+        prepared_result = initial_prepared.get("result_row")
+        if (
+            not isinstance(prepared_result, dict)
+            or prepared_result.get("output_hash") != output_content_hash
+        ):
+            raise GovernanceError(
+                "submit_claim_result_prepared_result_binding_mismatch"
+            )
+        sealed_output_bytes, sealed_output_error = (
+            _recoverable_prepared_artifact(
+                root=root,
+                artifact_ref=prepared_result.get("output_path"),
+                expected_hash=output_content_hash,
+                artifact_kind="response",
+            )
+        )
+        try:
+            raw_output_bytes = _read_optional_submission_artifact(output)
+        except OSError as exc:
+            raise GovernanceError(f"output_path_unreadable: {exc}") from exc
+        if raw_output_bytes is not None:
+            raw_output_hash = (
+                "sha256:" + hashlib.sha256(raw_output_bytes).hexdigest()
+            )
+            if raw_output_hash != output_content_hash:
+                if not initial_results:
+                    raise GovernanceError(
+                        "submit_claim_result_prepared_operation_drift: "
+                        "raw response content changed"
+                    )
+                try:
+                    raw_envelope = json.loads(raw_output_bytes.decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    raw_submitted_hash = "sha256:envelope_unreadable"
+                else:
+                    raw_submitted_hash = envelope_hash(raw_envelope)
+                # Terminal valid-JSON replay retains the long-standing
+                # canonical-JSON idempotency contract. The unreadable
+                # sentinel has no semantic payload, so changed raw bytes are
+                # always drift even though both parse to the same sentinel.
+                if (
+                    submitted_hash == "sha256:envelope_unreadable"
+                    or raw_submitted_hash != submitted_hash
+                ):
+                    terminal_raw_drift = {
+                        "raw_output_hash": raw_output_hash,
+                        "raw_submitted_hash": raw_submitted_hash,
+                    }
+        if sealed_output_bytes is not None:
+            output_bytes = sealed_output_bytes
+        elif raw_output_bytes is not None:
+            output_bytes = raw_output_bytes
+        elif sealed_output_error is not None:
+            raise sealed_output_error
+        else:  # pragma: no cover - recoverable helper is exhaustive
+            raise GovernanceError("submission_prepared_response_artifact_missing")
+    else:
+        try:
+            output_bytes = _read_stable_submission_artifact(output)
+        except OSError as exc:
+            raise GovernanceError(f"output_path_unreadable: {exc}") from exc
+        output_content_hash = (
+            "sha256:" + hashlib.sha256(output_bytes).hexdigest()
+        )
+
     envelope_unreadable_error: str | None = None
     envelope: dict[str, Any] | None = None
     try:
-        envelope = json.loads(output.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        envelope = json.loads(output_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         envelope_unreadable_error = str(exc)
 
     if envelope is not None:
-        submitted_hash = envelope_hash(envelope)
+        observed_submitted_hash = envelope_hash(envelope)
     else:
         # Sentinel hash for envelope_unreadable rows. Real envelope hashes
         # are "sha256:" + 64 hex chars; ":envelope_unreadable" is not a
@@ -2922,24 +4556,113 @@ def submit_claim_result(
         # envelope_evidence_hash field non-null on every persisted row,
         # which keeps the legacy-row drift gate (§A.1) from misfiring on
         # rejections written by this same code path.
-        submitted_hash = "sha256:envelope_unreadable"
+        observed_submitted_hash = "sha256:envelope_unreadable"
 
-    # Plan 025 §A.1 — lock-bound results.jsonl idempotency + drift gate.
-    # Mirror of claim_request §H-1 pattern (line 604). All branches that
-    # mutate results.jsonl (idempotent return, drift raise, legacy-drift
-    # raise, every _persist_rejection, the final accepted append) live
-    # INSIDE the lock so concurrent workers cannot both pass the
-    # existing-row check and both append.
-    # `lock_timeout_seconds` is forwarded explicitly so callers (and
-    # tests for lock-contention behaviour) can override the helper's
-    # default without monkey-patching module attributes — None means
-    # "use the helper's default".
-    lock_kwargs: dict[str, Any] = {}
-    if lock_timeout_seconds is not None:
-        lock_kwargs["timeout_seconds"] = lock_timeout_seconds
-    with with_exclusive_lock(results_path, **lock_kwargs):
+    if journal_row is not None:
+        if observed_submitted_hash != submitted_hash:
+            raise GovernanceError(
+                "submit_claim_result_prepared_operation_drift: "
+                "sealed response envelope hash changed"
+            )
+    else:
+        submitted_hash = observed_submitted_hash
+        operation_id = _submission_operation_id(claim_id, submitted_hash)
+        input_binding = _submission_input_binding(
+            root=root,
+            claim_id=claim_id,
+            request_id=request_id,
+            agent_id=agent_id,
+            lease_token_hash=_hash_lease_token(lease_token),
+            submitted_hash=submitted_hash,
+            output=output,
+            output_content_hash=output_content_hash,
+            workspace_root=workspace_root,
+            request_target_sha=(
+                str(request.get("target_sha"))
+                if request.get("target_sha")
+                else None
+            ),
+            context_hash=context_hash,
+            prompt_hash=prompt_hash,
+            transcript_hash=transcript_hash,
+            transcript_artifact_ref=transcript_artifact_ref,
+        )
+    prepared_candidate: dict[str, Any] | None = None
+    journal_candidate: dict[str, Any] | None = None
+    if not initial_results:
+        if initial_prepared is None:
+            _validate_claim_submission_authority(
+                claims,
+                claim_id=claim_id,
+                agent_id=agent_id,
+                lease_token=lease_token,
+                now=_utc_now_dt(),
+            )
+            sealed_output_target = _submission_artifact_target(
+                root,
+                artifact_kind="responses",
+                content_hash=output_content_hash,
+            )
+            prepared_candidate = _prepare_claim_submission(
+                root=root,
+                claim_id=claim_id,
+                request_id=request_id,
+                agent_id=agent_id,
+                request=request,
+                envelope=envelope,
+                envelope_unreadable_error=envelope_unreadable_error,
+                submitted_hash=submitted_hash,
+                output=output,
+                sealed_output=sealed_output_target,
+                output_content_hash=output_content_hash,
+                workspace_root=workspace_root,
+                context_hash=context_hash,
+                prompt_hash=prompt_hash,
+                transcript_hash=transcript_hash,
+                transcript_artifact_ref=transcript_artifact_ref,
+            )
+            journal_candidate = _prepare_submission_journal(
+                prepared=prepared_candidate,
+                operation_id=operation_id,
+                input_binding=input_binding,
+                claim_id=claim_id,
+                request_id=request_id,
+                agent_id=agent_id,
+                submitted_hash=submitted_hash,
+                request=request,
+            )
+    # Claims participates in the same ordered transaction as every result
+    # effect. The authority recheck below is deliberately the first operation
+    # after lock acquisition: release/stale cannot land between the decision
+    # and the durable journal. The journal is first; terminal result is last.
+    with state_transaction(
+        [
+            claims_path,
+            results_path,
+            transcripts_path,
+            compliance_path,
+            governance_path,
+        ],
+        timeout_seconds=lock_timeout_seconds,
+    ) as transaction:
+        locked_claims = transaction.load_declared_jsonl(
+            claims_path,
+            expected_surface="agent_invocation_claims",
+        )
+        locked_claim_event = _validate_claim_identity(
+            locked_claims,
+            claim_id=claim_id,
+            agent_id=agent_id,
+            lease_token=lease_token,
+        )
+        if locked_claim_event.get("request_id") != request_id:
+            raise GovernanceError(
+                "submit_claim_result_claim_request_binding_changed: "
+                f"claim_id={claim_id}"
+            )
+        operation_prepared: dict[str, Any] | None = None
         results_for_claim = [
-            row for row in load_declared_jsonl(
+            row for row in transaction.load_declared_jsonl(
                 results_path,
                 expected_surface="agent_invocation_results",
             )
@@ -2953,20 +4676,109 @@ def submit_claim_result(
                 # was introduced. Drift undecidable: we cannot prove the
                 # incoming envelope matches what was originally accepted.
                 # Fail-closed; operator runs the backfill migration.
-                append_tools_governance(
-                    root,
-                    "agent_result_legacy_row_drift_undecidable",
-                    {
+                event = governance_event(
+                    kind="agent_result_legacy_row_drift_undecidable",
+                    details={
                         "claim_id": claim_id,
                         "submitted_hash": submitted_hash,
                     },
+                )
+                append_tools_governance(
+                    root,
+                    "agent_result_legacy_row_drift_undecidable",
+                    event["details"],
+                    transaction=transaction,
+                    prepared_event=event,
                 )
                 raise GovernanceError(
                     f"submit_claim_result_legacy_row_drift_undecidable: "
                     f"claim_id={claim_id} run migration "
                     f"plan-025-A1-backfill-envelope-hash"
                 )
+            if terminal_raw_drift is not None:
+                event = governance_event(
+                    kind="agent_result_duplicate_with_drift",
+                    details={
+                        "claim_id": claim_id,
+                        "existing_hash": existing_hash,
+                        "submitted_hash": terminal_raw_drift[
+                            "raw_submitted_hash"
+                        ],
+                        "existing_output_hash": existing.get("output_hash"),
+                        "submitted_output_hash": terminal_raw_drift[
+                            "raw_output_hash"
+                        ],
+                    },
+                )
+                append_tools_governance(
+                    root,
+                    "agent_result_duplicate_with_drift",
+                    event["details"],
+                    transaction=transaction,
+                    prepared_event=event,
+                )
+                raise GovernanceError(
+                    "submit_claim_result_duplicate_with_drift: "
+                    f"claim_id={claim_id} raw response content changed"
+                )
             if existing_hash == submitted_hash:
+                if (
+                    submitted_hash == "sha256:envelope_unreadable"
+                    and existing.get("output_hash") != output_content_hash
+                ):
+                    event = governance_event(
+                        kind="agent_result_duplicate_with_drift",
+                        details={
+                            "claim_id": claim_id,
+                            "existing_hash": existing_hash,
+                            "submitted_hash": submitted_hash,
+                            "existing_output_hash": existing.get("output_hash"),
+                            "submitted_output_hash": output_content_hash,
+                        },
+                    )
+                    append_tools_governance(
+                        root,
+                        "agent_result_duplicate_with_drift",
+                        event["details"],
+                        transaction=transaction,
+                        prepared_event=event,
+                    )
+                    raise GovernanceError(
+                        "submit_claim_result_duplicate_with_drift: "
+                        f"claim_id={claim_id} unreadable output bytes changed"
+                    )
+                operation_prepared = _load_submission_journal(
+                    locked_claims,
+                    claim_id=claim_id,
+                    request_id=request_id,
+                    agent_id=agent_id,
+                    operation_id=operation_id,
+                    submitted_hash=submitted_hash,
+                    input_binding=input_binding,
+                    require_input_binding=(envelope is None),
+                )
+                if operation_prepared is not None:
+                    _verify_prepared_submission_artifacts(
+                        root=root,
+                        prepared=operation_prepared,
+                    )
+                    expected_result = operation_prepared.get("result_row")
+                    if (
+                        not isinstance(expected_result, dict)
+                        or _logical_ledger_row(existing) != expected_result
+                    ):
+                        raise GovernanceError(
+                            "submit_claim_result_operation_effect_drift: "
+                            f"operation_id={operation_id} effect=result"
+                        )
+                    _assert_submission_side_effects_complete(
+                        transaction=transaction,
+                        prepared=operation_prepared,
+                        operation_id=operation_id,
+                        transcripts_path=transcripts_path,
+                        compliance_path=compliance_path,
+                        governance_path=governance_path,
+                    )
                 # Plan 025 §A.1 — byte-identical envelope replay (same
                 # canonical-JSON hash). This is the legitimate idempotent
                 # path: a worker retrying after a network blip submits
@@ -2975,13 +4787,19 @@ def submit_claim_result(
                 # remains within 500 chars before
                 # submit_claim_result_already_persisted (file_lock test
                 # source-scan invariant).
-                append_tools_governance(
-                    root,
-                    "agent_result_idempotent_replay",
-                    {
+                event = governance_event(
+                    kind="agent_result_idempotent_replay",
+                    details={
                         "claim_id": claim_id,
                         "submitted_hash": submitted_hash,
                     },
+                )
+                append_tools_governance(
+                    root,
+                    "agent_result_idempotent_replay",
+                    event["details"],
+                    transaction=transaction,
+                    prepared_event=event,
                 )
                 return {
                     "status": "idempotent",
@@ -2999,14 +4817,20 @@ def submit_claim_result(
             # contract change (which would be a new claim, not a
             # duplicate) or an attacker / replay attempting to overwrite
             # an accepted result.
-            append_tools_governance(
-                root,
-                "agent_result_duplicate_with_drift",
-                {
+            event = governance_event(
+                kind="agent_result_duplicate_with_drift",
+                details={
                     "claim_id": claim_id,
                     "existing_hash": existing_hash,
                     "submitted_hash": submitted_hash,
                 },
+            )
+            append_tools_governance(
+                root,
+                "agent_result_duplicate_with_drift",
+                event["details"],
+                transaction=transaction,
+                prepared_event=event,
             )
             raise GovernanceError(
                 f"submit_claim_result_duplicate_with_drift: "
@@ -3014,246 +4838,80 @@ def submit_claim_result(
                 f"submitted_hash={submitted_hash}"
             )
 
-        # No existing row → proceed with validation + persist. All
-        # _persist_rejection callsites and the final accepted append
-        # stay inside the lock.
-        if envelope_unreadable_error is not None:
-            rejection_row = _build_rejection_row(
-                claim_id=claim_id,
-                request_id=request_id,
-                agent_id=agent_id,
-                output_path=output,
-                reasons=[f"envelope_unreadable: {envelope_unreadable_error}"],
-                envelope_evidence_hash=submitted_hash,
-            )
-            persisted_rejection = _append_declared_jsonl_unlocked(
-                results_path,
-                rejection_row,
-                expected_surface="agent_invocation_results",
-            )
-            return _rejection_response(
-                root=root,
-                persisted=persisted_rejection,
-                claim_id=claim_id,
-                request_id=request_id,
-                agent_id=agent_id,
-                reasons=[f"envelope_unreadable: {envelope_unreadable_error}"],
-                envelope_evidence_hash=submitted_hash,
-            )
-
-        reasons: list[str] = []
-        try:
-            # Plan 023 v3 §A-5 — bind envelope claim_id / agent_id to the
-            # leased identity. submit_claim_result's `claim_id` and
-            # `agent_id` parameters are the leased identity (already
-            # validated against claim_event above); pass them as lease
-            # so validate_response rejects any envelope whose claim_id or
-            # agent_id differs.
-            validate_response(
-                envelope,
-                request=_strict_request_view(request),
-                lease={"claim_id": claim_id, "agent_id": agent_id},
-            )
-        except GovernanceError as exc:
-            reasons.append(f"response_schema: {exc}")
-        try:
-            enforce_separation_of_duties(
-                request=_strict_request_view(request), submitter_agent_id=agent_id
-            )
-        except GovernanceError as exc:
-            reasons.append(f"separation_of_duties: {exc}")
-        # ORPHAN-HIGH-573 — `verify_no_secret_in_envelope` describes itself as
-        # "Hard-fail check — scan agent response envelope before kernel
-        # persists", was exported, was tested, and was called by nothing. Its
-        # sibling `verify_no_secret_in_diff` IS wired, so diffs were scanned
-        # and the envelope carrying agent stdout, stderr and validation_results
-        # was not — the exact leak path its docstring names. This is that
-        # caller, at the moment the docstring specifies.
-        #
-        # The exception message is redacted by construction (pattern name +
-        # count, never the matched value), so appending it to `reasons` cannot
-        # move a secret into the rejection row.
-        try:
-            from .implementation_safety import SecretLeakDetected, verify_no_secret_in_envelope
-
-            verify_no_secret_in_envelope(envelope)
-        except SecretLeakDetected as exc:
-            reasons.append(f"secret_in_envelope: {exc}")
-        revalidation = validate_agent_response_evidence(
-            response=envelope,
-            workspace_root=workspace_root,
-            request=_strict_request_view(request),
-        )
-        if not revalidation["valid"]:
-            reasons.extend(f"evidence: {error}" for error in revalidation["errors"])
-
-        if reasons:
-            rejection_row = _build_rejection_row(
-                claim_id=claim_id,
-                request_id=request_id,
-                agent_id=agent_id,
-                output_path=output,
-                reasons=reasons,
-                envelope_evidence_hash=submitted_hash,
-            )
-            persisted_rejection = _append_declared_jsonl_unlocked(
-                results_path,
-                rejection_row,
-                expected_surface="agent_invocation_results",
-            )
-            return _rejection_response(
-                root=root,
-                persisted=persisted_rejection,
-                claim_id=claim_id,
-                request_id=request_id,
-                agent_id=agent_id,
-                reasons=reasons,
-                envelope_evidence_hash=submitted_hash,
-            )
-
-        # Plan 020 Phase 7.B — agent compliance gate.
-        # Why HERE (after validate_response succeeds, before result accepted):
-        # validate_response checks the schema + matrix + evidence references.
-        # Compliance grades whether the agent followed the response CONTRACT
-        # (must_satisfy completeness, evidence schema validity, output path
-        # match, banned-phrase in body, response order, refusal envelope).
-        # Compliance failure converts an otherwise-acceptable response into a
-        # REJECTED result with rejection_reason='compliance_rejected'. The
-        # 10-state lifecycle stays intact (rejection_reason annotates the
-        # existing REJECTED state; no 11th state added).
-        from .agent_compliance import (
-            COMPLIANCE_REJECTION_REASON,
-            record_compliance_grade,
-        )
-        compliance = record_compliance_grade(
+        operation_prepared = _load_submission_journal(
+            locked_claims,
             claim_id=claim_id,
-            request=request,
-            response=envelope,
-            response_path=output,
-            workspace_root=Path(workspace_root).resolve() if workspace_root else None,
-            base_dir=base_dir,
-        )
-        if compliance.get("rejection"):
-            rejection_reasons = [
-                f"compliance: {COMPLIANCE_REJECTION_REASON} "
-                f"(hard_fail={compliance.get('hard_fail_count', 0)}, "
-                f"soft_fail={compliance.get('soft_fail_count', 0)})"
-            ]
-            rejection_row = _build_rejection_row(
-                claim_id=claim_id,
-                request_id=request_id,
-                agent_id=agent_id,
-                output_path=output,
-                reasons=rejection_reasons,
-                envelope_evidence_hash=submitted_hash,
-            )
-            persisted_rejection = _append_declared_jsonl_unlocked(
-                results_path,
-                rejection_row,
-                expected_surface="agent_invocation_results",
-            )
-            return _rejection_response(
-                root=root,
-                persisted=persisted_rejection,
-                claim_id=claim_id,
-                request_id=request_id,
-                agent_id=agent_id,
-                reasons=rejection_reasons,
-                envelope_evidence_hash=submitted_hash,
-            )
-
-        # Accepted path.
-        request_context_hash = str(request.get("context_hash") or "")
-        request_prompt_hash = str(request.get("prompt_hash") or "")
-        if not request_context_hash or not request_prompt_hash:
-            raise GovernanceError("submit_claim_result_request_missing_context_prompt_binding")
-        if context_hash != request_context_hash:
-            raise GovernanceError("submit_claim_result_context_hash_binding_mismatch")
-        if prompt_hash != request_prompt_hash:
-            raise GovernanceError("submit_claim_result_prompt_hash_binding_mismatch")
-        if not transcript_hash:
-            raise GovernanceError("submit_claim_result_transcript_hash_required")
-        if not transcript_artifact_ref:
-            raise GovernanceError("submit_claim_result_transcript_artifact_ref_required")
-        verified_transcript_artifact = _verify_transcript_artifact_ref(
-            artifact_ref=transcript_artifact_ref,
-            transcript_hash=str(transcript_hash),
-            workspace_root=workspace_root,
-        )
-        if verified_transcript_artifact == output.resolve():
-            raise GovernanceError("transcript_artifact_must_not_be_output_envelope")
-        verify_invocation_context_binding(
             request_id=request_id,
-            context_hash=str(context_hash),
-            prompt_hash=str(prompt_hash),
-            base_dir=root,
+            agent_id=agent_id,
+            operation_id=operation_id,
+            submitted_hash=submitted_hash,
+            input_binding=input_binding,
         )
-        output_hash = "sha256:" + hashlib.sha256(output.read_bytes()).hexdigest()
-        # Plan 026R §C.2 — write BOTH ``output_hash`` (modern submit
-        # path field name) AND ``content_hash`` (legacy
-        # submit_agent_invocation_result field name at line 290).
-        # Cross-review (§C.4) and convergent-planning consumers query
-        # by ``content_hash``; pre-§C.2 the modern accepted-row didn't
-        # write that field so the lookup permanently returned None,
-        # silently bypassing the convergence pair check.
-        # Plan 026R §C.5 — ``bridge_status`` field reflects the role
-        # at WRITE time. The result row in results.jsonl is IMMUTABLE;
-        # subsequent state lives in agent-result-bridge-status.jsonl.
-        from .bridge_status_ledger import bridge_status_for_role
-        envelope_role = envelope.get("role")
-        row = {
-            "$schema": "aria/agent-claim-result/v1",
-            "schema_version": 1,
-            "row_id": f"result:{claim_id}",
-            "row_type": "result",
-            "claim_id": claim_id,
-            "request_id": request_id,
-            "agent_id": agent_id,
-            "role": envelope_role,
-            "status": "accepted",
-            # Y6 (ORPHAN-707) — store-relative so the row survives a store
-            # restore on a different root; readers resolve through
-            # resolve_output_artifact_path.
-            "output_path": store_relative_artifact_path(root, output),
-            "output_hash": output_hash,
-            "content_hash": output_hash,  # §C.2 alias
-            "envelope_evidence_hash": submitted_hash,
-            "invocation_id": claim_id,
-            "context_hash": context_hash,
-            "prompt_hash": prompt_hash,
-            "transcript_hash": transcript_hash,
-            "transcript_artifact_ref": verified_transcript_artifact.as_posix(),
-            "bridge_status": bridge_status_for_role(envelope_role),  # §C.5
-            "checked_evidence_count": len(revalidation["checked_refs"]),
-            "submitted_at": utc_now(),
-        }
-        # Plan 026R §A.1 — caller already holds with_exclusive_lock(results_path)
-        # at line 936; use the unlocked helper to avoid POSIX flock re-acquisition.
-        persisted = _append_declared_jsonl_unlocked(
+        fresh_operation = False
+        if operation_prepared is None:
+            _locked_claim_event, locked_expiry = (
+                _validate_claim_submission_authority(
+                    locked_claims,
+                    claim_id=claim_id,
+                    agent_id=agent_id,
+                    lease_token=lease_token,
+                    now=_utc_now_dt(),
+                )
+            )
+            if prepared_candidate is None or journal_candidate is None:
+                raise GovernanceError(
+                    "submit_claim_result_prepared_candidate_missing"
+                )
+            journal_candidate["lease_expires_at"] = _iso(locked_expiry)
+            transaction.append_declared_jsonl(
+                claims_path,
+                journal_candidate,
+                expected_surface="agent_invocation_claims",
+            )
+            operation_prepared = journal_candidate["prepared"]
+            fresh_operation = True
+
+        transcript_effect_exists = any(
+            row.get("submission_operation_id") == operation_id
+            and row.get("submission_effect") == "transcript"
+            for row in transaction.load_declared_jsonl(
+                transcripts_path,
+                expected_surface="agent_invocation_transcripts",
+            )
+        )
+        _seal_pending_submission_artifacts(
+            root=root,
+            prepared=operation_prepared,
+            output_bytes=output_bytes,
+            output_content_hash=output_content_hash,
+            workspace_root=workspace_root,
+            transcript_hash=transcript_hash,
+            transcript_artifact_ref=transcript_artifact_ref,
+            transcript_effect_exists=transcript_effect_exists,
+            prepared_candidate=(prepared_candidate if fresh_operation else None),
+        )
+
+        _persist_submission_side_effects(
+            transaction=transaction,
+            root=root,
+            prepared=operation_prepared,
+            operation_id=operation_id,
+            transcripts_path=transcripts_path,
+            compliance_path=compliance_path,
+            governance_path=governance_path,
+        )
+        result_row = operation_prepared.get("result_row")
+        if not isinstance(result_row, dict):
+            raise GovernanceError("submit_claim_result_prepared_result_malformed")
+        persisted = transaction.append_declared_jsonl(
             results_path,
-            row,
+            result_row,
             expected_surface="agent_invocation_results",
         )
-        append_tools_governance(
-            root,
-            "agent_result_accepted",
-            {
-                "claim_id": claim_id,
-                "request_id": request_id,
-                "agent_id": agent_id,
-                "output_hash": output_hash,
-                "envelope_evidence_hash": submitted_hash,
-            },
-        )
-        if transcript_hash:
-            record_transcript(
-                invocation_id=claim_id,
-                claim_id=claim_id,
-                request_id=request_id,
-                target_agent=str(request.get("target_agent") or agent_id),
-                transcript_hash=str(transcript_hash),
-                artifact_ref=verified_transcript_artifact.as_posix(),
-                base_dir=root,
+        if operation_prepared.get("status") == "rejected":
+            return _rejection_response(
+                persisted=persisted,
+                reasons=list(operation_prepared.get("reasons") or []),
             )
 
     # Plan 016 Faz C5/C6 bridge: route the accepted envelope to the
@@ -3325,7 +4983,8 @@ def _build_rejection_row(
     claim_id: str,
     request_id: str,
     agent_id: str,
-    output_path: Path,
+    output_path: str,
+    output_hash: str,
     reasons: list[str],
     envelope_evidence_hash: str,
     transcript_hash: str | None = None,
@@ -3336,21 +4995,9 @@ def _build_rejection_row(
     # or rejected — carries the hash so the §A.1 idempotency gate can
     # decide drift vs. byte-identical replay vs. legacy-undecidable on
     # the next submit attempt.
-    # Plan 026R §C.2 — write BOTH ``output_hash`` and ``content_hash``
-    # on rejection rows too so cross-review / convergence consumers
-    # resolve the hash regardless of acceptance status. Compute from
-    # the on-disk output file when it exists; null when the output
-    # path is empty / unreadable (e.g. envelope_unreadable rejections
-    # at line 1138).
-    rejection_output_hash: str | None = None
-    try:
-        if output_path.exists() and output_path.is_file():
-            rejection_output_hash = (
-                "sha256:"
-                + hashlib.sha256(output_path.read_bytes()).hexdigest()
-            )
-    except OSError:
-        rejection_output_hash = None
+    # The caller supplies path + hash from the one stable FD snapshot.
+    # Re-reading here would let validation and the rejection row bind
+    # different bytes.
     row = {
         "$schema": "aria/agent-claim-result/v1",
         "schema_version": 1,
@@ -3360,9 +5007,9 @@ def _build_rejection_row(
         "request_id": request_id,
         "agent_id": agent_id,
         "status": "rejected",
-        "output_path": output_path.resolve().as_posix(),
-        "output_hash": rejection_output_hash,
-        "content_hash": rejection_output_hash,  # §C.2 alias
+        "output_path": output_path,
+        "output_hash": output_hash,
+        "content_hash": output_hash,  # §C.2 alias
         "rejection_reasons": reasons,
         "envelope_evidence_hash": envelope_evidence_hash,
         "invocation_id": claim_id,
@@ -3374,25 +5021,10 @@ def _build_rejection_row(
 
 def _rejection_response(
     *,
-    root: Path,
     persisted: dict[str, Any],
-    claim_id: str,
-    request_id: str,
-    agent_id: str,
     reasons: list[str],
-    envelope_evidence_hash: str,
 ) -> dict[str, Any]:
-    append_tools_governance(
-        root,
-        "agent_result_rejected",
-        {
-            "claim_id": claim_id,
-            "request_id": request_id,
-            "agent_id": agent_id,
-            "rejection_reasons_count": len(reasons),
-            "envelope_evidence_hash": envelope_evidence_hash,
-        },
-    )
+    """Return a response only after the caller's terminal append succeeds."""
     return {"status": "rejected", "reasons": reasons, "row": persisted}
 
 
@@ -3449,59 +5081,106 @@ def reap_stale_claims(
     """
     root = ensure_tools_dir(base_dir)
     ts = now or _utc_now_dt()
+    claims_path = _claims_path(root)
+    results_path = root / "agent-invocations" / "results.jsonl"
     claims = load_declared_jsonl(
-        _claims_path(root),
+        claims_path,
         expected_surface="agent_invocation_claims",
     )
-    # Identify claims still in flight (claimed/heartbeat without later released/stale/human_required).
-    by_claim: dict[str, list[dict[str, Any]]] = {}
-    for row in claims:
-        cid = row.get("claim_id")
-        if not cid:
+    candidate_ids = list(dict.fromkeys(
+        str(row["claim_id"])
+        for row in claims
+        if row.get("claim_id") and row.get("event") == "claimed"
+    ))
+    reaped: dict[str, list[dict[str, Any]]] = {
+        "stale": [],
+        "requeued": [],
+        "human_required": [],
+    }
+    for cid in candidate_ids:
+        governance_details: dict[str, Any] | None = None
+        with state_transaction([claims_path, results_path]) as transaction:
+            locked_claims = transaction.load_declared_jsonl(
+                claims_path,
+                expected_surface="agent_invocation_claims",
+            )
+            locked_results = transaction.load_declared_jsonl(
+                results_path,
+                expected_surface="agent_invocation_results",
+            )
+            if (
+                _claim_terminal_event(locked_claims, cid) is not None
+                or _claim_has_result(locked_results, cid)
+                or _claim_has_prepared_submission(locked_claims, cid)
+            ):
+                continue
+            claim_event = next(
+                (
+                    row
+                    for row in locked_claims
+                    if row.get("claim_id") == cid
+                    and row.get("event") == "claimed"
+                ),
+                None,
+            )
+            if claim_event is None:
+                continue
+            expires = _latest_lease_expiry(locked_claims, cid)
+            if expires >= ts:
+                continue
+            request_id = str(claim_event.get("request_id") or "")
+            agent_id = claim_event.get("agent_id")
+            stale_row = {
+                "schema_version": 1,
+                "event": "stale",
+                "claim_id": cid,
+                "request_id": request_id,
+                "agent_id": agent_id,
+                "stale_at": _iso(ts),
+                "lease_expires_at": _iso(expires),
+            }
+            transaction.append_declared_jsonl(
+                claims_path,
+                stale_row,
+                expected_surface="agent_invocation_claims",
+            )
+            requeue_count = (
+                _request_fault_requeue_count(locked_claims, request_id) + 1
+            )
+            kind = (
+                "requeued"
+                if requeue_count <= DEFAULT_MAX_REQUEUES
+                else "human_required"
+            )
+            followup = {
+                "schema_version": 1,
+                "event": kind,
+                "claim_id": cid,
+                "request_id": request_id,
+                "at": _iso(ts),
+                "requeue_count": requeue_count,
+                "reason": "lease_expired",
+            }
+            transaction.append_declared_jsonl(
+                claims_path,
+                followup,
+                expected_surface="agent_invocation_claims",
+            )
+            reaped["stale"].append(stale_row)
+            reaped[kind].append(followup)
+            governance_details = {
+                "claim_id": cid,
+                "request_id": request_id,
+                "requeue_count": requeue_count,
+                "reason": "lease_expired",
+                "kind": kind,
+            }
+        if governance_details is None:
             continue
-        by_claim.setdefault(cid, []).append(row)
-    reaped: dict[str, list[dict[str, Any]]] = {"stale": [], "requeued": [], "human_required": []}
-    for cid, events in by_claim.items():
-        if any(e.get("event") in {"released", "stale", "human_required"} for e in events):
-            continue
-        latest = events[-1]
-        expires = _parse_iso(latest.get("lease_expires_at"))
-        if expires is None or expires >= ts:
-            continue
-        request_id = latest.get("request_id")
-        agent_id = latest.get("agent_id")
-        stale_row = {
-            "schema_version": 1,
-            "event": "stale",
-            "claim_id": cid,
-            "request_id": request_id,
-            "agent_id": agent_id,
-            "stale_at": _iso(ts),
-            "lease_expires_at": latest.get("lease_expires_at"),
-        }
-        append_declared_jsonl(_claims_path(root), stale_row, expected_surface="agent_invocation_claims")
-        reaped["stale"].append(stale_row)
-        # Reload once to keep _request_event_count accurate after each append.
-        claims_after = load_declared_jsonl(
-            _claims_path(root),
-            expected_surface="agent_invocation_claims",
-        )
-        requeue_count = _request_fault_requeue_count(claims_after, request_id) + 1
-        kind = "requeued" if requeue_count <= DEFAULT_MAX_REQUEUES else "human_required"
-        followup = {
-            "schema_version": 1,
-            "event": kind,
-            "claim_id": cid,
-            "request_id": request_id,
-            "at": _iso(ts),
-            "requeue_count": requeue_count,
-            "reason": "lease_expired",
-        }
-        append_declared_jsonl(_claims_path(root), followup, expected_surface="agent_invocation_claims")
-        reaped[kind].append(followup)
+        kind = str(governance_details.pop("kind"))
         append_tools_governance(
             root,
             f"agent_claim_{kind}",
-            {"claim_id": cid, "request_id": request_id, "requeue_count": requeue_count, "reason": "lease_expired"},
+            governance_details,
         )
     return reaped

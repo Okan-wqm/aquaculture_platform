@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .file_lock import with_exclusive_lock
+from .strict_jsonl_reader import read_strict_jsonl
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_binding
 
 
@@ -493,24 +494,27 @@ def _load_jsonl(path: Path, *, since_ts: datetime | None = None) -> list[dict[st
     """Load JSONL rows, optionally filtered by ts >= since_ts."""
     if not path.exists():
         return []
-    rows: list[dict[str, Any]] = []
     try:
-        with path.open("r", encoding="utf-8") as fh:
-            for line in fh:
-                if not line.strip():
-                    continue
-                try:
-                    row = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if since_ts is not None:
-                    ts = _parse_iso(row.get("ts") or row.get("occurred_at"))
-                    if ts is None or ts < since_ts:
-                        continue
-                rows.append(row)
+        rows = list(
+            read_strict_jsonl(
+                path,
+                on_corruption="tolerant",
+                base_dir=path.parent,
+            )
+        )
     except OSError:
         return []
-    return rows
+    if since_ts is None:
+        return rows
+    return [
+        row
+        for row in rows
+        if (
+            (ts := _parse_iso(row.get("ts") or row.get("occurred_at")))
+            is not None
+            and ts >= since_ts
+        )
+    ]
 
 
 # ─── Daemon loop ─────────────────────────────────────────────────────────

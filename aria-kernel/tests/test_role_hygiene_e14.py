@@ -304,7 +304,8 @@ class ConsensusArbitrationMinterTest(_ToolsDirTest):
             tool_id="tool-a", run_id="run-1", finding_id="F-1",
             verdict="true_positive", severity="high", note="consensus",
             source_type="ai_consensus", judge_id="aria-consensus-arbiter",
-            judgment_group_id="judge:tool-a:run-1:F-1", base_dir=self.tools,
+            judgment_group_id="judge:tool-a:run-1:F-1", judge_count=2,
+            judges_voted=2, base_dir=self.tools,
         )
 
         self.assertEqual(split_verdict_groups(tool_id="tool-a", base_dir=self.tools), [])

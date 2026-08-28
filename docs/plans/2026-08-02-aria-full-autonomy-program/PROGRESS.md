@@ -1,5 +1,12 @@
 # ARIA Full-Autonomy Program — Progress Log
 
+> **HISTORICAL — superseded as executable authority (2026-08-22):** This log
+> preserves the earlier program's measurements and checklist outcomes. Current
+> execution is governed by
+> `docs/superpowers/plans/2026-08-22-aria-end-to-end-autonomy-closure.md` and the
+> verified boundary in `docs/aria/CURRENT_STATE.md`; this banner changes no
+> historical completion state.
+
 Program plan: [`PLAN.md`](./PLAN.md). Newest entries first.
 
 ## 2026-08-07 — the alarm nobody heard, and the bind that was spelled as a migration

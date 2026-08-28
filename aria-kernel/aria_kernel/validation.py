@@ -133,10 +133,21 @@ def run_validation_commands(
 
     ``change_id``, ``commit_sha`` and ``runner_identity`` are REQUIRED and
     resolved, not merely non-empty: the change must exist in the change
-    ledger and the commit must exist in the workspace repository. A
+    ledger and the commit must be the one the commands actually run at. A
     caller that cannot supply real provenance gets a named
     ``GovernanceError`` — never a placeholder row, because a placeholder
     row is evidence the merge gate would then honour.
+
+    ORPHAN-CRITICAL-728 — ``commit_sha`` is VERIFIED against the workspace
+    HEAD, not merely resolved. Resolving proved only that the sha named some
+    commit in the repository, and the commands run in ``workspace_root`` at
+    whatever is checked out: ``apply_engine.run_apply_gate`` passed the tip
+    of the implementation branch while HEAD sat on main, so every row in the
+    ``validation-runs`` ledger — the ledger the merge gate joins on — claimed
+    provenance the run did not have, and the gate promoted the action to
+    ``ready_for_pr`` on it. A caller still NAMES the commit it believes it is
+    validating, because a wrong belief must be refused loudly rather than
+    silently relabelled to HEAD.
     """
     if not commands or not all(isinstance(command, str) and command.strip() for command in commands):
         raise GovernanceError("validation commands must contain at least one non-empty command")
@@ -146,7 +157,7 @@ def run_validation_commands(
     if not root.exists() or not root.is_dir():
         raise GovernanceError(f"workspace root does not exist: {workspace_root}")
     _assert_change_id_resolves(change_id, base_dir=base_dir)
-    _assert_commit_sha_resolves(root, commit_sha)
+    _assert_commit_sha_is_workspace_head(root, commit_sha)
     if require_clean_worktree and _dirty_worktree(root):
         raise GovernanceError("validation requires a clean git worktree")
 
@@ -204,22 +215,46 @@ def _assert_change_id_resolves(
         )
 
 
-def _assert_commit_sha_resolves(root: Path, commit_sha: str) -> None:
-    """Refuse a commit_sha the workspace repository cannot resolve."""
-    if not isinstance(commit_sha, str) or not commit_sha.strip():
-        raise GovernanceError("validation_commit_sha_required")
+def _rev_parse(root: Path, rev: str) -> str | None:
     completed = subprocess.run(
-        ["git", "rev-parse", "--verify", "--quiet", f"{commit_sha}^{{commit}}"],
+        ["git", "rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}"],
         cwd=root,
         capture_output=True,
         text=True,
         check=False,
     )
     if completed.returncode != 0:
+        return None
+    return completed.stdout.strip() or None
+
+
+def _assert_commit_sha_is_workspace_head(root: Path, commit_sha: str) -> None:
+    """Refuse a commit_sha that is not the commit the commands will run at.
+
+    ORPHAN-CRITICAL-728 — the check used to stop at "does this sha resolve".
+    Resolving is not provenance: the runs execute in ``root`` at HEAD, so any
+    other sha in the row is a claim about a tree that was never measured.
+    """
+    if not isinstance(commit_sha, str) or not commit_sha.strip():
+        raise GovernanceError("validation_commit_sha_required")
+    claimed = _rev_parse(root, commit_sha)
+    if claimed is None:
         raise GovernanceError(
             f"validation_commit_sha_unresolvable: {commit_sha!r} does not "
             f"resolve to a commit in {root.as_posix()}; a validation run "
             f"must name the commit it actually ran against"
+        )
+    head = _rev_parse(root, "HEAD")
+    if head is None:
+        raise GovernanceError(
+            f"validation_head_unresolvable: {root.as_posix()} has no HEAD "
+            f"commit, so no run executed there can carry provenance"
+        )
+    if claimed != head:
+        raise GovernanceError(
+            f"validation_commit_sha_is_not_head: the run would execute at "
+            f"HEAD={head} but the caller named {claimed}; check the intended "
+            f"commit out before recording evidence against it"
         )
 
 

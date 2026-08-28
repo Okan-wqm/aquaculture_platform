@@ -27,7 +27,7 @@ name: ARIA External Watchdog
 
 on:
   schedule:
-    # 08:40 UTC — after both watched lanes (producer 01:00, executor 05:16)
+    # 08:40 UTC — after both watched lanes (producer 01:13, executor 02:29)
     # have had their night, early enough that an operator reads it with the day.
     - cron: '40 8 * * *'
   workflow_dispatch: {}

@@ -24,7 +24,11 @@ writeFileSync(
   'utf8',
 );
 
-const output = analyzeDocStaleness({}, workspace);
+// The scan surface is declared once, in doc-staleness-adapter.tool.json
+// (default_input.roots). A test that omitted it used to inherit a second
+// copy inside the adapter, so it could keep passing while production
+// scanned a different set. It says what it scans now.
+const output = analyzeDocStaleness({ roots: ['docs'] }, workspace);
 
 assert.equal(output.findings.length, 1, JSON.stringify(output.findings));
 const [finding] = output.findings;

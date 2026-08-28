@@ -9,6 +9,7 @@ import {
   isArchivedWorkspacePath,
   normalizeWorkspacePath,
   readWorkspaceFile,
+  requireScanRoots,
   resolveInsideWorkspace as resolveAdapterPath,
   workspacePathExists,
 } from './adapter-fs';
@@ -99,10 +100,9 @@ interface PathAlias {
   readonly targets: readonly string[];
 }
 
-const DEFAULT_ROOTS = ['apps', 'libs', 'platform/libs', 'web'];
 
 export function analyzeTestGaps(input: AdapterInput, workspaceRoot = process.cwd()): AriaOutput {
-  const roots = input.roots ?? DEFAULT_ROOTS;
+  const roots = requireScanRoots('test-gap-adapter', input.roots);
   const allowlist = new Set((input.allowlist ?? []).map(normalizePath));
   const files = roots
     .map((root) => resolveInsideWorkspace(workspaceRoot, root))

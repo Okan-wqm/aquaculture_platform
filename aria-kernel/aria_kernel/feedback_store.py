@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import hashlib
 import fnmatch
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -15,11 +16,272 @@ from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
 FEEDBACK_VERDICTS = ("true_positive", "false_positive")
+
+# ORPHAN-MEDIUM-785 — how far back the judgment sampler looks when the
+# current cycle's own runs are thin or absent. The exact-cycle filter
+# starved the judge lane on every night without fresh adapter runs (a
+# failed tools phase, a cancelled night, an empty queue): findings
+# produced on OTHER recent nights became permanently unsampleable, so
+# cross-night accumulation was impossible even with the fingerprint
+# threading fixed. The window matches the operator-facing week, not the
+# anchor TTL — a judge envelope's 3-day clock starts at MINT, so a
+# several-day-old finding is still fresh enough to judge; month-old
+# findings are not, and stay out.
+SAMPLE_RECENCY_HOURS = 168
+
+# ORPHAN-CRITICAL-735 — the CLOSED vocabulary of consensus-uncertainty
+# reasons. Every _consensus_uncertainty call site below uses a member;
+# the agent-arbiter bridge (judgment_bridge) validates against THIS
+# tuple, so the deterministic engine and the agent lane cannot drift
+# apart on what counts as a legitimate non-verdict outcome.
+CONSENSUS_UNCERTAINTY_REASONS = (
+    "conformal_abstain",
+    "evidence_not_repo_verified",
+    "judge_disagreement",
+    "low_confidence",
+    "missing_confidence",
+    "single_judge",
+)
 FEEDBACK_SEVERITIES = ("low", "medium", "high", "critical")
 FEEDBACK_SOURCE_TYPES = ("human", "ai_judge", "ai_consensus")
 JUDGMENT_STRATEGIES = ("stratified_by_uncertainty", "stratified_by_rule", "random")
 DEFAULT_MIN_JUDGED_SAMPLES = 10
 CONSENSUS_MIN_CONFIDENCE = 0.80
+
+# JJ-1 (ORPHAN-HIGH-731) - the ANCHOR class of consensus.
+#
+# WHY: a 2-judge consensus is two opinions that happened to agree; nothing
+# ever examined the agreement itself. Every reader that treats a consensus
+# row as GROUND TRUTH - false-positive suppression, rule_health quarantine,
+# goldset proposal, judge calibration - was therefore scoring the judge
+# fleet against the fleet's own unexamined pair, so one correlated blind
+# spot in those two judges became permanent repository "truth".
+#
+# An ANCHOR is a consensus that survived a THIRD judge (the arbiter, minted
+# even when the first two agree - that mint IS the judges-judging-judges
+# requirement). SURVIVED, not outvoted: the arbiter is minted to REFUTE the
+# pair, so counting him as backing when he refused to back is the thesis
+# inverted. Routine consensus stays 2-judge because the arbiter costs an
+# LLM call and the adapter-precision lane (tool_health.compute_metrics)
+# deliberately reads the looser set (ORPHAN-CRITICAL-643). The difference is
+# carried EXPLICITLY on the row as (judge_count, judges_voted) - how many
+# AGREED and how many VOTED - never re-derived per reader, so "is this
+# ground truth?" has exactly one answer everywhere.
+ANCHOR_MIN_JUDGE_COUNT = 3
+# JJ-3 (ORPHAN-HIGH-755) - WHAT a judgment settled, written beside WHO settled
+# it. `source_type` says how much authority a row carries; it never said what
+# the row is ABOUT, so every ground-truth reader silently assumed "a finding
+# this adapter emitted". The belief-escalation bridges break that assumption:
+# they file a verdict on a BELIEF into the ledger of whichever adapter the
+# escalation named, and an adapter's finding-precision lane must not read it
+# as evidence about its own findings.
+#
+# Absent reads as "finding": every row written before this field existed is a
+# finding judgment (the ledger held zero belief rows when it was added), so the
+# default is the historical corpus's own value rather than a guess.
+# G-2 (ORPHAN-HIGH-760) — how many DISTINCT MODELS must stand behind an
+# anchor. Two judges that agreed are two votes only if two different systems
+# produced them; the same model asked twice is one observation with a
+# duplicate receipt, and correlated failure is exactly what an anchor must
+# not launder into repository truth.
+#
+# The rule never inspects a VERDICT. That is deliberate and it is the whole
+# design: a statistic over agreement cannot tell "same model, same prompt"
+# apart from "both judges were right", and the first version of this work
+# was refuted by measurement — three perfectly ACCURATE judges scored as
+# maximally correlated and invalidated every anchor they touched. Structure
+# is knowable at mint time; correlation is not.
+#
+# Two, not three: when G-2 landed the live fleet was evidence-judge +
+# adversarial-judge (both claude-opus-5) + consensus-arbiter (fable), and
+# requiring three distinct models would have made an anchor unreachable —
+# an unreachable gate is a gate nobody keeps. Since d7fa539ea the fleet
+# spans three models (evidence-judge opus, adversarial-judge glm-5.3,
+# arbiter fable), so the two-judge anchor bar is comfortably satisfiable;
+# raising it to three remains a measured operator decision, not a
+# constant edit. What the rule counts also changed with ORPHAN-HIGH-781:
+# the observers' model now comes from the dispatch record the executor
+# stamps (`details.agent_dispatch_model`), not from a judge's self-report.
+ANCHOR_MIN_DISTINCT_MODELS = 2
+
+JUDGMENT_SUBJECT_FINDING = "finding"
+JUDGMENT_SUBJECT_BELIEF = "belief"
+JUDGMENT_SUBJECTS = (JUDGMENT_SUBJECT_FINDING, JUDGMENT_SUBJECT_BELIEF)
+GROUND_TRUTH_SOURCE_TYPES = ("human", "ai_consensus")
+
+# JJ-2 (ORPHAN-HIGH-732) - how many ANCHOR judgments a tool must accumulate
+# before its precision counts as judged for promotion. Higher than
+# rule_health.MIN_JUDGED_FOR_QUARANTINE (3) because promotion is the more
+# consequential act - quarantining a rule stops noise, promoting an adapter
+# starts writing to the operator's queue - and it deliberately equals the
+# 5-run stability window the same readiness gate already demands, so a tool
+# cannot become promotable on evidence thinner than its own runtime proof.
+# Read by readiness (the gate) and by judge_fanout (the mint demand), which
+# is why it lives beside the ledger both of them read.
+ANCHOR_PROMOTION_MIN_JUDGMENTS = 5
+
+
+def _row_count(row: dict[str, Any], field: str) -> int:
+    """A non-negative integer count off a ledger row, or 0 when unprovable.
+
+    Fail-closed on absence, for the same reason readiness treats an
+    unprovable timestamp as stale: a row minted before JJ-1 carries neither
+    count, and ground-truth authority must never be inferred from a field
+    that was never written.
+    """
+    count = row.get(field)
+    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+        return 0
+    return count
+
+
+def consensus_judge_count(row: dict[str, Any]) -> int:
+    """How many judges a feedback row can PROVE stood behind it.
+
+    AGREEMENT-scoped, not attendance-scoped: only judges whose own verdict
+    equals the verdict this row settled on. The pre-fix writer counted every
+    judge who VOTED, which inverted the whole anchor thesis - under the
+    weighted lane a 2-1 majority settled at 3, so the arbiter minted
+    SPECIFICALLY TO REFUTE a pair became the third credential that promoted
+    the pair's verdict to ground truth and suppressed the finding class
+    forever. The judge that disagreed can never again be counted as backing.
+    """
+    return _row_count(row, "judge_count")
+
+
+def consensus_judges_voted(row: dict[str, Any]) -> int:
+    """How many judges VOTED on the question this row settled.
+
+    Written beside ``judge_count`` (never derived from it) so the two facts
+    the anchor rule needs - how many agreed, and whether anyone dissented -
+    are both on the row instead of re-derived per reader. Absence reads as
+    0, which makes the anchor predicate below fail closed for any row that
+    cannot say who else looked.
+    """
+    return _row_count(row, "judges_voted")
+
+
+def is_ground_truth_row(row: dict[str, Any]) -> bool:
+    """JJ-1 - may this feedback row act as GROUND TRUTH?
+
+    The operator is ACCEPTED but never REQUIRED (JJ-2): a human row is
+    ground truth unconditionally, an ai_consensus row only as an ANCHOR.
+    A missing source_type is the bootstrap corpus's human label - the
+    default this ledger has always carried.
+
+    An ANCHOR is agreement that SURVIVED a refutation attempt: at least
+    ANCHOR_MIN_JUDGE_COUNT judges agreed AND no judge who voted dissented.
+    Agreement that merely OUTVOTED a dissenter still settles the finding for
+    the adapter-precision lane (tool_health.compute_metrics reads the looser
+    set) and for nothing else - a contested question is not repository truth,
+    and the row that suppresses a finding class forever is the last place to
+    accept a majority over a live objection.
+    """
+    source_type = row.get("source_type") or "human"
+    if source_type not in GROUND_TRUTH_SOURCE_TYPES:
+        return False
+    if source_type == "human":
+        return True
+    agreed = consensus_judge_count(row)
+    if not (agreed >= ANCHOR_MIN_JUDGE_COUNT and consensus_judges_voted(row) == agreed):
+        return False
+    # G-2 — and the agreement must span more than one model. A row written
+    # before `observers` existed cannot answer this question, so it is not
+    # ground truth: unknown is never green, and this ledger has exactly one
+    # such row (already non-anchor for other reasons, measured 2026-08-20).
+    return distinct_observer_models(row) >= ANCHOR_MIN_DISTINCT_MODELS
+
+
+def consensus_observers(row: dict[str, Any]) -> tuple[dict[str, str], ...]:
+    """The distinct principals whose agreement this consensus row records.
+
+    Row-local by construction, the same discipline JJ-1 applied to
+    judge_count/judges_voted: the anchor predicate must be answerable from
+    the row, not from a join a future reader might forget to perform.
+    """
+    raw = row.get("observers")
+    if not isinstance(raw, list):
+        return ()
+    out: list[dict[str, str]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        judge_id = str(item.get("judge_id") or "").strip()
+        model = str(item.get("model") or "").strip()
+        if judge_id and model:
+            out.append({"judge_id": judge_id, "model": model})
+    return tuple(out)
+
+
+def distinct_observer_models(row: dict[str, Any]) -> int:
+    """How many different MODELS stand behind this row."""
+    return len({observer["model"] for observer in consensus_observers(row)})
+
+
+def judgment_subject_of(row: dict[str, Any]) -> str:
+    """What this feedback row settled - a finding, or a belief.
+
+    Absent reads as ``finding`` (see JUDGMENT_SUBJECT_FINDING): the field was
+    added to a ledger that held only finding judgments, so the default is a
+    fact about the corpus rather than a fail-open assumption.
+    """
+    subject = str(row.get("judgment_subject") or "").strip()
+    return subject if subject in JUDGMENT_SUBJECTS else JUDGMENT_SUBJECT_FINDING
+
+
+def _judges_this_tool_s_findings(row: dict[str, Any]) -> bool:
+    """Is this row evidence about the ADAPTER's own output?
+
+    The two key sets below buy an adapter authority: anchor volume unblocks
+    ACTIVE promotion and retires anchor demand. Only judgments of the
+    adapter's FINDINGS may do that. A belief adjudication is repository truth
+    about ARIA's memory - real, and deliberately writable by the panel (JJ-3)
+    - but it says nothing about whether this adapter's findings were right.
+    """
+    return judgment_subject_of(row) == JUDGMENT_SUBJECT_FINDING
+
+
+def _judgment_key(row: dict[str, Any]) -> tuple[str, str, str]:
+    """The (run, finding, group) identity every judgment lane already keys on."""
+    return (
+        str(row.get("run_id") or ""),
+        str(row.get("finding_id") or ""),
+        str(row.get("judgment_group_id") or ""),
+    )
+
+
+def anchor_group_keys(
+    *,
+    tool_id: str,
+    base_dir: str | Path | None = None,
+) -> set[tuple[str, str, str]]:
+    """Distinct judgments this tool holds ANCHOR-grade consensus on.
+
+    Keyed by judgment, not by row: an anchor upgrade appends a new consensus
+    row over its own 2-judge predecessor (see generate_ai_consensus), so
+    counting rows would count one settled question twice.
+    """
+    return {
+        _judgment_key(row)
+        for row in load_feedback(tool_id=tool_id, base_dir=base_dir)
+        if row.get("source_type") == "ai_consensus"
+        and is_ground_truth_row(row)
+        and _judges_this_tool_s_findings(row)
+    }
+
+
+def operator_group_keys(
+    *,
+    tool_id: str,
+    base_dir: str | Path | None = None,
+) -> set[tuple[str, str, str]]:
+    """Distinct judgments this tool carries a HUMAN verdict on."""
+    return {
+        _judgment_key(row)
+        for row in load_feedback(tool_id=tool_id, base_dir=base_dir)
+        if (row.get("source_type") or "human") == "human"
+        and _judges_this_tool_s_findings(row)
+    }
 
 
 def findings_path(base_dir: str | Path | None = None) -> Path:
@@ -102,13 +364,33 @@ def record_raw_findings_for_run(
             "reason_code": "artifact_backed_raw_finding" if run.get("artifact_ref") else "legacy_inline_or_sample_only",
             "json_pointer": f"/payload/raw_findings/{finding_index}",
         }
-        if run_ledger_format(base_dir) != "v2":
+        # ORPHAN-HIGH-798 — the row carries artifact_ref + json_pointer into
+        # the artifact payload; the inline finding object (54.8MB over 27,853
+        # rows) is redundant double-storage. Only the legacy v1 format has no
+        # artifact to resolve, so it keeps the inline object. A finding_summary
+        # (rule + id, ~60 bytes) lets rule_health and quick readers classify
+        # without resolving the artifact.
+        if run_ledger_format(base_dir) == "v1":
             row["finding"] = finding
+        else:
+            row["finding_summary"] = {
+                "rule": str(finding.get("rule") or ""),
+                "id": str(finding.get("id") or ""),
+            }
         append_jsonl(raw_findings_path(base_dir), row)
 
 
-def record_findings_for_run(run: dict[str, Any], base_dir: str | Path | None = None) -> None:
-    findings = run.get("emitted_findings", [])
+def record_findings_for_run(
+    run: dict[str, Any],
+    *,
+    emitted_findings: list[dict[str, Any]] | None = None,
+    base_dir: str | Path | None = None,
+) -> None:
+    # ORPHAN-HIGH-798 — record_run strips emitted_findings from the envelope
+    # before appending to runs.jsonl (the row only carries emitted_counts),
+    # so the arrays arrive as an explicit parameter. Legacy callers that
+    # pass a run dict still containing the arrays keep working.
+    findings = emitted_findings if emitted_findings is not None else run.get("emitted_findings", [])
     if not isinstance(findings, list) or not findings:
         return
     for finding in findings:
@@ -216,8 +498,14 @@ def record_operator_feedback(
     evidence_refs: list[str] | None = None,
     judgment_group_id: str | None = None,
     finding_fingerprint: str | None = None,
+    judge_count: int | None = None,
+    judges_voted: int | None = None,
+    judgment_subject: str = JUDGMENT_SUBJECT_FINDING,
+    observers: list[dict[str, str]] | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
+    if judgment_subject not in JUDGMENT_SUBJECTS:
+        raise GovernanceError(f"unknown judgment subject: {judgment_subject}")
     if verdict not in FEEDBACK_VERDICTS:
         raise GovernanceError(f"unknown feedback verdict: {verdict}")
     if severity not in FEEDBACK_SEVERITIES:
@@ -232,6 +520,62 @@ def record_operator_feedback(
         raise GovernanceError("confidence must be between 0 and 1")
     if source_type != "human" and (not judge_id or not judge_id.strip()):
         raise GovernanceError("AI feedback requires judge_id")
+    for _name, _value in (("judge_count", judge_count), ("judges_voted", judges_voted)):
+        if _value is not None and (
+            isinstance(_value, bool) or not isinstance(_value, int) or _value < 1
+        ):
+            raise GovernanceError(f"{_name} must be a positive integer")
+    # JJ-1 (ORPHAN-HIGH-731) - Tier 1: a consensus row that cannot say how
+    # many judges backed it is UNWRITABLE. The alternative (absent field read
+    # as "unknown") puts the fail-closed burden on every downstream reader
+    # forever, and the pre-JJ-1 ledger proved readers forget: five separate
+    # ground-truth consumers each re-decided source eligibility on their own.
+    #
+    # judges_voted joins it under the SAME rule: "three judges agreed" and
+    # "three judges agreed and a fourth objected" are different facts, and a
+    # row that cannot tell them apart cannot be allowed to claim it survived
+    # refutation. Requiring both makes the anchor predicate readable off the
+    # row instead of guessed from a missing field.
+    if source_type == "ai_consensus" and (judge_count is None or judges_voted is None):
+        raise GovernanceError(
+            "ai_consensus feedback requires judge_count and judges_voted"
+        )
+    if judge_count is not None and judges_voted is not None and judges_voted < judge_count:
+        raise GovernanceError(
+            "judges_voted must be >= judge_count (agreement cannot exceed attendance)"
+        )
+    # G-2 (ORPHAN-HIGH-760) — WHO observed, recorded rather than inferred.
+    #
+    # MEASURED on the live ledger before this rule existed: 9 rows, 4 with a
+    # prompt_hash, one ai_judge row with model=None, and the single consensus
+    # row carrying model="consensus" — which is not a model. Judge
+    # independence was not weakly measured; it was UNMEASURABLE, and every
+    # statistic built on top of those rows would have been computed from
+    # holes. A closed vocabulary was never the missing piece: the missing
+    # piece was the receipt.
+    if observers is not None:
+        if not isinstance(observers, list) or not observers:
+            raise GovernanceError("observers must be a non-empty array")
+        for observer in observers:
+            if not isinstance(observer, dict):
+                raise GovernanceError("each observer must be an object")
+            if not str(observer.get("judge_id") or "").strip():
+                raise GovernanceError("each observer requires judge_id")
+            if not str(observer.get("model") or "").strip():
+                raise GovernanceError("each observer requires model")
+    anchor_claimed = (
+        source_type == "ai_consensus"
+        and judge_count is not None
+        and judge_count >= ANCHOR_MIN_JUDGE_COUNT
+    )
+    if anchor_claimed and observers is None:
+        raise GovernanceError(
+            "anchor-grade ai_consensus feedback requires observers — the "
+            "anchor rule asks how many distinct models agreed, and that is "
+            "answered from the row or not at all. Required HERE and not on "
+            "every consensus row because this is the only place it is "
+            "load-bearing: a sub-anchor row can never be ground truth."
+        )
     row = {
         "schema_version": 2,
         "recorded_at": utc_now(),
@@ -251,6 +595,13 @@ def record_operator_feedback(
         "evidence_refs": evidence_refs or [],
         "judgment_group_id": judgment_group_id,
         "finding_fingerprint": finding_fingerprint,
+        "judge_count": judge_count,
+        "judges_voted": judges_voted,
+        "judgment_subject": judgment_subject,
+        "observers": [
+            {"judge_id": str(o["judge_id"]).strip(), "model": str(o["model"]).strip()}
+            for o in (observers or [])
+        ] or None,
     }
     append_jsonl(feedback_path(base_dir), row)
     return row
@@ -407,11 +758,23 @@ def generate_ai_consensus(
         for row in load_feedback(tool_id=tool_id, base_dir=base_dir)
         if row.get("source_type") == "ai_judge" and (cycle_id is None or _feedback_cycle(row, base_dir) == cycle_id)
     ]
-    existing_consensus = {
-        (str(row.get("run_id")), str(row.get("finding_id")), str(row.get("judgment_group_id") or ""))
-        for row in load_feedback(tool_id=tool_id, base_dir=base_dir)
-        if row.get("source_type") == "ai_consensus"
-    }
+    # JJ-1 - the dedup key remembers HOW MANY judges VOTED on the settled row.
+    # A group settled at 2 judges must be re-settleable once the anchor
+    # arbiter answers, otherwise the 3rd judge's verdict is minted, paid for,
+    # and then discarded by an idempotency guard - the anchor class would be
+    # unreachable by construction. Attendance (not agreement) is the right
+    # key: a third judge who DISAGREES leaves the agreement count at 2, and
+    # keying on agreement would re-settle that group every cycle forever.
+    # Re-running with no new judge still appends nothing, and the count is
+    # bounded by the number of distinct judges.
+    existing_consensus: dict[tuple[str, str, str], int] = {}
+    for row in load_feedback(tool_id=tool_id, base_dir=base_dir):
+        if row.get("source_type") != "ai_consensus":
+            continue
+        key = _judgment_key(row)
+        existing_consensus[key] = max(
+            existing_consensus.get(key, 0), consensus_judges_voted(row),
+        )
     grouped: dict[tuple[str, str, str], dict[str, dict[str, Any]]] = {}
     for row in ai_rows:
         run_id = str(row.get("run_id") or "")
@@ -427,22 +790,12 @@ def generate_ai_consensus(
     for key, by_judge in sorted(grouped.items()):
         rows = list(by_judge.values())
         run_id, finding_id, group_id = key
-        if key in existing_consensus:
+        if key in existing_consensus and existing_consensus[key] >= len(rows):
             continue
         if len(rows) < 2:
             uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "single_judge"))
             continue
         verdicts = {str(row.get("verdict") or "") for row in rows}
-        # Kalibre Zekâ Z2b — a judge whose bridge stored confidence=None used
-        # to be coerced to 0.0, silently dragging the mean under the 0.80
-        # gate: a unanimous, correct pair could escalate as "low_confidence"
-        # because one row lacked a number. Absent confidence now stays out of
-        # the mean; a group with NO numeric confidence at all escalates under
-        # its own name instead of masquerading as low confidence.
-        confidences = [
-            float(row["confidence"]) for row in rows
-            if isinstance(row.get("confidence"), (int, float))
-        ]
         if judge_weights is None:
             if len(verdicts) != 1:
                 uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "judge_disagreement"))
@@ -465,6 +818,27 @@ def generate_ai_consensus(
                 uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "judge_disagreement"))
                 continue
             verdicts = {winner}
+        # JJ-1 fix — from here the row speaks for the judges who AGREED with
+        # the settled verdict. Everything the consensus row asserts about
+        # itself (how many judges, at what confidence, on what evidence) is
+        # scoped to them: a dissenter's confidence has no business raising
+        # the mean of a verdict he refused, and his count has no business
+        # buying the row its anchor grade.
+        settled_verdict = next(iter(verdicts))
+        agreeing = [
+            row for row in rows
+            if str(row.get("verdict") or "") == settled_verdict
+        ]
+        # Kalibre Zekâ Z2b — a judge whose bridge stored confidence=None used
+        # to be coerced to 0.0, silently dragging the mean under the 0.80
+        # gate: a unanimous, correct pair could escalate as "low_confidence"
+        # because one row lacked a number. Absent confidence now stays out of
+        # the mean; a group with NO numeric confidence at all escalates under
+        # its own name instead of masquerading as low confidence.
+        confidences = [
+            float(row["confidence"]) for row in agreeing
+            if isinstance(row.get("confidence"), (int, float))
+        ]
         if not confidences:
             uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "missing_confidence"))
             continue
@@ -486,24 +860,77 @@ def generate_ai_consensus(
         if workspace_root is not None and _has_unverifiable_evidence(rows, workspace_root):
             uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "evidence_not_repo_verified"))
             continue
-        verdict = verdicts.pop()
-        severity = _max_severity(str(row.get("severity") or "medium") for row in rows)
+        dissenting = len(rows) - len(agreeing)
+        severity = _max_severity(str(row.get("severity") or "medium") for row in agreeing)
+        note = f"AI consensus from {len(agreeing)} independent judges"
+        if dissenting:
+            note += (
+                f" over {dissenting} dissenting (weighted majority; "
+                f"settles precision only, never ground truth)"
+            )
+        # G-2 (ORPHAN-HIGH-760) — an ANCHOR must be able to say which models
+        # produced it. Enforced HERE rather than on every judge row: this is
+        # the one place the answer becomes load-bearing, and a rule placed
+        # where it does not bite only teaches people to satisfy it.
+        # Fail-closed: a group that would settle at anchor grade but cannot
+        # name its observers escalates as an uncertainty instead of
+        # laundering unknown provenance into repository truth.
+        if len(agreeing) >= ANCHOR_MIN_JUDGE_COUNT and any(
+            not str(row.get("model") or "").strip() for row in agreeing
+        ):
+            uncertainties.append(
+                _consensus_uncertainty(
+                    tool_id, run_id, finding_id, group_id,
+                    "observer_identity_missing",
+                ),
+            )
+            continue
         consensus_rows.append(
             record_operator_feedback(
                 tool_id=tool_id,
                 run_id=run_id,
                 finding_id=finding_id,
-                verdict=verdict,
+                verdict=settled_verdict,
                 severity=severity,
-                note=f"AI consensus from {len(rows)} independent judges",
+                note=note,
                 source_type="ai_consensus",
                 judge_id="aria-consensus-arbiter",
-                model="consensus",
+                # NOT a model, and it never was. "consensus" is a process;
+                # writing it into the model field made every reader that
+                # asked "which system produced this?" get a category error
+                # for an answer. The models that actually spoke are on
+                # `observers` below.
+                model=None,
+                # G-2 — the receipt: one entry per judge that AGREED, so the
+                # anchor rule reads diversity off the row instead of
+                # re-joining the judge rows it was folded from. Dissenters
+                # are deliberately absent: they did not stand behind this
+                # verdict, and counting them would let a lone opposing model
+                # buy the diversity the agreeing side lacks.
+                observers=[
+                    {
+                        "judge_id": str(row.get("judge_id") or ""),
+                        "model": str(row.get("model") or ""),
+                    }
+                    for row in agreeing
+                    # A judge row that cannot name its model contributes no
+                    # receipt. Dropping it here rather than writing an empty
+                    # one keeps the sub-anchor lane writable while the anchor
+                    # lane above has already refused the group outright.
+                    if str(row.get("model") or "").strip()
+                ] or None,
                 confidence=round(avg_confidence, 3),
-                rationale="; ".join(str(row.get("rationale") or row.get("note") or "") for row in rows if row.get("rationale") or row.get("note"))[:2000],
-                evidence_refs=sorted({ref for row in rows for ref in _optional_string_list(row.get("evidence_refs"))}),
+                rationale="; ".join(str(row.get("rationale") or row.get("note") or "") for row in agreeing if row.get("rationale") or row.get("note"))[:2000],
+                evidence_refs=sorted({ref for row in agreeing for ref in _optional_string_list(row.get("evidence_refs"))}),
                 judgment_group_id=group_id,
                 finding_fingerprint=next((str(row.get("finding_fingerprint")) for row in rows if row.get("finding_fingerprint")), ""),
+                # JJ-1 - the anchor discriminator, read off the pair
+                # (judge_count, judges_voted) by is_ground_truth_row. Equal
+                # and >= ANCHOR_MIN_JUDGE_COUNT is what makes this row
+                # ground-truth-bearing; anything less still settles the
+                # finding for the adapter-precision lane and nothing else.
+                judge_count=len(agreeing),
+                judges_voted=len(rows),
                 base_dir=base_dir,
             ),
         )
@@ -609,6 +1036,35 @@ def load_feedback(
     return rows
 
 
+def _within_sampling_recency(
+    row: dict[str, Any],
+    cycle_id: str | None,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    """ORPHAN-MEDIUM-785 — this cycle's findings, plus the recent window.
+
+    ``cycle_id=None`` keeps its process-all meaning (no filter, no window).
+    With a specific cycle: the cycle's own rows always qualify, older rows
+    qualify while inside SAMPLE_RECENCY_HOURS, and a row whose age cannot
+    be parsed falls back to the pre-window behavior (cycle match only) —
+    an unverifiable age must not silently widen or narrow the cohort.
+    """
+    if cycle_id is None:
+        return True
+    if row.get("cycle_id") == cycle_id:
+        return True
+    recorded = str(row.get("recorded_at") or "")
+    try:
+        recorded_dt = datetime.fromisoformat(recorded)
+    except ValueError:
+        return False
+    if recorded_dt.tzinfo is None:
+        recorded_dt = recorded_dt.replace(tzinfo=timezone.utc)
+    reference = now or datetime.now(timezone.utc)
+    return (reference - recorded_dt) <= timedelta(hours=SAMPLE_RECENCY_HOURS)
+
+
 def _sampleable_raw_findings(
     *,
     tool_id: str,
@@ -636,11 +1092,25 @@ def _sampleable_raw_findings(
             continue
         if row.get("status") == "invalid_evidence":
             continue
-        if cycle_id is not None and row.get("cycle_id") != cycle_id:
+        # ORPHAN-MEDIUM-785 — recency window instead of the exact-cycle
+        # match: a night without fresh runs must not make every other
+        # recent night's findings permanently unsampleable.
+        if not _within_sampling_recency(row, cycle_id):
             continue
+        # ORPHAN-HIGH-798 — three-tier resolution: inline finding (legacy v1),
+        # finding_summary (new compact rows, has rule+id but not full content),
+        # artifact_ref fallback (full content from the artifact payload).
+        # The sampler needs rule/fingerprint for bucketing and the finding
+        # content for the judge prompt — resolve from the artifact when the
+        # inline object is absent.
         finding = row.get("finding") if isinstance(row.get("finding"), dict) else {}
-        if not finding and row.get("artifact_ref"):
-            finding = resolve_finding_from_artifact(row, base_dir=base_dir) or {}
+        if not finding:
+            summary = row.get("finding_summary") if isinstance(row.get("finding_summary"), dict) else {}
+            if summary.get("rule"):
+                # Compact row: we know the rule; full content from artifact
+                finding = resolve_finding_from_artifact(row, base_dir=base_dir) or summary
+            elif row.get("artifact_ref"):
+                finding = resolve_finding_from_artifact(row, base_dir=base_dir) or {}
         finding_id = str(row.get("finding_id") or finding.get("id") or "")
         run_id = str(row.get("run_id") or "")
         if not finding_id or not run_id or (run_id, finding_id) in existing_feedback:
@@ -920,21 +1390,28 @@ def _confirmed_false_positive_fingerprints(base_dir: str | Path | None) -> dict[
     suppress directly — they flow through compute_ai_consensus_for_tool
     first; if they coalesce into an `ai_consensus` row, the suppression
     takes effect via that synthesized row.
+
+    JJ-1 (ORPHAN-HIGH-731) NARROWS THAT AGAIN. Plan 023 stopped ONE judge
+    from suppressing forever; it still let TWO do it, and suppression is the
+    most irreversible thing a verdict can cause — the finding class stops
+    being produced, so no later evidence can contradict it. Eligibility is
+    now `is_ground_truth_row`: an operator verdict, or an ANCHOR consensus
+    that a third judge was minted to attack and failed to overturn.
     """
     confirmed: dict[str, dict[str, Any]] = {}
     for row in load_feedback(base_dir=base_dir):
         if row.get("verdict") != "false_positive":
             continue
-        # Plan 023 v3 §F-1 — source_type filter. raw ai_judge rows are
-        # NOT suppression-eligible; they must pass through the
-        # consensus aggregator first.
-        source_type = row.get("source_type", "human")
-        if source_type not in ("human", "ai_consensus"):
+        # JJ-1 — ground-truth filter (one predicate, five readers). Raw
+        # ai_judge rows and 2-judge consensus rows both stop here.
+        if not is_ground_truth_row(row):
             continue
         fingerprint = str(row.get("finding_fingerprint") or "")
         if fingerprint:
             confirmed[fingerprint] = {
-                "source_type": source_type,
+                "source_type": row.get("source_type") or "human",
+                "judge_count": consensus_judge_count(row),
+                "judges_voted": consensus_judges_voted(row),
                 "run_id": row.get("run_id"),
                 "finding_id": row.get("finding_id"),
                 "recorded_at": row.get("recorded_at"),
@@ -966,6 +1443,57 @@ def _feedback_cycle(row: dict[str, Any], base_dir: str | Path | None) -> str | N
         if run.get("run_id") == run_id:
             return str(run.get("cycle_id") or "")
     return None
+
+
+def record_consensus_uncertainty(
+    *,
+    tool_id: str,
+    run_id: str,
+    finding_id: str,
+    group_id: str,
+    reason: str,
+    cycle_id: str | None = None,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """ORPHAN-CRITICAL-735 — the ONE public producer of a consensus
+    uncertainty, shared by the deterministic engine's caller and the
+    agent-arbiter bridge.
+
+    The live arbiter did its job correctly ("the two judges disagree —
+    uncertainty, reason judge_disagreement", exactly as its contract and
+    the engine it mirrors specify) and the Y5 bridge contract burned the
+    claim as `judge_verdict.verdict:invalid:None` — the fourth instance
+    of the kernel minting an outcome its own law refuses. The fix is one
+    producer: the same row shape, the same ledger, the same idempotent
+    escalation_id, so `sweep_consensus_uncertainties_for_human_required`
+    drains BOTH lanes into one operator-triage record.
+    """
+    if reason not in CONSENSUS_UNCERTAINTY_REASONS:
+        raise GovernanceError(
+            f"unregistered_consensus_uncertainty_reason: {reason!r} — the "
+            "vocabulary is CONSENSUS_UNCERTAINTY_REASONS (closed)"
+        )
+    row = _consensus_uncertainty(tool_id, run_id, finding_id, group_id, reason)
+    uncertainties_path = (
+        ensure_tools_dir(base_dir) / "feedback-consensus-uncertainties.jsonl"
+    )
+    seen: set[str] = set()
+    for logged in load_jsonl(uncertainties_path) if uncertainties_path.exists() else []:
+        for item in logged.get("uncertainties") or []:
+            if item.get("escalation_id"):
+                seen.add(str(item["escalation_id"]))
+    if str(row.get("escalation_id")) not in seen:
+        append_jsonl(
+            uncertainties_path,
+            {
+                "schema_version": 1,
+                "recorded_at": utc_now(),
+                "tool_id": tool_id,
+                "cycle_id": cycle_id,
+                "uncertainties": [row],
+            },
+        )
+    return row
 
 
 def _consensus_uncertainty(

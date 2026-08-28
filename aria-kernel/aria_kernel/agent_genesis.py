@@ -24,7 +24,7 @@ from .ledger import (
     rewrite_declared_json,
 )
 from .runtime_profile import enforce_profile_for_write
-from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
 
 # Plan ARIA-V3 §A3 — banned-phrase list relocated to ``draft_intent``
@@ -990,7 +990,10 @@ def execute_genesis_panel_approval(
 
     Called by the adjudication fold AFTER the record is resolved (the
     lifecycle proof resolver requires status=resolved + resolved_by=
-    agent_panel). Idempotent through existing_genesis_request_keys.
+    agent_panel + panel_outcome=resolved). The third clause is not
+    decoration: the REFUSE branch of the same fold also resolves the record
+    by the same panel, so without it a refused candidate's ref proved an
+    approval. Idempotent through existing_genesis_request_keys.
     """
     root = ensure_tools_dir(base_dir)
     context = record.get("context") or {}

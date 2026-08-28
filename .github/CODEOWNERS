@@ -30,7 +30,9 @@ aria-kernel/aria_kernel/runner_attestation.py       @Okan-wqm
 aria-kernel/aria_kernel/capability_resolver.py      @Okan-wqm
 docs/aria/                      @Okan-wqm
 docs/aria/policy/               @Okan-wqm
+docs/aria/policy/autonomy-closure-findings.json @Okan-wqm
 docs/aria/schemas/              @Okan-wqm
+docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md @Okan-wqm
 tools/aria-poc/                @Okan-wqm
 aria-tools/preflight/           @Okan-wqm
 package.json                    @Okan-wqm

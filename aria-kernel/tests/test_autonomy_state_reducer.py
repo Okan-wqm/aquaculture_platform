@@ -22,6 +22,7 @@ from aria_kernel.autonomy_state import (
     AutonomyState,
     AutonomyStateReducer,
     autonomy_state_path,
+    fold_autonomy_state_rows,
 )
 from aria_kernel.ledger import LedgerIntegrityError
 from aria_kernel.runtime_profile import set_profile
@@ -108,6 +109,50 @@ class AutonomyStateReducerTests(unittest.TestCase):
         self.assertEqual(state.planner_claims_dispatched, 4)
         self.assertEqual(state.worker_assignments_dispatched, 5)
         self.assertEqual(state.auto_merges_completed, 2)
+
+    def test_pure_fold_preserves_latest_scalars_sums_and_stop_semantics(self) -> None:
+        rows = [
+            {
+                "cycle_id": "cycle-1",
+                "phase": "cycle_started",
+                "status": "ok",
+                "recorded_at": "2026-08-22T01:00:00Z",
+                "planner_claims_delta": 2,
+                "pending_bridge_count": 4,
+                "profile": "observe",
+            },
+            {
+                "cycle_id": "cycle-1",
+                "phase": "cycle_completed",
+                "status": "ok",
+                "recorded_at": "2026-08-22T02:00:00Z",
+                "worker_assignments_delta": 3,
+                "auto_merges_delta": 1,
+                "human_required_count": 2,
+            },
+            {
+                "cycle_id": None,
+                "phase": "aria_stop",
+                "status": "degraded",
+                "recorded_at": "2026-08-22T03:00:00Z",
+                "planner_claims_delta": 1,
+            },
+        ]
+
+        state = fold_autonomy_state_rows(rows)
+
+        self.assertEqual(state.last_cycle_id, "cycle-1")
+        self.assertEqual(state.last_phase, "aria_stop")
+        self.assertEqual(state.last_phase_status, "degraded")
+        self.assertEqual(state.cycles_completed, 1)
+        self.assertEqual(state.planner_claims_dispatched, 3)
+        self.assertEqual(state.worker_assignments_dispatched, 3)
+        self.assertEqual(state.auto_merges_completed, 1)
+        self.assertEqual(state.pending_bridge_count, 4)
+        self.assertEqual(state.human_required_count, 2)
+        self.assertEqual(state.profile, "observe")
+        self.assertTrue(state.aria_stop_active)
+        self.assertEqual(state.transition_count, 3)
 
     def test_aria_stop_active_only_after_latest_cycle_started(
         self,

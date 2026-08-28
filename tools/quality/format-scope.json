@@ -33273,6 +33273,24 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/aria/2026-08-27-executor-evidence-target-mismatch.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/aria/2026-08-27-hosted-lane-mint-probe-wiring.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/aria/2026-08-27-kernel-ci-timeouts.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md",
       "prettier_managed": true
     },
@@ -35593,6 +35611,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/superpowers/specs/2026-08-26-aquamobil-v4-safe-integration-design.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/superpowers/specs/2026-08-28-aria-operational-proof-continuity-design.md",
       "prettier_managed": true
     },
     {

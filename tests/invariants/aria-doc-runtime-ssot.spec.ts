@@ -1,8 +1,19 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { describe, expect, it } from '@jest/globals';
+import yaml from 'js-yaml';
 
 import { ariaAuthorityHash, checkAriaAuthorityHash } from '../../tools/gates/aria-authority-hash';
 
@@ -29,6 +40,11 @@ function gitSucceeds(args: string[]): boolean {
   } catch {
     return false;
   }
+}
+
+function writeExecutable(path: string, body: string): void {
+  writeFileSync(path, `#!/bin/sh\n${body}`, 'utf8');
+  chmodSync(path, 0o755);
 }
 
 const LIVE_DOCS = [
@@ -64,6 +80,22 @@ const LIVE_WORKFLOWS = [
   '.github/workflows/aria-kernel-fast.yml',
   '.github/workflows/aria-operational-proof.yml',
 ];
+
+const ARIA_SUITE_RUNNER = 'scripts/ci/aria-suite-run.sh';
+const ARIA_SUITE_SELECTOR = 'scripts/ci/aria-suite-changed.mjs';
+const ARIA_PYTEST_NATIVE_PLUGIN = 'aria_kernel.pytest_native_only';
+
+type WorkflowStep = { run?: string };
+type PullRequestWorkflow = {
+  on?: { pull_request?: { paths?: string[] } };
+  jobs?: Record<
+    string,
+    {
+      'timeout-minutes'?: number;
+      steps?: WorkflowStep[];
+    }
+  >;
+};
 
 const ARCHITECTURE_SECTIONS = [
   'Authority Chain / Yetki Zinciri',
@@ -512,15 +544,166 @@ describe('ARIA live runtime/documentation SSoT', () => {
     expect(kernelWorkflow).toContain('Verify post-run clean worktree');
   });
 
+  it('runs the complete ARIA Python suite through one semantic partition', () => {
+    const probeDir = mkdtempSync(join(tmpdir(), 'aria-suite-run-'));
+    const invocationLog = join(probeDir, 'python-invocations');
+    try {
+      writeExecutable(
+        join(probeDir, 'python3'),
+        [
+          '{',
+          "  printf 'BEGIN\\n'",
+          '  printf \'PYTHONDONTWRITEBYTECODE=%s\\n\' "$PYTHONDONTWRITEBYTECODE"',
+          '  printf \'PYTHONPATH=%s\\n\' "$PYTHONPATH"',
+          '  printf \'ARG=%s\\n\' "$@"',
+          "  printf 'END\\n'",
+          '} >> "$ARIA_SUITE_PROBE"',
+        ].join('\n'),
+      );
+
+      execFileSync('bash', [ARIA_SUITE_RUNNER], {
+        cwd: REPO_ROOT,
+        env: {
+          ...process.env,
+          ARIA_SUITE_PROBE: invocationLog,
+          PATH: `${probeDir}:${process.env.PATH ?? ''}`,
+          PYTHONPATH: 'caller-pythonpath',
+        },
+      });
+
+      expect(readFileSync(invocationLog, 'utf8').trim().split('\n')).toEqual([
+        'BEGIN',
+        'PYTHONDONTWRITEBYTECODE=1',
+        'PYTHONPATH=aria-kernel:.:caller-pythonpath',
+        'ARG=-m',
+        'ARG=unittest',
+        'ARG=discover',
+        'ARG=aria-kernel',
+        'ARG=-p',
+        'ARG=*test*.py',
+        'END',
+        'BEGIN',
+        'PYTHONDONTWRITEBYTECODE=1',
+        'PYTHONPATH=aria-kernel:.:caller-pythonpath',
+        'ARG=-m',
+        'ARG=pytest',
+        'ARG=-q',
+        'ARG=-p',
+        `ARG=${ARIA_PYTEST_NATIVE_PLUGIN}`,
+        'ARG=aria-kernel',
+        'END',
+      ]);
+      expect(read(ARIA_SUITE_RUNNER)).not.toMatch(/\bgrep\b|PYTEST_STYLE_MODULES/);
+    } finally {
+      rmSync(probeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('preserves the legacy *test*.py collection contract in pytest configuration', () => {
+    const pythonFiles = JSON.parse(
+      execFileSync(
+        'python3',
+        [
+          '-c',
+          [
+            'import json, pathlib, sys, tomllib',
+            'config = tomllib.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))',
+            'print(json.dumps(config.get("tool", {}).get("pytest", {}).get("ini_options", {}).get("python_files")))',
+          ].join('\n'),
+          join(REPO_ROOT, 'aria-kernel/pyproject.toml'),
+        ],
+        { encoding: 'utf8' },
+      ),
+    ) as unknown;
+
+    expect(pythonFiles).toEqual(['*test*.py']);
+  });
+
+  it('triggers both ARIA PR workflows when the canonical suite runner changes', () => {
+    for (const rel of [
+      '.github/workflows/aria-kernel.yml',
+      '.github/workflows/aria-kernel-fast.yml',
+    ]) {
+      const workflow = yaml.load(read(rel)) as PullRequestWorkflow;
+      expect(workflow.on?.pull_request?.paths).toContain(ARIA_SUITE_RUNNER);
+
+      const jobs = Object.values(workflow.jobs ?? {});
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]?.['timeout-minutes']).toBe(60);
+      const suiteSteps = (jobs[0]?.steps ?? []).filter(
+        (step) => step.run === `bash ${ARIA_SUITE_RUNNER}`,
+      );
+      expect(suiteSteps).toHaveLength(1);
+    }
+  });
+
+  it('budgets the operational proof for the package-bound suite and burn-in', () => {
+    const workflow = yaml.load(
+      read('.github/workflows/aria-operational-proof.yml'),
+    ) as PullRequestWorkflow;
+    const jobs = Object.values(workflow.jobs ?? {});
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.['timeout-minutes']).toBe(90);
+    expect(
+      (jobs[0]?.steps ?? []).filter((step) => step.run === 'npm run aria:test:unit'),
+    ).toHaveLength(1);
+
+    const pkg = JSON.parse(read('package.json')) as { scripts: Record<string, string> };
+    expect(pkg.scripts['aria:test:unit']).toBe(`bash ${ARIA_SUITE_RUNNER}`);
+  });
+
+  it('treats the ARIA suite selector and both entrypoints as pre-push surfaces', () => {
+    const probeDir = mkdtempSync(join(tmpdir(), 'aria-suite-changed-'));
+    const diffLog = join(probeDir, 'git-diff-args');
+    const bashLog = join(probeDir, 'bash-args');
+    try {
+      writeExecutable(
+        join(probeDir, 'git'),
+        [
+          'if [ "$1" = "rev-parse" ] && [ "$2" = "--abbrev-ref" ]; then',
+          "  printf 'probe-branch\\n'",
+          '  exit 0',
+          'fi',
+          'if [ "$1" = "rev-parse" ] && [ "$2" = "--verify" ]; then',
+          '  exit 0',
+          'fi',
+          'if [ "$1" = "diff" ]; then',
+          '  printf \'%s\\n\' "$@" > "$ARIA_DIFF_PROBE"',
+          `  printf '${ARIA_SUITE_SELECTOR}\\n'`,
+          '  exit 0',
+          'fi',
+          'exit 2',
+        ].join('\n'),
+      );
+      writeExecutable(join(probeDir, 'bash'), 'printf \'%s\\n\' "$@" > "$ARIA_BASH_PROBE"');
+
+      execFileSync(process.execPath, ['scripts/ci/aria-suite-changed.mjs'], {
+        cwd: REPO_ROOT,
+        env: {
+          ...process.env,
+          ARIA_BASH_PROBE: bashLog,
+          ARIA_DIFF_PROBE: diffLog,
+          PATH: `${probeDir}:${process.env.PATH ?? ''}`,
+        },
+      });
+
+      const diffArgs = readFileSync(diffLog, 'utf8').trim().split('\n');
+      expect(diffArgs).toContain(ARIA_SUITE_SELECTOR);
+      expect(diffArgs).toContain(ARIA_SUITE_RUNNER);
+      expect(diffArgs).toContain('package.json');
+      expect(readFileSync(bashLog, 'utf8').trim()).toBe(ARIA_SUITE_RUNNER);
+    } finally {
+      rmSync(probeDir, { recursive: true, force: true });
+    }
+  });
+
   it('package scripts expose the clean ARIA validation entrypoints', () => {
     const pkg = JSON.parse(read('package.json')) as { scripts: Record<string, string> };
     expect(pkg.scripts['aria:compile']).toContain(
       "compile(p.read_text(encoding='utf-8'), str(p), 'exec')",
     );
     expect(pkg.scripts['aria:compile']).not.toContain('compileall');
-    expect(pkg.scripts['aria:test:unit']).toContain(
-      "python3 -m unittest discover aria-kernel -p '*test*.py'",
-    );
+    expect(pkg.scripts['aria:test:unit']).toBe(`bash ${ARIA_SUITE_RUNNER}`);
     expect(pkg.scripts['aria:docs:ssot']).toBe(
       'jest --config tests/invariants/jest.config.ts --selectProjects layer-3 --runTestsByPath tests/invariants/aria-doc-runtime-ssot.spec.ts',
     );

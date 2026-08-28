@@ -35442,6 +35442,42 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/superpowers/plans/2026-08-26-aquamobil-v4-closeout.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/superpowers/plans/2026-08-26-aquamobil-v4-delivery-appearance.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/superpowers/plans/2026-08-26-aquamobil-v4-feeding-foundation.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/superpowers/plans/2026-08-26-aquamobil-v4-product-surfaces.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/superpowers/plans/2026-08-26-aquamobil-v4-safe-integration-program.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/superpowers/plans/2026-08-26-aquamobil-v4-vfd-feeding-loop.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/superpowers/plans/agent-01-tenant-isolation.md",
       "prettier_managed": true
     },
@@ -35569,6 +35605,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/superpowers/specs/2026-04-06-webpack-to-tsc-migration-design.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/superpowers/specs/2026-08-26-aquamobil-v4-safe-integration-design.md",
       "prettier_managed": true
     },
     {

@@ -388,6 +388,9 @@ services:
   - events.*.SubscriptionPastDue
   - events.*.SubscriptionProvisioningFailed
   - events.*.SubscriptionUpdated
+  # Task 8 (SENSOR-HIGH-102): capacity entitlement transitions ride the
+  # billing outbox — every state change publishes this event.
+  - events.*.TelemetryCapacityEntitlementChanged
   - events.*.TenantSubscriptionChanged
   - events.*.BillingServiceTenantDataErased
   - events.*.BillingServiceTenantDataErasureFailed

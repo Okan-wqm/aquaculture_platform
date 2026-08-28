@@ -2201,6 +2201,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1808300000000-SecurityEntityEditCompanion.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/modules/__tests__/modules.controller.spec.ts",
       "prettier_managed": true
     },
@@ -36542,7 +36548,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "3bfc58c215d93231343c73a379408bef0ea55ef7d0f6853f047239fabb9e5c6e",
+      "content_sha256": "fa72dc6bf2b87e8a1c1f29445f811ffecf405538c942949c95699b8cedc116e5",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/deploy/service-catalog.generated.json",
@@ -57080,7 +57086,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "0612e928d0180e08aa2bb554de6cbfb769545a84ef96a50f03d36ef4410bb8fc",
+      "content_sha256": "83c1c5c7822a8c095cb5f0a2d712dc89cda21940349cc54c316cb3cb0016a841",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",

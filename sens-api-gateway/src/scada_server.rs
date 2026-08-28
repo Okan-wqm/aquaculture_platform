@@ -823,7 +823,8 @@ fn verify_pin(input: &str, pin_hash: &str) -> bool {
 
 /// SEC-LOW-065 (№10): hash a PIN with argon2id for storage.
 pub fn hash_pin(input: &str) -> Result<String, String> {
-    use argon2::password_hash::{PasswordHasher, SaltString, rand_core::OsRng};
+    use argon2::password_hash::{PasswordHasher, SaltString};
+    use rand_core::OsRng;
     let salt = SaltString::generate(&mut OsRng);
     argon2::Argon2::default()
         .hash_password(input.as_bytes(), &salt)

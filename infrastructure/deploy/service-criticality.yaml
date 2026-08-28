@@ -2,7 +2,7 @@
 # source: platform/libs/service-catalog/src/index.ts
 # generator: scripts/service-catalog/generate-artifacts.ts
 # generatorVersion: 3
-# catalogHash: b314e8353e82369711981b1beff7d5e51b4624753693371e9dc0ea08f5178a2a
+# catalogHash: 5cb57e7d8a477d3ecffb8d9dbd3d191fad95b7ee4b39a7f7141c34626a1abaf2
 # do not edit by hand
 schema_version: 1
 defaults:
@@ -80,6 +80,12 @@ services:
   - name: alertmanager
     level: ignored
     reason: "generated from alertmanager criticality in platform service catalog"
+  - name: nats-exporter
+    level: ignored
+    reason: "generated from nats-exporter criticality in platform service catalog"
+  - name: redis-auth
+    level: required
+    reason: "generated from redis-auth criticality in platform service catalog"
   - name: nginx
     level: critical
     reason: "generated from nginx criticality in platform service catalog"

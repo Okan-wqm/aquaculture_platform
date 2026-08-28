@@ -3,7 +3,7 @@
     "generatedFrom": "platform/libs/service-catalog/src/index.ts",
     "generator": "scripts/service-catalog/generate-artifacts.ts",
     "generatorVersion": 3,
-    "catalogHash": "b314e8353e82369711981b1beff7d5e51b4624753693371e9dc0ea08f5178a2a",
+    "catalogHash": "5cb57e7d8a477d3ecffb8d9dbd3d191fad95b7ee4b39a7f7141c34626a1abaf2",
     "note": "do not edit by hand"
   },
   "activeDropletComposeServices": [
@@ -31,6 +31,8 @@
     "cadvisor",
     "node-exporter",
     "alertmanager",
+    "nats-exporter",
+    "redis-auth",
     "nginx",
     "shell",
     "dashboard",
@@ -359,6 +361,7 @@
     "OBSERVABILITY_SERVICE_DB_PASS",
     "PASSWORD_PEPPER",
     "POSTGRES_PASSWORD",
+    "REDIS_AUTH_PASSWORD",
     "REDIS_PASSWORD",
     "SENSOR_SERVICE_DB_PASS",
     "SENTINEL_HUB_ENCRYPTION_KEY",

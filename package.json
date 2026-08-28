@@ -295,7 +295,7 @@
     "@types/amqplib": "^0.10.8",
     "@types/cookie-parser": "^1.4.10",
     "@types/graphql-depth-limit": "^1.1.6",
-    "@types/hapi__catbox": "^10.2.6",
+    "@types/hapi__catbox": "^12.1.0",
     "@types/hapi__shot": "^4.1.6",
     "@types/jest": "30.0.0",
     "@types/multer": "^2.0.0",

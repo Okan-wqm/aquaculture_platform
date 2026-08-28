@@ -474,7 +474,7 @@ def _handle_state_command(args: argparse.Namespace) -> int:
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result["continuity"]["status"] in {"ok", "genesis"} else 1
 
-    if args.state_command in {"checkout", "publish", "verify-store"}:
+    if args.state_command in {"checkout", "publish", "verify-store", "compact"}:
         return _handle_state_store_command(args)
 
     report = verify_snapshot_signature(

@@ -7,13 +7,16 @@ archives written, hash chain re-established, dry-run writes nothing.
 from __future__ import annotations
 
 import gzip
+import io
 import json
 import shutil
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from aria_kernel.cli import main as cli_main
 from aria_kernel.ledger import load_declared_jsonl, verify_jsonl
 from aria_kernel.state_compact import compact_state
 from aria_kernel.tool_registry import ensure_tools_dir
@@ -138,6 +141,34 @@ class StateCompactTests(unittest.TestCase):
         self.assertTrue(result["dry_run"])
         after = (self.tools / "runs.jsonl").read_text()
         self.assertEqual(before, after)
+
+    def test_cli_state_compact_dry_run_reaches_handler(self) -> None:
+        def snapshot_tools_tree() -> dict[str, tuple[str, bytes]]:
+            snapshot: dict[str, tuple[str, bytes]] = {}
+            for path in sorted(self.tools.rglob("*")):
+                relative = path.relative_to(self.tools).as_posix()
+                if path.is_dir():
+                    snapshot[relative] = ("directory", b"")
+                elif path.is_file():
+                    snapshot[relative] = ("file", path.read_bytes())
+                else:
+                    self.fail(f"unexpected scratch-tree entry: {relative}")
+            return snapshot
+
+        before = snapshot_tools_tree()
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            rc = cli_main(
+                [
+                    "--tools-dir", str(self.tools),
+                    "state", "compact",
+                    "--retain-days", "7",
+                    "--dry-run",
+                ]
+            )
+        self.assertEqual(rc, 0)
+        self.assertTrue(json.loads(stdout.getvalue())["dry_run"])
+        self.assertEqual(snapshot_tools_tree(), before)
 
     def test_old_runs_lose_envelopes_and_read_paths(self) -> None:
         compact_state(base_dir=self.tools, retain_days=7)

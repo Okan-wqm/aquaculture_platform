@@ -286,7 +286,7 @@
     "@nx/react": "22.7.1",
     "@nx/vite": "22.7.1",
     "@nx/vitest": "22.7.1",
-    "@nx/workspace": "22.7.1",
+    "@nx/workspace": "23.1.1",
     "@playwright/test": "^1.58.2",
     "@swc-node/register": "^1.10.0",
     "@swc/core": "^1.7.0",

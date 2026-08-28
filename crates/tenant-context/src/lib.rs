@@ -94,14 +94,11 @@ impl TenantId {
 
 /// PostgreSQL schema name derived from a [`TenantId`].
 ///
-/// The platform SSoT (`getTenantSchemaName` in
-/// libs/backend-common/src/database/tenant-schema.utils.ts) fixes the
-/// convention `tenant_<16-hex>` — the FIRST 16 hex chars of the
-/// de-hyphenated, lower-cased UUID. This crate previously derived the
-/// full 32-hex form, which produced schema names NO platform scanner
-/// (listTenantSchemas, schema-drift validator, erasure workers) could
-/// see: schemas the platform believes do not exist (Task 3,
-/// SENSOR-CRITICAL-089).
+/// The platform SSoT (`getTenantSchemaName`, `validateTenantSchemaName`)
+/// fixes the convention `tenant_<16-hex>` — the FIRST 16 hex chars of the
+/// UUID, lower-case (SENSOR-CRITICAL-089: the earlier 32-hex derivation
+/// produced schemas no platform scanner could see). The newtype carries
+/// that exact shape — anything else cannot exist in a `SchemaName` value.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub struct SchemaName(String);
 
@@ -111,21 +108,19 @@ impl SchemaName {
     /// validated UUID.
     #[must_use]
     pub fn from_tenant_id(tenant: TenantId) -> Self {
-        // `Uuid::simple` formats as 32 lowercase hex chars without
-        // hyphens; the platform takes the FIRST 16. Cross-language
-        // parity is pinned by the shared golden-vector fixture
-        // (crates/tenant-context/tests/schema-golden) that BOTH this
-        // crate and the TS SSoT test against.
-        let full = tenant.0.simple().to_string();
+        // The full simple form is 32 hex chars; the platform takes the
+        // first 16 (UUID randomness is dense — 64 bits is collision-free
+        // at platform scale and keeps identifiers short).
+        let simple = tenant.0.simple().to_string();
         let mut s = String::with_capacity(7 + 16);
         s.push_str("tenant_");
-        s.push_str(&full[..16]);
+        s.push_str(&simple[..16]);
         Self(s)
     }
 
-    /// Parse an arbitrary string against the strict platform shape:
-    /// `^tenant_[0-9a-f]{16}$` (the TS SSoT regex). Used at trust
-    /// boundaries where the candidate is operator- or device-supplied.
+    /// Parse an arbitrary string against the strict SSoT shape:
+    /// `^tenant_[0-9a-f]{16}$`. Used at trust boundaries where the
+    /// candidate is operator- or device-supplied.
     ///
     /// # Errors
     /// Returns [`TenantContextError::InvalidSchemaName`] if the input
@@ -318,10 +313,9 @@ mod tests {
     }
 
     #[test]
-    fn schema_name_shape_matches_platform_ssot() {
+    fn schema_name_shape_matches_the_platform_ssot() {
         let id = TenantId::try_parse("550e8400-e29b-41d4-a716-446655440000").unwrap();
         let s = SchemaName::from_tenant_id(id);
-        // TS SSoT: tenant_ + first 16 hex of the de-hyphenated UUID.
         assert_eq!(s.as_str(), "tenant_550e8400e29b41d4");
         assert_eq!(s.as_str().len(), 7 + 16);
     }
@@ -335,7 +329,7 @@ mod tests {
 
     #[test]
     fn schema_name_try_parse_rejects_uppercase_hex() {
-        // The platform fixes lowercase. Uppercase MUST be rejected (a real
+        // The SSoT fixes lowercase. Uppercase MUST be rejected (a real
         // attacker tactic is to substitute homograph chars; locking
         // the alphabet eliminates the class).
         let raw = "tenant_550E8400E29B41D4";
@@ -355,17 +349,6 @@ mod tests {
     }
 
     #[test]
-    fn schema_name_rejects_legacy_32_hex_shape() {
-        // The pre-Task-3 shape (full 32 hex) must now FAIL parse: schemas
-        // in that form are invisible to every platform scanner.
-        let raw = "tenant_550e8400e29b41d4a716446655440000";
-        assert_eq!(
-            SchemaName::try_parse(raw).unwrap_err(),
-            TenantContextError::InvalidSchemaName,
-        );
-    }
-
-    #[test]
     fn schema_name_try_parse_rejects_short() {
         assert!(SchemaName::try_parse("tenant_abc").is_err());
         assert!(SchemaName::try_parse("").is_err());
@@ -373,13 +356,15 @@ mod tests {
 
     #[test]
     fn schema_name_try_parse_rejects_long() {
-        let raw = "tenant_550e8400e29b41d4a716446655440000extra";
+        // The legacy 32-hex shape is exactly the regression this guards.
+        let raw = "tenant_550e8400e29b41d4a716446655440000";
         assert!(SchemaName::try_parse(raw).is_err());
+        assert!(SchemaName::try_parse("tenant_550e8400e29b41d4extra").is_err());
     }
 
     #[test]
     fn schema_name_try_parse_rejects_non_hex() {
-        let raw = "tenant_550e8400e29b41d4a716446655zz0000";
+        let raw = "tenant_550e8400e29b41zz";
         assert!(SchemaName::try_parse(raw).is_err());
     }
 

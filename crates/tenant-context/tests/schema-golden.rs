@@ -72,7 +72,8 @@ fn schema_names_match_the_shared_golden_vectors() {
         }
     }
 
-    assert!(errors.is_empty(), "golden vector failures:\n{}", errors.join("\n"));
+    let report = errors.join("\n");
+    assert!(errors.is_empty(), "golden vector failures:\n{report}");
 }
 
 #[test]

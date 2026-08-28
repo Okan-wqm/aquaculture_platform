@@ -107,12 +107,19 @@ class ReportSectionsTest(unittest.TestCase):
     def test_observability_ledger_gets_its_first_reader(self) -> None:
         from aria_kernel.reflection import _render_observability_section
 
+        # M10/E8 — the fixture used to invent alert_kind/message fields no
+        # producer writes (green over a fictional contract, the C6 disease);
+        # this is the REAL shape _record_alerts emits.
         dashboard = {
             "rolling_slo": {
                 "slo_state": "breached", "window": 5,
                 "duration_p50_ms": 100, "duration_p95_ms": 900,
             },
-            "alerts": [{"alert_kind": "cycle_duration", "message": "p95 over budget"}],
+            "alerts": [{
+                "reason": "cycle_duration_slo",
+                "slo_state": "breached",
+                "observed": 950000,
+            }],
         }
         with TemporaryDirectory() as tmp, \
              patch("aria_kernel.observability.list_observability_dashboards",
@@ -120,7 +127,8 @@ class ReportSectionsTest(unittest.TestCase):
             lines = "\n".join(_render_observability_section(Path(tmp)))
 
         self.assertIn("SLO state: breached", lines)
-        self.assertIn("cycle_duration: p95 over budget", lines)
+        self.assertIn("cycle_duration_slo [breached] observed=950000", lines)
+        self.assertNotIn("None", lines)
 
     def test_missions_reach_the_operator_surface(self) -> None:
         from aria_kernel.mission import open_mission
@@ -134,6 +142,10 @@ class ReportSectionsTest(unittest.TestCase):
                 source_id="ORPHAN-HIGH-618",
                 repo_hash="deadbeef",
                 title="environment contract",
+                next_action="close ORPHAN-HIGH-618",
+                wake_condition={
+                    "kind": "evidence", "key": "orphan_finding:ORPHAN-HIGH-618",
+                },
                 priority=2,
                 base_dir=root,
             )
@@ -155,32 +167,27 @@ class ReportSectionsTest(unittest.TestCase):
         self.assertIn("## Quarantined Tools", lines)
         self.assertIn("adapter-a: chain gap", lines)
 
-    def test_replay_recall_surfaces_from_the_sealed_cycle_row(self) -> None:
-        from aria_kernel.ledger import append_declared_jsonl
+    def test_replay_recall_surfaces_from_the_reflection_row(self) -> None:
+        # C6/E8 — this test used to hand-append a judge_replay field onto a
+        # cycles.jsonl row, a shape no PRODUCTION writer can emit (Plan 024
+        # §E routes every cycle row through the frozen+slotted CycleRow,
+        # which has no judge_replay field) — a test green over a fictional
+        # contract, hiding that the section was structurally unreachable.
+        # The real transport is the reflection row's judge_replay sub-object.
         from aria_kernel.reflection import _render_replay_recall_section
 
-        with TemporaryDirectory() as tmp:
-            root = Path(tmp) / "aria-tools"
-            ensure_tools_dir(root)
-            append_declared_jsonl(
-                root / "cycles.jsonl",
-                {
-                    "cycle_id": "cyc-replay", "status": "completed",
-                    # The REAL phase shape (Z2d): per-tool rows carry
-                    # replayed_items; recall lives at the phase level. The
-                    # first fixture invented a row["recall"] the phase never
-                    # writes — a test green over a fictional contract.
-                    "judge_replay": {
-                        "replay_recall": {"judged_judges": 4},
-                        "tools": [{
-                            "tool_id": "adapter-a", "status": "dispatched",
-                            "replayed_items": 3,
-                        }],
-                    },
-                },
-                expected_surface="cycles",
-            )
-            lines = "\n".join(_render_replay_recall_section(root))
+        lines = "\n".join(_render_replay_recall_section({
+            "cycle_id": "cyc-replay",
+            # The REAL phase shape (Z2d): per-tool rows carry
+            # replayed_items; recall lives at the phase level.
+            "judge_replay": {
+                "replay_recall": {"judged_judges": 4},
+                "tools": [{
+                    "tool_id": "adapter-a", "status": "dispatched",
+                    "replayed_items": 3,
+                }],
+            },
+        }))
 
         self.assertIn("## Judge Replay Recall", lines)
         self.assertIn("Replay-judged judges: 4", lines)
@@ -197,7 +204,8 @@ class ReportSectionsTest(unittest.TestCase):
             self.assertEqual(refl._render_observability_section(root), [])
             self.assertEqual(refl._render_mission_section(root), [])
             self.assertEqual(refl._render_quarantine_section(root), [])
-            self.assertEqual(refl._render_replay_recall_section(root), [])
+            # C6 — replay recall reads the reflection row, not the store.
+            self.assertEqual(refl._render_replay_recall_section({}), [])
 
 
 class LaneContractPinTest(unittest.TestCase):

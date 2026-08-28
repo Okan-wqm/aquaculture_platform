@@ -1,7 +1,7 @@
 {
   "tool_id": "typeorm-entity-schema-adapter",
   "kind": "adapter",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "status": "SHADOW",
   "declared_scope": ["apps/**/*.ts", "libs/backend-common/src/database/schema-manager.service.ts"],
   "output_schema": {
@@ -43,5 +43,7 @@
     "timeout_ms": 180000,
     "stdin_json": true
   },
+  "freshness_window_hours": 168,
+  "parse_window_signature": "sha256:279526798279a75e61ea430aa99d506ab91e3f547eacbed66c03e3fbaf085035",
   "schema_version": 1
 }

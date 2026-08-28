@@ -25,7 +25,8 @@ import json
 import os
 import shutil
 import subprocess
-from dataclasses import dataclass
+import sys
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable
 
@@ -42,7 +43,28 @@ CLAUDE_DEFAULT_MODEL = "fable"
 # by an explicit ``--effort`` flag (low|medium|high|xhigh|max). These are the
 # model aliases and effort levels ARIA may target; the agent-runtime-profile
 # maps each agent's frontmatter to one of them.
-VALID_MODELS: tuple[str, ...] = ("opus", "sonnet", "haiku", "fable")
+# ORPHAN-HIGH-763 — the second copy of the model vocabulary is DERIVED, not
+# declared.
+#
+# CORRECTION TO MY OWN FIRST CUT: I deleted it outright, having concluded it
+# was "read by nothing, not even a test". That conclusion was produced by my
+# own `grep ... | head -8` — the listing was truncated at eight lines and
+# `test_claude_runtime_contract.test_valid_models_includes_fable` sat below the
+# cut. A truncated search is an observation, not evidence, and this file has
+# now taught that lesson twice (a pipe eating an exit code was the first).
+#
+# The reader is real and the name must live here. What must NOT live here is a
+# second literal: `agent_runtime_profile.VALID_MODELS` is the SSoT, and this
+# module exposes it through PEP 562 so the kernel import stays LAZY — the same
+# discipline `_assert_budget_before_spawn` follows, because the kernel package
+# rides PYTHONPATH in the ARIA lanes and not necessarily anywhere else.
+def __getattr__(name: str):  # noqa: ANN202 - PEP 562 module hook
+    if name == "VALID_MODELS":
+        from aria_kernel.agent_runtime_profile import VALID_MODELS as _kernel_models
+
+        return tuple(sorted(_kernel_models))
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 VALID_EFFORTS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
 
 # ORPHAN-HIGH-473 — the fallback topology, as data rather than a literal string
@@ -96,6 +118,109 @@ API_KEY_ENV_VARS = ("ANTHROPIC_API_KEY", "CLAUDE_API_KEY")
 # billing; those bypass the managed subscription session the same way an
 # API key does, so they are gated under the same policy switch.
 UNSAFE_BILLING_ENV_VARS = ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL")
+
+# ORPHAN-HIGH-764 — per-spawn provider redirect.
+#
+# WHY NOT A GLOBAL EXPORT. Z.ai serves GLM behind an Anthropic-shaped
+# endpoint, so the documented setup is to export ANTHROPIC_BASE_URL +
+# ANTHROPIC_AUTH_TOKEN. Doing that HERE would redirect every dispatch — judges,
+# planners, implementer — to one vendor, silently, because this process
+# dispatches many models. The redirect therefore binds to a single spawn's
+# `run_env` and never to `os.environ`.
+#
+# WHY THIS IS NOT ROUTING AROUND THE GATE. `assert_claude_policy_environment`
+# reads `os.environ`, so a run_env-only injection would never trip it — which
+# is precisely why it must not be left implicit. A redirect is a NEW mode, so
+# it gets its own named authorisation and its own named refusals, and it is
+# recorded rather than inferred. The gate guards managed-auth BILLING bypass;
+# this guards WHICH VENDOR a spawn reaches. Two questions, two gates.
+PROVIDER_REDIRECT_POLICY_ENV_VAR = "ARIA_PROVIDER_REDIRECT_POLICY_REF"
+
+# THE BASE URL IS CONFIGURABLE ON PURPOSE, and the reason is money.
+#
+# Z.ai documents THREE endpoints and they bill differently: the Coding-Plan
+# route (`/api/coding/paas/v4`) draws the subscription quota, the general route
+# (`/api/paas/v4`) draws the prepaid wallet, and the Anthropic-compatible route
+# (`/api/anthropic`) is listed as a third protocol whose billing the docs do
+# not settle — they warn only that the Anthropic base URL "does not apply to
+# resource packages / prepaid balance" and that swapping Coding for general
+# charges the wallet instead of the plan. A published bug in another harness is
+# exactly this: a Coding-Plan key routed to the generic endpoint and billed
+# against balance while the paid subscription sat unused.
+#
+# Which of those a given plan+key actually consumes is an EMPIRICAL question
+# (make one call, read the vendor dashboard), so it must not be frozen into a
+# constant. The default is the documented Anthropic-compatible route because
+# that is the one Claude Code speaks; the operator overrides it in one env var
+# once the billing side is measured, with no code change and no redeploy.
+PROVIDER_REDIRECT_BASE_URL_ENV_TEMPLATE = "ARIA_{provider}_BASE_URL"
+PROVIDER_REDIRECTS: dict[str, dict[str, str]] = {
+    "glm-5.3": {
+        "provider": "zai",
+        "default_base_url": "https://api.z.ai/api/anthropic",
+        "token_env_var": "ARIA_ZAI_API_KEY",
+    },
+}
+
+
+class ProviderRedirectUnavailable(RuntimeError):
+    """A model needs a vendor redirect that is not authorised or not configured."""
+
+
+def provider_redirect_env(model: str | None) -> dict[str, str]:
+    """The env a spawn on ``model`` needs to reach its vendor, or ``{}``.
+
+    Fail-closed in both directions, and NAMED in both: an unauthorised
+    redirect and a missing credential are different operator problems, and a
+    single "it didn't work" would send the reader to the wrong one. Silence is
+    the failure this repository keeps paying for — a missing key must not
+    degrade into a dispatch that quietly reaches the wrong vendor, or none.
+    """
+    redirect = PROVIDER_REDIRECTS.get(str(model or ""))
+    if redirect is None:
+        return {}
+    policy_ref = os.environ.get(PROVIDER_REDIRECT_POLICY_ENV_VAR, "").strip()
+    if not policy_ref:
+        raise ProviderRedirectUnavailable(
+            f"provider_redirect_unauthorised: model {model!r} routes to "
+            f"{redirect['provider']!r}; set {PROVIDER_REDIRECT_POLICY_ENV_VAR} "
+            "to the operator policy reference that authorises it"
+        )
+    token = os.environ.get(redirect["token_env_var"], "").strip()
+    if not token:
+        raise ProviderRedirectUnavailable(
+            f"provider_redirect_token_missing: model {model!r} needs "
+            f"{redirect['token_env_var']} in the runner environment"
+        )
+    override_var = PROVIDER_REDIRECT_BASE_URL_ENV_TEMPLATE.format(
+        provider=redirect["provider"].upper(),
+    )
+    base_url = os.environ.get(override_var, "").strip() or redirect["default_base_url"]
+    return {
+        "ANTHROPIC_BASE_URL": base_url,
+        "ANTHROPIC_AUTH_TOKEN": token,
+    }
+
+
+def provider_redirect_disclosure(model: str | None) -> dict[str, str]:
+    """What a spawn on ``model`` should RECORD about where it was sent.
+
+    Never the token. The endpoint is the fact that answers "did this night
+    consume the subscription we paid for, or the wallet?" — and today that
+    question cannot be answered from ARIA's own ledgers at all, which is how a
+    paid plan sits unused while a balance drains.
+    """
+    redirect = PROVIDER_REDIRECTS.get(str(model or ""))
+    if redirect is None:
+        return {}
+    override_var = PROVIDER_REDIRECT_BASE_URL_ENV_TEMPLATE.format(
+        provider=redirect["provider"].upper(),
+    )
+    return {
+        "provider": redirect["provider"],
+        "base_url": os.environ.get(override_var, "").strip() or redirect["default_base_url"],
+        "base_url_source": "operator_override" if os.environ.get(override_var, "").strip() else "default",
+    }
 
 
 class ClaudeCliUnavailable(RuntimeError):
@@ -158,6 +283,14 @@ class ClaudeRunResult:
     # policy. Never recoverable by the fallback ladder — see
     # AUTH_FAILURE_MARKERS.
     auth_failure: dict[str, Any] | None = None
+    # ARIA-HIGH-002 — typed terminal classification of THIS result (auth
+    # failure / credit-exhaustion markers, process exit), stamped by the
+    # runtime through dispatch_failure.classify_dispatch_failure before the
+    # result is returned; None on a clean success. The exception-family half
+    # of the contract is the executors' to classify at their boundary.
+    failure_class: str | None = None
+    retryable: bool | None = None
+    failure_detail_code: str | None = None
 
 
 def is_mock_mode() -> bool:
@@ -186,6 +319,51 @@ def assert_claude_policy_environment() -> None:
                 + ", ".join(leaked)
                 + " or set ARIA_ALLOW_CLAUDE_API_KEY_MODE=1 under a new policy"
             )
+
+
+def _assert_budget_before_spawn() -> None:
+    """F13/E8 — the cost-budget gate's first enforcement point.
+
+    ``cost_budget.assert_within_budget`` documented itself as "call BEFORE
+    spawning claude" and its only repo reference was a COMMENT in
+    genesis_policy: every cap (per-run / daily / monthly) plus the breaker
+    trip existed with no caller — a spawn could not be stopped by budget,
+    ever. This is the single choke point every live ``claude`` spawn passes
+    through, so the gate lives here.
+
+    Scope is deliberate: the gate binds only when ``ARIA_TOOLS_DIR`` names
+    the durable store (the autonomy lanes export it). Without a store there
+    is no spend ledger to project against — local dev and unit tests run
+    ungated, which is honest, not lenient. The estimate is a conservative
+    env-tunable ceiling, not telemetry: the gate's job is to stop a night
+    that would blow the cap, and an overestimate fails toward safety.
+    """
+    tools_dir = os.environ.get("ARIA_TOOLS_DIR")
+    if not tools_dir:
+        return
+    # Same lazy-import pattern as the implementation_safety hooks below:
+    # the kernel package rides PYTHONPATH in every ARIA lane.
+    from aria_kernel.cost_budget import _load_caps, assert_within_budget
+
+    # Executor smoke 31704817330 — the first live drain failed 30/30 at
+    # THIS gate: the original default estimate ($1.50) sat ABOVE the
+    # policy's own per_run cap ($0.50), so every spawn was refused before
+    # it started and the breaker tripped on configuration, not on spend.
+    # The default now DERIVES from the policy (80% of per_run): the gate
+    # refuses only when the projected daily/monthly budget is actually
+    # exhausted — which is its job — never because two constants
+    # disagreed. The env override remains for operators who know a lane's
+    # real per-run cost.
+    raw = os.environ.get("ARIA_ESTIMATED_RUN_USD")
+    if raw is not None:
+        try:
+            estimate = float(raw)
+        except ValueError:
+            estimate = _load_caps(tools_dir)["per_run"] * 0.8
+    else:
+        estimate = _load_caps(tools_dir)["per_run"] * 0.8
+
+    assert_within_budget(tools_dir, estimated_run_usd=estimate)
 
 
 def preflight_claude_auth(*, timeout_seconds: int = 20) -> dict[str, Any]:
@@ -478,6 +656,106 @@ def _apply_resource_limits(argv: list[str], *, timeout_seconds: int) -> list[str
         ) from exc
 
 
+# Smoke-run 31645296013 — the first live night died mid-spawn: adapters
+# finished at 22:29, one claude spawn started with its full 1800s budget,
+# and the JOB's 50-minute wall killed everything at 22:53. The half-night
+# failed state verification and was quarantined (correctly), which means
+# the failure mode is a PERMANENT loop: every night's last spawn is cut,
+# every night quarantines, no night ever publishes. A spawn that cannot
+# finish before the job dies must not start.
+_DEADLINE_CLOSE_MARGIN_SECONDS = 60  # seal + handoff + publish need this
+_DEADLINE_MIN_USEFUL_SECONDS = 120  # below this a spawn cannot do real work
+
+
+def _clamp_timeout_to_job_deadline(timeout_seconds: int) -> int:
+    """Clamp a spawn's timeout to the job's remaining wall-clock.
+
+    Binds only when ``ARIA_JOB_DEADLINE_EPOCH`` is exported (the autonomy
+    workflows set it from their own timeout-minutes); local dev and tests
+    run unclamped. A malformed value is refused loudly — a deadline that
+    silently stopped binding is exactly the class this fix exists to kill.
+    """
+    raw = os.environ.get("ARIA_JOB_DEADLINE_EPOCH")
+    if not raw:
+        return timeout_seconds
+    try:
+        deadline = float(raw)
+    except ValueError as exc:
+        raise ClaudePolicyViolation(
+            f"invalid_job_deadline: ARIA_JOB_DEADLINE_EPOCH={raw!r} is not a "
+            f"unix epoch; refusing to spawn under a deadline that cannot bind"
+        ) from exc
+    import time as _time
+
+    remaining = int(deadline - _time.time())
+    if remaining < _DEADLINE_MIN_USEFUL_SECONDS + _DEADLINE_CLOSE_MARGIN_SECONDS:
+        raise ClaudePolicyViolation(
+            f"insufficient_wallclock: {remaining}s remain before the job "
+            f"deadline; refusing the spawn so the night can close cleanly "
+            f"instead of dying mid-flight and quarantining its state"
+        )
+    return min(timeout_seconds, remaining - _DEADLINE_CLOSE_MARGIN_SECONDS)
+
+
+# E17-d — per-spawn usage recording identity. The (request_id, role,
+# target_agent) triple lives in the EXECUTORS (ci_executor.invoke_claude_cli
+# owns request_id + envelope role + subagent_type; worker_executor.main owns
+# assignment_id + target_agent), while the model actually spawned and the
+# terminal usage payload only exist HERE, inside run_claude_exec, one closure
+# below run_with_model_fallback. Threading the identity down as an explicit
+# value object puts the recording at the single seam where BOTH halves are in
+# scope — every attempt (including a fallback-tier retry) records under the
+# model it really ran on, and a future executor gets recording by passing one
+# argument instead of re-implementing the seam.
+@dataclass(frozen=True)
+class UsageRecording:
+    request_id: str
+    role: str
+    target_agent: str
+    base_dir: Path
+
+
+def _record_usage_best_effort(
+    *, recording: UsageRecording, model: str | None, usage: dict[str, Any] | None,
+) -> None:
+    """Record the spawn's usage; NEVER fail the spawn over accounting.
+
+    Measurement must not become a new spawn-failure mode: a completed agent
+    run is strictly more valuable than its usage row, so an unimportable
+    kernel (ImportError), a refused governed append (GovernanceError) or a
+    dying disk (OSError) each degrade to a structured stderr note. The
+    ``usage=None`` case is NOT handled here — record_context_usage owns that
+    structural-skip branch and returns without writing.
+    """
+    def _note(reason: str, error: str) -> None:
+        sys.stderr.write(json.dumps({
+            "event": "context_usage_record_skipped",
+            "reason": reason,
+            "error": error,
+            "request_id": recording.request_id,
+            "role": recording.role,
+            "target_agent": recording.target_agent,
+        }, sort_keys=True) + "\n")
+
+    try:
+        from aria_kernel.tool_registry import GovernanceError
+        from aria_kernel.usage_ledger import record_context_usage
+    except ImportError as exc:
+        _note("aria_kernel_unimportable", str(exc))
+        return
+    try:
+        record_context_usage(
+            request_id=recording.request_id,
+            role=recording.role,
+            target_agent=recording.target_agent,
+            model=model,
+            usage=usage,
+            base_dir=recording.base_dir,
+        )
+    except (GovernanceError, OSError) as exc:
+        _note("record_failed", str(exc))
+
+
 def run_claude_exec(
     *,
     prompt_text: str,
@@ -488,9 +766,12 @@ def run_claude_exec(
     cwd: str | Path | None = None,
     skip_permissions: bool = True,
     permission_mode: str | None = None,
+    usage_recording: UsageRecording | None = None,
 ) -> ClaudeRunResult:
     preflight_claude_auth()
     assert_write_runner_ok(skip_permissions=skip_permissions, permission_mode=permission_mode)
+    _assert_budget_before_spawn()
+    timeout_seconds = _clamp_timeout_to_job_deadline(timeout_seconds)
     argv = build_claude_exec_argv(
         model=model,
         effort=effort,
@@ -530,6 +811,10 @@ def run_claude_exec(
     run_env = os.environ.copy()
     if _sandbox_acknowledged():
         run_env["IS_SANDBOX"] = "1"
+    # ORPHAN-HIGH-764 — vendor redirect, scoped to THIS spawn. A model with no
+    # redirect entry changes nothing here, so the managed Claude session stays
+    # the default for every Anthropic tier.
+    run_env.update(provider_redirect_env(model))
     proc = subprocess.run(
         argv,
         input=prompt_text,
@@ -543,6 +828,14 @@ def run_claude_exec(
     events = parse_claude_jsonl(proc.stdout)
     final_message = extract_final_message(events)
     usage = extract_usage(events)
+    # E17-d — record the terminal usage per role/agent the moment it is
+    # extracted (cache_* fields included), BEFORE the require_usage gate:
+    # a nonzero-exit run's tokens were still billed and must still be
+    # accounted. A None usage records nothing (the ledger's explicit
+    # structural-skip branch), so the require_usage refusal below stays the
+    # only voice on that failure.
+    if usage_recording is not None:
+        _record_usage_best_effort(recording=usage_recording, model=model, usage=usage)
     if require_usage is None:
         require_usage = _parse_bool(
             os.environ.get(REQUIRE_USAGE_ENV_VAR, "1"),
@@ -550,7 +843,7 @@ def run_claude_exec(
         )
     if proc.returncode == 0 and require_usage and usage is None:
         raise ClaudeUsageUnavailable("claude_stream_json_missing_result_usage")
-    return ClaudeRunResult(
+    result = ClaudeRunResult(
         returncode=proc.returncode,
         stdout=proc.stdout,
         stderr=proc.stderr,
@@ -569,6 +862,21 @@ def run_claude_exec(
             final_message=final_message,
         ),
     )
+    # ARIA-HIGH-002 — stamp the typed classification on the result itself so
+    # downstream consumers (drains, evidence surfaces) read one vocabulary
+    # instead of re-deriving it from markers. Lazy import: dispatch_failure
+    # imports this module, so the dependency direction resolves at call time.
+    from dispatch_failure import classify_dispatch_failure
+
+    failure = classify_dispatch_failure(result=result, phase="runtime")
+    if failure is not None:
+        result = replace(
+            result,
+            failure_class=failure.failure_class,
+            retryable=failure.retryable,
+            failure_detail_code=failure.detail_code,
+        )
+    return result
 
 
 def parse_claude_jsonl(raw: str) -> tuple[dict[str, Any], ...]:

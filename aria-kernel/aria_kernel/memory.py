@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import fnmatch
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -185,6 +186,12 @@ def update_memory(
         quarantined_tool_ids = _quarantined_tool_ids(root)
         beliefs_written += _mark_quarantined_source_beliefs(root, cycle_id, quarantined_tool_ids)
         beliefs_written += _ingest_memory_candidates(root, cycle_id, quarantined_tool_ids, workspace_root=workspace_root)
+    # E21-c (ORPHAN-693) — reproduced findings feed the belief system
+    # through THIS module (İ1: memory.py stays the only belief author; the
+    # experiment lane never writes beliefs itself).
+    beliefs_written += _record_experiment_reproduction_beliefs(
+        root, cycle_id, workspace_root=workspace_root, base_dir=base_dir,
+    )
     return {
         "schema_version": 1,
         "cycle_id": cycle_id,
@@ -496,7 +503,15 @@ def validate_repo_evidence(
                     f"errors={list(envelope.validation_errors)!r}"
                 )
             if target_sha is not None:
-                EvidencePolicy.require_repo_verified(envelope)
+                # E5/M1 — a belief is a proposition about a CLASS of files,
+                # so glob evidence that matches real committed files is
+                # admissible here (repo_glob_verified), unlike a finding
+                # which must cite one concrete file:line. This is the line
+                # that let ARIA learn 0 beliefs from any tool: every
+                # adapter belief candidate cited a glob, graded "missing",
+                # rejected. Finding evidence stays file-exact (findings use
+                # require_repo_verified, unchanged).
+                EvidencePolicy.require_repo_or_glob_verified(envelope)
         elif ref.startswith(SELF_OUTPUT_PREFIXES):
             raise GovernanceError("memory belief cannot use ARIA self-output as evidence")
 
@@ -757,6 +772,11 @@ def decay_stale_beliefs_by_age(
         row.update(
             {
                 "status": status,
+                # M7/E12 — confidence moves IN the transition row itself.
+                # All three decay paths used to write only status: a belief
+                # marked stale kept confidence 1.0, so any confidence-sorted
+                # consumer ranked stale-but-sure ahead of fresh-but-modest.
+                "confidence": _decayed_confidence(belief, status),
                 "needs_revalidation_cycles": revalidation_cycles,
                 "stale_reason": f"belief not re-verified within {ttl_days}d (age decay, code unchanged)",
                 "verification_status": "needs_revalidation",
@@ -781,6 +801,118 @@ def decay_stale_beliefs_by_age(
         "ttl_days": ttl_days,
         "decayed_count": len(decayed),
         "decayed": decayed,
+    }
+
+
+def _changed_files_since(repo_root: Path, base_sha: str) -> list[str] | None:
+    """git diff --name-only base_sha..HEAD, or None if the range is unusable."""
+    import subprocess
+
+    if not re.fullmatch(r"[0-9a-f]{7,64}", base_sha or ""):
+        return None
+    try:
+        # Confirm both ends are real commits before diffing — a base_sha
+        # that is not in this clone's history is not a signal, it's noise.
+        subprocess.run(
+            ["git", "cat-file", "-e", f"{base_sha}^{{commit}}"],
+            cwd=repo_root, capture_output=True, check=True, timeout=5,
+        )
+        proc = subprocess.run(
+            ["git", "diff", "--name-only", f"{base_sha}..HEAD"],
+            cwd=repo_root, capture_output=True, text=True, check=False, timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+
+
+def _evidence_touches_changed(evidence_refs: list[str], changed: set[str]) -> bool:
+    """Does any belief evidence ref intersect the changed-file set?
+
+    Concrete paths match exactly (the ref carries no line for beliefs, but
+    strip one if present); glob refs match by fnmatch — a belief about a
+    CLASS of files is stale the moment any member of the class changes.
+    """
+    for raw in evidence_refs:
+        ref = str(raw).split(":", 1)[0].replace("\\", "/")
+        while ref.startswith("./"):
+            ref = ref[2:]
+        if any(ch in ref for ch in ("*", "?", "[")):
+            if any(fnmatch.fnmatch(path, ref) for path in changed):
+                return True
+        elif ref in changed:
+            return True
+    return False
+
+
+def decay_beliefs_by_head_distance(
+    *,
+    cycle_id: str,
+    repo_root: str | Path,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """M6/E6 — remember what OTHERS did to the repo.
+
+    The pre-E6 belief-staleness triggers were the FATES-hash cycle-diff
+    (fires only on a discovery run) and the wall-clock TTL. Neither notices
+    when someone ELSE merges a change to a file a belief depends on — the
+    belief stays ``supported`` at full confidence against code that has
+    moved under it (live: 3 beliefs anchored 102 commits behind HEAD, all
+    ``supported``/1.0). This is the missing signal: for each supported
+    belief, if any commit between its anchor SHA and HEAD touched one of its
+    evidence files, the belief becomes ``needs_revalidation`` — regardless
+    of WHO made the change or whether they used an ARIA trailer.
+
+    Idempotent per belief per cycle (only ``supported`` rows are examined;
+    the existing revalidation machinery owns the rest), and it stamps the
+    same revalidation-cycle counter the age-decay path uses so a belief that
+    keeps drifting eventually goes ``stale``.
+    """
+    root = ensure_tools_dir(base_dir)
+    repo = Path(repo_root)
+    repo_state = _repo_state(root, cycle_id)
+    revalidated: list[dict[str, Any]] = []
+    for belief in latest_beliefs(load_jsonl(root / "memory" / "beliefs.jsonl")):
+        if belief.get("status") != "supported":
+            continue
+        base_sha = str(belief.get("base_commit_sha") or "")
+        if not base_sha:
+            continue
+        changed = _changed_files_since(repo, base_sha)
+        if not changed:
+            continue
+        evidence_refs = _array_of_strings(belief.get("evidence_refs"))
+        if not _evidence_touches_changed(evidence_refs, set(changed)):
+            continue
+        revalidation_cycles = int(belief.get("needs_revalidation_cycles", 0)) + 1
+        status = "stale" if revalidation_cycles >= STALE_AFTER_REVALIDATION_CYCLES else "needs_revalidation"
+        row = dict(belief)
+        row.update({
+            "status": status,
+            # M7/E12 — see the age-decay path: the transition itself
+            # carries the confidence drop.
+            "confidence": _decayed_confidence(belief, status),
+            "needs_revalidation_cycles": revalidation_cycles,
+            "stale_reason": "evidence file changed since anchor commit (head-distance decay)",
+            "verification_status": "needs_revalidation",
+        })
+        _stamp_belief_freshness(
+            row, cycle_id=cycle_id, repo_state=repo_state, status=status,
+            prior_verified_at=belief.get("verified_at"),
+        )
+        append_jsonl(root / "memory" / "beliefs.jsonl", row)
+        revalidated.append({
+            "belief_id": belief.get("belief_id"),
+            "base_commit_sha": base_sha,
+            "status": status,
+        })
+    return {
+        "schema_version": 1,
+        "cycle_id": cycle_id,
+        "revalidated_count": len(revalidated),
+        "revalidated": revalidated,
     }
 
 
@@ -909,6 +1041,9 @@ def _mark_quarantined_source_beliefs(root: Path, cycle_id: str, quarantined_tool
         row.update(
             {
                 "status": status,
+                # M7/E12 — see the age-decay path: the transition itself
+                # carries the confidence drop.
+                "confidence": _decayed_confidence(belief, status),
                 "needs_revalidation_cycles": revalidation_cycles,
                 "revalidation_reason": "source tool is quarantined",
                 "quarantined_source_tool_ids": matched_tool_ids,
@@ -1009,6 +1144,92 @@ def _ingest_memory_candidates(
                     reason=f"memory candidate rejected: {exc}",
                     evidence_refs=_array_of_strings(candidate.get("evidence_refs")),
                 )
+    return written
+
+
+def _record_experiment_reproduction_beliefs(
+    root: Path,
+    cycle_id: str,
+    *,
+    workspace_root: str | Path | None,
+    base_dir: str | Path | None,
+) -> int:
+    """E21-c (ORPHAN-693) — an executed reproduction becomes remembered knowledge.
+
+    WHY: the Deney Masası's whole point is that re-production outranks
+    re-reading — but until this leg, a reproduced finding upgraded the
+    FINDING record and taught the memory nothing: the next night's judges
+    would re-derive from scratch what an experiment had already proven.
+
+    WHAT: for every observation in THIS cycle that matched its contract
+    with a RED run on a finding-bound experiment, record (or re-support)
+    the belief that the finding reproduces deterministically. Evidence
+    refs are the finding's own scope files, so the standard repo-evidence
+    policy applies unchanged — no new evidence class, no parallel writer.
+    """
+    if workspace_root is None:
+        return 0
+    from .experiment import get_experiment, list_experiment_observations
+    try:
+        observations = list_experiment_observations(base_dir=base_dir)
+    except GovernanceError:
+        return 0
+    written = 0
+    for row in observations:
+        if row.get("cycle_id") != cycle_id or row.get("matched") is not True:
+            continue
+        if str(row.get("run_status") or "") != "failed":
+            continue
+        try:
+            experiment = get_experiment(
+                str(row.get("experiment_id") or ""), base_dir=base_dir
+            )
+        except GovernanceError:
+            continue
+        finding_ref = experiment.get("finding_ref")
+        if not finding_ref:
+            continue
+        try:
+            from .finding import show_finding
+
+            finding_doc = show_finding(workspace_root, str(finding_ref))
+        except GovernanceError as exc:
+            _record_uncertainty(
+                root,
+                cycle_id=cycle_id,
+                belief_id=f"finding-reproduced-{str(finding_ref).lower()}",
+                reason=f"experiment reproduction belief skipped: {exc}",
+                evidence_refs=[],
+            )
+            continue
+        scope_files = [
+            str(item)
+            for item in (finding_doc.get("scope") or {}).get("files") or []
+            if isinstance(item, str) and item.strip()
+        ]
+        if not scope_files:
+            _record_uncertainty(
+                root,
+                cycle_id=cycle_id,
+                belief_id=f"finding-reproduced-{str(finding_ref).lower()}",
+                reason="experiment reproduction belief skipped: finding carries no scope files to cite",
+                evidence_refs=[],
+            )
+            continue
+        _record_belief(
+            root,
+            cycle_id=cycle_id,
+            belief_id=f"finding-reproduced-{str(finding_ref).lower()}",
+            claim=(
+                f"finding {finding_ref} reproduces deterministically under "
+                f"recipe {experiment.get('recipe_ref')} "
+                f"(experiment {experiment.get('experiment_id')})"
+            ),
+            evidence_refs=scope_files,
+            confidence=0.75,
+            workspace_root=workspace_root,
+        )
+        written += 1
     return written
 
 
@@ -1135,6 +1356,29 @@ def _feedback_adjustment(root: Path, belief_id: str) -> float:
 
 def _bounded_confidence(value: float) -> float:
     return round(min(1.0, max(0.0, value)), 3)
+
+
+# M7/E12 — how much a staleness transition costs. Stale costs more than
+# needs_revalidation because stale means the doubt has COMPOUNDED across
+# cycles; both leave the belief rankable (never zeroed) so revalidation
+# can restore it.
+DECAY_CONFIDENCE_PENALTY: dict[str, float] = {
+    "needs_revalidation": 0.1,
+    "stale": 0.2,
+}
+
+
+def _decayed_confidence(belief: dict[str, Any], status: str) -> float:
+    """The belief's confidence after a staleness transition.
+
+    All three decay paths (age, head-distance, quarantined-source) used
+    to write only ``status``: a belief marked stale kept confidence 1.0,
+    so any confidence-sorted consumer ranked stale-but-sure ahead of
+    fresh-but-modest. The drop rides the SAME row as the status change —
+    one transition, one truth.
+    """
+    current = float(belief.get("confidence") or 0.0)
+    return _bounded_confidence(current - DECAY_CONFIDENCE_PENALTY.get(status, 0.1))
 
 
 def _latest_belief(root: Path, belief_id: str) -> dict[str, Any] | None:

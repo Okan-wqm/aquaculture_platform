@@ -41,7 +41,7 @@ import sys
 from pathlib import Path
 from typing import Any, TypedDict
 
-from .ledger import append_jsonl
+from .ledger import append_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -117,7 +117,7 @@ def record_seeding_finding(
         "finding": finding,
         "labeled": False,
     }
-    return append_jsonl(seeding_path(base_dir, tool_id), row)
+    return append_declared_jsonl(seeding_path(base_dir, tool_id), row, expected_surface="operator_feedback_seeding")
 
 
 def label_finding(
@@ -157,7 +157,7 @@ def label_finding(
         "note": note,
     }
     labels_path = seeding_path(base_dir, tool_id).with_name("labels.jsonl")
-    return append_jsonl(labels_path, label_row)
+    return append_declared_jsonl(labels_path, label_row, expected_surface="operator_feedback_seeding")
 
 
 def finalize_corpus(
@@ -212,7 +212,7 @@ def finalize_corpus(
             "legacy_label": label_value,
             "labeled_at": label_row.get("labeled_at"),
         }
-        append_jsonl(corpus, fixture)
+        append_declared_jsonl(corpus, fixture, expected_surface="operator_feedback")
         migrated += 1
     return {
         "tool_id": tool_id,
@@ -220,6 +220,57 @@ def finalize_corpus(
         "fixtures_appended": migrated,
         "corpus_path": str(corpus),
         "status": "ok",
+    }
+
+
+def list_seeding_backlog(
+    *,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """E20 (ORPHAN-672) — the UNLABELED half of the labeling economy.
+
+    ``list_corpus_status`` reports what the operator already labeled;
+    nothing reported what still WAITS. The seeding ledger grew on every
+    live finding with no reader and no queue size anywhere, so the
+    calibration bottleneck was invisible. Per tool: rows seeded, rows
+    labeled (by fingerprint), and the unlabeled remainder.
+    """
+    from .strict_jsonl_reader import read_strict_jsonl
+    from .tool_registry import tools_dir
+
+    # Read-only listing: resolve the tools root WITHOUT ensure_tools_dir —
+    # a reader must neither create state nor demand a bound identity.
+    root = tools_dir(base_dir) / "operator-feedback-seeding"
+    tools: dict[str, dict[str, int]] = {}
+    if not root.is_dir():
+        return {"seeding_root": str(root), "tools": {}, "total_unlabeled": 0}
+    for tool_dir in sorted(p for p in root.iterdir() if p.is_dir()):
+        raw = tool_dir / "raw-findings.jsonl"
+        labels = tool_dir / "labels.jsonl"
+        seeded_fps = {
+            str(
+                (row.get("finding") or {}).get("finding_fingerprint")
+                or row.get("finding_fingerprint")
+                or ""
+            )
+            for row in (read_strict_jsonl(raw, on_corruption="tolerant") if raw.exists() else [])
+        }
+        seeded_fps.discard("")
+        labeled_fps = {
+            str(row.get("finding_fingerprint") or "")
+            for row in (read_strict_jsonl(labels, on_corruption="tolerant") if labels.exists() else [])
+        }
+        labeled_fps.discard("")
+        unlabeled = len(seeded_fps - labeled_fps)
+        tools[tool_dir.name] = {
+            "seeded": len(seeded_fps),
+            "labeled": len(labeled_fps & seeded_fps),
+            "unlabeled": unlabeled,
+        }
+    return {
+        "seeding_root": str(root),
+        "tools": tools,
+        "total_unlabeled": sum(t["unlabeled"] for t in tools.values()),
     }
 
 

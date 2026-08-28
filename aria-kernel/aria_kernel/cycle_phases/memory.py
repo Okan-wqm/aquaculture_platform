@@ -210,6 +210,10 @@ class MemoryHookImpl:
                 # Promotion on a VERIFIED outcome is Wave 10's half.
                 confidence=CONVENTION_HYPOTHESIS_CONFIDENCE,
                 outcome_status="hypothesis",
+                # M2/E12 — the promotion key: the merge reconciler finds
+                # this row by plan_id when the plan's PR actually merges
+                # (the VERIFIED outcome the comment above promises).
+                plan_id=plan_id,
                 evidence_refs=tuple(
                     plan_content.get("evidence_refs") or ()
                 ),

@@ -35,6 +35,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .strict_jsonl_reader import read_strict_jsonl
+
 
 def _safe_read_lines(path: Path) -> list[str]:
     """Read a JSONL file, return list of non-blank lines. Missing → []."""
@@ -77,6 +79,10 @@ _BLOCKED_REASON_KINDS = frozenset({
     "env_deps_missing",
     "autonomy_orchestrator_refused",
     "preflight_standard_warnings",
+    # E18-b — a mid-run disk-full append now names itself (ledger.py
+    # environment_failure:disk_full); the anchor's blocked-reason surface
+    # carries it instead of a phase stack trace.
+    "environment_failure_disk_full",
 })
 
 
@@ -88,11 +94,11 @@ def _blocked_reasons(governance_path: Path, date: str) -> list[dict[str, Any]]:
     row, so the anchor carries the cause with zero caller cooperation.
     """
     reasons: list[dict[str, Any]] = []
-    for line in _safe_read_lines(governance_path):
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for row in read_strict_jsonl(
+        governance_path,
+        on_corruption="tolerant",
+        base_dir=governance_path.parent,
+    ):
         if not isinstance(row, dict):
             continue
         kind = str(row.get("kind") or "")
@@ -118,11 +124,11 @@ def _read_sealed_cycle_ids(cycles_path: Path) -> list[str]:
     """Return cycle_ids whose latest row carries a terminal status."""
     terminal = {"completed", "failed", "stopped", "aborted"}
     state: dict[str, str] = {}
-    for line in _safe_read_lines(cycles_path):
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for row in read_strict_jsonl(
+        cycles_path,
+        on_corruption="tolerant",
+        base_dir=cycles_path.parent,
+    ):
         if not isinstance(row, dict):
             continue
         cycle_id = row.get("cycle_id")
@@ -200,11 +206,11 @@ def _roi_metrics(tools_root: Path, date: str) -> dict[str, Any]:
     day_cost = mtd_cost = 0.0
     day_calls = 0
     day_cycles: set[str] = set()
-    for line in _safe_read_lines(shard):
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for row in read_strict_jsonl(
+        shard,
+        on_corruption="tolerant",
+        base_dir=tools_root,
+    ):
         recorded = str(row.get("recorded_at") or "")
         if not recorded.startswith(month):
             continue
@@ -219,11 +225,11 @@ def _roi_metrics(tools_root: Path, date: str) -> dict[str, Any]:
             if row.get("cycle_id"):
                 day_cycles.add(str(row["cycle_id"]))
     day_merged = mtd_merged = 0
-    for line in _safe_read_lines(tools_root / "pr-lifecycle.jsonl"):
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for row in read_strict_jsonl(
+        tools_root / "pr-lifecycle.jsonl",
+        on_corruption="tolerant",
+        base_dir=tools_root,
+    ):
         if row.get("event") != "merged":
             continue
         recorded = str(row.get("recorded_at") or "")
@@ -390,12 +396,6 @@ def emit_anchor_to_path(
         tools_root=tools_root,
         state_snapshot_path=state_snapshot_path,
     )
-    if output_path.exists() and _has_v2_frontmatter(output_path):
-        return {
-            "status": "already_anchored",
-            "path": output_path.as_posix(),
-            "anchor": anchor,
-        }
     # FAZ 6a — the anchor was a SECOND writer of the daily-report filename:
     # the lane committed this stub while reflection wrote the real report to
     # the durable store, so the published PR carried three empty lines and
@@ -409,6 +409,36 @@ def emit_anchor_to_path(
             body_markdown = reflection_report.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             body_markdown = None
+    if output_path.exists() and _has_v2_frontmatter(output_path):
+        # C2/E8 — idempotence is body-aware, not blanket. The blanket
+        # "already anchored, leave it" locked in whichever body got there
+        # first: a stub emitted before reflection ran was FROZEN for that
+        # date — the real report could land in the store minutes later and
+        # never be published. Reflection bodies stay immutable (the anchor
+        # must never overwrite the real report); a stub upgrades to the
+        # reflection body the moment one exists.
+        existing = parse_anchor_frontmatter(output_path) or {}
+        existing_body = existing.get("report_body")
+        if existing_body != "stub" and existing_body is not None:
+            return {
+                "status": "already_anchored",
+                "path": output_path.as_posix(),
+                "anchor": anchor,
+                "report_body": str(existing_body),
+            }
+        # Legacy anchors predate the report_body field; treat them as
+        # stubs (they were — the field was born with this upgrade path).
+        if body_markdown is None:
+            return {
+                "status": "already_anchored",
+                "path": output_path.as_posix(),
+                "anchor": anchor,
+                "report_body": "stub",
+            }
+    # The body kind travels IN the frontmatter so the next emission (and
+    # any auditor) can tell a stub from the real report without diffing
+    # bodies — that is what makes the stub→reflection upgrade decidable.
+    anchor["report_body"] = "reflection" if body_markdown is not None else "stub"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
         render_anchor_markdown(anchor, body_markdown=body_markdown),
@@ -418,7 +448,7 @@ def emit_anchor_to_path(
         "status": "written",
         "path": output_path.as_posix(),
         "anchor": anchor,
-        "report_body": "reflection" if body_markdown is not None else "stub",
+        "report_body": anchor["report_body"],
     }
 
 

@@ -9,7 +9,9 @@
     "required": ["observations", "findings", "read_paths", "evidence_sources"]
   },
   "fixture_set": "tools/aria-adapters/fixtures/doc-staleness-adapter",
-  "health_thresholds": { "max_cost_units": 4000 },
+  "health_thresholds": {
+    "max_cost_units": 4000
+  },
   "default_input": {
     "roots": ["docs"]
   },
@@ -41,5 +43,7 @@
     "timeout_ms": 180000,
     "stdin_json": true
   },
+  "freshness_window_hours": 168,
+  "parse_window_signature": "sha256:bfd725b814d0b313d63cbb333d0acde649bf2c737a2149f68fb2671367a6e3ea",
   "schema_version": 1
 }

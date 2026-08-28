@@ -27,16 +27,19 @@ def _drainer_source() -> str:
 
 class CoveragePhaseOrderingPins(unittest.TestCase):
     def test_coverage_phase_runs_after_cross_review_and_before_evaluate(self):
+        # CL-1 (ORPHAN-725) — same ordering property, resumable spelling:
+        # the coverage step is entered only from the CROSS_REVIEWED (or
+        # legacy CRITIQUED) state branch and must precede evaluate_plan.
         source = _drainer_source()
-        phase_call = source.index("_run_coverage_phase(round_n)")
-        cross_review_call = source.index("challenger_revision_id, early_terminal = _run_challenge_and_cross_review_phase(")
+        branch = source.index('if plan_state in {"CROSS_REVIEWED", "CRITIQUED"}:')
+        phase_call = source.index("_coverage_step(current_round)")
         evaluate_call = source.index("eval_result = evaluate_plan(")
-        self.assertLess(cross_review_call, phase_call)
+        self.assertLess(branch, phase_call)
         self.assertLess(phase_call, evaluate_call)
 
     def test_coverage_phase_skips_non_coverage_plans(self):
         source = _drainer_source()
-        self.assertIn("if not _plan_requires_coverage(state):", source)
+        self.assertIn("if not _plan_requires_coverage(cur):", source)
 
     def test_coverage_gaps_ride_persistence_into_next_round_must_satisfy(self):
         source = _drainer_source()

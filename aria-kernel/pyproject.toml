@@ -10,10 +10,31 @@ dependencies = [
     # for parsing GHA workflow files + daily-report front-matter.
     # Light, single-purpose; runtime cost zero (only imported by tests).
     "pyyaml>=6.0",
+    # gh_token_factory Mode A imports ``jwt`` lazily for the GitHub App
+    # installation-token mint. Undeclared, it only worked on machines that
+    # happened to have PyJWT (the operator droplet); every hosted-runner
+    # lane that mints (finding-state-sweep, aria-readiness-claim) died with
+    # "Mode A requires PyJWT; not installed" — measured on run 32943402324.
+    # Declaring it here is the single SSoT path the setup-aria-kernel
+    # action installs from.
+    "pyjwt[crypto]>=2.8",
+    # Same defect class, measured on run 33056211686 once the kernel lane's
+    # timeout let the suite reach discovery: test_external_outage_reaper,
+    # test_knowledge_graph_replay and test_replay_logical_consumers import
+    # pytest at module scope, so ``unittest discover`` fails at IMPORT on
+    # any host without pytest (every hosted lane). The operator droplet has
+    # it system-wide, which is why local suite runs passed.
+    "pytest>=8.0",
 ]
 
 [project.scripts]
 aria-kernel = "aria_kernel.cli:main"
+
+[tool.pytest.ini_options]
+# Preserve the suite's historical unittest discovery contract. In particular,
+# aria_kernel/runner_attestation.py matches `*test*.py` but not pytest's default
+# `test_*.py` / `*_test.py` patterns.
+python_files = ["*test*.py"]
 
 [tool.setuptools.package-data]
 aria_kernel = ["data/*.json"]

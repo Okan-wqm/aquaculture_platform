@@ -36,6 +36,8 @@ OWN_PR_HEAD_PREFIXES = ("aria/", "automation/")
 OWN_PR_EXCLUDED_HEADS = ("aria/state",)
 
 _BRIDGE_RELPATH = ("ci", "own-pr-checks.jsonl")
+_MERGE_OUTCOME_RELPATH = ("ci", "merge-outcomes.jsonl")
+_REPO_PR_HEALTH_RELPATH = ("ci", "repo-pr-health.jsonl")
 _RED_CONCLUSIONS = {"failure", "cancelled", "timed_out"}
 
 
@@ -134,6 +136,221 @@ def scan_own_prs(
         "red": red,
         "cleared": cleared,
     }
+
+
+def merge_outcomes_path(base_dir: str | Path | None = None) -> Path:
+    root = ensure_tools_dir(base_dir)
+    return root.joinpath(*_MERGE_OUTCOME_RELPATH)
+
+
+def scan_merged_own_prs(
+    *,
+    cycle_id: str,
+    base_dir: str | Path | None,
+    reader: Any,
+    limit: int = 20,
+) -> dict[str, Any]:
+    """ORPHAN-718 — track whether main stayed green after ARIA's merges.
+
+    2026-08-18 operator directive: ARIA must watch BOTH its PR's first
+    Actions verdict (scan_own_prs above) and the post-merge Actions runs
+    on main, record them, and learn from the reds. PR-green and
+    main-green diverged for months on this repository — the deploy lane
+    was red on main while every PR stayed green — and nothing ARIA-side
+    could see it.
+
+    Appends one row per merged own-PR whose outcome CHANGED since the
+    last recorded row (idempotent across cycles); a NEW red also lands a
+    governance event so the ledger carries the moment of discovery, and
+    ``load_post_merge_reds`` below feeds the pressure producer — the red
+    becomes next-cycle work, which is the learning loop.
+    """
+    root = ensure_tools_dir(base_dir)
+    readable, reason = reader.readable()
+    if not readable:
+        return {"status": "unreadable", "readable": False, "reason": reason,
+                "scanned": [], "red": [], "green": []}
+    latest: dict[int, dict[str, Any]] = {}
+    for row in load_declared_jsonl(
+        merge_outcomes_path(root), expected_surface="merge_outcomes",
+    ):
+        number = row.get("pr_number")
+        if isinstance(number, int):
+            latest[number] = row
+    scanned: list[dict[str, Any]] = []
+    red: list[int] = []
+    green: list[int] = []
+    for pr in reader.list_merged_own_prs(limit=limit):
+        number = pr.get("number")
+        head_ref = str(pr.get("headRefName") or "")
+        if not isinstance(number, int) or not is_own_pr_head(head_ref):
+            continue
+        merge_sha = str((pr.get("mergeCommit") or {}).get("oid") or "")
+        if not merge_sha:
+            continue
+        runs = [
+            run for run in reader.runs_for_commit(merge_sha)
+            if str(run.get("headBranch") or "") == "main"
+        ]
+        red_jobs = sorted(
+            str(run.get("name"))
+            for run in runs
+            if run.get("conclusion") in _RED_CONCLUSIONS
+        )
+        pending_jobs = sorted(
+            str(run.get("name"))
+            for run in runs
+            if str(run.get("status") or "") != "completed"
+        )
+        if not runs:
+            status = "no_runs_observed"
+        elif red_jobs:
+            status = "red"
+        elif pending_jobs:
+            status = "pending"
+        else:
+            status = "green"
+        previous = latest.get(number)
+        if previous and previous.get("status") == status and previous.get("red_jobs") == red_jobs:
+            continue
+        append_declared_jsonl(
+            merge_outcomes_path(root),
+            {
+                "schema_version": 1,
+                "recorded_at": utc_now(),
+                "cycle_id": cycle_id,
+                "pr_number": number,
+                "head_ref": head_ref,
+                "merge_sha": merge_sha,
+                "red_jobs": red_jobs,
+                "pending_jobs": pending_jobs,
+                "status": status,
+            },
+            expected_surface="merge_outcomes",
+        )
+        if status == "red" and (previous is None or previous.get("status") != "red"):
+            from .tool_registry import append_tools_governance
+
+            append_tools_governance(
+                root,
+                "post_merge_ci_red",
+                {
+                    "pr_number": number,
+                    "merge_sha": merge_sha,
+                    "red_jobs": red_jobs,
+                    "cycle_id": cycle_id,
+                },
+            )
+        scanned.append({"pr_number": number, "status": status})
+        (red if status == "red" else green).append(number)
+    return {"status": "scanned", "readable": True, "scanned": scanned,
+            "red": red, "green": green}
+
+
+def repo_pr_health_path(base_dir: str | Path | None = None) -> Path:
+    root = ensure_tools_dir(base_dir)
+    return root.joinpath(*_REPO_PR_HEALTH_RELPATH)
+
+
+def scan_repo_pr_health(
+    *,
+    cycle_id: str,
+    base_dir: str | Path | None,
+    reader: Any,
+    limit: int = 30,
+) -> dict[str, Any]:
+    """ORPHAN-723 — see the whole repo's PR weather, own or not.
+
+    2026-08-18 operator ask: "does ARIA also see Dependabot's branches
+    failing Actions?" It did not — the own-PR scan is branch-prefix
+    scoped by design. This observer records EVERY open PR's check
+    verdict (outcome changes only, mirror of the merge-outcome dedupe)
+    so third-party reds are at least VISIBLE in ARIA's ledgers and
+    reports. Strictly read-only: no comments, no reviews, no dispatch —
+    acting on third-party PRs is E23's operator-gated authority, and
+    this observer deliberately stops at observation.
+    """
+    root = ensure_tools_dir(base_dir)
+    readable, reason = reader.readable()
+    if not readable:
+        return {"status": "unreadable", "readable": False, "reason": reason,
+                "scanned": [], "red": []}
+    latest: dict[int, dict[str, Any]] = {}
+    for row in load_declared_jsonl(
+        repo_pr_health_path(root), expected_surface="repo_pr_health",
+    ):
+        number = row.get("pr_number")
+        if isinstance(number, int):
+            latest[number] = row
+    scanned: list[dict[str, Any]] = []
+    red: list[int] = []
+    for pr in reader.list_open_prs(limit=limit):
+        number = pr.get("number")
+        head_ref = str(pr.get("headRefName") or "")
+        if not isinstance(number, int):
+            continue
+        snapshot = reader.pr_snapshot(number)
+        if snapshot is None:
+            continue
+        jobs = red_jobs_of(snapshot["github"])
+        status = "red" if jobs else "green"
+        previous = latest.get(number)
+        if previous and previous.get("status") == status and previous.get("red_jobs") == jobs:
+            continue
+        append_declared_jsonl(
+            repo_pr_health_path(root),
+            {
+                "schema_version": 1,
+                "recorded_at": utc_now(),
+                "cycle_id": cycle_id,
+                "pr_number": number,
+                "head_ref": head_ref,
+                "own_pr": is_own_pr_head(head_ref),
+                "author": str((pr.get("author") or {}).get("login") or ""),
+                "red_jobs": jobs,
+                "status": status,
+            },
+            expected_surface="repo_pr_health",
+        )
+        scanned.append({"pr_number": number, "status": status})
+        if jobs:
+            red.append(number)
+    return {"status": "scanned", "readable": True, "scanned": scanned, "red": red}
+
+
+def load_third_party_pr_reds(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
+    """Latest health row per non-own PR; only still-red rows survive."""
+    root = ensure_tools_dir(base_dir)
+    path = repo_pr_health_path(root)
+    if not path.exists():
+        return []
+    latest: dict[int, dict[str, Any]] = {}
+    for row in load_declared_jsonl(path, expected_surface="repo_pr_health"):
+        number = row.get("pr_number")
+        if isinstance(number, int):
+            latest[number] = row
+    return [
+        row for row in latest.values()
+        if row.get("status") == "red" and not row.get("own_pr")
+    ]
+
+
+def load_post_merge_reds(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
+    """Latest merge-outcome row per PR; only still-red rows survive.
+
+    Mirror of ``load_open_own_pr_reds`` — a later green row retires the
+    pressure the red minted, the same way open-PR reds clear.
+    """
+    root = ensure_tools_dir(base_dir)
+    path = merge_outcomes_path(root)
+    if not path.exists():
+        return []
+    latest: dict[int, dict[str, Any]] = {}
+    for row in load_declared_jsonl(path, expected_surface="merge_outcomes"):
+        number = row.get("pr_number")
+        if isinstance(number, int):
+            latest[number] = row
+    return [row for row in latest.values() if row.get("status") == "red"]
 
 
 def load_open_own_pr_reds(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:

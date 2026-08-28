@@ -28,10 +28,90 @@ from functools import lru_cache
 from pathlib import Path
 
 
-VALID_MODELS: frozenset[str] = frozenset({"opus", "sonnet", "haiku", "fable"})
+# ORPHAN-HIGH-763 — `glm-5.3` (Z.ai) joins the dispatchable vocabulary.
+# It reaches the same `claude` binary through the provider swap Z.ai
+# publishes (ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic), so this is
+# one more member of an existing vocabulary rather than a second runtime.
+# The lane still refuses API-key mode unless ARIA_ALLOW_CLAUDE_API_KEY_MODE=1
+# is set "under a new policy" (claude_runtime.assert_claude_policy_environment)
+# — that operator policy, not this constant, is what actually enables it.
+VALID_MODELS: frozenset[str] = frozenset({"opus", "sonnet", "haiku", "fable", "glm-5.3"})
 VALID_EFFORTS: frozenset[str] = frozenset({"low", "medium", "high", "xhigh", "max"})
 
 DEFAULT_MODEL: str = "fable"
+
+# E16 (ORPHAN-673) — model-tier write protection SSoT (operator rule
+# 2026-08-13): a weaker model must never delete or overwrite what a
+# stronger model authored, and models below the authoring floor must not
+# author agents at all. Strongest first; future stronger models are
+# PREPENDED here deliberately — never inferred.
+#
+# `glm-5.3` sits between fable and opus by OPERATOR DECISION (2026-08-20).
+# The consequence is deliberate and stated here because the ordering IS the
+# authority: ranking above `MIN_AGENT_AUTHORING_TIER` lets it author agents,
+# and opus may not overwrite what it authored. Note what admission COSTS: an
+# unlisted model resolves asymmetrically (weakest as actor, strongest as
+# target), so before this line glm output was protected from everyone and
+# could author nothing. Listing it trades that blanket protection for a
+# stated rank — which is the honest position once a model actually runs.
+MODEL_TIER_ORDER: tuple[str, ...] = ("fable", "glm-5.3", "opus", "sonnet", "haiku")
+MIN_AGENT_AUTHORING_TIER: str = "opus"
+
+
+def model_tier_rank(model: str | None) -> int:
+    """Rank in MODEL_TIER_ORDER; lower is stronger.
+
+    Unknown models resolve ASYMMETRICALLY by design: as a TARGET's author
+    they rank strongest (-1) — an agent stamped by a model this kernel
+    does not know is most plausibly a FUTURE, stronger model and must be
+    protected; as an ACTIVE actor they rank weakest (len) — a model that
+    cannot prove its tier may neither author nor modify. Callers pick the
+    side via the dedicated asserts below.
+    """
+    if model in MODEL_TIER_ORDER:
+        return MODEL_TIER_ORDER.index(model)
+    return -1
+
+
+def _active_model_rank(model: str | None) -> int:
+    if model in MODEL_TIER_ORDER:
+        return MODEL_TIER_ORDER.index(model)
+    return len(MODEL_TIER_ORDER)
+
+
+def assert_model_may_author_agents(model: str | None) -> None:
+    """E16 authoring floor: below MIN_AGENT_AUTHORING_TIER cannot author."""
+    from .tool_registry import GovernanceError
+
+    if _active_model_rank(model) > MODEL_TIER_ORDER.index(MIN_AGENT_AUTHORING_TIER):
+        raise GovernanceError(
+            f"agent_authoring_tier_too_low: model={model!r} "
+            f"floor={MIN_AGENT_AUTHORING_TIER!r} order={MODEL_TIER_ORDER!r}"
+        )
+
+
+def assert_model_may_modify_agent(
+    *, active_model: str | None, target_authored_by: str | None
+) -> None:
+    """E16 write protection: weaker may not overwrite stronger's work.
+
+    An UNSTAMPED target (legacy agents predating authored_by_model) is
+    modifiable by any authoring-eligible model — the rule protects
+    provenance that exists, it does not invent provenance. The duel has
+    NO exception: a lower-tier duel winner still cannot supersede a
+    higher-tier agent directly; that path must fall to HUMAN_REQUIRED.
+    """
+    from .tool_registry import GovernanceError
+
+    if not target_authored_by:
+        return
+    if _active_model_rank(active_model) > model_tier_rank(target_authored_by):
+        raise GovernanceError(
+            "model_tier_insufficient_to_modify: "
+            f"active={active_model!r} target_authored_by={target_authored_by!r} "
+            f"order={MODEL_TIER_ORDER!r} (duel has no exception — escalate "
+            "to HUMAN_REQUIRED)"
+        )
 # ORPHAN-HIGH-477 — ultracode depth. `max` is the CLI's deepest reasoning
 # level (verified against Claude Code 2.1.220: --effort low|medium|high|xhigh|max).
 # The fail-safe deliberately resolves UPWARD, so an unknown agent or an
@@ -148,3 +228,30 @@ def resolve_claude_effort(
     ``effort`` tier to the ``--effort`` level the CLI consumes. Shares the
     fail-safe path with :func:`resolve_claude_model` (most expensive tier)."""
     return read_agent_runtime_profile(agent_name, repo_root=repo_root).effort
+
+# E16 — the provenance stamp lives WITH the tier order: stamping is a
+# governance concern of the runtime-profile SSoT, not draft rendering
+# (agent_genesis is barred from markdown/frontmatter literals by
+# I-V3-12c, and rightly so — the kernel governs provenance, the drafter
+# renders content).
+def parse_authored_by_model(text: str) -> str | None:
+    match = re.search(
+        r"^authored_by_model:\s*([A-Za-z0-9._-]+)\s*$", text, flags=re.MULTILINE
+    )
+    return match.group(1) if match else None
+
+
+def stamp_authored_by_model(body: str, model: str) -> str:
+    """Kernel-injected provenance stamp (E16). A drafter-supplied value
+    is OVERWRITTEN — the stamp is measured at mint, never claimed."""
+    if parse_authored_by_model(body) is not None:
+        return re.sub(
+            r"^authored_by_model:\s*[A-Za-z0-9._-]+\s*$",
+            f"authored_by_model: {model}",
+            body,
+            count=1,
+            flags=re.MULTILINE,
+        )
+    if body.startswith("---\n"):
+        return body.replace("---\n", f"---\nauthored_by_model: {model}\n", 1)
+    return f"---\nauthored_by_model: {model}\n---\n{body}"

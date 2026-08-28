@@ -47,6 +47,22 @@ class JudgeFanoutTests(unittest.TestCase):
         ids = [m["request_id"] for m in result["minted"]]
         self.assertEqual(len(ids), len(set(ids)))
 
+    def test_minted_requests_carry_the_finding_fingerprint(self) -> None:
+        # ORPHAN-HIGH-765 — the verdict bridge sources identity from the
+        # mint (D1), so the minted request row must carry the fingerprint
+        # the sampler already knows. Without it the verdict row's
+        # fingerprint depended on the judge volunteering a field no prompt
+        # ever asked for — 7 of 8 live verdict rows carried it empty.
+        from aria_kernel.agent_invocations import list_agent_invocation_requests
+
+        sample = {"cycle_id": "c1", "items": [_item(1)]}
+        result = dispatch_judges_for_sample(sample=sample, base_dir=self.tools)
+        self.assertEqual(result["minted_count"], 2)
+        rows = list_agent_invocation_requests(base_dir=self.tools)
+        self.assertEqual(len(rows), 2)
+        for row in rows:
+            self.assertEqual(row.get("finding_fingerprint"), "fp1")
+
     def test_idempotent_across_reruns(self) -> None:
         sample = {"cycle_id": "c1", "items": [_item(1)]}
         first = dispatch_judges_for_sample(sample=sample, base_dir=self.tools)
@@ -60,7 +76,9 @@ class JudgeFanoutTests(unittest.TestCase):
         # group must NOT be skipped wholesale — the missing adversarial judge
         # must be minted, or consensus (needs >=2) starves this finding forever.
         item = _item(1)
-        group = f"judge:{item['tool_id']}:{item['run_id']}:{item['finding_id']}"
+        # Y2 (ORPHAN-704) — the group key is finding-keyed, run-free: the old
+        # run-folded key made every nightly run re-mint the same finding.
+        group = f"judge:{item['tool_id']}:{item['finding_fingerprint']}"
         create_agent_invocation_request(
             target_agent="aria-evidence-judge", role="evidence_judgment",
             suggested_prompt="seed", must_satisfy=[{"id": "v", "criterion": "c"}],
@@ -74,6 +92,50 @@ class JudgeFanoutTests(unittest.TestCase):
     def test_empty_sample_is_noop(self) -> None:
         result = dispatch_judges_for_sample(sample={"items": []}, base_dir=self.tools)
         self.assertEqual(result["minted_count"], 0)
+
+    def test_a_repo_root_makes_both_judges_carry_the_cited_lines(self) -> None:
+        # E17-b — this lane mints TWO judges over one finding and the
+        # adversarial judge re-reads the same files by design, so it is where
+        # the un-packed envelope cost the most. Without repo_root the mint
+        # cannot read the cited file and the packing never fires in
+        # production; the assertion below is what proves the wiring exists.
+        from aria_kernel.agent_invocations import list_agent_invocation_requests
+
+        repo = Path(self._tmp.name)
+        target = repo / "src" / "f1.py"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("def suspicious():\n    return 1\n", encoding="utf-8")
+
+        dispatch_judges_for_sample(
+            sample={"cycle_id": "c1", "items": [_item(1)]},
+            base_dir=self.tools,
+            repo_root=repo,
+        )
+
+        rows = list_agent_invocation_requests(base_dir=self.tools)
+        self.assertEqual(len(rows), 2)
+        for row in rows:
+            quoted, repeat = row["evidence_excerpts"]
+            self.assertEqual(quoted["path"], "src/f1.py")
+            self.assertIn("def suspicious():", quoted["content"])
+            # This lane cites the finding path AND its evidence list, which
+            # here are the same ref. The repeat is recorded, not dropped, so
+            # the excerpt set stays aligned with evidence_refs entry-for-entry.
+            self.assertEqual(repeat["skipped"], "duplicate_ref")
+
+    def test_without_a_repo_root_the_mint_still_succeeds(self) -> None:
+        # Degradation is loss of excerpts, never loss of the dispatch: a
+        # caller that has no workspace still gets its two judges.
+        from aria_kernel.agent_invocations import list_agent_invocation_requests
+
+        dispatch_judges_for_sample(
+            sample={"cycle_id": "c1", "items": [_item(1)]}, base_dir=self.tools,
+        )
+
+        rows = list_agent_invocation_requests(base_dir=self.tools)
+        self.assertEqual(len(rows), 2)
+        for row in rows:
+            self.assertNotIn("evidence_excerpts", row)
 
 
 if __name__ == "__main__":

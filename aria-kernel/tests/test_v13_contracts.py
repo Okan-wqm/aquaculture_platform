@@ -407,11 +407,12 @@ class V13ContractTests(unittest.TestCase):
         self.assertEqual(list_memory(kind="beliefs", base_dir=tools_b)[0]["status"], "active")
 
     def test_ci_workflow_uses_isolated_tools_bootstrap(self):
+        # ORPHAN-MEDIUM-769 — aria-kernel-full.yml was deleted (a strict
+        # subset of this lane); the bootstrap-isolation contract lives on
+        # aria-kernel.yml alone.
         workflow = (Path(__file__).parents[2] / ".github/workflows/aria-kernel.yml").read_text(encoding="utf-8")
-        full_workflow = (Path(__file__).parents[2] / ".github/workflows/aria-kernel-full.yml").read_text(encoding="utf-8")
-        for candidate in (workflow, full_workflow):
-            self.assertIn("rm -rf ./.aria-ci/tools ./.aria-ci/workspaces", candidate)
-            self.assertIn("mkdir -p ./.aria-ci", candidate)
+        self.assertIn("rm -rf ./.aria-ci/tools ./.aria-ci/workspaces", workflow)
+        self.assertIn("mkdir -p ./.aria-ci", workflow)
         # Plan ARIA-V2 §3.8 renamed the CI migration call from
         # ``migrate-tools-v1-to-v2`` to the idempotent umbrella
         # ``migrate-tools-bootstrap`` so the workflow handles any

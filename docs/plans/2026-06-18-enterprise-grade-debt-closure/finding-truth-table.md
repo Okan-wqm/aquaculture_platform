@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `f283e1841059e1e5e41bf53e226961a415ea58e4c8440a40bf2c8998c7d04686`
+Registry tip: `55d3ee3c22bd0858f0feb072681e4b9052c03d4c5fa543def457f0a0be25111f`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -87,6 +87,12 @@ CRITICAL rows are RESOLVED and leave the active table. The independent notary
 (`INFRA-CRITICAL-044`) remain blocked by external operator evidence;
 production deployment remains locked.
 
+Updated 2026-08-16 (codex worktree rescue, slice 1): `FARM-CRITICAL-237` is
+RESOLVED by `550a72311` (#1244) — the `feedHasStoragePresence` fail-open branch
+is deleted, so a missing storage projection row is a real shortage rather than
+an authority-mode switch. Its truth-table row is removed with the finding; the
+other three single-ledger CRITICALs stay `real-open`.
+
 Updated 2026-07-17 (farm/feed cutover adversarial review): five concrete
 single-ledger blockers were registered IN-PROGRESS, bringing the registry to
 1,028 entries. Four are active CRITICALs: depleted feed can fail open without a
@@ -132,6 +138,13 @@ repaired the JSONL by hand). It is RESOLVED and leaves the active table (the
 table mirrors `active_critical_ids` exactly; the contract invariant enforces the
 bijection). 46 active CRITICALs remain.
 
+Updated 2026-08-22 (ARIA autonomy closure authority reconciliation): the
+narrative importer registered `ORPHAN-CRITICAL-776` as OPEN while preserving
+its historical main-reachable fix provenance, so it is
+`already-fixed-needs-close`. The closure-plan audit also registered three new
+ARIA control-plane gaps as `real-open`; Tasks 10, 12, and 19 own their live
+proof predicates.
+
 Allowed truth buckets:
 
 - `real-open`
@@ -154,7 +167,6 @@ Allowed truth buckets:
 | `RBAC-CRITICAL-003`     | OPEN           | 1.2          | auth-security-expert       | already-fixed-needs-close |
 | `INFRA-CRITICAL-040`    | IN-PROGRESS    | —            | infra-expert               | blocked                   |
 | `INFRA-CRITICAL-044`    | OPEN           | —            | infra-expert               | blocked                   |
-| `FARM-CRITICAL-237`     | IN-PROGRESS    | 4.1          | farm-expert                | real-open                 |
 | `FARM-CRITICAL-238`     | IN-PROGRESS    | 4.1          | data-expert                | real-open                 |
 | `FARM-CRITICAL-240`     | IN-PROGRESS    | 4.1          | data-expert                | real-open                 |
 | `FARM-CRITICAL-241`     | IN-PROGRESS    | 4.1          | data-expert                | real-open                 |
@@ -189,6 +201,10 @@ Allowed truth buckets:
 | `ORPHAN-CRITICAL-516`   | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
 | `ORPHAN-CRITICAL-517`   | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
 | `ORPHAN-CRITICAL-549`   | OPEN           | 2026-08-06   | aria-acceptance-gap-fixer  | real-open                 |
+| `ORPHAN-CRITICAL-776`   | OPEN           | Task 1       | platform-autonomy          | already-fixed-needs-close |
+| `ARIA-CRITICAL-007`     | OPEN           | Task 10      | platform-autonomy          | real-open                 |
+| `ARIA-CRITICAL-009`     | OPEN           | Task 12      | platform-autonomy          | real-open                 |
+| `ARIA-CRITICAL-015`     | OPEN           | Task 19      | platform-autonomy          | real-open                 |
 
 ## Mutation Rules
 

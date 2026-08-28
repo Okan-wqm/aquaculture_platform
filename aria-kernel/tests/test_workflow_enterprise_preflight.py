@@ -176,10 +176,11 @@ class WorkflowEnterprisePreflightTests(unittest.TestCase):
         self.assertTrue(verdict.valid, verdict.reasons)
 
     def test_audited_kernel_workflows_have_no_expiry_time_bomb(self) -> None:
-        # D1 (ADR-036) — the 3 kernel workflows are audited-excluded with a
+        # D1 (ADR-036) — the kernel workflows are audited-excluded with a
         # NON-expiring sentinel; the canonical's dated expires_at=2026-07-05
-        # time-bomb is rejected.
-        for workflow_id in ("aria-kernel", "aria-kernel-fast", "aria-kernel-full"):
+        # time-bomb is rejected. (aria-kernel-full was deleted outright —
+        # ORPHAN-MEDIUM-769 — so it is neither excluded nor contracted.)
+        for workflow_id in ("aria-kernel", "aria-kernel-fast"):
             self.assertIn(workflow_id, AUDITED_WORKFLOW_EXCLUSIONS)
             self.assertEqual(AUDITED_WORKFLOW_EXCLUSIONS[workflow_id].expires_at, "9999-12-31")
 
@@ -698,9 +699,13 @@ class StepOrderingAndAbortGateContract(unittest.TestCase):
             cycle_wall_clock_cap_seconds(self._EXECUTOR),
             (150 - WALL_CLOCK_RESERVE_MINUTES) * 60,
         )
+        # 50 → 360 (operator decision 2026-08-13): the night's window is the
+        # 360-minute platform ceiling. Smoke runs 1-3 proved 50 was the
+        # binding constraint; the ORPHAN-661/662 deadline pair keeps any
+        # value safe (the night seals + publishes at the wall).
         self.assertEqual(
             cycle_wall_clock_cap_seconds(self._CYCLE),
-            (50 - WALL_CLOCK_RESERVE_MINUTES) * 60,
+            (360 - WALL_CLOCK_RESERVE_MINUTES) * 60,
         )
         # An unknown lane must be None ("no self-imposed ceiling"), never 0,
         # which would refuse every dispatch.
@@ -804,7 +809,12 @@ class StepOrderingAndAbortGateContract(unittest.TestCase):
         """
         for workflow_id, victim in (
             (self._EXECUTOR, "Run CI executor"),
-            (self._CYCLE, "Run nightly standard-profile cycle"),
+            (self._CYCLE, "Run the nightly cycle under the resolved profile"),
+            # ORPHAN-HIGH-728 — the profile gate is inside the guarded region
+            # too: it reads the durable store, and a lease-blocked run that
+            # still resolved a profile would write a decision for a night that
+            # never ran.
+            (self._CYCLE, "Resolve the cycle profile within the operator ceiling"),
         ):
             with self.subTest(workflow=workflow_id, step=victim):
                 def mutate(steps, name=victim):

@@ -2,12 +2,25 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_declared_jsonl, load_declared_jsonl
-from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+from .ledger import LedgerIntegrityError, append_declared_jsonl, load_declared_jsonl
+from .runtime_profile import (
+    DEFAULT_SCHEDULER_PROFILE_CEILING,
+    PROFILES_WITH_ACTION_AUTHORITY,
+    SCHEDULER_MAX_PROPOSABLE_PROFILE,
+    bound_profile_to_ceiling,
+    get_profile,
+    get_scheduler_profile_ceiling_with_diagnostic,
+)
+from .tool_registry import (
+    GovernanceError,
+    ensure_tools_dir,
+    parse_utc_stamp as _parse_stamp,
+    utc_now,
+)
 
 
 AUTONOMY_UNLOCK_SCHEMA = "aria/autonomy-unlock-policy/v1"
@@ -152,14 +165,6 @@ def _continuity_reasons(
     return reasons
 
 
-def _parse_stamp(raw: str) -> datetime | None:
-    try:
-        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
-
-
 def verdict_from_rows(
     rows: list[dict[str, Any]],
     *,
@@ -271,6 +276,130 @@ def assert_autonomy_unlocked(
     return verdict
 
 
+@dataclass(frozen=True)
+class ScheduledProfileDecision:
+    """What authority an UNATTENDED lane runs under tonight, and why.
+
+    ``ladder_profile`` / ``l1_valid`` are None when the ladder was never
+    consulted — an operator hold short-circuits before the read, and the
+    difference between "the ladder said no" and "the ladder was not asked"
+    is exactly what an auditor needs from this row.
+    """
+
+    profile: str
+    persisted: str
+    ceiling: str
+    ladder_profile: str | None
+    l1_valid: bool | None
+    counts: dict[str, int]
+    reasons: tuple[str, ...]
+
+
+def resolve_scheduled_profile(
+    *,
+    lane: str = "L1",
+    base_dir: str | Path | None = None,
+    policy: dict[str, Any] | None = None,
+) -> ScheduledProfileDecision:
+    """ORPHAN-HIGH-728 — the profile a scheduled lane may run, decided ONCE.
+
+    Three inputs, in this order, and the order is the point:
+
+    1. THE OPERATOR'S HOLD. A persisted profile outside
+       ``PROFILES_WITH_ACTION_AUTHORITY`` (frozen, observe — named by
+       construction, never by a hand-written list) is returned untouched and
+       the ladder is never read. Reading it first is not an optimisation: the
+       ladder read goes through ``ensure_tools_dir``, which mkdirs, rewrites
+       the tools index and can bootstrap identity files. A frozen kernel is
+       one an operator stopped, and the gate that decides whether to honour
+       the stop must not write to the store on its way to asking.
+
+    2. THE OPERATOR'S CEILING. ``scheduler_profile_ceiling`` (default
+       ``standard``) is the authority a human granted unattended lanes. It is
+       the only ceiling here: evidence cannot raise it.
+
+    3. THE EVIDENCE. The existing L1 acceptance ladder proposes at most
+       ``SCHEDULER_MAX_PROPOSABLE_PROFILE`` and the result is
+       ``bound_profile_to_ceiling(proposal, ceiling)`` — the ladder chooses
+       WITHIN the grant, never above it.
+
+    A ladder that cannot be READ demotes to ``standard`` with a named reason
+    instead of raising. The caller is a nightly job under ``set -euo
+    pipefail``: an exception there costs the whole night's discovery to
+    protect an authority the demotion already withholds. The catch is narrow
+    (the ledger's own failure modes), the reason is carried out to the caller,
+    and no other exception class is swallowed.
+    """
+    reasons: list[str] = []
+    # Both reads are read-only (`ensure_tools_dir_readonly`), so they are
+    # safe to take BEFORE the hold is honoured — unlike the ladder read
+    # below. Reporting the recorded ceiling even on a hold keeps the summary
+    # from telling an operator their grant is `standard` when they wrote
+    # something else.
+    persisted = get_profile(base_dir=base_dir)
+    ceiling, ceiling_diagnostic = get_scheduler_profile_ceiling_with_diagnostic(
+        base_dir=base_dir,
+    )
+    if ceiling_diagnostic is not None:
+        reasons.append(
+            f"{ceiling_diagnostic['kind']}:"
+            f"{ceiling_diagnostic.get('scheduler_profile_ceiling')!r}"
+        )
+    if persisted not in PROFILES_WITH_ACTION_AUTHORITY:
+        return ScheduledProfileDecision(
+            profile=persisted,
+            persisted=persisted,
+            ceiling=ceiling,
+            ladder_profile=None,
+            l1_valid=None,
+            counts={},
+            reasons=tuple(
+                [*reasons, f"operator_held_profile_preserved:{persisted}"]
+            ),
+        )
+    try:
+        verdict = evaluate_autonomy_unlock(
+            lane=lane, base_dir=base_dir, policy=policy,
+        )
+    except (LedgerIntegrityError, OSError, ValueError) as exc:
+        # `repr` and not `str`: this reason carries a LEDGER-DERIVED message
+        # and reaches a GitHub Actions annotation, where a raw newline would
+        # end the `::warning::` line and let the remainder be read as a
+        # further workflow command. Escaping at the point the string is built
+        # keeps every consumer safe instead of each one remembering to.
+        reasons.append(
+            f"l1_ladder_unreadable:{type(exc).__name__}:{str(exc)[:200]!r}"
+        )
+        proposal = DEFAULT_SCHEDULER_PROFILE_CEILING
+        l1_valid: bool | None = False
+        counts: dict[str, int] = {}
+    else:
+        l1_valid = verdict.valid
+        counts = verdict.counts
+        proposal = (
+            SCHEDULER_MAX_PROPOSABLE_PROFILE
+            if verdict.valid
+            else DEFAULT_SCHEDULER_PROFILE_CEILING
+        )
+        reasons.extend(verdict.reasons)
+    profile = bound_profile_to_ceiling(proposal, ceiling)
+    if profile != proposal:
+        reasons.append(
+            f"scheduler_ceiling_bound:proposed={proposal}:ceiling={ceiling}"
+        )
+    if not reasons:
+        reasons.append("l1_unlock_valid")
+    return ScheduledProfileDecision(
+        profile=profile,
+        persisted=persisted,
+        ceiling=ceiling,
+        ladder_profile=proposal,
+        l1_valid=l1_valid,
+        counts=counts,
+        reasons=tuple(reasons),
+    )
+
+
 def _count(rows: list[dict[str, Any]], event_type: str, *, status: str = "success") -> int:
     return sum(1 for row in rows if row.get("event_type") == event_type and row.get("status") == status)
 
@@ -278,6 +407,8 @@ def _count(rows: list[dict[str, Any]], event_type: str, *, status: str = "succes
 __all__ = [
     "ACCEPTANCE_EVENT_TYPES",
     "AutonomyUnlockVerdict",
+    "ScheduledProfileDecision",
+    "resolve_scheduled_profile",
     "assert_autonomy_unlocked",
     "evaluate_autonomy_unlock",
     "verdict_from_rows",

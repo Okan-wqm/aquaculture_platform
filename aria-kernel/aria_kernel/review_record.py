@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_jsonl
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 
 
@@ -107,7 +107,7 @@ def record_review(
         "debts_referenced": dr,
         "recorded_at": ts.strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
-    persisted = append_jsonl(_reviews_path(tools_root), row)
+    persisted = append_declared_jsonl(_reviews_path(tools_root), row, expected_surface="review_records")
     append_tools_governance(
         tools_root,
         "review_recorded",

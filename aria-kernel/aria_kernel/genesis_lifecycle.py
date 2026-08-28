@@ -101,21 +101,35 @@ def validate_transition(
         if repeated_cycles < min_cycles and len(source_types) < 2:
             reasons.append(f"candidate_requires_{min_cycles}_valid_cycles_or_2_source_types")
     if to_state == "HUMAN_REQUIRED":
-        coverage = evidence.get("existing_capability_coverage")
-        threshold = float(policy.get("existing_capability_coverage_threshold") or 0.8)
-        score: float | None = None
-        verdict = None
-        if isinstance(coverage, dict):
-            verdict = coverage.get("verdict")
-            raw_score = coverage.get("coverage_score") or coverage.get("score")
-            try:
-                score = float(raw_score)
-            except (TypeError, ValueError):
-                score = None
-        if verdict not in {"positive", "covered", "pass"} or score is None or score < threshold:
-            reasons.append("human_required_requires_positive_existing_capability_coverage")
+        # C4-c (ORPHAN-676) — the gate reads what the REAL producer
+        # writes. The original shape (verdict∈{positive,covered,pass} +
+        # coverage_score≥threshold) had NO producer anywhere:
+        # capability_resolver — the only coverage authority — writes
+        # decision∈{reuse,extend,request}. An unproducible predicate is
+        # a locked door with no key; this arm now demands the resolver's
+        # actual decision row: reuse blocks genesis (duplicate), extend/
+        # request admit the human adjudication step.
+        resolution = evidence.get("capability_resolution")
+        decision = (
+            resolution.get("decision") if isinstance(resolution, dict) else None
+        )
+        if decision not in {"extend", "request"}:
+            reasons.append(
+                "human_required_requires_capability_resolution_decision"
+                f":{decision!r}"
+            )
     if to_state == "REQUEST":
-        if not str(evidence.get("operator_feedback_ref") or "").strip():
+        # Y8 (ORPHAN-709) — two approval modes, one auditable ladder shape.
+        # Panel mode is satisfied by a resolved genesis_candidate panel
+        # adjudication (the ref is RESOLVED and overwritten kernel-side in
+        # record_transition — hand-built evidence cannot validate); operator
+        # mode keeps the signed feedback ref. Kernel-scoped entities are
+        # forced to operator mode by the chain recorder.
+        mode = str(evidence.get("approval_mode") or "operator")
+        if mode == "panel":
+            if not str(evidence.get("adjudication_ref") or "").strip():
+                reasons.append("request_requires_panel_adjudication_ref")
+        elif not str(evidence.get("operator_feedback_ref") or "").strip():
             reasons.append("request_requires_signed_operator_feedback")
     if to_state in {"REAL_SANDBOX", "SHADOW", "EVAL_WINDOW"}:
         required = ("eval_harness_id", "fixture_run_id", "transcript_hash", "operator_provenance_ref")
@@ -288,6 +302,40 @@ def _is_sha256_digest(value: str) -> bool:
     )
 
 
+def _resolve_panel_adjudication_proof(
+    *,
+    adjudication_ref: str,
+    capability_gap_key: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Y8 (ORPHAN-709) — kernel-computed panel-approval proof.
+
+    ``adjudication_ref`` names the genesis_candidate escalation record the
+    panel APPROVED. The proof is derived from the record file, never from
+    caller-supplied evidence: existence, resolved status, agent_panel
+    resolver, an approving ``panel_outcome``, genesis_candidate kind, and a
+    matching capability_gap_key are each a hard refusal.
+
+    The outcome clause is what separates "the panel answered" from "the
+    panel said yes" — the refuse branch of the fold resolves the record just
+    as the approve branch does, so every other clause here holds for a
+    REJECTED candidate.
+
+    The checks themselves live in ``human_required.resolve_panel_adjudication_proof``
+    — this lane's shape, generalised so the tool-promotion lane (JJ-2b) is
+    the SAME resolver rather than a second one that forgets a clause.
+    """
+    from .human_required import resolve_panel_adjudication_proof
+
+    return resolve_panel_adjudication_proof(
+        adjudication_ref=adjudication_ref,
+        expected_kind="genesis_candidate",
+        context_match={"capability_gap_key": capability_gap_key},
+        error_prefix="genesis_panel",
+        base_dir=base_dir,
+    )
+
+
 def record_transition(
     *,
     entity_id: str,
@@ -295,6 +343,7 @@ def record_transition(
     to_state: GenesisState,
     evidence: dict[str, Any],
     base_dir: str | Path | None = None,
+    repo_root: str | Path | None = None,
     operator_approval_ref: str | None = None,
 ) -> dict[str, Any]:
     if not entity_id.strip():
@@ -308,10 +357,32 @@ def record_transition(
         # only what the kernel measured (verify_shadow_eval_proof pattern).
         from .genesis_superiority import compute_eval_window_superiority
 
+        # C8/E11 — thread repo_root so the operator's superiority_policy
+        # override (genesis_policy.superiority_policy) is actually read;
+        # without it the policy block was dead configuration and every
+        # promotion ran on hardcoded defaults.
         evidence = {
             **evidence,
             "resolved_eval_window_superiority": compute_eval_window_superiority(
-                entity_id=entity_id, base_dir=base_dir
+                entity_id=entity_id, base_dir=base_dir, repo_root=repo_root
+            ),
+        }
+    if to_state == "REQUEST" and str(evidence.get("approval_mode") or "") == "panel":
+        # Y8 (ORPHAN-709) — Z3d pattern: resolve the panel proof kernel-side
+        # and OVERWRITE whatever the caller put under the resolved key. The
+        # policy switch lets an operator force operator-mode globally.
+        policy_mode = str(
+            genesis_lifecycle_policy(repo_root).get("request_approval_mode")
+            or "operator"
+        )
+        if policy_mode != "panel":
+            raise GovernanceError("genesis_panel_mode_disabled_by_policy")
+        evidence = {
+            **evidence,
+            "resolved_panel_adjudication": _resolve_panel_adjudication_proof(
+                adjudication_ref=str(evidence.get("adjudication_ref") or ""),
+                capability_gap_key=str(evidence.get("capability_gap_key") or ""),
+                base_dir=base_dir,
             ),
         }
     verdict = validate_transition(from_state=from_state, to_state=to_state, evidence=evidence)

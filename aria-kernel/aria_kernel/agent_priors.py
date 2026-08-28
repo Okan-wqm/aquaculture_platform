@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -42,7 +42,7 @@ def map_agent_priors(
         "agent_count": len(agents),
         "agents": agents,
     }
-    return append_jsonl(ensure_tools_dir(base_dir) / "agent-priors" / "agent-map.jsonl", row)
+    return append_declared_jsonl(ensure_tools_dir(base_dir) / "agent-priors" / "agent-map.jsonl", row, expected_surface="agent_priors_map")
 
 
 def reviewer_names(*, workspace_root: str | Path) -> set[str]:

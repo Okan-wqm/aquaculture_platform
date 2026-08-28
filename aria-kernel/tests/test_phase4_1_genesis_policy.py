@@ -25,6 +25,9 @@ class GenesisPolicyTests(unittest.TestCase):
         self.assertEqual(policy["materialization_requires_acknowledge"], True)
         self.assertEqual(policy["fitness_staleness_threshold_days"], 7)
         self.assertIn("genesis_lifecycle", policy)
+        # E15-c — the default JSON must carry the key, else the targeting
+        # trigger's policy read KeyErrors on a pristine deployment.
+        self.assertEqual(policy["service_auditor_threshold"], 25)
 
     def test_load_policy_returns_defaults_when_override_missing(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -98,6 +101,14 @@ class GenesisPolicyTests(unittest.TestCase):
         #   * Plan S4 (ORPHAN-MEDIUM-298) — drift_class_weights
         #     (operator targeting lever: per-class pressure score
         #     multipliers consumed by pressure.run_pressure).
+        #   * E11/C8 (ORPHAN-HIGH-671) — superiority (Z3d promotion
+        #     proof block; was readable by superiority_policy but
+        #     silently dropped by merge_with_override — dead operator
+        #     configuration until this key joined the contract).
+        #   * E15-c — service_auditor_threshold (open-finding count at
+        #     which one service earns an aria-svc-<service>-auditor
+        #     genesis request; consumed by
+        #     service_agent_targeting.propose_service_auditor_requests).
         self.assertEqual(
             POLICY_KEYS,
             {
@@ -119,6 +130,23 @@ class GenesisPolicyTests(unittest.TestCase):
                 "skill_genesis_drainer",
                 "genesis_lifecycle",
                 "drift_class_weights",
+                "superiority",
+                "service_auditor_threshold",
+                # Y2 (ORPHAN-704) — judgment_pipeline (sample size +
+                # per-role pending ceiling consumed by
+                # cycle._phase_judgment_pipeline via
+                # judgment_pipeline_policy).
+                "judgment_pipeline",
+                # Y8 (ORPHAN-709) — genesis panel lane ceiling, consumed
+                # by agent_genesis.sweep_candidate_gaps_for_adjudication.
+                "genesis_panel",
+                # E25-a (ORPHAN-710) — rhythm.backlog_cap, consumed by
+                # cycle._backlog_below_cap via rhythm_policy.
+                "rhythm",
+                # E24-a (ORPHAN-711) — watchdog_pull: runtime telemetry
+                # feed + detector thresholds, consumed by
+                # aria_watchdog.run_watchdog_sweep.
+                "watchdog_pull",
             },
         )
 
@@ -127,7 +155,12 @@ class GenesisPolicyTests(unittest.TestCase):
         self.assertEqual(policy["pressure_min_score"], 70)
         self.assertEqual(policy["shadow_min_clean_cycles"], 5)
         self.assertEqual(policy["max_critical_false_positives"], 0)
-        self.assertTrue(policy["request_requires_signed_operator_feedback"])
+        # Y8 (ORPHAN-709) — DELIBERATE REWRITE: the per-gap operator gate is
+        # panel-approved by default (operator directive 2026-08-17); the old
+        # boolean was ALSO dead configuration (the validator hardcoded the
+        # check and read no policy). "operator" remains a valid override.
+        self.assertEqual(policy["request_approval_mode"], "panel")
+        self.assertNotIn("request_requires_signed_operator_feedback", policy)
 
 
 if __name__ == "__main__":

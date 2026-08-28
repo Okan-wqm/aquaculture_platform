@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from .feedback_store import load_feedback
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_jsonl
 from .runs_reader import read_runs_rows
 from .tool_health import compute_metrics, runs_path
 from .tool_registry import ensure_tools_dir, list_tools, utc_now
@@ -43,7 +43,7 @@ def recommend_calibration(
         "pressure_weight_recommendations": pressure_weights,
         "status": "recommendation_only",
     }
-    return append_jsonl(root / "calibration" / "recommendations.jsonl", row)
+    return append_declared_jsonl(root / "calibration" / "recommendations.jsonl", row, expected_surface="calibration_recommendations")
 
 
 def list_calibration_recommendations(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:

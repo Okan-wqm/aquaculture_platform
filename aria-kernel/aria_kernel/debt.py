@@ -184,7 +184,11 @@ def _refresh_index(repo_root: Path) -> dict[str, Any]:
     index: dict[str, Any] = {
         "schema_version": 2,
         "generated_at": _utc_now().strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "source_ledger": _events_path(repo_root).relative_to(repo_root).as_posix(),
+        # E21-d audit catch (ORPHAN-693) — twin of finding.py's fix: under
+        # ARIA_REPO_STATE_ROOT the store lives outside the repo tree.
+        "source_ledger": _events_path(repo_root).relative_to(
+            _debts_dir(repo_root).parent
+        ).as_posix(),
         "source_ledger_tip_hash": source_tip,
         "debts": [],
     }
@@ -322,7 +326,8 @@ def emit_debt(
             "severity": severity,
             "due_date": record["due_date"],
             "permanent_fix_owner": permanent_fix_owner,
-            "path": output_path.relative_to(repo_path).as_posix(),
+            # E21-d audit catch (ORPHAN-693) — twin of finding.py's fix.
+            "path": output_path.relative_to(_debts_dir(repo_path).parent).as_posix(),
         },
     )
     return record

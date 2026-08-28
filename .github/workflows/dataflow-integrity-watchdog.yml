@@ -15,6 +15,16 @@ on:
 permissions:
   contents: read
   actions: write
+# Z1 (ORPHAN-712) — the four self-hosted lanes share ONE workspace on a
+# single-slot runner today; the shared group makes that serialization a
+# REPO-enforced property instead of an accident of runner count, so adding
+# a second runner service can never reopen the mid-run wipe window.
+# WHY its own group: a GitHub concurrency group holds ONE pending slot and
+# a newly arriving run EVICTS the queued one — inside the shared workspace
+# group this hourly probe cancelled the queued nightly executor three times
+# on 2026-08-18 (ORPHAN-713). Path isolation (watchdog-checkout/) already
+# removed its store-wipe vector, so the single-slot runner is the only
+# serializer this read-only probe needs.
 concurrency:
   group: dataflow-integrity-watchdog
   cancel-in-progress: false
@@ -23,32 +33,63 @@ jobs:
     runs-on: [self-hosted, linux, claude]
     timeout-minutes: 10
     steps:
+      # Z1 (ORPHAN-712) — checkout into a SUBDIRECTORY. actions/checkout's
+      # default clean (`git clean -ffdx`) previously ran at the workspace
+      # root and swept the untracked, gitignored `.aria-state-store` — the
+      # hourly job was deleting ARIA's memory between (and, with a second
+      # runner, during) state-writing runs. Scoped to its own directory,
+      # this job can never touch the store again.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          path: watchdog-checkout
       - name: Fetch aria/state for the freshness probe
+        working-directory: watchdog-checkout
         run: git fetch origin '+refs/heads/aria/state:refs/remotes/origin/aria-state' || true
       # The CRITICAL branch below runs kernel code, and the kernel is not on
       # the runner by default — provisioning must precede any step that could
       # invoke it, which the aria-kernel-workflow-setup invariant enforces.
-      - uses: ./.github/actions/setup-aria-kernel
+      - uses: ./watchdog-checkout/.github/actions/setup-aria-kernel
 
       - name: Run T1 probes
         id: probes
+        working-directory: watchdog-checkout
         run: |
+          # NO PIPE around the probe. `node ... | tee` made `$?` report tee's
+          # status, so the exit 3 that means CRITICAL was swallowed and the
+          # ARIA-signal step below could never fire - the detection existed and
+          # the delivery did not. Redirect to the file, then echo it.
           set +e
-          node tools/watchdog/probe-runner.mjs --repo "$PWD" | tee probe-evidence.json
-          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          node tools/watchdog/probe-runner.mjs \
+            --repo "$PWD" \
+            --textfile "$RUNNER_TEMP/aqua_probes.prom" \
+            > probe-evidence.json
+          status=$?
+          set -e
+          cat probe-evidence.json
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+
+      # The textfile is the only way these probe_* series reach Prometheus.
+      # Publishing it as an artefact keeps the evidence auditable even on a
+      # runner whose node_exporter textfile directory is not writable.
+      - name: Upload probe metrics
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dataflow-probe-metrics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/aqua_probes.prom
+          if-no-files-found: error
+          retention-days: 14
       - name: Upload evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dataflow-probe-evidence-${{ github.run_id }}-${{ github.run_attempt }}
-          path: probe-evidence.json
+          path: watchdog-checkout/probe-evidence.json
           retention-days: 14
       - name: On CRITICAL — signal ARIA and dispatch a cycle
         if: steps.probes.outputs.exit_code == '3'
         env:
           GH_TOKEN: ${{ github.token }}
+        working-directory: watchdog-checkout
         run: |
           set -euo pipefail
           PYTHONPATH=aria-kernel python3 -m aria_kernel --tools-dir aria-tools \

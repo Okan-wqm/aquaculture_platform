@@ -20,7 +20,9 @@ import { after, test } from 'node:test';
 import {
   appendAllocatedFinding,
   appendExplicitFinding,
+  appendNarrativeFinding,
   checkCanonicalRegistryPrefix,
+  type FindingAllocationAuthority,
   type Finding,
   parseRechainStartIndex,
   prepareRegistryRechain,
@@ -227,6 +229,216 @@ if (childMode === '--worktree-allocator-child') {
       [...claimed].sort((a, b) => a - b),
       [5],
     );
+  });
+
+  const narrativeImportSchemaPath = resolve(
+    __dirname,
+    '..',
+    '..',
+    'docs',
+    'reviews',
+    '_registry',
+    'findings.jsonl.schema.json',
+  );
+  const narrativeReviewFile = 'docs/reviews/orphan-findings.md';
+
+  function narrativeImportFixture(
+    name: string,
+    options: {
+      id?: string;
+      severity?: FindingSeverity;
+      state?: Finding['state'];
+      narrative?: string;
+      reviewFile?: string;
+      evidence?: string[];
+    } = {},
+  ): {
+    registryPath: string;
+    narrativePath: string;
+    stubPath: string;
+    paths: {
+      registryPath: string;
+      schemaPath: string;
+      narrativePath: string;
+      narrativeReviewFile: string;
+    };
+  } {
+    const id = options.id ?? 'ORPHAN-HIGH-775';
+    const registryPath = join(fixtureRoot, `${name}.jsonl`);
+    const narrativePath = join(fixtureRoot, `${name}.md`);
+    const stubPath = join(fixtureRoot, `${name}-stub.json`);
+    writeFileSync(registryPath, '', 'utf8');
+    writeFileSync(
+      narrativePath,
+      options.narrative ?? `## ${id} — historical narrative — RESOLVED\n`,
+      'utf8',
+    );
+    writeFileSync(
+      stubPath,
+      JSON.stringify({
+        id,
+        severity: options.severity ?? 'HIGH',
+        state: options.state ?? 'RESOLVED',
+        title: 'Governed historical narrative import finding',
+        evidence: options.evidence ?? [`${narrativeReviewFile}#${id}`],
+        owner_agent: 'platform-autonomy',
+        raised_in_cycle: '2026-08-22-aria-end-to-end-autonomy-closure',
+        review_file: options.reviewFile ?? narrativeReviewFile,
+        created_at: '2026-08-22T00:00:00.000Z',
+      }),
+      'utf8',
+    );
+    return {
+      registryPath,
+      narrativePath,
+      stubPath,
+      paths: {
+        registryPath,
+        schemaPath: narrativeImportSchemaPath,
+        narrativePath,
+        narrativeReviewFile,
+      },
+    };
+  }
+
+  void test('narrative import appends the exact anchored heading as a new OPEN row', () => {
+    const fixture = narrativeImportFixture('narrative-import-success');
+    const exitCode = withRegistryFileLock(fixture.registryPath, (lease) =>
+      appendNarrativeFinding(fixture.stubPath, lease, fixture.paths),
+    );
+
+    assert.equal(exitCode, 0);
+    const imported = JSON.parse(readFileSync(fixture.registryPath, 'utf8').trim()) as Finding;
+    assert.equal(imported.id, 'ORPHAN-HIGH-775');
+    assert.equal(imported.state, 'OPEN');
+    assert.equal(imported.closed_at, null);
+    assert.deepEqual(imported.closing_commits, []);
+    assert.match(imported.notes ?? '', /historical narrative.*RESOLVED/i);
+  });
+
+  void test('narrative import replay cannot append an already-imported row', () => {
+    const fixture = narrativeImportFixture('narrative-import-replay');
+    const firstExit = withRegistryFileLock(fixture.registryPath, (lease) =>
+      appendNarrativeFinding(fixture.stubPath, lease, fixture.paths),
+    );
+    assert.equal(firstExit, 0);
+    const afterFirst = readFileSync(fixture.registryPath, 'utf8');
+
+    const replayExit = withRegistryFileLock(fixture.registryPath, (lease) =>
+      appendNarrativeFinding(fixture.stubPath, lease, fixture.paths),
+    );
+    assert.equal(replayExit, 1);
+    assert.equal(readFileSync(fixture.registryPath, 'utf8'), afterFirst);
+  });
+
+  void test('narrative import refuses a sequence claimed by an unrelated heading', () => {
+    const fixture = narrativeImportFixture('narrative-import-unrelated', {
+      narrative: '## ORPHAN-MEDIUM-775 — a different finding\n',
+    });
+    const exitCode = withRegistryFileLock(fixture.registryPath, (lease) =>
+      appendNarrativeFinding(fixture.stubPath, lease, fixture.paths),
+    );
+
+    assert.equal(exitCode, 1);
+    assert.equal(readFileSync(fixture.registryPath, 'utf8'), '');
+  });
+
+  void test('narrative import refuses an ambiguous duplicate heading', () => {
+    const heading = '## ORPHAN-HIGH-775 — duplicated historical finding\n';
+    const fixture = narrativeImportFixture('narrative-import-ambiguous', {
+      narrative: `${heading}${heading}`,
+    });
+    const exitCode = withRegistryFileLock(fixture.registryPath, (lease) =>
+      appendNarrativeFinding(fixture.stubPath, lease, fixture.paths),
+    );
+
+    assert.equal(exitCode, 1);
+    assert.equal(readFileSync(fixture.registryPath, 'utf8'), '');
+  });
+
+  void test('narrative import refuses an exact heading with a suffixed severity variant on the same sequence', () => {
+    const fixture = narrativeImportFixture('narrative-import-conflicting-sequence', {
+      narrative:
+        '## ORPHAN-HIGH-775 — requested historical finding\n' +
+        '## ORPHAN-LOW-775b — conflicting suffixed re-open\n',
+    });
+    const exitCode = withRegistryFileLock(fixture.registryPath, (lease) =>
+      appendNarrativeFinding(fixture.stubPath, lease, fixture.paths),
+    );
+
+    assert.equal(exitCode, 1);
+    assert.equal(readFileSync(fixture.registryPath, 'utf8'), '');
+  });
+
+  void test('narrative import refuses a missing heading', () => {
+    const fixture = narrativeImportFixture('narrative-import-missing', {
+      narrative: '## ORPHAN-HIGH-776 — another historical finding\n',
+    });
+    const exitCode = withRegistryFileLock(fixture.registryPath, (lease) =>
+      appendNarrativeFinding(fixture.stubPath, lease, fixture.paths),
+    );
+
+    assert.equal(exitCode, 1);
+    assert.equal(readFileSync(fixture.registryPath, 'utf8'), '');
+  });
+
+  void test('narrative import refuses severity drift from the heading id', () => {
+    const fixture = narrativeImportFixture('narrative-import-severity', {
+      severity: 'MEDIUM',
+    });
+    const exitCode = withRegistryFileLock(fixture.registryPath, (lease) =>
+      appendNarrativeFinding(fixture.stubPath, lease, fixture.paths),
+    );
+
+    assert.equal(exitCode, 2);
+    assert.equal(readFileSync(fixture.registryPath, 'utf8'), '');
+  });
+
+  void test('narrative import refuses a review file that does not own the heading', () => {
+    const fixture = narrativeImportFixture('narrative-import-review-file', {
+      reviewFile: 'docs/reviews/other.md',
+    });
+    const exitCode = withRegistryFileLock(fixture.registryPath, (lease) =>
+      appendNarrativeFinding(fixture.stubPath, lease, fixture.paths),
+    );
+
+    assert.equal(exitCode, 1);
+    assert.equal(readFileSync(fixture.registryPath, 'utf8'), '');
+  });
+
+  void test('narrative import refuses evidence that does not resolve to the exact heading', () => {
+    const fixture = narrativeImportFixture('narrative-import-evidence', {
+      evidence: [`${narrativeReviewFile}#ORPHAN-HIGH-776`],
+    });
+    const exitCode = withRegistryFileLock(fixture.registryPath, (lease) =>
+      appendNarrativeFinding(fixture.stubPath, lease, fixture.paths),
+    );
+
+    assert.equal(exitCode, 1);
+    assert.equal(readFileSync(fixture.registryPath, 'utf8'), '');
+  });
+
+  void test('narrative import refuses an id present only in a sibling registry', () => {
+    const fixture = narrativeImportFixture('narrative-import-sibling');
+    const siblingRegistryPath = join(fixtureRoot, 'narrative-import-sibling-other.jsonl');
+    const lockPath = join(fixtureRoot, 'narrative-import-sibling.lock');
+    const reservationPath = join(fixtureRoot, 'narrative-import-sibling-reservations.json');
+    writeFileSync(siblingRegistryPath, '{"id":"ORPHAN-HIGH-775"}\n', 'utf8');
+    const authority: FindingAllocationAuthority = {
+      lockPath,
+      reservationPath,
+      activeRegistryPaths: () => [fixture.registryPath, siblingRegistryPath],
+    };
+
+    const exitCode = withRegistryFileLock(
+      fixture.registryPath,
+      (lease) => appendNarrativeFinding(fixture.stubPath, lease, fixture.paths, authority),
+      { lockPath },
+    );
+
+    assert.equal(exitCode, 1);
+    assert.equal(readFileSync(fixture.registryPath, 'utf8'), '');
+    assert.equal(existsSync(reservationPath), false);
   });
 
   void test('non-Error action failures remain observable with native cause semantics', () => {
@@ -717,6 +929,36 @@ if (childMode === '--worktree-allocator-child') {
     );
     assert.equal(emptyHighEvidenceExit, 1);
     assert.equal(readFileSync(resourcePath, 'utf8'), afterExplicitWithoutLayer);
+  });
+
+  void test('allocated append admits the governed ARIA finding domain', () => {
+    const resourcePath = join(fixtureRoot, 'aria-domain.jsonl');
+    const stubPath = join(fixtureRoot, 'aria-domain-stub.json');
+    writeFileSync(resourcePath, '', 'utf8');
+    writeFileSync(
+      stubPath,
+      JSON.stringify({
+        severity: 'HIGH',
+        state: 'OPEN',
+        title: 'ARIA closure task has no executable proof',
+        evidence: ['docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-HIGH-001'],
+        owner_agent: 'platform-autonomy',
+        raised_in_cycle: '2026-08-22-autonomy-closure-plan-audit',
+        review_file: 'docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md',
+        created_at: '2026-08-22T00:00:00.000Z',
+      }),
+      'utf8',
+    );
+
+    const exitCode = withRegistryFileLock(resourcePath, (lease) =>
+      appendAllocatedFinding('ARIA', stubPath, lease, {
+        registryPath: resourcePath,
+        schemaPath: narrativeImportSchemaPath,
+      }),
+    );
+
+    assert.equal(exitCode, 0);
+    assert.match(readFileSync(resourcePath, 'utf8'), /"id":"ARIA-HIGH-001"/);
   });
 
   void test('canonical evidence SSOT accepts every supported path shape', () => {

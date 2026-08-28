@@ -87,9 +87,21 @@ Tek yazma-yetki sınırı. Beş profil (`:91`): `observe`, `standard` (default),
 `frozen`, `autonomous`.
 - **observe** — salt-okuma + yalnız gözlem-sınıfı yazımlar; ajan claim yok, PR yok, tool run yok.
 - **standard** — tam yüzey yazımları + ajan claim; PR strict ister.
-- **strict** — PR open dahil tam pipeline.
+- **strict** — PR open dahil tam pipeline. **Operatör hibesi:** zamanlanmış bir şerit
+  (nightly cron) strict'e ancak operatörün yazdığı `scheduler_profile_ceiling` içinde
+  ulaşabilir.
 - **frozen** — incident no-write: `PLAN_020_WRITE_SURFACES`'in tamamı bloklanır.
 - **autonomous** — `pr_merge`'e izin veren **tek** profil.
+
+**Scheduler tavanı (ORPHAN-HIGH-728).** Gece şeridi profilini L1 kabul merdiveninden
+türetir, ama sonucu `bound_profile_to_ceiling(merdiven_kararı, tavan)` ile sınırlar.
+Tavan aynı kontrol düzleminde (`runtime-profile.json` + history + governance) durur,
+varsayılanı `standard`'dır ve yalnız operatör yükseltebilir:
+`aria-kernel profile set --profile standard --scheduler-ceiling strict
+--operator-approval-ref <ref>`. `set_profile`, operatör olmayan bir çağıranın tavanı
+yükseltmesini de tavanı aşan bir profili kalıcılaştırmasını da reddeder — yani makine
+kendi yetkisini kendisi genişletemez. Kanıt: `evidence` verdiği için değil, operatör
+verdiği için yükselir.
 
 Fail-closed: bozuk/bilinmeyen profil dosyası → `frozen` döner (`:214`), asla `standard`'a
 sessizce kaymaz. `set_profile` (`:300`) her geçişte **`operator_approval_ref` zorunlu** kılar,
@@ -249,8 +261,12 @@ ARIA'nın bulgu-güveni çok-yargıçlı bir hatta dayanır:
 13 ajan: planlama (primary/challenger-planner), cross-review, implementer; yargı (evidence/
 adversarial-judge, consensus-arbiter); adapter-authoring (primary/challenger-drafter); destek
 (change-intelligence, goldset-curator); maintenance (drafter, prompt-writer). Roller `agent_surface.py`'de
-SSoT: `REQUEST_ROLES` (20), `JUDGE_ROLES`, `DISPATCHABLE_ROLES` (9), `ROLE_TARGET_PAIRING` (rol↔ajan
-eşlemesi — yanlış eşleşme reddedilir).
+SSoT: `REQUEST_ROLES` (17), `JUDGE_ROLES`, `DISPATCHABLE_ROLES` (11),
+`ROLE_TARGET_PAIRING` (rol↔ajan
+eşlemesi — yanlış eşleşme reddedilir). E14 rol hijyeni: üretici olmayan beş rol
+(`implementation_review`, `architectural_arbitration`, `auth_security_review`,
+`access_boundary_review`, `tenant_isolation_review`) yüzeyden kaldırıldı; alan incelemesi
+`specialist_domain_review` üzerinden yürür.
 
 ### 9.2 Invocation lifecycle (`agent_invocations.py`)
 **Create** → deterministik `request_id`, kanonik prompt, üç ledger atomik. **Claim** → lease modeli

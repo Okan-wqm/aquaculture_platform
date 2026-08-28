@@ -78,18 +78,27 @@ class AutoMergeTripleGateTests(unittest.TestCase):
                 base_dir=self.base,
             )
         if record_run:
-            record_validation_run(
-                change_id=change_id,
-                cmd="nx affected --target=test",
-                exit_code=0,
-                log_path=str(self.log),
-                commit_sha=commit_sha,
-                runner_identity="ci-executor:gha-d4",
-                change_author_identity="agent:planner-x",
-                started_at="2026-05-11T13:00:00+00:00",
-                completed_at="2026-05-11T13:01:00+00:00",
-                base_dir=self.base,
-            )
+            # ORPHAN-717 Gate 4 — the happy path now carries the full
+            # hygiene battery, deliberately: a chain with only a test run
+            # is BLOCKED (see test_hygiene_battery_missing_blocks).
+            for battery_cmd in (
+                "npm run format:check",
+                "npm run type-check",
+                "nx affected --target=test",
+            ):
+                record_validation_run(
+                    change_id=change_id,
+                    cmd=battery_cmd,
+                    exit_code=0,
+                    duration_ms=1_500,
+                    log_path=str(self.log),
+                    commit_sha=commit_sha,
+                    runner_identity="ci-executor:gha-d4",
+                    change_author_identity="agent:planner-x",
+                    started_at="2026-05-11T13:00:00+00:00",
+                    completed_at="2026-05-11T13:01:00+00:00",
+                    base_dir=self.base,
+                )
         # Bind the PR ↔ change_id via pr-lifecycle row.
         record_pr_lifecycle(
             {"number": pr_number, "head_sha": commit_sha,
@@ -97,6 +106,35 @@ class AutoMergeTripleGateTests(unittest.TestCase):
             event="opened", base_dir=self.base,
         )
         return change_id
+
+    def test_hygiene_battery_missing_blocks(self) -> None:
+        # ORPHAN-717 Gate 4 — a chain whose only verified run is the test
+        # command (the pre-directive happy path) no longer merges: format
+        # and typecheck must each carry their own exit-0 validation_run.
+        commit_sha = "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4"
+        change_id = self._seed_change_chain(
+            pr_number=141, commit_sha=commit_sha, record_run=False,
+            plan_id_suffix="-hyg",
+        )
+        record_validation_run(
+            change_id=change_id,
+            cmd="nx affected --target=test",
+            exit_code=0,
+            duration_ms=1_500,
+            log_path=str(self.log),
+            commit_sha=commit_sha,
+            runner_identity="ci-executor:gha-d4",
+            change_author_identity="agent:planner-x",
+            started_at="2026-05-11T13:00:00+00:00",
+            completed_at="2026-05-11T13:01:00+00:00",
+            base_dir=self.base,
+        )
+        result = _evaluate_triple_gate(
+            pr_number=141, head_sha=commit_sha, base_dir=self.base,
+        )
+        self.assertFalse(result["passed"])
+        self.assertIn("triple_gate_hygiene_run_missing:format", result["reasons"])
+        self.assertIn("triple_gate_hygiene_run_missing:typecheck", result["reasons"])
 
     def test_happy_path_triple_gate_passes(self) -> None:
         commit_sha = "abc1234567890"

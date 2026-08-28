@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .governance_reader import read_governance_rows
-from .ledger import append_jsonl, load_jsonl_verified
+from .ledger import append_declared_jsonl, load_jsonl_verified, read_jsonl
 from .snapshot import file_counts_from_payload
 from .tool_health import runs_path
 from .tool_registry import ensure_tools_dir, utc_now
@@ -25,6 +25,7 @@ def run_reflection(
     recommendation_result: dict[str, Any] | None = None,
     proactive_result: dict[str, Any] | None = None,
     cycle_runner_result: dict[str, Any] | None = None,
+    judge_replay_result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     # Plan ARIA-V5 §3f v2 — reflection schema v1 → v2 additive bump.
     # Three optional kwargs let the autonomy orchestrator inject its
@@ -90,6 +91,7 @@ def run_reflection(
     top_pressures = pressure_payload.get("pressures", [])[:3] if isinstance(pressure_payload.get("pressures"), list) else []
     committed = _committed_findings_and_debts(root, repo_root_override=repo_root)
     human_required = _human_required_summary(root)
+    phase_digest_summary = _phase_digest_summary(root)
     gate_activity = _gate_activity_summary(root)
     reflection = {
         # Plan ARIA-V7 §3 Phase 7.7 — schema_version v2 → v3
@@ -105,10 +107,10 @@ def run_reflection(
         "tool_run_count": len(runs),
         "ok_run_count": sum(1 for run in runs if run.get("status") == "ok"),
         "failed_run_count": sum(1 for run in runs if run.get("status") != "ok"),
-        "operator_facing_findings": sum(len(run.get("emitted_findings", [])) for run in runs),
-        "operator_facing_observations": sum(len(run.get("emitted_observations", [])) for run in runs),
+        "operator_facing_findings": sum(_emitted_count(run, "findings") for run in runs),
+        "operator_facing_observations": sum(_emitted_count(run, "observations") for run in runs),
         "suppressed_shadow_findings": sum(run.get("runner", {}).get("raw_findings_count", 0) for run in runs)
-        - sum(len(run.get("emitted_findings", [])) for run in runs),
+        - sum(_emitted_count(run, "findings") for run in runs),
         "invalid_evidence_count": _invalid_evidence_count(runs),
         "snapshot_outside_path_count": _snapshot_outside_path_count(runs),
         "tool_runtime": tool_runtime,
@@ -122,6 +124,7 @@ def run_reflection(
         "committed_findings": committed["findings"],
         "committed_debts": committed["debts"],
         "human_required": human_required,
+        "phase_digest_summary": phase_digest_summary,
         "gate_activity": gate_activity,
         # Plan ARIA-V5 §3f v2 — convergence + review + pedagogy sub-
         # objects. Direct CLI path (no orchestrator kwargs) emits
@@ -144,12 +147,24 @@ def run_reflection(
         "calibration_recommendation": recommendation_result if recommendation_result else None,
         "proactive": proactive_result if proactive_result else None,
         "cycle_runner": cycle_runner_result if cycle_runner_result else None,
+        # C6/E8 — judge_replay travels on the reflection row, because the
+        # sealed CycleRow is frozen+slotted and CANNOT carry it: the old
+        # renderer read row.get("judge_replay") from cycles.jsonl, a field
+        # no constructor could ever write, so the Replay Recall section
+        # was structurally unreachable.
+        "judge_replay": judge_replay_result if judge_replay_result else None,
         # Which of ARIA's learning inputs are actually receiving data. A
         # counter that reads 0 for months does not distinguish "no data yet"
         # from "the producer chain is severed" — judged_judges sat at zero
         # while three separate defects starved it, and every one was found by
         # a human noticing. This section is the machine noticing.
         "dataflow_health": _compute_dataflow_health(root),
+        # Y5 (ORPHAN-706) — the bridge's role×transition matrix. Twelve
+        # judge results failed to fold ("verdict None") and ten burned to
+        # permanent_fail with no report line anywhere; the truth lived only
+        # in agent-result-bridge-status.jsonl. This is that ledger's first
+        # reader.
+        "bridge_health": _compute_bridge_health(root),
         "next_cycle_plan": [
             {
                 "pressure_id": item.get("pressure_id"),
@@ -163,7 +178,7 @@ def run_reflection(
             for item in top_pressures
         ],
     }
-    append_jsonl(root / "reflections.jsonl", reflection)
+    append_declared_jsonl(root / "reflections.jsonl", reflection, expected_surface="reflections")
     _write_daily_report(root, reflection)
     # Plan 026R §F.2 — also enqueue next_cycle_plan items into the
     # bounded scheduler queue so the §F.1 autonomy orchestrator can
@@ -274,11 +289,13 @@ def _human_required_summary(tools_root: Path) -> dict[str, Any]:
 
     items = list_human_required(base_dir=tools_root, include_resolved=False)
     if not items:
-        return {"open": 0, "breaching_sla": 0, "items": []}
+        return {"open": 0, "breaching_sla": 0, "items": [], "tiers": {}}
     now = datetime.now(timezone.utc)
     breaching = 0
+    tiers: dict[str, int] = {}
     for item in items:
         deadline = item.get("sla_deadline")
+        recorded = item.get("recorded_at")
         if not isinstance(deadline, str):
             continue
         try:
@@ -287,7 +304,29 @@ def _human_required_summary(tools_root: Path) -> dict[str, Any]:
             continue
         if dt < now:
             breaching += 1
-    return {"open": len(items), "breaching_sla": breaching, "items": items[:5]}
+            # X4 (ORPHAN-699) — the critical_observation N+k*SLA ladder,
+            # applied to the operator-triage queue: a breach used to be one
+            # report line forever; now age relative to the SLA window sets
+            # an escalation tier the renderer amplifies. Tier is derived,
+            # never stored — the ledger stays append-only and re-renders
+            # honestly as time passes.
+            try:
+                start = datetime.fromisoformat(str(recorded).replace("Z", "+00:00"))
+                window = (dt - start) or None
+            except (ValueError, TypeError):
+                window = None
+            tier = "breach"
+            if window:
+                age_windows = (now - dt) / window
+                if age_windows >= 5:
+                    tier = "critical_attention"
+                elif age_windows >= 3:
+                    tier = "sustained_breach"
+                elif age_windows >= 2:
+                    tier = "escalated"
+            item["sla_tier"] = tier
+            tiers[tier] = tiers.get(tier, 0) + 1
+    return {"open": len(items), "breaching_sla": breaching, "items": items[:5], "tiers": tiers}
 
 
 def _normalize_finding_status(row: dict[str, Any]) -> str | None:
@@ -335,9 +374,25 @@ def _scan_findings_filesystem(findings_dir: Path) -> dict[str, Any]:
             continue
         _normalize_finding_status(row)
         rows.append(row)
+    # E15-b — findings grouped by microservice (operator direction:
+    # reports and missions speak in service terms). Legacy docs derive
+    # their dimension at read time through the same seam the mint uses.
+    from .service_dimension import finding_dimension_paths, services_for_paths
+
+    by_service: dict[str, dict[str, int]] = {}
+    for row in rows:
+        services = row.get("services") or services_for_paths(
+            finding_dimension_paths(row)
+        )
+        for svc in services or ["(no service dimension)"]:
+            bucket = by_service.setdefault(svc, {"total": 0, "open": 0})
+            bucket["total"] += 1
+            if row.get("status") == "OPEN":
+                bucket["open"] += 1
     return {
         "total": len(rows),
         "open": sum(1 for r in rows if r.get("status") == "OPEN"),
+        "by_service": by_service,
         "recent": sorted(
             rows, key=lambda r: r.get("created_at", ""), reverse=True
         )[:5],
@@ -618,9 +673,9 @@ def _render_label_queue_section(root: Path) -> list[str]:
         from .strict_jsonl_reader import read_strict_jsonl
         samples = list(read_strict_jsonl(root / "judgment-samples.jsonl", on_corruption="tolerant"))
     except OSError:
-        return []
-    if not samples:
-        return []
+        samples = []
+    # E20 — an empty sample queue must NOT hide the seeding backlog; the
+    # two are independent halves of the same labeling economy.
     pending = [s for s in samples if not s.get("labels_complete")] or samples
     latest = pending[-3:]
     lines = ["", "## Labels wanted", ""]
@@ -638,6 +693,36 @@ def _render_label_queue_section(root: Path) -> list[str]:
                 f"--run-id {item.get('run_id','?')} --finding-id {fid} "
                 f"--verdict true_positive|false_positive --note \"...\"`"
             )
+    # E20 (ORPHAN-672) — the seeding backlog joins the same section: the
+    # ledger grew on every live finding with no reader anywhere, so the
+    # calibration bottleneck (how much label work waits) was invisible.
+    # First real reader of list_seeding_backlog; renders only when work
+    # actually waits, same empty-heading discipline as above.
+    try:
+        from .calibration_bootstrap import list_seeding_backlog
+
+        backlog = list_seeding_backlog(base_dir=root)
+    except OSError:
+        backlog = {}
+    if backlog.get("total_unlabeled"):
+        lines.append("")
+        lines.append(
+            f"- Seeding backlog: {backlog['total_unlabeled']} unlabeled row(s) "
+            "awaiting `python -m aria_kernel.calibration_bootstrap label ...`"
+        )
+        top = sorted(
+            backlog.get("tools", {}).items(),
+            key=lambda item: -item[1].get("unlabeled", 0),
+        )[:5]
+        for tool_id, counts in top:
+            if counts.get("unlabeled"):
+                lines.append(
+                    f"  - {tool_id}: {counts['unlabeled']} unlabeled / {counts['seeded']} seeded"
+                )
+    if len(lines) == 3:
+        # Header-only — nothing waits on either half; keep the
+        # empty-heading discipline (render nothing).
+        return []
     return lines
 
 
@@ -665,14 +750,19 @@ def _judged_judges_series(root: Path) -> list[int]:
 
 def _labelled_tool_series(root: Path) -> list[int]:
     # Same eligibility as goldset.propose_goldsets_for_labelled_tools: a
-    # tool counts once it has any labelled ground truth.
-    from .feedback_store import load_feedback
+    # tool counts once it has any labelled ground truth. JJ-1 — the SAME
+    # predicate, not a hand-copied source_type tuple. The copy that used to
+    # stand here still admitted 2-judge consensus after the producer stopped
+    # accepting it, so this sentinel would have reported labelled_tool_count
+    # healthy while the goldset producer starved: the "sentinel that thinks
+    # it measures and doesn't" failure this very file warns about above.
+    from .feedback_store import is_ground_truth_row, load_feedback
 
     labelled = {
         str(row.get("tool_id"))
         for row in load_feedback(base_dir=root)
         if row.get("verdict") in ("true_positive", "false_positive")
-        and row.get("source_type") in ("human", "ai_consensus", None)
+        and is_ground_truth_row(row)
     }
     return [len(labelled)]
 
@@ -743,6 +833,126 @@ def _compute_dataflow_health(root: Path) -> dict[str, Any]:
         "signals": signals,
         "starved": starved,
     }
+
+
+def _phase_digest_summary(tools_root: Path) -> dict[str, Any]:
+    """X3 (ORPHAN-700) — the latest sealed cycle's phase digests.
+
+    First reader of the metrics row's ``phase_digests`` (schema v2). The
+    absence of a digest for a phase is REPORTED as absence — that is the
+    zero-vs-absent distinction this train exists for.
+    """
+    path = tools_root / "observability" / "cycle-metrics.jsonl"
+    if not path.exists():
+        return {}
+    try:
+        rows = read_jsonl(
+            path,
+            expected_surface="observability_cycle_metrics",
+        )
+    except OSError:
+        return {}
+    if not rows:
+        return {}
+    latest = rows[-1]
+    return {
+        "cycle_id": latest.get("cycle_id"),
+        "digests": latest.get("phase_digests") or {},
+    }
+
+
+def _render_experiment_night_section(reflection: dict[str, Any]) -> list[str]:
+    """X3 — the bench's night, visible. Silent when no digest exists yet
+    (pre-X3 rows), loud about 'ran empty' when the digest says zero."""
+    summary = reflection.get("phase_digest_summary") or {}
+    digests = summary.get("digests") or {}
+    night = digests.get("experiment_night")
+    if night is None:
+        return []
+    lines = ["", "## Experiment Night", ""]
+    planned = night.get("planned_problem", 0)
+    if not planned and not night.get("planned_regression", 0):
+        lines.append(
+            "- ran EMPTY: zero admissible experiments "
+            f"(unresolvable bindings: {night.get('unresolvable_bindings', 0)}) — "
+            "a finding-bound, red-contract experiment is what admits a candidate"
+        )
+    else:
+        lines.append(f"- problem runs planned: {planned}")
+        lines.append(f"- regression re-runs planned: {night.get('planned_regression', 0)}")
+        lines.append(f"- reproduced: {night.get('reproduced', 0)} | refuted: {night.get('refuted', 0)}")
+        lines.append(f"- regressions detected: {night.get('regressions', 0)} | still fixed: {night.get('still_fixed', 0)}")
+        skipped = night.get("skipped_problem", 0) + night.get("skipped_regression", 0)
+        if skipped:
+            lines.append(f"- skipped over budget: {skipped}")
+    if night.get("errors", 0):
+        lines.append(f"- errors: {night.get('errors')}")
+    return lines
+
+
+def _render_watchdog_section(reflection: dict[str, Any]) -> list[str]:
+    """X3 — the watchdog's sweep, visible (silent pre-X3)."""
+    summary = reflection.get("phase_digest_summary") or {}
+    digests = summary.get("digests") or {}
+    sweep = digests.get("watchdog_sweep")
+    if sweep is None:
+        return []
+    return [
+        "",
+        "## Watchdog Sweep",
+        "",
+        f"- candidates: {sweep.get('candidates', 0)}",
+        f"- emitted: {sweep.get('emitted', 0)} (suppressed: {sweep.get('suppressed', 0)})",
+    ]
+
+
+def _compute_bridge_health(root: Path) -> dict[str, Any]:
+    """Y5 (ORPHAN-706) — fold agent-result-bridge-status.jsonl to a
+    role×transition matrix plus the distinct error signatures behind the
+    non-ok transitions. Missing ledger → empty dict (young store)."""
+    path = root / "agent-invocations" / "agent-result-bridge-status.jsonl"
+    if not path.exists():
+        return {}
+    matrix: dict[str, dict[str, int]] = {}
+    error_signatures: dict[str, int] = {}
+    try:
+        rows = read_jsonl(
+            path,
+            expected_surface="agent_result_bridge_status",
+        )
+    except OSError:
+        return {}
+    for row in rows:
+        role = str(row.get("role") or "unknown")
+        transition = str(row.get("transition") or "unknown")
+        matrix.setdefault(role, {})[transition] = matrix.get(role, {}).get(transition, 0) + 1
+        if transition in ("pending_retry", "permanent_fail"):
+            detail = str(row.get("error_detail") or "")[:80]
+            if detail:
+                error_signatures[detail] = error_signatures.get(detail, 0) + 1
+    return {"matrix": matrix, "error_signatures": error_signatures}
+
+
+def _render_bridge_health_section(reflection: dict[str, Any]) -> list[str]:
+    """Y5 — non-ok bridge transitions become report lines; an all-ok (or
+    empty) ledger renders nothing, per the empty-heading rule below."""
+    health = reflection.get("bridge_health") or {}
+    matrix = health.get("matrix") or {}
+    troubled = {
+        role: counts for role, counts in sorted(matrix.items())
+        if any(t in counts for t in ("pending_retry", "permanent_fail"))
+    }
+    if not troubled:
+        return []
+    lines = ["", "## Bridge Health", ""]
+    for role, counts in troubled.items():
+        rendered = ", ".join(f"{t}: {n}" for t, n in sorted(counts.items()))
+        lines.append(f"- {role} — {rendered}")
+    for signature, count in sorted(
+        (health.get("error_signatures") or {}).items(), key=lambda kv: -kv[1],
+    )[:5]:
+        lines.append(f"- `{signature}` ×{count}")
+    return lines
 
 
 def _render_dataflow_health_section(reflection: dict[str, Any]) -> list[str]:
@@ -914,12 +1124,84 @@ def _render_observability_section(root: Path) -> list[str]:
         f"p95 {rolling.get('duration_p95_ms', 0)}ms)",
         f"- Alerts this cycle: {len(alerts)}",
     ]
+    # M10/E8 — read the fields the producer actually writes.
+    # `_record_alerts` emits {reason, slo_state, observed}; this renderer
+    # read alert_kind/kind + message/detail — none of which exist — so
+    # every alert an operator ever saw rendered as "None: ". A writer-
+    # reader field mismatch is invisible to CI until someone reads the
+    # report next to the producer, which is what the E8 sweep is.
     for alert in alerts[:5]:
         if isinstance(alert, dict):
             lines.append(
-                f"  - {alert.get('alert_kind') or alert.get('kind')}: "
-                f"{str(alert.get('message') or alert.get('detail') or '')[:100]}"
+                f"  - {alert.get('reason', 'unknown')} "
+                f"[{alert.get('slo_state', '?')}] "
+                f"observed={alert.get('observed')}"
             )
+    # M10/E8 — alerts.jsonl gets its first reader. The ledger had three
+    # writers' worth of history and no consumer: the inline `alerts` list
+    # above shows only THIS cycle, so a degradation trend across nights
+    # was invisible. One honest window line makes the ledger load-bearing.
+    try:
+        from .observability import alerts_path
+
+        # Same trust level as the producer: _record_alerts appends via the
+        # hash-chained append_jsonl, so the verified loader is its mirror.
+        history = load_jsonl_verified(alerts_path(root))
+    except Exception:
+        history = []
+    if history:
+        recent = history[-20:]
+        by_reason: dict[str, int] = {}
+        for row in recent:
+            key = str(row.get("reason") or "unknown")
+            by_reason[key] = by_reason.get(key, 0) + 1
+        summary = ", ".join(f"{k}×{v}" for k, v in sorted(by_reason.items()))
+        lines.append(f"- Alert history (last {len(recent)} rows): {summary}")
+    lines.append("")
+    return lines
+
+
+def _render_learning_events_section(root: Path) -> list[str]:
+    """M9/E8 — the learning journal's FIRST reader.
+
+    Three writers (memory belief/convention recording, goldset promotion,
+    pr-tracking merge outcomes) appended to memory/learning-events.jsonl and
+    nothing ever read it: a system billed as never-forgetting kept a journal
+    of what it learned that no decision or report consumed. This section is
+    deliberately a summary, not a dump — the ledger stays the archive; the
+    report answers "did ARIA learn anything tonight, and what kind?".
+    """
+    try:
+        from .ledger import load_declared_jsonl
+
+        rows = load_declared_jsonl(
+            root / "memory" / "learning-events.jsonl",
+            expected_surface="memory_learning_events",
+        )
+    except Exception:
+        return []
+    if not rows:
+        return []
+    recent = rows[-50:]
+    by_type: dict[str, int] = {}
+    for row in recent:
+        key = str(row.get("event_type") or "unknown")
+        by_type[key] = by_type.get(key, 0) + 1
+    lines = [
+        "## Learning Events",
+        "",
+        f"- Journal rows: {len(rows)} total",
+        "- Last "
+        + str(len(recent))
+        + ": "
+        + ", ".join(f"{k}×{v}" for k, v in sorted(by_type.items())),
+    ]
+    last = recent[-1]
+    lines.append(
+        f"- Most recent: {last.get('event_type')} → "
+        f"{last.get('target_type')}:{str(last.get('target_id'))[:60]} "
+        f"(cycle {last.get('cycle_id')})"
+    )
     lines.append("")
     return lines
 
@@ -995,25 +1277,14 @@ def _render_quarantine_section(root: Path) -> list[str]:
     return lines
 
 
-def _render_replay_recall_section(root: Path) -> list[str]:
-    # FAZ 1d's judge_replay phase writes its per-tool recall into the sealed
-    # cycle row; this is that number's operator surface.
-    try:
-        from .ledger import load_declared_jsonl
-
-        rows = load_declared_jsonl(root / "cycles.jsonl", expected_surface="cycles")
-    except Exception:
-        return []
-    latest = next(
-        (
-            row for row in reversed(rows)
-            if row.get("status") == "completed" and row.get("judge_replay")
-        ),
-        None,
-    )
-    if latest is None:
-        return []
-    replay = latest.get("judge_replay") or {}
+def _render_replay_recall_section(reflection: dict[str, Any]) -> list[str]:
+    # C6/E8 — reads the reflection row, not cycles.jsonl: the sealed
+    # CycleRow is frozen+slotted with no judge_replay field, so the old
+    # `row.get("judge_replay")` lookup matched nothing, ever, and this
+    # section was structurally unreachable. The judge_replay phase result
+    # now travels run_reflection's producer-kwargs pipe like every other
+    # producer output.
+    replay = reflection.get("judge_replay") or {}
     tools = replay.get("tools") or []
     if not tools:
         return []
@@ -1026,7 +1297,7 @@ def _render_replay_recall_section(root: Path) -> list[str]:
         "## Judge Replay Recall",
         "",
         f"- Replay-judged judges: {recall_summary.get('judged_judges', 0)}",
-        f"- Cycle: `{latest.get('cycle_id')}`",
+        f"- Cycle: `{reflection.get('cycle_id')}`",
     ]
     for row in tools[:8]:
         if not isinstance(row, dict):
@@ -1038,6 +1309,33 @@ def _render_replay_recall_section(root: Path) -> list[str]:
                 if row.get("replayed_items")
                 else ""
             )
+        )
+    lines.append("")
+    return lines
+
+
+def _render_rule_health_section(root: Path) -> list[str]:
+    """D4 — per-rule TP/FP from ground truth; silent until data exists."""
+    try:
+        from .rule_health import quarantined_rules, rule_stats
+
+        stats = rule_stats(root)
+    except Exception:
+        return []
+    if not stats:
+        return []
+    quarantined = quarantined_rules(root)
+    lines = [
+        "## Rule Health",
+        "",
+        "| Tool | Rule | Judged | TP | FP | Quarantined |",
+        "| --- | --- | ---: | ---: | ---: | --- |",
+    ]
+    for (tool_id, rule), bucket in sorted(stats.items()):
+        lines.append(
+            f"| {tool_id} | {rule} | {bucket['judged']} | "
+            f"{bucket['true_positive']} | {bucket['false_positive']} | "
+            f"{'YES' if (tool_id, rule) in quarantined else 'no'} |"
         )
     lines.append("")
     return lines
@@ -1130,7 +1428,16 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
         f"- Breaching SLA: {hr_breach}",
         *(
             [
-                f"- {item.get('request_id')} [{item.get('severity')}] sla {item.get('sla_deadline')} — {item.get('reason', '')[:80]}"
+                f"- **ESKALASYON**: {count} item(s) at tier '{tier}' — operator action overdue"
+                for tier, count in sorted((hr.get("tiers") or {}).items())
+                if tier != "breach" and count
+            ]
+        ),
+        *(
+            [
+                f"- {item.get('request_id')} [{item.get('severity')}]"
+                + (f" tier={item.get('sla_tier')}" if item.get('sla_tier') and item.get('sla_tier') != 'breach' else "")
+                + f" sla {item.get('sla_deadline')} — {item.get('reason', '')[:80]}"
                 for item in hr.get("items") or []
             ]
             or ["- (no operator-triage queue items)"]
@@ -1164,6 +1471,9 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
             f"- {item.get('pressure_id')}: {item.get('score')} - {item.get('reason')}"
             for item in reflection.get("top_pressures", [])
         ],
+        *_render_experiment_night_section(reflection),
+        *_render_watchdog_section(reflection),
+        *_render_bridge_health_section(reflection),
         "",
         "## Tool Health",
         "",
@@ -1210,10 +1520,12 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
         # missions, quarantine, replay recall (each ledger's first reader).
         *_render_plan016_section(root),
         *_render_observability_section(root),
+        *_render_learning_events_section(root),
         *_render_mission_section(root),
         *_render_quarantine_section(root),
-        *_render_replay_recall_section(root),
+        *_render_replay_recall_section(reflection),
         *_render_duel_ratings_section(root),
+        *_render_rule_health_section(root),
         "## Committed Findings",
         "",
         f"- Total: {reflection.get('committed_findings', {}).get('total', 0)}",
@@ -1222,6 +1534,21 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
             [f"- Recent: {row.get('finding_id')} [{row.get('severity')}] ({row.get('claim_type')}) — {row.get('claim_summary', '')[:80]}"
              for row in reflection.get('committed_findings', {}).get('recent', [])]
             or ["- (no committed findings yet)"]
+        ),
+        "",
+        # E15-b — the operator reads the platform per microservice; the
+        # report groups findings on the same axis (open-count descending).
+        "### Findings by service",
+        "",
+        *(
+            [
+                f"- {svc}: {counts.get('open', 0)} open / {counts.get('total', 0)} total"
+                for svc, counts in sorted(
+                    reflection.get('committed_findings', {}).get('by_service', {}).items(),
+                    key=lambda item: (-item[1].get('open', 0), item[0]),
+                )
+            ]
+            or ["- (no service-dimensioned findings yet)"]
         ),
         "",
         "## Open Debts",
@@ -1244,6 +1571,25 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
         "",
     ]
     path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def _emitted_count(run: dict[str, Any], kind: str) -> int:
+    """ORPHAN-HIGH-798 — int-tolerant emitted count across row generations.
+
+    Pre-798 rows carry inline arrays (`emitted_findings: [...]`); post-798
+    rows carry `emitted_counts: {"findings": N}` (the arrays moved to the
+    artifact payload; the row keeps only the count). Both must read the
+    same number.
+    """
+    counts = run.get("emitted_counts")
+    if isinstance(counts, dict):
+        return int(counts.get(kind, 0))
+    legacy = run.get(f"emitted_{kind}")
+    if isinstance(legacy, list):
+        return len(legacy)
+    if isinstance(legacy, int):
+        return legacy
+    return 0
 
 
 def _coverage(root: Path, cycle_id: str) -> dict[str, Any]:
@@ -1282,8 +1628,8 @@ def _tool_runtime_table(
         tool_id = str(run.get("tool_id") or "")
         raw_findings = int(run.get("runner", {}).get("raw_findings_count") or 0)
         raw_observations = int(run.get("runner", {}).get("raw_observations_count") or 0)
-        emitted_findings = len(run.get("emitted_findings", [])) if isinstance(run.get("emitted_findings"), list) else 0
-        emitted_observations = len(run.get("emitted_observations", [])) if isinstance(run.get("emitted_observations"), list) else 0
+        emitted_findings = _emitted_count(run, "findings")
+        emitted_observations = _emitted_count(run, "observations")
         previous = _previous_tool_run(all_runs, tool_id, cycle_id)
         previous_raw = int(previous.get("runner", {}).get("raw_findings_count") or 0) if previous else 0
         rows.append(

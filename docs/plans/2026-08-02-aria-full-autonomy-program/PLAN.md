@@ -1,5 +1,12 @@
 # ARIA Full-Autonomy Program — Plan of Record
 
+> **HISTORICAL — superseded as executable authority (2026-08-22):** Preserve
+> the measurements and checklists below as program history. Current execution
+> is governed by
+> `docs/superpowers/plans/2026-08-22-aria-end-to-end-autonomy-closure.md` and the
+> verified boundary in `docs/aria/CURRENT_STATE.md`; unchecked work below is
+> not silently complete.
+
 - **Plan date:** 2026-08-02
 - **Owner:** okan
 - **Audit baseline:** `main@7e1563e6` (ARIA kernel surfaces byte-identical to `f723a488`, the

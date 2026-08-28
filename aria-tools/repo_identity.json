@@ -1,5 +1,8 @@
 {
   "aria_tools_contract_version": 3,
-  "contract_pinned_at_commit": "Plan ARIA-V2 §3.2 — v3 schema-stamp; runtime binding stored locally (see aria-tools/.gitignore via repo-root .gitignore)",
+  "bound_canonical_identity": "22223dc37d2447f3",
+  "bound_repo_hash": "22223dc37d2447f3",
+  "bound_repo_root": "/tmp/aria-seedmint-jpze4m_d/repo",
+  "contract_pinned_at_commit": "Plan ARIA-V2 \u00a73.2 \u2014 v3 schema-stamp; runtime binding stored locally (see aria-tools/.gitignore via repo-root .gitignore)",
   "schema_version": 3
 }

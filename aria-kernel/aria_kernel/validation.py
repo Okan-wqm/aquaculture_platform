@@ -1,7 +1,25 @@
+"""Lane-A validation command runner.
+
+E21-a — this module no longer writes the ``validation_runs`` surface.
+
+``_run_one`` used to append its own row shape to
+``validation/validation-runs.jsonl``, in parallel with
+``validation_runs_ledger.record_validation_run``. One declared surface,
+two writers, two schemas: the merge gate read ``change_id`` (absent from
+Lane-A rows) and the observability dashboard read ``status`` (absent from
+Lane-B rows), so each reader was blind to half the surface. Lane A now
+records THROUGH the ledger, which is the single writer, and this module
+REFUSES the runs path outright so the second writer cannot come back.
+
+That fold is why ``run_validation_commands`` demands ``change_id``,
+``commit_sha`` and ``runner_identity``: a validation run that cannot say
+which change and which commit it validated is not evidence, which is
+exactly why the merge gate ignored Lane A's rows.
+"""
 from __future__ import annotations
 
-import hashlib
 import os
+import secrets
 import shlex
 import subprocess
 import time
@@ -13,6 +31,11 @@ from .ledger import (
     load_declared_jsonl,
 )
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+from .validation_runs_ledger import (
+    VALIDATION_RUNS_FILENAME,
+    record_validation_run,
+    validation_run_log_dir,
+)
 
 
 ALLOWED_COMMANDS = (
@@ -21,14 +44,45 @@ ALLOWED_COMMANDS = (
     ("npx", "ts-node"),
     ("python3", "-m", "aria_kernel"),
     ("python3", "-m", "unittest"),
+    ("cargo",),
 )
+
+# E21-b — the Rust lane, opened narrowly.
+#
+# The experiment bench claims to be domain-agnostic, and until E21-b that
+# claim rested on an AST check alone: the kernel does not NAME a language,
+# but this lane could only execute JavaScript and Python, so a Rust recipe
+# was unrunnable and "portable" was an assertion rather than a result.
+#
+# Only non-mutating verbs are admitted. ``check`` and ``test`` read the
+# tree and report; ``install``, ``publish``, ``run``, ``add``, ``clean``
+# and every subcommand nobody thought about mutate the machine, the
+# registry, or the network, and none of them answers a hypothesis about
+# this repository. This is not a new privilege on this host — the
+# implementer lane's ``implementation_safety.ALLOWED_BASH_COMMANDS``
+# already admits ``cargo test``/``cargo check``; one repo, one posture.
+ALLOWED_CARGO_SUBCOMMANDS: tuple[str, ...] = ("check", "test")
+
+# ``--config`` is refused because it re-opens arbitrary execution behind an
+# allowed verb: ``cargo test --config target.<triple>.runner='<argv>'``
+# makes cargo launch a program of the caller's choosing, and a toolchain
+# selector (``cargo +nightly ...``) is likewise not a subcommand. Narrowing
+# the verb while leaving that flag open would allowlist the word and not
+# the behaviour.
+_REFUSED_CARGO_FLAG = "--config"
 
 
 _VALIDATION_SURFACE_BY_FILENAME: dict[str, str] = {
     "validation-plans.jsonl": "validation_plans",
-    "validation-runs.jsonl": "validation_runs",
     "validation-comparisons.jsonl": "validation_comparisons",
     "validation-gates.jsonl": "validation_gates",
+}
+
+# E21-a — the surfaces this module must NOT touch, and the module that
+# owns each. Kept as data rather than a comment so the refusal below and
+# the invariant test read the same list.
+_LEDGER_OWNED_SURFACE_FILENAMES: dict[str, str] = {
+    VALIDATION_RUNS_FILENAME: "aria_kernel.validation_runs_ledger",
 }
 
 
@@ -36,6 +90,14 @@ def _validation_surface_name(path: str | Path) -> str | None:
     concrete = Path(path)
     if concrete.parent.name != "validation":
         return None
+    owner = _LEDGER_OWNED_SURFACE_FILENAMES.get(concrete.name)
+    if owner is not None:
+        raise GovernanceError(
+            f"validation_surface_owned_elsewhere:{concrete.name}: this "
+            f"surface has exactly one writer, {owner}; route the write "
+            f"through record_validation_run() instead of re-opening a "
+            f"second schema on it"
+        )
     return _VALIDATION_SURFACE_BY_FILENAME.get(concrete.name)
 
 
@@ -57,12 +119,36 @@ def run_validation_commands(
     *,
     commands: list[str],
     workspace_root: str | Path,
+    change_id: str,
+    commit_sha: str,
+    runner_identity: str,
+    change_author_identity: str | None = None,
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
     validation_plan_id: str | None = None,
     timeout_ms: int = 120_000,
     require_clean_worktree: bool = True,
 ) -> dict[str, Any]:
+    """Execute allowlisted commands and record each through the ledger.
+
+    ``change_id``, ``commit_sha`` and ``runner_identity`` are REQUIRED and
+    resolved, not merely non-empty: the change must exist in the change
+    ledger and the commit must be the one the commands actually run at. A
+    caller that cannot supply real provenance gets a named
+    ``GovernanceError`` — never a placeholder row, because a placeholder
+    row is evidence the merge gate would then honour.
+
+    ORPHAN-CRITICAL-728 — ``commit_sha`` is VERIFIED against the workspace
+    HEAD, not merely resolved. Resolving proved only that the sha named some
+    commit in the repository, and the commands run in ``workspace_root`` at
+    whatever is checked out: ``apply_engine.run_apply_gate`` passed the tip
+    of the implementation branch while HEAD sat on main, so every row in the
+    ``validation-runs`` ledger — the ledger the merge gate joins on — claimed
+    provenance the run did not have, and the gate promoted the action to
+    ``ready_for_pr`` on it. A caller still NAMES the commit it believes it is
+    validating, because a wrong belief must be refused loudly rather than
+    silently relabelled to HEAD.
+    """
     if not commands or not all(isinstance(command, str) and command.strip() for command in commands):
         raise GovernanceError("validation commands must contain at least one non-empty command")
     if timeout_ms <= 0:
@@ -70,6 +156,8 @@ def run_validation_commands(
     root = Path(workspace_root).resolve()
     if not root.exists() or not root.is_dir():
         raise GovernanceError(f"workspace root does not exist: {workspace_root}")
+    _assert_change_id_resolves(change_id, base_dir=base_dir)
+    _assert_commit_sha_is_workspace_head(root, commit_sha)
     if require_clean_worktree and _dirty_worktree(root):
         raise GovernanceError("validation requires a clean git worktree")
 
@@ -82,20 +170,92 @@ def run_validation_commands(
                 base_dir=base_dir,
                 cycle_id=cycle_id,
                 validation_plan_id=validation_plan_id,
+                change_id=change_id,
+                commit_sha=commit_sha,
+                runner_identity=runner_identity,
+                change_author_identity=change_author_identity,
                 ordinal=index,
                 timeout_ms=timeout_ms,
             ),
         )
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "recorded_at": utc_now(),
         "cycle_id": cycle_id,
         "validation_plan_id": validation_plan_id,
+        "change_id": change_id,
+        "commit_sha": commit_sha,
         "status": "ok" if all(run["status"] == "ok" for run in runs) else "failed",
         "command_count": len(runs),
         "run_refs": [run["ledger_hash"] for run in runs],
+        "validation_run_ids": [run["validation_run_id"] for run in runs],
     }
     return append_jsonl(ensure_tools_dir(base_dir) / "validation" / "validation-plans.jsonl", payload)
+
+
+def _assert_change_id_resolves(
+    change_id: str, *, base_dir: str | Path | None,
+) -> None:
+    """Refuse to record evidence against a change that does not exist.
+
+    The merge gate joins runs to changes on ``change_id``; a run whose
+    change_id names nothing is a row that can never be read, and a row
+    that can never be read is indistinguishable from a fabricated one.
+    """
+    if not isinstance(change_id, str) or not change_id.strip():
+        raise GovernanceError("validation_change_id_required")
+    from .change_ledger import get_change_chain
+
+    chain = get_change_chain(change_id=change_id, base_dir=base_dir)
+    if chain.get("planned") is None and chain.get("committed") is None:
+        raise GovernanceError(
+            f"validation_change_id_unknown: {change_id!r} has neither a "
+            f"change_planned nor a change_committed row; emit the change "
+            f"chain before recording validation evidence against it"
+        )
+
+
+def _rev_parse(root: Path, rev: str) -> str | None:
+    completed = subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return None
+    return completed.stdout.strip() or None
+
+
+def _assert_commit_sha_is_workspace_head(root: Path, commit_sha: str) -> None:
+    """Refuse a commit_sha that is not the commit the commands will run at.
+
+    ORPHAN-CRITICAL-728 — the check used to stop at "does this sha resolve".
+    Resolving is not provenance: the runs execute in ``root`` at HEAD, so any
+    other sha in the row is a claim about a tree that was never measured.
+    """
+    if not isinstance(commit_sha, str) or not commit_sha.strip():
+        raise GovernanceError("validation_commit_sha_required")
+    claimed = _rev_parse(root, commit_sha)
+    if claimed is None:
+        raise GovernanceError(
+            f"validation_commit_sha_unresolvable: {commit_sha!r} does not "
+            f"resolve to a commit in {root.as_posix()}; a validation run "
+            f"must name the commit it actually ran against"
+        )
+    head = _rev_parse(root, "HEAD")
+    if head is None:
+        raise GovernanceError(
+            f"validation_head_unresolvable: {root.as_posix()} has no HEAD "
+            f"commit, so no run executed there can carry provenance"
+        )
+    if claimed != head:
+        raise GovernanceError(
+            f"validation_commit_sha_is_not_head: the run would execute at "
+            f"HEAD={head} but the caller named {claimed}; check the intended "
+            f"commit out before recording evidence against it"
+        )
 
 
 def compare_validation_groups(
@@ -162,10 +322,6 @@ def evaluate_validation_gate(
     return append_jsonl(ensure_tools_dir(base_dir) / "validation" / "validation-gates.jsonl", row)
 
 
-def list_validation_runs(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
-    return load_jsonl(ensure_tools_dir(base_dir) / "validation" / "validation-runs.jsonl")
-
-
 def list_validation_plans(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
     return load_jsonl(ensure_tools_dir(base_dir) / "validation" / "validation-plans.jsonl")
 
@@ -209,12 +365,16 @@ def _run_one(
     base_dir: str | Path | None,
     cycle_id: str | None,
     validation_plan_id: str | None,
+    change_id: str,
+    commit_sha: str,
+    runner_identity: str,
+    change_author_identity: str | None,
     ordinal: int,
     timeout_ms: int,
 ) -> dict[str, Any]:
-    argv, env_updates = _parse_allowed_command(command)
+    argv, env_updates = parse_allowed_command(command)
+    started_at = utc_now()
     started = time.monotonic()
-    status = "ok"
     stdout = ""
     stderr = ""
     exit_code: int | None = None
@@ -233,33 +393,99 @@ def _run_one(
         stdout = completed.stdout or ""
         stderr = completed.stderr or ""
         exit_code = completed.returncode
-        if completed.returncode != 0:
-            status = "failed"
     except subprocess.TimeoutExpired as exc:
         timed_out = True
-        status = "timeout"
         stdout = _decode_timeout_stream(exc.stdout)
         stderr = _decode_timeout_stream(exc.stderr)
     duration_ms = int(round((time.monotonic() - started) * 1000))
-    row = {
-        "schema_version": 1,
-        "recorded_at": utc_now(),
-        "cycle_id": cycle_id,
-        "validation_plan_id": validation_plan_id,
-        "ordinal": ordinal,
-        "command": command,
-        "argv": argv,
-        "status": status,
-        "exit_code": exit_code,
-        "timed_out": timed_out,
-        "duration_ms": duration_ms,
-        "stdout_hash": _sha256(stdout.encode("utf-8")),
-        "stderr_hash": _sha256(stderr.encode("utf-8")),
-    }
-    return append_jsonl(ensure_tools_dir(base_dir) / "validation" / "validation-runs.jsonl", row)
+    log_path = _write_run_log(
+        base_dir=base_dir,
+        cycle_id=cycle_id,
+        validation_plan_id=validation_plan_id,
+        ordinal=ordinal,
+        command=command,
+        argv=argv,
+        stdout=stdout,
+        stderr=stderr,
+    )
+    # E21-a — ONE writer for the validation_runs surface. The argv that
+    # actually executed lives in the hash-bound log rather than as a
+    # second ledger column, so ``cmd`` and the executed vector cannot
+    # drift apart without breaking log_hash verification.
+    return record_validation_run(
+        change_id=change_id,
+        cmd=command,
+        exit_code=exit_code,
+        duration_ms=duration_ms,
+        timed_out=timed_out,
+        log_path=log_path,
+        commit_sha=commit_sha,
+        runner_identity=runner_identity,
+        change_author_identity=change_author_identity,
+        started_at=started_at,
+        completed_at=utc_now(),
+        base_dir=base_dir,
+    )
 
 
-def _parse_allowed_command(command: str) -> tuple[list[str], dict[str, str]]:
+def _write_run_log(
+    *,
+    base_dir: str | Path | None,
+    cycle_id: str | None,
+    validation_plan_id: str | None,
+    ordinal: int,
+    command: str,
+    argv: list[str],
+    stdout: str,
+    stderr: str,
+) -> Path:
+    """Persist the run's output on the declared log artifact surface.
+
+    ``verify_validation_run`` re-hashes this file at gate time, so the
+    log is the content-addressed anchor of the run — not a convenience
+    dump. The random suffix keeps two runs of the same command in the
+    same plan from overwriting each other's evidence.
+    """
+    slug = _log_slug(validation_plan_id or cycle_id or "run")
+    path = validation_run_log_dir(base_dir) / (
+        f"{slug}-{ordinal:03d}-{secrets.token_hex(6)}.log"
+    )
+    path.write_text(
+        "\n".join(
+            [
+                f"command: {command}",
+                f"argv: {argv!r}",
+                "--- stdout ---",
+                stdout,
+                "--- stderr ---",
+                stderr,
+                "",
+            ],
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _log_slug(value: str) -> str:
+    cleaned = "".join(
+        char if char.isalnum() or char in "-_" else "-" for char in value
+    ).strip("-")
+    return cleaned[:48] or "run"
+
+
+def parse_allowed_command(command: str) -> tuple[list[str], dict[str, str]]:
+    """Resolve a command string to the argv this lane would execute.
+
+    Public because a declared recipe that this lane would refuse is a
+    hypothesis nobody can ever test, and discovering that at run time
+    turns a typo into a failed nightly. A recipe manifest can therefore
+    prove its commands executable at test time through THIS function —
+    the one the runner itself calls — rather than through a second copy
+    of the allowlist that would drift away from it.
+
+    Side-effect free: it parses and refuses, it never runs anything.
+    """
     if any(token in command for token in (";", "|", "&&", "||", ">", "<", "`", "$(")):
         raise GovernanceError("validation command contains unsupported shell syntax")
     try:
@@ -298,6 +524,23 @@ def _validate_command_details(parts: list[str]) -> None:
             raise GovernanceError("aria_kernel validation command is limited to integrity verify")
     elif parts[:3] == ["python3", "-m", "unittest"]:
         return
+    elif parts[:1] == ["cargo"]:
+        subcommand = parts[1] if len(parts) > 1 else None
+        if subcommand not in ALLOWED_CARGO_SUBCOMMANDS:
+            raise GovernanceError(
+                f"cargo validation subcommand is not approved: "
+                f"{subcommand!r} is not one of {ALLOWED_CARGO_SUBCOMMANDS}; "
+                f"this lane admits non-mutating verbs only"
+            )
+        if any(
+            part == _REFUSED_CARGO_FLAG or part.startswith(f"{_REFUSED_CARGO_FLAG}=")
+            for part in parts[2:]
+        ):
+            raise GovernanceError(
+                f"cargo validation flag is not approved: {_REFUSED_CARGO_FLAG} "
+                f"can point cargo at a runner of the caller's choosing, which "
+                f"would make an allowed verb execute an arbitrary program"
+            )
 
 
 def _allowed_npm_script(script: str) -> bool:
@@ -336,7 +579,3 @@ def _decode_timeout_stream(value: str | bytes | None) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace")
     return value
-
-
-def _sha256(payload: bytes) -> str:
-    return "sha256:" + hashlib.sha256(payload).hexdigest()

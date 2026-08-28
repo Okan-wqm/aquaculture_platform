@@ -22,13 +22,12 @@ PLAN_020_WRITE_SURFACES (frozen blocks the persist).
 """
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 from typing import Any
 
 from .confidence import validated_confidence
-from .ledger import append_declared_jsonl
+from .ledger import append_declared_jsonl, read_jsonl
 from .runtime_profile import enforce_profile_for_write
 from .tool_registry import (
     GovernanceError,
@@ -205,10 +204,7 @@ def list_candidates(
     path = _ledger_path(root)
     if not path.exists():
         return []
-    rows = [
-        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    rows = read_jsonl(path, expected_surface="instinct_candidates")
     if status is not None:
         rows = [r for r in rows if r.get("status") == status]
     if limit is not None and limit > 0:

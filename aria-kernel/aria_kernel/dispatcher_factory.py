@@ -285,15 +285,15 @@ def _poll_for_drafter_response(
     deadline = time.monotonic() + float(cfg.get("poll_timeout_seconds", _DEFAULT_POLL_TIMEOUT_SECONDS))
     interval = float(cfg.get("poll_interval_seconds", _DEFAULT_POLL_INTERVAL_SECONDS))
     while time.monotonic() < deadline:
-        response_path = _find_response_path(request_id, base_dir)
-        if response_path is not None and response_path.exists():
-            try:
-                payload = json.loads(response_path.read_text(encoding="utf-8"))
-                return _normalize_drafter_response(payload, role=fallback_role)
-            except (OSError, json.JSONDecodeError):
-                break
+        payload = _find_response_payload(request_id, base_dir)
+        if payload is not None:
+            return _normalize_drafter_response(payload, role=fallback_role)
         time.sleep(interval)
-    # Fallback — no consumer fulfilled in time.
+    # E3/F7 — no consumer fulfilled in time. The unavailability is stated
+    # honestly (empty draft + dispatchers_unavailable=True) and the drainer
+    # routes it to the operator-visible aggregate verdict; what died here
+    # is the pretence that the old dead-directory poll was ever going to
+    # find anything.
     return _fallback_drafter_response(role=fallback_role, seed_id=seed_id)
 
 
@@ -308,26 +308,56 @@ def _poll_for_judge_response(
     deadline = time.monotonic() + float(cfg.get("poll_timeout_seconds", _DEFAULT_POLL_TIMEOUT_SECONDS))
     interval = float(cfg.get("poll_interval_seconds", _DEFAULT_POLL_INTERVAL_SECONDS))
     while time.monotonic() < deadline:
-        response_path = _find_response_path(request_id, base_dir)
-        if response_path is not None and response_path.exists():
-            try:
-                payload = json.loads(response_path.read_text(encoding="utf-8"))
-                return _normalize_judge_response(payload)
-            except (OSError, json.JSONDecodeError):
-                break
+        payload = _find_response_payload(request_id, base_dir)
+        if payload is not None:
+            return _normalize_judge_response(payload)
         time.sleep(interval)
     return {"verdict": "gaps_open", "gaps": [], "dispatchers_unavailable": True}
 
 
-def _find_response_path(request_id: str, base_dir: str | Path | None) -> Path | None:
+def _find_response_payload(request_id: str, base_dir: str | Path | None) -> dict[str, Any] | None:
+    """E3/F7 — read the ACCEPTED result through the kernel's own contract.
+
+    The old reader polled `agent-invocations/responses/<id>.json` — a
+    directory NOTHING in the repo has ever written (the sole mention of
+    that path was this reader). Every poll ran its full timeout and fell
+    back to a synthetic response, so the failure looked like an answer.
+
+    The sound evidence that an agent delivered is its accepted result row
+    (accepted_result_for_request — the same ORPHAN-HIGH-422 lesson the
+    review gates learned); the row names WHERE the envelope landed
+    (`output_path`) and WHAT its bytes hash to (`output_hash`), so the
+    payload is read from the producer's real location and refused on a
+    hash mismatch rather than trusted blind.
+    """
     if not request_id or base_dir is None:
         return None
-    root = ensure_tools_dir(base_dir)
-    response_dir = root / "agent-invocations" / "responses"
-    if not response_dir.exists():
+    from .agent_invocations import accepted_result_for_request
+
+    row = accepted_result_for_request(request_id=request_id, base_dir=base_dir)
+    if row is None:
         return None
-    candidate = response_dir / f"{request_id}.json"
-    return candidate if candidate.exists() else None
+    from .agent_invocations import resolve_output_artifact_path
+    from .tool_registry import ensure_tools_dir
+
+    output_path = resolve_output_artifact_path(
+        ensure_tools_dir(base_dir), str(row.get("output_path") or ""),
+    )
+    if not output_path.is_file():
+        return None
+    raw = output_path.read_bytes()
+    expected_hash = str(row.get("output_hash") or "")
+    if expected_hash:
+        import hashlib as _hashlib
+
+        actual = "sha256:" + _hashlib.sha256(raw).hexdigest()
+        if actual != expected_hash and expected_hash != _hashlib.sha256(raw).hexdigest():
+            return None
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _normalize_drafter_response(payload: dict[str, Any], *, role: str) -> dict[str, Any]:

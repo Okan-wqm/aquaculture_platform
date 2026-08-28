@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import subprocess
 import unittest
@@ -13,15 +14,12 @@ from aria_kernel import (
     gate_apply_action,
     generate_adapter_calibration_report,
     generate_observability_dashboard,
-    list_generated_diff_packets,
     open_pr_for_action,
     plan_apply_worktree,
     plan_pr_lifecycle,
     plan_pr_split,
     prepare_agent_pr_lane,
-    record_code_change_plan,
     record_cycle_metrics,
-    record_generated_diff_packet,
     record_proposal,
     record_run,
     register_tool,
@@ -29,11 +27,13 @@ from aria_kernel import (
     verify_integrity,
 )
 from aria_kernel.agent_genesis import approve_agent_pr, evaluate_genesis_sandbox
-from aria_kernel.fixture_runner import fixture_runs_path, tool_manifest_hash
+from aria_kernel.fixture_runner import run_fixture_suite
 from aria_kernel.implementation_safety import CANONICAL_VALIDATION_COMMANDS
 from aria_kernel.runtime_profile import set_profile
-from aria_kernel.tool_registry import get_tool
-from tests._helpers.declared_fixtures import append_declared_fixture
+from tests._helpers.declared_fixtures import (
+    append_declared_fixture,
+    seed_validation_provenance,
+)
 from aria_kernel.tool_registry import GovernanceError
 
 
@@ -69,7 +69,7 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
             "strict",
             operator_approval_ref="test:plan-020-phase-1.B:enterprise-012d",
             base_dir=self.tools_dir,
-            set_by="test-fixture",
+            set_by="operator",
         )
 
     def tearDown(self):
@@ -133,15 +133,26 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
                 dry_run=True,
             )
 
+        # E21-a — a validation run must bind to a real change and a
+        # resolvable commit; the fixture emits the chain it will cite.
+        change_id, commit_sha = seed_validation_provenance(
+            workspace_root=self.root, base_dir=self.tools_dir,
+        )
         baseline = run_validation_commands(
             commands=["python3 -m unittest --help"],
             workspace_root=self.root,
+            change_id=change_id,
+            commit_sha=commit_sha,
+            runner_identity="ci-executor:plan-012d",
             validation_plan_id="baseline",
             base_dir=self.tools_dir,
         )
         candidate = run_validation_commands(
             commands=["python3 -m unittest --help"],
             workspace_root=self.root,
+            change_id=change_id,
+            commit_sha=commit_sha,
+            runner_identity="ci-executor:plan-012d",
             validation_plan_id=proposal["proposal_id"],
             base_dir=self.tools_dir,
         )
@@ -179,49 +190,7 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
         self.assertEqual(pr["event"], "pr_dry_run")
         self.assertIn("Validation Evidence", pr["body"])
 
-    def test_generated_diff_packet_is_limited_to_code_change_plan_scope(self):
-        plan = record_code_change_plan(
-            proposal_id="proposal-scope",
-            worktree_path=self.root.as_posix(),
-            intended_files=["apps/api/src/app.ts"],
-            allowed_globs=["apps/api/**"],
-            pre_hashes={"apps/api/src/app.ts": "sha256:before"},
-            post_hashes={"apps/api/src/app.ts": "sha256:after"},
-            validation_refs=["validation:ok"],
-            base_dir=self.tools_dir,
-        )
-        diff = "\n".join(
-            [
-                "diff --git a/apps/api/src/app.ts b/apps/api/src/app.ts",
-                "--- a/apps/api/src/app.ts",
-                "+++ b/apps/api/src/app.ts",
-                "@@ -1 +1 @@",
-                "-old",
-                "+new",
-            ],
-        )
-        packet = record_generated_diff_packet(
-            code_change_plan_id=plan["code_change_plan_id"],
-            unified_diff=diff,
-            changed_files=["apps/api/src/app.ts"],
-            rationale="Apply only the approved file change.",
-            validation_commands=["python3 -m unittest --help"],
-            base_dir=self.tools_dir,
-        )
-        self.assertEqual(packet["status"], "ready_for_candidate_worktree")
-        self.assertEqual(list_generated_diff_packets(base_dir=self.tools_dir)[-1]["generated_diff_packet_id"], packet["generated_diff_packet_id"])
-
-        blocked = record_generated_diff_packet(
-            code_change_plan_id=plan["code_change_plan_id"],
-            unified_diff=diff.replace("apps/api/src/app.ts", "apps/billing-service/src/app.ts"),
-            changed_files=["apps/billing-service/src/app.ts"],
-            rationale="This should be blocked by intended scope.",
-            validation_commands=["python3 -m unittest --help"],
-            base_dir=self.tools_dir,
-        )
-        self.assertEqual(blocked["status"], "blocked")
-        self.assertIn("outside_code_change_plan:apps/billing-service/src/app.ts", blocked["blocked_by"])
-
+    # E14-b (ORPHAN-697) — codegen/executor lane dismantled; see 012.py note.
     def test_adapter_calibration_report_marks_active_ready_only_after_gates(self):
         register_tool(
             {
@@ -248,19 +217,40 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
             },
             base_dir=self.tools_dir,
         )
-        append_declared_fixture(
-            fixture_runs_path(self.tools_dir),
-            {
-                "schema_version": 1,
-                "tool_id": "demo-adapter",
-                "tool_version": "1.0.0",
-                "tool_manifest_hash": tool_manifest_hash(get_tool("demo-adapter", base_dir=self.tools_dir)),
-                "passed": True,
-                "fixture_baseline_passed": True,
-                "semantic_fixture_passed": True,
-            },
-            expected_surface="agent_eval_fixture_runs",
+        cases_dir = self.tools_dir / "fixtures" / "demo" / "cases"
+        cases_dir.mkdir(parents=True)
+        (cases_dir / "baseline.json").write_text(
+            json.dumps({
+                "name": "baseline",
+                "lane": "real_repo_baseline",
+                "input": {},
+                "expected": {"status": "schema_error"},
+            }),
+            encoding="utf-8",
         )
+        (cases_dir / "semantic.json").write_text(
+            json.dumps({
+                "name": "semantic",
+                "lane": "semantic_regression",
+                "input": {},
+                "expected": {"status": "schema_error"},
+                "curation": {
+                    "curator": "enterprise-plan-test",
+                    "gold_set": {
+                        "true_positive_count": 1,
+                        "known_false_positive_count": 0,
+                    },
+                },
+            }),
+            encoding="utf-8",
+        )
+        fixture_result = run_fixture_suite(
+            "demo-adapter",
+            workspace_root=self.root,
+            cycle_id="cycle-fixture",
+            base_dir=self.tools_dir,
+        )
+        self.assertTrue(fixture_result["passed"])
         for index in range(5):
             record_run(
                 {
@@ -282,6 +272,30 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
                 },
                 base_dir=self.tools_dir,
             )
+        # JJ-2a (ORPHAN-HIGH-732) REWROTE this fixture. The five runs above
+        # carry an INLINE `operator_feedback_refs` blob, and that used to be
+        # enough to clear the judged-precision gate — a verdict with no
+        # source, no judge, no fingerprint and no author qualified an adapter
+        # for ACTIVE. Nothing in production writes that field
+        # (`tool_runner` emits `operator_feedback_refs: []` on every run), so
+        # the only thing it ever qualified was a fixture. The gate now reads
+        # the FEEDBACK LEDGER, where provenance lives, exactly like every
+        # other ground-truth reader; the ledger row below is what the inline
+        # blob was pretending to be.
+        from aria_kernel.feedback_store import record_operator_feedback
+
+        record_operator_feedback(
+            tool_id="demo-adapter",
+            run_id="run-0",
+            finding_id="F-demo-1",
+            verdict="true_positive",
+            severity="medium",
+            note="operator confirmed",
+            source_type="human",
+            judgment_group_id="judge:demo-adapter:F-demo-1",
+            finding_fingerprint="fp-demo-1",
+            base_dir=self.tools_dir,
+        )
         report = generate_adapter_calibration_report(
             tool_ids=["demo-adapter"],
             base_dir=self.tools_dir,

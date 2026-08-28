@@ -94,8 +94,17 @@ class EnvelopesForwardTargetSha(unittest.TestCase):
         from aria_kernel import convergence_drainer
         src = inspect.getsource(convergence_drainer.run_convergence_drainer)
         self.assertIn("target_sha = _resolve_workspace_head_sha(workspace_root)", src)
-        # every envelope mint forwards it.
-        self.assertEqual(src.count("target_sha=target_sha"), 4)
+        # CL-1 (ORPHAN-725): the resumable step has one mint per state
+        # branch — the invariant is DERIVED, not a magic number: every
+        # issue_* envelope mint in the source forwards target_sha.
+        mint_count = sum(src.count(f"{name}(") for name in (
+            "issue_challenger_envelope",
+            "issue_cross_review_envelope",
+            "issue_primary_envelope",
+            "issue_completeness_critic_envelope",
+        ))
+        self.assertGreaterEqual(mint_count, 4)
+        self.assertEqual(src.count("target_sha=target_sha"), mint_count)
 
 
 if __name__ == "__main__":

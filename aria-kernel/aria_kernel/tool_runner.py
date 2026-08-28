@@ -21,7 +21,12 @@ from .tool_registry import GovernanceError, ensure_tools_binding, get_tool
 
 MINIMUM_OUTPUT_FIELDS = ("observations", "findings", "read_paths", "evidence_sources")
 RAW_SAMPLE_LIMIT = 50
-STDOUT_PARSE_MAX_BYTES = 5 * 1024 * 1024
+# Measured (2026-08-13): tenant-scoping over the full repo emits 5.84 MB
+# (66 findings + 11,471 observations) — 17% over the old 5 MB cap, which
+# made every night's cycle "failed" via budget_exceeded/output_too_large.
+# 12 MB = measured reality × 2 headroom; the adapter-side per-type
+# observation cap (tenant-scoping-adapter) bounds the growth class itself.
+STDOUT_PARSE_MAX_BYTES = 12 * 1024 * 1024
 
 
 def run_tool(
@@ -194,11 +199,16 @@ def run_tool(
         "status": status,
         "input_hash": _sha256(input_bytes),
         "output_hash": _sha256(stdout.encode("utf-8")),
+        # NOTE: read_paths stays a plain array on purpose — it is a
+        # schema-owned field of the run envelope (validate_run_envelope
+        # requires an array). Its observed worst case (88 KB) sits far
+        # under the cap; the unbounded offender this finding chased was
+        # evidence_validation.
         "read_paths": _array_or_empty(output.get("read_paths")),
         "emitted_observations": _array_or_empty(raw_observations) if can_emit else [],
         "emitted_findings": _array_or_empty(raw_findings) if can_emit else [],
         "raw_findings": _array_or_empty(raw_findings),
-        "evidence_validation": evidence_validation,
+        "evidence_validation": _spill_evidence_validation(evidence_validation),
         "operator_feedback_refs": [],
         "memory_candidates": _valid_memory_candidates(memory_candidates, tool_id),
         "duration_ms": duration_ms,
@@ -588,6 +598,82 @@ def _directory_snapshot(root: Path) -> dict[str, tuple[int, str]]:
 
 def _canonical_json_bytes(payload: Any) -> bytes:
     return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+# ARIA-HIGH-017 — the runs.jsonl row is an append-only, hash-chained
+# INDEX, not a payload store: the full parsed output already persists in
+# the run's runtime artifact (tool_health splits _runtime_artifact_payload
+# out before the row is written). Derived inline fields larger than this
+# cap are replaced by a digest stub so one verbose run can never make
+# every future reader pay for it — and never trip the snapshot line cap.
+INLINE_ROW_FIELD_MAX_BYTES = 128 * 1024
+
+
+def _spill_oversized_inline(field: str, value):
+    serialized = json.dumps(value, ensure_ascii=False, default=str)
+    size = len(serialized.encode("utf-8"))
+    if size <= INLINE_ROW_FIELD_MAX_BYTES:
+        return value
+    digest = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+    return {
+        "spilled": True,
+        "sha256": f"sha256:{digest}",
+        "size_bytes": size,
+        "total_marker": "see:size_bytes",
+        "recovery": (
+            f"{field} exceeded the inline row cap; the full value persists "
+            "in this run's runtime artifact (parsed_output)"
+        ),
+    }
+
+
+# The structural keys consumers read from every run row (readiness,
+# pressure, reflection, governance) stay inline even when the bulk of
+# the validation object spills — the row remains queryable exactly as
+# before; only the unbounded envelope blobs move to the artifact.
+_EVIDENCE_VALIDATION_STRUCTURAL_KEYS = (
+    "repository_mutation_attempt",
+    "valid",
+    "errors",
+    "evidence_sources",
+)
+
+
+def _spill_evidence_validation(validation: dict) -> dict:
+    serialized = json.dumps(validation, ensure_ascii=False, default=str)
+    if len(serialized.encode("utf-8")) <= INLINE_ROW_FIELD_MAX_BYTES:
+        return validation
+    # Structural keys stay queryable; structural LISTS are bounded to a
+    # sample plus a total/digest marker — presence, validity, and counts
+    # remain readable in the row while the full lists live in the
+    # artifact's parsed output.
+    kept: dict = {}
+    for key in _EVIDENCE_VALIDATION_STRUCTURAL_KEYS:
+        if key not in validation:
+            continue
+        value = validation[key]
+        sample = _EVIDENCE_VALIDATION_LIST_SAMPLES.get(key)
+        if sample is not None and isinstance(value, list) and len(value) > sample:
+            kept[key] = value[:sample]
+            full = json.dumps(value, ensure_ascii=False, default=str)
+            kept[f"{key}_spilled"] = {
+                "spilled_sample": True,
+                "total": len(value),
+                "sha256": "sha256:" + hashlib.sha256(
+                    full.encode("utf-8"),
+                ).hexdigest(),
+            }
+        else:
+            kept[key] = value
+    return {**kept, "spilled_bulk": _spill_oversized_inline(
+        "evidence_validation", validation,
+    )}
+
+
+_EVIDENCE_VALIDATION_LIST_SAMPLES = {
+    "evidence_sources": 100,
+    "errors": 20,
+}
 
 
 def _sha256(payload: bytes) -> str:

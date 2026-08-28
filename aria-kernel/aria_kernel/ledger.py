@@ -4,18 +4,27 @@ import contextlib
 import hashlib
 import json
 import os
+import re
+import stat
 import sys
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterable, Iterator
 
-from .file_lock import with_exclusive_lock
-from .state_manifest import surface_for_path
+from .file_lock import ExclusiveLockHandle, with_exclusive_lock
+from .state_manifest import (
+    normalize_surface_relative_path,
+    surface_for_path,
+    surface_for_relative_path,
+)
 
 
 __all__ = [
     "LedgerIntegrityError",
+    "LedgerReadLimitError",
+    "REPLAY_TRANSPORT_SCHEMA_PREFIX",
     "ROW_FORMAT_VERSION",
     "StateTransaction",
     "append_declared_jsonl",
@@ -27,7 +36,12 @@ __all__ = [
     "load_declared_jsonl",
     "load_jsonl",
     "load_jsonl_verified",
+    "load_jsonl_verified_text",
+    "json_nesting_within_limit",
+    "is_replay_transport_row",
+    "verify_jsonl_chunks",
     "read_jsonl",
+    "read_jsonl_reverse_verified",
     "rewrite_declared_json",
     "rewrite_declared_jsonl",
     "rewrite_jsonl",
@@ -41,6 +55,45 @@ __all__ = [
 
 class LedgerIntegrityError(RuntimeError):
     pass
+
+
+class LedgerReadLimitError(RuntimeError):
+    """An immutable ledger exceeded an explicit evidence-read budget."""
+
+    pass
+
+
+def json_nesting_within_limit(content: str, *, max_depth: int = 128) -> bool:
+    """Reject pathological JSON nesting before handing input to ``json``.
+
+    CPython's decoder recursion limit is process-global and can change between
+    hosts.  Evidence admission instead uses this deterministic lexical bound;
+    the JSON decoder remains responsible for every other syntax check.
+    Brackets inside strings are ignored, including escaped quotes.
+    """
+    stack: list[str] = []
+    in_string = False
+    escaped = False
+    pairs = {"}": "{", "]": "["}
+    for character in content:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+            continue
+        if character == '"':
+            in_string = True
+        elif character in "[{":
+            stack.append(character)
+            if len(stack) > max_depth:
+                return False
+        elif character in "]}":
+            if not stack or stack.pop() != pairs[character]:
+                return False
+    return not stack and not in_string
 
 
 # ORPHAN-HIGH-552 — the row-format contract, defined ONCE.
@@ -58,6 +111,32 @@ class LedgerIntegrityError(RuntimeError):
 # definition the migration uses. An unstamped row on a declared surface stops
 # being possible, and the migration's restamp becomes the identity.
 ROW_FORMAT_VERSION = 2
+
+# Contention replay is transport, not producer schema.  A replayed event is
+# stored inside this exact envelope so the outer ledger can bind its new chain
+# predecessor without adding a field to the producer's payload contract.
+_REPLAY_TRANSPORT_SCHEMA = "aria/ledger-replay-transport/v2"
+_REPLAY_TRANSPORT_SCHEMA_PREFIX = "aria/ledger-replay-transport/"
+REPLAY_TRANSPORT_SCHEMA_PREFIX = _REPLAY_TRANSPORT_SCHEMA_PREFIX
+_REPLAY_TRANSPORT_CORE_KEYS = frozenset({
+    "$schema",
+    "schema_version",
+    "surface",
+    "surface_instance",
+    "producer_event_id",
+    "replay_transaction_id",
+    "payload_sha256",
+    "producer_payload",
+})
+_REPLAY_TRANSPORT_STORED_KEYS = frozenset({
+    *_REPLAY_TRANSPORT_CORE_KEYS,
+    "producer_previous_ledger_hash",
+    "previous_ledger_hash",
+    "ledger_hash",
+})
+_LEDGER_EVENT_ID = re.compile(r"^sha256:[0-9a-f]{64}$")
+_REPLAY_TRANSACTION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+_CHAIN_FIELDS = frozenset({"ledger_hash", "previous_ledger_hash"})
 
 
 def stamp_row_format(row: dict[str, Any]) -> dict[str, Any]:
@@ -258,6 +337,7 @@ class StateTransaction:
 
     paths: frozenset[Path]
     verify_reads: bool = True
+    lock_handles: tuple[ExclusiveLockHandle, ...] = ()
 
     def _canonical_path(self, path: str | Path) -> Path:
         resolved = Path(path).resolve()
@@ -321,7 +401,11 @@ class StateTransaction:
             expires_at=expires_at,
             test_fixture=test_fixture,
         )
-        return _append_jsonl_locked_body(resolved, record)
+        return _append_jsonl_locked_body(
+            resolved,
+            record,
+            held_file_lock_paths=self.paths,
+        )
 
     def append_declared_jsonl(
         self,
@@ -337,7 +421,102 @@ class StateTransaction:
             expected_surface=expected_surface,
             enforce_write_profile=not bypass_profile_gate,
         )
-        return _append_jsonl_locked_body(resolved, record)
+        return _append_jsonl_locked_body(
+            resolved,
+            record,
+            held_file_lock_paths=self.paths,
+        )
+
+    def rewrite_declared_json(
+        self,
+        path: str | Path,
+        payload: dict[str, Any],
+        *,
+        expected_surface: str,
+        bypass_profile_gate: bool = False,
+    ) -> None:
+        resolved = self._canonical_path(path)
+        _assert_declared_surface(
+            resolved,
+            expected_surface=expected_surface,
+            enforce_write_profile=not bypass_profile_gate,
+        )
+        _atomic_write_text(
+            resolved,
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        )
+
+    def rewrite_jsonl(
+        self,
+        path: str | Path,
+        rows: list[dict[str, Any]],
+        *,
+        allow_legacy: bool = False,
+        legacy_reason: str | None = None,
+        expires_at: str | None = None,
+        test_fixture: bool = False,
+    ) -> None:
+        resolved = self._canonical_path(path)
+        _assert_raw_jsonl_rewrite_allowed(
+            resolved,
+            allow_legacy=allow_legacy,
+            legacy_reason=legacy_reason,
+            expires_at=expires_at,
+            test_fixture=test_fixture,
+        )
+        _rewrite_jsonl_unlocked(
+            resolved,
+            rows,
+            held_file_lock_paths=self.paths,
+        )
+
+    def rewrite_declared_jsonl(
+        self,
+        path: str | Path,
+        rows: list[dict[str, Any]],
+        *,
+        expected_surface: str,
+        migration_id: str | None = None,
+        bypass_profile_gate: bool = False,
+    ) -> None:
+        resolved = self._canonical_path(path)
+        _assert_declared_surface(
+            resolved,
+            expected_surface=expected_surface,
+            enforce_write_profile=not bypass_profile_gate,
+        )
+        if migration_id is not None and not str(migration_id).strip():
+            raise LedgerIntegrityError("rewrite_declared_jsonl_migration_id_empty")
+        _rewrite_jsonl_unlocked(
+            resolved,
+            rows,
+            held_file_lock_paths=self.paths,
+        )
+
+    def write_index(
+        self,
+        index_path: str | Path,
+        index: dict[str, Any],
+        ledgers: dict[str, Path],
+    ) -> None:
+        resolved_index = self._canonical_path(index_path)
+        resolved_ledgers = {
+            name: self._canonical_path(path)
+            for name, path in ledgers.items()
+        }
+        _write_index_unlocked(resolved_index, index, resolved_ledgers)
+
+    def verify_index_hashes(
+        self,
+        index_path: str | Path,
+        ledgers: dict[str, Path],
+    ) -> dict[str, Any]:
+        resolved_index = self._canonical_path(index_path)
+        resolved_ledgers = {
+            name: self._canonical_path(path)
+            for name, path in ledgers.items()
+        }
+        return _verify_index_hashes_unlocked(resolved_index, resolved_ledgers)
 
 
 def _state_group_lock_path(path: Path) -> Path | None:
@@ -348,21 +527,48 @@ def _state_group_lock_path(path: Path) -> Path | None:
     return base_dir / "locks" / "state-groups" / f"{surface.lock_group}.lock"
 
 
-def _transaction_lock_paths(paths: list[Path]) -> list[Path]:
-    group_locks: set[Path] = set()
-    index_locks: set[Path] = set()
-    file_locks: set[Path] = set()
+def _transaction_group_lock_paths(
+    paths: list[Path],
+    *,
+    group_lock_paths: tuple[Path, ...] | list[Path] | set[Path] = (),
+) -> list[Path]:
+    group_locks: set[Path] = {
+        Path(path).resolve()
+        for path in group_lock_paths
+    }
     for path in paths:
         group_lock = _state_group_lock_path(path)
         if group_lock is not None:
             group_locks.add(group_lock.resolve())
+    return sorted(group_locks, key=lambda path: path.as_posix())
+
+
+def _transaction_lock_paths(
+    paths: list[Path],
+    *,
+    group_lock_paths: tuple[Path, ...] | list[Path] | set[Path] = (),
+) -> list[Path]:
+    group_locks = set(
+        _transaction_group_lock_paths(
+            paths,
+            group_lock_paths=group_lock_paths,
+        )
+    )
+    index_locks: set[Path] = set()
+    file_locks: set[Path] = set()
+    for path in paths:
         req = _lock_requirements_for_path(path)
         if req.index_group_lock_path is not None:
             index_locks.add(req.index_group_lock_path.resolve())
         file_locks.add(req.file_lock_path.resolve())
     ordered: list[Path] = []
+    seen: set[Path] = set()
     for bucket in (group_locks, index_locks, file_locks):
-        ordered.extend(sorted(bucket, key=lambda p: p.as_posix()))
+        for lock_path in sorted(bucket, key=lambda p: p.as_posix()):
+            if lock_path in seen:
+                continue
+            seen.add(lock_path)
+            ordered.append(lock_path)
     return ordered
 
 
@@ -371,6 +577,8 @@ def state_transaction(
     paths: list[str | Path] | tuple[str | Path, ...] | set[str | Path],
     *,
     verify_reads: bool = True,
+    timeout_seconds: float | None = None,
+    group_lock_paths: tuple[str | Path, ...] | list[str | Path] | set[str | Path] = (),
 ) -> Iterator[StateTransaction]:
     """Acquire ordered locks for one or more declared state surfaces.
 
@@ -381,11 +589,74 @@ def state_transaction(
     concrete_paths = [Path(path).resolve() for path in paths]
     if not concrete_paths:
         raise LedgerIntegrityError("state_transaction_requires_paths")
-    lock_paths = _transaction_lock_paths(concrete_paths)
+    explicit_group_locks = tuple(Path(path).resolve() for path in group_lock_paths)
+    ordered_group_locks = _transaction_group_lock_paths(
+        concrete_paths,
+        group_lock_paths=explicit_group_locks,
+    )
+    # Capture declared ownership before a possibly blocking acquisition.  A
+    # checkout cleanup can remove the whole tools/workspace authority while a
+    # writer waits on its state-group lock.  Re-resolving after the first
+    # group lock is acquired prevents the writer from recreating directories
+    # under the deleted worktree before discovering that its declared root no
+    # longer exists.
+    declared_bindings: dict[Path, tuple[str, Path]] = {}
+    for concrete_path in concrete_paths:
+        match = surface_for_path(concrete_path)
+        if match is not None:
+            surface, base_dir = match
+            declared_bindings[concrete_path] = (
+                surface.name,
+                base_dir.resolve(),
+            )
+    lock_paths = _transaction_lock_paths(
+        concrete_paths,
+        group_lock_paths=explicit_group_locks,
+    )
+    lock_kwargs: dict[str, Any] = {}
+    if timeout_seconds is not None:
+        lock_kwargs["timeout_seconds"] = timeout_seconds
+
+    def assert_declared_bindings_unchanged() -> None:
+        for concrete_path, expected in declared_bindings.items():
+            locked_match = surface_for_path(concrete_path)
+            if locked_match is None:
+                raise LedgerIntegrityError(
+                    "state_transaction_declared_root_changed: "
+                    f"path={concrete_path.as_posix()}"
+                )
+            locked_surface, locked_base = locked_match
+            actual = (locked_surface.name, locked_base.resolve())
+            if actual != expected:
+                raise LedgerIntegrityError(
+                    "state_transaction_declared_root_changed: "
+                    f"path={concrete_path.as_posix()}"
+                )
+
     with contextlib.ExitStack() as stack:
-        for lock_path in lock_paths:
-            stack.enter_context(with_exclusive_lock(lock_path))
-        yield StateTransaction(frozenset(concrete_paths), verify_reads=verify_reads)
+        lock_handles: list[ExclusiveLockHandle] = []
+        for ordinal, lock_path in enumerate(lock_paths):
+            try:
+                lock_handles.append(
+                    stack.enter_context(
+                        with_exclusive_lock(lock_path, **lock_kwargs)
+                    )
+                )
+            except OSError:
+                # A cleanup may unlink the group sidecar while this waiter has
+                # it open.  The lock helper correctly rejects that changed
+                # inode.  If the declared authority vanished with it, expose
+                # the semantic refusal; otherwise preserve the real I/O fault.
+                if ordinal == 0 and ordered_group_locks and declared_bindings:
+                    assert_declared_bindings_unchanged()
+                raise
+            if ordinal == 0 and ordered_group_locks and declared_bindings:
+                assert_declared_bindings_unchanged()
+        yield StateTransaction(
+            frozenset(concrete_paths),
+            verify_reads=verify_reads,
+            lock_handles=tuple(lock_handles),
+        )
 
 
 def file_hash(path: Path) -> str:
@@ -395,7 +666,9 @@ def file_hash(path: Path) -> str:
     return digest.hexdigest()
 
 
-def read_jsonl(path: Path) -> list[dict[str, Any]]:
+def _read_jsonl_stored(path: Path) -> list[dict[str, Any]]:
+    """Private byte-shape reader for append/verification/replay internals."""
+
     records: list[dict[str, Any]] = []
     if not path.exists():
         return records
@@ -405,9 +678,106 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
             continue
         try:
             records.append(json.loads(stripped))
-        except json.JSONDecodeError as exc:
+        except (json.JSONDecodeError, RecursionError, ValueError) as exc:
             raise LedgerIntegrityError(f"Invalid JSONL at {path}:{line_no}: {exc}") from exc
     return records
+
+
+def read_jsonl(
+    path: Path,
+    *,
+    expected_surface: str | None = None,
+) -> list[dict[str, Any]]:
+    """Read producer rows, unwrapping exact contention transport records.
+
+    Legacy/hashless scratch JSONL keeps its historical best-effort behaviour.
+    Once a transport envelope is present, however, the complete stored chain
+    is verified before any producer payload is exposed: unwrapping bytes whose
+    outer identity was not proven would let transport metadata become a schema
+    bypass.
+    """
+    if not path.exists():
+        return []
+    content = path.read_text(encoding="utf-8")
+    stored = _parse_jsonl_stored_text(path, content)
+    if not any(
+        isinstance(row, dict) and _is_replay_transport_candidate(row)
+        for row in stored
+    ):
+        return stored
+    result, rows = _verify_jsonl_from_text(
+        path,
+        content,
+        expected_surface=expected_surface,
+    )
+    if not result.get("valid", False) or result.get("torn_tail_bytes"):
+        raise LedgerIntegrityError(
+            f"strict verification failed for {path.as_posix()}: "
+            f"reason={result.get('reason') or 'immutable_torn_tail'} "
+            f"line={result.get('line')}",
+        )
+    return rows
+
+
+def read_jsonl_reverse_verified(
+    path: Path,
+    *,
+    expected_surface: str,
+    limit: int,
+    max_line_bytes: int,
+    max_rows: int,
+    row_predicate: Callable[[dict[str, Any]], bool] | None = None,
+) -> list[dict[str, Any]]:
+    """Verify one physical chain while retaining only its newest logical rows.
+
+    This is the bounded-memory counterpart to :func:`read_jsonl` for callers
+    that need a newest-first tail. The descriptor is consumed once in forward
+    chain order; no file-sized text or row list is materialized. Transport is
+    unwrapped only after each outer hash link and producer identity verifies,
+    and no retained payload is returned until EOF has been accepted.
+    """
+    if not path.exists():
+        return []
+    retained: deque[dict[str, Any]] = deque(maxlen=max(0, limit))
+
+    def retain(logical: dict[str, Any]) -> None:
+        if row_predicate is None or row_predicate(logical):
+            retained.append(logical)
+
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    if hasattr(os, "O_NONBLOCK"):
+        # A path can be swapped to a FIFO between discovery and this open.
+        # Non-blocking open lets the post-open fstat reject it instead of
+        # waiting forever for an attacker-controlled writer.
+        flags |= os.O_NONBLOCK
+    descriptor = os.open(path, flags)
+    try:
+        with os.fdopen(descriptor, "rb", closefd=False) as handle:
+            file_stat = os.fstat(descriptor)
+            if not stat.S_ISREG(file_stat.st_mode):
+                raise LedgerIntegrityError(
+                    f"strict verification failed for {path.as_posix()}: "
+                    "reason=ledger_not_regular_file",
+                )
+
+            def chunks() -> Iterator[bytes]:
+                while chunk := handle.read(65536):
+                    yield chunk
+
+            verify_jsonl_chunks(
+                chunks(),
+                source=path,
+                expected_size=file_stat.st_size,
+                max_line_bytes=max_line_bytes,
+                max_rows=max_rows,
+                expected_surface=expected_surface,
+                on_row=retain,
+            )
+    finally:
+        os.close(descriptor)
+    return list(reversed(retained))
 
 
 def load_jsonl(
@@ -470,6 +840,278 @@ def canonical_json(record: dict[str, Any]) -> str:
     return json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
 
+def _parse_jsonl_stored_text(path: Path, content: str) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for line_no, line in enumerate(content.splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            records.append(json.loads(stripped))
+        except (json.JSONDecodeError, RecursionError, ValueError) as exc:
+            raise LedgerIntegrityError(
+                f"Invalid JSONL at {path}:{line_no}: {exc}",
+            ) from exc
+    return records
+
+
+def _is_replay_transport_candidate(row: dict[str, Any]) -> bool:
+    schema = row.get("$schema")
+    return (
+        isinstance(schema, str)
+        and schema.startswith(_REPLAY_TRANSPORT_SCHEMA_PREFIX)
+    ) or {
+        "producer_event_id",
+        "replay_transaction_id",
+        "producer_payload",
+    }.issubset(row)
+
+
+def is_replay_transport_row(row: dict[str, Any]) -> bool:
+    """Whether a stored row claims the governed contention transport shape."""
+    return _is_replay_transport_candidate(row)
+
+
+def _surface_name_for_path(path: Path) -> str | None:
+    try:
+        match = surface_for_path(path.resolve())
+    except ValueError as exc:
+        raise LedgerIntegrityError(
+            f"replay_transport_surface_ambiguous:{path.as_posix()}",
+        ) from exc
+    return match[0].name if match is not None else None
+
+
+def _surface_instance_for_path(path: Path) -> str | None:
+    try:
+        match = surface_for_path(path.resolve())
+    except ValueError as exc:
+        raise LedgerIntegrityError(
+            f"replay_transport_surface_ambiguous:{path.as_posix()}",
+        ) from exc
+    if match is None:
+        return None
+    _surface, root = match
+    try:
+        relative = path.resolve().relative_to(root.resolve()).as_posix()
+        return normalize_surface_relative_path(relative)
+    except (ValueError, OSError) as exc:
+        raise LedgerIntegrityError(
+            f"replay_transport_surface_instance_invalid:{path.as_posix()}",
+        ) from exc
+
+
+def _replay_payload_sha256(payload: dict[str, Any]) -> str:
+    return "sha256:" + hashlib.sha256(
+        canonical_json(payload).encode("utf-8"),
+    ).hexdigest()
+
+
+def _validated_replay_transport(
+    row: dict[str, Any],
+    *,
+    expected_surface: str | None,
+    expected_surface_instance: str | None = None,
+) -> dict[str, Any] | None:
+    if not _is_replay_transport_candidate(row):
+        return None
+    schema = row.get("$schema")
+    schema_version = row.get("schema_version")
+    if schema == _REPLAY_TRANSPORT_SCHEMA and schema_version == 2:
+        expected_keys = _REPLAY_TRANSPORT_STORED_KEYS
+    else:
+        raise LedgerIntegrityError("replay_transport_version_invalid")
+    if set(row) != expected_keys:
+        raise LedgerIntegrityError("replay_transport_fields_invalid")
+    if type(schema_version) is not int:
+        raise LedgerIntegrityError("replay_transport_version_invalid")
+    if not isinstance(expected_surface, str) or not expected_surface:
+        raise LedgerIntegrityError("replay_transport_surface_unbound")
+    if row.get("surface") != expected_surface:
+        raise LedgerIntegrityError("replay_transport_surface_mismatch")
+    surface_instance = row.get("surface_instance")
+    if not isinstance(surface_instance, str):
+        raise LedgerIntegrityError("replay_transport_surface_instance_invalid")
+    try:
+        normalized_instance = normalize_surface_relative_path(surface_instance)
+        instance_owner = surface_for_relative_path(normalized_instance)
+    except ValueError as exc:
+        raise LedgerIntegrityError(
+            "replay_transport_surface_instance_invalid"
+        ) from exc
+    if (
+        normalized_instance != surface_instance
+        or instance_owner is None
+        or instance_owner.name != expected_surface
+    ):
+        raise LedgerIntegrityError("replay_transport_surface_instance_mismatch")
+    if (
+        expected_surface_instance is not None
+        and surface_instance != expected_surface_instance
+    ):
+        raise LedgerIntegrityError("replay_transport_surface_instance_mismatch")
+    producer_event_id = row.get("producer_event_id")
+    replay_transaction_id = row.get("replay_transaction_id")
+    if (
+        not isinstance(producer_event_id, str)
+        or _LEDGER_EVENT_ID.fullmatch(producer_event_id) is None
+    ):
+        raise LedgerIntegrityError("replay_transport_producer_identity_invalid")
+    producer_previous = row.get("producer_previous_ledger_hash")
+    if (
+        producer_previous is not None
+        and (
+            not isinstance(producer_previous, str)
+            or _LEDGER_EVENT_ID.fullmatch(producer_previous) is None
+        )
+    ):
+        raise LedgerIntegrityError(
+            "replay_transport_producer_previous_identity_invalid"
+        )
+    if (
+        not isinstance(replay_transaction_id, str)
+        or _REPLAY_TRANSACTION_ID.fullmatch(replay_transaction_id) is None
+    ):
+        raise LedgerIntegrityError("replay_transport_transaction_identity_invalid")
+    payload = row.get("producer_payload")
+    if not isinstance(payload, dict):
+        raise LedgerIntegrityError("replay_transport_payload_not_object")
+    if _CHAIN_FIELDS.intersection(payload):
+        raise LedgerIntegrityError("replay_transport_payload_chain_fields_forbidden")
+    if _is_replay_transport_candidate(payload):
+        raise LedgerIntegrityError("replay_transport_nested_envelope_forbidden")
+    if row.get("payload_sha256") != _replay_payload_sha256(payload):
+        raise LedgerIntegrityError("replay_transport_payload_hash_mismatch")
+    if producer_event_id != _record_hash(payload, producer_previous):
+        raise LedgerIntegrityError("replay_transport_producer_identity_mismatch")
+    ledger_hash = row.get("ledger_hash")
+    previous_hash = row.get("previous_ledger_hash")
+    if (
+        not isinstance(ledger_hash, str)
+        or _LEDGER_EVENT_ID.fullmatch(ledger_hash) is None
+        or (
+            previous_hash is not None
+            and (
+                not isinstance(previous_hash, str)
+                or _LEDGER_EVENT_ID.fullmatch(previous_hash) is None
+            )
+        )
+    ):
+        raise LedgerIntegrityError("replay_transport_outer_chain_invalid")
+    return row
+
+
+def _unwrap_replay_transport_row(
+    row: dict[str, Any],
+    *,
+    expected_surface: str | None,
+    expected_surface_instance: str | None = None,
+) -> dict[str, Any]:
+    envelope = _validated_replay_transport(
+        row,
+        expected_surface=expected_surface,
+        expected_surface_instance=expected_surface_instance,
+    )
+    if envelope is None:
+        return dict(row)
+    payload = dict(envelope["producer_payload"])
+    payload["previous_ledger_hash"] = envelope["producer_previous_ledger_hash"]
+    payload["ledger_hash"] = envelope["producer_event_id"]
+    return payload
+
+
+def _replay_transport_metadata(
+    row: dict[str, Any],
+    *,
+    expected_surface: str,
+) -> dict[str, Any] | None:
+    envelope = _validated_replay_transport(
+        row,
+        expected_surface=expected_surface,
+    )
+    if envelope is None:
+        return None
+    return {
+        "producer_event_id": envelope["producer_event_id"],
+        "producer_previous_ledger_hash": envelope["producer_previous_ledger_hash"],
+        "replay_transaction_id": envelope["replay_transaction_id"],
+        "payload_sha256": envelope["payload_sha256"],
+        "producer_payload": dict(envelope["producer_payload"]),
+    }
+
+
+def _replay_logical_payload_from_stored(
+    row: dict[str, Any],
+    *,
+    expected_surface: str,
+) -> dict[str, Any]:
+    envelope = _validated_replay_transport(
+        row,
+        expected_surface=expected_surface,
+    )
+    if envelope is not None:
+        return dict(envelope["producer_payload"])
+    return {key: value for key, value in row.items() if key not in _CHAIN_FIELDS}
+
+
+def _make_replay_transport_row(
+    payload: dict[str, Any],
+    *,
+    expected_surface: str,
+    surface_instance: str,
+    producer_event_id: str,
+    producer_previous_ledger_hash: str | None,
+    replay_transaction_id: str,
+) -> dict[str, Any]:
+    if not isinstance(expected_surface, str) or not expected_surface:
+        raise LedgerIntegrityError("replay_transport_surface_unbound")
+    try:
+        normalized_instance = normalize_surface_relative_path(surface_instance)
+        instance_owner = surface_for_relative_path(normalized_instance)
+    except ValueError as exc:
+        raise LedgerIntegrityError(
+            "replay_transport_surface_instance_invalid"
+        ) from exc
+    if (
+        normalized_instance != surface_instance
+        or instance_owner is None
+        or instance_owner.name != expected_surface
+    ):
+        raise LedgerIntegrityError("replay_transport_surface_instance_mismatch")
+    if _LEDGER_EVENT_ID.fullmatch(producer_event_id) is None:
+        raise LedgerIntegrityError("replay_transport_producer_identity_invalid")
+    if (
+        producer_previous_ledger_hash is not None
+        and _LEDGER_EVENT_ID.fullmatch(producer_previous_ledger_hash) is None
+    ):
+        raise LedgerIntegrityError(
+            "replay_transport_producer_previous_identity_invalid"
+        )
+    if _REPLAY_TRANSACTION_ID.fullmatch(replay_transaction_id) is None:
+        raise LedgerIntegrityError("replay_transport_transaction_identity_invalid")
+    producer_payload = dict(payload)
+    if _CHAIN_FIELDS.intersection(producer_payload):
+        raise LedgerIntegrityError("replay_transport_payload_chain_fields_forbidden")
+    if _is_replay_transport_candidate(producer_payload):
+        raise LedgerIntegrityError("replay_transport_nested_envelope_forbidden")
+    if producer_event_id != _record_hash(
+        producer_payload,
+        producer_previous_ledger_hash,
+    ):
+        raise LedgerIntegrityError("replay_transport_producer_identity_mismatch")
+    return {
+        "$schema": _REPLAY_TRANSPORT_SCHEMA,
+        "schema_version": 2,
+        "surface": expected_surface,
+        "surface_instance": surface_instance,
+        "producer_event_id": producer_event_id,
+        "producer_previous_ledger_hash": producer_previous_ledger_hash,
+        "replay_transaction_id": replay_transaction_id,
+        "payload_sha256": _replay_payload_sha256(producer_payload),
+        "producer_payload": producer_payload,
+    }
+
+
 def _record_hash(record: dict[str, Any], previous_hash: str | None = None) -> str:
     payload = dict(record)
     payload.pop("ledger_hash", None)
@@ -507,7 +1149,12 @@ def heal_torn_tail(path: Path) -> int:
     return torn_bytes
 
 
-def _append_jsonl_locked_body(path: Path, record: dict[str, Any]) -> dict[str, Any]:
+def _append_jsonl_locked_body(
+    path: Path,
+    record: dict[str, Any],
+    *,
+    held_file_lock_paths: frozenset[Path] | None = None,
+) -> dict[str, Any]:
     record = _stamped_for_surface(path, record)
     path.parent.mkdir(parents=True, exist_ok=True)
     _verify_existing_declared_chain_before_append(path)
@@ -515,7 +1162,7 @@ def _append_jsonl_locked_body(path: Path, record: dict[str, Any]) -> dict[str, A
     # verifier reads past a torn tail, `read_jsonl` below does not, and a
     # writer that appended after one would chain onto a row that is not there.
     heal_torn_tail(path)
-    rows = read_jsonl(path)
+    rows = _read_jsonl_stored(path)
     previous_hash = (
         str(rows[-1].get("ledger_hash"))
         if rows and rows[-1].get("ledger_hash")
@@ -536,7 +1183,11 @@ def _append_jsonl_locked_body(path: Path, record: dict[str, Any]) -> dict[str, A
         os.fsync(fd)
     finally:
         os.close(fd)
-    _refresh_adjacent_index_grouped(path, held_file_lock_path=path)
+    _refresh_adjacent_index_grouped(
+        path,
+        held_file_lock_path=path,
+        held_file_lock_paths=held_file_lock_paths,
+    )
     return stored
 
 
@@ -604,13 +1255,35 @@ def append_jsonl(
         expires_at=expires_at,
         test_fixture=test_fixture,
     )
-    requirement = _lock_requirements_for_path(resolved)
-    if requirement.index_group_lock_path is None:
-        with with_exclusive_lock(requirement.file_lock_path):
-            return _append_jsonl_unlocked(resolved, record)
-    with with_exclusive_lock(requirement.index_group_lock_path):
-        with with_exclusive_lock(requirement.file_lock_path):
-            return _append_jsonl_unlocked(resolved, record)
+    with state_transaction([resolved]) as transaction:
+        return transaction.append_jsonl(
+            resolved,
+            record,
+            allow_legacy=allow_legacy,
+            legacy_reason=legacy_reason,
+            expires_at=expires_at,
+            test_fixture=test_fixture,
+        )
+
+
+def _reraise_enospc_as_environment(exc: OSError) -> None:
+    """E18-b (ORPHAN-695 sibling; lived 2026-08-13) — a full disk during a
+    ledger APPEND is an ENVIRONMENT failure, not phase logic. Pre-E18-b
+    only the read/verify path classified I/O faults; a mid-run ENOSPC on
+    the write side still surfaced as an anonymous phase crash the operator
+    had to diagnose from a stack trace. Named here, once, for every
+    governed append."""
+    import errno as _errno
+
+    from .tool_registry import GovernanceError
+
+    if exc.errno == _errno.ENOSPC:
+        raise GovernanceError(
+            f"environment_failure:disk_full: ledger append hit ENOSPC "
+            f"({exc}); free disk and re-run — the rows already written are "
+            f"intact, the chain refuses to advance on a torn write"
+        ) from exc
+    raise exc
 
 
 def append_declared_jsonl(
@@ -633,13 +1306,16 @@ def append_declared_jsonl(
         enforce_write_profile=not bypass_profile_gate,
     )
     resolved = Path(path).resolve()
-    requirement = _lock_requirements_for_path(resolved)
-    if requirement.index_group_lock_path is None:
-        with with_exclusive_lock(requirement.file_lock_path):
-            return _append_jsonl_unlocked(resolved, record)
-    with with_exclusive_lock(requirement.index_group_lock_path):
-        with with_exclusive_lock(requirement.file_lock_path):
-            return _append_jsonl_unlocked(resolved, record)
+    try:
+        with state_transaction([resolved]) as transaction:
+            return transaction.append_declared_jsonl(
+                resolved,
+                record,
+                expected_surface=expected_surface,
+                bypass_profile_gate=bypass_profile_gate,
+            )
+    except OSError as exc:
+        _reraise_enospc_as_environment(exc)
 
 
 def _assert_raw_jsonl_append_allowed(
@@ -708,7 +1384,14 @@ def rewrite_declared_json(
         expected_surface=expected_surface,
         enforce_write_profile=not bypass_profile_gate,
     )
-    _atomic_write_text(path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    resolved = Path(path).resolve()
+    with state_transaction([resolved]) as transaction:
+        transaction.rewrite_declared_json(
+            resolved,
+            payload,
+            expected_surface=expected_surface,
+            bypass_profile_gate=bypass_profile_gate,
+        )
 
 
 def rewrite_declared_jsonl(
@@ -730,9 +1413,15 @@ def rewrite_declared_jsonl(
         expected_surface=expected_surface,
         enforce_write_profile=not bypass_profile_gate,
     )
-    if migration_id is not None and not str(migration_id).strip():
-        raise LedgerIntegrityError("rewrite_declared_jsonl_migration_id_empty")
-    _rewrite_jsonl_locked(Path(path).resolve(), rows)
+    resolved = Path(path).resolve()
+    with state_transaction([resolved]) as transaction:
+        transaction.rewrite_declared_jsonl(
+            resolved,
+            rows,
+            expected_surface=expected_surface,
+            migration_id=migration_id,
+            bypass_profile_gate=bypass_profile_gate,
+        )
 
 
 def load_declared_jsonl(
@@ -752,7 +1441,15 @@ def load_declared_jsonl(
             "declared_jsonl_strict_read_required: "
             f"surface={surface.name!r} path={Path(path).resolve().as_posix()}"
         )
-    return load_jsonl(path, verify=verify)
+    if verify:
+        return load_jsonl_verified(
+            Path(path).resolve(),
+            expected_surface=expected_surface,
+        )
+    return read_jsonl(
+        Path(path).resolve(),
+        expected_surface=expected_surface,
+    )
 
 
 def _assert_declared_surface(
@@ -828,7 +1525,15 @@ def rewrite_jsonl(
         expires_at=expires_at,
         test_fixture=test_fixture,
     )
-    _rewrite_jsonl_locked(resolved, rows)
+    with state_transaction([resolved]) as transaction:
+        transaction.rewrite_jsonl(
+            resolved,
+            rows,
+            allow_legacy=allow_legacy,
+            legacy_reason=legacy_reason,
+            expires_at=expires_at,
+            test_fixture=test_fixture,
+        )
 
 
 def _rewrite_jsonl_locked(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -871,7 +1576,12 @@ def _assert_raw_jsonl_rewrite_allowed(
     )
 
 
-def _rewrite_jsonl_unlocked(path: Path, rows: list[dict[str, Any]]) -> None:
+def _rewrite_jsonl_unlocked(
+    path: Path,
+    rows: list[dict[str, Any]],
+    *,
+    held_file_lock_paths: frozenset[Path] | None = None,
+) -> None:
     """Plan 026R §A.2 — internal rewrite under caller-held locks."""
     path.parent.mkdir(parents=True, exist_ok=True)
     previous_hash: str | None = None
@@ -885,7 +1595,11 @@ def _rewrite_jsonl_unlocked(path: Path, rows: list[dict[str, Any]]) -> None:
     _atomic_write_text(
         path, ("\n".join(lines) + "\n") if lines else "",
     )
-    _refresh_adjacent_index_grouped(path, held_file_lock_path=path)
+    _refresh_adjacent_index_grouped(
+        path,
+        held_file_lock_path=path,
+        held_file_lock_paths=held_file_lock_paths,
+    )
 
 
 def torn_tail_length(content: str) -> int:
@@ -920,9 +1634,20 @@ def torn_tail_length(content: str) -> int:
     return 0
 
 
-def _verify_jsonl_from_text(path: Path, content: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def _verify_jsonl_from_text(
+    path: Path,
+    content: str,
+    *,
+    expected_surface: str | None = None,
+    expected_surface_instance: str | None = None,
+    unwrap_transport: bool = True,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     rows: list[dict[str, Any]] = []
     previous_hash: str | None = None
+    bound_surface = expected_surface or _surface_name_for_path(path)
+    bound_surface_instance = (
+        expected_surface_instance or _surface_instance_for_path(path)
+    )
     # The torn tail is removed from the text BEFORE verification, so the walk
     # below judges only records that actually completed. Reported, never
     # silent: `torn_tail_bytes` travels on the verdict so `integrity verify`
@@ -940,7 +1665,6 @@ def _verify_jsonl_from_text(path: Path, content: str) -> tuple[dict[str, Any], l
                     {"path": path.as_posix(), "valid": False, "line": line_no, "reason": "row_not_object"},
                     rows,
                 )
-            rows.append(row)
             expected = row.get("ledger_hash")
             if not expected:
                 return (
@@ -975,6 +1699,23 @@ def _verify_jsonl_from_text(path: Path, content: str) -> tuple[dict[str, Any], l
                     },
                     rows,
                 )
+            try:
+                logical = _unwrap_replay_transport_row(
+                    row,
+                    expected_surface=bound_surface,
+                    expected_surface_instance=bound_surface_instance,
+                )
+            except LedgerIntegrityError as exc:
+                return (
+                    {
+                        "path": path.as_posix(),
+                        "valid": False,
+                        "line": line_no,
+                        "reason": str(exc),
+                    },
+                    rows,
+                )
+            rows.append(logical if unwrap_transport else dict(row))
             previous_hash = str(expected)
     except json.JSONDecodeError as exc:
         return (
@@ -1018,11 +1759,26 @@ def verify_jsonl(path: Path) -> dict[str, Any]:
     try:
         result, _rows = _verify_jsonl_from_text(path, path.read_text(encoding="utf-8"))
     except OSError as exc:
-        return {"path": path.as_posix(), "valid": False, "reason": str(exc)}
+        # E18 (ORPHAN-672) — an I/O failure is an ENVIRONMENT fault, not
+        # ledger corruption. On a full disk (errno 28, lived 2026-08-13)
+        # this arm used to report the ledger as invalid, sending the
+        # operator chasing phantom chain damage. reason_kind lets every
+        # consumer tell the two apart without parsing errno strings.
+        return {
+            "path": path.as_posix(),
+            "valid": False,
+            "reason": str(exc),
+            "reason_kind": "io_error",
+            "errno": exc.errno,
+        }
     return result
 
 
-def load_jsonl_verified(path: Path) -> list[dict[str, Any]]:
+def load_jsonl_verified(
+    path: Path,
+    *,
+    expected_surface: str | None = None,
+) -> list[dict[str, Any]]:
     """Plan 026R §A.2 — strict load with full hash-chain verification.
 
     Runs ``verify_jsonl(path)`` and raises ``LedgerIntegrityError`` if the
@@ -1038,10 +1794,17 @@ def load_jsonl_verified(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     try:
-        result, rows = _verify_jsonl_from_text(path, path.read_text(encoding="utf-8"))
+        result, rows = _verify_jsonl_from_text(
+            path,
+            path.read_text(encoding="utf-8"),
+            expected_surface=expected_surface,
+        )
     except OSError as exc:
+        # E18 (ORPHAN-672) — name the environment fault so a full-disk or
+        # permission failure reads as what it is instead of chain damage.
         raise LedgerIntegrityError(
-            f"strict verification failed for {path.as_posix()}: reason={exc}"
+            f"strict verification failed for {path.as_posix()}: "
+            f"reason_kind=io_error errno={exc.errno} reason={exc}"
         ) from exc
     if not result.get("valid", False):
         raise LedgerIntegrityError(
@@ -1049,6 +1812,234 @@ def load_jsonl_verified(path: Path) -> list[dict[str, Any]]:
             f"reason={result.get('reason')} line={result.get('line')}"
         )
     return rows
+
+
+def _load_jsonl_stored_verified(
+    path: Path,
+    *,
+    expected_surface: str,
+    expected_surface_instance: str | None = None,
+) -> list[dict[str, Any]]:
+    """Private strict loader retaining transport identity for replay only."""
+    if not path.exists():
+        return []
+    try:
+        result, rows = _verify_jsonl_from_text(
+            path,
+            path.read_text(encoding="utf-8"),
+            expected_surface=expected_surface,
+            expected_surface_instance=expected_surface_instance,
+            unwrap_transport=False,
+        )
+    except OSError as exc:
+        raise LedgerIntegrityError(
+            f"strict verification failed for {path.as_posix()}: "
+            f"reason_kind=io_error errno={exc.errno} reason={exc}",
+        ) from exc
+    if not result.get("valid", False):
+        raise LedgerIntegrityError(
+            f"strict verification failed for {path.as_posix()}: "
+            f"reason={result.get('reason')} line={result.get('line')}",
+        )
+    return rows
+
+
+def _load_jsonl_stored_verified_text(
+    content: str,
+    *,
+    source: str | Path,
+    expected_surface: str,
+    expected_surface_instance: str,
+) -> list[dict[str, Any]]:
+    """Verify already-attested replay bytes while retaining transport rows."""
+    source_path = Path(source)
+    result, rows = _verify_jsonl_from_text(
+        source_path,
+        content,
+        expected_surface=expected_surface,
+        expected_surface_instance=expected_surface_instance,
+        unwrap_transport=False,
+    )
+    if not result.get("valid", False) or result.get("torn_tail_bytes"):
+        raise LedgerIntegrityError(
+            f"strict verification failed for {source_path.as_posix()}: "
+            f"reason={result.get('reason') or 'immutable_torn_tail'} "
+            f"line={result.get('line')}",
+        )
+    return rows
+
+
+def load_jsonl_verified_text(
+    content: str,
+    *,
+    source: str | Path,
+    expected_surface: str | None = None,
+) -> list[dict[str, Any]]:
+    """Strictly verify immutable JSONL content without a filesystem rewrite."""
+    source_path = Path(source)
+    result, rows = _verify_jsonl_from_text(
+        source_path,
+        content,
+        expected_surface=expected_surface,
+    )
+    if not result.get("valid", False) or result.get("torn_tail_bytes"):
+        raise LedgerIntegrityError(
+            f"strict verification failed for {source_path.as_posix()}: "
+            f"reason={result.get('reason') or 'immutable_torn_tail'} "
+            f"line={result.get('line')}"
+        )
+    return rows
+
+
+def verify_jsonl_chunks(
+    chunks: Iterable[bytes],
+    *,
+    source: str | Path,
+    expected_size: int,
+    max_line_bytes: int,
+    max_rows: int,
+    expected_surface: str | None = None,
+    expected_surface_instance: str | None = None,
+    on_row: Callable[[dict[str, Any]], None] | None = None,
+    grandfather_line_prefixes: int = 0,
+    on_stored_row: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    """Strictly verify one immutable JSONL blob without materialising it.
+
+    Git supplies immutable object bytes in arbitrary chunks. This reader
+    bounds the only carry-over buffer (one line), verifies the canonical
+    hash chain before exposing rows, and retains only the chain tip and
+    counters. ``on_stored_row`` sees the transport envelope while ``on_row``
+    sees its validated logical producer row.
+
+    ``grandfather_line_prefixes`` (ARIA-HIGH-017) exempts the first N
+    lines from ``max_line_bytes``: those rows are INHERITED — present in
+    the previously published tip of the same ledger, written under an
+    older policy — and an append-only hash chain cannot be retroactively
+    shrunk. Row limits, chain verification, and every byte budget still
+    apply to the whole file; only the per-line cap binds new appends.
+    """
+    source_path = Path(source)
+    bound_surface = expected_surface or _surface_name_for_path(source_path)
+    bound_surface_instance = (
+        expected_surface_instance or _surface_instance_for_path(source_path)
+    )
+    digest = hashlib.sha256()
+    pending = bytearray()
+    previous_hash: str | None = None
+    total = 0
+    row_count = 0
+    line_no = 0
+
+    def consume(raw_line: bytes, *, terminated: bool) -> None:
+        nonlocal previous_hash, row_count, line_no
+        line_no += 1
+        if len(raw_line) > max_line_bytes and line_no > grandfather_line_prefixes:
+            raise LedgerReadLimitError(
+                f"immutable_ledger_line_too_large:{source_path.as_posix()}:"
+                f"line={line_no}",
+            )
+        content = raw_line[:-1] if terminated else raw_line
+        if not content.strip():
+            return
+        try:
+            text = content.decode("utf-8")
+            if not json_nesting_within_limit(text):
+                raise ValueError("json_nesting_limit_exceeded")
+            row = json.loads(text)
+        except UnicodeDecodeError as exc:
+            raise LedgerIntegrityError(
+                "strict verification failed for "
+                f"{source_path.as_posix()}: reason=invalid_utf8 line={line_no}",
+            ) from exc
+        except (json.JSONDecodeError, RecursionError, ValueError) as exc:
+            raise LedgerIntegrityError(
+                "strict verification failed for "
+                f"{source_path.as_posix()}: reason={exc} line={line_no}",
+            ) from exc
+        if not isinstance(row, dict):
+            raise LedgerIntegrityError(
+                "strict verification failed for "
+                f"{source_path.as_posix()}: reason=row_not_object line={line_no}",
+            )
+        row_count += 1
+        if row_count > max_rows:
+            raise LedgerReadLimitError(
+                f"immutable_ledger_row_limit_exceeded:{source_path.as_posix()}",
+            )
+        expected = row.get("ledger_hash")
+        if not expected:
+            raise LedgerIntegrityError(
+                "strict verification failed for "
+                f"{source_path.as_posix()}: reason=ledger_hash_missing "
+                f"line={line_no}",
+            )
+        actual = _record_hash(row, previous_hash)
+        if expected != actual:
+            raise LedgerIntegrityError(
+                "strict verification failed for "
+                f"{source_path.as_posix()}: reason=ledger_hash_mismatch "
+                f"line={line_no}",
+            )
+        if row.get("previous_ledger_hash") != previous_hash:
+            raise LedgerIntegrityError(
+                "strict verification failed for "
+                f"{source_path.as_posix()}: reason=previous_hash_mismatch "
+                f"line={line_no}",
+            )
+        try:
+            logical = _unwrap_replay_transport_row(
+                row,
+                expected_surface=bound_surface,
+                expected_surface_instance=bound_surface_instance,
+            )
+        except LedgerIntegrityError as exc:
+            raise LedgerIntegrityError(
+                "strict verification failed for "
+                f"{source_path.as_posix()}: reason={exc} line={line_no}",
+            ) from exc
+        previous_hash = str(expected)
+        if on_stored_row is not None:
+            on_stored_row(dict(row))
+        if on_row is not None:
+            on_row(logical)
+
+    for chunk in chunks:
+        if not isinstance(chunk, bytes):
+            raise TypeError("immutable_ledger_chunk_must_be_bytes")
+        total += len(chunk)
+        if total > expected_size:
+            raise LedgerIntegrityError(
+                "strict verification failed for "
+                f"{source_path.as_posix()}: reason=blob_size_changed",
+            )
+        digest.update(chunk)
+        pending.extend(chunk)
+        while True:
+            newline = pending.find(b"\n")
+            if newline < 0:
+                break
+            consume(bytes(pending[: newline + 1]), terminated=True)
+            del pending[: newline + 1]
+        if len(pending) > max_line_bytes and line_no + 1 > grandfather_line_prefixes:
+            raise LedgerReadLimitError(
+                f"immutable_ledger_line_too_large:{source_path.as_posix()}:"
+                f"line={line_no + 1}",
+            )
+    if total != expected_size:
+        raise LedgerIntegrityError(
+            "strict verification failed for "
+            f"{source_path.as_posix()}: reason=blob_size_changed",
+        )
+    if pending:
+        consume(bytes(pending), terminated=False)
+    return {
+        "valid": True,
+        "row_count": row_count,
+        "last_hash": previous_hash,
+        "sha256": digest.hexdigest(),
+        "size_bytes": total,
+    }
 
 
 def load_index(path: Path) -> dict[str, Any]:
@@ -1062,30 +2053,42 @@ def load_index(path: Path) -> dict[str, Any]:
 
 
 def verify_index_hashes(index_path: Path, ledgers: dict[str, Path]) -> dict[str, Any]:
-    with with_exclusive_lock(index_path):
-        index = load_index(index_path)
-        indexed_hashes = index.get("ledger_hashes", {})
-        if not isinstance(indexed_hashes, dict):
+    resolved_index = Path(index_path).resolve()
+    resolved_ledgers = {
+        name: Path(path).resolve()
+        for name, path in ledgers.items()
+    }
+    with state_transaction([resolved_index, *resolved_ledgers.values()]) as transaction:
+        return transaction.verify_index_hashes(resolved_index, resolved_ledgers)
+
+
+def _verify_index_hashes_unlocked(
+    index_path: Path,
+    ledgers: dict[str, Path],
+) -> dict[str, Any]:
+    index = load_index(index_path)
+    indexed_hashes = index.get("ledger_hashes", {})
+    if not isinstance(indexed_hashes, dict):
+        raise LedgerIntegrityError(
+            f"Ledger integrity index is malformed at {index_path.as_posix()}: ledger_hashes must be an object"
+        )
+    for name in sorted(ledgers):
+        if name not in indexed_hashes:
             raise LedgerIntegrityError(
-                f"Ledger integrity index is malformed at {index_path.as_posix()}: ledger_hashes must be an object"
+                f"Ledger integrity index missing required ledger entry: {name}"
             )
-        for name in sorted(ledgers):
-            if name not in indexed_hashes:
-                raise LedgerIntegrityError(
-                    f"Ledger integrity index missing required ledger entry: {name}"
-                )
-        for name in sorted(indexed_hashes):
-            if name not in ledgers:
-                raise LedgerIntegrityError(
-                    f"Ledger integrity index contains unknown ledger entry: {name}"
-                )
-            expected_hash = indexed_hashes[name]
-            actual_hash = file_hash(ledgers[name])
-            if actual_hash != expected_hash:
-                raise LedgerIntegrityError(
-                    f"Ledger integrity check failed for {name}: expected {expected_hash}, got {actual_hash}"
-                )
-        return index
+    for name in sorted(indexed_hashes):
+        if name not in ledgers:
+            raise LedgerIntegrityError(
+                f"Ledger integrity index contains unknown ledger entry: {name}"
+            )
+        expected_hash = indexed_hashes[name]
+        actual_hash = file_hash(ledgers[name])
+        if actual_hash != expected_hash:
+            raise LedgerIntegrityError(
+                f"Ledger integrity check failed for {name}: expected {expected_hash}, got {actual_hash}"
+            )
+    return index
 
 
 def write_index(index_path: Path, index: dict[str, Any], ledgers: dict[str, Path]) -> None:
@@ -1105,12 +2108,26 @@ def write_index(index_path: Path, index: dict[str, Any], ledgers: dict[str, Path
     indexed-group appends. External callers (boot init, migrations) use
     this primitive standalone and pay the snapshot-consistency window.
     """
-    with with_exclusive_lock(index_path):
-        index_path.parent.mkdir(parents=True, exist_ok=True)
-        index.pop("pressure_keys_emitted", None)
-        index["ledger_hashes"] = {name: file_hash(path) for name, path in ledgers.items()}
-        index["schema_version"] = 2
-        _atomic_write_text(index_path, json.dumps(index, indent=2, sort_keys=True) + "\n")
+    resolved_index = Path(index_path).resolve()
+    resolved_ledgers = {
+        name: Path(path).resolve()
+        for name, path in ledgers.items()
+    }
+    with state_transaction([resolved_index, *resolved_ledgers.values()]) as transaction:
+        transaction.write_index(resolved_index, index, resolved_ledgers)
+
+
+def _write_index_unlocked(
+    index_path: Path,
+    index: dict[str, Any],
+    ledgers: dict[str, Path],
+) -> None:
+    """Write an integrity index while its transaction locks are held."""
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    index.pop("pressure_keys_emitted", None)
+    index["ledger_hashes"] = {name: file_hash(path) for name, path in ledgers.items()}
+    index["schema_version"] = 2
+    _atomic_write_text(index_path, json.dumps(index, indent=2, sort_keys=True) + "\n")
 
 
 def _atomic_write_text(path: Path, content: str) -> None:
@@ -1171,6 +2188,7 @@ def _refresh_adjacent_index_grouped(
     path: Path,
     *,
     held_file_lock_path: Path,
+    held_file_lock_paths: frozenset[Path] | None = None,
 ) -> None:
     """Plan 026R §A.1 — held-lock-aware index refresh.
 
@@ -1200,12 +2218,14 @@ def _refresh_adjacent_index_grouped(
     if not index_path.exists():
         return
 
-    held_resolved = held_file_lock_path.resolve()
+    held_resolved = {held_file_lock_path.resolve()}
+    if held_file_lock_paths is not None:
+        held_resolved.update(item.resolve() for item in held_file_lock_paths)
     ledger_hashes: dict[str, str] = {}
     sibling_paths: list[Path] = []
 
     for logical_name, ledger_path in requirement.ledgers.items():
-        if ledger_path.resolve() == held_resolved:
+        if ledger_path.resolve() in held_resolved:
             ledger_hashes[logical_name] = file_hash(ledger_path)
         else:
             sibling_paths.append(ledger_path)

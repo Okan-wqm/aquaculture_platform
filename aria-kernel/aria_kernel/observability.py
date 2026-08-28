@@ -5,10 +5,14 @@ from statistics import median
 from typing import Any
 
 from .budget import list_budget_usage
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_jsonl
 from .runtime_artifacts import artifact_inventory_path
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
-from .validation import list_validation_runs
+from .validation_runs_ledger import (
+    classify_validation_run_status,
+    list_validation_runs,
+    validation_run_duration_ms,
+)
 
 
 def record_cycle_metrics(
@@ -18,8 +22,19 @@ def record_cycle_metrics(
     artifact_count: int,
     status: str,
     cost_units: float = 0.0,
+    phase_digests: dict[str, dict[str, Any]] | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
+    """One metrics row per sealed cycle — now carrying phase digests.
+
+    X3 (ORPHAN-700) — ``phase_digests`` closes the zero-vs-absent gap:
+    the workspace cycle projection drops phase payloads and no report read
+    them, so "experiment_night ran and planned nothing" was
+    indistinguishable from "experiment_night never ran". A phase that RAN
+    always leaves a digest (zeros allowed); a phase that never ran leaves
+    none. Additive schema_version=2 when present; every existing reader
+    accesses keys via .get() (verified), so v1 rows stay serveable.
+    """
     if not cycle_id.strip():
         raise GovernanceError("cycle metrics require cycle_id")
     if status not in ("ok", "failed", "blocked", "partial", "degraded", "integrity_failed"):
@@ -28,7 +43,7 @@ def record_cycle_metrics(
         raise GovernanceError("cycle metrics counts must be non-negative")
     durations = _normalize_durations(phase_durations_ms)
     row = {
-        "schema_version": 1,
+        "schema_version": 2 if phase_digests else 1,
         "recorded_at": utc_now(),
         "cycle_id": cycle_id,
         "status": status,
@@ -37,7 +52,9 @@ def record_cycle_metrics(
         "artifact_count": artifact_count,
         "cost_units": cost_units,
     }
-    return append_jsonl(ensure_tools_dir(base_dir) / "observability" / "cycle-metrics.jsonl", row)
+    if phase_digests:
+        row["phase_digests"] = phase_digests
+    return append_declared_jsonl(ensure_tools_dir(base_dir) / "observability" / "cycle-metrics.jsonl", row, expected_surface="observability_cycle_metrics")
 
 
 def generate_observability_dashboard(
@@ -62,18 +79,35 @@ def generate_observability_dashboard(
         "alerts": alerts,
         "artifact_bytes_by_class": _artifact_bytes_by_class(artifact_inventory),
         "operator_message": _operator_message(metrics),
-        "validation": {
-            "run_count": len(validation_runs),
-            "failed_count": sum(1 for run in validation_runs if run.get("status") not in ("ok",)),
-            "total_duration_ms": sum(int(run.get("duration_ms") or 0) for run in validation_runs),
-        },
+        # E21-a — read the unified fields, do not infer them. The
+        # pre-E21-a expression `run.get("status") not in ("ok",)` counted
+        # every row written by validation_runs_ledger as FAILED, because
+        # that writer's schema carried no `status` key at all, and summed
+        # `duration_ms or 0` over rows that carried no duration. With one
+        # writer stamping both fields, the readers below refuse a row that
+        # lacks them rather than silently miscounting it.
+        "validation": _validation_summary(validation_runs),
         "cost": {
             "usage_count": len(budget_usage),
             "estimated_usd": round(sum(float(row.get("estimated_usd") or 0.0) for row in budget_usage), 4),
         },
         "status": "reported",
     }
-    return append_jsonl(ensure_tools_dir(base_dir) / "observability" / "dashboards.jsonl", dashboard)
+    return append_declared_jsonl(ensure_tools_dir(base_dir) / "observability" / "dashboards.jsonl", dashboard, expected_surface="observability_dashboards")
+
+
+def _validation_summary(validation_runs: list[dict[str, Any]]) -> dict[str, Any]:
+    statuses = [classify_validation_run_status(run) for run in validation_runs]
+    return {
+        "run_count": len(validation_runs),
+        "failed_count": sum(1 for status in statuses if status != "ok"),
+        "status_counts": {
+            status: statuses.count(status) for status in sorted(set(statuses))
+        },
+        "total_duration_ms": sum(
+            validation_run_duration_ms(run) for run in validation_runs
+        ),
+    }
 
 
 def list_cycle_metrics(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
@@ -180,7 +214,7 @@ def _record_alerts(
                 "observed": latest_artifacts,
             })
     for alert in alerts:
-        append_jsonl(alerts_path(base_dir), alert)
+        append_declared_jsonl(alerts_path(base_dir), alert, expected_surface="observability_alerts")
     return alerts
 
 

@@ -1,0 +1,10 @@
+{
+  "$schema": "aria/genesis-policy/v1",
+  "schema_version": 1,
+  "_comment": "Operator override (X1, 2026-08-16). cost_caps_usd raised for the revived judgment chain: ARIA runs on Claude Code CLI subscription auth, so the USD figures are internal accounting weights, not billable spend — the operator confirmed raising them has no real cost. daily 5->25 sizes one full autonomous night (cycle + 64 judge envelopes + experiments); monthly scales accordingly; per_run stays at the default so a single runaway spawn still trips the breaker.",
+  "cost_caps_usd": {
+    "daily": 25.0,
+    "monthly": 300.0,
+    "per_run": 0.5
+  }
+}

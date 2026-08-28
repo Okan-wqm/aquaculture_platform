@@ -199,7 +199,21 @@ _EXECUTOR_WORK_STEP = "Run CI executor"
 _EXECUTOR_BREAKER_QUARANTINE_STEP = "Quarantine damaged breaker evidence (recovery dispatch)"
 _CYCLE_RESTORE_STEP = _RESTORE_STEP
 _CYCLE_LEASE_STEP = "Pre-flight - cross-host autonomous-loop lease check"
-_CYCLE_WORK_STEP = "Run nightly standard-profile cycle"
+# ORPHAN-HIGH-728 — the step no longer names a fixed profile, because the
+# profile is now a verdict bounded by an operator ceiling. The old name
+# asserted `standard` in a place a contract could not check, which is how it
+# kept describing the lane after the lane changed.
+_CYCLE_WORK_STEP = "Run the nightly cycle under the resolved profile"
+
+# The two steps that decide and then DECLARE the night's authority. Contracted
+# because their ORDER is the boundary: a run that reached the work step
+# without resolving the profile would be running an unbounded one, and a run
+# that resolved it without re-declaring it would leave the audit artifact
+# asserting an authority the run did not take.
+_CYCLE_PROFILE_GATE_STEP = "Resolve the cycle profile within the operator ceiling"
+_CYCLE_RESOLVED_PREFLIGHT_STEP = (
+    "Persist enterprise workflow preflight for the resolved profile"
+)
 
 # The store worktree, as the workflow path allowlist spells it. One constant
 # because four contract fields and two YAMLs have to agree on it.
@@ -234,7 +248,8 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 clean_worktree_policy="pre_and_post",
                 external_root_allowlist=("RUNNER_TEMP",),
                 # MOCK-mode burn-in (dry-run cycles, minutes-scale); the live
-                # YAML's 35-minute job timeout satisfies this floor.
+                # YAML's measured 90-minute combined suite + burn-in budget
+                # satisfies this burn-in floor.
                 burn_in_timeout_floor_minutes=30,
             ),
         ),
@@ -357,7 +372,15 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 allowed_write_path_patterns=(
                     rf"^{_STORE_ROOT}(/.*)?$",
                 ),
-                preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-auto-cycle-preflight\.json$",
+                # ORPHAN-HIGH-728 — TWO preflight artifacts on this lane. The
+                # pre-restore one declares the lane's structural ceiling (it
+                # runs before the store is bound and cannot know the night's
+                # profile); the `-resolved` one declares what the profile gate
+                # actually chose, which is what makes
+                # `frozen_profile_blocks_mutating_workflow` reachable here.
+                # The suffix is contracted rather than free-form so a third
+                # artifact cannot appear without this line changing.
+                preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-auto-cycle-preflight(-resolved)?\.json$",
                 # The governed upload is the FORENSIC CACHE, and the run-scoped
                 # name is the contract's own statement that it is not
                 # authoritative. Under the old canonical name the artifact WAS
@@ -367,7 +390,16 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 # `-<run_id>` here means a future edit back to a fixed name
                 # fails the contract rather than silently restoring the hazard.
                 upload_artifact_name_pattern=rf"^aria-state-cache-{_RUN_ID}$",
-                upload_artifact_path_patterns=(rf"^{_STORE_ROOT}$",),
+                # ORPHAN-720 — the forensic copy EXCLUDES the four pre-rename
+                # `genesis:<hash>` records: GitHub's uploader rejects ':' in
+                # paths and renaming a ledger-referenced record would break
+                # hash-chained refs. Pinning the exclusion line means a future
+                # edit that silently drops it fails the contract instead of
+                # resurrecting the every-sealed-run-red failure mode.
+                upload_artifact_path_patterns=(
+                    rf"^{_STORE_ROOT}$",
+                    rf"^!{_STORE_ROOT}/tools/human-required/genesis:\*$",
+                ),
                 retention_days=30,
                 # checks:read + pull-requests:read — ORPHAN-HIGH-626: the
                 # pr_ci_scan phase reads the check verdicts of ARIA's own
@@ -384,13 +416,13 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 dlp_artifact="aria-auto-cycle-preflight.json",
                 clean_worktree_policy="pre_and_post",
                 external_root_allowlist=("RUNNER_TEMP",),
-                # Measured REAL burn-in wall time ≈ 80-90 min (30 cycles ×
-                # ~2.5 min); the live YAML sets 150 for burn-in mode.
+                # Operator decision (2026-08-13): the night's window is
+                # unbounded — the 360-minute platform ceiling, one value for
+                # every mode. Smoke runs 1-3 proved the 50-minute cap was the
+                # binding constraint; the ORPHAN-661/662 deadline pair keeps
+                # any value safe (the night seals + publishes at the wall).
                 burn_in_timeout_floor_minutes=120,
-                # The ordinary branch of the mode-aware expression at
-                # aria-auto-cycle.yml:81 (burn-in takes the 150 branch and is
-                # governed by burn_in_timeout_floor_minutes above).
-                job_timeout_minutes=50,
+                job_timeout_minutes=360,
                 # The producer is the shape aria-agent-executor mirrors, so it
                 # carries the same declared constraints — a reference
                 # implementation that is itself unpinned is a reference that
@@ -398,6 +430,8 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 required_steps=(
                     _CYCLE_RESTORE_STEP,
                     _CYCLE_LEASE_STEP,
+                    _CYCLE_PROFILE_GATE_STEP,
+                    _CYCLE_RESOLVED_PREFLIGHT_STEP,
                     _CYCLE_WORK_STEP,
                     _PUBLISH_STEP,
                     "Quarantine unverified ARIA state",
@@ -405,6 +439,12 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 ),
                 step_order=(
                     (_CYCLE_RESTORE_STEP, _CYCLE_LEASE_STEP),
+                    # The profile is resolved AFTER the restore, because the
+                    # operator ceiling and the acceptance ladder both live in
+                    # the durable store, and DECLARED before the work step.
+                    (_CYCLE_RESTORE_STEP, _CYCLE_PROFILE_GATE_STEP),
+                    (_CYCLE_PROFILE_GATE_STEP, _CYCLE_RESOLVED_PREFLIGHT_STEP),
+                    (_CYCLE_RESOLVED_PREFLIGHT_STEP, _CYCLE_WORK_STEP),
                     (_CYCLE_WORK_STEP, _PUBLISH_STEP),
                     (_CYCLE_WORK_STEP, "Quarantine unverified ARIA state"),
                     (_CYCLE_WORK_STEP, "Fail on unverified ARIA state"),
@@ -516,6 +556,82 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
             ),
         ),
     ),
+    # ORPHAN-HIGH-763 — promoted from AUDITED_WORKFLOW_EXCLUSIONS: the lane
+    # is the PR-head evidence producer for the readiness-claim chain, so its
+    # shape is now governed. The claim assembled by aria-readiness-claim
+    # carries THIS lane's (workflow_id, job_id, run id) identity through
+    # produce_token_proof, which demands a full WorkflowJobContract here —
+    # under the old exclusion the token proof would have refused with
+    # token_proof_workflow_contract_unknown and the merge lock stayed
+    # unsatisfiable no matter how many producers were added.
+    "aria-merge-authority": WorkflowContract(
+        workflow_id="aria-merge-authority",
+        workflow_file=".github/workflows/aria-merge-authority.yml",
+        job_contracts=(
+            WorkflowJobContract(
+                job_id="aria-merge-authority",
+                preflight_step="Persist enterprise workflow preflight",
+                # The evidence artifact upload is the lane's one governed
+                # write: the claim's artifact proof cites it by id + digest
+                # with produced_by_workflow_run_id = this lane's run.
+                first_governed_mutation_step="Upload merge-authority preflight proof",
+                allowed_write_path_patterns=(
+                    rf"^{_RUNNER_TEMP}/aria-merge-authority-preflight\.json$",
+                ),
+                preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-merge-authority-preflight\.json$",
+                upload_artifact_name_pattern=rf"^aria-merge-authority-proof-{_RUN_ID_ATTEMPT}$",
+                upload_artifact_path_patterns=(
+                    rf"^{_RUNNER_TEMP}/aria-merge-authority-preflight\.json$",
+                ),
+                retention_days=7,
+                required_permissions=(("contents", "read"),),
+                token_source="github_actions_artifact_token",
+                # The lane reads the repo (checkout) and uploads its proof
+                # artifact; it pushes no state and opens no PR.
+                network_policy=("github_artifact",),
+                dlp_artifact="aria-merge-authority-preflight.json",
+                clean_worktree_policy="pre_and_post",
+                external_root_allowlist=("RUNNER_TEMP",),
+                job_timeout_minutes=30,
+            ),
+        ),
+    ),
+    # ORPHAN-HIGH-763 — the claim assembler lane. Runs on workflow_run after
+    # aria-merge-authority completes successfully on a PR head: records the
+    # COMPLETED run as its ci_workflow_run evidence row (a run's own
+    # conclusion only exists post-completion — recording it mid-run would be
+    # self-declaration, not evidence), assembles the claim under the
+    # completed lane's identity, and publishes the claims ledger to
+    # aria/state. Fail-closed by construction: without the GitHub App
+    # installation configured, mint falls back to PAT and the claim is
+    # poisoned loudly instead of passing.
+    "aria-readiness-claim": WorkflowContract(
+        workflow_id="aria-readiness-claim",
+        workflow_file=".github/workflows/aria-readiness-claim.yml",
+        job_contracts=(
+            WorkflowJobContract(
+                job_id="claim",
+                preflight_step="Persist enterprise workflow preflight",
+                first_governed_mutation_step=_RESTORE_STEP,
+                allowed_write_path_patterns=(
+                    rf"^{_STORE_ROOT}(/.*)?$",
+                ),
+                preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-readiness-claim-preflight\.json$",
+                upload_artifact_name_pattern=rf"^aria-readiness-claim-proof-{_RUN_ID_ATTEMPT}$",
+                upload_artifact_path_patterns=(
+                    rf"^{_RUNNER_TEMP}/aria-readiness-claim-preflight\.json$",
+                ),
+                retention_days=7,
+                required_permissions=(("contents", "write"), ("actions", "read")),
+                token_source="github_actions_artifact_token",
+                network_policy=("github_api", "github_artifact", "github_git"),
+                dlp_artifact="aria-readiness-claim-preflight.json",
+                clean_worktree_policy="pre_and_post",
+                external_root_allowlist=("RUNNER_TEMP",),
+                job_timeout_minutes=15,
+            ),
+        ),
+    ),
     "finding-state-sweep": WorkflowContract(
         workflow_id="finding-state-sweep",
         workflow_file=".github/workflows/finding-state-sweep.yml",
@@ -577,15 +693,8 @@ AUDITED_WORKFLOW_EXCLUSIONS: dict[str, AuditedWorkflowExclusion] = {
     ),
     "aria-kernel-fast": AuditedWorkflowExclusion(
         workflow_id="aria-kernel-fast",
-        reason="test-only fast kernel validation workflow; writes only ephemeral ./.aria-ci "
+        reason="test-only fast kernel validation workflow; writes only ephemeral .aria-ci "
         "and uploads no governed ARIA artifact",
-        owner="aria-kernel",
-        expires_at=_NEVER_EXPIRES,
-    ),
-    "aria-kernel-full": AuditedWorkflowExclusion(
-        workflow_id="aria-kernel-full",
-        reason="test-only full kernel validation workflow; writes only ephemeral ./.aria-ci, "
-        "verifies a clean worktree post-run, and uploads no governed ARIA artifact",
         owner="aria-kernel",
         expires_at=_NEVER_EXPIRES,
     ),
@@ -599,13 +708,6 @@ AUDITED_WORKFLOW_EXCLUSIONS: dict[str, AuditedWorkflowExclusion] = {
         "the illness it watches for is not a watchman. Its shape is pinned instead by "
         "tests/invariants/aria-external-watchdog-contract.spec.ts, which scans the YAML from "
         "outside and fails if a kernel import ever appears in it",
-        owner="aria-kernel",
-        expires_at=_NEVER_EXPIRES,
-    ),
-    "aria-merge-authority": AuditedWorkflowExclusion(
-        workflow_id="aria-merge-authority",
-        reason="required merge-gate check workflow; asserts ARIA merge authority via "
-        "`npm run gates:required-status-checks` and uploads no governed ARIA artifact",
         owner="aria-kernel",
         expires_at=_NEVER_EXPIRES,
     ),

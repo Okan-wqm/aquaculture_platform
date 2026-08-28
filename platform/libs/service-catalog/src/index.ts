@@ -529,7 +529,7 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     // policy kill-switch drains the sidecar without data loss.
     deploymentStatus: 'active',
     deployTarget: 'droplet',
-    deployProfiles: [],
+    deployProfiles: ['droplet'],
     criticality: 'required',
     classification: 'internal-service',
     startupBudgetSeconds: 90,
@@ -1086,10 +1086,14 @@ export function activeDropletComposeServices(): readonly string[] {
 }
 
 export function imageBuildTargets(): readonly string[] {
-  return activeDropletServices()
-    .filter((entry) => entry.buildKind !== 'infra')
-    .map((entry) => entry.imageTarget)
-    .filter((target): target is string => typeof target === 'string');
+  return (
+    activeDropletServices()
+      // 'rust-sidecar' images come prebuilt from GHCR (Task 3 image
+      // workflow) — the droplet deploy shell never builds them locally.
+      .filter((entry) => entry.buildKind !== 'infra' && entry.buildKind !== 'rust-sidecar')
+      .map((entry) => entry.imageTarget)
+      .filter((target): target is string => typeof target === 'string')
+  );
 }
 
 export function backendImageBuildTargets(): readonly string[] {

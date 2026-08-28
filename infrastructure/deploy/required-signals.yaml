@@ -2,7 +2,7 @@
 # source: platform/libs/service-catalog/src/index.ts
 # generator: scripts/service-catalog/generate-artifacts.ts
 # generatorVersion: 3
-# catalogHash: 5cb57e7d8a477d3ecffb8d9dbd3d191fad95b7ee4b39a7f7141c34626a1abaf2
+# catalogHash: 55eb57e94232ee02cd23cc495bf4e1f6410f1e69ef5d157fcfff0147aa6ea81d
 # do not edit by hand
 schema_version: 2
 # window_seconds is the MAX time a service has to emit each required boot signal
@@ -53,6 +53,9 @@ services:
     signals:
       - nats_auth_mode_mtls
       - schema_drift_clean
+  - name: sensor-ingestion
+    signals:
+      - nats_auth_mode_mtls
   - name: hr-service
     signals:
       - nats_auth_mode_mtls

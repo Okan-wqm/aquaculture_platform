@@ -340,7 +340,12 @@ function catalogGeneratedArtifact(): Artifact {
         (entry) => entry.composeServiceName,
       ),
       imageBuildTargets: activeDropletServices()
-        .filter((entry) => entry.imageTarget && entry.buildKind !== 'infra')
+        // Match imageBuildTargets(): rust-sidecar images ship prebuilt
+        // from GHCR; the deploy shell never builds them locally.
+        .filter(
+          (entry) =>
+            entry.imageTarget && entry.buildKind !== 'infra' && entry.buildKind !== 'rust-sidecar',
+        )
         .map((entry) => entry.imageTarget),
       deploy: {
         backendImageTargets: backendImageBuildTargets(),

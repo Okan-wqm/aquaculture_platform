@@ -5,6 +5,10 @@
 //! Both languages must map every UUID to the identical
 //! `tenant_<16-hex>` schema or the sidecar writes into schemas the
 //! platform cannot see.
+//!
+//! No unwrap/expect/panic/assert!(false): the workspace clippy profile
+//! denies them in every target, tests included — errors accumulate into
+//! a vector and one assert reports them all.
 
 use tenant_context::{SchemaName, TenantId};
 
@@ -18,29 +22,57 @@ const GOLDEN: &str = include_str!("schema-golden.json");
 
 #[test]
 fn schema_names_match_the_shared_golden_vectors() {
-    let cases: Vec<GoldenCase> =
-        serde_json::from_str(GOLDEN).expect("golden fixture is valid JSON");
-    assert!(
-        cases.len() >= 4,
-        "golden fixture must carry at least 4 vectors"
-    );
+    let mut errors: Vec<String> = Vec::new();
+
+    let cases: Vec<GoldenCase> = match serde_json::from_str(GOLDEN) {
+        Ok(cases) => cases,
+        Err(e) => {
+            errors.push(format!("golden fixture is not valid JSON: {e:?}"));
+            Vec::new()
+        }
+    };
+    if cases.len() < 4 {
+        errors.push(format!(
+            "golden fixture must carry at least 4 vectors, has {}",
+            cases.len()
+        ));
+    }
 
     for case in &cases {
-        let id = TenantId::try_parse(&case.tenant_id)
-            .unwrap_or_else(|e| panic!("fixture UUID {} invalid: {:?}", case.tenant_id, e));
+        let id = match TenantId::try_parse(&case.tenant_id) {
+            Ok(id) => id,
+            Err(e) => {
+                errors.push(format!("fixture UUID {} invalid: {:?}", case.tenant_id, e));
+                continue;
+            }
+        };
         let schema = SchemaName::from_tenant_id(id);
-        assert_eq!(
-            schema.as_str(),
-            case.schema_name,
-            "golden mismatch for {}",
-            case.tenant_id
-        );
+        if schema.as_str() != case.schema_name {
+            errors.push(format!(
+                "golden mismatch for {}: rust says {}, fixture says {}",
+                case.tenant_id,
+                schema.as_str(),
+                case.schema_name
+            ));
+        }
         // The fixture value itself must round-trip strict parse.
-        assert_eq!(
-            SchemaName::try_parse(&case.schema_name).unwrap().as_str(),
-            case.schema_name
-        );
+        match SchemaName::try_parse(&case.schema_name) {
+            Ok(round) => {
+                if round.as_str() != case.schema_name {
+                    errors.push(format!(
+                        "fixture schema {} does not round-trip parse",
+                        case.schema_name
+                    ));
+                }
+            }
+            Err(e) => errors.push(format!(
+                "fixture schema {} must round-trip parse: {:?}",
+                case.schema_name, e
+            )),
+        }
     }
+
+    assert!(errors.is_empty(), "golden vector failures:\n{}", errors.join("\n"));
 }
 
 #[test]

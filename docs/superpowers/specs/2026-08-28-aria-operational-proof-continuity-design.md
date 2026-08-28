@@ -1,7 +1,7 @@
 # ARIA Operational Proof Continuity Design
 
 - **Date:** 2026-08-28
-- **Status:** Approved in chat; awaiting written-spec review
+- **Status:** Approved in chat; implementation authorized
 - **Target:** PR #1332 (`fix/kernel-ci-timeouts`)
 - **Priority:** P0 integration prerequisite for PR #1333
 
@@ -58,15 +58,21 @@ Two diagnostic defects obscure the same failure path:
 5. Missing, unreadable, damaged, divergent, or unverifiable state fails the
    proof. Operational Proof does not accept bootstrap, genesis, an anchor-only
    reference, or unknown continuity.
-6. Canonical restore may materialize the store plus its excluded host binding
-   and writer attestation. After that step, burn-in activity writes only to
-   deterministic runner-scoped scratch roots; published state surfaces remain
-   a read-only reference.
+6. Canonical restore may materialize the store plus its excluded writer
+   attestation. Operational Proof selects the action's read-only mode, which
+   neither binds the restored tools root to the host nor exports it as the
+   runtime tools root. Burn-in activity writes only to deterministic
+   runner-scoped scratch roots; published state surfaces remain a read-only
+   reference.
 7. A failed burn-in remains a failed job. Artifact preservation must never
    convert failure into success.
 8. Uploaded evidence is a curated proof bundle. The restored state store,
    scratch tools tree, and scratch workspaces are never uploaded.
 9. No duplicate restore, snapshot, or continuity definition is introduced.
+10. A passing artifact is accepted only by one canonical outer verifier with a
+    closed file set, a final DLP scan, and exact SHA/run ID/run
+    attempt/continuity/immutability bindings. Human inspection is supplementary
+    evidence, not the gate.
 
 ## Decision
 
@@ -102,10 +108,14 @@ lands directly in #1332 and is reviewed as one coherent change.
 ### 1. One published-prefix contract
 
 Extract the inline row-count logic currently owned by
-`build_publishable_snapshot` into one helper in `state_store.py`. The helper
-accepts a published snapshot and returns a surface-to-row-count map. It admits
-only non-negative integers for declared surface entries; booleans, negative
-values, and malformed entries are refused rather than coerced.
+`build_publishable_snapshot` into one helper beside
+`validate_snapshot_manifest` in `state_snapshot.py`. The helper validates the
+complete manifest before reading any claim, then returns a
+surface-to-row-count map. It preserves each already-validated string key
+exactly and admits only non-negative integer row counts for declared ledger
+surfaces. Booleans, negatives, missing counts, unknown surfaces, malformed
+claims, and top-level drift retain the validator's canonical `SnapshotError`
+semantics rather than being converted into a publication-only refusal class.
 
 The helper does not create trust. Its callers establish the trust boundary:
 
@@ -135,21 +145,33 @@ independent enforcement mechanism.
 The workflow order becomes:
 
 ```text
-checkout and setup
-  -> full ARIA suite and docs/runtime invariant
-  -> enterprise preflight
-  -> canonical restore-aria-state action
-  -> require restored=true and bootstrap absent
-  -> verify exact restored store and remote tip
-  -> isolated 30-cycle observe burn-in
-  -> post-run source-tree check
-  -> curated artifact upload (always)
+Persist enterprise workflow preflight
+  -> Restore ARIA state from the aria/state branch
+  -> Require published ARIA state restore
+  -> Verify restored ARIA state reference
+  -> Run observe burn-in proof
+  -> Verify post-run source and state immutability (always)
+  -> Write ARIA operational proof manifest (always)
+  -> Scan staged ARIA operational proof for secrets (always)
+  -> Verify complete ARIA operational proof (always)
+  -> Upload ARIA operational proof (always)
 ```
 
 The workflow reuses `.github/actions/restore-aria-state`; it does not copy its
-checkout or binding logic. No bootstrap acknowledgement is supplied. Since this
-repository already has published state, an absent branch, a genesis-only store,
-or a restore refusal ends the job.
+checkout logic. The shared action gains a default-on `bind-tools-root` input so
+the two publishing lanes retain their current binding behavior. Operational
+Proof passes `bind-tools-root: 'false'`, which skips both host binding and the
+durable-tools environment export. No bootstrap acknowledgement is supplied.
+Since this repository already has published state, an absent branch, a
+genesis-only store, or a restore refusal ends the job.
+
+This read-only action mode is load-bearing. The existing host binding writes an
+excluded `repo_identity.json`, appends `tools_root_bound_to_host` to published
+`governance.jsonl`, and updates the tools integrity index. Running that binding
+before verification would change the bytes being measured. The proof therefore
+uses the canonical checkout transaction without making the restored tree a
+writable runtime tools root; publishing lanes continue using the action's
+default binding mode.
 
 After restore, a read-only verification step proves all of the following before
 burn-in:
@@ -163,6 +185,11 @@ burn-in:
 The workflow retains `contents: read`. Its declared network policy adds
 `github_git` for the state fetch alongside `github_artifact` for the final
 upload. It never obtains write credentials and never calls state publish.
+The action validates literal `true|false` binding mode before checkout, the
+checkout step retains all five outputs without binding or `GITHUB_ENV`, and a
+separate exact-condition step binds only for default-on writer consumers.
+Operational Proof is the read-only consumer; invalid input cannot leave a
+store, worktree registration, checkout verdict, or writer attestation.
 
 ### 3. Isolated burn-in with real lineage
 
@@ -173,11 +200,12 @@ exact write surface:
 - `$RUNNER_TEMP/aria-operational-proof-tools` for burn-in scratch state;
 - `$RUNNER_TEMP/aria-operational-proof-workspaces` for ephemeral worktrees.
 
-The canonical restore binds `.aria-state-store` to the repository. The burn-in
-receives the scratch tools and workspace paths explicitly. Normal observe phases
-therefore mutate only scratch data, while `state_continuity` discovers the bound
-store and probes its published tools, workspace, and repository roots through
-`continuity_probe_roots`.
+The canonical restore materializes `.aria-state-store` as a worktree of the
+repository without binding its tools root to the host. The burn-in receives the
+scratch tools and workspace paths explicitly. Normal observe phases therefore
+mutate only scratch data, while `state_continuity` discovers the store by its
+canonical repository-relative location and probes its published tools,
+workspace, and repository roots through `continuity_probe_roots`.
 
 No copy of the durable state is placed into the scratch tools directory. This
 separation proves the lineage without risking a write to the authority being
@@ -197,11 +225,17 @@ pass and continuity has:
 
 - `status == "ok"`;
 - `reference_kind == "state_branch"`;
-- no blocking result or unresolved recovery.
+- `blocks_action is False`;
+- `recovery is None`.
 
 Unknown, genesis, daily-anchor-only, critical, missing, or malformed continuity
 evidence makes that cycle invalid. The report schema and bundle verifier enforce
 the new field, so a caller cannot mint a passing report by omitting it.
+
+Every cycle row initializes `state_continuity` to `None`, then a normal cycle
+return records the curated continuity immediately before status
+classification. This retains observations for completed, stopped, aborted, and
+failed returns while an exception before return remains explicit `None`.
 
 The general burn-in contract changes deliberately: a burn-in is enterprise
 acceptance evidence, and acceptance evidence gathered without a published
@@ -222,14 +256,52 @@ The artifact upload uses `if: always()` and uploads only
 to govern that directory. Neither `.aria-state-store` nor either scratch root is
 copied into the proof directory.
 
-Success still requires a schema-valid burn-in bundle and proof summary.
+Success still requires a schema-valid burn-in bundle and the focused
+`aria_kernel.operational_proof` module's strict
+`aria/operational-proof-manifest/v1` outer manifest. The manifest is
+`operational-proof-manifest.json`; it binds target SHA, workflow run ID and
+attempt, hash and size of every other staged file, and direct hashes for the
+initial state, postflight state, and burn-in report. The writer measurement
+uses the public `state_writer_attestation_path(store)` helper, which the writer
+also consumes.
+
+The success file set is exactly:
+
+```text
+workflow-preflight.json
+state-store-verification.json
+cycles.json
+cycle-ledger-summary.json
+disallowed-actions.json
+manifest-tail-hashes.json
+candidate-detection.json
+autonomy-burn-in-report.json
+evidence-bundle.json
+postflight-verification.json
+operational-proof-manifest.json
+```
+
+Failed diagnostics may add only `proof-failure-summary.json`,
+`failure-report.json`, and the bounded
+`failures/burnin-observe-YYYYMMDDTHHMMSSZ-NNN.json` pattern, and can never
+verify as success. Enumeration rejects symlinks, non-regular files, traversal,
+missing success files, and unexpected paths regardless of manifest claims.
+After manifest writing, a separate final DLP step scans every file including
+the manifest; the verifier scans again and no writer follows DLP except upload.
+It binds and compares initial/final state tip, store HEAD, snapshot ID/root,
+writer-attestation hash and size, source/store cleanliness, and absent host
+identity. The same verifier runs inside Actions and on the downloaded artifact.
 Uploading a failure bundle is diagnostic evidence, not an acceptance verdict.
 
 ### 6. Reachable operator CLI and accurate lifecycle summary
 
 Add `compact` to the existing state-store command dispatch set so the parser
 routes to the existing handler. Test the routing with a scratch tools root and
-`--dry-run`; do not invoke the command on the repository's live state.
+`--dry-run`; snapshot every directory and file under that real scratch tools
+tree before and after so an added archive or derivative is detected. Do not
+invoke the command on the repository's live state. Append the dispatch proof to
+the existing `ORPHAN-HIGH-798` narrative so closing the finding records both
+its write-time compactor and its formerly unreachable CLI surface.
 
 Make burn-in's aggregate terminal-row recognition use the same canonical
 terminal statuses as the cycle lifecycle: completed, failed, stopped, and
@@ -238,22 +310,50 @@ invalid acceptance cycles.
 
 ## Workflow Governance
 
-`workflow_contract_registry.py` remains the single workflow-contract source. The
-Operational Proof contract will pin:
+`workflow_contract_registry.py` remains the single workflow-contract source.
+Replace the loose permission, step, action, and upload fields across every
+registry entry with one typed representation:
+`WorkflowPermissionRequirement`, `WorkflowStepRequirement`,
+`WorkflowActionRequirement`, and `WorkflowUploadRequirement`.
+`WorkflowJobContract` owns exactly one permission requirement, one optional
+upload, and tuples of steps/actions while `step_order` remains the graph edge
+list. `docs_ssot.py` consumes retention from the typed upload without changing
+generated output. There is no additive duplicate representation.
+
+Conditions compare after whitespace collapse and removal of one `${{ ... }}`
+wrapper; run-marker scans ignore comment-only lines. Permissions are exact and
+upload verification rejects missing, duplicated, extra, unpinned, wrongly
+conditioned, wrongly named, or wrongly pathed uploads. The Operational Proof
+contract will pin:
 
 - preflight before restore;
 - restore before store verification and burn-in;
-- burn-in before postflight and upload;
-- `.aria-state-store` for canonical restore materialization and host binding;
+- burn-in before postflight, manifest writing, final DLP, strict verification,
+  and upload;
+- postflight before final DLP/outer verification, and final verification before
+  upload;
+- `.aria-state-store` for canonical restore materialization;
 - `.aria-state-store.writers.jsonl` for the canonical local-writer attestation;
 - the deterministic proof, scratch-tools, and scratch-workspace directories
   under `RUNNER_TEMP`;
 - exact `contents: read` permissions;
 - exact `github_artifact` and `github_git` network policy;
 - the canonical shared restore action as the sole restore implementation;
-- no publish step or write credential;
-- an always-running artifact upload whose path is only the curated proof
-  directory.
+- `bind-tools-root: 'false'` for Operational Proof while publishing lanes retain
+  the action's default-on binding;
+- no restored-store environment export into the proof's runtime tools binding;
+- no application `.git` allowlist, publish step, write credential, executable
+  `state publish`, `publish_state(`, `bind-tools-root`, or `GITHUB_ENV` outside
+  the canonical action; Git/worktree and runner command-file writes remain
+  platform-controlled capabilities;
+- always-running postflight, manifest writer, final DLP, strict verifier, and
+  artifact upload whose path is only the curated proof directory;
+- exactly one SHA-pinned upload, `if: always()`, artifact name bound to the
+  target SHA, `if-no-files-found: error`, and 365-day retention;
+- the closed Operational Proof success-file allowlist and canonical verifier;
+- initial/final state tip, store HEAD, writer hash/size, source/store
+  cleanliness, and absence of `tools/repo_identity.json`;
+- a clean final DLP scan of every staged file before upload.
 
 `aria-single-restore-path.spec.ts` will model Operational Proof as a read-only
 state consumer. It must use the shared restore action but is not added to the
@@ -278,6 +378,12 @@ state-carrying publisher set and is not required to have a publish gate.
 - Burn-in fails before a full report: curated failure evidence uploads and the
   job remains red.
 - Artifact upload fails: the job remains red.
+- An extra, missing, changed, unhashed, or DLP-positive proof file: the outer
+  verifier refuses success.
+- State tip, store HEAD, or writer-attestation hash/size changes during burn-in:
+  postflight and the outer verifier refuse success.
+- A host-bound `tools/repo_identity.json` appears in the restored store:
+  postflight and the outer verifier refuse success.
 - A stopped or aborted cycle has a canonical terminal row: diagnostics do not
   report a false missing-terminal defect.
 
@@ -319,7 +425,11 @@ Extend the Python workflow-preflight and TypeScript invariant suites to prove:
 5. a burn-in failure still reaches artifact upload and preserves the failing
    exit code;
 6. only the curated proof directory is uploaded;
-7. the workflow's exact 90-minute job budget remains enforced.
+7. postflight and final DLP/outer verification run on failed burn-in;
+8. the success verifier rejects every mutation of its exact SHA, run ID,
+   continuity, cleanliness, writer, host-identity, file-set, hash, and DLP
+   fields;
+9. the workflow's exact 90-minute job budget remains enforced.
 
 ### Verification layers
 
@@ -332,12 +442,15 @@ Run, in order:
 5. `nx affected --target=lint`;
 6. independent code review and correction loop;
 7. exact-head GitHub Actions;
-8. exact-head manual `ARIA Operational Proof` with an accepted artifact bundle.
+8. a bounded, newly-dispatched exact-head manual `ARIA Operational Proof` whose
+   downloaded bundle passes the canonical outer verifier;
+9. protected merges guarded by exact local/remote/PR equality and
+   `--match-head-commit`.
 
 ## Finding Traceability
 
-Before implementation commits, register `ARIA-HIGH-023` for the Operational
-Proof bootstrap/continuity defect and `ARIA-MEDIUM-024` for the terminal-summary
+Before implementation commits, register `ARIA-HIGH-024` for the Operational
+Proof bootstrap/continuity defect and `ARIA-MEDIUM-025` for the terminal-summary
 mismatch. The existing `ARIA-HIGH-017` finding remains the traceability anchor
 for the inconsistent published-prefix handling, and `ORPHAN-HIGH-798` remains
 the anchor for the unreachable compact command. Each fix commit closes only the
@@ -348,13 +461,19 @@ finding its change resolves.
 1. Implement and verify this design on PR #1332's isolated worktree.
 2. Commit and push each coherent change to the existing PR branch without
    force-push.
-3. Require all checks for the exact PR head to finish green.
-4. Dispatch Operational Proof for that exact SHA and require a passing,
-   hash-verified artifact.
-5. Merge #1332 through protected GitHub controls.
-6. Merge the resulting `main` normally into PR #1333; do not rebase, transplant,
-   or cherry-pick.
-7. Require #1333's exact-head checks and protected merge.
+3. Assert local, remote, and PR head equality and watch all required checks for
+   that exact head to finish green.
+4. Capture pre-dispatch run IDs, dispatch Operational Proof, discover the new
+   exact-SHA run within a bounded interval, and require its downloaded artifact
+   to pass the canonical outer verifier.
+5. Reassert exact heads/checks and merge #1332 through protected GitHub controls
+   with `--match-head-commit`; do not delete a branch held by another worktree.
+6. Re-fetch `main`, re-prove #1332 ancestry, and merge it into the real #1333
+   branch `feat/aquamobil-v4-safe-integration` with `--no-commit`. Resolve source
+   intent, regenerate format scope and the ARIA authority hash, and commit an
+   ordinary two-parent merge; do not rebase, transplant, or cherry-pick.
+7. Prove both merge parents and #1332 ancestry, require #1333's exact-head
+   checks, and protected-merge with `--match-head-commit`.
 8. Continue the Aquamobil integration plan from the now-valid main baseline.
 
 ## Non-goals

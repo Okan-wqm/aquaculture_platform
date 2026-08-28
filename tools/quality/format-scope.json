@@ -33291,6 +33291,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/aria/2026-08-28-operational-proof-continuity.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md",
       "prettier_managed": true
     },
@@ -35437,6 +35443,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/superpowers/plans/2026-08-22-aria-end-to-end-autonomy-closure.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/superpowers/plans/2026-08-28-aria-operational-proof-continuity.md",
       "prettier_managed": true
     },
     {

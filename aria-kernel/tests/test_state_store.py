@@ -1344,14 +1344,51 @@ class ReCheckoutSafety(StateStoreTestCase):
         store = self._bootstrap()
         self._seed_surface(store, "")
 
-        with mock.patch.object(state_store, "GIT_TIMEOUT_SECONDS", 0.1):
-            result = state_store.publish_with_contention_replay(
-                store,
-                snapshot_id="snap-nested-lifecycle",
-                cycle_id="cycle-nested-lifecycle",
-                lane="test",
-                repo_hash=REPO_HASH,
-            )
+        real_run_git = state_store._run_git
+        push_died: list[bool] = []
+
+        def push_times_out_once(cwd: Path, args: tuple[str, ...]):
+            if (
+                args
+                and args[0] == "push"
+                and Path(cwd).resolve() == store.root
+                and not push_died
+            ):
+                # Deterministic death-at-the-wall-clock: the local commit
+                # exists, the push never completed. This used to be "forced"
+                # by patching GIT_TIMEOUT_SECONDS to 0.1 and racing real git —
+                # vacuous on a fast box (the push won the race, nothing was
+                # recovered) and a failure on a loaded one (the timeout won
+                # and nobody caught it). Injection pins the precondition the
+                # test name promises instead of hoping for the weather.
+                push_died.append(True)
+                raise state_store.StateStoreError(
+                    "state_store_git_timeout: injected (deterministic)"
+                )
+            return real_run_git(cwd, args)
+
+        with mock.patch.object(
+            state_store, "_run_git", side_effect=push_times_out_once
+        ):
+            with self.assertRaises(state_store.StateStoreError):
+                state_store.publish_with_contention_replay(
+                    store,
+                    snapshot_id="snap-nested-lifecycle",
+                    cycle_id="cycle-nested-lifecycle",
+                    lane="test",
+                    repo_hash=REPO_HASH,
+                )
+
+        # The reentrant call: recovery reconciles the committed-but-unpushed
+        # attempt and the publish completes with the nested lifecycle
+        # entries intact.
+        result = state_store.publish_with_contention_replay(
+            store,
+            snapshot_id="snap-nested-lifecycle",
+            cycle_id="cycle-nested-lifecycle",
+            lane="test",
+            repo_hash=REPO_HASH,
+        )
 
         self.assertTrue(result["published"])
         self.assertEqual(result["attempts"], 1)

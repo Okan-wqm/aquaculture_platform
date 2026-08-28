@@ -35574,6 +35574,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/superpowers/specs/2026-08-28-aria-operational-proof-continuity-design.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/test-audits/orchestrator/2026-04-12-aquamobil-offline-sync.md",
       "prettier_managed": true
     },

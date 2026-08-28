@@ -147,13 +147,23 @@ class StateCompactTests(unittest.TestCase):
             snapshot: dict[str, tuple[str, bytes]] = {}
             for path in sorted(self.tools.rglob("*")):
                 relative = path.relative_to(self.tools).as_posix()
-                if path.is_dir():
+                if path.is_symlink():
+                    self.fail(f"unexpected scratch-tree entry: {relative}")
+                elif path.is_dir():
                     snapshot[relative] = ("directory", b"")
                 elif path.is_file():
                     snapshot[relative] = ("file", path.read_bytes())
                 else:
                     self.fail(f"unexpected scratch-tree entry: {relative}")
             return snapshot
+
+        unsupported_entry = self.tools / "unsupported-entry"
+        unsupported_entry.symlink_to(self.tools / "runs.jsonl")
+        try:
+            with self.assertRaisesRegex(AssertionError, "unexpected scratch-tree entry"):
+                snapshot_tools_tree()
+        finally:
+            unsupported_entry.unlink()
 
         before = snapshot_tools_tree()
         stdout = io.StringIO()

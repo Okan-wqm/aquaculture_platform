@@ -232,11 +232,12 @@ async fn async_main(cfg: Config) -> anyhow::Result<()> {
     //   Node" when the section is absent — safe rollout). The drain
     //   loop holds an Arc<dyn IngestBackendPolicy> so the eventual
     //   swap to a NATS-served dynamic policy in Faz 3 is mechanical.
-    let policy: Arc<dyn ingest_backend::IngestBackendPolicy> = {
+    let policy: Arc<ingest_backend::DynamicBackendPolicy> = {
         let (snapshot, source) =
             crate::policy::bootstrap_policy(shared_nats_client.as_deref(), &cfg.ingest_backend)
                 .await;
         tracing::info!(?source, "ingest backend policy bootstrapped");
+        source.emit_metric();
         Arc::new(ingest_backend::DynamicBackendPolicy::new(snapshot))
     };
     tracing::info!(
@@ -244,6 +245,21 @@ async fn async_main(cfg: Config) -> anyhow::Result<()> {
         tenant_overrides = cfg.ingest_backend.tenant_overrides.len(),
         "ingest backend policy constructed"
     );
+
+    // ADR-031: with a live NATS connection the sidecar also follows
+    // the incremental `policy.ingest_backend.>` change stream so a
+    // backend flip (Task 3.5 kill switch) applies without a restart.
+    // Without NATS the bootstrap snapshot stays frozen for the whole
+    // run — the documented degraded mode of the fallback chain.
+    let policy_cancel = tokio_util::sync::CancellationToken::new();
+    let policy_subscriber = shared_nats_client.clone().map(|nats| {
+        crate::policy::spawn_policy_subscriber(
+            nats,
+            Arc::clone(&policy),
+            cfg.ingest_backend.disk_fallback_path.clone(),
+            policy_cancel.clone(),
+        )
+    });
 
     tokio::select! {
         () = wait_for_shutdown_signal() => {
@@ -262,6 +278,12 @@ async fn async_main(cfg: Config) -> anyhow::Result<()> {
         ) => {
             tracing::info!("mqtt stream closed");
         }
+    }
+    // Stop the policy change subscriber before tearing down the rest
+    // so a change event can never race the aggregator shutdown.
+    policy_cancel.cancel();
+    if let Some(handle) = policy_subscriber {
+        let _ = handle.await;
     }
     // Drop the input sender so the aggregator drains its remaining
     // buffer and exits cleanly; cancel as a belt-and-braces.

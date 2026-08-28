@@ -10,6 +10,11 @@ import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from 
  * operation is the newest transition). A raw chunk drop is legal only when
  * the newest event for its range is VERIFIED; the retention orchestrator
  * enforces that and nothing else may call drop_chunks on sensor_metrics.
+ *
+ * PER-TENANT (ADR-011): the ledger carries a tenant_id discriminator, so it
+ * is cloned into every tenant_<16hex> schema — a tenant's archive history
+ * drops with its schema at erasure, leaving no cross-tenant residue. The
+ * retention orchestrator addresses it inside the tenant's own schema.
  */
 export const TELEMETRY_ARCHIVE_STATES = [
   'EXPORT_STARTED',
@@ -22,7 +27,7 @@ export const TELEMETRY_ARCHIVE_STATES = [
 export type TelemetryArchiveState = (typeof TELEMETRY_ARCHIVE_STATES)[number];
 
 @ObjectType()
-@Entity('telemetry_archive_events', { schema: 'sensor' })
+@Entity('telemetry_archive_events')
 @Index('idx_telemetry_archive_events_operation', ['operationId', 'occurredAt'])
 @Index('idx_telemetry_archive_events_tenant_range', ['tenantId', 'rangeStart', 'rangeEnd'])
 export class TelemetryArchiveEvent {

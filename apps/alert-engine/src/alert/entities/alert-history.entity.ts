@@ -35,7 +35,7 @@ export class AlertHistory {
    */
   @Field({ nullable: true })
   @Column({ name: 'source_event_id', type: 'uuid', nullable: true })
-  sourceEventId?: string | null;
+  sourceEventId?: string;
 
   @Field()
   @Column({ name: 'rule_name' })

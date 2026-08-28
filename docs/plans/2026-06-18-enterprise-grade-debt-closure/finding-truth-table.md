@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `ab9e4d6bb1f76fb1f430f1b701e343d3ac70b16b63d3333881019a67902af28a`
+Registry tip: `f27f6d7046bb8a79ead554a8630686c36dd1650acb101f0145cb8934adb27bc7`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -205,6 +205,12 @@ Allowed truth buckets:
 | `ARIA-CRITICAL-007`     | OPEN           | Task 10      | platform-autonomy          | real-open                 |
 | `ARIA-CRITICAL-009`     | OPEN           | Task 12      | platform-autonomy          | real-open                 |
 | `ARIA-CRITICAL-015`     | OPEN           | Task 19      | platform-autonomy          | real-open                 |
+| `SENSOR-CRITICAL-086`   | OPEN           | —            | sensor-expert              | already-fixed-needs-close |
+| `SENSOR-CRITICAL-087`   | OPEN           | —            | sensor-expert              | already-fixed-needs-close |
+| `SENSOR-CRITICAL-088`   | OPEN           | —            | sensor-expert              | already-fixed-needs-close |
+| `SENSOR-CRITICAL-089`   | OPEN           | —            | sensor-expert              | already-fixed-needs-close |
+| `SEC-CRITICAL-092`      | OPEN           | —            | auth-security-expert       | real-open                 |
+| `SEC-CRITICAL-093`      | OPEN           | —            | auth-security-expert       | real-open                 |
 
 ## Mutation Rules
 

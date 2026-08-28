@@ -803,10 +803,14 @@ fn verify_pin(input: &str, pin_hash: &str) -> bool {
     // verify; anything else (legacy hex SHA-256) verifies then the caller
     // transparently upgrades on next write (see hash_pin).
     if pin_hash.starts_with("$argon2id$") {
-        return match argon2::verify(pin_hash, input.as_bytes()) {
-            Ok(valid) => valid,
-            Err(_) => false,
+        use argon2::{Argon2, PasswordHash, PasswordVerifier};
+        let parsed = match PasswordHash::new(pin_hash) {
+            Ok(parsed) => parsed,
+            Err(_) => return false, // malformed PHC string — never accept
         };
+        return Argon2::default()
+            .verify_password(input.as_bytes(), &parsed)
+            .is_ok();
     }
 
     // Legacy SHA-256 fallback (constant-time compare preserved)

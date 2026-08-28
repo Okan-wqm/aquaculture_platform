@@ -33,7 +33,7 @@ import { TenantUserCountReconcileService } from './services/tenant-user-count-re
 import { TenantUserManagementService } from './services/tenant-user-management.service';
 import { TenantService } from './services/tenant.service';
 import { UserLifecycleService } from './services/user-lifecycle.service';
-import { EventDedupService } from '@aquaculture/backend-common';
+import { EventDedupService } from '@aquaculture/backend-common/event-dedup';
 
 @Module({
   imports: [

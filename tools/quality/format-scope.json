@@ -23946,7 +23946,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "ff86781f8178e88556272f24f7b4bb66d18d383ef1cff7ae34fe33f81efcc85e",
+      "content_sha256": "43f864012dcdffe2656020bf1157be174c89b2e181bd6eb86fc64779f7843758",
       "hash_policy": "sha256",
       "owner": "archive-owner",
       "path": "apps/sensor-service/src/archive/entities/telemetry-archive-event.entity.ts",
@@ -24001,7 +24001,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "2f28c6a48ad98c94fa9ca3f1becfa27eaaf2e456c6a171aecc0b1a64f236414b",
+      "content_sha256": "843477bf9fb69c83c99018c6474b1aae8203ae70879b0c2a140bfcb3ff201180",
       "hash_policy": "sha256",
       "owner": "archive-owner",
       "path": "apps/sensor-service/src/archive/telemetry-retention-orchestrator.service.ts",
@@ -35019,6 +35019,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/zcode/2026-08-24-100-tenant-readiness.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/zcode/2026-08-28-post-merge-ci-repair.md",
       "prettier_managed": true
     },
     {

@@ -20,6 +20,12 @@ export const RAW_HOT_FLOOR_DAYS = 90;
  * The orchestrator is deliberately inert in this commit: dropBefore() is the
  * gate Task 6's export pipeline calls once Parquet objects are independently
  * verified. TELEMETRY_RETENTION_ENABLED stays the operator kill-switch.
+ *
+ * PER-TENANT ACCESS: the ledger entity is schema-less (ADR-011), so every
+ * QueryBuilder below resolves telemetry_archive_events through the ambient
+ * tenant search_path. Callers (the Task 6 exporter/verifier loops and the
+ * erasure hooks) MUST run inside the tenant's context — a bare cron loop
+ * without one would target the public schema and find nothing.
  */
 @Injectable()
 export class TelemetryRetentionOrchestratorService {

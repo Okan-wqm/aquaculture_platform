@@ -361,7 +361,10 @@ interface ApolloGraphQLContext {
     RlsModule.forPoolService({
       serviceName: 'hr',
       autoApply: false,
-      syncTenantSchemas: true,
+      // PR#363 port (matches farm/sensor): runtime per-tenant RLS sweep only
+      // when db-migrate is NOT authoritative — production tenants get the
+      // same policies from the db-migrate tenant fan-out hardening.
+      syncTenantSchemas: !hrSchemaDdlOwnedByDbMigrate,
       excludeTables: getRlsExcludeTablesForService('hr'),
     }),
   ],

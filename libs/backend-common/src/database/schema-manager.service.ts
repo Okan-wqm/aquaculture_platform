@@ -236,9 +236,6 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'migrations',
       'sensor_audit_logs',
       'sensor_outbox',
-      // Task 4 (SENSOR-HIGH-094): append-only archive ledger — cross-tenant
-      // by design (the verify-before-drop gate reads across tenants).
-      'telemetry_archive_events',
       'vfd_register_mappings',
       'edge_device_directory',
       'scada_alarms',
@@ -272,6 +269,11 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'calibration_events',
       'sensor_protocols',
       'processes',
+
+      // Task 4 (SENSOR-HIGH-094): append-only per-tenant archive ledger —
+      // every tenant's schema carries its own copy, so erasure drops the
+      // history with the schema (no cross-tenant residue).
+      'telemetry_archive_events',
 
       // VFD (Variable Frequency Drive) entities
       // vfd_register_mappings is intentionally NOT here — it is global

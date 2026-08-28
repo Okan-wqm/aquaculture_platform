@@ -1,7 +1,8 @@
+import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import assert from 'node:assert/strict';
+
 import { analyzeFeDtoParity } from './fe-dto-parity-adapter';
 
 const workspace = mkdtempSync(join(tmpdir(), 'aria-fe-dto-parity-'));
@@ -49,7 +50,7 @@ writeFileSync(
 
 const output = analyzeFeDtoParity({}, workspace);
 
-assert.equal(output.findings.length, 1, JSON.stringify(output.findings, null, 2));
+assert.equal(output.findings.length, 1, JSON.stringify(output.findings));
 const [finding] = output.findings;
 assert.equal(finding.rule, 'hand_copied_dto_field_drift');
 assert.equal(finding.path, 'web/modules/farm-module/src/types/batch.ts');
@@ -60,4 +61,4 @@ assert.equal(finding.evidence.length, 2);
 const pairs = output.observations.filter((o) => o.type === 'fe_dto_parity_pair');
 assert.equal(pairs.length, 2, 'both name-matched pairs observed, generated file excluded');
 
-console.log('fe-dto-parity-adapter tests passed');
+process.stdout.write('fe-dto-parity-adapter tests passed\n');

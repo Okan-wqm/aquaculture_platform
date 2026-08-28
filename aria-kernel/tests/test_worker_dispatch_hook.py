@@ -222,7 +222,7 @@ class WorkerDispatchHookTests(unittest.TestCase):
                 "autonomous",
                 operator_approval_ref="test:worker-merge",
                 base_dir=self.tools_root,
-                set_by="test",
+                set_by="operator",
             )
             mock_verify.return_value = {"status": "passed", "failures": []}
             mock_merge.return_value = {"decision": "merged", "eligible": True}

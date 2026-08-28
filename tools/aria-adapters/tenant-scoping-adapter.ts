@@ -1,11 +1,14 @@
 #!/usr/bin/env ts-node
 import { relative } from 'node:path';
+
 import ts from 'typescript';
+
 import {
   collectFiles,
   filterFilesBySnapshot,
   normalizeWorkspacePath,
   readWorkspaceFile,
+  requireScanRoots,
   resolveInsideWorkspace as resolveAdapterPath,
   workspacePathExists,
 } from './adapter-fs';
@@ -95,13 +98,12 @@ interface AnalysisResult {
   readonly readPaths: string[];
 }
 
-const DEFAULT_ROOTS = ['apps', 'libs', 'platform/libs'];
 const REPOSITORY_METHODS = new Set(['find', 'findOne', 'findOneBy', 'findBy', 'count', 'update', 'delete', 'softDelete']);
 const RAW_QUERY_METHODS = new Set(['query']);
 const TENANT_GUARD_NAMES = new Set(['TenantGuard', 'GqlTenantGuard']);
 
 export function analyzeTenantScoping(input: AdapterInput, workspaceRoot = process.cwd()): AriaOutput {
-  const roots = input.roots ?? DEFAULT_ROOTS;
+  const roots = requireScanRoots('tenant-scoping-adapter', input.roots);
   const allowlist = new Set((input.allowlist ?? []).map(normalizePath));
   const files = roots
     .map((root) => resolveInsideWorkspace(workspaceRoot, root))
@@ -544,8 +546,12 @@ function readStdin(): Promise<string> {
   return new Promise((resolvePromise, reject) => {
     let input = '';
     process.stdin.setEncoding('utf8');
-    process.stdin.on('data', (chunk) => {
-      input += chunk;
+    // setEncoding('utf8') makes every chunk a string at runtime, but the
+    // stream's declared chunk type stays `string | Buffer` — concatenating the
+    // union is what the type checker rejects. Narrow at the boundary rather
+    // than widening `input` (kernel-dead-wire-adapter is the converged shape).
+    process.stdin.on('data', (chunk: string | Buffer) => {
+      input += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
     });
     process.stdin.on('end', () => resolvePromise(input));
     process.stdin.on('error', reject);

@@ -21,9 +21,22 @@ name: aria-agent-executor
 #   - the GHA log ::add-mask:: directive masks any accidental leak.
 
 on:
+  # ORPHAN-724 — the drain FOLLOWS the producer. Cycle and executor were
+  # two unrelated crons: the night lost 1+ hours between seal and drain,
+  # and every daytime cycle needed a human to dispatch the drain after it.
+  # workflow_run chains them — each completed cycle is followed by a
+  # drain — while the cron stays as the safety net for a night where the
+  # cycle lane itself never ran. The shared concurrency group already
+  # serializes the pair, and a cron firing mid-drain just waits in the
+  # group's pending slot.
+  workflow_run:
+    workflows: ["aria-auto-cycle"]
+    types: [completed]
   schedule:
     # 02:00 UTC daily (off-hours for most ARIA contributors)
-    - cron: '0 2 * * *'
+    # 29 past, not :00 — same top-of-hour congestion as the cycle cron;
+    # order vs the cycle is not load-bearing (the shared group serializes).
+    - cron: '29 2 * * *'
   workflow_dispatch:
     inputs:
       request_id:
@@ -55,8 +68,10 @@ on:
         required: false
         type: string
 
+# Z1 (ORPHAN-712) — shared self-hosted workspace group; see
+# dataflow-integrity-watchdog.yml for the measured wipe this prevents.
 concurrency:
-  group: aria-agent-executor-main
+  group: aria-selfhosted-workspace
   cancel-in-progress: false
 
 permissions:
@@ -84,7 +99,7 @@ jobs:
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: '20'
+          node-version: '22'
 
       # Plan ARIA-V3 §B1 INFRA-CRITICAL-003 — verify the pinned Claude
       # Code CLI floor BEFORE the executor step. The proven-contract doc
@@ -464,6 +479,20 @@ jobs:
           # unpublished with the runner.
           ARIA_DRAIN_BUDGET_SECONDS: '7200'
         run: |
+          # ORPHAN-722 — PR identity. PRs opened with the job token are
+          # authored by github-actions[bot], and GitHub parks bot-PR
+          # workflows in action_required (anti-recursion, not a repo
+          # setting), so ARIA's own PRs could never go green unattended
+          # (#1266/#1195 sat with ZERO check runs). The machine-local
+          # fine-grained PAT (runner .env, ARIA_GH_TOKEN) takes
+          # precedence; the job token stays the fallback so a token-less
+          # runner degrades to today's behavior instead of failing.
+          if [ -n "${ARIA_GH_TOKEN:-}" ]; then
+            export GH_TOKEN="$ARIA_GH_TOKEN"
+            echo "gh identity: machine PAT (ARIA_GH_TOKEN)"
+          else
+            echo "gh identity: job token fallback"
+          fi
           set -euo pipefail
           if [ "${{ steps.pending.outputs.targeted }}" = "true" ]; then
             # Operator-targeted dispatch: exactly the named request.
@@ -611,7 +640,17 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: aria-state-cache-${{ github.run_id }}
-          path: .aria-state-store/
+          path: |
+            .aria-state-store/
+            !.aria-state-store/tools/human-required/genesis:*
+          # The four pre-rename genesis escalations (2026-08-18 04:03) keep
+          # their colon filenames on the live store — renaming a
+          # ledger-referenced record would break hash-chained refs
+          # (ORPHAN-714) — and GitHub's uploader rejects ':' in paths, so
+          # the forensic copy must EXCLUDE them or every sealed run stays
+          # red at this step. The records themselves remain in the
+          # authoritative aria/state publish; only this non-authoritative
+          # artifact skips them.
           retention-days: 30
           # The store root is a dot-directory and `.gitkeep` markers hold its
           # empty subtrees; a forensic copy that dropped them would not
@@ -634,6 +673,7 @@ jobs:
           name: quarantine-evidence-${{ github.run_id }}
           path: |
             .aria-state-store/
+            !.aria-state-store/tools/human-required/genesis:*
             ${{ runner.temp }}/aria-integrity-verdict.json
             ${{ runner.temp }}/aria-integrity-verdict.err
           retention-days: 30
@@ -671,3 +711,53 @@ jobs:
           echo "bootstrap=${{ steps.restore_state.outputs.bootstrap }}"
           echo "The tree is preserved as quarantine-evidence-${{ github.run_id }}."
           exit 1
+
+      # SI-5 (ORPHAN-HIGH-740) — the chain's RETURN edge. ORPHAN-724 gave
+      # the loop its forward edge (cycle -> executor); the pace of the loop
+      # still belonged to a clock ARIA cannot see, and that clock is
+      # measurably unreliable here: three nights of scheduled triggers
+      # fired 60-75 minutes late (02:13, 02:19, 03:21 against 01:13/02:29)
+      # and one cycle was evicted outright by a running drain.
+      #
+      # The DECISION is not in this script: cycle_rhythm.evaluate_cycle_chain
+      # owns it, so the three brakes (minimum interval, backlog ceiling,
+      # empty drain) are unit-tested and every refusal has a name. The cron
+      # stays as the floor — this edge can only make the rhythm faster than
+      # a broken scheduler, never faster than the interval allows.
+      - name: Chain the next cycle when the rhythm allows it
+        if: always() && steps.lease_check.outputs.blocked != 'true'
+        env:
+          GH_TOKEN: ${{ env.ARIA_GH_TOKEN || github.token }}
+          DRAINED: ${{ steps.executor.outputs.drained }}
+        run: |
+          # NOT `continue-on-error` — the enterprise gate rejects that
+          # pattern by name (`workflows_do_not_continue_on_error`) and it
+          # is right to: a step that cannot fail hides every failure,
+          # including the ones nobody predicted. The property this step
+          # actually needs is narrower — a chain that cannot decide must
+          # not colour a drain that earned its own verdict — so the two
+          # commands that could fail handle their own failure out loud
+          # and the step itself has nothing left to hide.
+          set -uo pipefail
+          LAST_CYCLE_STARTED_AT=$(gh api "repos/${{ github.repository }}/actions/workflows/aria-auto-cycle.yml/runs?per_page=1" --jq '.workflow_runs[0].run_started_at // ""' 2>/dev/null || echo "")
+          export LAST_CYCLE_STARTED_AT
+          # The decider always exits 0 and prints a named verdict, including
+          # `chain_undecidable:<Type>` — that contract is unit-tested, so
+          # this line cannot fail the step.
+          DECISION=$(python3 tools/aria/chain_next_cycle.py)
+          echo "chain decision: ${DECISION}"
+          case "${DECISION}" in
+            *'"dispatch": true'*)
+              if gh workflow run aria-auto-cycle.yml --ref main; then
+                echo "::notice::chained the next cycle"
+              else
+                # A dispatch the API refused is worth SAYING and not worth
+                # failing a successful drain over: the cron floor still
+                # fires, so the cost is one late cycle.
+                echo "::warning::chain dispatch refused by the API; the cron floor still applies"
+              fi
+              ;;
+            *)
+              echo "::notice::chain declined — see the reason above"
+              ;;
+          esac

@@ -16,6 +16,12 @@ interface ParsedCoverage {
 
 const coverageEvidence: {
   parseLcov(content: string, reportPath: string): ParsedCoverage;
+  verifyCoverage(
+    root?: string,
+    options?: { rewrite?: boolean },
+  ): { ratchet: { serviceName: string }[] };
+  rewriteBaselines(ratchet: { serviceName: string; metrics: ParsedCoverage }[]): string[];
+  RATCHET_MIN_GAIN: number;
 } = require('../../tools/quality/coverage-evidence.js');
 const createVitestTestPolicy: () => {
   maxWorkers: number;
@@ -180,6 +186,51 @@ describe('repository-owned coverage evidence contract', () => {
       functions: { covered: 2, found: 3, percentage: 66.67 },
       lines: { covered: 12, found: 15, percentage: 80 },
     });
+  });
+
+  // The pinned per-service floors are enforced two ways — jest reads them as
+  // `coverageThreshold.global`, and coverage-evidence.js refuses a report
+  // below them. Both only ever looked DOWN: a service whose coverage rose kept
+  // the old pin, the improvement was never captured, and the next change could
+  // eat it back in silence. A ratchet with a pawl on one side is a floor, not
+  // a ratchet.
+  it('captures a material coverage gain instead of leaving the floor behind', () => {
+    const source = fs.readFileSync(
+      path.join(REPO_ROOT, 'tools', 'quality', 'coverage-evidence.js'),
+      'utf8',
+    );
+    // The gain must be re-pinned, and the message must carry the command that
+    // does it — a gate that says "wrong" without saying "here" is a riddle.
+    expect(source).toContain('RATCHET_MIN_GAIN');
+    expect(source).toContain('coverage ROSE and the baseline was left behind');
+    expect(source).toContain('node tools/quality/coverage-evidence.js --write');
+    // Jitter between runs is fractions of a point; one point is the smallest
+    // gain that is a change in the code rather than in the weather.
+    expect(coverageEvidence.RATCHET_MIN_GAIN).toBe(1.0);
+    // Monotonic: the writer raises and never lowers. A measurement below the
+    // pin is already an error, so --write can never become the way a floor
+    // gets quietly reduced.
+    expect(source).toContain('if (measured > current[metric])');
+    expect(source).toContain('NEVER lowers one');
+  });
+
+  it('keeps every pinned baseline reachable from the jest configs that enforce it', () => {
+    const baselines = JSON.parse(
+      fs.readFileSync(
+        path.join(REPO_ROOT, 'tools', 'quality', 'service-coverage-baselines.json'),
+        'utf8',
+      ),
+    ) as Record<string, Record<string, number>>;
+    // A pin nothing enforces is decoration. Every service with a baseline must
+    // import it as its jest coverageThreshold — the ratchet is only worth
+    // anything where the floor is actually load-bearing.
+    for (const service of Object.keys(baselines)) {
+      const configPath = path.join(REPO_ROOT, 'apps', service, 'jest.config.ts');
+      expect(fs.existsSync(configPath)).toBe(true);
+      const config = fs.readFileSync(configPath, 'utf8');
+      expect(config).toContain('service-coverage-baselines');
+      expect(config).toContain(`coverageBaselines['${service}']`);
+    }
   });
 
   it('bounds nested Vitest worker pools and gives every producer the same LCOV policy', () => {

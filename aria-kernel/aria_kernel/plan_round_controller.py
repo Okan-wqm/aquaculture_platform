@@ -17,6 +17,12 @@ from .plan_convergence import (
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
 
+# Y3 (ORPHAN-703) — successor budget for planner envelopes that died of
+# queue mechanics, mirroring DEFAULT_MAX_REQUEUES (2) and MAX_PANEL_REOPENS
+# (2): two lineage steps, then an honest exhausted disclosure instead of a
+# silent wedge OR a silent infinite retry.
+MAX_PLANNER_REQUEST_REMINTS = 2
+
 DEFAULT_PLANNER_AGENTS = {
     "primary_plan": "aria-primary-planner",
     "challenger_plan": "aria-challenger-planner",
@@ -97,8 +103,39 @@ def _ensure_planner_request(root: Path, state: dict[str, Any], *, role: str, rou
         )
         if row.get("round_number") == request_round
     ]
+    # Y3 (ORPHAN-703) — the idempotency check must not count a DEAD request
+    # as a live one. The shipped filter matched any row, so a round whose
+    # envelope died of queue mechanics (measured: HUMAN_REQUIRED after three
+    # lease expiries) was wedged forever — the plan could never converge and
+    # nothing ever re-minted. A live-or-outcome match still short-circuits;
+    # an all-dead match mints a successor with remint_of lineage, budgeted
+    # like the X4 panel reopen.
+    remint_of: str | None = None
     if existing:
-        return {"kind": "planner_request_exists", "role": role, "request_id": existing[-1].get("request_id")}
+        from .agent_invocations import derive_request_state
+        from .agent_surface import REMINT_ELIGIBLE_DEAD_STATES
+
+        latest = existing[-1]
+        states = {
+            str(row.get("request_id")): derive_request_state(
+                request_id=str(row.get("request_id")), base_dir=root,
+            )
+            for row in existing
+        }
+        if any(state not in REMINT_ELIGIBLE_DEAD_STATES for state in states.values()):
+            return {"kind": "planner_request_exists", "role": role, "request_id": latest.get("request_id")}
+        remints_so_far = sum(1 for row in existing if row.get("remint_of"))
+        if remints_so_far >= MAX_PLANNER_REQUEST_REMINTS:
+            append_tools_governance(
+                root, "planner_request_remint_exhausted",
+                {
+                    "plan_id": plan_id, "role": role, "round_number": request_round,
+                    "dead_request_states": states,
+                    "remint_budget": MAX_PLANNER_REQUEST_REMINTS,
+                },
+            )
+            return {"kind": "planner_request_remint_exhausted", "role": role, "request_id": latest.get("request_id")}
+        remint_of = str(latest.get("request_id"))
     request = create_agent_invocation_request(
         target_agent=DEFAULT_PLANNER_AGENTS[role],
         role=role,
@@ -114,9 +151,11 @@ def _ensure_planner_request(root: Path, state: dict[str, Any], *, role: str, rou
         ],
         allowed_scope=["aria-kernel/**", "aria-tools/**", ".claude/**"],
         evidence_refs=[revision_id],
+        remint_of=remint_of,
         base_dir=root,
     )
-    return {"kind": "planner_request_created", "role": role, "request_id": request.get("request_id")}
+    kind = "planner_request_reminted" if remint_of else "planner_request_created"
+    return {"kind": kind, "role": role, "request_id": request.get("request_id"), "remint_of": remint_of}
 
 
 def _ensure_cross_review_round(root: Path, state: dict[str, Any]) -> list[dict[str, Any]]:

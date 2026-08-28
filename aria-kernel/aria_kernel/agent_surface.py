@@ -196,6 +196,21 @@ TERMINAL_REQUEST_STATES: FrozenSet[str] = frozenset({
     "ANCHOR_STALE",
 })
 
+# Y3 (ORPHAN-703) — the terminal states that mean "this request died of
+# QUEUE MECHANICS, not of an outcome". Producers that treat any existing
+# request as satisfying their idempotency check wedge forever when the match
+# is one of these: the second night's measurement showed a challenger_plan
+# round and consumed autonomy queue items permanently blocked by their own
+# dead envelopes. ACCEPTED/REJECTED stay out — they are verdicts about the
+# WORK and their consumers handle them through result folds, never re-mints.
+REMINT_ELIGIBLE_DEAD_STATES: FrozenSet[str] = frozenset({
+    "HUMAN_REQUIRED",
+    "ANCHOR_STALE",
+    "STALE",
+    "CANCELLED",
+    "EXPIRED",
+})
+
 GENESIS_LIFECYCLE_STATES: tuple[str, ...] = (
     "PRESSURE",
     "CANDIDATE_PROPOSED",

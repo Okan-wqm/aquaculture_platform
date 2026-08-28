@@ -1,0 +1,22 @@
+services:
+  postgres:
+    environment:
+      WALG_ENABLED: 'off'
+    command: >
+      postgres
+      -c max_connections=300
+      -c search_path=public,auth,admin
+      -c ssl=on
+      -c ssl_cert_file=/run/aqua-postgres-tls/server.crt
+      -c ssl_key_file=/run/aqua-postgres-tls/server.key
+      -c ssl_ca_file=/run/aqua-postgres-tls/root.crt
+    volumes:
+      - type: bind
+        source: '${DR_BOOTSTRAP_RELEASE_ROOT:?DR_BOOTSTRAP_RELEASE_ROOT required}/repository/infrastructure/docker/init-scripts'
+        target: /docker-entrypoint-initdb.d
+        read_only: true
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-aquaculture}']
+      interval: 15s
+      timeout: 5s
+      retries: 5

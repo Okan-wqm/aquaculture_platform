@@ -39,7 +39,7 @@ from .goldset import propose_goldsets_for_labelled_tools
 from .judge_calibration import compute_judge_calibration
 from .proactive_priority import compute_proactive_priorities
 from .runtime_profile import ACTION_PERMISSIONS, get_profile
-from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_binding, list_tools, register_tool, utc_now, update_tools_index
+from .tool_registry import GovernanceError, append_tools_governance, append_tools_governance_once, ensure_tools_binding, ensure_tools_dir, list_tools, register_tool, utc_now, update_tools_index
 from .tool_runner import run_tool
 from .ledger import append_declared_jsonl
 
@@ -391,8 +391,35 @@ def _profile_permits_pr_open(context: PhaseContext) -> bool:
     return context.profile in ACTION_PERMISSIONS["pr_open"]
 
 
+def _backlog_below_cap(context: PhaseContext) -> bool:
+    """E25-a (ORPHAN-710) — work-minting phases pause at the backlog ceiling.
+
+    The operator's rhythm directive: findings ARIA opened and has not
+    finished must be worked BEFORE new ones are discovered — a system that
+    mints faster than it resolves drowns itself. The count is the SAME
+    counter the emptiness guard reads (cycle_guard._open_finding_count,
+    OPEN + IN_PROGRESS); the ceiling is policy (rhythm.backlog_cap). An
+    unmet precondition produces a recorded skip naming
+    ``backlog_below_cap`` — the sıfır-vs-yok discipline X3 established
+    makes the pause visible, never silent.
+    """
+    from .cycle_guard import _open_finding_count
+    from .genesis_policy import rhythm_policy
+
+    cap = int(rhythm_policy(context.workspace_root).get("backlog_cap") or 25)
+    return _open_finding_count(Path(context.workspace_root)) < cap
+
+
 ALWAYS = PhasePrecondition("always", _always)
 WRITES_PERMITTED = PhasePrecondition("writes_permitted", _writes_permitted)
+BACKLOG_BELOW_CAP = PhasePrecondition("backlog_below_cap", _backlog_below_cap)
+# Composite member for phases that already demand writes: a phase declares
+# ONE precondition, and the closed set is identity-compared, so the
+# combination is itself a reviewed member rather than an inline lambda.
+WRITES_PERMITTED_AND_BACKLOG_BELOW_CAP = PhasePrecondition(
+    "writes_permitted+backlog_below_cap",
+    lambda context: _writes_permitted(context) and _backlog_below_cap(context),
+)
 REFLECTION_NOT_DEFERRED = PhasePrecondition("reflection_not_deferred", _reflection_not_deferred)
 PLAN_ID_PRESENT = PhasePrecondition("plan_id_present", _plan_id_present)
 PROFILE_PERMITS_PR_OPEN = PhasePrecondition("profile_permits:pr_open", _profile_permits_pr_open)
@@ -412,6 +439,9 @@ CYCLE_PRECONDITIONS: tuple[PhasePrecondition, ...] = (
     REFLECTION_NOT_DEFERRED,
     PLAN_ID_PRESENT,
     PROFILE_PERMITS_PR_OPEN,
+    # E25-a (ORPHAN-710) — the rhythm gate and its writes-composite.
+    BACKLOG_BELOW_CAP,
+    WRITES_PERMITTED_AND_BACKLOG_BELOW_CAP,
 )
 
 
@@ -744,12 +774,24 @@ def run_enterprise_cycle(
     # before the terminal decision it is supposed to describe. Here it observes
     # exactly the cycle the row about to be appended describes.
     #
-    # OBSERVE-ONLY in this PR: a violation is recorded and does NOT downgrade
-    # the cycle. Every mission opened by mission_ingest starts in DISCOVERED
-    # with no next_action, so making this fail_cycle on day one would redden
-    # the nightly for the expected state of brand-new missions rather than for
-    # anything wrong. The promotion to a cycle-downgrading gate belongs with
-    # the scheduler that gives missions their next_action.
+    # OBSERVE-ONLY, and the reason is no longer the one written here before.
+    # That reason was "every mission opened by mission_ingest starts in
+    # DISCOVERED with no next_action" — false since ORPHAN-MEDIUM-730: ingest
+    # mints under a closure contract read off the candidate, and a
+    # non-terminal transition that does not restate the contract is refused,
+    # so neither producer can create a violation any more.
+    #
+    # What this can still see is exactly one shape: rows written BEFORE the
+    # rule existed (5 of them, measured on the live store 2026-08-19).
+    # Downgrading the cycle for those would redden the nightly for
+    # archaeology, and for one subset it would never go green by any
+    # machine's effort — a mission a human parked in HUMAN_REQUIRED is
+    # deliberately un-healable by an unattended writer
+    # (`mission.OPERATOR_HELD_STATES`). Every other pre-rule row heals the
+    # next time a producer re-observes it, which makes the promotion
+    # CONDITION concrete rather than a phase name: this becomes a
+    # cycle-downgrading gate when the only violations left are the
+    # operator-held ones, and that is a state the ledger can prove.
     #
     # Fail-soft on its own error for the same reason the continuity gate is:
     # a closure check that CRASHED did not observe a clean cycle, but it must
@@ -832,7 +874,36 @@ def run_enterprise_cycle(
         if phase.state_key is not None:
             state[phase.state_key] = context.result(phase.name)
     _write_workspace_cycle_artifact(workspace, _workspace_cycle_state(workspace, state))
+    # ORPHAN-HIGH-798 (auto-trigger half) — if any surface exceeds the
+    # compaction threshold, compact NOW rather than scheduling for a future
+    # cycle: the push that publishes this cycle's state is the one that
+    # dies when a file crosses GitHub's 50MB line. The snapshot already
+    # measures size_bytes per surface (state_snapshot.py:215) but nothing
+    # consumed it — this is the trigger that wiring was designed for.
+    state["state_compaction"] = _auto_compact_if_needed(base_dir)
     return state
+
+
+def _auto_compact_if_needed(base_dir: str | os.PathLike[str] | None) -> dict[str, Any]:
+    """Run compact_state when any tracked surface exceeds the threshold."""
+    from pathlib import Path as _P
+
+    threshold_bytes = 40 * 1024 * 1024  # 40MB — GitHub warns at 50MB
+    root = _P(base_dir) if base_dir else _P(".")
+    surfaces_to_check = ["runs.jsonl", "raw-findings.jsonl", "memory/beliefs.jsonl", "memory/learning-events.jsonl"]
+    oversized = []
+    for rel in surfaces_to_check:
+        path = root / rel
+        if path.exists() and path.stat().st_size > threshold_bytes:
+            oversized.append(rel)
+    if not oversized:
+        return {"status": "not_needed", "oversized": []}
+    try:
+        from .state_compact import compact_state
+        result = compact_state(base_dir=base_dir, retain_days=7, dry_run=False)
+        return {"status": "compacted", "oversized": oversized, "result": result}
+    except Exception as exc:  # noqa: BLE001 — compaction must not kill the cycle
+        return {"status": "error", "oversized": oversized, "error": str(exc)[:200]}
 
 
 # ---------------------------------------------------------------------
@@ -983,6 +1054,22 @@ def _phase_twin_refresh(context: PhaseContext) -> dict[str, Any]:
     return refresh_twin_map(workspace_root=context.workspace_root, base_dir=context.base_dir)
 
 
+def _phase_experiment_author(context: PhaseContext) -> dict[str, Any]:
+    """X2 (ORPHAN-701) — the night authors before the bench selects.
+
+    Falsifiable open findings gain red-contract, finding-bound
+    experiments through the ONE registration writer; the planner right
+    after this phase finally has an admissible set to choose from.
+    """
+    from .experiment_author import author_night_experiments
+
+    return author_night_experiments(
+        context.workspace_root,
+        cycle_id=context.cycle_id,
+        base_dir=context.base_dir,
+    )
+
+
 def _phase_experiment_night(context: PhaseContext) -> dict[str, Any]:
     """E21-d (ORPHAN-693) — the night runs the Deney Masası.
 
@@ -995,6 +1082,30 @@ def _phase_experiment_night(context: PhaseContext) -> dict[str, Any]:
     from .experiment_night import run_night_experiments
 
     return run_night_experiments(
+        context.workspace_root,
+        cycle_id=context.cycle_id,
+        base_dir=context.base_dir,
+    )
+
+
+def _phase_change_outcome_evaluation(context: PhaseContext) -> dict[str, Any]:
+    """G-4 — the night asks the question a merge never answered.
+
+    The change chain recorded planned → committed → validated and
+    stopped, so ARIA could prove a change LANDED and never whether the
+    benefit it claimed arrived. This phase closes each merged chain with
+    a verdict RECOMPUTED FROM THE LEDGERS (never from the proposal's own
+    claim) N nights after the merge, and folds a negative one into the
+    effectiveness ledger's `cycles_rejected` through its existing writer.
+
+    Registered AFTER `experiment_night` so tonight's regression events
+    are already on the governance ledger when tonight's verdicts read
+    them. The thinking lives in change_outcome.py; the cycle supplies
+    identity and roots.
+    """
+    from .change_outcome import evaluate_change_outcomes
+
+    return evaluate_change_outcomes(
         context.workspace_root,
         cycle_id=context.cycle_id,
         base_dir=context.base_dir,
@@ -1019,6 +1130,141 @@ def _phase_watchdog(context: PhaseContext) -> dict[str, Any]:
     )
 
 
+def _phase_product_fitness(context: PhaseContext) -> dict[str, Any]:
+    """G-1 — measure the product against the operator's stated threshold.
+
+    ARIA has always been able to say how much it DID; this is the first
+    phase that can say whether the thing it works on is good. The charter
+    is operator-owned data (`aria-config/product_fitness_charter.json`)
+    and every dimension resolves through a gate that already votes on
+    main — the phase adds an instrument, never a new opinion.
+
+    Honesty rule, and the reason this is worth having: a night whose
+    lanes could not be read is `unknown`, and `unknown` breaks the green
+    streak exactly like `red`. A score a system can improve by looking
+    away is worse than no score.
+    """
+    from .convergence_drainer import _resolve_workspace_head_sha
+    from .github_adapters import select_checks_reader
+    from .ledger import append_declared_jsonl, load_jsonl
+    from .product_fitness import evaluate_fitness, load_charter, streak_from_history
+
+    reader = select_checks_reader(
+        profile=get_profile(base_dir=context.base_dir),
+        cwd=context.workspace_root,
+    )
+    # One head-sha resolver, already used by the convergence step to bind
+    # evidence to a commit — a second `git rev-parse` here would be a
+    # second answer to the same question.
+    head_sha = _resolve_workspace_head_sha(context.workspace_root) or ""
+    try:
+        charter = load_charter(context.workspace_root)
+        verdict = evaluate_fitness(
+            workspace_root=context.workspace_root,
+            head_sha=head_sha,
+            reader=reader,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        # The charter is operator-owned DATA. A workspace without it (a
+        # fixture, a clone from before it landed) has no threshold to
+        # measure against — that is an unknown with a name, never a failed
+        # night. The same honesty rule as an unreadable lane: the streak
+        # does not advance, and nothing pretends it did.
+        return {
+            "status": "unknown",
+            "reason": f"charter_unavailable:{type(exc).__name__}",
+            "consecutive_green_nights": 0,
+            "threshold_met": False,
+            "dimensions": [],
+        }
+    path = ensure_tools_dir(context.base_dir) / "product-fitness.jsonl"
+    history = load_jsonl(path) if path.exists() else []
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "cycle_id": context.cycle_id,
+        "head_sha": head_sha,
+        **verdict.as_dict(),
+    }
+    # The surface is declared (G-1, state_manifest.py: product_fitness,
+    # observation-class) — the append must go through the declared writer,
+    # not the raw one: the nightly's first fully-alive run (2026-08-22
+    # 32578768498) reached this phase for the first time and the
+    # declared-surface discipline refused the raw append, failing the
+    # phase that had never before executed past its NameError.
+    append_declared_jsonl(path, row, expected_surface="product_fitness")
+    streak = streak_from_history(
+        [*history, row],
+        required=int(charter.get("consecutive_green_nights_required") or 7),
+    )
+    return {"status": verdict.status, **streak,
+            "dimensions": [d.as_dict() for d in verdict.dimensions]}
+
+
+def _phase_habitat(context: PhaseContext) -> dict[str, Any]:
+    """SI-4 — ARIA looks after the machine it lives on.
+
+    Measured 2026-08-19: the runner went 43 GB → 33 GB free in one night
+    on ARIA's OWN litter (worktrees plus 8,430 abandoned `/tmp/aria-*`
+    fixtures from red suite runs), the production capacity lane went red
+    three times against its floor, and no mechanism here noticed. The
+    preflight refuses to START a night below its floor — it never cleans
+    and never tells anyone, so the pressure stayed invisible until a
+    human ran `df`.
+
+    Sweep first, then measure: a probe that reports the litter it is
+    about to remove would send the operator chasing a number that no
+    longer holds. When the post-sweep measurement is still degraded the
+    fact goes to `ingest_runtime_signal`, the same door the dataflow
+    watchdog uses for external truth — an unverified lead, not a finding.
+    """
+    from .habitat import probe_habitat, sweep_stale_scratch
+    from .runtime_signal_bridge import ingest_runtime_signal
+
+    sweep = sweep_stale_scratch()
+    probe = probe_habitat(workspace_root=context.workspace_root)
+    signal_id = None
+    if probe["degraded"]:
+        signal = ingest_runtime_signal(
+            source="telemetry",
+            service="aria-runner",
+            summary=(
+                f"habitat degraded: {probe['free_disk_gb']} GB free after "
+                f"reclaiming {sweep.reclaimed_bytes} bytes; load "
+                f"{probe['load_average'][0]} on {probe['cpu_count']} cpus"
+            ),
+            # The habitat's evidence is the runbook that rebuilds it and
+            # the janitor that maintains it — both repo-verified paths.
+            code_refs=[
+                "docs/runbooks/aria-runner-rebuild.md",
+                "aria-kernel/aria_kernel/habitat.py",
+            ],
+            severity="high",
+            base_dir=context.base_dir,
+        )
+        signal_id = signal.get("signal_id")
+    return {
+        "swept": len(sweep.removed),
+        "reclaimed_bytes": sweep.reclaimed_bytes,
+        "skipped_recent": sweep.skipped_recent,
+        "free_disk_gb": probe["free_disk_gb"],
+        "degraded": probe["degraded"],
+        "signal_id": signal_id,
+    }
+
+
+
+def _emitted_count(run: dict, kind: str) -> int:
+    """ORPHAN-HIGH-798 — int-tolerant emitted count (see reflection.py)."""
+    counts = run.get("emitted_counts")
+    if isinstance(counts, dict):
+        return int(counts.get(kind, 0))
+    legacy = run.get(f"emitted_{kind}")
+    if isinstance(legacy, list):
+        return len(legacy)
+    if isinstance(legacy, int):
+        return legacy
+    return 0
 def _phase_tools(context: PhaseContext) -> dict[str, Any]:
     """Run every dispatchable tool and summarise the runs it produced.
 
@@ -1066,8 +1312,8 @@ def _phase_tools(context: PhaseContext) -> dict[str, Any]:
                 "artifact_hash": run.get("artifact_hash"),
                 "raw_findings_count": int(runner.get("raw_findings_count") or 0),
                 "raw_observations_count": int(runner.get("raw_observations_count") or 0),
-                "emitted_findings_count": len(run.get("emitted_findings", [])) if isinstance(run.get("emitted_findings"), list) else 0,
-                "emitted_observations_count": len(run.get("emitted_observations", [])) if isinstance(run.get("emitted_observations"), list) else 0,
+                "emitted_findings_count": _emitted_count(run, "findings"),
+                "emitted_observations_count": _emitted_count(run, "observations"),
             },
         )
     return {"decisions": decisions, "run_summary": run_summary}
@@ -1148,6 +1394,27 @@ def _phase_pr_ci_scan(context: PhaseContext) -> dict[str, Any]:
         workspace_root=context.workspace_root,
         reader=reader,
     )
+    # ORPHAN-718 (2026-08-18 operator directive) — the SECOND verdict:
+    # after a PR merges, did main stay green? The same reader answers from
+    # the merge commit's workflow runs; reds land in ci/merge-outcomes.jsonl
+    # and become pressure below, exactly like open-PR reds.
+    from .own_pr_ci import scan_merged_own_prs
+
+    scan_result["merged"] = scan_merged_own_prs(
+        cycle_id=context.cycle_id,
+        base_dir=context.base_dir,
+        reader=reader,
+    )
+    # ORPHAN-723 — read-only repo PR weather (Dependabot + developer
+    # branches included). Observation only; third-party action authority
+    # stays E23-gated.
+    from .own_pr_ci import scan_repo_pr_health
+
+    scan_result["repo_pr_health"] = scan_repo_pr_health(
+        cycle_id=context.cycle_id,
+        base_dir=context.base_dir,
+        reader=reader,
+    )
     # E2/F1 — the same reader answers "was the implementation PR merged?"
     # for plans resting in IMPLEMENTATION_RECORDED. The operator merges on
     # GitHub; this reconciler is how that external fact becomes the plan's
@@ -1186,6 +1453,14 @@ def _phase_mission_ingest(context: PhaseContext) -> dict[str, Any]:
     Adoption is idempotent by mission identity, so a candidate re-discovered
     on a later night folds into the mission it already opened. That is the
     whole point of PR 1.1's identity rule, and this is what consumes it.
+
+    ORPHAN-MEDIUM-730 — and this is the phase that wrote every row on the live
+    mission store (5 contract-less ``opened`` events, measured 2026-08-19), so
+    it is where the closure contract had to become reachable rather than
+    merely required elsewhere: a candidate whose own source cannot name a next
+    action is refused and disclosed, and re-adoption HEALS the rows this phase
+    wrote before the rule existed. The result reports ``healed`` because a
+    night that repaired a stuck mission did real work.
     """
     return adopt_task_candidates(
         cycle_id=context.cycle_id,
@@ -1356,11 +1631,52 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
     """
     from .convergence_drainer import _resolve_workspace_head_sha
     from .feedback_store import generate_ai_consensus, generate_judgment_sample
-    from .judge_fanout import dispatch_arbiter_for_split_verdicts, dispatch_judges_for_sample
+    from .genesis_policy import judgment_pipeline_policy
+    from .judge_fanout import (
+        dispatch_arbiter_for_anchor_groups,
+        dispatch_arbiter_for_split_verdicts,
+        dispatch_judges_for_sample,
+    )
 
     target_sha = _resolve_workspace_head_sha(context.workspace_root)
+    # ORPHAN-HIGH-786 — retire age-expired envelopes BEFORE minting, so the
+    # backlog cap below counts only envelopes still alive to claim. Expiry
+    # was lazy (discovered at claim time), the backlog read pending while
+    # being dead, and minting continued into the hole the drain could never
+    # fill within the TTL. Age-only sweep; repo-dependent refusals stay at
+    # the claim boundary.
+    from .agent_invocations import sweep_expired_anchors
+
+    anchor_sweep = sweep_expired_anchors(base_dir=context.base_dir)
+    # Y2 (ORPHAN-704) — sample size and backlog ceiling come from policy
+    # (the 5 was hardcoded; the ceiling did not exist and one week minted
+    # 462 envelopes against ~9 drained per night).
+    pipeline_policy = judgment_pipeline_policy(context.workspace_root)
+    sample_size = int(pipeline_policy.get("sample_size_per_tool") or 5)
+    max_pending_per_role = int(pipeline_policy.get("max_pending_per_role") or 32)
+    # ORPHAN-HIGH-784 — judge weights for THIS cycle, computed in memory
+    # before the consensus that consumes them. The previous consumer read
+    # the calibration ledger's tail (`_cal_rows[-1]`), which the
+    # judge_calibration phase appends AFTER this phase runs — a permanent
+    # one-cycle lag, and None on any cycle with no prior row, which was
+    # every cycle (the only row ever written carried `judges: []`). The
+    # ledger append stays owned by the calibration phase for audit; the
+    # freshness source is the computation, not the tail. Failure semantics
+    # unchanged: any error → None → the legacy gate bit for bit; failure
+    # costs calibration, never consensus.
+    _judge_weights = None
+    try:
+        from .calibrated_intelligence import judge_weights_from_calibration
+        from .judge_calibration import score_judges
+
+        _judge_weights = judge_weights_from_calibration(
+            score_judges(cycle_id=context.cycle_id, base_dir=context.base_dir)
+        ) or None
+    except (OSError, ValueError, KeyError, TypeError):
+        _judge_weights = None
     sampled = 0
     fanned_out = 0
+    mint_skipped_backlog = 0
     consensus_rows = 0
     arbiter_requests = 0
     blocked: list[dict[str, Any]] = []
@@ -1371,7 +1687,7 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
         try:
             sample = generate_judgment_sample(
                 tool_id=tool_id,
-                sample_size=5,
+                sample_size=sample_size,
                 strategy="stratified_by_uncertainty",
                 cycle_id=context.cycle_id,
                 base_dir=context.base_dir,
@@ -1384,30 +1700,27 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
                 # judge lane that dispatches two judges per finding is exactly
                 # where paying for the same file read twice is worst.
                 repo_root=context.workspace_root,
+                max_pending_per_role=max_pending_per_role,
             )
             fanned_out += len(fanout.get("minted") or [])
+            mint_skipped_backlog += sum(
+                1 for s in fanout.get("skipped") or []
+                if s.get("reason") == "mint_skipped_backlog"
+            )
         except GovernanceError as exc:
             blocked.append({"tool_id": tool_id, "step": "sample_or_fanout", "reason": str(exc)[:200]})
         try:
-            # Kalibre Zekâ Z2a/Z2c — the two calibrated knobs, derived from
-            # the ledgers each cycle. Missing ledgers → None → the legacy
-            # gate bit for bit; failure costs calibration, never consensus.
-            _judge_weights = None
+            # Kalibre Zekâ Z2c — the conformal floor, derived per tool from
+            # correct-consensus confidences. Judge weights come from the
+            # in-memory computation above (ORPHAN-HIGH-784); the floor stays
+            # per-tool because its input is tool-scoped. Missing data → None
+            # → the legacy gate bit for bit; failure costs calibration,
+            # never consensus.
             _conformal_floor = None
             try:
-                from .calibrated_intelligence import (
-                    conformal_threshold,
-                    judge_weights_from_calibration,
-                )
+                from .calibrated_intelligence import conformal_threshold
                 from .feedback_store import load_feedback
-                from .judge_calibration import calibration_path
-                from .strict_jsonl_reader import read_strict_jsonl
 
-                _cal_path = calibration_path(context.base_dir)
-                if _cal_path.exists():
-                    _cal_rows = list(read_strict_jsonl(_cal_path, on_corruption="tolerant"))
-                    if _cal_rows:
-                        _judge_weights = judge_weights_from_calibration(_cal_rows[-1]) or None
                 _correct_confidences = [
                     float(row.get("confidence"))
                     for row in load_feedback(tool_id=tool_id, base_dir=context.base_dir)
@@ -1416,7 +1729,6 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
                 ]
                 _conformal_floor = conformal_threshold(_correct_confidences)
             except (OSError, ValueError, KeyError, TypeError):
-                _judge_weights = None
                 _conformal_floor = None
             consensus = generate_ai_consensus(
                 tool_id=tool_id,
@@ -1452,6 +1764,22 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
             arbiter_requests += len(arbitration.get("minted") or [])
         except GovernanceError as exc:
             blocked.append({"tool_id": tool_id, "step": "arbitration", "reason": str(exc)[:200]})
+        try:
+            # JJ-1 (ORPHAN-HIGH-731) — the OTHER reason to mint the arbiter.
+            # The split arm above only fires on disagreement, so a unanimous
+            # pair walked straight into ground truth unexamined. This mints
+            # the third judge that has to try to refute it. Runs AFTER
+            # consensus so the 2-judge row (and its judge_count) already
+            # exists, and the anchor upgrade lands on the next tick.
+            anchoring = dispatch_arbiter_for_anchor_groups(
+                tool_id=tool_id,
+                base_dir=context.base_dir,
+                cycle_id=context.cycle_id,
+                target_sha=target_sha,
+            )
+            arbiter_requests += len(anchoring.get("minted") or [])
+        except GovernanceError as exc:
+            blocked.append({"tool_id": tool_id, "step": "anchoring", "reason": str(exc)[:200]})
     # D3 (Kapalı Döngü) — accepted consensus becomes a durable finding.
     # Runs AFTER the per-tool consensus loop so any row minted this cycle
     # is promotable immediately; idempotent via the promotions ledger.
@@ -1479,8 +1807,10 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
         blocked.append({"tool_id": "-", "step": "rule_health", "reason": str(exc)[:200]})
     return {
         "status": "completed",
+        "anchor_sweep": anchor_sweep,
         "sampled_findings": sampled,
         "judge_requests_minted": fanned_out,
+        "mint_skipped_backlog": mint_skipped_backlog,
         "consensus_rows": consensus_rows,
         "arbiter_requests_minted": arbiter_requests,
         "promoted_findings": promotion_summary.get("promoted_count", 0),
@@ -1527,9 +1857,12 @@ def _phase_fixture_refresh(context: PhaseContext) -> dict[str, Any]:
     from .fixture_runner import refresh_fixture_suite
 
     refreshed: list[dict[str, Any]] = []
+    skipped_no_fixture_set: list[str] = []
     for tool in list_tools(base_dir=context.base_dir):
         tool_id = str(tool.get("tool_id") or "")
         if not tool_id or not tool.get("fixture_set"):
+            if tool_id:
+                skipped_no_fixture_set.append(tool_id)
             continue
         try:
             result = refresh_fixture_suite(
@@ -1541,7 +1874,31 @@ def _phase_fixture_refresh(context: PhaseContext) -> dict[str, Any]:
             refreshed.append({"tool_id": tool_id, "status": result.get("status", "ok")})
         except GovernanceError as exc:
             refreshed.append({"tool_id": tool_id, "status": "blocked", "reason": str(exc)[:200]})
-    return {"status": "completed", "tools": refreshed}
+    # ORPHAN-MEDIUM-783 — a blocked refresh is a first-class health signal,
+    # not a detail inside the cycle state dict. ORPHAN-HIGH-779's six nights
+    # of fixture_path_escape_outside_repo refusals were invisible in every
+    # daily report precisely because record_and_continue was the only
+    # listener. The governance event lands in the reflection report's gate
+    # activity (kind counts) and the durable governance feed; a registry
+    # gap (tools without fixture_set can never satisfy readiness checks
+    # 3-5) rides the same event rather than a second silent channel.
+    blocked = [entry for entry in refreshed if entry.get("status") == "blocked"]
+    if blocked or (skipped_no_fixture_set and not refreshed):
+        append_tools_governance(
+            context.base_dir,
+            "fixture_refresh_blocked",
+            {
+                "cycle_id": context.cycle_id,
+                "blocked": blocked,
+                "skipped_no_fixture_set": skipped_no_fixture_set,
+            },
+        )
+    return {
+        "status": "completed",
+        "tools": refreshed,
+        "blocked_count": len(blocked),
+        "skipped_no_fixture_set": skipped_no_fixture_set,
+    }
 
 
 def _phase_judge_calibration(context: PhaseContext) -> dict[str, Any]:
@@ -1549,6 +1906,21 @@ def _phase_judge_calibration(context: PhaseContext) -> dict[str, Any]:
     # the cheap-tier judgment is measured, not assumed. Read-only join over
     # the feedback ledger (no LLM).
     return compute_judge_calibration(cycle_id=context.cycle_id, base_dir=context.base_dir)
+
+
+def _phase_fitness_report(context: PhaseContext) -> dict[str, Any]:
+    """E14-b (ORPHAN-697) — the fitness WRITER joins the nightly body.
+
+    Readers abounded (agent_network, learning, triage, capability_gap all
+    consume fitness rows) while generate_fitness_report's only callers
+    were tests — reader-rich, writer-dead. One report per cycle, from the
+    same run/validation/impact evidence the readers already trust.
+    """
+    from .fitness import generate_fitness_report
+
+    return generate_fitness_report(
+        cycle_id=context.cycle_id, base_dir=context.base_dir,
+    )
 
 
 def _phase_goldset_proposal(context: PhaseContext) -> dict[str, Any]:
@@ -1654,13 +2026,130 @@ def _phase_service_examination(context: PhaseContext) -> dict[str, Any]:
 
 
 # The four core services, in the risk order the service-audit program set
-# (charter M-5.1). These are seeded even on a quiet night; every other
-# service earns its mission from examination evidence (changed files or
-# scoped pressures), so the mission ledger grows with reality instead of
-# opening 17 parallel fronts on day one.
+# (charter M-5.1). The list sets the ORDER and the priority floor of the
+# hardening program; every other service earns its place from examination
+# evidence (changed files or scoped pressures), so the mission ledger grows
+# with reality instead of opening 17 parallel fronts on day one.
+#
+# ORPHAN-MEDIUM-730 REWROTE WHAT MEMBERSHIP BUYS, AND WHAT IT STILL OWES.
+# Core services used to be MINTED even on a quiet night: with no findings, no
+# pressures and no diff there is nothing to name as a next action and nothing
+# to name as a wake, so the mint would produce exactly the row the closure
+# gate exists to report. (The live store's 5 paralysed rows came from the
+# ingest path, not from here — this phase had never produced one. The rule is
+# right regardless of which producer proved it.)
+#
+# What membership buys now: a core service is CONSIDERED first and priced
+# lowest. What it still owes, and what charter M-5.1 actually demands, is that
+# a core service is NEVER SILENTLY SKIPPED — so on a quiet night each of the
+# four is disclosed as a `service_mission_refused` row carrying ``core: true``
+# rather than minted or dropped. The successor pin
+# `test_core_services_are_considered_and_disclosed_on_a_quiet_night` holds
+# that obligation; the disclosure is what keeps "ARIA declined to harden
+# auth-service tonight" distinguishable from "ARIA never looked at it".
 SERVICE_HARDENING_CORE: tuple[str, ...] = (
     "auth-service", "billing-service", "farm-service", "sensor-service",
 )
+
+
+def _service_closure_contract(
+    project: str,
+    *,
+    pressures: list[dict[str, Any]],
+    changed_paths: list[str],
+    finding_ids: list[str],
+) -> tuple[str, dict[str, Any], str] | None:
+    """The forward pointer for a service-hardening mission, or ``None``.
+
+    ORPHAN-MEDIUM-730 — `mission.open_mission` now refuses a mint without
+    ``next_action`` + ``wake_condition``, so this function is what decides
+    whether the service HAS a mission at all. Every branch names a real
+    identifier the seeded service actually owns; nothing here composes a
+    stand-in, because a mission whose wake key names no evidence is exactly
+    the row the closure gate exists to report.
+
+    ATTRIBUTION DOES NOT HAPPEN HERE. ``changed_paths`` and ``finding_ids``
+    arrive already attributed to THIS project by the caller, through
+    `impact_graph.project_for_path` — the same longest-root-prefix rule that
+    produced the nx project names this function is handed. The first version
+    asked `service_dimension.service_for_path` instead: that vocabulary emits
+    ``shared:<lib>`` / ``web:<app>`` / ``None`` and can never produce 54 of
+    this repository's 71 nx project names, so for those 54 the seeder wrote a
+    governance row claiming no derivable evidence about the very paths that
+    had just selected the project. Two path -> project vocabularies deciding
+    whether a mission exists is one more than the number of correct answers.
+
+    THE TIER ORDER IS READ OFF `mission_scheduler.SOURCE_RANK` — literally,
+    not in prose. That table is this repo's statement of evidence authority
+    (a confirmed finding outranks a pressure); a changed path is evidence but
+    not a mission source at all, so it ranks strictly below every source that
+    is. Reordering SOURCE_RANK reorders these tiers with it instead of
+    leaving two orders to drift apart.
+
+    Returns ``(next_action, wake_condition, contract_source)``.
+    """
+    from .mission_scheduler import SOURCE_RANK
+
+    # (rank, contract_source, next_action, wake_condition)
+    candidates: list[tuple[int, str, str, dict[str, Any]]] = []
+
+    # A confirmed open defect this service owns. Ordered by finding_id
+    # alone: two severity vocabularies live in this kernel
+    # (`finding.SEVERITY_RANK` is uppercase INFORMATIONAL..HIGH, tool
+    # findings carry lowercase critical..low), so choosing one to sort by
+    # here would fork it. The action names the COUNT and the agent triages.
+    findings = sorted(set(finding_ids))
+    if findings:
+        candidates.append((
+            SOURCE_RANK["finding"],
+            "open_finding",
+            f"Harden {project} against its {len(findings)} open finding(s), "
+            f"starting with {findings[0]}",
+            {"kind": "evidence", "key": f"finding:{findings[0]}"},
+        ))
+
+    # A pressure this cycle scoped onto the service. Only a pressure that
+    # carries its own id qualifies: an id-less pressure would force a key
+    # naming the service instead of the evidence, and every such mission
+    # would then share one handle.
+    identified = sorted(
+        (
+            str(pressure.get("pressure_id"))
+            for pressure in pressures
+            if isinstance(pressure, dict)
+            and isinstance(pressure.get("pressure_id"), str)
+            and pressure["pressure_id"].strip()
+        )
+    )
+    if identified:
+        candidates.append((
+            SOURCE_RANK["pressure"],
+            "scoped_pressure",
+            f"Examine {project} against the {len(identified)} pressure(s) scoped "
+            f"to it this cycle, starting with {identified[0]}",
+            {"kind": "evidence", "key": f"pressure:{identified[0]}"},
+        ))
+
+    # The service moved this cycle. A changed path is evidence but not a
+    # mission source, so it cannot appear in SOURCE_RANK at all; ranking it
+    # one step below the weakest ranked source keeps it last WITHOUT pinning
+    # a number that a future source could quietly overtake.
+    mine = sorted(set(changed_paths))
+    if mine:
+        candidates.append((
+            max(SOURCE_RANK.values()) + 1,
+            "changed_path",
+            f"Review the {len(mine)} path(s) changed in {project} this cycle "
+            f"against charter D1-D6, starting with {mine[0]}",
+            {"kind": "evidence", "key": f"changed_path:{mine[0]}"},
+        ))
+
+    if not candidates:
+        return None
+    _, contract_source, next_action, wake_condition = min(
+        candidates, key=lambda candidate: (candidate[0], candidate[1])
+    )
+    return next_action, wake_condition, contract_source
 
 
 def _phase_service_mission_seed(context: PhaseContext) -> dict[str, Any]:
@@ -1675,6 +2164,23 @@ def _phase_service_mission_seed(context: PhaseContext) -> dict[str, Any]:
 
     Idempotent by mission identity: re-seeding a service folds into the
     mission it already opened.
+
+    ORPHAN-MEDIUM-730 — AND WHAT THE MEASUREMENT ACTUALLY SAID. An earlier
+    revision of this docstring named this phase "the producer of the paralysed
+    store: 28 mission events against 27 violations". Re-measured on
+    2026-08-19: the store holds 5 ``opened`` events, ``pressure`` x2 and
+    ``shadow_run_summary`` x3 — every one from `mission.adopt_task_candidates`
+    and NONE from here, with one recorded ``mission_closure_violation`` row
+    naming those five. This phase had produced nothing live; the rule it
+    adopts is still the right one, but it is not the confession it claimed.
+
+    It mints ONLY what it can also drive: `_service_closure_contract` derives
+    the forward pointer from the service's own findings / pressures / diff,
+    and a service that yields none is disclosed as a governance refusal
+    rather than minted as a mission nothing can advance. Re-seeding also
+    HEALS — through `open_mission`, which installs a contract on any
+    contract-less mission it re-opens, so the rule lives at the mint for both
+    producers instead of being copied into each phase.
     """
     from .mission import open_mission
 
@@ -1711,17 +2217,150 @@ def _phase_service_mission_seed(context: PhaseContext) -> dict[str, Any]:
     # more-central service gets a LOWER (stronger) priority. Graph absent →
     # empty scores → stable fallback to enumeration order within the band.
     centrality: dict[str, float] = {}
+    # The path -> project map the EXAMINATION used to name these very targets.
+    # Attribution and centrality come out of ONE read of ONE cache on purpose:
+    # a second path->project reader can disagree with the reader that chose
+    # the targets, and that disagreement is not academic — the first version
+    # of this phase attributed with `service_dimension.service_for_path`,
+    # which cannot name 54 of this repository's 71 nx projects, so it wrote
+    # "no derivable evidence" rows about the exact paths that had selected
+    # those projects.
+    project_roots: dict[str, str] = {}
     try:
         from .calibrated_intelligence import pagerank
         from .impact_graph import cached_service_analysis_order
 
-        cache = cached_service_analysis_order(context.workspace_root)
+        # `cached_service_analysis_order` is keyword-only. The pre-730 call
+        # passed the root POSITIONALLY, so every invocation raised TypeError
+        # into the handler below and the Z4b band silently never applied —
+        # dead code wearing a live comment. TypeError is out of the handler
+        # for the same reason: an absent graph is OSError/ValueError, a bad
+        # call is a defect and must not be absorbed as "graph absent".
+        cache = cached_service_analysis_order(
+            workspace_root=context.workspace_root, base_dir=context.base_dir
+        )
+        project_roots = {
+            name: root
+            for name, root in (cache.get("project_roots") or {}).items()
+            if isinstance(name, str) and isinstance(root, str) and root.strip()
+        }
         centrality = pagerank(cache.get("dependencies") or {})
-    except (OSError, ValueError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError):
         centrality = {}
+    from .impact_graph import project_for_path
+
+    diff = context.result("cycle_diff")
+    changed_paths = [
+        path
+        for path in ((diff.get("changed_paths") if isinstance(diff, dict) else None) or [])
+        if isinstance(path, str) and path.strip()
+    ]
+    changed_by_project: dict[str, list[str]] = {}
+    for path in changed_paths:
+        owner = project_for_path(path, project_roots)
+        if owner:
+            changed_by_project.setdefault(owner, []).append(path)
+    # The open findings, grouped by PROJECT once. The paths come from
+    # `service_dimension.finding_dimension_paths` — the E15-c collector that
+    # mint-time and read-time both use, so the seeder cannot disagree with the
+    # findings ledger about which paths a finding cites — and the project
+    # comes from the same `project_for_path` the changed paths went through.
+    # Grouping here rather than filtering per project also keeps the ledger
+    # read at one pass instead of one per target service.
+    from .feedback_store import list_findings
+    from .service_dimension import finding_dimension_paths
+
+    open_findings = list_findings(status="open", base_dir=context.base_dir)
+    findings_by_project: dict[str, list[str]] = {}
+    for finding_row in open_findings:
+        finding_id = finding_row.get("finding_id")
+        if not isinstance(finding_id, str) or not finding_id.strip():
+            continue
+        document = finding_row.get("finding")
+        cited = finding_dimension_paths(document if isinstance(document, dict) else {})
+        for path in cited:
+            owner = project_for_path(path, project_roots)
+            if owner and finding_id not in findings_by_project.setdefault(owner, []):
+                findings_by_project[owner].append(finding_id)
     seeded: list[dict[str, Any]] = []
+    refused: list[dict[str, Any]] = []
     for rank, project in enumerate(targets):
         pressures_here = per_service.get(project) or []
+        project_changed = changed_by_project.get(project) or []
+        project_findings = findings_by_project.get(project) or []
+        contract = _service_closure_contract(
+            project,
+            pressures=pressures_here,
+            changed_paths=project_changed,
+            finding_ids=project_findings,
+        )
+        if contract is None:
+            # The honest outcome: no evidence names a next action or a wake,
+            # so there is no mission to open. Disclosed rather than dropped —
+            # a service ARIA declined to harden is an operator-visible fact,
+            # and a silent skip is indistinguishable from a service that was
+            # never considered.
+            #
+            # A refusal may only state what this phase actually MEASURED.
+            # With no project map there was nothing to measure against, so
+            # asserting "no derivable evidence" while a diff and a findings
+            # ledger sit unattributed would be the disclosure claiming a
+            # result the cycle never computed. That is a different fact and
+            # it gets a different reason.
+            reason = (
+                "project_attribution_unavailable"
+                if not project_roots and (changed_paths or open_findings)
+                else "no_derivable_closure_contract"
+            )
+            row = {
+                "schema_version": 1,
+                "cycle_id": context.cycle_id,
+                "project": project,
+                "reason": reason,
+                "core": project in SERVICE_HARDENING_CORE,
+                "scoped_pressures": len(pressures_here),
+            }
+            if reason == "project_attribution_unavailable":
+                # A CENSUS IS A MEASUREMENT, so it may only report one that
+                # was made. With no project map, ``project_changed`` and
+                # ``project_findings`` are empty because nothing could be
+                # attributed — reporting them as "changed_paths: 0 /
+                # open_findings: 0" would state an absence this phase never
+                # observed while it holds the evidence unattributed in its
+                # hand. It reports the totals it DOES hold instead.
+                row["unattributed_changed_paths"] = len(changed_paths)
+                row["unattributed_open_findings"] = len(open_findings)
+            else:
+                row["changed_paths"] = len(project_changed)
+                row["open_findings"] = len(project_findings)
+            # Disclosed ONCE per standing fact. An unchanged refusal
+            # re-appended every night is the same weather-reporting the
+            # closure gate was doing — measured at 4 identical rows per cycle
+            # on an evidence-free night, forever. A refusal whose reason or
+            # census CHANGED is a different fact and gets its own row.
+            #
+            # Nothing is hidden by the silence: this phase declares
+            # `state_key="service_mission_seed"`, so the complete `refused`
+            # list below is projected into EVERY cycle's persisted state, and
+            # `newly_disclosed` says which of them the governance ledger
+            # learned tonight. The dedupe removes repetition from the
+            # audit trail, not the fact from the cycle record.
+            disclosure = append_tools_governance_once(
+                context.base_dir,
+                "service_mission_refused",
+                row,
+                claim_keys=(
+                    "project", "reason", "core", "scoped_pressures",
+                    "changed_paths", "open_findings",
+                    "unattributed_changed_paths", "unattributed_open_findings",
+                ),
+            )
+            refused.append({
+                **{k: v for k, v in row.items() if k != "schema_version"},
+                "newly_disclosed": bool(disclosure["appended"]),
+            })
+            continue
+        next_action, wake_condition, contract_source = contract
         if project in SERVICE_HARDENING_CORE:
             priority = rank
         elif centrality:
@@ -1737,22 +2376,35 @@ def _phase_service_mission_seed(context: PhaseContext) -> dict[str, Any]:
                 f"Harden {project}: secure/performant/sustainable/testable/"
                 f"documented/correct (charter D1-D6)"
             ),
+            next_action=next_action,
+            wake_condition=wake_condition,
             capability="service_hardening",
             priority=priority,
             target_project=project,
             base_dir=context.base_dir,
         )
+        # The heal verdict comes from `open_mission`: a mission opened before
+        # the contract was required gets one installed on re-open, and one a
+        # HUMAN parked keeps the operator's sentence. This phase reports that
+        # verdict rather than re-deciding it — the seed phase and the ingest
+        # path would otherwise hold two copies of the same rule, and the copy
+        # here was the one that overwrote an operator (`heal_declined` names
+        # that case explicitly so a declined heal is visible, not silent).
         seeded.append({
             "project": project,
-            "mission_id": result.get("mission_id"),
+            "mission_id": str(result.get("mission_id")),
             "idempotent": bool(result.get("idempotent")),
             "scoped_pressures": len(pressures_here),
             "priority": priority,
             "centrality": round(centrality.get(project, 0.0), 6) if centrality else None,
+            "contract_source": contract_source,
+            "contract_healed": bool(result.get("healed")),
+            "heal_declined": result.get("heal_declined"),
         })
     return {
         "status": "completed",
         "seeded": seeded,
+        "refused": refused,
         "core": list(SERVICE_HARDENING_CORE),
         "evidence_backed": evidence_backed,
     }
@@ -1814,15 +2466,69 @@ def _phase_artifact_integrity(context: PhaseContext) -> dict[str, Any]:
     return verify_artifacts(base_dir=context.base_dir)
 
 
+def _phase_digest_of(payload: Any, fields: tuple[str, ...]) -> dict[str, Any] | None:
+    """X3 (ORPHAN-700) — compact, count-shaped digest of a phase payload.
+
+    None when the phase produced no dict payload (it never ran or was
+    precondition-skipped); a dict — zeros allowed — when it RAN. That
+    None/zero distinction is the whole point: it is what lets the report
+    say "ran empty" instead of guessing.
+    """
+    if not isinstance(payload, dict):
+        return None
+    digest: dict[str, Any] = {}
+    for field in fields:
+        value = payload.get(field)
+        if isinstance(value, list):
+            digest[field] = len(value)
+        elif isinstance(value, (int, float)):
+            digest[field] = value
+        elif value is not None:
+            digest[field] = str(value)[:80]
+        else:
+            digest[field] = 0
+    return digest
+
+
 def _phase_metrics(context: PhaseContext) -> dict[str, Any]:
     tools_result = context.result("tools") or {}
     run_summary = tools_result.get("run_summary") or []
     decisions = tools_result.get("decisions") or []
+    # X3 (ORPHAN-700) — the two payloads that used to evaporate at the
+    # projection boundary now ride the metrics row the publish carries.
+    phase_digests: dict[str, dict[str, Any]] = {}
+    night = _phase_digest_of(
+        context.result("experiment_night"),
+        ("planned_problem", "planned_regression", "reproduced", "refuted",
+         "regressions", "still_fixed", "skipped_problem", "skipped_regression",
+         "unresolvable_bindings", "errors"),
+    )
+    if night is not None:
+        phase_digests["experiment_night"] = night
+    watchdog = _phase_digest_of(
+        context.result("watchdog_sweep"),
+        # run_watchdog_sweep's REAL return keys (aria_watchdog.py: candidates/
+        # emitted/suppressed). Two prior digests shipped with wrong names —
+        # first invented fields, then the DAEMON's termination keys — and both
+        # recorded honest-looking zeros for a phase that was genuinely running
+        # (measured on cyc-20260817T022536Z). Field set is pinned by
+        # DigestFieldTests against the sweep's actual payload.
+        ("candidates", "emitted", "suppressed"),
+    )
+    if watchdog is not None:
+        phase_digests["watchdog_sweep"] = watchdog
+    author = _phase_digest_of(
+        context.result("experiment_author"),
+        ("authored", "deduped", "unauthorable", "capped"),
+    )
+    if author is not None:
+        phase_digests["experiment_author"] = author
     return record_cycle_metrics(
         cycle_id=context.cycle_id,
         phase_durations_ms={"cycle": int((time.monotonic() - context.started_monotonic) * 1000)},
         artifact_count=len(run_summary) + 4,
         status="ok" if _runtime_status(context) == "ok" else "failed",
+        phase_digests=phase_digests or None,
         cost_units=sum(
             float((decision.get("envelope") or {}).get("cost_units") or 0)
             for decision in decisions if isinstance(decision, dict)
@@ -1893,11 +2599,47 @@ def _phase_tool_manifest_sync(context: PhaseContext) -> dict[str, Any]:
                 "manifest": manifest_path.name,
                 "reason": str(exc)[:200],
             })
+    # JJ-2b (ORPHAN-HIGH-732) — the veto window is evaluated in the phase
+    # that ALREADY sweeps tool lifecycle/registry state, not in one of its
+    # own. Two consequences the split would have cost: the settle sees the
+    # registry exactly as this phase just re-registered it, and there is one
+    # place to look for "why is this adapter still SHADOW".
+    #
+    # Order is load-bearing. SETTLE first: an armed window whose 24h elapsed
+    # activates on this tick. SWEEP second: it opens panel questions only for
+    # adapters that are still SHADOW, so a tool activated moments ago is not
+    # asked about.
+    from .promotion_panel import sweep_promotable_adapters_for_adjudication
+    from .promotion_veto import settle_pending_promotions
+
+    # Same containment the judgment pipeline uses: a refusal in the
+    # promotion lane is RECORDED in this phase's result, never allowed to
+    # take the manifest sync (and the rest of the cycle) down with it.
+    promotion_lane_blocked: list[dict[str, str]] = []
+    veto_settlement: dict[str, Any] = {}
+    promotion_questions: dict[str, Any] = {}
+    try:
+        veto_settlement = settle_pending_promotions(
+            cycle_id=context.cycle_id, base_dir=context.base_dir,
+        )
+    except GovernanceError as exc:
+        promotion_lane_blocked.append({"step": "veto_settlement", "reason": str(exc)[:200]})
+    try:
+        promotion_questions = sweep_promotable_adapters_for_adjudication(
+            base_dir=context.base_dir, cycle_id=context.cycle_id,
+        )
+    except GovernanceError as exc:
+        promotion_lane_blocked.append({"step": "promotion_panels", "reason": str(exc)[:200]})
     return {
         "status": "synced",
         "synced_tool_ids": synced,
         "refused": refused,
         "manifest_dir": str(manifest_dir),
+        "promotions_activated": veto_settlement.get("activated") or [],
+        "promotions_pending_veto": veto_settlement.get("still_pending") or [],
+        "promotions_expired": veto_settlement.get("expired") or [],
+        "promotion_panels_opened": promotion_questions.get("opened") or [],
+        "promotion_lane_blocked": promotion_lane_blocked,
     }
 
 
@@ -2058,15 +2800,42 @@ def _run_pr_lifecycle_phase(context: PhaseContext) -> dict[str, Any]:
     # symbol importable while the call is gone is exactly what made
     # ORPHAN-HIGH-499's mutation invisible to a `hasattr` test, and it would let
     # a future reader conclude the edge is still here.
+    from .apply_engine import IN_FLIGHT_APPLY_STATUSES, latest_apply_action
     from .pr_manager import open_pr_for_action
     from .proposal import list_proposals
 
     workspace_root = context.workspace_root
     base_dir = context.base_dir
-    eligible = [
-        p for p in list_proposals(base_dir=base_dir)
-        if p.get("status") == "approved_for_apply"
-    ]
+    # ORPHAN-CRITICAL-728 — an approved proposal whose apply action is still
+    # IN FLIGHT is not a PR candidate, and counting its refusal as a phase
+    # failure made every cycle after the first staging terminate as FAILED,
+    # permanently.
+    #
+    # `stage_converged_plan_for_pr` approves the proposal and opens the action
+    # in `staged_for_implementation` — by design: the implementer has not run
+    # yet, and `open_pr_for_action` correctly refuses anything that is not
+    # `ready_for_pr` (pinned by test_skipping_the_gate_keeps_the_pinned_
+    # refusal). So `ok < total` held from the first staging onward, `cycle.py`
+    # downgraded the whole cycle on `status == "fail"`, and nothing ever
+    # cleared the proposal. Work that has not finished is not work that
+    # failed; this phase reports it and moves on.
+    candidates: list[dict[str, Any]] = []
+    in_flight: list[dict[str, Any]] = []
+    for prop in list_proposals(base_dir=base_dir):
+        if prop.get("status") != "approved_for_apply":
+            continue
+        action = latest_apply_action(
+            proposal_id=str(prop.get("proposal_id") or ""), base_dir=base_dir,
+        )
+        status = (action or {}).get("status")
+        if status in IN_FLIGHT_APPLY_STATUSES:
+            in_flight.append({
+                "proposal_id": prop.get("proposal_id"),
+                "apply_action_status": status,
+            })
+            continue
+        candidates.append(prop)
+    eligible = candidates
     per_proposal: list[dict[str, Any]] = []
     ok = 0
     for prop in eligible:
@@ -2146,6 +2915,9 @@ def _run_pr_lifecycle_phase(context: PhaseContext) -> dict[str, Any]:
         "status": status, "total": total,
         "ok": ok, "fail": total - ok,
         "proposals": per_proposal,
+        # Reported, never counted: an operator reading the cycle row must be
+        # able to see the staged work that is waiting for its implementer.
+        "in_flight": in_flight,
     }
 
 
@@ -2224,7 +2996,26 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
     # cost the night.
     CyclePhase(
         "watchdog_sweep", "discovery", _phase_watchdog,
+        # E25-a — a finding-EMITTING phase pauses at the backlog ceiling.
+        # The plan named the discovery-class trio (discovery, watchdog_sweep,
+        # experiment_author); "discovery" itself is deliberately NOT gated —
+        # its payload is the comprehension the rest of the cycle propagates
+        # on, and pausing understanding is not what the rhythm rule means.
+        precondition=BACKLOG_BELOW_CAP,
         on_error="record_and_continue", state_key="watchdog_sweep",
+        modes=frozenset({"standard"}),
+    ),
+
+    # SI-4 — standard mode ONLY, and the burn-in pin taught me why: the
+    # janitor DELETES. Burn-in exists to prove ARIA ran and touched
+    # nothing, so a phase that removes files — even ARIA's own litter in
+    # /tmp — is an action and does not belong in a no-action rehearsal.
+    # The rehearsal night's disk is left to the real nights that follow.
+    # No backlog precondition: cleaning up after itself is not
+    # finding-emitting work.
+    CyclePhase(
+        "habitat_sweep", "discovery", _phase_habitat,
+        on_error="record_and_continue", state_key="habitat_sweep",
         modes=frozenset({"standard"}),
     ),
 
@@ -2360,10 +3151,47 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
     # closed-set identity rule) because runs, change-chains and finding
     # events are all writes; record_and_continue because a crashed bench
     # must not cost a night whose other organs succeeded.
+    # X2 (ORPHAN-701) — authoring runs immediately BEFORE the bench so an
+    # experiment minted tonight is selectable tonight. Writes (recipes +
+    # experiment rows) → WRITES_PERMITTED; record_and_continue like every
+    # bench organ.
+    CyclePhase(
+        "experiment_author", "post_tool", _phase_experiment_author,
+        # E25-a — authoring mints new bench work; at the ceiling the bench
+        # keeps RUNNING what exists (experiment_night stays ungated) while
+        # authoring pauses.
+        precondition=WRITES_PERMITTED_AND_BACKLOG_BELOW_CAP,
+        on_error="record_and_continue",
+        state_key="experiment_author",
+    ),
+    # G-1 — the operator's threshold, measured. Observation-class and LAST:
+    # it reads the verdicts of lanes that vote on main and writes one row.
+    # Registered in post_tool beside the other end-of-night observers —
+    # an earlier slot made it the first phase to speak about a night whose
+    # work had not happened yet (and, in a fixture without the charter,
+    # the first phase to fail).
+    CyclePhase(
+        "product_fitness", "post_tool", _phase_product_fitness,
+        on_error="record_and_continue", state_key="product_fitness",
+        modes=frozenset({"standard"}),
+    ),
+
     CyclePhase(
         "experiment_night", "post_tool", _phase_experiment_night,
         precondition=WRITES_PERMITTED, on_error="record_and_continue",
         state_key="experiment_night",
+    ),
+    # G-4 — immediately after the bench, because the bench is what
+    # produces the evidence this phase reads: a regression detected
+    # tonight is a verdict tonight, not tomorrow. WRITES_PERMITTED (the
+    # existing closed-set member) because it appends the fourth
+    # change-ledger event and updates the effectiveness counters;
+    # record_and_continue because a night whose real work succeeded must
+    # not fail on a measurement that crashed.
+    CyclePhase(
+        "change_outcome_evaluation", "post_tool", _phase_change_outcome_evaluation,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="change_outcome_evaluation",
     ),
     # The judgment supply chain, in dependency order and BEFORE calibration:
     # fixtures stay fresh, findings get sampled, judges fan out, consensus is
@@ -2396,6 +3224,13 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
     # and the gold corpus this mints is what judge_replay scores judges
     # against. `record_and_continue` — a proposal that CRASHED recorded no
     # ground truth, but it must not fail a cycle whose real work succeeded.
+    # E14-b (ORPHAN-697) — one fitness report per cycle; its readers
+    # (agent_network / triage / capability_gap / learning) finally get a
+    # nightly producer. Observation-class; a crash must not cost the night.
+    CyclePhase(
+        "fitness_report", "post_tool", _phase_fitness_report,
+        on_error="record_and_continue", state_key="fitness_report",
+    ),
     CyclePhase(
         "goldset_proposal", "post_tool", _phase_goldset_proposal,
         precondition=WRITES_PERMITTED, on_error="record_and_continue",

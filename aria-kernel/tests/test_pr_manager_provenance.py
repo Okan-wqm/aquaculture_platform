@@ -71,7 +71,7 @@ def _seed_workspace() -> tuple[Path, Path, str]:
     set_profile(
         "strict",
         operator_approval_ref="test:plan-022-c4",
-        base_dir=tools, set_by="test-fixture",
+        base_dir=tools, set_by="operator",
     )
     return tools, repo, base_sha
 

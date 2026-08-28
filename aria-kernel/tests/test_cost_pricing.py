@@ -114,9 +114,16 @@ class AliasPricingCoverageTests(unittest.TestCase):
     def test_every_dispatchable_alias_has_at_least_one_priced_model(self) -> None:
         from aria_kernel.agent_runtime_profile import VALID_MODELS
 
+        from aria_kernel.budget import alias_pricing_prefix
+
         for alias in sorted(VALID_MODELS):
             with self.subTest(alias=alias):
-                family = f"claude-{alias}-"
+                # ORPHAN-HIGH-763 — deliberate breakage. This built the family
+                # as f"claude-{alias}-", which asserted that every dispatchable
+                # model is an Anthropic one. `glm-5.3` falsifies that, and the
+                # successor truth is: an alias must be priced under ITS OWN
+                # family, whoever ships it.
+                family = alias_pricing_prefix(alias)
                 priced = [k for k in MODEL_PRICING_USD_PER_MTOK if k.startswith(family)]
                 self.assertTrue(
                     priced,
@@ -198,9 +205,13 @@ class DynamicFamilyPricingTests(unittest.TestCase):
         from aria_kernel.agent_runtime_profile import VALID_MODELS
         from aria_kernel.budget import MODEL_FAMILY_PRICING_USD_PER_MTOK
 
+        from aria_kernel.budget import alias_pricing_prefix
+
         for alias in sorted(VALID_MODELS):
             with self.subTest(alias=alias):
-                self.assertIn(f"claude-{alias}", MODEL_FAMILY_PRICING_USD_PER_MTOK)
+                self.assertIn(
+                    alias_pricing_prefix(alias), MODEL_FAMILY_PRICING_USD_PER_MTOK,
+                )
 
     def test_the_executor_records_the_pricing_source(self) -> None:
         """An inferred price filed as a measured one is the defect this label

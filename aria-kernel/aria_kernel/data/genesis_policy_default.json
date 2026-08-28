@@ -61,13 +61,24 @@
       "semantic_regression",
       "scope_violation_guard"
     ],
-    "request_requires_signed_operator_feedback": true,
+    "request_approval_mode": "panel",
     "shadow_min_clean_cycles": 5,
     "shadow_min_days": 14,
     "shadow_min_eval_runs": 10
   },
+  "genesis_panel": {
+    "enabled": true,
+    "max_panel_opens_per_cycle": 4
+  },
+  "judgment_pipeline": {
+    "max_pending_per_role": 32,
+    "sample_size_per_tool": 5
+  },
   "materialization_requires_acknowledge": true,
   "max_requests_per_cycle": 5,
+  "rhythm": {
+    "backlog_cap": 25
+  },
   "schema_version": 1,
   "service_auditor_threshold": 25,
   "skill_genesis_drainer": {
@@ -76,5 +87,12 @@
     "estimated_tokens_per_authoring": 30000,
     "max_authorings_per_cycle": 3,
     "max_tokens_per_cycle": 50000
+  },
+  "watchdog_pull": {
+    "api_key_env": "ARIA_OBSERVABILITY_API_KEY",
+    "enabled": true,
+    "http_5xx_share_threshold": 0.05,
+    "http_min_requests": 50,
+    "observability_base_url": null
   }
 }

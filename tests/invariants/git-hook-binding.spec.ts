@@ -81,11 +81,12 @@ interface ScriptGate {
  * That silently limited the invariant to gates whose CI and local forms are
  * spelled identically — and the gate that mattered most was not one of them.
  * CI runs the ARIA kernel suite as `npm run aria:test:unit`; a hook cannot
- * mirror that verbatim, because unconditionally paying 215 seconds on every push
- * is how a gate gets bypassed. Its mirror is a scoped wrapper with a different
- * name, and a same-string rule would have reported parity for a gate with no
- * local counterpart at all — which is precisely the state that let a red commit
- * reach origin (ORPHAN-HIGH-510).
+ * mirror that verbatim, because unconditionally running 5,000+ tests whose
+ * hosted duration has exceeded 45 minutes on every push is how a gate gets
+ * bypassed. Its mirror is a scoped wrapper with a different name, and a
+ * same-string rule would have reported parity for a gate with no local
+ * counterpart at all — which is precisely the state that let a red commit reach
+ * origin (ORPHAN-HIGH-510).
  */
 const SCRIPT_GATES: readonly ScriptGate[] = [
   {
@@ -242,5 +243,12 @@ describe('git hook binding', () => {
     }
 
     expect(missing).toEqual({});
+  });
+
+  it('describes the ARIA pre-push cost without a stale fixed duration', () => {
+    const hook = readFileSync(join(HUSKY_DIR, 'pre-push'), 'utf8');
+    expect(hook).not.toContain('~215s');
+    expect(hook).toContain('5,000+');
+    expect(hook).toContain('>45m');
   });
 });

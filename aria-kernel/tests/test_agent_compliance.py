@@ -115,6 +115,37 @@ class IndividualCheckTests(unittest.TestCase):
         )
         self.assertFalse(grade["check_results"]["evidence_schema_valid"]["passed"])
 
+    def test_kernel_ledger_pointer_ref_is_admissible(self) -> None:
+        # ORPHAN-719 — the kernel mints `human-required:<id>` into panel
+        # scopes and evidence law admits it (#1271, single predicate);
+        # this grader kept a second regex and hard-rejected every panel
+        # opinion on Night-1 (4 submit_rejected, all judges-as-panelists).
+        response = _well_formed_response()
+        response["evidence_refs"] = [
+            "human-required:AIR-aria-evidence-judge-0123456789ab",
+        ]
+        grade = grade_response(
+            request=_well_formed_request(),
+            response=response,
+            response_path=Path("/tmp/out.md"),
+        )
+        self.assertTrue(
+            grade["check_results"]["evidence_schema_valid"]["passed"],
+            grade["check_results"]["evidence_schema_valid"],
+        )
+
+    def test_bare_ledger_pointer_prefix_still_rejected(self) -> None:
+        # `human-required:` with no id names nothing — the predicate
+        # requires a non-empty id, so the empty spelling stays bad.
+        response = _well_formed_response()
+        response["evidence_refs"] = ["human-required:"]
+        grade = grade_response(
+            request=_well_formed_request(),
+            response=response,
+            response_path=Path("/tmp/out.md"),
+        )
+        self.assertFalse(grade["check_results"]["evidence_schema_valid"]["passed"])
+
     def test_output_path_mismatch_hard_fails(self) -> None:
         grade = grade_response(
             request=_well_formed_request(expected_path="/tmp/expected.md"),

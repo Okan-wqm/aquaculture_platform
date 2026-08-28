@@ -11,12 +11,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .file_lock import with_exclusive_lock
 from .ledger import (
-    _append_jsonl_unlocked,
-    _assert_declared_surface,
     append_declared_jsonl,
     load_declared_jsonl,
+    state_transaction,
 )
 from .agent_network import latest_agent_network_hash
 from .pressure import effective_workspace_pressures
@@ -99,20 +97,6 @@ def load_jsonl(path: Path) -> list[dict[str, Any]]:
     if surface is not None:
         return load_declared_jsonl(path, expected_surface=surface)
     raise GovernanceError(f"worker_dispatch_load_unknown_surface:{path.as_posix()}")
-
-
-def _append_declared_jsonl_unlocked(
-    path: Path,
-    record: dict[str, Any],
-    *,
-    expected_surface: str,
-) -> dict[str, Any]:
-    _assert_declared_surface(
-        path,
-        expected_surface=expected_surface,
-        enforce_write_profile=True,
-    )
-    return _append_jsonl_unlocked(path.resolve(), record)
 
 
 def create_dispatch_request(
@@ -587,7 +571,7 @@ def claim_assignment(
         raise GovernanceError("agent_id is required")
     root = ensure_tools_dir(base_dir)
     claims_path = _claims_path(root)
-    with with_exclusive_lock(claims_path):
+    with state_transaction([claims_path]) as transaction:
         state = _derive_assignment_state(root, assignment_id)
         if state == "missing":
             raise GovernanceError(
@@ -626,10 +610,7 @@ def claim_assignment(
             "claimed_at": _iso(now),
             "lease_expires_at": _iso(expires),
         }
-        # Plan 026R §A.1 — caller already holds with_exclusive_lock(claims_path)
-        # at the enclosing block; use the unlocked helper to avoid POSIX flock
-        # re-acquisition.
-        _append_declared_jsonl_unlocked(
+        transaction.append_declared_jsonl(
             claims_path,
             row,
             expected_surface="dispatch_claims",
@@ -684,8 +665,11 @@ def release_claim_assignment(
         raise GovernanceError("release reason is required")
     root = ensure_tools_dir(base_dir)
     claims_path = _claims_path(root)
-    with with_exclusive_lock(claims_path):
-        claims = load_jsonl(claims_path)
+    with state_transaction([claims_path]) as transaction:
+        claims = transaction.load_declared_jsonl(
+            claims_path,
+            expected_surface="dispatch_claims",
+        )
         claim_event = next(
             (r for r in claims
              if r.get("claim_id") == claim_id and r.get("event") == "claimed"),
@@ -719,10 +703,7 @@ def release_claim_assignment(
             "recorded_at": released_at,
             "released_at": released_at,
         }
-        # Plan 026R §A.1 — caller already holds with_exclusive_lock(claims_path)
-        # at the enclosing block; use the unlocked helper to avoid POSIX flock
-        # re-acquisition.
-        _append_declared_jsonl_unlocked(
+        transaction.append_declared_jsonl(
             claims_path,
             row,
             expected_surface="dispatch_claims",

@@ -128,6 +128,82 @@ class PrLifecyclePhaseTests(unittest.TestCase):
         self.assertEqual(per_prop["passed"], False)
         self.assertIn("apply action", per_prop["error"])
 
+    def _seed_apply_action(self, *, proposal_id: str, status: str) -> None:
+        actions_path = self.tools_root / "apply" / "actions.jsonl"
+        actions_path.parent.mkdir(parents=True, exist_ok=True)
+        append_declared_fixture(
+            actions_path,
+            {
+                "$schema": "aria/apply-action/v1",
+                "schema_version": 1,
+                "proposal_id": proposal_id,
+                "status": status,
+                "branch": "aria-impl-0123456789abcdef",
+                "base_sha": "0" * 40,
+                "workspace_root": str(self.tmp),
+                "recorded_at": datetime.now(timezone.utc).isoformat().replace(
+                    "+00:00", "Z",
+                ),
+            },
+            expected_surface="apply_actions",
+        )
+
+    def test_staged_work_is_in_flight_not_a_cycle_failure(self) -> None:
+        """ORPHAN-CRITICAL-728 — the defect that made every later cycle FAILED.
+
+        `stage_converged_plan_for_pr` approves the proposal and opens its
+        apply action in `staged_for_implementation`, because the implementer
+        has not run yet. This phase then selected it (status is
+        `approved_for_apply`), `open_pr_for_action` correctly refused
+        anything that is not `ready_for_pr`, and `ok < total` made the phase
+        report `fail` — which `cycle.py` propagates to the cycle's terminal
+        row. From the first staging onward every cycle terminated FAILED,
+        forever, and nothing cleared the proposal.
+
+        Work that has not finished is not work that failed.
+        """
+        self._seed_proposal(proposal_id="prop-STAGED", status="approved_for_apply")
+        self._seed_apply_action(
+            proposal_id="prop-STAGED", status="staged_for_implementation",
+        )
+        with patch("aria_kernel.pr_manager.open_pr_for_action") as mock_action:
+            context = build_phase_context(
+                cycle_id="cyc-pr-4",
+                workspace_root=self.tmp,
+                base_dir=self.tools_root,
+                cycle_started_at=datetime.now(timezone.utc),
+            )
+            payload = _run_pr_lifecycle_phase(context)
+        # Not attempted at all — the refusal was never worth provoking.
+        self.assertEqual(mock_action.call_count, 0)
+        self.assertEqual(payload["status"], "no_op")
+        self.assertEqual(payload["total"], 0)
+        # Reported, so an operator can see the staged work that is waiting.
+        self.assertEqual(
+            payload["in_flight"],
+            [{
+                "proposal_id": "prop-STAGED",
+                "apply_action_status": "staged_for_implementation",
+            }],
+        )
+
+    def test_a_gated_proposal_is_still_a_candidate(self) -> None:
+        """In-flight must not become a way to stop opening PRs at all."""
+        self._seed_proposal(proposal_id="prop-READY", status="approved_for_apply")
+        self._seed_apply_action(proposal_id="prop-READY", status="ready_for_pr")
+        with patch("aria_kernel.pr_manager.open_pr_for_action") as mock_action:
+            mock_action.return_value = {"event": "pr_dry_run"}
+            context = build_phase_context(
+                cycle_id="cyc-pr-5",
+                workspace_root=self.tmp,
+                base_dir=self.tools_root,
+                cycle_started_at=datetime.now(timezone.utc),
+            )
+            payload = _run_pr_lifecycle_phase(context)
+        self.assertEqual(mock_action.call_count, 1)
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["in_flight"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

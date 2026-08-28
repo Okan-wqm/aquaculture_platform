@@ -50,7 +50,7 @@ class ShadowEvalBridgeTests(unittest.TestCase):
             "strict",
             operator_approval_ref="test:c4d-bridge",
             base_dir=self.tools,
-            set_by="test-fixture",
+            set_by="operator",
         )
 
     def tearDown(self) -> None:

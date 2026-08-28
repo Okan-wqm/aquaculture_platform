@@ -162,44 +162,43 @@ describe('CI Full protected-main and PR contract', () => {
   });
 
   it('ratchets every previously dormant Jest coverage floor from its first full-CI baseline', () => {
-    expect(SERVICE_COVERAGE_BASELINES).toEqual({
-      'admin-api-service': {
-        branches: 14.17,
-        functions: 18.16,
-        lines: 27.27,
-        statements: 27.43,
-      },
-      'auth-service': {
-        branches: 42.41,
-        functions: 22.67,
-        lines: 48.18,
-        statements: 48.56,
-      },
-      'billing-service': {
-        branches: 47.09,
-        functions: 33.37,
-        lines: 53.33,
-        statements: 53.05,
-      },
-      'farm-service': {
-        branches: 32.86,
-        functions: 20.39,
-        lines: 33.92,
-        statements: 33.84,
-      },
-      'hr-service': {
-        branches: 30.3,
-        functions: 15.62,
-        lines: 34.29,
-        statements: 34.66,
-      },
-      'sensor-service': {
-        branches: 19.22,
-        functions: 14.92,
-        lines: 38.64,
-        statements: 39.85,
-      },
-    });
+    // This assertion used to FREEZE the six services' numbers with toEqual,
+    // which is the opposite of what its own name claims. A ratchet that
+    // cannot move is a floor, and pinning the values here made raising them
+    // a test failure — measured 2026-08-19, when the evidence lane found four
+    // services materially above their pins (farm-service line coverage was
+    // 22.8 points higher than the number frozen here) and this spec is what
+    // refused the correction.
+    //
+    // The numbers have exactly one owner: service-coverage-baselines.json,
+    // raised by `coverage-evidence.js --write` from what CI measured. What
+    // belongs here is the SHAPE nobody may quietly change — which services
+    // are floored, which metrics each carries, and that every floor is a real
+    // percentage. A service dropped from the map, or a metric silently
+    // removed, still fails.
+    expect(Object.keys(SERVICE_COVERAGE_BASELINES).sort()).toEqual([
+      'admin-api-service',
+      'auth-service',
+      'billing-service',
+      'farm-service',
+      'hr-service',
+      'sensor-service',
+    ]);
+    for (const [service, floors] of Object.entries(SERVICE_COVERAGE_BASELINES)) {
+      expect({ service, metrics: Object.keys(floors).sort() }).toEqual({
+        service,
+        metrics: ['branches', 'functions', 'lines', 'statements'],
+      });
+      for (const [metric, floor] of Object.entries(floors)) {
+        // A floor outside (0, 100] is not a coverage percentage, whatever
+        // produced it.
+        expect({
+          service,
+          metric,
+          valid: typeof floor === 'number' && floor > 0 && floor <= 100,
+        }).toEqual({ service, metric, valid: true });
+      }
+    }
 
     for (const service of Object.keys(SERVICE_COVERAGE_CONFIGS) as Array<
       keyof typeof SERVICE_COVERAGE_CONFIGS

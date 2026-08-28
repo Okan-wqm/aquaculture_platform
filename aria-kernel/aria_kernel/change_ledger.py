@@ -263,12 +263,24 @@ def emit_change_committed(
     commit_sha: str,
     actual_affected_files: list[str],
     claim_id: str | None = None,
+    uncovered_intended_dispositions: dict[str, str] | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Record the commit landing for a planned change.
 
     Idempotent on (change_id, commit_sha, files_hash). Returns the
     existing row if a commit_sha was already recorded for change_id.
+
+    ORPHAN-721 (2026-08-18 operator directive) — the completeness half of
+    the scope gate. §D.2 below makes over-implementation impossible
+    (actual ⊆ intended); nothing made UNDER-implementation visible: an
+    implementer that landed 3 of 7 key_changes still recorded a normal
+    commit and the chain read "complete". Now every intended file the
+    diff did NOT touch requires a declared disposition ("reviewed, no
+    change needed: <why>") in ``uncovered_intended_dispositions``; an
+    undeclared shortfall refuses the row. Legitimate over-approximation
+    by the planner stays cheap — one honest sentence per file — and the
+    audit trail records it instead of silence.
     """
     if not change_id.strip():
         raise GovernanceError("change_id is required")
@@ -315,6 +327,25 @@ def emit_change_committed(
             f"intended={sorted(intended_files)} actual={sorted(actual_set)}"
         )
 
+    uncovered = sorted(intended_files - actual_set)
+    dispositions = dict(uncovered_intended_dispositions or {})
+    undeclared = [f for f in uncovered if not str(dispositions.get(f, "")).strip()]
+    if undeclared:
+        raise GovernanceError(
+            f"implementation_incomplete_undeclared: change_committed for "
+            f"{change_id!r} leaves intended files untouched with no declared "
+            f"disposition: {undeclared}. Either implement them or record "
+            f"why each needs no change."
+        )
+    stray = sorted(set(dispositions) - set(uncovered))
+    if stray:
+        raise GovernanceError(
+            f"implementation_disposition_for_covered_file: {stray} — a "
+            f"disposition may only name an intended file the diff did not "
+            f"touch; dispositions for touched or unplanned files would let "
+            f"prose overwrite the diff's own record."
+        )
+
     existing = _find_committed(tools_root, change_id)
     if existing is not None:
         if (existing.get("commit_sha") == commit_sha
@@ -335,6 +366,9 @@ def emit_change_committed(
         "commit_sha": commit_sha,
         "actual_affected_files": sorted(actual_affected_files),
         "affected_files_hash": _files_hash(actual_affected_files),
+        "uncovered_intended": uncovered,
+        "uncovered_intended_dispositions": dispositions,
+        "implementation_complete": not uncovered,
         "claim_id": claim_id,
         "recorded_at": utc_now(),
     }

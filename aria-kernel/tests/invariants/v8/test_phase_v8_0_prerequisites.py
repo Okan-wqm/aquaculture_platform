@@ -2,7 +2,7 @@
 
 Closes F-014-D0. 6 invariants:
 
-- I-V8.0-01 — _poll_for_state regression: returns state string (not None)
+- I-V8.0-01 — INVERTED (CL-1): the drainer has no polling primitive at all
 - I-V8.0-02 — fold_plan_state cache hits when events.jsonl mtime stable
 - I-V8.0-03 — fold_plan_state cache invalidates when events.jsonl mtime advances
 - I-V8.0-04 — CLI fail-fast: --cycle-deadline-seconds too small → exit 2
@@ -22,48 +22,26 @@ from unittest import mock
 from . import _helpers  # noqa: F401 — wires aria-kernel into sys.path
 
 from aria_kernel import budget, plan_convergence, secret_scrub
-from aria_kernel.convergence_drainer import _poll_for_state
+class TestNoPollingInConvergence(unittest.TestCase):
+    """I-V8.0-01 INVERTED by CL-1 (ORPHAN-725): the poll this pin used to
+    protect is deliberately dead. The cycle lane mints envelopes; the
+    executor lane delivers them in a LATER workflow run, so any in-cycle
+    wait for plan state is structurally a lost lottery (13/13 timeouts in
+    production). The successor truth: the drainer module contains no
+    polling primitive and never sleeps."""
 
+    def test_poll_primitive_is_gone(self):
+        import aria_kernel.convergence_drainer as drainer_module
 
-class TestPollForStateRegression(unittest.TestCase):
-    """I-V8.0-01 — Pre-V8 bug: fold_plan_state returns dict, compared
-    to set[str] → always False. After C0 fix the poll observes the
-    REVISED state string and returns it."""
+        self.assertFalse(hasattr(drainer_module, "_poll_for_state"))
 
-    def test_poll_returns_state_string_after_revised(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            base = Path(tmp)
-            # Simulate fold_plan_state returning a state dict in REVISED
-            with mock.patch(
-                "aria_kernel.convergence_drainer.fold_plan_state",
-                return_value={"state": "REVISED"},
-            ):
-                result = _poll_for_state(
-                    plan_id="plan-test",
-                    target_states={"REVISED"},
-                    base_dir=base,
-                    deadline=time.monotonic() + 5.0,
-                    aria_stop_root=base,
-                    sleep_interval=0.05,
-                )
-                self.assertEqual(result, "REVISED")
+    def test_drainer_source_never_sleeps(self):
+        import inspect
 
-    def test_poll_returns_none_on_unmatched_state(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            base = Path(tmp)
-            with mock.patch(
-                "aria_kernel.convergence_drainer.fold_plan_state",
-                return_value={"state": "DRAFT"},
-            ):
-                result = _poll_for_state(
-                    plan_id="plan-test",
-                    target_states={"REVISED", "CROSS_REVIEWED"},
-                    base_dir=base,
-                    deadline=time.monotonic() + 0.5,
-                    aria_stop_root=base,
-                    sleep_interval=0.05,
-                )
-                self.assertIsNone(result)
+        import aria_kernel.convergence_drainer as drainer_module
+
+        source = inspect.getsource(drainer_module)
+        self.assertNotIn("time.sleep", source)
 
 
 class TestFoldPlanStateCache(unittest.TestCase):
@@ -137,30 +115,22 @@ class TestFoldPlanStateCache(unittest.TestCase):
 
 
 class TestCliFailFast(unittest.TestCase):
-    """I-V8.0-04 — argparse-level fail-fast for too-small deadline."""
+    """I-V8.0-04 INVERTED by CL-1 (ORPHAN-725): the deadline floor was
+    sized for in-cycle waits (max_rounds × 3 envelopes × timeout) that
+    no longer exist — the step function never blocks, so a 60s deadline
+    with a 1800s challenger timeout is now a LEGAL configuration and the
+    CLI must not refuse it."""
 
-    def test_cycle_deadline_too_small_returns_nonzero(self):
-        # Direct exec of the CLI; verify exit code 2 and stderr message
-        import subprocess
-        env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[3])}
-        result = subprocess.run(
-            [
-                sys.executable, "-m", "aria_kernel", "autonomy", "run",
-                "--max-cycles", "1",
-                "--workspace-root", ".",
-                "--cycle-deadline-seconds", "60",
-                "--max-rounds", "4",
-                "--challenger-timeout-seconds", "1800",
-                "--tools-dir", "/tmp/v8-fail-fast-test",
-            ],
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        self.assertEqual(result.returncode, 2, f"stdout={result.stdout!r} stderr={result.stderr!r}")
-        self.assertIn("cycle-deadline-seconds", result.stderr)
-        self.assertIn("max_rounds", result.stderr)
+    def test_small_cycle_deadline_is_no_longer_refused_at_parse_time(self):
+        # Source-level pin: reintroducing the floor expression fails here
+        # without spawning a real orchestrator run.
+        import inspect
+
+        from aria_kernel import cli as cli_module
+
+        source = inspect.getsource(cli_module)
+        self.assertNotIn("_v8_min_cycle_deadline", source)
+        self.assertNotIn("max_rounds × 3 envelopes", source)
 
 
 class TestBudgetReservation(unittest.TestCase):

@@ -117,7 +117,8 @@ Nx invariants, GitHub Actions YAML, Git worktrees, GitHub CLI.
 **Files:**
 
 - Create: `docs/reviews/aria/2026-08-28-operational-proof-continuity.md`
-- Modify through allocator: `docs/reviews/_registry/findings.jsonl`
+- Modify through allocator, ID stamping, and sanctioned branch-suffix rechain:
+  `docs/reviews/_registry/findings.jsonl`
 - Modify through generator: `tools/quality/format-scope.json`
 
 **Interfaces:**
@@ -208,21 +209,71 @@ Run:
 npm run findings:add -- ARIA docs/reviews/_registry/aria-operational-proof-continuity.stub.json
 npm run findings:add -- ARIA docs/reviews/_registry/aria-terminal-summary.stub.json
 npm run findings:verify
-jq -r 'select(.title == "Operational Proof does not prove published state continuity" or .title == "Burn-in terminal summaries omit stopped and aborted rows") | [.id, .title] | @tsv' \
-  docs/reviews/_registry/findings.jsonl
+HIGH_ID="$(jq -r \
+  'select(.title == "Operational Proof does not prove published state continuity") | .id' \
+  docs/reviews/_registry/findings.jsonl)"
+MEDIUM_ID="$(jq -r \
+  'select(.title == "Burn-in terminal summaries omit stopped and aborted rows") | .id' \
+  docs/reviews/_registry/findings.jsonl)"
+test "$(printf '%s\n' "$HIGH_ID" | wc -l)" -eq 1
+test "$(printf '%s\n' "$MEDIUM_ID" | wc -l)" -eq 1
+[[ "$HIGH_ID" =~ ^ARIA-HIGH-[0-9]{3}$ ]]
+[[ "$MEDIUM_ID" =~ ^ARIA-MEDIUM-[0-9]{3}$ ]]
+test "$HIGH_ID" != "$MEDIUM_ID"
+printf '%s\n' "$HIGH_ID" "$MEDIUM_ID"
 ```
 
-Expected: the common-directory allocator appends `ARIA-HIGH-024` followed by
-`ARIA-MEDIUM-025`; registry chain verification exits 0. These values are
-derived from exact titles after allocation, never predicted from the branch's
-local registry tail.
+Expected: the common-directory allocator appends two distinct schema-valid
+IDs and registry chain verification exits 0. The IDs are derived uniquely from
+exact titles after allocation, never predicted from the branch's local
+registry tail.
 
-- [ ] **Step 4: Stamp allocated IDs and delete only the allocator stubs**
+- [ ] **Step 4: Stamp allocated IDs, rechain the branch suffix, and delete only
+      the allocator stubs**
 
 Use `apply_patch` to put the derived IDs in both review headings, every plan and
-spec reference, and the Task 3/Task 5 future `Closes:` commands. Then delete
-only the two stubs with `apply_patch`. Expected tracked scope after deletion:
-the review Markdown and registry JSONL; no stub remains.
+spec reference, and the Task 3/Task 5 future `Closes:` commands. In the two
+newly allocated registry rows, use `apply_patch` to replace each path-only
+`evidence` value with
+`docs/reviews/aria/2026-08-28-operational-proof-continuity.md#<that-row's-derived-ID>`.
+Do not change allocator semantics and do not append a correction or
+supersession row.
+
+Because those two rows are an unmerged branch-only suffix, discover the first
+changed row's zero-based index by exact title, prove it is beyond the
+byte-identical `origin/main` prefix, and invoke the canonical locked rechain:
+
+```bash
+REGISTRY=docs/reviews/_registry/findings.jsonl
+git fetch origin +refs/heads/main:refs/remotes/origin/main
+MAIN_ENTRY_COUNT="$(git show origin/main:"$REGISTRY" |
+  awk 'NF { count += 1 } END { print count + 0 }')"
+FIRST_CHANGED_INDEX="$(jq -s -r \
+  --arg title "Operational Proof does not prove published state continuity" \
+  'to_entries[] | select(.value.title == $title) | .key' "$REGISTRY")"
+test "$(printf '%s\n' "$FIRST_CHANGED_INDEX" | wc -l)" -eq 1
+test "$FIRST_CHANGED_INDEX" -ge "$MAIN_ENTRY_COUNT"
+cmp <(git show origin/main:"$REGISTRY") \
+  <(head -n "$MAIN_ENTRY_COUNT" "$REGISTRY")
+jq -s -e '
+  [.[] | select(
+    .title == "Operational Proof does not prove published state continuity" or
+    .title == "Burn-in terminal summaries omit stopped and aborted rows")]
+  | length == 2 and
+    all(.[];
+      .evidence == [
+        ("docs/reviews/aria/2026-08-28-operational-proof-continuity.md#" + .id)
+      ])
+' "$REGISTRY" >/dev/null
+npx ts-node --project tools/gates/tsconfig.json \
+  tools/gates/finding-registry.ts rechain-from "$FIRST_CHANGED_INDEX"
+npm run findings:verify
+```
+
+The rechain command owns the common allocator lock and refuses any mutation to
+the fetched canonical prefix. Then delete only the two stubs with
+`apply_patch`. Expected tracked scope after deletion: the review Markdown and
+registry JSONL; no stub remains.
 
 - [ ] **Step 5: Regenerate format ownership and run traceability tests**
 
@@ -453,16 +504,19 @@ Expected: all pass.
 
 ```bash
 git add aria-kernel/aria_kernel/state_store.py \
+  aria-kernel/aria_kernel/state_snapshot.py \
   aria-kernel/aria_kernel/cycle.py \
   aria-kernel/tests/test_snapshot_line_grandfather.py
 git diff --cached --check
 git commit -m "fix(aria): unify published prefix validation" \
   -m "Publication, store verification, and continuity must apply one historical row-prefix policy or the durable branch cannot verify its own immutable bytes." \
   -m "Closes: docs/reviews/aria/2026-08-23-state-publish-line-cap-regression.md#ARIA-HIGH-017"
+test -z "$(git status --porcelain=v1 --untracked-files=all)"
 git push origin HEAD:fix/kernel-ci-timeouts
 ```
 
-Expected: hooks and push pass; PR head equals local HEAD.
+Expected: hooks pass, the complete helper-owning change leaves no staged,
+unstaged, or untracked residue before push, and PR head equals local HEAD.
 
 ---
 
@@ -1358,14 +1412,18 @@ BEFORE_RUN_IDS="$(gh run list --workflow "$WORKFLOW_FILE" \
   --branch "$REMOTE_BRANCH" --event workflow_dispatch --limit 1000 \
   --json databaseId --jq 'map(.databaseId)')"
 assert_exact_head
-gh workflow run "$WORKFLOW_FILE" --ref "$REMOTE_BRANCH"
 DISCOVERY_DEADLINE=$((SECONDS + 300))
+PROOF_DEADLINE=$((SECONDS + 6600))
+timeout "$((DISCOVERY_DEADLINE - SECONDS))s" \
+  gh workflow run "$WORKFLOW_FILE" --ref "$REMOTE_BRANCH"
 NEW_CANDIDATES='[]'
-while (( SECONDS < DISCOVERY_DEADLINE )); do
-  CANDIDATE_RUNS="$(gh run list --workflow "$WORKFLOW_FILE" \
-    --branch "$REMOTE_BRANCH" --commit "$HEAD_SHA" \
-    --event workflow_dispatch --limit 1000 \
-    --json databaseId,attempt,event,headBranch,headSha,createdAt,status,conclusion)"
+while (( SECONDS < DISCOVERY_DEADLINE && SECONDS < PROOF_DEADLINE )); do
+  DISCOVERY_REMAINING=$((DISCOVERY_DEADLINE - SECONDS))
+  CANDIDATE_RUNS="$(timeout "${DISCOVERY_REMAINING}s" \
+    gh run list --workflow "$WORKFLOW_FILE" \
+      --branch "$REMOTE_BRANCH" --commit "$HEAD_SHA" \
+      --event workflow_dispatch --limit 1000 \
+      --json databaseId,attempt,event,headBranch,headSha,createdAt,status,conclusion)"
   NEW_CANDIDATES="$(jq -c --argjson before "$BEFORE_RUN_IDS" \
     --arg branch "$REMOTE_BRANCH" --arg sha "$HEAD_SHA" '
       [.[] |
@@ -1377,15 +1435,55 @@ while (( SECONDS < DISCOVERY_DEADLINE )); do
   CANDIDATE_COUNT="$(jq 'length' <<<"$NEW_CANDIDATES")"
   test "$CANDIDATE_COUNT" -le 1
   test "$CANDIDATE_COUNT" -eq 0 || break
-  sleep 5
+  DISCOVERY_REMAINING=$((DISCOVERY_DEADLINE - SECONDS))
+  test "$DISCOVERY_REMAINING" -gt 0
+  if (( DISCOVERY_REMAINING < 5 )); then
+    sleep "$DISCOVERY_REMAINING"
+  else
+    sleep 5
+  fi
 done
 jq -e 'length == 1 and .[0].attempt == 1' \
   <<<"$NEW_CANDIDATES" >/dev/null
 RUN_ID="$(jq -r '.[0].databaseId' <<<"$NEW_CANDIDATES")"
 RUN_ATTEMPT="$(jq -r '.[0].attempt' <<<"$NEW_CANDIDATES")"
-gh run watch "$RUN_ID" --exit-status --interval 10
-RUN_JSON="$(gh run view "$RUN_ID" \
-  --json databaseId,attempt,event,headBranch,headSha,status,conclusion,workflowName,url)"
+RUN_COMPLETED=false
+while (( SECONDS < PROOF_DEADLINE )); do
+  PROOF_REMAINING=$((PROOF_DEADLINE - SECONDS))
+  RUN_JSON="$(timeout "${PROOF_REMAINING}s" gh run view "$RUN_ID" \
+    --json databaseId,attempt,event,headBranch,headSha,status,conclusion,workflowName,url)"
+  jq -e --argjson run_id "$RUN_ID" --argjson attempt "$RUN_ATTEMPT" \
+    --arg branch "$REMOTE_BRANCH" --arg sha "$HEAD_SHA" '
+      .databaseId == $run_id and .attempt == $attempt and
+      .event == "workflow_dispatch" and .headBranch == $branch and
+      .headSha == $sha and
+      ((.status == "completed" and (.conclusion | type == "string")) or
+       ((.status == "queued" or .status == "in_progress" or
+         .status == "requested" or .status == "waiting" or
+         .status == "pending") and .conclusion == null))
+    ' <<<"$RUN_JSON" >/dev/null
+  RUN_STATUS="$(jq -r .status <<<"$RUN_JSON")"
+  case "$RUN_STATUS" in
+    completed)
+      jq -e '.conclusion == "success"' <<<"$RUN_JSON" >/dev/null
+      RUN_COMPLETED=true
+      break
+      ;;
+    queued | in_progress | requested | waiting | pending)
+      PROOF_REMAINING=$((PROOF_DEADLINE - SECONDS))
+      test "$PROOF_REMAINING" -gt 0
+      if (( PROOF_REMAINING < 10 )); then
+        sleep "$PROOF_REMAINING"
+      else
+        sleep 10
+      fi
+      ;;
+    *)
+      exit 1
+      ;;
+  esac
+done
+test "$RUN_COMPLETED" = true
 jq -e --argjson run_id "$RUN_ID" --argjson attempt "$RUN_ATTEMPT" \
   --arg branch "$REMOTE_BRANCH" --arg sha "$HEAD_SHA" '
     .databaseId == $run_id and .attempt == $attempt and
@@ -1395,10 +1493,16 @@ jq -e --argjson run_id "$RUN_ID" --argjson attempt "$RUN_ATTEMPT" \
   ' <<<"$RUN_JSON" >/dev/null
 ```
 
-Discovery is bounded to five minutes and excludes every run ID observed before
-dispatch. Exactly one new exact-SHA run at attempt 1 is required; an ambiguous
-concurrent dispatch or later rerun stops acceptance. Repeat discovery before
-artifact acceptance and require the sole candidate is still `RUN_ID`.
+`PROOF_DEADLINE` is set exactly once immediately before dispatch and gives
+dispatch discovery plus terminal completion 6,600 seconds total. Discovery
+retains its stricter five-minute cap within that deadline and excludes every
+run ID observed before dispatch. Completion uses bounded API polling rather
+than an unbounded watch; every poll rebinds the exact run ID, attempt, branch,
+SHA, status, and conclusion. Timeout, unknown status, or any non-success
+terminal conclusion fails. Exactly one new exact-SHA run at attempt 1 is
+required; an ambiguous concurrent dispatch or later rerun stops acceptance.
+Repeat discovery before artifact acceptance and require the sole candidate is
+still `RUN_ID`.
 
 - [ ] **Step 5: Download and verify the accepted proof bundle**
 
@@ -1782,6 +1886,7 @@ PR_1333_MERGE="$(jq -er \
   <<<"$PR_1333_RESULT")"
 git cat-file -e "$PR_1333_MERGE^{commit}"
 test "$(git rev-list --parents -n 1 "$PR_1333_MERGE" | awk '{print NF}')" -eq 3
+test "$(git rev-parse "$PR_1333_MERGE^1")" = "$MAIN_SHA"
 test "$(git rev-parse "$PR_1333_MERGE^2")" = "$HEAD_SHA"
 git merge-base --is-ancestor "$HEAD_SHA" "$PR_1333_MERGE"
 git merge-base --is-ancestor "$PR_1332_MERGE" "$PR_1333_MERGE"
@@ -1792,6 +1897,12 @@ test "$(git branch --show-current)" = "$PR_HEAD_BRANCH"
 test "$(git rev-parse HEAD)" = "$HEAD_SHA"
 test -z "$(git status --porcelain=v1 --untracked-files=all)"
 ```
+
+The protected result must be the ordinary merge of the exact accepted base and
+head: parent 1 equals `MAIN_SHA` and parent 2 equals `HEAD_SHA`. If `main`
+changes before GitHub accepts the merge, the parent-1 assertion fails closed;
+stop and repeat the ordinary main merge plus both affected ranges and the full
+fresh required-check gate before another protected merge attempt.
 
 Task 7 stops here. Do not create the coordinator branch/worktree, allocate
 Aquamobil evidence, or begin a slice. Hand control to

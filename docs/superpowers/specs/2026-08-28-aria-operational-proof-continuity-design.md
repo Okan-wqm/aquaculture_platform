@@ -444,8 +444,10 @@ Run, in order:
 7. exact-head GitHub Actions whose nonempty required set exactly equals the
    live app-bound protection contract and has exact `SUCCESS` state;
 8. a wall-clock-bounded manual `ARIA Operational Proof` with exactly one new
-   exact-head attempt, one immutable artifact ID whose GitHub digest matches
-   the downloaded archive, and a bundle that passes the canonical verifier;
+   exact-head attempt, one 6,600-second dispatch-through-completion deadline
+   with a stricter 300-second discovery cap and exact-identity API polling, one
+   immutable artifact ID whose GitHub digest matches the downloaded archive,
+   and a bundle that passes the canonical verifier;
 9. a full immediate pre-merge recheck and protected merge guarded by exact
    local/remote/PR equality, clean merge state, absent auto-merge, preserved
    remote branches, and `--match-head-commit`.
@@ -457,7 +459,11 @@ Proof bootstrap/continuity defect and `ARIA-MEDIUM-025` for the terminal-summary
 mismatch. The existing `ARIA-HIGH-017` finding remains the traceability anchor
 for the inconsistent published-prefix handling, and `ORPHAN-HIGH-798` remains
 the anchor for the unreachable compact command. Each fix commit closes only the
-finding its change resolves.
+finding its change resolves. Allocation never predicts a suffix: after the
+allocator returns each ID, stamp its review heading and registry evidence with
+that exact anchor. Because these rows are unmerged branch-only additions, the
+canonical locked suffix rechain may update their hashes only after proving the
+fetched `origin/main` prefix remains byte-identical.
 
 ## Integration Sequence
 
@@ -468,9 +474,12 @@ finding its change resolves.
    strict/admin/app-bound required-check contract; and accept only its exact
    names with exact `SUCCESS` state.
 4. Snapshot run IDs, dispatch once, and under a wall-clock deadline require
-   exactly one new exact-SHA attempt-1 run. Pin the attempt before and after the
-   watch. Select exactly one current artifact by immutable ID, verify its
-   GitHub-reported digest, then run the canonical outer verifier.
+   exactly one new exact-SHA attempt-1 run. Set one 6,600-second total deadline
+   immediately before dispatch, keep discovery within 300 seconds of that same
+   start, and poll the API only while time remains, rebinding the exact run ID,
+   attempt, branch, SHA, status, and conclusion on every response. Select
+   exactly one current artifact by immutable ID, verify its GitHub-reported
+   digest, then run the canonical outer verifier.
 5. Immediately repeat every head/check/run/artifact/verifier gate, require PR
    state `OPEN/MERGEABLE/CLEAN`, no auto-merge, merge commits enabled, and
    automatic branch deletion disabled. Merge #1332 with
@@ -488,8 +497,10 @@ finding its change resolves.
 8. Run affected test and lint against both exact merge parents, close the
    pre-push race, push without force, compare #1333's complete exact required
    set, close the `main` race, and protected-merge with
-   `--match-head-commit`. Prove two-parent result topology, ancestry, clean
-   retained worktree, and remote-branch preservation.
+   `--match-head-commit`. Prove parent 1 is the exact accepted `MAIN_SHA`,
+   parent 2 is the exact accepted `HEAD_SHA`, result ancestry, clean retained
+   worktree, and remote-branch preservation. A different protected-merge base
+   requires a fresh ordinary main merge and complete checks.
 9. Stop and hand control to
    `docs/superpowers/plans/2026-08-26-aquamobil-v4-safe-integration-program.md`,
    Task 1 Step 0. Do not create evidence, a coordinator worktree, Order 0

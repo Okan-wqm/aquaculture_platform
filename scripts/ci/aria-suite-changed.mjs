@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Run the ARIA kernel unit suite, but only when this push actually touches an
- * ARIA surface.
+ * Run the ARIA kernel suite, but only when this push actually touches an
+ * ARIA surface — and only the tests that surface can break.
  *
  * WHY THIS EXISTS. `npm run aria:test:unit` runs in CI
  * (`.github/workflows/aria-operational-proof.yml`) and had no local counterpart
@@ -14,24 +14,33 @@
  * suite. CLAUDE.md's "never commit with red tests" was enforced by intention
  * only. ORPHAN-HIGH-510.
  *
- * WHY SCOPED, AND HOW. The suite executes more than 5,000 tests. Running it on
- * every push would create pressure to bypass the gate, which is worse than no
- * gate. So it fires only when the commits THIS push adds touch a surface the
- * suite asserts on. The trigger set is wider than `aria-kernel/` because the
- * suite reads `.github/workflows` (workflow contracts, SHA pinning, sandbox
- * containment) and `.github/actions` (composite actions those workflows use),
- * and both of those are how RC-9 broke it without touching a line of Python.
+ * AFFECTED-ONLY (operator decision 2026-08-28): the gate used to answer "did
+ * an ARIA surface change?" with yes/no and on yes run ALL 5048+ tests — ~2.5
+ * hours on the shared runner, for a one-line workflow edit. The operator
+ * relaxed the rule: the pre-push gate runs only the tests the changed files
+ * can mechanically reach; the FULL suite remains the CI lanes' job
+ * (aria-kernel / aria-kernel-fast, 60-minute budgets). Selection is
+ * deliberately over-inclusive, never under-inclusive:
  *
- * WHY NOT PER-FILE. The kernel suite is all-or-nothing — there is no honest way
- * to select "the tests affected by this file", and a wrong selection reports
- * green on the tests it skipped. Scoping decides WHETHER to run, never WHICH.
+ *   - `aria-kernel/aria_kernel/<mod>.py` → its conventional test module
+ *     (`tests/test_<mod>.py`) PLUS every test module whose text mentions the
+ *     module basename (importers, comment references — a false extra costs a
+ *     few seconds; a missed importer costs a red main).
+ *   - `aria-kernel/tests/<t>.py` → that module itself.
+ *   - `tools/aria-poc/<tool>.py` → test modules mentioning the tool basename.
+ *   - `.github/workflows` / `.github/actions` → the workflow-contract test
+ *     modules, DISCOVERED by grepping the test tree for `.github/` readers
+ *     (no hand-kept list to drift).
+ *   - `scripts/ci/aria-suite-*`, `package.json` → the gates themselves; their
+ *     execution IS their test. CI still runs the full suite on them.
  *
- * Range semantics mirror `.husky/pre-push`'s existing clippy gate: only what
- * this push adds, so a long-lived branch does not re-pay for work an earlier
- * push already verified.
+ * SAFETY FLOOR: a kernel-code change that maps to ZERO selected modules falls
+ * back to the FULL suite — a mapping hole must cost time, never coverage.
+ * ARIA_SUITE_FULL=1 forces the full suite for release-grade pushes.
  */
 
 import { execFileSync, spawnSync } from 'node:child_process';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 
 /** Paths whose change can break something the ARIA kernel suite asserts. */
 const ARIA_SURFACES = [
@@ -45,12 +54,12 @@ const ARIA_SURFACES = [
 ];
 
 function git(args) {
-  return execFileSync('git', args, { encoding: 'utf8' }).trim();
+  return execFileSync('git', args, { encoding: 'utf-8' }).trim();
 }
 
 function resolves(ref) {
   return (
-    spawnSync('git', ['rev-parse', '--verify', '--quiet', ref], { encoding: 'utf8' }).status === 0
+    spawnSync('git', ['rev-parse', '--verify', '--quiet', ref], { encoding: 'utf-8' }).status === 0
   );
 }
 
@@ -85,19 +94,98 @@ if (changed === '') {
 }
 
 const files = changed.split('\n');
-process.stdout.write(
-  `aria-suite-changed: ${files.length} ARIA-surface file(s) changed since ${base}; running the kernel suite.\n`,
-);
+const forceFull = process.env.ARIA_SUITE_FULL === '1';
+const selected = forceFull ? null : selectAffectedTests(files);
 
-// The suite runs through scripts/ci/aria-suite-run.sh — the single semantic
-// partition authority for TestCase tests and pytest-native tests.
-const result = spawnSync('bash', ['scripts/ci/aria-suite-run.sh'], {
-  stdio: 'inherit',
-  env: { ...process.env },
-});
+if (selected === null) {
+  process.stdout.write(
+    `aria-suite-changed: ${files.length} ARIA-surface file(s) changed since ${base}; running the FULL kernel suite${forceFull ? ' (ARIA_SUITE_FULL=1)' : ''}.\n`,
+  );
+} else if (selected.size === 0) {
+  process.stdout.write(
+    `aria-suite-changed: ${files.length} gate/script surface file(s) changed since ${base}; no kernel tests mechanically reachable, suite skipped (CI still runs the full suite).\n`,
+  );
+  process.exit(0);
+} else {
+  const names = [...selected].sort().join(', ');
+  process.stdout.write(
+    `aria-suite-changed: ${files.length} ARIA-surface file(s) changed since ${base}; running ${selected.size} affected test module(s): ${names}\n`,
+  );
+}
+
+const result = spawnSync(
+  'bash',
+  ['scripts/ci/aria-suite-run.sh', ...(selected === null ? [] : [...selected].sort())],
+  {
+    stdio: 'inherit',
+    env: { ...process.env },
+  },
+);
 
 if (result.error) {
   process.stderr.write(`aria-suite-changed: could not run the suite: ${result.error.message}\n`);
   process.exit(1);
 }
 process.exit(result.status ?? 1);
+
+/**
+ * Map changed files to the kernel test modules they can mechanically reach.
+ * Returns null when the honest answer is "all of them" (kernel-code change
+ * the mapping cannot place), an empty set when the change is gate-internal.
+ */
+function selectAffectedTests(files) {
+  const testsDir = 'aria-kernel/tests';
+  if (!existsSync(testsDir)) return null;
+  const testFiles = readdirSync(testsDir).filter((name) => /^test_.*\.py$/.test(name));
+  const testTexts = new Map(
+    testFiles.map((name) => [name, readFileSync(`${testsDir}/${name}`, 'utf-8')]),
+  );
+
+  const selected = new Set();
+  let kernelCodeChanged = false;
+
+  const addByToken = (token) => {
+    for (const [name, text] of testTexts) {
+      if (text.includes(token)) selected.add(name);
+    }
+  };
+
+  for (const file of files) {
+    if (file.startsWith('aria-kernel/tests/')) {
+      const name = file.slice('aria-kernel/tests/'.length);
+      if (testTexts.has(name)) selected.add(name);
+      continue;
+    }
+    if (file.startsWith('aria-kernel/aria_kernel/')) {
+      kernelCodeChanged = true;
+      const stem = file.slice('aria-kernel/aria_kernel/'.length).replace(/\.py$/, '');
+      const conventional = `test_${stem.split('/').pop()}.py`;
+      if (testTexts.has(conventional)) selected.add(conventional);
+      // Over-inclusive on purpose: importers AND textual referencers.
+      addByToken(stem.split('/').pop());
+      continue;
+    }
+    if (file.startsWith('tools/aria-poc/')) {
+      kernelCodeChanged = true;
+      const stem = file.slice('tools/aria-poc/'.length).replace(/\.py$/, '').split('/').pop();
+      addByToken(stem);
+      continue;
+    }
+    if (file.startsWith('.github/workflows') || file.startsWith('.github/actions')) {
+      // The workflow-contract modules: discovered, never hand-listed.
+      for (const [name, text] of testTexts) {
+        if (text.includes('.github/workflows') || text.includes('.github/actions')) {
+          selected.add(name);
+        }
+      }
+      continue;
+    }
+    // scripts/ci/aria-suite-*, package.json: the gates themselves — no kernel
+    // test mechanically reaches them; CI covers the full suite on them.
+  }
+
+  // SAFETY FLOOR: kernel code changed but nothing was selected — the mapping
+  // has a hole. Burn the time; never ship the hole.
+  if (kernelCodeChanged && selected.size === 0) return null;
+  return selected;
+}

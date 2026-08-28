@@ -129,7 +129,14 @@ FINDINGS_SUBDIR = "findings"
 # Every git call is bounded. An unbounded fetch against an unreachable
 # remote hangs the publishing step, and a cycle that cannot finish also
 # cannot be recovered by a watchdog waiting for that cycle to report.
-GIT_TIMEOUT_SECONDS = 120
+# 300 (was 120): the store pushes the aria/state branch — hundreds of MB of
+# JSONL ledgers — and 120s measured too tight twice on the shared runner:
+# a sandboxed test push in the suite timed out at exactly this budget while
+# the box ran a second test workload (suite run 2026-08-28,
+# test_publish_with_replay_keeps_nested_lifecycle_entries_reentrant; green
+# in 0.8s in isolation on the same code). A production push that needs more
+# than 5 minutes is genuinely stuck; one that needs 3 is normal.
+GIT_TIMEOUT_SECONDS = 300
 
 # The store commits under its own identity, passed per-invocation rather
 # than read from ambient config. A runner without user.name set would

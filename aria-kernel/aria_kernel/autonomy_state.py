@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable, Mapping
 
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import ensure_tools_dir, utc_now
@@ -33,8 +33,10 @@ from .tool_registry import ensure_tools_dir, utc_now
 
 __all__ = [
     "AutonomyState",
+    "AutonomyStateAccumulator",
     "AutonomyStateReducer",
     "autonomy_state_path",
+    "fold_autonomy_state_rows",
 ]
 
 
@@ -191,6 +193,92 @@ def autonomy_state_path(base_dir: str | Path | None) -> Path:
     return root / "autonomy_state.jsonl"
 
 
+def fold_autonomy_state_rows(
+    rows: Iterable[Mapping[str, Any]],
+) -> AutonomyState:
+    """Purely fold verified rows into the legacy autonomy-state view."""
+    accumulator = AutonomyStateAccumulator()
+    for row in rows:
+        accumulator.consume(row)
+    return accumulator.snapshot()
+
+
+@dataclass(slots=True)
+class AutonomyStateAccumulator:
+    """Incremental form of the canonical autonomy-state reducer."""
+
+    cycles_completed: int = 0
+    planner_total: int = 0
+    worker_total: int = 0
+    auto_merges_total: int = 0
+    last_cycle_id: str | None = None
+    last_phase: str | None = None
+    last_status: str | None = None
+    last_recorded: str | None = None
+    last_pending_bridge: int = 0
+    last_human_required: int = 0
+    last_profile: str | None = None
+    last_cycle_started_idx: int | None = None
+    last_aria_stop_idx: int | None = None
+    transition_count: int = 0
+
+    def consume(self, row: Mapping[str, Any]) -> None:
+        idx = self.transition_count
+        phase = str(row.get("phase") or "")
+        status = str(row.get("status") or "")
+        if phase == "cycle_completed":
+            self.cycles_completed += 1
+        if phase == "cycle_started":
+            self.last_cycle_started_idx = idx
+        if phase == "aria_stop":
+            self.last_aria_stop_idx = idx
+        self.planner_total += int(row.get("planner_claims_delta") or 0)
+        self.worker_total += int(row.get("worker_assignments_delta") or 0)
+        self.auto_merges_total += int(row.get("auto_merges_delta") or 0)
+        cycle_id = row.get("cycle_id")
+        if cycle_id:
+            self.last_cycle_id = str(cycle_id)
+        self.last_phase = phase
+        self.last_status = status
+        recorded = row.get("recorded_at")
+        if isinstance(recorded, str):
+            self.last_recorded = recorded
+        pending = row.get("pending_bridge_count")
+        if isinstance(pending, int):
+            self.last_pending_bridge = pending
+        human_req = row.get("human_required_count")
+        if isinstance(human_req, int):
+            self.last_human_required = human_req
+        profile = row.get("profile")
+        if isinstance(profile, str):
+            self.last_profile = profile
+        self.transition_count += 1
+
+    def snapshot(self) -> AutonomyState:
+        aria_stop_active = (
+            self.last_aria_stop_idx is not None
+            and (
+                self.last_cycle_started_idx is None
+                or self.last_aria_stop_idx > self.last_cycle_started_idx
+            )
+        )
+        return AutonomyState(
+            last_cycle_id=self.last_cycle_id,
+            last_phase=self.last_phase,
+            last_phase_status=self.last_status,
+            last_recorded_at=self.last_recorded,
+            cycles_completed=self.cycles_completed,
+            planner_claims_dispatched=self.planner_total,
+            worker_assignments_dispatched=self.worker_total,
+            auto_merges_completed=self.auto_merges_total,
+            pending_bridge_count=self.last_pending_bridge,
+            human_required_count=self.last_human_required,
+            aria_stop_active=aria_stop_active,
+            profile=self.last_profile,
+            transition_count=self.transition_count,
+        )
+
+
 class AutonomyStateReducer:
     """Plan 026R §F.3 — append-only reducer over autonomy_state.jsonl.
 
@@ -261,69 +349,4 @@ class AutonomyStateReducer:
             expected_surface="autonomy_state",
             verify=True,
         )
-        if not rows:
-            return AutonomyState()
-        cycles_completed = 0
-        planner_total = 0
-        worker_total = 0
-        auto_merges_total = 0
-        last_cycle_id: str | None = None
-        last_phase: str | None = None
-        last_status: str | None = None
-        last_recorded: str | None = None
-        last_pending_bridge = 0
-        last_human_required = 0
-        last_profile: str | None = None
-        last_cycle_started_idx: int | None = None
-        last_aria_stop_idx: int | None = None
-        for idx, row in enumerate(rows):
-            phase = str(row.get("phase") or "")
-            status = str(row.get("status") or "")
-            if phase == "cycle_completed":
-                cycles_completed += 1
-            if phase == "cycle_started":
-                last_cycle_started_idx = idx
-            if phase == "aria_stop":
-                last_aria_stop_idx = idx
-            planner_total += int(row.get("planner_claims_delta") or 0)
-            worker_total += int(row.get("worker_assignments_delta") or 0)
-            auto_merges_total += int(row.get("auto_merges_delta") or 0)
-            cycle_id = row.get("cycle_id")
-            if cycle_id:
-                last_cycle_id = str(cycle_id)
-            last_phase = phase
-            last_status = status
-            recorded = row.get("recorded_at")
-            if isinstance(recorded, str):
-                last_recorded = recorded
-            pending = row.get("pending_bridge_count")
-            if isinstance(pending, int):
-                last_pending_bridge = pending
-            human_req = row.get("human_required_count")
-            if isinstance(human_req, int):
-                last_human_required = human_req
-            profile = row.get("profile")
-            if isinstance(profile, str):
-                last_profile = profile
-        aria_stop_active = (
-            last_aria_stop_idx is not None
-            and (
-                last_cycle_started_idx is None
-                or last_aria_stop_idx > last_cycle_started_idx
-            )
-        )
-        return AutonomyState(
-            last_cycle_id=last_cycle_id,
-            last_phase=last_phase,
-            last_phase_status=last_status,
-            last_recorded_at=last_recorded,
-            cycles_completed=cycles_completed,
-            planner_claims_dispatched=planner_total,
-            worker_assignments_dispatched=worker_total,
-            auto_merges_completed=auto_merges_total,
-            pending_bridge_count=last_pending_bridge,
-            human_required_count=last_human_required,
-            aria_stop_active=aria_stop_active,
-            profile=last_profile,
-            transition_count=len(rows),
-        )
+        return fold_autonomy_state_rows(rows)

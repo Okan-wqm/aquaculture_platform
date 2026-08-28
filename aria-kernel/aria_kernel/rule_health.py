@@ -10,9 +10,10 @@ judges kept re-refuting it, and no repair work item ever existed.
 Three read-time derivations (the ledger stores outcomes, never scores):
 
 * `rule_stats` — per (tool_id, rule) TP/FP/judged counts from
-  GROUND-TRUTH-BEARING feedback only (human / ai_consensus; a lone judge's
-  unconfirmed opinion moves nothing here — the deliberate contrast with
-  tool_health.compute_metrics is documented in ORPHAN-CRITICAL-643).
+  GROUND-TRUTH-BEARING feedback only (operator verdicts and ANCHOR
+  consensus — JJ-1; a lone judge's unconfirmed opinion, and now an
+  unexamined 2-judge pair, move nothing here — the deliberate contrast
+  with tool_health.compute_metrics is documented in ORPHAN-CRITICAL-643).
 * `quarantined_rules` — rules whose measured FP rate crosses the threshold
   with enough evidence; the sampler stops judging their findings.
 * `commit_rule_defect_findings` — a quarantined rule auto-commits ONE
@@ -28,6 +29,7 @@ from typing import Any
 
 from .feedback_store import (
     append_jsonl,
+    is_ground_truth_row,
     load_feedback,
     load_jsonl,
     promotions_path,
@@ -35,19 +37,41 @@ from .feedback_store import (
 )
 from .tool_registry import ensure_tools_dir, utc_now
 
-GROUND_TRUTH_SOURCES = frozenset({"human", "ai_consensus"})
+# JJ-1 (ORPHAN-HIGH-731) — the local GROUND_TRUTH_SOURCES frozenset is gone.
+# It said "source_type in {human, ai_consensus}", which blessed every 2-judge
+# consensus as ground truth, and it was one of FIVE copies of that decision
+# scattered across the readers. The predicate now lives once, in
+# feedback_store.is_ground_truth_row, so tightening it (as JJ-1 does) reaches
+# every reader in one edit instead of four that get forgotten.
 MIN_JUDGED_FOR_QUARANTINE = 3
 MAX_FP_RATE = 0.75
 
 
 def _fingerprint_rules(base_dir: str | Path | None) -> dict[str, str]:
     """fingerprint → rule, from the raw ledger (feedback rows carry no rule)."""
+    from .runtime_artifacts import resolve_finding_from_artifact
+
     mapping: dict[str, str] = {}
     path = raw_findings_path(base_dir)
     for row in load_jsonl(path) if path.exists() else []:
         fingerprint = str(row.get("finding_fingerprint") or "")
+        # ORPHAN-HIGH-798 — three-tier resolution mirroring the sampler:
+        # inline finding (legacy v1), finding_summary (compact rows), then
+        # artifact fallback. Without the fallback, compact rows yield empty
+        # rules and the entire rule-health / quarantine pipeline silently
+        # stops functioning.
         finding = row.get("finding") if isinstance(row.get("finding"), dict) else {}
-        rule = str(finding.get("rule") or "").strip()
+        if finding:
+            rule = str(finding.get("rule") or "").strip()
+        else:
+            summary = row.get("finding_summary") if isinstance(row.get("finding_summary"), dict) else {}
+            if summary.get("rule"):
+                rule = str(summary["rule"]).strip()
+            elif row.get("artifact_ref"):
+                resolved = resolve_finding_from_artifact(row, base_dir=base_dir) or {}
+                rule = str(resolved.get("rule") or "").strip()
+            else:
+                rule = ""
         if fingerprint and rule and fingerprint not in mapping:
             mapping[fingerprint] = rule
     return mapping
@@ -58,7 +82,7 @@ def rule_stats(base_dir: str | Path | None = None) -> dict[tuple[str, str], dict
     rules_by_fingerprint = _fingerprint_rules(base_dir)
     stats: dict[tuple[str, str], dict[str, int]] = {}
     for row in load_feedback(base_dir=base_dir):
-        if row.get("source_type") not in GROUND_TRUTH_SOURCES:
+        if not is_ground_truth_row(row):
             continue
         verdict = row.get("verdict")
         if verdict not in ("true_positive", "false_positive"):

@@ -40,6 +40,12 @@ MODEL_PRICING_USD_PER_MTOK: dict[str, tuple[float, float]] = {
     "claude-sonnet-5": (3.0, 15.0),
     "claude-sonnet-4-6": (3.0, 15.0),
     "claude-haiku-4-5": (1.0, 5.0),
+    # ORPHAN-HIGH-763 — Z.ai published rates for GLM-5.3 (2026-08-14):
+    # $1.40 in / $4.40 out per MTok. Recorded as EXACT because they are the
+    # vendor's posted per-token prices, not a family estimate. Cache-read
+    # ($0.26/MTok) has no column in this pair and is deliberately not
+    # averaged in: an invented blend would be worse than a stated overcharge.
+    "glm-5.3": (1.40, 4.40),
 }
 
 # ORPHAN-HIGH-476 — per-FAMILY rates, applied when no exact id matches.
@@ -64,7 +70,39 @@ MODEL_FAMILY_PRICING_USD_PER_MTOK: dict[str, tuple[float, float]] = {
     "claude-opus": (5.0, 25.0),
     "claude-sonnet": (3.0, 15.0),
     "claude-haiku": (1.0, 5.0),
+    # Same rate as 5.2 per the vendor; a 5.4 arriving under an id nobody has
+    # added yet lands here instead of on the $0.00 path that caused
+    # ORPHAN-HIGH-474.
+    "glm-5": (1.40, 4.40),
 }
+
+# ORPHAN-HIGH-763 — the alias→id relationship, owned here instead of being
+# re-derived by an f-string inside a test.
+#
+# ARIA dispatches by ALIAS ("opus"); the id that reaches the cost ledger is
+# whatever the CLI resolved ("claude-opus-5"). The rule "prefix the alias with
+# claude-" lived in test_cost_pricing and silently encoded "every dispatchable
+# model is an Anthropic model" — true until it wasn't. A vendor model whose
+# alias IS its id (glm-5.3) needs no prefix, and the coverage pin now asks
+# this table rather than assuming a vendor.
+ALIAS_PRICING_PREFIX: dict[str, str] = {
+    "fable": "claude-fable",
+    "opus": "claude-opus",
+    "sonnet": "claude-sonnet",
+    "haiku": "claude-haiku",
+    "glm-5.3": "glm-5",
+}
+
+
+def alias_pricing_prefix(alias: str) -> str:
+    """The id prefix a dispatch on ``alias`` prices under.
+
+    Unmapped aliases fall back to the alias itself rather than to a
+    Claude-shaped guess: a wrong prefix would report coverage the ledger does
+    not have, which is the $0.00 failure this table exists to prevent.
+    """
+    return ALIAS_PRICING_PREFIX.get(alias, alias)
+
 
 PRICING_SOURCE_EXACT: str = "exact"
 PRICING_SOURCE_FAMILY: str = "family"

@@ -1,0 +1,31 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+# WHY: pre-commit already regenerates the ARIA authority pin, but a MERGE
+# COMMIT never runs pre-commit. `git merge origin/main` therefore moves the
+# authority surface and leaves the pin declaring the previous digest —
+# silently. Measured 2026-08-19: merging main into three ARIA branches staled
+# the pin on all three, and CI spent thirty minutes each time to report one
+# assertion. The writer existed and the caller was missing: the same
+# "mechanism without a caller" class the pre-commit comment names, one trigger
+# further along.
+#
+# post-merge cannot amend the merge commit git has already made, so it
+# regenerates and STAGES, and says out loud what is left to do. The pre-push
+# guard is what makes forgetting harmless.
+GATE_TS_NODE="./node_modules/.bin/ts-node"
+GATE_TSCONFIG="--project tools/gates/tsconfig.json"
+
+if [ ! -x "$GATE_TS_NODE" ]; then
+  echo "post-merge: ts-node missing — the ARIA authority pin was NOT refreshed." >&2
+  echo "  run 'npm ci' (or link node_modules in this worktree) before pushing." >&2
+  exit 0
+fi
+
+"$GATE_TS_NODE" $GATE_TSCONFIG tools/gates/aria-authority-hash.ts --write >/dev/null 2>&1
+if ! git diff --quiet -- docs/aria/CURRENT_STATE.md; then
+  git add docs/aria/CURRENT_STATE.md
+  echo "aria-authority-hash: the merge staled the pin — regenerated and STAGED." >&2
+  echo "  commit it before pushing:" >&2
+  echo "    git commit -m 'chore(aria): refresh the authority hash after merging main'" >&2
+fi

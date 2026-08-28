@@ -142,7 +142,7 @@ describe('agent frontmatter schema invariant (CLAUDE-CRITICAL-006)', () => {
   // while the consensus decider and every writer stay on fable. Runtime SSoT:
   // aria-kernel/aria_kernel/agent_runtime_profile.py; rationale:
   // docs/aria/plans/023-cost-tiering-and-consensus-escalation.md.
-  const ARIA_VALID_MODELS = new Set<string>(['opus', 'fable']);
+  const ARIA_VALID_MODELS = new Set<string>(['opus', 'fable', 'glm-5.3']);
   const ARIA_VALID_EFFORTS = new Set<string>(['low', 'medium', 'high', 'xhigh', 'max']);
   // Writers (Edit/Write/Bash) + governance-artifact authors run the
   // IMPLEMENTATION tier: opus at effort max, with sonnet as its credit

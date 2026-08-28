@@ -539,6 +539,7 @@ def run_specialist_review_runner(
                     agent_name=agent_name,
                     accepted=accepted,
                     workspace_root=workspace_root,
+                    base_dir=base_dir,
                 )
                 if parsed is None:
                     # Accepted row whose output cannot be read is not a
@@ -592,6 +593,7 @@ def _findings_from_accepted_result(
     agent_name: str,
     accepted: dict[str, Any],
     workspace_root: str | Path | None,
+    base_dir: str | Path | None = None,
 ) -> list[dict[str, Any]] | None:
     """ORPHAN-HIGH-423 — parse a specialist's accepted result into findings.
 
@@ -628,7 +630,10 @@ def _findings_from_accepted_result(
     output_path = accepted.get("output_path")
     if not isinstance(output_path, str) or not output_path:
         return None
-    path = Path(output_path)
+    from .agent_invocations import resolve_output_artifact_path
+    from .tool_registry import ensure_tools_dir
+
+    path = resolve_output_artifact_path(ensure_tools_dir(base_dir), output_path)
     if not path.exists():
         return None
     try:

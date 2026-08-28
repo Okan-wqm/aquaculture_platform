@@ -50,6 +50,12 @@ from claude_runtime import (
     run_claude_exec,
     run_with_model_fallback,
 )
+from dispatch_failure import (
+    DispatchFailure,
+    classify_dispatch_failure,
+    emit_dispatch_result_summary,
+    resolve_dispatch_route,
+)
 
 
 LEASE_TOKEN_ENV_VAR = "ARIA_LEASE_TOKEN"
@@ -237,6 +243,36 @@ def main(argv: list[str] | None = None) -> int:
     from aria_kernel.agent_runtime_profile import read_agent_runtime_profile
 
     profile = read_agent_runtime_profile(parsed.target_agent, repo_root=repo)
+    # ARIA-HIGH-002 — resolve the dispatch route and the once-only summary
+    # emitter before any spawn. The assignment row carries no role field by
+    # SSoT (see worker_dispatch.create_dispatch_request), so the route's
+    # role is empty rather than fabricated from the agent name.
+    dispatch_route = resolve_dispatch_route(
+        request={
+            "target_agent": parsed.target_agent,
+            "role": str(assignment.get("role") or ""),
+        },
+        repo_root=repo,
+    )
+    _summary_emitted = False
+
+    def _emit_summary(
+        *, outcome: str, failure: DispatchFailure | None, exit_code: int | None,
+    ) -> None:
+        nonlocal _summary_emitted
+        if _summary_emitted:
+            return
+        _summary_emitted = True
+        try:
+            emit_dispatch_result_summary(
+                route=dispatch_route,
+                request_id=assignment_id,
+                outcome=outcome,
+                failure=failure,
+                exit_code=exit_code,
+            )
+        except (OSError, ValueError) as summary_exc:
+            sys.stderr.write(f"dispatch_summary_unwritable: {summary_exc}\n")
     try:
         # Model dispatch with the fable→opus fallback policy (credit +
         # refusal), applied by the claude_runtime SSoT helper — identical
@@ -294,6 +330,10 @@ def main(argv: list[str] | None = None) -> int:
             on_refusal=_on_refusal,
         )
         if completed.refusal is not None:
+            # ARIA-HIGH-002 — a refusal is not a build failure.
+            _emit_summary(
+                outcome="refused", failure=None, exit_code=completed.returncode,
+            )
             sys.stderr.write(
                 "model_safety_refusal_unresolved: assignment "
                 f"{assignment_id} refused (category="
@@ -330,14 +370,24 @@ def main(argv: list[str] | None = None) -> int:
         #
         # Non-zero exit is therefore the whole release protocol for this
         # process; adding a release call here would be the leak.
+        _emit_summary(
+            outcome="failed",
+            failure=classify_dispatch_failure(exception=exc, phase="spawn"),
+            exit_code=None,
+        )
         sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
         return 1
     if completed.returncode != 0:
+        _emit_summary(
+            outcome="failed",
+            failure=classify_dispatch_failure(result=completed, phase="runtime"),
+            exit_code=completed.returncode,
+        )
         sys.stderr.write(
             _redact_lease_in_message(completed.stderr, lease_token) + "\n"
         )
         return completed.returncode
-    return _submit_worker_result(
+    submit_rc = _submit_worker_result(
         assignment_id=assignment_id,
         worktree_path=worktree_path,
         tools_dir=tools_dir,
@@ -345,6 +395,20 @@ def main(argv: list[str] | None = None) -> int:
         required_tests=required_tests,
         lease_token=lease_token,
     )
+    if submit_rc == 0:
+        _emit_summary(outcome="succeeded", failure=None, exit_code=0)
+    else:
+        _emit_summary(
+            outcome="failed",
+            failure=DispatchFailure(
+                failure_class="unknown",
+                retryable=False,
+                detail_code="worker_result_submit_failed",
+                phase="submit",
+            ),
+            exit_code=None,
+        )
+    return submit_rc
 
 
 if __name__ == "__main__":

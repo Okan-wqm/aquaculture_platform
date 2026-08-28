@@ -1,0 +1,99 @@
+{
+  "$schema": "aqua/postgres-dr-bootstrap-policy/v1",
+  "schema_version": 1,
+  "finding_ids": ["INFRA-HIGH-073"],
+  "does_not_close_findings": ["INFRA-HIGH-033"],
+  "release": {
+    "workflow": ".github/workflows/postgres-dr-bootstrap-candidate.yml",
+    "event": "workflow_dispatch",
+    "ref": "refs/heads/main",
+    "explicit_main_sha_input": "main_sha",
+    "protected_ref_signal": "github.ref_protected",
+    "signing_environment": "production-backup-release",
+    "live_environment_authority_snapshot_required": true,
+    "live_branch_protection_snapshot_required": true,
+    "signing_environment_protection": {
+      "can_admins_bypass": false,
+      "prevent_self_review": true,
+      "minimum_reviewers": 2,
+      "deployment_branch": "main"
+    },
+    "required_checks_manifest": ".github/manifests/main-required-status-checks.json",
+    "required_check_selector": ".github/scripts/select-effective-required-check.jq",
+    "required_check_effective_order": "created_at_then_id_as_of_merge",
+    "required_check_creation_authority": "actions_job.created_at",
+    "required_check_workflow_path_binding": true,
+    "required_check_job_attempt_binding": true,
+    "image_repository": "ghcr.io/okan-wqm/aquaculture_platform/postgres",
+    "immutable_tag_template": "<main_sha>-<run_id>-<run_attempt>",
+    "candidate_predicate_type": "https://github.com/Okan-wqm/aquaculture_platform/attestations/postgres-dr-bootstrap-candidate/v1",
+    "authority_predicate_type": "https://github.com/Okan-wqm/aquaculture_platform/attestations/postgres-dr-bootstrap-release-authority/v1",
+    "cosign_version": "v3.0.6",
+    "cosign_linux_amd64_sha256": "c956e5dfcac53d52bcf058360d579472f0c1d2d9b69f55209e256fe7783f4c74",
+    "mutable_tags": []
+  },
+  "build_boundary": {
+    "environment": null,
+    "production_secrets": [],
+    "ssh_enabled": false,
+    "deployment_enabled": false
+  },
+  "bootstrap": {
+    "channel": "provider-console",
+    "script": "infrastructure/scripts/provider-console-bootstrap-postgres-walg.sh",
+    "compose_file": "docker-compose.droplet.yml",
+    "rollback_compose_override": "infrastructure/deploy/postgres-dr-bootstrap-rollback.override.yml",
+    "compose_project": "aqua-saas",
+    "compose_interpolation_tag_source": "expected_main_sha",
+    "allowed_compose_services": ["postgres"],
+    "forbidden_compose_services": ["db-migrate", "gateway-api", "farm-service"],
+    "legacy_github_ssh_enabled": false,
+    "requires_production_deploy_unlock": false,
+    "repository_variable_mutation_enabled": false,
+    "tag_mutation_enabled": false,
+    "pre_execution_signature_verification_required": true,
+    "global_nonblocking_lock_required": true,
+    "pinned_host_paths": {
+      "deploy_root": "/var/lib/aqua/deploy/checkout",
+      "deploy_env_file": "/var/aqua-saas/.env",
+      "state_root": "/var/lib/aqua/deploy/dr-bootstrap",
+      "control_plane_lock": "/var/lib/aqua/deploy/control-plane.lock"
+    },
+    "shared_control_plane_lock": {
+      "mode": "exclusive-nonblocking",
+      "held_from_before_supply_chain_pull_through_terminal_state": true
+    },
+    "state_machine": {
+      "helper": "infrastructure/scripts/postgres-dr-bootstrap-state.sh",
+      "durable_phases": [
+        "VERIFYING",
+        "PREPARED",
+        "FORWARD_STARTED",
+        "ROLLBACK_STARTED",
+        "ROLLED_BACK",
+        "COMMITTED"
+      ],
+      "exact_prior_recovery_required": true,
+      "power_loss_reentry_required": true,
+      "reentry_after_rollback": "require_new_signed_run_attempt"
+    },
+    "signed_init_directory": "infrastructure/docker/init-scripts",
+    "release_root_safe_path_pattern": "^/[A-Za-z0-9._/-]+$",
+    "rendered_init_mount_assertion_required": true,
+    "registry_pull": {
+      "mode": "anonymous-public-only",
+      "docker_config_path": "/etc/aqua/dr-bootstrap-public-registry/config.json",
+      "credential_entries_allowed": false
+    },
+    "provider_cosign": {
+      "path": "/usr/local/bin/cosign",
+      "version": "v3.0.6",
+      "sha256": "c956e5dfcac53d52bcf058360d579472f0c1d2d9b69f55209e256fe7783f4c74",
+      "root_owned_nonwritable": true
+    },
+    "required_image_labels": [
+      "org.opencontainers.image.revision",
+      "io.aquaculture.postgres.dr-contract-sha256"
+    ]
+  }
+}

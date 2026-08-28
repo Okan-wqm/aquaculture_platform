@@ -1,6 +1,8 @@
 # ADR-031: ARIA Snowball Continuous-Mode Meta-System
 
-**Status:** Proposed (snowball branch evaluation)
+**Status:** Accepted as design history (2026-08-20 annotation) — the snowball branch was
+archived; ARIA runs on main. Superseded operationally by ADR-035/040/041; the design record
+stands.
 **Date:** 2026-05-02
 **Deciders:** Okan (operator)
 **Owner:** Okan (operator) + future ARIA implementer if PoC gate passes

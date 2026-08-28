@@ -1,5 +1,12 @@
 # ARIA — Industrial-Grade Program Plan: from control plane to software team
 
+> **HISTORICAL — not executable current authority (2026-08-22):** This plan's
+> measurements and checklists are preserved as history. Current execution is
+> governed by
+> `docs/superpowers/plans/2026-08-22-aria-end-to-end-autonomy-closure.md` and the
+> verified boundary in `docs/aria/CURRENT_STATE.md`; unfinished checkboxes here
+> remain unfinished historical records.
+>
 > **SUPERSEDED-BY:** `docs/plans/2026-08-02-aria-full-autonomy-program/PLAN.md`
 > (2026-08-02). This file is no longer the plan of record. Its registered
 > findings stay authoritative in the registry; its unfinished stages map into

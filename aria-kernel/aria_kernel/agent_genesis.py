@@ -24,7 +24,7 @@ from .ledger import (
     rewrite_declared_json,
 )
 from .runtime_profile import enforce_profile_for_write
-from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
 
 # Plan ARIA-V3 §A3 — banned-phrase list relocated to ``draft_intent``
@@ -94,7 +94,8 @@ def record_draft_lifecycle_chain(
     entity_id: str,
     gap: dict[str, Any],
     capability_resolution: dict[str, Any],
-    operator_approval_ref: str,
+    operator_approval_ref: str | None = None,
+    adjudication_ref: str | None = None,
     draft_ref: str,
     base_dir: str | Path | None = None,
 ) -> list[dict[str, Any]]:
@@ -112,7 +113,23 @@ def record_draft_lifecycle_chain(
     """
     from .genesis_lifecycle import current_lifecycle_state, record_transition
 
+    # Y8 (ORPHAN-709) — exactly ONE approval proof: the panel's resolved
+    # adjudication (autonomous lane) or the operator's signed feedback ref.
+    # Panel mode is agent-scope only — a kernel-scoped entity has no panel
+    # path, per the standing product-autonomous/kernel-gated boundary.
+    if bool(operator_approval_ref) == bool(adjudication_ref):
+        raise GovernanceError(
+            "genesis_chain_requires_exactly_one_of_operator_or_adjudication_ref"
+        )
     capability_gap_key = str(gap.get("capability_gap_key") or "")
+    if adjudication_ref:
+        request_evidence: dict[str, Any] = {
+            "approval_mode": "panel",
+            "adjudication_ref": str(adjudication_ref).strip(),
+            "capability_gap_key": capability_gap_key,
+        }
+    else:
+        request_evidence = {"operator_feedback_ref": operator_approval_ref}
     steps: list[tuple[str, dict[str, Any]]] = [
         ("PRESSURE", {"gap_id": gap.get("gap_id"), "primary_source": gap.get("primary_source")}),
         (
@@ -124,7 +141,7 @@ def record_draft_lifecycle_chain(
             },
         ),
         ("HUMAN_REQUIRED", {"capability_resolution": dict(capability_resolution)}),
-        ("REQUEST", {"operator_feedback_ref": operator_approval_ref}),
+        ("REQUEST", request_evidence),
         ("DRAFT", {"draft_ref": draft_ref}),
     ]
     order = [state for state, _ in steps]
@@ -148,6 +165,7 @@ def draft_agent_from_gap(
     *,
     gap_id: str,
     operator_approval_ref: str | None = None,
+    adjudication_ref: str | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     enforce_profile_for_write("agent_genesis", base_dir=base_dir)
@@ -215,12 +233,15 @@ def draft_agent_from_gap(
     # the chain honestly stops before REQUEST and nothing is written
     # (partial provenance is worse than none — a later re-run with the
     # ref continues idempotently from wherever the ledger stands).
-    if operator_approval_ref and str(operator_approval_ref).strip():
+    _operator_ref = str(operator_approval_ref or "").strip() or None
+    _panel_ref = str(adjudication_ref or "").strip() or None
+    if _operator_ref or _panel_ref:
         appended["lifecycle"] = record_draft_lifecycle_chain(
             entity_id=name,
             gap=gap,
             capability_resolution=capability_resolution,
-            operator_approval_ref=str(operator_approval_ref).strip(),
+            operator_approval_ref=_operator_ref,
+            adjudication_ref=_panel_ref,
             draft_ref=str(appended.get("ledger_hash") or f"draft-{name}"),
             base_dir=base_dir,
         )
@@ -452,7 +473,8 @@ def evaluate_genesis_sandbox(
 def approve_agent_pr(
     *,
     draft_id: str,
-    operator_approval_ref: str,
+    operator_approval_ref: str | None = None,
+    adjudication_ref: str | None = None,
     base_dir: str | Path | None = None,
     operator_synthetic_override: bool = False,
 ) -> dict[str, Any]:
@@ -469,8 +491,37 @@ def approve_agent_pr(
     """
     from .runtime_profile import enforce_profile_for_write
     enforce_profile_for_write("agent_genesis", base_dir=base_dir)
-    if not operator_approval_ref.strip():
-        raise GovernanceError("operator approval ref is required")
+    # Y8 (ORPHAN-709) — exactly one approval proof, same rule as the
+    # lifecycle chain. A panel ref must resolve to a RESOLVED
+    # genesis_candidate adjudication (kernel-side, unforgeable); the
+    # synthetic-sandbox override below stays operator-only regardless.
+    _operator_ref = str(operator_approval_ref or "").strip()
+    _panel_ref = str(adjudication_ref or "").strip()
+    if bool(_operator_ref) == bool(_panel_ref):
+        raise GovernanceError(
+            "agent_pr_requires_exactly_one_of_operator_or_adjudication_ref"
+        )
+    if _panel_ref and operator_synthetic_override:
+        raise GovernanceError("synthetic_override_is_operator_only")
+    if _panel_ref:
+        from .genesis_lifecycle import _resolve_panel_adjudication_proof
+        from .human_required import _human_required_path as _hr_path
+
+        _record_path = _hr_path(ensure_tools_dir(base_dir), _panel_ref)
+        _gap_key = ""
+        if _record_path.exists():
+            try:
+                _gap_key = str(
+                    (json.loads(_record_path.read_text(encoding="utf-8")).get("context") or {})
+                    .get("capability_gap_key") or ""
+                )
+            except (OSError, json.JSONDecodeError):
+                _gap_key = ""
+        _resolve_panel_adjudication_proof(
+            adjudication_ref=_panel_ref,
+            capability_gap_key=_gap_key,
+            base_dir=base_dir,
+        )
     draft = _find_draft(draft_id, base_dir)
     sandbox = _latest_sandbox(draft_id, base_dir)
     if not sandbox or sandbox.get("decision") != "pass":
@@ -486,7 +537,11 @@ def approve_agent_pr(
     row = dict(draft)
     row["recorded_at"] = utc_now()
     row["status"] = "approved_for_agent_pr"
-    row["operator_approval_ref"] = operator_approval_ref
+    if _operator_ref:
+        row["operator_approval_ref"] = _operator_ref
+    else:
+        row["adjudication_ref"] = _panel_ref
+        row["approval_mode"] = "panel"
     row["blocked_by"] = []
     return append_jsonl(ensure_tools_dir(base_dir) / "agent-genesis" / "drafts.jsonl", row)
 
@@ -822,6 +877,138 @@ def _file_sha256(path: Path) -> str:
     if not path.exists() or not path.is_file():
         return ""
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+def sweep_candidate_gaps_for_adjudication(
+    *,
+    base_dir: str | Path | None = None,
+    cycle_id: str | None = None,
+    repo_root: str | Path | None = None,
+) -> dict[str, Any]:
+    """Y8 (ORPHAN-709) — route parked capability gaps into the agent panel.
+
+    Sixteen gaps sat blocked on per-gap operator approval while the genesis
+    pipeline reported no_requests. Each eligible gap (blocked ONLY by the
+    genesis token) now becomes ONE idempotent genesis_candidate escalation
+    the existing adjudication sweep panels — no new panel plumbing (İ1).
+    ``resolve_capability`` runs NOW: a reuse decision blocks the panel path
+    exactly as it blocks direct genesis. Capped per cycle so the backlog
+    drains without flooding the panel queue.
+    """
+    import hashlib as _hashlib
+
+    from .capability_gap import GENESIS_ADJUDICATION_BLOCK_TOKEN, latest_capability_gaps
+    from .genesis_policy import genesis_panel_policy
+    from .human_required import _human_required_path, record_human_required
+
+    root = ensure_tools_dir(base_dir)
+    policy = genesis_panel_policy(repo_root)
+    if not policy.get("enabled", True):
+        return {"status": "skipped", "reason": "genesis_panel_disabled"}
+    cap = int(policy.get("max_panel_opens_per_cycle") or 4)
+    opened: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    already_requested = existing_genesis_request_keys(base_dir=root)
+    for gap in latest_capability_gaps(base_dir=root):
+        if len(opened) >= cap:
+            skipped.append({"reason": "cycle_cap_reached"})
+            break
+        gap_key = str(gap.get("capability_gap_key") or gap.get("gap_id") or "")
+        blocked_by = [str(b) for b in (gap.get("blocked_by") or [])]
+        if not gap_key or blocked_by != [GENESIS_ADJUDICATION_BLOCK_TOKEN]:
+            continue
+        if gap_key in already_requested:
+            skipped.append({"gap_key": gap_key, "reason": "genesis_already_requested"})
+            continue
+        digest = _hashlib.sha256(gap_key.encode()).hexdigest()[:16]
+        # WHY dash, not colon: the id doubles as the human-required FILENAME
+        # and GitHub's artifact uploader rejects ':' in paths — the first
+        # live escalation turned the sealed cycle's forensic upload red
+        # (run 32090429275, ORPHAN-714). WHAT: mint artifact-safe ids; the
+        # single pre-rename colon record still blocks a duplicate.
+        escalation_id = f"genesis-{digest}"
+        if (
+            _human_required_path(root, escalation_id).exists()
+            or _human_required_path(root, f"genesis:{digest}").exists()
+        ):
+            skipped.append({"gap_key": gap_key, "reason": "already_escalated"})
+            continue
+        resolution = resolve_capability(
+            capability_key=gap_key,
+            requested_kind="agent",
+            title=str(gap.get("title") or gap_key),
+            existing_capabilities=_existing_capabilities(
+                gap.get("related_existing_agents", []),
+            ),
+            base_dir=root,
+        )
+        if resolution.get("decision") == "reuse":
+            append_tools_governance(
+                root, "genesis_candidate_reuse_blocked",
+                {"capability_gap_key": gap_key, "resolution": resolution.get("row_id")},
+            )
+            skipped.append({"gap_key": gap_key, "reason": "capability_reuse"})
+            continue
+        evidence_refs = [
+            str(r) for r in (gap.get("evidence_refs") or []) if isinstance(r, str)
+        ]
+        record = record_human_required(
+            request_id=escalation_id,
+            severity="MEDIUM",
+            reason=(
+                f"capability gap {gap_key!r} proposes agent genesis; "
+                f"panel adjudication required (resolver decision: "
+                f"{resolution.get('decision')})."
+            ),
+            context={
+                "kind": "genesis_candidate",
+                "gap_id": gap.get("gap_id"),
+                "capability_gap_key": gap_key,
+                "capability_resolution": {
+                    "decision": resolution.get("decision"),
+                    "row_id": resolution.get("row_id"),
+                },
+                "capability_resolution_ref": str(resolution.get("row_id") or ""),
+                "evidence_refs": evidence_refs,
+                "valid_cycles": _gap_key_batch_count(gap_key, root),
+                "cycle_id": cycle_id,
+            },
+            base_dir=root,
+        )
+        opened.append({"escalation_id": escalation_id, "gap_key": gap_key})
+        _ = record
+    return {"status": "ok", "opened": opened, "skipped": skipped, "cap": cap}
+
+
+def execute_genesis_panel_approval(
+    *,
+    escalation_id: str,
+    record: dict[str, Any],
+    base_dir: str | Path | None = None,
+    cycle_id: str | None = None,
+) -> dict[str, Any]:
+    """Y8 — the panel's resolve quorum becomes the genesis request + draft.
+
+    Called by the adjudication fold AFTER the record is resolved (the
+    lifecycle proof resolver requires status=resolved + resolved_by=
+    agent_panel + panel_outcome=resolved). The third clause is not
+    decoration: the REFUSE branch of the same fold also resolves the record
+    by the same panel, so without it a refused candidate's ref proved an
+    approval. Idempotent through existing_genesis_request_keys.
+    """
+    root = ensure_tools_dir(base_dir)
+    context = record.get("context") or {}
+    gap_id = str(context.get("gap_id") or "")
+    gap_key = str(context.get("capability_gap_key") or "")
+    if not gap_id or not gap_key:
+        raise GovernanceError("genesis_panel_approval_missing_gap_identity")
+    gap = _find_gap(gap_id, root)
+    if gap_key not in existing_genesis_request_keys(base_dir=root):
+        request_agent_genesis(gap, base_dir=root, cycle_id=cycle_id)
+    draft = draft_agent_from_gap(
+        gap_id=gap_id, adjudication_ref=escalation_id, base_dir=root,
+    )
+    return {"gap_key": gap_key, "draft": draft.get("row_id") or draft.get("name")}
+
 
 def request_agent_genesis(
     gap: dict[str, Any],

@@ -1,0 +1,8 @@
+{
+  "$schema": "aria/observation-map/v1",
+  "schema_version": 1,
+  "_comment": "PROGRAM H / H-0. This file holds POLICY, never facts. The observation map itself is derived at runtime from `git ls-files` and each adapter's `declared_scope`; a hand-written coverage list would be stale the day it was written, and this repository has a name for that. The only thing declared here is which roots are deliberately left unobserved, and why. An entry is a DECISION, so it must carry a reason a reader can disagree with. The list starts empty on purpose: the first honest map is the one that shows every blind root, including the ones we may later decide not to care about.",
+  "_comment_nights": "H-3. How many CONSECUTIVE nights a root must measure blind before ARIA files it as an `unobserved_surface` capability gap against itself. One night is a snapshot — a manifest mid-edit, a root that landed at 23:00 — so the kernel floors this at two whatever is written here; raising it asks for more evidence, and nothing can ask for less.",
+  "unobserved_nights_before_gap": 3,
+  "intentionally_unowned": []
+}

@@ -23,7 +23,10 @@ v7.1 was a thoughtful spec with three structural problems for THIS repo:
 
 1. **Cold-start mute.** M0–M6 mastery vocabulary with snowball-discovered transition criteria meant Day 0–90 produced no authorized claims. A 2M-line, 17-service monorepo cannot afford 90 muted days.
 2. **Kernel bloat.** Seven laws + five engines + seven mastery levels + per-engine invariants is not "small kernel"; it is a hierarchical large kernel.
-3. **Repo-blindness.** v7.1 ignored the prior art already in this repository: 20+ ADRs, 38 specialized review agents, a layered knowledge SSoT (`.claude/knowledge/layer-{1,2,3}-*.md`), `nx affected`, and CLAUDE.md as a load-bearing operating contract.
+3. **Repo-blindness.** v7.1 ignored the prior art already in this repository: 58 ADRs,
+   107 agent files across the review fleets (measured 2026-08-20), a layered knowledge SSoT
+   (`.claude/knowledge/layer-{1,2,3}-*.md`), `nx affected`, and CLAUDE.md as a load-bearing
+   operating contract.
 
 v7.2 keeps v7.1's epistemology (grounded evidence, baseline preservation, ops safety) and discards the rest. **Three laws, three mastery levels, five engines, one repo-recognition bootstrap.**
 
@@ -100,7 +103,9 @@ Everything v7.1 split across L1–L7 derives from these three. The kernel enforc
 2. Isolated git worktree (`aria-worktrees/A-<id>/`); developer working tree never mutated.
 3. Validation scope record justifying which targets are run and what is **not** covered.
 4. Re-measure on worktree; compare to baseline; reject on any new failure.
-5. Surface as Pull Request; **human merge required** unless the PR is explicitly eligible for the bounded Level 3 low-risk `snowball` auto-merge lane in §8.1.
+5. Surface as Pull Request; **human merge required** unless the PR is explicitly eligible for the
+   bounded Level 3 low-risk narrow auto-merge lane in §8.1 (risk-L1 docs/tests glob set, base
+   `main`, per ADR-041).
 
 **Compliance artifact:**
 - `baselines/BL-<action_id>.json`
@@ -136,7 +141,7 @@ Everything v7.1 split across L1–L7 derives from these three. The kernel enforc
 ✗ Never manipulates customer data
 ✗ Never executes production database migrations
 ✗ Never flips production feature flags
-✗ Never auto-merges any pull request except the fail-closed Level 3 low-risk `snowball` lane defined in §8.1, and only when the `autonomous` runtime profile is active AND the cost + failure circuit breakers are in `ok` state (Plan ARIA-V3 §B2, ADR-033)
+✗ Never auto-merges any pull request except the fail-closed Level 3 low-risk narrow lane defined in §8.1 (risk-L1 docs/tests, base `main` — ADR-041; the historical `snowball`-branch lane it evolved from no longer exists), and only when the `autonomous` runtime profile is active AND the cost + failure circuit breakers are in `ok` state (Plan ARIA-V3 §B2, ADR-033)
 ✗ Never modifies its own kernel files (enforced via hash-chain, §6)
 ✗ Never modifies aria-immutable/
 ✗ Never promotes its own trust level
@@ -319,7 +324,7 @@ These four cover ≥95% of files in this repo. Generic Bootstrap Scanner handles
 
 ### 5.4 — Existing-agent integration policy
 
-The 38 agents in `.claude/agents/` are **prior art**, not competition. ARIA's policy:
+The 107 agents in `.claude/agents/` are **prior art**, not competition. ARIA's policy:
 
 - **Read-only:** ARIA never invokes these agents (it does not have Agent tool in its kernel).
 - **Domain map:** the agent set defines the canonical domain decomposition. ARIA's spines and capabilities align to this decomposition.
@@ -502,8 +507,10 @@ LEVEL 2 — Auto-PR for refactors + L1-grounded recommendations
   Human merge mandatory.
 
 LEVEL 3 — Low-Risk Auto-Merge (disabled by default)
-  Adds: squash merge authority only for ARIA-owned PRs targeting
-        `snowball` and only when the auto-merge policy is explicitly
+  Adds: squash merge authority only for ARIA-owned PRs whose diffs fall in
+        the risk-L1 glob set (docs, markdown, tests, adapter fixtures —
+        see `docs/aria/policy/risk-policy.json` and ADR-041) targeting
+        `main`, and only when the auto-merge policy is explicitly
         enabled, the diff classifier returns low risk, branch protection
         required checks for the latest PR head SHA are all green, review
         state has no requested changes, and unresolved conversation state
@@ -514,7 +521,7 @@ LEVEL 3 — Low-Risk Auto-Merge (disabled by default)
            or data-layer changes, migrations, infra/deploy/workflow files,
            secrets/config, billing/pricing, production deployment logic,
            and `aria-kernel/aria_kernel/**` runtime changes.
-  Fails closed: policy disabled, non-`snowball` base, non-squash method,
+  Fails closed: policy disabled, non-`main` base, non-squash method,
                 unreadable branch protection, empty/unknown required
                 checks, missing GitHub auth/API, changed PR head SHA,
                 unknown or mixed-risk diff, requested changes, or
@@ -626,7 +633,8 @@ ARIA's own PR descriptions, finding texts, and proposal bodies are scanned for C
 
 ### 9.5 — Specialized-agent complementarity
 
-The 38 agents in `.claude/agents/` run on review cycles (PR-triggered). ARIA runs continuously. The complementarity:
+The 107 agents in `.claude/agents/` run on review cycles (PR-triggered). ARIA runs
+continuously. The complementarity:
 
 | Specialized agent (cycle-mode) | ARIA (continuous-mode) |
 |---|---|
@@ -748,7 +756,7 @@ v7.2 changes from v7.1, summarized:
 | Mastery levels | 7 | 3 |
 | Cold-start latency | 90+ days mute | 30 days to first finding |
 | Repo-awareness | generic | Day-0 priors from CLAUDE.md, ADRs, knowledge layers, .claude/agents, nx graph |
-| Existing 38 agents | unmentioned | complementary, prior-art capability map |
+| Existing 107 agents | unmentioned | complementary, prior-art capability map |
 | Validation engine | implicit | explicit `nx affected` |
 | Kernel integrity | chmod | hash chain |
 | Budget enforcement | optional metric | kernel-level circuit breaker |

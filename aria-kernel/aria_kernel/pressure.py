@@ -36,6 +36,24 @@ SOURCE_WEIGHTS = {
     # (nobody else will fix it), and every cycle it stays red is a cycle the
     # merge gate silently blocks work that was already paid for.
     "own_pr_ci": 90,
+    # ORPHAN-723 — a third-party PR (Dependabot, a developer branch) that
+    # cannot pass CI. Lowest weight in the table on purpose: ARIA has no
+    # authority over these PRs until the E23 gate opens, so the row exists
+    # to make the repo's PR weather VISIBLE in the nightly report, never to
+    # pull work toward something ARIA may not touch.
+    "repo_pr_health": 20,
+    # SI-1 (ORPHAN-741) — ARIA's OWN pipeline has stopped moving. Highest
+    # weight in the table: every other pressure describes work ARIA could
+    # do, and this one says the machinery that would do it is stuck. The
+    # 2026-08-19 measurement is the argument — 597 requests minted, ZERO
+    # plans ever CONVERGED, a wedge two days old that only a human
+    # reading ledgers ever noticed.
+    "pipeline_stalled": 100,
+    # ORPHAN-HIGH-758 — emitted by the post-merge red scan since ORPHAN-718
+    # and registered in neither table until the reachability gate learned to
+    # look in this direction. Weighted above open-PR reds: the defect is
+    # already on the default branch, so the action is fix-forward.
+    "post_merge_ci": 95.0,
 }
 
 # ─── operator-approved weight overrides (Plan tranquil-sniffing-pancake F4.1) ──
@@ -138,6 +156,20 @@ DRIFT_CLASS_BY_SOURCE = {
     # not a new code-drift class — reusing the class keeps
     # genesis_policy_default.json untouched (parity test pins the two tables).
     "own_pr_ci": "process_health",
+    # Third-party PR CI is process health about the REPOSITORY, the same
+    # class as ARIA's own delivery loop; no new drift class, so the policy
+    # parity test keeps passing without a genesis_policy_default.json edit.
+    "repo_pr_health": "process_health",
+    # A stalled funnel is process health about ARIA ITSELF — same class,
+    # so genesis_policy_default.json needs no new drift class and the
+    # parity test keeps passing.
+    "pipeline_stalled": "process_health",
+    # ORPHAN-HIGH-758 — see SOURCE_WEIGHTS. `process_health`, the same class
+    # as its sibling `own_pr_ci`: both are ARIA's own delivery pipeline
+    # reporting on itself, and a class invented for one member would have
+    # needed a neutral weight in the default policy that nothing would ever
+    # tune (the parity test caught exactly that on the first attempt).
+    "post_merge_ci": "process_health",
 }
 
 PRESSURE_STATES = {"active", "faded", "sleeping", "archived", "closed", "satisfied"}
@@ -348,6 +380,107 @@ def run_pressure(
                     "is paid-for work the gate is silently blocking"
                 ),
                 discriminator=f"pr-{red.get('pr_number')}",
+            ),
+        )
+    # ORPHAN-718 (2026-08-18 operator directive) — post-merge reds. A red
+    # main AFTER an ARIA merge outranks a red open PR: the defect already
+    # shipped to the default branch, so the severity is critical and the
+    # action is fix-forward, not wait-for-the-gate. A later green outcome
+    # row retires the pressure the same way open-PR reds clear.
+    from .own_pr_ci import load_post_merge_reds
+    for red in load_post_merge_reds(base_dir=root):
+        red_jobs = _array_of_strings(red.get("red_jobs"))
+        pressures.append(
+            _pressure(
+                weights=_weights,
+                cycle_id=cycle_id,
+                source="post_merge_ci",
+                pressure_type="UNKNOWN",
+                severity="critical",
+                reason=(
+                    f"main went RED after ARIA's merge of PR "
+                    f"#{red.get('pr_number')} ({red.get('merge_sha')}): "
+                    f"{', '.join(red_jobs) or 'failed workflow runs'}"
+                ),
+                evidence=[f"pr-{red.get('pr_number')}:{red.get('merge_sha') or 'main'}"],
+                occurrence_count=1,
+                candidate_tools=[],
+                recommended_action=(
+                    "read the failing main-branch run's log, root-cause it, and "
+                    "author a fix-forward change; a red main after our own merge "
+                    "is the highest-priority debt this repository can carry"
+                ),
+                discriminator=f"post-merge-{red.get('pr_number')}",
+            ),
+        )
+    # ORPHAN-723 — third-party PR reds, observation-only. Low severity by
+    # design: ARIA has NO authority over these PRs (E23 gate); the
+    # pressure exists so the nightly report can say "4 Dependabot
+    # branches cannot pass CI" instead of not knowing.
+    from .own_pr_ci import load_third_party_pr_reds
+    for red in load_third_party_pr_reds(base_dir=root):
+        red_jobs = _array_of_strings(red.get("red_jobs"))
+        pressures.append(
+            _pressure(
+                weights=_weights,
+                cycle_id=cycle_id,
+                source="repo_pr_health",
+                pressure_type="UNKNOWN",
+                severity="low",
+                reason=(
+                    f"third-party PR #{red.get('pr_number')} "
+                    f"({red.get('head_ref')}, author {red.get('author')}) "
+                    f"is RED in CI: {', '.join(red_jobs) or 'failed checks'}"
+                ),
+                evidence=[f"pr-{red.get('pr_number')}:{red.get('head_ref')}"],
+                occurrence_count=1,
+                candidate_tools=[],
+                recommended_action=(
+                    "OBSERVE ONLY — surface in the nightly report; ARIA holds "
+                    "no review or merge authority over third-party PRs until "
+                    "the E23 gate opens"
+                ),
+                discriminator=f"repo-pr-{red.get('pr_number')}",
+            ),
+        )
+    # SI-1 (ORPHAN-741) — the funnel's own counters, finally read by
+    # something that can act. `rank_pressure_sources` already folds the
+    # cumulative snapshots and verifies the ledger's hash chain; the
+    # detector below only asks which stage takes work in and lets none
+    # out. Conservative by construction: a stage with little upstream
+    # volume is idle, not stalled (MIN_UPSTREAM_FOR_STALL).
+    from .funnel_health import detect_funnel_stalls
+    from .knowledge_graph import rank_pressure_sources
+
+    try:
+        # The effectiveness ledger lives under <workspace>/aria-tools/, and
+        # `root` IS that tools directory — deriving the workspace from it
+        # keeps one resolution rule instead of threading a second root
+        # through a function that already knows where the store is.
+        _funnel_rows = rank_pressure_sources(workspace_root=root.parent)
+    except Exception:  # noqa: BLE001 — an unreadable ledger is not a stall
+        _funnel_rows = []
+    for stall in detect_funnel_stalls(_funnel_rows):
+        pressures.append(
+            _pressure(
+                weights=_weights,
+                cycle_id=cycle_id,
+                source="pipeline_stalled",
+                pressure_type="UNKNOWN",
+                severity="critical",
+                reason=stall.summary,
+                evidence=[
+                    f"knowledge-graph/pressure-source-effectiveness.jsonl:"
+                    f"{stall.source_type}"
+                ],
+                occurrence_count=stall.upstream,
+                candidate_tools=[],
+                recommended_action=(
+                    f"diagnose why {stall.stage} converts nothing from "
+                    f"{stall.source_type} — this pressure is about ARIA's own "
+                    "machinery, and every other pressure waits behind it"
+                ),
+                discriminator=f"funnel-{stall.stage}-{stall.source_type}",
             ),
         )
     from .runtime_signal_bridge import load_open_runtime_signals
@@ -830,7 +963,22 @@ def _pressure(
     discriminator: str | None = None,
 ) -> dict[str, Any]:
     recency_decay = 1.0
-    base_weight = (weights or SOURCE_WEIGHTS)[source]
+    # ORPHAN-CRITICAL-733 — a source missing from the weight table used to
+    # raise a bare KeyError deep inside the pressure phase, and the phase's
+    # error surfaced as the opaque string "'repo_pr_health'" while the whole
+    # cycle failed (2026-08-18 evening run). The vocabulary is CLOSED by
+    # design; the fix is to say so at the boundary, in the producer's own
+    # language, so the next unregistered source names itself and its two
+    # registration sites.
+    table = weights or SOURCE_WEIGHTS
+    if source not in table:
+        raise GovernanceError(
+            f"unregistered_pressure_source: {source!r} — add it to "
+            "pressure.SOURCE_WEIGHTS and pressure.DRIFT_CLASS_BY_SOURCE "
+            "(both tables are closed vocabularies; the drift-class parity "
+            "test pins the pair)"
+        )
+    base_weight = table[source]
     count = max(1, occurrence_count)
     raw_score = base_weight * recency_decay * (1 + math.log10(count))
     score = round(min(100.0, raw_score), 3)

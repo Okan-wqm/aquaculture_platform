@@ -11,11 +11,13 @@
 //     is imported statically in module source, which welds it into the
 //     initial chunk; the fix is a dynamic `import()` at the use site.
 import { dirname, join, relative } from 'node:path';
+
 import {
   collectFiles,
   filterFilesBySnapshot,
   normalizeWorkspacePath,
   readWorkspaceFile,
+  requireScanRoots,
   resolveInsideWorkspace,
   workspacePathExists,
 } from './adapter-fs';
@@ -58,8 +60,6 @@ interface AriaOutput {
   readonly metadata: Record<string, unknown>;
 }
 
-const DEFAULT_ROOTS = ['web/shell', 'web/modules', 'web/apps'];
-
 // Libraries whose static import welds them into the initial chunk. The list
 // is deliberately conservative: every entry is unambiguously heavyweight.
 const HEAVY_MODULES = new Set([
@@ -80,7 +80,7 @@ export function analyzeBundleBudgets(
   input: AdapterInput,
   workspaceRoot = process.cwd(),
 ): AriaOutput {
-  const roots = input.roots ?? DEFAULT_ROOTS;
+  const roots = requireScanRoots('bundle-budget-adapter', input.roots);
   const observations: AdapterObservation[] = [];
   const findings: AdapterFinding[] = [];
   const readPaths: string[] = [];
@@ -194,8 +194,12 @@ function readStdin(): Promise<string> {
   return new Promise((resolvePromise, reject) => {
     let input = '';
     process.stdin.setEncoding('utf8');
-    process.stdin.on('data', (chunk) => {
-      input += chunk;
+    // setEncoding('utf8') makes every chunk a string at runtime, but the
+    // stream's declared chunk type stays `string | Buffer` — concatenating the
+    // union is what the type checker rejects. Narrow at the boundary rather
+    // than widening `input` (kernel-dead-wire-adapter is the converged shape).
+    process.stdin.on('data', (chunk: string | Buffer) => {
+      input += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
     });
     process.stdin.on('end', () => resolvePromise(input));
     process.stdin.on('error', reject);

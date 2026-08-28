@@ -14,6 +14,7 @@ def promote_tool(
     *,
     reason: str,
     operator_approval_ref: str | None = None,
+    panel_approval_ref: str | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     tool = get_tool(tool_id, base_dir)
@@ -33,8 +34,35 @@ def promote_tool(
         # the E7 boundary: ARIA may act alone only where the operator has
         # said so in genesis-policy, and the token's HMAC binds that
         # decision to this workspace.
+        # JJ-2b (ORPHAN-HIGH-732) — a THIRD authority joins the same gate.
+        # The panel arm does NOT transition: it arms a 24h operator veto
+        # window and returns the pending record. Activation is a later
+        # cycle's act (promotion_veto.settle_pending_promotions), because
+        # "the operator did not object" is a statement about elapsed time
+        # and cannot be evaluated in the call that makes the claim.
+        # The ref itself is not taken on trust: record_pending_promotion
+        # resolves it against the human-required adjudication record before
+        # anything is armed, so this branch cannot be entered with an
+        # invented string.
         auto_promote_token: str | None = None
-        if not operator_approval_ref:
+        panel_pending = False
+        if operator_approval_ref:
+            pass
+        elif panel_approval_ref:
+            from .promotion_veto import tool_scope_touches_kernel
+
+            # THE KERNEL-SCOPE EXCEPTION. A tool that reads aria-kernel/**
+            # reads ARIA's own control plane; promoting it is ARIA widening
+            # its authority over itself — the irreducible class the panel
+            # is forbidden to clear anywhere else in this kernel.
+            if tool_scope_touches_kernel(tool):
+                raise GovernanceError(
+                    "kernel_scope_promotion_requires_operator: "
+                    f"tool_id={tool_id!r} declares scope inside aria-kernel/**; "
+                    "panel approval is not accepted for control-plane scope"
+                )
+            panel_pending = True
+        else:
             from .adapter_calibration import (
                 AutoPromoteIneligibleError,
                 compute_auto_promote_token,
@@ -56,6 +84,16 @@ def promote_tool(
         if not readiness["active_ready"]:
             blockers = ", ".join(readiness["blocked_by"])
             raise GovernanceError(f"SHADOW -> ACTIVE readiness blocked: {blockers}")
+        if panel_pending:
+            from .promotion_veto import record_pending_promotion
+
+            return record_pending_promotion(
+                tool_id=tool_id,
+                panel_approval_ref=str(panel_approval_ref),
+                reason=reason,
+                readiness=readiness,
+                base_dir=base_dir,
+            )
         return transition_tool(
             tool_id,
             target_status,

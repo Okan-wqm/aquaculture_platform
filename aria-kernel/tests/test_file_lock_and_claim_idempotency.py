@@ -85,6 +85,42 @@ with with_exclusive_lock(Path({repr(str(target))})):
                 child.terminate()
                 child.wait(timeout=2)
 
+    @unittest.skipUnless(os.name == "posix", "O_NOFOLLOW is POSIX-only")
+    def test_existing_symlink_sidecar_is_never_followed(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "ledger.jsonl"
+            target.write_text("", encoding="utf-8")
+            outside = Path(td) / "outside"
+            outside.write_text("do not lock me\n", encoding="utf-8")
+            sidecar = target.with_suffix(target.suffix + ".lock")
+            sidecar.symlink_to(outside)
+
+            with self.assertRaises(OSError):
+                with with_exclusive_lock(
+                    target,
+                    timeout_seconds=0,
+                    require_existing=True,
+                ):
+                    pass
+
+            self.assertTrue(sidecar.is_symlink())
+            self.assertEqual(outside.read_text(encoding="utf-8"), "do not lock me\n")
+
+    def test_require_existing_never_creates_a_missing_parent(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            parent = Path(td) / "missing-parent"
+            target = parent / "ledger.jsonl"
+
+            with self.assertRaises(OSError):
+                with with_exclusive_lock(
+                    target,
+                    timeout_seconds=0,
+                    require_existing=True,
+                ):
+                    pass
+
+            self.assertFalse(parent.exists())
+
 
 class ClaimRequestCasTests(unittest.TestCase):
     def test_claim_request_cas_recheck_in_source(self) -> None:
@@ -102,8 +138,8 @@ class ClaimRequestCasTests(unittest.TestCase):
             / "aria_kernel"
             / "agent_invocations.py"
         ).read_text(encoding="utf-8")
-        self.assertIn("with_exclusive_lock(claims_path)", src,
-            "Plan 024 §H-1 — claims.jsonl lock must be wired")
+        self.assertIn("with state_transaction([claims_path])", src,
+            "Plan 024 §H-1 — claims CAS transaction must be wired")
         self.assertIn("claim_request_state_changed_during_lock", src,
             "Plan 024 §H-1 — CAS recheck error code must exist")
         # Recheck must call derive_request_state a second time after

@@ -267,7 +267,11 @@ def _default_bridge_invoker(result_row: dict[str, Any], root: Path) -> list[str]
     request = _find_request_by_id(root, request_id)
     if request is None:
         return [f"replay_request_missing: {request_id}"]
-    output_path = Path(str(result_row.get("output_path") or ""))
+    from .agent_invocations import resolve_output_artifact_path
+
+    output_path = resolve_output_artifact_path(
+        root, str(result_row.get("output_path") or ""),
+    )
     try:
         envelope = json.loads(output_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:

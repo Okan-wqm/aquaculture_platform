@@ -8,7 +8,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_declared_jsonl, append_jsonl, file_hash, rewrite_declared_json, tools_index_group_ledgers, write_index
+from .ledger import (
+    StateTransaction,
+    append_declared_jsonl,
+    append_jsonl,
+    file_hash,
+    load_jsonl,
+    rewrite_declared_json,
+    tools_index_group_ledgers,
+    write_index,
+)
 from .workspace import canonical_identity, canonical_identity_source, canonical_repo_root, governance_event, repo_hash
 from .implementation_safety import verify_bash_command_allowed
 
@@ -89,6 +98,30 @@ class GovernanceError(ValueError):
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def parse_utc_stamp(raw: str) -> datetime | None:
+    """Read a stamp this module minted, or None when it cannot be read.
+
+    ORPHAN-HIGH-729 — one parser, living beside the writer. There were two
+    private copies (`autonomy_unlock._parse_stamp`,
+    `plan_convergence._older_than_hours`) and they disagreed about the
+    important case: one returned None so the caller could SEE that a row was
+    undateable, the other folded the failure into a bool, where "unparseable"
+    became indistinguishable from "recent" and a corrupt stamp bought a plan
+    immortality.
+
+    None is the only honest answer for a stamp that cannot be read, and
+    returning it forces every caller to decide what to do about that rather
+    than inheriting a default. A naive stamp is read as UTC because UTC is
+    what `utc_now` writes; that is the ledger's declared timezone, not a
+    guess.
+    """
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except (AttributeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
 def _walk_up_to_bound_identity(start_cwd: str | os.PathLike[str]) -> Path | None:
@@ -482,7 +515,11 @@ def covered_tool_ledgers(root: Path) -> dict[str, Path]:
     return ledgers
 
 
-def update_tools_index(root: Path) -> None:
+def update_tools_index(
+    root: Path,
+    *,
+    transaction: StateTransaction | None = None,
+) -> None:
     index: dict[str, Any] = {}
     file_hashes: dict[str, str] = {}
     state_path = root / "migration_state.json"
@@ -498,7 +535,12 @@ def update_tools_index(root: Path) -> None:
     # indexed append, so writing a wider set here would plant entries the
     # next append silently discards (ORPHAN-HIGH-525). Chain verification
     # of the full covered set is integrity's job, not this index's.
-    write_index(root / "integrity_index.json", index, tools_index_group_ledgers(root))
+    index_path = root / "integrity_index.json"
+    ledgers = tools_index_group_ledgers(root)
+    if transaction is None:
+        write_index(index_path, index, ledgers)
+    else:
+        transaction.write_index(index_path, index, ledgers)
 
 
 def append_tools_governance(
@@ -507,6 +549,8 @@ def append_tools_governance(
     details: dict[str, Any],
     *,
     bypass_profile_gate: bool = False,
+    transaction: StateTransaction | None = None,
+    prepared_event: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Plan 026R §A.2 — append a governance row and rely on A.1's grouped
     index refresh to keep ``integrity_index.json`` current.
@@ -532,18 +576,86 @@ def append_tools_governance(
     Removing the duplicate eliminates both the race and the extra fcntl
     pair per governance event.
     """
-    if not bypass_profile_gate:
+    if prepared_event is None and not bypass_profile_gate:
         # Late import avoids a module-load cycle: runtime_profile imports
         # tool_registry for ensure_tools_dir + append_tools_governance.
         from .runtime_profile import enforce_profile_for_write
         enforce_profile_for_write("tool_governance", base_dir=base_dir)
-    root = ensure_tools_dir(base_dir)
+    event = prepared_event or governance_event(kind=kind, details=details)
+    root = tools_dir(base_dir) if transaction is not None else ensure_tools_dir(base_dir)
+    governance_path = root / "governance.jsonl"
+    if transaction is not None:
+        return transaction.append_declared_jsonl(
+            governance_path,
+            event,
+            expected_surface="tools_governance",
+            bypass_profile_gate=bypass_profile_gate,
+        )
     return append_declared_jsonl(
-        root / "governance.jsonl",
-        governance_event(kind=kind, details=details),
+        governance_path,
+        event,
         expected_surface="tools_governance",
         bypass_profile_gate=bypass_profile_gate,
     )
+
+
+def disclosure_fingerprint(kind: str, claim: dict[str, Any]) -> str:
+    """The identity of what a disclosure ASSERTS, ignoring when it was said.
+
+    Canonical JSON so key order cannot fork the fingerprint, and the kind is
+    part of it so two different disclosures that happen to share a claim
+    shape stay distinguishable.
+    """
+    canonical = json.dumps(
+        {"kind": kind, "claim": claim}, sort_keys=True, separators=(",", ":")
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+
+
+def append_tools_governance_once(
+    base_dir: str | os.PathLike[str] | Path,
+    kind: str,
+    details: dict[str, Any],
+    *,
+    claim_keys: tuple[str, ...],
+) -> dict[str, Any]:
+    """Disclose a standing fact ONCE, and again only when the fact changes.
+
+    ORPHAN-MEDIUM-730. A governance row is evidence; a governance row an
+    unattended lane re-appends verbatim every night is noise that buries
+    evidence. Measured: four identical evidence-free cycles wrote 16
+    ``service_mission_refused`` rows — 4 per cycle, byte-identical apart from
+    the cycle id — and with an empty findings ledger that is what the nightly
+    would do forever. The class this whole train exists to end is "a gate
+    reporting the same weather every night"; a refusal doing it in a second
+    ledger is the same defect wearing the other ledger's name.
+
+    ``claim_keys`` names the fields that ARE the claim (project + reason +
+    census, not the cycle id or the timestamp). A row whose claim matches one
+    already on `governance.jsonl` is not appended and the caller is told so;
+    a changed claim — new reason, new counts, evidence that arrived — is a
+    NEW fact and gets its own row. Callers that must never be silenced keep
+    using `append_tools_governance`; this is opt-in per callsite.
+
+    The fingerprint is stored ON the row (``disclosure_fingerprint``) rather
+    than in a side index, so the ledger stays the only thing that has to be
+    read to know what has been said, and losing a projection costs nothing.
+
+    Returns ``{"appended": bool, "fingerprint": str}``.
+    """
+    root = ensure_tools_dir(base_dir)
+    claim = {key: details.get(key) for key in claim_keys}
+    fingerprint = disclosure_fingerprint(kind, claim)
+    for row in load_jsonl(root / "governance.jsonl"):
+        if row.get("kind") != kind:
+            continue
+        recorded = row.get("details")
+        if isinstance(recorded, dict) and recorded.get("disclosure_fingerprint") == fingerprint:
+            return {"appended": False, "fingerprint": fingerprint}
+    append_tools_governance(
+        root, kind, {**details, "disclosure_fingerprint": fingerprint}
+    )
+    return {"appended": True, "fingerprint": fingerprint}
 
 
 def _prepare_tools_dirs(root: Path) -> None:
@@ -1174,6 +1286,7 @@ def transition_tool(
     fixture_suite_passed: bool = False,
     operator_approval: bool = False,
     auto_promote_token: str | None = None,
+    panel_approval_token: str | None = None,
     precision: float | None = None,
     critical_false_positives: int = 0,
     evidence_chains_valid: bool = False,
@@ -1190,13 +1303,36 @@ def transition_tool(
     which inspects the precision_history ledger; tamper-evident hash
     over (tool_id, last_N runs, base_dir contract hash).
 
+    JJ-2b (ORPHAN-HIGH-732) — ``panel_approval_token`` is the THIRD
+    authority. Operator directive 2026-08-18: promotion to ACTIVE is
+    PANEL-APPROVED with a 24-hour operator VETO window, not operator-
+    approved. The token is minted by ``promotion_veto.compute_panel_
+    approval_token`` ONLY after the kernel has re-derived the panel approval
+    from the human-required adjudication record (exists, resolved, resolved_
+    by=agent_panel, kind=tool_promotion, context.tool_id matches) AND the
+    veto window elapsed with no veto recorded. A kernel-scoped adapter can
+    never obtain one — that exception is enforced at mint time, where the
+    scope is readable, and kernel scope is decided by the runtime glob
+    evaluator, not by how the manifest spells its globs.
+
+    What the token is NOT: a value this function verifies. Like the auto-
+    promote token it is a workspace-bound HMAC — but unlike the auto-
+    promote token (whose consume-time MAC verification is wired since
+    ORPHAN-HIGH-787), the panel token's verification lives at its MINT:
+    ``promotion_veto.compute_panel_approval_token`` re-derives the panel
+    approval from the human-required adjudication record before signing,
+    so the kernel-side mint IS the check. Calling the panel token
+    "unforgeable HERE" would describe a consume-time check that does not
+    exist; its load-bearing gates are upstream, at mint.
+
     The literal predicate (I-V6.4-04 source-substring invariant pins):
 
-        if (not operator_approval and not auto_promote_token) or not evidence_chains_valid:
+        if (not operator_approval and not _auto_promote_verified and not panel_approval_token) or not evidence_chains_valid:
 
-    preserves V5's evidence_chains_valid check unchanged; auto-promote
-    can never bypass evidence chain integrity. Precision + FP thresholds
-    above this line are also UNCHANGED.
+    preserves V5's evidence_chains_valid check unchanged; no authority
+    can bypass evidence chain integrity — it is still the LAST clause and
+    still short-circuits independently of who vouched. Precision + FP
+    thresholds above this line are also UNCHANGED.
     """
     if target_status not in TOOL_STATUSES:
         raise GovernanceError(f"unknown lifecycle state: {target_status}")
@@ -1241,13 +1377,33 @@ def transition_tool(
             # I-V6.4-04 source-substring invariant. The order of the
             # boolean clauses is load-bearing: evidence_chains_valid
             # is checked LAST so it short-circuits independently of
-            # the operator_approval / auto_promote_token path. A
-            # refactor that reorders OR drops either clause silently
-            # weakens the SHADOW -> ACTIVE gate.
-            if (not operator_approval and not auto_promote_token) or not evidence_chains_valid:
+            # the operator_approval / auto_promote_token /
+            # panel_approval_token path. A refactor that reorders OR
+            # drops any clause silently weakens the SHADOW -> ACTIVE
+            # gate. JJ-2b added the panel clause; the pin was rewritten
+            # with it, never deleted to make a test pass.
+            # ORPHAN-HIGH-787 — the auto-promote token is VERIFIED, not
+            # counted: verify_auto_promote_token recomputes the
+            # workspace-bound HMAC over the envelope's payload and its
+            # tool binding, so a fabricated string, a cross-workspace
+            # replay or a cross-tool replay all read as "no token".
+            # Late import: adapter_calibration reads tool_registry at
+            # module level, so a top-level import would be a cycle.
+            _auto_promote_verified = False
+            if auto_promote_token:
+                from .adapter_calibration import verify_auto_promote_token
+
+                _auto_promote_verified = (
+                    verify_auto_promote_token(
+                        auto_promote_token, tool_id=tool_id, base_dir=base_dir
+                    )
+                    is not None
+                )
+            if (not operator_approval and not _auto_promote_verified and not panel_approval_token) or not evidence_chains_valid:
                 raise GovernanceError(
                     "SHADOW -> ACTIVE requires valid evidence chains and "
-                    "(operator_approval OR auto_promote_token under safe conditions)",
+                    "(operator_approval OR auto_promote_token OR "
+                    "panel_approval_token under safe conditions)",
                 )
 
     # Plan 022 §C-2b — transition_tool is the audited state machine;

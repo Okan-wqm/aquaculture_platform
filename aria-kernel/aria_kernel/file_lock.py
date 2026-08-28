@@ -35,7 +35,9 @@ operators can distinguish lock contention from other failure modes.
 from __future__ import annotations
 
 import contextlib
+from dataclasses import dataclass
 import os
+import stat
 import sys
 import time
 from pathlib import Path
@@ -46,12 +48,57 @@ _DEFAULT_TIMEOUT_SECONDS: float = 5.0
 _POLL_INTERVAL_SECONDS: float = 0.05
 
 
+@dataclass(frozen=True, slots=True)
+class ExclusiveLockHandle:
+    """Identity of the exact regular sidecar inode carrying the lock."""
+
+    path: Path
+    fd: int
+    device: int
+    inode: int
+    mode: int
+
+    def matches_path(self) -> bool:
+        try:
+            current = os.stat(self.path, follow_symlinks=False)
+        except OSError:
+            return False
+        return (
+            stat.S_ISREG(current.st_mode)
+            and (current.st_dev, current.st_ino, current.st_mode)
+            == (self.device, self.inode, self.mode)
+        )
+
+
+def _locked_handle(lock_path: Path, fd: int) -> ExclusiveLockHandle:
+    opened = os.fstat(fd)
+    if not stat.S_ISREG(opened.st_mode):
+        raise OSError(f"exclusive_lock_sidecar_not_regular: {lock_path}")
+    handle = ExclusiveLockHandle(
+        path=lock_path,
+        fd=fd,
+        device=opened.st_dev,
+        inode=opened.st_ino,
+        mode=opened.st_mode,
+    )
+    if not handle.matches_path():
+        raise OSError(f"exclusive_lock_sidecar_changed: {lock_path}")
+    return handle
+
+
+def lock_sidecar_path(path: Path | str) -> Path:
+    """Return the one canonical sidecar used for an exclusive target lock."""
+    target = Path(path)
+    return target.with_suffix(target.suffix + ".lock")
+
+
 @contextlib.contextmanager
 def with_exclusive_lock(
     path: Path | str,
     *,
     timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
-) -> Iterator[None]:
+    require_existing: bool = False,
+) -> Iterator[ExclusiveLockHandle]:
     """Acquire an OS-level exclusive lock on ``path`` for the duration
     of the ``with`` block.
 
@@ -66,10 +113,13 @@ def with_exclusive_lock(
     and unlink the side-car.
     """
     target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    lock_path = target.with_suffix(target.suffix + ".lock")
+    if not require_existing:
+        target.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = lock_sidecar_path(target)
 
     if sys.platform.startswith("win"):
+        if require_existing:
+            raise OSError("exclusive_existing_sidecar_lock_unsupported")
         # Windows: O_CREAT | O_EXCL atomic side-car creation. The
         # exclusive create fails with FileExistsError when another
         # process already holds the lock; we poll with a deadline.
@@ -79,7 +129,8 @@ def with_exclusive_lock(
             try:
                 fd = os.open(
                     str(lock_path),
-                    os.O_CREAT | os.O_EXCL | os.O_RDWR,
+                    os.O_CREAT | os.O_EXCL | os.O_RDWR
+                    | getattr(os, "O_CLOEXEC", 0),
                 )
                 break
             except FileExistsError:
@@ -89,13 +140,15 @@ def with_exclusive_lock(
                     )
                 time.sleep(_POLL_INTERVAL_SECONDS)
         try:
-            yield
+            handle = _locked_handle(lock_path, fd)
+            yield handle
         finally:
             try:
                 os.close(fd)
             finally:
                 try:
-                    lock_path.unlink()
+                    if "handle" in locals() and handle.matches_path():
+                        lock_path.unlink()
                 except FileNotFoundError:
                     pass
     else:
@@ -103,7 +156,18 @@ def with_exclusive_lock(
         # deadline. The side-car file persists; only the lock state
         # is process-scoped via the fd.
         import fcntl
-        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o644)
+        nofollow = getattr(os, "O_NOFOLLOW", None)
+        if nofollow is None:
+            raise OSError("exclusive_lock_nofollow_unavailable")
+        fd = os.open(
+            str(lock_path),
+            (0 if require_existing else os.O_CREAT)
+            | os.O_RDWR
+            | nofollow
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NONBLOCK", 0),
+            0o644,
+        )
         deadline = time.monotonic() + timeout_seconds
         try:
             while True:
@@ -116,12 +180,15 @@ def with_exclusive_lock(
                             f"with_exclusive_lock_timeout: {target}"
                         )
                     time.sleep(_POLL_INTERVAL_SECONDS)
-            yield
+            handle = _locked_handle(lock_path, fd)
+            yield handle
             fcntl.flock(fd, fcntl.LOCK_UN)
         finally:
             os.close(fd)
 
 
 __all__ = [
+    "ExclusiveLockHandle",
+    "lock_sidecar_path",
     "with_exclusive_lock",
 ]

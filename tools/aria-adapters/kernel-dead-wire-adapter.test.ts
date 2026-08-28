@@ -1,7 +1,8 @@
+import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import assert from 'node:assert/strict';
+
 import { analyzeKernelDeadWire } from './kernel-dead-wire-adapter';
 
 // A synthetic kernel: one policy file, one production reader, one test module,
@@ -14,18 +15,14 @@ mkdirSync(join(kernel, 'tests'), { recursive: true });
 
 writeFileSync(
   join(kernel, 'data', 'policy.json'),
-  JSON.stringify(
-    {
-      _doc: 'documentation, not a tunable',
-      comment: 'the other doc-key spelling',
-      '**/billing/**': 'a glob key is policy data',
-      shadow_min_clean_cycles: 5,
-      orphan_promotion_ceiling: 3,
-      nested_block: { read_by_the_module: true, never_read_anywhere: 0.9 },
-    },
-    null,
-    2,
-  ),
+  JSON.stringify({
+    _doc: 'documentation, not a tunable',
+    comment: 'the other doc-key spelling',
+    '**/billing/**': 'a glob key is policy data',
+    shadow_min_clean_cycles: 5,
+    orphan_promotion_ceiling: 3,
+    nested_block: { read_by_the_module: true, never_read_anywhere: 0.9 },
+  }),
   'utf8',
 );
 
@@ -75,7 +72,8 @@ const result = analyzeKernelDeadWire(
   workspace,
 );
 
-const ruleOf = (id: string) => result.findings.find((finding) => finding.id.endsWith(id));
+const ruleOf = (id: string): (typeof result.findings)[number] | undefined =>
+  result.findings.find((finding) => finding.id.endsWith(id));
 
 // --- true positives -------------------------------------------------------
 const unreadKey = ruleOf(':orphan_promotion_ceiling');

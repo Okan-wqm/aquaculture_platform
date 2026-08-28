@@ -15,5 +15,56 @@ runs:
           -o Dpkg::Lock::Timeout=120
         )
 
-        sudo env DEBIAN_FRONTEND=noninteractive timeout 5m apt-get "${apt_options[@]}" update
-        sudo env DEBIAN_FRONTEND=noninteractive timeout 20m apt-get "${apt_options[@]}" install -y --no-install-recommends pkg-config libtss2-dev
+        # WHY: the hosted runner image resolves apt through a mirror list whose first entry is
+        # the Azure-local mirror. When that mirror stops answering (observed 2026-08-19: three
+        # consecutive exit-124 jobs, ORPHAN-746) apt climbs its retry ladder on every suite,
+        # fails over to the public mirror ~50s in, and then spends the rest of the budget
+        # pulling universe/multiverse indexes it does not need. Both packages installed here
+        # and every one of their dependencies live in `main`, so this step declares its own
+        # source list: public mirror, main only, no translation files. The dead hop and the
+        # unused indexes are removed rather than waited on.
+        source /etc/os-release
+        readonly suite="${VERSION_CODENAME:?os-release did not declare VERSION_CODENAME}"
+        readonly sources_dir="${RUNNER_TEMP:-/tmp}/tpm-build-deps-apt"
+        readonly keyring=/usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+        if [ ! -f "$keyring" ]; then
+          echo "::error::${keyring} is missing; apt sources for the TPM build dependencies cannot be signed"
+          exit 1
+        fi
+
+        mkdir -p "$sources_dir"
+        cat > "$sources_dir/tpm-build-deps.sources" <<SOURCES
+        Types: deb
+        URIs: https://archive.ubuntu.com/ubuntu
+        Suites: ${suite} ${suite}-updates
+        Components: main
+        Signed-By: ${keyring}
+
+        Types: deb
+        URIs: https://security.ubuntu.com/ubuntu
+        Suites: ${suite}-security
+        Components: main
+        Signed-By: ${keyring}
+        SOURCES
+
+        readonly scoped_options=(
+          "${apt_options[@]}"
+          -o Dir::Etc::SourceList=/dev/null
+          -o "Dir::Etc::SourceParts=${sources_dir}"
+          -o Acquire::Languages=none
+        )
+
+        update_attempt() {
+          sudo env DEBIAN_FRONTEND=noninteractive timeout 5m apt-get "${scoped_options[@]}" update
+        }
+
+        # WHY: scoping removes the systematic cost; one bounded retry covers a genuinely
+        # transient failure of the public mirror. The total stays bounded — no unlimited retry.
+        if ! update_attempt; then
+          echo "::warning::apt-get update failed against the public mirror; retrying once before failing the job"
+          sleep 10
+          update_attempt
+        fi
+
+        sudo env DEBIAN_FRONTEND=noninteractive timeout 20m apt-get "${scoped_options[@]}" install -y --no-install-recommends pkg-config libtss2-dev

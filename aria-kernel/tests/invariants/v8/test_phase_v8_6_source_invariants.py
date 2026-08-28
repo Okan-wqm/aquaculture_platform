@@ -37,17 +37,18 @@ class TestSourceSubstringInvariantsOnRealConstants(unittest.TestCase):
         self.assertLess(idx_challenger, idx_cross_review,
                         "V8: issue_challenger_envelope MUST come before issue_cross_review_envelope in drainer source")
 
-    def test_i_v8_6_02_helper_contains_both_minter_calls(self):
-        """_run_challenge_and_cross_review_phase helper body
-        contains BOTH issue_challenger_envelope AND
-        issue_cross_review_envelope (single call sites — DRY)."""
+    def test_i_v8_6_02_step_owns_both_minter_calls_without_duplication(self):
+        """CL-1 (ORPHAN-725): the round-loop helper is gone — the step
+        function itself owns the mints, one per state branch. The DRY
+        property the helper existed to guarantee is PINNED DIRECTLY:
+        the cross-review envelope has exactly one mint site, and the
+        challenger's two sites are the two legal predecessor states
+        (DRAFT and REVISED), not copy-paste of one round shape."""
         src = inspect.getsource(convergence_drainer.run_convergence_drainer)
-        helper_start = src.index("def _run_challenge_and_cross_review_phase")
-        # The helper is a closure — find where round_n loop starts to scope
-        helper_end = src.index("for round_n in range(", helper_start)
-        helper_body = src[helper_start:helper_end]
-        self.assertIn("issue_challenger_envelope(", helper_body)
-        self.assertIn("issue_cross_review_envelope(", helper_body)
+        self.assertEqual(src.count("issue_cross_review_envelope("), 1)
+        self.assertEqual(src.count("issue_challenger_envelope("), 3)
+        for state_branch in ('plan_state is None', 'plan_state == "DRAFT"', 'plan_state == "REVISED"'):
+            self.assertIn(state_branch, src)
 
     def test_i_v8_6_03_round_envelope_constants_real_and_present(self):
         """_ROUND1_ENVELOPES + _ROUND_N_ENVELOPES MUST be REAL module-

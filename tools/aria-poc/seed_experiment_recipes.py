@@ -54,8 +54,11 @@ MANIFEST_PATH = Path(__file__).resolve().parent / "experiment-recipes.json"
 _RECIPE_FIELDS = frozenset(
     {"recipe_id", "command", "timeout_ms", "deterministic", "description"},
 )
+# X2 (ORPHAN-701) — finding_ref joins the schema: the kernel accepted the
+# binding since E21-c while this frozenset silently rejected it, which is
+# why the night planner could never admit a manifest experiment.
 _EXPERIMENT_FIELDS = frozenset(
-    {"experiment_id", "hypothesis", "recipe_ref", "observation_contract"},
+    {"experiment_id", "hypothesis", "recipe_ref", "observation_contract", "finding_ref"},
 )
 
 
@@ -120,6 +123,7 @@ def seed(
             hypothesis=definition["hypothesis"],
             recipe_ref=definition["recipe_ref"],
             observation_contract=definition["observation_contract"],
+            finding_ref=definition.get("finding_ref"),
             base_dir=base_dir,
             cycle_id=cycle_id,
         )

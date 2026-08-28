@@ -122,8 +122,6 @@ class LedgerRosterInvariantTests(unittest.TestCase):
             "architecture/option-sets.jsonl": "architecture_option_sets",
             "architecture/evidence-packs.jsonl": "architecture_evidence_packs",
             "architecture/adr-drafts.jsonl": "architecture_adr_drafts",
-            "codegen/code-change-plans.jsonl": "codegen_change_plans",
-            "codegen/generated-diff-packets.jsonl": "codegen_diff_packets",
             "research/sources.jsonl": "research_sources",
             "research/fetches.jsonl": "research_fetches",
             "research/policies.jsonl": "research_policies",

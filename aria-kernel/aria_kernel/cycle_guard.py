@@ -61,7 +61,14 @@ def _open_finding_count(repo_root: Path | None) -> int:
     except (OSError, json.JSONDecodeError):
         return 0
     rows = payload.get("findings") or []
-    return sum(1 for r in rows if isinstance(r, dict) and r.get("status") == "OPEN")
+    # E25-a (ORPHAN-710) — IN_PROGRESS counts as backlog: work someone has
+    # started is still unfinished work, and the rhythm gate exists so ARIA
+    # finishes what it opened before discovering more. The emptiness guard
+    # reads the same truth (a cycle with in-progress work is not empty).
+    return sum(
+        1 for r in rows
+        if isinstance(r, dict) and r.get("status") in {"OPEN", "IN_PROGRESS"}
+    )
 
 
 def _open_debt_count(repo_root: Path | None) -> int:

@@ -5,6 +5,8 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from aria_kernel.auto_merge import classify_changed_files, evaluate_auto_merge, merge_if_green
 from aria_kernel.auto_merge_runners import resolve_readiness_claim_id_from_claims
@@ -158,19 +160,25 @@ class AutoMergeTests(unittest.TestCase):
         )
         log_path = Path(self.tmp.name) / f"log-{pr_number}.txt"
         log_path.write_text("ok\n", encoding="utf-8")
-        record_validation_run(
-            change_id=change_id,
-            cmd="nx affected --target=test",
-            exit_code=0,
-            duration_ms=1_500,
-            log_path=str(log_path),
-            commit_sha=head_sha,
-            runner_identity="ci-executor:test-auto",
-            change_author_identity="agent:planner-auto",
-            started_at="2026-05-11T13:00:00+00:00",
-            completed_at="2026-05-11T13:01:00+00:00",
-            base_dir=self.tools_dir,
-        )
+        # ORPHAN-717 Gate 4 — passing chains carry the hygiene battery.
+        for battery_cmd in (
+            "npm run format:check",
+            "npm run type-check",
+            "nx affected --target=test",
+        ):
+            record_validation_run(
+                change_id=change_id,
+                cmd=battery_cmd,
+                exit_code=0,
+                duration_ms=1_500,
+                log_path=str(log_path),
+                commit_sha=head_sha,
+                runner_identity="ci-executor:test-auto",
+                change_author_identity="agent:planner-auto",
+                started_at="2026-05-11T13:00:00+00:00",
+                completed_at="2026-05-11T13:01:00+00:00",
+                base_dir=self.tools_dir,
+            )
         emit_change_validated(
             change_id=change_id,
             validation_run_refs=[{
@@ -515,7 +523,17 @@ class AutoMergeTests(unittest.TestCase):
                     ],
                 )
 
-    def test_merge_if_green_uses_squash_and_records_merged(self):
+    # ORPHAN-HIGH-764 — merge_pr_if_ready now runs the GATE_PRE_MERGE
+    # hard-fail perimeter immediately before the merge side effect. Every
+    # pre-merge check binds _not_implemented by design, so these
+    # merge-path tests stub the perimeter as passing: the gate's wiring and
+    # its refusal semantics are pinned separately in
+    # test_merge_authority_pre_merge_perimeter.py.
+    @patch(
+        "aria_kernel.merge_authority.run_hard_fail_checks",
+        return_value=SimpleNamespace(passed=True, failures=()),
+    )
+    def test_merge_if_green_uses_squash_and_records_merged(self, _perimeter):
         # Plan 026R §D.4 — auto-merge now triple-gates on
         # change_committed + change_validated + verified validation_runs.
         # Seed a passing chain so the merge proceeds.
@@ -550,7 +568,11 @@ class AutoMergeTests(unittest.TestCase):
         decisions = [json.loads(line) for line in (self.tools_dir / "auto-merge-decisions.jsonl").read_text().splitlines()]
         self.assertEqual([row["decision"] for row in decisions], ["eligible", "merged"])
 
-    def test_failed_merge_does_not_record_merged_lifecycle(self):
+    @patch(
+        "aria_kernel.merge_authority.run_hard_fail_checks",
+        return_value=SimpleNamespace(passed=True, failures=()),
+    )
+    def test_failed_merge_does_not_record_merged_lifecycle(self, _perimeter):
         self._seed_passing_triple_gate(pr_number=42, head_sha=HEAD_SHA)
         readiness_claim_id = self._seed_readiness_claim(pr_number=42, head_sha=HEAD_SHA)
         from aria_kernel.runtime_profile import set_profile

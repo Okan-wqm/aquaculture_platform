@@ -337,7 +337,12 @@ def _find_response_payload(request_id: str, base_dir: str | Path | None) -> dict
     row = accepted_result_for_request(request_id=request_id, base_dir=base_dir)
     if row is None:
         return None
-    output_path = Path(str(row.get("output_path") or ""))
+    from .agent_invocations import resolve_output_artifact_path
+    from .tool_registry import ensure_tools_dir
+
+    output_path = resolve_output_artifact_path(
+        ensure_tools_dir(base_dir), str(row.get("output_path") or ""),
+    )
     if not output_path.is_file():
         return None
     raw = output_path.read_bytes()

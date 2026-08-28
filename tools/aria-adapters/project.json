@@ -1,0 +1,37 @@
+{
+  "name": "aria-adapters",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "tools/aria-adapters",
+  "projectType": "library",
+  "tags": ["scope:tools", "type:aria"],
+  "targets": {
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "parallel": false,
+        "commands": [
+          "node --max-old-space-size=4096 node_modules/eslint/bin/eslint.js tools/aria-adapters --ext .ts --max-warnings=0"
+        ]
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "parallel": false,
+        "commands": [
+          "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/bundle-budget-adapter.test.ts",
+          "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/doc-staleness-adapter.test.ts",
+          "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/event-contracts-adapter.test.ts",
+          "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/fe-dto-parity-adapter.test.ts",
+          "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/kernel-dead-wire-adapter.test.ts",
+          "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/security-boundary-adapter.test.ts",
+          "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/tenant-scoping-adapter.test.ts",
+          "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/test-gap-adapter.test.ts",
+          "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/typeorm-entity-schema-adapter.test.ts"
+        ]
+      }
+    }
+  }
+}

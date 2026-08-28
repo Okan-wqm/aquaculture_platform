@@ -11,14 +11,17 @@ from pathlib import Path
 
 from aria_kernel.burn_in import (
     DISALLOWED_OBSERVE_SURFACES,
+    _cycle_ledger_summary,
+    _cycle_validity,
     _require_clean_worktree,
     run_observe_burn_in,
     validate_burn_in_report,
     verify_burn_in_artifact_bundle,
 )
 from aria_kernel.ledger import read_jsonl
-from aria_kernel.tool_registry import GovernanceError
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from aria_kernel.worktree import is_runtime_path as worktree_is_runtime_path
+from tests._helpers.declared_fixtures import append_declared_fixture
 
 
 _helpers_path = Path(__file__).parent / "_helpers" / "git_fixtures.py"
@@ -47,6 +50,33 @@ class ObserveBurnInTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self._tmp.cleanup()
+
+    def test_stopped_and_aborted_terminal_rows_are_not_reported_missing(self) -> None:
+        ensure_tools_dir(self.tools_dir)
+        cycles_path = self.tools_dir / "cycles.jsonl"
+        for status in ("completed", "failed", "stopped", "aborted"):
+            append_declared_fixture(
+                cycles_path,
+                {"cycle_id": status, "event": status, "status": status},
+                expected_surface="cycles",
+            )
+
+        cycles = [
+            {"cycle_id": status, "status": status}
+            for status in ("completed", "failed", "stopped", "aborted")
+        ]
+        summary = _cycle_ledger_summary(self.tools_dir, cycles)
+
+        self.assertEqual(summary["terminal_row_count"], 4)
+        self.assertEqual(summary["missing_terminal_rows"], [])
+        for status in ("stopped", "aborted"):
+            validity = _cycle_validity(
+                {"cycle_id": status, "status": status},
+                cycle_ledger_summary=summary,
+            )
+            self.assertFalse(validity["valid"])
+            self.assertIn("cycle_not_completed", validity["reasons"])
+            self.assertNotIn("terminal_cycle_row_missing", validity["reasons"])
 
     def test_observe_burn_in_runs_without_action_surfaces(self) -> None:
         report = run_observe_burn_in(

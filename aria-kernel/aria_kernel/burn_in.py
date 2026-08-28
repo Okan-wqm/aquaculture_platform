@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .cycle import _failed_event, run_enterprise_cycle
+from .cycle import CYCLE_TERMINAL_STATUSES, _failed_event, run_enterprise_cycle
 from .ledger import append_declared_jsonl, file_hash, load_declared_jsonl, load_jsonl
 from .runtime_profile import set_profile
 from .state_manifest import iter_surfaces, observe_disallowed_tool_surfaces
@@ -447,6 +447,17 @@ def _git(repo: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
+def _cycle_row_is_terminal(row: dict[str, Any]) -> bool:
+    """Whether a cycle-ledger row closes its cycle lifecycle."""
+    status = row.get("status")
+    event = row.get("event")
+    return (
+        status in CYCLE_TERMINAL_STATUSES
+        or event in CYCLE_TERMINAL_STATUSES
+        or event in {"cycle_completed", "cycle_failed"}
+    )
+
+
 def _cycle_has_terminal_row(tools_root: Path, cycle_id: str) -> bool:
     """Whether cycles.jsonl already carries a terminal row for this cycle.
 
@@ -458,9 +469,8 @@ def _cycle_has_terminal_row(tools_root: Path, cycle_id: str) -> bool:
         rows = load_declared_jsonl(tools_root / "cycles.jsonl", expected_surface="cycles")
     except GovernanceError:
         return False
-    terminal = {"completed", "failed", "stopped", "aborted"}
     return any(
-        row.get("cycle_id") == cycle_id and row.get("event") in terminal
+        row.get("cycle_id") == cycle_id and _cycle_row_is_terminal(row)
         for row in rows
     )
 
@@ -749,10 +759,7 @@ def verify_burn_in_artifact_bundle(output_root: str | Path) -> dict[str, str]:
 def _cycle_ledger_summary(root: Path, cycles: list[dict[str, Any]]) -> dict[str, Any]:
     rows = load_declared_jsonl(root / "cycles.jsonl", expected_surface="cycles")
     started = [row for row in rows if row.get("event") == "cycle_started" or row.get("status") == "started"]
-    terminal = [
-        row for row in rows
-        if row.get("event") in {"cycle_completed", "cycle_failed"} or row.get("status") in {"completed", "failed"}
-    ]
+    terminal = [row for row in rows if _cycle_row_is_terminal(row)]
     attempted_ids = [str(row.get("cycle_id")) for row in cycles]
     terminal_ids = {str(row.get("cycle_id")) for row in terminal}
     status_histogram: dict[str, int] = {}

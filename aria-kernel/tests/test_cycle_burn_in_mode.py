@@ -160,7 +160,8 @@ class ModeDeclarationTests(unittest.TestCase):
                     "primitives belong to the pipeline's phase runners now",
                 )
         self.assertEqual(
-            from_cycle, {"_failed_event", "run_enterprise_cycle"},
+            from_cycle,
+            {"CYCLE_TERMINAL_STATUSES", "_failed_event", "run_enterprise_cycle"},
             "burn_in.py's imports from cycle widened — a hand-rolled loop "
             "starts exactly this way",
         )

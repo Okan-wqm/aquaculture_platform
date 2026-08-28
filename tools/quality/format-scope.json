@@ -33291,6 +33291,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/aria/2026-08-28-provider-failover.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md",
       "prettier_managed": true
     },

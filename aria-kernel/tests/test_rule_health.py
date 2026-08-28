@@ -16,6 +16,7 @@ import unittest
 from pathlib import Path
 
 from aria_kernel.feedback_store import (
+    ANCHOR_MIN_JUDGE_COUNT,
     _sampleable_raw_findings,
     append_jsonl,
     raw_findings_path,
@@ -57,7 +58,15 @@ class RuleHealthTests(unittest.TestCase):
             },
         )
 
-    def _verdict(self, fingerprint: str, verdict: str, *, source: str = "ai_consensus", n: int = 1) -> None:
+    def _verdict(
+        self,
+        fingerprint: str,
+        verdict: str,
+        *,
+        source: str = "ai_consensus",
+        n: int = 1,
+        judges: int = ANCHOR_MIN_JUDGE_COUNT,
+    ) -> None:
         for i in range(n):
             record_operator_feedback(
                 tool_id="security-boundary-adapter",
@@ -70,17 +79,53 @@ class RuleHealthTests(unittest.TestCase):
                 judge_id="aria-consensus-arbiter",
                 finding_fingerprint=fingerprint,
                 judgment_group_id=f"judge:t:{fingerprint}:{i}",
+                judge_count=judges if source == "ai_consensus" else None,
+                judges_voted=judges if source == "ai_consensus" else None,
+                # G-2 — the receipt an anchor now needs. Only consensus
+                # rows at anchor grade carry it; a 2-judge row settles
+                # precision and never truth, so it needs none.
+                observers=(
+                    [
+                        {"judge_id": "aria-evidence-judge", "model": "claude-opus-5"},
+                        {"judge_id": "aria-adversarial-judge", "model": "claude-opus-5"},
+                        {"judge_id": "aria-consensus-arbiter", "model": "fable"},
+                    ][:judges]
+                    if source == "ai_consensus" and judges >= 3
+                    else None
+                ),
                 base_dir=self.tools,
             )
 
     def test_stats_count_only_ground_truth(self) -> None:
+        """JJ-1 (ORPHAN-HIGH-731) REWROTE this pin.
+
+        It used to read "ai_consensus counts, ai_judge does not", which
+        blessed every 2-judge pair as ground truth. The successor truth is
+        narrower: an ANCHOR consensus counts, a 2-judge consensus does not,
+        and a lone judge still does not. Both rejected rows are asserted so
+        a regression to either looseness fails here.
+        """
         self._raw("fp-a", "public_write_endpoint_without_allowlist")
         self._verdict("fp-a", "false_positive", source="ai_consensus")
         self._verdict("fp-a", "false_positive", source="ai_judge")  # not GT
+        self._verdict("fp-a", "false_positive", source="ai_consensus", judges=2)
         stats = rule_stats(self.tools)
         key = ("security-boundary-adapter", "public_write_endpoint_without_allowlist")
         self.assertEqual(stats[key]["false_positive"], 1)
         self.assertEqual(stats[key]["judged"], 1)
+
+    def test_two_judge_consensus_cannot_quarantine_a_rule(self) -> None:
+        """Deliberate breakage: the volume that used to quarantine a rule no
+        longer does when it is carried by unexamined pairs. Three 2-judge
+        false positives are three opinions from two judges, not evidence."""
+        self._raw("fp-pair", "pair_only_rule")
+        self._verdict("fp-pair", "false_positive", n=3, judges=2)
+        self.assertEqual(quarantined_rules(self.tools), set())
+        self._verdict("fp-pair", "false_positive", n=3)
+        self.assertEqual(
+            quarantined_rules(self.tools),
+            {("security-boundary-adapter", "pair_only_rule")},
+        )
 
     def test_quarantine_needs_volume_and_fp_rate(self) -> None:
         self._raw("fp-b", "noisy_rule")

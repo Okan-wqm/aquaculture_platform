@@ -43,6 +43,7 @@ from pathlib import Path
 from aria_kernel.literal_provenance import ProductionIndex
 from aria_kernel.surface_reachability import (
     declared_surfaces,
+    undeclared_written_members,
     unwritten_members,
     written_members,
 )
@@ -105,6 +106,41 @@ class SurfaceReachabilityTests(unittest.TestCase):
             [],
             "vocabulary member(s) with no production writer and no waiver: "
             + ", ".join(undeclared),
+        )
+
+    def test_no_writer_emits_a_member_the_vocabulary_does_not_declare(self) -> None:
+        """ORPHAN-HIGH-758 — the direction every defence here was missing.
+
+        Every check above asks "is a DECLARED member reachable?".
+        ORPHAN-CRITICAL-733 came from the OPPOSITE direction: a producer
+        emitting a value no registry knew, which killed a cycle. The
+        defences built afterwards — a boundary raise, a parity test between
+        the two pressure tables, this gate — all faced the wrong way, and
+        `written_members` was resolving the answer and discarding it one
+        line before it could be reported.
+
+        Turning it on found two live instances at once: `post_merge_ci`
+        (emitted by the post-merge red scan, in neither pressure table, and
+        a `GovernanceError` the first night a red merge outcome is
+        recorded) and `specialist_domain_review` (a surface bound to
+        REQUEST_ROLES whose writer is governed by INVOCATION_ROLES). There
+        is no waiver ledger for this direction on purpose: an unwritten
+        member is a plan that has not happened yet, which can reasonably
+        carry an owner and a date, while an undeclared written
+        value is a raise waiting for its input.
+        """
+        undeclared: list[str] = []
+        for surface in self.surfaces:
+            for member, locations in undeclared_written_members(surface, self.index).items():
+                undeclared.append(
+                    f"{surface.surface_id}.{member} emitted at {locations[0]}"
+                )
+        self.assertEqual(
+            undeclared,
+            [],
+            "production writer(s) emit a value their vocabulary does not "
+            "declare — register it in the closed table(s) or stop emitting "
+            "it: " + "; ".join(undeclared),
         )
 
     def test_every_waiver_names_an_owner_a_reason_a_deadline_and_a_finding(self) -> None:

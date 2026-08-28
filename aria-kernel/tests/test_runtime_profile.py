@@ -76,8 +76,16 @@ class ProfileTaxonomyTests(unittest.TestCase):
         # closes the test-runner missing-test-#6 invariant gap; a
         # future refactor that drops autonomous from any cell must
         # update this table directly.
+        # ORPHAN-CRITICAL-728 — `plan_stage` and `apply_gate` join the table.
+        # They are the two governed actions the convergence-to-PR producer
+        # added, and a cell HERE is what enrols an action in profile gating
+        # and — through the derived PROFILES_WITH_ACTION_AUTHORITY — in
+        # breaker gating. Without cells both ran under `observe`, under
+        # `frozen` and with the breaker tripped, reachable straight from the
+        # implementer's Bash allowlist.
         self.assertEqual(set(ACTION_PERMISSIONS.keys()), {
-            "agent_claim", "change_committed", "change_validated", "pr_create", "pr_open", "pr_merge",
+            "agent_claim", "change_committed", "change_validated", "pr_create",
+            "pr_open", "pr_merge", "plan_stage", "apply_gate",
         })
         self.assertEqual(
             ACTION_PERMISSIONS["agent_claim"],
@@ -103,6 +111,59 @@ class ProfileTaxonomyTests(unittest.TestCase):
             ACTION_PERMISSIONS["pr_merge"],
             frozenset({"autonomous"}),
         )
+        # Same set as pr_create/pr_open: steps of one pipeline, and a profile
+        # that may not open a PR has no business minting the approval or the
+        # gate ref a PR open consumes.
+        self.assertEqual(
+            ACTION_PERMISSIONS["plan_stage"],
+            frozenset({"strict", "autonomous"}),
+        )
+        self.assertEqual(
+            ACTION_PERMISSIONS["apply_gate"],
+            frozenset({"strict", "autonomous"}),
+        )
+
+    def test_the_table_is_the_only_definition_of_who_may_implement(self) -> None:
+        """ORPHAN-HIGH-728 — `pr_create` decides which profiles get the
+        implementing V9 runner, so this cell is now load-bearing twice.
+
+        `cycle_phases.implementer.select_v9_implementation_runner` used to
+        carry a hand-written copy of this mapping and drifted from it: the
+        table said strict may open pull requests, the copy said strict must
+        refuse to implement, and the nightly lane sat on `standard` where
+        both agreed on nothing happening. The table wins; this asserts the
+        factory follows it, INCLUDING when the table changes.
+        """
+        from unittest.mock import patch
+
+        from aria_kernel.cycle_phases.implementer import (
+            IMPLEMENTATION_ACTION_KIND,
+            AutonomousV9ImplementationRunner,
+            NoOpV9ImplementationRunner,
+            select_v9_implementation_runner,
+        )
+
+        self.assertEqual(IMPLEMENTATION_ACTION_KIND, "pr_create")
+        for profile in sorted(ACTION_PERMISSIONS["pr_create"]):
+            self.assertIsInstance(
+                select_v9_implementation_runner(profile=profile),
+                AutonomousV9ImplementationRunner,
+            )
+        # Revoke strict's pr_create in the TABLE ONLY. A factory that mirrors
+        # the table instead of reading it stays on the implementing runner
+        # here — which is exactly the state this repository shipped in.
+        narrowed = dict(ACTION_PERMISSIONS)
+        narrowed["pr_create"] = frozenset({"autonomous"})
+        with patch("aria_kernel.runtime_profile.ACTION_PERMISSIONS", narrowed):
+            self.assertIsInstance(
+                select_v9_implementation_runner(profile="strict"),
+                NoOpV9ImplementationRunner,
+                "the runner factory is not reading ACTION_PERMISSIONS",
+            )
+            self.assertIsInstance(
+                select_v9_implementation_runner(profile="autonomous"),
+                AutonomousV9ImplementationRunner,
+            )
 
     def test_plan_020_write_surfaces_include_required_enterprise_entries(self) -> None:
         # Plan 020 v3.3 Phase 1.B + Plan 026R §A.4 PLAN_020_WRITE_SURFACES
@@ -486,6 +547,177 @@ class ReadPathSafetyTests(unittest.TestCase):
             self.assertFalse(nonexistent.exists())
         finally:
             shutil.rmtree(nonexistent.parent, ignore_errors=True)
+
+
+class TheSchedulerCeilingIsAnOperatorGesture(unittest.TestCase):
+    """ORPHAN-HIGH-728 — the one value in this control plane a machine may
+    read and lower but never raise.
+
+    An unattended lane resolves its own profile from evidence every night.
+    Evidence can say the repository has EARNED more authority; it cannot say
+    an operator GRANTED it, and ADR-033/ADR-041 both spend their ceremony on
+    the second sentence. The ceiling is that sentence, written where every
+    other profile fact already lives.
+    """
+
+    def setUp(self) -> None:
+        self.tools = Path(tempfile.mkdtemp(prefix="aria-rt-ceiling-"))
+        self.addCleanup(shutil.rmtree, self.tools, True)
+
+    def test_an_untouched_store_grants_a_scheduled_lane_standard(self) -> None:
+        """The default is the whole migration story: every store that
+        predates this field keeps its nightly lane exactly where ADR-041
+        step 2 needs it, with no operator action and no backfill."""
+        from aria_kernel.runtime_profile import (
+            DEFAULT_SCHEDULER_PROFILE_CEILING,
+            get_scheduler_profile_ceiling,
+        )
+        self.assertEqual(DEFAULT_SCHEDULER_PROFILE_CEILING, "standard")
+        self.assertEqual(
+            get_scheduler_profile_ceiling(base_dir=self.tools), "standard",
+        )
+        set_profile("strict", operator_approval_ref="op:1", base_dir=self.tools)
+        self.assertEqual(
+            get_scheduler_profile_ceiling(base_dir=self.tools), "standard",
+            "an operator setting the ACTIVE profile has not granted a "
+            "scheduled lane anything",
+        )
+
+    def test_containment_is_read_from_the_action_table(self) -> None:
+        """Subset of permitted actions, not a hand-written rank.
+
+        A rank would be a second ordering of the profiles to keep in sync —
+        the duplication class this module keeps deleting — and it would
+        answer confidently for two profiles whose authorities do not nest.
+        The proof is a table change: granting `standard` a cell it did not
+        have moves the containment answer with no edit anywhere else.
+        """
+        from aria_kernel.runtime_profile import (
+            bound_profile_to_ceiling,
+            permitted_actions,
+            profile_within_ceiling,
+        )
+        self.assertEqual(bound_profile_to_ceiling("strict", "standard"), "standard")
+        self.assertEqual(bound_profile_to_ceiling("standard", "strict"), "standard")
+        self.assertEqual(bound_profile_to_ceiling("strict", "strict"), "strict")
+        self.assertEqual(bound_profile_to_ceiling("strict", "observe"), "observe")
+        self.assertFalse(profile_within_ceiling("strict", "standard"))
+
+        # DERIVE the cells to widen instead of naming them. The hand-written
+        # pair (pr_create, pr_open) was complete when this pin was written
+        # and stopped being complete the moment CL-2 added plan_stage and
+        # apply_gate as strict-only actions — the pin then failed for a
+        # reason that had nothing to do with containment. What the test
+        # means is "make the two profiles' authority equal, by whatever
+        # cells currently separate them", and that is what it now does.
+        widened = dict(ACTION_PERMISSIONS)
+        for _action, _profiles in ACTION_PERMISSIONS.items():
+            if "strict" in _profiles and "standard" not in _profiles:
+                widened[_action] = frozenset(set(_profiles) | {"standard"})
+        with patch("aria_kernel.runtime_profile.ACTION_PERMISSIONS", widened):
+            self.assertEqual(
+                permitted_actions("strict"), permitted_actions("standard"),
+            )
+            self.assertEqual(
+                bound_profile_to_ceiling("strict", "standard"), "strict",
+                "containment did not follow the table",
+            )
+
+    def test_a_machine_may_lower_the_ceiling_but_never_raise_it(self) -> None:
+        from aria_kernel.runtime_profile import get_scheduler_profile_ceiling
+
+        set_profile(
+            "standard",
+            operator_approval_ref="op:grant",
+            base_dir=self.tools,
+            scheduler_ceiling="strict",
+        )
+        set_profile(
+            "standard",
+            operator_approval_ref="lane:run=1",
+            base_dir=self.tools,
+            set_by="autonomy-cli",
+            scheduler_ceiling="standard",
+        )
+        self.assertEqual(
+            get_scheduler_profile_ceiling(base_dir=self.tools), "standard",
+            "lowering is always allowed — a machine narrowing its own "
+            "authority needs no permission",
+        )
+        with self.assertRaises(GovernanceError) as raised:
+            set_profile(
+                "standard",
+                operator_approval_ref="lane:run=2",
+                base_dir=self.tools,
+                set_by="autonomy-cli",
+                scheduler_ceiling="strict",
+            )
+        self.assertIn(
+            "scheduler_ceiling_raise_requires_operator", str(raised.exception),
+        )
+
+    def test_the_ceiling_transition_lands_in_the_audit_trail(self) -> None:
+        """Same state file, same history ledger, same governance event as
+        every other profile fact — which is the reason it lives here rather
+        than in a second store an operator would have to keep in sync."""
+        set_profile(
+            "standard",
+            operator_approval_ref="op:adr-041",
+            base_dir=self.tools,
+            scheduler_ceiling="strict",
+        )
+        state = json.loads((self.tools / PROFILE_STATE_FILENAME).read_text())
+        self.assertEqual(state["scheduler_profile_ceiling"], "strict")
+        self.assertEqual(state["previous_scheduler_profile_ceiling"], "standard")
+        history = [
+            json.loads(line)
+            for line in (self.tools / PROFILE_HISTORY_FILENAME).read_text().splitlines()
+            if line.strip()
+        ]
+        self.assertEqual(history[-1]["scheduler_profile_ceiling"], "strict")
+        governance = [
+            json.loads(line)
+            for line in (self.tools / "governance.jsonl").read_text().splitlines()
+            if line.strip()
+        ]
+        changed = [row for row in governance if row.get("kind") == "runtime_profile_changed"]
+        self.assertEqual(changed[-1]["details"]["scheduler_profile_ceiling"], "strict")
+
+    def test_an_unreadable_ceiling_fails_closed_to_the_default(self) -> None:
+        """Every failure mode returns the LOWEST grant, so a mangled state
+        file can only ever narrow a machine's authority. The diagnostic is
+        returned rather than emitted: this is a read path a frozen kernel
+        has to be able to take without writing."""
+        from aria_kernel.runtime_profile import (
+            get_scheduler_profile_ceiling_with_diagnostic,
+        )
+
+        set_profile(
+            "standard",
+            operator_approval_ref="op:grant",
+            base_dir=self.tools,
+            scheduler_ceiling="strict",
+        )
+        state_file = self.tools / PROFILE_STATE_FILENAME
+        payload = json.loads(state_file.read_text())
+        payload["scheduler_profile_ceiling"] = "omnipotent"
+        state_file.write_text(json.dumps(payload), encoding="utf-8")
+        ceiling, diagnostic = get_scheduler_profile_ceiling_with_diagnostic(
+            base_dir=self.tools,
+        )
+        self.assertEqual(ceiling, "standard")
+        self.assertEqual(diagnostic["kind"], "scheduler_profile_ceiling_unknown")
+        self.assertEqual(diagnostic["scheduler_profile_ceiling"], "omnipotent")
+
+    def test_an_unknown_ceiling_name_is_refused_at_the_writer(self) -> None:
+        with self.assertRaises(GovernanceError) as raised:
+            set_profile(
+                "standard",
+                operator_approval_ref="op:typo",
+                base_dir=self.tools,
+                scheduler_ceiling="strictt",
+            )
+        self.assertIn("unknown scheduler ceiling", str(raised.exception))
 
 
 if __name__ == "__main__":

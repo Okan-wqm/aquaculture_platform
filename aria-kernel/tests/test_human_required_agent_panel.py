@@ -20,6 +20,9 @@ Locked cases:
   * I-PANEL-11 — a quorum of independent resolve votes clears the escalation
     and records resolved_by=agent_panel
   * I-PANEL-12 — an agent panel may NEVER write a ground-truth verdict
+  * I-PANEL-13 — an agent panel may NEVER close a record without stating
+    WHICH decision it reached (pinned end-to-end in
+    test_jj2_humanless_promotion.PanelDecisionIsRecordedNotInferredTests)
 """
 
 from __future__ import annotations
@@ -97,10 +100,37 @@ class AdjudicabilityGate(unittest.TestCase):
         )
 
     def test_admitted_kind_without_files_is_adjudicable(self) -> None:
+        # Y8 (ORPHAN-709) — genesis_candidate is admitted WITH fail-closed
+        # identity requirements: the lifecycle proof resolver needs the gap
+        # key, the resolver decision ref, and the gap's evidence, so a bare
+        # context is deliberately NOT adjudicable for that kind alone.
+        genesis_identity = {
+            "capability_gap_key": "shadow_run:tool-x",
+            "capability_resolution_ref": "res-1",
+            "evidence_refs": ["apps/svc/src/a.ts"],
+        }
         for kind in sorted(hra.ADJUDICABLE_CONTEXT_KINDS):
             with self.subTest(kind=kind):
+                context: dict = {"kind": kind}
+                if kind == "genesis_candidate":
+                    context.update(genesis_identity)
+                # JJ-2b (ORPHAN-HIGH-732) — tool_promotion is admitted with
+                # its own fail-closed identity: the executor resolves the
+                # adapter from context.tool_id, so a promotion question that
+                # cannot name its subject must never clear.
+                if kind == "tool_promotion":
+                    context.update({
+                        "tool_id": "x-adapter",
+                        "evidence_refs": ["aria-tools/runs.jsonl#x-adapter"],
+                    })
+                # JJ-3 (ORPHAN-HIGH-755) — belief_escalation is admitted with
+                # its own fail-closed identity: the panel authorises a
+                # correction against ONE belief, so an escalation that cannot
+                # name it is not adjudicable.
+                if kind == "belief_escalation":
+                    context.update({"belief_id": "B-contradicted"})
                 self.assertTrue(
-                    hra.escalation_adjudicability({"context": {"kind": kind}}).adjudicable,
+                    hra.escalation_adjudicability({"context": context}).adjudicable,
                 )
 
 
@@ -167,7 +197,10 @@ class PanelFold(unittest.TestCase):
         )
         return [str(r) for r in row["request_ids"]]
 
-    def _seed_opinion(self, request_id: str, *, agent_id: str, verdict: str) -> None:
+    def _seed_opinion(
+        self, request_id: str, *, agent_id: str, verdict: str,
+        disposition: str | None = None,
+    ) -> None:
         """Write a claim row + an accepted result + its output payload.
 
         Goes through ``append_declared_jsonl`` rather than writing lines
@@ -178,10 +211,10 @@ class PanelFold(unittest.TestCase):
         invocations = self.tools / "agent-invocations"
         invocations.mkdir(parents=True, exist_ok=True)
         output = invocations / f"{request_id}.opinion.json"
-        output.write_text(
-            json.dumps({"verdict": verdict, "rationale": f"{agent_id} says {verdict}"}),
-            encoding="utf-8",
-        )
+        payload = {"verdict": verdict, "rationale": f"{agent_id} says {verdict}"}
+        if disposition is not None:
+            payload["disposition"] = disposition
+        output.write_text(json.dumps(payload), encoding="utf-8")
         append_declared_jsonl(
             invocations / "claims.jsonl",
             {
@@ -262,8 +295,15 @@ class PanelFold(unittest.TestCase):
     # I-PANEL-11
     def test_i_panel_11_independent_quorum_clears_escalation(self) -> None:
         request_ids = self._open()
-        self._seed_opinion(request_ids[0], agent_id="judge-a", verdict=hra.RESOLVE_VERDICT)
-        self._seed_opinion(request_ids[1], agent_id="judge-b", verdict=hra.RESOLVE_VERDICT)
+        # Y7 (ORPHAN-708) — DELIBERATE REWRITE: on an OPERATIONAL kind a
+        # resolve vote must carry a disposition; a dispositionless quorum
+        # now stamps escalate_operator instead of closing the record
+        # (pinned in test_y7_self_adjudication). drop_with_reason keeps
+        # this pin about what it always tested: independence + quorum.
+        self._seed_opinion(request_ids[0], agent_id="judge-a", verdict=hra.RESOLVE_VERDICT,
+                           disposition=hra.DISPOSITION_DROP)
+        self._seed_opinion(request_ids[1], agent_id="judge-b", verdict=hra.RESOLVE_VERDICT,
+                           disposition=hra.DISPOSITION_DROP)
         self._seed_opinion(request_ids[2], agent_id="judge-c", verdict=hra.REFUSE_VERDICT)
         verdict = hra.adjudicate_human_required(
             escalation_request_id=self.escalation_id, base_dir=self.tools,
@@ -278,6 +318,10 @@ class PanelFold(unittest.TestCase):
         self.assertEqual(record["status"], "resolved")
         self.assertEqual(record["resolved_by"], RESOLVED_BY_AGENT_PANEL)
         self.assertIn("independent agent panel", record["resolution_note"])
+        # The DECISION, not just the fact one was taken: a refusal closes the
+        # record with the same status/resolved_by pair, so those two fields
+        # never distinguished "the panel said yes" from "the panel said no".
+        self.assertEqual(record["panel_outcome"], hra.OUTCOME_RESOLVED)
 
     def test_refuse_quorum_does_not_resolve_the_record(self) -> None:
         request_ids = self._open()
@@ -308,6 +352,9 @@ class PanelFold(unittest.TestCase):
                 resolution_note="panel tried to supply ground truth",
                 verdict="true_positive",
                 resolved_by=RESOLVED_BY_AGENT_PANEL,
+                # An otherwise VALID panel resolution, so the ground-truth
+                # clause is the only reason this can refuse.
+                panel_outcome=hra.OUTCOME_RESOLVED,
                 base_dir=self.tools,
             )
         self.assertIn("cannot_supply_ground_truth_verdict", str(ctx.exception))
@@ -352,6 +399,19 @@ class AdjudicationPublicApiPin(unittest.TestCase):
         "PanelVerdict",
         # behaviour
         "adjudicate_human_required",
+        # Y7 (ORPHAN-708) — panel dispositions: the closed effect vocabulary
+        # and the budgets that bound it.
+        "DISPOSITION_DROP",
+        "DISPOSITION_ESCALATE_OPERATOR",
+        "DISPOSITION_RE_MINT",
+        "MAX_REQUEST_REMINTS",
+        "OPERATIONAL_DISPOSITION_KINDS",
+        "PANEL_DISPOSITIONS",
+        # JJ-3 (ORPHAN-HIGH-755) — the kinds whose quorum-refuse HANDS the
+        # item to a human instead of closing it. Exported because it is a
+        # policy line: widening it silently would let a refusal close work
+        # that nobody did.
+        "REFUSE_HANDS_TO_OPERATOR_KINDS",
         "escalation_adjudicability",
         "fold_adjudication",
         "open_adjudication",

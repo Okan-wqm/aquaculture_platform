@@ -26,7 +26,7 @@ import os
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable
 
@@ -43,7 +43,28 @@ CLAUDE_DEFAULT_MODEL = "fable"
 # by an explicit ``--effort`` flag (low|medium|high|xhigh|max). These are the
 # model aliases and effort levels ARIA may target; the agent-runtime-profile
 # maps each agent's frontmatter to one of them.
-VALID_MODELS: tuple[str, ...] = ("opus", "sonnet", "haiku", "fable")
+# ORPHAN-HIGH-763 — the second copy of the model vocabulary is DERIVED, not
+# declared.
+#
+# CORRECTION TO MY OWN FIRST CUT: I deleted it outright, having concluded it
+# was "read by nothing, not even a test". That conclusion was produced by my
+# own `grep ... | head -8` — the listing was truncated at eight lines and
+# `test_claude_runtime_contract.test_valid_models_includes_fable` sat below the
+# cut. A truncated search is an observation, not evidence, and this file has
+# now taught that lesson twice (a pipe eating an exit code was the first).
+#
+# The reader is real and the name must live here. What must NOT live here is a
+# second literal: `agent_runtime_profile.VALID_MODELS` is the SSoT, and this
+# module exposes it through PEP 562 so the kernel import stays LAZY — the same
+# discipline `_assert_budget_before_spawn` follows, because the kernel package
+# rides PYTHONPATH in the ARIA lanes and not necessarily anywhere else.
+def __getattr__(name: str):  # noqa: ANN202 - PEP 562 module hook
+    if name == "VALID_MODELS":
+        from aria_kernel.agent_runtime_profile import VALID_MODELS as _kernel_models
+
+        return tuple(sorted(_kernel_models))
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 VALID_EFFORTS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
 
 # ORPHAN-HIGH-473 — the fallback topology, as data rather than a literal string
@@ -97,6 +118,109 @@ API_KEY_ENV_VARS = ("ANTHROPIC_API_KEY", "CLAUDE_API_KEY")
 # billing; those bypass the managed subscription session the same way an
 # API key does, so they are gated under the same policy switch.
 UNSAFE_BILLING_ENV_VARS = ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL")
+
+# ORPHAN-HIGH-764 — per-spawn provider redirect.
+#
+# WHY NOT A GLOBAL EXPORT. Z.ai serves GLM behind an Anthropic-shaped
+# endpoint, so the documented setup is to export ANTHROPIC_BASE_URL +
+# ANTHROPIC_AUTH_TOKEN. Doing that HERE would redirect every dispatch — judges,
+# planners, implementer — to one vendor, silently, because this process
+# dispatches many models. The redirect therefore binds to a single spawn's
+# `run_env` and never to `os.environ`.
+#
+# WHY THIS IS NOT ROUTING AROUND THE GATE. `assert_claude_policy_environment`
+# reads `os.environ`, so a run_env-only injection would never trip it — which
+# is precisely why it must not be left implicit. A redirect is a NEW mode, so
+# it gets its own named authorisation and its own named refusals, and it is
+# recorded rather than inferred. The gate guards managed-auth BILLING bypass;
+# this guards WHICH VENDOR a spawn reaches. Two questions, two gates.
+PROVIDER_REDIRECT_POLICY_ENV_VAR = "ARIA_PROVIDER_REDIRECT_POLICY_REF"
+
+# THE BASE URL IS CONFIGURABLE ON PURPOSE, and the reason is money.
+#
+# Z.ai documents THREE endpoints and they bill differently: the Coding-Plan
+# route (`/api/coding/paas/v4`) draws the subscription quota, the general route
+# (`/api/paas/v4`) draws the prepaid wallet, and the Anthropic-compatible route
+# (`/api/anthropic`) is listed as a third protocol whose billing the docs do
+# not settle — they warn only that the Anthropic base URL "does not apply to
+# resource packages / prepaid balance" and that swapping Coding for general
+# charges the wallet instead of the plan. A published bug in another harness is
+# exactly this: a Coding-Plan key routed to the generic endpoint and billed
+# against balance while the paid subscription sat unused.
+#
+# Which of those a given plan+key actually consumes is an EMPIRICAL question
+# (make one call, read the vendor dashboard), so it must not be frozen into a
+# constant. The default is the documented Anthropic-compatible route because
+# that is the one Claude Code speaks; the operator overrides it in one env var
+# once the billing side is measured, with no code change and no redeploy.
+PROVIDER_REDIRECT_BASE_URL_ENV_TEMPLATE = "ARIA_{provider}_BASE_URL"
+PROVIDER_REDIRECTS: dict[str, dict[str, str]] = {
+    "glm-5.3": {
+        "provider": "zai",
+        "default_base_url": "https://api.z.ai/api/anthropic",
+        "token_env_var": "ARIA_ZAI_API_KEY",
+    },
+}
+
+
+class ProviderRedirectUnavailable(RuntimeError):
+    """A model needs a vendor redirect that is not authorised or not configured."""
+
+
+def provider_redirect_env(model: str | None) -> dict[str, str]:
+    """The env a spawn on ``model`` needs to reach its vendor, or ``{}``.
+
+    Fail-closed in both directions, and NAMED in both: an unauthorised
+    redirect and a missing credential are different operator problems, and a
+    single "it didn't work" would send the reader to the wrong one. Silence is
+    the failure this repository keeps paying for — a missing key must not
+    degrade into a dispatch that quietly reaches the wrong vendor, or none.
+    """
+    redirect = PROVIDER_REDIRECTS.get(str(model or ""))
+    if redirect is None:
+        return {}
+    policy_ref = os.environ.get(PROVIDER_REDIRECT_POLICY_ENV_VAR, "").strip()
+    if not policy_ref:
+        raise ProviderRedirectUnavailable(
+            f"provider_redirect_unauthorised: model {model!r} routes to "
+            f"{redirect['provider']!r}; set {PROVIDER_REDIRECT_POLICY_ENV_VAR} "
+            "to the operator policy reference that authorises it"
+        )
+    token = os.environ.get(redirect["token_env_var"], "").strip()
+    if not token:
+        raise ProviderRedirectUnavailable(
+            f"provider_redirect_token_missing: model {model!r} needs "
+            f"{redirect['token_env_var']} in the runner environment"
+        )
+    override_var = PROVIDER_REDIRECT_BASE_URL_ENV_TEMPLATE.format(
+        provider=redirect["provider"].upper(),
+    )
+    base_url = os.environ.get(override_var, "").strip() or redirect["default_base_url"]
+    return {
+        "ANTHROPIC_BASE_URL": base_url,
+        "ANTHROPIC_AUTH_TOKEN": token,
+    }
+
+
+def provider_redirect_disclosure(model: str | None) -> dict[str, str]:
+    """What a spawn on ``model`` should RECORD about where it was sent.
+
+    Never the token. The endpoint is the fact that answers "did this night
+    consume the subscription we paid for, or the wallet?" — and today that
+    question cannot be answered from ARIA's own ledgers at all, which is how a
+    paid plan sits unused while a balance drains.
+    """
+    redirect = PROVIDER_REDIRECTS.get(str(model or ""))
+    if redirect is None:
+        return {}
+    override_var = PROVIDER_REDIRECT_BASE_URL_ENV_TEMPLATE.format(
+        provider=redirect["provider"].upper(),
+    )
+    return {
+        "provider": redirect["provider"],
+        "base_url": os.environ.get(override_var, "").strip() or redirect["default_base_url"],
+        "base_url_source": "operator_override" if os.environ.get(override_var, "").strip() else "default",
+    }
 
 
 class ClaudeCliUnavailable(RuntimeError):
@@ -159,6 +283,14 @@ class ClaudeRunResult:
     # policy. Never recoverable by the fallback ladder — see
     # AUTH_FAILURE_MARKERS.
     auth_failure: dict[str, Any] | None = None
+    # ARIA-HIGH-002 — typed terminal classification of THIS result (auth
+    # failure / credit-exhaustion markers, process exit), stamped by the
+    # runtime through dispatch_failure.classify_dispatch_failure before the
+    # result is returned; None on a clean success. The exception-family half
+    # of the contract is the executors' to classify at their boundary.
+    failure_class: str | None = None
+    retryable: bool | None = None
+    failure_detail_code: str | None = None
 
 
 def is_mock_mode() -> bool:
@@ -679,6 +811,10 @@ def run_claude_exec(
     run_env = os.environ.copy()
     if _sandbox_acknowledged():
         run_env["IS_SANDBOX"] = "1"
+    # ORPHAN-HIGH-764 — vendor redirect, scoped to THIS spawn. A model with no
+    # redirect entry changes nothing here, so the managed Claude session stays
+    # the default for every Anthropic tier.
+    run_env.update(provider_redirect_env(model))
     proc = subprocess.run(
         argv,
         input=prompt_text,
@@ -707,7 +843,7 @@ def run_claude_exec(
         )
     if proc.returncode == 0 and require_usage and usage is None:
         raise ClaudeUsageUnavailable("claude_stream_json_missing_result_usage")
-    return ClaudeRunResult(
+    result = ClaudeRunResult(
         returncode=proc.returncode,
         stdout=proc.stdout,
         stderr=proc.stderr,
@@ -726,6 +862,21 @@ def run_claude_exec(
             final_message=final_message,
         ),
     )
+    # ARIA-HIGH-002 — stamp the typed classification on the result itself so
+    # downstream consumers (drains, evidence surfaces) read one vocabulary
+    # instead of re-deriving it from markers. Lazy import: dispatch_failure
+    # imports this module, so the dependency direction resolves at call time.
+    from dispatch_failure import classify_dispatch_failure
+
+    failure = classify_dispatch_failure(result=result, phase="runtime")
+    if failure is not None:
+        result = replace(
+            result,
+            failure_class=failure.failure_class,
+            retryable=failure.retryable,
+            failure_detail_code=failure.detail_code,
+        )
+    return result
 
 
 def parse_claude_jsonl(raw: str) -> tuple[dict[str, Any], ...]:

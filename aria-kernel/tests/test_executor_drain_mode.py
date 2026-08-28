@@ -163,6 +163,44 @@ class DrainPendingTests(unittest.TestCase):
             [rid for rid, _ in calls["dispatch"]], ["AIR-impl", "AIR-judge"]
         )
 
+    def test_quota_round_reaches_roles_behind_judge_volume(self) -> None:
+        # Y4 (ORPHAN-705) — the measured starvation: maintenance_utility and
+        # adjudication envelopes queued behind 64 judges at ~9 drains/night.
+        # The quota round must hand every WAITING role one slot before any
+        # role gets a second — so the younger maintenance envelope outranks
+        # the older judges' second slot, and judges still drain afterwards.
+        # ORPHAN-HIGH-786 moved the judge roles earlier in the arc (they
+        # were LAST, and the fallback budget died before reaching them),
+        # so the quota round now serves the judge lane first — but the
+        # PROPERTY this test pins is unchanged: the second judge envelope
+        # (a surplus slot) still drains only AFTER adjudication and
+        # maintenance have each received their guaranteed one.
+        queue = [
+            {"request_id": "AIR-judge-old-1", "target_agent": "aria-evidence-judge", "role": "evidence_judgment"},
+            {"request_id": "AIR-judge-old-2", "target_agent": "aria-evidence-judge", "role": "evidence_judgment"},
+            {"request_id": "AIR-mu", "target_agent": "aria-autonomy-planner", "role": "maintenance_utility"},
+            {"request_id": "AIR-adj", "target_agent": "aria-consensus-arbiter", "role": "human_required_adjudication"},
+        ]
+        rc, calls, _ = _drain(
+            queue,
+            {
+                "AIR-judge-old-1": (0, True), "AIR-judge-old-2": (0, True),
+                "AIR-mu": (0, True), "AIR-adj": (0, True),
+            },
+            tmp=self._tmp.name,
+        )
+        self.assertEqual(rc, 0)
+        order = [rid for rid, _ in calls["dispatch"]]
+        # Quota round (arc order): ONE judge (judges lead the arc since
+        # ORPHAN-HIGH-786), then adjudication, then maintenance; the second
+        # judge is a surplus slot and only drains in the fallback.
+        self.assertEqual(
+            order,
+            ["AIR-judge-old-1", "AIR-adj", "AIR-mu", "AIR-judge-old-2"],
+        )
+        self.assertLess(order.index("AIR-adj"), order.index("AIR-judge-old-2"))
+        self.assertLess(order.index("AIR-mu"), order.index("AIR-judge-old-2"))
+
     def test_max_requests_cap_is_real(self) -> None:
         queue = [
             {"request_id": f"AIR-{i}", "target_agent": "aria-evidence-judge"}

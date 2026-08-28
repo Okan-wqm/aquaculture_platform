@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `47eb02aa44b2eb2f231a13cd18e9118dc1571ad341ce051f503e311811992ab5`
+Registry tip: `7a65e732a49660655381d0ce0b49ac1ae2561e436a85fd8174a4dcce41e21273`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -138,6 +138,13 @@ repaired the JSONL by hand). It is RESOLVED and leaves the active table (the
 table mirrors `active_critical_ids` exactly; the contract invariant enforces the
 bijection). 46 active CRITICALs remain.
 
+Updated 2026-08-22 (ARIA autonomy closure authority reconciliation): the
+narrative importer registered `ORPHAN-CRITICAL-776` as OPEN while preserving
+its historical main-reachable fix provenance, so it is
+`already-fixed-needs-close`. The closure-plan audit also registered three new
+ARIA control-plane gaps as `real-open`; Tasks 10, 12, and 19 own their live
+proof predicates.
+
 Allowed truth buckets:
 
 - `real-open`
@@ -194,6 +201,10 @@ Allowed truth buckets:
 | `ORPHAN-CRITICAL-516`   | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
 | `ORPHAN-CRITICAL-517`   | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
 | `ORPHAN-CRITICAL-549`   | OPEN           | 2026-08-06   | aria-acceptance-gap-fixer  | real-open                 |
+| `ORPHAN-CRITICAL-776`   | OPEN           | Task 1       | platform-autonomy          | already-fixed-needs-close |
+| `ARIA-CRITICAL-007`     | OPEN           | Task 10      | platform-autonomy          | real-open                 |
+| `ARIA-CRITICAL-009`     | OPEN           | Task 12      | platform-autonomy          | real-open                 |
+| `ARIA-CRITICAL-015`     | OPEN           | Task 19      | platform-autonomy          | real-open                 |
 
 ## Mutation Rules
 

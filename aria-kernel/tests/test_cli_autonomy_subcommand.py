@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import io
 import json
+import subprocess
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -111,6 +112,101 @@ class CliAutonomyRunTests(unittest.TestCase):
         self.assertEqual(payload["cycles_completed"], 0)
         self.assertEqual(payload["transition_count"], 0)
         self.assertFalse(payload["aria_stop_active"])
+
+    def test_autonomy_status_evidence_accepts_optional_full_target_sha(self) -> None:
+        target = "a" * 40
+        expected = {
+            "target_sha": target,
+            "derived_at": "2026-08-22T00:00:00Z",
+            "overall_state": "declared",
+            "blockers": [],
+            "capabilities": {},
+        }
+        status = unittest.mock.Mock()
+        status.to_dict.return_value = expected
+        with patch(
+            "aria_kernel.autonomy_evidence.derive_autonomy_evidence_status",
+            return_value=status,
+        ) as derive, redirect_stdout(io.StringIO()) as buf:
+            rc = cli_main([
+                "--tools-dir", str(self.base),
+                "autonomy", "status",
+                "--evidence",
+                "--target-sha", target,
+            ])
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(json.loads(buf.getvalue()), expected)
+        self.assertEqual(derive.call_args.kwargs["target_sha"], target)
+
+    def test_target_sha_without_evidence_and_non_full_sha_are_rejected(self) -> None:
+        with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):
+            cli_main([
+                "--tools-dir", str(self.base),
+                "autonomy", "status",
+                "--target-sha", "a" * 40,
+            ])
+        with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):
+            cli_main([
+                "--tools-dir", str(self.base),
+                "autonomy", "status",
+                "--evidence",
+                "--target-sha", "short",
+            ])
+
+    def test_evidence_mode_resolves_git_top_level_below_repository_root(self) -> None:
+        repo = self.tmp / "repo"
+        repo.mkdir()
+        subprocess.run(
+            ["git", "-C", str(repo), "init", "--initial-branch=main", "."],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(repo), "config", "user.name", "ARIA Test"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(repo), "config", "user.email", "aria@example.invalid"],
+            check=True,
+        )
+        policy = repo / "docs" / "aria" / "policy" / "autonomy-closure-findings.json"
+        policy.parent.mkdir(parents=True)
+        policy.write_text(json.dumps({
+            "entries": [{
+                "finding_id": "ORPHAN-MEDIUM-789",
+                "required_predicate": "mode_a_signed_readiness_live_proven",
+                "operator_prerequisite": {
+                    "capability": "enterprise_readiness",
+                    "blocker": "github_app_mode_a_unconfigured",
+                },
+            }],
+        }), encoding="utf-8")
+        subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+        subprocess.run(
+            ["git", "-C", str(repo), "commit", "-m", "seed"],
+            check=True,
+            capture_output=True,
+        )
+        target = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        nested = repo / "nested" / "dir"
+        nested.mkdir(parents=True)
+
+        with patch("aria_kernel.cli.Path.cwd", return_value=nested), redirect_stdout(
+            io.StringIO(),
+        ) as buf:
+            rc = cli_main([
+                "--tools-dir", str(repo / "missing-tools"),
+                "autonomy", "status", "--evidence",
+            ])
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(json.loads(buf.getvalue())["target_sha"], target)
 
     def test_autonomy_burn_in_observe_requires_explicit_tools_dir(self) -> None:
         with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):

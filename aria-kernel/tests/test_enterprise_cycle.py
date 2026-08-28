@@ -316,7 +316,7 @@ class EnterpriseCycleTests(unittest.TestCase):
         self.assertEqual(result["reflection"]["tool_run_count"], 1)
         run = self.latest_run()
         self.assertEqual(run["status"], "ok")
-        self.assertEqual(run["emitted_findings"], [])
+        self.assertEqual(run["emitted_counts"]["findings"], 0)
         self.assertGreater(run["runner"]["raw_findings_count"], 0)
         self.assertEqual(result["cycle_metrics"]["status"], "ok")
         self.assertEqual(result["observability_dashboard"]["latest_cycle"]["cycle_id"], "cycle-shadow")
@@ -441,7 +441,17 @@ class EnterpriseCycleTests(unittest.TestCase):
             shadow_only=False,
         )
         run = self.latest_run()
-        details = run["emitted_observations"][0]["details"]
+        # ORPHAN-HIGH-798 — observations moved to the artifact payload; the
+        # row carries counts + artifact_ref. Resolve the artifact to check
+        # the observation details.
+        from aria_kernel.runtime_artifacts import resolve_artifact_payload
+
+        artifact = resolve_artifact_payload(run.get("artifact_ref"), base_dir=self.tools_dir) or {}
+        payload = artifact.get("payload") or {}
+        raw_obs = payload.get("raw_observations") or []
+        self.assertTrue(len(raw_obs) >= 1, f"artifact should carry observations, payload keys: {sorted(payload.keys())}")
+        self.assertTrue(len(raw_obs) >= 1, f"artifact should carry observations, payload keys: {sorted(payload.keys())}")
+        details = raw_obs[0].get("details", raw_obs[0]) if isinstance(raw_obs[0], dict) else {}
         self.assertEqual(run["runner"]["raw_observations_count"], 1)
         self.assertEqual(details["roots"], ["src"])
         self.assertEqual(details["mode"], "fixture")

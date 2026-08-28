@@ -10,11 +10,13 @@
 // doc's file:line as evidence. Globs, placeholders, and line-suffixed refs
 // are handled so the rule stays low-noise.
 import { relative } from 'node:path';
+
 import {
   collectFiles,
   filterFilesBySnapshot,
   normalizeWorkspacePath,
   readWorkspaceFile,
+  requireScanRoots,
   resolveInsideWorkspace,
   workspacePathExists,
 } from './adapter-fs';
@@ -57,8 +59,6 @@ interface AriaOutput {
   readonly metadata: Record<string, unknown>;
 }
 
-const DEFAULT_ROOTS = ['docs'];
-
 // A ref must start at a known top-level code directory to count as a repo
 // path claim — prose like `feature/branch-name` or `owner/repo` never
 // matches, which is what keeps this rule quiet.
@@ -98,7 +98,7 @@ export function analyzeDocStaleness(
   input: AdapterInput,
   workspaceRoot = process.cwd(),
 ): AriaOutput {
-  const roots = input.roots ?? DEFAULT_ROOTS;
+  const roots = requireScanRoots('doc-staleness-adapter', input.roots);
   const observations: AdapterObservation[] = [];
   const findings: AdapterFinding[] = [];
   const readPaths: string[] = [];
@@ -167,8 +167,12 @@ function readStdin(): Promise<string> {
   return new Promise((resolvePromise, reject) => {
     let input = '';
     process.stdin.setEncoding('utf8');
-    process.stdin.on('data', (chunk) => {
-      input += chunk;
+    // setEncoding('utf8') makes every chunk a string at runtime, but the
+    // stream's declared chunk type stays `string | Buffer` — concatenating the
+    // union is what the type checker rejects. Narrow at the boundary rather
+    // than widening `input` (kernel-dead-wire-adapter is the converged shape).
+    process.stdin.on('data', (chunk: string | Buffer) => {
+      input += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
     });
     process.stdin.on('end', () => resolvePromise(input));
     process.stdin.on('error', reject);

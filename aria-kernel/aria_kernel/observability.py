@@ -22,8 +22,19 @@ def record_cycle_metrics(
     artifact_count: int,
     status: str,
     cost_units: float = 0.0,
+    phase_digests: dict[str, dict[str, Any]] | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
+    """One metrics row per sealed cycle — now carrying phase digests.
+
+    X3 (ORPHAN-700) — ``phase_digests`` closes the zero-vs-absent gap:
+    the workspace cycle projection drops phase payloads and no report read
+    them, so "experiment_night ran and planned nothing" was
+    indistinguishable from "experiment_night never ran". A phase that RAN
+    always leaves a digest (zeros allowed); a phase that never ran leaves
+    none. Additive schema_version=2 when present; every existing reader
+    accesses keys via .get() (verified), so v1 rows stay serveable.
+    """
     if not cycle_id.strip():
         raise GovernanceError("cycle metrics require cycle_id")
     if status not in ("ok", "failed", "blocked", "partial", "degraded", "integrity_failed"):
@@ -32,7 +43,7 @@ def record_cycle_metrics(
         raise GovernanceError("cycle metrics counts must be non-negative")
     durations = _normalize_durations(phase_durations_ms)
     row = {
-        "schema_version": 1,
+        "schema_version": 2 if phase_digests else 1,
         "recorded_at": utc_now(),
         "cycle_id": cycle_id,
         "status": status,
@@ -41,6 +52,8 @@ def record_cycle_metrics(
         "artifact_count": artifact_count,
         "cost_units": cost_units,
     }
+    if phase_digests:
+        row["phase_digests"] = phase_digests
     return append_declared_jsonl(ensure_tools_dir(base_dir) / "observability" / "cycle-metrics.jsonl", row, expected_surface="observability_cycle_metrics")
 
 

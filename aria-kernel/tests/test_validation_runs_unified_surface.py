@@ -340,6 +340,35 @@ class UnifiedValidationRunSurfaceTests(unittest.TestCase):
         self.assertIn("validation_commit_sha_unresolvable", str(ctx.exception))
         self.assertEqual(list_validation_runs(base_dir=self.base), [])
 
+    def test_a_resolvable_commit_that_is_not_head_is_refused(self) -> None:
+        """ORPHAN-CRITICAL-728 — resolving is not provenance.
+
+        The runs execute in `workspace_root` at HEAD. A sha that merely EXISTS
+        in the repository names a tree nothing measured, and the merge gate
+        joins on these rows: `apply_engine.run_apply_gate` passed the tip of
+        the implementation branch while HEAD sat on the base branch, so the
+        suite measured the base, passed, and the ledger claimed the branch.
+        """
+        (self.root / "seed.txt").write_text("second\n", encoding="utf-8")
+        _git(self.root, ["add", "."])
+        _git(self.root, ["commit", "-q", "-m", "second"])
+        new_head = _git(self.root, ["rev-parse", "HEAD"])
+        self.assertNotEqual(new_head, self.commit_sha)
+
+        with self.assertRaises(GovernanceError) as ctx:
+            run_validation_commands(
+                commands=["python3 -m unittest --help"],
+                workspace_root=self.root,
+                change_id=self.change_id,
+                # A real commit in this repository — just not the one the
+                # commands are about to run at.
+                commit_sha=self.commit_sha,
+                runner_identity="ci-executor:e21a",
+                base_dir=self.base,
+            )
+        self.assertIn("validation_commit_sha_is_not_head", str(ctx.exception))
+        self.assertEqual(list_validation_runs(base_dir=self.base), [])
+
     def test_self_attestation_is_refused_on_the_lane_a_path(self) -> None:
         with self.assertRaises(GovernanceError) as ctx:
             run_validation_commands(

@@ -15,8 +15,8 @@ Invariants:
 * I-V31-P-02 — runtime_profile.PROFILES contains "autonomous" AND
   ACTION_PERMISSIONS["agent_claim"] permits "autonomous" (the V9.0-C
   pre-existing wire-up — invariant pins it against regression).
-* I-V31-P-03 — knowledge_graph._append_row routes through
-  with_exclusive_lock (concurrent append cannot race).
+* I-V31-P-03 — knowledge_graph._append_row owns the declared ledger's
+  state_transaction across tail read + append (writers/recovery cannot race).
 * I-V31-P-04 — text_safety.sanitize_untrusted_text strips bidi +
   HTML-encodes < > & + caps length.
 * I-V31-P-05 — text_safety.encode_untrusted_delimited_payload
@@ -78,22 +78,19 @@ class RuntimeProfileAutonomousTests(unittest.TestCase):
 class KnowledgeGraphLockSafeAppendTests(unittest.TestCase):
     """Plan ARIA-V3.1-P-3 — `_append_row` is lock-serialized."""
 
-    def test_i_v31_p_03_append_row_uses_exclusive_lock(self) -> None:
-        """AST scan: _append_row contains `with_exclusive_lock(` call."""
+    def test_i_v31_p_03_append_row_uses_declared_transaction_lock(self) -> None:
+        """The native-chain derivation and governed append share one lock."""
         from aria_kernel import knowledge_graph
         import inspect
         src = inspect.getsource(knowledge_graph._append_row)
-        self.assertIn(
-            "with_exclusive_lock(", src,
-            "_append_row source missing with_exclusive_lock() call — "
-            "concurrent CONVERGED cycles can race",
-        )
+        self.assertIn("with state_transaction([path]) as transaction:", src)
+        self.assertIn("transaction.append_declared_jsonl(", src)
 
     def test_i_v31_p_03_concurrent_appends_preserve_chain(self) -> None:
         """Behavioral: N=5 concurrent appends produce 5 well-chained rows.
 
-        Pre-V3.1-P this test would race; with `with_exclusive_lock`
-        wrapping the read-tail-then-append window the chain holds.
+        Pre-V3.1-P this test would race; the declared state transaction now
+        wraps the read-tail-then-append window.
         """
         from aria_kernel.knowledge_graph import (
             Pattern, _append_row, verify_chain_or_quarantine,

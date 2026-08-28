@@ -71,3 +71,35 @@ class CycleAcceptanceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ScorecardPersistenceTests(unittest.TestCase):
+    """SI-0 — persistence is the DEFAULT, opt-out is explicit.
+
+    Measured gap: eight days of "continuous" acceptance measurement
+    produced zero scorecard artifacts, because persistence hid behind an
+    opt-in flag nobody passed. A measurement nobody can read later is a
+    claim, not a measurement.
+    """
+
+    def test_default_invocation_names_a_dated_scorecard(self) -> None:
+        import re
+
+        source = (Path(harness.__file__)).read_text(encoding="utf-8")
+        self.assertIn('"acceptance"', source)
+        self.assertIn("--no-artifact", source)
+        # The default path is derived from _REPO_ROOT (repo-relative), so
+        # the artifact lands beside the daily reports wherever the
+        # checkout lives — never at an ambient cwd.
+        self.assertTrue(
+            re.search(r'_REPO_ROOT\s*/\s*"aria-tools"\s*/\s*"reports"\s*/\s*"acceptance"', source),
+            "default scorecard path must derive from _REPO_ROOT",
+        )
+
+    def test_no_artifact_flag_suppresses_persistence(self) -> None:
+        # The flag is the ONLY way to run without a scorecard; its absence
+        # plus no --json-out must resolve to the dated default.
+        import argparse
+
+        source = (Path(harness.__file__)).read_text(encoding="utf-8")
+        self.assertIn("if json_out is None and not args.no_artifact:", source)

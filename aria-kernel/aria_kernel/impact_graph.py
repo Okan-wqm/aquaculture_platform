@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any
 
 from .agent_routing import load_routing_table, recommended_agents_for_project
@@ -547,14 +548,40 @@ def _project_for_import(
     return None
 
 
-def _project_for_path(path: str, projects: dict[str, dict[str, str]]) -> str | None:
+def project_for_path(path: str, project_roots: Mapping[str, str]) -> str | None:
+    """THE path -> project attribution, over the ``project_roots`` map that
+    `cached_service_analysis_order` publishes: longest matching root prefix.
+
+    Public because a second caller appeared and answered the same question in
+    a different vocabulary. `cycle._phase_service_mission_seed` decides which
+    services get a hardening mission from targets that ARE nx project names
+    (this function named them), then attributed the supporting evidence with
+    `service_dimension.service_for_path`, which emits ``shared:<lib>`` /
+    ``web:<app>`` / ``None``. Measured against this repository: 54 of 71
+    projects have an nx name that vocabulary can never produce, so the seeder
+    disclosed "no derivable evidence" for the very paths that had selected
+    them. `service_for_path` is still the right answer to a different
+    question (which service dimension does a finding belong to, for routing
+    and for the findings-list axis); it is not an answer to "which project
+    owns this path", and that answer lives here, once.
+    """
     normalized = _normalize_path(path)
-    candidates = sorted(projects.items(), key=lambda item: len(item[1]["root"]), reverse=True)
-    for project, meta in candidates:
-        root = meta["root"].rstrip("/")
+    candidates = sorted(project_roots.items(), key=lambda item: len(item[1]), reverse=True)
+    for project, root in candidates:
+        root = root.rstrip("/")
         if normalized == root or normalized.startswith(root + "/"):
             return project
     return None
+
+
+def _project_for_path(path: str, projects: dict[str, dict[str, str]]) -> str | None:
+    """The same rule over the graph's ``{name: {"root": ...}}`` shape.
+
+    An adapter, deliberately not a second implementation: the graph builders
+    carry per-project metadata, the cache publishes a flat map, and one of
+    those shapes had to be the one the rule is written against.
+    """
+    return project_for_path(path, {name: meta["root"] for name, meta in projects.items()})
 
 
 def _reverse_closure(projects: list[str], dependencies: dict[str, list[str]]) -> list[str]:

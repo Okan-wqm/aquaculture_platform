@@ -1,6 +1,8 @@
 #!/usr/bin/env ts-node
 import { relative } from 'node:path';
+
 import ts from 'typescript';
+
 import {
   collectFiles,
   filterFilesBySnapshot,
@@ -757,7 +759,12 @@ function collectEntityRecords(result: AnalysisResult): EntityRecord[] {
       .map((observation): EntityColumn => {
         const details = observation.details ?? {};
         return {
-          propertyName: String(details.propertyName ?? observation.column ?? ''),
+          // details is loosely typed; String() on a non-string object prints
+          // '[object Object]' — narrow instead of coercing.
+          propertyName:
+            typeof details.propertyName === 'string'
+              ? details.propertyName
+              : (observation.column ?? ''),
           databaseName: observation.column ?? '',
           type: typeof details.type === 'string' ? details.type : null,
           nullable: details.nullable === true,
@@ -882,7 +889,8 @@ function readColumnOptions(call: ts.CallExpression, propertyName: string): {
 } {
   const decoratorName = ts.isIdentifier(call.expression) ? call.expression.text : '';
   const firstArg = call.arguments[0];
-  const secondArg = call.arguments[1];
+  // `secondArg` died when findObjectArg took over options discovery —
+  // removed rather than underscore-parked (İ2: dead code is deleted).
   const optionsArg = findObjectArg(call.arguments);
   const databaseName = optionsArg ? readStringProperty(optionsArg, 'name') ?? propertyName : propertyName;
   const explicitType =
@@ -1163,8 +1171,12 @@ function readStdin(): Promise<string> {
   return new Promise((resolvePromise, reject) => {
     let input = '';
     process.stdin.setEncoding('utf8');
-    process.stdin.on('data', (chunk) => {
-      input += chunk;
+    // setEncoding('utf8') makes every chunk a string at runtime, but the
+    // stream's declared chunk type stays `string | Buffer` — concatenating the
+    // union is what the type checker rejects. Narrow at the boundary rather
+    // than widening `input` (kernel-dead-wire-adapter is the converged shape).
+    process.stdin.on('data', (chunk: string | Buffer) => {
+      input += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
     });
     process.stdin.on('end', () => resolvePromise(input));
     process.stdin.on('error', reject);

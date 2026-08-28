@@ -35,6 +35,16 @@
         "comparator": "exit_code_equals",
         "expected": 0
       }
+    },
+    {
+      "experiment_id": "exp-problem-red-exemplar",
+      "hypothesis": "a finding-bound problem experiment runs RED against backend-common when the defect is present (hand-authored exemplar of the shape experiment_author mints)",
+      "recipe_ref": "recipe-nx-test-backend-common",
+      "observation_contract": {
+        "comparator": "status_equals",
+        "expected": "failed"
+      },
+      "finding_ref": "F-101"
     }
   ]
 }

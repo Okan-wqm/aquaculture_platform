@@ -9,15 +9,18 @@ policy instead of duplicating path rules.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from fnmatch import fnmatch
-from pathlib import Path
-from typing import Literal
+from fnmatch import fnmatchcase
+from pathlib import Path, PurePosixPath
+from typing import Iterable, Literal
 
 
 RootKind = Literal["tools", "workspace", "repo"]
 StateClass = Literal["ledger", "index", "runtime_state", "artifact", "lock"]
 DurabilityPolicy = Literal["append_fsync", "rewrite_fsync", "ephemeral"]
 ObserveClass = Literal["observation", "action", "mutation", "diagnostic"]
+
+MAX_SURFACE_PATH_BYTES = 4096
+MAX_SURFACE_PATH_COMPONENTS = 128
 
 
 _PROFILE_SURFACE_BY_NAME: dict[str, str] = {
@@ -57,15 +60,6 @@ _PROFILE_SURFACE_BY_NAME: dict[str, str] = {
     "proposals": "observation",
     "impact_graphs": "observation",
     "impact_plans": "observation",
-    "executor_registry": "observation",
-    "executor_packets": "observation",
-    "executor_diff_reviews": "observation",
-    "executor_prompts": "observation",
-    "executor_applications": "observation",
-    "executor_locks": "observation",
-    "executor_retries": "observation",
-    "executor_operator_takeovers": "observation",
-    "executor_flaky_fingerprints": "observation",
     "cycle_incremental_plans": "observation",
     "runtime_v2_promotions": "runtime_v2_promotion",
     "discovery_artifacts": "observation",
@@ -354,7 +348,13 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     ),
     StateSurface(
         name="agent_output_artifacts",
-        path_pattern="agent-invocations/outputs/*.json",
+        # Y6 (ORPHAN-707) — the writer produces
+        # ``outputs/<group>/round-<n>-<role>-<id>.md`` (one directory level,
+        # .md extension); the declared ``outputs/*.json`` matched NOTHING,
+        # so zero artifacts were ever attested or published and every
+        # cross-run bridge replay died envelope-unreadable. ``**`` matches
+        # zero or more directories, so both direct and grouped files attest.
+        path_pattern="agent-invocations/outputs/**/*.md",
         state_class="artifact",
         lock_group="agent_invocations",
         index_group=None,
@@ -408,6 +408,15 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("change_planned", "change-ledger/planned.jsonl", "ledger", "change_ledger", "runtime", True, "append_fsync", True),
     StateSurface("change_committed", "change-ledger/committed.jsonl", "ledger", "change_ledger", "runtime", True, "append_fsync", True),
     StateSurface("change_validated", "change-ledger/validated.jsonl", "ledger", "change_ledger", "runtime", True, "append_fsync", True),
+    # G-4 — the fourth event of the same chain: what the change ACHIEVED,
+    # recomputed from the ledgers N nights after the merge. Same lock group
+    # as its three siblings (one chain, one lock) and strict_read like them,
+    # because the stored verdict is meant to be re-derivable and therefore
+    # tamper-evident. Observation-class on purpose: the row asserts nothing
+    # about the world and authorises nothing (write_driving=False), so
+    # MEASURING whether a merged change worked never requires the authority
+    # to commit, merge, or open a PR.
+    StateSurface("change_outcome", "change-ledger/outcome.jsonl", "ledger", "change_ledger", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("pr_actions", "pr-actions.jsonl", "ledger", "pr_lifecycle", "runtime", True, "append_fsync", True),
     StateSurface("pr_lifecycle", "pr-lifecycle.jsonl", "ledger", "pr_lifecycle", "runtime", True, "append_fsync", True),
     StateSurface("pr_lifecycle_plans", "pr-lifecycle-plans.jsonl", "ledger", "pr_lifecycle", "runtime", True, "append_fsync", True),
@@ -462,6 +471,7 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("runtime_artifact_manifest", "run-artifacts/manifest.jsonl", "ledger", "runtime_artifacts", "runtime", True, "append_fsync", True),
     StateSurface("runtime_artifact_inventory", "observability/artifact-inventory.jsonl", "ledger", "runtime_artifacts", "runtime", True, "append_fsync", True),
     StateSurface("runtime_artifact_hot", "run-artifacts/hot/**/*.json", "artifact", "runtime_artifacts", "runtime", True, "rewrite_fsync", True),
+    StateSurface("state_archives", "archives/*.jsonl.gz", "artifact", "runtime_artifacts", "runtime", True, "rewrite_fsync", True),
     StateSurface("retention_events", "retention/events.jsonl", "ledger", "runtime_artifacts", "runtime", True, "append_fsync", True),
     StateSurface("runtime_v2_promotions", "runtime/v2-promotions.jsonl", "ledger", "runtime", "runtime", True, "append_fsync", True),
     StateSurface("autonomy_state", "autonomy_state.jsonl", "ledger", "autonomy", "runtime", True, "append_fsync", True),
@@ -545,7 +555,7 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     # rows the night the gap was found), promotions, quarantine history,
     # per-run tool calibration, review records, agent priors,
     # kernel-change requests, the observability family (alert history the
-    # daily report reads!), and the architecture/codegen/research/llm
+    # daily report reads!), and the architecture/research/llm
     # subsystem ledgers. Every one died at job teardown. The lasting fix
     # is not this block — it is tests/test_ledger_roster_invariant.py:
     # a static sweep that fails CI the moment ANY kernel writer targets a
@@ -562,27 +572,22 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("agent_priors_map", "agent-priors/agent-map.jsonl", "ledger", "agent_priors", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("kernel_change_requests", "kernel-change/requests.jsonl", "ledger", "kernel_change", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("observability_cycle_metrics", "observability/cycle-metrics.jsonl", "ledger", "observability", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    # G-1 — the product-fitness verdict per night. Observation-class: it
+    # records what the charter's dimensions said, takes no action, and is
+    # read by the report and the streak. Rostered here because ORPHAN-670
+    # ended the class of ledgers that write at runtime and vanish at job
+    # teardown because nothing declared them.
+    StateSurface("product_fitness", "product-fitness.jsonl", "ledger", "observability", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("observability_dashboards", "observability/dashboards.jsonl", "ledger", "observability", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("observability_alerts", "observability/alerts.jsonl", "ledger", "observability", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("architecture_reviews", "architecture/reviews.jsonl", "ledger", "architecture", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("architecture_option_sets", "architecture/option-sets.jsonl", "ledger", "architecture", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("architecture_evidence_packs", "architecture/evidence-packs.jsonl", "ledger", "architecture", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("architecture_adr_drafts", "architecture/adr-drafts.jsonl", "ledger", "architecture", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
-    StateSurface("codegen_change_plans", "codegen/code-change-plans.jsonl", "ledger", "codegen", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
-    StateSurface("codegen_diff_packets", "codegen/generated-diff-packets.jsonl", "ledger", "codegen", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("research_sources", "research/sources.jsonl", "ledger", "research", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("research_fetches", "research/fetches.jsonl", "ledger", "research", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("research_policies", "research/policies.jsonl", "ledger", "research", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("llm_proposal_amplifications", "llm/proposal-amplifications.jsonl", "ledger", "llm", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
-    StateSurface("executor_registry", "executor/registry.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
-    StateSurface("executor_packets", "executor/packets.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
-    StateSurface("executor_diff_reviews", "executor/diff-reviews.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
-    StateSurface("executor_prompts", "executor/prompts.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
-    StateSurface("executor_applications", "executor/applications.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
-    StateSurface("executor_locks", "executor/locks.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
-    StateSurface("executor_retries", "executor/retries.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
-    StateSurface("executor_operator_takeovers", "executor/operator-takeovers.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
-    StateSurface("executor_flaky_fingerprints", "executor/flaky-fingerprints.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
     StateSurface("apply_actions", "apply/actions.jsonl", "ledger", "apply", "runtime", True, "append_fsync", True, profile_surface="pr_action", observe_class="action"),
     StateSurface("performance_baselines", "performance/baselines.jsonl", "ledger", "performance", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation"),
     StateSurface("performance_comparisons", "performance/comparisons.jsonl", "ledger", "performance", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation"),
@@ -600,6 +605,8 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     # Own-PR CI feedback bridge (ORPHAN-HIGH-626): latest row per PR is the
     # red/cleared state the pressure producer reads back.
     StateSurface("own_pr_checks", "ci/own-pr-checks.jsonl", "ledger", "ci", "runtime", True, "append_fsync", True, profile_surface="ci", observe_class="action"),
+    StateSurface("merge_outcomes", "ci/merge-outcomes.jsonl", "ledger", "ci", "runtime", True, "append_fsync", True, profile_surface="ci", observe_class="action"),
+    StateSurface("repo_pr_health", "ci/repo-pr-health.jsonl", "ledger", "ci", "runtime", True, "append_fsync", True, profile_surface="ci", observe_class="action"),
     StateSurface("ci_agent_review_tasks", "ci/agent-review-tasks.jsonl", "ledger", "ci", "runtime", True, "append_fsync", True, profile_surface="ci", observe_class="action"),
     StateSurface("ci_agent_reviews", "ci/agent-reviews.jsonl", "ledger", "ci", "runtime", True, "append_fsync", True, profile_surface="ci", observe_class="action"),
     StateSurface("ci_remediation_proposals", "ci/remediation-proposals.jsonl", "ledger", "ci", "runtime", True, "append_fsync", True, profile_surface="ci", observe_class="action"),
@@ -629,6 +636,19 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("enterprise_remote_cas_proofs", "enterprise/remote-cas-proofs.jsonl", "ledger", "readiness", "runtime", True, "append_fsync", True, profile_surface="remote_cas_lease", observe_class="action"),
     StateSurface("enterprise_waivers", "enterprise/waivers.jsonl", "ledger", "readiness", "runtime", True, "append_fsync", True, profile_surface="pr_merge", observe_class="action"),
     StateSurface("enterprise_rollback_proofs", "enterprise/rollback-proofs.jsonl", "ledger", "readiness", "runtime", True, "append_fsync", True, profile_surface="pr_merge", observe_class="action"),
+    # F5-b (ORPHAN-694) — the raw gh-api protection snapshot the
+    # branch-protection proof's source_ledger_ref resolves into. Observation
+    # class: recording what GitHub REPORTS is a read, not a merge action.
+    StateSurface("enterprise_branch_protection_snapshots", "enterprise/branch-protection-snapshots.jsonl", "ledger", "readiness", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    # F5-d (ORPHAN-694) — the acquired remote-CAS lease, snapshotted so the
+    # remote-cas proof's source ref resolves into a ledger row.
+    StateSurface("enterprise_remote_cas_lease_snapshots", "enterprise/remote-cas-lease-snapshots.jsonl", "ledger", "readiness", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    # F5-c (ORPHAN-694) — token-lease METADATA snapshot (mode, ttl, scoping
+    # hashes); the token itself never touches a ledger.
+    StateSurface("enterprise_token_lease_snapshots", "enterprise/token-lease-snapshots.jsonl", "ledger", "readiness", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    # F5-f (ORPHAN-694) — deterministic DLP scan results (pattern names +
+    # locations + digests; matched bytes never recorded).
+    StateSurface("enterprise_dlp_scan_snapshots", "enterprise/dlp-scan-snapshots.jsonl", "ledger", "readiness", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("enterprise_branch_protection_proofs", "enterprise/branch-protection-proofs.jsonl", "ledger", "readiness", "runtime", True, "append_fsync", True, profile_surface="pr_merge", observe_class="action"),
     StateSurface("enterprise_workflow_run_proofs", "enterprise/workflow-run-proofs.jsonl", "ledger", "readiness", "runtime", True, "append_fsync", True, profile_surface="pr_merge", observe_class="action"),
     StateSurface("enterprise_artifact_proofs", "enterprise/artifact-proofs.jsonl", "ledger", "readiness", "runtime", True, "append_fsync", True, profile_surface="pr_merge", observe_class="action"),
@@ -694,10 +714,13 @@ def surfaces_for_lock_group(lock_group: str) -> tuple[StateSurface, ...]:
     return tuple(surface for surface in STATE_SURFACES if surface.lock_group == lock_group)
 
 
-def _surface_resolution_order() -> tuple[StateSurface, ...]:
+def _surface_resolution_order(
+    surfaces: Iterable[StateSurface] | None = None,
+) -> tuple[StateSurface, ...]:
     """Resolve exact path surfaces before wildcard surfaces."""
+    declared = tuple(STATE_SURFACES if surfaces is None else surfaces)
     ordered = sorted(
-        enumerate(STATE_SURFACES),
+        enumerate(declared),
         key=lambda item: (
             "*" in item[1].path_pattern,
             item[1].path_pattern.count("*"),
@@ -707,12 +730,144 @@ def _surface_resolution_order() -> tuple[StateSurface, ...]:
     return tuple(surface for _idx, surface in ordered)
 
 
-def surface_for_relative_path(relative_path: str | Path) -> StateSurface | None:
-    rel = Path(relative_path).as_posix().lstrip("/")
-    for surface in _surface_resolution_order():
-        if fnmatch(rel, surface.path_pattern):
-            return surface
-    return None
+def normalize_surface_relative_path(relative_path: str | Path) -> str:
+    """Return one canonical manifest-relative POSIX path or raise by name."""
+    raw = (
+        relative_path.as_posix()
+        if isinstance(relative_path, Path)
+        else str(relative_path)
+    )
+    try:
+        encoded = raw.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ValueError("surface_path_encoding_invalid") from exc
+    if len(encoded) > MAX_SURFACE_PATH_BYTES:
+        raise ValueError("surface_path_too_long")
+    if not raw or raw.startswith("/") or raw.endswith("/") or "\0" in raw:
+        raise ValueError("surface_path_not_normalized")
+    raw_parts = raw.split("/")
+    if any(part in {"", ".", ".."} for part in raw_parts):
+        raise ValueError("surface_path_not_normalized")
+    if len(raw_parts) > MAX_SURFACE_PATH_COMPONENTS:
+        raise ValueError("surface_path_too_deep")
+    normalized = PurePosixPath(*raw_parts).as_posix()
+    if normalized != raw:
+        raise ValueError("surface_path_not_normalized")
+    return normalized
+
+
+def _surface_pattern_parts(pattern: str) -> tuple[str, ...]:
+    normalized = normalize_surface_relative_path(pattern)
+    parts = PurePosixPath(normalized).parts
+    if any("**" in part and part != "**" for part in parts):
+        raise ValueError("state_surface_pattern_invalid")
+    if any(any(token in part for token in ("?", "[", "]")) for part in parts):
+        raise ValueError("state_surface_pattern_invalid")
+    return parts
+
+
+def surface_path_matches(relative_path: str | Path, pattern: str) -> bool:
+    """Component-aware matcher shared by manifest, producer, and verifier.
+
+    ``*`` never crosses a slash. A component that is exactly ``**`` consumes
+    zero or more complete components. The iterative NFA is bounded by the
+    declared pattern length and the path limits above; no host recursion limit
+    participates in state admission.
+    """
+    relative = normalize_surface_relative_path(relative_path)
+    relative_parts = PurePosixPath(relative).parts
+    pattern_parts = _surface_pattern_parts(pattern)
+
+    def epsilon_closure(states: set[int]) -> set[int]:
+        closed = set(states)
+        pending = list(states)
+        while pending:
+            index = pending.pop()
+            if (
+                index < len(pattern_parts)
+                and pattern_parts[index] == "**"
+                and index + 1 not in closed
+            ):
+                closed.add(index + 1)
+                pending.append(index + 1)
+        return closed
+
+    states = epsilon_closure({0})
+    for component in relative_parts:
+        next_states: set[int] = set()
+        for index in states:
+            if index >= len(pattern_parts):
+                continue
+            pattern_component = pattern_parts[index]
+            if pattern_component == "**":
+                next_states.add(index)
+            elif fnmatchcase(component, pattern_component):
+                next_states.add(index + 1)
+        states = epsilon_closure(next_states)
+        if not states:
+            return False
+    return len(pattern_parts) in epsilon_closure(states)
+
+
+def validate_state_surface_patterns(
+    surfaces: Iterable[StateSurface] | None = None,
+) -> None:
+    """Validate the declared grammar and reject resolvable ownership overlap."""
+    declared = tuple(STATE_SURFACES if surfaces is None else surfaces)
+    names: set[str] = set()
+    identities: set[tuple[str, str]] = set()
+    for surface in declared:
+        if surface.name in names:
+            raise ValueError(f"state_surface_name_ambiguous:{surface.name}")
+        names.add(surface.name)
+        try:
+            parts = _surface_pattern_parts(surface.path_pattern)
+        except ValueError as exc:
+            raise ValueError(
+                f"state_surface_pattern_invalid:{surface.name}",
+            ) from exc
+        if "*" in parts[0]:
+            raise ValueError(f"state_surface_pattern_invalid:{surface.name}")
+        identity = (surface.root_kind, surface.path_pattern)
+        if identity in identities:
+            raise ValueError(
+                f"state_surface_pattern_ambiguous:{surface.root_kind}:"
+                f"{surface.path_pattern}",
+            )
+        identities.add(identity)
+
+
+
+def _surface_specificity(surface: StateSurface) -> tuple[bool, int]:
+    return ("*" in surface.path_pattern, surface.path_pattern.count("*"))
+
+
+def surface_for_relative_path(
+    relative_path: str | Path,
+    *,
+    root_kind: RootKind | None = None,
+    surfaces: Iterable[StateSurface] | None = None,
+) -> StateSurface | None:
+    try:
+        rel = normalize_surface_relative_path(relative_path)
+    except ValueError:
+        return None
+    matches = tuple(
+        surface
+        for surface in _surface_resolution_order(surfaces)
+        if (root_kind is None or surface.root_kind == root_kind)
+        and surface_path_matches(rel, surface.path_pattern)
+    )
+    if not matches:
+        return None
+    best_specificity = min(_surface_specificity(surface) for surface in matches)
+    winners = tuple(
+        surface for surface in matches
+        if _surface_specificity(surface) == best_specificity
+    )
+    if len(winners) > 1:
+        raise ValueError(f"state_surface_path_ambiguous:{rel}")
+    return winners[0]
 
 
 def surface_for_path(path: str | Path) -> tuple[StateSurface, Path] | None:
@@ -724,6 +879,7 @@ def surface_for_path(path: str | Path) -> tuple[StateSurface, Path] | None:
     """
     concrete = Path(path).resolve()
     parts = concrete.parts
+    matches: list[tuple[StateSurface, Path]] = []
     for surface in _surface_resolution_order():
         pattern_parts = Path(surface.path_pattern).parts
         fixed_parts: list[str] = []
@@ -737,12 +893,25 @@ def surface_for_path(path: str | Path) -> tuple[StateSurface, Path] | None:
             if list(parts[idx:idx + len(fixed_parts)]) != fixed_parts:
                 continue
             rel = Path(*parts[idx:]).as_posix()
-            if fnmatch(rel, surface.path_pattern):
+            try:
+                matched = surface_path_matches(rel, surface.path_pattern)
+            except ValueError:
+                matched = False
+            if matched:
                 base = Path(*parts[:idx]) if idx > 0 else Path(concrete.anchor)
                 if not _base_matches_root_kind(surface.root_kind, base):
                     continue
-                return surface, base
-    return None
+                matches.append((surface, base))
+    if not matches:
+        return None
+    best_specificity = min(_surface_specificity(surface) for surface, _base in matches)
+    winners = tuple(
+        match for match in matches
+        if _surface_specificity(match[0]) == best_specificity
+    )
+    if len(winners) > 1:
+        raise ValueError(f"state_surface_path_ambiguous:{concrete.as_posix()}")
+    return winners[0]
 
 
 def _base_matches_root_kind(root_kind: RootKind, base: Path) -> bool:
@@ -823,19 +992,27 @@ def resolve_surface_path(base_dir: str | Path, surface: StateSurface) -> Path:
     return Path(base_dir) / surface.path_pattern
 
 
+validate_state_surface_patterns()
+
+
 __all__ = [
     "STATE_SURFACES",
     "StateSurface",
     "RootKind",
     "ObserveClass",
+    "MAX_SURFACE_PATH_BYTES",
+    "MAX_SURFACE_PATH_COMPONENTS",
     "iter_surfaces",
     "observe_disallowed_tool_surfaces",
     "observe_permitted_profile_surfaces",
     "profile_surfaces",
+    "normalize_surface_relative_path",
     "resolve_surface_path",
     "surface_by_name",
     "surface_for_path",
     "surface_key_name",
     "surface_for_relative_path",
+    "surface_path_matches",
     "surfaces_for_lock_group",
+    "validate_state_surface_patterns",
 ]

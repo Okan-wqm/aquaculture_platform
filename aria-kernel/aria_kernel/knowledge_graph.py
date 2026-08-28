@@ -155,17 +155,12 @@ def _read_jsonl_strict(path: Path) -> Iterator[dict[str, Any]]:
     (knowledge-graph correctness > resilience)."""
     if not path.exists():
         return
-    with path.open("r", encoding="utf-8") as f:
-        for lineno, line in enumerate(f, start=1):
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                yield json.loads(line)
-            except json.JSONDecodeError as exc:
-                raise KnowledgeGraphTamper(
-                    f"line {lineno} malformed JSON: {exc.msg}"
-                ) from exc
+    from .ledger import LedgerIntegrityError, read_jsonl
+
+    try:
+        yield from read_jsonl(path)
+    except (LedgerIntegrityError, OSError, UnicodeError) as exc:
+        raise KnowledgeGraphTamper(str(exc)) from exc
 
 
 def verify_chain_or_quarantine(path: str | Path) -> tuple[bool, int]:
@@ -185,25 +180,21 @@ def verify_chain_or_quarantine(path: str | Path) -> tuple[bool, int]:
         return (True, 0)
     expected_prev = GENESIS_PREV_HASH
     count = 0
-    with p.open("r", encoding="utf-8") as f:
-        for lineno, line in enumerate(f, start=1):
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
-                _quarantine(p, reason=f"malformed_json_line_{lineno}")
-                return (False, lineno)
-            if not isinstance(row, dict):
-                _quarantine(p, reason=f"row_not_object_line_{lineno}")
-                return (False, lineno)
-            row_prev = row.get("prev_row_hash")
-            if row_prev != expected_prev:
-                _quarantine(p, reason=f"prev_hash_mismatch_line_{lineno}")
-                return (False, lineno)
-            expected_prev = _row_hash(row)
-            count += 1
+    try:
+        rows = list(_read_jsonl_strict(p))
+    except KnowledgeGraphTamper:
+        _quarantine(p, reason="malformed_or_transport_invalid")
+        return (False, 1)
+    for lineno, row in enumerate(rows, start=1):
+        if not isinstance(row, dict):
+            _quarantine(p, reason=f"row_not_object_line_{lineno}")
+            return (False, lineno)
+        row_prev = row.get("prev_row_hash")
+        if row_prev != expected_prev:
+            _quarantine(p, reason=f"prev_hash_mismatch_line_{lineno}")
+            return (False, lineno)
+        expected_prev = _row_hash(row)
+        count += 1
     return (True, count)
 
 
@@ -228,25 +219,11 @@ def _append_row(path: Path, row: dict[str, Any]) -> None:
     """Append a single row to ``path``, computing prev_row_hash from
     the existing tail (or GENESIS_PREV_HASH on empty).
 
-    Plan ARIA-V3.1-P-3 (closes 6-validator audit C-9): the read-tail-
-    then-append sequence is wrapped in ``with_exclusive_lock(path)``
-    so two concurrent CONVERGED cycles cannot both compute prev_row_
-    hash against the same tail then race to append; the lock
-    serialises the read+write window. The hash-chain logic is
-    unchanged — the lock just makes the chain construction race-free
-    at the syscall level (Tier-1 anchor).
-
-    The lock is acquired AGAINST the target file's side-car
-    `<path>.lock`; verify_chain_or_quarantine is the Tier-3 detect
-    primitive called by the consumption side (NOT here) so a
-    concurrent reader sees a complete row OR an empty file, never a
-    partial tail.
+    The read-tail→derive-native-link→declared-append sequence owns the
+    declared ledger's state-transaction lock.  Recovery and contention replay
+    use that same lock domain, so neither can replace the ledger after this
+    writer has observed a tail but before it appends the derived link.
     """
-    # Plan ARIA-V3.1-P-3 — lazy import keeps this module
-    # cold-startable under hermetic env (the `file_lock` module
-    # imports fcntl which is POSIX-only; macOS/Linux dev hosts
-    # only).
-    from .file_lock import with_exclusive_lock
     # M11/E12-b — the declared-surface resolver refuses a tools root that
     # lacks the repo-identity binding (`/tmp/rogue/aria-tools` must never
     # resolve as canonical state). The kg writers used to mkdir their way
@@ -257,13 +234,19 @@ def _append_row(path: Path, row: dict[str, Any]) -> None:
     if path.parent.name == "knowledge-graph":
         ensure_tools_dir(path.parent.parent)
     path.parent.mkdir(parents=True, exist_ok=True)
-    # M11/E12-b — the serialisation lock moves to a SIDE-CAR: the declared
-    # writer below takes the ledger's own per-file lock on `path`, and two
-    # fcntl locks on the same file from one process deadlock. The side-car
-    # still serialises the read-tail→compute-prev→append window (the
-    # original race this lock exists for); the ledger lock inside guards
-    # the physical append.
-    with with_exclusive_lock(path.with_name(path.name + ".prevchain")):
+    from .ledger import state_transaction
+    from .state_manifest import surface_for_relative_path
+
+    rel = Path("knowledge-graph") / path.name
+    surface = surface_for_relative_path(rel)
+    if surface is None:
+        # A knowledge-graph file with no declared surface is a NEW file
+        # someone forgot to roster — refuse rather than silently re-opening
+        # the durability hole this migration closed.
+        raise KnowledgeGraphSchemaError(
+            f"knowledge-graph file has no declared surface: {path.name}"
+        )
+    with state_transaction([path]) as transaction:
         if path.exists() and path.stat().st_size > 0:
             # Find the last non-empty line + compute its hash
             last_row: dict[str, Any] | None = None
@@ -280,22 +263,11 @@ def _append_row(path: Path, row: dict[str, Any]) -> None:
         # prev_row_hash stays IN the payload: the knowledge-graph's own
         # chain (verify_chain_or_quarantine) is unchanged and still spans
         # pre-migration rows; new rows carry both chains.
-        from .ledger import append_declared_jsonl
-        from .state_manifest import surface_for_relative_path
-
-        rel = Path("knowledge-graph") / path.name
-        surface = surface_for_relative_path(rel)
-        if surface is not None:
-            append_declared_jsonl(
-                path, row_with_chain, expected_surface=surface.name,
-            )
-        else:
-            # A knowledge-graph file with no declared surface is a NEW
-            # file someone forgot to roster — refuse rather than silently
-            # re-opening the durability hole this migration closed.
-            raise KnowledgeGraphSchemaError(
-                f"knowledge-graph file has no declared surface: {path.name}"
-            )
+        transaction.append_declared_jsonl(
+            path,
+            row_with_chain,
+            expected_surface=surface.name,
+        )
 
 
 # ============================================================================

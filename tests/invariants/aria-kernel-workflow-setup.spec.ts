@@ -50,7 +50,13 @@ import { join } from 'node:path';
 import yaml from 'js-yaml';
 
 const WORKFLOW_DIR = join(__dirname, '..', '..', '.github', 'workflows');
-const SETUP_ACTION = './.github/actions/setup-aria-kernel';
+// Z1 (ORPHAN-712) — the dataflow watchdog checks out into a subdirectory,
+// so its local action reference carries that prefix. The identity of the
+// setup step is its action PATH SUFFIX, not the checkout root it happens
+// to live under.
+const SETUP_ACTION_SUFFIX = '.github/actions/setup-aria-kernel';
+const isSetupAction = (uses: string): boolean =>
+  uses.startsWith('./') && uses.endsWith(SETUP_ACTION_SUFFIX);
 
 /** Substrings in a `run:` script that mean "this step executes kernel code". */
 const KERNEL_INVOCATION_MARKERS = [
@@ -70,7 +76,7 @@ function isKernelInvocation(step: Step): boolean {
 }
 
 function usesSetupAction(step: Step): boolean {
-  return typeof step.uses === 'string' && step.uses.trim() === SETUP_ACTION;
+  return typeof step.uses === 'string' && isSetupAction(step.uses.trim());
 }
 
 describe('aria-kernel workflow provisioning', () => {
@@ -100,7 +106,7 @@ describe('aria-kernel workflow provisioning', () => {
             violations.push(
               `${file} job "${jobId}" step ${index + 1}` +
                 `${step.name ? ` ("${step.name}")` : ''} runs kernel code before ` +
-                `any \`uses: ${SETUP_ACTION}\` step in that job`,
+                `any \`uses: ./**/${SETUP_ACTION_SUFFIX}\` step in that job`,
             );
           }
         }

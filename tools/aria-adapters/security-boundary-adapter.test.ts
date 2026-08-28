@@ -1,7 +1,8 @@
+import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import assert from 'node:assert/strict';
+
 import { analyzeSecurityBoundaries } from './security-boundary-adapter';
 
 const workspace = mkdtempSync(join(tmpdir(), 'aria-security-boundary-adapter-'));
@@ -181,4 +182,4 @@ assert.equal(output.observations.some((observation) => observation.path?.endsWit
 assert.equal(directRootOutput.read_paths.some((path) => path.includes('.claude/worktrees')), false);
 assert.equal(directRootOutput.findings.some((finding) => finding.message.includes('must-not-be-read')), false);
 
-console.log('security-boundary-adapter tests passed');
+process.stdout.write('security-boundary-adapter tests passed\n');

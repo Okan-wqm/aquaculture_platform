@@ -8,6 +8,26 @@
 # `cargo clippy` invocation resolves.
 export PATH="$HOME/.cargo/bin:$PATH"
 
+# ARIA authority pin — the last gate before CI sees it.
+#
+# post-merge regenerates and stages the pin, but a staged file is not a
+# committed one, and a merge commit never ran pre-commit to catch it. This
+# refuses the push in a second rather than letting three required checks go red
+# thirty minutes later on a single assertion (measured three times on
+# 2026-08-19). It is a check, not a write: the push is already composed, so the
+# only honest move is to stop and name the command that fixes it.
+#
+# A guard that cannot run must SAY so. Skipping in silence is the same class of
+# defect this hook exists to close: an unknown read as a green.
+if [ -x ./node_modules/.bin/ts-node ]; then
+  ./node_modules/.bin/ts-node --project tools/gates/tsconfig.json \
+    tools/gates/aria-authority-hash.ts --check || exit 1
+else
+  echo "pre-push: ts-node missing — the ARIA authority pin was NOT checked." >&2
+  echo "  this push goes out unverified on that gate; CI will be its first" >&2
+  echo "  reader. Run 'npm ci', or link node_modules into this worktree." >&2
+fi
+
 # Pre-push gates — Batch #347 (closes ORPHAN-LOW-035 — operations
 # completion of the Batch #343/#346 clippy-affected gate landing,
 # now using git's pre-push stdin protocol for the correct
@@ -75,9 +95,9 @@ fi
 # push edildi. "Kırmızı testle commit yok" kuralı yalnızca niyetle korunuyordu.
 #
 # Kapsamlı: yalnızca bu push'un eklediği commit'ler bir ARIA yüzeyine
-# dokunuyorsa koşar (~215s). Koşulsuz olsaydı insanlar hook'u atlamanın yolunu
-# arardı; bu, kapının olmamasından kötüdür. Tetikleyici küme aria-kernel/'den
-# geniştir çünkü süitin kendisi öyle: .github/workflows ve .github/actions
-# üzerinde de sözleşme doğruluyor — RC-9 tek satır Python'a dokunmadan onu
-# kırmıştı.
+# dokunuyorsa koşar (5,000+ test; hosted ölçümde >45m). Koşulsuz olsaydı
+# insanlar hook'u atlamanın yolunu arardı; bu, kapının olmamasından kötüdür.
+# Tetikleyici küme aria-kernel/'den geniştir çünkü süitin kendisi öyle:
+# .github/workflows ve .github/actions üzerinde de sözleşme doğruluyor — RC-9
+# tek satır Python'a dokunmadan onu kırmıştı.
 node scripts/ci/aria-suite-changed.mjs || exit 1

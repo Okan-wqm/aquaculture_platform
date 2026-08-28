@@ -69,6 +69,7 @@ from .file_lock import with_exclusive_lock
 from .next_cycle_queue import mark_consumed, read_pending
 from .reflection import run_reflection
 from .reflection_inputs import pedagogy_lint_snapshot, producer_reflection_kwargs
+from .tool_registry import GovernanceError
 
 if TYPE_CHECKING:
     # Plan ARIA-V3.1-0 — cycle_phases Protocol typing for the 5 new
@@ -218,18 +219,53 @@ def _drain_next_cycle_queue(
             base_dir=base_dir, queue_item_id=qid,
             requests=list_agent_invocation_requests(base_dir=base_dir),
         )
+        remint_of: str | None = None
         if existing_request is not None:
-            mark_consumed(base_dir, queue_item_id=qid, consumed_by=daemon_agent_id)
-            append_tools_governance(
-                base_dir,
-                "next_cycle_queue_item_projection_replayed",
-                {
-                    "queue_item_id": qid,
-                    "request_id": existing_request.get("request_id"),
-                },
+            # Y3 (ORPHAN-703) — a match that died of queue mechanics must
+            # not satisfy idempotency: the shipped check replayed ANY prior
+            # request, so a queue item whose envelope went HUMAN_REQUIRED /
+            # ANCHOR_STALE was consumed forever with no live successor.
+            # Live-or-outcome matches still replay; an eligible dead match
+            # falls through to the mint below with remint_of lineage. The
+            # remint budget mirrors DEFAULT_MAX_REQUEUES: after two
+            # successors the item is disclosed exhausted, not re-minted.
+            from .agent_invocations import derive_request_state
+            from .agent_surface import REMINT_ELIGIBLE_DEAD_STATES
+
+            existing_id = str(existing_request.get("request_id"))
+            state = derive_request_state(request_id=existing_id, base_dir=base_dir)
+            if state not in REMINT_ELIGIBLE_DEAD_STATES:
+                mark_consumed(base_dir, queue_item_id=qid, consumed_by=daemon_agent_id)
+                append_tools_governance(
+                    base_dir,
+                    "next_cycle_queue_item_projection_replayed",
+                    {
+                        "queue_item_id": qid,
+                        "request_id": existing_id,
+                        "request_state": state,
+                    },
+                )
+                consumed += 1
+                continue
+            lineage = sum(
+                1 for row in list_agent_invocation_requests(base_dir=base_dir)
+                if row.get("remint_of") and qid in str(row.get("suggested_prompt") or "")
             )
-            consumed += 1
-            continue
+            if lineage >= _MAX_QUEUE_ITEM_REMINTS:
+                mark_consumed(base_dir, queue_item_id=qid, consumed_by=daemon_agent_id)
+                append_tools_governance(
+                    base_dir,
+                    "next_cycle_queue_item_remint_exhausted",
+                    {
+                        "queue_item_id": qid,
+                        "request_id": existing_id,
+                        "request_state": state,
+                        "remint_budget": _MAX_QUEUE_ITEM_REMINTS,
+                    },
+                )
+                consumed += 1
+                continue
+            remint_of = existing_id
         prompt = {
             "$schema": "aria/next-cycle-queue-request/v1",
             "queue_item_id": qid,
@@ -297,6 +333,7 @@ def _drain_next_cycle_queue(
                 target_sha=target_sha,
                 evidence_refs=evidence_refs,
                 pressure_event_id=pressure_id or None,
+                remint_of=remint_of,
                 base_dir=base_dir,
             )
         except Exception as exc:
@@ -315,6 +352,12 @@ def _drain_next_cycle_queue(
         consumed += 1
     return consumed
 
+
+
+# Y3 (ORPHAN-703) — successor budget for dead projected-queue envelopes,
+# mirroring DEFAULT_MAX_REQUEUES: two lineage steps then an exhausted
+# disclosure. Kept beside its only consumer.
+_MAX_QUEUE_ITEM_REMINTS = 2
 
 
 def _find_projected_queue_request(
@@ -561,11 +604,14 @@ def _apply_preflight_verdict(root: Path, profile: str, verdict: Any) -> None:
     """
     # Late import, same as every governance write in this module: the
     # runtime_profile ↔ tool_registry cycle forbids a module-level one.
+    from .runtime_profile import ACTION_PERMISSIONS
     from .tool_registry import GovernanceError, append_tools_governance
 
     failure_classes = tuple(getattr(verdict, "failure_classes", ()) or ())
     reasons = tuple(getattr(verdict, "reasons", ()) or ())
-    if profile == "autonomous" and not getattr(verdict, "valid", True):
+    # ORPHAN-HIGH-728 — merge-class authority read from the table, not
+    # matched against a profile name.
+    if profile in ACTION_PERMISSIONS["pr_merge"] and not getattr(verdict, "valid", True):
         append_tools_governance(
             root, "autonomy_orchestrator_refused",
             {
@@ -592,6 +638,89 @@ def _apply_preflight_verdict(root: Path, profile: str, verdict: Any) -> None:
             },
             bypass_profile_gate=True,
         )
+
+
+def _calibration_reporter_and_auto_promotion(
+    root: Path,
+    cycle_id: str,
+    cycle_summary: dict[str, Any],
+    profile_snapshot: dict[str, Any],
+) -> None:
+    """Plan ARIA-V7 §3 Phase 7.6 — calibration_reporter + the V6.4 first caller.
+
+    ORPHAN-HIGH-782 — extracted from the converged-only tail: this block
+    used to sit AFTER the convergence `continue`, so every non-converged
+    night (most nights — recent autonomy_state shows convergence_blocked /
+    split) skipped it entirely. `adapter-calibration-reports.jsonl` had
+    zero rows, and `compute_auto_promote_token`'s `min_clean_cycles` window
+    over that ledger was structurally unreachable. The reporter is
+    observational: it has no business being gated on plan convergence, and
+    it now runs on EVERY completed cycle. The converged path keeps the
+    original placement (after auto_merge_runner, before reflection) so V6.4
+    still observes the freshest calibration on merge nights; the blocked
+    path runs it before its reflection. Called exactly once per cycle —
+    the `continue` separates the two branches. Pinned by the rewritten
+    I-V7.6-02/03/04 invariants (the literal call site now lives here).
+    """
+    from .adapter_calibration import (
+        generate_adapter_calibration_report,
+    )
+    from .tool_registry import list_tools as _v7_list_tools
+    _v7_calibration_tool_ids = [
+        t.get("tool_id")
+        for t in _v7_list_tools(base_dir=root)
+        if t.get("kind") == "adapter"
+        and t.get("status") in ("SHADOW", "ACTIVE")
+        and t.get("tool_id")
+    ]
+    if _v7_calibration_tool_ids:
+        try:
+            calibration_result = generate_adapter_calibration_report(
+                    tool_ids=_v7_calibration_tool_ids,
+                    base_dir=root,
+                    cycle_id=cycle_id,
+                )
+            cycle_summary["calibration_reporter"] = calibration_result
+        except Exception as _v7_calib_exc:
+            # Surface failure without crashing the cycle.
+            cycle_summary["calibration_reporter"] = {
+                "status": "error",
+                "error_class": type(_v7_calib_exc).__name__,
+                "error_message": str(_v7_calib_exc)[:500],
+            }
+    else:
+        cycle_summary["calibration_reporter"] = {
+            "status": "no_adapters",
+            "tool_ids": [],
+        }
+    AutonomyStateReducer.transition(
+        root,
+        cycle_id=cycle_id,
+        phase="calibration_reporter_completed",
+        status=str(cycle_summary["calibration_reporter"].get("status") or "ok"),
+        profile=profile_snapshot,
+        details={
+            "tool_ids_scanned": len(_v7_calibration_tool_ids),
+        },
+    )
+    # C7/E8 — the V6.4 auto-promote token's first caller. Fires directly
+    # AFTER the calibration reporter because the token gates on the
+    # precision history that phase just persisted. Policy-gated (default
+    # enabled=False): until the operator flips genesis-policy, every
+    # attempt records "ineligible" — the honest no-op. A failure here
+    # must not cost the night; it surfaces on the summary.
+    try:
+        from .promotion import attempt_auto_promotions
+
+        cycle_summary["auto_promotion"] = attempt_auto_promotions(
+            cycle_id=cycle_id, base_dir=root,
+        )
+    except Exception as _c7_exc:
+        cycle_summary["auto_promotion"] = {
+            "status": "error",
+            "error_class": type(_c7_exc).__name__,
+            "error_message": str(_c7_exc)[:500],
+        }
 
 
 def run_autonomy_orchestrator(
@@ -636,13 +765,6 @@ def run_autonomy_orchestrator(
     # row via set_profile() when the operator overrides via flag
     # (closes C-2 SOC2 gap).
     profile: str,
-    # Plan ARIA-V3.1-E + B-9 — distinct poll budget for the V9
-    # implementation phase (HIGH-13). Default 1800s (30 min)
-    # matches the CONVERGED-to-PR-merge wall-clock target. Distinct
-    # from `challenger_timeout_seconds` (which gates the inner
-    # convergence_drainer round-poll) — the V9 implementer pipeline
-    # has its own wall-clock budget.
-    implementer_poll_seconds: float = 1800.0,
     max_budget_usd_per_cycle: float = 3.00,
     # Runtime v2 hardening: artifact/lifecycle failures must stop the
     # autonomy loop by default after the cycle ledger has been closed.
@@ -773,7 +895,13 @@ def run_autonomy_orchestrator(
     # the audit ledger even under frozen/observe (which would
     # otherwise block tool_governance writes via Plan 026R §A.4
     # surface enforcement).
-    if profile in ("autonomous", "strict", "standard"):
+    from .runtime_profile import (
+        ACTION_PERMISSIONS as _ACTION_PERMISSIONS,
+        PROFILES_WITH_ACTION_AUTHORITY as _PROFILES_WITH_ACTION_AUTHORITY,
+    )
+
+    _merge_authority_profiles = _ACTION_PERMISSIONS["pr_merge"]
+    if profile in _PROFILES_WITH_ACTION_AUTHORITY:
         try:
             from . import preflight as _preflight_mod
             # skip_remote=True under autonomous when GH_TOKEN unset
@@ -782,7 +910,7 @@ def run_autonomy_orchestrator(
             # skip_remote honors the token-presence signal so
             # operator dry-runs do not require GitHub auth.
             _skip_remote = (
-                profile in ("strict", "standard")
+                profile not in _merge_authority_profiles
                 and not bool(os.environ.get("GH_TOKEN"))
             )
             verdict = _preflight_mod.verify_preflight(
@@ -795,7 +923,7 @@ def run_autonomy_orchestrator(
             # autonomous must fail-fast (defense-in-depth: a kernel
             # missing preflight cannot be the autonomous-mode host).
             verdict = None
-            if profile == "autonomous":
+            if profile in _merge_authority_profiles:
                 append_tools_governance(
                     root, "autonomy_orchestrator_refused",
                     {
@@ -854,6 +982,17 @@ def run_autonomy_orchestrator(
             # Per-orphan + summary governance events surface the
             # reaping in the audit trail.
             #
+            # ORPHAN-HIGH-729 — AGE-BOUNDED, because "outstanding at
+            # startup" stopped meaning "abandoned". The mint and the
+            # drain are two workflow runs now: the cycle lane issues the
+            # implementation envelope and the executor lane answers it
+            # later. An unbounded reaper in that topology rejects the
+            # plan the executor is on its way to implement, and does it
+            # every time the executor window slips. The scanner already
+            # returns `last_event_at`, so the bound costs one comparison
+            # against a stamp that was being carried into the audit row
+            # and otherwise ignored.
+            #
             # bypass_profile_gate=True on the summary event ensures
             # the reaper's audit row reaches the ledger even under
             # frozen/observe profiles (the reaping itself goes
@@ -862,7 +1001,12 @@ def run_autonomy_orchestrator(
             # summary event is suppressed (zero-noise floor).
             if profile_announce_allowed:
                 try:
+                    from .human_required import record_human_required
                     from .plan_convergence import (
+                        ORPHAN_DECISION_ESCALATE_UNDATEABLE,
+                        ORPHAN_DECISION_REAP,
+                        ORPHAN_IMPLEMENTATION_REAP_AFTER_HOURS,
+                        decide_orphan_reap,
                         scan_orphan_implementation_requests,
                         record_implementation_rejected,
                     )
@@ -878,9 +1022,73 @@ def run_autonomy_orchestrator(
                         bypass_profile_gate=True,
                     )
                 _reaped: list[dict[str, Any]] = []
+                # ORPHAN-HIGH-729 — a request younger than the bound is LEFT
+                # ALONE and counted. Not silently: the summary row below
+                # carries the counts, so "the reaper ran and spared N" stays
+                # readable as something other than "the reaper found nothing".
+                #
+                # Round 2: an UNDATEABLE request is a third case, not a
+                # sparing. `decide_orphan_reap` ages a plan from its newest
+                # stamp and, failing that, from its first; only a plan with no
+                # readable stamp anywhere in its event stream comes back
+                # undateable, which `_append_event` cannot produce and so
+                # means the ledger was corrupted or hand-written. Sparing that
+                # made it IMMORTAL — the earlier note here claimed
+                # `resume_candidate_plan_id` was the backstop, and it is not:
+                # it `continue`s past `_IMPLEMENTATION_PHASE_STATES`, the only
+                # states this scanner ever returns, so no mechanism would ever
+                # have collected it. A machine cannot honestly decide between
+                # "abandoned" and "in flight" without a clock, so it stops
+                # deciding and hands the plan to the operator queue, once, by
+                # a request_id that dedupes across every later scan.
+                _spared_recent: list[dict[str, Any]] = []
+                _escalated_undateable: list[dict[str, Any]] = []
                 for _orphan in _orphans:
                     _orphan_plan_id = _orphan.get("plan_id")
                     if not isinstance(_orphan_plan_id, str) or not _orphan_plan_id:
+                        continue
+                    _orphan_decision = decide_orphan_reap(
+                        _orphan,
+                        reap_after_hours=ORPHAN_IMPLEMENTATION_REAP_AFTER_HOURS,
+                    )
+                    if _orphan_decision.decision == ORPHAN_DECISION_ESCALATE_UNDATEABLE:
+                        _escalated_undateable.append(_orphan)
+                        try:
+                            record_human_required(
+                                request_id=(
+                                    "implementation-orphan-undateable-"
+                                    f"{_orphan_plan_id}"
+                                ),
+                                severity="HIGH",
+                                reason=(
+                                    "implementation request outstanding in "
+                                    f"{_orphan.get('state')} with no readable "
+                                    "event timestamp; the reaper cannot "
+                                    "establish whether it is abandoned or in "
+                                    "flight, so an operator must decide"
+                                ),
+                                context={
+                                    "plan_id": _orphan_plan_id,
+                                    "prior_state": _orphan.get("state"),
+                                    "last_event_at": _orphan.get("last_event_at"),
+                                    "first_event_at": _orphan.get("first_event_at"),
+                                    "finding_id": "ORPHAN-HIGH-729",
+                                },
+                                base_dir=root,
+                            )
+                        except Exception as _escalate_exc:
+                            append_tools_governance(
+                                root, "implementation_orphan_escalation_failed",
+                                {
+                                    "plan_id": _orphan_plan_id,
+                                    "error_class": type(_escalate_exc).__name__,
+                                    "error_message": str(_escalate_exc)[:500],
+                                },
+                                bypass_profile_gate=True,
+                            )
+                        continue
+                    if _orphan_decision.decision != ORPHAN_DECISION_REAP:
+                        _spared_recent.append(_orphan)
                         continue
                     try:
                         record_implementation_rejected(
@@ -896,6 +1104,14 @@ def run_autonomy_orchestrator(
                                 "plan_id": _orphan_plan_id,
                                 "prior_state": _orphan.get("state"),
                                 "last_event_at": _orphan.get("last_event_at"),
+                                # Which stamp the age came from, because a
+                                # reap dated from `first_event_at` means the
+                                # newest row was unreadable — a fact an
+                                # auditor of this row must not have to infer.
+                                "age_source": _orphan_decision.age_source,
+                                "age_hours": _orphan_decision.age_hours,
+                                "reap_after_hours":
+                                    ORPHAN_IMPLEMENTATION_REAP_AFTER_HOURS,
                             },
                             bypass_profile_gate=True,
                         )
@@ -912,12 +1128,23 @@ def run_autonomy_orchestrator(
                             },
                             bypass_profile_gate=True,
                         )
-                if _reaped:
+                if _reaped or _spared_recent or _escalated_undateable:
                     append_tools_governance(
                         root, "implementation_orphans_reaped_summary",
                         {
                             "reaped_count": len(_reaped),
                             "scanned_count": len(_orphans),
+                            # ORPHAN-HIGH-729 — the spared count is the
+                            # evidence the bound is doing work. Without it a
+                            # night where the executor was merely late reads
+                            # exactly like a night with nothing outstanding,
+                            # and the escalated count is what stops an
+                            # undateable plan from disappearing into that
+                            # same silence.
+                            "spared_recent_count": len(_spared_recent),
+                            "escalated_undateable_count": len(_escalated_undateable),
+                            "reap_after_hours":
+                                ORPHAN_IMPLEMENTATION_REAP_AFTER_HOURS,
                         },
                         bypass_profile_gate=True,
                     )
@@ -1363,6 +1590,12 @@ def run_autonomy_orchestrator(
                     cycle_summary["plan_synthesizer"] = {
                         "status": "no_pressure", "plan_content": None,
                     }
+                    # ORPHAN-HIGH-782 — this cycle COMPLETED (enterprise
+                    # cycle ran, tool health exists); a no-pressure night
+                    # is not a reason to skip precision history.
+                    _calibration_reporter_and_auto_promotion(
+                        root, cycle_id, cycle_summary, profile_snapshot,
+                    )
                     post_drain_reflection = run_reflection(
                         cycle_id=cycle_id,
                         base_dir=root,
@@ -1510,6 +1743,11 @@ def run_autonomy_orchestrator(
                         "error_class": type(_v7_exc).__name__,
                         "error_message": str(_v7_exc)[:1000],
                     }
+                    # ORPHAN-HIGH-782 — an invalid plan must not cost the
+                    # night its precision history; the cycle itself ran.
+                    _calibration_reporter_and_auto_promotion(
+                        root, cycle_id, cycle_summary, profile_snapshot,
+                    )
                     post_drain_reflection = run_reflection(
                         cycle_id=cycle_id,
                         base_dir=root,
@@ -1566,6 +1804,17 @@ def run_autonomy_orchestrator(
                                 convergence_result.get("rounds_count"),
                         },
                     )
+                    # ORPHAN-HIGH-782 — the calibration reporter and the V6.4
+                    # auto-promote attempt run on convergence-blocked nights
+                    # too. This branch used to `continue` straight to
+                    # reflection, so most nights (convergence_blocked / split)
+                    # never wrote a precision-history row and the V6.4
+                    # min_clean_cycles window was structurally unreachable.
+                    # Reporting is observational; it is not gated on plan
+                    # convergence.
+                    _calibration_reporter_and_auto_promotion(
+                        root, cycle_id, cycle_summary, profile_snapshot,
+                    )
                     # Plan ARIA-V3.3 §2b + V5.4 §3f — post-drain
                     # reflection STILL runs on convergence-blocked
                     # cycles so the daily report covers them. V5.4
@@ -1612,7 +1861,6 @@ def run_autonomy_orchestrator(
                         plan_id=convergence_result.get("plan_id") or active_plan_id,
                         workspace_root=Path(workspace_root) if workspace_root else root,
                         base_dir=root,
-                        converged_plan=convergence_result.get("converged_plan", {}) or {},
                         plan_envelope_metadata={
                             "_pressure_source_type": cycle_summary.get(
                                 "_pressure_source_type", "git_diff",
@@ -1668,11 +1916,15 @@ def run_autonomy_orchestrator(
                 # The signal-typed V9ImplementationResult lets the
                 # orchestrator pick the next specialist_review behavior
                 # without inspecting terminal_state heuristically.
-                # NoOp/Strict variants return IMPLEMENTATION_REQUEST_REFUSED
-                # with specialist_review_signal=review_converged_plan so
-                # V8 behavior is preserved by default. Autonomous variant
-                # mints the aria-implementer subprocess + polls + records
-                # outcome.
+                # ORPHAN-HIGH-728 — TWO variants, selected by authority:
+                # the NoOp returns IMPLEMENTATION_REQUEST_REFUSED with
+                # specialist_review_signal=review_converged_plan (V8
+                # behaviour) for every profile without `pr_create`, and
+                # AutonomousV9ImplementationRunner mints the
+                # aria-implementer subprocess + polls + records outcome for
+                # every profile that holds it. The third, `Strict`, refused
+                # under a profile the table grants `pr_create` and is
+                # deleted.
                 AutonomyStateReducer.transition(
                     root,
                     cycle_id=cycle_id,
@@ -1692,7 +1944,6 @@ def run_autonomy_orchestrator(
                         ),
                         workspace_root=Path(workspace_root) if workspace_root else root,
                         base_dir=root,
-                        converged_plan=convergence_result.get("converged_plan", {}) or {},
                         cross_review_summary={
                             "revision_id": convergence_result.get("convergence_id")
                             or convergence_result.get("plan_id"),
@@ -1700,7 +1951,6 @@ def run_autonomy_orchestrator(
                             "request_ids": convergence_result.get("request_ids", []),
                         },
                         profile=str(profile_snapshot or "standard"),
-                        implementer_poll_seconds=implementer_poll_seconds,
                     )
                     cycle_summary["v9_implementation"] = {
                         "terminal_state": v9_result.terminal_state,
@@ -1775,9 +2025,21 @@ def run_autonomy_orchestrator(
                     profile=profile_snapshot,
                     details={"plan_id": convergence_result.get("plan_id")},
                 )
-                _touched_services = list({
-                    p.get("source", "") for p in (convergence_result.get("converged_plan", {}).get("must_satisfy") or [])
-                }) or [f"cycle/{cycle_id}"]
+                from .plan_convergence import affected_surface_paths
+
+                # ORPHAN-CRITICAL-728 — the plan's SURFACES, not a
+                # `must_satisfy` key. `must_satisfy` is not plan content
+                # (PLAN_CONTENT_REQUIRED does not list it), so this
+                # comprehension was empty on every plan and the specialist
+                # reviewer was always told "cycle/<id>" instead of the files
+                # the plan touches.
+                _touched_services = list(dict.fromkeys(
+                    affected_surface_paths(
+                        (convergence_result.get("converged_plan") or {}).get(
+                            "affected_surfaces",
+                        ) or [],
+                    ),
+                )) or [f"cycle/{cycle_id}"]
                 specialist_review_result = specialist_review_runner(
                     cycle_id=cycle_id,
                     base_dir=root,
@@ -1837,6 +2099,11 @@ def run_autonomy_orchestrator(
                                 specialist_review_result.get("specialists_dispatched", [])
                             ),
                         },
+                    )
+                    # ORPHAN-HIGH-782 — a specialist-blocked cycle still
+                    # ran end to end; its precision history must not rot.
+                    _calibration_reporter_and_auto_promotion(
+                        root, cycle_id, cycle_summary, profile_snapshot,
                     )
                     # Reflection still runs (V3.3 §2b + V5.4 §3f)
                     # on specialist-blocked cycles so daily report
@@ -2039,77 +2306,16 @@ def run_autonomy_orchestrator(
                 except (OSError, ValueError, KeyError, TypeError):
                     pass
 
-                # Plan ARIA-V7 §3 Phase 7.6 — calibration_reporter
-                # invokes generate_adapter_calibration_report for
-                # every SHADOW/ACTIVE adapter; persists precision_
-                # history to aria-tools/calibration/adapter-
-                # calibration-reports.jsonl. Without this V6.4
-                # compute_auto_promote_token can NEVER fire (V6.4
-                # was a latent dead loop pre-V7). Pinned by I-V7.6-04
-                # source-substring invariant. Phase fires AFTER
-                # auto_merge_runner and BEFORE reflection so V6.4
-                # observes the freshest calibration.
-                from .adapter_calibration import (
-                    generate_adapter_calibration_report,
+                # Plan ARIA-V7 §3 Phase 7.6 — calibration_reporter +
+                # the V6.4 auto-promote first caller, via the extracted
+                # helper (ORPHAN-HIGH-782). On this converged path the
+                # placement is unchanged: AFTER auto_merge_runner and
+                # BEFORE reflection, so V6.4 observes the freshest
+                # calibration. The convergence-blocked branch calls the
+                # same helper before its own reflection.
+                _calibration_reporter_and_auto_promotion(
+                    root, cycle_id, cycle_summary, profile_snapshot,
                 )
-                from .tool_registry import list_tools as _v7_list_tools
-                _v7_calibration_tool_ids = [
-                    t.get("tool_id")
-                    for t in _v7_list_tools(base_dir=root)
-                    if t.get("kind") == "adapter"
-                    and t.get("status") in ("SHADOW", "ACTIVE")
-                    and t.get("tool_id")
-                ]
-                if _v7_calibration_tool_ids:
-                    try:
-                        calibration_result = generate_adapter_calibration_report(
-                            tool_ids=_v7_calibration_tool_ids,
-                            base_dir=root,
-                            cycle_id=cycle_id,
-                        )
-                        cycle_summary["calibration_reporter"] = calibration_result
-                    except Exception as _v7_calib_exc:
-                        # Surface failure without crashing the cycle.
-                        cycle_summary["calibration_reporter"] = {
-                            "status": "error",
-                            "error_class": type(_v7_calib_exc).__name__,
-                            "error_message": str(_v7_calib_exc)[:500],
-                        }
-                else:
-                    cycle_summary["calibration_reporter"] = {
-                        "status": "no_adapters",
-                        "tool_ids": [],
-                    }
-                AutonomyStateReducer.transition(
-                    root,
-                    cycle_id=cycle_id,
-                    phase="calibration_reporter_completed",
-                    status=str(cycle_summary["calibration_reporter"].get("status") or "ok"),
-                    profile=profile_snapshot,
-                    details={
-                        "tool_ids_scanned": len(_v7_calibration_tool_ids),
-                    },
-                )
-
-                # C7/E8 — the V6.4 auto-promote token's first caller.
-                # Fires directly AFTER the calibration reporter because
-                # the token gates on the precision history that phase
-                # just persisted. Policy-gated (default enabled=False):
-                # until the operator flips genesis-policy, every attempt
-                # records "ineligible" — the honest no-op. A failure here
-                # must not cost the night; it surfaces on the summary.
-                try:
-                    from .promotion import attempt_auto_promotions
-
-                    cycle_summary["auto_promotion"] = attempt_auto_promotions(
-                        cycle_id=cycle_id, base_dir=root,
-                    )
-                except Exception as _c7_exc:
-                    cycle_summary["auto_promotion"] = {
-                        "status": "error",
-                        "error_class": type(_c7_exc).__name__,
-                        "error_message": str(_c7_exc)[:500],
-                    }
 
                 # Plan ARIA-V3.3 §2b + V5.4 §3f — post-drain reflection
                 # runs AFTER planner+bridge+convergence+worker+review+

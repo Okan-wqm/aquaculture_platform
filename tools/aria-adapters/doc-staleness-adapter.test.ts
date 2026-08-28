@@ -1,7 +1,8 @@
+import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import assert from 'node:assert/strict';
+
 import { analyzeDocStaleness } from './doc-staleness-adapter';
 
 const workspace = mkdtempSync(join(tmpdir(), 'aria-doc-staleness-'));
@@ -23,9 +24,13 @@ writeFileSync(
   'utf8',
 );
 
-const output = analyzeDocStaleness({}, workspace);
+// The scan surface is declared once, in doc-staleness-adapter.tool.json
+// (default_input.roots). A test that omitted it used to inherit a second
+// copy inside the adapter, so it could keep passing while production
+// scanned a different set. It says what it scans now.
+const output = analyzeDocStaleness({ roots: ['docs'] }, workspace);
 
-assert.equal(output.findings.length, 1, JSON.stringify(output.findings, null, 2));
+assert.equal(output.findings.length, 1, JSON.stringify(output.findings));
 const [finding] = output.findings;
 assert.equal(finding.rule, 'doc_references_missing_path');
 assert.equal(finding.path, 'docs/runbooks/ops.md');
@@ -33,4 +38,4 @@ assert.equal(finding.line, 4);
 assert.ok(finding.message.includes('deleted.service.ts'));
 assert.equal(output.observations[0].details?.missingRefs, 1);
 
-console.log('doc-staleness-adapter tests passed');
+process.stdout.write('doc-staleness-adapter tests passed\n');

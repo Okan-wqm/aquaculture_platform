@@ -908,3 +908,37 @@ def _hash_text(text: str) -> str:
 def _hash_json(payload: dict[str, Any]) -> str:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def record_ci_source_attestation(
+    *,
+    label: str,
+    payload: dict[str, Any],
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """F5-g (ORPHAN-694) — the ``ci_source`` surface's first production writer.
+
+    The surface was declared and consumed (readiness bindings cite its
+    rows) but only tests ever wrote it. Claim-time attestations — e.g.
+    "the waiver ledger was swept at assembly and held N expired-open
+    rows" — need a resolvable row; this is that writer. ``payload`` is
+    hashed into the row so the attested content is tamper-evident.
+    """
+    import hashlib as _hashlib
+
+    if not isinstance(label, str) or not label.strip():
+        raise GovernanceError("ci_source_label_required")
+    root = ensure_tools_dir(base_dir)
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "row_id": f"source-{label}",
+        "row_type": "ci_source",
+        "label": label,
+        "payload": payload,
+        "content_hash": "sha256:" + _hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+    }
+    return append_declared_jsonl(
+        root / "ci" / "source.jsonl", row, expected_surface="ci_source",
+    )

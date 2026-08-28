@@ -70,13 +70,15 @@ def _source_ref(surface: str, ledger_path: str, row: dict[str, Any]) -> dict[str
     )
 
 
-def _resolve_response_envelope(result: dict[str, Any]) -> dict[str, Any]:
+def _resolve_response_envelope(result: dict[str, Any], root: Path) -> dict[str, Any]:
     # WHAT: the accepted result row's output file IS the agent response
     # envelope (submit_claim_result validated it before writing the
     # row). Rows recorded with an inline envelope are honored second.
     output_path = str(result.get("output_path") or "")
     if output_path:
-        path = Path(output_path)
+        from .agent_invocations import resolve_output_artifact_path
+
+        path = resolve_output_artifact_path(root, output_path)
         if not path.is_file():
             raise GovernanceError(f"shadow_bridge_result_output_missing:{output_path}")
         try:
@@ -228,7 +230,7 @@ def bridge_shadow_eval_from_invocation(
         )
 
     transcript_hash = str(transcript.get("transcript_hash") or "")
-    envelope = _resolve_response_envelope(result)
+    envelope = _resolve_response_envelope(result, root)
 
     # --- Real-mode eval: run_agent_eval re-validates the full 8-ref
     # chain (İ1 — the bridge reuses that seam, it never re-implements

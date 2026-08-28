@@ -112,6 +112,68 @@ class JudgmentPipelinePhaseTest(unittest.TestCase):
         # Consensus still ran for the tool despite the sampling refusal.
         self.assertEqual(result["consensus_rows"], 1)
 
+    def test_weights_are_computed_for_this_cycle_not_read_from_a_stale_tail(self) -> None:
+        # ORPHAN-HIGH-784 — the old consumer read the calibration ledger's
+        # tail, which this phase's sibling appends AFTER it: a permanent
+        # one-cycle lag, and None whenever no prior row existed — which was
+        # every cycle so far. Seed ground truth + judge verdicts in the
+        # feedback ledger with NO calibration row at all: the in-memory
+        # computation must still produce weights for the consensus call.
+        from aria_kernel.feedback_store import record_operator_feedback
+
+        with TemporaryDirectory() as tmp:
+            ctx = _context(tmp)
+            calls: dict[str, object] = {}
+
+            def fake_consensus(**kw):
+                calls["consensus_kw"] = kw
+                return {"consensus": []}
+
+            for judge_id, verdict in (("judge-a", "true_positive"), ("judge-b", "false_positive")):
+                record_operator_feedback(
+                    tool_id="adapter-a",
+                    run_id="run-1",
+                    finding_id="F-1",
+                    verdict=verdict,
+                    severity="low",
+                    note="seed",
+                    source_type="ai_judge",
+                    judge_id=judge_id,
+                    model="test-model",
+                    judgment_group_id="judge:adapter-a:g1",
+                    base_dir=ctx.base_dir,
+                )
+            record_operator_feedback(
+                tool_id="adapter-a",
+                run_id="run-1",
+                finding_id="F-1",
+                verdict="true_positive",
+                severity="low",
+                note="ground truth",
+                source_type="human",
+                judgment_group_id="judge:adapter-a:g1",
+                base_dir=ctx.base_dir,
+            )
+
+            with patch.object(cycle_mod, "list_tools", return_value=[{"tool_id": "adapter-a"}]), \
+                 patch("aria_kernel.feedback_store.generate_judgment_sample",
+                       return_value={"sample_id": "S1", "items": []}), \
+                 patch("aria_kernel.judge_fanout.dispatch_judges_for_sample",
+                       return_value={"minted": []}), \
+                 patch("aria_kernel.feedback_store.generate_ai_consensus", fake_consensus), \
+                 patch("aria_kernel.convergence_drainer._resolve_workspace_head_sha", return_value="a" * 40):
+                cycle_mod._phase_judgment_pipeline(ctx)
+
+            weights = calls["consensus_kw"]["judge_weights"]
+            self.assertIsNotNone(weights, "fresh in-memory calibration must yield weights")
+            self.assertIn("judge-a", weights)
+            self.assertIn("judge-b", weights)
+            self.assertGreater(weights["judge-a"], weights["judge-b"])
+            # The pipeline computes; only the calibration phase owns the
+            # ledger append — no row may appear as a side effect.
+            from aria_kernel.judge_calibration import calibration_path
+            self.assertFalse(calibration_path(ctx.base_dir).exists())
+
 
 class JudgeReplayPhaseTest(unittest.TestCase):
     def test_replay_runs_per_tool_and_scores_recall(self) -> None:
@@ -147,6 +209,45 @@ class FixtureRefreshPhaseTest(unittest.TestCase):
             refresh.assert_called_once()
             self.assertEqual(refresh.call_args.args[0], "with-fixtures")
             self.assertEqual(len(result["tools"]), 1)
+            self.assertEqual(result["blocked_count"], 0)
+            self.assertEqual(result["skipped_no_fixture_set"], ["without-fixtures"])
+
+    def test_a_blocked_refresh_is_a_governance_event_not_a_silent_pass(self) -> None:
+        # ORPHAN-MEDIUM-783 — six nights of blocked fixture refresh were
+        # invisible in every daily report because record_and_continue was
+        # the only listener. The refusal must reach the governance feed,
+        # which the reflection report's gate activity counts by kind.
+        with TemporaryDirectory() as tmp:
+            ctx = _context(tmp)
+            tools = [{"tool_id": "blocked-adapter", "fixture_set": "tools/x"}]
+            with patch.object(cycle_mod, "list_tools", return_value=tools), \
+                 patch("aria_kernel.fixture_runner.refresh_fixture_suite",
+                       side_effect=GovernanceError("fixture_path_escape_outside_repo: boom")), \
+                 patch.object(cycle_mod, "append_tools_governance") as governance:
+                result = cycle_mod._phase_fixture_refresh(ctx)
+
+            self.assertEqual(result["status"], "completed")  # cycle still survives
+            self.assertEqual(result["blocked_count"], 1)
+            governance.assert_called_once()
+            kind = governance.call_args.args[1]
+            details = governance.call_args.args[2]
+            self.assertEqual(kind, "fixture_refresh_blocked")
+            self.assertEqual(details["blocked"][0]["tool_id"], "blocked-adapter")
+
+    def test_a_registry_gap_with_no_refreshable_tools_is_also_loud(self) -> None:
+        # Tools without fixture_set can never satisfy readiness checks 3-5;
+        # a registry where NOTHING is refreshable must not read as a quiet
+        # success.
+        with TemporaryDirectory() as tmp:
+            ctx = _context(tmp)
+            tools = [{"tool_id": "no-fixtures"}]
+            with patch.object(cycle_mod, "list_tools", return_value=tools), \
+                 patch.object(cycle_mod, "append_tools_governance") as governance:
+                result = cycle_mod._phase_fixture_refresh(ctx)
+
+            self.assertEqual(result["tools"], [])
+            governance.assert_called_once()
+            self.assertEqual(governance.call_args.args[2]["skipped_no_fixture_set"], ["no-fixtures"])
 
 
 if __name__ == "__main__":

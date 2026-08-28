@@ -89,6 +89,7 @@ from .state_snapshot import (
     SnapshotError,
     _bounded_regular_file_chunks,
     build_snapshot,
+    published_prefix_row_counts,
     serialize_snapshot_json,
     snapshot_continuity,
     validate_snapshot_manifest,
@@ -1572,21 +1573,15 @@ def build_publishable_snapshot(
             expected_head=base_head,
         )
 
-    # ARIA-HIGH-017 — rows inherited from this exact predecessor are
-    # published history: the per-line cap binds only rows appended after it.
-    grandfather: dict[str, int] = {}
-    if isinstance(previous, dict):
-        for key, entry in (previous.get("surfaces") or {}).items():
-            if isinstance(entry, dict) and isinstance(entry.get("row_count"), int):
-                grandfather[key] = entry["row_count"]
+    previous_snapshot = previous if isinstance(previous, dict) else None
     return build_snapshot(
         snapshot_id=snapshot_id,
         cycle_id=cycle_id,
         lane=lane,
         roots=store_roots(store, repo_hash),
         parent_commit=parent_commit,
-        previous=previous if isinstance(previous, dict) else None,
-        grandfather_row_counts=grandfather,
+        previous=previous_snapshot,
+        grandfather_row_counts=published_prefix_row_counts(previous_snapshot),
     )
 
 
@@ -4464,6 +4459,7 @@ def verify_state_store(store: StateStore, *, repo_hash: str) -> dict[str, Any]:
         }
         if published.get("prev_snapshot_id")
         else None,
+        grandfather_row_counts=published_prefix_row_counts(published),
     )
     claimed_surfaces = published.get("surfaces") or {}
     observed_surfaces = observed.get("surfaces") or {}

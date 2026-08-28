@@ -505,6 +505,20 @@ def validate_snapshot_manifest(
         raise SnapshotError(f"snapshot_manifest_invalid:{exc}") from exc
 
 
+def published_prefix_row_counts(
+    published: dict[str, Any] | None,
+) -> dict[str, int]:
+    """Return validated published ledger prefix counts by exact surface key."""
+    if published is None:
+        return {}
+    validate_snapshot_manifest(published)
+    return {
+        key: claim["row_count"]
+        for key, claim in published["surfaces"].items()
+        if claim["state_class"] == "ledger"
+    }
+
+
 def sign_snapshot(
     manifest: dict[str, Any],
     *,

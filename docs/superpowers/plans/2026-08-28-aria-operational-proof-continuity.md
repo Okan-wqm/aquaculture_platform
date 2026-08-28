@@ -1256,9 +1256,29 @@ Expected: all hooks and push pass; local/remote/PR head match exactly.
 - Produces: exact SHA with local suite, GitHub checks, and manual Operational
   Proof evidence all bound to the same commit.
 
+Run all Task 6 command blocks from the isolated worktree in one Bash session;
+`set -euo pipefail` makes every assertion a gate. Any correction or changed
+head restarts acceptance from Step 1, and no prior manual proof is reused.
+
 - [ ] **Step 1: Run fresh full local verification**
 
 ```bash
+set -euo pipefail
+PR_NUMBER=1332
+REMOTE_BRANCH=fix/kernel-ci-timeouts
+BASE_BRANCH=main
+WORKFLOW_FILE=aria-operational-proof.yml
+test -f aria-kernel/aria_kernel/operational_proof.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel:. \
+  python3 -m aria_kernel.operational_proof --help >/dev/null
+test -z "$(git status --porcelain --untracked-files=all)"
+PR_JSON="$(gh pr view "$PR_NUMBER" \
+  --json state,isDraft,baseRefName,headRefName,headRefOid,autoMergeRequest)"
+jq -e --arg base "$BASE_BRANCH" --arg head "$REMOTE_BRANCH" '
+  .state == "OPEN" and .isDraft == false and
+  .baseRefName == $base and .headRefName == $head and
+  .autoMergeRequest == null
+' <<<"$PR_JSON" >/dev/null
 npm run aria:compile
 npm run aria:test:unit
 npm run aria:docs:ssot
@@ -1267,7 +1287,7 @@ NX_DAEMON=false npx nx affected --target=test --output-style=static
 NX_DAEMON=false npx nx affected --target=lint --output-style=static
 node tools/quality/quality.mjs format-scope check
 git diff --check
-git status --short --branch
+test -z "$(git status --porcelain --untracked-files=all)"
 ```
 
 Expected: all pass and worktree is clean.
@@ -1283,103 +1303,239 @@ their governed trailers, push, and repeat Step 1 after any correction.
 - [ ] **Step 3: Bind all GitHub checks to one exact SHA**
 
 ```bash
-HEAD_SHA="$(git rev-parse HEAD)"
-REMOTE_SHA="$(git ls-remote origin refs/heads/fix/kernel-ci-timeouts | awk '{print $1}')"
-PR_SHA="$(gh pr view 1332 --json headRefOid --jq .headRefOid)"
-test "$HEAD_SHA" = "$REMOTE_SHA"
-test "$HEAD_SHA" = "$PR_SHA"
-gh pr checks 1332 --required --watch --fail-fast
-test "$HEAD_SHA" = "$(git rev-parse HEAD)"
-test "$HEAD_SHA" = "$(git ls-remote origin refs/heads/fix/kernel-ci-timeouts | awk '{print $1}')"
-test "$HEAD_SHA" = "$(gh pr view 1332 --json headRefOid --jq .headRefOid)"
-REQUIRED_CHECKS_JSON="$(gh pr checks 1332 --required --json bucket,state,name)"
-test "$(jq 'length' <<<"$REQUIRED_CHECKS_JSON")" -gt 0
-test "$(jq '[.[] | select(.bucket != "pass")] | length' \
-  <<<"$REQUIRED_CHECKS_JSON")" = 0
+HEAD_SHA="$(git rev-parse --verify 'HEAD^{commit}')"
+[[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+assert_exact_head() {
+  test "$HEAD_SHA" = "$(git rev-parse --verify 'HEAD^{commit}')"
+  test "$HEAD_SHA" = "$(git ls-remote --exit-code --refs origin \
+    "refs/heads/$REMOTE_BRANCH" | cut -f1)"
+  test "$HEAD_SHA" = "$(gh pr view "$PR_NUMBER" \
+    --json headRefOid --jq .headRefOid)"
+}
+assert_required_checks() {
+  npm run gates:required-status-checks:live
+  local protection_json checks_json expected_names observed_names
+  protection_json="$(gh api \
+    "repos/{owner}/{repo}/branches/$BASE_BRANCH/protection")"
+  checks_json="$(gh pr checks "$PR_NUMBER" --required \
+    --json bucket,state,name)"
+  jq -e '
+    .enforce_admins.enabled == true and
+    .required_status_checks.strict == true and
+    (.required_status_checks.checks | length) > 0 and
+    all(.required_status_checks.checks[];
+      (.context | type == "string") and (.context | length) > 0 and
+      (.app_id | type == "number") and .app_id > 0)
+  ' <<<"$protection_json" >/dev/null
+  jq -e 'length > 0 and
+    all(.[]; .bucket == "pass" and .state == "SUCCESS")' \
+    <<<"$checks_json" >/dev/null
+  expected_names="$(jq -c \
+    '[.required_status_checks.checks[].context] | sort' \
+    <<<"$protection_json")"
+  observed_names="$(jq -c '[.[].name] | sort' <<<"$checks_json")"
+  test "$expected_names" = "$observed_names"
+}
+assert_exact_head
+npm run gates:required-status-checks:live
+gh pr checks "$PR_NUMBER" --required --watch --fail-fast --interval 10
+assert_exact_head
+assert_required_checks
+assert_exact_head
 ```
 
 The equality assertions are gates, not printed diagnostics. The required-check
-watch is bound by the before/after PR-head assertions. Any failure is diagnosed
-through `superpowers:systematic-debugging`; do not rerun blindly and do not
-merge on skipped, cancelled, pending, neutral, or stale-SHA evidence.
+watch is bound by the before/after exact-head assertions. The live protection
+gate proves strict/admin enforcement and app IDs; exact set equality plus
+`state == "SUCCESS"` rejects empty, renamed, rebound, duplicated, neutral,
+skipped, cancelled, pending, or stale evidence. Any failure is diagnosed
+through `superpowers:systematic-debugging`; do not rerun blindly.
 
 - [ ] **Step 4: Dispatch exact-head manual Operational Proof**
 
 ```bash
-BEFORE_RUN_IDS="$(gh run list --workflow aria-operational-proof.yml \
-  --branch fix/kernel-ci-timeouts --event workflow_dispatch --limit 100 \
+BEFORE_RUN_IDS="$(gh run list --workflow "$WORKFLOW_FILE" \
+  --branch "$REMOTE_BRANCH" --event workflow_dispatch --limit 1000 \
   --json databaseId --jq 'map(.databaseId)')"
-gh workflow run aria-operational-proof.yml --ref fix/kernel-ci-timeouts
-RUN_ID=""
-for DISCOVERY_ATTEMPT in $(seq 1 60); do
-  CANDIDATE_RUNS="$(gh run list --workflow aria-operational-proof.yml \
-    --branch fix/kernel-ci-timeouts --commit "$HEAD_SHA" \
-    --event workflow_dispatch --limit 100 \
-    --json databaseId,headSha,createdAt)"
-  RUN_ID="$(jq -r --argjson before "$BEFORE_RUN_IDS" \
-    '[.[] | select(.databaseId as $id | ($before | index($id)) == null)] | sort_by(.createdAt) | last | .databaseId // empty' \
-    <<<"$CANDIDATE_RUNS")"
-  [ -n "$RUN_ID" ] && break
+assert_exact_head
+gh workflow run "$WORKFLOW_FILE" --ref "$REMOTE_BRANCH"
+DISCOVERY_DEADLINE=$((SECONDS + 300))
+NEW_CANDIDATES='[]'
+while (( SECONDS < DISCOVERY_DEADLINE )); do
+  CANDIDATE_RUNS="$(gh run list --workflow "$WORKFLOW_FILE" \
+    --branch "$REMOTE_BRANCH" --commit "$HEAD_SHA" \
+    --event workflow_dispatch --limit 1000 \
+    --json databaseId,attempt,event,headBranch,headSha,createdAt,status,conclusion)"
+  NEW_CANDIDATES="$(jq -c --argjson before "$BEFORE_RUN_IDS" \
+    --arg branch "$REMOTE_BRANCH" --arg sha "$HEAD_SHA" '
+      [.[] |
+        select(.databaseId as $id | ($before | index($id)) == null) |
+        select(.event == "workflow_dispatch") |
+        select(.headBranch == $branch) |
+        select(.headSha == $sha)]
+    ' <<<"$CANDIDATE_RUNS")"
+  CANDIDATE_COUNT="$(jq 'length' <<<"$NEW_CANDIDATES")"
+  test "$CANDIDATE_COUNT" -le 1
+  test "$CANDIDATE_COUNT" -eq 0 || break
   sleep 5
 done
-test -n "$RUN_ID"
-gh run watch "$RUN_ID" --exit-status
-RUN_JSON="$(gh run view "$RUN_ID" --json headSha,status,conclusion,attempt)"
-test "$(jq -r .headSha <<<"$RUN_JSON")" = "$HEAD_SHA"
-test "$(jq -r .status <<<"$RUN_JSON")" = completed
-test "$(jq -r .conclusion <<<"$RUN_JSON")" = success
-RUN_ATTEMPT="$(jq -r .attempt <<<"$RUN_JSON")"
+jq -e 'length == 1 and .[0].attempt == 1' \
+  <<<"$NEW_CANDIDATES" >/dev/null
+RUN_ID="$(jq -r '.[0].databaseId' <<<"$NEW_CANDIDATES")"
+RUN_ATTEMPT="$(jq -r '.[0].attempt' <<<"$NEW_CANDIDATES")"
+gh run watch "$RUN_ID" --exit-status --interval 10
+RUN_JSON="$(gh run view "$RUN_ID" \
+  --json databaseId,attempt,event,headBranch,headSha,status,conclusion,workflowName,url)"
+jq -e --argjson run_id "$RUN_ID" --argjson attempt "$RUN_ATTEMPT" \
+  --arg branch "$REMOTE_BRANCH" --arg sha "$HEAD_SHA" '
+    .databaseId == $run_id and .attempt == $attempt and
+    .event == "workflow_dispatch" and .headBranch == $branch and
+    .headSha == $sha and .status == "completed" and
+    .conclusion == "success"
+  ' <<<"$RUN_JSON" >/dev/null
 ```
 
 Discovery is bounded to five minutes and excludes every run ID observed before
-dispatch, so an older success cannot be selected. The final assertion rejects
-every other SHA and every non-success terminal state.
+dispatch. Exactly one new exact-SHA run at attempt 1 is required; an ambiguous
+concurrent dispatch or later rerun stops acceptance. Repeat discovery before
+artifact acceptance and require the sole candidate is still `RUN_ID`.
 
 - [ ] **Step 5: Download and verify the accepted proof bundle**
 
-Create a fresh download directory, fetch only artifact
-`aria-operational-proof-${HEAD_SHA}`, and run:
+Re-run the discovery filter and require its sole candidate is still `RUN_ID`.
+Then enumerate the selected run's artifacts, require exactly one canonical,
+non-expired, positive-size artifact bound to the exact run/head with a canonical
+digest, download by immutable artifact ID, and verify the archive digest:
 
 ```bash
-PROOF_DOWNLOAD_DIR="$(mktemp -d)"
-gh run download "$RUN_ID" \
-  --name "aria-operational-proof-${HEAD_SHA}" \
-  --dir "$PROOF_DOWNLOAD_DIR"
+CANDIDATE_RUNS="$(gh run list --workflow "$WORKFLOW_FILE" \
+  --branch "$REMOTE_BRANCH" --commit "$HEAD_SHA" \
+  --event workflow_dispatch --limit 1000 \
+  --json databaseId,attempt,event,headBranch,headSha,createdAt,status,conclusion)"
+NEW_CANDIDATES="$(jq -c --argjson before "$BEFORE_RUN_IDS" \
+  --arg branch "$REMOTE_BRANCH" --arg sha "$HEAD_SHA" '
+    [.[] |
+      select(.databaseId as $id | ($before | index($id)) == null) |
+      select(.event == "workflow_dispatch") |
+      select(.headBranch == $branch) |
+      select(.headSha == $sha)]
+  ' <<<"$CANDIDATE_RUNS")"
+jq -e --argjson run_id "$RUN_ID" --argjson attempt "$RUN_ATTEMPT" '
+  length == 1 and .[0].databaseId == $run_id and
+  .[0].attempt == $attempt
+' <<<"$NEW_CANDIDATES" >/dev/null
+ARTIFACT_NAME="aria-operational-proof-${HEAD_SHA}"
+ARTIFACTS_JSON="$(gh api --paginate --slurp \
+  "repos/{owner}/{repo}/actions/runs/$RUN_ID/artifacts?per_page=100" \
+  | jq -c '[.[].artifacts[]]')"
+MATCHING_ARTIFACTS="$(jq -c --arg name "$ARTIFACT_NAME" \
+  --arg sha "$HEAD_SHA" --argjson run_id "$RUN_ID" '
+    [.[] | select(
+      .name == $name and .expired == false and
+      (.size_in_bytes | type == "number") and .size_in_bytes > 0 and
+      (.digest | type == "string") and
+      (.digest | test("^sha256:[0-9a-f]{64}$")) and
+      .workflow_run.id == $run_id and .workflow_run.head_sha == $sha)]
+  ' <<<"$ARTIFACTS_JSON")"
+jq -e 'length == 1' <<<"$MATCHING_ARTIFACTS" >/dev/null
+ARTIFACT_ID="$(jq -r '.[0].id' <<<"$MATCHING_ARTIFACTS")"
+EXPECTED_ARCHIVE_DIGEST="$(jq -r '.[0].digest' <<<"$MATCHING_ARTIFACTS")"
+PROOF_DOWNLOAD_BASE="$(mktemp -d)"
+PROOF_ARCHIVE="$PROOF_DOWNLOAD_BASE/operational-proof.zip"
+PROOF_ROOT="$PROOF_DOWNLOAD_BASE/proof"
+mkdir "$PROOF_ROOT"
+gh api -H 'Accept: application/vnd.github+json' \
+  -H 'X-GitHub-Api-Version: 2022-11-28' \
+  "repos/{owner}/{repo}/actions/artifacts/$ARTIFACT_ID/zip" \
+  >"$PROOF_ARCHIVE"
+ACTUAL_ARCHIVE_DIGEST="sha256:$(sha256sum "$PROOF_ARCHIVE" | cut -d' ' -f1)"
+test "$ACTUAL_ARCHIVE_DIGEST" = "$EXPECTED_ARCHIVE_DIGEST"
+while IFS= read -r member; do
+  case "$member" in
+    /* | ../* | */../* | */..) exit 1 ;;
+  esac
+done < <(unzip -Z1 "$PROOF_ARCHIVE")
+unzip -q "$PROOF_ARCHIVE" -d "$PROOF_ROOT"
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel:. \
 python3 -m aria_kernel.operational_proof verify \
-  --proof-root "$PROOF_DOWNLOAD_DIR" \
+  --proof-root "$PROOF_ROOT" \
   --expected-target-sha "$HEAD_SHA" \
   --expected-workflow-run-id "$RUN_ID" \
   --expected-workflow-run-attempt "$RUN_ATTEMPT"
+FINAL_RUN_JSON="$(gh run view "$RUN_ID" \
+  --json databaseId,attempt,headSha,status,conclusion)"
+jq -e --argjson id "$RUN_ID" --argjson attempt "$RUN_ATTEMPT" \
+  --arg sha "$HEAD_SHA" '
+    .databaseId == $id and .attempt == $attempt and .headSha == $sha and
+    .status == "completed" and .conclusion == "success"
+  ' <<<"$FINAL_RUN_JSON" >/dev/null
+FINAL_ARTIFACT_JSON="$(gh api \
+  "repos/{owner}/{repo}/actions/artifacts/$ARTIFACT_ID")"
+jq -e --argjson id "$ARTIFACT_ID" --arg digest "$EXPECTED_ARCHIVE_DIGEST" \
+  --argjson run_id "$RUN_ID" --arg sha "$HEAD_SHA" '
+    .id == $id and .digest == $digest and .expired == false and
+    .workflow_run.id == $run_id and .workflow_run.head_sha == $sha
+  ' <<<"$FINAL_ARTIFACT_JSON" >/dev/null
 ```
 
-The canonical outer verifier, rather than manual inspection, requires every
-success, continuity, immutability, DLP, and closed-file condition and rejects a
-restored store or scratch tree by name. Inspect the three summaries only as a
-human-readable cross-check.
+After verification, re-read run and artifact metadata and require the same run
+attempt, success, artifact ID, head SHA, and digest. The canonical outer
+verifier, rather than manual inspection, requires every success, continuity,
+immutability, DLP, and closed-file condition and rejects a restored store or
+scratch tree by name. Inspect the three summaries only as a human-readable
+cross-check.
 
 - [ ] **Step 6: Merge #1332 through protected GitHub controls**
 
-Re-read exact PR head and checks immediately before:
+Immediately before merge, rerun the Step 4 candidate query and require exactly
+the same sole `RUN_ID`, then rerun the complete Step 5 run/artifact metadata,
+archive-digest, extraction, canonical verifier, and post-verification metadata
+block. Only then run:
 
 ```bash
-test "$HEAD_SHA" = "$(git rev-parse HEAD)"
-test "$HEAD_SHA" = "$(git ls-remote origin refs/heads/fix/kernel-ci-timeouts | awk '{print $1}')"
-test "$HEAD_SHA" = "$(gh pr view 1332 --json headRefOid --jq .headRefOid)"
-REQUIRED_CHECKS_JSON="$(gh pr checks 1332 --required --json bucket,state,name)"
-test "$(jq 'length' <<<"$REQUIRED_CHECKS_JSON")" -gt 0
-test "$(jq '[.[] | select(.bucket != "pass")] | length' \
-  <<<"$REQUIRED_CHECKS_JSON")" = 0
-gh pr merge 1332 --merge --match-head-commit "$HEAD_SHA"
-git fetch origin main
+assert_exact_head
+assert_required_checks
+FINAL_PR_JSON="$(gh pr view "$PR_NUMBER" \
+  --json state,isDraft,baseRefName,headRefName,headRefOid,mergeable,mergeStateStatus,autoMergeRequest)"
+jq -e --arg base "$BASE_BRANCH" --arg head "$REMOTE_BRANCH" \
+  --arg sha "$HEAD_SHA" '
+    .state == "OPEN" and .isDraft == false and
+    .baseRefName == $base and .headRefName == $head and
+    .headRefOid == $sha and .mergeable == "MERGEABLE" and
+    .mergeStateStatus == "CLEAN" and .autoMergeRequest == null
+  ' <<<"$FINAL_PR_JSON" >/dev/null
+REPOSITORY_JSON="$(gh api repos/{owner}/{repo})"
+jq -e '.allow_merge_commit == true and .delete_branch_on_merge == false' \
+  <<<"$REPOSITORY_JSON" >/dev/null
+gh pr merge "$PR_NUMBER" --merge --match-head-commit "$HEAD_SHA"
+POST_MERGE_JSON="$(gh pr view "$PR_NUMBER" \
+  --json state,mergedAt,mergeCommit,headRefOid,autoMergeRequest,url)"
+if ! jq -e --arg sha "$HEAD_SHA" '
+  .state == "MERGED" and .mergedAt != null and
+  .mergeCommit.oid != null and .headRefOid == $sha and
+  .autoMergeRequest == null
+' <<<"$POST_MERGE_JSON" >/dev/null; then
+  if jq -e '.autoMergeRequest != null' \
+    <<<"$POST_MERGE_JSON" >/dev/null; then
+    gh pr merge "$PR_NUMBER" --disable-auto
+    test "$(gh pr view "$PR_NUMBER" --json autoMergeRequest \
+      --jq '.autoMergeRequest == null')" = true
+  fi
+  exit 1
+fi
+MERGE_COMMIT="$(jq -r '.mergeCommit.oid' <<<"$POST_MERGE_JSON")"
+git fetch origin +refs/heads/main:refs/remotes/origin/main
 git merge-base --is-ancestor "$HEAD_SHA" origin/main
-gh pr view 1332 --json state,mergedAt,mergeCommit,url
+git merge-base --is-ancestor "$MERGE_COMMIT" origin/main
+test "$(git ls-remote --exit-code --refs origin \
+  "refs/heads/$REMOTE_BRANCH" | cut -f1)" = "$HEAD_SHA"
 ```
 
-Expected: protected merge succeeds, ancestry command exits 0, PR state is
-`MERGED`. Do not request branch deletion: `fix/kernel-ci-timeouts` is checked
-out by another linked worktree. Do not delete the isolated worktree until #1333
-receives this main.
+Do not pass `--auto`, `--admin`, or `--delete-branch`. Exit zero without the
+immediate `MERGED` predicate is failure; disable any armed auto-merge and stop.
+The ancestry and live remote-ref assertions prove both protected-main inclusion
+and preservation of the branch checked out by another linked worktree. Do not
+delete either worktree before Task 7 consumes this main.
 
 ---
 
@@ -1396,19 +1552,35 @@ receives this main.
 - Produces: #1333 head containing current main through an ordinary merge, with
   no rebase, cherry-pick, transplant, or duplicate source reconstruction.
 
+Run all Task 7 blocks from the named #1333 worktree in one Bash session, or
+recompute and reassert every variable at the start of a later session.
+
 - [ ] **Step 1: Verify the #1333 worktree and PR head before mutation**
 
 ```bash
-git status --short --branch
-PR_HEAD_BRANCH="$(gh pr view 1333 --json headRefName --jq .headRefName)"
-test "$PR_HEAD_BRANCH" = "feat/aquamobil-v4-safe-integration"
+set -euo pipefail
+REPOSITORY=Okan-wqm/aquaculture_platform
+WORKTREE=/var/aqua-saas/.worktrees/aquamobil-v4-safe-integration
+EXPECTED_1332_BRANCH=fix/kernel-ci-timeouts
+EXPECTED_1333_BRANCH=feat/aquamobil-v4-safe-integration
+cd "$WORKTREE"
+test "$(git rev-parse --show-toplevel)" = "$WORKTREE"
+test "$(git branch --show-current)" = "$EXPECTED_1333_BRANCH"
+test -z "$(git status --porcelain=v1 --untracked-files=all)"
+PR_1333_JSON="$(gh api "/repos/$REPOSITORY/pulls/1333")"
+jq -e --arg branch "$EXPECTED_1333_BRANCH" --arg repo "$REPOSITORY" '
+  .number == 1333 and .state == "open" and .merged == false and
+  .base.ref == "main" and .head.ref == $branch and
+  .head.repo.full_name == $repo
+' <<<"$PR_1333_JSON" >/dev/null
+PR_HEAD_BRANCH="$(jq -er '.head.ref' <<<"$PR_1333_JSON")"
 LOCAL_SHA="$(git rev-parse HEAD)"
-REMOTE_SHA="$(git ls-remote origin "refs/heads/$PR_HEAD_BRANCH" | awk '{print $1}')"
-PR_SHA="$(gh pr view 1333 --json headRefOid --jq .headRefOid)"
+REMOTE_SHA="$(git ls-remote --exit-code --refs origin \
+  "refs/heads/$PR_HEAD_BRANCH" | cut -f1)"
+PR_SHA="$(jq -er '.head.sha | select(test("^[0-9a-f]{40}$"))' \
+  <<<"$PR_1333_JSON")"
 test "$LOCAL_SHA" = "$REMOTE_SHA"
 test "$LOCAL_SHA" = "$PR_SHA"
-test "$(gh pr view 1333 --json baseRefName --jq .baseRefName)" = "main"
-test "$(gh pr view 1333 --json state --jq .state)" = "OPEN"
 ```
 
 Stop if the worktree is dirty or local, remote, and PR heads differ.
@@ -1416,39 +1588,94 @@ Stop if the worktree is dirty or local, remote, and PR heads differ.
 - [ ] **Step 2: Re-prove #1332 ancestry and start a no-commit merge**
 
 ```bash
-git fetch origin main
-PR_1332_MERGE="$(gh pr view 1332 --json mergeCommit --jq .mergeCommit.oid)"
-git merge-base --is-ancestor "$PR_1332_MERGE" origin/main
-PRE_MERGE_HEAD="$(git rev-parse HEAD)"
+PR_1332_JSON="$(gh api "/repos/$REPOSITORY/pulls/1332")"
+jq -e --arg branch "$EXPECTED_1332_BRANCH" --arg repo "$REPOSITORY" '
+  .number == 1332 and .state == "closed" and .merged == true and
+  .merged_at != null and .base.ref == "main" and .head.ref == $branch and
+  .head.repo.full_name == $repo
+' <<<"$PR_1332_JSON" >/dev/null
+PR_1332_HEAD="$(jq -er \
+  '.head.sha | select(test("^[0-9a-f]{40}$"))' <<<"$PR_1332_JSON")"
+PR_1332_MERGE="$(jq -er \
+  '.merge_commit_sha | select(test("^[0-9a-f]{40}$"))' \
+  <<<"$PR_1332_JSON")"
+git fetch origin +refs/heads/main:refs/remotes/origin/main
 MAIN_SHA="$(git rev-parse origin/main)"
-git merge --no-ff --no-commit "$MAIN_SHA"
+test "$MAIN_SHA" = \
+  "$(git ls-remote --exit-code --refs origin refs/heads/main | cut -f1)"
+git cat-file -e "$PR_1332_HEAD^{commit}"
+git cat-file -e "$PR_1332_MERGE^{commit}"
+test "$(git rev-list --parents -n 1 "$PR_1332_MERGE" | awk '{print NF}')" -eq 3
+test "$(git rev-parse "$PR_1332_MERGE^2")" = "$PR_1332_HEAD"
+git merge-base --is-ancestor "$PR_1332_HEAD" "$PR_1332_MERGE"
+git merge-base --is-ancestor "$PR_1332_MERGE" "$MAIN_SHA"
+PR_1333_JSON="$(gh api "/repos/$REPOSITORY/pulls/1333")"
+jq -e --arg branch "$EXPECTED_1333_BRANCH" --arg repo "$REPOSITORY" '
+  .state == "open" and .merged == false and .base.ref == "main" and
+  .head.ref == $branch and .head.repo.full_name == $repo
+' <<<"$PR_1333_JSON" >/dev/null
+test "$(jq -er .head.sha <<<"$PR_1333_JSON")" = "$(git rev-parse HEAD)"
+PRE_MERGE_HEAD="$(git rev-parse HEAD)"
+test "$PRE_MERGE_HEAD" = "$(git ls-remote --exit-code --refs origin \
+  "refs/heads/$PR_HEAD_BRANCH" | cut -f1)"
+test -z "$(git status --porcelain=v1 --untracked-files=all)"
+! git merge-base --is-ancestor "$MAIN_SHA" "$PRE_MERGE_HEAD"
+! git merge-base --is-ancestor "$PRE_MERGE_HEAD" "$MAIN_SHA"
+MERGE_STATUS=0
+git merge --no-ff --no-commit "$MAIN_SHA" || MERGE_STATUS=$?
+test -f "$(git rev-parse --git-path MERGE_HEAD)"
+test "$(tr -d '\n' <"$(git rev-parse --git-path MERGE_HEAD)")" = "$MAIN_SHA"
+if (( MERGE_STATUS != 0 )); then
+  test -n "$(git diff --name-only --diff-filter=U)"
+fi
+git diff --name-only --diff-filter=U
+git diff --name-only --diff-filter=U | while IFS= read -r path; do
+  directory="$(dirname "$path")"
+  while test "$directory" != "." && test "$directory" != "/"; do
+    test ! -f "$directory/CLAUDE.md" || printf '%s\n' "$directory/CLAUDE.md"
+    directory="$(dirname "$directory")"
+  done
+done | sort -u
 ```
 
-Resolve any conflict from source intent and current-main architecture; never
-choose whole sides mechanically. Read every nested `CLAUDE.md` for conflicted
-paths before editing.
+A non-zero merge is acceptable only in that exact merge state with every
+unmerged path inventoried. Re-read root `CLAUDE.md`, then walk every conflicted
+path toward the root and read each nested `CLAUDE.md` before editing. Resolve
+authored files by source intent and current-main architecture; never choose
+whole sides mechanically. If any authored conflict lacks sufficient authority,
+`git merge --abort` and stop.
 
 - [ ] **Step 3: Regenerate generated authorities and commit the merge**
 
 Resolve source files first. For expected conflicts in generated authorities,
-do not select either stale side: regenerate from the resolved source tree and
-verify both authorities before committing.
+do not select either stale side. Preserve the semantically merged
+`CURRENT_STATE.md` body; only its date/hash lines are generated. Stage every
+authored resolution and place the format-scope path in stage 0 before either
+generator enumerates `git ls-files`:
 
 ```bash
-npm run quality:format-scope:generate
-npm run aria:authority-hash:write
-node tools/quality/quality.mjs format-scope check
-npm run aria:authority-hash
-git diff --check
+git add -A
 test -z "$(git diff --name-only --diff-filter=U)"
-git add -u
-git add tools/quality/format-scope.json docs/aria/CURRENT_STATE.md
-git commit
+test -f "$(git rev-parse --git-path MERGE_HEAD)"
+npm run quality:format-scope:generate
+git add tools/quality/format-scope.json
+npm run aria:authority-hash:write
+git add docs/aria/CURRENT_STATE.md
+node tools/quality/quality.mjs format-scope check
+npm run aria:authority-hash -- --check
+git diff --check
+git diff --cached --check
+test -z "$(git diff --name-only --diff-filter=U)"
+git commit \
+  -m "chore(aquamobil): merge protected main into planning branch" \
+  -m "The reviewed integration program must descend from the exact protected-main result containing PR #1332 before Order 0 freezes its provenance base."
 MERGE_HEAD="$(git rev-parse HEAD)"
 test "$(git rev-parse HEAD^1)" = "$PRE_MERGE_HEAD"
 test "$(git rev-parse HEAD^2)" = "$MAIN_SHA"
 test "$(git rev-list --parents -n 1 HEAD | awk '{print NF}')" -eq 3
 git merge-base --is-ancestor "$PR_1332_MERGE" "$MERGE_HEAD"
+git merge-base --is-ancestor "$PR_1332_HEAD" "$MERGE_HEAD"
+test -z "$(git status --porcelain=v1 --untracked-files=all)"
 ```
 
 The commit must be an ordinary two-parent merge whose second parent is the
@@ -1457,14 +1684,30 @@ exact fetched `origin/main`, and that parent must contain #1332's merge commit.
 - [ ] **Step 4: Verify and push #1333's merge head**
 
 ```bash
-NX_DAEMON=false npx nx affected --target=test --output-style=static
-NX_DAEMON=false npx nx affected --target=lint --output-style=static
+for AFFECTED_BASE in "$PRE_MERGE_HEAD" "$MAIN_SHA"; do
+  NX_DAEMON=false npx nx affected --target=test \
+    --base="$AFFECTED_BASE" --head="$MERGE_HEAD" --output-style=static
+  NX_DAEMON=false npx nx affected --target=lint \
+    --base="$AFFECTED_BASE" --head="$MERGE_HEAD" --output-style=static
+done
 git diff --check
-git status --short --branch
-git push origin "HEAD:$PR_HEAD_BRANCH"
+test -z "$(git status --porcelain=v1 --untracked-files=all)"
+test "$(git rev-parse HEAD)" = "$MERGE_HEAD"
+test "$(git ls-remote --exit-code --refs origin \
+  "refs/heads/$PR_HEAD_BRANCH" | cut -f1)" = "$PRE_MERGE_HEAD"
+test "$(gh api "/repos/$REPOSITORY/pulls/1333" --jq .head.sha)" = \
+  "$PRE_MERGE_HEAD"
+git push origin "HEAD:refs/heads/$PR_HEAD_BRANCH"
+HEAD_SHA="$(git rev-parse HEAD)"
+test "$HEAD_SHA" = "$MERGE_HEAD"
+test "$HEAD_SHA" = "$(git ls-remote --exit-code --refs origin \
+  "refs/heads/$PR_HEAD_BRANCH" | cut -f1)"
+test "$HEAD_SHA" = "$(gh api "/repos/$REPOSITORY/pulls/1333" --jq .head.sha)"
 ```
 
-Require local, remote, and PR head SHA equality after the push.
+Any later root-cause correction is committed and pushed normally, then both
+fixed-base affected ranges and every local/remote/API equality gate are rerun
+for the new descendant head.
 
 - [ ] **Step 5: Require exact-head Actions and protected merge for #1333**
 
@@ -1473,19 +1716,85 @@ root-cause fix with tests and governed traceability, and repeat exact-head
 verification. When all checks are successful:
 
 ```bash
-HEAD_SHA="$(git rev-parse HEAD)"
-REMOTE_SHA="$(git ls-remote origin "refs/heads/$PR_HEAD_BRANCH" | awk '{print $1}')"
-PR_SHA="$(gh pr view 1333 --json headRefOid --jq .headRefOid)"
-test "$HEAD_SHA" = "$REMOTE_SHA"
-test "$HEAD_SHA" = "$PR_SHA"
-gh pr checks 1333 --required --watch --fail-fast --interval 10
-test "$(gh pr view 1333 --json headRefOid --jq .headRefOid)" = "$HEAD_SHA"
-gh pr merge 1333 --merge --match-head-commit "$HEAD_SHA"
-git fetch origin main
-git merge-base --is-ancestor "$(gh pr view 1333 --json mergeCommit --jq '.mergeCommit.oid')" origin/main
-gh pr view 1333 --json state,mergedAt,mergeCommit,url
+EXPECTED_REQUIRED="$(jq -c '.required_status_checks.contexts | sort' \
+  .github/manifests/main-required-status-checks.json)"
+test "$EXPECTED_REQUIRED" = \
+  '["aria-merge-authority","build-status","merge-gate","sens-enterprise-summary"]'
+npm run gates:required-status-checks:live
+gh pr checks 1333 --repo "$REPOSITORY" \
+  --required --watch --fail-fast --interval 10
+REQUIRED_CHECKS_JSON="$(gh pr checks 1333 --repo "$REPOSITORY" \
+  --required --json bucket,state,name)"
+test "$(jq -c '[.[].name] | sort' <<<"$REQUIRED_CHECKS_JSON")" = \
+  "$EXPECTED_REQUIRED"
+jq -e 'length > 0 and
+  all(.[]; .bucket == "pass" and .state == "SUCCESS")' \
+  <<<"$REQUIRED_CHECKS_JSON" >/dev/null
+
+git fetch origin +refs/heads/main:refs/remotes/origin/main
+test "$(git rev-parse origin/main)" = "$MAIN_SHA"
+test "$(git ls-remote --exit-code --refs origin refs/heads/main | cut -f1)" = \
+  "$MAIN_SHA"
+git merge-base --is-ancestor "$PR_1332_MERGE" "$MAIN_SHA"
+test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+test "$(git ls-remote --exit-code --refs origin \
+  "refs/heads/$PR_HEAD_BRANCH" | cut -f1)" = "$HEAD_SHA"
+PR_1333_JSON="$(gh api "/repos/$REPOSITORY/pulls/1333")"
+jq -e --arg head "$HEAD_SHA" --arg branch "$PR_HEAD_BRANCH" \
+  --arg repo "$REPOSITORY" '
+    .state == "open" and .merged == false and .base.ref == "main" and
+    .head.ref == $branch and .head.sha == $head and
+    .head.repo.full_name == $repo
+  ' <<<"$PR_1333_JSON" >/dev/null
+REQUIRED_CHECKS_JSON="$(gh pr checks 1333 --repo "$REPOSITORY" \
+  --required --json bucket,state,name)"
+test "$(jq -c '[.[].name] | sort' <<<"$REQUIRED_CHECKS_JSON")" = \
+  "$EXPECTED_REQUIRED"
+jq -e 'length > 0 and
+  all(.[]; .bucket == "pass" and .state == "SUCCESS")' \
+  <<<"$REQUIRED_CHECKS_JSON" >/dev/null
+test "$(gh api "/repos/$REPOSITORY" --jq .delete_branch_on_merge)" = false
+gh pr merge 1333 --repo "$REPOSITORY" --merge \
+  --match-head-commit "$HEAD_SHA"
 ```
 
-Expected: PR #1333 is `MERGED` and its merge commit is reachable from
-`origin/main`. Continue remaining Aquamobil slices only from that verified
-baseline.
+The exact expected-name comparison is nonempty and rejects duplicates or extra
+required contexts; the live gate binds strict/admin enforcement and GitHub App
+IDs. A changed `main` requires a new ordinary merge and fresh checks. Never use
+`--admin`, `--auto`, `--delete-branch`, rebase, or squash.
+
+- [ ] **Step 6: Prove the protected result and stop at the program handoff**
+
+```bash
+git fetch origin +refs/heads/main:refs/remotes/origin/main
+RESULT_MAIN_SHA="$(git rev-parse origin/main)"
+test "$RESULT_MAIN_SHA" = \
+  "$(git ls-remote --exit-code --refs origin refs/heads/main | cut -f1)"
+PR_1333_RESULT="$(gh api "/repos/$REPOSITORY/pulls/1333")"
+jq -e --arg head "$HEAD_SHA" --arg branch "$PR_HEAD_BRANCH" \
+  --arg repo "$REPOSITORY" '
+    .state == "closed" and .merged == true and .merged_at != null and
+    .base.ref == "main" and .head.ref == $branch and .head.sha == $head and
+    .head.repo.full_name == $repo
+  ' <<<"$PR_1333_RESULT" >/dev/null
+PR_1333_MERGE="$(jq -er \
+  '.merge_commit_sha | select(test("^[0-9a-f]{40}$"))' \
+  <<<"$PR_1333_RESULT")"
+git cat-file -e "$PR_1333_MERGE^{commit}"
+test "$(git rev-list --parents -n 1 "$PR_1333_MERGE" | awk '{print NF}')" -eq 3
+test "$(git rev-parse "$PR_1333_MERGE^2")" = "$HEAD_SHA"
+git merge-base --is-ancestor "$HEAD_SHA" "$PR_1333_MERGE"
+git merge-base --is-ancestor "$PR_1332_MERGE" "$PR_1333_MERGE"
+git merge-base --is-ancestor "$PR_1333_MERGE" "$RESULT_MAIN_SHA"
+test "$(git ls-remote --exit-code --refs origin \
+  "refs/heads/$PR_HEAD_BRANCH" | cut -f1)" = "$HEAD_SHA"
+test "$(git branch --show-current)" = "$PR_HEAD_BRANCH"
+test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+test -z "$(git status --porcelain=v1 --untracked-files=all)"
+```
+
+Task 7 stops here. Do not create the coordinator branch/worktree, allocate
+Aquamobil evidence, or begin a slice. Hand control to
+`docs/superpowers/plans/2026-08-26-aquamobil-v4-safe-integration-program.md`,
+Task 1 Step 0. That protected-bootstrap step is the sole next authority; only
+after it passes may the program derive Order 0's base and coordinator worktree.

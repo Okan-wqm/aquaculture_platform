@@ -426,9 +426,9 @@ Extend the Python workflow-preflight and TypeScript invariant suites to prove:
    exit code;
 6. only the curated proof directory is uploaded;
 7. postflight and final DLP/outer verification run on failed burn-in;
-8. the success verifier rejects every mutation of its exact SHA, run ID,
-   continuity, cleanliness, writer, host-identity, file-set, hash, and DLP
-   fields;
+8. the success verifier rejects every mutation of its exact SHA, run ID, run
+   attempt, continuity, cleanliness, writer, host-identity, file-set, hash, and
+   DLP fields;
 9. the workflow's exact 90-minute job budget remains enforced.
 
 ### Verification layers
@@ -441,11 +441,14 @@ Run, in order:
 4. `nx affected --target=test`;
 5. `nx affected --target=lint`;
 6. independent code review and correction loop;
-7. exact-head GitHub Actions;
-8. a bounded, newly-dispatched exact-head manual `ARIA Operational Proof` whose
-   downloaded bundle passes the canonical outer verifier;
-9. protected merges guarded by exact local/remote/PR equality and
-   `--match-head-commit`.
+7. exact-head GitHub Actions whose nonempty required set exactly equals the
+   live app-bound protection contract and has exact `SUCCESS` state;
+8. a wall-clock-bounded manual `ARIA Operational Proof` with exactly one new
+   exact-head attempt, one immutable artifact ID whose GitHub digest matches
+   the downloaded archive, and a bundle that passes the canonical verifier;
+9. a full immediate pre-merge recheck and protected merge guarded by exact
+   local/remote/PR equality, clean merge state, absent auto-merge, preserved
+   remote branches, and `--match-head-commit`.
 
 ## Finding Traceability
 
@@ -461,20 +464,36 @@ finding its change resolves.
 1. Implement and verify this design on PR #1332's isolated worktree.
 2. Commit and push each coherent change to the existing PR branch without
    force-push.
-3. Assert local, remote, and PR head equality and watch all required checks for
-   that exact head to finish green.
-4. Capture pre-dispatch run IDs, dispatch Operational Proof, discover the new
-   exact-SHA run within a bounded interval, and require its downloaded artifact
-   to pass the canonical outer verifier.
-5. Reassert exact heads/checks and merge #1332 through protected GitHub controls
-   with `--match-head-commit`; do not delete a branch held by another worktree.
-6. Re-fetch `main`, re-prove #1332 ancestry, and merge it into the real #1333
-   branch `feat/aquamobil-v4-safe-integration` with `--no-commit`. Resolve source
-   intent, regenerate format scope and the ARIA authority hash, and commit an
-   ordinary two-parent merge; do not rebase, transplant, or cherry-pick.
-7. Prove both merge parents and #1332 ancestry, require #1333's exact-head
-   checks, and protected-merge with `--match-head-commit`.
-8. Continue the Aquamobil integration plan from the now-valid main baseline.
+3. Assert local, remote, and PR head equality; validate the live nonempty
+   strict/admin/app-bound required-check contract; and accept only its exact
+   names with exact `SUCCESS` state.
+4. Snapshot run IDs, dispatch once, and under a wall-clock deadline require
+   exactly one new exact-SHA attempt-1 run. Pin the attempt before and after the
+   watch. Select exactly one current artifact by immutable ID, verify its
+   GitHub-reported digest, then run the canonical outer verifier.
+5. Immediately repeat every head/check/run/artifact/verifier gate, require PR
+   state `OPEN/MERGEABLE/CLEAN`, no auto-merge, merge commits enabled, and
+   automatic branch deletion disabled. Merge #1332 with
+   `--match-head-commit`, accept only immediate `MERGED`, and prove main
+   ancestry plus remote-branch preservation.
+6. In the exact clean #1333 worktree, prove both PR topologies and #1332's
+   ordinary merge parentage. Fetch `main` by exact refspec, bind it to the live
+   remote, close local/remote/API race windows, and require a true divergent
+   topology before `--no-commit` merge.
+7. Inventory conflicts, route every path through root/nested guidance, and
+   stage all authored resolutions before generators enumerate tracked paths.
+   Preserve the semantic `CURRENT_STATE.md` body, regenerate format scope and
+   authority hash, verify the latter with `--check`, and create an explicit
+   ordinary two-parent merge commit.
+8. Run affected test and lint against both exact merge parents, close the
+   pre-push race, push without force, compare #1333's complete exact required
+   set, close the `main` race, and protected-merge with
+   `--match-head-commit`. Prove two-parent result topology, ancestry, clean
+   retained worktree, and remote-branch preservation.
+9. Stop and hand control to
+   `docs/superpowers/plans/2026-08-26-aquamobil-v4-safe-integration-program.md`,
+   Task 1 Step 0. Do not create evidence, a coordinator worktree, Order 0
+   state, or a slice before that program's protected-bootstrap step passes.
 
 ## Non-goals
 
@@ -498,5 +517,10 @@ The design is complete only when all of the following are true:
 - failed proofs upload curated diagnostics and remain red;
 - no state or scratch data is uploaded or published;
 - compact dispatch and lifecycle summaries are behaviorally correct;
-- local, hosted, and manual exact-head proof gates all pass;
-- #1332 and then #1333 merge through protected `main` in that order.
+- local and hosted gates pass against the exact nonempty app-bound required set;
+- one unambiguous manual run attempt and one immutable artifact ID/digest pass
+  the exact-head canonical proof verifier;
+- #1332 and then #1333 merge through protected `main` in that order with both
+  remote branches preserved;
+- Task 7 stops at the verified #1333 result and hands off to the Aquamobil
+  program's protected Task 1 Step 0.

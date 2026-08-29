@@ -301,30 +301,36 @@ async function ensureTenantContinuousAggregates(
   log: (record: Record<string, unknown>) => void,
 ): Promise<void> {
   // TimescaleDB presence — skip loudly, not silently.
-  const ext = await queryRunner.query(
+  const extRows = await queryRows<{ present: boolean }>(
+    queryRunner,
     `SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') AS present`,
   );
-  if (ext?.[0]?.present !== true) {
+  if (extRows[0]?.present !== true) {
     log({ message: `[cagg-post-step] TimescaleDB absent — skipped for ${tenantSchema}` });
     return;
   }
 
   const lockKey = `sensor-cagg:${tenantSchema}`;
-  const locked = await queryRunner.query(`SELECT pg_try_advisory_lock(hashtext($1)) AS locked`, [
-    lockKey,
-  ]);
-  if (locked?.[0]?.locked !== true) {
+  const lockRows = await queryRows<{ locked: boolean }>(
+    queryRunner,
+    `SELECT pg_try_advisory_lock(hashtext($1)) AS locked`,
+    [lockKey],
+  );
+  if (lockRows[0]?.locked !== true) {
     log({ message: `[cagg-post-step] another holder owns the ${tenantSchema} lock — skipping` });
     return;
   }
 
   try {
     await queryRunner.query(`SET search_path TO "${tenantSchema}", public`);
-    const observed = await queryRunner.query(`SELECT current_schema() AS schema`);
-    if (observed?.[0]?.schema !== tenantSchema) {
+    const observedRows = await queryRows<{ schema: string }>(
+      queryRunner,
+      `SELECT current_schema() AS schema`,
+    );
+    if (observedRows[0]?.schema !== tenantSchema) {
       throw new Error(
         `cagg post-step failed to pin search_path to ${tenantSchema} ` +
-          `(observed ${observed?.[0]?.schema})`,
+          `(observed ${observedRows[0]?.schema})`,
       );
     }
 

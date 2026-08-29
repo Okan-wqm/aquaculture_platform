@@ -59,7 +59,10 @@ describe('Tenant Isolation Static Analysis', () => {
       // versioned coverage-assessment provenance, per-site/provider sync state,
       // and metric-level sync outcomes; weather/marine observations reuse
       // existing tables.
-      expect(tenantTotal).toBe(194);
+      // 194 → 195: sensor's telemetry_archive_events ledger moved to the
+      // per-tenant clone list (ADR-011 tenant_id rule) — erasure drops a
+      // tenant's archive history with its schema.
+      expect(tenantTotal).toBe(195);
     });
 
     it('every module should have a sourceSchema', () => {

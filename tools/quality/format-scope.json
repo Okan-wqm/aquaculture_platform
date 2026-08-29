@@ -45348,6 +45348,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/codegen/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/eslint-rules/dist/index.d.ts",
       "prettier_managed": true
     },

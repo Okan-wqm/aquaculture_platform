@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -4366,6 +4367,19 @@ def _main(argv: list[str] | None = None) -> int:
                     file=sys.stderr,
                 )
                 return 2
+            _evidence_target = args.evidence_target_sha
+            if _evidence_target == "auto":
+                # ARIA-HIGH-022 — resolve the AGENT worktree's HEAD here; the
+                # kernel-side descent proof in submit_claim_result decides
+                # whether it is a valid stronger anchor. Unresolvable or
+                # malformed output degrades to the legacy base-anchored check
+                # (fail-closed, never fail-open).
+                _head_proc = subprocess.run(
+                    ["git", "-C", str(workspace), "rev-parse", "HEAD"],
+                    capture_output=True, text=True, check=False,
+                )
+                _head = _head_proc.stdout.strip()
+                _evidence_target = _head if len(_head) == 40 and all(c in "0123456789abcdef" for c in _head) else None
             result = submit_claim_result(
                 claim_id=args.claim_id,
                 agent_id=args.agent_id,
@@ -4377,7 +4391,7 @@ def _main(argv: list[str] | None = None) -> int:
                 prompt_hash=args.prompt_hash,
                 transcript_hash=args.transcript_hash,
                 transcript_artifact_ref=args.transcript_artifact_ref,
-                evidence_target_sha=args.evidence_target_sha,
+                evidence_target_sha=_evidence_target,
             )
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0 if result.get("status") == "accepted" else 1

@@ -52,7 +52,7 @@ inventory files; conclusions durable here.
 - Missing from main: all 75 code files (verified absent).
 - State: complete with tests — **but forks the archive subsystem against the owner's active v3 line** (v3 has its own `src/archive/`; v4 `src/telemetry-archive/`; colliding migrations 1816x vs 1817x).
 - Governance: migration renumbering + registry work; medium.
-- Risk: High (architecture fork). Decision: **OWNER_DECISION** — one archive home must be chosen; capacity-entitlement + durable-ingest pieces port cleanly either way.
+- Risk: High (architecture fork). Decision: **DECIDED (2026-08-29, agent — owner-delegated)**: **v4's `src/telemetry-archive/` is the single archive home.** Production-grade criterion: v4 has the full production surface (S3/presign/bucket provisioner/erasure/restore/lifecycle, ~2.6k lines more, 12 specs); v3's `src/archive/` is a subset. Execution: port v4's subsystem + capacity-entitlement + durable-ingest as the archive layer; port v3's retention-orchestration capability into v4's home; retire v3's `src/archive/` and its 1817x migrations (v4's 1816x series is canonical). v3's archive remains on the owner's branch until v4 integration is validated.
 
 ### F3 — Gateway Batch-1 security remediation
 
@@ -87,7 +87,7 @@ inventory files; conclusions durable here.
 - Missing from main: both flavors entirely (0 `tools/codegen` paths, 0 `admin-http-contracts` refs, ~118 hand-declared panel types still duplicated).
 - State: #1035 draft/UNSTABLE; rescue snapshot needs re-slicing (its own commit message: "11 dependency-ordered slices").
 - Governance: high (codegen wiring + format-scope).
-- Risk: Medium. Decision: **RECOVER_AND_COMPLETE** (slice-wise, after F1–F5 land). Evidence: [H] cherry 0/106 landed, zero APA-\* on main; [C] tree greps confirm absence of both toolchains.
+- Risk: Medium. Decision: **DECIDED (2026-08-29, agent — owner-delegated): both, in order — rescue's V1 contract platform first, #1035's broad generator on top.** Duplicate-free criterion: 0/17 type overlap means they are complementary, not competing. The V1 platform (17 versioned contract types + compiler.ts + governance.ts, `platform/libs/admin-http-contracts`) is the disciplined, smaller base; #1035's 728-line generator (180 derived types) builds on it. End state: one authority, ~118 hand-declared panel types retired. The codegen generator core has already been recovered additively (commit cc98cdeca). Evidence: [H] cherry 0/106 landed, zero APA-\* on main; [C] tree greps confirm absence of both toolchains.
 
 ### F8 — Production host control plane
 
@@ -108,7 +108,7 @@ inventory files; conclusions durable here.
 
 - Source: `wip/codex-config-ssot-20260816` (45-file rework of `apps/config-service/src/configuration/`: deletes the CRUD command/handler/DTO stack, adds catalog-authority + batch + snapshot CQRS model, migration 1807600000000, seed + generated artifacts).
 - State: unverified rescue snapshot (its own commit: "not a review candidate … capability lands through its own sliced commits after verification"), base 214 commits stale.
-- Decision: **OWNER_DECISION — architecture fork, not an additive recovery.** It replaces main's functioning configuration CRUD with a materially different catalog-authority model (materially different business rules per the goal's stop conditions). Batch-2 inspection (2026-08-29) reclassified from RECOVER_AND_COMPLETE. Options for the owner: (a) adopt catalog-authority — plan a dedicated migration effort; (b) keep main's CRUD — cherry-pick only the snapshot/read-path additions if desired; (c) defer. Evidence: [C] 45-file D/A/M map incl. 20 deletions of live handlers; migration number needs re-verification against main's config-service tip; [H] rescue commit message declares unsliced state.
+- Decision: **DECIDED (2026-08-29, agent — owner-delegated): defer; main's CRUD stays.** Production-grade criterion: main's configuration CRUD is live and functioning; replacing it with a 45-file architecture swap from an unverified, unsliced rescue snapshot is a regression risk, not a grade improvement. If catalog-authority is wanted later, it must arrive as a dedicated, tested migration effort (its own plan, its own review), never as a snapshot port. Evidence: [C] 45-file D/A/M map incl. 20 deletions of live handlers; migration number needs re-verification against main's config-service tip; [H] rescue commit message declares unsliced state.
 
 ### F12 — Marine feature-toggle plumbing
 

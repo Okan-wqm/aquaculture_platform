@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 import shutil
+from pathlib import Path
 from dataclasses import dataclass
 
 
@@ -70,9 +71,22 @@ _FLEET: tuple[Provider, ...] = (
     ),
 )
 
-# Codex also runs on a ChatGPT-managed session (~/.codex auth) rather than
-# an API key; the env is the cheap signal, the binary is the other one.
-_CODEX_RUNTIME_PROBE_ENV_FALLBACK = "CODEX_HOME"
+# Codex runs on a ChatGPT-managed subscription session (~/.codex/auth.json)
+# by default — an API key is NOT required (operator decision 2026-08-29:
+# subscription auth, like the Claude runtime's managed login). The cheap
+# availability signal is the session file's existence under the EFFECTIVE
+# user's codex home; OPENAI_API_KEY remains the alternative credential.
+_CODEX_AUTH_FILE = "auth.json"
+
+
+def _codex_session_present(env: dict[str, str]) -> bool:
+    """The ChatGPT-login session file exists under the effective codex home.
+
+    Fail-closed: absence means the runner user has not logged in — the
+    remedy is `codex login` as that user, never a silent provider claim.
+    """
+    home = env.get("CODEX_HOME") or str(Path.home())
+    return (Path(home) / _CODEX_AUTH_FILE).is_file()
 
 
 def available_providers(environ: dict[str, str] | None = None) -> list[Provider]:
@@ -92,8 +106,8 @@ def available_providers(environ: dict[str, str] | None = None) -> list[Provider]
     for provider in _FLEET:
         if provider.runtime_hint == "codex":
             codex_on_path = shutil.which("codex", path=search_path) is not None
-            has_credential = bool(env.get(provider.credential_env or "", "").strip()) or bool(
-                env.get(_CODEX_RUNTIME_PROBE_ENV_FALLBACK, "").strip()
+            has_credential = _codex_session_present(env) or bool(
+                env.get(provider.credential_env or "", "").strip()
             )
             if codex_on_path and has_credential:
                 out.append(provider)

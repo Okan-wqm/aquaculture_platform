@@ -46,6 +46,29 @@ class Availability(unittest.TestCase):
         # rides the claude runtime). Fail-closed in the absent direction.
         self.assertEqual(_probe({"ARIA_ZAI_API_KEY": "k"}), [])
 
+    def test_codex_subscription_session_activates_openai_without_api_key(self) -> None:
+        # Operator decision 2026-08-29: Codex rides a ChatGPT subscription
+        # login, not an API key. A CODEX_HOME carrying auth.json plus the
+        # binary on PATH activates the provider with NO OPENAI_API_KEY.
+        import tempfile as _tf
+        from pathlib import Path as _P
+        home = _tf.mkdtemp(prefix="aria-codex-home-")
+        (_P(home) / "auth.json").write_text("{}", encoding="utf-8")
+        binp = _tf.mkdtemp(prefix="aria-codex-bin-")
+        (_P(binp) / "codex").write_text("#!/bin/sh\n", encoding="utf-8")
+        (_P(binp) / "codex").chmod(0o755)
+        found = _probe({"CODEX_HOME": home, "PATH": binp})
+        self.assertIn("openai", found)
+
+    def test_codex_without_session_or_key_stays_off(self) -> None:
+        import tempfile as _tf
+        from pathlib import Path as _P
+        home = _tf.mkdtemp(prefix="aria-codex-empty-")
+        binp = _tf.mkdtemp(prefix="aria-codex-bin2-")
+        (_P(binp) / "codex").write_text("#!/bin/sh\n", encoding="utf-8")
+        (_P(binp) / "codex").chmod(0o755)
+        self.assertNotIn("openai", _probe({"CODEX_HOME": home, "PATH": binp}))
+
 
 class MixedAssignment(unittest.TestCase):
     def test_two_providers_stripe_roles_across_vendors(self) -> None:

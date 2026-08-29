@@ -226,7 +226,11 @@ async function tryAcquireCrossTabRefreshLease(): Promise<boolean> {
   if (refreshLeaseHeld) return true;
   return new Promise<boolean>((resolveLease) => {
     const controller = new AbortController();
-    const timer = window.setTimeout(() => {
+    // Global setTimeout, matching createRequestAbortScope: the lease
+    // contention window and the request-abort window must live on the
+    // SAME timer surface or a faked-timer test advances one and stalls
+    // the other.
+    const timer = setTimeout(() => {
       controller.abort();
       // Nobody objected inside the contention window — take the lease.
       refreshLeaseHeld = true;
@@ -234,7 +238,7 @@ async function tryAcquireCrossTabRefreshLease(): Promise<boolean> {
     }, 50);
     const onContended = (): void => {
       controller.abort();
-      window.clearTimeout(timer);
+      clearTimeout(timer);
       resolveLease(false);
     };
     refreshLeaseChannel!.addEventListener('message', onContended, { signal: controller.signal });

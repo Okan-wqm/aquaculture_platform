@@ -1,0 +1,359 @@
+name: Finding Registry Authority
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: 'Canonical registry operation'
+        required: true
+        type: choice
+        options:
+          - add
+          - close
+      command_id:
+        description: 'Retry-stable external command id (ticket/request id)'
+        required: true
+        type: string
+      effective_at:
+        description: 'Retry-stable canonical UTC command time; reuse the exact value on every retry'
+        required: true
+        type: string
+      domain:
+        description: 'Uppercase domain for add (for example INFRA)'
+        required: false
+        type: string
+      finding_json:
+        description: 'Finding stub JSON without id/hash fields for add'
+        required: false
+        type: string
+      finding_id:
+        description: 'Canonical finding ID for close'
+        required: false
+        type: string
+      closing_sha:
+        description: 'Protected-main fix SHA carrying the matching Closes trailer'
+        required: false
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  id-token: write
+
+# No repository-global concurrency group is permitted here. GitHub retains
+# only one pending member of a group and silently replaces an older pending
+# request. The command-identity-derived, create-only publication branch plus
+# expected-head compare-and-swap makes every collision recoverable or visibly
+# failed without dropping work or deleting a competing ref.
+
+jobs:
+  mutate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: automation-publication
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-aria-kernel
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '22'
+
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --no-audit --prefer-offline
+
+      - name: Resolve immutable Actions run clock
+        id: run-clock
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: npm run automation:resolve-run-clock
+
+      - name: Validate the typed mutation request
+        id: request
+        env:
+          OPERATION: ${{ inputs.operation }}
+          COMMAND_ID: ${{ inputs.command_id }}
+          EFFECTIVE_AT: ${{ inputs.effective_at }}
+          RUN_CREATED_AT: ${{ steps.run-clock.outputs.created_at }}
+          DOMAIN: ${{ inputs.domain }}
+          FINDING_JSON: ${{ inputs.finding_json }}
+          FINDING_ID: ${{ inputs.finding_id }}
+          CLOSING_SHA: ${{ inputs.closing_sha }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+
+          const operation = process.env.OPERATION;
+          const commandId = process.env.COMMAND_ID ?? '';
+          const effectiveAt = process.env.EFFECTIVE_AT ?? '';
+          const runCreatedAt = process.env.RUN_CREATED_AT ?? '';
+          const output = process.env.GITHUB_OUTPUT;
+          if (!output) throw new Error('GITHUB_OUTPUT is unavailable');
+          if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{5,199}$/.test(commandId)) {
+            throw new Error('command_id has an invalid canonical shape');
+          }
+          const canonicalUtcMilliseconds = (value, field) => {
+            const parsed = Date.parse(value);
+            if (!Number.isFinite(parsed) || new Date(parsed).toISOString() !== value) {
+              throw new Error(`${field} must be a canonical UTC ISO timestamp`);
+            }
+            return parsed;
+          };
+          const effectiveAtMilliseconds = canonicalUtcMilliseconds(effectiveAt, 'effective_at');
+          const runCreatedAtMilliseconds = canonicalUtcMilliseconds(
+            runCreatedAt,
+            'exact Actions run created_at',
+          );
+          const retryWindowMilliseconds = 90 * 24 * 60 * 60 * 1000;
+          if (
+            effectiveAtMilliseconds > runCreatedAtMilliseconds ||
+            runCreatedAtMilliseconds - effectiveAtMilliseconds > retryWindowMilliseconds
+          ) {
+            throw new Error(
+              'effective_at must be no later than the exact run clock and within the 90-day retry window',
+            );
+          }
+          fs.appendFileSync(output, `command_id=${commandId}\neffective_at=${effectiveAt}\n`);
+
+          if (operation === 'add') {
+            const domain = process.env.DOMAIN ?? '';
+            if (!/^[A-Z][A-Z0-9]*$/.test(domain)) {
+              throw new Error('add requires an uppercase alphanumeric domain');
+            }
+            let stub;
+            try {
+              stub = JSON.parse(process.env.FINDING_JSON ?? '');
+            } catch {
+              throw new Error('finding_json must be valid JSON');
+            }
+            if (!stub || typeof stub !== 'object' || Array.isArray(stub)) {
+              throw new Error('finding_json must be an object');
+            }
+            const allowed = new Set([
+              'severity',
+              'title',
+              'layer',
+              'evidence',
+              'rule_violated',
+              'owner_agent',
+              'raised_in_cycle',
+              'review_file',
+              'deadline',
+              'owner_user',
+              'override_of',
+              'notes',
+              'narrative',
+            ]);
+            for (const field of Object.keys(stub)) {
+              if (!allowed.has(field)) {
+                throw new Error(`finding_json contains authority-owned or unsupported field ${field}`);
+              }
+            }
+            const stubPath = path.join(process.env.RUNNER_TEMP, 'finding-stub.json');
+            fs.writeFileSync(stubPath, `${JSON.stringify(stub)}\n`, {
+              encoding: 'utf8',
+              flag: 'wx',
+              mode: 0o600,
+            });
+            fs.appendFileSync(output, `operation=add\ndomain=${domain}\nstub_path=${stubPath}\n`);
+            process.exit(0);
+          }
+
+          if (operation === 'close') {
+            const findingId = process.env.FINDING_ID ?? '';
+            const closingSha = process.env.CLOSING_SHA ?? '';
+            if (!/^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+-[0-9]{3}$/.test(findingId)) {
+              throw new Error('close requires a canonical finding_id');
+            }
+            if (!/^[0-9a-f]{40}$/.test(closingSha)) {
+              throw new Error('close requires a full lowercase protected-main SHA');
+            }
+            fs.appendFileSync(
+              output,
+              `operation=close\nfinding_id=${findingId}\nclosing_sha=${closingSha}\n`,
+            );
+            process.exit(0);
+          }
+
+          throw new Error(`unsupported registry operation: ${operation}`);
+          NODE
+
+      - name: Bind request to exact protected-main snapshot
+        id: authority
+        env:
+          OPERATION: ${{ steps.request.outputs.operation }}
+          DOMAIN: ${{ steps.request.outputs.domain }}
+          STUB_PATH: ${{ steps.request.outputs.stub_path }}
+          FINDING_ID: ${{ steps.request.outputs.finding_id }}
+          CLOSING_SHA: ${{ steps.request.outputs.closing_sha }}
+          REQUEST_EFFECTIVE_AT: ${{ steps.request.outputs.effective_at }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "${GITHUB_REF}" = "refs/heads/main"
+          test "${GITHUB_REF_PROTECTED}" = "true"
+
+          EFFECTIVE_AT="${REQUEST_EFFECTIVE_AT}"
+          if [ "${OPERATION}" = "add" ]; then
+            INPUT_SHA256="$(
+              FINDING_EFFECTIVE_AT="${EFFECTIVE_AT}" \
+                npx ts-node --project tools/gates/tsconfig.json \
+                tools/gates/finding-registry.ts request-digest add "${DOMAIN}" "${STUB_PATH}"
+            )"
+          else
+            INPUT_SHA256="$(
+              FINDING_EFFECTIVE_AT="${EFFECTIVE_AT}" \
+                npx ts-node --project tools/gates/tsconfig.json \
+                tools/gates/finding-registry.ts request-digest close "${FINDING_ID}" "${CLOSING_SHA}"
+            )"
+          fi
+          {
+            echo "effective_at=${EFFECTIVE_AT}"
+            echo "input_sha256=${INPUT_SHA256}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Persist governed-write preflight
+        env:
+          PYTHONPATH: aria-kernel
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          from aria_kernel.preflight import verify_workflow_preflight
+
+          registry = "docs/reviews/_registry/findings.jsonl"
+          verdict = verify_workflow_preflight(
+              workflow_id="finding-registry-authority",
+              job_id="mutate",
+              profile="standard",
+              workspace_root=os.environ["GITHUB_WORKSPACE"],
+              allowed_write_roots=[registry],
+              path_allowlist=[registry],
+              network_policy=["github_oidc", "github_api"],
+              network_enforcement_evidence="signed GitHub OIDC mutation authority plus GitHub App PR API",
+              token_provenance="github_actions:actions_read+oidc+github_app:installation",
+              dlp_mode="fail_closed",
+              dlp_scan_clean=True,
+              audit_reason="publish one canonical finding registry mutation through an immutable PR",
+              audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "finding-registry-authority-preflight.json",
+              external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
+          )
+          if not verdict.valid:
+              raise SystemExit(";".join(verdict.reasons))
+          PY
+
+      - name: Persist content-bound mutation request receipt
+        env:
+          OPERATION: ${{ steps.request.outputs.operation }}
+          COMMAND_ID: ${{ steps.request.outputs.command_id }}
+          INPUT_SHA256: ${{ steps.authority.outputs.input_sha256 }}
+        run: npm run automation:write-registry-request-receipt
+
+      - name: Apply canonical mutation
+        env:
+          OPERATION: ${{ steps.request.outputs.operation }}
+          DOMAIN: ${{ steps.request.outputs.domain }}
+          STUB_PATH: ${{ steps.request.outputs.stub_path }}
+          FINDING_ID: ${{ steps.request.outputs.finding_id }}
+          CLOSING_SHA: ${{ steps.request.outputs.closing_sha }}
+          FINDING_COMMAND_ID: ${{ steps.request.outputs.command_id }}
+          FINDING_INPUT_SHA256: ${{ steps.authority.outputs.input_sha256 }}
+          FINDING_EFFECTIVE_AT: ${{ steps.authority.outputs.effective_at }}
+        run: |
+          set -euo pipefail
+          if [ "${OPERATION}" = "add" ]; then
+            npm run findings:add -- "${DOMAIN}" "${STUB_PATH}"
+          else
+            npm run findings:close -- "${FINDING_ID}" "${CLOSING_SHA}"
+          fi
+
+      - name: Verify registry chain and schema
+        run: npm run findings:verify
+
+      - name: Upload immutable mutation input evidence
+        id: mutation-evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: finding-registry-authority-input-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/finding-registry-authority-preflight.json
+            ${{ runner.temp }}/finding-registry-request-receipt.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Mint repository-scoped GitHub App token
+        id: app-token
+        uses: ./.github/actions/mint-automation-app-token
+        with:
+          client-id: ${{ vars.ARIA_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.ARIA_GITHUB_APP_PRIVATE_KEY }}
+          expected-app-slug: ${{ vars.ARIA_GITHUB_APP_SLUG }}
+          expected-installation-id: ${{ vars.ARIA_GITHUB_APP_INSTALLATION_ID }}
+
+      - name: Publish idempotent mutation result
+        id: publication
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+          GH_APP_INSTALLATION_ID: ${{ steps.app-token.outputs.installation-id }}
+          OPERATION: ${{ steps.request.outputs.operation }}
+          COMMAND_ID: ${{ steps.request.outputs.command_id }}
+          INPUT_SHA256: ${{ steps.authority.outputs.input_sha256 }}
+          EFFECTIVE_AT: ${{ steps.authority.outputs.effective_at }}
+        run: |
+          set -euo pipefail
+          BODY_FILE="${RUNNER_TEMP}/finding-registry-pr-body.md"
+          {
+            echo "Repository-global finding registry authority result."
+            echo ""
+            echo "- OIDC workflow: \`${GITHUB_WORKFLOW_REF}\`"
+            echo "- Protected-main workflow SHA: \`${GITHUB_SHA}\`"
+            echo "- Command ID: \`${COMMAND_ID}\`"
+            echo "- Operation: \`${OPERATION}\`"
+            echo "- Effective at: \`${EFFECTIVE_AT}\`"
+            echo "- Input SHA-256: \`${INPUT_SHA256}\`"
+            echo ""
+            echo "Merge only after required checks pass on this exact PR head."
+          } > "${BODY_FILE}"
+
+          export PR_BRANCH="automation/finding-registry-active"
+          export PR_TITLE="chore(findings): canonical ${OPERATION} mutation"
+          export PR_BODY_FILE="${BODY_FILE}"
+          export COMMIT_MESSAGE="chore(findings): canonical ${OPERATION} mutation"
+          export CHANGED_PATHS="docs/reviews/_registry/findings.jsonl"
+          export EXPECTED_BASE_SHA="${GITHUB_SHA}"
+          export AUTOMATION_COMMAND_ID="${COMMAND_ID}"
+          export AUTOMATION_OPERATION="${OPERATION}"
+          export AUTOMATION_INPUT_SHA256="${INPUT_SHA256}"
+          export AUTOMATION_EVIDENCE_ARTIFACT_ID="${{ steps.mutation-evidence.outputs.artifact-id }}"
+          export AUTOMATION_EVIDENCE_ARTIFACT="finding-registry-authority-input-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          export AUTOMATION_EVIDENCE_SHA256="${{ steps.mutation-evidence.outputs.artifact-digest }}"
+          export AUTOMATION_RESULT_PATH="${RUNNER_TEMP}/finding-registry-publication.json"
+          npm run automation:publish
+
+      - name: Upload immutable mutation publication result
+        if: always() && steps.publication.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: automation-publication-result-${{ steps.publication.outputs.commit }}
+          path: ${{ runner.temp }}/finding-registry-publication.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload durable mutation publication failure
+        if: always() && steps.publication.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: automation-publication-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/finding-registry-publication.json
+          if-no-files-found: error
+          retention-days: 90

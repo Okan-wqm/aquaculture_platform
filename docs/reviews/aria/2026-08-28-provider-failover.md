@@ -1,4 +1,4 @@
-# ARIA review — 2026-08-28: no provider failover — one absent subscription starves the lane instead of handing work to the other provider
+# ARIA review — 2026-08-28: no provider failover
 
 Operator requirement (2026-08-28): subscriptions (Claude, Z.ai/GLM) may be
 absent at any time; when one is absent the OTHER must carry the agent work.
@@ -22,7 +22,7 @@ provider dispatch or is honestly absent.
 - `judge_fanout.py`/`judge_calibration.py` contain no provider-availability
   probe and no fallback model assignment.
 
-## ARIA-HIGH-023 — agent dispatch has no provider failover; an absent subscription starves lanes instead of routing to the available provider
+## ARIA-HIGH-023 — no provider failover: an absent subscription starves lanes
 
 The dispatch layer is provider-static: each role pins a model whose backend
 may be unauthenticated, and absence degrades to mock/skip rather than

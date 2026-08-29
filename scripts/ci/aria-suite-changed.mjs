@@ -101,6 +101,15 @@ if (selected === null) {
   process.stdout.write(
     `aria-suite-changed: ${files.length} ARIA-surface file(s) changed since ${base}; running the FULL kernel suite${forceFull ? ' (ARIA_SUITE_FULL=1)' : ''}.\n`,
   );
+} else if (selected.size === 0 && files.some((f) => f.startsWith('scripts/ci/'))) {
+  // GATE SELF-VALIDATION (pinned by aria-doc-runtime-ssot's selector test):
+  // a change to the selector or the runner itself runs the runner WITH NO
+  // ARGUMENTS — the full suite — because next push is trusting this exact
+  // code to decide what runs. A gate that skips validating itself is a gate
+  // nobody checked.
+  process.stdout.write(
+    `aria-suite-changed: gate surface changed since ${base}; running the FULL suite (gate self-validation).\n`,
+  );
 } else if (selected.size === 0) {
   process.stdout.write(
     `aria-suite-changed: ${files.length} gate/script surface file(s) changed since ${base}; no kernel tests mechanically reachable, suite skipped (CI still runs the full suite).\n`,

@@ -92,7 +92,7 @@ inventory files; conclusions durable here.
 ### F8 — Production host control plane
 
 - Source: `fix/production-host-control-plane` (PR #1022) + fresher `wip/codex-prod-host-node-authority-20260816` (rescue = #1022 + snapshot; core script absent on main).
-- Decision: **RECOVER_AND_COMPLETE** (115-conflict rebase; operational value high). Evidence: [H] PR open since 07-21, contains neither #1040 nor #1064; [C] `production-host-control-plane.sh` + 20 specs absent on main.
+- Decision: **RECOVER_AND_COMPLETE — method: manual port of the additive core** (3 control-plane scripts + ~20 absent invariant specs + semantic workflow additions). Wholesale cherry-pick of the 3 commits is disproportionate: batch-2 attempt (2026-08-29) measured **33 conflicts on the first commit alone**, including sensitive overlap (billing `record-payment.handler`, sensor process specs) where main evolved past the branch. Evidence: [H] PR open since 07-21, contains neither #1040 nor #1064; [C] `production-host-control-plane.sh` + 20 specs absent on main.
 
 ### F9 — Control-plane gates stack
 
@@ -106,8 +106,9 @@ inventory files; conclusions durable here.
 
 ### F11 — Codex config-SSOT core
 
-- Source: `wip/codex-config-ssot-20260816` (42 new `apps/config-service` CQRS/snapshot files, absent on main).
-- Decision: **RECOVER_AND_COMPLETE** (medium). Evidence: [C] ls-tree absence; [H] rescue-commit message declares capability.
+- Source: `wip/codex-config-ssot-20260816` (45-file rework of `apps/config-service/src/configuration/`: deletes the CRUD command/handler/DTO stack, adds catalog-authority + batch + snapshot CQRS model, migration 1807600000000, seed + generated artifacts).
+- State: unverified rescue snapshot (its own commit: "not a review candidate … capability lands through its own sliced commits after verification"), base 214 commits stale.
+- Decision: **OWNER_DECISION — architecture fork, not an additive recovery.** It replaces main's functioning configuration CRUD with a materially different catalog-authority model (materially different business rules per the goal's stop conditions). Batch-2 inspection (2026-08-29) reclassified from RECOVER_AND_COMPLETE. Options for the owner: (a) adopt catalog-authority — plan a dedicated migration effort; (b) keep main's CRUD — cherry-pick only the snapshot/read-path additions if desired; (c) defer. Evidence: [C] 45-file D/A/M map incl. 20 deletions of live handlers; migration number needs re-verification against main's config-service tip; [H] rescue commit message declares unsliced state.
 
 ### F12 — Marine feature-toggle plumbing
 
@@ -128,3 +129,4 @@ F1 (this branch, batch 1) → [owner PR channel: F3 → F4 → F5 + dailies] →
 
 - **Batch 0 (commit 0298043):** report created; baseline pinned `af25ff5ac`.
 - **Batch 1 — F1 pagination authority (commit 3471ea67b):** cherry-picked `-x` 699f39921 from `feat/pagination-contracts-authority` (complete feature in one commit: `platform/libs/pagination-contracts` lib + `backend-common` DTO re-export migration + both specs + tsconfig wiring). Ledger quartet resolved to main side; `ADMIN-HIGH-003` re-appended via `finding-registry add-explicit` (position 1429) so the commit's `Closes:` trailer resolves; debt-plan repinned (1430 entries). Validation: `nx run pagination-contracts:test` ✓; `jest libs/backend-common/src/pagination` — 3 suites / 33 tests ✓. Status: **integrated, validated**.
+- **Batch 2 attempt — F8 (aborted, method corrected):** cherry-pick of e6ce8efde measured 33 conflicts on the first commit (workflow churn + billing/sensor sensitive overlap where main evolved past the branch). Per the disproportionate-cost criterion: aborted; F8 re-scoped to **manual port of the additive core** (scripts + absent specs + semantic workflow additions) as its own batch. Same inspection reclassified **F11 config-SSOT → OWNER_DECISION** (45-file architecture swap of a working domain, unsliced rescue snapshot).

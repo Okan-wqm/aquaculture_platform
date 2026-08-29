@@ -1,4 +1,0 @@
-{
-  "extends": "../gates/tsconfig.json",
-  "include": ["**/*.ts"]
-}

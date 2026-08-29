@@ -126,4 +126,5 @@ F1 (this branch, batch 1) → [owner PR channel: F3 → F4 → F5 + dailies] →
 
 ## 6. Batch log
 
-- **Batch 0 (this commit):** report created; baseline pinned `af25ff5ac`.
+- **Batch 0 (commit 0298043):** report created; baseline pinned `af25ff5ac`.
+- **Batch 1 — F1 pagination authority (commit 3471ea67b):** cherry-picked `-x` 699f39921 from `feat/pagination-contracts-authority` (complete feature in one commit: `platform/libs/pagination-contracts` lib + `backend-common` DTO re-export migration + both specs + tsconfig wiring). Ledger quartet resolved to main side; `ADMIN-HIGH-003` re-appended via `finding-registry add-explicit` (position 1429) so the commit's `Closes:` trailer resolves; debt-plan repinned (1430 entries). Validation: `nx run pagination-contracts:test` ✓; `jest libs/backend-common/src/pagination` — 3 suites / 33 tests ✓. Status: **integrated, validated**.

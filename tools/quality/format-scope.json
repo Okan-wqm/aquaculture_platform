@@ -2291,43 +2291,13 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/policy/__tests__/ingress-owner-policy.controller.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/policy/__tests__/ingress-owner-policy.service.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/policy/__tests__/policy-snapshot.responder.spec.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/policy/dto/append-ingress-owner-policy.dto.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/policy/entities/ingest-backend-policy-state.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/policy/entities/ingress-owner-policy.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/policy/ingress-owner-policy.controller.ts",
       "prettier_managed": true
     },
     {
@@ -2340,18 +2310,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/policy/services/ingest-backend-policy.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/policy/services/ingress-owner-policy.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/policy/services/owner-policy-snapshot.responder.ts",
       "prettier_managed": true
     },
     {
@@ -3054,18 +3012,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/tenant/services/tenant-provisioning.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/tenant/telemetry-capacity-admin.controller.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/tenant/telemetry-capacity-admin.controller.ts",
       "prettier_managed": true
     },
     {
@@ -6486,18 +6432,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/billing-service/src/billing/seed/plan-seed.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/billing-service/src/billing/services/telemetry-capacity-projection.service.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/billing-service/src/billing/services/telemetry-capacity-projection.service.ts",
       "prettier_managed": true
     },
     {
@@ -25307,12 +25241,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/sensor-service/src/ingestion/__tests__/ingress-owner-policy-consumer.service.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/sensor-service/src/ingestion/__tests__/mqtt-listener.service.spec.ts",
       "prettier_managed": true
     },
@@ -25326,12 +25254,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/ingestion/__tests__/sensor-cache-invalidation.handler.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/ingestion/__tests__/sensor-ingest-durability.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -25355,12 +25277,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/sensor-service/src/ingestion/__tests__/sensor-topic-cache.erasure.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/sensor-service/src/ingestion/data-ingestion.service.ts",
       "prettier_managed": true
     },
@@ -25379,12 +25295,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/sensor-service/src/ingestion/ingress-owner-policy-consumer.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/sensor-service/src/ingestion/mqtt-listener.service.ts",
       "prettier_managed": true
     },
@@ -25398,12 +25308,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/ingestion/sensor-cache-invalidation.handler.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/ingestion/sensor-ingest-durability.service.ts",
       "prettier_managed": true
     },
     {
@@ -26688,156 +26592,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/stream-processing/stream-processing.module.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/telemetry-archive/__tests__/postgres-telemetry-archive-erasure.service.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/telemetry-archive/__tests__/postgres-telemetry-archive-runtime-ledger.service.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/telemetry-archive/__tests__/postgres-telemetry-archive-source.service.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/telemetry-archive/__tests__/postgres-telemetry-scratch-restore.service.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/telemetry-archive/__tests__/s3-telemetry-archive-object-store.service.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/telemetry-archive/__tests__/telemetry-archive-bucket-provisioner.service.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/telemetry-archive/__tests__/telemetry-archive-coordinator.service.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/telemetry-archive/__tests__/telemetry-archive-lifecycle.service.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/telemetry-archive/__tests__/telemetry-archive-operations.responder.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/telemetry-archive/__tests__/telemetry-archive-presign.service.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/telemetry-archive/__tests__/telemetry-archive.module.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/telemetry-archive/__tests__/telemetry-parquet-codec.service.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/telemetry-archive/postgres-telemetry-archive-erasure.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/telemetry-archive/postgres-telemetry-archive-runtime-ledger.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/telemetry-archive/postgres-telemetry-archive-source.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/telemetry-archive/postgres-telemetry-scratch-restore.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/telemetry-archive/s3-telemetry-archive-object-store.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/telemetry-archive/telemetry-archive-bucket-provisioner.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/telemetry-archive/telemetry-archive-coordinator.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/telemetry-archive/telemetry-archive-event.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/telemetry-archive/telemetry-archive-lifecycle.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/telemetry-archive/telemetry-archive-operations.responder.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/telemetry-archive/telemetry-archive-presign.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/telemetry-archive/telemetry-archive.module.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/telemetry-archive/telemetry-parquet-codec.service.ts",
       "prettier_managed": true
     },
     {
@@ -41822,12 +41576,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "platform/libs/event-bus/src/nats/nats.module.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "platform/libs/event-bus/src/nats/stream-route.registry.ts",
       "prettier_managed": true
     },
     {

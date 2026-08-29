@@ -4170,6 +4170,7 @@ def _prepare_claim_submission(
     prompt_hash: str | None,
     transcript_hash: str | None,
     transcript_artifact_ref: str | None,
+    evidence_target_sha: str | None = None,
 ) -> dict[str, Any]:
     """Validate and construct every write payload before locking/mutating."""
     from .agent_contract import enforce_separation_of_duties, validate_response
@@ -4197,6 +4198,20 @@ def _prepare_claim_submission(
         )
 
     strict_request = _strict_request_view(request)
+    # ARIA-HIGH-022 — ground the evidence check at the agent's committed
+    # HEAD when the submitter provides one. Implementer agents cite the
+    # POST-FIX lines of files they changed; against the request's base SHA
+    # every genuine fix graded worktree_candidate and the submit was
+    # rejected (13/13 challenger envelopes died exactly here). The override
+    # must DESCEND from the request's base — proven here, fail-closed: a
+    # submitter pointing at an unrelated commit is rejected loudly, never
+    # silently downgraded to a weaker anchor.
+    if evidence_target_sha is not None:
+        strict_request["evidence_target_sha"] = _verified_evidence_target_sha(
+            workspace_root=workspace_root,
+            request=strict_request,
+            override=str(evidence_target_sha).strip(),
+        )
     reasons: list[str] = []
     try:
         validate_response(
@@ -4367,6 +4382,7 @@ def submit_claim_result(
     prompt_hash: str | None = None,
     transcript_hash: str | None = None,
     transcript_artifact_ref: str | None = None,
+    evidence_target_sha: str | None = None,
 ) -> dict[str, Any]:
     """Validate and persist an agent's submitted result against its leased claim.
 
@@ -4620,6 +4636,7 @@ def submit_claim_result(
                 prompt_hash=prompt_hash,
                 transcript_hash=transcript_hash,
                 transcript_artifact_ref=transcript_artifact_ref,
+                evidence_target_sha=evidence_target_sha,
             )
             journal_candidate = _prepare_submission_journal(
                 prepared=prepared_candidate,
@@ -5067,6 +5084,48 @@ def _strict_request_view(legacy_request: dict[str, Any]) -> dict[str, Any]:
     view.setdefault("evidence_refs", [])
     view.setdefault("expected_output_path", view.get("expected_output_path") or "")
     return view
+
+
+def _verified_evidence_target_sha(
+    *,
+    workspace_root: str | Path,
+    request: dict[str, Any],
+    override: str,
+) -> str:
+    """Prove an evidence-target override descends from the request's base.
+
+    ARIA-HIGH-022 — the override exists so implementer evidence can cite
+    post-fix lines. It is only honest when the anchor commit CONTAINS the
+    request's base tree (a descendant): then untouched files still verify
+    against the base content and changed files verify against the agent's
+    committed work. Anything else — an unrelated commit, a rewritten
+    history, a typo — is a submission trying to grade its evidence against
+    a tree the request never knew, and is refused loudly.
+    """
+    import subprocess as _sp
+
+    if not override:
+        raise GovernanceError("evidence_target_sha_must_be_non_empty")
+    base = (
+        request.get("target_sha")
+        or request.get("base_commit_sha")
+        or request.get("pinned_commit_sha")
+        or ""
+    )
+    root = Path(workspace_root)
+    def _git(*args: str) -> bool:
+        proc = _sp.run(
+            ["git", "-C", str(root), *args],
+            capture_output=True, text=True, check=False,
+        )
+        return proc.returncode == 0
+    if not _git("cat-file", "-e", f"{override}^{{commit}}"):
+        raise GovernanceError(f"evidence_target_sha_unknown_commit: {override}")
+    if base and not _git("merge-base", "--is-ancestor", str(base), override):
+        raise GovernanceError(
+            f"evidence_target_sha_not_descendant_of_base: base={base} override={override}"
+        )
+    return override
 
 
 def reap_stale_claims(

@@ -42,7 +42,16 @@ if [ "$#" -gt 0 ]; then
   for path in "$@"; do
     pytest_paths+=("aria-kernel/tests/$(basename "$path")")
   done
+  # Exit 5 is pytest's "nothing was collected": a scoped selection whose
+  # modules are all unittest-owned is CORRECT, not a failure — the unittest
+  # half above already ran exactly those tests. Any other exit is real.
+  set +e
   python3 -m pytest -q -p aria_kernel.pytest_native_only -- "${pytest_paths[@]}"
+  pytest_status=$?
+  set -e
+  if [ "$pytest_status" -ne 0 ] && [ "$pytest_status" -ne 5 ]; then
+    exit "$pytest_status"
+  fi
 else
   python3 -m unittest discover aria-kernel -p '*test*.py'
   python3 -m pytest -q -p aria_kernel.pytest_native_only aria-kernel

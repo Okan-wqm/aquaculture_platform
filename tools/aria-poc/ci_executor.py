@@ -2552,13 +2552,11 @@ def main(argv: list[str] | None = None) -> int:
         "--transcript-hash", _transcript_hash,
         "--transcript-artifact-ref", transcript_output_path.resolve().as_posix(),
     ]
-    _head = subprocess.run(
-        ["git", "-C", str(repo), "rev-parse", "HEAD"],
-        capture_output=True, text=True, check=False,
-    ).stdout.strip()
-    _base = str(request_envelope.get("target_sha") or "").strip()
-    if _head and (_head != _base):
-        submit_argv += ["--evidence-target-sha", _head]
+    # "auto": the kernel CLI resolves the workspace HEAD and grounds the
+    # evidence check there when it has moved past the request base — one
+    # flag, no extra subprocess on this side (the fused-envelope smoke
+    # contract counts subprocess calls).
+    submit_argv += ["--evidence-target-sha", "auto"]
     try:
         submit_proc = subprocess.run(
             submit_argv,

@@ -1,17 +1,33 @@
 # Production Security Audit — Release Blockers
 
 **Date:** 2026-08-25
-**Scope:** Active DigitalOcean droplet deployment, application trust boundaries, dependency graph, and edge command ingestion.
-**Decision:** NO-GO until every CRITICAL/HIGH finding in this report is either resolved and verified or remains operationally isolated.
+**Scope:** Active DigitalOcean droplet deployment, application trust boundaries,
+dependency graph,
+and edge command ingestion.
+**Decision:** NO-GO until every CRITICAL/HIGH finding in this report is either
+resolved and verified
+or remains operationally isolated.
 
-## RUST-HIGH-003 — MQTT enforcing mode accepts unsigned legacy commands and malformed timestamps
+## RUST-HIGH-003 — MQTT enforcing mode accepts unsigned legacy commands and
+
+malformed timestamps
 
 **Severity:** HIGH
 **State:** IN-PROGRESS
 
-`CommandHandler::handle_message` treats `AdapterOutcome::NotEnvelopeFormat` as permission to parse a legacy `CommandMessage` even when `SignatureMode::Enforcing`. The no-tenant provisioning branch also selects legacy parsing unconditionally. An unsigned legacy payload can therefore bypass the mode that operators selected specifically to require signed envelopes.
+`CommandHandler::handle_message` treats `AdapterOutcome::NotEnvelopeFormat` as
+permission to parse a
+legacy `CommandMessage` even when `SignatureMode::Enforcing`. The no-tenant
+provisioning branch also
+selects legacy parsing unconditionally. An unsigned legacy payload can therefore
+bypass the mode
+that operators selected specifically to require signed envelopes.
 
-The same dispatch path applies the replay window only when `DateTime::parse_from_rfc3339` succeeds. A malformed timestamp skips freshness validation and proceeds to deduplication and command execution.
+The same dispatch path applies the replay window only when
+`DateTime::parse_from_rfc3339` succeeds.
+A malformed timestamp skips freshness validation and proceeds to deduplication
+and command
+execution.
 
 Evidence:
 
@@ -21,50 +37,83 @@ Evidence:
 
 Required closure:
 
-- Enforcing mode accepts only a verified `CommandEnvelope`; legacy, malformed, and unprovisioned-tenant inputs fail closed before deduplication.
+- Enforcing mode accepts only a verified `CommandEnvelope`; legacy, malformed,
+  and unprovisioned-
+  tenant inputs fail closed before deduplication.
 - Disabled and Permissive modes retain the documented legacy compatibility path.
-- Every legacy timestamp must parse as RFC3339 and fit the configured past/future replay window before deduplication or execution.
+- Every legacy timestamp must parse as RFC3339 and fit the configured
+  past/future replay window
+  before deduplication or execution.
 - Executable tests cover every mode and timestamp boundary.
 
-## ADMIN-HIGH-005 — Admin sort fields are interpolated into TypeORM SQL identifiers
+## ADMIN-HIGH-005 — Admin sort fields are interpolated into TypeORM SQL
+
+identifiers
 
 **Severity:** HIGH
 **State:** IN-PROGRESS
 
-Three admin service query builders construct `ORDER BY` identifiers with caller-controlled `sortBy` strings. The activity and audit HTTP DTOs accept any string, while the error controller's string-literal union disappears at runtime. Direct service callers can also bypass controller validation. TypeORM parameters cannot bind SQL identifiers, so these values cross into query syntax rather than data parameters.
+Three admin service query builders construct `ORDER BY` identifiers with caller-
+controlled `sortBy`
+strings. The activity and audit HTTP DTOs accept any string, while the error
+controller's string-
+literal union disappears at runtime. Direct service callers can also bypass
+controller validation.
+TypeORM parameters cannot bind SQL identifiers, so these values cross into query
+syntax rather than
+data parameters.
 
 Evidence:
 
 - `apps/admin-api-service/src/security/services/activity-logging.service.ts:661`
 - `apps/admin-api-service/src/security/services/audit-trail.service.ts:283`
-- `apps/admin-api-service/src/system-management/services/error-tracking.service.ts:370`
-- `apps/admin-api-service/src/system-management/controllers/error-tracking.controller.ts:254`
+- `apps/admin-api-service/src/system-management/services/error-
+tracking.service.ts:370`
+- `apps/admin-api-service/src/system-management/controllers/error-
+tracking.controller.ts:254`
 
 Required closure:
 
-- Define readonly field allowlists and alias-specific complete-column maps; no caller value is interpolated into an identifier.
-- Enforce the same field vocabulary with runtime DTO validation at every HTTP boundary.
-- Normalize field and direction again inside each service so non-HTTP callers fail safely to documented defaults.
-- Executable tests prove malicious identifiers never reach `orderBy`, valid fields map exactly, directions normalize safely, and filters remain bound parameters.
+- Define readonly field allowlists and alias-specific complete-column maps; no
+  caller value is
+  interpolated into an identifier.
+- Enforce the same field vocabulary with runtime DTO validation at every HTTP
+  boundary.
+- Normalize field and direction again inside each service so non-HTTP callers
+  fail safely to
+  documented defaults.
+- Executable tests prove malicious identifiers never reach `orderBy`, valid
+  fields map exactly,
+  directions normalize safely, and filters remain bound parameters.
 
-## SUPPLY-CRITICAL-002 — JavaScript runtime and build graphs contain known advisories hidden by CI policy
+## SUPPLY-CRITICAL-002 — JavaScript runtime and build graphs contain known
+
+advisories hidden by CI
+policy
 
 **Severity:** CRITICAL
 **State:** IN-PROGRESS
 
 At the discovery snapshot (`6328f364d0d6988486cc0361fa2ff55b64a07e3a`,
-2026-08-25), the root lock resolved Vitest 3.2.4, which is affected by a critical
-arbitrary-file read and execution advisory when its UI server listens. Nx 22.7.1,
-`@module-federation/vite` 1.16.8, and `vite-plugin-dts` 3.9.1 pulled high-severity
-path-traversal, archive/resource-exhaustion, HTTP client, and ReDoS advisories into
+2026-08-25), the root lock resolved Vitest 3.2.4, which is affected by a
+critical
+arbitrary-file read and execution advisory when its UI server listens. Nx
+22.7.1,
+`@module-federation/vite` 1.16.8, and `vite-plugin-dts` 3.9.1 pulled high-
+severity
+path-traversal, archive/resource-exhaustion, HTTP client, and ReDoS advisories
+into
 the repository's build and CI trust boundary.
 
 That production graph independently resolved DOMPurify 3.4.12 and React Router
-6.30.4, exposing an XSS sanitizer bypass and open-redirect/XSS advisories. At the
-same snapshot, root `npm audit --omit=dev` reported three moderate vulnerabilities,
+6.30.4, exposing an XSS sanitizer bypass and open-redirect/XSS advisories. At
+the
+same snapshot, root `npm audit --omit=dev` reported three moderate
+vulnerabilities,
 while the full graph reported two critical, ten high, and twenty-eight moderate
 vulnerabilities. Both primary workflows ran only
-`npm audit --audit-level=high --omit=dev`, so the production issues fell below the
+`npm audit --audit-level=high --omit=dev`, so the production issues fell below
+the
 threshold and the vulnerable development toolchain was excluded entirely.
 
 Evidence:
@@ -78,12 +127,26 @@ Evidence:
 
 Required closure:
 
-- Upgrade the exact-coupled Nx and Vitest package families to advisory-fixed patch releases, including lock metadata and the invariant that pins the Vitest coverage provider to the runner.
-- Upgrade every federated app to an advisory-fixed Module Federation Vite release and both declaration-generation consumers to a fixed `vite-plugin-dts` release.
-- Upgrade DOMPurify and every React Router consumer atomically, including the federation version SSoT and Aquamobil's standalone lock.
-- Make CI fail on moderate production advisories and on high/critical full-graph advisories; preserve npm's original exit status and publish source maps for both graphs.
-- Apply `--ignore-scripts --no-fund` consistently to the remaining db-migration workflow install.
-- Executable invariant tests prevent vulnerable version/policy regressions, focused frontend builds/tests pass, and fresh audits report zero production vulnerabilities plus zero high/critical full-graph vulnerabilities.
+- Upgrade the exact-coupled Nx and Vitest package families to advisory-fixed
+  patch releases,
+  including lock metadata and the invariant that pins the Vitest coverage provider
+  to the runner.
+- Upgrade every federated app to an advisory-fixed Module Federation Vite
+  release and both
+  declaration-generation consumers to a fixed `vite-plugin-dts` release.
+- Upgrade DOMPurify and every React Router consumer atomically, including the
+  federation version
+  SSoT and Aquamobil's standalone lock.
+- Make CI fail on moderate production advisories and on high/critical full-graph
+  advisories;
+  preserve npm's original exit status and publish source maps for both graphs.
+- Apply `--ignore-scripts --no-fund` consistently to the remaining db-migration
+  workflow install.
+- Executable invariant tests prevent vulnerable version/policy regressions,
+  focused frontend
+  builds/tests pass, and fresh audits report zero production vulnerabilities plus
+  zero high/critical
+  full-graph vulnerabilities.
 
 Remediation evidence (2026-08-25):
 
@@ -119,7 +182,10 @@ Remediation evidence (2026-08-25):
   Shared UI's emitted declaration graph contains the Router 7 declarative
   navigation augmentation through its public type entrypoint.
 
-## SUPPLY-HIGH-003 — Standalone dependency locks bypass release auditing and retain known high-severity advisories
+## SUPPLY-HIGH-003 — Standalone dependency locks bypass release auditing and
+
+retain known high-
+severity advisories
 
 **Severity:** HIGH
 **State:** IN-PROGRESS
@@ -180,7 +246,8 @@ Required closure:
 Remediation evidence (2026-08-25):
 
 - E2E resolves `@babel/core 7.29.7`, `brace-expansion 1.1.18`,
-  `fast-uri 3.1.6`, and `js-yaml 3.15.1/4.3.1`; clean install succeeds and both its
+  `fast-uri 3.1.6`, and `js-yaml 3.15.1/4.3.1`; clean install succeeds and both
+  its
   production and full audits report zero vulnerabilities.
 - Both primary workflows now validate the Aquamobil and E2E manifest/lock pairs,
   capture all six audit and six source-map exit statuses, upload all twelve

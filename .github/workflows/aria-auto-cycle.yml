@@ -56,11 +56,14 @@ name: aria-auto-cycle
 
 on:
   schedule:
-    # 01:13 UTC nightly — before aria-agent-executor's 02:29 drain so any
-    # queue rows this cycle leaves behind get a same-night second drain pass.
+    # 17:13 UTC = 19:13 Oslo (CEST) — operator decision 2026-08-27: the cycle
+    # runs INSIDE the operator's evening work window (7pm Norway), not at
+    # night, so the operator can watch the run and intervene while awake.
+    # Still before aria-agent-executor's drain so queue rows this cycle
+    # leaves behind get a second drain pass the same evening.
     # 13 past, not :00 — GitHub fires top-of-hour crons up to ~75min late
     # under shared-infra load (measured 2026-08-18: 01:00 fired 02:13).
-    - cron: '13 1 * * *'
+    - cron: '13 17 * * *'
   workflow_dispatch:
     inputs:
       mode:
@@ -153,19 +156,20 @@ jobs:
           # before it.
           clean: true
 
-      - uses: ./.github/actions/setup-aria-kernel
-
       # ARIA-HIGH-019 — anchor the job's wall-clock at the earliest possible
-      # step. The nightly step used to compute its seal deadline from its OWN
-      # start time, assuming ~5m of setup before it; a fresh-store restore of
-      # the aria/state branch measures 17m41s (run 32771477211), which spent
+      # step, BEFORE checkout and provisioning: every setup minute spent
+      # before the epoch is a minute stolen from the close-out margin. The
+      # nightly step used to compute its seal deadline from its OWN start
+      # time, assuming ~5m of setup before it; a fresh-store restore of the
+      # aria/state branch measures 17m41s (run 32771477211), which spent
       # the whole close-out margin before the first cycle phase and pushed the
       # seal 8 minutes past the 360m platform ceiling — the job was cancelled
-      # between seal and publish. The nightly step now derives the deadline
-      # from THIS epoch, so the margin belongs to the close-out steps no
-      # matter how long setup took.
+      # between seal and publish (again on run 33172463619, cancelled at the
+      # ceiling mid-handoff with the anchor still after setup).
       - name: Anchor the job launch epoch
         run: echo "ARIA_JOB_LAUNCH_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: ./.github/actions/setup-aria-kernel
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:

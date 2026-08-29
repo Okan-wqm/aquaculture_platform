@@ -1,5 +1,11 @@
 # See http://help.github.com/ignore-files/ for more about ignoring files.
 
+# Agent-tooling runtime state written into the worktree by local hooks
+# (Mimosa scanner state, ZCode session state). Mutates on every hook run —
+# tracked here it would both dirty the tree and flap the format-scope scan.
+.mimosa/
+.zcode/
+
 # ARIA Phase-1 PoC runtime output (tools/aria-poc/poc.py is committed; outputs are not)
 .aria-poc/
 .aria-ci/

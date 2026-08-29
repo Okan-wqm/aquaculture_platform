@@ -1840,6 +1840,17 @@ def build_parser() -> argparse.ArgumentParser:
     a_submit.add_argument("--prompt-hash", required=True)
     a_submit.add_argument("--transcript-hash", required=True)
     a_submit.add_argument("--transcript-artifact-ref", required=True)
+    a_submit.add_argument(
+        "--evidence-target-sha",
+        required=False,
+        default=None,
+        help=(
+            "Ground evidence verification at the AGENT's committed HEAD instead of "
+            "the request's base (ARIA-HIGH-022): implementer agents cite post-fix "
+            "lines, which can never match the pre-edit blob. Must descend from the "
+            "request base; verified fail-closed."
+        ),
+    )
 
     a_reap = add_subparser(agent_sub, 
         "reap-stale",
@@ -4366,6 +4377,7 @@ def _main(argv: list[str] | None = None) -> int:
                 prompt_hash=args.prompt_hash,
                 transcript_hash=args.transcript_hash,
                 transcript_artifact_ref=args.transcript_artifact_ref,
+                evidence_target_sha=args.evidence_target_sha,
             )
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0 if result.get("status") == "accepted" else 1

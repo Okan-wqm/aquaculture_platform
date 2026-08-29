@@ -29294,6 +29294,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/branch-recovery-report.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/bugs/2026-04-29/admin-tenant-deprovisioning-lifecycle-gap.md",
       "prettier_managed": true
     },

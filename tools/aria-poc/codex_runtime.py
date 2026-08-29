@@ -86,11 +86,14 @@ def build_codex_argv(
     """
     if sandbox not in CODEX_SANDBOX_MODES:
         raise ValueError(f"codex_sandbox_mode_invalid: {sandbox!r}")
+    from aria_kernel.scope_discipline import codex_network_off_config
     argv = [
         CODEX_BINARY, "exec", "--json",
         "--sandbox", sandbox,
         "--model", model,
     ]
+    # ARIA scope discipline — network is OFF, pinned, not trusted to defaults
+    argv += codex_network_off_config()
     if output_last_message is not None:
         argv += ["--output-last-message", str(output_last_message)]
     if cwd is not None:

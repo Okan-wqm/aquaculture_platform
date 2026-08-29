@@ -981,6 +981,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": ".github/manifests/production-deploy-secrets.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": ".github/manifests/scheduled-workflows.json",
       "prettier_managed": true
     },
@@ -7130,6 +7136,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/db-migrate/src/__tests__/orphan-type-reclamation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/db-migrate/src/__tests__/pitr-source-verification.integration.spec.ts",
       "prettier_managed": true
     },
     {
@@ -25583,6 +25595,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/process/services/__tests__/scada-package-service.testing.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/process/services/__tests__/scada-package-undeploy-on-delete.spec.ts",
       "prettier_managed": true
     },
@@ -43489,6 +43507,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/droplet-capacity-control-plane.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/edge-device-dual-model-guard.spec.ts",
       "prettier_managed": true
     },
@@ -44113,6 +44137,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/platform-binary-installer-authority.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/platform-entity-registry-parity.spec.ts",
       "prettier_managed": true
     },
@@ -44150,6 +44180,36 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/postgres-runtime-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/production-cert-identity-store.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/production-current-release-marker.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/production-host-control-plane-runtime.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/production-host-runtime-bundle.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/production-host-ssh-payload.spec.ts",
       "prettier_managed": true
     },
     {
@@ -45787,6 +45847,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/scripts/database/generate-database-verification-sql.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/scripts/database/read-bounded-line.mjs",
       "prettier_managed": true
     },
     {

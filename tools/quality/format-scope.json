@@ -43171,6 +43171,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/admin-contracts-generated.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/admin-no-auth-tenants-writes.spec.ts",
       "prettier_managed": true
     },
@@ -45073,6 +45079,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/audit/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/codegen/admin-contracts/generate.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/codegen/admin-contracts/manifest.ts",
       "prettier_managed": true
     },
     {

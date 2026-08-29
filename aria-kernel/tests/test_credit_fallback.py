@@ -23,6 +23,7 @@ if str(_POC) not in sys.path:
     sys.path.insert(0, str(_POC))
 
 from claude_runtime import (  # noqa: E402
+    ClaudeAuthFailure,
     ClaudeCreditExhausted,
     ClaudeRunResult,
     run_with_model_fallback,
@@ -32,9 +33,9 @@ _CI = (_POC / "ci_executor.py").read_text(encoding="utf-8")
 _WORKER = (_POC / "worker_executor.py").read_text(encoding="utf-8")
 
 
-def _result(*, credit=None, refusal=None, tag="") -> ClaudeRunResult:
+def _result(*, credit=None, refusal=None, auth=None, tag="") -> ClaudeRunResult:
     return ClaudeRunResult(
-        returncode=0 if credit is None else 1,
+        returncode=0 if (credit is None and auth is None) else 1,
         stdout=tag,
         stderr="",
         final_message=tag,
@@ -42,6 +43,7 @@ def _result(*, credit=None, refusal=None, tag="") -> ClaudeRunResult:
         events=(),
         refusal=refusal,
         credit_exhaustion=credit,
+        auth_failure=auth,
     )
 
 
@@ -111,16 +113,17 @@ class RunWithModelFallbackBehavior(unittest.TestCase):
         exit, and neither executor inspects .credit_exhaustion, so "You've
         reached your limit" was persisted as the agent's answer.
         """
-        # sonnet is the LADDER TERMINUS (fable -> opus -> sonnet), so it is the
-        # tier with genuinely nowhere left to fall. Using opus here would now
-        # exercise the retry path instead of the refusal path.
-        run = _ScriptedRun(_result(credit={"matched_marker": "credit balance"}, tag="sonnet"))
+        # haiku is the CREDIT-LADDER TERMINUS with genuinely nowhere left to
+        # fall (fable -> opus -> sonnet continues across providers, but haiku
+        # was never given a rung). Before ARIA-HIGH-023 this role belonged to
+        # sonnet; the cross-provider rungs gave it somewhere to go.
+        run = _ScriptedRun(_result(credit={"matched_marker": "credit balance"}, tag="haiku"))
         seen: list[dict] = []
         with self.assertRaises(ClaudeCreditExhausted) as ctx:
             run_with_model_fallback(
-                run=run, model="sonnet", effort="medium", on_credit=seen.append,
+                run=run, model="haiku", effort="medium", on_credit=seen.append,
             )
-        self.assertEqual(run.calls, [("sonnet", "medium")])  # still exactly one call
+        self.assertEqual(run.calls, [("haiku", "medium")])  # still exactly one call
         self.assertIn("no fallback tier", str(ctx.exception))
         # The audit hook fires BEFORE the refusal, so the exhaustion is recorded.
         self.assertEqual(len(seen), 1)
@@ -168,20 +171,26 @@ class RunWithModelFallbackBehavior(unittest.TestCase):
         # and an exhausted implementer raised terminally (ORPHAN-HIGH-475).
         self.assertEqual(MODEL_FALLBACK_TIER.get("fable"), "opus")
         self.assertEqual(MODEL_FALLBACK_TIER.get("opus"), "sonnet")
-        self.assertIn("fable", MODEL_FALLBACK_TIER)
-        self.assertIn("opus", MODEL_FALLBACK_TIER)
-        self.assertNotIn("sonnet", MODEL_FALLBACK_TIER, "the ladder must terminate")
+        # ARIA-HIGH-023 — the cross-provider rungs. The ladder is deliberately
+        # CYCLIC now (opus -> sonnet -> glm-5.3 -> opus): the credit/refusal
+        # paths walk exactly one rung per call so a cycle cannot loop them,
+        # and the auth path's cross-provider walk is visited-set bounded. The
+        # property to pin is TERMINATION OF THE WALK, not acyclicity of the map.
+        self.assertEqual(MODEL_FALLBACK_TIER.get("sonnet"), "glm-5.3")
+        self.assertEqual(MODEL_FALLBACK_TIER.get("glm-5.3"), "opus")
         for primary, target in MODEL_FALLBACK_TIER.items():
             with self.subTest(primary=primary):
                 self.assertNotEqual(primary, target, "a tier cannot fall back to itself")
-        # Acyclic: now that the ladder is a chain rather than one hop, a cycle
-        # would be a config that loops instead of terminating.
+        from claude_runtime import _cross_provider_auth_fallback
+
         for start in MODEL_FALLBACK_TIER:
-            seen, cur = {start}, MODEL_FALLBACK_TIER[start]
-            while cur in MODEL_FALLBACK_TIER:
-                self.assertNotIn(cur, seen, f"fallback cycle reached via {start}")
-                seen.add(cur)
-                cur = MODEL_FALLBACK_TIER[cur]
+            with self.subTest(walk_from=start):
+                # Bounded by construction (visited set); the pin is that it
+                # RETURNS at all — every tier resolves or honestly reports
+                # None, never loops.
+                resolved = _cross_provider_auth_fallback(start)
+                if resolved is not None:
+                    self.assertNotEqual(resolved, start)
 
     def test_clean_fable_run_passes_through(self) -> None:
         run = _ScriptedRun(_result(tag="fable-clean"))
@@ -204,6 +213,68 @@ class RunWithModelFallbackBehavior(unittest.TestCase):
         self.assertEqual(run.calls[1], ("opus", "max"))
         self.assertEqual(len(seen_c), 1)
         self.assertEqual(seen_r, [])
+
+    # ------------------------------------------------------------------
+    # ARIA-HIGH-023 — cross-provider auth failover. An auth failure is a fact
+    # about the vendor's credential; same-vendor rungs share that dead
+    # credential and must be skipped, the cross-vendor rung retried, and both
+    # vendors down is terminal. No mock verdict exists on this path.
+    # ------------------------------------------------------------------
+
+    def test_auth_failure_on_opus_retries_on_glm_at_original_effort(self) -> None:
+        run = _ScriptedRun(
+            _result(auth={"marker": "invalid api key", "remedy": "login"}, tag="opus"),
+            _result(tag="glm-5.3"),
+        )
+        out = run_with_model_fallback(run=run, model="opus", effort="high")
+        # Same-vendor rung (sonnet) is SKIPPED — burning a spawn to relearn a
+        # dead credential is the failure mode this walk exists to prevent.
+        self.assertEqual(run.calls, [("opus", "high"), ("glm-5.3", "high")])
+        self.assertEqual(out.final_message, "glm-5.3")
+
+    def test_auth_failure_on_glm_retries_on_opus(self) -> None:
+        run = _ScriptedRun(
+            _result(auth={"marker": "unauthorized", "remedy": "key"}, tag="glm-5.3"),
+            _result(tag="opus"),
+        )
+        out = run_with_model_fallback(run=run, model="glm-5.3", effort="medium")
+        self.assertEqual(run.calls, [("glm-5.3", "medium"), ("opus", "medium")])
+        self.assertEqual(out.final_message, "opus")
+
+    def test_auth_failure_on_fable_walks_past_same_vendor_rungs(self) -> None:
+        run = _ScriptedRun(
+            _result(auth={"marker": "no credentials", "remedy": "login"}, tag="fable"),
+            _result(tag="glm-5.3"),
+        )
+        out = run_with_model_fallback(run=run, model="fable", effort="low")
+        # fable -> opus -> sonnet are all the Anthropic credential: the walk
+        # lands on glm-5.3 in ONE retry, not three.
+        self.assertEqual(run.calls, [("fable", "low"), ("glm-5.3", "low")])
+        self.assertEqual(out.final_message, "glm-5.3")
+
+    def test_both_providers_failing_auth_is_terminal_and_names_both(self) -> None:
+        run = _ScriptedRun(
+            _result(auth={"marker": "invalid api key", "remedy": "login"}, tag="opus"),
+            _result(auth={"marker": "unauthorized", "remedy": "zai key"}, tag="glm-5.3"),
+        )
+        with self.assertRaises(ClaudeAuthFailure) as raised:
+            run_with_model_fallback(run=run, model="opus", effort="high")
+        message = str(raised.exception)
+        self.assertIn("opus", message)
+        self.assertIn("glm-5.3", message)
+        self.assertIn("both providers", message)
+        self.assertEqual(len(run.calls), 2)
+
+    def test_cross_provider_walk_is_cycle_terminating(self) -> None:
+        # The map is a cycle (opus -> sonnet -> glm-5.3 -> opus); the walk
+        # must resolve, not loop — pinned end-to-end through the helper.
+        from claude_runtime import _cross_provider_auth_fallback
+
+        self.assertEqual(_cross_provider_auth_fallback("opus"), "glm-5.3")
+        self.assertEqual(_cross_provider_auth_fallback("sonnet"), "glm-5.3")
+        self.assertEqual(_cross_provider_auth_fallback("fable"), "glm-5.3")
+        self.assertEqual(_cross_provider_auth_fallback("glm-5.3"), "opus")
+        self.assertIsNone(_cross_provider_auth_fallback("haiku"))
 
 
 class ExecutorWiringPins(unittest.TestCase):

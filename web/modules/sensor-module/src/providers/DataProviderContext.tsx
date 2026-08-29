@@ -12,12 +12,7 @@
  * automatically and all consumers re-render with the new source.
  */
 
-import React, {
-  createContext,
-  useContext,
-  useMemo,
-  type ReactNode,
-} from 'react';
+import React, { createContext, useContext, type ReactNode } from 'react';
 import type { IDataProvider, DataProviderType } from '../types/scada-runtime.types';
 
 // ── Context ───────────────────────────────────────────────────────────────────
@@ -42,9 +37,7 @@ DataProviderContext.displayName = 'DataProviderContext';
 export function useDataProvider(): IDataProvider {
   const provider = useContext(DataProviderContext);
   if (provider === null || provider === undefined) {
-    throw new Error(
-      'useDataProvider() must be called inside a <DataProviderRoot> tree.',
-    );
+    throw new Error('useDataProvider() must be called inside a <DataProviderRoot> tree.');
   }
   return provider;
 }
@@ -62,6 +55,42 @@ export interface DataProviderRootProps {
   children: ReactNode;
 }
 
+// Stable component identities are required across provider transitions. A
+// React.lazy call made during render creates a new component type whenever the
+// selected provider changes and can restart a pending import or remount state.
+const SimulationDataProvider = React.lazy(() =>
+  import('./SimulationDataProvider').then((module) => ({
+    default: module.SimulationDataProviderInner,
+  })),
+);
+
+const LiveDeviceDataProvider = React.lazy(() =>
+  import('./LiveDeviceDataProvider').then((module) => ({
+    default: module.LiveDeviceDataProviderInner,
+  })),
+);
+
+const HybridDataProvider = React.lazy(() =>
+  import('./HybridDataProvider').then((module) => ({
+    default: module.HybridDataProviderInner,
+  })),
+);
+
+function selectDataProvider(type: DataProviderType) {
+  switch (type) {
+    case 'simulation':
+      return SimulationDataProvider;
+    case 'live':
+      return LiveDeviceDataProvider;
+    case 'hybrid':
+      return HybridDataProvider;
+    default: {
+      const exhaustive: never = type;
+      throw new Error(`Unknown DataProviderType: ${String(exhaustive)}`);
+    }
+  }
+}
+
 /**
  * DataProviderRoot — Selects the appropriate provider implementation and
  * injects it into the subtree via DataProviderContext.
@@ -69,40 +98,10 @@ export interface DataProviderRootProps {
  * Import the three concrete provider components lazily so that heavy
  * WebSocket / simulation code is only loaded when actually needed.
  */
-export const DataProviderRoot: React.FC<DataProviderRootProps> = ({
-  type,
-  children,
-}) => {
-  // Inline lazy imports so only the needed chunk loads.
-  // Each *InnerProvider component is responsible for creating the IDataProvider
-  // and returning <DataProviderContext.Provider value={...}>{children}</DataProviderContext.Provider>
-  const Inner = useMemo(() => {
-    switch (type) {
-      case 'simulation':
-        return React.lazy(() =>
-          import('./SimulationDataProvider').then((m) => ({
-            default: m.SimulationDataProviderInner,
-          })),
-        );
-      case 'live':
-        return React.lazy(() =>
-          import('./LiveDeviceDataProvider').then((m) => ({
-            default: m.LiveDeviceDataProviderInner,
-          })),
-        );
-      case 'hybrid':
-        return React.lazy(() =>
-          import('./HybridDataProvider').then((m) => ({
-            default: m.HybridDataProviderInner,
-          })),
-        );
-      default: {
-        // TypeScript exhaustiveness guard; never reached at runtime.
-        const _exhaustive: never = type;
-        throw new Error(`Unknown DataProviderType: ${String(_exhaustive)}`);
-      }
-    }
-  }, [type]);
+export const DataProviderRoot: React.FC<DataProviderRootProps> = ({ type, children }) => {
+  // Each *InnerProvider component creates the IDataProvider and returns the
+  // matching DataProviderContext.Provider around children.
+  const Inner = selectDataProvider(type);
 
   return (
     <React.Suspense fallback={null}>

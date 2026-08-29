@@ -2,8 +2,8 @@
 /**
  * check-advisory-ignore-sync — RUST-CVE-001 make-it-detectable gate.
  *
- * WHY: the cargo-audit / cargo-deny advisory ignore lists live in EIGHT
- * places (2 deny.toml, 2 .cargo/audit.toml, --ignore flags in 3 workflow
+ * WHY: the cargo-audit / cargo-deny advisory ignore lists live in NINE
+ * places (2 deny.toml, 2 .cargo/audit.toml, --ignore flags in 4 workflow
  * audit steps, and the GHSA allow-list in dependency-review.yml). The
  * lock-step between them used to be a hand-maintained invariant — and it
  * drifted twice before this gate existed: rust-ci.yml was missing
@@ -205,6 +205,7 @@ const WORKSPACES: Workspace[] = [
     workflows: [
       '.github/workflows/sens-api-gateway-ci.yml',
       '.github/workflows/edge-agent-release.yml',
+      '.github/workflows/ci-affected.yml',
     ],
   },
 ];
@@ -252,4 +253,4 @@ if (violations.length > 0) {
   process.exit(1);
 }
 
-console.log('advisory-ignore-sync: all surfaces in lock-step (2 deny.toml, 2 audit.toml, 3 workflows, 1 GHSA allow-list)');
+console.log('advisory-ignore-sync: all surfaces in lock-step (2 deny.toml, 2 audit.toml, 4 workflows, 1 GHSA allow-list)');

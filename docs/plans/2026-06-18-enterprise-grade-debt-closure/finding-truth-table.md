@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `6ca1696801b33862ba2dbbbaa9f9dcce066fb790ee5e86a7649677072a5d422d`
+Registry tip: `0d88d8615bd8be1d0a9b44b9ae9e5a31ed00db74c6fe7373d07c24ba9fa9afa4`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -205,6 +205,7 @@ Allowed truth buckets:
 | `ARIA-CRITICAL-007`     | OPEN           | Task 10      | platform-autonomy          | real-open                 |
 | `ARIA-CRITICAL-009`     | OPEN           | Task 12      | platform-autonomy          | real-open                 |
 | `ARIA-CRITICAL-015`     | OPEN           | Task 19      | platform-autonomy          | real-open                 |
+| `SUPPLY-CRITICAL-002`   | IN-PROGRESS    | 2026-08-25   | security-reviewer          | already-fixed-needs-close |
 
 ## Mutation Rules
 

@@ -29,6 +29,7 @@ jobs:
     outputs:
       docs_changed: ${{ steps.changes.outputs.docs }}
       has_changes: ${{ steps.check.outputs.has_changes }}
+      deploy_changes: ${{ steps.check.outputs.deploy_changes }}
       infra_image_changed: ${{ steps.changes.outputs.infra_image }}
       is_pr: ${{ github.event_name == 'pull_request' }}
     steps:
@@ -116,17 +117,29 @@ jobs:
               - '.npmrc'
               - 'package.json'
               - 'package-lock.json'
+            # Standalone E2E owns an independent lockfile. Its Dependabot PRs
+            # must enter the security-audit job even when no workspace source
+            # changed, otherwise the E2E audit contract cannot enforce itself.
+            audit_only:
+              - 'e2e/**'
       - id: check
         run: |
+          deploy_changes=false
           if [ "${{ steps.changes.outputs.apps }}" = "true" ] || \
              [ "${{ steps.changes.outputs.libs }}" = "true" ] || \
              [ "${{ steps.changes.outputs.web }}" = "true" ] || \
              [ "${{ steps.changes.outputs.infra_image }}" = "true" ] || \
              [ "${{ steps.changes.outputs.deploy-config }}" = "true" ]; then
-            echo "has_changes=true" >> $GITHUB_OUTPUT
-          else
-            echo "has_changes=false" >> $GITHUB_OUTPUT
+            deploy_changes=true
           fi
+
+          has_changes="$deploy_changes"
+          if [ "${{ steps.changes.outputs.audit_only }}" = "true" ]; then
+            has_changes=true
+          fi
+
+          echo "has_changes=$has_changes" >> "$GITHUB_OUTPUT"
+          echo "deploy_changes=$deploy_changes" >> "$GITHUB_OUTPUT"
 
   # ---------------------------------------------------------------------------
   # Shared setup: install + cache (reusable via needs + cache restore)
@@ -946,7 +959,7 @@ jobs:
     if: >-
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
-      needs.detect-changes.outputs.has_changes == 'true' &&
+      needs.detect-changes.outputs.deploy_changes == 'true' &&
       needs.install.result == 'success' &&
       needs.lint.result == 'success' &&
       needs.type-check.result == 'success' &&
@@ -974,7 +987,7 @@ jobs:
     if: >-
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
-      needs.detect-changes.outputs.has_changes == 'true' &&
+      needs.detect-changes.outputs.deploy_changes == 'true' &&
       needs.install.result == 'success' &&
       needs.lint.result == 'success' &&
       needs.type-check.result == 'success' &&
@@ -1065,21 +1078,93 @@ jobs:
           fi
       - name: Validate dependency graph contracts
         run: npm ls typeorm uuid @nestjs/apollo @apollo/server @apollo/gateway @opentelemetry/api @opentelemetry/sdk-node
+      - name: Validate standalone npm locks
+        run: |
+          npm --prefix web/apps/aquamobil ci --package-lock-only --ignore-scripts --no-audit --no-fund
+          npm --prefix e2e ci --package-lock-only --ignore-scripts --no-audit --no-fund
       - name: Run npm audit
         run: |
           set +e
-          npm audit --audit-level=high --omit=dev --json > npm-audit-root.json
-          AUDIT_STATUS=$?
-          node scripts/ci/audit-source-map.mjs npm-audit-root.json npm-audit-source-map.md
-          exit "$AUDIT_STATUS"
+          npm audit --audit-level=moderate --omit=dev --json > npm-audit-root-production.json
+          ROOT_PRODUCTION_AUDIT_STATUS=$?
+          node scripts/ci/audit-source-map.mjs npm-audit-root-production.json npm-audit-root-production.md
+          ROOT_PRODUCTION_MAP_STATUS=$?
+          npm audit --audit-level=high --json > npm-audit-root-full.json
+          ROOT_FULL_AUDIT_STATUS=$?
+          node scripts/ci/audit-source-map.mjs npm-audit-root-full.json npm-audit-root-full.md
+          ROOT_FULL_MAP_STATUS=$?
+          npm --prefix web/apps/aquamobil audit --audit-level=moderate --omit=dev --json > npm-audit-aquamobil-production.json
+          AQUAMOBIL_PRODUCTION_AUDIT_STATUS=$?
+          node scripts/ci/audit-source-map.mjs npm-audit-aquamobil-production.json npm-audit-aquamobil-production.md
+          AQUAMOBIL_PRODUCTION_MAP_STATUS=$?
+          npm --prefix web/apps/aquamobil audit --audit-level=high --json > npm-audit-aquamobil-full.json
+          AQUAMOBIL_FULL_AUDIT_STATUS=$?
+          node scripts/ci/audit-source-map.mjs npm-audit-aquamobil-full.json npm-audit-aquamobil-full.md
+          AQUAMOBIL_FULL_MAP_STATUS=$?
+          npm --prefix e2e audit --audit-level=moderate --omit=dev --json > npm-audit-e2e-production.json
+          E2E_PRODUCTION_AUDIT_STATUS=$?
+          node scripts/ci/audit-source-map.mjs npm-audit-e2e-production.json npm-audit-e2e-production.md
+          E2E_PRODUCTION_MAP_STATUS=$?
+          npm --prefix e2e audit --audit-level=high --json > npm-audit-e2e-full.json
+          E2E_FULL_AUDIT_STATUS=$?
+          node scripts/ci/audit-source-map.mjs npm-audit-e2e-full.json npm-audit-e2e-full.md
+          E2E_FULL_MAP_STATUS=$?
+          set -e
+          if [ "$ROOT_PRODUCTION_AUDIT_STATUS" -ne 0 ]; then
+            exit "$ROOT_PRODUCTION_AUDIT_STATUS"
+          fi
+          if [ "$ROOT_PRODUCTION_MAP_STATUS" -ne 0 ]; then
+            exit "$ROOT_PRODUCTION_MAP_STATUS"
+          fi
+          if [ "$ROOT_FULL_AUDIT_STATUS" -ne 0 ]; then
+            exit "$ROOT_FULL_AUDIT_STATUS"
+          fi
+          if [ "$ROOT_FULL_MAP_STATUS" -ne 0 ]; then
+            exit "$ROOT_FULL_MAP_STATUS"
+          fi
+          if [ "$AQUAMOBIL_PRODUCTION_AUDIT_STATUS" -ne 0 ]; then
+            exit "$AQUAMOBIL_PRODUCTION_AUDIT_STATUS"
+          fi
+          if [ "$AQUAMOBIL_PRODUCTION_MAP_STATUS" -ne 0 ]; then
+            exit "$AQUAMOBIL_PRODUCTION_MAP_STATUS"
+          fi
+          if [ "$AQUAMOBIL_FULL_AUDIT_STATUS" -ne 0 ]; then
+            exit "$AQUAMOBIL_FULL_AUDIT_STATUS"
+          fi
+          if [ "$AQUAMOBIL_FULL_MAP_STATUS" -ne 0 ]; then
+            exit "$AQUAMOBIL_FULL_MAP_STATUS"
+          fi
+          if [ "$E2E_PRODUCTION_AUDIT_STATUS" -ne 0 ]; then
+            exit "$E2E_PRODUCTION_AUDIT_STATUS"
+          fi
+          if [ "$E2E_PRODUCTION_MAP_STATUS" -ne 0 ]; then
+            exit "$E2E_PRODUCTION_MAP_STATUS"
+          fi
+          if [ "$E2E_FULL_AUDIT_STATUS" -ne 0 ]; then
+            exit "$E2E_FULL_AUDIT_STATUS"
+          fi
+          if [ "$E2E_FULL_MAP_STATUS" -ne 0 ]; then
+            exit "$E2E_FULL_MAP_STATUS"
+          fi
       - name: Upload npm audit source map
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: npm-audit-source-map-${{ github.run_number }}
           path: |
-            npm-audit-root.json
-            npm-audit-source-map.md
+            npm-audit-root-production.json
+            npm-audit-root-production.md
+            npm-audit-root-full.json
+            npm-audit-root-full.md
+            npm-audit-aquamobil-production.json
+            npm-audit-aquamobil-production.md
+            npm-audit-aquamobil-full.json
+            npm-audit-aquamobil-full.md
+            npm-audit-e2e-production.json
+            npm-audit-e2e-production.md
+            npm-audit-e2e-full.json
+            npm-audit-e2e-full.md
+          if-no-files-found: error
           retention-days: 14
 
   docs-check:
@@ -1164,6 +1249,29 @@ jobs:
         uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable
         with:
           toolchain: 1.88.0
+      - name: Install cargo-audit (precompiled)
+        uses: taiki-e/install-action@6c6fd71fe4fb72c3697d269963d0e15df8adedad # v2.85.10
+        with:
+          tool: cargo-audit
+      - name: Audit root lockfile
+        run: cargo audit --deny warnings
+      - name: Audit gateway lockfile
+        working-directory: sens-api-gateway
+        run: |
+          cargo audit --deny warnings \
+            --ignore RUSTSEC-2023-0071 \
+            --ignore RUSTSEC-2025-0141 \
+            --ignore RUSTSEC-2024-0388 \
+            --ignore RUSTSEC-2023-0089 \
+            --ignore RUSTSEC-2026-0173 \
+            --ignore RUSTSEC-2024-0436
+      - name: Audit fuzz lockfile
+        working-directory: sens-api-gateway
+        run: cargo audit --file fuzz/Cargo.lock
+      - name: Audit alarm-core WASM lockfile
+        run: cargo audit --file crates/alarm-core-wasm/Cargo.lock --deny warnings
+      - name: Audit protocol-codec WASM lockfile
+        run: cargo audit --file crates/protocol-codec-wasm/Cargo.lock --deny warnings
       - name: Install TPM build dependencies
         uses: ./.github/actions/install-tpm-build-dependencies
       - name: Cargo check locked curated CI features

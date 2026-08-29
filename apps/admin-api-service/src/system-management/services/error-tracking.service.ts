@@ -4,6 +4,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan, In } from 'typeorm';
+import { safeSortField, safeSortOrder } from '@aquaculture/backend-common/pagination';
 
 import {
   ErrorOccurrence,
@@ -14,6 +15,11 @@ import {
   StackFrame,
   ErrorContext,
 } from '../entities/error-tracking.entity';
+import {
+  ERROR_GROUP_SORT_COLUMNS,
+  ERROR_GROUP_SORT_FIELDS,
+  ErrorGroupSortField,
+} from '../sorting/error-group-sort';
 
 // ============================================================================
 // Interfaces
@@ -365,9 +371,15 @@ export class ErrorTrackingService {
       );
     }
 
-    const sortBy = params.sortBy || 'lastSeenAt';
-    const sortOrder = params.sortOrder || 'DESC';
-    query.orderBy(`g.${sortBy}`, sortOrder);
+    const normalizedSortField = safeSortField(
+      params.sortBy,
+      ERROR_GROUP_SORT_FIELDS,
+      'lastSeenAt',
+    ) as ErrorGroupSortField;
+    query.orderBy(
+      ERROR_GROUP_SORT_COLUMNS[normalizedSortField],
+      safeSortOrder(params.sortOrder),
+    );
 
     const page = params.page || 1;
     const limit = params.limit || 20;

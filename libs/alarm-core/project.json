@@ -11,7 +11,8 @@
       "inputs": [
         "{workspaceRoot}/crates/alarm-core/src/**/*.rs",
         "{workspaceRoot}/crates/alarm-core-wasm/src/**/*.rs",
-        "{workspaceRoot}/crates/alarm-core-wasm/Cargo.toml"
+        "{workspaceRoot}/crates/alarm-core-wasm/Cargo.toml",
+        "{workspaceRoot}/crates/alarm-core-wasm/Cargo.lock"
       ],
       "outputs": ["{projectRoot}/src/generated"],
       "options": {

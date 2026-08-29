@@ -352,6 +352,15 @@ jobs:
             --ignore RUSTSEC-2026-0173 \
             --ignore RUSTSEC-2024-0436
 
+      # The cargo-fuzz harness is a standalone workspace with its own committed
+      # lockfile. Audit it explicitly so a regenerated fuzz graph cannot retain
+      # a vulnerability outside the gateway lockfile gate. Maintenance/yanked
+      # warnings remain visible without turning non-shipping fuzz dependencies
+      # into release vulnerability suppressions.
+      - name: Audit fuzz lockfile
+        working-directory: ${{ env.SENS_API_GATEWAY_DIR }}
+        run: cargo audit --file fuzz/Cargo.lock
+
   doc:
     name: cargo doc -D warnings
     runs-on: ubuntu-latest

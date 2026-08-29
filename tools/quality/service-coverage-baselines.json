@@ -2,7 +2,7 @@
   "admin-api-service": {
     "branches": 15.98,
     "functions": 20.8,
-    "lines": 28.88,
+    "lines": 31.45,
     "statements": 27.43
   },
   "auth-service": {

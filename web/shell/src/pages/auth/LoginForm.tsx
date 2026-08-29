@@ -19,6 +19,7 @@ import {
   email as emailValidator,
   minLength,
   validateField,
+  validateNavigationUrl,
 } from '@aquaculture/shared-ui';
 import type { MfaChallengeResult } from '@aquaculture/shared-ui';
 
@@ -143,8 +144,8 @@ const LoginForm: React.FC = () => {
         }
 
         const redirectPath = (result as { redirectPath: string }).redirectPath;
-        const safePath =
-          redirectPath.startsWith('/') && !redirectPath.startsWith('//') ? redirectPath : '/';
+        const validatedPath = validateNavigationUrl(redirectPath);
+        const safePath = validatedPath?.startsWith('/') ? validatedPath : '/';
         navigate(safePath);
       } catch {
         // Auth context handles error display
@@ -180,8 +181,8 @@ const LoginForm: React.FC = () => {
       setMfaError('');
       try {
         const { redirectPath } = await verifyMfaLogin({ mfaToken: mfaChallenge.mfaToken, code });
-        const safePath =
-          redirectPath.startsWith('/') && !redirectPath.startsWith('//') ? redirectPath : '/';
+        const validatedPath = validateNavigationUrl(redirectPath);
+        const safePath = validatedPath?.startsWith('/') ? validatedPath : '/';
         navigate(safePath);
       } catch (err) {
         const message = err instanceof Error ? err.message : t('common.error');

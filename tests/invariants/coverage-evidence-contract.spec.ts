@@ -142,7 +142,7 @@ describe('repository-owned coverage evidence contract', () => {
     const inventory = readInventory();
 
     expect(inventory.schema_version).toBe(1);
-    expect(inventory.reports).toHaveLength(35);
+    expect(inventory.reports).toHaveLength(36);
     expect(new Set(inventory.reports).size).toBe(inventory.reports.length);
     expect(inventory.reports).toEqual([...inventory.reports].sort());
     expect(
@@ -151,7 +151,7 @@ describe('repository-owned coverage evidence contract', () => {
           !path.isAbsolute(report) && !report.includes('..') && report.endsWith('lcov.info'),
       ),
     ).toBe(true);
-    expect(VITEST_PRODUCERS).toHaveLength(11);
+    expect(VITEST_PRODUCERS).toHaveLength(12);
     expect(inventory.reports.filter((report) => !report.startsWith('coverage/'))).toEqual(
       VITEST_PRODUCERS.map(({ report }) => report),
     );

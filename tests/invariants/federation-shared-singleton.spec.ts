@@ -64,6 +64,7 @@ const ORIGINJS_PLUGIN_EXPECTED = false;
 const SINGLE_VERSION_PACKAGES = [
   'react',
   'react-dom',
+  'react-router',
   'react-router-dom',
   '@tanstack/react-query',
   'zustand',

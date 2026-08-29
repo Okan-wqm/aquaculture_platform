@@ -32,10 +32,7 @@ import AuthLayout from '../AuthLayout';
 
 const renderLayout = (): ReturnType<typeof render> =>
   render(
-    <MemoryRouter
-      initialEntries={['/login']}
-      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-    >
+    <MemoryRouter initialEntries={['/login']}>
       <Routes>
         <Route element={<AuthLayout />}>
           <Route path="/login" element={<div>Real auth route</div>} />

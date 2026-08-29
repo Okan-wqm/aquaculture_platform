@@ -54,7 +54,8 @@ function repositorySourceFiles() {
   return output
     .split('\0')
     .filter(Boolean)
-    .map((path) => join(repoRoot, path));
+    .map((path) => join(repoRoot, path))
+    .filter((path) => existsSync(path));
 }
 
 function addViolation(path, reason) {

@@ -4244,6 +4244,35 @@ def _prepare_claim_submission(
     )
     if not revalidation["valid"]:
         reasons.extend(f"evidence: {error}" for error in revalidation["errors"])
+    # Scope discipline (operator requirements 2026-08-29) — the two halves
+    # that turn a rejection into a signal instead of a dead end:
+    # 1. the agent must have declared its route before the work
+    # 2. out-of-scope sightings are CAPTURED for a separate plan, never lost
+    from .scope_discipline import extract_out_of_scope_observations, require_declared_route
+    # The route contract is opt-in per request: new requests mint
+    # require_declared_route=true; legacy requests without the flag keep
+    # the pre-existing validation (no silent breakage of the standing fleet).
+    if strict_request.get("require_declared_route"):
+        route_violation = require_declared_route(envelope)
+        if route_violation is not None:
+            reasons.append(f"route: {route_violation['code']} — {route_violation['reason']}")
+    out_of_scope = extract_out_of_scope_observations(
+        rejected_errors=revalidation.get("errors", []),
+        response=envelope,
+    )
+    if out_of_scope:
+        append_declared_jsonl(
+            root / "pressure" / "out-of-scope-observations.jsonl",
+            {
+                "schema_version": 1,
+                "claim_id": claim_id,
+                "request_id": request_id,
+                "cycle_id": request.get("cycle_id"),
+                "observations": out_of_scope,
+                "at": _iso(_utc_now_dt()),
+            },
+            expected_surface="pressure_out_of_scope_observations",
+        )
     if reasons:
         return _prepared_claim_rejection(
             claim_id=claim_id,

@@ -472,6 +472,10 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("runtime_artifact_inventory", "observability/artifact-inventory.jsonl", "ledger", "runtime_artifacts", "runtime", True, "append_fsync", True),
     StateSurface("runtime_artifact_hot", "run-artifacts/hot/**/*.json", "artifact", "runtime_artifacts", "runtime", True, "rewrite_fsync", True),
     StateSurface("state_archives", "archives/*.jsonl.gz", "artifact", "runtime_artifacts", "runtime", True, "rewrite_fsync", True),
+    # ARIA scope discipline — out-of-scope observations captured from
+    # rejected evidence (operator requirement 2026-08-29: don't fix what
+    # isn't yours, but don't stay silent about it either).
+    StateSurface("pressure_out_of_scope_observations", "pressure/out-of-scope-observations.jsonl", "ledger", "append_declared", "runtime", True, "fsync", False),
     StateSurface("retention_events", "retention/events.jsonl", "ledger", "runtime_artifacts", "runtime", True, "append_fsync", True),
     StateSurface("runtime_v2_promotions", "runtime/v2-promotions.jsonl", "ledger", "runtime", "runtime", True, "append_fsync", True),
     StateSurface("autonomy_state", "autonomy_state.jsonl", "ledger", "autonomy", "runtime", True, "append_fsync", True),

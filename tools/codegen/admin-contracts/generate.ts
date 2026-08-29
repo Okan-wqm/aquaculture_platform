@@ -519,7 +519,16 @@ class WireEmitter {
     // emitting it would give the panel a type it can never satisfy without a
     // cast, which is how casts get written.
     if (type.isIntersection()) {
-      const primitive = type.types.find((member) => (member.flags & ts.TypeFlags.Primitive) !== 0);
+      const PRIMITIVE_FLAGS =
+        ts.TypeFlags.String |
+        ts.TypeFlags.Number |
+        ts.TypeFlags.Boolean |
+        ts.TypeFlags.BigInt |
+        ts.TypeFlags.ESSymbol |
+        ts.TypeFlags.Void |
+        ts.TypeFlags.Undefined |
+        ts.TypeFlags.Null;
+      const primitive = type.types.find((member) => (member.flags & PRIMITIVE_FLAGS) !== 0);
       if (primitive) {
         return this.render(primitive, path, stripUndefined, indent);
       }

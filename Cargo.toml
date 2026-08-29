@@ -74,7 +74,7 @@ hex = "0.4"
 # R1 router-coprocessor: service-identity HMAC-v2 signing (byte-for-byte parity
 # with the TS generateServiceIdentityHeadersV2).
 sha2 = "0.10"
-hmac = "0.12"
+hmac = "0.13"
 
 async-nats = "0.49"
 rustls = "0.23"

@@ -94,10 +94,15 @@ class AuthFailureIsNotRetriedTest(unittest.TestCase):
         with self.assertRaises(cr.ClaudeAuthFailure):
             cr.run_with_model_fallback(run=run, model="fable", effort="high")
 
-        # Exactly one attempt: the fallback tier authenticates through the same
-        # credential, so a second try can only fail the same way and would then
-        # be the failure the caller sees.
-        self.assertEqual(len(attempts), 1)
+        # ARIA-HIGH-023 revised the single-attempt rule: every same-vendor
+        # tier shares the dead credential, so the ONLY honest second attempt
+        # is a CROSS-provider one — and when that also fails auth the failure
+        # is terminal and names both tiers. Two attempts means exactly one
+        # cross-vendor retry; more would be chaining, none would hide a
+        # curable vendor outage behind a terminal error.
+        self.assertEqual(len(attempts), 2)
+        self.assertEqual(attempts[0][0], "fable")
+        self.assertEqual(attempts[1][0], "glm-5.3")
 
     def test_credit_exhaustion_still_falls_back(self) -> None:
         # The new branch must not swallow the behaviour it sits in front of.

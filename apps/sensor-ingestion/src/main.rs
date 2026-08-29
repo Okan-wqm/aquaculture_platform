@@ -115,6 +115,12 @@ fn main() -> ExitCode {
     }
 }
 
+// The orchestrator: sequential wiring of every long-lived stage with
+// one shutdown select. Each extractable concern already lives in its
+// own helper (persistence, outbox, policy, lookup cache); what remains
+// is inherently the startup ORDER, so the complexity/line budgets are
+// waived here rather than splitting a checklist into noise.
+#[allow(clippy::cognitive_complexity, clippy::too_many_lines)]
 async fn async_main(cfg: Config) -> anyhow::Result<()> {
     // Install the Prometheus recorder BEFORE any emitter fires — see
     // `start_metrics_recorder` docstring for the ordering rationale.
@@ -215,10 +221,9 @@ async fn async_main(cfg: Config) -> anyhow::Result<()> {
     // [`maybe_start_outbox_pipeline`] for the full rationale; the
     // helper keeps `async_main`'s cognitive complexity budget intact.
     let outbox_pipeline = maybe_start_outbox_pipeline(
-        shared_nats_client.clone(),
+        shared_nats_client.as_ref(),
         persistence_bundle_outbox_repo.as_ref(),
-    )
-    .await?;
+    );
 
     // Faz 3 follow-on: cache-miss responder client. Builds an mTLS
     // NatsClient when [nats] is configured; returns None in stub mode
@@ -246,20 +251,8 @@ async fn async_main(cfg: Config) -> anyhow::Result<()> {
         "ingest backend policy constructed"
     );
 
-    // ADR-031: with a live NATS connection the sidecar also follows
-    // the incremental `policy.ingest_backend.>` change stream so a
-    // backend flip (Task 3.5 kill switch) applies without a restart.
-    // Without NATS the bootstrap snapshot stays frozen for the whole
-    // run — the documented degraded mode of the fallback chain.
-    let policy_cancel = tokio_util::sync::CancellationToken::new();
-    let policy_subscriber = shared_nats_client.clone().map(|nats| {
-        crate::policy::spawn_policy_subscriber(
-            nats,
-            Arc::clone(&policy),
-            cfg.ingest_backend.disk_fallback_path.clone(),
-            policy_cancel.clone(),
-        )
-    });
+    let (policy_cancel, policy_subscriber) =
+        spawn_policy_change_subscriber(shared_nats_client.as_ref(), &policy, &cfg.ingest_backend);
 
     tokio::select! {
         () = wait_for_shutdown_signal() => {
@@ -458,31 +451,34 @@ struct OutboxPipelineBundle {
 /// - Advisory lock unavailable → the dispatcher stays dormant; the
 ///   `OutboxMaintenance` gauge still emits, so operators see the
 ///   standby's pending-count == 0 in dashboards.
-async fn start_outbox_pipeline(
-    shared_client: Option<Arc<nats_client::NatsClient>>,
-    outbox_repo: Arc<outbox_rs::PgOutboxRepository>,
-) -> anyhow::Result<OutboxPipelineBundle> {
+fn start_outbox_pipeline(
+    shared_client: Option<&Arc<nats_client::NatsClient>>,
+    outbox_repo: &Arc<outbox_rs::PgOutboxRepository>,
+) -> OutboxPipelineBundle {
     // Build the publisher (mTLS NATS or logging fallback for
     // stub-mode boots without a broker).
-    let publisher: Arc<dyn outbox_rs::OutboxPublisher> = if let Some(client) = shared_client {
-        tracing::info!("connecting NatsOutboxPublisher (shared mTLS client)");
-        Arc::new(events::NatsOutboxPublisher::from_client(client))
-    } else {
-        tracing::info!("nats config absent; falling back to LoggingOutboxPublisher");
-        Arc::new(events::LoggingOutboxPublisher::new())
-    };
+    let publisher: Arc<dyn outbox_rs::OutboxPublisher> = shared_client.cloned().map_or_else(
+        || -> Arc<dyn outbox_rs::OutboxPublisher> {
+            tracing::info!("nats config absent; falling back to LoggingOutboxPublisher");
+            Arc::new(events::LoggingOutboxPublisher::new())
+        },
+        |client| -> Arc<dyn outbox_rs::OutboxPublisher> {
+            tracing::info!("connecting NatsOutboxPublisher (shared mTLS client)");
+            Arc::new(events::NatsOutboxPublisher::from_client(client))
+        },
+    );
 
     // Dispatcher + maintenance use the same outbox_repo instance so
     // they see a consistent view of sensor.event_outbox (ADR-029's
     // FOR UPDATE SKIP LOCKED semantics assume no drift between the
     // write path and the claim path).
     let dispatcher = Arc::new(outbox_rs::OutboxDispatcher::new(
-        Arc::clone(&outbox_repo) as Arc<dyn outbox_rs::OutboxRepository>,
+        Arc::clone(outbox_repo) as Arc<dyn outbox_rs::OutboxRepository>,
         Arc::clone(&publisher),
         outbox_rs::DispatcherConfig::default(),
     ));
     let maintenance = Arc::new(outbox_rs::OutboxMaintenance::new(
-        Arc::clone(&outbox_repo) as Arc<dyn outbox_rs::OutboxRepository>,
+        Arc::clone(outbox_repo) as Arc<dyn outbox_rs::OutboxRepository>,
         outbox_rs::MaintenanceConfig::default(),
     ));
 
@@ -500,12 +496,12 @@ async fn start_outbox_pipeline(
         tokio::spawn(async move { m.run().await })
     };
 
-    Ok(OutboxPipelineBundle {
+    OutboxPipelineBundle {
         dispatcher,
         maintenance,
         _dispatcher_handle: dispatcher_handle,
         _maintenance_handle: maintenance_handle,
-    })
+    }
 }
 
 /// Shutdown counterpart for [`maybe_start_outbox_pipeline`]. Extracted
@@ -536,18 +532,16 @@ fn shutdown_outbox_pipeline(pipeline: Option<OutboxPipelineBundle>) {
 /// return `None` + log the decision; nothing enqueues to an outbox
 /// that does not exist, so spawning a dispatcher would be wasted
 /// cycles.
-async fn maybe_start_outbox_pipeline(
-    shared_client: Option<Arc<nats_client::NatsClient>>,
+fn maybe_start_outbox_pipeline(
+    shared_client: Option<&Arc<nats_client::NatsClient>>,
     outbox_repo: Option<&Arc<outbox_rs::PgOutboxRepository>>,
-) -> anyhow::Result<Option<OutboxPipelineBundle>> {
+) -> Option<OutboxPipelineBundle> {
     if let Some(repo) = outbox_repo {
-        let bundle = start_outbox_pipeline(shared_client, Arc::clone(repo))
-            .await
-            .context("starting outbox pipeline")?;
-        return Ok(Some(bundle));
+        let bundle = start_outbox_pipeline(shared_client, repo);
+        return Some(bundle);
     }
     tracing::info!("postgres absent; skipping outbox pipeline (stub-mode, no dispatcher spawned)");
-    Ok(None)
+    None
 }
 
 /// Cache-miss → fire-and-forget responder spawn. Returns `true` when a
@@ -839,6 +833,32 @@ async fn drain_mqtt_stream(
         cache_len = cache.len(),
         "mqtt drain complete"
     );
+}
+
+/// ADR-031: with a live NATS connection the sidecar also follows the
+/// incremental `policy.ingest_backend.>` change stream so a backend flip
+/// (Task 3.5 kill switch) applies without a restart. Without NATS the
+/// bootstrap snapshot stays frozen for the whole run — the documented
+/// degraded mode of the fallback chain. Returns the cancel token +
+/// optional subscriber handle the caller joins at shutdown.
+fn spawn_policy_change_subscriber(
+    shared_nats_client: Option<&Arc<nats_client::NatsClient>>,
+    policy: &Arc<ingest_backend::DynamicBackendPolicy>,
+    ingest_backend_cfg: &crate::config::IngestBackendConfig,
+) -> (
+    tokio_util::sync::CancellationToken,
+    Option<tokio::task::JoinHandle<()>>,
+) {
+    let policy_cancel = tokio_util::sync::CancellationToken::new();
+    let subscriber = shared_nats_client.cloned().map(|nats| {
+        crate::policy::spawn_policy_subscriber(
+            nats,
+            Arc::clone(policy),
+            ingest_backend_cfg.disk_fallback_path.clone(),
+            policy_cancel.clone(),
+        )
+    });
+    (policy_cancel, subscriber)
 }
 
 async fn wait_for_shutdown_signal() {

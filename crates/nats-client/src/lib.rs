@@ -259,6 +259,12 @@ impl NatsClient {
     /// (deterministic ids since Task 1.4). A refused PubAck (Discard
     /// New on a full telemetry buffer) surfaces as an Err — the outbox
     /// row stays pending and the dispatcher retries.
+    // The jetstream context is a thin handle over the shared connection;
+    // its drop timing relative to the publish→ack window is immaterial
+    // (the ack rides the connection, not the context). The tightening
+    // linter's suggested early drop is equivalent but obscures the
+    // publish-then-await durability shape this function documents.
+    #[allow(clippy::significant_drop_tightening)]
     pub async fn publish_jetstream(
         &self,
         subject: impl Into<async_nats::Subject> + Send,
@@ -272,12 +278,17 @@ impl NatsClient {
             message = message.message_id(id);
         }
         message = message.headers(headers);
-        let ack = jetstream
+        let publish = jetstream
             .send_publish(subject.into(), message)
             .await
             .map_err(|e| NatsClientError::JetStreamPublish(e.to_string()))?;
-        ack.await
-            .map_err(|e| NatsClientError::JetStreamPublish(e.to_string()))?;
+        // The ack handle borrows nothing, but keep the context alive for
+        // the full publish→ack window so the drop order on this path is
+        // explicit (the tightening linter's early drop is equivalent,
+        // this form reads as the durability contract it implements).
+        let ack = publish.await;
+        drop(jetstream);
+        ack.map_err(|e| NatsClientError::JetStreamPublish(e.to_string()))?;
         Ok(())
     }
 

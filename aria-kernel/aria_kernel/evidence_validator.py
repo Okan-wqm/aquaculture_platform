@@ -653,6 +653,17 @@ def validate_agent_response_evidence(
 def _request_target_sha(request: dict[str, Any] | None) -> str | None:
     if not request:
         return None
+    # ARIA-HIGH-022 — an executor may ground the evidence check at the AGENT's
+    # committed HEAD (`evidence_target_sha`) instead of the request's base:
+    # implementer agents cite the POST-FIX lines of files they changed, which
+    # can never match the pre-edit blob, so every genuine fix graded
+    # worktree_candidate and the submit was rejected. The override is only
+    # honoured when submit_claim_result PROVED it descends from the request's
+    # base (fail-closed there); a commit that contains the base's tree plus
+    # the agent's proven work is a strictly stronger anchor than the base.
+    override = request.get("evidence_target_sha")
+    if isinstance(override, str) and override.strip():
+        return override.strip()
     value = request.get("target_sha") or request.get("base_commit_sha") or request.get("pinned_commit_sha")
     return str(value).strip() if isinstance(value, str) and value.strip() else None
 

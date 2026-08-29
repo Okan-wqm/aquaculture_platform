@@ -2534,21 +2534,34 @@ def main(argv: list[str] | None = None) -> int:
             encoding="utf-8",
         )
     _transcript_hash = "sha256:" + hashlib.sha256(transcript_output_path.read_bytes()).hexdigest()
+    # ARIA-HIGH-022 — implementer agents cite the POST-FIX lines of files
+    # they changed; graded against the request's base SHA every genuine fix
+    # was worktree_candidate and the submit died. Ground the evidence check
+    # at this worktree's committed HEAD when it has moved past the request
+    # base — submit_claim_result proves the descent fail-closed.
+    submit_argv = [
+        "python3", "-m", "aria_kernel", "agent", "submit-result",
+        "--claim-id", claim_id,
+        "--agent-id", agent_id,
+        "--lease-token-from-env", LEASE_TOKEN_ENV_VAR,
+        "--output-path", str(expected_output_path),
+        "--workspace-root", str(repo),
+        "--tools-dir", str(tools_dir),
+        "--context-hash", str(request_envelope.get("context_hash") or ""),
+        "--prompt-hash", str(request_envelope.get("prompt_hash") or ""),
+        "--transcript-hash", _transcript_hash,
+        "--transcript-artifact-ref", transcript_output_path.resolve().as_posix(),
+    ]
+    _head = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"],
+        capture_output=True, text=True, check=False,
+    ).stdout.strip()
+    _base = str(request_envelope.get("target_sha") or "").strip()
+    if _head and (_head != _base):
+        submit_argv += ["--evidence-target-sha", _head]
     try:
         submit_proc = subprocess.run(
-            [
-                "python3", "-m", "aria_kernel", "agent", "submit-result",
-                "--claim-id", claim_id,
-                "--agent-id", agent_id,
-                "--lease-token-from-env", LEASE_TOKEN_ENV_VAR,
-                "--output-path", str(expected_output_path),
-                "--workspace-root", str(repo),
-                "--tools-dir", str(tools_dir),
-                "--context-hash", str(request_envelope.get("context_hash") or ""),
-                "--prompt-hash", str(request_envelope.get("prompt_hash") or ""),
-                "--transcript-hash", _transcript_hash,
-                "--transcript-artifact-ref", transcript_output_path.resolve().as_posix(),
-            ],
+            submit_argv,
             capture_output=True,
             text=True,
             env={

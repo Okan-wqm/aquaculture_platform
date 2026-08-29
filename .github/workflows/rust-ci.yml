@@ -27,6 +27,7 @@ on:
       - ".github/workflows/dependency-review.yml"
       - ".github/workflows/sens-api-gateway-ci.yml"
       - ".github/workflows/edge-agent-release.yml"
+      - ".github/workflows/ci-affected.yml"
   pull_request:
     branches: [main, agentic]
     paths:
@@ -51,6 +52,7 @@ on:
       - ".github/workflows/dependency-review.yml"
       - ".github/workflows/sens-api-gateway-ci.yml"
       - ".github/workflows/edge-agent-release.yml"
+      - ".github/workflows/ci-affected.yml"
   workflow_dispatch: {}
 
 concurrency:

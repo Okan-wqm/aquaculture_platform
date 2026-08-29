@@ -8,6 +8,7 @@ describe('dependency policy source scope', () => {
     const gate = readFileSync(resolve(REPO_ROOT, 'scripts/ci/check-dependency-policy.mjs'), 'utf8');
 
     expect(gate).toContain("'ls-files', '--cached', '--others', '--exclude-standard', '-z'");
+    expect(gate).toContain('.filter((path) => existsSync(path))');
     expect(gate).toContain('for (const path of repositorySourceFiles())');
     expect(gate).not.toContain('walk(repoRoot)');
   });

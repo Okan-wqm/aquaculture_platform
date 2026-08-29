@@ -36,6 +36,7 @@ mod audit_emit;
 pub(crate) mod bundle_deploy;
 pub(crate) mod catalog;
 mod cert_pinning;
+mod command_acceptance;
 mod confirm_slot;
 mod deploy_bytecode_program;
 mod diagnostic;

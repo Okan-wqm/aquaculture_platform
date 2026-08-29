@@ -9,6 +9,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, LessThan, MoreThan, In, Like } from 'typeorm';
+import { safeSortField, safeSortOrder } from '@aquaculture/backend-common/pagination';
 
 import {
   ActivityLog,
@@ -21,6 +22,11 @@ import {
   ApiUsageLog,
   UserSession,
 } from '../entities/security.entity';
+import {
+  ACTIVITY_LOG_SORT_COLUMNS,
+  ACTIVITY_LOG_SORT_FIELDS,
+  ActivityLogSortField,
+} from '../sorting/activity-log-sort';
 
 // ============================================================================
 // Interfaces
@@ -658,7 +664,12 @@ export class ActivityLoggingService implements OnModuleInit {
       qb.andWhere('activity.tags && ARRAY[:...tags]', { tags });
     }
 
-    qb.orderBy(`activity.${sortBy}`, sortOrder);
+    const normalizedSortField = safeSortField(
+      sortBy,
+      ACTIVITY_LOG_SORT_FIELDS,
+      'createdAt',
+    ) as ActivityLogSortField;
+    qb.orderBy(ACTIVITY_LOG_SORT_COLUMNS[normalizedSortField], safeSortOrder(sortOrder));
     qb.skip((page - 1) * limit);
     qb.take(limit);
 

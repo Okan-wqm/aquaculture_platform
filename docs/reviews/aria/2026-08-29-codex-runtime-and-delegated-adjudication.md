@@ -40,10 +40,11 @@ The professional shape is class-scoped delegation, not blanket autonomy:
 
 ## ARIA-MEDIUM-026 — Codex runtime and delegated adjudication are designed but not implemented
 
-(ARIA-MEDIUM-027 is the same finding registered a second time from a
-mis-targeted working directory during the 2026-08-29 session; this
-document is the single review record for both ids. The implementation
-landing with this branch closes the design gap for both.)
+(Registry note 2026-08-29: ARIA-MEDIUM-026 and ARIA-MEDIUM-027 were two
+earlier registration attempts of this same finding lost in cross-session
+registry conflicts; ARIA-MEDIUM-028 is the live, chain-integrated id.
+This document is the single review record; the implementation landing
+with this branch closes the design gap for the finding.)
 
 Both are architecture extensions on proven foundations; neither blocks
 the current producer-lane closure. Implementation order: codex_executor

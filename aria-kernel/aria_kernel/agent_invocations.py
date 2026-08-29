@@ -4170,6 +4170,7 @@ def _prepare_claim_submission(
     prompt_hash: str | None,
     transcript_hash: str | None,
     transcript_artifact_ref: str | None,
+    evidence_target_sha: str | None = None,
 ) -> dict[str, Any]:
     """Validate and construct every write payload before locking/mutating."""
     from .agent_contract import enforce_separation_of_duties, validate_response
@@ -4635,6 +4636,7 @@ def submit_claim_result(
                 prompt_hash=prompt_hash,
                 transcript_hash=transcript_hash,
                 transcript_artifact_ref=transcript_artifact_ref,
+                evidence_target_sha=evidence_target_sha,
             )
             journal_candidate = _prepare_submission_journal(
                 prepared=prepared_candidate,

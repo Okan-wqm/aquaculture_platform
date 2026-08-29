@@ -28,14 +28,35 @@ The dispatch layer is provider-static: each role pins a model whose backend
 may be unauthenticated, and absence degrades to mock/skip rather than
 re-routing to a real, available provider.
 
-## Fix direction
+## Fix (implemented this pass)
+
+The failover lives where the credential actually fails: the auth branch of
+`run_with_model_fallback` (`tools/aria-poc/claude_runtime.py`).
+
+- `MODEL_FALLBACK_TIER` gains cross-provider rungs — `sonnet -> glm-5.3`
+  and `glm-5.3 -> opus` — so every Anthropic tier's chain terminates at a
+  different vendor, and glm falls back to the strongest authoring tier. The
+  map is deliberately cyclic now; credit/refusal paths still walk exactly
+  one rung, and the auth walk is visited-set bounded (pinned by test).
+- An auth failure walks the ladder SKIPPING same-vendor rungs (they share
+  the dead credential) and retries once on the first cross-provider tier at
+  the original effort. `provider_redirect_env` already scopes the vendor
+  credential per spawn, so the retried dispatch reaches the other provider
+  with no other change.
+- Both providers failing auth raises `ClaudeAuthFailure` naming both tiers
+  — an honest terminal, never a mock verdict. This is the operator's
+  requirement: one subscription absent, the other carries the work; none
+  present, the failure is loud.
+- Tests: `test_credit_fallback.py` pins the new topology (cross-rungs,
+  cyclic-with-bounded-walk), the skip-same-vendor retry, the glm→opus
+  reverse direction, both-down terminality, and the unchanged single-rung
+  credit/refusal semantics; the old leaf-tier pin moves from sonnet
+  (now routed) to haiku (still an honest leaf).
+
+## Remaining follow-ups (not blocking)
 
 - A provider-availability probe at dispatch time (claude CLI auth state;
   Z.ai key presence) producing a per-cycle availability record.
-- Role→model assignment resolved from availability: e.g. evidence-judge
-  runs on glm-5.3 when Claude is absent, adversarial-judge on opus when
-  Z.ai is absent; both-absent is an honest, loud skip — never a mock
-  verdict in production lanes.
 - The anchor's distinct-model rule keeps counting only real dispatches;
   single-provider windows are marked degraded in the reflection report
   (SIGNAL STARVED class), not silently green.

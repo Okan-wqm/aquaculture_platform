@@ -89,8 +89,8 @@ function parseTomlSections(source: string): readonly TomlSection[] {
     const line = withoutTomlComment(sourceLine).trim();
     if (line.length === 0) continue;
 
-    const arrayHeader = line.match(/^\[\[([^\[\]]+)\]\]$/);
-    const tableHeader = line.match(/^\[([^\[\]]+)\]$/);
+    const arrayHeader = line.match(/^\[\[([^[\]]+)\]\]$/);
+    const tableHeader = line.match(/^\[([^[\]]+)\]$/);
     if (arrayHeader !== null || tableHeader !== null) {
       current = {
         name: (arrayHeader?.[1] ?? tableHeader?.[1] ?? '').trim(),

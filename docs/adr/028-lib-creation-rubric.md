@@ -2,20 +2,30 @@
 
 - **Status:** Accepted — 2026-04-23
 - **Deciders:** orchestrator, data-expert, frontend-expert, platform-kernel-expert
-- **Supersedes:** none (first formal rubric; prior implicit pattern documented in the 2026-04-22 cold-audit Phase C.1)
-- **Tracked finding:** none (this ADR itself is the architectural answer to the "no documented rule" gap surfaced in the cold audit)
+- **Supersedes:** none (first formal rubric; prior implicit pattern documented in the
+2026-04-22 cold-audit Phase C.1)
+- **Tracked finding:** none (this ADR itself is the architectural answer to the "no documented
+rule" gap surfaced in the cold audit)
 
 ## Context
 
-The 2026-04-22 cold audit surfaced ~5000 lines of duplicate domain code, all of it "should have been extracted to a shared lib" work (AUDIT-HIGH-004 water-chemistry, AUDIT-HIGH-005 ST-AST, AUDIT-HIGH-006 node-components edges, AUDIT-HIGH-007 AI-safety). In every case the right home already existed — `libs/aquaculture-engines`, `libs/node-components`, `libs/backend-common` — but web/service teams wrote local copies instead.
+The 2026-04-22 cold audit surfaced ~5000 lines of duplicate domain code, all of it "should have
+been extracted to a shared lib" work (AUDIT-HIGH-004 water-chemistry, AUDIT-HIGH-005 ST-AST,
+AUDIT-HIGH-006 node-components edges, AUDIT-HIGH-007 AI-safety). In every case the right home
+already existed — `libs/aquaculture-engines`, `libs/node-components`, `libs/backend-common` —
+but web/service teams wrote local copies instead.
 
-The root cause, per the Phase 2 Explore agent's Q3 analysis, is that **no documented rule defines "when to make a new lib vs. put it in backend-common vs. keep app-local"**. New contributors reinvent the decision each time, and the answers drift.
+The root cause, per the Phase 2 Explore agent's Q3 analysis, is that **no documented rule
+defines "when to make a new lib vs. put it in backend-common vs. keep app-local"**. New
+contributors reinvent the decision each time, and the answers drift.
 
-This ADR fixes that. It lists the exact criteria a piece of code must meet to live in each home, so the decision becomes lookup-not-reasoning.
+This ADR fixes that. It lists the exact criteria a piece of code must meet to live in each
+home, so the decision becomes lookup-not-reasoning.
 
 ## Decision
 
-Every shared module lives in exactly one of the following locations. Choose the FIRST row whose criteria all match:
+Every shared module lives in exactly one of the following locations. Choose the FIRST row whose
+criteria all match:
 
 | Home | Primary criteria | Secondary / tie-breakers |
 |---|---|---|
@@ -40,14 +50,21 @@ Every shared module lives in exactly one of the following locations. Choose the 
 
 ### Inviolable rules
 
-1. **No backward extraction without an ADR.** If a lib already exists as the canonical home, writing a local copy in `apps/` or `web/` is architecturally forbidden. The fix is always to import from the lib, never to fork.
-2. **New `libs/`name`/` requires a row in the inventory table of this ADR** (see "Lib inventory" below). The invariant test `tests/invariants/lib-creation-rubric.spec.ts` (Phase E.1 of the cold-audit plan) enforces this.
-3. **`libs/backend-common/` is one lib, many sub-barrels.** Add a new subdir under `src/` instead of creating a sibling backend-common-adjacent lib.
-4. **Cross-tier coupling is explicit.** A web module importing from `libs/<domain>/` is legal; a web module importing from `libs/backend-common/` is NOT (the latter is NestJS-only).
+1. **No backward extraction without an ADR.** If a lib already exists as the canonical home,
+writing a local copy in `apps/` or `web/` is architecturally forbidden. The fix is always to
+import from the lib, never to fork.
+2. **New `libs/`name`/` requires a row in the inventory table of this ADR** (see "Lib
+inventory" below). The invariant test `tests/invariants/lib-creation-rubric.spec.ts` (Phase E.1
+of the cold-audit plan) enforces this.
+3. **`libs/backend-common/` is one lib, many sub-barrels.** Add a new subdir under `src/`
+instead of creating a sibling backend-common-adjacent lib.
+4. **Cross-tier coupling is explicit.** A web module importing from `libs/<domain>/` is legal;
+a web module importing from `libs/backend-common/` is NOT (the latter is NestJS-only).
 
 ## Lib inventory (authoritative — maintained by this ADR)
 
-Every path below has a Nx project.json + tsconfig.json + package.json. Columns describe the rubric row that justifies the lib's existence.
+Every path below has a Nx project.json + tsconfig.json + package.json. Columns describe the
+rubric row that justifies the lib's existence.
 
 | Path | Rubric row | Consumers (examples) |
 |---|---|---|
@@ -73,44 +90,64 @@ Every path below has a Nx project.json + tsconfig.json + package.json. Columns d
 | `platform/libs/service-catalog` | platform/libs/`name`/ | service-catalog artifact generator, deploy SSOT gates, gateway subgraph registry |
 | `web/shared-ui` | web/shared-ui/ | every web module (admin-panel, farm-module, etc.) |
 
-**Pending additions (not yet on disk — will join the inventory above when the cold-audit remediation commits land):**
+**Pending additions (not yet on disk — will join the inventory above when the cold-audit
+remediation commits land):**
 
-_(None currently pending. `libs/sensor-automation-types` was promoted from this list to the main table when AUDIT-HIGH-005 landed on 2026-04-23.)_
+_(None currently pending. `libs/sensor-automation-types` was promoted from this list to the
+main table when AUDIT-HIGH-005 landed on 2026-04-23.)_
 
 ## Enforcement (Phase E.1 of the cold-audit plan)
 
-`tests/invariants/lib-creation-rubric.spec.ts` (created under AUDIT finding E.1 follow-up) reads this ADR's Lib-inventory table and asserts:
+`tests/invariants/lib-creation-rubric.spec.ts` (created under AUDIT finding E.1 follow-up)
+reads this ADR's Lib-inventory table and asserts:
 
-1. Every dir under `libs/`, `platform/libs/`, `web/shared-ui`, `web/node-components` (if that ever exists) has a row in the table.
-2. Every row in the table points at a dir that exists with `package.json#name`, `tsconfig.json` present.
-3. Every new path committed under these roots must add a matching table row OR the invariant fails the PR.
+1. Every dir under `libs/`, `platform/libs/`, `web/shared-ui`, `web/node-components` (if that
+ever exists) has a row in the table.
+2. Every row in the table points at a dir that exists with `package.json#name`, `tsconfig.json`
+present.
+3. Every new path committed under these roots must add a matching table row OR the invariant
+fails the PR.
 
-Adding a new lib without updating this ADR is therefore architecturally impossible — the test blocks the commit.
+Adding a new lib without updating this ADR is therefore architecturally impossible — the test
+blocks the commit.
 
 ## Alternatives considered
 
 ### A. Leave the rubric informal
 
-Continue letting each contributor decide. This is the status quo, which produced the ~5000 lines of duplicate code the cold audit surfaced. Rejected — the cost is paid every audit cycle.
+Continue letting each contributor decide. This is the status quo, which produced the ~5000
+lines of duplicate code the cold audit surfaced. Rejected — the cost is paid every audit cycle.
 
 ### B. Put everything in `libs/backend-common/`
 
-Simpler to find but pollutes the semantics: non-NestJS pure algorithms (water chemistry) would sit next to @Injectable providers. Rejected — already tried and abandoned in the pre-2026-04 architecture refactor that created the separate `libs/aquaculture-engines` and `platform/libs/*` split.
+Simpler to find but pollutes the semantics: non-NestJS pure algorithms (water chemistry) would
+sit next to @Injectable providers. Rejected — already tried and abandoned in the pre-2026-04
+architecture refactor that created the separate `libs/aquaculture-engines` and
+`platform/libs/*` split.
 
 ### C. One lib per consumer pair
 
-Extreme granularity (e.g., `libs/water-chemistry-for-farm-module`). Rejected — explodes the project graph and duplicates maintenance.
+Extreme granularity (e.g., `libs/water-chemistry-for-farm-module`). Rejected — explodes the
+project graph and duplicates maintenance.
 
 ## Consequences
 
-- **Positive:** C.2–C.7 of the cold-audit remediation has a deterministic home-assignment for each duplicate cluster. Future duplicate detections have a ready-to-apply answer.
-- **Positive:** E.1 invariant makes it structurally impossible to add a new lib without updating this ADR.
+- **Positive:** C.2–C.7 of the cold-audit remediation has a deterministic home-assignment for
+each duplicate cluster. Future duplicate detections have a ready-to-apply answer.
+- **Positive:** E.1 invariant makes it structurally impossible to add a new lib without
+updating this ADR.
 - **Positive:** New contributors read one table instead of inferring from surrounding code.
-- **Negative:** Moving an existing lib to a different row (e.g., reclassifying from `<domain>/` to `backend-common/<subdir>/`) requires an ADR amendment. This is intentional — rows are meant to be stable.
-- **Mitigation:** The rubric permits app-local `_shared/` for single-consumer cases, so the pressure to create a lib prematurely is lower.
+- **Negative:** Moving an existing lib to a different row (e.g., reclassifying from `<domain>/`
+to `backend-common/<subdir>/`) requires an ADR amendment. This is intentional — rows are meant
+to be stable.
+- **Mitigation:** The rubric permits app-local `_shared/` for single-consumer cases, so the
+pressure to create a lib prematurely is lower.
 
 ## References
 
-- `/root/.claude/plans/cold-audit-architectural-remediation-2026-04-23.md` — the plan section that specifies C.1 as the blocker for C.2–C.7.
-- `docs/reviews/_audit/2026-04-22-cold-audit/02-jscpd-clusters.md` — 1946 duplicate clones, top 33 ≥100 lines, which drove the rubric's criteria.
-- `docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md#AUDIT-HIGH-004` through `#AUDIT-HIGH-007` — the specific extractions this rubric governs.
+- `/root/.claude/plans/cold-audit-architectural-remediation-2026-04-23.md` — the plan section
+that specifies C.1 as the blocker for C.2–C.7.
+- `docs/reviews/_audit/2026-04-22-cold-audit/02-jscpd-clusters.md` — 1946 duplicate clones, top
+33 ≥100 lines, which drove the rubric's criteria.
+- `docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md#AUDIT-HIGH-004` through
+`#AUDIT-HIGH-007` — the specific extractions this rubric governs.

@@ -144,6 +144,16 @@ BEGIN
       spec.schema_name,
       spec.runtime_role
     );
+    -- FARM-CRITICAL-241: this immutable provenance ledger is declared in
+    -- MODULE_SCHEMAS.serviceReadOnlyTables. Keep the source-schema ACL aligned
+    -- with the same SELECT-only profile after every bootstrap reconciliation;
+    -- the migration also applies this revoke when the table is first created.
+    IF spec.schema_name = 'farm'
+       AND to_regclass('farm.feeding_record_provenance') IS NOT NULL THEN
+      REVOKE INSERT, UPDATE, DELETE
+        ON TABLE farm.feeding_record_provenance FROM farm_service;
+      GRANT SELECT ON TABLE farm.feeding_record_provenance TO farm_service;
+    END IF;
     EXECUTE format(
       'ALTER DEFAULT PRIVILEGES IN SCHEMA %I REVOKE ALL ON TABLES FROM %I',
       spec.schema_name,

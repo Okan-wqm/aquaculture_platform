@@ -59,7 +59,10 @@ describe('Tenant Isolation Static Analysis', () => {
       // versioned coverage-assessment provenance, per-site/provider sync state,
       // and metric-level sync outcomes; weather/marine observations reuse
       // existing tables.
-      expect(tenantTotal).toBe(194);
+      // 194 → 195: feeding_record_provenance — the immutable ledger that lets a
+      // backfill rollback tell its own rows from live drain writes
+      // (FARM-CRITICAL-241). It is per-tenant, so it must fan out.
+      expect(tenantTotal).toBe(195);
     });
 
     it('every module should have a sourceSchema', () => {
@@ -113,7 +116,7 @@ describe('Tenant Isolation Static Analysis', () => {
       // feeding_day_plans, feeding_meals, feeding_forecast_snapshots and
       // farm_incident_media. 91 → 95: environmental scene, versioned coverage
       // assessment, sync-state, and metric-outcome SSoT.
-      expect(counts['farm']).toBe(95);
+      expect(counts['farm']).toBe(96);
       expect(counts['hr']).toBe(29);
       expect(counts['hydroponics']).toBe(1);
       expect(counts['alert']).toBe(4);

@@ -2291,6 +2291,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     # Plan ARIA-V7 §3 V7.7 — cycle deadline watchdog CLI flag.
     auto_run.add_argument(
+        "--phase-filter", default=None,
+        help="Only run phases whose name contains this substring (e.g. --phase-filter judge "
+             "runs only judge phases). Skipped phases are recorded, not silent. Use for "
+             "splitting a long cycle across multiple shorter workflow runs.",
+    )
+    auto_run.add_argument(
         "--cycle-deadline-seconds", type=float, default=1800.0,
         help="Per-cycle wall-clock deadline (default 1800s = 30 min). "
              "When exceeded, orchestrator emits cycle_deadline_exceeded "

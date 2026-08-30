@@ -1,0 +1,50 @@
+name: Automation Publication Admission
+
+# Security boundary: pull_request_target loads this workflow and its executable
+# verifier from protected main. The untrusted PR head is never checked out or
+# executed; it is inspected only through authenticated GitHub API data.
+on:
+  pull_request_target:
+    # Title/body are signed publication inputs. `edited` is therefore a
+    # security-relevant transition even when the head SHA is unchanged.
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: automation-publication-admission-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  automation-publication-admission:
+    name: automation-publication-admission
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout protected-base verifier only
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install protected-base dependencies
+        run: npm ci --ignore-scripts --no-audit --prefer-offline --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
+
+      - name: Verify automation publication provenance
+        env:
+          AUTOMATION_PUBLICATION_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          AUTOMATION_PUBLICATION_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          AUTOMATION_PUBLICATION_PR_NUMBER: ${{ github.event.pull_request.number }}
+          AUTOMATION_PUBLICATION_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: npm run automation:verify-publication

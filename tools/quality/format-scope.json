@@ -945,6 +945,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": ".github/manifests/automation-publication-authority.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": ".github/manifests/backup-secrets.json",
       "prettier_managed": true
     },
@@ -963,6 +969,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": ".github/manifests/finding-registry-writer-authority.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": ".github/manifests/main-required-status-checks.json",
       "prettier_managed": true
     },
@@ -976,6 +988,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": ".github/manifests/postgres-image.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": ".github/manifests/production-deploy-secrets.json",
       "prettier_managed": true
     },
     {
@@ -7111,6 +7129,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/db-migrate/jest-launcher.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/db-migrate/project.json",
       "prettier_managed": true
     },
@@ -7129,7 +7153,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/db-migrate/src/__tests__/jest-launcher.contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/db-migrate/src/__tests__/orphan-type-reclamation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/db-migrate/src/__tests__/pitr-source-verification.integration.spec.ts",
       "prettier_managed": true
     },
     {
@@ -25583,6 +25619,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/process/services/__tests__/scada-package-service.testing.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/process/services/__tests__/scada-package-undeploy-on-delete.spec.ts",
       "prettier_managed": true
     },
@@ -33272,6 +33314,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/admin-expert/2026-08-16-pagination-result-authority.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/aquamobil-e2e-audit/2026-06-13-findings.md",
       "prettier_managed": true
     },
@@ -38711,6 +38759,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/pagination/__tests__/pagination.dto.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/pagination/cursor-repository.ts",
       "prettier_managed": true
     },
@@ -41665,6 +41719,42 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "platform/libs/pagination-contracts/jest.config.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "platform/libs/pagination-contracts/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "platform/libs/pagination-contracts/src/index.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "platform/libs/pagination-contracts/src/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "platform/libs/pagination-contracts/tsconfig.lib.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "platform/libs/pagination-contracts/tsconfig.spec.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "platform/libs/service-catalog/jest.config.ts",
       "prettier_managed": true
     },
@@ -43087,6 +43177,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/admin-contracts-generated.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/admin-no-auth-tenants-writes.spec.ts",
       "prettier_managed": true
     },
@@ -43273,6 +43369,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/automation-publication-authority.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/backup-production-secrets.spec.ts",
       "prettier_managed": true
     },
@@ -43310,6 +43412,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/cache-key-tenant-scope.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/capability-integration-evidence-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/capability-source-inventory-contract.spec.ts",
       "prettier_managed": true
     },
     {
@@ -43442,6 +43556,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/drift-repair-naming.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/droplet-capacity-control-plane.spec.ts",
       "prettier_managed": true
     },
     {
@@ -44071,6 +44191,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/platform-binary-installer-authority.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/platform-entity-registry-parity.spec.ts",
       "prettier_managed": true
     },
@@ -44108,6 +44234,36 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/postgres-runtime-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/production-cert-identity-store.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/production-current-release-marker.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/production-host-control-plane-runtime.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/production-host-runtime-bundle.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/production-host-ssh-payload.spec.ts",
       "prettier_managed": true
     },
     {
@@ -44276,6 +44432,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/skills-catalog.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/source-finding-inventory-contract.spec.ts",
       "prettier_managed": true
     },
     {
@@ -44928,6 +45090,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/codegen/admin-contracts/generate.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/codegen/admin-contracts/manifest.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/eslint-rules/dist/index.d.ts",
       "prettier_managed": true
     },
@@ -45258,6 +45432,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/gates/capability-integration-evidence.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/capability-source-inventory.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/gates/capacity-tmp-gc.spec.ts",
       "prettier_managed": true
     },
@@ -45331,6 +45517,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/gates/finding-evidence-shape.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/finding-registry-publication.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/finding-registry-publication.ts",
       "prettier_managed": true
     },
     {
@@ -45414,7 +45612,235 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/gates/github-actions-oidc-authority.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/anchored-filesystem.fixture.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/anchored-filesystem.kernel.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/anchored-filesystem.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/anchored-filesystem.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/automation-publication-authority.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/automation-publication-policy.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/automation-publication-policy.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/canonical-json.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/capability-source-contract.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/error-cause.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/error-cause.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/finding-authority-target-catalog.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/finding-registry-lock.fixture.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/finding-registry-request-receipt.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/finding-registry-request-receipt.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/finding-registry-schema-contract.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/finding-registry-store-child.fixture-protocol.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/finding-registry-writer-authority.fixture.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/finding-registry-writer-authority.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/finding-registry-writer-authority.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/finding-writer-cli-contract.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/finding-writer-fence.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/github-artifact-archive.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/github-artifact-archive.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/hermetic-git-runtime.fixture.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/hermetic-git-runtime.kernel.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/hermetic-git-runtime.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/hermetic-git-runtime.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/json-contract.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/registered-common-dir-discovery.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/registered-common-dir-discovery.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/gates/lib/repo-root.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/repository-application-module-loader.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/repository-application-module-loader.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/repository-git-read-phase.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/repository-git-read-phase.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/source-control-leaf-catalog.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/source-finding-publication-kernel.ts",
       "prettier_managed": true
     },
     {
@@ -45535,6 +45961,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/gates/sites-setup-ssot-guardrails.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/source-finding-inventory.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/source-inventory-runner.ts",
       "prettier_managed": true
     },
     {
@@ -45672,6 +46110,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/quality/source-control-leaf-catalog.v1.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/quality/terminal-run-evidence.schema.json",
       "prettier_managed": true
     },
@@ -45697,6 +46141,48 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/ripple-tracer/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/scripts/automation/publish-automation-pr.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/scripts/automation/publish-automation-pr.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/scripts/automation/resolve-github-run-clock.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/scripts/automation/resolve-github-run-clock.spec.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/scripts/automation/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/scripts/automation/write-finding-registry-request-receipt.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/scripts/automation/write-finding-registry-request-receipt.ts",
       "prettier_managed": true
     },
     {
@@ -45745,6 +46231,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/scripts/database/generate-database-verification-sql.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/scripts/database/read-bounded-line.mjs",
       "prettier_managed": true
     },
     {
@@ -45931,6 +46423,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/supervisor/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/test-runners/source-control-plane.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/test-runners/spec-discovery.mjs",
       "prettier_managed": true
     },
     {

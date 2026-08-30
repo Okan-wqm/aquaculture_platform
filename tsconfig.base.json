@@ -116,6 +116,7 @@
       "@aquaculture/backend-common/pagination": [
         "libs/backend-common/src/pagination/index.ts"
       ],
+      "@platform/pagination-contracts": ["platform/libs/pagination-contracts/src/index.ts"],
       "@aquaculture/backend-common/quota": ["libs/backend-common/src/quota/index.ts"],
       "@aquaculture/backend-common/redis": ["libs/backend-common/src/redis/index.ts"],
       "@aquaculture/backend-common/resilience": [

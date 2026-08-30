@@ -5,10 +5,6 @@
  * - Input: StandardPaginationInput (page, limit, sortBy, sortOrder)
  * - Output: StandardPaginatedResponse<T> (items, total, page, limit, totalPages, hasNextPage, hasPreviousPage)
  *
- * Legacy Pattern (offset/limit with hasMore) — @deprecated Phase 4 complete, remove in Phase 5:
- * - Input: PaginationInput
- * - Output: PaginatedResponse<T>
- *
  * @module Pagination
  */
 export {
@@ -21,23 +17,23 @@ export {
   // isolatedModules. Same pattern used below for cursor / cursor-
   // repository exports.
   type IStandardPaginatedResult,
+  type PaginationMetadataV1,
+  type PaginationResultV1,
+  type StandardPaginatedResult,
   createStandardPaginatedResult,
+  hasUnissuedPaginationShapeV1,
+  isStandardPaginatedResult,
+  paginationMetadataV1,
   fromCqrsPaginated,
   safeSortField,
   safeSortOrder,
-  // Legacy (deprecated — Phase 4 complete, remove in Phase 5)
-  PaginationInput,
-  PaginatedResponse,
-  type IPaginatedResult,
-  calculateHasMore,
-  createPaginatedResult,
 } from './pagination.dto';
 
 // Cursor pagination primitive — phase 5.1. Opaque-cursor
 // forward-traversal pagination for hot paths that outgrow
 // offset/limit. Resolvers migrate at their own pace behind a
-// parallel API; the legacy StandardPaginationInput stays valid
-// throughout the deprecation window.
+// parallel API while page/limit consumers remain on the canonical
+// StandardPaginationInput contract.
 export {
   CursorPaginationInput,
   CursorEdge,
@@ -57,7 +53,4 @@ export {
 // CursorPaginatedResponse<T>. Keeps per-resolver adoption
 // boilerplate-free so the tuple WHERE clause stays in one
 // place platform-wide.
-export {
-  paginateCursor,
-  type PaginateCursorOptions,
-} from './cursor-repository';
+export { paginateCursor, type PaginateCursorOptions } from './cursor-repository';

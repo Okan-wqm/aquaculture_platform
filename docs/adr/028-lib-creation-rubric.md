@@ -25,7 +25,7 @@ Every shared module lives in exactly one of the following locations. Choose the 
 | `libs/<domain-specific-lib>/` (new) | ≥2 consumers in `apps/`, OR ≥1 `apps/` and ≥1 `web/` consumer | pure or pure-algorithmic code; no service-specific NestJS decorators; no tight coupling to a single bounded context |
 | `web/shared-ui/` | UI components or hooks with React peer dep; consumed by ≥2 web modules | Module Federation exposed if cross-MFE |
 | `libs/node-components/` | ReactFlow primitives (nodes, edges, handles) | used by at least one SCADA / process-editor / automation canvas |
-| `platform/libs/<name>/` | cross-cutting platform concern that crosses the app/lib boundary (CQRS bus, event bus, outbox) | always has a corresponding ADR establishing the pattern |
+| `platform/libs/`name`/` | cross-cutting platform concern that crosses the app/lib boundary (CQRS bus, event bus, outbox) | always has a corresponding ADR establishing the pattern |
 
 ### Examples mapped onto this rubric
 
@@ -41,7 +41,7 @@ Every shared module lives in exactly one of the following locations. Choose the 
 ### Inviolable rules
 
 1. **No backward extraction without an ADR.** If a lib already exists as the canonical home, writing a local copy in `apps/` or `web/` is architecturally forbidden. The fix is always to import from the lib, never to fork.
-2. **New `libs/<name>/` requires a row in the inventory table of this ADR** (see "Lib inventory" below). The invariant test `tests/invariants/lib-creation-rubric.spec.ts` (Phase E.1 of the cold-audit plan) enforces this.
+2. **New `libs/`name`/` requires a row in the inventory table of this ADR** (see "Lib inventory" below). The invariant test `tests/invariants/lib-creation-rubric.spec.ts` (Phase E.1 of the cold-audit plan) enforces this.
 3. **`libs/backend-common/` is one lib, many sub-barrels.** Add a new subdir under `src/` instead of creating a sibling backend-common-adjacent lib.
 4. **Cross-tier coupling is explicit.** A web module importing from `libs/<domain>/` is legal; a web module importing from `libs/backend-common/` is NOT (the latter is NestJS-only).
 
@@ -66,11 +66,11 @@ Every path below has a Nx project.json + tsconfig.json + package.json. Columns d
 | `libs/shared` | libs/backend-common/ (cross-service decorators + errors) | every backend service via `@platform/shared` |
 | `libs/storage` | libs/backend-common/ (MinIO object storage client) | messaging, ai, billing services |
 | `libs/testing` | libs/backend-common/ (test factories + fixtures) | every backend service's spec files |
-| `platform/libs/cqrs` | platform/libs/<name>/ | every CQRS handler in apps/ |
-| `platform/libs/event-bus` | platform/libs/<name>/ | every event-emitting service in apps/ |
-| `platform/libs/outbox` | platform/libs/<name>/ | services using the transactional outbox pattern |
-| `platform/libs/pagination-contracts` | platform/libs/<name>/ | admin-api-service list producers, admin-panel HTTP consumers, farm-service resolvers, farm-module hooks — the versioned paginated-result shape both tiers must agree on |
-| `platform/libs/service-catalog` | platform/libs/<name>/ | service-catalog artifact generator, deploy SSOT gates, gateway subgraph registry |
+| `platform/libs/cqrs` | platform/libs/`name`/ | every CQRS handler in apps/ |
+| `platform/libs/event-bus` | platform/libs/`name`/ | every event-emitting service in apps/ |
+| `platform/libs/outbox` | platform/libs/`name`/ | services using the transactional outbox pattern |
+| `platform/libs/pagination-contracts` | platform/libs/`name`/ | admin-api-service list producers, admin-panel HTTP consumers, farm-service resolvers, farm-module hooks — the versioned paginated-result shape both tiers must agree on |
+| `platform/libs/service-catalog` | platform/libs/`name`/ | service-catalog artifact generator, deploy SSOT gates, gateway subgraph registry |
 | `web/shared-ui` | web/shared-ui/ | every web module (admin-panel, farm-module, etc.) |
 
 **Pending additions (not yet on disk — will join the inventory above when the cold-audit remediation commits land):**

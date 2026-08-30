@@ -96,7 +96,7 @@ none overlapping Batch-1).
 
 - Risk: Medium (security-critical, wire-complements #1334). Decision: **RECOVER** — in-flight
 via PR
-#935 (owner channel); integration branch defers to that PR rather than duplicating.
+PR #935 (owner channel); integration branch defers to that PR rather than duplicating.
 
 - Evidence: [H] cherry 29/29 `+`, no #935 merge on main; [C] identifier greps zero on main
 (`sqlcipher_factory`, `legacy_command_permitted`, `edge_seq`, `lease_id`).
@@ -176,7 +176,7 @@ commit alone**, including sensitive overlap (billing `record-payment.handler`, s
 specs)
 where main evolved past the branch. Evidence: [H] PR open since 07-21, contains neither #1040
 nor
-#1064; [C] `production-host-control-plane.sh` + 20 specs absent on main.
+PR #1064; [C] `production-host-control-plane.sh` + 20 specs absent on main.
 
 ### F9 — Control-plane gates stack
 

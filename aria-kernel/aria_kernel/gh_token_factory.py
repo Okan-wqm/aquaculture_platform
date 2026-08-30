@@ -408,6 +408,13 @@ def mint_installation_token(
                 "permissions": {
                     "pull_requests": "write",
                     "contents": "write",
+                    # ARIA-MEDIUM-021 — the readiness claim's branch-protection
+                    # probe reads GET /repos/.../protection, which the API gates
+                    # behind administration:read. Requesting a permission the
+                    # App was not granted fails the mint loudly (HTTP 422), so
+                    # this line is also the tripwire that says the operator
+                    # ticked Administration: read-only on the App.
+                    "administration": "read",
                 },
             }).encode("utf-8"),
         )

@@ -537,6 +537,7 @@ def run_enterprise_cycle(
     plan_id: str | None = None,
     defer_reflection: bool = False,
     mode: str = "standard",
+    **kwargs,
 ) -> dict[str, Any]:
     """Run one cycle by walking ``CYCLE_PHASES``.
 
@@ -630,7 +631,8 @@ def run_enterprise_cycle(
     # It lives here rather than in the phase for the same reason the ARIA_STOP
     # refusal does: a cycle that stops must still append a terminal row, and
     # only this function owns the cycles.jsonl lifecycle.
-    _run_phase_stage("preflight", context)
+    _phase_filter = kwargs.get("phase_filter")
+    _run_phase_stage("preflight", context, phase_filter=_phase_filter)
     continuity = context.result("state_continuity")
     if isinstance(continuity, dict) and continuity.get("blocks_action"):
         from .memory_gap import ContinuityVerdict, freeze_autonomous_writes, restore_and_replay
@@ -677,7 +679,7 @@ def run_enterprise_cycle(
                 "state_continuity": continuity,
             }
 
-    _run_phase_stage("discovery", context)
+    _run_phase_stage("discovery", context, phase_filter=_phase_filter)
     discovery = context.result("discovery")
     diff = context.result("cycle_diff")
 
@@ -704,7 +706,7 @@ def run_enterprise_cycle(
     # instead of `run_phases`; it is now a property of the table, so a
     # pre-tool gate cannot be demoted to a post-tool observation by a
     # caller's choice of argument.
-    _run_phase_stage("pre_tool", context)
+    _run_phase_stage("pre_tool", context, phase_filter=_phase_filter)
     aborted_by = _first_blocking_pre_phase(context)
     if aborted_by is not None:
         # Plan 024 §E — pre-fix this path called _complete_event which
@@ -730,7 +732,7 @@ def run_enterprise_cycle(
             "aborted_by_phase": aborted_by,
         }
 
-    _run_phase_stage("tools", context)
+    _run_phase_stage("tools", context, phase_filter=_phase_filter)
     tools_result = context.result("tools") or {}
     decisions = tools_result.get("decisions") or []
     run_summary = tools_result.get("run_summary") or []
@@ -3349,7 +3351,11 @@ _assert_pipeline_is_well_formed()
 # ---------------------------------------------------------------------
 
 
-def _run_phase_stage(stage: PhaseStage, context: PhaseContext) -> None:
+def _run_phase_stage(
+    stage: PhaseStage,
+    context: PhaseContext,
+    phase_filter: str | None = None,
+) -> None:
     """Run every phase of one stage, in table order.
 
     Writes into ``context.results`` (payloads) and ``context.outcomes``
@@ -3359,6 +3365,9 @@ def _run_phase_stage(stage: PhaseStage, context: PhaseContext) -> None:
     """
     for phase in CYCLE_PHASES:
         if phase.stage != stage:
+            continue
+        if phase_filter and phase_filter not in phase.name:
+            _record_skip(context, phase, f"phase_filter_excluded:{phase_filter}")
             continue
         # Smoke-run 31653106474 — the second live night: adapters finished
         # at 00:29, the spawn clamp (ORPHAN-661) held, and the night STILL
@@ -3387,11 +3396,19 @@ def _run_phase_stage(stage: PhaseStage, context: PhaseContext) -> None:
             # No handler by design: if discovery or the tool loop cannot
             # run there is no cycle to report on, and swallowing that
             # would produce a "completed" cycle that did nothing.
-            context.results[phase.name] = phase.runner(context)
+            context.results[phase.name] = _run_phase_with_deadline(phase.runner, context)
             context.outcomes[phase.name] = {"outcome": "ran"}
             continue
         try:
-            context.results[phase.name] = phase.runner(context)
+            context.results[phase.name] = _run_phase_with_deadline(phase.runner, context)
+        except PhaseDeadlineExceeded as exc:
+            context.results[phase.name] = phase.absent()
+            context.outcomes[phase.name] = {
+                "outcome": "interrupted",
+                "reason": "phase_deadline_exceeded",
+                "error": str(exc),
+            }
+            continue
         except Exception as exc:
             context.results[phase.name] = (
                 phase.error_payload(context, exc)
@@ -3430,6 +3447,73 @@ def _job_deadline_reached() -> bool:
     except ValueError:
         return False
     return time.time() >= deadline - _JOB_DEADLINE_PHASE_MARGIN_SECONDS
+
+
+class PhaseDeadlineExceeded(Exception):
+    """A phase runner exceeded the remaining wall-clock and was interrupted.
+
+    This is the mid-phase half of the deadline contract: the between-phases
+    check (above) catches phases that HAVEN'T started; this catches the one
+    that IS running when the margin opens. A 30-minute judge fan-out cannot
+    be left to consume a 40-minute close-out margin just because it started
+    before the deadline — the seal must fire, the store must verify, the
+    night must publish.
+    """
+
+
+def _remaining_wallclock_seconds() -> float:
+    """Seconds until the close-out margin opens; 0 when already inside it."""
+    import os as _os
+    raw = _os.environ.get("ARIA_JOB_DEADLINE_EPOCH")
+    if not raw:
+        return float("inf")  # no deadline: local dev, tests, manual runs
+    try:
+        deadline = float(raw)
+    except ValueError:
+        return float("inf")
+    # No extra margin subtraction: the epoch already carries the close-out
+    # margin (the workflow subtracts it when setting the env var). The alarm
+    # fires AT the epoch, giving the full margin to the close-out chain.
+    return max(0.0, deadline - time.time())
+
+
+def _deadline_alarm(signum: Any, frame: Any) -> None:
+    raise PhaseDeadlineExceeded(
+        "the remaining wall-clock entered the close-out margin mid-phase; "
+        "interrupting to seal the cycle"
+    )
+
+
+def _run_phase_with_deadline(
+    runner: Any,
+    context: "PhaseContext",
+) -> Any:
+    """Run a phase runner under the deadline alarm.
+
+    SIGALRM fires when the remaining wall-clock enters the close-out margin,
+    interrupting whatever the phase is doing (subprocess spawn, ledger read,
+    model call). The exception propagates to the phase error handler which
+    records 'deadline_exceeded' and the cycle proceeds to seal.
+    """
+    import signal as _signal
+    import threading as _threading
+    remaining = _remaining_wallclock_seconds()
+    if remaining <= 0:
+        raise PhaseDeadlineExceeded("no wall-clock remaining before phase start")
+    if remaining == float("inf"):
+        return runner(context)  # no deadline: don't set a meaningless alarm
+    # SIGALRM only works in the main thread; worker threads (tests,
+    # concurrent lanes) fall through to the between-phases check, which
+    # still catches them at the next phase boundary.
+    if _threading.current_thread() is not _threading.main_thread():
+        return runner(context)
+    old_handler = _signal.signal(_signal.SIGALRM, _deadline_alarm)
+    _signal.setitimer(_signal.ITIMER_REAL, remaining)
+    try:
+        return runner(context)
+    finally:
+        _signal.setitimer(_signal.ITIMER_REAL, 0)
+        _signal.signal(_signal.SIGALRM, old_handler)
 
 
 def _record_skip(context: PhaseContext, phase: CyclePhase, reason: str) -> None:

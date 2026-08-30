@@ -330,17 +330,15 @@ def _past_failed_attempts_for_paths(
     if not results_path.exists():
         return []
     from .knowledge_graph import _paths_related
+    from .memory import load_jsonl
 
     failures: list[dict[str, Any]] = []
     try:
-        for line in reversed(results_path.read_text(encoding="utf-8").splitlines()):
+        rows = list(reversed(load_jsonl(results_path)))
+        for row in rows:
             if len(failures) >= 5:
                 break
-            if not line.strip():
-                continue
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
+            if not isinstance(row, dict):
                 continue
             reasons = row.get("reasons") or []
             if not isinstance(reasons, list):
@@ -368,9 +366,11 @@ def _past_failed_attempts_for_paths(
                 "reasons": [str(r)[:120] for r in reasons[:3]],
                 "at": row.get("at") or row.get("submitted_at") or "",
             })
-    except (OSError, json.JSONDecodeError):
-        pass
-    return failures
+    except (OSError, ValueError):
+        # Unreadable results ledger is an environment problem, not a
+        # silent skip: the caller sees an empty list (no past failures
+        # known) rather than a fabricated success.
+        return failures
 
 
 def _recent_intent_for_refs(

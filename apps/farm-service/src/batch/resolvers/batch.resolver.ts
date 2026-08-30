@@ -199,7 +199,16 @@ export class BatchResolver {
       new ListBatchesQuery(tenantId, filter, page, limit, sortBy, sortOrder),
     );
 
-    return fromCqrsPaginated(result);
+    const standard = fromCqrsPaginated(result);
+    return {
+      items: [...standard.items],
+      total: standard.total,
+      page: standard.page,
+      limit: standard.limit,
+      totalPages: standard.totalPages,
+      hasNextPage: result.pagination.hasNextPage,
+      hasPreviousPage: result.pagination.hasPreviousPage,
+    };
   }
 
   /**

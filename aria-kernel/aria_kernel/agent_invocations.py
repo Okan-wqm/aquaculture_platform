@@ -292,15 +292,85 @@ def _established_knowledge_for_refs(
                 workspace_root=workspace_root, paths=wanted
             )
         ]
-        if not beliefs and not conventions and not anti_patterns:
+        # Past-failed-attempts section (yargıç önerisi 2026-08-30): mine the
+        # implementation rejection ledger for approaches that FAILED on these
+        # exact paths, so a new agent doesn't retry what already didn't work.
+        # This reads existing ledgers — no new surface, no second truth.
+        past_failures = _past_failed_attempts_for_paths(
+            base_dir=base_dir, paths=wanted,
+        )
+        if not beliefs and not conventions and not anti_patterns and not past_failures:
             return None
         return {
             "beliefs": beliefs,
             "conventions": conventions,
             "anti_patterns": anti_patterns,
+            **({"past_failed_attempts": past_failures} if past_failures else {}),
         }
     except (OSError, ValueError, KeyError, TypeError):
         return None
+
+
+def _past_failed_attempts_for_paths(
+    *,
+    base_dir: Path,
+    paths: list[str],
+) -> list[dict[str, Any]]:
+    """Rejection-class failures whose evidence touched these paths.
+
+    Reads the existing results ledger (no new surface). An agent about to
+    edit file X should see "this approach on X was rejected because Y"
+    without querying a separate attempt ledger — the data is already in
+    the implementation-rejection rows, it just never reached the context.
+    Capped at 5, sorted most-recent-first.
+    """
+    from .implementation_rejections import VALID_IMPLEMENTATION_REJECTION_CLASSES
+
+    results_path = base_dir / "agent-invocations" / "results.jsonl"
+    if not results_path.exists():
+        return []
+    from .knowledge_graph import _paths_related
+    from .memory import load_jsonl
+
+    failures: list[dict[str, Any]] = []
+    try:
+        rows = list(reversed(load_jsonl(results_path)))
+        for row in rows:
+            if len(failures) >= 5:
+                break
+            if not isinstance(row, dict):
+                continue
+            reasons = row.get("reasons") or []
+            if not isinstance(reasons, list):
+                continue
+            rejection_classes = {
+                str(r).split(":")[0].strip()
+                for r in reasons
+                if isinstance(r, str) and str(r).split(":")[0].strip() in VALID_IMPLEMENTATION_REJECTION_CLASSES
+            }
+            if not rejection_classes:
+                continue
+            evidence = [
+                str(r).split(":", 1)[0]
+                for r in (row.get("evidence_refs") or reasons)
+                if isinstance(r, str) and ":" in str(r)
+            ]
+            if not any(
+                _paths_related(ref_path, want)
+                for ref_path in evidence
+                for want in paths
+            ):
+                continue
+            failures.append({
+                "rejection_classes": sorted(rejection_classes),
+                "reasons": [str(r)[:120] for r in reasons[:3]],
+                "at": row.get("at") or row.get("submitted_at") or "",
+            })
+    except (OSError, ValueError):
+        # Unreadable results ledger is an environment problem, not a
+        # silent skip: the caller sees an empty list (no past failures
+        # known) rather than a fabricated success.
+        return failures
 
 
 def _recent_intent_for_refs(

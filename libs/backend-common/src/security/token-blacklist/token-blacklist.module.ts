@@ -1,8 +1,8 @@
-import { Global, Module } from '@nestjs/common';
-
-import { TOKEN_BLACKLIST } from '../interfaces';
+import { Module, Global } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 
 import { TokenBlacklistService } from './token-blacklist.service';
+import { TOKEN_BLACKLIST } from '../interfaces';
 
 /**
  * Token Blacklist Module
@@ -32,6 +32,7 @@ import { TokenBlacklistService } from './token-blacklist.service';
  */
 @Global()
 @Module({
+  imports: [ConfigModule],
   providers: [
     TokenBlacklistService,
     {

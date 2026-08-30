@@ -28,8 +28,6 @@ export interface AssertSiteAssignmentArgs {
   siteId: string | null | undefined;
 }
 
-export type SiteAccessScope = { kind: 'TENANT' } | { kind: 'ASSIGNED'; siteIds: readonly string[] };
-
 /**
  * SEC-HIGH-051 — canonical object-level site authorization SSoT.
  *
@@ -56,33 +54,15 @@ export type SiteAccessScope = { kind: 'TENANT' } | { kind: 'ASSIGNED'; siteIds: 
  */
 @Injectable()
 export class SiteAuthorizationService {
-  /**
-   * Resolves the database scope for site collection reads.
-   *
-   * Managers and higher roles receive tenant-wide access. Every other caller
-   * receives an explicit assigned-site scope; an absent or empty assignment is
-   * represented by an empty list so query handlers can apply a fail-closed
-   * predicate instead of accidentally omitting the authorization filter.
-   */
-  resolveSiteScope(caller: SiteScopeCaller): SiteAccessScope {
+  assertSiteAssignment(args: AssertSiteAssignmentArgs): void {
+    const { caller, siteId } = args;
+
+    // (a) canonical hierarchy bypass — MODULE_MANAGER or higher owns cross-site
+    //     operations. Owner-independent, exactly like the self-scope SSoT.
     const isManagerOrHigher = caller.roles.some((role) =>
       roleHasPermission(role, Role.MODULE_MANAGER),
     );
     if (isManagerOrHigher) {
-      return { kind: 'TENANT' };
-    }
-
-    return {
-      kind: 'ASSIGNED',
-      siteIds: [...new Set(caller.assignedSiteIds ?? [])],
-    };
-  }
-
-  assertSiteAssignment(args: AssertSiteAssignmentArgs): void {
-    const { caller, siteId } = args;
-
-    const scope = this.resolveSiteScope(caller);
-    if (scope.kind === 'TENANT') {
       return;
     }
 
@@ -92,7 +72,7 @@ export class SiteAuthorizationService {
     }
 
     // (c) fail-closed: the resolved site must be in the caller's assigned set.
-    if (!scope.siteIds.includes(siteId)) {
+    if (!(caller.assignedSiteIds ?? []).includes(siteId)) {
       throw new ForbiddenException('Access denied');
     }
   }

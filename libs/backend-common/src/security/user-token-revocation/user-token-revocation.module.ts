@@ -7,8 +7,8 @@ import { USER_TOKEN_REVOCATION, UserTokenRevocationService } from './user-token-
  *
  * @Global so any writer (auth-service RBAC mutation paths) can inject
  * USER_TOKEN_REVOCATION once the module is imported. Depends on the @Global
- * RedisModule being present for cross-instance correctness. Redis is mandatory:
- * an authorization writer must never silently degrade to process-local state.
+ * RedisModule being present for cross-instance correctness; falls back to
+ * in-memory when Redis is absent (dev/test).
  */
 @Global()
 @Module({

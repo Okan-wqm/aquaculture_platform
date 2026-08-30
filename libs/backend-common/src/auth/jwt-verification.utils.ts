@@ -1,4 +1,5 @@
 import { readFileSync } from 'fs';
+
 import { Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { JwtVerifyOptions } from '@nestjs/jwt';
@@ -92,6 +93,86 @@ export function enforceAccessTokenType(
     logger.warn(
       `Token without jti for user ${payload.sub} — only permitted outside production.`,
     );
+  }
+}
+
+/**
+ * The two revocation namespaces an access token can be invalidated through. A
+ * JWT-verifying guard MUST consult BOTH, because the platform writes revocations
+ * to different stores depending on the trigger:
+ *   - `tokenBlacklist` (ITokenBlacklist, `token:blacklist:` namespace) covers a
+ *     single logged-out token (per-`jti`) AND the `blacklistUserTokens` bulk
+ *     marker written on password change / reset.
+ *   - `userTokenRevocation` (IUserTokenRevocation, `user_blacklist:{userId}`
+ *     epoch) covers `revokeUserTokens` — force-logout, account deletion, and
+ *     permission-reducing RBAC changes.
+ * A guard that consulted only one namespace would keep honouring a token the
+ * other namespace already revoked — exactly the APA-367 gap. Both are declared
+ * structurally so the concrete TokenBlacklistService / UserTokenRevocationService
+ * are assignable without a cast.
+ */
+export interface TokenRevocationStores {
+  tokenBlacklist: {
+    isValidToken(jti: string, userId: string, issuedAt: Date): Promise<boolean>;
+  };
+  userTokenRevocation: {
+    isTokenValid(userId: string, issuedAt: Date): Promise<boolean>;
+  };
+}
+
+/** Minimal payload shape the revocation check reads. */
+interface RevocablePayload {
+  sub: string;
+  jti?: string;
+  iat?: number;
+}
+
+/**
+ * Mandatory post-verify revocation check — the shared successor step to
+ * `enforceAccessTokenType`. Every JWT-verifying guard on a directly-reachable
+ * auth boundary (gateway AuthGuard, auth-service JwtAuthGuard, admin-api
+ * PlatformAdminGuard) MUST call this immediately after `enforceAccessTokenType`,
+ * so a force-logout / password change / account deletion actually invalidates a
+ * still-unexpired access token instead of silently honouring it until its TTL.
+ *
+ * Extracting it as a single primitive is the architectural fix for the drift
+ * class the finding names: the revocation lookup was copy-pasted per guard and
+ * one copy (admin-api) simply omitted it. Enforced by
+ * `tests/invariants/guard-revocation-check.spec.ts`.
+ *
+ * @throws UnauthorizedException({ code: 'TOKEN_REVOKED' }) when either namespace
+ *   has revoked the token.
+ */
+export async function enforceTokenNotRevoked(
+  payload: RevocablePayload,
+  stores: TokenRevocationStores,
+  logger: Logger,
+): Promise<void> {
+  // enforceAccessTokenType already requires `jti` in production; a dev token
+  // that legitimately lacks jti/iat has nothing to look up (revocation is keyed
+  // by jti and issued-at, so an unkeyed token cannot have been revoked).
+  if (!payload.jti || !payload.iat) {
+    return;
+  }
+  const issuedAt = new Date(payload.iat * 1000);
+
+  const reject = (): never => {
+    logger.warn(
+      `Rejected revoked access token for user ${payload.sub} (jti=${payload.jti?.slice(0, 8)}…)`,
+    );
+    throw new UnauthorizedException({
+      code: 'TOKEN_REVOKED',
+      message: 'Token has been revoked',
+    });
+  };
+
+  // Per-jti blacklist + `token:blacklist:` user-level bulk marker.
+  if (!(await stores.tokenBlacklist.isValidToken(payload.jti, payload.sub, issuedAt))) {
+    reject();
+  }
+  // `user_blacklist:{userId}` epoch (force-logout / deletion / RBAC reduction).
+  if (!(await stores.userTokenRevocation.isTokenValid(payload.sub, issuedAt))) {
+    reject();
   }
 }
 

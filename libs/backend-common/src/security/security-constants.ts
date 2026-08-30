@@ -11,12 +11,6 @@ export const JWT_SECURITY_CONSTANTS = {
 } as const;
 
 /**
- * Longest access-token lifetime supported by the distributed user-revocation
- * marker. Issuers and marker retention must share this bound.
- */
-export const MAX_USER_TOKEN_LIFETIME_SECONDS = 24 * 60 * 60;
-
-/**
  * SEC-L15: Centralized sensitive field definitions for consistent PII redaction.
  *
  * All audit logging, error handling, and data export must use this list

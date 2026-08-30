@@ -65,7 +65,14 @@ export class ThrottlerGuard implements CanActivate {
     this.defaultLimit = this.configService.get<number>('THROTTLE_DEFAULT_LIMIT', 100);
     this.defaultTtl = this.configService.get<number>('THROTTLE_DEFAULT_TTL', 60);
     this.anonymousLimit = this.configService.get<number>('THROTTLE_ANONYMOUS_LIMIT', 20);
-    this.isEnabled = this.configService.get<boolean>('THROTTLE_ENABLED', true);
+    // APA-368: THROTTLE_ENABLED is a local-convenience kill switch. In production
+    // it must NOT be honoured — flipping it false would nullify EVERY app-level
+    // limit, including the @Public pre-auth password-reset IP throttle (3/hr) that
+    // is the last app-layer defence on an unauthenticated endpoint. The switch is
+    // scoped to non-production only; production is always enabled.
+    const configuredEnabled = this.configService.get<boolean>('THROTTLE_ENABLED', true);
+    const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
+    this.isEnabled = isProduction ? true : configuredEnabled;
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -104,12 +111,7 @@ export class ThrottlerGuard implements CanActivate {
 
     if (!result.allowed) {
       this.logger.warn(
-        JSON.stringify({
-          event: 'rate_limit_exceeded',
-          keyScope: config.byIp ? 'ip' : request.user?.sub ? 'user' : 'tenant_or_ip',
-          limit: config.limit,
-          ttlSeconds: config.ttl,
-        }),
+        `Rate limit exceeded for ${key}: ${config.limit} requests in ${config.ttl}s`,
       );
 
       // SEC-HIGH-010 cure: publish RateLimitExceeded SecurityEvent so
@@ -132,10 +134,9 @@ export class ThrottlerGuard implements CanActivate {
         });
       } catch (err) {
         this.logger.warn(
-          JSON.stringify({
-            event: 'rate_limit_security_event_publish_failed',
-            errorType: err instanceof Error ? err.name : 'UnknownError',
-          }),
+          `RateLimitExceeded SecurityEvent publish failed (non-fatal): ${
+            err instanceof Error ? err.message : 'Unknown'
+          }`,
         );
       }
 

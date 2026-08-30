@@ -1,21 +1,21 @@
 import { Module, Global } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 
-import { IP_VALIDATOR } from './interfaces';
-import { IpValidatorService } from './ip-validation';
-import { SessionManagerModule } from './session-manager';
 import { ThrottlerModule } from './throttler';
+import { TokenBlacklistModule } from './token-blacklist';
+import { SessionManagerModule } from './session-manager';
 import { TimingSafeService } from './timing-safe';
-import { IdorGuard } from './validators/idor-guard';
+import { IpValidatorService } from './ip-validation';
 import { InputSanitizerService } from './validators/input-sanitizer.service';
+import { IdorGuard } from './validators/idor-guard';
+import { IP_VALIDATOR } from './interfaces';
 
 /**
  * Security Module
  *
  * Comprehensive security module providing:
  * - Rate limiting (Throttler)
- * Per-JTI token blacklisting is deliberately not aggregated here: auth-service
- * is the sole writer and imports TokenBlacklistModule explicitly.
+ * - Token blacklisting (Access token invalidation)
  * - Session management (Concurrent session limits)
  * - Timing attack protection
  * - IP validation and extraction
@@ -36,7 +36,12 @@ import { InputSanitizerService } from './validators/input-sanitizer.service';
  */
 @Global()
 @Module({
-  imports: [ConfigModule, ThrottlerModule, SessionManagerModule],
+  imports: [
+    ConfigModule,
+    ThrottlerModule,
+    TokenBlacklistModule,
+    SessionManagerModule,
+  ],
   providers: [
     TimingSafeService,
     IpValidatorService,
@@ -50,6 +55,7 @@ import { InputSanitizerService } from './validators/input-sanitizer.service';
   exports: [
     // Modules
     ThrottlerModule,
+    TokenBlacklistModule,
     SessionManagerModule,
     // Services
     TimingSafeService,

@@ -47,6 +47,43 @@ export interface ITokenBlacklist {
    * @param jti - JWT ID to check
    */
   isBlacklisted(jti: string): Promise<boolean>;
+
+  /**
+   * Remove expired entries (maintenance)
+   * @returns Number of entries cleaned up
+   */
+  cleanup(): Promise<number>;
+
+  /**
+   * Blacklist all tokens for a user (logout from all devices)
+   * @param userId - User ID to blacklist tokens for
+   * @param expiresAt - Expiration time for the blacklist entry
+   * @param reason - Optional reason for blacklisting
+   */
+  blacklistUserTokens(userId: string, expiresAt: Date, reason?: string): Promise<void>;
+
+  /**
+   * Check if all user tokens are blacklisted
+   * @param userId - User ID to check
+   * @param tokenIssuedAt - Token issue time to compare against blacklist
+   * @returns true if token was issued before user blacklist entry
+   */
+  isUserBlacklisted(userId: string, tokenIssuedAt: Date): Promise<boolean>;
+
+  /**
+   * Composite check: validates a token is not individually blacklisted
+   * AND the user's tokens have not been bulk-invalidated.
+   *
+   * Auth guards MUST call this single method instead of calling
+   * isBlacklisted() and isUserBlacklisted() separately, to ensure
+   * both checks are always performed atomically.
+   *
+   * @param jti - JWT ID
+   * @param userId - User ID from token
+   * @param issuedAt - Token issued-at date
+   * @returns true if the token is valid (not blacklisted), false if invalid
+   */
+  isValidToken(jti: string, userId: string, issuedAt: Date): Promise<boolean>;
 }
 
 /**
@@ -355,12 +392,19 @@ export interface SecurityEventFilters {
 export const RATE_LIMITER_STRATEGY = 'RATE_LIMITER_STRATEGY';
 
 /**
- * Auth-owned per-JTI revocation writer capability.
+ * Canonical platform-wide token-blacklist DI symbol.
  *
- * Gateway's intentionally separate TOKEN_BLACKLIST_STORE is read-only. Both
- * boundaries share the typed authorization Redis namespace and canonical key
- * builders; keeping the DI tokens distinct prevents a gateway consumer from
- * acquiring write authority.
+ * # SEC-LOW-001 cross-reference
+ *
+ * apps/gateway-api/src/guards/redis-token-blacklist.store.ts has a
+ * gateway-local `TOKEN_BLACKLIST_STORE` symbol that pre-dates this
+ * canonical declaration. The two surfaces differ structurally
+ * (gateway uses `exp: number`/Unix-seconds + composite
+ * isValidToken check; canonical uses `exp: Date` + simpler
+ * isBlacklisted). Consolidation is the SEC-LOW-001 follow-on,
+ * blocked on SEC-MEDIUM-006's broader auth-blacklist
+ * convergence. See the gateway-local declaration's class
+ * docstring for the full divergence trace.
  */
 export const TOKEN_BLACKLIST = 'TOKEN_BLACKLIST';
 export const SESSION_MANAGER = 'SESSION_MANAGER';

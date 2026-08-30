@@ -78,6 +78,10 @@ import type { PostgresConnectionOptions } from 'typeorm/driver/postgres/Postgres
 const SAFE_IDENT_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 const TENANT_SCHEMA_RE = /^tenant_[a-f0-9]{16}$/;
 
+export const MIGRATION_NAME_GUC = 'aqua.migration_name' as const;
+export const MIGRATION_DIRECTION_GUC = 'aqua.migration_direction' as const;
+export type MigrationDirection = 'up' | 'down';
+
 type MigrationTarget =
   Parameters<typeof assertExpandContractDependency>[0]['migrationClass'];
 
@@ -110,6 +114,27 @@ function advisoryLockKey(schema: string): string {
   // defer to the server to compute the key so DBAs can inspect
   // pg_locks and recognize the lock by schema name.
   return `hashtext('aqua-db-migrate:${schema.replace(/'/g, "''")}')`;
+}
+
+/**
+ * Bind exact migration intent to the caller-owned transaction. Database
+ * triggers may use this only together with an independent migration-role
+ * check; custom GUCs alone are not authority because any session can set one.
+ */
+export async function setMigrationExecutionContext(
+  queryRunner: QueryRunner,
+  migrationName: string,
+  direction: MigrationDirection,
+): Promise<void> {
+  if (!queryRunner.isTransactionActive) {
+    throw new Error(
+      `[db-migrate] Migration context for ${migrationName}/${direction} requires an active transaction.`,
+    );
+  }
+  await queryRunner.query(
+    `SELECT pg_catalog.set_config($1, $2, true), pg_catalog.set_config($3, $4, true)`,
+    [MIGRATION_NAME_GUC, migrationName, MIGRATION_DIRECTION_GUC, direction],
+  );
 }
 
 export interface RunSchemaOptions {
@@ -509,6 +534,9 @@ export async function runSchemaMigrations(opts: RunSchemaOptions): Promise<RunSc
         await queryRunner.startTransaction();
       }
       try {
+        if (useTransaction) {
+          await setMigrationExecutionContext(queryRunner, migration.name, 'up');
+        }
         await executor.executeMigration(migration);
         await runPostConditionProbe(migration, queryRunner, schema);
         if (useTransaction && queryRunner.isTransactionActive) {
@@ -608,10 +636,25 @@ export async function rollbackSchemaMigrations(
       await queryRunner.query(`SET search_path TO "${schema}", public`);
       const before = await executor.getExecutedMigrations();
       const migration = before[0];
-      await executor.undoLastMigration();
-      if (migration?.name) {
-        reverted.push(migration.name);
+      if (!migration?.name) {
+        throw new Error(
+          `[db-migrate] Could not identify migration ${i + 1} selected for rollback on "${schema}".`,
+        );
       }
+      await queryRunner.startTransaction();
+      try {
+        await setMigrationExecutionContext(queryRunner, migration.name, 'down');
+        await executor.undoLastMigration();
+        if (queryRunner.isTransactionActive) {
+          await queryRunner.commitTransaction();
+        }
+      } catch (err: unknown) {
+        if (queryRunner.isTransactionActive) {
+          await queryRunner.rollbackTransaction();
+        }
+        throw err;
+      }
+      reverted.push(migration.name);
       log({
         level: 'warn',
         message: 'Migration reverted',

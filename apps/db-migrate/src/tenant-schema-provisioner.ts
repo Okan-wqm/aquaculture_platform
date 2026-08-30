@@ -566,6 +566,36 @@ async function collectFailureResidue(
   };
 }
 
+async function deleteFarmSourceProvenanceForTenant(
+  queryRunner: QueryRunner,
+  job: TenantSchemaJob,
+): Promise<number> {
+  const tableRows = await queryRows<{ exists: boolean }>(
+    queryRunner,
+    `SELECT to_regclass('farm.feeding_record_provenance') IS NOT NULL AS exists`,
+  );
+  if (tableRows[0]?.exists !== true) {
+    return 0;
+  }
+
+  await queryRunner.query(
+    `SELECT pg_catalog.set_config('aqua.tenant_schema_delete_operation', $1, true),
+            pg_catalog.set_config('aqua.tenant_schema_delete_tenant', $2, true)`,
+    [job.operationId, job.tenantId],
+  );
+  const rows = await queryRows<{ deletedCount: string }>(
+    queryRunner,
+    `WITH deleted AS (
+       DELETE FROM farm.feeding_record_provenance
+        WHERE tenant_id = $1
+        RETURNING 1
+     )
+     SELECT COUNT(*)::text AS "deletedCount" FROM deleted`,
+    [job.tenantId],
+  );
+  return Number.parseInt(rows[0]?.deletedCount ?? '0', 10);
+}
+
 async function processDeleteJob(
   job: TenantSchemaJob,
   options: TenantSchemaProvisionerOptions,
@@ -575,6 +605,7 @@ async function processDeleteJob(
   const queryRunner = control.createQueryRunner();
   const lease = { leaseSeconds: options.leaseSeconds ?? DEFAULT_LEASE_SECONDS };
   let beforeTableCount = 0;
+  let sourceProvenanceRowsDeleted = 0;
 
   try {
     await queryRunner.connect();
@@ -583,6 +614,7 @@ async function processDeleteJob(
     await setJobStatus(queryRunner, job, 'DELETING_SCHEMA', lease);
     await queryRunner.startTransaction();
     beforeTableCount = await countTenantTables(queryRunner, job.schemaName);
+    sourceProvenanceRowsDeleted = await deleteFarmSourceProvenanceForTenant(queryRunner, job);
     await renewJobLease(queryRunner, job, lease);
     await queryRunner.query(`DROP SCHEMA IF EXISTS ${quoteIdent(job.schemaName)} CASCADE`);
     await renewJobLease(queryRunner, job, lease);
@@ -603,6 +635,7 @@ async function processDeleteJob(
           operationId: job.operationId,
           schemaName: job.schemaName,
           beforeTableCount,
+          sourceProvenanceRowsDeleted,
           deletedAt: new Date().toISOString(),
         }),
         job.schemaName,
@@ -618,6 +651,7 @@ async function processDeleteJob(
         schemaName: job.schemaName,
         dropped: true,
         beforeTableCount,
+        sourceProvenanceRowsDeleted,
         capturedAt: new Date().toISOString(),
       },
     });
@@ -631,6 +665,7 @@ async function processDeleteJob(
       tenantId: job.tenantId,
       schemaName: job.schemaName,
       beforeTableCount,
+      sourceProvenanceRowsDeleted,
     });
   } catch (error: unknown) {
     if (queryRunner.isTransactionActive) {

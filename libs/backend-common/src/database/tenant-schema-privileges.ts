@@ -20,6 +20,8 @@
  *   - owner  → `<sourceSchema>_schema_owner` (the stage-008 ownership model;
  *     also what the messaging partition-definer requires on its parents),
  *   - DML    → GRANT SELECT, INSERT, UPDATE, DELETE TO `<sourceSchema>_service`,
+ *              except registry-declared read-only ledgers, which receive
+ *              SELECT and an explicit INSERT/UPDATE/DELETE revoke,
  *   - owned sequences → owner + USAGE/SELECT/UPDATE for the service role,
  * plus schema USAGE for the service role. Because the set is registry-derived
  * and the statements are idempotent, re-running a deploy self-heals any
@@ -113,6 +115,31 @@ export function tenantTablesForSourceSchema(sourceSchema: string): string[] {
   return tables;
 }
 
+/** Registry-declared tables that the runtime service may only read. */
+export function serviceReadOnlyTenantTablesForSourceSchema(
+  sourceSchema: string,
+): string[] {
+  const entry = MODULE_SCHEMAS.find((m) => m.sourceSchema === sourceSchema);
+  if (!entry) {
+    throw new Error(
+      `[tenant-schema-privileges] Source schema "${sourceSchema}" is not in MODULE_SCHEMAS — ` +
+        `register it before fanning tenant migrations out for it.`,
+    );
+  }
+  const registered = new Set(tenantTablesForSourceSchema(sourceSchema));
+  const readOnly = [...(entry.serviceReadOnlyTables ?? [])];
+  for (const table of readOnly) {
+    assertSafeIdentifier(table, 'read-only table name');
+    if (!registered.has(table)) {
+      throw new Error(
+        `[tenant-schema-privileges] Read-only table "${table}" is not registered ` +
+          `as a per-tenant table for source schema "${sourceSchema}".`,
+      );
+    }
+  }
+  return readOnly;
+}
+
 interface ExistingTableRow {
   tablename: string;
 }
@@ -167,6 +194,9 @@ export async function assertTenantSchemaPrivileges(
   assertSafeIdentifier(serviceRole, 'service role');
 
   const registered = tenantTablesForSourceSchema(options.sourceSchema);
+  const readOnly = new Set(
+    serviceReadOnlyTenantTablesForSourceSchema(options.sourceSchema),
+  );
   const existing = await existingTenantTables(executor, options.tenantSchema);
 
   await executor.query(`GRANT USAGE ON SCHEMA "${options.tenantSchema}" TO "${serviceRole}"`);
@@ -183,10 +213,20 @@ export async function assertTenantSchemaPrivileges(
     await executor.query(
       `ALTER TABLE "${options.tenantSchema}"."${table}" OWNER TO "${ownerRole}"`,
     );
-    await executor.query(
-      `GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "${options.tenantSchema}"."${table}" ` +
-        `TO "${serviceRole}"`,
-    );
+    if (readOnly.has(table)) {
+      await executor.query(
+        `REVOKE INSERT, UPDATE, DELETE ON TABLE "${options.tenantSchema}"."${table}" ` +
+          `FROM "${serviceRole}"`,
+      );
+      await executor.query(
+        `GRANT SELECT ON TABLE "${options.tenantSchema}"."${table}" TO "${serviceRole}"`,
+      );
+    } else {
+      await executor.query(
+        `GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "${options.tenantSchema}"."${table}" ` +
+          `TO "${serviceRole}"`,
+      );
+    }
     for (const seq of await ownedSequences(executor, options.tenantSchema, table)) {
       assertSafeIdentifier(seq, 'sequence name');
       await executor.query(
@@ -245,6 +285,7 @@ export async function verifyTenantSchemaPrivileges(
     const ownerRole = ownerRoleForTenantAwareSchema(sourceSchema);
     const serviceRole = `${sourceSchema}_service`;
     const registered = tenantTablesForSourceSchema(sourceSchema);
+    const readOnly = new Set(serviceReadOnlyTenantTablesForSourceSchema(sourceSchema));
     const present = registered.filter((t) => existing.has(t));
     // The per-source tenant migration ledger is service-read-only by design.
     claimed.add(tenantMigrationLedgerTable(sourceSchema));
@@ -276,14 +317,20 @@ export async function verifyTenantSchemaPrivileges(
           detail: `owner is "${row.tableowner}", expected "${ownerRole}"`,
         });
       }
-      if (!row.has_select || !row.has_insert || !row.has_update || !row.has_delete) {
+      const expectsWrites = !readOnly.has(row.tablename);
+      if (
+        !row.has_select ||
+        row.has_insert !== expectsWrites ||
+        row.has_update !== expectsWrites ||
+        row.has_delete !== expectsWrites
+      ) {
         violations.push({
           table: row.tablename,
           sourceSchema,
           kind: 'privilege',
           detail:
-            `"${serviceRole}" is missing DML (S:${row.has_select} I:${row.has_insert} ` +
-            `U:${row.has_update} D:${row.has_delete})`,
+            `"${serviceRole}" expected ${expectsWrites ? 'full DML' : 'SELECT-only'} ` +
+            `(S:${row.has_select} I:${row.has_insert} U:${row.has_update} D:${row.has_delete})`,
         });
       }
     }

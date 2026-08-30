@@ -11,6 +11,7 @@
 import {
   assertTenantSchemaPrivileges,
   ownerRoleForTenantAwareSchema,
+  serviceReadOnlyTenantTablesForSourceSchema,
   tenantTablesForSourceSchema,
   verifyTenantSchemaPrivileges,
   TenantSchemaPrivilegeExecutor,
@@ -46,6 +47,9 @@ describe('tenantTablesForSourceSchema', () => {
     expect(farm.length).toBeGreaterThan(10);
     // infrastructure tables stay source-only
     expect(farm).not.toContain('outbox_events');
+    expect(serviceReadOnlyTenantTablesForSourceSchema('farm')).toEqual([
+      'feeding_record_provenance',
+    ]);
   });
 
   it('refuses a source schema that is not registered', () => {
@@ -97,6 +101,31 @@ describe('assertTenantSchemaPrivileges', () => {
     await expect(
       assertTenantSchemaPrivileges(executor, { tenantSchema: 'farm', sourceSchema: 'farm' }),
     ).rejects.toThrow(/Refusing non-tenant schema/);
+  });
+
+  it('reconciles protected ledgers to SELECT-only instead of restoring write grants', async () => {
+    const { executor, queries } = executorWith((sql) => {
+      if (sql.includes('FROM pg_tables')) {
+        return [{ tablename: 'feeding_record_provenance' }];
+      }
+      return [];
+    });
+
+    await assertTenantSchemaPrivileges(executor, {
+      tenantSchema: TENANT,
+      sourceSchema: 'farm',
+    });
+
+    const sql = queries.map((query) => query.sql);
+    expect(sql).toContain(
+      `REVOKE INSERT, UPDATE, DELETE ON TABLE "${TENANT}"."feeding_record_provenance" FROM "farm_service"`,
+    );
+    expect(sql).toContain(
+      `GRANT SELECT ON TABLE "${TENANT}"."feeding_record_provenance" TO "farm_service"`,
+    );
+    expect(sql).not.toContain(
+      `GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "${TENANT}"."feeding_record_provenance" TO "farm_service"`,
+    );
   });
 });
 
@@ -152,6 +181,35 @@ describe('verifyTenantSchemaPrivileges', () => {
     // children are accessed through the parent ACL and must not be flagged.
     const v = await verifyTenantSchemaPrivileges(executor, TENANT, ['farm', 'messaging']);
     expect(v.unknownTables).toEqual(['deploy_artifacts']);
+  });
+
+  it('requires SELECT-only and reports a restored write grant on a protected ledger', async () => {
+    const { executor } = executorWith((sql) => {
+      if (sql.includes('has_table_privilege')) {
+        return [
+          {
+            tablename: 'feeding_record_provenance',
+            tableowner: 'farm_schema_owner',
+            has_select: true,
+            has_insert: true,
+            has_update: false,
+            has_delete: false,
+          },
+        ];
+      }
+      if (sql.includes('FROM pg_tables')) {
+        return [{ tablename: 'feeding_record_provenance' }];
+      }
+      return [];
+    });
+
+    const verification = await verifyTenantSchemaPrivileges(executor, TENANT, ['farm']);
+    expect(verification.violations).toHaveLength(1);
+    expect(verification.violations[0]).toMatchObject({
+      table: 'feeding_record_provenance',
+      kind: 'privilege',
+    });
+    expect(verification.violations[0]?.detail).toContain('SELECT-only');
   });
 });
 
